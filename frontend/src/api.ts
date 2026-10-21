@@ -1098,8 +1098,10 @@ export interface AiAccess {
   /** the folder this app saves projects to */
   projectsFolder: string;
   examples: boolean;
-  /** projects whose Script blocks AI tools may run; `current` false: the
-   *  scripts changed since, so the trust no longer holds */
+  /** the trust list (`lightsim ai trust`): read only by Python code that
+   *  uses `lightsim.ai_access.AgentSession`, not by the connection for AI
+   *  apps; `current` false: the scripts changed since, so the trust no
+   *  longer holds */
   trusted: { path: string; exists: boolean; name?: string | null; current: boolean }[];
   maxRunSeconds: number;
   settingsPath: string;

@@ -229,7 +229,14 @@ app. Give `paced=True` to keep its pace.
 
 ## Scripts and AI tools
 
-Scripts you write yourself can do anything your own account can. AI tools
-(such as the LightSim MCP server for AI assistants) go through
-`lightsim.ai_access.AgentSession` instead, which keeps to the rules you set
-with `lightsim ai`: see [AI access](command-line.md#ai-access).
+Scripts you write yourself can do anything your own account can: the
+`lightsim` package does not read the AI access settings. Python code that
+you want kept to the rules you set with `lightsim ai` goes through
+`lightsim.ai_access.AgentSession` instead. It reads the settings when you
+create it, so a change takes effect in the next session. The LightSim MCP
+server for AI assistants reads the same settings (all but the trust list)
+before every tool call, and does not use `AgentSession`: it asks you in the
+AI app before it saves an edit or runs a project with Script blocks, and
+an AI app that sends your answer again repeats a run, or saves another
+copy of an edited example or new project, without asking you. See
+[AI access](command-line.md#ai-access).

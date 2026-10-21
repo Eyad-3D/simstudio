@@ -420,6 +420,204 @@ def test_script_projects_run_only_after_a_yes(folder):
                                       "case": "case-udds"})["resultType"] == "input_required"
 
 
+# -- what the connection asks you, and what it does not read -----------------
+# The AI access page and the help say this (AI-01); tests/test_ai_claims.py
+# holds their words against the same facts.
+
+
+def _yes(ask: dict) -> dict:
+    """What an AI app sends back once the user said yes: the question's own
+    state and an accepted form. LightSim checks the state, not who sent it."""
+    return {"requestState": ask["requestState"],
+            "inputResponses": {"confirm": {"action": "accept", "content": {"confirm": True}}}}
+
+
+def _hybrid_copy(where: Path, name: str, *, changed_code: bool = False) -> Path:
+    """The hybrid example with a 5 s case, so a run takes a moment, saved as
+    ``where/name``. With ``changed_code`` its script is code nobody approved."""
+    project = json.loads((BACKEND / "projects" / "hybrid-car.json").read_text(encoding="utf-8"))
+    project["id"] = Path(name).stem
+    project["cases"] = [{**project["cases"][0], "duration": 5, "realtimeFactor": 0}]
+    if changed_code:
+        script = next(e for s in project["systems"] for e in s["elements"]
+                      if e["componentDefId"] == "signal.script")
+        script["parameterOverrides"]["code"] += "\n# changed by someone else\n"
+    where.mkdir(parents=True, exist_ok=True)
+    path = where / name
+    path.write_text(json.dumps(project), encoding="utf-8")
+    return path
+
+
+class _NobodyLooks(dict):
+    """A trust list that fails the test when anything looks at it."""
+
+    def _look(self, *args, **kwargs):
+        raise AssertionError("the MCP server looked at the trust list")
+
+    __getitem__ = __contains__ = __iter__ = __len__ = get = items = keys = values = _look
+
+
+def test_reading_asks_the_user_nothing(folder):
+    server = make_server(folder)
+    for name, args in (("lightsim_list_projects", {}),
+                       ("lightsim_overview", {"project": "example:bev-car"}),
+                       ("run_checks", {"project": "example:bev-car"}),
+                       ("element_read", {"project": "example:bev-car", "element": "Vehicle"})):
+        answer = tool(server, name, args)
+        assert "resultType" not in answer or answer["resultType"] == "complete", name
+        assert answer["isError"] is False, (name, answer)
+
+
+def test_every_script_run_asks_and_the_trust_list_is_not_read(folder, monkeypatch):
+    import lightsim as ls
+    from lightsim import ai_access
+
+    on_list = _hybrid_copy(folder, "on-the-list.json")
+    off_list = _hybrid_copy(folder, "not-on-the-list.json")
+    policy = ai_access.Policy.load()
+    policy.trusted[str(on_list.resolve())] = ai_access.script_fingerprint(ls.load(on_list))
+    policy.save()
+    assert ai_access.Policy.load().trusted_scripts(ls.load(on_list))  # it is on the list
+    assert not ai_access.Policy.load().trusted_scripts(ls.load(off_list))  # the other is not
+
+    # from here on, anything in the server that looks at the list fails the test
+    real_load = ai_access.Policy.load.__func__
+
+    def load(cls, path=None):
+        loaded = real_load(cls, path)
+        loaded.trusted = _NobodyLooks()
+        return loaded
+
+    def boom(*args, **kwargs):
+        raise AssertionError("the MCP server used the trust list")
+
+    monkeypatch.setattr(ai_access.Policy, "load", classmethod(load))
+    monkeypatch.setattr(ai_access.Policy, "trusted_scripts", boom)
+    monkeypatch.setattr(ai_access.Policy, "require_run", boom)
+
+    server = make_server(folder, platform="linux")
+    for project in (on_list, off_list):  # on the list or not, the run is the same
+        args = {"project": str(project), "case": "case-udds"}
+        ask = tool(server, "run_case", args)
+        assert ask["resultType"] == "input_required", project.name
+        ran = tool(server, "run_case", args, **_yes(ask))
+        assert ran["isError"] is False and ran["structuredContent"]["status"] == "success", ran
+        again = tool(server, "run_case", args)  # a new call without a yes asks again
+        assert again["resultType"] == "input_required", project.name
+    example = tool(server, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
+    assert example["resultType"] == "input_required", "the examples' scripts ask too"
+
+
+def test_a_yes_sent_again_repeats_a_run_or_saves_another_copy_without_a_new_question(folder):
+    # On the 2026-07-28 protocol the answer's state is the server's seal of
+    # exactly that action, not a one-time token (the page, the help, the
+    # skill pack and Known issues say so). The seal of a run, of an edit of
+    # an example and of a new project stays good; the seal of an edit of a
+    # saved project holds its revision, which the save changed.
+    path = _hybrid_copy(folder, "again.json")
+    server = make_server(folder, platform="linux")
+    args = {"project": str(path), "case": "case-udds"}
+    ask = tool(server, "run_case", args)
+    question = ask["inputRequests"]["confirm"]["params"]
+    shown = question["message"] + question["requestedSchema"]["properties"]["confirm"]["description"]
+    assert "once" not in shown, "the question must not promise a yes counts once"
+    first = tool(server, "run_case", args, **_yes(ask))
+    again = tool(server, "run_case", args, **_yes(ask))
+    assert first["structuredContent"]["status"] == again["structuredContent"]["status"] == "success"
+    assert first["structuredContent"]["run"] != again["structuredContent"]["run"]
+    other = _hybrid_copy(folder, "other.json")
+    swapped = tool(server, "run_case", {"project": str(other), "case": "case-udds"}, **_yes(ask))
+    assert swapped["resultType"] == "input_required", "a yes to one run does not cover another"
+
+    edit = {"project": "example:bev-car", "dry_run": False,
+            "operations": [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 2100}]}
+    ask = tool(server, "model_edit", edit)
+    one = tool(server, "model_edit", edit, **_yes(ask))["structuredContent"]
+    two = tool(server, "model_edit", edit, **_yes(ask))["structuredContent"]
+    assert one["applied"] and two["applied"] and one["project"] != two["project"]
+
+    new = {"project": "new:Probe car", "dry_run": False,
+           "operations": [{"op": "add", "type": "vehicle.body", "label": "Body"}]}
+    ask = tool(server, "model_edit", new)
+    made = [tool(server, "model_edit", new, **_yes(ask))["structuredContent"] for _ in range(2)]
+    assert made[0]["applied"] and made[1]["applied"]
+    assert made[0]["project"] != made[1]["project"], "the same yes saved a second new project"
+
+    saved = {"project": one["project"], "dry_run": False,
+             "operations": [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1800}]}
+    ask = tool(server, "model_edit", saved)
+    assert tool(server, "model_edit", saved, **_yes(ask))["structuredContent"]["applied"]
+    assert tool(server, "model_edit", saved, **_yes(ask))["resultType"] == "input_required"
+
+
+def test_whether_an_app_can_ask_is_checked_only_on_the_older_handshake(folder):
+    # What the page and the help say about an AI app that cannot ask you.
+    # Older handshake without elicitation: what needs a yes is refused (the
+    # tests below), but a project without Script blocks needs none and runs.
+    old = make_server(folder)
+    old.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "x", "version": "1"}}})
+    reply = old.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+        "name": "run_case", "arguments": {"project": "example:bev-car", "case": "case-city"}}})
+    assert reply["result"]["isError"] is False
+    assert reply["result"]["structuredContent"]["status"] == "success"
+
+    # 2026-07-28: an app that says it cannot ask (no elicitation) still gets
+    # the question, and the answer it sends back itself saves the edit
+    server = make_server(folder)
+    mute = {"_meta": {"io.modelcontextprotocol/clientCapabilities": {}}}
+    edit = {"project": "example:bev-car", "dry_run": False,
+            "operations": [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1777}]}
+    ask = tool(server, "model_edit", edit, **mute)
+    assert ask["resultType"] == "input_required"
+    saved = tool(server, "model_edit", edit, **mute, **_yes(ask))
+    assert saved["isError"] is False and saved["structuredContent"]["applied"] is True
+
+
+def test_an_app_that_cannot_ask_gets_a_refusal_for_a_script_run(folder):
+    server = make_server(folder)
+    server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "x", "version": "1"}}})
+    reply = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+        "name": "run_case", "arguments": {"project": "example:hybrid-car", "case": "case-udds"}}})
+    assert reply["result"]["isError"] and "cannot ask" in reply["result"]["content"][0]["text"]
+
+
+def test_script_code_nobody_approved_fails_the_run_even_after_a_yes(folder, tmp_path, monkeypatch):
+    from app import script_trust
+
+    own = tmp_path / "userdata"  # this user's own LightSim folder, where approvals are kept
+    own.mkdir()
+    (own / ".script-trust-migrated").write_text("done", encoding="utf-8")
+    monkeypatch.setenv("LIGHTSIM_DATA_DIR", str(own))
+    monkeypatch.delenv("LIGHTSIM_SCRIPT_TRUST", raising=False)  # the check as an install has it
+    script_trust._reset_for_tests()
+    try:
+        shared = tmp_path / "shared"
+        path = _hybrid_copy(shared, "from-someone.json", changed_code=True)
+        allow_ai(folder, shared)
+        server = make_server(folder, platform="linux")
+        args = {"project": str(path), "case": "case-udds"}
+
+        ask = tool(server, "run_case", args)
+        message = ask["inputRequests"]["confirm"]["params"]["message"]
+        assert "P2 Hybrid Car" in message and "EPA city (UDDS)" in message
+        assert "changed by someone else" not in message, "the question does not show the code"
+
+        refused = tool(server, "run_case", args, **_yes(ask))
+        result = refused["structuredContent"]
+        assert result["status"] == "failed"
+        assert "has not been approved to run" in json.dumps(result["messages"])
+
+        code = next(s["code"] for s in script_trust.project_scripts(json.loads(path.read_text("utf-8"))))
+        script_trust.approve([code])  # the user chose Run scripts in the app
+        again = tool(server, "run_case", args)
+        ran = tool(server, "run_case", args, **_yes(again))
+        assert ran["structuredContent"]["status"] == "success", ran
+    finally:
+        script_trust._reset_for_tests()
+
+
 def test_older_apps_without_elicitation_are_refused_confirmations(folder):
     server = make_server(folder)
     server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
@@ -459,7 +657,7 @@ def test_a_task_can_be_cancelled(folder):
     assert result["structuredContent"]["status"] == "cancelled"
 
 
-def test_every_call_goes_into_the_local_audit_log(folder):
+def test_each_tool_call_goes_into_the_local_audit_log(folder):
     server = make_server(folder)
     tool(server, "lightsim_list_projects", {})
     tool(server, "run_checks", {"project": "example:bev-car"})
@@ -468,6 +666,46 @@ def test_every_call_goes_into_the_local_audit_log(folder):
     assert entry["client"] == "pytest" and entry["ok"] is True
     lines = (folder / ".ai" / "audit.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 2
+
+
+def test_what_the_audit_log_leaves_out(folder):
+    # What the help says about .ai/audit.jsonl (AI-01): a call that reaches a
+    # tool is a line, done or not (a question asked, a refusal); a call that
+    # brings back the user's no, a run sent as a task that is asked about or
+    # refused before it starts, and a call LightSim cannot read (a tool it
+    # does not have, arguments that are not an object) are not lines.
+    path = _hybrid_copy(folder, "logged.json")
+    server = make_server(folder, platform="linux")
+    args = {"project": str(path), "case": "case-udds"}
+    log = folder / ".ai" / "audit.jsonl"
+
+    def lines() -> int:
+        return len(log.read_text(encoding="utf-8").splitlines()) if log.exists() else 0
+
+    ask = tool(server, "run_case", args)
+    assert ask["resultType"] == "input_required"
+    assert lines() == 1 and last_audit_entry(folder)["ok"] is False, "a question is a line, not done"
+    no = tool(server, "run_case", args, requestState=ask["requestState"],
+              inputResponses={"confirm": {"action": "decline"}})
+    assert no["isError"] and "did not confirm" in no["content"][0]["text"]
+    assert lines() == 1, "the user's no is not a line"
+
+    as_task = {"_meta": {"io.modelcontextprotocol/tasks": {"ttl": 60000}}}
+    asked = tool(server, "run_case", args, **as_task)
+    assert asked["resultType"] == "input_required" and lines() == 1, "a task run asked about first"
+    hidden = tool(server, "run_case", {"project": "../../etc/passwd", "case": "x"}, **as_task)
+    assert hidden["isError"] and lines() == 1, "a task run refused before it starts"
+    reply = server.handle({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {
+        "name": "no_such_tool", "arguments": {}, "_meta": META}})
+    assert "error" in reply and lines() == 1, "a tool LightSim does not have"
+    reply = server.handle({"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {
+        "name": "run_case", "arguments": [str(path)], "_meta": META}})
+    assert "error" in reply and lines() == 1, "arguments that are not an object: a call it cannot read"
+
+    win = make_server(folder, platform="win32")
+    refused = tool(win, "run_case", args)
+    assert refused["isError"] and "--trust-scripts" in refused["content"][0]["text"]
+    assert lines() == 2 and last_audit_entry(folder)["ok"] is False, "a refusal is a line"
 
 
 def test_project_text_is_quoted_as_data(folder):
@@ -555,18 +793,34 @@ def test_the_server_opens_no_network_port(folder, monkeypatch):
     assert opened == []
 
 
-def test_nothing_is_answered_while_ai_access_is_off(tmp_path, monkeypatch):
+def test_every_tool_call_is_refused_while_ai_access_is_off(tmp_path, monkeypatch):
     # AI-01: off until the user turns it on; 'lightsim ai off' stops a
-    # connected assistant at once
+    # connected assistant at once. What the page, the help and the IT page
+    # say about "off": every tool call is refused, but an AI app can still
+    # read the skill pack and the part library that come with LightSim
+    # (they hold nothing of the user's).
     monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path / "projects"))
     server = make_server(tmp_path / "projects")
+
+    def still_served() -> None:
+        assert len(call(server, "tools/list")["tools"]) == len(TOOLS)
+        skill = call(server, "resources/read", {"uri": "lightsim://skills/lightsim-write-a-script-block/SKILL.md"})
+        assert "Script" in skill["contents"][0]["text"]
+        assert "motor" in call(server, "resources/read", {"uri": "lightsim://components"})["contents"][0]["text"]
+
     for name, args in (("lightsim_list_projects", {}), ("lightsim_overview", {"project": "example:bev-car"})):
         answer = tool(server, name, args)
         assert answer["isError"] and "AI access to LightSim is off" in answer["content"][0]["text"]
+    still_served()
     allow_ai(tmp_path / "projects")
     assert not tool(server, "lightsim_list_projects", {})["isError"]
     allow_ai(tmp_path / "projects", examples=False)  # the user hid the examples
     assert tool(server, "lightsim_overview", {"project": "example:bev-car"})["isError"]
+
+    monkeypatch.setenv("LIGHTSIM_POLICY", json.dumps({"ai": "off"}))  # the organisation's policy
+    answer = tool(server, "lightsim_list_projects", {})
+    assert answer["isError"] and "organisation's policy" in answer["content"][0]["text"]
+    still_served()
 
 
 def test_connecting_an_ai_app_turns_access_on_for_the_projects_folder(tmp_path, monkeypatch):

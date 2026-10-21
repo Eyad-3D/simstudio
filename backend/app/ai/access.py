@@ -5,15 +5,27 @@ it did (AI-01's intent, built for AI-03).
 - Saving an edit, and running a project that contains Script blocks (code
   the user or someone else wrote), each need the user's confirmation in the
   AI app: the MCP server asks through the app (an ``input_required`` result
-  on the 2026-07-28 protocol, an elicitation request on older ones) and
-  refuses when the app cannot ask. LightSim enforces this itself; the tool
+  on the 2026-07-28 protocol, an elicitation request on older ones). On the
+  older protocols an app that cannot ask is refused; on 2026-07-28 the
+  server does not check whether the app can ask. LightSim checks the
+  answer's seal itself, which ties it to exactly one action (see
+  :meth:`Policy.seal`), but cannot tell who answered, and a seal is not
+  single-use: an app that sends it again repeats a run, or saves another
+  copy of an edited example or new project (docs/KNOWN-LIMITS.md). The tool
   annotations it publishes are only hints to the AI app.
 - On Windows the Script sandbox is much weaker, so an assistant never runs a
   project with Script blocks there unless the user started the connection
-  with ``--trust-scripts``. (AI-01 replaces this with a per-project
-  "trusted" mark set in LightSim.)
-- Every tool call goes into a local audit log, JSON lines in
-  ``.ai/audit.jsonl`` next to the user's projects. It is never uploaded.
+  with ``--trust-scripts`` (one switch for the whole connection), and then
+  a run still asks. The per-project trust list that ``lightsim ai trust``
+  keeps (``lightsim/ai_access.py``) is **not** read here: only
+  ``AgentSession`` reads it. The engine's own approval of Script code
+  (``app/script_trust.py``) applies to every run, as in the app.
+- Each tool call that reaches :class:`~app.ai.tools.Tools` goes into a local
+  audit log, JSON lines in ``.ai/audit.jsonl`` next to the user's projects,
+  done or not. A call that brings back the user's no, a run sent as a task
+  that is asked about or refused before it starts, and a call the server
+  cannot read (an unknown tool, arguments that are not an object) stop in
+  the MCP server first and are not logged. It is never uploaded.
 """
 from __future__ import annotations
 

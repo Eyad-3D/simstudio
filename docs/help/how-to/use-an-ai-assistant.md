@@ -61,49 +61,86 @@ refuse every change.
 - It sees your saved projects and the examples, and the folders you
   allowed. A project file that contains `"noAi": true` stays hidden, and
   so does a link in an allowed folder to a file outside them.
-- It can read, check and run models. It can propose changes as a dry run;
-  saving one needs your **Allow this** in the AI app. An example is never
+- It can read, check and compare models, and run a project without Script
+  blocks, with no question to you. It can propose changes as a dry run; to
+  save one, LightSim asks you first, and you answer **Allow this** in the
+  AI app. An example is never
   changed: the edit is saved as a new project. LightSim keeps the previous
   version of a project as a backup, as for every save. For a file in a
   folder you allowed, the backups are kept beside it, in a folder named
   after it (`car.json-backups`, which git ignores).
-- A project with Script blocks (Python code) runs only after you allow
-  it. On Windows, where LightSim's script sandbox is weak, it does not run
-  at all unless you added `--trust-scripts` to the connection.
+- A project with Script blocks (Python code) makes LightSim ask you before
+  it runs, in the AI app. The question names the project and the case; it
+  does not show the code, so read the code in LightSim before you say yes.
+  On Windows, where LightSim's script sandbox is weak, such a project does
+  not run at all unless you added `--trust-scripts` to the connection, and
+  then you are asked as well.
+- LightSim's check of script code applies to an assistant's run as to yours.
+  Code that is not code you approved in LightSim makes the run fail and
+  say so. Approved code is the code of the examples, code you typed into a
+  Script block, and code you approved with **Run scripts**
+  ([how](open-a-project-with-scripts.md)). A script an assistant writes or
+  changes is new code: open the project in LightSim and choose
+  **Run scripts** before the assistant runs it.
+- The question is LightSim's, but your AI app shows it and sends your
+  answer back. LightSim cannot tell whether you or the assistant answered,
+  and an app that sends your answer again repeats a run, or saves another
+  copy of an edited example or new project, without asking you. An AI app
+  on MCP's older handshake that cannot ask you is refused anything that
+  needs your yes. On MCP's 28 July 2026 revision LightSim does not check
+  whether the app can ask, so an app that answers for you can save edits
+  and run Script projects. Connect only an AI app that shows you each
+  question.
 - A run started by an assistant stops after 5 minutes, or sooner if you
   set a shorter cap under **AI access**. Its runs are kept apart from yours
   (the newest 20 per project).
-- Every request is written to a log on this computer,
-  `.ai/audit.jsonl` in your projects folder. It is never uploaded.
+- LightSim writes each tool call an assistant makes, done or not, to a log
+  on this computer, `.ai/audit.jsonl` in your projects folder. It leaves
+  out a call that brings back your no, a long run (an MCP task) that
+  LightSim asks about or refuses before it starts, and a call LightSim
+  cannot read, such as one of a tool it does not have. The log is never
+  uploaded.
 - On a computer your organisation manages, its policy file can turn AI
   access off (`"ai": "off"`, see [Install LightSim for a lab or
   a company](deploy-for-it.md)). The window then says so and cannot add
-  LightSim to an AI app, and an assistant already connected gets nothing.
+  LightSim to an AI app, and an assistant already connected can use none of
+  LightSim's tools.
 
 ### Set what AI tools may see and do
 
-The **AI access** tab of the *Connect AI* window shows the rules every AI
-tool that uses LightSim works under, whether it is an AI app you connected
-or the `lightsim` Python package. They are the same settings as the
-`lightsim ai …` commands ([Command-line tool](../reference/command-line.md#ai-access)), kept in
+The **AI access** tab of the *Connect AI* window shows the settings AI
+tools work under. An AI app you connected reads them before every tool
+call, and Python code that goes through `lightsim.ai_access.AgentSession`
+reads them when it starts a session. Other Python code (`import lightsim`,
+`lightsim run`) does not read them. They are the same settings as the
+`lightsim ai …` commands
+([Command-line tool](../reference/command-line.md#ai-access)), kept in
 `ai-access.json` in LightSim's settings folder:
 
 - **Let AI tools use LightSim**: AI access is off until you tick this or
-  add LightSim to an AI app. Off, every request from an AI tool is
-  refused.
+  add LightSim to an AI app. Off, every tool call from an AI tool is
+  refused; a connected AI app can still read the skill pack and the part
+  library that come with LightSim.
 - **Folders AI tools may see**: an AI tool can list and open the projects
   in these folders. Adding LightSim to an AI app allows your projects
   folder. **Add folder…** opens the system's folder dialog (in the desktop
   app); **Remove** takes a folder off the list.
 - **AI tools may open the examples that come with LightSim.**
-- **Projects whose Script blocks AI tools may run**: a project you trusted
-  with `lightsim ai trust <file>`. **Untrust** takes the trust away; a
-  project whose scripts changed since is marked, as its trust no longer
-  holds. Trust can only be given on the command line.
+- **Trusted projects (Python package only)**: a project you trusted with
+  `lightsim ai trust <file>`. Only Python code that uses `AgentSession`
+  reads this list, to decide which projects' Script blocks it may run; each
+  run still needs a yes. The connection for AI apps does not read it: the
+  questions above are asked whether a project is on the list or not.
+  **Untrust** takes the project off the list; a project whose scripts
+  changed since is marked, as its trust no longer holds. Trust can only be
+  given on the command line.
 - **Stop an AI tool's run after** a number of seconds (5 minutes unless you
   change it).
 - **Latest calls from AI tools**: what they asked, when, and whether it
-  was done, from the logs kept on this computer.
+  was done (not the calls the log leaves out, above), from the logs kept
+  on this computer: the AI apps' log
+  (`.ai/audit.jsonl` in your projects folder) and the Python package's
+  (`ai-audit.jsonl` beside `ai-access.json`).
 
 To hide one project from AI tools, run `lightsim ai block <file>`. When
 your organisation's policy turns AI access off, the tab says so and AI

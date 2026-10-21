@@ -8,13 +8,22 @@ const heading = "mt-3 mb-1 text-[12px] font-semibold";
 const message = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']*': (Error: )?/, "");
 
 /** Connect AI → AI access (AI-01): the settings `lightsim ai …` changes,
- *  kept in the same file and enforced by the engine for every AI tool: the
- *  switch, the folders AI tools may see, the examples, the projects whose
- *  Script blocks they may run, the run time cap, and the latest calls.
- *  Folders and trust can only be taken away here: a folder is added in the
- *  desktop app's folder dialog, a project trusted with `lightsim ai trust`.
- *  When the organisation's policy turns AI access off, it cannot be turned
- *  on here. */
+ *  kept in the same file. The connection for AI apps (the MCP server) reads
+ *  the switch, the folders, the examples and the run time cap before every
+ *  tool call (AgentSession when a session starts), and keeps a project marked
+ *  "noAi" out of sight. While access is off it refuses every tool call but
+ *  still serves its skill pack and part library. It asks the user,
+ *  through the AI app, before it saves an edit and before it runs a project
+ *  with Script blocks, but it cannot tell who answers: an answer the app sends
+ *  again repeats a run, or saves another copy of an edited example or new
+ *  project, and on the 2026-07-28 protocol an app that cannot ask may answer
+ *  itself. It does not read the trust list shown here, which only Python code
+ *  that uses `lightsim.ai_access.AgentSession` reads. Folders and trust can
+ *  only be taken away here: a folder is added in the desktop app's
+ *  folder dialog, a project trusted with `lightsim ai trust`. When the
+ *  organisation's policy turns AI access off, it cannot be turned on here.
+ *  Every sentence about what AI tools do is held by
+ *  backend/tests/test_ai_claims.py and by AiAccessPanel.test.tsx. */
 export function AiAccessPanel() {
   const [state, setState] = useState<api.AiAccess | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,8 +90,9 @@ export function AiAccessPanel() {
   return (
     <div data-testid="ai-access">
       <p className="text-[color:var(--ss-text-dim)]">
-        These rules hold for every AI tool that uses LightSim: an AI app you connected, or the <code>lightsim</code>{" "}
-        Python package. LightSim enforces them itself, and they are the same settings as{" "}
+        An AI app you connected reads these settings before every tool call. Python code that uses{" "}
+        <code>lightsim.ai_access.AgentSession</code> reads them when it starts a session. Other Python code (
+        <code>import lightsim</code>, <code>lightsim run</code>) does not read them. They are the same settings as{" "}
         <code>lightsim ai …</code> on the command line.
       </p>
       {state.managed && (
@@ -102,7 +112,7 @@ export function AiAccessPanel() {
       <p className="text-[color:var(--ss-text-dim)]" data-testid="ai-access-state">
         {state.on
           ? "AI access is on: AI tools may open the projects below and the examples you let them see."
-          : "AI access is off: every call from an AI tool is refused."}
+          : "AI access is off: every tool call from an AI tool is refused, though a connected AI app can still read the skill pack and the part library that come with LightSim."}
       </p>
 
       <div className={heading}>Folders AI tools may see</div>
@@ -167,7 +177,26 @@ export function AiAccessPanel() {
         AI tools may open the examples that come with LightSim
       </label>
 
-      <div className={heading}>Projects whose Script blocks AI tools may run</div>
+      <div className={heading}>When an AI app has to ask you</div>
+      <ul aria-label="Questions to you" className="list-disc pl-5">
+        <li>Reading, checking and comparing models, and running a project without Script blocks: no question.</li>
+        <li>Saving an edit: LightSim asks you first.</li>
+        <li>
+          Running a project with Script blocks (Python code): LightSim asks you first, and the question does not show
+          the code. On Windows such a project does not run at all unless the connection was started with{" "}
+          <code>--trust-scripts</code>. As in the app, LightSim also refuses Script code you have not approved there (
+          <b>Run scripts</b>).
+        </li>
+      </ul>
+      <p className="text-[color:var(--ss-text-dim)]">
+        Your AI app shows the question and sends the answer back, and LightSim cannot tell who answered. An app that
+        sends your answer again repeats a run, or saves another copy of an edited example or new project, without asking
+        you. An AI app on MCP's older handshake that cannot ask you is refused anything that needs your yes. On MCP's 28
+        July 2026 revision LightSim does not check whether the app can ask, so an app that answers for you can save
+        edits and run Script projects. Connect only an AI app that shows you each question.
+      </p>
+
+      <div className={heading}>Trusted projects (Python package only)</div>
       <ul aria-label="Trusted projects">
         {state.trusted.map((t) => (
           <li key={t.path} className={row}>
@@ -193,8 +222,9 @@ export function AiAccessPanel() {
         {state.trusted.length === 0 && <li className={`${row} text-[color:var(--ss-text-dim)]`}>None.</li>}
       </ul>
       <p className="text-[color:var(--ss-text-dim)]">
-        An AI tool runs a project with Script blocks (Python code) only once you trust it with{" "}
-        <code>lightsim ai trust &lt;file&gt;</code>, and asks you before each run. Changing a script ends the trust.
+        <code>lightsim ai trust &lt;file&gt;</code> puts a project on this list. Only Python code that uses{" "}
+        <code>lightsim.ai_access.AgentSession</code> reads it, to decide which projects' Script blocks it may run (each
+        run still needs a yes). The connection for AI apps does not read this list. Changing a script ends the trust.
       </p>
 
       <label className="mt-3 flex items-center gap-2">

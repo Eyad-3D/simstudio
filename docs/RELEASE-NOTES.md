@@ -982,9 +982,12 @@ sections.
   (AI-07)
 - AI access rules for the coming AI assistant connection: off by default;
   only projects in folders you allow, and not marked `"noAi"`; changes
-  need your confirmation; a project with Script blocks runs only after
-  you trust it, and each run asks first; runs stop after 300 s; every call
-  is logged on your computer. Set with `lightsim ai …`. (AI-01)
+  need your confirmation; a project with Script blocks asks you before an
+  AI app runs it (Python code that uses `AgentSession` also needs the
+  project on the trust list, `lightsim ai trust`; the connection for AI
+  apps does not read that list), but an AI app that sends your answer
+  again repeats the run without a new question; runs stop after 300 s; the
+  calls are logged on your computer. Set with `lightsim ai …`. (AI-01)
 - *What LightSim reads and writes* (Help → *Reference*) lists the file
   formats that work today, each with the test that checks it, those
   planned and those built only on request. (STD-34)
@@ -1005,14 +1008,15 @@ sections.
   explain a message and edit a model. Answers stay under 20 KB. It follows
   the MCP revision of 28 July 2026 (stateless, long runs as Tasks,
   confirmations as `input_required`) and still answers apps that use the
-  older handshake. It is read-only unless you confirm in the AI app:
-  saving an edit (the version it replaces is kept as a backup, beside a
-  file in an allowed folder in `<file>-backups`) and running a project
-  with Script blocks ask first (on
+  older handshake. Saving an edit (the version it replaces is kept as a
+  backup, beside a file in an allowed folder in `<file>-backups`) and
+  running a project with Script blocks ask you first, in the AI app (on
   Windows, Script projects do not run unless you allowed it when
-  connecting); a project file with `"noAI": true` stays hidden; an
-  assistant's run stops after 5 minutes; every request goes into a local
-  log, `.ai/audit.jsonl` in the projects folder. (AI-03)
+  connecting); LightSim cannot tell who answered, and an answer the AI app
+  sends again is not asked about again (see *Known issues*); a project
+  file with `"noAI": true` stays hidden; an assistant's run stops after 5
+  minutes; its tool calls go into a local log, `.ai/audit.jsonl` in the
+  projects folder (*Known issues* lists the calls it leaves out). (AI-03)
 - **A skill pack for AI assistants**: nine short guides in the open Agent
   Skills format (build a BEV, build a P2 hybrid, wiring rules, units and
   parameters, Script blocks, verifying a model, *not valid* flags, what
@@ -1115,8 +1119,9 @@ sections.
   reason; one Undo takes them all back. (UX-15)
 - *Connect AI* has an *AI access* tab: turn AI access on or off, see and
   remove the folders AI tools may see (add one with the folder dialog in
-  the desktop app), show or hide the examples, untrust a project's Script
-  blocks, set the run time cap, and see the latest calls AI tools made.
+  the desktop app), show or hide the examples, take a project off the
+  trust list that Python code using `AgentSession` reads, set the run time
+  cap, and see the latest calls AI tools made.
   When your organisation's policy turns AI access off, the tab says so and
   access cannot be turned on. The run time cap now also stops runs of AI
   apps connected to LightSim. (AI-01)

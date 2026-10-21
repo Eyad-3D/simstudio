@@ -27,9 +27,10 @@ const path = require("node:path");
 const KEYS = {
   // Update checks: never, tell the user only, or offer to install.
   updates: ["off", "notify", "auto"],
-  // "off": AI apps get nothing from LightSim; the engine applies it, also
-  // when an AI app starts it (backend/app/machine_policy.py, which keeps
-  // these keys and checks in step with this file).
+  // "off": every tool call from an AI app is refused (it can still read the
+  // skill pack and the part library that come with LightSim); the engine
+  // applies it, also when an AI app starts it (backend/app/machine_policy.py,
+  // which keeps these keys and checks in step with this file).
   ai: ["off", "mcp-only", "allowed"],
   aiProviders: "string-list",
   licenceFile: "string",

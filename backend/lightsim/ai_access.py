@@ -1,8 +1,20 @@
 """What AI assistants may see and do in LightSim (AI-01).
 
-AI tools (the MCP server, an in-app assistant) reach projects only through
-:class:`AgentSession`, which enforces these rules itself; the read-only and
-destructive hints an AI app shows are only hints.
+Two things read these settings. Python code that goes through
+:class:`AgentSession` is held to every rule below, as the settings were
+when the session started. The MCP server for AI apps (``app/ai``) reads
+the settings file too, before every tool call, for the switch, the
+folders, the examples, the run time cap and the organisation's policy,
+and keeps a project marked "noAi" out of sight; it
+does **not** read the trust list (``trustedScripts``). It asks the user,
+through the AI app, before it saves an edit and before it runs a project
+with Script blocks (and on Windows runs one only when started with
+``--trust-scripts``), but cannot tell who answered, and an answer the app
+sends again repeats a run, or saves another copy of an edited example or
+new project (docs/KNOWN-LIMITS.md). Plain ``import lightsim`` and
+``lightsim run`` read none of it. The read-only and destructive hints an AI
+app shows are only hints. What the app's *Connect AI → AI access* page and
+the help say about this is held by ``tests/test_ai_claims.py``.
 
 - **Off by default.** Until the user turns AI access on, every call is
   refused.
@@ -14,18 +26,21 @@ destructive hints an AI app shows are only hints.
   need nothing more. Changing a project raises :class:`ConfirmationRequired`
   until the user confirms that call.
 - **Script blocks.** A project with Script blocks (user Python code) is
-  never run by an agent until the user marks it trusted (``lightsim ai trust
-  <file>``), and then each run still asks for confirmation. Trust is tied
-  to the scripts' text and values, a case's own included: change a script
-  and the project must be trusted again. The Script sandbox is much weaker
-  on Windows (docs/KNOWN-LIMITS.md).
+  never run through :class:`AgentSession` until the user marks it trusted
+  (``lightsim ai trust <file>``), and then each run still asks for
+  confirmation. Trust is tied to the scripts' text and values, a case's own
+  included: change a script and the project must be trusted again. The MCP
+  server does not use this list (see above). The Script sandbox is much
+  weaker on Windows (docs/KNOWN-LIMITS.md).
 - **Runs are capped** at ``maxRunSeconds`` of wall-clock time (default
   300 s).
 - **Text from project files is data.** :func:`as_data` wraps labels,
   descriptions and script text so a tool hands them to the AI quoted,
   never as instructions.
-- **Audit log.** Every call, allowed or refused, is a JSON line in
-  ``ai-audit.jsonl`` next to the settings. It never leaves the computer.
+- **Audit log.** Every call through :class:`AgentSession`, allowed or
+  refused, is a JSON line in ``ai-audit.jsonl`` next to the settings (the
+  MCP server keeps its own, ``.ai/audit.jsonl`` in the projects folder). It
+  never leaves the computer.
 
 The settings are ``ai-access.json`` in LightSim's folder
 (``%APPDATA%\\LightSim`` on Windows, ``~/.config/LightSim`` on Linux), or
@@ -223,8 +238,8 @@ class Policy:
             return
         if not self.trusted_scripts(project):
             raise AccessDenied(f"Project '{project.name}' has Script blocks (Python code) that "
-                               f"the user has not trusted. AI tools run it only after the user "
-                               f"runs 'lightsim ai trust \"{project.path}\"'.")
+                               f"the user has not trusted. An AgentSession runs it only after the "
+                               f"user runs 'lightsim ai trust \"{project.path}\"'.")
         if not confirmed:
             raise ConfirmationRequired(f"Run '{project.name}'? It has Script blocks: their "
                                        f"Python code runs on this computer.")
@@ -411,8 +426,9 @@ def add_ai_parser(p) -> None:
                         ("disallow", "take a folder off the list")):
         sp = sub.add_parser(name, help=help_)
         sp.add_argument("folder")
-    for name, help_ in (("trust", "let AI tools run this project's Script blocks (after you confirm)"),
-                        ("untrust", "stop trusting this project's Script blocks"),
+    for name, help_ in (("trust", "put this project on the trust list that AgentSession reads before it "
+                                  "runs the project's Script blocks (the MCP server does not read it)"),
+                        ("untrust", "take this project off the trust list"),
                         ("block", "hide this project from AI tools (sets \"noAi\" in the file)"),
                         ("unblock", "remove the project's \"noAi\" mark")):
         sp = sub.add_parser(name, help=help_)

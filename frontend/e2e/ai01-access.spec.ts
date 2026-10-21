@@ -1,8 +1,9 @@
-// AI-01: Connect AI → AI access shows and changes the rules every AI tool
-// works under, the settings `lightsim ai …` keeps (the test engine keeps
-// them in its temp folder): the switch, the allowed folders, the examples,
-// the trusted Script projects (which can only be untrusted here), the run
-// time cap and the latest calls from the audit log.
+// AI-01: Connect AI → AI access shows and changes the settings
+// `lightsim ai …` keeps (the test engine keeps them in its temp folder): the
+// switch, the allowed folders, the examples, the trust list that only
+// AgentSession reads (a project can only be taken off it here), the run time
+// cap and the latest calls from the audit log. The connection for AI apps
+// reads all these settings but the trust list.
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";

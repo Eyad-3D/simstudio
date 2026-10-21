@@ -58,6 +58,17 @@ and report what is not allowed: run `run_checks` after every change.
 - Signal units are not checked: a Battery's `sig_soc` is in % (0-100).
 - Keep switching decisions steady: minimum on/off times and hysteresis
   stop a decision from flickering every step.
-- Running a project with Script blocks over MCP needs the user's
-  confirmation, and on Windows the user must allow it when connecting.
+- Running a project with Script blocks over MCP makes LightSim ask the
+  user first, and on Windows it refuses unless the user allowed it when
+  connecting (`--trust-scripts`). The `lightsim ai trust` list plays no
+  part. Only the user answers LightSim's questions. Send their answer
+  once: LightSim does not check who answered, and an answer sent again
+  repeats the run, or saves another copy of an edited example or new
+  project, without asking the user.
+- Code the user has not approved in LightSim does not run, even after a
+  yes: the run ends *failed* with "has not been approved to run". The
+  examples' code and code the user typed in the app count as approved; a
+  script you write or change with `model_edit` does not. After you save one,
+  tell the user to open the project in LightSim and choose **Run scripts**,
+  then run the case.
 - Help page: *Script API* in LightSim's Help.

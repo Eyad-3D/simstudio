@@ -139,7 +139,10 @@ TOOLS: list[dict] = [
         "description": "Simulate one case of a model (Data Checks first) and return its status, "
                        "key results (with 'not valid' notes) and messages. Runs take seconds to "
                        "a few minutes; AI apps that support MCP Tasks get a task to poll. A project "
-                       "with Script blocks runs only after the user confirms. The run is kept for "
+                       "with Script blocks runs only after the user says yes to LightSim's question "
+                       "(send that yes once: sent again it repeats the run without asking the user), "
+                       "and only with Script code the user has approved in LightSim (a script you "
+                       "wrote or changed fails with 'has not been approved'). The run is kept for "
                        "results_query and compare_runs; it does not change the project.",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
@@ -212,7 +215,8 @@ TOOLS: list[dict] = [
                        "port), add_case and set_case. By default a "
                        "dry run: returns what would change and the Data Checks afterwards, saving "
                        "nothing. With dry_run false the user must confirm, then it is saved (an "
-                       "example is saved as a new project; the app keeps backups of every save).",
+                       "example is saved as a new project; for an example or a 'new:' project a yes "
+                       "sent again saves another copy; the app keeps backups of every save).",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
             "operations": {"type": "array", "items": {"type": "object"}, "minItems": 1,
