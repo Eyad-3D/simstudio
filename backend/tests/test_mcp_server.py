@@ -575,7 +575,9 @@ def test_whether_an_app_can_ask_is_checked_only_on_the_older_handshake(folder):
 
 
 def test_an_app_that_cannot_ask_gets_a_refusal_for_a_script_run(folder):
-    server = make_server(folder)
+    # linux: on Windows a Script project without --trust-scripts is refused
+    # before the question would be asked (tested on its own above)
+    server = make_server(folder, platform="linux")
     server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "x", "version": "1"}}})
     reply = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
