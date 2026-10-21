@@ -16,11 +16,14 @@
 //!    so the constraints hold exactly (no drift). Which derivatives become
 //!    dummies is chosen by Gaussian elimination with threshold pivoting on
 //!    the Jacobian of the differentiated equations evaluated at the
-//!    initial point, preferring to keep as states the variables whose start
-//!    values are fixed. The choice is static: if the initial point makes
-//!    every choice singular (a pendulum started exactly horizontal in the
-//!    coordinate the selection needs), the preparation says so instead of
-//!    switching states during the run (risk R3).
+//!    initial point, preferring to keep as states the variables marked so
+//!    (Modelica's `stateSelect`), then those whose start values are fixed.
+//!    The choice is static: if the initial point makes every choice
+//!    singular (a pendulum started exactly horizontal in the coordinate the
+//!    selection needs), the preparation says so instead of switching states
+//!    during the run (risk R3). What was chosen, and among what
+//!    ([`ChosenSet`]), goes with the prepared model, so the run can watch
+//!    the choice's pivots and stop where they degrade.
 
 use crate::graph::{Bipartite, NONE, groups, hopcroft_karp};
 use crate::symbolic::diff;
@@ -236,20 +239,89 @@ fn augment(
     false
 }
 
+/// How strongly a node is kept a state when there is a choice
+/// ([`dummy_derivatives`]' `keep`), weakest first: `stateSelect = never`,
+/// `avoid`, the default, the default with a fixed start value, `prefer`,
+/// and kept above all ([`KEEP_STRONG`]).
+pub const KEEP_NEVER: u8 = 0;
+/// `stateSelect = avoid`
+pub const KEEP_AVOID: u8 = 1;
+/// the default
+pub const KEEP_DEFAULT: u8 = 2;
+/// the default, with a fixed start value
+pub const KEEP_FIXED: u8 = 3;
+/// `stateSelect = prefer`
+pub const KEEP_PREFER: u8 = 4;
+/// `stateSelect = always`, and the continuous part of a state `reinit`
+/// restarts: chosen as a dummy only when no regular choice avoids it
+pub const KEEP_STRONG: u8 = 5;
+
+/// How far inside the run's limit (`lsim_ir::choice::DEGRADED`: a decided
+/// candidate moving a hundred times as much as a state) a choice the
+/// model asks for (`stateSelect`, a state a `reinit` restarts) must start:
+/// at half of it. The choice by pivoting starts within a tenth of it (the
+/// factor 10 of its window).
+pub const MARGIN: f64 = 2.0;
+
+/// The widest window a column marked to be demoted before others
+/// (`stateSelect`) is chosen in: a fiftieth of the largest entry. A choice
+/// the model's marks ask for is taken only where no decided candidate
+/// moves more than `1 / WIDE` (50) times as much as a state: half the
+/// run's limit, so the run, which stops a choice past 100, does not stop
+/// one that starts at the window's edge at its first wobble (a pendulum's
+/// turning point, reached a little further on by the integrator's error)
+/// at one tolerance and not at another.
+pub const WIDE: f64 = MARGIN * lsim_ir::choice::DEGRADED;
+
 /// What [`dummy_derivatives`] chose.
 pub struct Selection {
     /// per node: it is a dummy derivative
     pub dummy: Vec<bool>,
     /// per node: it is a state of the reduced model
     pub is_state: Vec<bool>,
+    /// each block of the choice, highest derivatives first
+    pub sets: Vec<ChosenSet>,
+    /// the choices the model asked for that only [`MARGIN`] kept from
+    /// being taken
+    pub unkept: Vec<Unkept>,
+}
+
+/// A choice of states the model asked for (`stateSelect`, a `reinit`) that
+/// would be regular within the run's limit but starts outside [`WIDE`],
+/// and so was not taken.
+#[derive(Clone, Debug)]
+pub struct Unkept {
+    /// the variables (nodes) marked to be kept as states that it would keep
+    /// and the choice taken decides
+    pub nodes: Vec<usize>,
+    /// the factor it would start at: its decided candidate moving that many
+    /// times as much as a state
+    pub factor: f64,
+}
+
+/// One block of the choice: differentiated equations, the highest
+/// derivatives they could decide, and the pivot chosen for each equation
+/// (the column whose node became a dummy derivative, demoting the node it
+/// is the derivative of).
+#[derive(Clone, Debug)]
+pub struct ChosenSet {
+    /// the equations (rows), in the order they were pivoted
+    pub rows: Vec<usize>,
+    /// the candidate nodes (columns)
+    pub cols: Vec<usize>,
+    /// per row, the column chosen for it
+    pub pivots: Vec<usize>,
+    /// the columns left out of the choice (kept above all) when a regular
+    /// choice did without them
+    pub masked: Vec<bool>,
 }
 
 /// Chooses the dummy derivatives after [`pantelides`]. `vals` are node
 /// values at the initial point (or generic values when the initial point
 /// is not known), `params` the parameter values, `keep[n]` how strongly
-/// node `n` is kept a state when there is a choice (2: the continuous part
-/// of a state `reinit` restarts, 1: a fixed start value, 0: neither).
-/// `tables` are the tables' interpolants (empty: none read).
+/// node `n` is kept a state when there is a choice ([`KEEP_NEVER`] …
+/// [`KEEP_STRONG`]). `tables` are the tables' interpolants (empty: none
+/// read).
 pub fn dummy_derivatives(
     sys: &Sys,
     vals: &[f64],
@@ -259,6 +331,8 @@ pub fn dummy_derivatives(
 ) -> Result<Selection, IndexFault> {
     let n_nodes = sys.nodes.len();
     let mut dummy = vec![false; n_nodes];
+    let mut sets = vec![];
+    let mut unkept = vec![];
     // the highest equations obtained by differentiation
     let mut g: Vec<usize> = (0..sys.eqs.len())
         .filter(|&e| sys.eqs[e].derived.is_none() && sys.eqs[e].diff_of.is_some())
@@ -295,17 +369,23 @@ pub fn dummy_derivatives(
             cols.dedup();
             let col_nodes: Vec<usize> = cols.iter().map(|&c| z[c]).collect();
             let mut m = vec![vec![0.0; cols.len()]; rows.len()];
+            // whether the entries move with the solution: they read time,
+            // or a variable that is not held between events
+            let mut moves = false;
             for (r, &e) in rows.iter().enumerate() {
                 for (c, &nd) in col_nodes.iter().enumerate() {
                     if sys.eqs[e].inc.binary_search(&nd).is_ok() {
                         let d = diff(&sys.eqs[e].res, Slot::Var(VarId(nd as u32)));
+                        moves |= d.any(&mut |x| matches!(x, lsim_ir::Expr::Time))
+                            || crate::system::nodes_of(&d)
+                                .iter()
+                                .any(|&n| sys.nodes[n].kind != NodeKind::Discrete);
                         m[r][c] = eval(&d, &env);
                     }
                 }
             }
             // choosing a dummy demotes the node it is the derivative of:
-            // prefer to demote nodes kept least strongly (a restarted
-            // state's continuous part most, then a fixed start), then
+            // prefer to demote nodes kept least strongly (`keep`), then
             // derivative nodes (keeping declared variables as states),
             // then later variables
             let pref: Vec<(u8, u32, u32)> = col_nodes
@@ -315,25 +395,111 @@ pub fn dummy_derivatives(
                     (u8::MAX - keep[i], sys.nodes[i].order, sys.nodes[nd].var.0)
                 })
                 .collect();
-            // a column kept above all (a restarted state's) is chosen only
-            // when no regular choice avoids it
+            // the columns' stateSelect (a fixed start is a preference
+            // within the default, not a class of its own)
+            let classes: Vec<u8> = col_nodes
+                .iter()
+                .map(|&nd| match keep[sys.nodes[nd].integral.unwrap_or(nd)] {
+                    KEEP_FIXED => KEEP_DEFAULT,
+                    k => k,
+                })
+                .collect();
+            let classes = (classes.iter().any(|&k| k != KEEP_DEFAULT)).then_some(classes);
+            // a column kept above all (a restarted state's, `always`) is
+            // chosen only when no regular choice avoids it
             let strong: Vec<bool> = col_nodes
                 .iter()
-                .map(|&nd| keep[sys.nodes[nd].integral.unwrap_or(nd)] >= 2)
+                .map(|&nd| keep[sys.nodes[nd].integral.unwrap_or(nd)] >= KEEP_STRONG)
                 .collect();
-            let selected = if strong.contains(&true) {
-                let masked: Vec<Vec<f64>> = m
-                    .iter()
-                    .map(|row| {
-                        row.iter().zip(&strong).map(|(&x, &s)| if s { 0.0 } else { x }).collect()
-                    })
-                    .collect();
-                select_columns(&masked, &pref).or_else(|| select_columns(&m, &pref))
-            } else {
-                select_columns(&m, &pref)
+            let none = vec![false; cols.len()];
+            // the choice the model's marks ask for, its window `wide` (a
+            // column marked to be kept competes within `wide` of the
+            // largest entry): taken only where it is regular well enough
+            // for the run, where the entries move no decided candidate
+            // moving more than 1 / wide times as much as a state (a
+            // parameter's scale is no degeneracy)
+            let marked = |wide: f64| -> Option<(Vec<usize>, Vec<bool>)> {
+                let regular = |sel: &Vec<usize>, left_out: &[bool]| {
+                    !moves || {
+                        let mut mm = m.clone();
+                        let ps = lsim_ir::choice::pivot_state(
+                            sel,
+                            left_out,
+                            &mut mm,
+                            &mut Default::default(),
+                        );
+                        ps.worst_exchange() * wide <= 1.0
+                    }
+                };
+                if strong.contains(&true) {
+                    // the strong columns left out, the classes heeded and
+                    // then not (regular as judged by the whole row: a choice
+                    // that avoids the strong columns only by a pivot at
+                    // round-off is none)
+                    let left_out: Vec<Vec<f64>> = m
+                        .iter()
+                        .map(|row| {
+                            row.iter()
+                                .zip(&strong)
+                                .map(|(&x, &s)| if s { 0.0 } else { x })
+                                .collect()
+                        })
+                        .collect();
+                    let scales: Vec<f64> = m
+                        .iter()
+                        .map(|row| row.iter().fold(0.0f64, |a, x| a.max(x.abs())))
+                        .collect();
+                    let with = [classes.as_deref(), None];
+                    for cl in &with[..if classes.is_some() { 2 } else { 1 }] {
+                        let sel = select_columns_within(&left_out, &pref, Some(&scales), *cl, wide)
+                            .filter(|sel| regular(sel, &strong));
+                        if let Some(sel) = sel {
+                            return Some((sel, strong.clone()));
+                        }
+                    }
+                }
+                if classes.is_some() {
+                    let sel = select_columns_within(&m, &pref, None, classes.as_deref(), wide)
+                        .filter(|sel| regular(sel, &none));
+                    if let Some(sel) = sel {
+                        return Some((sel, none.clone()));
+                    }
+                }
+                None
             };
+            // within the margin, else the choice by pivoting alone
+            let selected =
+                marked(WIDE).or_else(|| select_columns(&m, &pref).map(|s| (s, none.clone())));
+            // a choice the model asks for that only the margin kept from
+            // being taken (regular within the run's limit): the variables
+            // it would keep that are decided now, and its factor, are told
+            if moves
+                && (classes.is_some() || strong.contains(&true))
+                && let (Some((sel, _)), Some((limit, left_out))) =
+                    (&selected, marked(lsim_ir::choice::DEGRADED))
+            {
+                let nodes: Vec<usize> = sel
+                    .iter()
+                    .filter(|c| !limit.contains(c))
+                    .map(|&c| sys.nodes[col_nodes[c]].integral.unwrap_or(col_nodes[c]))
+                    .filter(|&i| keep[i] >= KEEP_PREFER)
+                    .collect();
+                if !nodes.is_empty() {
+                    let mut mm = m.clone();
+                    let ps = lsim_ir::choice::pivot_state(
+                        &limit,
+                        &left_out,
+                        &mut mm,
+                        &mut Default::default(),
+                    );
+                    unkept.push(Unkept { nodes, factor: ps.worst_exchange() });
+                }
+            }
             match selected {
-                Some(sel) => chosen_all.extend(sel.into_iter().map(|c| col_nodes[c])),
+                Some((sel, masked)) => {
+                    chosen_all.extend(sel.iter().map(|&c| col_nodes[c]));
+                    sets.push(ChosenSet { rows, cols: col_nodes, pivots: sel, masked });
+                }
                 None => {
                     return Err(IndexFault::Singular { eqs: rows.clone(), nodes: col_nodes });
                 }
@@ -362,7 +528,7 @@ pub fn dummy_derivatives(
             nd.kind == NodeKind::Unknown && nd.deriv.is_some_and(|d| !dummy[d])
         })
         .collect();
-    Ok(Selection { dummy, is_state })
+    Ok(Selection { dummy, is_state, sets, unkept })
 }
 
 /// Chooses as many columns of `m` (rows × columns) as it has rows, so that
@@ -370,19 +536,47 @@ pub fn dummy_derivatives(
 /// each row, among the columns within a factor 10 of the row's largest
 /// entry, the most preferred. `None` when the rows are dependent.
 pub fn select_columns<P: Ord>(m: &[Vec<f64>], pref: &[P]) -> Option<Vec<usize>> {
+    select_columns_within(m, pref, None, None, WIDE)
+}
+
+/// [`select_columns`] with each row's size given (`scales`: its largest
+/// entry before some columns were left out of `m`), against which a row
+/// left with nothing but round-off is dependent, and the columns'
+/// `classes` (their `stateSelect`, most demotable lowest): a column then
+/// competes within a factor 10 only with the columns of its class or a
+/// lower one, and within a factor `wide` with every column ([`WIDE`]: half
+/// the run's limit), so a variable marked `prefer` stays a state where the
+/// choice that keeps it starts well inside the run's limit.
+pub fn select_columns_within<P: Ord>(
+    m: &[Vec<f64>],
+    pref: &[P],
+    scales: Option<&[f64]>,
+    classes: Option<&[u8]>,
+    wide: f64,
+) -> Option<Vec<usize>> {
     let rows = m.len();
     let cols = pref.len();
     let mut w: Vec<Vec<f64>> = m.to_vec();
     let mut used = vec![false; cols];
     let mut chosen = vec![];
     for r in 0..rows {
-        let scale = m[r].iter().fold(0.0f64, |a, x| a.max(x.abs()));
+        let scale =
+            scales.map_or_else(|| m[r].iter().fold(0.0f64, |a, x| a.max(x.abs())), |s| s[r]);
         let amax = (0..cols).filter(|&c| !used[c]).fold(0.0f64, |a, c| a.max(w[r][c].abs()));
         if amax.is_nan() || amax <= 1e-10 * scale.max(f64::MIN_POSITIVE) || !amax.is_finite() {
             return None;
         }
+        let window = |c: usize| match classes {
+            None => 0.1 * amax,
+            Some(k) => {
+                let peers = (0..cols)
+                    .filter(|&o| !used[o] && k[o] <= k[c])
+                    .fold(0.0f64, |a, o| a.max(w[r][o].abs()));
+                (0.1 * peers).max(wide * amax)
+            }
+        };
         let c = (0..cols)
-            .filter(|&c| !used[c] && w[r][c].abs() >= 0.1 * amax)
+            .filter(|&c| !used[c] && w[r][c].abs() >= window(c))
             .max_by(|&a, &b| pref[a].cmp(&pref[b]).then(w[r][a].abs().total_cmp(&w[r][b].abs())))
             .expect("the largest entry qualifies");
         used[c] = true;
@@ -417,5 +611,27 @@ mod tests {
         // dependent rows
         let m = vec![vec![1.0, 2.0], vec![2.0, 4.0]];
         assert_eq!(select_columns(&m, &[(false, 0), (false, 1)]), None);
+    }
+
+    #[test]
+    fn a_class_to_demote_first_is_chosen_within_a_fiftieth() {
+        // the rod at 1.5 rad: [2x 2y], y's entry 7 % of x's; pivoting alone
+        // decides x (keeps y)
+        let m = vec![vec![1.99, 0.14]];
+        let pref = [(u8::MAX - KEEP_PREFER, 0), (u8::MAX - KEEP_DEFAULT, 1)];
+        assert_eq!(select_columns_within(&m, &pref, None, None, WIDE), Some(vec![0]));
+        // x marked prefer: y is decided (x stays a state)
+        let classes = [KEEP_PREFER, KEEP_DEFAULT];
+        assert_eq!(select_columns_within(&m, &pref, None, Some(&classes), WIDE), Some(vec![1]));
+        // but not below a fiftieth (the rod at atan 99: within the run's
+        // limit of a hundredth, outside its margin): x is decided after all
+        let m = vec![vec![1.98, 0.02]];
+        assert_eq!(select_columns_within(&m, &pref, None, Some(&classes), WIDE), Some(vec![0]));
+        let at_limit = lsim_ir::choice::DEGRADED;
+        assert_eq!(select_columns_within(&m, &pref, None, Some(&classes), at_limit), Some(vec![1]));
+        // the same classes: as without them
+        let same = [KEEP_DEFAULT, KEEP_DEFAULT];
+        let m = vec![vec![1.99, 0.14]];
+        assert_eq!(select_columns_within(&m, &pref, None, Some(&same), WIDE), Some(vec![0]));
     }
 }

@@ -77,7 +77,8 @@ Python 3.10+ with mpmath and scipy (the reference solutions), and for
 `sundials` a C compiler, CMake and `patch`. `run` takes the runner
 from `CARGO_TARGET_DIR` (or `--runner`); `score --before` puts an earlier
 build's results beside the current ones. `cases --sweep` adds the pendulum
-released at every 0.01 rad from 0.01 to 3.14 rad.
+released at every 0.01 rad from 0.01 to 3.14 rad, in x and y and in its
+angle.
 
 ## The judges
 
@@ -89,6 +90,10 @@ released at every 0.01 rad from 0.01 to 3.14 rad.
 | `iftomm-pendulum` | the planar simple pendulum, released horizontally, in x and y (index 3), 10 s | the closed form (Jacobi elliptic functions, mpmath at 34 digits); the benchmark's own measure, the energy drift, against its limit of 5e-5 J | IFToMM Library of Computational Benchmark Problems: R. Masoudi, T. Uchida, D. Vilela, A. Luaces, J. Cuadrado, J. McPhee, *A library of computational benchmark problems for the multibody dynamics community*, ECCOMAS Multibody Dynamics 2013. Research use only: its descriptions and the results other groups submitted stay in the cache |
 | `iftomm-fourbar` | the multiple four-bar mechanism: 5 × 5 four-bar loops, 55 bars, 60 coordinates, 55 constraints, 5 degrees of freedom, through singular positions (a row's bars in line), 10 s | its minimal coordinates (each row's angle; the parallelograms keep their shape) integrated by Gragg–Bulirsch–Stoer extrapolation at 40 digits to an estimated 1e-28 (energy kept to 4e-27; DOP853 at rtol 1e-13 agrees to 6e-11); the benchmark's energy-drift limit of 1 J | IFToMM (A. Callejo); as above. The two submitted results agree with the reference to 3e-7 (Callejo) and 6e-6 (Burkhardt) rad up to 2 s, and drift apart later with their energy errors (0.75 and 0.06 J) |
 | `pendulum-swing-θ0`, `pendulum-loop-m` | the same pendulum released at rest from θ0 (swinging), or given the speed at the bottom that makes m = 4gL/v0² < 1 (looping) | the closed form, as above | mathematics (mpmath, BSD-3-Clause) |
+| `pendulum-angle-θ0`, `pendulum-angle-loop-m` | the control: the same pendulums in their angle from the vertical, an ODE with no constraint and so no choice of states, the integrator's own error on the problem beside the x-y form's | the closed form, as above | mathematics |
+| `pendulum-prefer-x-θ0` | `stateSelect`: the x-y pendulum released at 1.50 and 1.55 rad, where pivoting alone keeps y and vy (which degenerate at the bottom of the swing), with x marked `prefer`; and at atan 99 (1.5607 rad), where the choice that keeps x would start with y moving 99 times as much as x, inside the run's limit (100) but outside the margin a marked choice must start in (50): the mark is refused and told, and the choice by pivoting stops near the bottom | the closed form, as above | mathematics |
+| `pendulum-event-θ0` | the step after an event watched: the x-y pendulum released at 2.0 and 2.8 rad (states x and vx, which degenerate as the rod passes the horizontal), with a `when` as the rod nears the horizontal (y < 0.02, about 2 ms before) whose assignment changes nothing: each run must stop where it stops without it | the closed form, as above (the point where y first moves a hundred times as much as x) | mathematics |
+| `msl-planarfourbar` | `stateSelect` in a mechanism: the Modelica Standard Library's `Mechanics.MultiBody.Examples.Loops.PlanarFourbar` transcribed in the plane: four steel BodyBoxes, revolute1 marked `always` (as the example marks it), revolute2 and revolute3 `prefer` (the Revolute's default), the bodies' centres `avoid` (BodyBox's), a damper at revolute1, the cut joint's two loop equations, the joint forces unknown: index 3, a 13-row choice of states, 5 s. Pivoting alone takes the states the marks ask for here (revolute1's angle and speed) | revolute1's angle from the mechanism's one degree of freedom (the loop closed by Newton's method, DOP853 at 1e-13; 1e-12 and 1e-13 agree to 5e-11 rad; OpenModelica 1.27 on MSL 4.1.0's own model, checked once by hand, 7.1e-9 rad from it at rtol 1e-12, 2.1e-7 at 1e-10); MSL's reference result beside it (Dymola 2020x, DASSL at 1e-6: 7.1e-4 rad from it; OpenModelica at 1e-6, 5.6e-4) | Modelica Standard Library 4.1.0 (Modelica Association, BSD-3-Clause): `PlanarFourbar.mo` and `BodyBox.mo`, and the reference result `PlanarFourbar.csv` of its regression tests (`MAP-LIB_ReferenceResults` v4.1.0). The brief named `Fourbar1`; it is spatial (a universal, a spherical and a prismatic joint), and a transcription of its frames without the MultiBody library would judge the transcription more than the engine: `PlanarFourbar` has the same `stateSelect = always` and a cut joint's loop |
 | `fmu-stair` | a model with no continuous state: a counter raised by a time event each second | `Stair_out.csv`, point for point; the events at whole seconds exactly | Reference FMUs v0.0.41 (Modelica Association, BSD-2-Clause), `Stair/model.c` |
 | `fmu-bouncingball` | state events and `reinit`: a ball that bounces until it rests | the bounces in closed form (each one's time and speed); `BouncingBall_out.csv` beside it, which fmusim wrote with forward Euler at 1 ms: its h is up to 2.4e-2 m off the exact bounces (median 3.4e-3 m), and it bounces 12 times against the exact 11 | Reference FMUs v0.0.41, `BouncingBall/model.c` |
 | `count-implicit-a`, `count-implicit-nostate-a`, `count-explicit-pulse` | a `when` on a variable solved from an implicit equation (`x^3 + x = z`, z = a t, with and without the state), and on an explicit function of a state (`x = z - z^3/4`) above its threshold from 0.539 to 1.675 s, inside one of the integrator's steps: each must fire once, at its crossing | the exact crossing times (`x^3 + x = 0.625`; the root of `t^3 - 4 t + 2`); OpenModelica's counts beside them | none published: the exact answers (an independent check's probes of the solver work's first round) |
@@ -117,14 +122,16 @@ one of its equations (to 1e-14; one weight changed shows as 4.9).
   scd = −log10 of it; mescd = −log10(max |error| / (atol/rtol + |reference|))
   over all components. For the pendulums and the four-bar, the largest
   error of the positions (m; the angles, rad) over the output grid, and
-  scd = −log10 of it (the length is 1 m). For Stair, the largest
+  scd = −log10 of it (the length is 1 m); for MSL's planar four-bar, the
+  largest error of revolute1's angle (rad) over the grid, MSL's reference
+  result's beside it. For Stair, the largest
   difference of the counter from `Stair_out.csv` at the CSV's times (the
   value after an event at a whole second); for BouncingBall, the largest
   error of a bounce's time; for the counts, the largest distance of a
   firing from its crossing, infinite where the `when` fired too often or
   too seldom.
 * **right or wrong**: a run of a case with a closed form (the pendulums,
-  the four-bar) is right when its error is within 100 rtol of the
+  the four-bars) is right when its error is within 100 rtol of the
   reference over the whole grid: 1e-8 at rtol 1e-10, which the brief
   asks of dynamic state selection, and 1 cm on a 1 m rod at rtol 1e-4; a
   count is right when its `when` fired once per crossing (where it
@@ -134,7 +141,8 @@ one of its equations (to 1e-14; one weight changed shows as 4.9).
   scored; `score` applies it to every run, and with the release-angle
   sweep (`cases --sweep`) tabulates the runs right, wrong and stopped per
   tolerance, the angle up to which every run is right, and the largest
-  error per 0.1 rad in units of rtol.
+  error per 0.1 rad in units of rtol, the angle form's beside them (an
+  ODE: what the integrator's error alone makes of the same criterion).
 * **by time, not by row**: a run's points are matched to the reference's
   grid by their times (to 1e-12, relative): a row a tool writes off the
   grid (OpenModelica's rows at an event 1e-10 s after a whole second) is

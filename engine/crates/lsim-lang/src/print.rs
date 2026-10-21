@@ -439,6 +439,9 @@ pub fn to_text(def: &ComponentDef) -> String {
         if let Some(nm) = v.nominal {
             a.push(format!("nominal = {}", num(nm)));
         }
+        if !v.state_select.is_default() {
+            a.push(format!("stateSelect = StateSelect.{}", v.state_select.name()));
+        }
         let kw = if v.kind == VarKind::Discrete { "discrete Real" } else { "Real" };
         let _ = writeln!(s, "  {kw} {}{}{};", decl_name(&v.name), attrs(&a), doc(&v.doc));
     }

@@ -388,6 +388,14 @@ const CASES: &[Case] = &[
         "the parameter 'R' needs a value, as 'parameter",
     ),
     (
+        "stateSelect that is no StateSelect value",
+        "model M\n  Real x(start = 0, stateSelect = prefer);\nend M;",
+        "ATTRIBUTE",
+        2,
+        21,
+        "stateSelect is StateSelect.never, .avoid, .default, .prefer or .always",
+    ),
+    (
         "Boolean parameter with a number",
         "model M\n  parameter Boolean on = 1;\nend M;",
         "PARAM-VALUE",

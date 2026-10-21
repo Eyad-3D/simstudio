@@ -10,15 +10,16 @@
 //! that point and goes on, to the exact answer. Where the torque jumps
 //! without an event, no step longer than the time's resolution passes:
 //! the run stops there at once and says so (before, IDA went on taking
-//! steps too short to move the time, without end). Where the model turns
-//! singular (a pendulum's chosen states degenerate at the bottom of its
-//! swing), no step passes either, and the run says that too.
+//! steps too short to move the time, without end). Where index
+//! reduction's chosen states degenerate (a pendulum at the bottom of its
+//! swing), the run stops before they do, naming the constraint
+//! (`state_choice.rs`).
 
 mod common;
 
-use lsim_ir::component::build::{connect, eq, param, port, state, sub, var};
-use lsim_ir::expr::{Builtin, CmpOp, Expr, c, call, cmp, der, name as n};
-use lsim_ir::{ComponentDef, Interpolation, Outside, ParamDecl, ParamValue, TableData, VarDecl};
+use lsim_ir::component::build::{connect, eq, param, port, sub};
+use lsim_ir::expr::{CmpOp, Expr, c, cmp, name as n};
+use lsim_ir::{ComponentDef, Interpolation, Outside, ParamDecl, ParamValue, TableData};
 use lsim_solve::{OutputGrid, SolveError, SolverOptions, simulate};
 
 const RATIO: f64 = 12.8;
@@ -150,65 +151,42 @@ fn a_jump_no_step_passes_stops_the_run_where_it_is() {
     assert!(message.contains("no progress") && message.contains("fd."), "{err}");
 }
 
-/// The IFToMM planar simple pendulum: a point mass on a 1 m massless rod,
-/// in x and y (index 3: the rod's length a constraint on the positions),
-/// released level with its pivot (θ0 = −π/2 from the downward vertical,
-/// as the judge's text model writes it). Index reduction picks y and its
-/// speed to integrate (x moves most at the start), and at the bottom of
-/// the swing they no longer determine x (x = ±√(L² − y²)): no step passes
-/// there at rtol 1e-8, and the run stops at the quarter period. It has no
-/// jump: the message says the model may be singular (before, it put the
-/// stop down to a jump without an event alone). At looser tolerances the
-/// run passes the bottom with the wrong energy and says nothing: the
-/// outside judge (`engine/judge`) shows it, and dynamic state selection is
-/// to mend it.
+/// An iteration variable whose equation loses its solution: `z² = 1 − t`
+/// has two roots that meet at t = 1 s and none after. IDA's corrector
+/// fails there; before, the run ended on SUNDIALS' message alone ("IDA
+/// failed (SUNDIALS flag -4): … the corrector convergence failed"), which
+/// names no equation. Now it names the variable and the equation that
+/// decides it, and keeps SUNDIALS' words beside it.
 #[test]
-fn a_pendulum_whose_chosen_states_degenerate_stops_saying_it_may_be_singular() {
-    let start = |name: &str, unit: &str, value: Expr, fixed: bool| VarDecl {
-        start: Some(value),
-        fixed,
-        ..var(name, unit, "")
-    };
-    let theta0 = || n("theta0");
-    let pendulum = ComponentDef {
-        name: "Test.LevelPendulum".into(),
-        params: vec![
-            param("m", "kg", 1.0, "mass"),
-            param("L", "m", 1.0, "rod length"),
-            param("g", "m/s2", 9.81, "gravity"),
-            param("theta0", "1", -std::f64::consts::FRAC_PI_2, "release angle"),
-        ],
+fn an_equation_that_loses_its_solution_is_named_where_the_integrator_fails() {
+    use lsim_ir::component::build::{state, var};
+    use lsim_ir::expr::der;
+    let fold = ComponentDef {
+        name: "Test.Fold".into(),
+        params: vec![param("k", "1/s", 1.0, "how fast the roots close")],
         vars: vec![
-            start("x", "m", n("L") * call(Builtin::Sin, vec![theta0()]), true),
-            start("y", "m", -(n("L") * call(Builtin::Cos, vec![theta0()])), false),
-            state("vx", "m/s", 0.0, "at rest"),
-            start("vy", "m/s", c(0.0), false),
-            start("F", "N", n("m") * n("g"), false),
+            state("x", "1", 0.0, "integrates z"),
+            lsim_ir::VarDecl { start: Some(c(1.0)), ..var("z", "1", "a root of z² = 1 − k t") },
         ],
         equations: vec![
-            eq(der("x"), n("vx"), "x changes with vx"),
-            eq(der("y"), n("vy"), "y changes with vy"),
-            eq(n("m") * der("vx"), -(n("x") * n("F") / n("L")), "the rod pulls along x"),
-            eq(
-                n("m") * der("vy"),
-                -(n("y") * n("F") / n("L")) - n("m") * n("g"),
-                "the rod and gravity pull along y",
-            ),
-            eq(n("x") * n("x") + n("y") * n("y"), n("L") * n("L"), "the rod keeps its length"),
+            eq(der("x"), n("k") * n("z"), "x integrates z"),
+            eq(n("z") * n("z"), c(1.0) - n("k") * Expr::Time, "z's two roots meet at 1 s"),
         ],
         ..Default::default()
     };
-    let built = common::build(&common::library(), &pendulum, false);
-    let states: Vec<&str> =
-        built.prepared.states.iter().map(|v| built.prepared.flat.var(*v).name.as_str()).collect();
-    assert_eq!(states, ["y", "vy"], "the states chosen at the start");
-    let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 };
-    let opts = SolverOptions { rtol: 1e-8, atol: 1e-10, ..Default::default() };
-    let err = simulate(&built.jit, &built.info, &opts, grid, &mut []).map(|_| ()).unwrap_err();
-    println!("{err}");
-    let SolveError::Integrator { t, message } = &err else { panic!("{err}") };
-    // a quarter of the period: K(sin²(π/4)) / √(g/L)
-    let quarter = 1.854_074_677_301_372 / 9.81f64.sqrt();
-    assert!((t - quarter).abs() < 1e-3, "{err}");
-    assert!(message.contains("no progress") && message.contains("singular"), "{err}");
+    let built = common::build(&common::library(), &fold, false);
+    let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.1 };
+    for rtol in [1e-4, 1e-6, 1e-8] {
+        let opts = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
+        let err = simulate(&built.jit, &built.info, &opts, grid, &mut []).map(|_| ()).unwrap_err();
+        println!("rtol {rtol:e}: {err}");
+        let SolveError::Integrator { t, message } = &err else { panic!("{err}") };
+        assert!((0.9..1.0 + 1e-6).contains(t), "{err}");
+        // SUNDIALS' corrector fails (1e-4, 1e-6), or no step longer than
+        // the time's resolution passes (1e-8, the largest local error x's)
+        assert!(message.contains("loses its solution"), "{err}");
+        if message.contains("SUNDIALS flag") {
+            assert!(message.contains("z, decided by the model: z's two roots meet"), "{err}");
+        }
+    }
 }

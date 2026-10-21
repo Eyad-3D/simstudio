@@ -22,8 +22,8 @@
 //! * a `package` holding types, records, functions, constants and one
 //!   `model` (or those definitions without the package);
 //! * `type` aliases of Real, Integer and Boolean with their attributes
-//!   (`unit`, `displayUnit`, `min`, `max`, `start`, `fixed`, `nominal`),
-//!   and enumeration types;
+//!   (`unit`, `displayUnit`, `min`, `max`, `start`, `fixed`, `nominal`,
+//!   `stateSelect`), and enumeration types;
 //! * records of scalars: a record variable becomes one variable per field
 //!   (`'r'.'a'` is the variable `r.a`); record values come from
 //!   modifiers, a record constructor `'R'(1, 2)` or another record;
@@ -700,6 +700,7 @@ impl<'a> Importer<'a> {
             let (mut min, mut max, mut nominal) = (None, None, None);
             let mut start = None;
             let mut fixed = None;
+            let mut state_select = StateSelect::Default;
             for a in &attrs {
                 let name = a.name.join(".");
                 let res: Result<(), LangError> = match name.as_str() {
@@ -726,7 +727,10 @@ impl<'a> Importer<'a> {
                             "fixed is true or false".into(),
                         )),
                     },
-                    "quantity" | "stateSelect" | "unbounded" => Ok(()),
+                    "stateSelect" => {
+                        lower::state_select(a.value.as_ref(), a.span).map(|s| state_select = s)
+                    }
+                    "quantity" | "unbounded" => Ok(()),
                     other => Err(LangError::new(
                         "ATTRIBUTE",
                         a.span,
@@ -836,6 +840,7 @@ impl<'a> Importer<'a> {
                     fixed: fixed.unwrap_or(false),
                     nominal,
                     doc,
+                    state_select,
                 });
             }
             if let Some(b) = &el.binding {

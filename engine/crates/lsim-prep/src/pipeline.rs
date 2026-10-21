@@ -12,7 +12,7 @@ use crate::flatten::{self, Extras};
 use crate::graph::{Bipartite, NONE, hopcroft_karp};
 use crate::index::{self, IndexFault};
 use crate::init::{self, InitBuild, RowKind};
-use crate::system::{NodeEnv, NodeKind, Sys};
+use crate::system::{NodeEnv, NodeKind, SlotMap, Sys};
 use crate::{alias, external, inverse, key, modes, numeric, reinit, sparsity, units_check};
 use lsim_ir::component::{ComponentDef, Library};
 use lsim_ir::eval::eval;
@@ -20,7 +20,7 @@ use lsim_ir::expr::{CmpOp, Expr};
 use lsim_ir::flat::{FlatSystem, InstanceId, Origin, OriginKind, VarId};
 use lsim_ir::interp::Table;
 use lsim_ir::prepared::*;
-use lsim_ir::{Diagnostic, VarKind};
+use lsim_ir::{Diagnostic, StateSelect, VarKind};
 use std::collections::{BTreeSet, HashMap};
 use std::time::Instant;
 
@@ -247,6 +247,259 @@ fn index_diag(flat: &FlatSystem, sys: &Sys, f: IndexFault) -> Diagnostic {
     }
 }
 
+/// The choices index reduction made among states, for the run to watch
+/// ([`StateSet`]): each row's derivative by each candidate, in flat scope
+/// (a state's derivative that is itself a state read as that state, which
+/// the run's channels hold).
+fn state_sets(
+    sets: &[index::ChosenSet],
+    sys: &Sys,
+    flat: &FlatSystem,
+    map: &SlotMap,
+) -> Vec<StateSet> {
+    let chained: HashMap<VarId, VarId> = map.chained.iter().copied().collect();
+    let entry = |e: usize, nd: usize| {
+        if sys.eqs[e].inc.binary_search(&nd).is_err() {
+            return Expr::Const(0.0);
+        }
+        let d = crate::symbolic::simplify(crate::symbolic::diff(
+            &sys.eqs[e].res,
+            Slot::Var(VarId(nd as u32)),
+        ));
+        crate::walk::map_up(&map.to_flat(&d), &mut |x| match x {
+            Expr::Der(v) => chained.get(&v).map_or(Expr::Der(v), |&w| Expr::Var(w)),
+            other => other,
+        })
+    };
+    sets.iter()
+        .map(|cs| StateSet {
+            rows: cs.rows.iter().map(|&e| flat.equations[sys.eqs[e].src].origin.clone()).collect(),
+            words: cs
+                .rows
+                .iter()
+                .map(|&e| equation_words(flat, &flat.equations[sys.eqs[e].src].origin))
+                .collect(),
+            parts: parts_of(
+                flat,
+                cs.rows.iter().map(|&e| flat.equations[sys.eqs[e].src].origin.instance),
+            ),
+            candidates: cs
+                .cols
+                .iter()
+                .map(|&nd| flat.var(sys.nodes[nd].var).name.clone())
+                .collect(),
+            entries: cs
+                .rows
+                .iter()
+                .map(|&e| cs.cols.iter().map(|&nd| entry(e, nd)).collect())
+                .collect(),
+            pivots: cs.pivots.clone(),
+            masked: cs.masked.clone(),
+        })
+        .collect()
+}
+
+/// Each variable's `stateSelect` for the choice of states: its own; where
+/// an equation makes it another's derivative (`der(x) = vx`), the other's
+/// when it has none, and the stronger of the two (`always`, `prefer`, the
+/// default, `avoid`, `never`) when both have one: marking x marks its
+/// speed with it.
+fn derivative_selects(flat: &FlatSystem, sys: &Sys) -> Vec<StateSelect> {
+    let mut sel: Vec<StateSelect> = flat.vars.iter().map(|v| v.state_select).collect();
+    let rank = |s: StateSelect| match s {
+        StateSelect::Never => 0,
+        StateSelect::Avoid => 1,
+        StateSelect::Default => 2,
+        StateSelect::Prefer => 3,
+        StateSelect::Always => 4,
+    };
+    let pairs = derivative_pairs(sys);
+    if pairs.iter().all(|&(a, b)| sel[a].is_default() && sel[b].is_default()) {
+        return sel;
+    }
+    // (to a fixed point: chains of them)
+    loop {
+        let mut changed = false;
+        for &(a, b) in &pairs {
+            let s = if rank(sel[a]) >= rank(sel[b]) { sel[a] } else { sel[b] };
+            let wish = |x: StateSelect| !x.is_default();
+            // a mark carries to an unmarked variable; between two marks the
+            // stronger
+            let (ta, tb) = match (wish(sel[a]), wish(sel[b])) {
+                (true, false) => (sel[a], sel[a]),
+                (false, true) => (sel[b], sel[b]),
+                _ => (s, s),
+            };
+            if sel[a] != ta || sel[b] != tb {
+                sel[a] = ta;
+                sel[b] = tb;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    sel
+}
+
+/// The flat variables an equation makes one the other's derivative
+/// (`der(x) = vx`), by pairs.
+fn derivative_pairs(sys: &Sys) -> Vec<(usize, usize)> {
+    let node_of = |e: &Expr| match e {
+        Expr::Var(v) => Some(v.0 as usize),
+        _ => None,
+    };
+    let mut pairs = vec![];
+    for eq in sys.eqs.iter().filter(|e| e.diff_of.is_none()) {
+        let (a, b) = match &eq.res {
+            Expr::Binary(lsim_ir::BinaryOp::Sub, a, b) => (node_of(a), node_of(b)),
+            _ => continue,
+        };
+        let (Some(a), Some(b)) = (a, b) else { continue };
+        let (na, nb) = (&sys.nodes[a], &sys.nodes[b]);
+        if na.kind != NodeKind::Unknown || nb.kind != NodeKind::Unknown || na.var == nb.var {
+            continue;
+        }
+        // one a derivative, the other a variable
+        if (na.order >= 1 && nb.order == 0) || (nb.order >= 1 && na.order == 0) {
+            pairs.push((na.var.0 as usize, nb.var.0 as usize));
+        }
+    }
+    pairs
+}
+
+/// The flat variables a choice of states the model asked for would have
+/// kept as states but for the margin it must start within
+/// ([`index::MARGIN`]), with the factor that choice would start at; a
+/// variable tied to one as its derivative (`der(x) = vx`) among them.
+fn margin_unkept(sys: &Sys, unkept: &[index::Unkept]) -> Vec<(usize, f64)> {
+    if unkept.is_empty() {
+        return vec![];
+    }
+    let pairs = derivative_pairs(sys);
+    let mut out: Vec<(usize, f64)> = vec![];
+    for u in unkept {
+        let mut tied: Vec<usize> = u.nodes.iter().map(|&nd| sys.nodes[nd].var.0 as usize).collect();
+        let mut k = 0;
+        while k < tied.len() {
+            let v = tied[k];
+            for &(a, b) in &pairs {
+                let o = if a == v {
+                    b
+                } else if b == v {
+                    a
+                } else {
+                    continue;
+                };
+                if !tied.contains(&o) {
+                    tied.push(o);
+                }
+            }
+            k += 1;
+        }
+        for v in tied {
+            match out.iter_mut().find(|(w, _)| *w == v) {
+                Some((_, f)) => *f = f.max(u.factor),
+                None => out.push((v, u.factor)),
+            }
+        }
+    }
+    out
+}
+
+/// Why the choice that keeps a variable marked to be a state was not
+/// taken, where the margin kept it from being (`factor`: the factor it
+/// would start at).
+fn margin_why(factor: f64) -> String {
+    format!(
+        "at the start, the choice of states that keeps it would decide a variable that moves \
+         {factor:.0} times as much as a state: more than the {:.0} a choice the model asks for \
+         may start at, half the {:.0} at which a run stops a choice (it would stop at once, or \
+         at the first wobble at one tolerance and not at another)",
+        1.0 / index::WIDE,
+        1.0 / lsim_ir::choice::DEGRADED
+    )
+}
+
+/// The variables whose `stateSelect` the choice of states could not meet:
+/// `always` that is not a state, `never` that is one, and `prefer` that
+/// is not, where only the margin a choice the model asks for must start
+/// within kept it from being one (`margin`: those variables, with the
+/// factor; a restarted variable's continuous part stands for it; an
+/// inverse model's states follow the prescribed motion, and are not told).
+fn state_select_unmet(
+    flat: &FlatSystem,
+    sys: &Sys,
+    is_state: &[bool],
+    inverse: bool,
+    restarted: &[reinit::Restarted],
+    margin: &[(usize, f64)],
+) -> Vec<Diagnostic> {
+    if inverse {
+        return vec![];
+    }
+    let mut out = vec![];
+    for (i, v) in flat.vars.iter().enumerate() {
+        let Some(nd) = sys.base[i] else { continue };
+        if sys.nodes[nd].kind != NodeKind::Unknown {
+            continue;
+        }
+        let restarted = restarted.iter().any(|r| r.var.0 as usize == i);
+        let name = diagnose::local_name(flat, VarId(i as u32));
+        let who = flat.instance_name(v.instance);
+        let unkept = margin.iter().find(|(w, _)| *w == i).map(|&(_, f)| f);
+        let mut d = match v.state_select {
+            StateSelect::Always if !is_state[nd] && !restarted => {
+                let why = if let Some(f) = unkept {
+                    margin_why(f)
+                } else if sys.nodes[nd].deriv.is_none() {
+                    "nothing in the model differentiates it, and the engine chooses the states \
+                     among the variables that appear differentiated"
+                        .into()
+                } else {
+                    "at the start, every choice of states that keeps it leaves a constraint that \
+                     does not depend on what it has to decide"
+                        .into()
+                };
+                warning(
+                    "STATE-SELECT-ALWAYS",
+                    format!(
+                        "{who} marks {name} as always a state (stateSelect = always), but it \
+                         cannot be one: {why}. Other variables are the states."
+                    ),
+                )
+                .with_hint("Start the model from a position where it can be a state.")
+            }
+            StateSelect::Prefer if !is_state[nd] && unkept.is_some() => warning(
+                "STATE-SELECT-PREFER",
+                format!(
+                    "{who} marks {name} to be kept as a state (stateSelect = prefer), but it is \
+                     not one: {}. The states are those pivoting alone chooses.",
+                    margin_why(unkept.unwrap_or(f64::NAN))
+                ),
+            )
+            .with_hint(
+                "Start the model from a position where the choice that keeps it is further from \
+                 degenerate, or describe the part in coordinates that stay regular through its \
+                 motion (an angle).",
+            ),
+            StateSelect::Never if is_state[nd] => warning(
+                "STATE-SELECT-NEVER",
+                format!(
+                    "{who} marks {name} as never a state (stateSelect = never), but it has to be \
+                     one: no other variable can stand for it."
+                ),
+            )
+            .with_hint("Remove the mark, or tie it to a variable that can be the state."),
+            _ => continue,
+        };
+        d.parts = parts_of(flat, std::iter::once(v.instance));
+        out.push(d);
+    }
+    out
+}
+
 /// Prepares `top`, forward or (with `spec`) as fast mode's inverse model.
 pub fn run(
     lib: &Library,
@@ -276,6 +529,7 @@ pub fn run(
     };
     let aliases = alias::eliminate_with(&mut flat, &input);
     warnings.extend(alias::carry_starts(&mut flat, &mut extras.start, &aliases));
+    warnings.extend(alias::carry_state_select(&mut flat, &aliases));
     clock.lap("aliases");
     let restarted = reinit::apply(&mut flat, &mut extras.start, &aliases, &input, &mut warnings)?;
     let limits_flat = if spec.is_some() { inverse::pass_limits(&mut flat) } else { vec![] };
@@ -691,17 +945,36 @@ pub fn run(
 
     // dummy derivatives
     // how strongly to keep each node a state: a restarted state's
-    // continuous part above all (reinit needs it), then a fixed start
+    // continuous part and `stateSelect = always` above all (reinit needs
+    // it), then the variable's `stateSelect`, and among the default ones a
+    // fixed start first; a derivative is kept as its variable is, and a
+    // variable that is another's derivative (`der(x) = vx`) as strongly as
+    // the more strongly kept of the two
+    let selects = derivative_selects(&flat, &sys);
     let mut keep_node: Vec<u8> = sys
         .nodes
         .iter()
-        .map(|n| u8::from(n.order == 0 && flat.var(n.var).fixed && flat.var(n.var).start.is_some()))
+        .map(|n| {
+            let v = flat.var(n.var);
+            match selects[n.var.0 as usize] {
+                StateSelect::Never => index::KEEP_NEVER,
+                StateSelect::Avoid => index::KEEP_AVOID,
+                StateSelect::Default if n.order == 0 && v.fixed && v.start.is_some() => {
+                    index::KEEP_FIXED
+                }
+                StateSelect::Default => index::KEEP_DEFAULT,
+                StateSelect::Prefer => index::KEEP_PREFER,
+                StateSelect::Always => index::KEEP_STRONG,
+            }
+        })
         .collect();
     for r in &restarted {
         if let Some(nd) = sys.base[r.continuous.0 as usize] {
-            keep_node[nd] = 2;
+            keep_node[nd] = index::KEEP_STRONG;
         }
     }
+    let mut chosen_sets = vec![];
+    let mut unkept = vec![];
     let (is_state, dummy) = if differentiated > 0 {
         let point = if solved.is_ok() { vals.clone() } else { generic_values(&sys, &flat) };
         let sel = index::dummy_derivatives(&sys, &point, &pvals, tables, &keep_node)
@@ -719,6 +992,8 @@ pub fn run(
                 }
             })
             .map_err(|f| vec![index_diag(&flat, &sys, f)])?;
+        chosen_sets = sel.sets;
+        unkept = sel.unkept;
         (sel.is_state, sel.dummy)
     } else {
         (trivial_states, vec![false; nn])
@@ -733,19 +1008,28 @@ pub fn run(
     if spec.is_some() {
         warnings.extend(lost.iter().map(|r| reinit::prescribed(&flat, r.var, &r.origin)));
     } else if !lost.is_empty() {
+        let margin = margin_unkept(&sys, &unkept);
         return Err(lost
             .iter()
             .map(|r| {
-                reinit::not_state(
-                    &flat,
-                    r.var,
-                    &r.origin,
-                    "it is rigidly tied to other states, and index reduction had to make it \
-                     follow from them",
-                )
+                let why = match margin.iter().find(|(w, _)| *w == r.continuous.0 as usize) {
+                    Some(&(_, f)) => margin_why(f),
+                    None => "it is rigidly tied to other states, and index reduction had to make \
+                             it follow from them"
+                        .into(),
+                };
+                reinit::not_state(&flat, r.var, &r.origin, &why)
             })
             .collect());
     }
+    warnings.extend(state_select_unmet(
+        &flat,
+        &sys,
+        &is_state,
+        spec.is_some(),
+        &restarted,
+        &margin_unkept(&sys, &unkept),
+    ));
     clock.lap("states");
 
     // the model: sorted, torn, solved
@@ -797,6 +1081,7 @@ pub fn run(
     // nodes → slots
     let state_nodes: Vec<usize> = (0..nn).filter(|&n| is_state[n]).collect();
     let map = sys.slots(&mut flat, &is_state);
+    let state_sets = state_sets(&chosen_sets, &sys, &flat, &map);
     extras.start.resize(flat.vars.len(), None);
     report.states = map.states.iter().map(|v| flat.var(*v).name.clone()).collect();
     let origin_of = |k: usize, flat: &FlatSystem| flat.equations[sys.eqs[k].src].origin.clone();
@@ -990,6 +1275,7 @@ pub fn run(
         limits,
         guards,
         warnings: vec![],
+        state_sets,
     };
     let (blocks, ext_diags) = external::order(&model, extras.external);
     model.external = blocks;

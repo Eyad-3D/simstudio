@@ -433,6 +433,72 @@ pub fn carry_starts(
     notes
 }
 
+/// Gives each kept variable the `stateSelect` of the variables made one
+/// with it: a wish to keep it a state (`always`, then `prefer`) before a
+/// wish to avoid it (`never`, then `avoid`); wishes that pull both ways
+/// are told.
+pub fn carry_state_select(
+    flat: &mut FlatSystem,
+    aliases: &[AliasEntry],
+) -> Vec<lsim_ir::Diagnostic> {
+    use lsim_ir::StateSelect as S;
+    let rank = |s: S| match s {
+        S::Always => 4,
+        S::Prefer => 3,
+        S::Never => 2,
+        S::Avoid => 1,
+        S::Default => 0,
+    };
+    let mut sets: std::collections::BTreeMap<u32, Vec<VarId>> = Default::default();
+    for a in aliases {
+        let AliasTarget::Var { var, .. } = a.target else { continue };
+        if !flat.var(a.var).state_select.is_default() {
+            sets.entry(var.0).or_default().push(a.var);
+        }
+    }
+    let mut notes = vec![];
+    for (kept, from) in sets {
+        let kept_id = VarId(kept);
+        let mut all = vec![kept_id];
+        all.extend(from);
+        all.retain(|v| !flat.var(*v).state_select.is_default());
+        let best = all
+            .iter()
+            .copied()
+            .max_by_key(|v| rank(flat.var(*v).state_select))
+            .expect("one at least");
+        let chosen = flat.var(best).state_select;
+        let keep = |s: S| matches!(s, S::Always | S::Prefer);
+        if all.iter().any(|v| keep(flat.var(*v).state_select) != keep(chosen)) {
+            let words: Vec<String> = all
+                .iter()
+                .map(|v| {
+                    format!(
+                        "{} ({})",
+                        crate::diagnose::local_name(flat, *v),
+                        flat.var(*v).state_select.name()
+                    )
+                })
+                .collect();
+            let mut d = crate::diagnose::warning(
+                "STATE-SELECT-CONFLICT",
+                format!(
+                    "{} are one and the same variable but ask for different stateSelect: \
+                     {} of {} is taken.",
+                    crate::diagnose::join_names(&words),
+                    chosen.name(),
+                    crate::diagnose::local_name(flat, best)
+                ),
+            )
+            .with_hint("Give them the same stateSelect, or one only.");
+            d.parts = crate::diagnose::parts_of(flat, all.iter().map(|v| flat.var(*v).instance));
+            notes.push(d);
+        }
+        flat.vars[kept as usize].state_select = chosen;
+    }
+    notes
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

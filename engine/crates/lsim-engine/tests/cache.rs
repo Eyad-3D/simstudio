@@ -1,13 +1,15 @@
 //! The prepared-model cache: a hit is the model built without it, and a
 //! build at other parameter values is prepared again, since preparation
 //! chooses by them (index reduction picks a pendulum's states by pivoting
-//! at its start).
+//! at its start). Parameters set on a built model, from the cache or not,
+//! are checked against that choice: values at whose start it does not
+//! work are refused, naming the constraint.
 
 use lsim_engine::lsim_ir::component::VarDecl;
 use lsim_engine::lsim_ir::component::build::{eq, param, state, sub, var};
 use lsim_engine::lsim_ir::expr::{Builtin, Expr, c, call, der, name as n};
 use lsim_engine::lsim_ir::{ComponentDef, Library};
-use lsim_engine::lsim_solve::{OutputGrid, SolverOptions};
+use lsim_engine::lsim_solve::{OutputGrid, SolveError, SolverOptions};
 use lsim_engine::{BuildOptions, Engine, Model};
 
 /// A pendulum on a rigid rod of length `L0`, released at rest at `theta0`
@@ -90,11 +92,73 @@ fn a_build_at_other_values_is_prepared_again_and_chooses_its_own_states() {
     assert!(!level.report.cache_hit, "other values are not a hit");
     assert_eq!(level.info.y_names, plain.info.y_names);
     assert_ne!(level.info.y_names, first.info.y_names, "the states are chosen at the values");
-    let (x, values) = swing(&level);
-    assert_eq!(values, swing(&plain).1);
-    // theta'' = -g sin(theta) integrated independently (rtol 1e-12)
-    for (got, want) in x.iter().zip([0.391048792, -0.986291751, -0.88413236, 0.793566195]) {
-        assert!((got - want).abs() < 1e-4, "x = {got}, the pendulum swings to {want}");
+    // y and vy, chosen there, no longer decide x at the bottom of the
+    // swing (a quarter period, 0.592 s): both builds stop there, saying so
+    // (before, they passed the bottom 7e-6 m off at rtol 1e-8, 700 rtol)
+    let opts = SolverOptions { rtol: 1e-8, atol: 1e-8, ..Default::default() };
+    let stop = |m: &Model| {
+        m.simulate(&opts, OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.01 }).map(|_| ()).unwrap_err()
+    };
+    let (a, b) = (stop(&level), stop(&plain));
+    assert_eq!(a.to_string(), b.to_string());
+    let SolveError::StateSelection { t, message, .. } = &a else { panic!("{a}") };
+    assert!((0.58..0.592).contains(t) && message.contains("'p' (rod) decides p.x"), "{a}");
+    // before it, the swing is right: theta'' = -g sin(theta) integrated
+    // independently (rtol 1e-12) gives x(0.5) = 0.391048792
+    let run = level.simulate(&opts, OutputGrid { t0: 0.0, t_end: 0.5, dt: 0.01 }).expect("runs");
+    let x = run.values[run.names.iter().position(|v| v == "p.x").expect("p.x")][50];
+    assert!((x - 0.391048792).abs() < 1e-7, "x(0.5) = {x}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Built at 0.4 rad the pendulum keeps x and vx as its states. Set to
+/// release level (π/2, x = L), the rod's constraint no longer depends on
+/// y there: the choice cannot start, and the change is refused, naming the
+/// rod, as a broken divisor is (before, it was taken, and the run failed
+/// on IDA's flag -4, or, from the cache, returned a pendulum that never
+/// falls, the merge review's finding). Values the choice suits are taken,
+/// from the cache as without it; a sweep refuses the set alone; a run
+/// handed such values directly stops at its start, saying why.
+#[test]
+fn parameters_at_which_the_chosen_states_cannot_start_are_refused() {
+    let dir = std::env::temp_dir().join(format!("lsim-cache-states-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let engine = engine();
+    let cached = BuildOptions { cache: Some(dir.clone()), ..Default::default() };
+    let first = engine.build(&top(0.4), &cached).expect("builds");
+    let hit = engine.build(&top(0.4), &cached).expect("builds");
+    assert!(hit.report.cache_hit);
+    assert!(!first.prepared.state_sets.is_empty());
+    assert_eq!(hit.prepared.state_sets, first.prepared.state_sets, "the hit carries the choice");
+    let level = std::f64::consts::FRAC_PI_2;
+    for mut m in [first, hit] {
+        assert_eq!(m.info.y_names[..2], ["p.x", "p.vx"]);
+        let why = m.set_param("p.theta0", level).unwrap_err();
+        assert!(
+            why.contains("'p' (rod) decides p.y") && why.contains("build the model again"),
+            "{why}"
+        );
+        assert_eq!(m.param("p.theta0"), Some(0.4), "a refused value is not set");
+        // at 1.5 rad y moves 14 times as much as x at the start: taken
+        m.set_param("p.theta0", 1.5).expect("the choice works there");
+        let opts = SolverOptions { rtol: 1e-8, atol: 1e-8, ..Default::default() };
+        m.simulate(&opts, OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.01 }).expect("runs");
+        let sets: Vec<Vec<(String, f64)>> =
+            [0.4, level, 1.0].iter().map(|&v| vec![("p.theta0".to_string(), v)]).collect();
+        let runs = m.sweep(&sets, &opts, OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 }, 2);
+        assert!(runs[0].is_ok() && runs[2].is_ok());
+        let e = runs[1].as_ref().map(|_| ()).unwrap_err().to_string();
+        assert!(e.contains("decides p.y"), "{e}");
+        // past the check: the run itself stops at its start
+        let p = {
+            let mut p = m.info.params.clone();
+            let k = m.param_names().iter().position(|n| *n == "p.theta0").expect("theta0");
+            p[k] = level;
+            p
+        };
+        let err = m.simulate_with(&p, &opts, OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 }, &mut []);
+        let e = err.map(|_| ()).unwrap_err().to_string();
+        assert!(e.contains("at the start") && e.contains("decides p.y"), "{e}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

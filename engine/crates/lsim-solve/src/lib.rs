@@ -36,6 +36,7 @@ pub mod jac;
 mod recorder;
 pub mod run;
 pub mod stateless;
+pub mod states;
 #[cfg(feature = "sundials")]
 pub mod sundials;
 pub mod sweep;
@@ -45,7 +46,8 @@ pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
 pub use info::{
     AssertInfo, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, ImpulseInfo, ImpulseLink,
-    InputChain, ModeInfo, RunInfo, StoredRates, TimeCrossing, TimeFunction, VarSource,
+    InputChain, ModeInfo, RunInfo, SetReads, StateSetInfo, StoredRates, TimeCrossing, TimeFunction,
+    VarSource,
 };
 pub use recorder::Recorder;
 pub use run::run_loop;
@@ -72,6 +74,18 @@ pub enum SolveError {
         t: f64,
         /// what failed, naming the equations with the largest residuals
         message: String,
+    },
+    /// Index reduction's choice of states no longer works here: a
+    /// constraint hardly depends on what it decides from the states
+    /// ([`states`]).
+    #[error("the solver stopped at t = {t} s: {message}")]
+    StateSelection {
+        /// where
+        t: f64,
+        /// what, naming the constraint, the variables and what to do
+        message: String,
+        /// the parts the constraint belongs to
+        parts: Vec<String>,
     },
     /// Events piled up: a mode or `when` condition chattering.
     #[error("event storm at t = {t} s: {message}")]
@@ -799,7 +813,15 @@ pub fn simulate(
         &mut d0,
         &u,
         &init::InitSettings { rtol: opts.rtol, atol: opts.atol, max_iterations: 50 },
-    )?;
+    )
+    .map_err(|e| {
+        // a start the states chosen at preparation cannot hold (a model
+        // prepared at other values) is told as that
+        states::check_start(model, info, grid.t0, &y0, &d0, &u).err().unwrap_or(e)
+    })?;
+    // index reduction's choice of states, at this start (parameters set
+    // after preparation, a cached model)
+    states::check_start(model, info, grid.t0, &y0, &d0, &u)?;
     let result = run_backend(model, info, opts, grid, y0, d0, u, blocks, started);
     result.map(|mut r| {
         r.report.notes.insert(0, format!("start: {start}"));

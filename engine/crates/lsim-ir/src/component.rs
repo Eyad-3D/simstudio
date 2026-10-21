@@ -226,6 +226,55 @@ pub enum VarKind {
     Discrete,
 }
 
+/// How strongly a variable is wanted as a state when index reduction has
+/// a choice (Modelica's `stateSelect`, its priorities in order).
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default, Serialize, Deserialize,
+)]
+pub enum StateSelect {
+    /// not a state at all (told when it has to be one)
+    Never,
+    /// a state only when no other choice works
+    Avoid,
+    /// a state if that suits the choice (the default)
+    #[default]
+    Default,
+    /// a state before the variables marked default
+    Prefer,
+    /// always a state (told when it cannot be one)
+    Always,
+}
+
+impl StateSelect {
+    /// Whether it is the default (left out when written).
+    pub fn is_default(&self) -> bool {
+        *self == StateSelect::Default
+    }
+
+    /// Its Modelica name (`StateSelect.prefer` without the prefix).
+    pub fn name(&self) -> &'static str {
+        match self {
+            StateSelect::Never => "never",
+            StateSelect::Avoid => "avoid",
+            StateSelect::Default => "default",
+            StateSelect::Prefer => "prefer",
+            StateSelect::Always => "always",
+        }
+    }
+
+    /// The value for a Modelica name (`prefer`).
+    pub fn from_name(s: &str) -> Option<StateSelect> {
+        Some(match s {
+            "never" => StateSelect::Never,
+            "avoid" => StateSelect::Avoid,
+            "default" => StateSelect::Default,
+            "prefer" => StateSelect::Prefer,
+            "always" => StateSelect::Always,
+            _ => return None,
+        })
+    }
+}
+
 /// A variable.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct VarDecl {
@@ -247,6 +296,9 @@ pub struct VarDecl {
     pub nominal: Option<f64>,
     /// what it is
     pub doc: String,
+    /// how strongly it is wanted as a state ([`StateSelect`])
+    #[serde(default, skip_serializing_if = "StateSelect::is_default")]
+    pub state_select: StateSelect,
 }
 
 /// A parameter value given to a sub-component.
@@ -502,6 +554,7 @@ pub mod build {
             fixed: false,
             nominal: None,
             doc: doc.into(),
+            state_select: StateSelect::Default,
         }
     }
 

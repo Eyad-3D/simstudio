@@ -8,8 +8,8 @@ use common::{library, signal};
 use lsim_ir::component::build::{connect, eq, param, state, sub, var};
 use lsim_ir::expr::{CmpOp, Expr, c, cmp, der, name as n};
 use lsim_ir::{
-    ComponentDef, Diagnostic, Equation, EquationDecl, Library, ParamValue, Severity, SubDecl,
-    WhenAction,
+    ComponentDef, Diagnostic, Equation, EquationDecl, Library, ParamValue, Severity, StateSelect,
+    SubDecl, WhenAction,
 };
 use lsim_prep::{PrepOptions, prepare};
 
@@ -478,6 +478,105 @@ fn a_constraint_that_is_singular_at_the_start() {
     let lib = with(vec![d]);
     let top = model(vec![labelled(sub("pt", "Faults.Point", &[]), "Point")], &[]);
     expect_in(&lib, &top, "STATE-SELECT-SINGULAR", &["pt"], Severity::Error);
+}
+
+/// A point on a rod of 1 m, in x and y, released level with its pivot (θ0
+/// = π/2 from the downward vertical: x = 1, y = −6e-17), x marked
+/// `x_select`.
+fn rod(x_select: StateSelect) -> ComponentDef {
+    rod_at(x_select, std::f64::consts::FRAC_PI_2)
+}
+
+/// [`rod`] released at `theta0` from the downward vertical.
+fn rod_at(x_select: StateSelect, theta0_value: f64) -> ComponentDef {
+    use common::{guess, state_expr};
+    use lsim_ir::VarDecl;
+    use lsim_ir::expr::{Builtin, call};
+    let theta0 = || n("theta0");
+    ComponentDef {
+        name: "Faults.Rod".into(),
+        params: vec![
+            param("m", "kg", 1.0, ""),
+            param("g", "m/s2", 9.81, ""),
+            param("theta0", "1", theta0_value, ""),
+        ],
+        vars: vec![
+            VarDecl {
+                state_select: x_select,
+                ..state_expr("x", "m", call(Builtin::Sin, vec![theta0()]))
+            },
+            guess("y", "m", -call(Builtin::Cos, vec![theta0()])),
+            state("vx", "m/s", 0.0, ""),
+            guess("vy", "m/s", c(0.0)),
+            guess("F", "N/m", c(9.81)),
+        ],
+        equations: vec![
+            eq(der("x"), n("vx"), ""),
+            eq(der("y"), n("vy"), ""),
+            eq(n("m") * der("vx"), -(n("x") * n("F")), ""),
+            eq(n("m") * der("vy"), -(n("y") * n("F")) - n("m") * n("g"), ""),
+            eq(n("x") * n("x") + n("y") * n("y"), c(1.0), "the rod keeps its length"),
+        ],
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_variable_marked_always_a_state_that_cannot_be_one() {
+    // released level, the rod's constraint does not depend on y there: x
+    // cannot be a state; the model runs with y and vy, and says so
+    let lib = with(vec![rod(StateSelect::Always)]);
+    let top = model(vec![labelled(sub("pt", "Faults.Rod", &[]), "Point")], &[]);
+    let d = expect_in(&lib, &top, "STATE-SELECT-ALWAYS", &["pt"], Severity::Warning);
+    assert!(d.message.contains("x"), "{d}");
+}
+
+#[test]
+fn a_variable_marked_prefer_whose_choice_starts_too_near_the_run_s_limit() {
+    // released at atan 99 from the downward vertical: the choice that keeps
+    // x decides y at a factor of 99, inside the run's limit (100) but not
+    // within the margin a marked choice must start in (50): the states are
+    // y and vy, and the mark's refusal is told
+    let lib = with(vec![rod_at(StateSelect::Prefer, lsim_ir::math::atan(99.0))]);
+    let top = model(vec![labelled(sub("pt", "Faults.Rod", &[]), "Point")], &[]);
+    let d = expect_in(&lib, &top, "STATE-SELECT-PREFER", &["pt"], Severity::Warning);
+    assert!(d.message.contains("x") && d.message.contains("99 times"), "{d}");
+    // at atan 45 the mark is met, and nothing is told
+    let lib = with(vec![rod_at(StateSelect::Prefer, lsim_ir::math::atan(45.0))]);
+    let prepared = prepare(&lib, &top, &PrepOptions::default()).expect("prepares");
+    assert!(prepared.warnings.iter().all(|w| !w.code.starts_with("STATE-SELECT")));
+}
+
+#[test]
+fn a_variable_marked_never_a_state_that_has_to_be_one() {
+    let d = custom(
+        "Faults.Decay",
+        vec![lsim_ir::VarDecl { state_select: StateSelect::Never, ..state("v", "1", 1.0, "") }],
+        vec![eq(der("v"), -(n("k") * n("v")), "it decays")],
+    );
+    let d = ComponentDef { params: vec![param("k", "1/s", 1.0, "rate")], ..d };
+    let lib = with(vec![d]);
+    let top = model(vec![labelled(sub("k", "Faults.Decay", &[]), "Decay")], &[]);
+    expect_in(&lib, &top, "STATE-SELECT-NEVER", &["k"], Severity::Warning);
+}
+
+#[test]
+fn one_variable_marked_two_ways() {
+    // w and x are one and the same variable (w = x), one marked prefer,
+    // the other avoid: prefer is taken, and the marks' conflict told
+    let d = custom(
+        "Faults.TwoMarks",
+        vec![
+            lsim_ir::VarDecl { state_select: StateSelect::Prefer, ..state("x", "1", 1.0, "") },
+            lsim_ir::VarDecl { state_select: StateSelect::Avoid, ..var("w", "1", "") },
+        ],
+        vec![eq(n("w"), n("x"), "w is x"), eq(der("x"), -(n("k") * n("w")), "it decays")],
+    );
+    let d = ComponentDef { params: vec![param("k", "1/s", 1.0, "rate")], ..d };
+    let lib = with(vec![d]);
+    let top = model(vec![labelled(sub("k", "Faults.TwoMarks", &[]), "Marks")], &[]);
+    let d = expect_in(&lib, &top, "STATE-SELECT-CONFLICT", &["k"], Severity::Warning);
+    assert!(d.message.contains("prefer") && d.message.contains("avoid"), "{d}");
 }
 
 #[test]
