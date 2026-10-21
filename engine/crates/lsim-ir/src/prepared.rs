@@ -265,6 +265,35 @@ pub struct ParamGuard {
     pub origin: Origin,
 }
 
+/// A choice index reduction made among states (DESIGN.md §6, step 5):
+/// constraints differentiated in time, the highest derivatives they could
+/// decide, and the one chosen for each by pivoting at the start (a dummy
+/// derivative, which stops the variable it is the derivative of being a
+/// state). The choice holds for the whole run; the run watches its pivots
+/// and stops, naming the constraint, where it no longer works.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct StateSet {
+    /// the constraints (the rows): for each, the equation it was
+    /// differentiated from, in the order they were pivoted
+    pub rows: Vec<Origin>,
+    /// each row's equation in words (`'pendulum' (the rod keeps its
+    /// length)`)
+    pub words: Vec<String>,
+    /// the diagram parts the rows belong to
+    pub parts: Vec<String>,
+    /// the candidates (the columns): for each, the variable whose
+    /// derivative it is (`x` for `der(der(x))`)
+    pub candidates: Vec<String>,
+    /// rows × columns: each row's derivative by each column, in flat scope
+    /// (`Const(0)` where a row does not read a column)
+    pub entries: Vec<Vec<Expr>>,
+    /// per row, the column chosen for it
+    pub pivots: Vec<usize>,
+    /// the columns left out of the choice (kept above all: `stateSelect =
+    /// always`, a state `reinit` restarts)
+    pub masked: Vec<bool>,
+}
+
 /// Counts that describe the preparation, for the run report.
 #[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
 pub struct PrepStats {
@@ -343,6 +372,10 @@ pub struct PreparedModel {
     /// told like every other diagnostic
     #[serde(default)]
     pub warnings: Vec<crate::diag::Diagnostic>,
+    /// the choices index reduction made among states, which the run
+    /// watches (none when nothing was differentiated)
+    #[serde(default)]
+    pub state_sets: Vec<StateSet>,
 }
 
 impl PreparedModel {
@@ -375,6 +408,7 @@ mod tests {
                 nominal: 1.0,
                 instance: InstanceId(0),
                 role: VarRole::Local,
+                state_select: Default::default(),
             });
         }
         let m = PreparedModel {
@@ -397,6 +431,7 @@ mod tests {
             limits: vec![],
             guards: vec![],
             warnings: vec![],
+            state_sets: vec![],
         };
         assert_eq!(m.input_names(), ["body.v", "der(body.v)"]);
         assert!(m.init.is_empty());

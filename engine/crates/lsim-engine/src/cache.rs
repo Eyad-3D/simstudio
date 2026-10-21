@@ -14,7 +14,10 @@
 //! horizontally must keep `y`), and the start checks warn at the start
 //! values. A model prepared at other values is not the model. A study at
 //! other values sets them on one built model (`Model::params_with`), which
-//! checks what the preparation divided by.
+//! checks what the preparation divided by and that the states it chose
+//! work at the start; the prepared model carries the choice
+//! ([`lsim_ir::StateSet`]), so a run from the cache watches it as any
+//! other run does.
 
 use lsim_ir::component::{ComponentDef, Library};
 use lsim_ir::{InverseSpec, PreparedModel};
@@ -23,7 +26,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Bumped when what is cached, or how it is keyed, changes.
-const FORMAT: &str = "prepared-v3";
+const FORMAT: &str = "prepared-v4";
 
 /// The cache key of a model's inputs; `inverse` is fast mode's
 /// specification (`None` for full dynamic).

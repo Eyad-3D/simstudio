@@ -9,7 +9,7 @@
 //! parameters and discrete variables only change at events anyway and are
 //! left as they are; so is everything under `noEvent`.
 
-use lsim_ir::component::VarKind;
+use lsim_ir::component::{StateSelect, VarKind};
 use lsim_ir::expr::{Builtin, CmpOp, Expr};
 use lsim_ir::flat::{FlatSystem, FlatVar, Origin, VarId, VarRole};
 use lsim_ir::units::Unit;
@@ -63,6 +63,7 @@ impl Ctx<'_> {
             nominal: 1.0,
             instance: inst,
             role: VarRole::Local,
+            state_select: StateSelect::Default,
         });
         let v = VarId(self.flat.vars.len() as u32 - 1);
         self.discrete.push(true);

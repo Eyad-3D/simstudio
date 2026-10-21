@@ -268,36 +268,156 @@ const HOLD: f64 = 4.0;
 /// on; IDA says nothing).
 const STUCK_STEPS: usize = 10;
 
+/// The variable with the largest local error (as a share of its
+/// tolerance) in the integrator's last step, in words: an iteration
+/// variable with the equations that decide it (those that read it at
+/// `(t, y, d)`), and the iteration variables' Jacobian there (`None`: not
+/// taken, too many of them). Empty where the integrator gives no estimate.
+#[allow(clippy::too_many_arguments)]
+fn worst_variable(
+    model: &dyn ModelFunctions,
+    info: &RunInfo,
+    integ: &mut dyn Integrator,
+    t: f64,
+    y: &[f64],
+    d: &[f64],
+    u: &[f64],
+) -> (String, Option<Vec<Vec<f64>>>) {
+    let l = *model.layout();
+    let (nx, nz) = (l.n_x, l.n_z);
+    let mut jac = None;
+    if nz > 0 && nz <= 2000 && y.len() == nx + nz {
+        let mut work = vec![0.0; l.n_work];
+        let (mut v, mut out) = (vec![0.0; nx + nz], vec![0.0; nx + nz]);
+        let inp = EvalInput { t, y, p: &info.params, d, u };
+        let mut m = vec![vec![0.0; nz]; nz];
+        for j in 0..nz {
+            v[nx + j] = 1.0;
+            model.jvp(&inp, &v, &mut work, &mut out);
+            v[nx + j] = 0.0;
+            for i in 0..nz {
+                m[i][j] = out[nx + i];
+            }
+        }
+        jac = Some(m);
+    }
+    let mut local = vec![0.0; nx + nz];
+    if !integ.local_error(&mut local) {
+        return (String::new(), jac);
+    }
+    let Some((i, name)) = local
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .and_then(|(i, _)| info.y_names.get(i).map(|v| (i, v.clone())))
+    else {
+        return (String::new(), jac);
+    };
+    // an iteration variable: the equations that decide it
+    let eqs: Vec<String> = match (&jac, i.checked_sub(nx)) {
+        (Some(m), Some(j)) => (0..nz)
+            .filter(|&r| m[r][j] != 0.0)
+            .take(3)
+            .filter_map(|r| info.residual_labels.get(r).cloned())
+            .collect(),
+        _ => vec![],
+    };
+    // (the equations' labels name their parts in quotes already)
+    let words =
+        if eqs.is_empty() { name } else { format!("{name}, decided by {}", eqs.join(" and by ")) };
+    (words, jac)
+}
+
 /// The error for steps that no longer move the time at `t`, naming the
 /// variable with the largest local error (as a share of its tolerance) in
-/// the last of them.
+/// the last of them, and the equations that decide it.
+#[allow(clippy::too_many_arguments)]
 fn no_progress(
-    integ: &mut dyn Integrator,
+    model: &dyn ModelFunctions,
     info: &RunInfo,
+    integ: &mut dyn Integrator,
     t: f64,
-    local: &mut [f64],
+    y: &[f64],
+    d: &[f64],
+    u: &[f64],
 ) -> SolveError {
-    let worst = if integ.local_error(local) {
-        local
-            .iter()
-            .enumerate()
-            .max_by(|a, b| a.1.total_cmp(b.1))
-            .and_then(|(i, _)| info.y_names.get(i))
-            .map(|v| format!(" (the largest local error: {v})"))
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let (worst, _) = worst_variable(model, info, integ, t, y, d, u);
+    let worst =
+        if worst.is_empty() { worst } else { format!(" (the largest local error: {worst})") };
     SolveError::Integrator {
         t,
         message: format!(
             "{} made no progress: no step longer than the time's resolution passes its error \
              test here{worst}. The model is not smooth here (a jump it declares no event for, \
-             in a `noEvent` relation or a function that is not smooth) or singular (the states \
-             it integrates no longer determine the others: states that index reduction chose \
-             for a constraint degenerate, or an algebraic loop turns singular)",
+             in a `noEvent` relation or a function that is not smooth), an equation loses its \
+             solution (a root that turns back, a source asked for more than it can give), or \
+             the model is singular (the states it integrates no longer determine the others: \
+             an algebraic loop turns singular)",
             integ.name()
         ),
+    }
+}
+
+/// The integrator's own failure `e` (SUNDIALS' flag), told with what the
+/// run can see at `(t, y, d)`, the point its last step started from
+/// (SUNDIALS' message alone names neither an equation nor a part): where
+/// the equations that decide the iteration variables no longer do (their
+/// Jacobian, its columns and rows scaled to their largest entries, with a
+/// pivot below 1e-8 by full pivoting: rows that depend on each other,
+/// parts locked against each other), that equation and variable; else the
+/// variable with the largest local error and the equations that decide it,
+/// and what can cause it. SUNDIALS' words are kept beside them. A failure
+/// of index reduction's choice of states is told by the watch instead
+/// ([`crate::states`]).
+#[allow(clippy::too_many_arguments)]
+fn integrator_failure(
+    model: &dyn ModelFunctions,
+    info: &RunInfo,
+    integ: &mut dyn Integrator,
+    t: f64,
+    y: &[f64],
+    d: &[f64],
+    u: &[f64],
+    e: SolveError,
+) -> SolveError {
+    let SolveError::Integrator { t: at, message } = &e else { return e };
+    if !message.contains("SUNDIALS flag") {
+        return e;
+    }
+    let nx = model.layout().n_x;
+    let (worst, jac) = worst_variable(model, info, integ, t, y, d, u);
+    let mut why = None;
+    if let Some(mut jac) = jac {
+        let finite = jac.iter().all(|r| r.iter().all(|x| x.is_finite()));
+        let (p, row, col) = lsim_ir::choice::smallest_pivot(&mut jac);
+        let eq = info.residual_labels.get(row).cloned().unwrap_or_else(|| format!("g{row}"));
+        let var = info.y_names.get(nx + col).cloned().unwrap_or_else(|| format!("z{col}"));
+        if !finite {
+            why = Some(format!(
+                "the equations that decide the iteration variables are not numbers here: {var} \
+                 is decided through a value that is not a number (a division by zero, a root of \
+                 a negative number, a table read outside its data), by {eq}"
+            ));
+        } else if p < 1e-8 {
+            why = Some(format!(
+                "the equations that decide the iteration variables depend on each other here: \
+                 {var} is no longer decided (the smallest pivot is {p:.1e} of its size), by \
+                 {eq}: parts locked against each other, or equations that say the same"
+            ));
+        }
+    }
+    let why = why.unwrap_or_else(|| {
+        let worst =
+            if worst.is_empty() { worst } else { format!(" (the largest local error: {worst})") };
+        format!(
+            "it stopped here{worst}: the model is not smooth here (a jump it declares no event \
+             for), an equation loses its solution (a root that turns back, a source asked for \
+             more than it can give), or it turns singular"
+        )
+    });
+    SolveError::Integrator {
+        t: *at,
+        message: format!("{} could not go on: {why} ({message})", integ.name()),
     }
 }
 
@@ -1554,6 +1674,10 @@ fn axes_missing(model: &dyn ModelFunctions, info: &RunInfo) -> Vec<String> {
 }
 
 /// The run loop, for any [`Integrator`]: see the module documentation.
+/// Index reduction's choice of states is watched at every step
+/// ([`crate::states`]); an integrator that fails where it has degraded is
+/// told as its failure, and any other failure of the integrator with what
+/// the run can see where its last step started ([`integrator_failure`]).
 #[allow(clippy::too_many_arguments)]
 pub fn run_loop(
     model: &dyn ModelFunctions,
@@ -1564,6 +1688,33 @@ pub fn run_loop(
     u: &[f64],
     blocks: &mut [Box<dyn DiscreteBlock>],
     started: Instant,
+) -> Result<SimResult, SolveError> {
+    let mut watch = crate::states::Watch::new(info, model, opts.books_kernels);
+    run_watched(model, info, opts, grid, integ, u, blocks, started, &mut watch).map_err(|e| {
+        match watch.blamed(info, &e) {
+            Some(named) => named,
+            None => {
+                // (where the last step started: the integrator's solution
+                // is still the last point it reached)
+                let (t, d) = watch.from();
+                let y = integ.y().to_vec();
+                integrator_failure(model, info, integ, t, &y, d, u, e)
+            }
+        }
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_watched(
+    model: &dyn ModelFunctions,
+    info: &RunInfo,
+    opts: &SolverOptions,
+    grid: OutputGrid,
+    integ: &mut dyn Integrator,
+    u: &[f64],
+    blocks: &mut [Box<dyn DiscreteBlock>],
+    started: Instant,
+    watch: &mut crate::states::Watch,
 ) -> Result<SimResult, SolveError> {
     // the default floating-point environment (lsim_ir::fenv)
     let _env = lsim_ir::fenv::DefaultFloatEnv::enter();
@@ -1884,6 +2035,10 @@ pub fn run_loop(
                 t_stop = t_stop.min(c.next());
             }
         }
+        // the point the step starts from (where a failure of the
+        // integrator is told), and the choice of states there, where
+        // something happened since it was last checked
+        watch.begin(t, &d, lp.events.len());
         // a stop time a few ulps away (a tick that falls just before the
         // end, two clocks' ticks that round apart) is this instant: the
         // integrators cannot step so short an interval, and the solution
@@ -1897,7 +2052,7 @@ pub fn run_loop(
         if matches!(st, Step::Internal(_)) && st.time() <= t {
             stuck += 1;
             if stuck >= STUCK_STEPS {
-                return Err(no_progress(integ, info, t, &mut local));
+                return Err(no_progress(model, info, integ, t, &y, &d, u));
             }
         } else {
             stuck = 0;
@@ -2290,6 +2445,23 @@ pub fn run_loop(
         }
         t = t_new;
         lp.check_asserts(t)?;
+        if watch.active() {
+            // (inside the step, the channels from its dense output)
+            let mut y_in = vec![];
+            let mut work_in = vec![];
+            let mut inside = |tau: f64, vars: &mut Vec<f64>| {
+                y_in.resize(n, 0.0);
+                work_in.resize(l.n_work, 0.0);
+                vars.resize(l.n_vars, 0.0);
+                if integ.interpolate(tau, &mut y_in).is_err() {
+                    return false;
+                }
+                let inp = EvalInput { t: tau, y: &y_in, p: &info.params, d: &d, u };
+                model.vars(&inp, &mut work_in, vars);
+                true
+            };
+            watch.end(info, model, t, &lp.vars, &d, lp.events.len(), &mut inside)?;
+        }
         // the holds of functions that reached their side, or left it
         if !event_now && lp.release_holds(t, &y, &d) {
             lp.push_sides(integ);

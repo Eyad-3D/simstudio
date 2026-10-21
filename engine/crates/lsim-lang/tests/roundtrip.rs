@@ -170,8 +170,10 @@ fn everything() -> ComponentDef {
     let mut weird = var("R1.v", "V", "a Base Modelica name");
     weird.display_unit = Some("kV".into());
     weird.nominal = Some(400.0);
+    weird.state_select = StateSelect::Avoid;
     let mut x = state("x", "1", 0.25, "a state");
     x.start = Some(n("n_cells") * c(0.0) + c(0.25));
+    x.state_select = StateSelect::Always;
     let mut gear_no = var("gear", "1", "");
     gear_no.kind = VarKind::Discrete;
     gear_no.start = Some(c(1.0));
@@ -292,7 +294,8 @@ fn a_component_with_every_feature_round_trips() {
         "annotation(__LightSim_impulse(keep = x * k - y, active = x < 0.5));",
         "annotation(__LightSim_engagement(changes = gear * k));",
         "interpolation = linear, outside = {linear}",
-        "Real 'R1.v'(unit = \"V\", displayUnit = \"kV\", nominal = 400)",
+        "Real 'R1.v'(unit = \"V\", displayUnit = \"kV\", nominal = 400, stateSelect = StateSelect.avoid)",
+        "fixed = true, stateSelect = StateSelect.always) \"a state\";",
         "mode == Mode.Auto",
         "R1.v = ocv(soc) * n_cells \"a table read\";",
         "der(x) = (-(2)) * x / time + (-3) * sqrt(x) / time \"\";",

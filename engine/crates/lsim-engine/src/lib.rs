@@ -24,8 +24,10 @@
 //!   `ParamGuard`) is refused with the reason: such a model must be
 //!   prepared again ([`Engine::build`]). Index reduction's choice of
 //!   states is made at the values the model was prepared at; a change at
-//!   which that choice is singular is not detected yet (the run fails in
-//!   the integrator): build the model again at such values.
+//!   which that choice does not work at the start is refused the same way,
+//!   naming the constraint (the model's initialisation at the new values,
+//!   then the chosen pivots there: [`lsim_solve::states`]), and a run whose
+//!   choice degrades along the way stops there, naming it.
 //! * **Fast mode**: [`Engine::build_inverse`] prepares the inverse model
 //!   of an [`InverseSpec`], and [`Model::fast`] steps it ([`lsim_fast`]),
 //!   flagging every limit preparation passed through (it never changes the
@@ -453,7 +455,40 @@ impl Model {
         if let Some(why) = broken_guard(&self.prepared, &p) {
             return Err(why);
         }
+        if self.inverse.is_none()
+            && let Some(why) = self.state_choice_at_start(&p)
+        {
+            return Err(why);
+        }
         Ok(p)
+    }
+
+    /// Whether index reduction's choice of states fails at the start with
+    /// the parameter values `p`: the model's initialisation at them (at
+    /// t = 0, the default tolerances), then the chosen pivots there. `None`
+    /// when it works, or when the start cannot be solved (the run tells
+    /// why).
+    fn state_choice_at_start(&self, p: &[f64]) -> Option<String> {
+        use lsim_solve::SetReads;
+        let watched = |r: SetReads| matches!(r, SetReads::Variables | SetReads::Parameters);
+        if !self.info.state_sets.iter().any(|s| watched(s.reads)) {
+            return None;
+        }
+        let l = *self.jit.layout();
+        let (mut y0, mut d0, u) = (vec![0.0; l.n_y()], vec![0.0; l.n_d], vec![0.0; l.n_u]);
+        self.jit.start(p, &mut y0, &mut d0);
+        let info = self.info.with_params(p);
+        let o = SolverOptions::default();
+        let settings =
+            lsim_solve::init::InitSettings { rtol: o.rtol, atol: o.atol, max_iterations: 50 };
+        let _ =
+            lsim_solve::init::initialise(&self.jit, &info, 0.0, &mut y0, &mut d0, &u, &settings);
+        match lsim_solve::states::check_start(&self.jit, &info, 0.0, &y0, &d0, &u) {
+            Err(SolveError::StateSelection { message, .. }) => {
+                Some(format!("with these values, {message}"))
+            }
+            _ => None,
+        }
     }
 
     /// Sets a parameter by its full name, in SI, and re-evaluates the

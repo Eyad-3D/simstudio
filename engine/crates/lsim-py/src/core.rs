@@ -47,6 +47,7 @@ fn solve_failure(e: &SolveError) -> Failure {
         SolveError::Integrator { .. } => ("RUN-INTEGRATOR", vec![]),
         SolveError::Initialisation { .. } => ("RUN-INIT", vec![]),
         SolveError::EventStorm { parts, .. } => ("RUN-EVENT-STORM", parts.clone()),
+        SolveError::StateSelection { parts, .. } => ("RUN-STATE-SELECT", parts.clone()),
         SolveError::EnergyBooks { .. } => ("RUN-ENERGY", vec![]),
         SolveError::TableOutside { .. } => ("RUN-TABLE", vec![]),
         SolveError::Assert { .. } => ("RUN-ASSERT", vec![]),

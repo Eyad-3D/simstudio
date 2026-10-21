@@ -583,6 +583,73 @@ pub struct RunInfo {
     /// per table: a 2-D table's two axes (empty: 1-D, or not known), for
     /// the same
     pub table_axes: Vec<[Vec<f64>; 2]>,
+    /// the choices index reduction made among states, which the run
+    /// watches ([`crate::states`])
+    pub state_sets: Vec<StateSetInfo>,
+}
+
+/// A choice index reduction made among states ([`lsim_ir::StateSet`]), as
+/// the run watches it ([`crate::states`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct StateSetInfo {
+    /// rows × columns: each constraint's derivative by each candidate
+    /// (flat scope, read from the channels)
+    pub entries: Vec<Vec<Expr>>,
+    /// per row, the column chosen for it
+    pub pivots: Vec<usize>,
+    /// the columns left out of the choice
+    pub masked: Vec<bool>,
+    /// what the entries read
+    pub reads: SetReads,
+    /// each row's equation, in words (`'pendulum' (the rod keeps its
+    /// length)`)
+    pub rows: Vec<String>,
+    /// the diagram parts they belong to
+    pub parts: Vec<String>,
+    /// the candidates: the variable whose derivative each column is
+    pub candidates: Vec<String>,
+}
+
+/// What a state set's entries read, and so when its pivots can change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SetReads {
+    /// constants only: the pivots never change
+    Constants,
+    /// parameters and tables: checked at the start of each run
+    Parameters,
+    /// variables or time: checked at every step
+    Variables,
+    /// a derivative the channels do not hold: not watched
+    Unreadable,
+}
+
+impl StateSetInfo {
+    /// From a prepared model's state set.
+    pub fn new(s: &lsim_ir::StateSet) -> StateSetInfo {
+        let mut reads = SetReads::Constants;
+        for row in &s.entries {
+            for e in row {
+                e.walk(&mut |x| {
+                    let r = match x {
+                        Expr::Der(_) | Expr::Pre(_) | Expr::Name(_) => SetReads::Unreadable,
+                        Expr::Var(_) | Expr::Time => SetReads::Variables,
+                        Expr::Param(_) | Expr::Table { .. } => SetReads::Parameters,
+                        _ => SetReads::Constants,
+                    };
+                    reads = reads.max(r);
+                });
+            }
+        }
+        StateSetInfo {
+            entries: s.entries.clone(),
+            pivots: s.pivots.clone(),
+            masked: s.masked.clone(),
+            reads,
+            rows: s.words.clone(),
+            parts: s.parts.clone(),
+            candidates: s.candidates.clone(),
+        }
+    }
 }
 
 /// A table read at a position that moves with time alone, `c · time + b`
@@ -772,6 +839,7 @@ impl RunInfo {
             time_functions: vec![],
             table_breaks: vec![],
             table_axes: vec![],
+            state_sets: vec![],
         }
     }
 
@@ -901,6 +969,7 @@ impl RunInfo {
             z_discretes,
             stored_rates,
             time_tables: time_tables(m),
+            state_sets: m.state_sets.iter().map(StateSetInfo::new).collect(),
         }
     }
 

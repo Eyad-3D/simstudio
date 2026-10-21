@@ -56,6 +56,7 @@ impl Builder {
                 limits: vec![],
                 guards: vec![],
                 warnings: vec![],
+                state_sets: vec![],
             },
         }
     }
@@ -72,6 +73,7 @@ impl Builder {
             nominal: 1.0,
             instance: InstanceId(0),
             role: VarRole::Local,
+            state_select: Default::default(),
         });
         id
     }

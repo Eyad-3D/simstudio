@@ -31,7 +31,7 @@ use lsim_ir::eval::{Env, eval};
 use lsim_ir::expr::{Builtin, Expr};
 use lsim_ir::flat::*;
 use lsim_ir::units::{Unit, parse_unit};
-use lsim_ir::{Diagnostic, PowerRule, VarKind};
+use lsim_ir::{Diagnostic, PowerRule, StateSelect, VarKind};
 
 #[derive(Clone, Copy, Debug)]
 enum Sym {
@@ -665,6 +665,7 @@ impl<'a> Flattener<'a> {
                             nominal: 1.0,
                             instance: id,
                             role,
+                            state_select: StateSelect::Default,
                         });
                         self.own_var(id, fresh, || join(&port.name, &q.name));
                     }
@@ -696,6 +697,7 @@ impl<'a> Flattener<'a> {
                         nominal: 1.0,
                         instance: id,
                         role: if output { VarRole::Output } else { VarRole::Input },
+                        state_select: StateSelect::Default,
                     });
                     self.own_var(id, fresh, || port.name.clone());
                     self.ports.insert((id, k), PortVars::Signal { var: v, output });
@@ -721,6 +723,7 @@ impl<'a> Flattener<'a> {
                 nominal: v.nominal.unwrap_or(1.0),
                 instance: id,
                 role: VarRole::Local,
+                state_select: v.state_select,
             });
             self.extras.start[vid.0 as usize] = start_expr;
             self.own_var(id, fresh, || v.name.clone());

@@ -179,6 +179,7 @@ pub fn apply(
             start: Some(0.0),
             fixed: true,
             role: VarRole::Local,
+            state_select: lsim_ir::StateSelect::Default,
             ..x.clone()
         });
         start.push(Some(Expr::Const(0.0)));

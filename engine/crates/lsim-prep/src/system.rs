@@ -339,6 +339,7 @@ impl Sys {
                     nominal: base.nominal,
                     instance: base.instance,
                     role: VarRole::Local,
+                    state_select: lsim_ir::StateSelect::Default,
                 };
                 flat.vars.push(rec);
                 let v = VarId(flat.vars.len() as u32 - 1);

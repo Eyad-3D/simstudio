@@ -253,6 +253,28 @@ fn string_value(m: &ModArg, what: &str) -> Result<String, LangError> {
     }
 }
 
+/// A `stateSelect` value: `StateSelect.never`, `.avoid`, `.default`,
+/// `.prefer` or `.always`.
+pub(crate) fn state_select(
+    value: Option<&ast::Expr>,
+    span: Span,
+) -> Result<StateSelect, LangError> {
+    let named = match value.map(|v| &v.strip().kind) {
+        Some(ExprKind::Ref(path)) => match path.as_slice() {
+            [ty, lit] if ty == "StateSelect" => StateSelect::from_name(lit),
+            _ => None,
+        },
+        _ => None,
+    };
+    named.ok_or_else(|| {
+        LangError::new(
+            "ATTRIBUTE",
+            span,
+            "stateSelect is StateSelect.never, .avoid, .default, .prefer or .always".into(),
+        )
+    })
+}
+
 fn bool_value(m: &ModArg) -> Result<bool, LangError> {
     match m.value.as_ref().map(|v| &v.strip().kind) {
         Some(ExprKind::Bool(b)) => Ok(*b),
@@ -811,6 +833,7 @@ fn lower_decls(
                 fixed: false,
                 nominal: None,
                 doc,
+                state_select: StateSelect::Default,
             };
             let mut unit_span = None;
             for m in &el.mods {
@@ -830,7 +853,10 @@ fn lower_decls(
                     },
                     "fixed" => bool_value(m).map(|b| decl.fixed = b),
                     "nominal" => number_value(m).map(|v| decl.nominal = Some(v)),
-                    "quantity" | "stateSelect" => Ok(()),
+                    "stateSelect" => {
+                        state_select(m.value.as_ref(), m.span).map(|s| decl.state_select = s)
+                    }
+                    "quantity" => Ok(()),
                     "min" | "max" => Err(LangError::new(
                         "ATTRIBUTE",
                         m.span,
@@ -842,8 +868,8 @@ fn lower_decls(
                         "ATTRIBUTE",
                         m.span,
                         format!(
-                            "a variable takes unit, displayUnit, start, fixed and nominal, not \
-                             '{other}'"
+                            "a variable takes unit, displayUnit, start, fixed, nominal and \
+                             stateSelect, not '{other}'"
                         ),
                     )),
                 };

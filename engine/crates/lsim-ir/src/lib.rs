@@ -13,6 +13,7 @@
 //! | [`prepared`] | the causalised, sorted model | lsim-prep | lsim-codegen, lsim-fast |
 //! | [`runtime`] | the compiled model's functions, as the solver sees them | lsim-codegen | lsim-solve, lsim-fast |
 //! | [`diag`] | plain-language diagnostics | everyone | the app |
+//! | [`choice`] | how index reduction's choice of states stands at a point | – | lsim-prep, lsim-solve |
 //! | [`eval`] | a reference interpreter for expressions | – | tests, constant folding |
 //! | [`math`] | the one mathematical library (lsim-math: correctly rounded, the same bits everywhere) | – | everyone who evaluates |
 //! | [`table`] | 1-D and 2-D table data and rules (runtime parameters) | lsim-lang, lsim-lib, lsim-project, lsim-prep (flatten) | lsim-prep, lsim-codegen |
@@ -20,6 +21,7 @@
 //! Changes to these types after Stage 1 are additive, or agreed between the
 //! owners of the crates that use them.
 
+pub mod choice;
 pub mod component;
 pub mod diag;
 pub mod eval;
@@ -40,7 +42,7 @@ pub use lsim_math as math;
 pub use component::{
     ComponentDef, Connect, ConnectorDef, EnergyDecl, EngagementDecl, EnumLiteral, EnumType,
     Equation, EquationDecl, ImpulseDecl, Library, Modifier, ParamDecl, ParamValue, PortDecl,
-    PortKind, PowerRule, QuantityDecl, SubDecl, VarDecl, VarKind, WhenAction,
+    PortKind, PowerRule, QuantityDecl, StateSelect, SubDecl, VarDecl, VarKind, WhenAction,
 };
 pub use diag::{Diagnostic, Severity};
 pub use expr::{BinaryOp, Builtin, CmpOp, Expr};
@@ -51,7 +53,7 @@ pub use flat::{
 };
 pub use prepared::{
     AliasEntry, AliasTarget, Assignment, Direction, ExternalBlock, InitSystem, InverseSpec,
-    LimitSite, Mode, ParamGuard, PrepStats, PreparedModel, PreparedWhen, Residual, Slot,
+    LimitSite, Mode, ParamGuard, PrepStats, PreparedModel, PreparedWhen, Residual, Slot, StateSet,
     ZeroCrossing,
 };
 pub use runtime::{

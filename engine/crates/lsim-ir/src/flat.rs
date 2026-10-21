@@ -3,7 +3,7 @@
 //! (its [`Origin`]) so a fault can be told in terms of the parts the user
 //! placed.
 
-use crate::component::VarKind;
+use crate::component::{StateSelect, VarKind};
 use crate::expr::Expr;
 pub use crate::table::FlatTable;
 use crate::units::Unit;
@@ -78,6 +78,9 @@ pub struct FlatVar {
     pub instance: InstanceId,
     /// what it is to that instance
     pub role: VarRole,
+    /// how strongly it is wanted as a state
+    #[serde(default, skip_serializing_if = "StateSelect::is_default")]
+    pub state_select: StateSelect,
 }
 
 /// A parameter of the flat system.
