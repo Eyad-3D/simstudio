@@ -163,6 +163,9 @@ pub struct Facts {
     pub lossless_axle: bool,
     /// an acceleration test: the driver holds full throttle
     pub full_throttle: bool,
+    /// fast mode's inverse model: the vehicle's speed follows the cycle
+    /// (`ImportOptions::inverse`)
+    pub inverse: bool,
     /// warnings
     pub warnings: Vec<String>,
 }

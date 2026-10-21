@@ -414,17 +414,24 @@ fn every_block_variant() -> Vec<ComponentDef> {
             ..Default::default()
         }));
     }
+    // fast mode's inverse model
+    v.push(battery::battery(&battery::BatteryConfig { inverse: true, ..Default::default() }));
     for s in switches(1) {
         v.push(driveline::gearbox(&driveline::GearboxConfig {
             select_wired: s[0],
             ..Default::default()
         }));
         v.push(driveline::clutch(driveline::ClutchConfig { engage_wired: s[0] }));
-        v.push(driveline::brake(driveline::BrakeConfig { demand_wired: s[0] }));
+        v.push(driveline::brake(driveline::BrakeConfig { demand_wired: s[0], prescribed: false }));
+        // fast mode's inverse model
+        v.push(driveline::brake(driveline::BrakeConfig { demand_wired: s[0], prescribed: true }));
         v.push(engine::fuel_cell(&engine::FuelCellConfig { tank: s[0], ..Default::default() }));
         v.push(engine::tank(s[0]));
         v.push(motor::emotor(&motor::MotorConfig { windowed: s[0], ..Default::default() }));
-        v.push(vehicle::wheel(vehicle::WheelConfig { on_vehicle: s[0] }));
+        let inverse = motor::MotorConfig { windowed: s[0], inverse: true, ..Default::default() };
+        v.push(motor::emotor(&inverse));
+        v.push(vehicle::wheel(vehicle::WheelConfig { on_vehicle: s[0], prescribed: false }));
+        v.push(vehicle::wheel(vehicle::WheelConfig { on_vehicle: s[0], prescribed: true }));
     }
     for s in switches(2) {
         v.push(driveline::split(driveline::SplitConfig { transfer_case: s[0], locked: s[1] }));
@@ -457,7 +464,17 @@ fn every_block_variant() -> Vec<ComponentDef> {
             full_throttle: s[0],
             speed_wired: s[1],
             target_wired: s[2],
+            inverse: false,
         }));
+        // fast mode's inverse model (no acceleration test there)
+        if !s[0] {
+            v.push(vehicle::driver(vehicle::DriverConfig {
+                full_throttle: false,
+                speed_wired: s[1],
+                target_wired: s[2],
+                inverse: true,
+            }));
+        }
     }
     for s in switches(4) {
         v.push(engine::engine(&engine::EngineConfig {
@@ -467,12 +484,15 @@ fn every_block_variant() -> Vec<ComponentDef> {
             behind_clutch: s[3],
             ..Default::default()
         }));
-        v.push(vehicle::body(vehicle::BodyConfig {
-            abc: s[0],
-            two_axles: s[1],
-            single_front: s[2],
-            grade_wired: s[3],
-        }));
+        for prescribed in [false, true] {
+            v.push(vehicle::body(vehicle::BodyConfig {
+                abc: s[0],
+                two_axles: s[1],
+                single_front: s[2],
+                grade_wired: s[3],
+                prescribed,
+            }));
+        }
     }
     for source in [None, Some(0), Some(2)] {
         v.push(electric::electric_node(source));

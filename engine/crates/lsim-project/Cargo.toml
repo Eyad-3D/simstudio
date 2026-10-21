@@ -22,3 +22,5 @@ workspace = true
 
 [dev-dependencies]
 lsim-lang.workspace = true
+lsim-fast.workspace = true
+lsim-engine.workspace = true

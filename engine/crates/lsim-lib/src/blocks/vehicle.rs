@@ -42,6 +42,21 @@
 //! mode's boundary (its command at 1, the mode switching at every
 //! instant: Filippov sliding), which the run loop stopped as an event
 //! storm.
+//!
+//! **In fast mode's inverse model** (`prescribed` / `inverse` below) the
+//! vehicle's speed follows the drive cycle exactly: the driver keeps only
+//! its pedal map, its pedal command an input the inverse model solves for
+//! (`limit`ed to full brake … full throttle, so fast mode flags a cycle the
+//! car cannot follow), the body's rolling resistance acts against the
+//! prescribed motion (nothing to stick: at rest with nothing pushing it
+//! holds nothing), and the brakes act against forward rotation (the
+//! cycles drive forwards; a wheel's slip makes it turn back a little at the
+//! last moment of a stop, which must not turn its brake into a drive).
+//! What the pedal drives keeps following it, beyond full throttle and full
+//! brake too (motor.rs, driveline.rs), so the pedal command is determined
+//! wherever the inverse model is solved, and the solve has one root: a
+//! saturation there would leave the command free (the Jacobian singular)
+//! or give Newton's method a second, unphysical root.
 
 use super::*;
 use lsim_ir::EnergyDecl;
@@ -64,11 +79,19 @@ pub struct BodyConfig {
     pub single_front: bool,
     /// the Road Grade input is wired
     pub grade_wired: bool,
+    /// fast mode's inverse model: its speed is prescribed
+    pub prescribed: bool,
 }
 
 impl Default for BodyConfig {
     fn default() -> Self {
-        BodyConfig { abc: false, two_axles: true, single_front: true, grade_wired: false }
+        BodyConfig {
+            abc: false,
+            two_axles: true,
+            single_front: true,
+            grade_wired: false,
+            prescribed: false,
+        }
     }
 }
 
@@ -138,9 +161,12 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
     let mut v = state("v", "m/s", 0.0, "speed along the road");
     v.start = Some(n("initial_speed_kmh"));
     // the rolling resistance's friction modes (it starts sliding: see
-    // rotational::friction_mode_eqs)
+    // rotational::friction_mode_eqs); none where the speed is prescribed
     let mut friction_vars = crate::rotational::friction_mode_vars("initial_speed_kmh");
     friction_vars[0].doc = "1 while it stands still, held by its rolling resistance".into();
+    if cfg.prescribed {
+        friction_vars.clear();
+    }
     let mut vars = vec![
         v,
         var("acc", "m/s2", "acceleration"),
@@ -181,8 +207,26 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
     let grade = if cfg.grade_wired { n("sig_grade_in") } else { c(0.0) };
     // rolling resistance as a Coulomb friction with stiction: it holds the
     // vehicle at rest until the drive overcomes it, and stops it when it
-    // comes to rest (the shared friction logic)
-    let friction = crate::rotational::friction_mode_eqs("v", "acc", "f_fric", "f_rr_c", "unit_kg");
+    // comes to rest (the shared friction logic). With the speed prescribed
+    // it acts against the motion, or against the acceleration that starts
+    // one forwards from rest, and at rest otherwise it is 0 (the inverse
+    // model solves for what pushes the car; at rest nothing need, and a
+    // car coming to rest, its acceleration still negative at that instant,
+    // does not start backwards)
+    let friction = if cfg.prescribed {
+        let dir = ite(
+            gt(n("v"), c(0.0)),
+            c(1.0),
+            ite(lt(n("v"), c(0.0)), c(-1.0), ite(gt(n("acc"), c(0.0)), c(1.0), c(0.0))),
+        );
+        vec![eq(
+            n("f_fric"),
+            dir * n("f_rr_c"),
+            "the rolling resistance against the prescribed motion",
+        )]
+    } else {
+        crate::rotational::friction_mode_eqs("v", "acc", "f_fric", "f_rr_c", "unit_kg")
+    };
     let mut eqs = vec![
         eq(n("road.v"), n("v"), "it moves with its wheels' contact"),
         eq(n("acc"), der("v"), "its acceleration"),
@@ -282,7 +326,9 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
                 cfg.two_axles as u8 as f64,
                 cfg.single_front as u8 as f64,
                 cfg.grade_wired as u8 as f64,
-            ],
+            ]
+            .into_iter()
+            .chain(cfg.prescribed.then_some(1.0)),
         ),
         doc: doc(id),
         ports,
@@ -302,11 +348,20 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
 pub struct WheelConfig {
     /// it rolls on a Vehicle (else it carries no load and pushes nothing)
     pub on_vehicle: bool,
+    /// fast mode's inverse model: it turns with the prescribed speed, as
+    /// the quasi-static method has it (a slip that must follow a step in
+    /// the cycle's acceleration would need an impulse); its slip is the
+    /// force over its slip stiffness and load (at most the slip at its
+    /// grip), and the slip's loss the extra torque `F·r·slip` it takes at
+    /// that speed (the same power, to first order in the slip, above
+    /// `v_eps`); the force is whatever its torques leave, flagged beyond
+    /// its grip
+    pub prescribed: bool,
 }
 
 impl Default for WheelConfig {
     fn default() -> Self {
-        WheelConfig { on_vehicle: true }
+        WheelConfig { on_vehicle: true, prescribed: false }
     }
 }
 
@@ -369,11 +424,19 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
         vec![w, var("N", "N", "normal load"), var("F", "N", "tyre force, driving positive")];
     let mut eqs = vec![
         eq(n("w"), n("shaft.w"), "it turns with its shaft"),
-        eq(
-            n("inertia_kgm2") * der("w"),
-            n("shaft.tau") - n("F") * n("r"),
-            "its inertia: the shaft's torque less the tyre's",
-        ),
+        if cfg.prescribed && cfg.on_vehicle {
+            eq(
+                n("inertia_kgm2") * der("w"),
+                n("shaft.tau") - n("F") * n("r") * (c(1.0) + n("slip")),
+                "its inertia: the shaft's torque less the tyre's, its slip's loss included",
+            )
+        } else {
+            eq(
+                n("inertia_kgm2") * der("w"),
+                n("shaft.tau") - n("F") * n("r"),
+                "its inertia: the shaft's torque less the tyre's",
+            )
+        },
         eq(n("sig_speed"), noev(abs(n("w"))), "wheel speed"),
         eq(n("sig_force"), n("F"), "traction force"),
         eq(n("sig_torque"), n("F") * n("r"), "drive torque"),
@@ -388,6 +451,50 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             var("at_grip", "1", "1 while its force is at the tyre's grip limit"),
         ]);
         let fz0 = ite(gt(n("mu_nominal_load_N"), c(0.0)), n("mu_nominal_load_N"), n("fz_static"));
+        let (slip, force) = if cfg.prescribed {
+            vars.push(var("F_grip", "N", "the tyre's force, within its grip"));
+            (
+                eq(
+                    n("slip"),
+                    // held to the slip at grip: F·(1 + slip) then grows
+                    // with F (for a slip stiffness above twice μ), so the
+                    // torque balance has one root, not a second one near
+                    // a slip of −1 that Newton's method could land on
+                    clamp(
+                        n("F") / (n("c_slip") * max(n("N"), n("unit_N"))),
+                        -n("mu_eff") / n("c_slip"),
+                        n("mu_eff") / n("c_slip"),
+                    ),
+                    "slip: the force over slip stiffness × load, up to the slip at grip",
+                ),
+                eq(
+                    n("F_grip"),
+                    limit(n("F"), -n("mu_eff") * n("N"), n("mu_eff") * n("N")),
+                    "the force its torques leave, up to μ × load (fast mode flags it beyond)",
+                ),
+            )
+        } else {
+            (
+                eq(
+                    n("slip"),
+                    // |v|'s kink at 0 lies inside max(…, v_eps): no event for it
+                    (n("w") * n("r") - n("v")) / max(noev(abs(n("v"))), n("v_eps")),
+                    "slip: (ω·r − v) over the vehicle's speed (at least 0.5 m/s)",
+                ),
+                eq(
+                    n("F"),
+                    n("N") * clamp(n("c_slip") * n("slip"), -n("mu_eff"), n("mu_eff")),
+                    "slip stiffness × slip × load, up to μ × load",
+                ),
+            )
+        };
+        if cfg.prescribed {
+            eqs.push(eq(
+                n("w") * n("r"),
+                n("v"),
+                "it rolls with the prescribed speed, without slip",
+            ));
+        }
         eqs.extend([
             eq(n("v"), n("road.v"), "the vehicle's speed"),
             eq(
@@ -400,22 +507,17 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
                 max(c(0.0), n("mu0") + n("mu_load_sensitivity_per_kN") * (n("N") - fz0)),
                 "μ with its load sensitivity",
             ),
-            eq(
-                n("slip"),
-                // |v|'s kink at 0 lies inside max(…, v_eps): no event for it
-                (n("w") * n("r") - n("v")) / max(noev(abs(n("v"))), n("v_eps")),
-                "slip: (ω·r − v) over the vehicle's speed (at least 0.5 m/s)",
-            ),
-            eq(
-                n("F"),
-                n("N") * clamp(n("c_slip") * n("slip"), -n("mu_eff"), n("mu_eff")),
-                "slip stiffness × slip × load, up to μ × load",
-            ),
+            slip,
+            force,
             eq(
                 n("at_grip"),
                 ite(
                     noev(and(
-                        ge(abs(n("c_slip") * n("slip")), n("mu_eff")),
+                        if cfg.prescribed {
+                            ge(abs(n("F")), n("mu_eff") * n("N"))
+                        } else {
+                            ge(abs(n("c_slip") * n("slip")), n("mu_eff"))
+                        },
                         gt(n("mu_eff") * n("N"), c(0.0) * n("unit_N")),
                     )),
                     c(1.0),
@@ -425,7 +527,11 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             ),
             eq(n("road.f"), -n("F"), "it pushes the vehicle with F"),
             eq(n("sig_slip"), n("slip"), "slip"),
-            eq(n("sig_slip_losses"), n("F") * (n("w") * n("r") - n("v")), "slip losses"),
+            if cfg.prescribed {
+                eq(n("sig_slip_losses"), n("F") * n("slip") * n("v"), "slip losses")
+            } else {
+                eq(n("sig_slip_losses"), n("F") * (n("w") * n("r") - n("v")), "slip losses")
+            },
         ]);
     } else {
         eqs.extend([
@@ -435,13 +541,19 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             eq(n("sig_slip_losses"), c(0.0) * n("unit_N") * n("v_eps"), "no vehicle: no loss"),
         ]);
     }
-    let loss = if cfg.on_vehicle {
+    let loss = if cfg.on_vehicle && cfg.prescribed {
+        n("F") * n("slip") * n("v")
+    } else if cfg.on_vehicle {
         n("F") * (n("w") * n("r") - n("v"))
     } else {
         c(0.0) * n("unit_N") * n("v_eps")
     };
     ComponentDef {
-        name: variant("Blocks.Wheel", cfg == WheelConfig::default(), [cfg.on_vehicle as u8 as f64]),
+        name: variant(
+            "Blocks.Wheel",
+            cfg == WheelConfig::default(),
+            [cfg.on_vehicle as u8 as f64].into_iter().chain(cfg.prescribed.then_some(1.0)),
+        ),
         doc: doc(id),
         ports,
         params,
@@ -464,6 +576,13 @@ pub struct DriverConfig {
     pub speed_wired: bool,
     /// the Target Speed input is wired (else it holds 0 km/h)
     pub target_wired: bool,
+    /// fast mode's inverse model: only the pedal map, its pedal command
+    /// the input `sig_cmd_in` (which the inverse model solves for); the
+    /// Target and Actual Speed inputs, where wired, are read by nothing.
+    /// Beyond full brake (flagged) its brakes keep following the pedal
+    /// (the friction brakes past their capacity, recuperation where there
+    /// are none), so the command stays determined
+    pub inverse: bool,
 }
 
 /// The driver.
@@ -476,7 +595,9 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
             cfg.full_throttle as u8 as f64,
             cfg.speed_wired as u8 as f64,
             cfg.target_wired as u8 as f64,
-        ],
+        ]
+        .into_iter()
+        .chain(cfg.inverse.then_some(1.0)),
     );
     let outs = ["sig_traction_cmd", "sig_brake_cmd", "sig_accel_pedal", "sig_brake_pedal"];
     if cfg.full_throttle {
@@ -507,6 +628,13 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
         "the vehicle's speed (recuperation fades out below 3 m/s)",
     ));
     ports.push(input("regen_cap", "N.m", "the motors' generator torque at the wheels"));
+    if cfg.inverse {
+        ports.push(input(
+            "sig_cmd_in",
+            "1",
+            "the pedal command (fast mode solves for it from the prescribed speed)",
+        ));
+    }
     ports.extend(outs.iter().map(|q| out(id, q)));
     let mut params = cps(id, &["driver_kp", "driver_ki", "regen_weight_pct"]);
     params.push(p(
@@ -534,7 +662,7 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
     let fb = if cfg.speed_wired { n("sig_speed_in") } else { n("v_vehicle") };
     let w = clamp(n("regen_weight_pct"), c(0.0), c(1.0));
     let taper = clamp(n("v_vehicle") / (c(3.0) * n("unit_ms")), c(0.0), c(1.0));
-    let eqs = vec![
+    let controller = vec![
         eq(n("err"), target - fb, "the speed error"),
         eq(n("cmd_u"), n("driver_kp") * n("err") + n("driver_ki") * n("I"), "the PI command"),
         eq(n("cmd"), clamp(n("cmd_u"), c(-1.0), c(1.0)), "held to full brake … full throttle"),
@@ -553,6 +681,16 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
                         )),
             "the error's integral, pulled back while the command is held at a limit",
         ),
+    ];
+    // fast mode: the pedal command is solved for; beyond full brake or
+    // full throttle the car cannot follow the cycle, and fast mode flags it
+    let pedal = vec![eq(
+        n("cmd"),
+        limit(n("sig_cmd_in"), c(-1.0), c(1.0)),
+        "held to full brake … full throttle",
+    )];
+    let mut eqs = if cfg.inverse { pedal } else { controller };
+    eqs.extend([
         eq(
             n("avail"),
             n("regen_cap") * taper,
@@ -563,7 +701,19 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
             max(-n("cmd"), c(0.0)) * (n("fr_cap") + w.clone() * n("avail")),
             "the braking torque asked for",
         ),
-        eq(n("t_rg"), min(w * n("avail"), n("t_req")), "recuperation first, up to its weight"),
+        if cfg.inverse {
+            // fast mode: beyond full brake (flagged) the brakes keep
+            // following the pedal, the friction brakes past their
+            // capacity, recuperation where there are none: the command
+            // stays determined
+            eq(
+                n("t_rg"),
+                ite(gt(n("fr_cap"), c(0.0)), min(w * n("avail"), n("t_req")), n("t_req")),
+                "recuperation first, up to its weight (all of it without friction brakes)",
+            )
+        } else {
+            eq(n("t_rg"), min(w * n("avail"), n("t_req")), "recuperation first, up to its weight")
+        },
         eq(
             n("share"),
             ite(
@@ -573,11 +723,19 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
             ),
             "the share of full recuperation asked of the motors",
         ),
-        eq(
-            n("t_fr"),
-            min(n("fr_cap"), max(n("t_req") - n("t_rg"), c(0.0) * n("unit_Nm"))),
-            "the friction brakes do the rest",
-        ),
+        if cfg.inverse {
+            eq(
+                n("t_fr"),
+                max(n("t_req") - n("t_rg"), c(0.0) * n("unit_Nm")),
+                "the friction brakes do the rest",
+            )
+        } else {
+            eq(
+                n("t_fr"),
+                min(n("fr_cap"), max(n("t_req") - n("t_rg"), c(0.0) * n("unit_Nm"))),
+                "the friction brakes do the rest",
+            )
+        },
         eq(
             n("sig_traction_cmd"),
             ite(noev(ge(n("cmd"), c(0.0))), n("cmd"), -n("share")),
@@ -594,29 +752,25 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
         ),
         eq(n("sig_accel_pedal"), max(n("cmd"), c(0.0)), "accelerator pedal"),
         eq(n("sig_brake_pedal"), max(-n("cmd"), c(0.0)), "brake pedal"),
+    ]);
+    let mut vars = vec![
+        lsim_ir::VarDecl {
+            start: Some(n("I_start")),
+            ..state("I", "m", 0.0, "the speed error's integral")
+        },
+        var("err", "m/s", "speed error"),
+        var("cmd_u", "1", "the command before its limits"),
+        var("cmd", "1", "the pedal command"),
+        var("avail", "N.m", "recuperation available"),
+        var("t_req", "N.m", "braking torque asked for"),
+        var("t_rg", "N.m", "recuperation torque"),
+        var("share", "1", "share of full recuperation"),
+        var("t_fr", "N.m", "friction braking torque"),
     ];
-    ComponentDef {
-        name,
-        doc: doc(id),
-        ports,
-        params,
-        vars: vec![
-            lsim_ir::VarDecl {
-                start: Some(n("I_start")),
-                ..state("I", "m", 0.0, "the speed error's integral")
-            },
-            var("err", "m/s", "speed error"),
-            var("cmd_u", "1", "the command before its limits"),
-            var("cmd", "1", "the pedal command"),
-            var("avail", "N.m", "recuperation available"),
-            var("t_req", "N.m", "braking torque asked for"),
-            var("t_rg", "N.m", "recuperation torque"),
-            var("share", "1", "share of full recuperation"),
-            var("t_fr", "N.m", "friction braking torque"),
-        ],
-        equations: eqs,
-        ..Default::default()
+    if cfg.inverse {
+        vars.retain(|v| !["I", "err", "cmd_u"].contains(&v.name.as_str()));
     }
+    ComponentDef { name, doc: doc(id), ports, params, vars, equations: eqs, ..Default::default() }
 }
 
 /// boundary.ambient: the outside air: its temperature on its heat port,

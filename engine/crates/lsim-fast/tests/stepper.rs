@@ -337,8 +337,12 @@ fn a_zero_crossing_is_located_and_its_clause_runs() {
     }));
     let traces = [Trace::new(vec![0.0, 4.0], vec![0.0, 0.0]).unwrap()];
     let o = FastOptions::default();
-    let whens =
-        [WhenInfo { crossing: 0, direction: Direction::Rising, label: "'Brake': engages".into() }];
+    let whens = [WhenInfo {
+        crossing: 0,
+        direction: Direction::Rising,
+        strict: false,
+        label: "'Brake': engages".into(),
+    }];
     let mut p = FastProblem::new(&m, &[], &traces, &o);
     p.whens = &whens;
     let r = run(&p, &mut []).unwrap();
@@ -350,6 +354,51 @@ fn a_zero_crossing_is_located_and_its_clause_runs() {
     assert_eq!(d[3], 1.0);
     let dmin = r.column(&r.min, 1);
     assert_eq!(dmin[3], 0.0);
+}
+
+#[test]
+fn an_event_at_a_steps_end_ends_the_step() {
+    // x' = d, d = 1 while v > 0: v falls from 2 m/s to 0 at t = 2 s, a
+    // step's end, and stays there; the clause clears d at 2 s exactly
+    // (the crossing lands on the step's end: no step of no length follows,
+    // which stopped the run with a singular step matrix)
+    let mut m = Doubled::new(
+        1,
+        0,
+        2,
+        2,
+        Box::new(|i, out| out[0] = i.d[0]),
+        Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.d[0];
+        }),
+    );
+    m.layout.n_d = 1;
+    m.layout.n_roots = 1;
+    m.layout.n_whens = 1;
+    m.d0 = vec![1.0];
+    m.roots = Box::new(|i, out| out[0] = i.u[0]);
+    m.when = Some(Box::new(|_, fired, d| {
+        if fired[0] != 0.0 {
+            d[0] = 0.0;
+        }
+    }));
+    let traces = [Trace::new(vec![0.0, 2.0, 3.0], vec![2.0, 0.0, 0.0]).unwrap()];
+    let o = FastOptions::default();
+    let whens = [WhenInfo {
+        crossing: 0,
+        direction: Direction::Falling,
+        strict: false,
+        label: "stops".into(),
+    }];
+    let mut p = FastProblem::new(&m, &[], &traces, &o);
+    p.whens = &whens;
+    let r = run(&p, &mut []).unwrap();
+    assert_eq!(r.events.len(), 1, "{:?}", r.events);
+    assert_eq!(r.events[0].t, 2.0, "{:?}", r.events);
+    assert!((last(&r, 0) - 2.0).abs() < 1e-12, "x(3) = {}", last(&r, 0));
+    // the value recorded at 2 s is the one just before the event there
+    assert_eq!(r.channel("v[1]").unwrap(), [1.0, 1.0, 1.0, 0.0]);
 }
 
 /// Samples its input and holds it.
@@ -397,6 +446,37 @@ fn a_sampled_block_ticks_and_holds() {
     let r = run(&p, &mut blocks).unwrap();
     assert!((last(&r, 0) - 8.0).abs() < 1e-12, "x(3) = {}", last(&r, 0));
     assert_eq!(r.report.block_changes, 2, "{:?}", r.report);
+}
+
+/// Where `∂g/∂z` is singular, the stop names what the equations leave
+/// free: the iteration variable they do not determine, or the ones of
+/// which they determine only a combination (it named nothing before).
+#[test]
+fn a_singular_jacobian_names_what_the_equations_leave_free() {
+    let names: Vec<String> = ["x", "a", "b"].iter().map(|s| s.to_string()).collect();
+    let trace = Trace::new(vec![0.0, 2.0], vec![1.0, 1.0]).unwrap();
+    let o = FastOptions::default();
+    let stop = |g: Fun| {
+        let model = Doubled::new(1, 2, 2, 1, g, Box::new(|i, out| out[0] = i.y[0]));
+        let mut p = FastProblem::new(&model, &[], std::slice::from_ref(&trace), &o);
+        p.y_names = &names;
+        run(&p, &mut []).unwrap_err().to_string()
+    };
+    // a + b = v twice over: only their sum is determined
+    let e = stop(Box::new(|i, out| {
+        out[0] = 0.0;
+        out[1] = i.y[1] + i.y[2] - i.u[0];
+        out[2] = 2.0 * (i.y[1] + i.y[2] - i.u[0]);
+    }));
+    let want = "is singular: the equations determine only a combination of a, b there";
+    assert!(e.ends_with(want), "{e}");
+    // b in no equation
+    let e = stop(Box::new(|i, out| {
+        out[0] = 0.0;
+        out[1] = i.y[1] - i.u[0];
+        out[2] = 3.0 * (i.y[1] - i.u[0]);
+    }));
+    assert!(e.ends_with("is singular: the equations do not determine b there"), "{e}");
 }
 
 #[test]

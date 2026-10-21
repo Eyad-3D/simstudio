@@ -26,6 +26,36 @@ python3 engine/judge/driver.py today PROJECT CASE TODAY.jsonl --masses ... --cyc
 python3 engine/judge/driver.py score CACHE CELLS.jsonl [--before CELLS0.jsonl] [--today TODAY.jsonl] [--out FILE]
 ```
 
+`fast.py` judges fast mode (DESIGN.md §10) the same way, from outside:
+
+```text
+<backend's Python> engine/judge/fast.py cases CASES     # EPA's reference cars as project files
+python3 engine/judge/fast.py cycles CASES               # the BEV example cars on every bundled cycle
+cargo build --release -p lsim-project --example fast    # the runner (engine/)
+python3 engine/judge/fast.py run   CASES RESULTS        # every example case, cycle and EPA car
+python3 engine/judge/fast.py score RESULTS --fastsim FASTSIM_JSON [--before RESULTS0] [--out FILE]
+```
+
+`run` runs each drive-cycle case of the example projects, the two battery
+electric example cars on each of the 27 bundled cycles (written as
+project files by `cycles`), and each of EPA's four reference cars on the
+UDDS and HWFET (`backend/validation`'s suite, written as project files by
+`cases`), in fast mode, in full dynamic mode (rtol 1e-6, as the golden
+comparison), in fast mode again on the speed the full dynamic run drove,
+every 0.1 s (which takes the driver's tracking out), and in fast mode
+again on the cycle changed at round-off level (every speed 1e-9 of itself
+up or down by turns; `--perturb 0` leaves that out, for a runner from
+before it had it). `score` puts fast mode's charge used beside the full
+dynamic run's (inside its band when fast mode raises no flag, the two
+agree within 1 %, and the perturbed cycle gives the same flags and a
+charge used within a millionth: fixed before scoring) and its energy at
+the wall, counted as the suite counts it, beside FASTSim 3.1.0's on the same cars
+(FASTSIM_JSON: `benchmarks/fastsim/compare.py fastsim` in FASTSim's own
+virtualenv; its runs given LightSim's inputs are the comparison, its own
+vehicle files beside them), with steps, events (those at the cycle's
+samples counted apart), flags and run times, and `--before` an earlier
+build's results beside them.
+
 `test_judge.py` checks the scoring itself on made-up series whose right
 scores are known, the speed-trace rule's included (standard library only;
 `engine/check.sh` runs it). `score --beside` puts another tool's runs of
@@ -65,6 +95,7 @@ released at every 0.01 rad from 0.01 to 3.14 rad.
 | `msl-pid-controller` | the library Driver as `LimPID`, in the Modelica Standard Library's `Blocks.Examples.PID_Controller`: a PI controller (k = 100, Ti = 0.1 s, yMax = 12 N·m, Ni = 0.1) makes a motor inertia follow a reference speed through a spring-damper to a load under 10 N·m; decelerating, it is held at its limit and its anti-windup decides how it comes off. The drive is written in the text format, the Driver's command times yMax its torque, started in the steady state the example asks for | the reference result Dymola 2020x computed for the library's regression tests (DASSL, tolerance 1e-6, a row every 0.8 ms) at its six comparison signals, each relative to its largest value; the instants the command reaches and leaves its limit against the reference's two state events there; OpenModelica's run of the original example beside it (`score --beside`) | Modelica Standard Library 4.1.0 and MAP-LIB_ReferenceResults (Modelica Association, BSD-3-Clause): `Modelica/Blocks/Examples/PID_Controller`, its `PID_Controller.csv`, `comparisonSignals.txt` and `creation.txt`, in the cache; the model is written here from the example's statement |
 | `driver.py` | the library Driver on a car at every mass on every driving cycle: whether each run ends, and whether its driven trace follows the cycle as a test-lab driver must | 40 CFR 1066.425(b): the speed within 2.0 mi/h of the schedule's highest and lowest points within 1.0 s, excursions of up to 2.0 s allowed, a shortfall at maximum available power (the accelerator fully down; 1066.415(e)(5)) not counted; a trace outside only where the car was too fast with the brake pedal fully down is told apart (the car's brakes, not the driver); the same cases on today's engine beside the new one | the US Code of Federal Regulations, title 40, §§ 1066.425 and 1066.415, the annual edition of 1 July 2024 (govinfo.gov, public domain), in the cache; the cars and cycles are the repository's own |
 | `sundials` | the engine's patched IDAS (`lsim-sundials-sys/sundials/lsim.patch`) on SUNDIALS' own examples with quadratures under error control, against upstream 7.1.1 (the release the engine vendors) and 7.9.0 | the examples' shipped `.out` files (LLNL's runs) and G computed independently: the slider-crank in its minimal coordinate at 34 digits, the Akzo Nobel problem by Radau IIA at rtol 1e-13 (its y1(180) is 9e-15 off the test set's reference) | SUNDIALS (LLNL, BSD-3-Clause): `examples/idas/serial/idasSlCrank_dns.c`, `idasAkzoNob_dns.c` |
+| `fast.py` | fast mode: each example project's drive-cycle case, and the battery electric cars on every bundled cycle, against its full dynamic run and against itself on the cycle changed at round-off level; EPA's reference cars against FASTSim | the full dynamic run of the same case (charge used within 1 %); FASTSim 3.1.0 given the same cars (the reference suite's inputs) | the example projects (the repository's); `backend/validation` (EPA's test data, public); FASTSim (U.S. National Laboratory of the Rockies, Apache-2.0): for checking only, never shipped, run in its own virtualenv |
 | `omc` | a second tool on the same models: OpenModelica with its dynamic state selection and with static dummy derivatives | the references above | OpenModelica (AGPL-3.0 or OSMC-PL): for checking only, never shipped or linked; the conda-forge build of `omc` with the runtime libraries it needs |
 
 Each model is written by `judge.py` from the problem's statement, so the

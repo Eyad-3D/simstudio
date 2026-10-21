@@ -59,6 +59,8 @@ toml = { version = "=0.9.12", default-features = false, features = ["std", "pars
 pyo3 = { version = "=0.29.3", features = ["abi3-py311"] }
 # NumPy arrays for the Python module (BSD-2-Clause); its version follows pyo3's
 numpy = "=0.29.0"
+# property tests (a dev-dependency only: fast mode's metamorphic tests)
+proptest = { version = "=1.11.0", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

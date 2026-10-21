@@ -465,11 +465,17 @@ pub fn clutch(cfg: ClutchConfig) -> ComponentDef {
 pub struct BrakeConfig {
     /// the Brake Command input is wired (else it never brakes)
     pub demand_wired: bool,
+    /// fast mode's inverse model, its speed prescribed forwards: its
+    /// torque acts against forward rotation (a wheel's slip turns it back
+    /// a little at the last moment of a stop; braking must not then drive
+    /// it, which no command could follow), and it follows a command beyond
+    /// 1 (the driver's pedal beyond full brake, which fast mode flags)
+    pub prescribed: bool,
 }
 
 impl Default for BrakeConfig {
     fn default() -> Self {
-        BrakeConfig { demand_wired: true }
+        BrakeConfig { demand_wired: true, prescribed: false }
     }
 }
 
@@ -484,7 +490,13 @@ impl Default for BrakeConfig {
 /// rotation, holding below 0.5 rad/s by a one-step rule).
 pub fn brake(cfg: BrakeConfig) -> ComponentDef {
     let id = "mech.brake";
-    let cmd = if cfg.demand_wired { clamp(n("sig_demand_in"), c(0.0), c(1.0)) } else { c(0.0) };
+    // fast mode: beyond a full command (where the driver's pedal is beyond
+    // full brake, which fast mode flags) its torque keeps following it
+    let cmd = match (cfg.demand_wired, cfg.prescribed) {
+        (true, false) => clamp(n("sig_demand_in"), c(0.0), c(1.0)),
+        (true, true) => max(n("sig_demand_in"), c(0.0)),
+        (false, _) => c(0.0),
+    };
     let mut ports = vec![phys(id, "flange", "Flange")];
     if cfg.demand_wired {
         ports.push(inp(id, "sig_demand_in"));
@@ -508,11 +520,15 @@ pub fn brake(cfg: BrakeConfig) -> ComponentDef {
         eq(n("inertia_kgm2") * n("acc"), n("flange.tau") - n("tau_b"), "the disc's inertia"),
         eq(n("f_c"), cmd * max(n("max_torque_Nm"), c(0.0)), "command × maximum torque"),
     ];
-    eqs.push(eq(
-        n("tau_b"),
-        n("f_c") * noev(clamp(n("s") / n("w_hold"), c(-1.0), c(1.0))),
-        "its torque against the rotation: its capacity, in proportion to the speed near rest",
-    ));
+    eqs.push(if cfg.prescribed {
+        eq(n("tau_b"), n("f_c"), "its torque against forward rotation: its capacity")
+    } else {
+        eq(
+            n("tau_b"),
+            n("f_c") * noev(clamp(n("s") / n("w_hold"), c(-1.0), c(1.0))),
+            "its torque against the rotation: its capacity, in proportion to the speed near rest",
+        )
+    });
     eqs.extend([
         eq(n("sig_torque"), n("f_c"), "brake torque (its capacity now)"),
         eq(n("sig_power"), n("tau_b") * n("s"), "braking power"),
@@ -521,7 +537,7 @@ pub fn brake(cfg: BrakeConfig) -> ComponentDef {
         name: variant(
             "Blocks.Brake",
             cfg == BrakeConfig::default(),
-            [cfg.demand_wired as u8 as f64],
+            [cfg.demand_wired as u8 as f64].into_iter().chain(cfg.prescribed.then_some(1.0)),
         ),
         doc: doc(id),
         ports,

@@ -47,6 +47,21 @@ pub struct MotorConfig {
     pub scales: [f64; 3],
     /// its bus hands it a supply window
     pub windowed: bool,
+    /// fast mode's inverse model, which solves for the command: the
+    /// torque follows the command everywhere, so the command is always
+    /// determined (a torque that did not depend on it would leave it free).
+    /// Its inverter runs at a command of 0 too (an instant in a forward
+    /// run), but it draws nothing while its shaft stands and its command
+    /// is 0 to round-off (a car standing with nothing to drive, whose
+    /// forward run holds its brake there: a command of 0, the inverter
+    /// off); the command is not held to −1…1 (it leaves that range only
+    /// where the driver's pedal is beyond its own limits, which fast mode
+    /// flags); and a supply window does not cut the torque: beyond what
+    /// the supply gives, fast mode flags the electrical power, and of
+    /// recuperation beyond what it takes the supply takes what it can and
+    /// the rest is lost (as the friction brakes take it in a forward run,
+    /// where the driver brakes harder)
+    pub inverse: bool,
 }
 
 fn scale_pct(p: &serde_json::Map<String, serde_json::Value>, key: &str) -> f64 {
@@ -89,6 +104,7 @@ impl MotorConfig {
             drag: drag.scaled(kn * RPM, kt / kn),
             scales: [kt, kn, kv],
             windowed,
+            inverse: false,
         })
     }
 }
@@ -242,7 +258,11 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         eq(n("w"), n("shaft.w"), "the rotor turns with the shaft"),
         eq(n("J") * der("w"), n("T") + n("shaft.tau"), "the rotor's inertia"),
         eq(n("wa"), noev(abs(n("w"))), "speed magnitude (its kink at 0 needs no event)"),
-        eq(n("dem"), clamp(n("sig_demand_in"), c(-1.0), c(1.0)), "the command, held to −1…1"),
+        if cfg.inverse {
+            eq(n("dem"), n("sig_demand_in"), "the command (fast mode: as the driver gives it)")
+        } else {
+            eq(n("dem"), clamp(n("sig_demand_in"), c(-1.0), c(1.0)), "the command, held to −1…1")
+        },
         eq(n("t_fl"), t_fl_expr, "the full-load map at this voltage and speed"),
         eq(
             n("t_cmd"),
@@ -262,8 +282,13 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             n("alive"),
             ite(
                 and(
-                    // a command of exactly 0 is an instant (no event)
-                    and(gt(n("v"), c(1.0) * n("unit_V")), noev(gt(abs(n("dem")), c(0.0)))),
+                    // a command of exactly 0 is an instant (no event); in
+                    // fast mode the inverter runs at 0 too
+                    if cfg.inverse {
+                        gt(n("v"), c(1.0) * n("unit_V"))
+                    } else {
+                        and(gt(n("v"), c(1.0) * n("unit_V")), noev(gt(abs(n("dem")), c(0.0))))
+                    },
                     le(n("wa"), wmax.clone() * c(1.0 + 1e-9)),
                 ),
                 c(1.0),
@@ -281,7 +306,44 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
     let unpowered = -(lsim_ir::expr::table("drag_torque", vec![n("wa")])
         * noev(n("w") / max(noev(abs(n("w"))), n("w_slow"))));
 
-    if cfg.windowed {
+    // fast mode: idle while the shaft stands and the command is 0 to
+    // round-off (the solved command is then 0 or a few ulps from it)
+    let idle = noev(and(le(n("wa"), c(0.0) * n("unit_rad_s")), le(abs(n("dem")), c(1e-9))));
+    let elec = |p: Expr| {
+        if cfg.inverse { ite(idle.clone(), c(0.0) * n("unit_W"), p) } else { p }
+    };
+    if cfg.windowed && cfg.inverse {
+        eqs.push(eq(n("on"), n("alive"), "it runs whenever it may"));
+        eqs.push(eq(
+            n("T"),
+            ite(gt(n("on"), c(0.5)), n("t_cmd"), unpowered.clone()),
+            "powered, the command's torque; unpowered, its drag against the motion",
+        ));
+        eqs.push(eq(
+            der("t_limited"),
+            ite(
+                and(
+                    gt(n("alive"), c(0.5)),
+                    noev(or(gt(n("p_req"), n("p_hi")), lt(n("p_req"), n("p_lo")))),
+                ),
+                c(1.0),
+                c(0.0),
+            ),
+            "time beyond its supply's window",
+        ));
+        eqs.push(eq(
+            der("e_regen_lost"),
+            ite(
+                and(
+                    gt(n("alive"), c(0.5)),
+                    noev(lt(n("p_req"), min(n("p_lo"), c(0.0) * n("unit_W")))),
+                ),
+                n("p_elec") - n("p_req"),
+                c(0.0) * n("unit_W"),
+            ),
+            "recuperation the supply could not take",
+        ));
+    } else if cfg.windowed {
         vars.push(guess("frac", "1", c(1.0), "the share of the command its supply allows"));
         let l0 = loss_at(c(0.0) * n("unit_N_m"));
         eqs.push(eq(
@@ -351,16 +413,37 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         eqs.push(eq(der("t_limited"), c(0.0), "never held back"));
         eqs.push(eq(der("e_regen_lost"), c(0.0) * n("unit_W"), "never held back"));
     }
-    eqs.extend([
+    let p_shaft_loss = n("T") * n("w") + loss_at(noev(abs(n("T"))));
+    eqs.push(if cfg.windowed && cfg.inverse {
         eq(
             n("p_elec"),
             ite(
                 gt(n("on"), c(0.5)),
-                n("T") * n("w") + loss_at(noev(abs(n("T")))),
+                // flagged above p_hi only: its lower bound the value itself
+                // where below (an open bound, −1e30 W, would set the flags'
+                // tolerance, relative to the bounds too, at 1e21 W)
+                elec(max(
+                    limit(p_shaft_loss.clone(), min(p_shaft_loss, n("p_hi")), n("p_hi")),
+                    n("p_lo"),
+                )),
                 c(0.0) * n("unit_W"),
             ),
-            "powered: shaft power plus the loss map; unpowered: nothing",
-        ),
+            "its electrical power: shaft power plus the loss map, up to what its supply \
+             gives (fast mode flags it beyond), of recuperation what its supply takes; \
+             unpowered or idle, nothing",
+        )
+    } else {
+        eq(
+            n("p_elec"),
+            ite(gt(n("on"), c(0.5)), elec(p_shaft_loss), c(0.0) * n("unit_W")),
+            if cfg.inverse {
+                "powered: shaft power plus the loss map; unpowered or idle: nothing"
+            } else {
+                "powered: shaft power plus the loss map; unpowered: nothing"
+            },
+        )
+    });
+    eqs.extend([
         eq(n("v") * n("i"), n("p_elec"), "it takes that power from its supply"),
         eq(n("sig_speed"), n("wa"), "shaft speed"),
         eq(n("sig_torque"), n("T"), "shaft torque"),
@@ -376,12 +459,16 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             ),
             "its generator torque limit",
         ),
-        eq(n("p_request"), n("alive") * n("p_req"), "the power its command asks for"),
+        eq(n("p_request"), n("alive") * elec(n("p_req")), "the power its command asks for"),
     ]);
     let mut all = uc2.into_params();
     all.extend(params);
     ComponentDef {
-        name: variant("Blocks.EMotor", !cfg.windowed, [cfg.windowed as u8 as f64]),
+        name: variant(
+            "Blocks.EMotor",
+            !cfg.windowed && !cfg.inverse,
+            [cfg.windowed as u8 as f64].into_iter().chain(cfg.inverse.then_some(1.0)),
+        ),
         doc: doc(id),
         ports,
         params: all,

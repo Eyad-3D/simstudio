@@ -431,8 +431,9 @@ is [`docs/text-format.md`](docs/text-format.md).
 Users build their own components from the basic ones in this format (the
 owner's decision), so it must say everything the library says. Tests
 hold that: every library component, every vehicle block in every
-combination of its on/off switches (349 builds, 221 distinct definitions;
-the other settings at their defaults), every definition
+combination of its on/off switches and in fast mode's inverse variants
+(376 builds, 248 distinct definitions; the other settings at their
+defaults), every definition
 the example projects import, a component with every IR feature and random
 expressions over every function print and read back unchanged; every
 example on the documentation page parses, prepares, runs and gives the
@@ -517,7 +518,16 @@ a discontinuity. The contract:
   zero, and iterates events until nothing changes;
 * preparation also adds two `when` clauses per mode — rising on `crossing`
   sets 1, falling on its copy at `crossing + 1` sets 0 — so a run loop
-  that knows only `when` clauses keeps every mode right between events.
+  that knows only `when` clauses keeps every mode right between events
+  while the inputs are continuous. Where an input jumps (a prescribed
+  speed's slope at a sample of its trace, so its derivative; a sampled
+  block's output at its tick), a crossing that reads it jumps between two
+  steps, where no root is to be found, and a crossing that is exactly 0
+  as it starts to move shows no sign change at all: the run loop must
+  then enter event mode at the jump (fire the clauses whose conditions
+  became true across it, set the modes, iterate) and check every mode
+  against its crossing after each step, as the forward run loop does and
+  fast mode does (section 10).
 
 **Initialisation** (`InitSystem { unknowns, guesses, assignments,
 residuals, discrete_starts }`): the equations at the start time (the
@@ -2439,9 +2449,173 @@ save most of those 10 ms in every run, sequential or not (a change to
   small dense LU refreshed only when the Jacobian drifts; measured, 1800
   steps of the test car in about 6.0 ms (3.0·10⁵× real time, STATUS WP6).
   The speed goal is section 2's: faster than the average of comparable
-  tools, measured against them. Verified against forward runs: where no flag is
-  raised, fast and full dynamic agree on energy within the trace's
-  discretisation (a documented band).
+  tools, measured against them.
+* **Input events.** A trace is a function of time: its breakpoints are the
+  samples where its slope changes (a sample on the line through its
+  neighbours, to four units of round-off, is none), steps are split only
+  there, and each piece is read as the line through its ends, so samples
+  added on a trace's lines change nothing beyond round-off (a property
+  test, `lsim-fast/tests/input_events.rs`). At a breakpoint the inputs
+  that are derivatives (`der(body.v)`) jump, and at a block's tick its
+  outputs may: an input event (FMI 3.0: an input with a discontinuity).
+  The stepper enters event mode there: with the roots just before the
+  jump (the last step's end) and just after it, it fires each `when`
+  whose condition became true (Modelica's semantics, as the forward run
+  loop has them: `x >= 0` holds at zero, a strict `x > 0` does not, so a
+  strict `when` fires as its crossing leaves zero upwards and not as it
+  reaches zero from below; `WhenInfo::strict`), runs the actions, sets
+  every mode from its relation and repeats, each round's roots against
+  the last, until nothing changes (a located event's actions are followed
+  by the same iteration). After each step it checks the conditions whose
+  crossings were exactly 0 at the step's start and left it within the
+  step, which no crossing test sees: a mode whose relation that changes,
+  a strict `when` that becomes true. They change at the step's start:
+  event mode there, those crossings taken on the side they leave to (as
+  just after the instant; the mode held there, not set again from its
+  relation, which at zero says the opposite), so the modes and clauses
+  that depend on them follow at once; then the step again. A mode wrong
+  for another reason is set at the step's end. Before this, a mode on
+  the acceleration kept its value across every sample where the
+  acceleration changed sign (the review's probe, x' = d with d =
+  [der(v) > 0] on 0 → 1 → 0 m/s: x(4) = 4 instead of 2), and the inverse
+  body's rolling resistance stayed off after the first start from rest:
+  the example cars' charge used came out 25 to 48 % short on 7 of their
+  9 cycles, without a flag; a strict `when der(v) > 0` counted the stops
+  of a trace, not its starts (OpenModelica: 2 starts, at 2 and 8 s; fast
+  mode 1, at the stop at 6 s); and a mode on a mode set where its
+  crossing left zero followed one step late (d0 = [v > 0], d1 =
+  [d0 > 0.5], x' = d1, a car that stands until 2 s and drives off:
+  x(4) = 1; OpenModelica gives 2 to 4e-10, fast mode now 2 to round-off).
+  A property test drives traces that stand at exactly 0, start, stop and
+  start again at random, and checks the time a mode on the speed holds,
+  the same for a mode on that mode, and a strict counter of the starts
+  against their exact values, with samples added on the lines too
+  (`lsim-fast/tests/input_events.rs`).
+* **Verified against forward runs and against FASTSim** (`engine/judge/
+  fast.py`, 20 October 2026): where no flag is raised, fast mode's charge
+  used must be within 1 % of the full dynamic run's (rtol 1e-6) on the
+  same cycle (the band, fixed before scoring), and the cycle changed at
+  round-off level (every speed 1e-9 of itself up or down by turns) must
+  give the same flags and a charge used within a millionth of it. Inside,
+  all 61: the two battery-electric example cars' 9 drive-cycle cases
+  (−0.20 … −0.04 %) and the same two cars on each of the 27 bundled
+  cycles but the long-haul (52: −0.76 … +0.02 %, New York's city cycle
+  the largest, 2.1 to 4.1 significant digits); on the speed the full
+  dynamic run drove, every 0.1 s, which takes the driver's tracking out,
+  −0.05 … +0.07 %; perturbed, at most 1.5e-7 apart, no flag either way.
+  The long-haul cycle (805 km) empties both batteries: fast mode flags
+  them from the second they reach their minimum SOC, and the full
+  dynamic runs stop about 200 s later on a bare SUNDIALS flag −4 (the
+  forward run's, outside fast mode). On EPA's four reference cars (UDDS,
+  HWFET), fast mode's energy at the wall is within 0.02 … 0.17 % of the
+  full dynamic run's and within 1.3 % of FASTSim 3.1.0's given the same
+  cars (mean 0.92 %; today's engine is within 1.3 % too,
+  `benchmarks/fastsim`); before the input events, 25 … 47 % short of
+  both. Before the fixes below (the same judge): of the 54 standard
+  cycles, 9 stopped on a singular Jacobian that named nothing (7 of them
+  where the full dynamic run finishes), 2 raised flags the car never
+  reached, and New York's city cycle was 1.43 % over (1.80 % on the
+  driven speed), outside the band without a flag; on the driven speed
+  the 9 example cases were −0.02 … +0.40 %, the inverter's no-load loss
+  charged while standing. Fast mode takes 10 … 260 ms a cycle on these
+  cars on a shared, loaded machine (the 805 km cycle 2.0 … 2.8 s; their
+  full dynamic runs 0.06 … 7.0 s), and 1 or 2 solves a run are tried
+  again (up to 2 472 before). Counted by callgrind, a fast run of the
+  aero BEV's UDDS takes 7 % fewer instructions than before (fewer solves
+  tried again), the test car's 2.2 % more for the same work per step
+  (12.88 residuals, 11.50 Newton iterations: the checks of every solve
+  against its reference point).
+* **The example projects' cars** (`lsim-project`, `ImportOptions::inverse`):
+  a drive-cycle case is imported as its inverse model. The vehicle body's
+  speed is prescribed from the cycle its Driver follows (the Driving
+  Task's profile, scaled as it scales it; `ImportReport::inverse` gives
+  the trace and the `InverseSpec`), and the parts whose forward models
+  cannot be run backwards take their inverse variants (lsim-lib, the
+  `prescribed`/`inverse` switch of their configuration; the forward
+  import is unchanged, so are the golden figures): the **Driver** keeps
+  only its pedal map, its pedal command an input the inverse model solves
+  for (`limit`ed to full brake … full throttle, so a cycle the car cannot
+  follow is flagged), its PI controller and the command's source removed,
+  and beyond full brake its brakes keep following the pedal (the friction
+  brakes past their capacity, recuperation where there are none);
+  the **vehicle body**'s rolling resistance acts against the prescribed
+  motion, or the acceleration that starts it forwards from rest (no
+  stiction: at rest nothing pushes, and a pedal that holds a car at rest
+  is not determined by its motion); the **wheels** turn with the
+  prescribed speed, their slip the force over slip stiffness × load (at
+  most the slip at the tyre's grip: so the torque balance `F·(1 + slip)`
+  grows with the force and has one root, not a second one near a slip of
+  −1) and its loss the extra torque `F·r·slip` (the same power, to first
+  order in the slip, above 0.5 m/s): a slip that follows the cycle's steps
+  of acceleration would need an impulse, which no inverse model of a
+  compliant tyre avoids, and without the slip's loss fast mode is 2.6 %
+  short on the aero BEV's UDDS (its tyres' slip losses); the force is
+  flagged beyond the tyre's grip; the **brakes** act against forward
+  rotation (a wheel's slip turns it back a little at the last moment of a
+  stop, which must not turn a brake into a drive) and follow a command
+  beyond 1; the **e-motor**'s torque follows its command everywhere, so
+  the command the inverse model solves for is always determined: the
+  inverter runs at a command of 0 too (an instant in a forward run, the
+  state of a standing car in fast mode) but draws nothing while its shaft
+  stands and its command is 0 to round-off (a car standing with nothing
+  to drive, whose full dynamic run holds it with the friction brakes, its
+  command 0 and the inverter off: charging the loss map's 77 W there put
+  fast mode 1.4 % over the full dynamic run on New York's city cycle,
+  which stands a third of its time, without a flag; a car stands only
+  on whole pieces of a cycle, so the switch falls on a step's ends); the
+  command is not held to −1 … 1 (it leaves that range only where the
+  pedal is beyond full throttle, which is flagged); and a supply window
+  does not cut the torque: beyond what the supply gives the electrical
+  power is flagged, and of recuperation beyond
+  what it takes the supply takes what it can and the rest is lost in the
+  inverter (in a full dynamic run the driver brakes harder and the
+  friction brakes take it: the battery's energy is the same, the pedal
+  smaller; no bundled cycle reaches it); the **battery**'s state of
+  charge is flagged below its minimum SOC and above full (a car that
+  drives its battery empty could not have driven on: the 805 km
+  long-haul cycle takes both cars' states of charge on down to −1.17 and
+  −1.26, what it would take, and each battery is flagged from the second
+  it reaches its minimum SOC; the e-motor's flag of its supply window
+  sees only what the motor draws, not a standing car's other loads). A
+  saturation anywhere the pedal drives would leave the pedal free where
+  Newton's method strays into it (the Jacobian singular), and a second
+  root lets it settle there: 7 of
+  the 54 standard cycles of the two cars stopped on a singular Jacobian,
+  named by nothing, and two (the FTP-75, WLTC class 3's extra high
+  phase) flagged the pedal and two tyres' grip at points inside a step
+  where the pedal stood at 3.7·10¹⁵ and the tyres on their second root;
+  the FTP-75's first 1369 s, which differ from the UDDS by 61 samples
+  within 8·10⁻⁴ km/h of its lines, raised them, the UDDS not. Preparation
+  reads an inverse model's tables when it chooses the states (a battery's
+  open-circuit voltage decides its start; without it the start is not
+  solved and the spread of values used instead puts the tyres at their
+  grip, where no choice of states is regular). Refused, with the reason:
+  an acceleration test (`FAST-NO-CYCLE`: its speed is what it measures),
+  a profile along distance, repeated or with steps, and a Driver whose
+  pedal a sampled block reads (`FAST-SAMPLED-CONTROL`: the hybrid's
+  supervisory controller, a Script, acts at its ticks on what it read
+  then, so no pedal worked out back from the motion moves the car now).
+  The stepper keeps every solve to the root that continues from its
+  consistent reference point: a prediction farther from it than the
+  iteration variables' size so far (their largest magnitudes at
+  consistent points) is dropped for the point itself (its derivatives are
+  stale, taken where the equations behaved otherwise: with the inverse
+  variants regular but without this, Newton's method went from such
+  predictions to the battery's other current, its voltage near 0, where
+  the torque does not depend on the pedal, and 6 of the 54 cycles still
+  stopped there, the BEV's HWFET at 136 s among them), a solution that
+  far is checked by a solve from the point and the root nearer it kept,
+  a failed solve is tried again from the point with fresh derivatives,
+  a solution off by ten orders of magnitude is no root (a step small
+  beside a value of 10¹⁵ passed the relative test), a singular
+  `∂g/∂z` names the iteration variables it leaves free (`the equations
+  do not determine el_driver.cmd there`) and a solve that does not
+  converge the slowest one; an event located at a step's end ends the
+  step there (a crossing that reaches exactly 0 at a cycle's stop was
+  lost, and a step of no length after it stopped the run).
+  `engine/judge/fast.py` is the outside judge of these runs (its README:
+  the full dynamic run of each case, the battery-electric cars on every
+  bundled cycle, and FASTSim on EPA's reference cars).
 
 ## 11. Outputs, energy books and accuracy reports
 

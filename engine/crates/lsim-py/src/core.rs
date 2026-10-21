@@ -148,8 +148,13 @@ pub fn import(
 ) -> Result<(Value, lsim_ir::ComponentDef, ImportReport), Failure> {
     let project = parse_project(project_json)?;
     let reg = standard_registry();
-    let (top, rep) = import_case(&project, Some(case_id), &reg, &ImportOptions { cycles_dir })
-        .map_err(Failure::Model)?;
+    let (top, rep) = import_case(
+        &project,
+        Some(case_id),
+        &reg,
+        &ImportOptions { cycles_dir, ..Default::default() },
+    )
+    .map_err(Failure::Model)?;
     Ok((project, top, rep))
 }
 
@@ -183,7 +188,7 @@ pub fn diagnose(
     guarded(|| {
         let project = parse_project(project_json)?;
         let reg = standard_registry();
-        let opts = ImportOptions { cycles_dir };
+        let opts = ImportOptions { cycles_dir, ..Default::default() };
         match import_case(&project, Some(case_id), &reg, &opts) {
             Err(d) => Ok(d),
             Ok((top, rep)) => {

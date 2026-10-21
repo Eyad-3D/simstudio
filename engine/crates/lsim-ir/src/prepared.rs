@@ -145,7 +145,15 @@ impl PreparedWhen {
 /// * preparation also adds two `when` clauses per mode: a rising one on
 ///   `crossing` itself that sets `var` to 1, and a falling one on a copy
 ///   of it at `crossing + 1` that sets `var` to 0; so a run loop that knows
-///   only `when` clauses keeps every mode right between events.
+///   only `when` clauses keeps every mode right between events while the
+///   inputs are continuous. Where an input jumps (a prescribed trace's
+///   slope at a sample, a sampled block's output at its tick) a crossing
+///   that reads it jumps between two steps, where no root is to be found,
+///   and one exactly 0 as it starts to move shows no sign change: there
+///   the run loop must enter event mode at the jump (fire the clauses
+///   whose conditions changed across it, set the modes, iterate) and check
+///   every mode against its crossing after each step (DESIGN.md 5.6 and
+///   section 10).
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Mode {
     /// the discrete variable holding the relation's value (1 true, 0

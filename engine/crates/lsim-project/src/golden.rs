@@ -339,8 +339,19 @@ pub fn hosts_with(
     python: Option<&PythonHost>,
     runner: ScriptRunner,
 ) -> Result<Hosts, String> {
+    hosts_for(&model.info, rep, python, runner)
+}
+
+/// The hosts of the sampled blocks `info` lists (a forward model's or fast
+/// mode's inverse model's), Script blocks on `runner`.
+pub fn hosts_for(
+    info: &lsim_solve::RunInfo,
+    rep: &ImportReport,
+    python: Option<&PythonHost>,
+    runner: ScriptRunner,
+) -> Result<Hosts, String> {
     let mut out = Hosts { blocks: vec![], scripts: vec![], outside: vec![] };
-    for b in &model.info.blocks {
+    for b in &info.blocks {
         let spec = sampled_spec(rep, &b.name)
             .ok_or_else(|| format!("no host for the sampled block {}", b.name))?;
         match &spec.kind {
