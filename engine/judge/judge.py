@@ -437,6 +437,23 @@ def pendulum(theta0: float, v0: float, t_end: float, kind: dict,
     return text, case
 
 
+def pendulum_event(theta0: float, t_end: float) -> tuple[str, dict]:
+    """The pendulum in x and y released at rest above its pivot's level,
+    where the states chosen at the start (x, vx) degenerate as the rod
+    passes the horizontal, with a `when` a little before that point (y <
+    0.02, about 2 ms before) whose assignment leaves its value as it was:
+    the run must stop where it stops without it."""
+    text, case = pendulum(theta0, 0.0, t_end, {})
+    tension = '''  Real F(unit = "N", start = m * g) "the rod's tension";\n'''
+    assert tension in text
+    text = text.replace(tension, tension + '''  discrete Real hit(start = 1, fixed = true) "set to the value it has where the rod nears the horizontal";\n''')
+    text = text.replace("end Judge.Pendulum;", '''  when y < 0.02 then
+    hit = 1;
+  end when "the rod nears the horizontal";
+end Judge.Pendulum;''')
+    return text, case
+
+
 PENDULUM_ANGLE = '''model Judge.PendulumAngle "The same pendulum in its angle from the downward vertical: an ODE with no constraint and so no choice of states, the integrator's own error on the problem beside the x-y form's."
   parameter Real m(unit = "kg") = 1;
   parameter Real L(unit = "m") = 1;
@@ -766,9 +783,15 @@ def all_cases(sweep: bool) -> dict[str, tuple[str, dict]]:
         out[f"pendulum-loop-{m}"] = pendulum(0.0, v0, 10.0, {"loop_m": m})
         out[f"pendulum-angle-loop-{m}"] = pendulum_angle(0.0, v0, 10.0, {"loop_m": m})
     # stateSelect: x marked prefer, released where pivoting alone keeps y
-    # (which degenerates at the bottom of the swing)
+    # (which degenerates at the bottom of the swing); and at atan 99, where
+    # the choice that keeps x would start at a factor of 99, outside the
+    # margin a marked choice must start in (50), inside the run's limit
     for theta0 in (1.5, 1.55):
         out[f"pendulum-prefer-x-{theta0:.2f}"] = pendulum(theta0, 0.0, 10.0, {}, "prefer")
+    out["pendulum-prefer-x-1.5607"] = pendulum(math.atan(99.0), 0.0, 10.0, {}, "prefer")
+    # an event just before the states degenerate, changing nothing
+    for theta0 in (2.0, 2.8):
+        out[f"pendulum-event-{theta0:.2f}"] = pendulum_event(theta0, 10.0)
     out["msl-planarfourbar"] = planar_fourbar()
     return out
 
