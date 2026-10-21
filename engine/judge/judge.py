@@ -58,6 +58,8 @@ IFTOMM = "https://www.iftomm-multibody.org/media"
 RFMU = "https://raw.githubusercontent.com/modelica/Reference-FMUs/v0.0.41"
 SUNDIALS = "https://raw.githubusercontent.com/LLNL/sundials"
 SUNDIALS_REL = "https://github.com/LLNL/sundials/releases/download"
+MSL = "https://raw.githubusercontent.com/modelica/ModelicaStandardLibrary/v4.1.0"
+MSL_REF = "https://raw.githubusercontent.com/modelica/MAP-LIB_ReferenceResults/v4.1.0"
 
 SOURCES = [
     # The Bari IVP Test Set (F. Mazzia, C. Magherini, release 2.4, 2008): free
@@ -129,6 +131,22 @@ SOURCES = [
      "845429ae5ed59d5d36f43ba1d6d928f7b6f92f98aa9616d3e81531ffd6780e05"),
     ("sundials/v7.9.0/idasAkzoNob_dns.out", f"{SUNDIALS}/v7.9.0/examples/idas/serial/idasAkzoNob_dns.out",
      "dd69bfec8d242eca7dbc7cde8571d6963e2778ed2b7ebe1a0d63c35ff1074f58"),
+    # The Modelica Standard Library 4.1.0 (Modelica Association, BSD-3-Clause):
+    # the PlanarFourbar example and the BodyBox it is built of, which the
+    # judge transcribes, and its reference result from the Modelica
+    # Association's regression tests (Dymola 2020x, DASSL at 1e-6)
+    ("msl/LICENSE.txt", f"{MSL}/LICENSE",
+     "4f708e2d4bdebaeb13896d3796ebf9f4eac0ddc31dc6cd391dff4aa76c63e2eb"),
+    ("msl/PlanarFourbar.mo", f"{MSL}/Modelica/Mechanics/MultiBody/Examples/Loops/PlanarFourbar.mo",
+     "c762227d6f4dbe8aef97b1b97d1ec2df46e5c4955cf6e4d7ef4c1384d80caac4"),
+    ("msl/BodyBox.mo", f"{MSL}/Modelica/Mechanics/MultiBody/Parts/BodyBox.mo",
+     "698eec27fd1d9230cc2885ef8527e986308122c2948d62256ad17fb1f5eab5ba"),
+    ("msl/PlanarFourbar/PlanarFourbar.csv",
+     f"{MSL_REF}/Modelica/Mechanics/MultiBody/Examples/Loops/PlanarFourbar/PlanarFourbar.csv",
+     "6668d0cb3336970364df215ece7d4984ae6edbf23fe5d920ac41cc075e177c65"),
+    ("msl/PlanarFourbar/creation.txt",
+     f"{MSL_REF}/Modelica/Mechanics/MultiBody/Examples/Loops/PlanarFourbar/creation.txt",
+     "8814d030b39ca8268d7bd79598545c632cb511ff648c9337ee8bdc2aa2e934bc"),
 ]
 
 
@@ -392,7 +410,7 @@ PENDULUM = '''model Judge.Pendulum "A point mass on a massless rod of length L i
   parameter Real g(unit = "m/s2") = 9.81;
   parameter Real theta0 = {theta0} "the angle from the downward vertical at the start";
   parameter Real v0(unit = "m/s") = {v0} "the speed at the start, at right angles to the rod";
-  Real x(unit = "m", start = L * sin(theta0), fixed = true);
+  Real x(unit = "m", start = L * sin(theta0), fixed = true{x_select});
   Real y(unit = "m", start = -L * cos(theta0));
   Real vx(unit = "m/s", start = v0 * cos(theta0), fixed = true);
   Real vy(unit = "m/s", start = v0 * sin(theta0));
@@ -407,12 +425,141 @@ end Judge.Pendulum;
 '''
 
 
-def pendulum(theta0: float, v0: float, t_end: float, kind: dict) -> tuple[str, dict]:
-    text = PENDULUM.replace("{theta0}", num(theta0)).replace("{v0}", num(v0))
+def pendulum(theta0: float, v0: float, t_end: float, kind: dict,
+             x_select: str | None = None) -> tuple[str, dict]:
+    """The pendulum in x and y; `x_select` x's stateSelect (`prefer`)."""
+    mark = f", stateSelect = StateSelect.{x_select}" if x_select else ""
+    text = (PENDULUM.replace("{theta0}", num(theta0)).replace("{v0}", num(v0))
+            .replace("{x_select}", mark))
     case = {"model": "Judge.Pendulum", "t_end": t_end, "dt": 0.01, "atol_factor": 1e-2,
             "record": ["x", "y", "vx", "vy"],
             "judge": dict(kind="pendulum", theta0=theta0, v0=v0, m=1.0, L=1.0, g=9.81, **kind)}
     return text, case
+
+
+PENDULUM_ANGLE = '''model Judge.PendulumAngle "The same pendulum in its angle from the downward vertical: an ODE with no constraint and so no choice of states, the integrator's own error on the problem beside the x-y form's."
+  parameter Real m(unit = "kg") = 1;
+  parameter Real L(unit = "m") = 1;
+  parameter Real g(unit = "m/s2") = 9.81;
+  parameter Real theta0 = {theta0} "the angle from the downward vertical at the start";
+  parameter Real v0(unit = "m/s") = {v0} "the speed at the start, at right angles to the rod";
+  Real theta(unit = "rad", start = theta0, fixed = true);
+  Real w(unit = "rad/s", start = v0 / L, fixed = true);
+  Real x(unit = "m") = L * sin(theta);
+  Real y(unit = "m") = -L * cos(theta);
+  Real vx(unit = "m/s") = L * cos(theta) * w;
+  Real vy(unit = "m/s") = L * sin(theta) * w;
+equation
+  der(theta) = w;
+  der(w) = -g / L * sin(theta) "gravity turns it";
+end Judge.PendulumAngle;
+'''
+
+
+def pendulum_angle(theta0: float, v0: float, t_end: float, kind: dict) -> tuple[str, dict]:
+    """The pendulum in its angle: the control for the x-y form, scored by
+    the same closed form."""
+    text = PENDULUM_ANGLE.replace("{theta0}", num(theta0)).replace("{v0}", num(v0))
+    case = {"model": "Judge.PendulumAngle", "t_end": t_end, "dt": 0.01, "atol_factor": 1e-2,
+            "record": ["x", "y", "vx", "vy"],
+            "judge": dict(kind="pendulum", theta0=theta0, v0=v0, m=1.0, L=1.0, g=9.81, **kind)}
+    return text, case
+
+
+# Modelica Standard Library 4.1.0, Mechanics.MultiBody.Examples.Loops.
+# PlanarFourbar: four BodyBoxes (steel, 7700 kg/m3, 0.05 m square: half the
+# World's defaultJointLength, nominalLength / 10), body3 fixed to the world,
+# revolute1 (stateSelect = always) and revolute2, revolute3 (Revolute's
+# default, prefer) and the cut joint revolute4cut (RevolutePlanarLoopConstraint:
+# the positions in the plane), a damper of 0.1 N.m.s/rad at revolute1, the
+# World's gravity g_n along -y; released from rest at revolute1.phi = 0.
+PLANAR = {"width": 0.05, "density": 7700.0, "g": 9.80665, "damping": 0.1,
+          "r1": [0.4, 0.0], "r2": [0.1, 1.1], "r4": [0.65, 0.1], "c": [-0.15, 1.0]}
+
+
+def planar_fourbar() -> tuple[str, dict]:
+    """MSL's PlanarFourbar in the plane, in the joints' angles (as MSL's
+    joints) and the bodies' centres (as its BodyBoxes, stateSelect = avoid),
+    the joint forces unknown: index 3, a 13-row choice of states that
+    stateSelect decides."""
+    j = PLANAR
+    W, rho = j["width"], j["density"]
+    bodies = {1: j["r1"], 2: j["r2"], 4: j["r4"]}
+
+    def mass(r):
+        return rho * math.hypot(*r) * W * W
+
+    def inertia(r):
+        return mass(r) * (math.hypot(*r) ** 2 + W * W) / 12
+
+    lines = ['model Judge.PlanarFourbar "Modelica Standard Library 4.1.0, '
+             'Mechanics.MultiBody.Examples.Loops.PlanarFourbar, in the plane: four steel '
+             'BodyBoxes, a damper at revolute1, falling from rest under gravity"']
+    for k, r in bodies.items():
+        lines += [f'  parameter Real m{k}(unit = "kg") = {num(mass(r))} "body{k}: density times '
+                  f'its box";',
+                  f'  parameter Real I{k}(unit = "kg.m2") = {num(inertia(r))} "body{k} about '
+                  f'its centre, across the plane";',
+                  f'  parameter Real rx{k}(unit = "m") = {num(r[0])} "body{k}.r";',
+                  f'  parameter Real ry{k}(unit = "m") = {num(r[1])};']
+    lines += [f'  parameter Real cx(unit = "m") = {num(j["c"][0])} "body3 (fixed) ends here";',
+              f'  parameter Real cy(unit = "m") = {num(j["c"][1])};',
+              f'  parameter Real g(unit = "m/s2") = {num(j["g"])} "Modelica.Constants.g_n";',
+              f'  parameter Real d(unit = "N.m.s") = {num(j["damping"])} "the damper";',
+              '  Real phi1(unit = "rad", start = 0, fixed = true, stateSelect = StateSelect.always) '
+              '"revolute1.phi: body1 against the world";',
+              '  Real w1(unit = "rad/s", start = 0, fixed = true, stateSelect = StateSelect.always) '
+              '"revolute1.w";',
+              '  Real phi2(unit = "rad", start = 0, stateSelect = StateSelect.prefer) '
+              '"revolute2.phi: body2 against body1";',
+              '  Real w2(unit = "rad/s", start = 0, stateSelect = StateSelect.prefer);',
+              '  Real phi3(unit = "rad", start = 0, stateSelect = StateSelect.prefer) '
+              '"revolute3.phi: body4 against body3";',
+              '  Real w3(unit = "rad/s", start = 0, stateSelect = StateSelect.prefer);']
+    for k in (1, 2, 4):
+        for c in "xy":
+            lines += [f'  Real {c}{k}(unit = "m", stateSelect = StateSelect.avoid) "body{k}\'s '
+                      f'centre";',
+                      f'  Real v{c}{k}(unit = "m/s", stateSelect = StateSelect.avoid);',
+                      f'  Real f{c}{k}(unit = "N") "the force body{k}\'s frame_a joint passes on";']
+    lines += ['  Real fx5(unit = "N") "the force revolute4cut passes from body4 to body2";',
+              '  Real fy5(unit = "N");',
+              '  Real a2(unit = "rad") = phi1 + phi2 "body2\'s angle";',
+              '  Real bx(unit = "m") = rx1 * cos(phi1) - ry1 * sin(phi1) "revolute2";',
+              '  Real by(unit = "m") = rx1 * sin(phi1) + ry1 * cos(phi1);',
+              '  Real dx(unit = "m") = bx + rx2 * cos(a2) - ry2 * sin(a2) "body2\'s end";',
+              '  Real dy(unit = "m") = by + rx2 * sin(a2) + ry2 * cos(a2);',
+              '  Real ex(unit = "m") = cx + rx4 * cos(phi3) - ry4 * sin(phi3) "body4\'s end";',
+              '  Real ey(unit = "m") = cy + rx4 * sin(phi3) + ry4 * cos(phi3);',
+              'equation',
+              '  der(phi1) = w1;', '  der(phi2) = w2;', '  der(phi3) = w3;']
+    lines += [f'  der({c}{k}) = v{c}{k};' for k in (1, 2, 4) for c in "xy"]
+    lines += [
+        '  x1 = (rx1 * cos(phi1) - ry1 * sin(phi1)) / 2 "body1\'s centre";',
+        '  y1 = (rx1 * sin(phi1) + ry1 * cos(phi1)) / 2;',
+        '  x2 = bx + (rx2 * cos(a2) - ry2 * sin(a2)) / 2 "body2\'s centre";',
+        '  y2 = by + (rx2 * sin(a2) + ry2 * cos(a2)) / 2;',
+        '  x4 = cx + (rx4 * cos(phi3) - ry4 * sin(phi3)) / 2 "body4\'s centre";',
+        '  y4 = cy + (rx4 * sin(phi3) + ry4 * cos(phi3)) / 2;',
+        '  m1 * der(vx1) = fx1 - fx2 "body1 along x";',
+        '  m1 * der(vy1) = fy1 - fy2 - m1 * g "body1 along y";',
+        '  m2 * der(vx2) = fx2 + fx5 "body2 along x";',
+        '  m2 * der(vy2) = fy2 + fy5 - m2 * g "body2 along y";',
+        '  m4 * der(vx4) = fx4 - fx5 "body4 along x";',
+        '  m4 * der(vy4) = fy4 - fy5 - m4 * g "body4 along y";',
+        '  I1 * der(w1) = (0 - x1) * fy1 - (0 - y1) * fx1 - ((bx - x1) * fy2 - (by - y1) * fx2) '
+        '- d * w1 "body1 turns";',
+        '  I2 * (der(w1) + der(w2)) = (bx - x2) * fy2 - (by - y2) * fx2 + (dx - x2) * fy5 '
+        '- (dy - y2) * fx5 "body2 turns";',
+        '  I4 * der(w3) = (cx - x4) * fy4 - (cy - y4) * fx4 - ((ex - x4) * fy5 - (ey - y4) * fx5) '
+        '"body4 turns";',
+        '  dx = ex "revolute4cut along x";',
+        '  dy = ey "revolute4cut along y";',
+        'end Judge.PlanarFourbar;']
+    case = {"model": "Judge.PlanarFourbar", "t_end": 5.0, "dt": 0.01, "atol_factor": 1e-2,
+            "record": ["phi1", "w1"],
+            "judge": dict(kind="planar", csv="msl/PlanarFourbar/PlanarFourbar.csv", **j)}
+    return "\n".join(lines) + "\n", case
 
 
 def fourbar() -> tuple[str, dict]:
@@ -608,12 +755,21 @@ def all_cases(sweep: bool) -> dict[str, tuple[str, dict]]:
     # the pendulum's closed form: released at rest from theta0 (swinging),
     # and given the speed v0 at the bottom so that m = 4 g L / v0^2 < 1
     # (looping)
+    # (and each in its angle, an ODE with no choice of states: the
+    # integrator's own error on the problem, the control)
     for theta0 in ([round(0.01 * i, 2) for i in range(1, 315)] if sweep
                    else [0.4, 1.5, 1.55, 3.0, 3.13]):
         out[f"pendulum-swing-{theta0:.2f}"] = pendulum(theta0, 0.0, 10.0, {})
+        out[f"pendulum-angle-{theta0:.2f}"] = pendulum_angle(theta0, 0.0, 10.0, {})
     for m in [0.5, 0.9, 0.99, 0.999]:
         v0 = math.sqrt(4 * 9.81 * 1.0 / m)
         out[f"pendulum-loop-{m}"] = pendulum(0.0, v0, 10.0, {"loop_m": m})
+        out[f"pendulum-angle-loop-{m}"] = pendulum_angle(0.0, v0, 10.0, {"loop_m": m})
+    # stateSelect: x marked prefer, released where pivoting alone keeps y
+    # (which degenerates at the bottom of the swing)
+    for theta0 in (1.5, 1.55):
+        out[f"pendulum-prefer-x-{theta0:.2f}"] = pendulum(theta0, 0.0, 10.0, {}, "prefer")
+    out["msl-planarfourbar"] = planar_fourbar()
     return out
 
 
@@ -823,6 +979,87 @@ def fourbar_text_check(text: str, j: dict) -> float:
     return worst
 
 
+def planar_reference(j: dict, times: list[float], tol: float = 1e-13) -> dict:
+    """revolute1's angle and speed of MSL's PlanarFourbar in its one degree
+    of freedom: the joints' angles q = (phi1, phi2, phi3), the loop's two
+    closure equations solved for phi2, phi3 by Newton's method at every
+    evaluation, and the equations of motion M(q) q'' + h = Q + G' lambda,
+    G q'' = -G' q' (the bodies' kinetic energy, gravity, the damper) solved
+    for q''; phi1, w1 integrated by DOP853 at rtol = atol = 1e-13 (scipy).
+    1e-12 and 1e-13 agree to 5e-11 rad; OpenModelica 1.27 on MSL's own
+    model (checked once, by hand) is 7.1e-9 rad from it at rtol 1e-12,
+    2.1e-7 at 1e-10, 5.6e-4 at 1e-6."""
+    import numpy as np
+    from scipy.integrate import solve_ivp
+
+    W, rho, g, damp = j["width"], j["density"], j["g"], j["damping"]
+    r1, r2, r4 = (np.array(j[k]) for k in ("r1", "r2", "r4"))
+    C = np.array(j["c"])
+
+    def mass(r):
+        return rho * math.hypot(*r) * W * W
+
+    m = [mass(r1), mass(r2), mass(r4)]
+    inertia = [mass(r) * (math.hypot(*r) ** 2 + W * W) / 12 for r in (r1, r2, r4)]
+
+    def rot(a, r):  # R(a) r
+        c, s_ = math.cos(a), math.sin(a)
+        return np.array([c * r[0] - s_ * r[1], s_ * r[0] + c * r[1]])
+
+    def drot(a, r):  # d/da R(a) r
+        c, s_ = math.cos(a), math.sin(a)
+        return np.array([-s_ * r[0] - c * r[1], c * r[0] - s_ * r[1]])
+
+    def closure(q):  # body2's end less body4's: zero
+        a2 = q[0] + q[1]
+        return rot(q[0], r1) + rot(a2, r2) - C - rot(q[2], r4)
+
+    def G(q):
+        a2 = q[0] + q[1]
+        return np.column_stack([drot(q[0], r1) + drot(a2, r2), drot(a2, r2), -drot(q[2], r4)])
+
+    def Gdot_qd(q, qd):
+        a2, wa2 = q[0] + q[1], qd[0] + qd[1]
+        return (-rot(q[0], r1) * qd[0] ** 2 - rot(a2, r2) * wa2 ** 2
+                + rot(q[2], r4) * qd[2] ** 2)
+
+    guess = np.zeros(3)
+
+    def rhs(t, state):
+        nonlocal guess
+        q = guess.copy()
+        q[0] = state[0]
+        for _ in range(60):
+            dq = np.linalg.solve(G(q)[:, 1:], -closure(q))
+            q[1:] += dq
+            if np.max(np.abs(dq)) < 1e-15:
+                break
+        guess = q
+        Gq = G(q)
+        qd = np.concatenate([[state[1]], np.linalg.solve(Gq[:, 1:], -Gq[:, 0] * state[1])])
+        a2, wa2 = q[0] + q[1], qd[0] + qd[1]
+        # the centres' Jacobians and their rates times q'
+        J = [np.column_stack([drot(q[0], r1) / 2, [0, 0], [0, 0]]),
+             np.column_stack([drot(q[0], r1) + drot(a2, r2) / 2, drot(a2, r2) / 2, [0, 0]]),
+             np.column_stack([[0, 0], [0, 0], drot(q[2], r4) / 2])]
+        Jd_qd = [-rot(q[0], r1) / 2 * qd[0] ** 2,
+                 -rot(q[0], r1) * qd[0] ** 2 - rot(a2, r2) / 2 * wa2 ** 2,
+                 -rot(q[2], r4) / 2 * qd[2] ** 2]
+        k = [np.array([1.0, 0, 0]), np.array([1.0, 1, 0]), np.array([0, 0, 1.0])]
+        M = sum(mi * Ji.T @ Ji + Ii * np.outer(ki, ki) for mi, Ii, Ji, ki in zip(m, inertia, J, k))
+        h = sum(mi * Ji.T @ v for mi, Ji, v in zip(m, J, Jd_qd))
+        Q = -sum(mi * g * Ji[1, :] for mi, Ji in zip(m, J))
+        Q[0] -= damp * qd[0]
+        A = np.zeros((5, 5))
+        A[:3, :3], A[:3, 3:], A[3:, :3] = M, Gq.T, Gq
+        x = np.linalg.solve(A, np.concatenate([Q - h, -Gdot_qd(q, qd)]))
+        return [state[1], x[0]]
+
+    sol = solve_ivp(rhs, (0.0, times[-1]), [0.0, 0.0], method="DOP853", rtol=tol, atol=tol,
+                    t_eval=times)
+    return {"phi1": sol.y[0].tolist(), "w1": sol.y[1].tolist()}
+
+
 def bouncing_ball_reference(j: dict) -> dict:
     """The ball's bounces, exactly: the times it reaches h = 0 and the speed
     it leaves with, until that is below v_min."""
@@ -875,6 +1112,7 @@ def cases(cache: Path, out: Path, sweep: bool) -> None:
     out.mkdir(parents=True, exist_ok=True)
     (out / "refs").mkdir(exist_ok=True)
     index = {}
+    done: dict[str, Path] = {}
     for name, (text, case) in all_cases(sweep).items():
         case = dict(case)
         case["text"] = f"{name}.mo"
@@ -884,9 +1122,16 @@ def cases(cache: Path, out: Path, sweep: bool) -> None:
         (out / f"{name}.json").write_text(json.dumps(case, indent=1))
         index[name] = case
         ref = out / "refs" / f"{name}.json"
-        if ref.exists():
-            continue
         j = case["judge"]
+        # (a reference another case already has: the same problem written
+        # another way)
+        key = json.dumps([j, case["t_end"], case["dt"]], sort_keys=True)
+        if ref.exists():
+            done.setdefault(key, ref)
+            continue
+        if key in done:
+            shutil.copyfile(done[key], ref)
+            continue
         n = round(case["t_end"] / case["dt"])
         times = [round(k * case["dt"], 12) for k in range(n + 1)]
         started = time.time()
@@ -897,6 +1142,8 @@ def cases(cache: Path, out: Path, sweep: bool) -> None:
             r["text_residual"] = fourbar_text_check(text, j)
         elif j["kind"] == "bouncingball":
             r = bouncing_ball_reference(j)
+        elif j["kind"] == "planar":
+            r = planar_reference(j, times)
         elif j["kind"] == "testset":
             r = {"y": testset_reference(cached(cache, j["file"]))}
         elif j["kind"] in ("stair", "count"):
@@ -906,6 +1153,7 @@ def cases(cache: Path, out: Path, sweep: bool) -> None:
         r["times"] = times
         r["seconds"] = time.time() - started
         ref.write_text(json.dumps(r))
+        done[key] = ref
         print(f"{name}: reference in {r['seconds']:.1f} s", file=sys.stderr)
     (out / "index.json").write_text(json.dumps(sorted(index), indent=1))
 
@@ -1080,6 +1328,28 @@ def score_fourbar(case: dict, ref: dict, r: dict) -> dict:
             "energy0": e0, "iftomm_pass": drift < 1.0, "missing": len(ref["phi"]) - len(pairs)}
 
 
+def score_planar(case: dict, cache: Path, ref: dict, r: dict) -> dict:
+    """revolute1's angle against the reference in minimal coordinates over
+    the grid, and the MSL reference result (Dymola, DASSL at 1e-6) beside
+    it at the same times."""
+    s = r["series"]["channels"]
+    pairs = on_grid(r["series"]["times"], case["dt"], len(ref["phi1"]), case.get("t0", 0.0))
+    if not pairs:
+        raise ValueError("no point of the run is on the reference's grid")
+    err = max(abs(s["phi1"][i] - ref["phi1"][k]) for i, k in pairs)
+    err_w = max(abs(s["w1"][i] - ref["w1"][k]) for i, k in pairs)
+    head, rows = read_csv(cached(cache, case["judge"]["csv"]))
+    col = head.index('"revolute1.phi"') if '"revolute1.phi"' in head else head.index("revolute1.phi")
+    msl = {}
+    for row in rows:
+        kk = grid_index(row[0], case["dt"])
+        if kk is not None:
+            msl[kk] = row[col]
+    msl_err = max((abs(msl[k] - ref["phi1"][k]) for _, k in pairs if k in msl), default=None)
+    return {"error": err, "scd": log_digits(err), "w_error": err_w, "msl_error": msl_err,
+            "missing": len(ref["phi1"]) - len(pairs)}
+
+
 def read_csv(path: Path) -> tuple[list[str], list[list[float]]]:
     lines = path.read_text().strip().splitlines()
     head = lines[0].split(",")
@@ -1166,6 +1436,8 @@ def score_run(case: dict, ref: dict, cache: Path, r: dict) -> dict:
         return score_stair(case, cache, r)
     if kind == "bouncingball":
         return score_bouncingball(case, cache, ref, r)
+    if kind == "planar":
+        return score_planar(case, cache, ref, r)
     raise ValueError(kind)
 
 
@@ -1233,7 +1505,7 @@ def verdict(case: dict, row: dict) -> str | None:
     over the whole grid (a count: firing once per crossing), "wrong"
     (without a message) beyond it, "stopped" (with the engine's message);
     None for the other cases."""
-    if case["judge"]["kind"] not in ("pendulum", "fourbar", "count"):
+    if case["judge"]["kind"] not in ("pendulum", "fourbar", "count", "planar"):
         return None
     if not row.get("ok"):
         return "stopped"
@@ -1251,11 +1523,12 @@ def sweep_summary(cases_dir: Path, after: dict) -> str:
     runs right, wrong without a message and stopped; the angle up to which
     every run is right; per 0.1 rad, the largest error of the runs that
     finish, in rtol, and how many are wrong or stop."""
-    swings = {}
+    swings, angles = {}, {}
     for name, a in after.items():
-        m = re.fullmatch(r"pendulum-swing-([0-9.]+)", name)
+        m = re.fullmatch(r"pendulum-(swing|angle)-([0-9.]+)", name)
         if m:
-            swings[float(m.group(1))] = (json.loads((cases_dir / f"{name}.json").read_text()), a)
+            into = swings if m.group(1) == "swing" else angles
+            into[float(m.group(2))] = (json.loads((cases_dir / f"{name}.json").read_text()), a)
     if len(swings) < 10:
         return ""
     md = [f"### The pendulum released at rest, {len(swings)} angles "
@@ -1271,9 +1544,20 @@ def sweep_summary(cases_dir: Path, after: dict) -> str:
             by_rtol.setdefault(r["rtol"], {"right": 0, "wrong": 0, "stopped": 0})[v] += 1
             if v != "right" and first_bad is None:
                 first_bad = (th, r)
+    ang_rtol: dict[float, dict[str, int]] = {}
+    for th in sorted(angles):
+        case, a = angles[th]
+        for r in a["rows"]:
+            v = verdict(case, r)
+            ang_rtol.setdefault(r["rtol"], {"right": 0, "wrong": 0, "stopped": 0})[v] += 1
+    if ang_rtol:
+        md[-2] = "| rtol | right | wrong, no message | stopped | the angle form: right, wrong, stopped |"
+        md[-1] = "|---|---|---|---|---|"
     for rtol in sorted(by_rtol, reverse=True):
         c = by_rtol[rtol]
-        md.append(f"| {rtol:.0e} | {c['right']} | {c['wrong']} | {c['stopped']} |")
+        a = ang_rtol.get(rtol)
+        extra = f" {a['right']}, {a['wrong']}, {a['stopped']} |" if a else ""
+        md.append(f"| {rtol:.0e} | {c['right']} | {c['wrong']} | {c['stopped']} |{extra}")
     md.append("")
     if first_bad:
         th, r = first_bad
@@ -1283,8 +1567,8 @@ def sweep_summary(cases_dir: Path, after: dict) -> str:
         md.append(f"Every run is right up to {ok_below[-1]:.2f} rad; the first that is not: "
                   f"{th:.2f} rad at rtol {r['rtol']:.0e} ({what}).\n" if ok_below else
                   f"No angle is right at every tolerance.\n")
-    md += ["| θ0 rad | worst error of the runs that finish, in rtol | wrong | stopped |",
-           "|---|---|---|---|"]
+    md += ["| θ0 rad | worst error of the runs that finish, in rtol | wrong | stopped | the angle "
+           "form's worst error, in rtol |", "|---|---|---|---|---|"]
     bins: dict[int, list] = {}
     for th in sorted(swings):
         case, a = swings[th]
@@ -1296,9 +1580,20 @@ def sweep_summary(cases_dir: Path, after: dict) -> str:
                 b[0] = max(b[0], r["error"] / r["rtol"])
             b[1] += v == "wrong"
             b[2] += v == "stopped"
-    for _, (worst, wrong, stopped, lo, hi) in sorted(bins.items()):
-        size = f"{worst:.0f}" if worst < 1e4 else f"{worst:.1e}"
-        md.append(f"| {lo:.2f} … {hi:.2f} | {size} | {wrong} | {stopped} |")
+    ang_bins: dict[int, float] = {}
+    for th in sorted(angles):
+        case, a = angles[th]
+        b = math.ceil(round(th * 10, 6)) - 1
+        for r in a["rows"]:
+            if verdict(case, r) != "stopped" and r.get("error") is not None:
+                ang_bins[b] = max(ang_bins.get(b, 0.0), r["error"] / r["rtol"])
+
+    def size(x):
+        return "–" if x is None else f"{x:.0f}" if x < 1e4 else f"{x:.1e}"
+
+    for b, (worst, wrong, stopped, lo, hi) in sorted(bins.items()):
+        md.append(f"| {lo:.2f} … {hi:.2f} | {size(worst)} | {wrong} | {stopped} | "
+                  f"{size(ang_bins.get(b))} |")
     md.append("")
     return "\n".join(md)
 
@@ -1311,6 +1606,7 @@ def report(cases_dir: Path, cache: Path, after: dict, before: dict | None) -> st
         md.append(f"States chosen: {', '.join(a['states'] or []) or '(none)'}.\n")
         extra = {"pendulum": ("energy_drift", "energy drift J"),
                  "fourbar": ("energy_drift", "energy drift J"),
+                 "planar": ("msl_error", "MSL result's error rad"),
                  "testset": ("mescd", "mescd"),
                  "bouncingball": ("h_error", "h error m"),
                  "stair": ("event_time_error", "event time error s"),

@@ -9,7 +9,9 @@
 * a pendulum is compared with its reference by time, a missing point
   counted, not shifting the rest;
 * a closed-form run is right within RIGHT rtol, a count when it fired
-  once per crossing.
+  once per crossing;
+* MSL's planar four-bar is compared with its reference by time, MSL's
+  own result beside it at the grid's times.
 """
 from __future__ import annotations
 
@@ -119,6 +121,34 @@ class Pendulum(unittest.TestCase):
         s = judge.score_pendulum(case, ref, r)
         self.assertEqual(s["error"], 0.0)
         self.assertEqual(s["missing"], 1)
+
+
+class PlanarFourbar(unittest.TestCase):
+    def test_compared_by_time_with_msl_s_result_beside_it(self):
+        n = 11
+        ref = {"phi1": [-0.1 * k for k in range(n)], "w1": [-1.0] * n}
+        # the run: a point off the grid in front, phi1 2e-9 off at k = 7
+        times = [0.05] + [k * 0.1 for k in range(n)]
+        phi = [-0.005] + [ref["phi1"][k] + (2e-9 if k == 7 else 0.0) for k in range(n)]
+        r = {"series": {"times": times, "channels": {"phi1": phi, "w1": [-1.0] * (n + 1)}}}
+        case = {"dt": 0.1, "judge": {"kind": "planar", "csv": "msl/PlanarFourbar/PlanarFourbar.csv"}}
+        # MSL's result at every 0.05 s (as its CSV has it at every 1 ms),
+        # 3e-4 off at 0.6 s and further off at 0.65 s, off the grid
+        rows = ['"time","revolute1.phi","revolute1.w"']
+        for k in range(2 * n - 1):
+            t = 0.05 * k
+            off = 3e-4 if k == 12 else 1e-2 if k == 13 else 0.0
+            rows.append(f"{t!r},{-t + off!r},-1")
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.object(judge, "cached", lambda cache, rel: Path(d) / rel):
+            path = Path(d) / case["judge"]["csv"]
+            path.parent.mkdir(parents=True)
+            path.write_text("\n".join(rows) + "\n")
+            s = judge.score_planar(case, Path(d), ref, r)
+        self.assertAlmostEqual(s["error"], 2e-9, delta=1e-15)
+        self.assertAlmostEqual(s["msl_error"], 3e-4, delta=1e-12)
+        self.assertEqual(s["missing"], 0)
+        self.assertEqual(judge.verdict(case, dict(s, ok=True, rtol=1e-10)), "right")
 
 
 class Verdict(unittest.TestCase):
