@@ -860,6 +860,12 @@ the record before (cb76842):
 Run times, the record's build (cb76842) and this one, release builds, the
 whole comparison twice, the two builds alternating, CPU time (the machine
 shared with another build): 103.0 and 102.7 s before, 101.0 and 102.7 s
-now; the hybrid's UDDS 44.11 and 43.59 s before, 42.28 and 42.41 s now
-(its fewer steps).
+now; the hybrid's UDDS 44.11 and 43.59 s before, 42.28 and 42.41 s now.
+Timed again by the review the same way: 106.0 and 103.9 s before, 102.6
+and 102.1 s now, the UDDS 43.34 s before and 43.03 s now in the first
+pair. The UDDS's lower times are not its steps, which fell by 0.02 %
+(588 of 3 022 879, about 8 ms of a 43 s run), and nothing here explains
+them: between runs of one build the whole comparison's CPU time varies
+by up to 3.3 s on this shared machine, so the record calls the new build
+not slower, not faster.
 
