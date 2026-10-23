@@ -381,6 +381,27 @@ struct Watched {
     /// without any degeneracy), so a choice is made again where it has
     /// degraded from where it started, by the motion
     base: f64,
+    /// the bound [`Watch::switch_point`] found at the point it last
+    /// looked at, from the full check it kept there where it made one
+    /// (`None`: it found none), for the check at that point
+    probed: Option<f64>,
+}
+
+/// The bound of [`Watch::check`] on set `w`'s factors with its moving
+/// entries at `vals`: from those at its last full check, the change
+/// carried through the block's inverse there, `(e0 + η) / (1 − g)`
+/// (infinite where that change may make the block singular, `g ≥ 1`).
+fn bound(w: &Watched, vals: &[f64]) -> f64 {
+    let (mut g, mut eta) = (0.0f64, 0.0f64);
+    for cell in &w.cells {
+        let dm = (vals[cell.k] - cell.base).abs() * cell.reach;
+        if cell.in_s {
+            g += dm;
+        } else {
+            eta += dm;
+        }
+    }
+    if g < 1.0 { (w.e0 + eta) / (1.0 - g) } else { f64::INFINITY }
 }
 
 /// An entry that moves with the solution.
@@ -538,6 +559,7 @@ impl Watch {
                     fresh: false,
                     switch: f64::INFINITY,
                     base: f64::INFINITY,
+                    probed: None,
                 }
             })
             .collect();
@@ -638,6 +660,7 @@ impl Watch {
         self.probe_t = t;
         let mut found: Option<(f64, usize)> = None;
         for j in 0..self.sets.len() {
+            self.sets[j].probed = None;
             let w = &self.sets[j];
             if !w.moving
                 || !w.switch.is_finite()
@@ -653,16 +676,9 @@ impl Watch {
                 continue;
             }
             // the bound of [`Watch::check`], against the switch threshold
-            let (mut g, mut eta) = (0.0f64, 0.0f64);
-            for cell in &w.cells {
-                let dm = (vals[cell.k] - cell.base).abs() * cell.reach;
-                if cell.in_s {
-                    g += dm;
-                } else {
-                    eta += dm;
-                }
-            }
-            if g < 1.0 && (w.e0 + eta) / (1.0 - g) < w.switch {
+            let b = bound(w, &vals);
+            if b < w.switch {
+                self.sets[j].probed = Some(b);
                 continue;
             }
             self.tmp.clone_from(&w.m);
@@ -694,6 +710,8 @@ impl Watch {
                     std::mem::swap(&mut w.reach, &mut reach);
                     w.e0 = e;
                     w.sign = ps.sign;
+                    // (the bound from it, there: its factor)
+                    w.probed = Some(e);
                 }
                 self.reach_probe = reach;
                 continue;
@@ -875,8 +893,18 @@ impl Watch {
         t: f64,
         vars: &[f64],
     ) -> Option<usize> {
-        let ks: Vec<(usize, f64)> =
-            self.sets.iter().filter(|w| w.switch.is_finite()).map(|w| (w.k, w.switch)).collect();
+        // (the moving entries here are those the check here just
+        // evaluated: a set whose bound keeps it under its threshold needs
+        // no look in full)
+        let ks: Vec<(usize, f64)> = self
+            .sets
+            .iter()
+            .filter(|w| {
+                let b = bound(w, &self.vals);
+                w.switch.is_finite() && (b >= w.switch || b.is_nan())
+            })
+            .map(|w| (w.k, w.switch))
+            .collect();
         ks.into_iter().find_map(|(k, switch)| {
             let (e, _) = self.standing(info, model, k, t, vars);
             (e.is_nan() || e > switch).then_some(k)
@@ -954,7 +982,9 @@ impl Watch {
     ) -> Result<(), SolveError> {
         // every moving entry, each distinct one once (where the switch's
         // look evaluated them at these channels already: those)
-        if self.probe_ok && self.probe_t == t && self.vals_probe.len() == self.exprs.len() {
+        let probed =
+            self.probe_ok && self.probe_t == t && self.vals_probe.len() == self.exprs.len();
+        if probed {
             std::mem::swap(&mut self.vals, &mut self.vals_probe);
         } else {
             moving_values(
@@ -981,18 +1011,13 @@ impl Watch {
                 // the moving entries' change since the last full check,
                 // carried through the block's inverse then: in the block
                 // (g ≥ ‖G‖∞) and in the other columns (η, summed over them:
-                // at least the largest column's)
-                let (mut g, mut eta) = (0.0f64, 0.0f64);
-                for cell in &w.cells {
-                    let dm = (self.vals[cell.k] - cell.base).abs() * cell.reach;
-                    if cell.in_s {
-                        g += dm;
-                    } else {
-                        eta += dm;
-                    }
-                }
-                let bound = (w.e0 + eta) / (1.0 - g);
-                if g < 1.0 && bound * DEGRADED < 1.0 {
+                // at least the largest column's); where the switch's look
+                // here found it, that
+                let b = match w.probed {
+                    Some(b) if probed => b,
+                    _ => bound(w, &self.vals),
+                };
+                if b * DEGRADED < 1.0 {
                     // (the sign is the last full check's here too)
                     w.continuous = true;
                     w.t_prev = t;
