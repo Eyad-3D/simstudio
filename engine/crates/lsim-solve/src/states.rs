@@ -363,6 +363,13 @@ struct Watched {
     /// the factor (an exchange with a state the choice may take) past
     /// which the run chooses the states again (infinite: it does not)
     switch: f64,
+    /// the switch threshold asked for ([`Watch::switching`]): `switch` is
+    /// it times the factor where the entries that do not move were last
+    /// read, where that is above one (their scale: gears' ratios between
+    /// shafts move a decided speed several times as much as a state
+    /// without any degeneracy), so a choice is made again where it has
+    /// degraded from where it started, by the motion
+    base: f64,
 }
 
 /// An entry that moves with the solution.
@@ -513,6 +520,7 @@ impl Watch {
                     t_prev: f64::NAN,
                     fresh: false,
                     switch: f64::INFINITY,
+                    base: f64::INFINITY,
                 }
             })
             .collect();
@@ -537,8 +545,10 @@ impl Watch {
 
     /// The watch choosing the states again where a set's factor passes
     /// `switch` (`MARKED`, if larger, for a set whose columns the model's
-    /// `stateSelect` marks), where the run can ([`RunInfo::choices`]):
-    /// [`Watch::switch_point`].
+    /// `stateSelect` marks) times its factor where the entries that do not
+    /// move were last read (the start, an event that changed what they
+    /// read), where that is above one, where the run can
+    /// ([`RunInfo::choices`]): [`Watch::switch_point`].
     pub(crate) fn switching(mut self, info: &RunInfo, switch: f64) -> Watch {
         if info.choices.is_none() || switch.is_nan() || switch <= 0.0 {
             return self;
@@ -546,7 +556,8 @@ impl Watch {
         for w in &mut self.sets {
             if w.moving {
                 let set = &info.state_sets[w.k];
-                w.switch = if set.marked { switch.max(MARKED) } else { switch };
+                w.base = if set.marked { switch.max(MARKED) } else { switch };
+                w.switch = w.base;
             }
         }
         self
@@ -596,7 +607,13 @@ impl Watch {
         let mut found: Option<(f64, usize)> = None;
         for j in 0..self.sets.len() {
             let w = &self.sets[j];
-            if !w.moving || !w.switch.is_finite() || !w.fresh || !w.continuous || !(w.t_prev < t) {
+            if !w.moving
+                || !w.switch.is_finite()
+                || !w.fresh
+                || !w.continuous
+                || w.t_prev >= t
+                || w.t_prev.is_nan()
+            {
                 continue;
             }
             // (the discrete values the fixed entries read: as last read)
@@ -627,11 +644,25 @@ impl Watch {
                 continue;
             }
             let (t0, sign0, limit) = (w.t_prev, w.sign, w.switch);
-            let at = self
-                .locate(j, info, model, t0, t, sign0, inside, Some(limit))
-                .map_or(t, |(at, _)| at);
+            let k = w.k;
+            // at the step's end, where the integrator's corrector holds the
+            // solution (the constraints met, the error tested), unless the
+            // step went past the point: its block's determinant changed sign
+            // in it, or its factor there is beyond the choice's own window
+            // (the decided variables there carry more than ten times a
+            // state's error); then where the factor first passes the
+            // threshold inside it, on its dense output. (Cut there every
+            // time, the run goes on from interpolated iteration variables,
+            // and the outside judge's pendulums come out further off:
+            // DESIGN.md §15.)
+            let at = if !crossed && ps.exchange * OUTSIDE <= 1.0 {
+                t
+            } else {
+                self.locate(j, info, model, t0, t, sign0, inside, Some(limit))
+                    .map_or(t, |(at, _)| at)
+            };
             if found.is_none_or(|(f, _)| at < f) {
-                found = Some((at, self.sets[j].k));
+                found = Some((at, k));
             }
         }
         self.vals_probe = vals;
@@ -862,6 +893,7 @@ impl Watch {
         for j in 0..self.sets.len() {
             let w = &mut self.sets[j];
             let set = &info.state_sets[w.k];
+            let reread = !w.fresh;
             if w.fresh {
                 if !w.moving {
                     // nothing it reads has changed
@@ -913,6 +945,10 @@ impl Watch {
                 cell.reach = w.reach[cell.r];
             }
             let e = ps.worst_exchange();
+            // (the switch threshold from the scale the entries read now)
+            if reread && w.base.is_finite() && w.moving {
+                w.switch = if ps.exchange > 1.0 { w.base * ps.exchange } else { w.base };
+            }
             let (sign0, continuous, t0) = (w.sign, w.continuous, w.t_prev);
             let crossed = continuous && sign0 * ps.sign < 0.0;
             w.e0 = e;

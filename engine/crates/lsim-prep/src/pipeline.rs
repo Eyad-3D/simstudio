@@ -63,8 +63,7 @@ pub struct ChoosePoint {
     /// the time
     pub t: f64,
     /// the values by name: the variables, their derivatives (`der(x)`,
-    /// `der(der(x))`) and the discrete values (a derivative the run does
-    /// not hold may be missing)
+    /// `der(der(x))`) and the discrete values (one missing reads 0)
     pub values: HashMap<String, f64>,
     /// the parameter values, in the flat system's order (empty: its own)
     pub params: Vec<f64>,
@@ -883,13 +882,18 @@ pub fn run(
             Ctx { params: &params, kinds: &kinds, is_mode: &no_modes, force_implicit: false };
         let init_refs = ib.rows(&sys);
         let init_inc = ib.incs(&sys);
-        causal::sort(&init_refs, &init_inc, &ib.unknowns, &init_ctx).map_err(|_| {
-            vec![Diagnostic::error(
-                "INIT-SINGULAR",
-                "The start of the run is not determined: the initialisation system has no \
-                 matching (an engine fault; please report the model).",
-            )]
-        })?
+        let mut sorted =
+            causal::sort(&init_refs, &init_inc, &ib.unknowns, &init_ctx).map_err(|_| {
+                vec![Diagnostic::error(
+                    "INIT-SINGULAR",
+                    "The start of the run is not determined: the initialisation system has no \
+                     matching (an engine fault; please report the model).",
+                )]
+            })?;
+        if differentiated > 0 {
+            undecided_keep_guess(&mut sorted, &init_refs, &init_ctx, &sys, &flat, &extras);
+        }
+        sorted
     };
     clock.lap("init");
 
@@ -1018,8 +1022,10 @@ pub fn run(
         let sel = match &settings.choose_at {
             // at a point of a run (dynamic state selection)
             Some(at) => {
+                // (a value the point does not give reads 0: the entries read
+                // the positions, a derivative only through terms it zeroes)
                 let point: Vec<f64> = (0..nn)
-                    .map(|n| at.values.get(&sys.name(&flat, n)).copied().unwrap_or(f64::NAN))
+                    .map(|n| at.values.get(&sys.name(&flat, n)).copied().unwrap_or(0.0))
                     .collect();
                 let p = if at.params.len() == pvals.len() { &at.params } else { &pvals };
                 let within = if at.window > 1.0 { 1.0 / at.window } else { index::WITHIN };
@@ -1351,6 +1357,61 @@ pub fn run(
     clock.lap("assemble");
     report.seconds = clock.1;
     Ok((model, report))
+}
+
+/// Where an explicit solution of the initialisation divides by a
+/// variable's expression, `v := −b / a`: should `a` and `b` both be exactly
+/// zero there, the equation does not decide `v` at that point (any value
+/// holds it: a pendulum released exactly level, at rest, its rod's
+/// velocity constraint `x·vx + y·vy = 0` with y = 0 and vx = 0 says nothing
+/// of vy) and `v` keeps its guess instead of 0 / 0: its start value (a
+/// derivative, 0, as the initialisation guesses it). Where `a` is not zero
+/// the solution is as it was, to the bit.
+fn undecided_keep_guess(
+    sorted: &mut Sorted,
+    rows: &[&Expr],
+    ctx: &Ctx<'_>,
+    sys: &Sys,
+    flat: &FlatSystem,
+    extras: &Extras,
+) {
+    for (n, e, k) in &mut sorted.assignments {
+        let nd = &sys.nodes[*n];
+        let slot = Slot::Var(VarId(*n as u32));
+        let Some(a) = crate::symbolic::affine_coefficient(rows[*k], slot) else { continue };
+        if causal::pivot(&a, ctx) != causal::Pivot::Variable {
+            continue;
+        }
+        let b = crate::symbolic::simplify(crate::walk::map_up(rows[*k], &mut |x| match x {
+            Expr::Var(v) if v.0 as usize == *n => Expr::Const(0.0),
+            other => other,
+        }));
+        // (as the initialisation guesses it: a derivative 0)
+        let guess = if nd.order == 0 {
+            extras.start[nd.var.0 as usize]
+                .clone()
+                .or_else(|| flat.var(nd.var).start.map(Expr::Const))
+                .unwrap_or(Expr::Const(0.0))
+        } else {
+            Expr::Const(0.0)
+        };
+        // (a start value given by parameters only: the guess reads no
+        // variable, whose scope here is the nodes')
+        if guess
+            .any(&mut |x| matches!(x, Expr::Var(_) | Expr::Pre(_) | Expr::Der(_) | Expr::Name(_)))
+        {
+            continue;
+        }
+        let abs = |x: Expr| Expr::Call(lsim_ir::Builtin::Abs, vec![x]);
+        let undecided =
+            Expr::Compare(CmpOp::Le, Box::new(abs(a) + abs(b)), Box::new(Expr::Const(0.0)));
+        let solved = std::mem::replace(e, Expr::Const(0.0));
+        *e = Expr::NoEvent(Box::new(Expr::If(
+            Box::new(undecided),
+            Box::new(guess),
+            Box::new(solved),
+        )));
+    }
 }
 
 /// The initialisation system as the model's own sorting after the states'

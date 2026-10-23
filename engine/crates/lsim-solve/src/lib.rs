@@ -281,7 +281,7 @@ pub struct SolverOptions {
 }
 
 /// [`SolverOptions::state_switch`]'s default.
-pub const STATE_SWITCH: f64 = 10.0;
+pub const STATE_SWITCH: f64 = 3.0;
 
 impl Default for SolverOptions {
     fn default() -> Self {

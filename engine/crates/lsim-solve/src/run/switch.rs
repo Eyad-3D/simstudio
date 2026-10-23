@@ -171,8 +171,74 @@ pub(super) fn run_info(v: &Variant, now: &RunInfo) -> Result<RunInfo, String> {
         });
     }
     info.blocks = blocks;
+    // the energy books the run keeps: the model's own (its parts read in
+    // its own channels), or those the run was given, read by name
+    let own = |e: &Option<Arc<crate::EnergyInfo>>| -> Vec<(String, String)> {
+        e.as_ref()
+            .map_or(vec![], |e| e.parts.iter().map(|p| (p.path.clone(), p.name.clone())).collect())
+    };
+    if own(&info.energy) != own(&now.energy) {
+        info.energy = match &now.energy {
+            None => None,
+            Some(e) => {
+                let to = &info.var_names;
+                let read = |x: &lsim_ir::Expr| remap(x, &now.var_names, to);
+                let parts: Option<Vec<crate::EnergyPart>> = e
+                    .parts
+                    .iter()
+                    .map(|p| {
+                        Some(crate::EnergyPart {
+                            path: p.path.clone(),
+                            name: p.name.clone(),
+                            power: read(&p.power)?,
+                            loss: match &p.loss {
+                                Some(l) => Some(read(l)?),
+                                None => None,
+                            },
+                            stored: match &p.stored {
+                                Some(s) => Some(read(s)?),
+                                None => None,
+                            },
+                        })
+                    })
+                    .collect();
+                let parts = parts.ok_or_else(|| {
+                    "the energy books read a channel the model with the states chosen again \
+                     does not have"
+                        .to_string()
+                })?;
+                Some(Arc::new(crate::EnergyInfo { parts }))
+            }
+        };
+        info.stored_rates = None;
+        info.impulse = None;
+    }
     let tabled = info.with_model_tables(&*v.model);
     Ok(tabled.unwrap_or(info))
+}
+
+/// `e` over the channels `from` rewritten over the channels `to`, by name;
+/// `None` where one it reads is not there.
+fn remap(e: &lsim_ir::Expr, from: &[String], to: &[String]) -> Option<lsim_ir::Expr> {
+    use lsim_ir::{Expr, VarId};
+    let mut ok = true;
+    let mut find = |v: VarId| -> VarId {
+        let hit = from.get(v.0 as usize).and_then(|n| to.iter().position(|m| m == n));
+        match hit {
+            Some(i) => VarId(i as u32),
+            None => {
+                ok = false;
+                v
+            }
+        }
+    };
+    let out = e.clone().rewrite(&mut |x| match x {
+        Expr::Var(v) => Expr::Var(find(v)),
+        Expr::Der(v) => Expr::Der(find(v)),
+        Expr::Pre(v) => Expr::Pre(find(v)),
+        other => other,
+    });
+    ok.then_some(out)
 }
 
 /// For each channel the run records (`names`), its index among the

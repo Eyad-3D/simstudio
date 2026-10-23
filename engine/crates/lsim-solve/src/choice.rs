@@ -95,8 +95,11 @@ pub type Compile = dyn Fn(&PreparedModel) -> Result<Box<dyn ModelFunctions>, Str
 pub struct Rechooser {
     prepare: Box<PrepareAt>,
     compile: Box<Compile>,
-    kept: Mutex<Vec<(Vec<String>, Vec<String>, Arc<Variant>)>>,
+    kept: Mutex<Vec<Kept>>,
 }
+
+/// A choice compiled: its states, the channels it keeps, the model.
+type Kept = (Vec<String>, Vec<String>, Arc<Variant>);
 
 impl Rechooser {
     /// From how to prepare and how to compile.

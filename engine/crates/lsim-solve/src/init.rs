@@ -229,7 +229,14 @@ fn newton(sys: &mut dyn System, w: &mut [f64], shift: &[f64], s: &InitSettings) 
         };
         let phi0 = merit(&f);
         let neg: Vec<f64> = f.iter().map(|v| -v).collect();
-        let dw = lin_solve(n, &trip, &neg)?;
+        let dw = match lin_solve(n, &trip, &neg) {
+            Some(dw) => dw,
+            // a singular Jacobian at a point that solves the equations
+            // exactly (a pendulum released exactly level: its rod's length
+            // `x² + y² = L²` at y = 0, a double root): that point
+            None if f.iter().all(|v| *v == 0.0) => return Some(it + 1),
+            None => return None,
+        };
         let wt = weights(w, sys);
         let norm = (dw.iter().zip(&wt).map(|(v, k)| lsim_ir::math::powi(v * k, 2)).sum::<f64>()
             / n.max(1) as f64)
