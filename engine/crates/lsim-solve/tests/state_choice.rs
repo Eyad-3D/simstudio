@@ -1432,32 +1432,40 @@ impl lsim_solve::choice::StateChoices for Worse {
     }
 }
 
-/// A switch refused at the step's end it was found at, the integrator
-/// started on the new states already (here: told the choice the run
-/// leaves, which does not hold): that point is checked as any step's end
-/// before the run goes on with the states it has, and the run stops where
-/// they degrade past its limit, naming the rod and why the states were
-/// not chosen again, within 100 rtol seconds of where the run without the
-/// model's choices stops. Before, a refusal at a step end the step was not
-/// cut back to left that point unchecked: the next check compared with
-/// the point before it, and searched for where the choice failed on the
-/// next step's dense output only.
+/// A switch refused once the integrator has been started on the new
+/// states (here: the model's choices tell their watch the choice the run
+/// leaves, so no switch to them holds) leaves the run as it was: the step
+/// is not cut back to the point (a switch is readied before the step is
+/// cut, and a refused one changes nothing), the step's end is checked as
+/// any other, and the run stops where the run without the model's choices
+/// stops, to the bit, naming the rod and why the states were not chosen
+/// again. Before, a refusal in a step cut back to its point restarted the
+/// integrator there, from the step's dense output: up to 1.4e-7 s off that
+/// point at rtol 1e-10 (1 370 rtol), 3.0e-6 at 1e-8, where the run without
+/// choices is 6e-10 and 7e-7 off the closed form's; and a refusal at a
+/// step's end left that point's holds, kink and stale modes unchecked.
 #[test]
-fn a_switch_refused_at_a_step_s_end_leaves_that_point_checked() {
+fn a_refused_switch_leaves_the_run_as_it_was() {
     let lib = common::library();
     let def = pendulum(-std::f64::consts::FRAC_PI_2, StateSelect::Default);
     let built = common::build(&lib, &def, false);
     let mut worse = built.info.clone();
     worse.choices =
         Some(lsim_solve::choice::Choices(std::sync::Arc::new(Worse(common::choices(&lib, &def)))));
+    let quarter = 1.854_074_677_301_372 / 9.81f64.sqrt();
+    let want = quarter - time_from_bottom((2.0f64 * 9.81).sqrt(), lsim_ir::math::atan(0.01));
     let alone = stop_times(&built, &built.info, &Vec::new, 10.0, "x", "y");
     for (rtol, t0) in RTOLS.into_iter().zip(&alone) {
         let opts = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
         let grid = OutputGrid { t0: 0.0, t_end: 10.0, dt: 0.01 };
         let e = simulate(&built.jit, &worse, &opts, grid, &mut []).expect_err("stops");
         let SolveError::StateSelection { t, message, .. } = &e else { panic!("{e}") };
-        println!("rtol {rtol:e}: stops {:+.2e} s from the run without choices", t - t0);
+        println!(
+            "rtol {rtol:e}: stops {:+.2e} s from the closed form's point, without choices {:+.2e}",
+            t - want,
+            t0 - want
+        );
         assert!(message.contains("choosing the states again did not work here"), "{e}");
-        assert!((t - t0).abs() < 100.0 * rtol, "rtol {rtol:e}: {t} against {t0}: {e}");
+        assert_eq!(t.to_bits(), t0.to_bits(), "rtol {rtol:e}: {t} against {t0}: {e}");
     }
 }

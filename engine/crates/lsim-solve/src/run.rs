@@ -1893,24 +1893,14 @@ struct Probe {
     work: Vec<f64>,
 }
 
-/// A switch to the states chosen again found in the step just taken
-/// ([`switch`]): made at its point, the step's end (where the step was cut
-/// back there), or not at all (a tick inside the step that restarted the
-/// run before it leaves the watch to look again from the tick).
-struct Pending<'a> {
-    /// the set whose factor passed its threshold
-    k: usize,
-    /// the model to go on with
-    next: switch::Next<'a>,
-    /// the step was cut back to the point (the integrator, past it, is
-    /// started again there should the switch not be made)
-    cut: bool,
-    /// the set's factor there
-    e: f64,
-}
-
 /// A switch to the states chosen again, ready to be made where the run is
-/// ([`ready_switch`]).
+/// ([`ready_switch`]): found at a step's end, or inside the step where the
+/// step went past the point (the step then cut back there only once the
+/// switch is ready: a refused one leaves the step as it was), or at the
+/// point after an event. Made at the loop's top where the run is at its
+/// point; not made where a tick inside the step restarted the run before
+/// it (the watch looks again from the tick), or an event comes at it (the
+/// watch looks again from the point after the event).
 struct Ready<'a> {
     /// the set chosen again
     k: usize,
@@ -1922,6 +1912,13 @@ struct Ready<'a> {
     watch: crate::states::Watch,
     /// its states and iteration variables there
     y: Vec<f64>,
+    /// the point's time, and the discrete values it was readied with
+    t: f64,
+    d: Vec<f64>,
+    /// the step was cut back to the point
+    cut: bool,
+    /// the set's factor there
+    e: f64,
 }
 
 /// Starts the integrator on the model `next` (set `k` of the model `from`
@@ -1942,6 +1939,7 @@ fn ready_switch<'a>(
     d: &[f64],
     u: &[f64],
     books: Option<&Ledger<'_>>,
+    (cut, e): (bool, f64),
 ) -> Result<Result<Ready<'a>, (usize, Option<f64>, String)>, SolveError> {
     let refuse = |why: &str| Ok(Err((k, None, why.to_string())));
     let started = crate::new_integrator(
@@ -1982,7 +1980,7 @@ fn ready_switch<'a>(
     if let Err(e) = w.holds(next.info, next.model, t, &y, d, u) {
         return Ok(Err(e));
     }
-    Ok(Ok(Ready { k, next, integ, watch: w, y }))
+    Ok(Ok(Ready { k, next, integ, watch: w, y, t, d: d.to_vec(), cut, e }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2198,7 +2196,6 @@ fn run_watched<'a>(
     // dynamic state selection: the switch asked for, the work and the
     // error estimates of the integrators the run went on from, and the
     // switches made
-    let mut pending: Option<Pending<'a>>;
     let mut ready: Option<Ready<'a>> = None;
     let mut stats_left = crate::SolverStats::default();
     let mut errors_left: Vec<(String, f64, f64, f64)> = vec![];
@@ -2206,16 +2203,16 @@ fn run_watched<'a>(
     let mut switches = 0usize;
     let mut probe = Probe::default();
     while t < t_end {
-        // (a switch found in a step that a tick then cut short is not made:
-        // the watch looks again from the tick)
-        pending = None;
-        // the states chosen again: the run goes on with them from here
-        if let Some(r) = ready.take() {
+        // the states chosen again: the run goes on with them from here (a
+        // switch readied in a step that a tick then cut short, or whose
+        // point a tick's event changed, is not made: the watch looks again
+        // from the point after the tick)
+        if let Some(r) = ready.take().filter(|r| r.t == t && r.d == d) {
             let old: &mut dyn Integrator = match cur.integ.as_deref_mut() {
                 Some(i) => i,
                 None => &mut *integ0,
             };
-            let Ready { k: sw_k, next, integ: mut ni, watch: w2, y: yc } = r;
+            let Ready { k: sw_k, next, integ: mut ni, watch: w2, y: yc, .. } = r;
             // what the integrator left: its work, its error estimates (by
             // name, over the models the run was on)
             stats_left += old.stats();
@@ -2399,6 +2396,7 @@ fn run_watched<'a>(
                     &d,
                     u,
                     ledger.as_ref(),
+                    (false, e),
                 )?,
                 Err(why) => Err((k, None, why)),
             };
@@ -2495,7 +2493,10 @@ fn run_watched<'a>(
                 };
                 let (e, _) = watch.standing(info, model, k, ts, &lp.vars_at(ts, &ys, &d));
                 let window = watch.threshold(k);
-                match switch::choose_at(
+                // (readied before the step is cut back: a switch refused
+                // leaves the step as it was, its integrator not restarted
+                // from a point of its dense output)
+                let made = match switch::choose_at(
                     arena,
                     (model, info),
                     (model0, info0),
@@ -2507,20 +2508,37 @@ fn run_watched<'a>(
                     k,
                     window,
                 ) {
-                    Ok(next) => {
+                    Ok(next) => ready_switch(
+                        opts,
+                        grid,
+                        integ,
+                        watch,
+                        info,
+                        next,
+                        k,
+                        ts,
+                        &d,
+                        u,
+                        ledger.as_ref(),
+                        (cut, e),
+                    )?,
+                    Err(why) => Err((k, None, why)),
+                };
+                match made {
+                    Ok(r) => {
                         if cut {
                             y_cut = Some(ys);
                             st = Step::Stopped(ts);
                         }
-                        pending = Some(Pending { k, next, cut, e });
+                        ready = Some(r);
                     }
-                    Err(why) => {
+                    Err((blame, factor, why)) => {
                         if switch_notes.len() < 20 {
                             switch_notes.push(format!(
                                 "at t = {ts:.9} s, the states were not chosen again: {why}"
                             ));
                         }
-                        watch.refused(k, e, &why);
+                        watch.refused(blame, factor.unwrap_or(e), &why);
                     }
                 }
             }
@@ -2925,30 +2943,37 @@ fn run_watched<'a>(
         }
         t = t_new;
         lp.check_asserts(t)?;
-        // the switch found in this step: the integrator started on the
-        // states chosen again here, the switch made at the loop's top; an
-        // event here: from the point after it, should the choice still
-        // need it there. Where it cannot be made, this point is checked as
-        // any step's end, and a step cut back to it goes on from it
+        // the switch readied in this step: made at the loop's top (an event
+        // here: not made, the watch looks again from the point after it). A
+        // tick at the point that changed the discrete values (going on
+        // without a restart): readied again with them; where it cannot be
+        // then, this point is checked as any step's end, and a step cut
+        // back to it goes on from it
         let mut back = false;
-        if let Some(sw) = pending.take()
+        if let Some(r) = ready.take()
             && !event_now
+            && r.t == t
         {
+            if r.d == d {
+                ready = Some(r);
+                continue;
+            }
             match ready_switch(
                 opts,
                 grid,
                 integ,
                 watch,
                 info,
-                sw.next,
-                sw.k,
+                r.next,
+                r.k,
                 t,
                 &d,
                 u,
                 ledger.as_ref(),
+                (r.cut, r.e),
             )? {
-                Ok(r) => {
-                    ready = Some(r);
+                Ok(again) => {
+                    ready = Some(again);
                     continue;
                 }
                 Err((blame, factor, why)) => {
@@ -2957,8 +2982,8 @@ fn run_watched<'a>(
                             "at t = {t:.9} s, the states were not chosen again: {why}"
                         ));
                     }
-                    watch.refused(blame, factor.unwrap_or(sw.e), &why);
-                    back = sw.cut;
+                    watch.refused(blame, factor.unwrap_or(r.e), &why);
+                    back = r.cut;
                 }
             }
         }
