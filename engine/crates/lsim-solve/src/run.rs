@@ -2977,9 +2977,19 @@ fn run_watched<'a>(
                     continue;
                 }
                 Err((blame, factor, why)) => {
+                    // (the step was cut back to the point to switch there:
+                    // the integrator, past it, restarts at it from the
+                    // step's dense output, as after a tick that changes
+                    // what it integrates)
                     if switch_notes.len() < 20 {
+                        let back = if r.cut {
+                            "; the run goes on from the step's dense output there"
+                        } else {
+                            ""
+                        };
                         switch_notes.push(format!(
-                            "at t = {t:.9} s, the states were not chosen again: {why}"
+                            "at t = {t:.9} s, the states were not chosen again with the discrete \
+                             values a block's tick there set: {why}{back}"
                         ));
                     }
                     watch.refused(blame, factor.unwrap_or(r.e), &why);

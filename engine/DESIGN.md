@@ -1066,7 +1066,10 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    their own (a derivative channel that is a state's derivative in the new
    choice is set from it); each choice is compiled once and kept with the
    model (`Rechooser`, the 64 used last; sweeps share it; one compiled by
-   two runs at once is kept once). The run goes on with it where it is
+   two runs at once is kept once; one the run holds a model for, the one
+   it started with or one it switched to, is not compiled again: before,
+   a run of more than 64 choices compiled again those it held, 4 to 8 ms
+   each). The run goes on with it where it is
    another choice, has the same events, discrete values, inputs, tables
    and energy parts, holds every recorded channel, finds every one of its
    states and iteration variables in the point, and holds there: each
@@ -1090,7 +1093,8 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    chosen again for the model (the rod keeps its length): x, vx in place
    of y, vy"). Otherwise it goes on with the states it has, the threshold
    of the set to blame (the one chosen again, or a kept set past the run's
-   limit) raised to twice its factor there, back to its threshold where
+   limit or whose constraints are not apart there) raised to twice its
+   own factor there, back to its threshold where
    its factor falls under that again (hysteresis), and the watch stops it
    where they degrade past the run's limit, naming the constraint, as
    without the model's choices (bit for bit, `state_choice.rs`). A switch
@@ -1104,7 +1108,23 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    near the pendulum's degenerate point, and a refusal at a step's end left
    that point's holds, kink and stale-mode checks undone); a tick at the
    point that changes the discrete values readies it again with them, and
-   an event there leaves it to the point after the event. A run keeps
+   an event there leaves it to the point after the event. One path does
+   not leave the run as it was: a switch readied in a step cut back to its
+   point, a block's tick at exactly that point setting a discrete value,
+   and the switch, readied again with it, refused. The integrator is past
+   the point and the run's results are recorded to it, so it restarts
+   there from the step's dense output, and the run says so in its notes.
+   Measured on the pendulum released at 1.50 rad, with the switch
+   threshold at 9.5 so that its first switch cuts its step back: 1 209,
+   5 076 and 11 712 rtol off the closed form at rtol 1e-4, 1e-5 and 1e-6.
+   The same switch refused at the step's look, with no cut and no restart,
+   is 388, 267 and 92 rtol off, and the run that switches there 362, 314
+   and 37: the restart from interpolated values on a choice that has
+   degraded costs that much. The path needs a tick to fall exactly on the
+   point by coincidence, and the point itself is rare: of the 426
+   switches of the pendulums released at 1.50, 2.8 and 3.0 rad and level,
+   at seven tolerances and the default threshold, none cut its step back
+   (`a_switch_refused_after_a_tick_at_its_cut_point_…`). A run keeps
    every model it went on with for its length, up to 1 024 (in pieces
    added as needed; before, 32: a model with six or more sets switching
    on their own, 64 choices, refused every switch after its 32nd). Before

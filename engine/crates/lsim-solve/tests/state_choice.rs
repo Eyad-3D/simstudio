@@ -1586,3 +1586,174 @@ fn a_choice_the_run_holds_is_not_compiled_again() {
     );
     assert_eq!(r.values, all.values, "the run is the run whose choices keep every one");
 }
+
+/// A sampled block whose output is 1 at its tick at `.0` and 0 at every
+/// other (`.1` its period).
+struct Blink(f64, f64);
+
+impl DiscreteBlock for Blink {
+    fn name(&self) -> &str {
+        "'Blink'"
+    }
+    fn period(&self) -> f64 {
+        self.1
+    }
+    fn init(&mut self, _: f64, _: &[f64], _: &mut [f64]) -> Result<(), String> {
+        Ok(())
+    }
+    fn tick(&mut self, t: f64, _: &[f64], outputs: &mut [f64]) -> Result<(), String> {
+        outputs[0] = if t == self.0 { 1.0 } else { 0.0 };
+        Ok(())
+    }
+}
+
+/// A model's choices whose watch finds the choice they give no better
+/// than the one the run leaves while the discrete value `shown` is not 0
+/// (each set's other column times 1 + 10⁹ · shown; at 0, the same values).
+struct Ticked(lsim_solve::choice::Choices);
+
+impl lsim_solve::choice::StateChoices for Ticked {
+    fn choose(
+        &self,
+        at: &lsim_solve::choice::ChoicePoint,
+        held: &dyn Fn(&[String]) -> bool,
+    ) -> Result<lsim_solve::choice::Chosen, String> {
+        use lsim_solve::choice::Chosen;
+        let v = match self.0.0.choose(at, held)? {
+            Chosen::Model(v) => v,
+            other => return Ok(other),
+        };
+        let mut info = v.info.clone();
+        let shown = info.var_names.iter().position(|n| n == "shown").expect("shown");
+        let blink = c(1.0) + c(1e9) * Expr::Var(lsim_ir::VarId(shown as u32));
+        for set in &mut info.state_sets {
+            if set.pivots.len() == 1 && set.candidates.len() == 2 {
+                let other = 1 - set.pivots[0];
+                let e = std::mem::replace(&mut set.entries[0][other], c(0.0));
+                set.entries[0][other] = e * blink.clone();
+            }
+        }
+        let states = v.states.clone();
+        Ok(Chosen::Model(std::sync::Arc::new(lsim_solve::choice::Variant {
+            model: Box::new(Real(v)),
+            info,
+            states,
+        })))
+    }
+}
+
+/// A model's choices that refuse their first call.
+struct OnceRefused(lsim_solve::choice::Choices, std::sync::atomic::AtomicBool);
+
+impl lsim_solve::choice::StateChoices for OnceRefused {
+    fn choose(
+        &self,
+        at: &lsim_solve::choice::ChoicePoint,
+        held: &dyn Fn(&[String]) -> bool,
+    ) -> Result<lsim_solve::choice::Chosen, String> {
+        if !self.1.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Err("refused once".into());
+        }
+        self.0.0.choose(at, held)
+    }
+}
+
+/// The run information of `built` with a [`Blink`] into `shown` and the
+/// [`Ticked`] choices of `def`.
+fn blinking(lib: &lsim_ir::Library, def: &ComponentDef, built: &common::Built) -> RunInfo {
+    let mut info = built.info.clone();
+    let ix = info.var_names.iter().position(|v| v == "x").expect("x");
+    let is = info.var_names.iter().position(|v| v == "shown").expect("shown");
+    let VarSource::D(id) = info.var_sources[is] else { panic!("{:?}", info.var_sources[is]) };
+    info.blocks = vec![BlockInfo {
+        name: "'Blink'".into(),
+        inputs: vec![ix],
+        outputs: vec![id],
+        period: 1.0,
+        chains: vec![None],
+    }];
+    info.choices =
+        Some(lsim_solve::choice::Choices(std::sync::Arc::new(Ticked(common::choices(lib, def)))));
+    info
+}
+
+/// A switch readied at a point inside a step (the step cut back to it:
+/// here the factor past 10 at the step's end, the switch threshold at 9.5)
+/// where a block's tick at exactly that point then sets a discrete value,
+/// and the switch, readied again with it, is refused: the run cannot be
+/// left as it was (the integrator is past the point, and the run's results
+/// are recorded to it), so it restarts there from the step's dense output,
+/// says so, and goes on with the states it has, choosing them again later.
+/// The pendulum released at 1.50 rad: before the point the run is the run
+/// without the tick, to the bit, and it goes on through as many switches;
+/// but the restart, from interpolated values on a choice that has degraded
+/// there, costs it: 1 209 / 5 076 / 11 712 rtol off the closed form at
+/// rtol 1e-4 / 1e-5 / 1e-6, where the same switch refused at the step's
+/// look (no cut, no restart) is 388 / 267 / 92 and the run that switches
+/// there 362 / 314 / 37. A tick falls on such a point only by coincidence,
+/// and the point itself is rare: of the 426 switches of the pendulums
+/// released at 1.50, 2.8 and 3.0 rad and level, at seven tolerances, at the
+/// default threshold, none cut its step back.
+#[test]
+fn a_switch_refused_after_a_tick_at_its_cut_point_goes_on_from_the_dense_output() {
+    let lib = common::library();
+    let def = with_sampled(pendulum(1.5, StateSelect::Default), "shown");
+    let built = common::build(&lib, &def, false);
+    let mut info = blinking(&lib, &def, &built);
+    let want = reference(1.5, 10.0);
+    for rtol in [1e-4, 1e-5, 1e-6] {
+        let opts =
+            SolverOptions { rtol, atol: rtol * 1e-2, state_switch: 9.5, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 10.0, dt: 0.01 };
+        // without a tick there: where the first switch is
+        info.blocks[0].period = 1e3;
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(Blink(-1.0, 1e3))];
+        let a = simulate(&built.jit, &info, &opts, grid, &mut blocks).expect("runs");
+        let ts = a
+            .events
+            .iter()
+            .find(|e| matches!(e.kind, lsim_solve::EventKind::States(_)))
+            .expect("a switch")
+            .t;
+        // a tick there, exactly (1 024 periods of ts / 1 024)
+        info.blocks[0].period = ts / 1024.0;
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(Blink(ts, ts / 1024.0))];
+        let b = simulate(&built.jit, &info, &opts, grid, &mut blocks).expect("runs");
+        let note = format!("at t = {ts:.9} s, the states were not chosen again with the discrete");
+        let told = b.report.notes.iter().find(|n| n.starts_with(&note)).expect("told");
+        assert!(told.ends_with("the run goes on from the step's dense output there"), "{told}");
+        let first = b.events.iter().find(|e| matches!(e.kind, lsim_solve::EventKind::States(_)));
+        assert!(first.is_some_and(|e| e.t > ts), "the switch at the tick refused");
+        let x = |r: &lsim_solve::SimResult| {
+            r.values[r.names.iter().position(|v| v == "x").expect("x")].clone()
+        };
+        let (xa, xb) = (x(&a), x(&b));
+        let before = a.times.iter().take_while(|&&t| t < ts).count();
+        assert_eq!(xa[..before], xb[..before], "rtol {rtol:e}: before the point");
+        let err =
+            |x: &[f64]| want.iter().zip(x).map(|((w, _), x)| (x - w).abs()).fold(0.0, f64::max);
+        println!(
+            "rtol {rtol:e}: point {ts:.9} s, {} / {} switches, x {:.0} / {:.0} rtol off",
+            switches(&a),
+            switches(&b),
+            err(&xa) / rtol,
+            err(&xb) / rtol
+        );
+        assert_eq!(switches(&b), switches(&a), "rtol {rtol:e}");
+        // the same switch refused when the step's look readies it (the
+        // model's choices refusing their first call): no cut, no restart
+        let once = OnceRefused(common::choices(&lib, &def), Default::default());
+        let mut refused = info.clone();
+        refused.choices = Some(lsim_solve::choice::Choices(std::sync::Arc::new(once)));
+        refused.blocks[0].period = 1e3;
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(Blink(-1.0, 1e3))];
+        let c = simulate(&built.jit, &refused, &opts, grid, &mut blocks).expect("runs");
+        let xc = x(&c);
+        println!(
+            "   refused at the look: {} switches, x {:.0} rtol off",
+            switches(&c),
+            err(&xc) / rtol
+        );
+        assert!(err(&xb) < 2e4 * rtol, "rtol {rtol:e}: {:e}", err(&xb));
+    }
+}
