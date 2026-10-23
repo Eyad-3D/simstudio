@@ -686,6 +686,50 @@ fn a_pendulum_released_exactly_level_prepares_and_runs() {
     assert!(told[0].contains("the rod keeps its length") && told[0].contains(" by y "), "{told:?}");
 }
 
+/// The initialisation's 0 / 0 guard is told where it decides: released
+/// exactly level, the rod's velocity constraint `x·vx + y·vy = 0` says
+/// nothing of vy (y = 0, vx = 0), which starts at the initialisation's
+/// guess for it, 0 (`vy` is `der(y)` after aliasing: a start value given to
+/// it, 3 here, is not read): preparation warns, naming the equation and vy
+/// (`INIT-UNDECIDED`). Released at 1 rad moving, where the equation
+/// decides vy, nothing is told and vy starts where the rod's constraint
+/// puts it (x·vx + y·vy = 0, to round-off).
+#[test]
+fn the_initialisation_s_guard_is_told_where_it_decides_and_left_out_where_it_does_not() {
+    let lib = common::library();
+    let mut level = pendulum(std::f64::consts::FRAC_PI_2, StateSelect::Default);
+    for v in &mut level.vars {
+        match v.name.as_str() {
+            "x" => v.start = Some(n("L")),
+            "y" => v.start = Some(c(0.0)),
+            "vy" => v.start = Some(c(3.0)),
+            _ => {}
+        }
+    }
+    let built = common::build(&lib, &level, false);
+    let told: Vec<&lsim_ir::Diagnostic> =
+        built.prepared.warnings.iter().filter(|d| d.code == "INIT-UNDECIDED").collect();
+    assert_eq!(told.len(), 1, "{:#?}", built.prepared.warnings);
+    let m = &told[0].message;
+    assert!(m.contains("the rod keeps its length") && m.contains("vy"), "{m}");
+    assert!(m.contains("It starts at 0, ") && m.contains("is not read"), "{m}");
+    // where the equation decides it: no word, the start on the constraint
+    let moving = moving_pendulum(1.0, 2.0, StateSelect::Default);
+    let built = common::build(&lib, &moving, false);
+    assert!(
+        built.prepared.warnings.iter().all(|d| d.code != "INIT-UNDECIDED"),
+        "{:#?}",
+        built.prepared.warnings
+    );
+    let opts = SolverOptions { rtol: 1e-8, atol: 1e-10, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 0.01, dt: 0.01 };
+    let r = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs");
+    let at0 = |name: &str| r.values[r.names.iter().position(|x| x == name).expect(name)][0];
+    let (x, y, vx, vy) = (at0("x"), at0("y"), at0("vx"), at0("vy"));
+    assert!((x * vx + y * vy).abs() < 1e-15, "{x} {y} {vx} {vy}");
+    assert!((vy - 2.0 * lsim_ir::math::sin(1.0)).abs() < 1e-15, "{vy}");
+}
+
 /// Two equations that depend on each other everywhere (`x² + y = 0` and
 /// `k x² + k y = 0`: their Jacobian has rank one), at start values that
 /// solve them exactly (x = y = 0): the start is one of a continuum of

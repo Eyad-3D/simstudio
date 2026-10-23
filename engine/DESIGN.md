@@ -1088,7 +1088,18 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    came out 0 / 0 (`x·vx + y·vy = 0` with y = 0 and vx = 0 says nothing of
    vy), every choice's pivots read NaN; now an explicit solution of the
    initialisation whose divisor and remainder are both exactly zero keeps
-   the variable's guess (its start value; a derivative 0), and the
+   the initialisation's guess for the variable: a variable's start value,
+   a derivative's 0 (the initialisation guesses every derivative at 0; a
+   start value given to a variable that is a derivative after aliasing,
+   as `vy` is `der(y)`, is not read, so the level pendulum's vy starts at
+   0 whatever start it is given). Where the start at preparation leaves
+   such a solution undecided, preparation warns (`INIT-UNDECIDED`, at the
+   values it is prepared at, as `INIT-START-IGNORED` is told), naming the
+   equation (as differentiated: the derivative of the rod's length), the
+   variable and the value it starts at; where the divisor is not zero the
+   solution is as before, to the bit (the golden comparison, every judge
+   model but the level pendulum, and `state_choice.rs`'s pendulum released
+   at 1 rad moving, vy on the rod's constraint to round-off). And the
    initialisation's Newton takes a point that solves its equations exactly
    at a singular Jacobian (`x² + y² = L²` at y = 0, a double root): it
    prepares with y and vy, and runs through its switches. Such a point is
@@ -3139,7 +3150,8 @@ all. The catalogue as built (each code's model and expected parts are in
 `PIVOT-ZERO-AT-START` (a warning), `PARAM-CYCLE`, `EXTERNAL-PERIOD`, `EXTERNAL-LOOP` (a warning),
 `WHEN-CONDITION`, `WHEN-CONTINUOUS`, `REINIT-NOT-STATE`, `STRUCT-OVER` and
 `STRUCT-UNDER`; `INIT-START-IGNORED` is tested with the index-reduction
-models, the `INVERSE-*` codes with fast mode's, and
+models, `INIT-UNDECIDED` (a warning) with the pendulum released exactly
+level (`lsim-solve/tests/state_choice.rs`), the `INVERSE-*` codes with fast mode's, and
 `INDEX-TABLE-NOT-SMOOTH`'s three reasons (a linear table's kinks, a held
 table's edges, a cubic's second derivative) in
 `lsim-prep/tests/index_tables.rs`. `INDEX-DIFFERENTIATE` (an equation that

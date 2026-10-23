@@ -863,6 +863,9 @@ pub fn run(
     // constant start values, the start values hold as they are: the
     // initialisation system is empty
     let mut trivial_init = false;
+    // the explicit solutions of the initialisation that keep their guess
+    // where they are 0 / 0 (`undecided_keep_guess`)
+    let mut guarded: Vec<Guarded> = vec![];
     let init_sorted = if reuse {
         let (_, sorted) = sort_model(&trivial_states)?;
         clock.lap("sort");
@@ -891,7 +894,8 @@ pub fn run(
                 )]
             })?;
         if differentiated > 0 {
-            undecided_keep_guess(&mut sorted, &init_refs, &init_ctx, &sys, &flat, &extras);
+            guarded =
+                undecided_keep_guess(&mut sorted, &init_refs, &init_ctx, &sys, &flat, &extras);
         }
         sorted
     };
@@ -905,6 +909,17 @@ pub fn run(
         Err(None)
     };
     report.start_solved = solved.is_ok();
+    // where the start at preparation leaves such a solution undecided (its
+    // divisor and remainder both zero there), it is told
+    if solved.is_ok() {
+        let env = NodeEnv { t: 0.0, vals: &vals, params: &pvals, tables };
+        for g in &guarded {
+            let (a, b) = (eval(&g.a, &env), eval(&g.b, &env));
+            if a.abs() + b.abs() <= 0.0 {
+                warnings.push(undecided_warning(&flat, &sys, &ib, g, vals[g.node]));
+            }
+        }
+    }
     if let Err(Some(ns)) = &solved {
         let b = &init_sorted.blocks[ns.block];
         let parts = parts_of(&flat, b.eqs.iter().map(|&k| ib.origin(&sys, &flat, k).instance));
@@ -1359,14 +1374,29 @@ pub fn run(
     Ok((model, report))
 }
 
+/// An explicit solution of the initialisation `v := −b / a` that keeps
+/// `v`'s guess where `a` and `b` are both zero ([`undecided_keep_guess`]).
+struct Guarded {
+    /// the node `v`
+    node: usize,
+    /// the divisor and the remainder (node expressions)
+    a: Expr,
+    b: Expr,
+    /// the initialisation's row it is solved from
+    row: usize,
+}
+
 /// Where an explicit solution of the initialisation divides by a
 /// variable's expression, `v := −b / a`: should `a` and `b` both be exactly
 /// zero there, the equation does not decide `v` at that point (any value
 /// holds it: a pendulum released exactly level, at rest, its rod's
 /// velocity constraint `x·vx + y·vy = 0` with y = 0 and vx = 0 says nothing
-/// of vy) and `v` keeps its guess instead of 0 / 0: its start value (a
-/// derivative, 0, as the initialisation guesses it). Where `a` is not zero
-/// the solution is as it was, to the bit.
+/// of vy) and `v` keeps the initialisation's guess for it instead of
+/// 0 / 0: a variable its start value, a derivative 0 (the initialisation
+/// guesses every derivative at 0; a start value given to a variable that
+/// is a derivative after aliasing, as the pendulum's `vy` is `der(y)`, is
+/// not read). Where `a` is not zero the solution is as it was, to the
+/// bit. The solutions so guarded, for [`undecided_warning`].
 fn undecided_keep_guess(
     sorted: &mut Sorted,
     rows: &[&Expr],
@@ -1374,7 +1404,8 @@ fn undecided_keep_guess(
     sys: &Sys,
     flat: &FlatSystem,
     extras: &Extras,
-) {
+) -> Vec<Guarded> {
+    let mut guarded = vec![];
     for (n, e, k) in &mut sorted.assignments {
         let nd = &sys.nodes[*n];
         let slot = Slot::Var(VarId(*n as u32));
@@ -1416,6 +1447,7 @@ fn undecided_keep_guess(
         {
             continue;
         }
+        guarded.push(Guarded { node: *n, a: a.clone(), b: b.clone(), row: *k });
         let abs = |x: Expr| Expr::Call(lsim_ir::Builtin::Abs, vec![x]);
         let undecided =
             Expr::Compare(CmpOp::Le, Box::new(abs(a) + abs(b)), Box::new(Expr::Const(0.0)));
@@ -1426,6 +1458,74 @@ fn undecided_keep_guess(
             Box::new(solved),
         )));
     }
+    guarded
+}
+
+/// The warning where the start at preparation leaves a guarded solution
+/// undecided (`INIT-UNDECIDED`): the equation, the variable (and the
+/// variables that are it after aliasing), the guess it starts at.
+fn undecided_warning(
+    flat: &FlatSystem,
+    sys: &Sys,
+    ib: &InitBuild,
+    g: &Guarded,
+    value: f64,
+) -> Diagnostic {
+    let nd = &sys.nodes[g.node];
+    let name = sys.name(flat, g.node);
+    let origin = ib.origin(sys, flat, g.row);
+    // (a derivative the model names by a variable of its own: `vy` for
+    // `der(y)`)
+    let named: Vec<String> = flat
+        .equations
+        .iter()
+        .filter_map(|eq| {
+            let other = match (&eq.lhs, &eq.rhs) {
+                (Expr::Der(v), Expr::Var(w)) | (Expr::Var(w), Expr::Der(v))
+                    if nd.order == 1 && *v == nd.var =>
+                {
+                    Some(*w)
+                }
+                _ => None,
+            }?;
+            Some(local_name(flat, other))
+        })
+        .collect();
+    let who = if named.is_empty() {
+        local_name(flat, nd.var).replace(&flat.var(nd.var).name, &name)
+    } else {
+        format!("{} ({name})", named.join(", "))
+    };
+    let guess = if nd.order == 0 {
+        format!("its start value, {value}")
+    } else {
+        format!(
+            "{value}, the initialisation's guess for a derivative (a start value given to a \
+             variable that is a derivative is not read)"
+        )
+    };
+    // (the equation as index reduction differentiated it: a rod's length
+    // as its velocity's constraint)
+    let times = if g.row < ib.n_model { sys.eq_level(g.row) } else { 0 };
+    let words = match times {
+        0 => equation_words(flat, origin),
+        1 => format!("the derivative of {}", equation_words(flat, origin)),
+        k => format!("the derivative ({k} times) of {}", equation_words(flat, origin)),
+    };
+    let mut d = warning(
+        "INIT-UNDECIDED",
+        format!(
+            "At the start, {words} does not decide {who}: what it multiplies it by and the rest \
+             of it are both exactly zero there, so any value holds it. It starts at {guess}; the \
+             start is not decided by the equations."
+        ),
+    )
+    .with_hint(
+        "Start the model where the equation decides the variable (a pendulum released a little \
+         off level), or check that any value of it is meant.",
+    );
+    d.parts = parts_of(flat, std::iter::once(origin.instance));
+    d
 }
 
 /// The initialisation system as the model's own sorting after the states'
