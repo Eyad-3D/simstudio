@@ -2,7 +2,8 @@
 //!
 //! Key: SHA-256 of the model's inputs — the top component with its
 //! parameter values, every library definition it reaches, the connectors,
-//! the preparation options, the mode (full dynamic, or fast mode with its
+//! the library's shared enumeration types (an option's value is its place
+//! in its type), the preparation options, the mode (full dynamic, or fast mode with its
 //! [`InverseSpec`]) — and of what prepares them: the key's format, the
 //! engine version and a digest of the preparation's code (`build.rs`:
 //! lsim-prep, lsim-ir, lsim-math and the dependency versions), so an
@@ -64,6 +65,7 @@ pub fn input_key(
         top,
         used,
         &lib.connectors,
+        &lib.types,
         force_implicit,
         inverse,
     ))
@@ -138,5 +140,13 @@ mod tests {
         let mut c = a.clone();
         c.connections.pop();
         assert_ne!(input_key(&lib, &a, false, None), input_key(&lib, &c, false, None));
+        // the library's shared enumeration types (before, not in the key)
+        let mut typed = lib.clone();
+        typed.add_type(lsim_ir::EnumType {
+            name: "Speed".into(),
+            literals: vec![],
+            doc: String::new(),
+        });
+        assert_ne!(input_key(&lib, &a, false, None), input_key(&typed, &a, false, None));
     }
 }

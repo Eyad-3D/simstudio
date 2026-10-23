@@ -1522,8 +1522,11 @@ Jacobian 1.01–1.04 µs, `jvp` from it 1.14–1.16 µs (at the start of WP3:
 residual and five times its Jacobian until the machine code is in.
 
 **Cache.** Keyed by SHA-256 of the model's inputs (top component with its
-parameter values, every library definition it reaches, connectors,
-options, mode) and of what prepares them (the key's format, the engine
+parameter values, every library definition it reaches, connectors, the
+library's shared enumeration types, options, mode; the types were left
+out until the second review of dynamic state selection, and a library
+whose type listed its options in another order hit the entry of the
+first, its option's value the first library's) and of what prepares them (the key's format, the engine
 version and a digest of the preparation's code: lsim-prep, lsim-ir,
 lsim-math and `Cargo.lock`, taken by `lsim-engine/build.rs`); the value is
 the `PreparedModel` as JSON (`lsim-engine/src/cache.rs`). The digest

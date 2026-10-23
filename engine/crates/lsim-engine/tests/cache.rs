@@ -285,3 +285,63 @@ fn an_entry_an_older_engine_wrote_is_not_used() {
     assert_eq!(swings(&hit), Ok((want, switches)));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A part whose parameter `mode` takes an option of the library's shared
+/// enumeration `Speed` (its value: the option's position, from 1), and a
+/// variable that reads it.
+fn moded() -> ComponentDef {
+    use lsim_engine::lsim_ir::{ParamDecl, ParamValue};
+    ComponentDef {
+        name: "Test.Moded".into(),
+        params: vec![ParamDecl {
+            default: ParamValue::Enum("Speed.Slow".into()),
+            unit: String::new(),
+            ..param("mode", "", 0.0, "how fast")
+        }],
+        vars: vec![var("y", "1", "")],
+        equations: vec![eq(n("y"), n("mode"), "y reads the mode")],
+        ..Default::default()
+    }
+}
+
+/// The library with the shared enumeration `Speed`'s options in `order`.
+fn speeds(order: [&str; 2]) -> Library {
+    use lsim_engine::lsim_ir::{EnumLiteral, EnumType};
+    let mut lib: Library = lsim_lib::library();
+    lib.add(moded());
+    lib.add_type(EnumType {
+        name: "Speed".into(),
+        literals: order
+            .iter()
+            .map(|l| EnumLiteral { name: (*l).into(), doc: String::new() })
+            .collect(),
+        doc: String::new(),
+    });
+    lib
+}
+
+/// The library's shared enumeration types are inputs of preparation (an
+/// option's value is its position in its type): a library whose type
+/// lists its options in another order is not a hit. Before, the key held
+/// the components and connectors the model reaches but not the shared
+/// types, and the second build was a hit with the first library's value.
+#[test]
+fn a_library_with_other_enumeration_types_is_prepared_again() {
+    use lsim_engine::lsim_ir::{Modifier, ParamValue};
+    let dir = std::env::temp_dir().join(format!("lsim-cache-types-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut part = sub("m", "Test.Moded", &[]);
+    part.modifiers
+        .push(Modifier { param: "mode".into(), value: ParamValue::Enum("Speed.Fast".into()) });
+    let top =
+        ComponentDef { name: "Test.Top".into(), components: vec![part], ..Default::default() };
+    let cached = BuildOptions { cache: Some(dir.clone()), ..Default::default() };
+    let first = Engine::new(speeds(["Slow", "Fast"])).build(&top, &cached).expect("builds");
+    assert_eq!(first.param("m.mode"), Some(2.0));
+    let other = Engine::new(speeds(["Fast", "Slow"])).build(&top, &cached).expect("builds");
+    assert!(!other.report.cache_hit, "another library's types are not a hit");
+    assert_eq!(other.param("m.mode"), Some(1.0), "the option's place in this library's type");
+    let again = Engine::new(speeds(["Slow", "Fast"])).build(&top, &cached).expect("builds");
+    assert!(again.report.cache_hit && again.param("m.mode") == Some(2.0));
+    let _ = std::fs::remove_dir_all(&dir);
+}
