@@ -168,6 +168,9 @@ impl ModelFunctions for Timed<'_> {
     fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
         self.m.table_axes(k)
     }
+    fn table_interp(&self, k: u32) -> Option<&lsim_ir::interp::Table> {
+        self.m.table_interp(k)
+    }
     fn condition_kernels(&self) -> Option<&dyn lsim_ir::ConditionKernels> {
         self.m.condition_kernels()
     }

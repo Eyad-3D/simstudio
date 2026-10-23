@@ -279,6 +279,17 @@ pub trait ModelFunctions: Send + Sync {
         None
     }
 
+    /// Table `k` as the compiled code interpolates it: the interpolant
+    /// itself, so that the run can tell whether two models read the same
+    /// table to the bit ([`crate::interp::Table::same`]: a model given other
+    /// table data after it was built, and a model with its states chosen
+    /// again, compiled from the data it was prepared with). `None` when
+    /// the model does not give it (the default) or has no table `k`.
+    fn table_interp(&self, k: u32) -> Option<&crate::interp::Table> {
+        let _ = k;
+        None
+    }
+
     /// The compiled kernels of the conditions the run loop checks along
     /// its steps ([`ConditionKernels`]), if the model has them. `None` (the
     /// default): the run loop interprets them from the IR.

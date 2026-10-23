@@ -121,6 +121,7 @@ use std::time::Instant;
 
 mod impulse;
 mod mixed;
+mod switch;
 mod timefn;
 
 /// A sampled block's schedule and buffers.
@@ -180,6 +181,102 @@ struct Clock {
 
 /// The most ticks of one clock whose inputs are read together.
 const TICK_BATCH: usize = crate::tape::TAPE_LANES;
+
+/// A sampled block's clock: its schedule from `t0` and how its inputs are
+/// read in the model `info` describes (of layout `l`).
+fn clock_for(
+    b: &dyn DiscreteBlock,
+    bi: &crate::BlockInfo,
+    info: &RunInfo,
+    opts: &SolverOptions,
+    l: &lsim_ir::runtime::Layout,
+    t0: f64,
+) -> Clock {
+    let period = b.period();
+    let offset = b.offset();
+    // the first tick at or after the start
+    let k0 = if offset >= t0 { 0 } else { ((t0 - offset) / period - 1e-9).ceil().max(0.0) as u64 };
+    let srcs: Vec<VarSource> = bi
+        .inputs
+        .iter()
+        .map(|&v| info.var_sources.get(v).copied().unwrap_or(VarSource::Computed))
+        .collect();
+    let mut y_idx: Vec<usize> = vec![];
+    let mut at = |i: usize| {
+        y_idx.iter().position(|x| *x == i).unwrap_or_else(|| {
+            y_idx.push(i);
+            y_idx.len() - 1
+        })
+    };
+    let chain = |k: usize| bi.chains.get(k).and_then(|c| c.as_ref());
+    let y_pos: Vec<Option<usize>> = srcs
+        .iter()
+        .map(|s| match s {
+            VarSource::Y(i) | VarSource::NegY(i) => Some(at(*i)),
+            _ => None,
+        })
+        .collect();
+    let chain_pos: Vec<Vec<usize>> = (0..srcs.len())
+        .map(|k| {
+            chain(k).map(|c| c.from_y.iter().map(|(_, _, i)| at(*i)).collect()).unwrap_or_default()
+        })
+        .collect();
+    let any_chain = (0..srcs.len()).any(|k| chain(k).is_some());
+    let needs_vars =
+        srcs.iter().enumerate().any(|(k, s)| *s == VarSource::Computed && chain(k).is_none());
+    let needs_y = !y_idx.is_empty();
+    let reads_z = needs_vars || y_idx.iter().any(|&i| i >= l.n_x);
+    let reads_vars = srcs.contains(&VarSource::Computed);
+    let tapes: Vec<Option<(crate::tape::ChainTape, Vec<f64>)>> = (0..srcs.len())
+        .map(|k| {
+            chain(k)
+                .filter(|_| opts.tick_read_ahead && srcs[k] == VarSource::Computed)
+                .and_then(|c| crate::tape::ChainTape::new(c, &info.params))
+                .map(|t| {
+                    let r = t.registers();
+                    (t, r)
+                })
+        })
+        .collect();
+    Clock {
+        reads_z,
+        reads_vars,
+        y_vals: vec![0.0; y_idx.len()],
+        y_idx,
+        y_pos,
+        chain_pos,
+        vals: if any_chain { vec![0.0; l.n_vars] } else { vec![] },
+        ders: if any_chain { vec![0.0; l.n_vars] } else { vec![] },
+        chain_y: vec![],
+        batch_ts: vec![],
+        batch_y: vec![],
+        batch_in: vec![],
+        batch_k0: 0,
+        batch_gen: u64::MAX,
+        lane_regs: tapes
+            .iter()
+            .map(|t| t.as_ref().map(|(t, _)| t.lane_registers(TICK_BATCH)).unwrap_or_default())
+            .collect(),
+        lane_out: vec![0.0; TICK_BATCH],
+        idle_run: 0,
+        batchable: opts.tick_read_ahead
+            && !needs_vars
+            && srcs
+                .iter()
+                .enumerate()
+                .all(|(k, s)| *s != VarSource::Computed || tapes[k].is_some()),
+        srcs,
+        tapes,
+        period,
+        offset,
+        k: k0,
+        stop_next: false,
+        inputs: vec![0.0; bi.inputs.len()],
+        outputs: vec![0.0; bi.outputs.len()],
+        needs_vars,
+        needs_y,
+    }
+}
 
 impl Clock {
     fn next(&self) -> f64 {
@@ -245,6 +342,12 @@ struct Loop<'a> {
     /// sorted: the integrator restarts there
     kinks_fixed: Vec<f64>,
     kinks_moving: Vec<f64>,
+    /// after the run chose its states again ([`switch`]): for each channel
+    /// it records, its index among the channels of the model it is on
+    /// (`None`: the first model's, as they are)
+    chan: Option<Vec<usize>>,
+    /// the recorded channels, read through `chan`
+    chan_buf: Vec<f64>,
 }
 
 /// Whether two times are one instant to the integrators: closer than a
@@ -442,6 +545,38 @@ pub(crate) fn apply_zero_sides(g: &mut [f64], sides: &[f64], holds: &[f64], mask
 }
 
 impl Loop<'_> {
+    /// The model's channels at `(t, y, d)`, apart from the ones last
+    /// sampled.
+    fn vars_at(&self, t: f64, y: &[f64], d: &[f64]) -> Vec<f64> {
+        let l = self.model.layout();
+        let mut work = vec![0.0; l.n_work];
+        let mut out = vec![0.0; l.n_vars];
+        let inp = EvalInput { t, y, p: &self.info.params, d, u: self.u };
+        self.model.vars(&inp, &mut work, &mut out);
+        out
+    }
+
+    /// The channels the run records, from the model's channels as last
+    /// sampled ([`Loop::chan`]).
+    fn recorded(&mut self) -> &[f64] {
+        match &self.chan {
+            None => &self.vars,
+            Some(map) => {
+                self.chan_buf.clear();
+                self.chan_buf.extend(map.iter().map(|&j| self.vars[j]));
+                &self.chan_buf
+            }
+        }
+    }
+
+    /// The channels the run records, from the model's channels `vars`.
+    fn recorded_of<'v>(&self, vars: &'v [f64]) -> std::borrow::Cow<'v, [f64]> {
+        match &self.chan {
+            None => std::borrow::Cow::Borrowed(vars),
+            Some(map) => std::borrow::Cow::Owned(map.iter().map(|&j| vars[j]).collect()),
+        }
+    }
+
     /// The model's root functions and table guards at (t, y, d), unmapped.
     fn eval_raw(&mut self, t: f64, y: &[f64], d: &[f64]) {
         let nr = self.model.layout().n_roots;
@@ -922,6 +1057,7 @@ impl Loop<'_> {
                 ),
             ),
             EventKind::Time(k) => (usize::MAX, format!("time event {k}")),
+            EventKind::States(k) => (usize::MAX, format!("the states chosen again (set {k})")),
         };
         self.events.push(EventRecord { t, when, label: label.clone(), kind });
         // storm detection: state events only (clocks and time events are
@@ -1689,8 +1825,40 @@ pub fn run_loop(
     blocks: &mut [Box<dyn DiscreteBlock>],
     started: Instant,
 ) -> Result<SimResult, SolveError> {
-    let mut watch = crate::states::Watch::new(info, model, opts.books_kernels);
-    run_watched(model, info, opts, grid, integ, u, blocks, started, &mut watch).map_err(|e| {
+    // the tables' breakpoints as the model interpolates them (said where
+    // the model gives a table's values but not its breakpoints)
+    let axes_warnings = axes_missing(model, info);
+    let given = info.with_model_tables(model);
+    let info = given.as_ref().unwrap_or(info);
+    // the models the run switches to, and the one it is on
+    let arena = switch::Arena::new();
+    let mut cur = Current { model, info, integ: None };
+    let watch = crate::states::Watch::new(info, model, opts.books_kernels);
+    let mut watch = if opts.backend == crate::Backend::Sundials {
+        watch.switching(info, opts.state_switch)
+    } else {
+        watch.unswitched(
+            "the run is on diffsol, the cross-check, which does not choose the states again",
+        )
+    };
+    let run = run_watched(
+        &arena,
+        &mut cur,
+        opts,
+        grid,
+        integ,
+        u,
+        blocks,
+        started,
+        &mut watch,
+        axes_warnings,
+    );
+    run.map_err(|e| {
+        let (model, info) = (cur.model, cur.info);
+        let integ: &mut dyn Integrator = match cur.integ.as_deref_mut() {
+            Some(i) => i,
+            None => integ,
+        };
         match watch.blamed(info, &e) {
             Some(named) => named,
             None => {
@@ -1704,29 +1872,138 @@ pub fn run_loop(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
-fn run_watched(
-    model: &dyn ModelFunctions,
-    info: &RunInfo,
+/// The model a run is on and its integrator: the first, given to the run
+/// loop, until the run chooses the states again ([`switch`]).
+struct Current<'a> {
+    model: &'a dyn ModelFunctions,
+    info: &'a RunInfo,
+    /// the integrator of the model switched to (`None`: the run's own)
+    integ: Option<Box<dyn Integrator + 'a>>,
+}
+
+/// The channels at a step's end the switch's look took ([`switch`]), for
+/// the step's end itself.
+#[derive(Default)]
+struct Probe {
+    /// the step's end has these channels: no tick changed anything since
+    valid: bool,
+    t: f64,
+    y: Vec<f64>,
+    vars: Vec<f64>,
+    work: Vec<f64>,
+}
+
+/// A switch to the states chosen again, ready to be made where the run is
+/// ([`ready_switch`]): found at a step's end, or inside the step where the
+/// step went past the point (the step then cut back there only once the
+/// switch is ready: a refused one leaves the step as it was), or at the
+/// point after an event. Made at the loop's top where the run is at its
+/// point; not made where a tick inside the step restarted the run before
+/// it (the watch looks again from the tick), or an event comes at it (the
+/// watch looks again from the point after the event).
+struct Ready<'a> {
+    /// the set chosen again
+    k: usize,
+    /// the model to go on with
+    next: switch::Next<'a>,
+    /// the integrator on its states from the point
+    integ: Box<dyn Integrator + 'a>,
+    /// the watch on it
+    watch: crate::states::Watch,
+    /// its states and iteration variables there
+    y: Vec<f64>,
+    /// the point's time, and the discrete values it was readied with
+    t: f64,
+    d: Vec<f64>,
+    /// the step was cut back to the point
+    cut: bool,
+    /// the set's factor there
+    e: f64,
+}
+
+/// Starts the integrator on the model `next` (set `k` of the model `from`
+/// chosen again) at the point `(t, d)` the run is at on `old` (watched by
+/// `watch`, the energy books `books`), and checks that the run can go on
+/// with it there ([`crate::states::Watch::holds`]). Where it cannot: the
+/// set of `from` to blame, that set's factor where it is not `k`, and why.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn ready_switch<'a>(
     opts: &SolverOptions,
     grid: OutputGrid,
-    integ: &mut dyn Integrator,
+    old: &mut dyn Integrator,
+    watch: &crate::states::Watch,
+    from: &RunInfo,
+    next: switch::Next<'a>,
+    k: usize,
+    t: f64,
+    d: &[f64],
     u: &[f64],
+    books: Option<&Ledger<'_>>,
+    (cut, e): (bool, f64),
+) -> Result<Result<Ready<'a>, (usize, Option<f64>, String)>, SolveError> {
+    let refuse = |why: &str| Ok(Err((k, None, why.to_string())));
+    let started = crate::new_integrator(
+        next.model,
+        next.info,
+        opts,
+        OutputGrid { t0: t, ..grid },
+        &next.y,
+        d.to_vec(),
+        u.to_vec(),
+    );
+    let mut integ = match started {
+        None => return refuse("the integrator cannot be started again on this backend"),
+        Some(Err(e)) => return refuse(&format!("the integrator did not start on them ({e})")),
+        Some(Ok(i)) => i,
+    };
+    let mut q = vec![0.0; books.map_or(0, |lg| lg.q.len())];
+    if !q.is_empty() {
+        old.quadrature(t, &mut q)?;
+    }
+    if !integ.set_quadratures(&q)? {
+        return refuse("the energy integrals cannot be carried over");
+    }
+    let rebinds = match (books, next.info.energy.as_ref()) {
+        (Some(lg), Some(e)) => lg.can_rebind(e),
+        (Some(_), None) => false,
+        (None, _) => true,
+    };
+    if !rebinds {
+        return refuse(
+            "the energy books cannot be read through the model with the states chosen again",
+        );
+    }
+    let mut w = crate::states::Watch::new(next.info, next.model, opts.books_kernels)
+        .switching(next.info, opts.state_switch);
+    w.adopt(watch, from, next.info, k);
+    let y = integ.y().to_vec();
+    if let Err(e) = w.holds(next.info, next.model, t, &y, d, u) {
+        return Ok(Err(e));
+    }
+    Ok(Ok(Ready { k, next, integ, watch: w, y, t, d: d.to_vec(), cut, e }))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_watched<'a>(
+    arena: &'a switch::Arena,
+    cur: &mut Current<'a>,
+    opts: &'a SolverOptions,
+    grid: OutputGrid,
+    integ0: &mut dyn Integrator,
+    u: &'a [f64],
     blocks: &mut [Box<dyn DiscreteBlock>],
     started: Instant,
     watch: &mut crate::states::Watch,
+    axes_warnings: Vec<String>,
 ) -> Result<SimResult, SolveError> {
     // the default floating-point environment (lsim_ir::fenv)
     let _env = lsim_ir::fenv::DefaultFloatEnv::enter();
-    let l = *model.layout();
-    let n = l.n_y();
+    let (model0, info0) = (cur.model, cur.info);
+    let (mut model, mut info) = (model0, info0);
+    let mut l = *model.layout();
+    let mut n = l.n_y();
     let times = grid.times()?;
     let t_end = grid.t_end;
-    // the tables' breakpoints as the model interpolates them (said where
-    // the model gives a table's values but not its breakpoints)
-    let axes_warnings = axes_missing(model, info);
-    let given = info.with_model_tables(model);
-    let info = given.as_ref().unwrap_or(info);
     tables_given(model, info, opts, grid.t0)?;
     let span = (t_end - grid.t0).abs();
     let mut rec = Recorder::new(l.n_vars, &times)?;
@@ -1778,6 +2055,8 @@ fn run_watched(
         breaks_moving: vec![],
         kinks_fixed: vec![],
         kinks_moving: vec![],
+        chan: None,
+        chan_buf: vec![],
     };
     for (k, (c, _)) in info.whens.iter().enumerate() {
         if *c < lp.when_of_root.len() && lp.mode_of_root[*c].is_none() {
@@ -1785,6 +2064,8 @@ fn run_watched(
         }
     }
     let p = &info.params;
+    // (the run's own integrator until it chooses its states again)
+    let integ: &mut dyn Integrator = &mut *integ0;
     let mut y = vec![0.0; n];
     let mut d = integ.discrete_mut().to_vec();
     let mut ledger = if opts.energy_books {
@@ -1808,102 +2089,7 @@ fn run_watched(
     let mut clocks: Vec<Clock> = blocks
         .iter()
         .zip(&info.blocks)
-        .map(|(b, bi)| {
-            let period = b.period();
-            let offset = b.offset();
-            // the first tick at or after the start
-            let k0 = if offset >= grid.t0 {
-                0
-            } else {
-                ((grid.t0 - offset) / period - 1e-9).ceil().max(0.0) as u64
-            };
-            let srcs: Vec<VarSource> = bi
-                .inputs
-                .iter()
-                .map(|&v| info.var_sources.get(v).copied().unwrap_or(VarSource::Computed))
-                .collect();
-            let mut y_idx: Vec<usize> = vec![];
-            let mut at = |i: usize| {
-                y_idx.iter().position(|x| *x == i).unwrap_or_else(|| {
-                    y_idx.push(i);
-                    y_idx.len() - 1
-                })
-            };
-            let chain = |k: usize| bi.chains.get(k).and_then(|c| c.as_ref());
-            let y_pos: Vec<Option<usize>> = srcs
-                .iter()
-                .map(|s| match s {
-                    VarSource::Y(i) | VarSource::NegY(i) => Some(at(*i)),
-                    _ => None,
-                })
-                .collect();
-            let chain_pos: Vec<Vec<usize>> = (0..srcs.len())
-                .map(|k| {
-                    chain(k)
-                        .map(|c| c.from_y.iter().map(|(_, _, i)| at(*i)).collect())
-                        .unwrap_or_default()
-                })
-                .collect();
-            let any_chain = (0..srcs.len()).any(|k| chain(k).is_some());
-            let needs_vars = srcs
-                .iter()
-                .enumerate()
-                .any(|(k, s)| *s == VarSource::Computed && chain(k).is_none());
-            let needs_y = !y_idx.is_empty();
-            let reads_z = needs_vars || y_idx.iter().any(|&i| i >= l.n_x);
-            let reads_vars = srcs.contains(&VarSource::Computed);
-            let tapes: Vec<Option<(crate::tape::ChainTape, Vec<f64>)>> = (0..srcs.len())
-                .map(|k| {
-                    chain(k)
-                        .filter(|_| opts.tick_read_ahead && srcs[k] == VarSource::Computed)
-                        .and_then(|c| crate::tape::ChainTape::new(c, &info.params))
-                        .map(|t| {
-                            let r = t.registers();
-                            (t, r)
-                        })
-                })
-                .collect();
-            Clock {
-                reads_z,
-                reads_vars,
-                y_vals: vec![0.0; y_idx.len()],
-                y_idx,
-                y_pos,
-                chain_pos,
-                vals: if any_chain { vec![0.0; l.n_vars] } else { vec![] },
-                ders: if any_chain { vec![0.0; l.n_vars] } else { vec![] },
-                chain_y: vec![],
-                batch_ts: vec![],
-                batch_y: vec![],
-                batch_in: vec![],
-                batch_k0: 0,
-                batch_gen: u64::MAX,
-                lane_regs: tapes
-                    .iter()
-                    .map(|t| {
-                        t.as_ref().map(|(t, _)| t.lane_registers(TICK_BATCH)).unwrap_or_default()
-                    })
-                    .collect(),
-                lane_out: vec![0.0; TICK_BATCH],
-                idle_run: 0,
-                batchable: opts.tick_read_ahead
-                    && !needs_vars
-                    && srcs
-                        .iter()
-                        .enumerate()
-                        .all(|(k, s)| *s != VarSource::Computed || tapes[k].is_some()),
-                srcs,
-                tapes,
-                period,
-                offset,
-                k: k0,
-                stop_next: false,
-                inputs: vec![0.0; bi.inputs.len()],
-                outputs: vec![0.0; bi.outputs.len()],
-                needs_vars,
-                needs_y,
-            }
-        })
+        .map(|(b, bi)| clock_for(b.as_ref(), bi, info, opts, &l, grid.t0))
         .collect();
     for c in &clocks {
         if c.period.is_nan() || c.period <= 0.0 || !c.period.is_finite() {
@@ -1968,7 +2154,7 @@ fn run_watched(
     lp.sample(t, &y, &d);
     lp.schedule(t);
     let mut scheduled_for = d.clone();
-    rec.start(t, &lp.vars);
+    rec.start(t, lp.recorded());
     if let Some(lg) = ledger.as_mut() {
         lg.start(t, &lp.vars, p);
     }
@@ -2007,7 +2193,149 @@ fn run_watched(
     let mut d_tick = d.clone();
     // the dense output's generation: a new one at every step and change
     let mut dense_gen: u64 = 0;
+    // dynamic state selection: the switch asked for, the work and the
+    // error estimates of the integrators the run went on from, and the
+    // switches made
+    let mut ready: Option<Ready<'a>> = None;
+    let mut stats_left = crate::SolverStats::default();
+    let mut errors_left: Vec<(String, f64, f64, f64)> = vec![];
+    let mut switch_notes: Vec<String> = vec![];
+    let mut switches = 0usize;
+    let mut probe = Probe::default();
     while t < t_end {
+        // the states chosen again: the run goes on with them from here (a
+        // switch readied in a step that a tick then cut short, or whose
+        // point a tick's event changed, is not made: the watch looks again
+        // from the point after the tick)
+        if let Some(r) = ready.take().filter(|r| r.t == t && r.d == d) {
+            let old: &mut dyn Integrator = match cur.integ.as_deref_mut() {
+                Some(i) => i,
+                None => &mut *integ0,
+            };
+            let Ready { k: sw_k, next, integ: mut ni, watch: w2, y: yc, .. } = r;
+            // what the integrator left: its work, its error estimates (by
+            // name, over the models the run was on)
+            stats_left += old.stats();
+            for i in 0..n {
+                let name = info.y_names.get(i).cloned().unwrap_or_default();
+                let (a, m, f) = (acc[i], ymax[i], opts.atol * info.y_nominal[i]);
+                match errors_left.iter_mut().find(|x| x.0 == name) {
+                    Some(x) => {
+                        x.1 += a;
+                        x.2 = x.2.max(m);
+                        x.3 = x.3.max(f);
+                    }
+                    None => errors_left.push((name, a, m, f)),
+                }
+            }
+            // the point before the switch, in the books and the recorded
+            // channels
+            lp.sample(t, &y, &d);
+            let before_vars = lp.vars.clone();
+            let before = ledger.as_mut().map(|lg| lg.before_event(t, &before_vars, p));
+            let left = lp.recorded_of(&before_vars).into_owned();
+            let from_states = switch::states_of(info, l.n_x);
+            let row =
+                info.state_sets.get(sw_k).and_then(|s| s.rows.first()).cloned().unwrap_or_default();
+            // the model the run is on
+            model = next.model;
+            info = next.info;
+            cur.model = model;
+            cur.info = info;
+            l = *model.layout();
+            n = l.n_y();
+            lp.model = model;
+            lp.info = info;
+            lp.work.resize(l.n_work, 0.0);
+            lp.vars.resize(l.n_vars, 0.0);
+            let identity =
+                next.map.iter().enumerate().all(|(c, &j)| c == j) && l.n_vars == next.map.len();
+            lp.chan = (!identity).then_some(next.map);
+            y = yc;
+            local = vec![0.0; n];
+            acc = vec![0.0; n];
+            ymax = y.iter().map(|v| v.abs()).collect();
+            yk = vec![0.0; n];
+            if let Some(lg) = ledger.as_mut()
+                && let Some(e) = info.energy.as_ref()
+            {
+                // (the same parts: ready_switch checked it)
+                let rebound = lg.rebind(e, model);
+                debug_assert!(rebound, "the books' parts were checked");
+            }
+            // the conditions on functions of time, the tables read
+            // along time, the time crossings: set up again
+            lp.tf = timefn::TimeFns::new(info.time_crossings.len().max(info.time_functions.len()));
+            lp.sample(t, &y, &d);
+            let mut mask = lp.time_functions_start(t_end);
+            mask.resize(lp.sides.len(), false);
+            for (k, tc) in info.time_crossings.iter().enumerate() {
+                mask[k] |= tc.is_some();
+            }
+            lp.use_timed = mask.iter().any(|m| *m) && ni.set_root_mask(&mask);
+            lp.t_star.iter_mut().for_each(|x| *x = f64::NAN);
+            lp.schedule(t);
+            if !info.time_tables.is_empty() {
+                lp.schedule_breaks(t, false);
+                lp.schedule_breaks(t, true);
+            }
+            scheduled_for.copy_from_slice(&d);
+            // the sampled blocks read their inputs from it
+            for (b, c) in clocks.iter_mut().enumerate() {
+                let mut fresh = clock_for(blocks[b].as_ref(), &info.blocks[b], info, opts, &l, t);
+                fresh.k = c.k;
+                fresh.stop_next = c.stop_next;
+                fresh.inputs = std::mem::take(&mut c.inputs);
+                fresh.outputs = std::mem::take(&mut c.outputs);
+                fresh.idle_run = c.idle_run;
+                *c = fresh;
+            }
+            lp.update_sides(t, &y, &d, None, None);
+            lp.push_sides(&mut *ni);
+            // the switch, an event: the stored energy's change
+            // (the iteration variables solved again) booked
+            let label = format!(
+                "the states chosen again for {row}: {} in place of {}",
+                next.states.join(", "),
+                from_states.join(", "),
+            );
+            lp.events.push(EventRecord {
+                t,
+                when: usize::MAX,
+                label: label.clone(),
+                kind: EventKind::States(sw_k),
+            });
+            switches += 1;
+            if switch_notes.len() < 20 {
+                switch_notes.push(format!("at t = {t:.9} s, {label}"));
+            }
+            *watch = w2;
+            cur.integ = Some(ni);
+            let integ: &mut dyn Integrator = match cur.integ.as_deref_mut() {
+                Some(i) => i,
+                None => &mut *integ0,
+            };
+            // (as after any event: the recorded channels, as the
+            // run records them, before and after it)
+            lp.sample(t, &y, &d);
+            rec.interior(t, lp.recorded());
+            if let (Some(lg), Some(b)) = (ledger.as_mut(), before) {
+                lg.after_event(t, &lp.vars, p, &b, None);
+            }
+            if rec.next_grid_time() == Some(t) {
+                rec.left_limit(&left, lp.recorded());
+                rec.grid_point(t, lp.recorded());
+                if let Some(lg) = ledger.as_mut() {
+                    integ.quadrature(t, &mut lg.q)?;
+                    lg.grid_point(t, &lp.vars, p);
+                }
+            }
+        }
+        let integ: &mut dyn Integrator = match cur.integ.as_deref_mut() {
+            Some(i) => i,
+            None => &mut *integ0,
+        };
+        probe.valid = false;
         dense_gen += 1;
         // the time crossings' times move only when a discrete value does
         // (a time function's next sign change after one fired too)
@@ -2039,7 +2367,54 @@ fn run_watched(
         // integrator is told), and the choice of states there, where an
         // event came since it was last checked: the next stretch starts
         // here
-        watch.begin(info, model, t, &y, &d, u, lp.events.len())?;
+        if let Some(k) = watch.begin(info, model, t, &y, &d, u, lp.events.len())? {
+            // the states to be chosen again here (the point after an
+            // event, or the start)
+            let (e, _) = watch.standing(info, model, k, t, &lp.vars_at(t, &y, &d));
+            let window = watch.threshold(k);
+            let made = match switch::choose_at(
+                arena,
+                (model, info),
+                (model0, info0),
+                &info0.var_names,
+                t,
+                &y,
+                &d,
+                u,
+                k,
+                window,
+            ) {
+                Ok(next) => ready_switch(
+                    opts,
+                    grid,
+                    integ,
+                    watch,
+                    info,
+                    next,
+                    k,
+                    t,
+                    &d,
+                    u,
+                    ledger.as_ref(),
+                    (false, e),
+                )?,
+                Err(why) => Err((k, None, why)),
+            };
+            match made {
+                Ok(r) => {
+                    ready = Some(r);
+                    continue;
+                }
+                Err((blame, factor, why)) => {
+                    if switch_notes.len() < 20 {
+                        switch_notes.push(format!(
+                            "at t = {t:.9} s, the states were not chosen again: {why}"
+                        ));
+                    }
+                    watch.refused(blame, factor.unwrap_or(e), &why);
+                }
+            }
+        }
         // a stop time a few ulps away (a tick that falls just before the
         // end, two clocks' ticks that round apart) is this instant: the
         // integrators cannot step so short an interval, and the solution
@@ -2074,6 +2449,99 @@ fn run_watched(
             y_cut = Some(yv);
             st = Step::Root(at, dirs);
             report.pulses_found += 1;
+        }
+        // dynamic state selection: where inside the step the states should
+        // be chosen again (the step is cut back there)
+        if !same && watch.may_switch() {
+            let t1 = st.time();
+            // the channels at the step's end (kept for the step's end below,
+            // where nothing changed them since: the same values)
+            probe.t = t1;
+            probe.y.clear();
+            probe.y.extend_from_slice(y_cut.as_deref().unwrap_or(integ.y()));
+            probe.vars.resize(l.n_vars, 0.0);
+            probe.work.resize(l.n_work, 0.0);
+            let inp = EvalInput { t: t1, y: &probe.y, p: &info.params, d: &d, u };
+            model.vars(&inp, &mut probe.work, &mut probe.vars);
+            probe.valid = true;
+            let (y1, v1) = (&probe.y, &probe.vars);
+            let l_now = l;
+            let mut y_in = vec![];
+            let mut work_in = vec![];
+            let found = {
+                let mut inside = |tau: f64, v: &mut Vec<f64>| {
+                    y_in.resize(l_now.n_y(), 0.0);
+                    work_in.resize(l_now.n_work, 0.0);
+                    v.resize(l_now.n_vars, 0.0);
+                    if integ.interpolate(tau, &mut y_in).is_err() {
+                        return false;
+                    }
+                    let inp = EvalInput { t: tau, y: &y_in, p: &info.params, d: &d, u };
+                    model.vars(&inp, &mut work_in, v);
+                    true
+                };
+                watch.switch_point(info, model, t1, v1, &d, lp.events.len(), &mut inside)
+            };
+            if let Some((ts, k)) = found {
+                let cut = ts < t1 && !same_instant(ts, t1);
+                let ys = if cut {
+                    let mut yv = vec![0.0; n];
+                    integ.interpolate(ts, &mut yv)?;
+                    yv
+                } else {
+                    y1.clone()
+                };
+                let (e, _) = watch.standing(info, model, k, ts, &lp.vars_at(ts, &ys, &d));
+                let window = watch.threshold(k);
+                // (readied before the step is cut back: a switch refused
+                // leaves the step as it was, its integrator not restarted
+                // from a point of its dense output)
+                let made = match switch::choose_at(
+                    arena,
+                    (model, info),
+                    (model0, info0),
+                    &info0.var_names,
+                    ts,
+                    &ys,
+                    &d,
+                    u,
+                    k,
+                    window,
+                ) {
+                    Ok(next) => ready_switch(
+                        opts,
+                        grid,
+                        integ,
+                        watch,
+                        info,
+                        next,
+                        k,
+                        ts,
+                        &d,
+                        u,
+                        ledger.as_ref(),
+                        (cut, e),
+                    )?,
+                    Err(why) => Err((k, None, why)),
+                };
+                match made {
+                    Ok(r) => {
+                        if cut {
+                            y_cut = Some(ys);
+                            st = Step::Stopped(ts);
+                        }
+                        ready = Some(r);
+                    }
+                    Err((blame, factor, why)) => {
+                        if switch_notes.len() < 20 {
+                            switch_notes.push(format!(
+                                "at t = {ts:.9} s, the states were not chosen again: {why}"
+                            ));
+                        }
+                        watch.refused(blame, factor.unwrap_or(e), &why);
+                    }
+                }
+            }
         }
         let t_new = st.time();
         let is_root = matches!(st, Step::Root(..));
@@ -2321,15 +2789,28 @@ fn run_watched(
                         continue;
                     }
                     // (what the change does to the integrator is read
-                    // afresh)
+                    // afresh; the channels at the step's end too)
                     dense_gen += 1;
                     // the outputs changed: an event at the tick; the rest of
                     // the step is dropped
                     if !have_y {
                         integ.interpolate(tk, &mut yk)?;
                     }
-                    lp.sample(tk, &yk, &d);
-                    rec.interior(tk, &lp.vars);
+                    // (at the step's end, the channels the switch's look
+                    // took there, where it is the same point: the same
+                    // values)
+                    let same_point = probe.valid
+                        && probe.t == tk
+                        && probe.y.len() == yk.len()
+                        && probe.y.iter().zip(&yk).all(|(a, b)| a.to_bits() == b.to_bits());
+                    if same_point {
+                        std::mem::swap(&mut lp.vars, &mut probe.vars);
+                        watch.probed(tk);
+                    } else {
+                        lp.sample(tk, &yk, &d);
+                    }
+                    probe.valid = false;
+                    rec.interior(tk, lp.recorded());
                     // the choice of states up to the tick, before it
                     // changes anything (the step's dense output holds the
                     // stretch since the last point checked)
@@ -2449,13 +2930,78 @@ fn run_watched(
             }
             (None, cut) => {
                 y.copy_from_slice(cut.as_deref().unwrap_or(integ.y()));
-                lp.sample(t_new, &y, &d);
-                rec.interior(t_new, &lp.vars);
+                // (the channels the switch's look at the step's end took,
+                // where nothing has moved since: the same values)
+                if probe.valid && probe.t == t_new {
+                    std::mem::swap(&mut lp.vars, &mut probe.vars);
+                    watch.probed(t_new);
+                } else {
+                    lp.sample(t_new, &y, &d);
+                }
+                rec.interior(t_new, lp.recorded());
             }
         }
         t = t_new;
         lp.check_asserts(t)?;
+        // the switch readied in this step: made at the loop's top (an event
+        // here: not made, the watch looks again from the point after it). A
+        // tick at the point that changed the discrete values (going on
+        // without a restart): readied again with them; where it cannot be
+        // then, this point is checked as any step's end, and a step cut
+        // back to it goes on from it
+        let mut back = false;
+        if let Some(r) = ready.take()
+            && !event_now
+            && r.t == t
+        {
+            if r.d == d {
+                ready = Some(r);
+                continue;
+            }
+            match ready_switch(
+                opts,
+                grid,
+                integ,
+                watch,
+                info,
+                r.next,
+                r.k,
+                t,
+                &d,
+                u,
+                ledger.as_ref(),
+                (r.cut, r.e),
+            )? {
+                Ok(again) => {
+                    ready = Some(again);
+                    continue;
+                }
+                Err((blame, factor, why)) => {
+                    // (the step was cut back to the point to switch there:
+                    // the integrator, past it, restarts at it from the
+                    // step's dense output, as after a tick that changes
+                    // what it integrates)
+                    if switch_notes.len() < 20 {
+                        let back = if r.cut {
+                            "; the run goes on from the step's dense output there"
+                        } else {
+                            ""
+                        };
+                        switch_notes.push(format!(
+                            "at t = {t:.9} s, the states were not chosen again with the discrete \
+                             values a block's tick there set: {why}{back}"
+                        ));
+                    }
+                    watch.refused(blame, factor.unwrap_or(r.e), &why);
+                    back = r.cut;
+                }
+            }
+        }
         watch_step(watch, model, info, integ, t, &lp.vars, &d, u, lp.events.len())?;
+        if back {
+            integ.restart(t, &y)?;
+            y.copy_from_slice(integ.y());
+        }
         // the holds of functions that reached their side, or left it
         if !event_now && lp.release_holds(t, &y, &d) {
             lp.push_sides(integ);
@@ -2666,6 +3212,12 @@ fn run_watched(
     }
 
     // the end
+    // (the run's own integrator's notes: its start, its method)
+    let start_notes = integ0.setup_notes();
+    let integ: &mut dyn Integrator = match cur.integ.as_deref_mut() {
+        Some(i) => i,
+        None => &mut *integ0,
+    };
     let (values, min, max, mean, left_limits) = rec.finish();
     let energy = match ledger {
         Some(mut lg) => {
@@ -2678,18 +3230,45 @@ fn run_watched(
         }
         None => None,
     };
-    let mut accumulated: Vec<(String, f64)> = (0..n)
-        .map(|i| {
-            let scale = ymax[i].max(opts.atol * info.y_nominal[i]).max(f64::MIN_POSITIVE);
-            (info.y_names.get(i).cloned().unwrap_or_default(), acc[i] / scale)
-        })
-        .collect();
+    let mut accumulated: Vec<(String, f64)> = if errors_left.is_empty() {
+        (0..n)
+            .map(|i| {
+                let scale = ymax[i].max(opts.atol * info.y_nominal[i]).max(f64::MIN_POSITIVE);
+                (info.y_names.get(i).cloned().unwrap_or_default(), acc[i] / scale)
+            })
+            .collect()
+    } else {
+        // (by name, over the models the run was on)
+        for i in 0..n {
+            let name = info.y_names.get(i).cloned().unwrap_or_default();
+            let (a, m, f) = (acc[i], ymax[i], opts.atol * info.y_nominal[i]);
+            match errors_left.iter_mut().find(|x| x.0 == name) {
+                Some(x) => {
+                    x.1 += a;
+                    x.2 = x.2.max(m);
+                    x.3 = x.3.max(f);
+                }
+                None => errors_left.push((name, a, m, f)),
+            }
+        }
+        errors_left
+            .into_iter()
+            .map(|(name, a, m, f)| (name, a / m.max(f).max(f64::MIN_POSITIVE)))
+            .collect()
+    };
     accumulated.sort_by(|a, b| b.1.total_cmp(&a.1));
     report.error = ErrorEstimate { accumulated, ..report.error };
     report.backend = integ.name();
     report.method = integ.method();
-    report.notes = integ.setup_notes();
+    report.notes = start_notes;
+    if switches > 0 {
+        report.notes.push(format!(
+            "dynamic state selection: the states were chosen again {switches} times"
+        ));
+    }
+    report.notes.append(&mut switch_notes);
     report.stats = integ.stats();
+    report.stats += stats_left;
     report.events = lp.events.len();
     // time spent outside tables' data
     for (k, g) in model.table_guard_list().iter().enumerate() {
@@ -2749,7 +3328,7 @@ fn run_watched(
     }
     Ok(SimResult {
         times,
-        names: info.var_names.clone(),
+        names: info0.var_names.clone(),
         values,
         min,
         max,
@@ -2791,7 +3370,7 @@ fn grid_point(
 ) -> Result<(), SolveError> {
     integ.interpolate(t, yk)?;
     lp.sample(t, yk, d);
-    rec.grid_point(t, &lp.vars);
+    rec.grid_point(t, lp.recorded());
     if let Some(lg) = ledger.as_mut() {
         integ.quadrature(t, &mut lg.q)?;
         lg.grid_point(t, &lp.vars, &lp.info.params);
@@ -2854,13 +3433,14 @@ fn after_event(
     impulse: Option<&Engagement>,
 ) -> Result<(), SolveError> {
     lp.sample(t, y, d);
-    rec.interior(t, &lp.vars);
+    rec.interior(t, lp.recorded());
     if let (Some(lg), Some(b)) = (ledger.as_mut(), before) {
         lg.after_event(t, &lp.vars, &lp.info.params, &b, impulse);
     }
     if rec.next_grid_time() == Some(t) {
-        rec.left_limit(left, &lp.vars);
-        rec.grid_point(t, &lp.vars);
+        let left = lp.recorded_of(left);
+        rec.left_limit(&left, lp.recorded());
+        rec.grid_point(t, lp.recorded());
         if let Some(lg) = ledger.as_mut() {
             integ.quadrature(t, &mut lg.q)?;
             lg.grid_point(t, &lp.vars, &lp.info.params);

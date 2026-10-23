@@ -186,6 +186,30 @@ class Verdict(unittest.TestCase):
         self.assertEqual(judge.verdict(case, dict(b, ok=True, rtol=1e-7)), "wrong")
 
 
+class Positions(unittest.TestCase):
+    def test_each_rod_compared_by_time_the_worst_judged(self):
+        # two rods' x, y on a 0.2 s grid; the run's rows by time, one
+        # extra row at an event between grid times
+        case = {"dt": DT, "record": ["x0", "y0", "x1", "y1"],
+                "judge": {"kind": "pendulums", "angles": [1.5, 1.8]}}
+        ref = {n: [0.0, 1.0, 2.0] for n in case["record"]}
+        r = {"series": {"times": [0.0, 0.2, 0.3, 0.4],
+                        "channels": {"x0": [0.0, 1.0 + 1e-9, 9.0, 2.0],
+                                     "y0": [0.0, 1.0, 9.0, 2.0 - 2e-9],
+                                     "x1": [0.0, 1.0, 9.0, 2.0 + 5e-7],
+                                     "y1": [0.0, 1.0, 9.0, 2.0]}}}
+        s = judge.score_positions(case, ref, r, case["record"])
+        self.assertEqual(s["missing"], 0)
+        self.assertEqual(len(s["per_rod"]), 2)
+        self.assertAlmostEqual(s["per_rod"][0], 2e-9, delta=1e-15)
+        self.assertAlmostEqual(s["error"], 5e-7, delta=1e-15)
+        self.assertAlmostEqual(s["rod_min"], 2e-9, delta=1e-15)
+        self.assertEqual(judge.verdict(case, dict(s, ok=True, rtol=1e-8)), "right")
+        self.assertEqual(judge.verdict(case, dict(s, ok=True, rtol=1e-9)), "wrong")
+        self.assertEqual(judge.verdict({"judge": {"kind": "double"}},
+                                       dict(s, ok=True, rtol=1e-9)), "wrong")
+
+
 class MslReference(unittest.TestCase):
     def test_compared_at_its_own_times(self):
         # the reference: x = t at every 0.1 s, and an event row at 0.25 s

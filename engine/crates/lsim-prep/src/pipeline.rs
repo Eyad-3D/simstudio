@@ -36,13 +36,26 @@ pub struct Settings {
     /// search, for the report ([`BlockSummary::minimal`]): a yardstick for
     /// the tearing heuristic, not needed to run
     pub tearing_minimum: bool,
+    /// choose the states at this point of a run instead of at the start
+    /// (dynamic state selection, DESIGN.md §6 step 5): the model a run
+    /// switches to where the states chosen before degrade
+    pub choose_at: Option<std::sync::Arc<ChoosePoint>>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { force_implicit: false, numeric_start: true, tearing_minimum: false }
+        Settings {
+            force_implicit: false,
+            numeric_start: true,
+            tearing_minimum: false,
+            choose_at: None,
+        }
     }
 }
+
+/// A point of a run to choose the states at ([`Settings::choose_at`]):
+/// [`lsim_ir::choice::ChoicePoint`].
+pub type ChoosePoint = lsim_ir::choice::ChoicePoint;
 
 /// One block of a sorted system, as the report tells it.
 #[derive(Clone, Debug)]
@@ -233,9 +246,9 @@ fn index_diag(flat: &FlatSystem, sys: &Sys, f: IndexFault) -> Diagnostic {
             let mut d = Diagnostic::error(
                 "STATE-SELECT-SINGULAR",
                 format!(
-                    "At the start, the constraints of {} are singular for every fixed choice of \
-                     states: the run would have to switch which variables are states, which the \
-                     engine does not do.",
+                    "At the start, the constraints of {} are singular for every choice of \
+                     states: no choice of the variables to integrate starts there (a run chooses \
+                     them again where they degrade, but it must start with one that works).",
                     diagnose::join_names(&names)
                 ),
             )
@@ -295,6 +308,15 @@ fn state_sets(
                 .collect(),
             pivots: cs.pivots.clone(),
             masked: cs.masked.clone(),
+            kept: cs.kept.clone(),
+            eqs: cs.rows.clone(),
+            nodes: cs.cols.clone(),
+            roots: {
+                let mut r: Vec<usize> = cs.rows.iter().map(|&e| sys.eq_root(e)).collect();
+                r.sort_unstable();
+                r.dedup();
+                r
+            },
         })
         .collect()
 }
@@ -812,7 +834,9 @@ pub fn run(
     // needed for the state choice, the modes' first values, initial
     // equations and start values the model overrides; for small models
     // always (their pivots are checked at the start too)
+    // (a point of a run chosen at is consistent: nothing to solve)
     let needed = settings.numeric_start
+        && settings.choose_at.is_none()
         && (differentiated > 0
             || !node_modes.is_empty()
             || !initial_eqs.is_empty()
@@ -825,6 +849,9 @@ pub fn run(
     // constant start values, the start values hold as they are: the
     // initialisation system is empty
     let mut trivial_init = false;
+    // the explicit solutions of the initialisation that keep their guess
+    // where they are 0 / 0 (`undecided_keep_guess`)
+    let mut guarded: Vec<Guarded> = vec![];
     let init_sorted = if reuse {
         let (_, sorted) = sort_model(&trivial_states)?;
         clock.lap("sort");
@@ -844,13 +871,19 @@ pub fn run(
             Ctx { params: &params, kinds: &kinds, is_mode: &no_modes, force_implicit: false };
         let init_refs = ib.rows(&sys);
         let init_inc = ib.incs(&sys);
-        causal::sort(&init_refs, &init_inc, &ib.unknowns, &init_ctx).map_err(|_| {
-            vec![Diagnostic::error(
-                "INIT-SINGULAR",
-                "The start of the run is not determined: the initialisation system has no \
-                 matching (an engine fault; please report the model).",
-            )]
-        })?
+        let mut sorted =
+            causal::sort(&init_refs, &init_inc, &ib.unknowns, &init_ctx).map_err(|_| {
+                vec![Diagnostic::error(
+                    "INIT-SINGULAR",
+                    "The start of the run is not determined: the initialisation system has no \
+                     matching (an engine fault; please report the model).",
+                )]
+            })?;
+        if differentiated > 0 {
+            guarded =
+                undecided_keep_guess(&mut sorted, &init_refs, &init_ctx, &sys, &flat, &extras);
+        }
+        sorted
     };
     clock.lap("init");
 
@@ -862,6 +895,17 @@ pub fn run(
         Err(None)
     };
     report.start_solved = solved.is_ok();
+    // where the start at preparation leaves such a solution undecided (its
+    // divisor and remainder both zero there), it is told
+    if solved.is_ok() {
+        let env = NodeEnv { t: 0.0, vals: &vals, params: &pvals, tables };
+        for g in &guarded {
+            let (a, b) = (eval(&g.a, &env), eval(&g.b, &env));
+            if a.abs() + b.abs() <= 0.0 {
+                warnings.push(undecided_warning(&flat, &sys, &ib, g, vals[g.node]));
+            }
+        }
+    }
     if let Err(Some(ns)) = &solved {
         let b = &init_sorted.blocks[ns.block];
         let parts = parts_of(&flat, b.eqs.iter().map(|&k| ib.origin(&sys, &flat, k).instance));
@@ -976,22 +1020,56 @@ pub fn run(
     let mut chosen_sets = vec![];
     let mut unkept = vec![];
     let (is_state, dummy) = if differentiated > 0 {
-        let point = if solved.is_ok() { vals.clone() } else { generic_values(&sys, &flat) };
-        let sel = index::dummy_derivatives(&sys, &point, &pvals, tables, &keep_node)
-            .or_else(|f| {
-                if solved.is_ok() {
-                    Err(f)
-                } else {
-                    index::dummy_derivatives(
-                        &sys,
-                        &generic_values(&sys, &flat),
-                        &pvals,
-                        tables,
-                        &keep_node,
-                    )
-                }
-            })
-            .map_err(|f| vec![index_diag(&flat, &sys, f)])?;
+        let sel = match &settings.choose_at {
+            // at a point of a run (dynamic state selection)
+            Some(at) => {
+                // (a value the point does not give reads 0: the entries read
+                // the positions, a derivative only through terms it zeroes)
+                let values: HashMap<&str, f64> =
+                    at.values.iter().map(|(n, v)| (n.as_str(), *v)).collect();
+                let point: Vec<f64> = (0..nn)
+                    .map(|n| values.get(sys.name(&flat, n).as_str()).copied().unwrap_or(0.0))
+                    .collect();
+                let p = if at.params.len() == pvals.len() { &at.params } else { &pvals };
+                let within = if at.window > 1.0 { 1.0 / at.window } else { index::WITHIN };
+                index::dummy_derivatives(
+                    &sys, at.t, &point, p, tables, &keep_node, within, &at.keep, &at.again,
+                )
+            }
+            None => {
+                let point = if solved.is_ok() { vals.clone() } else { generic_values(&sys, &flat) };
+                let within = index::WITHIN;
+                index::dummy_derivatives(
+                    &sys,
+                    0.0,
+                    &point,
+                    &pvals,
+                    tables,
+                    &keep_node,
+                    within,
+                    &[],
+                    &[],
+                )
+                .or_else(|f| {
+                    if solved.is_ok() {
+                        Err(f)
+                    } else {
+                        index::dummy_derivatives(
+                            &sys,
+                            0.0,
+                            &generic_values(&sys, &flat),
+                            &pvals,
+                            tables,
+                            &keep_node,
+                            within,
+                            &[],
+                            &[],
+                        )
+                    }
+                })
+            }
+        }
+        .map_err(|f| vec![index_diag(&flat, &sys, f)])?;
         chosen_sets = sel.sets;
         unkept = sel.unkept;
         (sel.is_state, sel.dummy)
@@ -1080,7 +1158,8 @@ pub fn run(
 
     // nodes → slots
     let state_nodes: Vec<usize> = (0..nn).filter(|&n| is_state[n]).collect();
-    let map = sys.slots(&mut flat, &is_state);
+    let kept: &[String] = settings.choose_at.as_ref().map_or(&[], |a| &a.channels);
+    let map = sys.slots_keeping(&mut flat, &is_state, kept);
     let state_sets = state_sets(&chosen_sets, &sys, &flat, &map);
     extras.start.resize(flat.vars.len(), None);
     report.states = map.states.iter().map(|v| flat.var(*v).name.clone()).collect();
@@ -1109,6 +1188,15 @@ pub fn run(
             target: map.slot[n],
             expr: map.to_flat_owned(e),
             origin: origin_of(k, &flat),
+        });
+    }
+    // the derivatives kept as channels that are a state's derivative here
+    // (set from it, after everything else)
+    for &(v, x) in &map.kept {
+        assignments.push(Assignment {
+            target: Slot::Var(v),
+            expr: Expr::Der(x),
+            origin: init::start_origin(&flat, x),
         });
     }
     let algebraics: Vec<Slot> = sorted_iteration.iter().map(|&n| map.slot[n]).collect();
@@ -1286,6 +1374,160 @@ pub fn run(
     clock.lap("assemble");
     report.seconds = clock.1;
     Ok((model, report))
+}
+
+/// An explicit solution of the initialisation `v := −b / a` that keeps
+/// `v`'s guess where `a` and `b` are both zero ([`undecided_keep_guess`]).
+struct Guarded {
+    /// the node `v`
+    node: usize,
+    /// the divisor and the remainder (node expressions)
+    a: Expr,
+    b: Expr,
+    /// the initialisation's row it is solved from
+    row: usize,
+}
+
+/// Where an explicit solution of the initialisation divides by a
+/// variable's expression, `v := −b / a`: should `a` and `b` both be exactly
+/// zero there, the equation does not decide `v` at that point (any value
+/// holds it: a pendulum released exactly level, at rest, its rod's
+/// velocity constraint `x·vx + y·vy = 0` with y = 0 and vx = 0 says nothing
+/// of vy) and `v` keeps the initialisation's guess for it instead of
+/// 0 / 0: a variable its start value, a derivative 0 (the initialisation
+/// guesses every derivative at 0; a start value given to a variable that
+/// is a derivative after aliasing, as the pendulum's `vy` is `der(y)`, is
+/// not read). Where `a` is not zero the solution is as it was, to the
+/// bit. The solutions so guarded, for [`undecided_warning`].
+fn undecided_keep_guess(
+    sorted: &mut Sorted,
+    rows: &[&Expr],
+    ctx: &Ctx<'_>,
+    sys: &Sys,
+    flat: &FlatSystem,
+    extras: &Extras,
+) -> Vec<Guarded> {
+    let mut guarded = vec![];
+    for (n, e, k) in &mut sorted.assignments {
+        let nd = &sys.nodes[*n];
+        let slot = Slot::Var(VarId(*n as u32));
+        let Some(a) = crate::symbolic::affine_coefficient(rows[*k], slot) else { continue };
+        if causal::pivot(&a, ctx) != causal::Pivot::Variable {
+            continue;
+        }
+        let b = crate::symbolic::simplify(crate::walk::map_up(rows[*k], &mut |x| match x {
+            Expr::Var(v) if v.0 as usize == *n => Expr::Const(0.0),
+            other => other,
+        }));
+        // (as the initialisation guesses it: a derivative 0)
+        let guess = if nd.order == 0 {
+            extras.start[nd.var.0 as usize]
+                .clone()
+                .or_else(|| flat.var(nd.var).start.map(Expr::Const))
+                .unwrap_or(Expr::Const(0.0))
+        } else {
+            Expr::Const(0.0)
+        };
+        // (a start value given by parameters only: the guess reads no
+        // variable, whose scope here is the nodes')
+        if guess
+            .any(&mut |x| matches!(x, Expr::Var(_) | Expr::Pre(_) | Expr::Der(_) | Expr::Name(_)))
+        {
+            continue;
+        }
+        // (the divisor and the remainder read only what the solution
+        // reads: computed before it; a row the solution was found from by
+        // substituting another variable's definition is left as it is)
+        let mut reads = vec![];
+        e.walk(&mut |x| {
+            if let Expr::Var(v) = x {
+                reads.push(*v);
+            }
+        });
+        if a.any(&mut |x| matches!(x, Expr::Var(v) if !reads.contains(v)))
+            || b.any(&mut |x| matches!(x, Expr::Var(v) if !reads.contains(v)))
+        {
+            continue;
+        }
+        guarded.push(Guarded { node: *n, a: a.clone(), b: b.clone(), row: *k });
+        let abs = |x: Expr| Expr::Call(lsim_ir::Builtin::Abs, vec![x]);
+        let undecided =
+            Expr::Compare(CmpOp::Le, Box::new(abs(a) + abs(b)), Box::new(Expr::Const(0.0)));
+        let solved = std::mem::replace(e, Expr::Const(0.0));
+        *e = Expr::NoEvent(Box::new(Expr::If(
+            Box::new(undecided),
+            Box::new(guess),
+            Box::new(solved),
+        )));
+    }
+    guarded
+}
+
+/// The warning where the start at preparation leaves a guarded solution
+/// undecided (`INIT-UNDECIDED`): the equation, the variable (and the
+/// variables that are it after aliasing), the guess it starts at.
+fn undecided_warning(
+    flat: &FlatSystem,
+    sys: &Sys,
+    ib: &InitBuild,
+    g: &Guarded,
+    value: f64,
+) -> Diagnostic {
+    let nd = &sys.nodes[g.node];
+    let name = sys.name(flat, g.node);
+    let origin = ib.origin(sys, flat, g.row);
+    // (a derivative the model names by a variable of its own: `vy` for
+    // `der(y)`)
+    let named: Vec<String> = flat
+        .equations
+        .iter()
+        .filter_map(|eq| {
+            let other = match (&eq.lhs, &eq.rhs) {
+                (Expr::Der(v), Expr::Var(w)) | (Expr::Var(w), Expr::Der(v))
+                    if nd.order == 1 && *v == nd.var =>
+                {
+                    Some(*w)
+                }
+                _ => None,
+            }?;
+            Some(local_name(flat, other))
+        })
+        .collect();
+    let who = if named.is_empty() {
+        local_name(flat, nd.var).replace(&flat.var(nd.var).name, &name)
+    } else {
+        format!("{} ({name})", named.join(", "))
+    };
+    let guess = if nd.order == 0 {
+        format!("its start value, {value}")
+    } else {
+        format!(
+            "{value}, the initialisation's guess for a derivative (a start value given to a \
+             variable that is a derivative is not read)"
+        )
+    };
+    // (the equation as index reduction differentiated it: a rod's length
+    // as its velocity's constraint)
+    let times = if g.row < ib.n_model { sys.eq_level(g.row) } else { 0 };
+    let words = match times {
+        0 => equation_words(flat, origin),
+        1 => format!("the derivative of {}", equation_words(flat, origin)),
+        k => format!("the derivative ({k} times) of {}", equation_words(flat, origin)),
+    };
+    let mut d = warning(
+        "INIT-UNDECIDED",
+        format!(
+            "At the start, {words} does not decide {who}: what it multiplies it by and the rest \
+             of it are both exactly zero there, so any value holds it. It starts at {guess}; the \
+             start is not decided by the equations."
+        ),
+    )
+    .with_hint(
+        "Start the model where the equation decides the variable (a pendulum released a little \
+         off level), or check that any value of it is meant.",
+    );
+    d.parts = parts_of(flat, std::iter::once(origin.instance));
+    d
 }
 
 /// The initialisation system as the model's own sorting after the states'

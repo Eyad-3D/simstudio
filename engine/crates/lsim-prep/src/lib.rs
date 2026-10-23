@@ -51,7 +51,7 @@ pub mod system;
 pub mod units_check;
 pub mod walk;
 
-pub use pipeline::{BlockSummary, PrepReport, Settings};
+pub use pipeline::{BlockSummary, ChoosePoint, PrepReport, Settings};
 pub use structure::CausalOptions;
 
 use lsim_ir::{ComponentDef, Diagnostic, InitSystem, InverseSpec, Library, PreparedModel};
@@ -76,6 +76,22 @@ pub fn prepare(
     opts: &PrepOptions,
 ) -> Result<PreparedModel, Vec<Diagnostic>> {
     pipeline::run(lib, top, None, &opts.settings()).map(|(m, _)| m)
+}
+
+/// [`prepare`] with index reduction's states chosen at a point of a run
+/// (`at`) instead of at the start: the model a run switches to where the
+/// states it has degrade (dynamic state selection, DESIGN.md §6 step 5).
+/// The flattening, the aliases and the differentiation are those of
+/// [`prepare`] (the same model): only the dummy derivatives, and so the
+/// sorting, differ; the channels `at` names are kept.
+pub fn prepare_choosing(
+    lib: &Library,
+    top: &ComponentDef,
+    opts: &PrepOptions,
+    at: ChoosePoint,
+) -> Result<PreparedModel, Vec<Diagnostic>> {
+    let settings = Settings { choose_at: Some(std::sync::Arc::new(at)), ..opts.settings() };
+    pipeline::run(lib, top, None, &settings).map(|(m, _)| m)
 }
 
 /// Prepares fast mode's inverse model: the same equations with the

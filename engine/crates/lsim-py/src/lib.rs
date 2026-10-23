@@ -432,6 +432,7 @@ impl Run {
                     lsim_solve::EventKind::Mode(_) => "mode",
                     lsim_solve::EventKind::Block(_) => "block",
                     lsim_solve::EventKind::Time(_) => "time",
+                    lsim_solve::EventKind::States(_) => "states",
                 },
             )?;
             out.append(d)?;

@@ -18,12 +18,12 @@
 //!    the Jacobian of the differentiated equations evaluated at the
 //!    initial point, preferring to keep as states the variables marked so
 //!    (Modelica's `stateSelect`), then those whose start values are fixed.
-//!    The choice is static: if the initial point makes every choice
-//!    singular (a pendulum started exactly horizontal in the coordinate the
-//!    selection needs), the preparation says so instead of switching states
-//!    during the run (risk R3). What was chosen, and among what
-//!    ([`ChosenSet`]), goes with the prepared model, so the run can watch
-//!    the choice's pivots and stop where they degrade.
+//!    The choice is made at the start; where it degrades along a run, the
+//!    run makes it again at that point by the same pivoting
+//!    ([`crate::ChoosePoint`]: dynamic state selection). If the initial
+//!    point makes every choice singular, preparation says so. What was
+//!    chosen, and among what ([`ChosenSet`]), goes with the prepared model,
+//!    so the run can watch the choice's pivots.
 
 use crate::graph::{Bipartite, NONE, groups, hopcroft_karp};
 use crate::symbolic::diff;
@@ -314,21 +314,40 @@ pub struct ChosenSet {
     /// the columns left out of the choice (kept above all) when a regular
     /// choice did without them
     pub masked: Vec<bool>,
+    /// per column: the model marks it to be kept as a state (`prefer`,
+    /// `always`, a restarted state)
+    pub kept: Vec<bool>,
 }
 
 /// Chooses the dummy derivatives after [`pantelides`]. `vals` are node
 /// values at the initial point (or generic values when the initial point
-/// is not known), `params` the parameter values, `keep[n]` how strongly
+/// is not known; or a point of a run, at time `t`, where a run chooses
+/// again), `params` the parameter values, `keep[n]` how strongly
 /// node `n` is kept a state when there is a choice ([`KEEP_NEVER`] …
 /// [`KEEP_STRONG`]). `tables` are the tables' interpolants (empty: none
-/// read).
+/// read). `within` is the pivoting's window ([`WITHIN`] at the start).
+/// Where a run chooses its states again (`again`: the equations of the set
+/// that degraded, non-empty), a set none of whose equations comes from
+/// the same equation as one of those (by differentiation: the same set at
+/// index reduction's other levels) and whose equations and candidates one
+/// of `kept_sets` names keeps that choice where it is regular at the
+/// point: only the set that degraded is chosen again, with the levels its
+/// choice decides the candidates of and those that decide its own.
+#[allow(clippy::too_many_arguments)]
 pub fn dummy_derivatives(
     sys: &Sys,
+    t: f64,
     vals: &[f64],
     params: &[f64],
     tables: &[lsim_ir::interp::Table],
     keep: &[u8],
+    within: f64,
+    kept_sets: &[lsim_ir::choice::KeepSet],
+    again: &[usize],
 ) -> Result<Selection, IndexFault> {
+    // the equations index reduction differentiated a row from
+    let root = |e: usize| sys.eq_root(e);
+    let again_roots: Vec<usize> = again.iter().map(|&e| root(e)).collect();
     let n_nodes = sys.nodes.len();
     let mut dummy = vec![false; n_nodes];
     let mut sets = vec![];
@@ -347,7 +366,7 @@ pub fn dummy_derivatives(
         z.dedup();
         z
     };
-    let env = NodeEnv { t: 0.0, vals, params, tables };
+    let env = NodeEnv { t, vals, params, tables };
     while !g.is_empty() {
         // independent groups of equations (sharing candidate columns)
         let mut col_of = vec![NONE; n_nodes];
@@ -451,29 +470,70 @@ pub fn dummy_derivatives(
                         .collect();
                     let with = [classes.as_deref(), None];
                     for cl in &with[..if classes.is_some() { 2 } else { 1 }] {
-                        let sel = select_columns_within(&left_out, &pref, Some(&scales), *cl, wide)
-                            .filter(|sel| regular(sel, &strong));
+                        let sel = select_columns_among(
+                            &left_out,
+                            &pref,
+                            Some(&scales),
+                            *cl,
+                            wide,
+                            within,
+                        )
+                        .filter(|sel| regular(sel, &strong));
                         if let Some(sel) = sel {
                             return Some((sel, strong.clone()));
                         }
                     }
                 }
                 if classes.is_some() {
-                    let sel = select_columns_within(&m, &pref, None, classes.as_deref(), wide)
-                        .filter(|sel| regular(sel, &none));
+                    let sel =
+                        select_columns_among(&m, &pref, None, classes.as_deref(), wide, within)
+                            .filter(|sel| regular(sel, &none));
                     if let Some(sel) = sel {
                         return Some((sel, none.clone()));
                     }
                 }
                 None
             };
+            // a set kept as it is (a run choosing its states again keeps
+            // the sets that did not degrade), where that choice is regular
+            // here
+            let chosen_again = rows.iter().any(|&e| again_roots.contains(&root(e)));
+            let as_kept = kept_sets
+                .iter()
+                .filter(|_| !again.is_empty() && !chosen_again)
+                .find(|k| k.eqs == rows && k.nodes == col_nodes)
+                .filter(|k| {
+                    let cols = col_nodes.len();
+                    let mut seen = vec![false; cols];
+                    k.pivots.len() == rows.len()
+                        && k.masked.len() == cols
+                        && k.pivots
+                            .iter()
+                            .all(|&c| c < cols && !std::mem::replace(&mut seen[c], true))
+                        && {
+                            let mut mm = m.clone();
+                            let ps = lsim_ir::choice::pivot_state(
+                                &k.pivots,
+                                &k.masked,
+                                &mut mm,
+                                &mut Default::default(),
+                            );
+                            ps.sign != 0.0 && ps.exchange.is_finite()
+                        }
+                })
+                .map(|k| (k.pivots.clone(), k.masked.clone()));
             // within the margin, else the choice by pivoting alone
-            let selected =
-                marked(WIDE).or_else(|| select_columns(&m, &pref).map(|s| (s, none.clone())));
+            let selected = as_kept.clone().or_else(|| {
+                marked(WIDE).or_else(|| {
+                    select_columns_among(&m, &pref, None, None, WIDE, within)
+                        .map(|s| (s, none.clone()))
+                })
+            });
             // a choice the model asks for that only the margin kept from
             // being taken (regular within the run's limit): the variables
             // it would keep that are decided now, and its factor, are told
             if moves
+                && as_kept.is_none()
                 && (classes.is_some() || strong.contains(&true))
                 && let (Some((sel, _)), Some((limit, left_out))) =
                     (&selected, marked(lsim_ir::choice::DEGRADED))
@@ -495,10 +555,14 @@ pub fn dummy_derivatives(
                     unkept.push(Unkept { nodes, factor: ps.worst_exchange() });
                 }
             }
+            let kept: Vec<bool> = col_nodes
+                .iter()
+                .map(|&nd| keep[sys.nodes[nd].integral.unwrap_or(nd)] >= KEEP_PREFER)
+                .collect();
             match selected {
                 Some((sel, masked)) => {
                     chosen_all.extend(sel.iter().map(|&c| col_nodes[c]));
-                    sets.push(ChosenSet { rows, cols: col_nodes, pivots: sel, masked });
+                    sets.push(ChosenSet { rows, cols: col_nodes, pivots: sel, masked, kept });
                 }
                 None => {
                     return Err(IndexFault::Singular { eqs: rows.clone(), nodes: col_nodes });
@@ -554,6 +618,25 @@ pub fn select_columns_within<P: Ord>(
     classes: Option<&[u8]>,
     wide: f64,
 ) -> Option<Vec<usize>> {
+    select_columns_among(m, pref, scales, classes, wide, WITHIN)
+}
+
+/// The window the choice by pivoting takes a preferred column within at
+/// the start: a tenth of the row's largest entry.
+pub const WITHIN: f64 = 0.1;
+
+/// [`select_columns_within`] with the window `within` (a share of the
+/// row's largest entry) in place of [`WITHIN`]: where a run chooses again,
+/// its window is its switch threshold's, so the choice it leaves (just
+/// past that threshold) is not taken again.
+pub fn select_columns_among<P: Ord>(
+    m: &[Vec<f64>],
+    pref: &[P],
+    scales: Option<&[f64]>,
+    classes: Option<&[u8]>,
+    wide: f64,
+    within: f64,
+) -> Option<Vec<usize>> {
     let rows = m.len();
     let cols = pref.len();
     let mut w: Vec<Vec<f64>> = m.to_vec();
@@ -567,12 +650,12 @@ pub fn select_columns_within<P: Ord>(
             return None;
         }
         let window = |c: usize| match classes {
-            None => 0.1 * amax,
+            None => within * amax,
             Some(k) => {
                 let peers = (0..cols)
                     .filter(|&o| !used[o] && k[o] <= k[c])
                     .fold(0.0f64, |a, o| a.max(w[r][o].abs()));
-                (0.1 * peers).max(wide * amax)
+                (within * peers).max(wide * amax)
             }
         };
         let c = (0..cols)

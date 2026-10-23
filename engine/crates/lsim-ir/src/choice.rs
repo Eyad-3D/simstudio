@@ -36,6 +36,60 @@
 /// only well inside it (`lsim_prep::index::WIDE`).
 pub const DEGRADED: f64 = 1e-2;
 
+/// A set of index reduction's choice to keep as it is where a run chooses
+/// its states again ([`ChoicePoint::keep`]: every set but the one that
+/// degraded): which set ([`crate::StateSet::eqs`] and
+/// [`crate::StateSet::nodes`], the same in every preparation of the model)
+/// and its choice.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct KeepSet {
+    /// the set's equations, in index reduction's own numbering
+    pub eqs: Vec<usize>,
+    /// its candidates, in index reduction's own numbering
+    pub nodes: Vec<usize>,
+    /// per row, the column chosen for it
+    pub pivots: Vec<usize>,
+    /// the columns left out of the choice
+    pub masked: Vec<bool>,
+}
+
+/// A point of a run to choose the states at (dynamic state selection,
+/// DESIGN.md §6 step 5): index reduction's dummy derivatives are chosen by
+/// the same pivoting as at the start, `stateSelect` leading it, on the
+/// constraints' derivatives evaluated here, except in the sets it keeps.
+/// The start is not solved (the run's point is consistent).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ChoicePoint {
+    /// the time
+    pub t: f64,
+    /// the values by name: every channel, each state's derivative as
+    /// `der(<state>)`, and the discrete values (one missing reads 0)
+    pub values: Vec<(String, f64)>,
+    /// the parameter values, in the flat system's order (empty: the
+    /// model's own)
+    pub params: Vec<f64>,
+    /// derivatives (`der(x)`) to keep as variables of their own whatever
+    /// the choice (the channels of the model the run switches from: a
+    /// state's derivative is then also a variable, set from it), so that
+    /// every channel the run records is in the model it switches to
+    pub channels: Vec<String>,
+    /// the pivoting's window for the sets chosen again: a preferred column
+    /// is taken within this factor of a row's largest entry (the switch
+    /// threshold of the set that degraded, so the choice the run leaves,
+    /// just past it, is not taken again; 0: the start's, 10)
+    pub window: f64,
+    /// the sets kept as they are where they are not chosen again (the
+    /// choices the run has)
+    pub keep: Vec<KeepSet>,
+    /// the equations of the set that degraded ([`crate::StateSet::eqs`]):
+    /// it is chosen again with the sets of its equations at index
+    /// reduction's other levels (those its rows are differentiated from or
+    /// to, whose candidates its choice decides, or which decide its own);
+    /// every other set keeps its choice (`keep`). Empty: every set is
+    /// chosen again
+    pub again: Vec<usize>,
+}
+
 /// How a choice stands at a point.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PivotState {

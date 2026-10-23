@@ -102,6 +102,9 @@ impl ModelFunctions for Started<'_> {
     fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
         self.m.table_axes(k)
     }
+    fn table_interp(&self, k: u32) -> Option<&lsim_ir::interp::Table> {
+        self.m.table_interp(k)
+    }
     fn condition_kernels(&self) -> Option<&dyn ConditionKernels> {
         self.m.condition_kernels()
     }
@@ -122,6 +125,7 @@ mod tests {
         layout: Layout,
         pattern: SparsityPattern,
         guards: Vec<TableGuard>,
+        table: lsim_ir::interp::Table,
     }
 
     struct ProbeInit;
@@ -244,6 +248,9 @@ mod tests {
         fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
             Some([vec![13.0, k as f64], vec![14.0]])
         }
+        fn table_interp(&self, _k: u32) -> Option<&lsim_ir::interp::Table> {
+            Some(&self.table)
+        }
         fn condition_kernels(&self) -> Option<&dyn ConditionKernels> {
             Some(&PROBE_KERNELS)
         }
@@ -282,6 +289,11 @@ mod tests {
             },
             pattern: SparsityPattern { n: 2, col_ptr: vec![0, 1, 2], row_idx: vec![0, 1] },
             guards: vec![TableGuard { table: 3, axis: 1, outside: Outside::Error }],
+            table: lsim_ir::interp::Table::new(&lsim_ir::table::TableData::new_1d(
+                vec![0.0, 1.0],
+                vec![18.0, 19.0],
+            ))
+            .expect("a table"),
         }
     }
 
@@ -357,6 +369,11 @@ mod tests {
         put("eval_table", t.unwrap_or_default());
         let a = m.table_axes(2).map(|[a, b]| [a, b].concat());
         put("table_axes", a.unwrap_or_default());
+        let t = m.table_interp(2).map(|t| {
+            let (v, d) = t.eval([0.5, 0.75]);
+            vec![t.dims() as f64, v, d[0], t.same(&probe().table) as u8 as f64]
+        });
+        put("table_interp", t.unwrap_or_default());
         let k = m.condition_kernels().map(|k| {
             let (s1, s2) = k.scratch();
             let e = k.enclose(1, [0.0, 1.0], &[], &[], &[], &[], &mut []);

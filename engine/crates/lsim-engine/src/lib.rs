@@ -26,8 +26,12 @@
 //!   states is made at the values the model was prepared at; a change at
 //!   which that choice does not work at the start is refused the same way,
 //!   naming the constraint (the model's initialisation at the new values,
-//!   then the chosen pivots there: [`lsim_solve::states`]), and a run whose
-//!   choice degrades along the way stops there, naming it.
+//!   then the chosen pivots there: [`lsim_solve::states`]). A run whose
+//!   choice degrades along the way chooses the states again there and
+//!   goes on ([`lsim_solve::choice`]: the model is prepared again with the
+//!   states pivoted at that point, compiled once per choice and kept with
+//!   the model); where no other choice works there, it stops, naming the
+//!   constraint.
 //! * **Fast mode**: [`Engine::build_inverse`] prepares the inverse model
 //!   of an [`InverseSpec`], and [`Model::fast`] steps it ([`lsim_fast`]),
 //!   flagging every limit preparation passed through (it never changes the
@@ -260,7 +264,13 @@ impl Engine {
         let prepare_seconds = if cache_hit { 0.0 } else { started.elapsed().as_secs_f64() };
         let jit = lsim_codegen::compile(&prepared, &CodegenOptions::default())
             .map_err(|e| vec![Diagnostic::error("CODEGEN", e.to_string())])?;
-        let info = RunInfo::from_prepared(&prepared);
+        let mut info = RunInfo::from_prepared(&prepared);
+        // dynamic state selection: a full dynamic run whose states degrade
+        // chooses them again (fast mode's inverse model follows the
+        // prescribed motion)
+        if inverse.is_none() {
+            info.choices = choices(&self.lib, top, &popts, &info);
+        }
         let limits = lsim_fast::limits::sites(&prepared);
         let ders = lsim_fast::limits::der_sources(&prepared, &limits);
         let whens = prepared
@@ -319,6 +329,33 @@ impl Engine {
             inputs,
         })
     }
+}
+
+/// Where a run of the model prepared from `top` (its run information
+/// `info`) gets the model with its states chosen again (dynamic state
+/// selection, DESIGN.md §6 step 5): `top` prepared again with the states
+/// chosen at the run's point, compiled, each choice once and kept with the
+/// model (its sweeps share them). `None` where no choice of states the
+/// model has moves with its solution (the run then never chooses again).
+fn choices(
+    lib: &Library,
+    top: &ComponentDef,
+    opts: &PrepOptions,
+    info: &RunInfo,
+) -> Option<lsim_solve::choice::Choices> {
+    let (lib, top, opts) = (lib.clone(), top.clone(), opts.clone());
+    lsim_solve::choice::rechoosing(
+        info,
+        Box::new(move |at: &lsim_solve::choice::ChoicePoint| {
+            lsim_prep::prepare_choosing(&lib, &top, &opts, at.clone())
+                .map_err(|d| d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("; "))
+        }),
+        Box::new(|p: &PreparedModel| {
+            lsim_codegen::compile(p, &CodegenOptions::default())
+                .map(|j| Box::new(j) as Box<dyn ModelFunctions>)
+                .map_err(|e| e.to_string())
+        }),
+    )
 }
 
 /// Which trace and which derivative fills each input of an inverse model

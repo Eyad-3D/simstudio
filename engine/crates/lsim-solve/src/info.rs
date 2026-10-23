@@ -539,6 +539,8 @@ pub struct RunInfo {
     pub table_names: Vec<String>,
     /// for each residual of the initialisation system: the equation it is
     pub init_labels: Vec<String>,
+    /// for each unknown of the initialisation system: the variable it is
+    pub init_unknowns: Vec<String>,
     /// what the impulse projection at a rigid engagement needs; `None`: no
     /// projection (a model that declares no rigid engagement)
     pub impulse: Option<Arc<ImpulseInfo>>,
@@ -586,6 +588,10 @@ pub struct RunInfo {
     /// the choices index reduction made among states, which the run
     /// watches ([`crate::states`])
     pub state_sets: Vec<StateSetInfo>,
+    /// where the run gets the model with the states chosen again where
+    /// those it has degrade (dynamic state selection, [`crate::choice`]);
+    /// `None`: the run stops there instead, naming the constraint
+    pub choices: Option<crate::choice::Choices>,
 }
 
 /// A choice index reduction made among states ([`lsim_ir::StateSet`]), as
@@ -608,6 +614,19 @@ pub struct StateSetInfo {
     pub parts: Vec<String>,
     /// the candidates: the variable whose derivative each column is
     pub candidates: Vec<String>,
+    /// per column: the model marks it to be kept as a state (`prefer`,
+    /// `always`, a restarted state)
+    pub kept: Vec<bool>,
+    /// which set it is ([`lsim_ir::StateSet::eqs`],
+    /// [`lsim_ir::StateSet::nodes`]): the same in every preparation of the
+    /// model, whatever states it chose (empty: not known)
+    pub eqs: Vec<usize>,
+    /// (its candidates: with `eqs`, which set it is)
+    pub nodes: Vec<usize>,
+    /// the equations its rows were differentiated from
+    /// ([`lsim_ir::StateSet::roots`]): the sets that share one are chosen
+    /// again together
+    pub roots: Vec<usize>,
 }
 
 /// What a state set's entries read, and so when its pivots can change.
@@ -648,7 +667,47 @@ impl StateSetInfo {
             rows: s.words.clone(),
             parts: s.parts.clone(),
             candidates: s.candidates.clone(),
+            kept: s.kept.clone(),
+            eqs: s.eqs.clone(),
+            nodes: s.nodes.clone(),
+            roots: s.roots.clone(),
         }
+    }
+
+    /// Whether `other` is this set at another of index reduction's levels,
+    /// or this one: they share an equation they were differentiated from.
+    pub fn same_chain(&self, other: &StateSetInfo) -> bool {
+        self.roots.iter().any(|r| other.roots.contains(r))
+    }
+
+    /// Whether `other` is the same set (of another preparation of the
+    /// model), whatever its choice.
+    pub fn same_set(&self, other: &StateSetInfo) -> bool {
+        !self.eqs.is_empty() && self.eqs == other.eqs && self.nodes == other.nodes
+    }
+
+    /// Whether `other` is the same set with the same choice: the same
+    /// columns decided (in any order of its rows) and left out.
+    pub fn same_choice(&self, other: &StateSetInfo) -> bool {
+        let sorted = |p: &[usize]| {
+            let mut v = p.to_vec();
+            v.sort_unstable();
+            v
+        };
+        self.same_set(other)
+            && sorted(&self.pivots) == sorted(&other.pivots)
+            && self.masked == other.masked
+    }
+
+    /// This set's choice, to keep where a run chooses its states again
+    /// ([`lsim_ir::choice::KeepSet`]); `None` where the set is not known.
+    pub fn keep(&self) -> Option<lsim_ir::choice::KeepSet> {
+        (!self.eqs.is_empty()).then(|| lsim_ir::choice::KeepSet {
+            eqs: self.eqs.clone(),
+            nodes: self.nodes.clone(),
+            pivots: self.pivots.clone(),
+            masked: self.masked.clone(),
+        })
     }
 }
 
@@ -829,6 +888,7 @@ impl RunInfo {
             asserts: vec![],
             table_names: vec![],
             init_labels: vec![],
+            init_unknowns: vec![],
             impulse: None,
             time_crossings: vec![],
             events_read_z: true,
@@ -840,6 +900,7 @@ impl RunInfo {
             table_breaks: vec![],
             table_axes: vec![],
             state_sets: vec![],
+            choices: None,
         }
     }
 
@@ -870,6 +931,39 @@ impl RunInfo {
             match &o.label {
                 Some(l) => format!("{who}: {l}"),
                 None => who,
+            }
+        };
+        // an equation without a label of its own (a model written in the
+        // text format): its text, where it is the only flat equation of its
+        // instance's equation (`the model: x * x + y * y = L * L`, not `the
+        // model`)
+        let mut written: HashMap<(lsim_ir::InstanceId, usize), Option<usize>> = HashMap::new();
+        let all = flat.equations.iter().chain(&flat.initial_equations);
+        for (k, e) in all.clone().enumerate() {
+            if let (lsim_ir::flat::OriginKind::Component { index }, None) =
+                (&e.origin.kind, &e.origin.label)
+            {
+                written
+                    .entry((e.origin.instance, *index))
+                    .and_modify(|one| *one = None)
+                    .or_insert(Some(k));
+            }
+        }
+        let equation = |o: &lsim_ir::Origin| {
+            let text = match (&o.kind, &o.label) {
+                (lsim_ir::flat::OriginKind::Component { index }, None) => {
+                    written.get(&(o.instance, *index)).copied().flatten()
+                }
+                _ => None,
+            };
+            match text.and_then(|k| all.clone().nth(k)) {
+                Some(e) => format!(
+                    "{}: {} = {}",
+                    flat.instance_name(o.instance),
+                    named(flat, &e.lhs),
+                    named(flat, &e.rhs)
+                ),
+                None => labelled(o),
             }
         };
         let d_index: HashMap<VarId, usize> =
@@ -911,7 +1005,7 @@ impl RunInfo {
             when_strict: m.whens.iter().map(|w| w.strict).collect(),
             params: flat.params.iter().map(|p| p.value).collect(),
             y_names,
-            residual_labels: m.residuals.iter().map(|r| labelled(&r.origin)).collect(),
+            residual_labels: m.residuals.iter().map(|r| equation(&r.origin)).collect(),
             modes: m
                 .modes
                 .iter()
@@ -943,7 +1037,16 @@ impl RunInfo {
                 })
                 .collect(),
             table_names: flat.tables.iter().map(|t| t.name.clone()).collect(),
-            init_labels: m.init.residuals.iter().map(|r| labelled(&r.origin)).collect(),
+            init_labels: m.init.residuals.iter().map(|r| equation(&r.origin)).collect(),
+            init_unknowns: m
+                .init
+                .unknowns
+                .iter()
+                .map(|s| match *s {
+                    Slot::Var(v) => flat.var(v).name.clone(),
+                    Slot::Der(v) => format!("der({})", flat.var(v).name),
+                })
+                .collect(),
             impulse,
             time_functions: time_functions(m, &sources, &time_crossings),
             table_breaks: flat
@@ -970,6 +1073,7 @@ impl RunInfo {
             stored_rates,
             time_tables: time_tables(m),
             state_sets: m.state_sets.iter().map(StateSetInfo::new).collect(),
+            choices: None,
         }
     }
 
@@ -1964,6 +2068,29 @@ fn energy_info(m: &PreparedModel) -> EnergyInfo {
             })
             .collect(),
     }
+}
+
+/// `e` with the flat system's names for its variables and parameters, in
+/// the text format's syntax (`x * x + y * y`).
+fn named(flat: &lsim_ir::FlatSystem, e: &Expr) -> String {
+    let name = |v: VarId| flat.vars.get(v.0 as usize).map(|x| Expr::Name(x.name.clone()));
+    e.clone()
+        .rewrite(&mut |x| match x {
+            Expr::Var(v) => name(v).unwrap_or(x),
+            Expr::Der(v) => match name(v) {
+                Some(n) => Expr::Call(lsim_ir::Builtin::Der, vec![n]),
+                None => x,
+            },
+            Expr::Pre(v) => match name(v) {
+                Some(n) => Expr::Call(lsim_ir::Builtin::Pre, vec![n]),
+                None => x,
+            },
+            Expr::Param(q) => {
+                flat.params.get(q.0 as usize).map_or(x, |p| Expr::Name(p.name.clone()))
+            }
+            other => other,
+        })
+        .to_string()
 }
 
 /// `'Label'` for a diagram part, `'Label' (path.inside)` for a part inside

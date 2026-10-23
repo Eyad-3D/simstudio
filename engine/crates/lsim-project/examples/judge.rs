@@ -62,6 +62,9 @@ fn options(case: &Value, rtol: f64) -> SolverOptions {
     if let Some(n) = o["max_steps"].as_u64() {
         opts.max_steps = n;
     }
+    if let Some(f) = o["state_switch"].as_f64() {
+        opts.state_switch = f;
+    }
     match o["backend"].as_str() {
         Some("diffsol") => opts.backend = Backend::Diffsol,
         Some("sundials") | None => {}
@@ -139,7 +142,12 @@ fn main() {
         }
     };
     let compile_s = compiled.elapsed().as_secs_f64();
-    let info = RunInfo::from_prepared(&prepared);
+    let mut info = RunInfo::from_prepared(&prepared);
+    // dynamic state selection, unless the case asks for the states chosen
+    // at the start only
+    if case["options"]["dynamic_states"].as_bool() != Some(false) {
+        info.choices = lsim_project::model::choices(&lib, &model, &Default::default(), &info);
+    }
     let states: Vec<&str> =
         prepared.states.iter().map(|v| prepared.flat.var(*v).name.as_str()).collect();
 
@@ -173,6 +181,8 @@ fn main() {
                     "jac_evals": r.stats.jac_evals, "err_test_fails": r.stats.err_test_fails,
                     "nonlin_fails": r.stats.nonlin_fails, "restarts": r.stats.restarts,
                     "events": r.events.len(),
+                    "switches": r.events.iter()
+                        .filter(|e| matches!(e.kind, lsim_solve::EventKind::States(_))).count(),
                     "event_times": r.events.iter().map(|e| e.t).collect::<Vec<_>>(),
                     "event_labels": r.events.iter().map(|e| e.label.clone()).collect::<Vec<_>>(),
                     "backend": r.backend, "method": r.report.method,

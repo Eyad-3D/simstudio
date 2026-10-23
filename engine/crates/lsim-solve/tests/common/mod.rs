@@ -31,6 +31,32 @@ pub fn build(lib: &Library, top: &ComponentDef, force_implicit: bool) -> Built {
     Built { prepared, jit, info }
 }
 
+/// [`build`] with dynamic state selection: a run whose states degrade
+/// chooses them again there (`top` prepared again with the states chosen at
+/// the run's point, as the engine's builders attach it).
+pub fn build_dynamic(lib: &Library, top: &ComponentDef) -> Built {
+    let mut b = build(lib, top, false);
+    b.info.choices = Some(choices(lib, top));
+    b
+}
+
+/// The model's choices of states for a run ([`lsim_solve::RunInfo::choices`]),
+/// as the engine's builders attach them (any set's choice moving or not).
+pub fn choices(lib: &Library, top: &ComponentDef) -> lsim_solve::choice::Choices {
+    use lsim_solve::choice::{ChoicePoint, Choices, Rechooser};
+    let (lib, top) = (lib.clone(), top.clone());
+    let prepare = move |at: &ChoicePoint| {
+        lsim_prep::prepare_choosing(&lib, &top, &Default::default(), at.clone())
+            .map_err(|d| format!("{d:?}"))
+    };
+    let compile = |p: &PreparedModel| {
+        lsim_codegen::compile(p, &CodegenOptions::default())
+            .map(|j| Box::new(j) as Box<dyn lsim_ir::runtime::ModelFunctions>)
+            .map_err(|e| e.to_string())
+    };
+    Choices(std::sync::Arc::new(Rechooser::new(Box::new(prepare), Box::new(compile))))
+}
+
 /// The Stage 1 library plus the test-only sensors.
 pub fn library() -> Library {
     let mut lib = lsim_lib::library();

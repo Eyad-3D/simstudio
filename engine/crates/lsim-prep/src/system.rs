@@ -253,6 +253,15 @@ impl Sys {
         nd.kind == NodeKind::Unknown && nd.deriv.is_none()
     }
 
+    /// The equation an equation was made from by differentiating it (itself
+    /// where it was not).
+    pub fn eq_root(&self, mut e: usize) -> usize {
+        while let Some(p) = self.eqs[e].diff_of {
+            e = p;
+        }
+        e
+    }
+
     /// How many times an equation was differentiated to make it.
     pub fn eq_level(&self, mut e: usize) -> u32 {
         let mut k = 0;
@@ -298,6 +307,10 @@ pub struct SlotMap {
     pub states: Vec<VarId>,
     /// for each state whose derivative is itself a state: `der(x) := y`
     pub chained: Vec<(VarId, VarId)>,
+    /// the derivatives kept as variables of their own that are a state's
+    /// derivative ([`Sys::slots_keeping`]): (the variable, the state), set
+    /// `v := der(x)`
+    pub kept: Vec<(VarId, VarId)>,
 }
 
 impl Sys {
@@ -308,7 +321,22 @@ impl Sys {
     /// the derivatives of prescribed inputs). New variables are appended to
     /// `flat.vars`.
     pub fn slots(&self, flat: &mut FlatSystem, is_state: &[bool]) -> SlotMap {
+        self.slots_keeping(flat, is_state, &[])
+    }
+
+    /// [`Sys::slots`], a derivative named in `keep` (`der(x)`) made a
+    /// variable of its own also where it is a state's derivative (its
+    /// `Der` slot then stands in the equations, and the variable is set
+    /// from it: [`SlotMap::kept`]): a run that switches states keeps the
+    /// channels of the model it switches from.
+    pub fn slots_keeping(
+        &self,
+        flat: &mut FlatSystem,
+        is_state: &[bool],
+        keep: &[String],
+    ) -> SlotMap {
         let n = self.nodes.len();
+        let mut kept = vec![];
         let mut var_of: Vec<Option<VarId>> = vec![None; n];
         let mut slot = vec![Slot::Var(VarId(0)); n];
         // nodes in order of increasing derivative order, so integrals first
@@ -348,6 +376,27 @@ impl Sys {
             } else {
                 let pv = var_of[p].expect("a state is a variable");
                 slot[i] = Slot::Der(pv);
+                let name = self.name(flat, i);
+                if keep.contains(&name) {
+                    let base = flat.var(nd.var).clone();
+                    let mut dim = base.unit.dim;
+                    for _ in 0..nd.order {
+                        dim = dim / lsim_ir::Dim::TIME;
+                    }
+                    flat.vars.push(FlatVar {
+                        name,
+                        unit: Unit::new(dim, 1.0),
+                        unit_text: dim.to_string(),
+                        kind: VarKind::Continuous,
+                        start: None,
+                        fixed: false,
+                        nominal: base.nominal,
+                        instance: base.instance,
+                        role: VarRole::Local,
+                        state_select: lsim_ir::StateSelect::Default,
+                    });
+                    kept.push((VarId(flat.vars.len() as u32 - 1), pv));
+                }
             }
         }
         let mut states = vec![];
@@ -363,7 +412,7 @@ impl Sys {
                 chained.push((v, var_of[d].expect("a state is a variable")));
             }
         }
-        SlotMap { slot, states, chained }
+        SlotMap { slot, states, chained, kept }
     }
 }
 

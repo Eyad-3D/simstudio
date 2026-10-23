@@ -489,6 +489,37 @@ impl Table {
         self.dims
     }
 
+    /// Whether `other` is the same interpolant, to the bit: the same
+    /// breakpoints, rule outside the data on each axis, coefficients (and
+    /// so interpolation and values) and derivative. Two tables that agree
+    /// at their breakpoints can still differ between and beyond them (a
+    /// linear table held at its edges and the same one continued along its
+    /// slope).
+    pub fn same(&self, other: &Table) -> bool {
+        let bits = |a: &[f64], b: &[f64]| {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+        };
+        let axes = |a: &[Axis], b: &[Axis]| {
+            a.len() == b.len()
+                && a.iter().zip(b).all(|(p, q)| {
+                    bits(&p.pts, &q.pts)
+                        && p.outside == q.outside
+                        && p.tol.to_bits() == q.tol.to_bits()
+                        && p.uniform.map(|(x, h)| (x.to_bits(), h.to_bits()))
+                            == q.uniform.map(|(x, h)| (x.to_bits(), h.to_bits()))
+                })
+        };
+        self.dims == other.dims
+            && self.arg_of == other.arg_of
+            && self.order == other.order
+            && self.cubic == other.cubic
+            && self.tame == other.tame
+            && self.constant.to_bits() == other.constant.to_bits()
+            && bits(&self.coef, &other.coef)
+            && axes(&self.ax, &other.ax)
+            && axes(&self.guard_axes, &other.guard_axes)
+    }
+
     /// The value and its partial derivatives (`d[1]` is zero for 1-D); for
     /// a [`Table::derivative`], that derivative and its partial
     /// derivatives.
@@ -1156,5 +1187,27 @@ mod tests {
                 assert!(t.eval_order([a, b], [3, 0]).0.abs() < 1e-12);
             }
         }
+    }
+    #[test]
+    fn the_same_interpolant_is_told_from_one_that_agrees_only_at_its_breakpoints() {
+        let mut d = TableData::new_1d(vec![0.0, 5.0, 7.0], vec![0.0, 1.0, 1.5]);
+        d.interpolation = Interpolation::Linear;
+        d.outside = [Outside::Clamp, Outside::Clamp];
+        let t = Table::new(&d).unwrap();
+        assert!(t.same(&t.clone()) && t.same(&Table::new(&d).unwrap()));
+        let mut beyond = d.clone();
+        beyond.outside = [Outside::Linear, Outside::Linear];
+        let mut cubic = d.clone();
+        cubic.interpolation = Interpolation::MonotoneCubic;
+        let mut value = d.clone();
+        value.values[2] = 1.5000000000000002;
+        for other in [beyond, cubic, value] {
+            let o = Table::new(&other).unwrap();
+            // (at the breakpoints the first two agree)
+            assert!(!t.same(&o) && !o.same(&t), "{other:?}");
+        }
+        // a derivative of the table is another interpolant
+        let dt = t.derivative([1, 0]);
+        assert!(!t.same(&dt) && dt.same(&t.derivative([1, 0])));
     }
 }
