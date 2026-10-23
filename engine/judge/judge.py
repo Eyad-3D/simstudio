@@ -516,6 +516,111 @@ def pendulum_angle(theta0: float, v0: float, t_end: float, kind: dict) -> tuple[
     return text, case
 
 
+def pendulums(angles: list[float], t_end: float) -> tuple[str, dict]:
+    """Pendulums in x and y released at rest at `angles`, independent of
+    each other in one model: index reduction's choice has a set per rod at
+    each of its levels, and each rod's states degrade on its own. Held out:
+    added after dynamic state selection's rule was chosen on the single
+    pendulums, not used to choose it."""
+    lines = [f'model Judge.Pendulums "{len(angles)} pendulums in x and y (index 3), independent of each other."',
+             '  parameter Real m(unit = "kg") = 1;', '  parameter Real L(unit = "m") = 1;',
+             '  parameter Real g(unit = "m/s2") = 9.81;']
+    eqs = []
+    for i, th in enumerate(angles):
+        lines += [f'  Real x{i}(unit = "m", start = L * sin({num(th)}), fixed = true);',
+                  f'  Real y{i}(unit = "m", start = -L * cos({num(th)}));',
+                  f'  Real vx{i}(unit = "m/s", start = 0, fixed = true);',
+                  f'  Real vy{i}(unit = "m/s", start = 0);',
+                  f'  Real F{i}(unit = "N", start = m * g) "rod {i}\'s tension";']
+        eqs += [f'  der(x{i}) = vx{i};', f'  der(y{i}) = vy{i};',
+                f'  m * der(vx{i}) = -x{i} * F{i} / L "rod {i} pulls along x";',
+                f'  m * der(vy{i}) = -y{i} * F{i} / L - m * g "rod {i} and gravity pull along y";',
+                f'  x{i} * x{i} + y{i} * y{i} = L * L "rod {i} keeps its length";']
+    text = "\n".join(lines + ["equation"] + eqs + ["end Judge.Pendulums;", ""])
+    case = {"model": "Judge.Pendulums", "t_end": t_end, "dt": 0.01, "atol_factor": 1e-2,
+            "record": [f"{c}{i}" for i in range(len(angles)) for c in ("x", "y")],
+            "judge": dict(kind="pendulums", angles=angles, m=1.0, L=1.0, g=9.81)}
+    return text, case
+
+
+def pendulums_angle(angles: list[float], t_end: float) -> tuple[str, dict]:
+    """The control for `pendulums`: the same pendulums in their angles (an
+    ODE, no choice of states), scored by the same closed forms."""
+    lines = [f'model Judge.PendulumsAngle "{len(angles)} pendulums in their angles: an ODE, no choice of states (the control)."',
+             '  parameter Real L(unit = "m") = 1;', '  parameter Real g(unit = "m/s2") = 9.81;']
+    eqs = []
+    for i, th in enumerate(angles):
+        lines += [f'  Real t{i}(unit = "rad", start = {num(th)}, fixed = true);',
+                  f'  Real w{i}(unit = "rad/s", start = 0, fixed = true);',
+                  f'  Real x{i}(unit = "m") = L * sin(t{i});',
+                  f'  Real y{i}(unit = "m") = -L * cos(t{i});']
+        eqs += [f'  der(t{i}) = w{i};', f'  der(w{i}) = -g / L * sin(t{i}) "gravity turns rod {i}";']
+    text = "\n".join(lines + ["equation"] + eqs + ["end Judge.PendulumsAngle;", ""])
+    _, case = pendulums(angles, t_end)
+    return text, dict(case, model="Judge.PendulumsAngle")
+
+
+DOUBLE = '''model Judge.Double "A double pendulum in x and y (index 3): two unit point masses on two rods of 1 m, released at rest at a1 and a2 from the downward vertical; its rods' constraints are one set of index reduction's choice at each level (coupled)."
+  parameter Real g(unit = "m/s2") = 9.81;
+  parameter Real L(unit = "m") = 1 "each rod's length";
+  parameter Real a1 = {a1};
+  parameter Real a2 = {a2};
+  Real x1(unit = "m", start = L * sin(a1), fixed = true);
+  Real y1(unit = "m", start = -L * cos(a1));
+  Real x2(unit = "m", start = L * sin(a1) + L * sin(a2), fixed = true);
+  Real y2(unit = "m", start = -L * cos(a1) - L * cos(a2));
+  Real vx1(unit = "m/s", start = 0, fixed = true);
+  Real vy1(unit = "m/s", start = 0);
+  Real vx2(unit = "m/s", start = 0, fixed = true);
+  Real vy2(unit = "m/s", start = 0);
+  Real F1(unit = "1/s2", start = 20) "the upper rod's tension per mass and length";
+  Real F2(unit = "1/s2", start = 10) "the lower rod's";
+equation
+  der(x1) = vx1;
+  der(y1) = vy1;
+  der(x2) = vx2;
+  der(y2) = vy2;
+  der(vx1) = -x1 * F1 + (x2 - x1) * F2;
+  der(vy1) = -y1 * F1 + (y2 - y1) * F2 - g;
+  der(vx2) = -(x2 - x1) * F2;
+  der(vy2) = -(y2 - y1) * F2 - g;
+  x1 * x1 + y1 * y1 = L * L "the upper rod keeps its length";
+  (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1) = L * L "the lower rod keeps its length";
+end Judge.Double;
+'''
+
+DOUBLE_ANGLE = '''model Judge.DoubleAngle "The same double pendulum in its two angles: an ODE, no choice of states (the control)."
+  parameter Real g(unit = "m/s2") = 9.81;
+  parameter Real L(unit = "m") = 1 "each rod's length";
+  parameter Real a1 = {a1};
+  parameter Real a2 = {a2};
+  Real t1(unit = "rad", start = a1, fixed = true);
+  Real t2(unit = "rad", start = a2, fixed = true);
+  Real w1(unit = "rad/s", start = 0, fixed = true);
+  Real w2(unit = "rad/s", start = 0, fixed = true);
+  Real x1(unit = "m") = L * sin(t1);
+  Real y1(unit = "m") = -L * cos(t1);
+  Real x2(unit = "m") = L * sin(t1) + L * sin(t2);
+  Real y2(unit = "m") = -L * cos(t1) - L * cos(t2);
+equation
+  der(t1) = w1;
+  der(t2) = w2;
+  2 * L * der(w1) + L * der(w2) * cos(t1 - t2) + L * w2 * w2 * sin(t1 - t2) + 2 * g * sin(t1) = 0;
+  L * der(w2) + L * der(w1) * cos(t1 - t2) - L * w1 * w1 * sin(t1 - t2) + g * sin(t2) = 0;
+end Judge.DoubleAngle;
+'''
+
+
+def double(a1: float, a2: float, t_end: float, angle: bool) -> tuple[str, dict]:
+    """The double pendulum in x and y, or (`angle`) in its two angles.
+    Held out, as `pendulums`."""
+    text = (DOUBLE_ANGLE if angle else DOUBLE).replace("{a1}", num(a1)).replace("{a2}", num(a2))
+    case = {"model": "Judge.DoubleAngle" if angle else "Judge.Double", "t_end": t_end, "dt": 0.01,
+            "atol_factor": 1e-2, "record": ["x1", "y1", "x2", "y2"],
+            "judge": dict(kind="double", a1=a1, a2=a2, g=9.81)}
+    return text, case
+
+
 # Modelica Standard Library 4.1.0, Mechanics.MultiBody.Examples.Loops.
 # PlanarFourbar: four BodyBoxes (steel, 7700 kg/m3, 0.05 m square: half the
 # World's defaultJointLength, nominalLength / 10), body3 fixed to the world,
@@ -929,6 +1034,16 @@ def all_cases(sweep: bool) -> dict[str, tuple[str, dict]]:
     for theta0 in (2.0, 2.8):
         out[f"pendulum-event-{theta0:.2f}"] = pendulum_event(theta0, 10.0)
     out["msl-planarfourbar"] = planar_fourbar()
+    # held out (added after dynamic state selection's rule was chosen):
+    # several pendulums in one model, each rod's states degrading on its
+    # own, and a double pendulum whose rods are one coupled set
+    for angles in ([1.5, 1.6], [1.5, 1.8], [1.7, 2.0], [1.5, 1.52, 1.54, 1.56, 1.58],
+                   [1.5, 1.9, 2.3, 2.6, 2.9, 3.05]):
+        tag = "-".join(f"{a:.2f}" for a in angles)
+        out[f"pendulums-{len(angles)}-{tag}"] = pendulums(angles, 10.0)
+        out[f"pendulums-angle-{len(angles)}-{tag}"] = pendulums_angle(angles, 10.0)
+    out["double-pendulum-1.20-1.60"] = double(1.2, 1.6, 5.0, False)
+    out["double-angle-1.20-1.60"] = double(1.2, 1.6, 5.0, True)
     return out
 
 
@@ -1296,6 +1411,10 @@ def cases(cache: Path, out: Path, sweep: bool) -> None:
         started = time.time()
         if j["kind"] == "pendulum":
             r = pendulum_reference(j, times)
+        elif j["kind"] == "pendulums":
+            r = pendulums_reference(j, times)
+        elif j["kind"] == "double":
+            r = double_reference(j, times)
         elif j["kind"] == "fourbar":
             r = fourbar_reference(j, times)
             r["text_residual"] = fourbar_text_check(text, j)
@@ -1412,6 +1531,40 @@ def score_testset(case: dict, ref: dict, r: dict) -> dict:
     return {"error": rel, "scd": log_digits(rel), "mescd": log_digits(mixed)}
 
 
+def pendulums_reference(j: dict, times: list[float]) -> dict:
+    """Each rod of `pendulums` in closed form: x0, y0, x1, y1, …"""
+    out = {}
+    for i, th in enumerate(j["angles"]):
+        r = pendulum_reference(dict(g=j["g"], L=j["L"], theta0=th, v0=0.0), times)
+        out[f"x{i}"], out[f"y{i}"] = r["x"], r["y"]
+    return out
+
+
+def double_reference(j: dict, times: list[float], tol: float = 1e-13) -> dict:
+    """The double pendulum's masses from its two angles integrated by
+    DOP853 at rtol = atol = 1e-13 (scipy): the classical Runge–Kutta at 1e-4
+    s steps (lsim-solve's state_choice.rs) agrees to 1e-12 m."""
+    import numpy as np
+    from scipy.integrate import solve_ivp
+    g = j["g"]
+
+    def rhs(t, s):
+        t1, t2, w1, w2 = s
+        d = t1 - t2
+        a = np.array([[2.0, math.cos(d)], [math.cos(d), 1.0]])
+        b = np.array([-w2 * w2 * math.sin(d) - 2.0 * g * math.sin(t1),
+                      w1 * w1 * math.sin(d) - g * math.sin(t2)])
+        dw = np.linalg.solve(a, b)
+        return [w1, w2, dw[0], dw[1]]
+
+    sol = solve_ivp(rhs, (times[0], times[-1]), [j["a1"], j["a2"], 0.0, 0.0], method="DOP853",
+                    rtol=tol, atol=tol, t_eval=times)
+    t1, t2 = sol.y[0], sol.y[1]
+    x1, y1 = np.sin(t1), -np.cos(t1)
+    return {"x1": list(map(float, x1)), "y1": list(map(float, y1)),
+            "x2": list(map(float, x1 + np.sin(t2))), "y2": list(map(float, y1 - np.cos(t2)))}
+
+
 def energy_pendulum(j, x, y, vx, vy):
     return j["m"] * (vx * vx + vy * vy) / 2 + j["m"] * j["g"] * y
 
@@ -1435,6 +1588,20 @@ def score_pendulum(case: dict, ref: dict, r: dict) -> dict:
     if j.get("iftomm"):
         out["iftomm_pass"] = drift < 5e-5  # the benchmark's own limit, J
     return out
+
+
+def score_positions(case: dict, ref: dict, r: dict, names: list[str]) -> dict:
+    """The largest error of the positions `names` (m, the rods 1 m) over
+    the grid, and per pair of them (x, y: a rod's)."""
+    s = r["series"]["channels"]
+    pairs = on_grid(r["series"]["times"], case["dt"], len(ref[names[0]]), case.get("t0", 0.0))
+    if not pairs:
+        raise ValueError("no point of the run is on the reference's grid")
+    each = [max(abs(s[n][i] - ref[n][k]) for i, k in pairs) for n in names]
+    per = [max(each[k], each[k + 1]) for k in range(0, len(each), 2)]
+    pos = max(per)
+    return {"error": pos, "scd": log_digits(pos), "per_rod": per, "rod_min": min(per),
+            "missing": len(ref[names[0]]) - len(pairs)}
 
 
 def score_fourbar(case: dict, ref: dict, r: dict) -> dict:
@@ -1684,6 +1851,8 @@ def score_run(case: dict, ref: dict, cache: Path, r: dict) -> dict:
         return score_testset(case, ref, r)
     if kind == "pendulum":
         return score_pendulum(case, ref, r)
+    if kind in ("pendulums", "double"):
+        return score_positions(case, ref, r, case["record"])
     if kind == "fourbar":
         return score_fourbar(case, ref, r)
     if kind == "stair":
@@ -1762,7 +1931,8 @@ def verdict(case: dict, row: dict) -> str | None:
     over the whole grid (a count: firing once per crossing), "wrong"
     (without a message) beyond it, "stopped" (with the engine's message);
     None for the other cases."""
-    if case["judge"]["kind"] not in ("pendulum", "fourbar", "count", "planar"):
+    if case["judge"]["kind"] not in ("pendulum", "pendulums", "double", "fourbar", "count",
+                                     "planar"):
         return None
     if not row.get("ok"):
         return "stopped"
@@ -1894,6 +2064,8 @@ def report(cases_dir: Path, cache: Path, after: dict, before: dict | None,
         md.append(f"### {name}\n")
         md.append(f"States chosen: {', '.join(a['states'] or []) or '(none)'}.\n")
         extra = {"pendulum": ("energy_drift", "energy drift J"),
+                 "pendulums": ("rod_min", "best rod's error m"),
+                 "double": ("rod_min", "better mass's error m"),
                  "fourbar": ("energy_drift", "energy drift J"),
                  "planar": ("msl_error", "MSL result's error rad"),
                  "testset": ("mescd", "mescd"),
