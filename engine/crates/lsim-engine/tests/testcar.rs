@@ -161,3 +161,19 @@ fn fast_mode_without_the_hosts_of_the_cars_sampled_blocks_is_refused() {
     let swept = inv.fast_sweep(&sets, &traces, &FastOptions::default(), None, 1);
     assert!(swept[0].as_ref().is_err_and(|e| e.to_string().contains("sampled block")));
 }
+
+/// Fast mode's inverse model is given no choice of states to switch to
+/// (dynamic state selection is the full dynamic run's: the inverse model
+/// follows its prescribed motion), and the run loop never runs it: a full
+/// dynamic run of it is refused, naming the mode; fast mode steps it with
+/// its own Newton solver, which names the variables a singular Jacobian
+/// leaves free (DESIGN.md §10).
+#[test]
+fn fast_mode_s_inverse_model_has_no_choice_of_states_and_is_not_run_by_the_run_loop() {
+    let (t, v) = hard_cycle();
+    let (inv, _) = models(&t, &v);
+    assert!(inv.info.choices.is_none());
+    let opts = SolverOptions::default();
+    let e = inv.simulate(&opts, OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 }).unwrap_err();
+    assert!(e.to_string().contains("fast mode's inverse model"), "{e}");
+}

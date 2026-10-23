@@ -1833,10 +1833,14 @@ pub fn run_loop(
     // the models the run switches to, and the one it is on
     let arena = switch::Arena::new();
     let mut cur = Current { model, info, integ: None };
-    let mut watch = crate::states::Watch::new(info, model, opts.books_kernels).switching(
-        info,
-        if opts.backend == crate::Backend::Sundials { opts.state_switch } else { 0.0 },
-    );
+    let watch = crate::states::Watch::new(info, model, opts.books_kernels);
+    let mut watch = if opts.backend == crate::Backend::Sundials {
+        watch.switching(info, opts.state_switch)
+    } else {
+        watch.unswitched(
+            "the run is on diffsol, the cross-check, which does not choose the states again",
+        )
+    };
     let run = run_watched(
         &arena,
         &mut cur,
@@ -2291,7 +2295,7 @@ fn run_watched<'a>(
                             "at t = {t:.9} s, the states were not chosen again: {why}"
                         ));
                     }
-                    watch.refused(sw.k, sw.e);
+                    watch.refused(sw.k, sw.e, &why);
                     if sw.cut {
                         // (the check the cut point skipped, then the
                         // integrator from there)
@@ -2365,7 +2369,7 @@ fn run_watched<'a>(
                             "at t = {t:.9} s, the states were not chosen again: {why}"
                         ));
                     }
-                    watch.refused(k, e);
+                    watch.refused(k, e, &why);
                 }
             }
         }
@@ -2471,7 +2475,7 @@ fn run_watched<'a>(
                                 "at t = {ts:.9} s, the states were not chosen again: {why}"
                             ));
                         }
-                        watch.refused(k, e);
+                        watch.refused(k, e, &why);
                     }
                 }
             }

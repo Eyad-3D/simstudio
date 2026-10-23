@@ -1059,5 +1059,49 @@ fn a_model_given_other_tables_keeps_the_detection() {
         let SolveError::StateSelection { t, message, .. } = &e else { panic!("{e}") };
         assert!((t - 0.5804).abs() < 1e-3, "{e}");
         assert!(message.contains("(the rod keeps its length) decides"), "{e}");
+        assert!(message.contains("tables were changed after it was built"), "{e}");
+    }
+}
+
+/// Every way the run keeps its states where they degrade stops it there,
+/// naming the rod, and says why it did not choose them again: the model
+/// given no other choice; the run on diffsol (the cross-check);
+/// dynamic selection switched off (`state_switch` 0); the model's
+/// choices failing there. Before, the last three said "choosing the
+/// states again here gave none that works better" alike, though on
+/// diffsol and with the switch off the run never tried.
+#[test]
+fn each_fallback_stops_naming_why_the_states_were_not_chosen_again() {
+    struct Refuse;
+    impl lsim_solve::choice::StateChoices for Refuse {
+        fn choose(
+            &self,
+            _: &lsim_solve::choice::ChoicePoint,
+        ) -> Result<std::sync::Arc<lsim_solve::choice::Variant>, String> {
+            Err("no regular choice here".into())
+        }
+    }
+    let lib = common::library();
+    let def = pendulum(1.5, StateSelect::Default);
+    let plain = common::build(&lib, &def, false);
+    let dynamic = common::build_dynamic(&lib, &def);
+    let mut refusing = plain.info.clone();
+    refusing.choices = Some(lsim_solve::choice::Choices(std::sync::Arc::new(Refuse)));
+    let base = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
+    let diffsol = SolverOptions { backend: lsim_solve::Backend::Diffsol, ..base.clone() };
+    let off = SolverOptions { state_switch: 0.0, ..base.clone() };
+    let grid = OutputGrid { t0: 0.0, t_end: 10.0, dt: 0.01 };
+    let cases: [(&RunInfo, &SolverOptions, &str); 4] = [
+        (&plain.info, &base, "the model was given no other choice of states to switch to"),
+        (&dynamic.info, &diffsol, "the run is on diffsol, the cross-check"),
+        (&dynamic.info, &off, "SolverOptions::state_switch is 0"),
+        (&refusing, &base, "did not work here: no regular choice here"),
+    ];
+    for (info, opts, why) in cases {
+        let e = simulate(&plain.jit, info, opts, grid, &mut []).expect_err("stops");
+        let SolveError::StateSelection { t, message, .. } = &e else { panic!("{e}") };
+        assert!((t - 0.5804).abs() < 1e-3, "{e}");
+        assert!(message.contains("(the rod keeps its length) decides x"), "{e}");
+        assert!(message.contains(why), "not {why:?}: {e}");
     }
 }

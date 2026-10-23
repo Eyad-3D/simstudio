@@ -1078,9 +1078,17 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    without the model's choices (bit for bit, `state_choice.rs`). The
    engine's builders give every model whose choice moves with its
    solution its choices (`lsim_engine`, `lsim_project::Model`, the judge's
-   runner); a run on diffsol (the cross-check), a model whose tables were
-   swapped after it was built, and fast mode's inverse model (its motion
-   prescribed) keep the detection. The models with the states chosen
+   runner); a run on diffsol (the cross-check) and a model whose tables
+   were swapped after it was built keep the detection; fast mode's
+   inverse model (its motion prescribed) is given no choices and is never
+   run by the run loop (`Model::simulate` refuses it; fast mode steps it
+   with its own solver, section 10). Where the run stops so, it says why
+   it did not choose the states again: the model was given no other
+   choice, the run is on diffsol, dynamic selection is off
+   (`state_switch` 0), or what the last try for that set ran into (each
+   tested: `state_choice.rs`, `lsim-engine/tests/testcar.rs`; before,
+   the run on diffsol and with the switch off said that choosing again
+   "gave none that works better", though it never tried). The models with the states chosen
    again are compiled from the data the model was prepared with, so a run
    switches only where each table the model reads is the same
    interpolant, to the bit, in the model it is on and the one it would

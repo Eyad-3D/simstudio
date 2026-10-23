@@ -135,7 +135,10 @@ fn row_of(m: &[Vec<f64>], col: usize) -> usize {
 }
 
 /// What the run tells where a set's choice fails (`m`: its entries there;
-/// `scale_only`: the set is judged only by whether its block is singular).
+/// `scale_only`: the set is judged only by whether its block is singular;
+/// `again`: why the run did not choose the states again, in words that
+/// follow "and": [`Watch::again`]).
+#[allow(clippy::too_many_arguments)]
 fn failing(
     info: &RunInfo,
     k: usize,
@@ -144,6 +147,7 @@ fn failing(
     t: f64,
     how: How,
     scale_only: bool,
+    again: &str,
 ) -> SolveError {
     let set = &info.state_sets[k];
     let last = set.rows.len().saturating_sub(1);
@@ -210,18 +214,9 @@ fn failing(
              in coordinates that stay regular through it (an angle)"
         )
     } else {
-        let swap = if info.choices.is_some() {
-            format!(
-                "The run would have to take {chosen} as a state in place of {other}, and \
-                 choosing the states again here gave none that works better"
-            )
-        } else {
-            format!(
-                "The run would have to take {chosen} as a state in place of {other}, and it \
-                 keeps the states chosen at the start (the model was given no other choice of \
-                 states to switch to)"
-            )
-        };
+        let swap = format!(
+            "The run would have to take {chosen} as a state in place of {other}, and {again}"
+        );
         match &how {
             How::Start => format!(
                 "at the start, the states chosen when the model was prepared do not work: {row} \
@@ -311,7 +306,7 @@ pub fn check_start(
         let ps = pivot_state(set, &mut m, &mut s);
         let reads = if scale_only { SetReads::Parameters } else { set.reads };
         if fails(reads, &ps) {
-            return Err(failing(info, k, &ps, &raw, t, How::Start, scale_only));
+            return Err(failing(info, k, &ps, &raw, t, How::Start, scale_only, ""));
         }
     }
     Ok(())
@@ -385,6 +380,9 @@ struct Watched {
     /// looked at, from the full check it kept there where it made one
     /// (`None`: it found none), for the check at that point
     probed: Option<f64>,
+    /// why the run last could not choose its states again for this set
+    /// ([`Watch::refused`])
+    refusal: Option<String>,
 }
 
 /// The bound of [`Watch::check`] on set `w`'s factors with its moving
@@ -498,6 +496,9 @@ pub(crate) struct Watch {
     from_t: f64,
     from_d: Vec<f64>,
     from_events: usize,
+    /// why the run never chooses its states again (`None`: it does, where
+    /// [`Watch::switching`] set the sets' thresholds)
+    never: Option<String>,
 }
 
 impl Watch {
@@ -560,6 +561,7 @@ impl Watch {
                     switch: f64::INFINITY,
                     base: f64::INFINITY,
                     probed: None,
+                    refusal: None,
                 }
             })
             .collect();
@@ -582,6 +584,11 @@ impl Watch {
             from_t: f64::NAN,
             from_d: vec![],
             from_events: usize::MAX,
+            never: Some(
+                "it keeps the states chosen at the start (the run was not set to choose them \
+                 again)"
+                    .into(),
+            ),
         }
     }
 
@@ -593,9 +600,23 @@ impl Watch {
     /// read), where that is above one, where the run can
     /// ([`RunInfo::choices`]): [`Watch::switch_point`].
     pub(crate) fn switching(mut self, info: &RunInfo, switch: f64) -> Watch {
-        if info.choices.is_none() || switch.is_nan() || switch <= 0.0 {
+        if info.choices.is_none() {
+            self.never = Some(
+                "it keeps the states chosen at the start (the model was given no other choice \
+                 of states to switch to)"
+                    .into(),
+            );
             return self;
         }
+        if switch.is_nan() || switch <= 0.0 {
+            self.never = Some(
+                "it keeps the states chosen at the start (dynamic state selection is off: \
+                 SolverOptions::state_switch is 0)"
+                    .into(),
+            );
+            return self;
+        }
+        self.never = None;
         for w in &mut self.sets {
             if w.moving {
                 let set = &info.state_sets[w.k];
@@ -612,6 +633,31 @@ impl Watch {
             }
         }
         self
+    }
+
+    /// The watch of a run that never chooses its states again, `why` (in
+    /// words that follow "it keeps the states chosen at the start"):
+    /// a backend that cannot be started again on other states.
+    pub(crate) fn unswitched(mut self, why: &str) -> Watch {
+        self.never = Some(format!("it keeps the states chosen at the start ({why})"));
+        for w in &mut self.sets {
+            w.switch = f64::INFINITY;
+            w.base = f64::INFINITY;
+        }
+        self
+    }
+
+    /// Why the run did not choose the states of set `k` again, in words
+    /// that follow "and": it never does (why), or the last time it tried
+    /// it could not (why).
+    fn again(&self, k: usize) -> String {
+        if let Some(why) = &self.never {
+            return why.clone();
+        }
+        match self.sets.iter().find(|w| w.k == k).and_then(|w| w.refusal.as_deref()) {
+            Some(why) => format!("choosing the states again did not work here: {why}"),
+            None => "the run did not come to choose the states again before this point".into(),
+        }
     }
 
     /// Set `k`'s switch threshold (infinite: it is not switched).
@@ -752,13 +798,14 @@ impl Watch {
     }
 
     /// A switch the run could not make for set `k` (no better choice
-    /// there): the set is not switched again before its factor has grown
-    /// past twice `factor` (the run's limit still stops it).
-    pub(crate) fn refused(&mut self, k: usize, factor: f64) {
+    /// there), `why`: the set is not switched again before its factor has
+    /// grown past twice `factor` (the run's limit still stops it).
+    pub(crate) fn refused(&mut self, k: usize, factor: f64, why: &str) {
         for w in &mut self.sets {
             if w.k == k {
                 let next = (2.0 * factor).max(2.0 * w.switch);
                 w.switch = if next * DEGRADED < 1.0 { next } else { f64::INFINITY };
+                w.refusal = Some(why.to_string());
             }
         }
     }
@@ -1096,7 +1143,8 @@ impl Watch {
                 }
                 other => other,
             };
-            return Err(failing(info, k, &full, &m, at, how, !moving));
+            let again = self.again(k);
+            return Err(failing(info, k, &full, &m, at, how, !moving, &again));
         }
         Ok(())
     }
@@ -1182,7 +1230,8 @@ impl Watch {
         match worst {
             Some((j, ps, near)) if near > 1.0 || near.is_nan() => {
                 let w = &self.sets[j];
-                Some(failing(info, w.k, &ps, &w.m, *t, How::Failed(message.clone()), false))
+                let again = self.again(w.k);
+                Some(failing(info, w.k, &ps, &w.m, *t, How::Failed(message.clone()), false, &again))
             }
             _ => None,
         }
