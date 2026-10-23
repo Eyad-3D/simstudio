@@ -897,12 +897,10 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    mode, a capacitor across a voltage source), Pantelides' algorithm
    differentiates the minimal structurally singular subsets; dummy
    derivatives (Mattsson–Söderlind) choose which states to demote, by
-   static selection with pivoting on the Jacobian at the start (in each
-   row, among the columns within a factor 10 of its largest entry, the
-   most preferred); dynamic state selection is the solver work's next
-   part (risk R3): the outside judge (section 15) shows models that need
-   it, the index-3 pendulum released at 1.48 rad from the vertical or
-   more, or given the speed to loop, and the IFToMM multiple four-bar.
+   pivoting on the Jacobian at the start (in each row, among the columns
+   within a factor 10 of its largest entry, the most preferred), and again
+   at a point of a run where that choice has degraded (dynamic state
+   selection, *the choice made again* below; risk R3).
    Symbolic time differentiation of equations is in `symbolic.rs`'s rule
    set, with `limit` and tables.
 
@@ -956,10 +954,11 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    (`|dx/dy|` for a pendulum whose rod decides x from y); its largest
    entry outside `S` is the factor by which exchanging that pair would
    enlarge the block's determinant (a basis exchange), whatever the order
-   or the form the constraints are written in. The run stops, naming the
-   constraint, the variables, the parts and what to do
-   (`SolveError::StateSelection`, `RUN-STATE-SELECT` in Python), where that
-   factor passes 100 (ten times the factor 10 the choice allows at the
+   or the form the constraints are written in. Where the run has no other
+   choice to go on with (its model was given none, or none works there:
+   *the choice made again*, below), it stops, naming the constraint, the
+   variables, the parts and what to do (`SolveError::StateSelection`,
+   `RUN-STATE-SELECT` in Python), where that factor passes 100 (ten times the factor 10 the choice allows at the
    start: the decided variable then carries a hundred times a state's
    error, and a little further on the choice decides nothing), or where
    the block's determinant changes sign between two step ends with no
@@ -1020,6 +1019,97 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    model with its own Newton solver, which names the variables a singular
    Jacobian leaves free (section 10), and the example cars' inverse
    blocks read only ratios. Its cost, counted in instructions against the run before it: +0.04 % on the BEV's WLTC (its blocks read only ratios: the point each step starts from is all it keeps), +0.45 % on the hybrid's mixed cycle (its gearbox's block of 9 constraints, read at every step), +8.5 % on Andrews' mechanism and +14 % on MSL's PlanarFourbar (blocks of 13 to 22 constraints whose entries are sines and cosines of the angles, evaluated at every step: most of it those functions). The points on either side of each event (the channels after it, and a check at each) add 0.47 % on the hybrid's mixed cycle (its 56 218 events), about 7 200 instructions an event; the BEV's WLTC takes 0.14 % fewer (a step's start with no event before it is no longer looked at); the whole golden comparison's CPU time the same (91.85 and 91.60 s before, 92.63 and 91.70 s after, back to back).
+
+   **The choice made again** (dynamic state selection, `lsim_solve::choice`;
+   as Dymola and OpenModelica choose the states again at an event, after
+   Mattsson, Olsson and Elmqvist, *Dynamic selection of states in Dymola*,
+   Modelica 2000). Where the watch finds that a set's factor (an exchange
+   with a state the choice may take; one the choice keeps above all is
+   no exchange it may make) has passed 3 (`SolverOptions::state_switch`)
+   times its factor where the entries that do not move were last read
+   (the start, the last switch, an event that changed a discrete value
+   they read), where that is above one, or that the block's determinant
+   changed sign, the run chooses the states again there and goes on with
+   them. Measured from where the choice started, a scale is no
+   degeneracy: the hybrid car's clutch set starts at 3.9 (its gears'
+   ratios move a decided speed that many times as much as a state), and a
+   plain threshold of 3 had it switch at t = 0 and changed the golden
+   comparison; now no golden case switches. While a choice keeps a column
+   the model marks to be kept (`prefer`, `always`, a state a `reinit`
+   restarts), the marks lead it and it is made again only at 50, the
+   margin preparation takes a marked choice within (`MARKED`); a choice
+   the marks could not have (x marked `prefer` at atan 99, refused at the
+   start) is made again at 3 like any other. The point is the step's end,
+   where the integrator's corrector holds the solution, unless the step
+   went past it (its block's sign changed in it, or its factor there is
+   beyond the choice's own window, 10): then the first point where the
+   factor passes the threshold, by bisection on the step's dense output,
+   the step cut back there before its outputs and ticks are taken (cut
+   back every time, the run went on from interpolated iteration variables
+   and the judge's pendulums came out further off: section 15); a tick
+   before the point that restarts the run leaves the switch to the point
+   after it, where the watch looks again (`state_choice.rs`). The
+   choice there is preparation's (`lsim_prep::prepare_choosing`: the same
+   flattening, aliases and differentiation, the dummy derivatives pivoted
+   at the run's point by the same rule and the same `stateSelect` classes
+   as at the start, `never` and `always` respected, its window the switch
+   threshold so the choice the run leaves is not taken again; a value the
+   point does not give reads 0), the channels the run records kept as
+   variables of their own (a derivative channel that is a state's
+   derivative in the new choice is set from it), compiled once per choice
+   and kept with the model (`Rechooser`; sweeps share it). The run goes on
+   with it where it is another choice, has the same events, discrete
+   values, inputs, table guards and energy parts, holds every recorded
+   channel, finds every one of its states and iteration variables in the
+   point, and holds there (each moving set regular, its constraints apart,
+   its factor inside its threshold and the run's limit): a new integrator
+   on the new states from the solution at the point, its iteration
+   variables solved again with the new states held (as at any event: the
+   constraints and their derivatives met), the energy integrals carried
+   over and the stored energy's change booked as an event's (the books
+   close as before: the pendulum's heights within 22 rtol across 17
+   switches, its jumps 0.1 rtol, `state_choice.rs`), the recorded channels
+   mapped by name, the sampled blocks' clocks, the conditions on time and
+   the watch set up again, and an event recorded (`EventKind::States`,
+   "the states chosen again: x, vx in place of y, vy (the rod keeps its
+   length)"). Otherwise it goes on with the states it has, that set's
+   threshold raised to twice the factor there, and the watch stops it
+   where they degrade past the run's limit, naming the constraint, as
+   without the model's choices (bit for bit, `state_choice.rs`). The
+   engine's builders give every model whose choice moves with its
+   solution its choices (`lsim_engine`, `lsim_project::Model`, the judge's
+   runner); a run on diffsol (the cross-check), a model whose tables were
+   swapped after it was built, and fast mode's inverse model (its motion
+   prescribed) keep the detection. A run that does not switch is the run
+   without dynamic selection to the last bit: every golden case, every
+   judge run below 1.48 rad and every other judge case but the pendulums
+   that stopped before. The pendulum released exactly level (x = L, y = 0
+   to the bit, x and vx fixed) was refused at preparation: its start's vy
+   came out 0 / 0 (`x·vx + y·vy = 0` with y = 0 and vx = 0 says nothing of
+   vy), every choice's pivots read NaN; now an explicit solution of the
+   initialisation whose divisor and remainder are both exactly zero keeps
+   the variable's guess (its start value; a derivative 0), and the
+   initialisation's Newton takes a point that solves its equations exactly
+   at a singular Jacobian (`x² + y² = L²` at y = 0, a double root): it
+   prepares with y and vy, and runs through its switches. Its cost, counted
+   in instructions against the same build with the switch off
+   (`state_switch` 0) on runs that do not switch: none on the BEV's WLTC
+   (no set moves: nothing is looked at; the two counts differ only by when
+   the energy books' machine code came in from its thread); +0.3 % on the
+   hybrid's mixed cycle (86.02e9 → 86.30e9 instructions: the look at each
+   of its 571 511 step ends, the bound against the threshold; the channels
+   it takes at a step's end are the step end's own, and a tick's there);
+   about 650 instructions a step on Andrews' mechanism and 400 on MSL's
+   PlanarFourbar (1.0 and 0.8 % of their runs, counted from the look's own
+   functions: their totals move by ±3 % with that thread's timing). The
+   golden comparison's CPU time is the same (100.9 and 109.0 s before, 98.8
+   and 101.5 s after, back to back; this machine's noise ±5 %), every
+   figure, channel, step and event of it the same to the last digit. A
+   switch costs a preparation of the model at the point (about 0.25 ms on
+   the pendulum: released at 1.50 rad its run at rtol 1e-6 takes 6.6 ms
+   with 17 switches, released at 1.40 rad, with none, 2.4 ms in about as
+   many steps) and, the first time the model takes a choice, its
+   compilation (4 to 8 ms on the pendulum).
 
    **Through tables.** A table read differentiates by the chain rule,
    `d/dt T(a, b) = ∂T/∂x · a' + ∂T/∂y · b'`, and `∂T/∂x` is itself a table
@@ -3236,6 +3326,57 @@ events name the modes that chatter.
   without a word or stopped at the far turning point (rtol 1e-5), the
   mark is refused and told and every run stops near the bottom, within 6
   rtol seconds of the closed form's point.
+  The fifth verdict (the solver work's state selection, dynamic: the
+  choice made again, section 6 step 5; a new case, `pendulum-level`, the
+  pendulum released exactly level, and each run's switches in the report):
+  every one of the judge's 4 592 runs goes to its end (the four-bar, which
+  does not prepare, has none). The 1 169 runs of the release-angle sweep
+  that stopped (released at 1.48 rad or more) choose their states again 8
+  to 19 times each (y and vy near the bottom of each swing, x and vx as
+  the rod nears the horizontal) and end: 146 right by the judge's
+  criterion, 1 023 more than 100 rtol off. The same pendulum in its angle
+  (an ODE, no choice of states) is right in 121 of the same 1 169 runs,
+  and per run the x-y form's error is 1.21 times the angle form's
+  (geometric mean; median 1.17; 0.80 at rtol 1e-4, 1.85 at 1e-7): what is
+  left is the problem's own sensitivity over its five periods, not the
+  choice (released at 3.13 and 3.14 rad, next to its unstable top, both
+  forms are 0.2 to 2 m off at rtol 1e-4 … 1e-6). The target, every run
+  right within 100 rtol, is not met, by either form. Per tolerance, rtol
+  1e-4 … 1e-10, the sweep's runs right / wrong / stopped were 146/1/167,
+  143/4/167, 137/10/167, 138/9/167, 130/17/167, 120/27/167, 112/35/167 and
+  are 176/138/0, 168/146/0, 165/149/0, 163/151/0, 149/165/0, 131/183/0,
+  120/194/0 (the angle form's right / wrong: 165/149, 176/138, 192/122,
+  160/154, 148/166, 141/173, 120/194); below 1.48 rad every run is bitwise
+  as before. The threshold and the point were chosen on this sweep (the
+  x-y form's error over the angle form's from 1.11 rad, geometric mean,
+  and its runs right of the 2 198): 3 times the factor where the choice
+  was last read, at the step's end, 1.27 and 1 072; 3 itself, 1.22 and
+  1 092, but it switched the hybrid car's clutch set at its start and
+  changed the golden comparison (section 6 step 5); 1.5, 2 and 4: 1.15,
+  1.22 and 1.41, 1 025, 1 062 and 1 001; 1.125: 2.02 and 946; the step cut
+  back every time to where the factor first passes the threshold, by
+  bisection: 1.40 at 2 and 1.64 at 4. At rtol 1e-10, with OpenModelica
+  1.27's dynamic selection from the first verdict's runs beside each
+  (`omc` was not run again): released at 0.40 rad 2.5e-9 m, as before
+  (1.3e-9), at 1.50 rad 3.2e-8 (9.8e-8), at 1.55 rad 6.2e-9 (6.6e-8), the
+  IFToMM pendulum 3.6e-8 (8.6e-8), at 3.00 rad 5.2e-7 (1.3e-5), at 3.13
+  rad 1.9e-5 (6.4e-4), looping 1.8e-7 … 6.7e-6 (6.4e-7 … 2.0e-5); released
+  exactly level, refused at preparation before, 2.6e-8 m. Over the seven
+  tolerances the runs released at 1.48 … 1.57 rad, the IFToMM pendulum and
+  the level one are 9 to 723 rtol off (84 runs), at 3.00 rad 4 569 to
+  23 654, looping 230 to 225 151. The marked cases: x `prefer` at 1.50 and
+  1.55 rad keeps its choice and is bitwise as before; at atan 99, the mark
+  refused at the start, the run that stopped near the bottom now goes on
+  (19 to 939 rtol, 5.3e-8 m at 1e-10). The event cases go on through their
+  event and their switches (2.00 rad: 83 to 667 rtol; 2.80 rad: 1 142 to
+  9 518, the angle form there 1.8e-7 m at 1e-10 against 9.5e-7). Andrews'
+  mechanism, the car axis, Akzo Nobel, PlanarFourbar and every other case:
+  bitwise as before (3 360 runs; every run that differs is one that
+  stopped, 1 225, or the level one, 7). The IFToMM four-bar does not
+  prepare, as before (`SINGULAR-LOOP`: its accelerations and rod forces at
+  the start form a linear block the values given leave singular); dynamic
+  selection acts only on a run that has started, and the four-bar was not
+  looked into further.
 * **Performance gates**: not built yet. When they are, they compare build
   time (prepare + compile) and run time for each example car in both modes
   with the base commit (as the backend's performance job does) and with
@@ -3578,7 +3719,7 @@ the vehicle body). A short integration checkpoint each week runs
 |---|---|---|
 | R1 | Sampled Script blocks at 10 ms force 180 000 integrator restarts on WLTC | restart only when an output changes; recommend continuous-time controllers; measure (WP4 acceptance). **WP4:** done — no restart and no extra step for a tick that changes nothing; its inputs read ahead across the step, bit for bit: 9.5–21 ns a tick, 2.0–4.4 % of the cheapest test model's run (20 000× real time), < 3 % of the 101-state one (section 9) |
 | R2 | SUNDIALS build on Windows/macOS | in-tree `cc` build with committed config header and bindings; CI on all three from the start (WP4/WP6). **WP4:** built and tested on Linux with only a C compiler; the MSVC build is proven by CI's "Engine (Rust) on Windows" job (run 38620416352 on a619ab4; the merged tree from dd8feb0); macOS is not built (Windows only for now) |
-| R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it. **The outside judge (16 October 2026, section 15):** the rare case is neither rare nor reported clearly. The index-3 pendulum released at 1.48 rad or more (the IFToMM planar pendulum among them), or looping, keeps the states chosen at the start through the point where they degenerate: at rtol 1e-4 … 1e-6 two thirds of the runs end without a message and wrong (the position 0.3 to 2 m off on a 1 m rod, the energy up to 29 J), the rest stop there (SUNDIALS flag −4, or no step passes), and at 1e-7 … 1e-10 nearly all stop; the IFToMM multiple four-bar does not prepare (SINGULAR-LOOP at its start values); released exactly level (y = 0) the pendulum is refused (STATE-SELECT-SINGULAR), 6e-17 m below it prepares. Below 1.48 rad the runs end, but 103 of the 1029 up to 1.47 rad without a message more than 100 rtol off the closed form (section 15). OpenModelica 1.27 (DASSL) with its dynamic state selection runs every pendulum (at rtol 1e-10 to 1.3e-9 m released at 0.40 rad, 9.8e-8 and 6.6e-8 m at 1.50 and 1.55 rad, 8.6e-8 m on the IFToMM problem, 6.4e-7 … 2.0e-5 m looping, 1.3e-5 and 6.4e-4 m at 3.00 and 3.13 rad); with static dummy derivatives it fails as the engine does, mostly worse (results of NaN reported as a success); neither of its selections runs the four-bar (it fails at its start, or does not build). **Detection (21 October 2026, section 6 step 5):** the choice is watched along every run, at its start, on `set_param` and on either side of every event; where it degrades the run stops there, naming the constraint, the variables and the parts: none of the judge's pendulum runs ends on a bare SUNDIALS flag or without a message for a degenerate choice any more (1 169 of the release-angle sweep's runs stop so, where 432 ended wrong and 840 stopped on a flag or with no step passing), nor where an event comes just before the point (`pendulum-event-…`); `stateSelect` leads the choice where it starts within half the run's limit (with x marked `prefer` the pendulum at 1.50 and 1.55 rad runs to its end; at atan 99 the mark is refused and told). Dynamic selection (choosing again at an event, going on) is the next part |
+| R3 | Index reduction needs dynamic state selection for some models | static dummy derivatives with an initial pivoting check cover vehicle drivelines; report the rare case clearly; dynamic selection only if a real model needs it. **The outside judge (16 October 2026, section 15):** the rare case is neither rare nor reported clearly. The index-3 pendulum released at 1.48 rad or more (the IFToMM planar pendulum among them), or looping, keeps the states chosen at the start through the point where they degenerate: at rtol 1e-4 … 1e-6 two thirds of the runs end without a message and wrong (the position 0.3 to 2 m off on a 1 m rod, the energy up to 29 J), the rest stop there (SUNDIALS flag −4, or no step passes), and at 1e-7 … 1e-10 nearly all stop; the IFToMM multiple four-bar does not prepare (SINGULAR-LOOP at its start values); released exactly level (y = 0) the pendulum is refused (STATE-SELECT-SINGULAR), 6e-17 m below it prepares. Below 1.48 rad the runs end, but 103 of the 1029 up to 1.47 rad without a message more than 100 rtol off the closed form (section 15). OpenModelica 1.27 (DASSL) with its dynamic state selection runs every pendulum (at rtol 1e-10 to 1.3e-9 m released at 0.40 rad, 9.8e-8 and 6.6e-8 m at 1.50 and 1.55 rad, 8.6e-8 m on the IFToMM problem, 6.4e-7 … 2.0e-5 m looping, 1.3e-5 and 6.4e-4 m at 3.00 and 3.13 rad); with static dummy derivatives it fails as the engine does, mostly worse (results of NaN reported as a success); neither of its selections runs the four-bar (it fails at its start, or does not build). **Detection (21 October 2026, section 6 step 5):** the choice is watched along every run, at its start, on `set_param` and on either side of every event; where it degrades the run stops there, naming the constraint, the variables and the parts: none of the judge's pendulum runs ends on a bare SUNDIALS flag or without a message for a degenerate choice any more (1 169 of the release-angle sweep's runs stop so, where 432 ended wrong and 840 stopped on a flag or with no step passing), nor where an event comes just before the point (`pendulum-event-…`); `stateSelect` leads the choice where it starts within half the run's limit (with x marked `prefer` the pendulum at 1.50 and 1.55 rad runs to its end; at atan 99 the mark is refused and told). **Dynamic selection (23 October 2026, section 6 step 5, *the choice made again*):** where the watched choice degrades past a threshold (3 times its factor where its fixed entries were last read; 50 while it keeps a column the model marks to be kept), the run prepares the model again with the states pivoted at that point, restarts the integrator on them from the solution there and goes on, the energy integrals carried and the channels kept by name. Every pendulum run of the judge now goes to its end (the sweep's 1 169 runs from 1.48 rad stopped before; released exactly level the pendulum prepares and runs), at rtol 1e-10 3.2e-8 m at 1.50 rad, 3.6e-8 m on the IFToMM problem, 1.8e-7 … 6.7e-6 m looping (OpenModelica's figures above: 9.8e-8, 8.6e-8, 6.4e-7 … 2.0e-5); about as accurate as the same pendulum in its angle (1.21 times its error, geometric mean), and like it more than 100 rtol off in most runs from 1.48 rad (1 023 of the 1 169; the angle form 1 048): the problem's own sensitivity, not the choice. A run that does not switch is bitwise as before (every golden case, every other judge run). Without the model's choices (diffsol, a model given other tables after it was built, fast mode's inverse model), or where no other choice works, the run stops naming the constraint, as before. Open: the IFToMM four-bar does not prepare (`SINGULAR-LOOP` at its start values: not a choice of states) |
 | R4 | Friction and clutch modes chatter | force-based stick/slip conditions in the components; event-storm detection naming the parts. **WP4:** storm detection done (over 100 state events within 1e-3 of the run, the error names the modes' parts; tested on a chattering mode); the force-based conditions are WP5's |
 | R5 | Golden comparisons show differences that are today's numerical error | measured bands from today's own fine-step runs; differences triaged and documented |
 | R6 | Fast-mode speed (now: faster than the average of comparable tools, section 2) | Rosenbrock-W with Jacobian reuse; explicit backward evaluation of the sorted inverse model; measured early in WP6 |
