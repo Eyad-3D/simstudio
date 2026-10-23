@@ -1121,10 +1121,13 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    is 388, 267 and 92 rtol off, and the run that switches there 362, 314
    and 37: the restart from interpolated values on a choice that has
    degraded costs that much. The path needs a tick to fall exactly on the
-   point by coincidence, and the point itself is rare: of the 426
-   switches of the pendulums released at 1.50, 2.8 and 3.0 rad and level,
-   at seven tolerances and the default threshold, none cut its step back
-   (`a_switch_refused_after_a_tick_at_its_cut_point_…`). A run keeps
+   point by coincidence (`a_switch_refused_after_a_tick_at_its_cut_point_…`).
+   A cut itself is not rare: across the judge 215 of its 20 581 switches
+   (1.0 %, in 31 cases: every run released at 1.68 to 1.86 rad cuts one,
+   the pendulum with x marked `prefer` at atan 99 eight a run) cut their
+   step back, none of them at a tick, as the judge has no sampled blocks
+   (the 426 switches of the pendulums released at 1.50, 2.8 and 3.0 rad
+   and level, at seven tolerances and the default threshold, cut none). A run keeps
    every model it went on with for its length, up to 1 024 (in pieces
    added as needed; before, 32: a model with six or more sets switching
    on their own, 64 choices, refused every switch after its 32nd). Before

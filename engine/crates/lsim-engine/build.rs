@@ -65,14 +65,11 @@ fn main() {
         h.update((text.len() as u64).to_le_bytes());
         h.update(&text);
     }
-    // a file added to a folder changes the digest too
+    // a file added anywhere in a crate, also at a code path that did not
+    // exist at the last run (a new `build.rs` or `include/`), reruns this
+    // script: Cargo watches each crate's folder as a whole
     for c in CRATES {
-        for p in PARTS {
-            let path = crates.join(c).join(p);
-            if path.is_dir() {
-                println!("cargo:rerun-if-changed={}", path.display());
-            }
-        }
+        println!("cargo:rerun-if-changed={}", crates.join(c).display());
     }
     let digest: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
     println!("cargo:rustc-env=LSIM_PREPARATION_DIGEST={digest}");

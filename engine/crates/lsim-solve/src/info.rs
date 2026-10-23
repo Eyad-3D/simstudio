@@ -2070,8 +2070,6 @@ fn energy_info(m: &PreparedModel) -> EnergyInfo {
     }
 }
 
-/// `'Label'` for a diagram part, `'Label' (path.inside)` for a part inside
-/// one, else `'path'`.
 /// `e` with the flat system's names for its variables and parameters, in
 /// the text format's syntax (`x * x + y * y`).
 fn named(flat: &lsim_ir::FlatSystem, e: &Expr) -> String {
@@ -2095,6 +2093,8 @@ fn named(flat: &lsim_ir::FlatSystem, e: &Expr) -> String {
         .to_string()
 }
 
+/// `'Label'` for a diagram part, `'Label' (path.inside)` for a part inside
+/// one, else `'path'`.
 fn part_name(flat: &lsim_ir::FlatSystem, id: lsim_ir::InstanceId) -> String {
     let inst = flat.instance(id);
     if inst.label.is_some() {
