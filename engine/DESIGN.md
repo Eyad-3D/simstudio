@@ -1492,8 +1492,16 @@ residual and five times its Jacobian until the machine code is in.
 
 **Cache.** Keyed by SHA-256 of the model's inputs (top component with its
 parameter values, every library definition it reaches, connectors,
-options, mode, engine version); the value is the `PreparedModel` as JSON
-(`lsim-engine/src/cache.rs`). A hit skips flattening and structural
+options, mode) and of what prepares them (the key's format, the engine
+version and a digest of the preparation's code: lsim-prep, lsim-ir,
+lsim-math and `Cargo.lock`, taken by `lsim-engine/build.rs`); the value is
+the `PreparedModel` as JSON (`lsim-engine/src/cache.rs`). The digest
+keeps an engine built from other preparation code from reading this
+one's entries: the format string, bumped by hand, was left as it was
+when dynamic state selection added fields to each `StateSet`, and an
+older entry, read with them empty, brought back a stop they had fixed
+(two pendulums in one model, at 0.2135 s); those fields have no default
+now, so an entry without them is not read either. A hit skips flattening and structural
 analysis; machine code is regenerated. Parameter values are in the key
 because preparation chooses by them (index reduction picks the states by
 pivoting at the start; the start checks warn at the start values): a
