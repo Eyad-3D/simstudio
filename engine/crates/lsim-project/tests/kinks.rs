@@ -702,3 +702,42 @@ fn a_held_table_given_other_data_after_the_build_is_refused() {
         assert!(e.to_string().contains("build the model again"), "{interp}: {e}");
     }
 }
+
+/// Held reads on the engine's cross-check backend (diffsol's BDF). The
+/// gear's ratio: an event of each read at each of the four breakpoints, as
+/// on CVODE. A dense table held for comparison: at rtol 1e-10 diffsol's
+/// root finder lost a crossing and the run panicked
+/// (`InterpolationTimeAfterCurrentTime`): diffsol tells a sign change by the
+/// product of two values, and a condition held on its side
+/// (`f64::MIN_POSITIVE`) times an edge function at the rounding level of
+/// its crossing (1e-16) rounds to −0. The backend floors the values it
+/// gives diffsol, and a panic inside a step is the run's named failure.
+#[test]
+fn held_reads_on_the_cross_check_backend() {
+    let diffsol =
+        |rtol: f64| SolverOptions { backend: lsim_solve::Backend::Diffsol, ..options(rtol) };
+    let (ws, rs) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
+    let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &GEAR);
+    let data = data_1d(&ws, &rs, Interpolation::Linear, Outside::Linear);
+    let m = prepare(&text, "Test.KinkGear", TableCells::Jumps);
+    let times = grid(3.0, 0.01);
+    let exact = gear_exact(&data, &GEAR, (-30.0, 300.0), &times);
+    let mut qs = vec![];
+    for rtol in [1e-4, 1e-7, 1e-10] {
+        let r = run_with(&m, &diffsol(rtol), 3.0, 0.01);
+        assert!(r.backend.contains("diffsol"), "{}", r.backend);
+        assert_eq!(cells(&r), 8, "rtol {rtol:e}");
+        qs.push(error(&r, "w2", &exact) / rtol);
+    }
+    println!("diffsol, the gear held: error / rtol {qs:.2?}");
+    assert!(qs.iter().all(|q| *q < 10.0), "{qs:?}");
+    let (xs, fs, text) = dense_spring(101);
+    let times = grid(20.0, 0.02);
+    let (ex, ev, crossings) = spring_exact(&xs, &fs, (0.9023, 0.0), &times);
+    let kinks = prepare(&text, "Test.Spring", TableCells::Kinks);
+    let r = run_with(&kinks, &diffsol(1e-10), 20.0, 0.02);
+    assert_eq!(cells(&r), crossings, "every crossing an event, to the end");
+    let q = error(&r, "x", &ex).max(error(&r, "v", &ev)) / 1e-10;
+    println!("diffsol, a dense table held at rtol 1e-10: error / rtol {q:.1}");
+    assert!(q < 2e4, "{q}");
+}
