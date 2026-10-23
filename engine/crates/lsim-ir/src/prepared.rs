@@ -297,24 +297,25 @@ pub struct StateSet {
     /// while a choice keeps such a column, the marks lead it, and a run
     /// makes it again only where it nears the run's limit (dynamic state
     /// selection)
-    #[serde(default)]
+    ///
+    /// This field and the next three have no default: a set read without
+    /// them (a prepared model an older engine stored) is not a set a run
+    /// can choose again by, and is not read (the engine's cache prepares
+    /// the model again).
     pub kept: Vec<bool>,
     /// which set it is: index reduction's equations (the rows) and
     /// candidates (the columns) in its own numbering, the same in every
     /// preparation of the model whatever states it chose (a run that
     /// chooses its states again keeps the other sets by them:
     /// [`crate::choice::KeepSet`])
-    #[serde(default)]
     pub eqs: Vec<usize>,
     /// (its candidates, in index reduction's own numbering: with `eqs`,
     /// which set it is)
-    #[serde(default)]
     pub nodes: Vec<usize>,
     /// the equations its rows were differentiated from (index reduction's
     /// numbering, sorted): the sets that share one are the same
     /// constraints at index reduction's other levels, chosen again
     /// together
-    #[serde(default)]
     pub roots: Vec<usize>,
 }
 

@@ -169,3 +169,119 @@ fn parameters_at_which_the_chosen_states_cannot_start_are_refused() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Two pendulums in one model, released at `a` and `b` rad: two sets of
+/// states, each chosen again where its own pivots degrade.
+fn two(a: f64, b: f64) -> ComponentDef {
+    ComponentDef {
+        name: "Test.Two".into(),
+        components: vec![
+            sub("p", "Test.Pendulum", &[("theta0", c(a)), ("L0", c(1.0))]),
+            sub("q", "Test.Pendulum", &[("theta0", c(b)), ("L0", c(1.0))]),
+        ],
+        ..Default::default()
+    }
+}
+
+/// The key the engine computed before dynamic state selection
+/// (`cache.rs` at the main branch's 3aaea7e): SHA-256 of the format
+/// `prepared-v4`, the engine's version and the inputs. Nothing else in
+/// it changed on the branch that added [`StateSet`]'s `kept`, `eqs`,
+/// `nodes` and `roots`, so an entry written then hit under it.
+///
+/// [`StateSet`]: lsim_engine::lsim_ir::StateSet
+fn key_before(lib: &Library, top: &ComponentDef) -> String {
+    use sha2::{Digest, Sha256};
+    let mut used: std::collections::BTreeMap<&str, &ComponentDef> = Default::default();
+    let mut todo = vec![top];
+    while let Some(d) = todo.pop() {
+        for s in &d.components {
+            if let Some(def) = lib.components.get(&s.def)
+                && used.insert(&def.name, def).is_none()
+            {
+                todo.push(def);
+            }
+        }
+    }
+    let inverse: Option<&lsim_engine::lsim_ir::InverseSpec> = None;
+    let text = serde_json::to_string(&(
+        "prepared-v4",
+        env!("CARGO_PKG_VERSION"),
+        top,
+        used,
+        &lib.connectors,
+        false,
+        inverse,
+    ))
+    .expect("the IR serialises");
+    Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// A run's values and its switches, or why it stopped.
+fn swings(m: &Model) -> Result<(Vec<Vec<f64>>, usize), String> {
+    let opts = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
+    let run = m
+        .simulate(&opts, OutputGrid { t0: 0.0, t_end: 10.0, dt: 0.01 })
+        .map_err(|e| e.to_string())?;
+    let switches = run.events.iter().filter(|e| matches!(e.kind, EventKind::States(_))).count();
+    Ok((run.values, switches))
+}
+
+/// The entry a fresh build wrote, as an engine that did not know the
+/// fields dynamic state selection added to each set wrote it.
+fn without_the_sets_new_fields(text: &str) -> String {
+    let mut v: serde_json::Value = serde_json::from_str(text).expect("JSON");
+    let sets = v["state_sets"].as_array_mut().expect("the model's sets");
+    // two per pendulum: its rod at index reduction's two levels
+    assert_eq!(sets.len(), 4);
+    for s in sets {
+        for f in ["kept", "eqs", "nodes", "roots"] {
+            s.as_object_mut().expect("a set").remove(f).expect("the field");
+        }
+    }
+    serde_json::to_string(&v).expect("JSON")
+}
+
+/// A cache hit must be the model preparation gives (cache.rs). An entry
+/// an engine before dynamic state selection wrote has none of the
+/// fields that tell a run which set is which; read with them empty, the
+/// run chose both pendulums' states again where only one had degraded,
+/// and stopped at 0.2135 s, the first review's finding B1 back (the
+/// second review's F1: the key's format was not bumped, and the fields
+/// read as empty by default). Such an entry is not used, under the key
+/// it was written under or under this engine's: the build prepares the
+/// model again, and runs as a fresh build does.
+#[test]
+fn an_entry_an_older_engine_wrote_is_not_used() {
+    let dir = std::env::temp_dir().join(format!("lsim-cache-older-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let engine = engine();
+    let top = two(1.50, 1.80);
+    let cached = BuildOptions { cache: Some(dir.clone()), ..Default::default() };
+    let fresh = engine.build(&top, &cached).expect("builds");
+    assert!(!fresh.report.cache_hit);
+    let (want, switches) = swings(&fresh).expect("runs to the end");
+    assert!(switches >= 30, "{switches} switches");
+    let entry = |key: &str| dir.join(format!("{key}.prepared.json"));
+    let written = std::fs::read_to_string(entry(&fresh.report.cache_key)).expect("the entry");
+    let older = without_the_sets_new_fields(&written);
+
+    // where the older engine left it
+    std::fs::remove_file(entry(&fresh.report.cache_key)).expect("removed");
+    std::fs::write(entry(&key_before(engine.library(), &top)), &older).expect("written");
+    let m = engine.build(&top, &cached).expect("builds");
+    assert!(!m.report.cache_hit, "an older engine's entry is not this engine's");
+    assert_eq!(swings(&m), Ok((want.clone(), switches)), "the run is a fresh build's");
+
+    // and under this engine's own key: an entry without the fields is
+    // not read (they have no default), and is written again whole
+    std::fs::write(entry(&fresh.report.cache_key), &older).expect("written");
+    let m = engine.build(&top, &cached).expect("builds");
+    assert!(!m.report.cache_hit, "an entry without the sets' fields is not used");
+    assert_eq!(swings(&m), Ok((want.clone(), switches)));
+    let hit = engine.build(&top, &cached).expect("builds");
+    assert!(hit.report.cache_hit, "written again whole");
+    assert_eq!(hit.prepared, fresh.prepared);
+    assert_eq!(swings(&hit), Ok((want, switches)));
+    let _ = std::fs::remove_dir_all(&dir);
+}

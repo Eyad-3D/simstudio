@@ -3,10 +3,13 @@
 //! Key: SHA-256 of the model's inputs — the top component with its
 //! parameter values, every library definition it reaches, the connectors,
 //! the preparation options, the mode (full dynamic, or fast mode with its
-//! [`InverseSpec`]) and the engine version. Value: the [`PreparedModel`] as
-//! JSON. A hit is the model preparation would give, so it skips
-//! flattening and structural analysis; machine code is regenerated
-//! (milliseconds).
+//! [`InverseSpec`]) — and of what prepares them: the key's format, the
+//! engine version and a digest of the preparation's code (`build.rs`:
+//! lsim-prep, lsim-ir, lsim-math and the dependency versions), so an
+//! engine built from other preparation code never reads this one's
+//! entries. Value: the [`PreparedModel`] as JSON. A hit is the model
+//! preparation would give, so it skips flattening and structural
+//! analysis; machine code is regenerated (milliseconds).
 //!
 //! Parameter values are in the key because preparation makes choices that
 //! depend on them: index reduction picks the states by pivoting at the
@@ -25,8 +28,15 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// Bumped when what is cached, or how it is keyed, changes.
-const FORMAT: &str = "prepared-v4";
+/// Bumped when what is cached, or how it is keyed, changes. v5: the
+/// digest of the preparation's code joined the key (an engine whose sets
+/// lacked the fields dynamic state selection reads wrote v4 entries that
+/// this engine's v4 key hit, read with the fields empty: the second
+/// review's F1).
+const FORMAT: &str = "prepared-v5";
+
+/// The digest of the code that prepares a model (`build.rs`).
+const PREPARATION: &str = env!("LSIM_PREPARATION_DIGEST");
 
 /// The cache key of a model's inputs; `inverse` is fast mode's
 /// specification (`None` for full dynamic).
@@ -50,6 +60,7 @@ pub fn input_key(
     let text = serde_json::to_string(&(
         FORMAT,
         env!("CARGO_PKG_VERSION"),
+        PREPARATION,
         top,
         used,
         &lib.connectors,
