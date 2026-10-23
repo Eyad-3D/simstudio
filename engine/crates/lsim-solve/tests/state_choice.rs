@@ -1469,3 +1469,48 @@ fn a_refused_switch_leaves_the_run_as_it_was() {
         assert_eq!(t.to_bits(), t0.to_bits(), "rtol {rtol:e}: {t} against {t0}: {e}");
     }
 }
+
+/// A model's choices are shared by the runs of a sweep: two runs that
+/// choose the same states at once (both compiling it, outside the lock)
+/// get the same model, kept once. Before, each kept its own.
+#[test]
+fn a_choice_two_runs_compile_at_once_is_kept_once() {
+    use lsim_solve::choice::{ChoicePoint, Rechooser, StateChoices};
+    use std::sync::{Arc, Barrier};
+    let lib = common::library();
+    let def = pendulum(-std::f64::consts::FRAC_PI_2, StateSelect::Default);
+    let first = common::build(&lib, &def, false);
+    let (l2, d2) = (lib.clone(), def.clone());
+    let prepare = move |at: &ChoicePoint| {
+        lsim_prep::prepare_choosing(&l2, &d2, &Default::default(), at.clone())
+            .map_err(|d| format!("{d:?}"))
+    };
+    // (both compile before either keeps its model)
+    let both = Arc::new(Barrier::new(2));
+    let gate = both.clone();
+    let compile = move |p: &lsim_ir::PreparedModel| {
+        gate.wait();
+        lsim_codegen::compile(p, &Default::default())
+            .map(|j| Box::new(j) as Box<dyn lsim_ir::runtime::ModelFunctions>)
+            .map_err(|e| e.to_string())
+    };
+    let chooser = Arc::new(Rechooser::new(Box::new(prepare), Box::new(compile)));
+    let values = [("x", 0.0), ("y", -1.0), ("vx", 4.43), ("vy", 0.0), ("F", 29.4)];
+    let at = ChoicePoint {
+        t: 0.5,
+        values: values.iter().map(|(n, v)| (n.to_string(), *v)).collect(),
+        params: first.info.params.clone(),
+        window: lsim_solve::STATE_SWITCH,
+        ..Default::default()
+    };
+    let runs: Vec<_> = (0..2)
+        .map(|_| {
+            let (c, at) = (chooser.clone(), at.clone());
+            std::thread::spawn(move || c.choose(&at).expect("a choice"))
+        })
+        .collect();
+    let got: Vec<_> = runs.into_iter().map(|h| h.join().expect("ran")).collect();
+    assert_eq!(got[0].states, ["x", "vx"]);
+    assert!(Arc::ptr_eq(&got[0], &got[1]), "two models for one choice");
+    assert_eq!(chooser.kept().len(), 1);
+}
