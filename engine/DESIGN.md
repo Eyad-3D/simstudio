@@ -1080,7 +1080,20 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    solution its choices (`lsim_engine`, `lsim_project::Model`, the judge's
    runner); a run on diffsol (the cross-check), a model whose tables were
    swapped after it was built, and fast mode's inverse model (its motion
-   prescribed) keep the detection. A run that does not switch is the run
+   prescribed) keep the detection. The models with the states chosen
+   again are compiled from the data the model was prepared with, so a run
+   switches only where each table the model reads is the same
+   interpolant, to the bit, in the model it is on and the one it would
+   go on with (`ModelFunctions::table_interp`, `Table::same`: the
+   breakpoints, the values, the interpolation and the rule outside the
+   data; a model that does not give its tables does not switch). Before,
+   the guard compared the tables' values at their breakpoints only: the
+   pendulum at 1.50 rad beside `der(z) = rate(time)`, its linear table
+   held at its edges and given the same table continued along its slope,
+   went through 17 switches reading one table between them and the other
+   after them, z(10 s) = 9.0963 where either table gives 7.5 or 10, with
+   no word; now it stops where its states degrade, naming the rod
+   (`state_choice.rs`). A run that does not switch is the run
    without dynamic selection to the last bit: every golden case, every
    judge run below 1.48 rad and every other judge case but the pendulums
    that stopped before. The pendulum released exactly level (x = L, y = 0

@@ -112,27 +112,23 @@ pub(super) fn compatible(
     if from.0.table_guard_list().len() != to.0.table_guard_list().len() {
         return Err("the model with the states chosen again watches other tables".into());
     }
-    // the same tables, their data as the model interpolates them (a model
-    // given other tables after it was built is prepared again with its own)
+    // the same tables, to the bit, as each model interpolates them (a model
+    // given other table data after it was built keeps the detection: each
+    // model with the states chosen again is compiled from the data the
+    // model was prepared with)
     for k in 0..from.1.table_names.len() as u32 {
-        let (a, b) = (from.0.table_axes(k), to.0.table_axes(k));
-        if a != b {
-            return Err("the model's tables were changed after it was built".into());
-        }
-        if let Some([x, y]) = a {
-            let ys: Vec<f64> = if y.is_empty() { vec![0.0] } else { y.clone() };
-            for &u in &x {
-                for &v in &ys {
-                    let (p, q) = (from.0.eval_table(k, [u, v]), to.0.eval_table(k, [u, v]));
-                    let same = match (p, q) {
-                        (Some((p, _)), Some((q, _))) => p.to_bits() == q.to_bits(),
-                        (None, None) => true,
-                        _ => false,
-                    };
-                    if !same {
-                        return Err("the model's tables were changed after it was built".into());
-                    }
-                }
+        match (from.0.table_interp(k), to.0.table_interp(k)) {
+            (Some(a), Some(b)) if a.same(b) => {}
+            (Some(_), Some(_)) => {
+                return Err("the model's tables were changed after it was built (the models \
+                            with the states chosen again read the data it was prepared with)"
+                    .into());
+            }
+            _ => {
+                return Err("the model does not give its tables (ModelFunctions::table_interp), \
+                            so the run cannot tell that the model with the states chosen again \
+                            reads the same"
+                    .into());
             }
         }
     }

@@ -997,3 +997,67 @@ fn a_tick_that_restarts_the_run_inside_a_switch_s_step_leaves_the_switch_to_afte
         assert!(switches(&r) > 0 && err < 10.0 * rtol, "the step at {at:.4} s: {err:e} m off");
     }
 }
+
+/// The pendulum released at 1.50 rad (it chooses its states again 17 times
+/// in 10 s) beside an integral of a table read along time, `der(z) =
+/// rate(time)`, the table linear on {0, 5} s → {0, 1} m/s and held at its
+/// edges: z(10 s) = 7.5 m.
+fn with_rate() -> (common::Built, lsim_ir::table::TableData) {
+    use lsim_ir::table::{Interpolation, Outside, TableData};
+    let mut data = TableData::new_1d(vec![0.0, 5.0], vec![0.0, 1.0]);
+    data.interpolation = Interpolation::Linear;
+    data.outside = [Outside::Clamp, Outside::Clamp];
+    data.axis_units[0] = "s".into();
+    let mut def = pendulum(1.5, StateSelect::Default);
+    def.params.push(lsim_lib::table::table_param("rate", "m/s", data.clone(), "a rate by time"));
+    def.vars.push(state("z", "m", 0.0, "its integral"));
+    def.equations.push(eq(
+        der("z"),
+        lsim_ir::expr::table("rate", vec![Expr::Time]),
+        "z integrates the rate",
+    ));
+    (common::build_dynamic(&common::library(), &def), data)
+}
+
+/// A model given other table data after it was built
+/// (`JitModel::with_tables`) keeps the detection: each model with the
+/// states chosen again is compiled from the data the model was prepared
+/// with, so the run would read one table between switches and the other
+/// after them. Given its own data again, it switches and z(10 s) is 7.5 m;
+/// given the table continued along its slope beyond its data (the same
+/// values at its breakpoints: z(10 s) would be 10 m) or interpolated by a
+/// monotone cubic, it does not switch and stops where the states degrade,
+/// naming the rod, z as the new data say up to there. Before, the guard
+/// compared the tables at their breakpoints only, and the run with the
+/// rule outside changed went through 17 switches to z(10 s) = 9.0963 m
+/// (rtol 1e-6) without a word.
+#[test]
+fn a_model_given_other_tables_keeps_the_detection() {
+    use lsim_ir::table::{Interpolation, Outside};
+    let (built, data) = with_rate();
+    let opts = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 10.0, dt: 0.01 };
+    let same = built.jit.with_tables(std::slice::from_ref(&data)).expect("takes the data");
+    let r = simulate(&same, &built.info, &opts, grid, &mut []).expect("runs");
+    let z = &r.values[r.names.iter().position(|x| x == "z").expect("z")];
+    assert!(switches(&r) > 0);
+    assert!((z[z.len() - 1] - 7.5).abs() < 1e-5, "z(10 s) = {}", z[z.len() - 1]);
+    let mut beyond = data.clone();
+    beyond.outside = [Outside::Linear, Outside::Linear];
+    let mut cubic = data;
+    cubic.interpolation = Interpolation::MonotoneCubic;
+    for other in [beyond, cubic] {
+        let jit = built.jit.with_tables(std::slice::from_ref(&other)).expect("takes the data");
+        let e = match simulate(&jit, &built.info, &opts, grid, &mut []) {
+            Ok(r) => panic!(
+                "{other:?}: ran to the end through {} switches, z(10 s) = {}",
+                switches(&r),
+                r.values[r.names.iter().position(|x| x == "z").expect("z")].last().unwrap()
+            ),
+            Err(e) => e,
+        };
+        let SolveError::StateSelection { t, message, .. } = &e else { panic!("{e}") };
+        assert!((t - 0.5804).abs() < 1e-3, "{e}");
+        assert!(message.contains("(the rod keeps its length) decides"), "{e}");
+    }
+}

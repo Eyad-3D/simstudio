@@ -814,6 +814,11 @@ impl ModelFunctions for JitModel {
         })
     }
 
+    fn table_interp(&self, k: u32) -> Option<&Table> {
+        let k = k as usize;
+        (k < self.table_dims.len()).then(|| self.tables.get(k))
+    }
+
     fn condition_kernels(&self) -> Option<&dyn ConditionKernels> {
         self.kernels.as_ref().is_some_and(|k| k.any()).then_some(self as &dyn ConditionKernels)
     }
