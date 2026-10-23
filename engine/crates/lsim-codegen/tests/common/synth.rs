@@ -57,6 +57,7 @@ impl Builder {
                 guards: vec![],
                 warnings: vec![],
                 state_sets: vec![],
+                held: vec![],
             },
         }
     }

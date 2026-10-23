@@ -433,6 +433,7 @@ impl Run {
                     lsim_solve::EventKind::Block(_) => "block",
                     lsim_solve::EventKind::Time(_) => "time",
                     lsim_solve::EventKind::States(_) => "states",
+                    lsim_solve::EventKind::Cell(_) => "cell",
                 },
             )?;
             out.append(d)?;

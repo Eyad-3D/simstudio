@@ -592,6 +592,8 @@ pub struct RunInfo {
     /// those it has degrade (dynamic state selection, [`crate::choice`]);
     /// `None`: the run stops there instead, naming the constraint
     pub choices: Option<crate::choice::Choices>,
+    /// the table reads held in their cells during every step
+    pub held: Vec<HeldInfo>,
 }
 
 /// A choice index reduction made among states ([`lsim_ir::StateSet`]), as
@@ -709,6 +711,48 @@ impl StateSetInfo {
             masked: self.masked.clone(),
         })
     }
+}
+
+/// A table read held in its cell during every step ([`lsim_ir::HeldRead`],
+/// DESIGN.md §8.2, *Tables read at a state*), as the run sets it
+/// ([`crate::held`]): at the start, and at every event where its argument
+/// left the cell (its zero crossing `a − lo` or `hi − a` fell below zero),
+/// the cell its argument lies in, the point of it the polynomial is written
+/// at, the cell's edges and the polynomial's coefficients, from the table
+/// the model interpolates.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeldInfo {
+    /// the table
+    pub table: u32,
+    /// the derivative of it the model reads (`[0, 0]`: its value)
+    pub order: [u8; 2],
+    /// the polynomial's degree along each argument
+    pub degree: [u8; 2],
+    /// per argument: where its cell is held
+    pub axes: Vec<HeldAxisInfo>,
+    /// the coefficients (indices into the discrete variables), that of
+    /// `(a₁ − m₁)^i (a₂ − m₂)^j` at `i · (degree[1] + 1) + j`
+    pub coef: Vec<usize>,
+    /// the table's name
+    pub label: String,
+}
+
+/// An argument of a [`HeldInfo`]: indices into the discrete variables and
+/// the zero crossings.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HeldAxisInfo {
+    /// the cell's number ([`lsim_ir::HeldAxis::cell`])
+    pub cell: usize,
+    /// the point of the cell the polynomial is written at
+    pub anchor: usize,
+    /// the cell's lower edge
+    pub lo: usize,
+    /// its upper edge
+    pub hi: usize,
+    /// the zero crossing `a − lo`
+    pub below: usize,
+    /// the zero crossing `hi − a`
+    pub above: usize,
 }
 
 /// A table read at a position that moves with time alone, `c · time + b`
@@ -901,6 +945,7 @@ impl RunInfo {
             table_axes: vec![],
             state_sets: vec![],
             choices: None,
+            held: vec![],
         }
     }
 
@@ -925,6 +970,15 @@ impl RunInfo {
                 Direction::Falling => -1,
                 Direction::Both => 0,
             };
+        }
+        // a held read's edges: positive inside its cell, watched as they
+        // fall (the argument leaves the cell)
+        for a in m.held.iter().flat_map(|h| &h.axes) {
+            for c in [a.below, a.above] {
+                if c < root_dirs.len() {
+                    root_dirs[c] = -1;
+                }
+            }
         }
         let labelled = |o: &lsim_ir::Origin| {
             let who = flat.instance_name(o.instance);
@@ -1074,6 +1128,48 @@ impl RunInfo {
             time_tables: time_tables(m),
             state_sets: m.state_sets.iter().map(StateSetInfo::new).collect(),
             choices: None,
+            held: m
+                .held
+                .iter()
+                .map(|h| {
+                    let at =
+                        |v: &VarId| *d_index.get(v).expect("a held read's variables are discrete");
+                    let (table, order) = match &h.read {
+                        Expr::Table { table, order, .. } => (*table, *order),
+                        _ => unreachable!("a held read is a table read"),
+                    };
+                    HeldInfo {
+                        table,
+                        order,
+                        degree: h.degree,
+                        axes: h
+                            .axes
+                            .iter()
+                            .map(|a| HeldAxisInfo {
+                                cell: at(&a.cell),
+                                anchor: at(&a.anchor),
+                                lo: at(&a.lo),
+                                hi: at(&a.hi),
+                                below: a.below,
+                                above: a.above,
+                            })
+                            .collect(),
+                        coef: h.coef.iter().map(at).collect(),
+                        label: flat.tables[table as usize].name.clone(),
+                    }
+                })
+                .collect(),
+        }
+    }
+
+    /// The breakpoints of table `k` along `axis`, as the run has them (the
+    /// model's own where they differ from the prepared ones:
+    /// [`RunInfo::with_model_tables`]).
+    pub fn table_points(&self, k: u32, axis: usize) -> &[f64] {
+        let k = k as usize;
+        match self.table_axes.get(k) {
+            Some(a) if !a[0].is_empty() => &a[axis.min(1)],
+            _ => self.table_breaks.get(k).map_or(&[], |b| b.as_slice()),
         }
     }
 
@@ -1364,11 +1460,16 @@ fn time_functions(
     let mut r = Resolver { assigned, alias, sources, memo: HashMap::new() };
     // (a pure function grown past this many nodes is not searched)
     const MAX_NODES: usize = 20_000;
+    // a held table read's cell edges are left to root finding: their
+    // argument moves with the states (two crossings inside one step, out
+    // of a cell and back, are the known limit of conditions on states)
+    let held: BTreeSet<usize> =
+        m.held.iter().flat_map(|h| &h.axes).flat_map(|a| [a.below, a.above]).collect();
     m.zero_crossings
         .iter()
         .enumerate()
         .map(|(k, z)| {
-            if crossings.get(k).is_some_and(|c| c.is_some()) {
+            if crossings.get(k).is_some_and(|c| c.is_some()) || held.contains(&k) {
                 return None;
             }
             let (time, _) = r.reads(&z.expr, 0);

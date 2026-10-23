@@ -947,12 +947,13 @@ fn the_librarys_table_blocks_in_a_constraint() {
 
 /// A gear whose ratio is a linear table of the load's speed: its slope
 /// jumps where the speed crosses a breakpoint, at times the run loop does
-/// not know ahead; the integrator steps over these kinks of the rotor's
-/// acceleration with its error control. Against the closed form of
-/// t(ω₂) = (J1 r(ω₂) ω₂ + J2 ∫₀^ω₂ dw / r(w)) / τ (r affine per piece),
-/// inverted by bisection.
+/// not know ahead; the reads are held in their cells and each crossing is
+/// an event (DESIGN.md §8.2, *Tables read at a state*;
+/// `lsim-project/tests/kinks.rs` measures it at every tolerance). Against
+/// the closed form of t(ω₂) = (J1 r(ω₂) ω₂ + J2 ∫₀^ω₂ dw / r(w)) / τ (r
+/// affine per piece), inverted by bisection.
 #[test]
-fn a_linear_table_read_at_a_state_is_stepped_over_accurately() {
+fn a_linear_table_read_at_a_state_is_held_in_its_cells() {
     let (tau, j1, j2) = (20.0, 0.05, 2.0);
     let ws = [0.0, 10.0, 25.0, 40.0, 60.0, 80.0];
     let rs = [2.0, 2.5, 2.8, 3.5, 3.6, 4.0];
@@ -974,7 +975,11 @@ fn a_linear_table_read_at_a_state_is_stepped_over_accurately() {
     };
     let (m, report) = prepare(&top);
     assert!(report.differentiated >= 1);
+    // (the ratio's value and its derivative, both read at the load's speed)
+    assert_eq!(m.held.len(), 2, "{:?}", m.held);
     let run = simulate(&m, 3.0, 0.01, 1e-10);
+    let cells = run.events.iter().filter(|e| matches!(e.kind, lsim_solve::EventKind::Cell(_)));
+    assert_eq!(cells.count(), 8, "four breakpoints crossed, each by both reads");
     let lin = Cubic::linear(&ws, &rs);
     let t_of = |w: f64| {
         let mut inv = 0.0;

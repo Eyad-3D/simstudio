@@ -595,7 +595,11 @@ second: about 0.899889 after 10 s.
 * Between the points a table is a monotone cubic curve by default: its
   slope has no jumps, so the solver needs no events at the points, and it
   does not overshoot where the data rise or fall steadily. `interpolation =
-  linear` joins the points with straight lines instead.
+  linear` joins the points with straight lines instead. Where the slope
+  does jump (a linear table, a table held at its edges) and the table is
+  read at a value that moves with the model's states, the run treats each
+  crossing of a point as an event, so that it stays accurate to its
+  tolerance; read along time, it stops at each point.
 * `outside = {clamp}` (the default) holds the edge value beyond the data;
   `linear` extends the edge's slope; `error` stops the run. Give one rule
   for each axis, or one for all.

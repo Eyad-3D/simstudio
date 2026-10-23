@@ -182,6 +182,7 @@ pub(super) fn compatible(
         || fi.asserts.len() != ti.asserts.len()
         || fi.time_crossings.len() != ti.time_crossings.len()
         || fi.time_functions.len() != ti.time_functions.len()
+        || fi.held != ti.held
     {
         return Err("the model with the states chosen again has other conditions".into());
     }

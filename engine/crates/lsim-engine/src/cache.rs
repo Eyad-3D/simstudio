@@ -33,8 +33,10 @@ use std::path::{Path, PathBuf};
 /// digest of the preparation's code joined the key (an engine whose sets
 /// lacked the fields dynamic state selection reads wrote v4 entries that
 /// this engine's v4 key hit, read with the fields empty: the second
-/// review's F1).
-const FORMAT: &str = "prepared-v5";
+/// review's F1). v6: the table reads held in their cells
+/// (`PreparedModel::held`, no default: an entry without it is prepared
+/// again).
+const FORMAT: &str = "prepared-v6";
 
 /// The digest of the code that prepares a model (`build.rs`).
 const PREPARATION: &str = env!("LSIM_PREPARATION_DIGEST");

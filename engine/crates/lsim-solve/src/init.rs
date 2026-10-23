@@ -803,6 +803,9 @@ pub fn start(
             let inp = EvalInput { t: t0, y: &w, p, d: d0, u };
             f.finish(&inp, &mut work, y0);
         }
+        // the table reads held in their cells: the cells their arguments
+        // start in (crate::held)
+        crate::held::settle(m, info, t0, y0, d0, u)?;
         // every mode from its relation at the start
         let before = d0.to_vec();
         let inp = EvalInput { t: t0, y: y0, p, d: &before, u };

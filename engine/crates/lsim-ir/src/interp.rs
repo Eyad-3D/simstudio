@@ -805,6 +805,14 @@ impl Table {
         let ax = &self.guard_axes[axis];
         (ax.lo(), ax.hi())
     }
+
+    /// Whether, outside its data along `axis`, the table is its edge
+    /// cells' own polynomials continued: a linear table continued along its
+    /// edge slope (`Linear`, and `Error`, whose interpolant goes on so),
+    /// with no kink at the data's edges along that axis.
+    pub fn continues_cells(&self, axis: usize) -> bool {
+        !self.cubic && self.guard_axes.get(axis).is_some_and(|ax| ax.outside != Outside::Clamp)
+    }
 }
 
 #[cfg(test)]

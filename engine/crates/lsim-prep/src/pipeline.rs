@@ -40,6 +40,12 @@ pub struct Settings {
     /// (dynamic state selection, DESIGN.md §6 step 5): the model a run
     /// switches to where the states chosen before degrade
     pub choose_at: Option<std::sync::Arc<ChoosePoint>>,
+    /// hold the table reads that kink or jump at their breakpoints in their
+    /// cells during every step, each crossing of a cell's edge an event
+    /// ([`crate::hold`]); off, the integrator steps over them (for
+    /// comparison only: the run's error is then not proportional to the
+    /// tolerance)
+    pub hold_table_cells: bool,
 }
 
 impl Default for Settings {
@@ -49,6 +55,7 @@ impl Default for Settings {
             numeric_start: true,
             tearing_minimum: false,
             choose_at: None,
+            hold_table_cells: true,
         }
     }
 }
@@ -1364,7 +1371,11 @@ pub fn run(
         guards,
         warnings: vec![],
         state_sets,
+        held: vec![],
     };
+    if spec.is_none() && settings.hold_table_cells {
+        crate::hold::apply(&mut model);
+    }
     let (blocks, ext_diags) = external::order(&model, extras.external);
     model.external = blocks;
     warnings.extend(ext_diags);

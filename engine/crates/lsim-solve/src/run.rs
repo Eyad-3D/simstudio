@@ -310,6 +310,9 @@ struct Loop<'a> {
     /// the `when` clause each other root function decides (the first one
     /// on it): an exact zero counts as the side its condition holds on
     when_of_root: Vec<Option<usize>>,
+    /// the root functions that are a held table read's cell edges
+    /// ([`crate::held`]): positive inside the cell, an exact zero inside
+    held_root: Vec<bool>,
     /// per table guard: since when it is outside its data
     outside_since: Vec<Option<f64>>,
     /// per table guard: time spent outside, and when it first left
@@ -656,6 +659,9 @@ impl Loop<'_> {
                 1.0
             } else if g < 0.0 {
                 -1.0
+            } else if self.held_root[c] {
+                // (a held read's argument on its cell's edge: in the cell)
+                1.0
             } else if let Some(k) = self.mode_of_root[c] {
                 if d[self.info.modes[k].discrete] != 0.0 { 1.0 } else { -1.0 }
             } else if let Some(r) = dirs.and_then(|x| x.get(c)).filter(|r| **r != 0) {
@@ -677,11 +683,12 @@ impl Loop<'_> {
                 self.hold[c] = h;
             }
         }
+        self.hold_cells(t, y, d);
         let (Some(seen), Some((y0, _))) = (seen, before) else { return };
         // the functions now on the other side of the one the integrator
         // saw them on (crossed to, where it reported a crossing)
         let mut was: Vec<(usize, f64)> = (0..self.raw.len())
-            .filter(|&c| self.mode_of_root[c].is_none() && !self.timed(c))
+            .filter(|&c| self.mode_of_root[c].is_none() && !self.timed(c) && !self.held_root[c])
             .filter_map(|c| {
                 let r = dirs.and_then(|x| x.get(c)).copied().unwrap_or(0);
                 let s = if r != 0 { r as f64 } else { seen[c].signum() };
@@ -720,6 +727,58 @@ impl Loop<'_> {
         }
     }
 
+    /// The edges of the held table reads' cells ([`crate::held`]) at an
+    /// event's point: inside their cells (an exact zero too); and an edge
+    /// the argument is next to (it just crossed it), where the argument
+    /// reads iteration variables, held inside within what their tolerances
+    /// allow in it: the integrator makes them consistent again as it
+    /// restarts, which can put the argument a little short of the edge,
+    /// and a function that starts on the wrong side of zero would not be
+    /// seen to cross it when the argument goes back ([`HOLD`], as a
+    /// condition on them is held on its side).
+    fn hold_cells(&mut self, t: f64, y: &[f64], d: &[f64]) {
+        if self.info.held.is_empty() {
+            return;
+        }
+        let l = *self.model.layout();
+        let mut near = vec![];
+        for h in &self.info.held {
+            for ax in &h.axes {
+                for (c, edge) in [(ax.below, d[ax.lo]), (ax.above, d[ax.hi])] {
+                    if c >= self.raw.len() {
+                        continue;
+                    }
+                    self.sides[c] = 1.0;
+                    if l.n_z > 0 && self.raw[c] <= 1e-3 * (1.0 + edge.abs()) {
+                        near.push(c);
+                    }
+                }
+            }
+        }
+        if near.is_empty() {
+            return;
+        }
+        let after = self.raw.clone();
+        let mut band = vec![0.0; after.len()];
+        let mut yp = y.to_vec();
+        for i in l.n_x..l.n_y() {
+            let tol = self.opts.rtol * y[i].abs() + self.opts.atol * self.info.y_nominal[i];
+            yp[i] = y[i] + tol;
+            self.eval_raw(t, &yp, d);
+            yp[i] = y[i];
+            for &c in &near {
+                band[c] += (self.raw[c] - after[c]).abs();
+            }
+        }
+        self.raw = after;
+        for &c in &near {
+            let h = HOLD * band[c];
+            if h > 0.0 && self.raw[c] <= h {
+                self.hold[c] = self.hold[c].max(h);
+            }
+        }
+    }
+
     /// Releases the holds ([`Loop::update_sides`]) of the functions that
     /// reached their held side at the end of a step (`t`, `y`), or went
     /// back past zero by more than their hold (the integrator saw them
@@ -746,8 +805,13 @@ impl Loop<'_> {
     /// Whether the sides put a crossing the integrator reported (`dirs`)
     /// back on the side it crossed from.
     fn undone(&self, dirs: &[i32]) -> bool {
+        // (a held read's edge the argument crossed is the next cell's then,
+        // positive again: nothing undone)
         dirs.iter().enumerate().any(|(c, &r)| {
-            r != 0 && !self.timed(c) && self.sides.get(c).is_some_and(|s| *s != f64::from(r))
+            r != 0
+                && !self.timed(c)
+                && !self.held_root.get(c).copied().unwrap_or(false)
+                && self.sides.get(c).is_some_and(|s| *s != f64::from(r))
         })
     }
 
@@ -1058,12 +1122,23 @@ impl Loop<'_> {
             ),
             EventKind::Time(k) => (usize::MAX, format!("time event {k}")),
             EventKind::States(k) => (usize::MAX, format!("the states chosen again (set {k})")),
+            EventKind::Cell(k) => (
+                usize::MAX,
+                format!(
+                    "the table '{}' read in the cell its argument went on in",
+                    self.info.held.get(k).map(|h| h.label.as_str()).unwrap_or("a table")
+                ),
+            ),
         };
         self.events.push(EventRecord { t, when, label: label.clone(), kind });
         // storm detection: state events only (clocks and time events are
         // scheduled, not chattering, and so is what they cause at their
         // instant: a controller switching a mode from one tick to the next)
-        if self.scheduled || matches!(kind, EventKind::Block(_) | EventKind::Time(_)) {
+        // (nor a held table read going on in its next cell: its argument
+        // crossing the table's breakpoints, as often as the data has them)
+        if self.scheduled
+            || matches!(kind, EventKind::Block(_) | EventKind::Time(_) | EventKind::Cell(_))
+        {
             return Ok(());
         }
         self.recent.push_back((t, label));
@@ -1195,6 +1270,8 @@ impl Loop<'_> {
     ) -> Result<(), SolveError> {
         let info = self.info;
         let mut iterations = 0;
+        // the held table reads moved at this instant (crate::held::place)
+        let mut moved = vec![false; info.held.len()];
         loop {
             if any_fired {
                 self.solve_z(integ, t, y, d, z_for)?;
@@ -1250,6 +1327,16 @@ impl Loop<'_> {
                     again = true;
                     flipped.push(m.label.clone());
                     self.record(t, EventKind::Mode(k))?;
+                }
+            }
+            // the table reads held in their cells whose arguments left them
+            // (crate::held): in the cells they are in now
+            if !info.held.is_empty() {
+                for k in crate::held::place(self.model, info, &self.roots, t, d, &moved)? {
+                    moved[k] = true;
+                    again = true;
+                    flipped.push(format!("the table '{}' read in its cells", info.held[k].label));
+                    self.record(t, EventKind::Cell(k))?;
                 }
             }
             if !again {
@@ -2041,6 +2128,17 @@ fn run_watched<'a>(
             m
         },
         when_of_root: vec![None; l.n_roots + model.table_guard_list().len()],
+        held_root: {
+            let mut v = vec![false; l.n_roots + model.table_guard_list().len()];
+            for ax in info.held.iter().flat_map(|h| &h.axes) {
+                for c in [ax.below, ax.above] {
+                    if c < v.len() {
+                        v[c] = true;
+                    }
+                }
+            }
+            v
+        },
         outside_since: vec![None; model.table_guard_list().len()],
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
@@ -3017,12 +3115,17 @@ fn run_watched<'a>(
 
         // a mode its condition no longer agrees with (one that left zero
         // right after a restart, where root finding cannot see it)
-        if !event_now && !info.modes.is_empty() {
+        if !event_now && (!info.modes.is_empty() || !info.held.is_empty()) {
             lp.eval_roots(t, &y, &d, false);
             let stale = info.modes.iter().any(|m| {
                 let g = lp.roots[m.crossing];
                 !lp.timed(m.crossing)
                     && ((g > 0.0 && d[m.discrete] == 0.0) || (g < 0.0 && d[m.discrete] != 0.0))
+            }) || info.held.iter().flat_map(|h| &h.axes).any(|ax| {
+                // (an edge held inside, within its hold, is inside)
+                [ax.below, ax.above]
+                    .iter()
+                    .any(|&c| lp.roots[c] < -lp.hold.get(c).copied().unwrap_or(0.0))
             });
             if stale {
                 let before = ledger.as_mut().map(|lg| lg.before_event(t, &lp.vars, p));

@@ -52,9 +52,9 @@ pub use flat::{
     PortPower, VarId, VarRole,
 };
 pub use prepared::{
-    AliasEntry, AliasTarget, Assignment, Direction, ExternalBlock, InitSystem, InverseSpec,
-    LimitSite, Mode, ParamGuard, PrepStats, PreparedModel, PreparedWhen, Residual, Slot, StateSet,
-    ZeroCrossing,
+    AliasEntry, AliasTarget, Assignment, Direction, ExternalBlock, HeldAxis, HeldRead, InitSystem,
+    InverseSpec, LimitSite, Mode, ParamGuard, PrepStats, PreparedModel, PreparedWhen, Residual,
+    Slot, StateSet, ZeroCrossing,
 };
 pub use runtime::{
     BooksCover, BooksKernel, BooksPart, BooksSpec, ConditionKernels, DiscreteBlock, Enclosure,

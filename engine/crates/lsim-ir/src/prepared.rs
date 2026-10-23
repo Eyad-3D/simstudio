@@ -169,6 +169,54 @@ pub struct Mode {
     pub origin: Origin,
 }
 
+/// A table read at a state, held in its cell during every step: Park and
+/// Barton's discontinuity locking (DESIGN.md §8.2, *Tables read at a
+/// state*). Where the read (or the derivative of it the model reads) has a
+/// kink or a jump at the table's breakpoints and its argument moves with
+/// the states, preparation writes it in the equations as its cell's
+/// polynomial in powers of `(a − m)`, the coefficients and the point `m`
+/// discrete, and watches the cell's edges as zero crossings; the run sets
+/// them for the cell the argument is in at the start and whenever it
+/// crosses an edge (an event, after which the integrator restarts), so that
+/// no step integrates across a breakpoint.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct HeldRead {
+    /// the read as the model wrote it (flat scope, an [`Expr::Table`]):
+    /// the table, its arguments and the derivative read
+    pub read: Expr,
+    /// one per argument of the read, in order
+    pub axes: Vec<HeldAxis>,
+    /// the polynomial's degree along each argument (its cells' degree, the
+    /// derivative read taken off: 1 for a linear table's value, 0 for its
+    /// first derivative, 3 for a cubic's value; 0 along a second argument a
+    /// 1-D table does not have)
+    pub degree: [u8; 2],
+    /// the discrete coefficients, that of `(a₁ − m₁)^i (a₂ − m₂)^j` at
+    /// `i · (degree[1] + 1) + j`
+    pub coef: Vec<VarId>,
+}
+
+/// An argument of a [`HeldRead`]: the discrete variables that hold its
+/// cell, and the zero crossings of the cell's edges.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct HeldAxis {
+    /// the cell (its index, as a number: 0 below the data, i between its
+    /// points i − 1 and i, n above its last point n − 1; a negative number
+    /// before the run sets it)
+    pub cell: VarId,
+    /// the point of the cell the polynomial is written at
+    pub anchor: VarId,
+    /// the cell's lower and upper edge (±1e300 where it is open)
+    pub lo: VarId,
+    /// (see `lo`)
+    pub hi: VarId,
+    /// the zero crossing `a − lo`, positive inside the cell (index into
+    /// [`PreparedModel::zero_crossings`])
+    pub below: usize,
+    /// the zero crossing `hi − a`
+    pub above: usize,
+}
+
 /// The initialisation system (DESIGN.md, *Initialisation*): it computes a
 /// consistent start of a run from the parameters (and the inputs at the
 /// start time) with its own sorted equations — the model's equations,
@@ -401,6 +449,10 @@ pub struct PreparedModel {
     /// watches (none when nothing was differentiated)
     #[serde(default)]
     pub state_sets: Vec<StateSet>,
+    /// the table reads held in their cells during every step (no default:
+    /// a model an older engine prepared, which stepped over its tables'
+    /// breakpoints, is prepared again)
+    pub held: Vec<HeldRead>,
 }
 
 impl PreparedModel {
@@ -457,6 +509,7 @@ mod tests {
             guards: vec![],
             warnings: vec![],
             state_sets: vec![],
+            held: vec![],
         };
         assert_eq!(m.input_names(), ["body.v", "der(body.v)"]);
         assert!(m.init.is_empty());

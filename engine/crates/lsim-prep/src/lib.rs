@@ -35,6 +35,7 @@ pub mod diagnose;
 pub mod external;
 pub mod flatten;
 pub mod graph;
+pub mod hold;
 pub mod index;
 pub mod init;
 pub mod inverse;
