@@ -612,8 +612,9 @@ pub struct StateSetInfo {
     pub parts: Vec<String>,
     /// the candidates: the variable whose derivative each column is
     pub candidates: Vec<String>,
-    /// whether the model's `stateSelect` (or a `reinit`) marks a column
-    pub marked: bool,
+    /// per column: the model marks it to be kept as a state (`prefer`,
+    /// `always`, a restarted state)
+    pub kept: Vec<bool>,
 }
 
 /// What a state set's entries read, and so when its pivots can change.
@@ -654,7 +655,7 @@ impl StateSetInfo {
             rows: s.words.clone(),
             parts: s.parts.clone(),
             candidates: s.candidates.clone(),
-            marked: s.marked,
+            kept: s.kept.clone(),
         }
     }
 }

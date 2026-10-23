@@ -292,11 +292,13 @@ pub struct StateSet {
     /// the columns left out of the choice (kept above all: `stateSelect =
     /// always`, a state `reinit` restarts)
     pub masked: Vec<bool>,
-    /// whether the model's `stateSelect` (or a `reinit`) marks a column of
-    /// it: the marks then lead the choice, which a run makes again only
-    /// where it nears the run's limit (dynamic state selection)
+    /// per column, whether the model marks it to be kept as a state
+    /// (`stateSelect = prefer` or `always`, a state a `reinit` restarts):
+    /// while a choice keeps such a column, the marks lead it, and a run
+    /// makes it again only where it nears the run's limit (dynamic state
+    /// selection)
     #[serde(default)]
-    pub marked: bool,
+    pub kept: Vec<bool>,
 }
 
 /// Counts that describe the preparation, for the run report.

@@ -18,12 +18,12 @@
 //!    the Jacobian of the differentiated equations evaluated at the
 //!    initial point, preferring to keep as states the variables marked so
 //!    (Modelica's `stateSelect`), then those whose start values are fixed.
-//!    The choice is static: if the initial point makes every choice
-//!    singular (a pendulum started exactly horizontal in the coordinate the
-//!    selection needs), the preparation says so instead of switching states
-//!    during the run (risk R3). What was chosen, and among what
-//!    ([`ChosenSet`]), goes with the prepared model, so the run can watch
-//!    the choice's pivots and stop where they degrade.
+//!    The choice is made at the start; where it degrades along a run, the
+//!    run makes it again at that point by the same pivoting
+//!    ([`crate::ChoosePoint`]: dynamic state selection). If the initial
+//!    point makes every choice singular, preparation says so. What was
+//!    chosen, and among what ([`ChosenSet`]), goes with the prepared model,
+//!    so the run can watch the choice's pivots.
 
 use crate::graph::{Bipartite, NONE, groups, hopcroft_karp};
 use crate::symbolic::diff;
@@ -314,8 +314,9 @@ pub struct ChosenSet {
     /// the columns left out of the choice (kept above all) when a regular
     /// choice did without them
     pub masked: Vec<bool>,
-    /// whether the model marks a column (`stateSelect`, a `reinit`)
-    pub marked: bool,
+    /// per column: the model marks it to be kept as a state (`prefer`,
+    /// `always`, a restarted state)
+    pub kept: Vec<bool>,
 }
 
 /// Chooses the dummy derivatives after [`pantelides`]. `vals` are node
@@ -509,11 +510,14 @@ pub fn dummy_derivatives(
                     unkept.push(Unkept { nodes, factor: ps.worst_exchange() });
                 }
             }
-            let marked = classes.is_some() || strong.contains(&true);
+            let kept: Vec<bool> = col_nodes
+                .iter()
+                .map(|&nd| keep[sys.nodes[nd].integral.unwrap_or(nd)] >= KEEP_PREFER)
+                .collect();
             match selected {
                 Some((sel, masked)) => {
                     chosen_all.extend(sel.iter().map(|&c| col_nodes[c]));
-                    sets.push(ChosenSet { rows, cols: col_nodes, pivots: sel, masked, marked });
+                    sets.push(ChosenSet { rows, cols: col_nodes, pivots: sel, masked, kept });
                 }
                 None => {
                     return Err(IndexFault::Singular { eqs: rows.clone(), nodes: col_nodes });

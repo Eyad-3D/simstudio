@@ -268,9 +268,9 @@ fn index_diag(flat: &FlatSystem, sys: &Sys, f: IndexFault) -> Diagnostic {
             let mut d = Diagnostic::error(
                 "STATE-SELECT-SINGULAR",
                 format!(
-                    "At the start, the constraints of {} are singular for every fixed choice of \
-                     states: the run would have to switch which variables are states, which the \
-                     engine does not do.",
+                    "At the start, the constraints of {} are singular for every choice of \
+                     states: no choice of the variables to integrate starts there (a run chooses \
+                     them again where they degrade, but it must start with one that works).",
                     diagnose::join_names(&names)
                 ),
             )
@@ -330,7 +330,7 @@ fn state_sets(
                 .collect(),
             pivots: cs.pivots.clone(),
             masked: cs.masked.clone(),
-            marked: cs.marked,
+            kept: cs.kept.clone(),
         })
         .collect()
 }

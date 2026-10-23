@@ -13,8 +13,11 @@
 //! further on not at all (a pendulum whose x is decided from y at the
 //! bottom of its swing): the integrator then fails without saying why, or
 //! passes the point on the wrong branch and returns a wrong answer without
-//! a word. The engine does not switch states while it runs, so the run
-//! stops there instead, naming the constraint and the parts.
+//! a word. Where the model gives its other choices ([`RunInfo::choices`]),
+//! the run chooses the states again before that ([`Watch::switching`],
+//! [`crate::choice`]: dynamic state selection); without them, or where no
+//! other choice works there, the run stops there instead, naming the
+//! constraint and the parts.
 //!
 //! The measure ([`lsim_ir::choice`]): with `M` the constraints'
 //! derivatives by the candidates and `S` the chosen columns, `B = M_S⁻¹ M`
@@ -207,10 +210,18 @@ fn failing(
              in coordinates that stay regular through it (an angle)"
         )
     } else {
-        let swap = format!(
-            "The run would have to take {chosen} as a state in place of {other}, and the \
-             engine keeps the states it chose at the start"
-        );
+        let swap = if info.choices.is_some() {
+            format!(
+                "The run would have to take {chosen} as a state in place of {other}, and \
+                 choosing the states again here gave none that works better"
+            )
+        } else {
+            format!(
+                "The run would have to take {chosen} as a state in place of {other}, and it \
+                 keeps the states chosen at the start (the model was given no other choice of \
+                 states to switch to)"
+            )
+        };
         match &how {
             How::Start => format!(
                 "at the start, the states chosen when the model was prepared do not work: {row} \
@@ -446,8 +457,14 @@ pub(crate) struct Watch {
     /// scratch rows
     tmp: Vec<Vec<f64>>,
     vals: Vec<f64>,
-    /// the moving entries where [`Watch::switch_point`] looks
+    /// the moving entries where [`Watch::switch_point`] looks, at time
+    /// `probe_t`; `probe_ok`: the run checks that point next with the same
+    /// channels ([`Watch::probed`]), so they are not evaluated again
     vals_probe: Vec<f64>,
+    probe_t: f64,
+    probe_ok: bool,
+    /// scratch of [`Watch::switch_point`]'s checks
+    reach_probe: Vec<f64>,
     /// the last point checked: its time, and how many events the run had
     /// recorded there
     at_t: f64,
@@ -533,6 +550,9 @@ impl Watch {
             tmp: vec![],
             vals: vec![],
             vals_probe: vec![],
+            probe_t: f64::NAN,
+            probe_ok: false,
+            reach_probe: vec![],
             at_t: f64::NAN,
             at_events: 0,
             at_work: vec![],
@@ -544,8 +564,9 @@ impl Watch {
     }
 
     /// The watch choosing the states again where a set's factor passes
-    /// `switch` (`MARKED`, if larger, for a set whose columns the model's
-    /// `stateSelect` marks) times its factor where the entries that do not
+    /// `switch` (`MARKED`, if larger, for a set whose choice keeps a column
+    /// the model marks to be kept: `stateSelect` leads it) times its factor
+    /// where the entries that do not
     /// move were last read (the start, an event that changed what they
     /// read), where that is above one, where the run can
     /// ([`RunInfo::choices`]): [`Watch::switch_point`].
@@ -556,7 +577,15 @@ impl Watch {
         for w in &mut self.sets {
             if w.moving {
                 let set = &info.state_sets[w.k];
-                w.base = if set.marked { switch.max(MARKED) } else { switch };
+                // (a choice that keeps a column the model marks to be kept
+                // is the marks' choice: they lead it)
+                let honoured = set
+                    .kept
+                    .iter()
+                    .enumerate()
+                    .any(|(c, &k)| k && !set.pivots.contains(&c) && !set.masked[c])
+                    || set.kept.iter().zip(&set.masked).any(|(&k, &m)| k && m);
+                w.base = if honoured { switch.max(MARKED) } else { switch };
                 w.switch = w.base;
             }
         }
@@ -599,11 +628,14 @@ impl Watch {
         events: usize,
         inside: &mut dyn FnMut(f64, &mut Vec<f64>) -> bool,
     ) -> Option<(f64, usize)> {
+        self.probe_ok = false;
+        self.probe_t = f64::NAN;
         if !self.may_switch() || events != self.at_events {
             return None;
         }
         let mut vals = std::mem::take(&mut self.vals_probe);
         moving_values(&self.exprs, self.compiled.as_mut(), info, model, t, vars, &mut vals);
+        self.probe_t = t;
         let mut found: Option<(f64, usize)> = None;
         for j in 0..self.sets.len() {
             let w = &self.sets[j];
@@ -638,11 +670,36 @@ impl Watch {
                 self.tmp[cell.r][cell.c] = vals[cell.k];
             }
             let set = &info.state_sets[w.k];
-            let ps = pivot_state(set, &mut self.tmp, &mut self.s);
+            let mut reach = std::mem::take(&mut self.reach_probe);
+            let ps = lsim_ir::choice::pivot_state_with(
+                &set.pivots,
+                &set.masked,
+                &mut self.tmp,
+                &mut self.s,
+                false,
+                Some(&mut reach),
+            );
             let crossed = w.sign * ps.sign < 0.0;
             if !(ps.exchange > w.switch || ps.exchange.is_nan() || crossed) {
+                // (nothing to choose again: the check here, as the step's
+                // end's would make it, is kept for the bound's next look)
+                let e = ps.worst_exchange();
+                if e * DEGRADED <= 1.0 {
+                    let w = &mut self.sets[j];
+                    for cell in &mut w.cells {
+                        w.m[cell.r][cell.c] = vals[cell.k];
+                        cell.base = vals[cell.k];
+                        cell.reach = reach[cell.r];
+                    }
+                    std::mem::swap(&mut w.reach, &mut reach);
+                    w.e0 = e;
+                    w.sign = ps.sign;
+                }
+                self.reach_probe = reach;
                 continue;
             }
+            self.reach_probe = reach;
+            let w = &self.sets[j];
             let (t0, sign0, limit) = (w.t_prev, w.sign, w.switch);
             let k = w.k;
             // at the step's end, where the integrator's corrector holds the
@@ -667,6 +724,13 @@ impl Watch {
         }
         self.vals_probe = vals;
         found
+    }
+
+    /// The point [`Watch::switch_point`] last looked at, `t`, is checked
+    /// next with the same channels: the moving entries it evaluated there
+    /// are those.
+    pub(crate) fn probed(&mut self, t: f64) {
+        self.probe_ok = self.probe_t == t;
     }
 
     /// A switch the run could not make for set `k` (no better choice
@@ -888,8 +952,22 @@ impl Watch {
         d: &[f64],
         mut inside: Option<&mut Inside<'_>>,
     ) -> Result<(), SolveError> {
-        // every moving entry, each distinct one once
-        moving_values(&self.exprs, self.compiled.as_mut(), info, model, t, vars, &mut self.vals);
+        // every moving entry, each distinct one once (where the switch's
+        // look evaluated them at these channels already: those)
+        if self.probe_ok && self.probe_t == t && self.vals_probe.len() == self.exprs.len() {
+            std::mem::swap(&mut self.vals, &mut self.vals_probe);
+        } else {
+            moving_values(
+                &self.exprs,
+                self.compiled.as_mut(),
+                info,
+                model,
+                t,
+                vars,
+                &mut self.vals,
+            );
+        }
+        self.probe_ok = false;
         for j in 0..self.sets.len() {
             let w = &mut self.sets[j];
             let set = &info.state_sets[w.k];
@@ -1164,7 +1242,7 @@ mod tests {
             rows: vec!["'pendulum' (the rod keeps its length)".into(); 3],
             parts: vec!["pendulum".into()],
             candidates: (0..cols).map(|k| format!("c{k}")).collect(),
-            marked: false,
+            kept: vec![false; cols],
         }
     }
 

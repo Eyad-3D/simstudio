@@ -26,7 +26,7 @@
 //! | `SINGULAR-LOOP` | a loop the equations cannot solve with the parameters given (a loop of sources whose resistances are all zero) |
 //! | `INIT-OVER` | initial equations that contradict the model or each other |
 //! | `INIT-START-IGNORED` | a fixed start value the model cannot meet (warning) |
-//! | `STATE-SELECT-SINGULAR` | no fixed choice of states works at the start (index reduction) |
+//! | `STATE-SELECT-SINGULAR` | no choice of states works at the start (index reduction) |
 //! | `STATE-SELECT-ALWAYS` | a variable marked `stateSelect = always` that cannot be a state (warning) |
 //! | `STATE-SELECT-NEVER` | a variable marked `stateSelect = never` that has to be one (warning) |
 //! | `STATE-SELECT-PREFER` | a variable marked `stateSelect = prefer` whose choice of states would start too near the run's limit to be taken (warning) |

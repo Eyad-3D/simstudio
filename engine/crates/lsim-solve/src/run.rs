@@ -1877,6 +1877,18 @@ struct Current<'a> {
     integ: Option<Box<dyn Integrator + 'a>>,
 }
 
+/// The channels at a step's end the switch's look took ([`switch`]), for
+/// the step's end itself.
+#[derive(Default)]
+struct Probe {
+    /// the step's end has these channels: no tick changed anything since
+    valid: bool,
+    t: f64,
+    y: Vec<f64>,
+    vars: Vec<f64>,
+    work: Vec<f64>,
+}
+
 /// A switch to the states chosen again, asked for at the point the run is
 /// at ([`switch`]).
 struct Pending<'a> {
@@ -2109,6 +2121,7 @@ fn run_watched<'a>(
     let mut errors_left: Vec<(String, f64, f64, f64)> = vec![];
     let mut switch_notes: Vec<String> = vec![];
     let mut switches = 0usize;
+    let mut probe = Probe::default();
     while t < t_end {
         // the states chosen again: the run goes on with them from here
         if let Some(sw) = pending.take() {
@@ -2290,6 +2303,7 @@ fn run_watched<'a>(
             Some(i) => i,
             None => &mut *integ0,
         };
+        probe.valid = false;
         dense_gen += 1;
         // the time crossings' times move only when a discrete value does
         // (a time function's next sign change after one fired too)
@@ -2390,8 +2404,17 @@ fn run_watched<'a>(
         // be chosen again (the step is cut back there)
         if !same && watch.may_switch() {
             let t1 = st.time();
-            let y1 = y_cut.clone().unwrap_or_else(|| integ.y().to_vec());
-            let v1 = lp.vars_at(t1, &y1, &d);
+            // the channels at the step's end (kept for the step's end below,
+            // where nothing changed them since: the same values)
+            probe.t = t1;
+            probe.y.clear();
+            probe.y.extend_from_slice(y_cut.as_deref().unwrap_or(integ.y()));
+            probe.vars.resize(l.n_vars, 0.0);
+            probe.work.resize(l.n_work, 0.0);
+            let inp = EvalInput { t: t1, y: &probe.y, p: &info.params, d: &d, u };
+            model.vars(&inp, &mut probe.work, &mut probe.vars);
+            probe.valid = true;
+            let (y1, v1) = (&probe.y, &probe.vars);
             let l_now = l;
             let mut y_in = vec![];
             let mut work_in = vec![];
@@ -2407,7 +2430,7 @@ fn run_watched<'a>(
                     model.vars(&inp, &mut work_in, v);
                     true
                 };
-                watch.switch_point(info, model, t1, &v1, &d, lp.events.len(), &mut inside)
+                watch.switch_point(info, model, t1, v1, &d, lp.events.len(), &mut inside)
             };
             if let Some((ts, k)) = found {
                 let cut = ts < t1 && !same_instant(ts, t1);
@@ -2416,7 +2439,7 @@ fn run_watched<'a>(
                     integ.interpolate(ts, &mut yv)?;
                     yv
                 } else {
-                    y1
+                    y1.clone()
                 };
                 let (e, _) = watch.standing(info, model, k, ts, &lp.vars_at(ts, &ys, &d));
                 let window = watch.threshold(k);
@@ -2695,8 +2718,9 @@ fn run_watched<'a>(
                         continue;
                     }
                     // (what the change does to the integrator is read
-                    // afresh)
+                    // afresh; the channels at the step's end too)
                     dense_gen += 1;
+                    probe.valid = false;
                     // the outputs changed: an event at the tick; the rest of
                     // the step is dropped
                     if !have_y {
@@ -2823,7 +2847,14 @@ fn run_watched<'a>(
             }
             (None, cut) => {
                 y.copy_from_slice(cut.as_deref().unwrap_or(integ.y()));
-                lp.sample(t_new, &y, &d);
+                // (the channels the switch's look at the step's end took,
+                // where nothing has moved since: the same values)
+                if probe.valid && probe.t == t_new {
+                    std::mem::swap(&mut lp.vars, &mut probe.vars);
+                    watch.probed(t_new);
+                } else {
+                    lp.sample(t_new, &y, &d);
+                }
                 rec.interior(t_new, lp.recorded());
             }
         }
