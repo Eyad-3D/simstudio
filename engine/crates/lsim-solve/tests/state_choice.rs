@@ -850,3 +850,61 @@ fn events_and_ticks_near_the_point_leave_the_run_choosing_again() {
         assert!(off < 0.05, "rtol {rtol:e}: the display {off} m off x");
     }
 }
+
+/// A sampled block whose output steps once, at `.0`, from 0 to 1 (`.1` its
+/// period).
+struct StepAt(f64, f64);
+
+impl DiscreteBlock for StepAt {
+    fn name(&self) -> &str {
+        "'Step'"
+    }
+    fn period(&self) -> f64 {
+        self.1
+    }
+    fn init(&mut self, _: f64, _: &[f64], _: &mut [f64]) -> Result<(), String> {
+        Ok(())
+    }
+    fn tick(&mut self, t: f64, _: &[f64], outputs: &mut [f64]) -> Result<(), String> {
+        outputs[0] = if t >= self.0 { 1.0 } else { 0.0 };
+        Ok(())
+    }
+}
+
+/// A tick that restarts the run inside the step where the states are to be
+/// chosen again, before the point: the switch is made after the tick, from
+/// where the run is there (the watch looks again from the point after it),
+/// not from the point the step's look found. A block whose output steps
+/// once, read by a lag the integrator integrates, idle until then (its
+/// ticks inside the integrator's steps), the step at every 0.1 ms in the 5
+/// ms before the first switch (at 0.6550 s at rtol 1e-4): before, the run
+/// went on from 0.6500 … 0.6549 s with the states of 0.6550 s, the pendulum
+/// put 5 ms ahead and 2.7e-2 to 3.1e-2 m off; now 3.2e-4 m.
+#[test]
+fn a_tick_that_restarts_the_run_inside_a_switch_s_step_leaves_the_switch_to_after_it() {
+    let lib = common::library();
+    let mut lag = with_sampled(pendulum(2.8, StateSelect::Default), "held");
+    lag.params.push(param("tau", "s", 0.05, "the lag's time constant"));
+    lag.vars.push(state("z", "m", 0.0, "a lag on the held step"));
+    lag.equations.push(eq(der("z"), (n("held") - n("z")) / n("tau"), "z follows the step"));
+    let built = common::build_dynamic(&lib, &lag);
+    let want = reference(2.8, 1.0);
+    let period = 1e-4;
+    let info = sampling(&built, "held", period);
+    let rtol = 1e-4;
+    let opts = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.01 };
+    for k in 0..50 {
+        let at = 0.65 + 1e-4 * k as f64;
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(StepAt(at, period))];
+        let r = simulate(&built.jit, &info, &opts, grid, &mut blocks).expect("runs");
+        let col = |name: &str| &r.values[r.names.iter().position(|v| v == name).expect(name)];
+        let (x, y) = (col("x"), col("y"));
+        let err = want
+            .iter()
+            .zip(x.iter().zip(y))
+            .map(|((wx, wy), (x, y))| (x - wx).abs().max((y - wy).abs()))
+            .fold(0.0, f64::max);
+        assert!(switches(&r) > 0 && err < 10.0 * rtol, "the step at {at:.4} s: {err:e} m off");
+    }
+}

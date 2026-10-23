@@ -1901,6 +1901,10 @@ struct Pending<'a> {
     cut: bool,
     /// the set's factor there
     e: f64,
+    /// the point's time: the switch is made there or not at all (a tick
+    /// inside the step that restarted the run before it leaves the watch
+    /// to look again from the tick)
+    t: f64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2124,7 +2128,7 @@ fn run_watched<'a>(
     let mut probe = Probe::default();
     while t < t_end {
         // the states chosen again: the run goes on with them from here
-        if let Some(sw) = pending.take() {
+        if let Some(sw) = pending.take().filter(|sw| sw.t == t) {
             let old: &mut dyn Integrator = match cur.integ.as_deref_mut() {
                 Some(i) => i,
                 None => &mut *integ0,
@@ -2352,7 +2356,7 @@ fn run_watched<'a>(
                 window,
             ) {
                 Ok(next) => {
-                    pending = Some(Pending { k, next, cut: false, e });
+                    pending = Some(Pending { k, next, cut: false, e, t });
                     continue;
                 }
                 Err(why) => {
@@ -2459,7 +2463,7 @@ fn run_watched<'a>(
                             y_cut = Some(ys);
                             st = Step::Stopped(ts);
                         }
-                        pending = Some(Pending { k, next, cut, e });
+                        pending = Some(Pending { k, next, cut, e, t: ts });
                     }
                     Err(why) => {
                         if switch_notes.len() < 20 {
