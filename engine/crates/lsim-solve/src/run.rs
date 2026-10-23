@@ -2724,13 +2724,25 @@ fn run_watched<'a>(
                     // (what the change does to the integrator is read
                     // afresh; the channels at the step's end too)
                     dense_gen += 1;
-                    probe.valid = false;
                     // the outputs changed: an event at the tick; the rest of
                     // the step is dropped
                     if !have_y {
                         integ.interpolate(tk, &mut yk)?;
                     }
-                    lp.sample(tk, &yk, &d);
+                    // (at the step's end, the channels the switch's look
+                    // took there, where it is the same point: the same
+                    // values)
+                    let same_point = probe.valid
+                        && probe.t == tk
+                        && probe.y.len() == yk.len()
+                        && probe.y.iter().zip(&yk).all(|(a, b)| a.to_bits() == b.to_bits());
+                    if same_point {
+                        std::mem::swap(&mut lp.vars, &mut probe.vars);
+                        watch.probed(tk);
+                    } else {
+                        lp.sample(tk, &yk, &d);
+                    }
+                    probe.valid = false;
                     rec.interior(tk, lp.recorded());
                     // the choice of states up to the tick, before it
                     // changes anything (the step's dense output holds the

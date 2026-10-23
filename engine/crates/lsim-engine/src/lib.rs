@@ -26,8 +26,12 @@
 //!   states is made at the values the model was prepared at; a change at
 //!   which that choice does not work at the start is refused the same way,
 //!   naming the constraint (the model's initialisation at the new values,
-//!   then the chosen pivots there: [`lsim_solve::states`]), and a run whose
-//!   choice degrades along the way stops there, naming it.
+//!   then the chosen pivots there: [`lsim_solve::states`]). A run whose
+//!   choice degrades along the way chooses the states again there and
+//!   goes on ([`lsim_solve::choice`]: the model is prepared again with the
+//!   states pivoted at that point, compiled once per choice and kept with
+//!   the model); where no other choice works there, it stops, naming the
+//!   constraint.
 //! * **Fast mode**: [`Engine::build_inverse`] prepares the inverse model
 //!   of an [`InverseSpec`], and [`Model::fast`] steps it ([`lsim_fast`]),
 //!   flagging every limit preparation passed through (it never changes the
