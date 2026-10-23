@@ -1302,10 +1302,20 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    jump (`TimeTable::kink`; measured on a gear whose ratio is a linear
    table over time: 2·10⁻⁸ off the closed form with a plain stop at the
    breakpoint, 4·10⁻¹¹ with this, and 1·10⁻¹¹ read backwards in time, at
-   rtol 10⁻¹⁰). Read at a state, a jump's time is not
-   known ahead: the integrator steps over it as over any piecewise-smooth
-   right-hand side, its error test shrinking the step there (the same gear
-   with the ratio a linear table of the load's speed: 7·10⁻¹¹).
+   rtol 10⁻¹⁰). Read at a state, a jump's time is not known ahead: the
+   read is held in its cell during every step and its crossing of the
+   breakpoint found by root finding, an event after which the integrator
+   restarts in the next cell (section 8.2, *Tables read at a state*).
+   Stepped over as any piecewise-smooth right-hand side, as it was until
+   23 October 2026, its error was not proportional to the tolerance: the
+   same gear with the ratio a linear table of the load's speed, written in
+   the text format (the outside judge's `kink-gear-linear`, run on CVODE's
+   Adams method as the run chose it), 9.7, 9.9, 23, 25, 28, 167 and 178
+   rtol off the closed form at rtol 10⁻⁴ … 10⁻¹⁰ (the library's gear on
+   IDA, the one measurement before, 7·10⁻¹¹ at 10⁻¹⁰); held, 1.1, 1.0, 1.2,
+   1.8, 2.8, 1.2 and 1.7 rtol, as the run of the same function written as
+   `if` branches on its breakpoints (the same steps, the states the same
+   to about 10⁻¹²).
 
    *Not smooth enough* (`INDEX-TABLE-NOT-SMOOTH`): a table differentiated
    more often than that is refused, naming the table, the equation and
@@ -2223,6 +2233,92 @@ round).**
   (`ModelFunctions::table_axes`) where they differ from the prepared
   ones, for these stops and for the enclosures of the conditions on
   functions of time (`RunInfo::with_model_tables`).
+* *Tables read at a state are held in their cells* (`lsim_prep::hold`,
+  `lsim-solve/src/held.rs`; Park and Barton's discontinuity locking, ACM
+  TOMACS 6(2), 1996). A table read at a position that moves with the
+  states has no breakpoint times ahead. Where the read kinks or jumps at
+  its breakpoints (it is read at least as often differentiated as the
+  table is smooth: a linear table's value, a table held at its edges, a
+  derivative index reduction reads), stepping over it is not
+  proportional to the tolerance. Measured on exact answers before the
+  change (the outside judge's `kink-…` cases, section 15, the seventh
+  verdict, each beside the same function written as `if` branches on its
+  breakpoints, every crossing then a mode located by root finding): a
+  jump read through index reduction ended up to 178 rtol off where the
+  located run is within 3 (a gear whose ratio is a linear table of the
+  load's speed; 5 261 in a sweep of a cubic held at its edges), and many
+  kinks of a value read cost up to 5 or 6 times the located run's error
+  (geometric means per tolerance over sweeps, the method held to Adams:
+  0.8 … 5.1 for a spring whose force is a linear table of its position,
+  234 crossings in 100 s, 1.4 … 5.9 for a table of two states);
+  a single crossing, and a monotone cubic's second derivative (`r''`
+  jumping where the model reads `r'`), were within the located run's
+  error. The decision rule (written before the measurement): an error
+  whose slope over rtol 10⁻⁴ … 10⁻¹⁰ falls below 0.8 where the located
+  one's does not, that passes 100 rtol where the located one does not, or
+  that is 10 times the located one's at two tolerances. So preparation
+  writes each such read as its cell's polynomial in powers of `(a − m)`
+  (degree 1 along an axis of a linear table, 3 of a cubic, the derivative
+  read taken off), the coefficients and the point `m` discrete variables,
+  and adds the cell's edges as zero crossings `a − lo` and `hi − a`,
+  positive inside and watched as they fall. The run puts every held read
+  in the cell its argument lies in before the integrator starts
+  (`init::start`), in every round of event iteration where an edge
+  function is below zero (as a mode is set from its relation), and after a
+  step that ended outside its cell unseen by root finding (as a stale
+  mode); it sets the coefficients from the table the model interpolates,
+  at a point inside the cell, where the table's Taylor coefficients are
+  the cell's polynomial, exact to rounding (outside the data a held axis's
+  constant, a linear one's line). So no step integrates across a
+  breakpoint: inside its cell the right-hand side is the cell's
+  polynomial, continued across the edge until root finding finds the
+  crossing, where the integrator restarts in the next cell (an event,
+  `EventKind::Cell`, which is no event storm). A linear table continued
+  linearly outside has no cell of its own there (no kink at its data's
+  edges); the table guards stay on the reads as written, so an `Error`
+  axis stops the run where it leaves the data and a held one books its
+  time outside, as before. An edge the argument has just crossed, where
+  the argument reads iteration variables (which the integrator makes
+  consistent again as it restarts, and which can put the argument a
+  little short of the edge), is held inside within `HOLD` times what
+  their tolerances allow in it, as a condition on them is held on its
+  side; a read moved at an instant does not move back at the same
+  instant for that. Every preparation of a model holds the same reads in
+  the same discrete variables (made in the order of the reads' keys), so
+  a run that chooses its states again keeps them. Not held: a read along
+  time (the stop times above), at parameters or discrete values, in the
+  initialisation, a `when` or a zero crossing, a table smooth enough for
+  the read (a monotone cubic's value continued linearly, C¹), fast mode's
+  inverse model and a model with no state. The edge functions are left to
+  root finding, not checked along the step (a pair of crossings inside
+  one step, out of a cell and back, is missed: the known limit of
+  conditions on states). A table given data after the build that
+  interpolate with a higher degree (a linear table's data swapped for a
+  cubic's) stops the run, asking to build the model again
+  (`Settings::hold_table_cells` off steps over every table, for
+  comparison only). Held, every judge case is its located run's (the
+  ratio 1.00 at every tolerance; the cubic gear 0.82 … 1.41, its
+  polynomial in another form): the gear 1.1 … 2.8 rtol in 36 … 102 steps
+  (it took 41 … 180 with 17 … 75 error-test failures, now 5 … 18), the
+  many-kink spring in 8 132 steps at rtol 10⁻¹⁰ where it took 20 058. The
+  golden cars read their motor and battery maps, all linear tables, at
+  states: every case of the golden comparison moved by the tolerance (at
+  most 1.8·10⁻³ of a band, but the hybrid's clutch losses, about
+  5·10⁻¹⁰ kW where the band is its floor of 10⁻⁹, by 0.2 and 0.02 of it),
+  none across its band; their crossings are events (the BEV's WLTC 2 879,
+  from 122; the hybrid's UDDS 126 830, from 118 072), the steps 0.25 %
+  more, the books closed to 1.3·10⁻⁹ (6.6·10⁻¹⁰ before), the comparison's
+  CPU time the same within this machine's noise (88.6 and 90.2 s before,
+  90.0 and 89.6 s after, back to back), the BEVs' runs 10 to 25 % longer
+  (about 2 800 restarts each), the hybrid's the same. Their error against
+  the same case at rtol 10⁻⁹ falls with the tolerance as before (slopes
+  0.73 … 1.06 over the channels, 0.69 … 1.08 before but for the hybrid's
+  HWFET, whose clutch losses at rtol 10⁻⁴ were 2 200 bands off and are
+  0.4 now): the cars' maps are smooth enough, and their kinks crossed
+  rarely enough (the BEV's WLTC: 2 951 crossings in 868 of its 213 215
+  steps at rtol 10⁻⁶, 7.6 % of its error-test failures in a crossing's
+  step and the two after; the hybrid's 0.9 to 1.7 %), that stepping over
+  them had cost them little.
 * *Conditions on explicit functions of time.* A zero-crossing function
   that reads time beyond `c · time + b` (`sin(2π time / T) > 0.95`: a
   heater, a PWM, a load switched by a sine) is classified by preparation
@@ -3584,6 +3680,50 @@ events name the modes that chatter.
   runs (the angle form in 7): 10, 53, 649, 70, 100, 71 and 52 rtol, the
   angle form 12 … 11, its error 5.4e-5 m before its first switch (the x-y
   form's own).
+
+  The seventh verdict (the solver work's A3, 23 October 2026: tables read
+  at a state, section 8.2, *Tables read at a state*). Seven new cases,
+  each beside its control `…-located`, the same function written as `if`
+  branches on the same breakpoints (every crossing a mode, located by
+  root finding), against closed forms per piece with the crossings
+  solved at 40 digits (each reference checked against DOP853 at rtol
+  10⁻¹³ restarted at its crossings: 2·10⁻¹⁴ … 2.3·10⁻¹²): a spring whose
+  force is a linear table of its position, crossing one breakpoint
+  (`kink-spring-one`), five of them 234 times in 100 s
+  (`kink-spring-many`), or held at its edges and leaving them 30 times
+  (`kink-spring-clamp`); the gear whose ratio is a table of the load's
+  speed, linear (`kink-gear-linear`: `r'` jumps), a monotone cubic
+  (`kink-gear-cubic`: `r''` jumps) and a cubic held at its edges with the
+  torque reversed (`kink-gear-clamp`); a mass driven by a table of two
+  states (`kink-2d`, 64 crossings). The decision rule was written before
+  the runs (lanes notes): not proportional where the error's slope over
+  the seven tolerances falls below 0.8 while the control's does not, or
+  its error in rtol grows tenfold from the loose to the tight tolerances
+  while the control's grows less than threefold, or it passes 100 rtol
+  where the control does not, or it is ten times the control's at two
+  tolerances (a hundred at one). Stepped over, the gear's error in rtol
+  at 10⁻⁴ … 10⁻¹⁰ was 9.7, 9.9, 23, 25, 28, 167 and 178 (the control 1.1,
+  1.0, 1.2, 1.8, 2.8, 1.2, 1.7), the clamped gear's 6.7 … 131 (the control
+  0.7 … 3.7), and a sweep of 20 torques (20 release points of the springs,
+  12 of the two-state table, 10 reversal times, 6 torques of the cubic)
+  failed the rule in every gear run, 7 of the 10 clamped gears, and,
+  with the method held to Adams (the run's choice; `auto` took BDF for
+  the stepped-over spring and Adams for its control), 12 of the 20
+  many-kink springs, every two-state table (by the 100 rtol test; its
+  error 1.4 to 5.9 times the control's, geometric means per tolerance),
+  20 of 20 clamped springs; one crossing and the cubic gear passed. With
+  BDF the gears passed but for one clamped one: the jumps hurt the Adams
+  method most. Held, every case is its control's: the error ratio 1.00 at
+  every tolerance (the cubic gear 0.82 … 1.41), the gear's error 1.1 …
+  2.8 rtol, the two-state table's 17 … 245 (stepped over 19 … 1 215), the
+  many-kink spring's 530 … 4 900 (2 600 … 27 000). Every other run of the
+  judge is bitwise as before (399 runs; the release-angle sweep's
+  pendulums read no table). The springs over many periods are more than
+  100 rtol off in both forms: the error of a long oscillation, which the
+  restarts at its crossings add to; on the clamped spring (30 edge
+  crossings in five periods) as much as the kinks did, stepped over 55 …
+  790 rtol and held 10 … 1 370, worse at five tolerances of seven (the run
+  goes from Adams to BDF and back at each of its events).
 * **Performance gates**: not built yet. When they are, they compare build
   time (prepare + compile) and run time for each example car in both modes
   with the base commit (as the backend's performance job does) and with
