@@ -899,10 +899,13 @@ impl Watch {
             let set = &info.state_sets[k];
             let kept = need.is_infinite();
             let row = set.rows.first().map_or("a constraint", String::as_str);
+            // (a set whose choice the switch kept is blamed at its own
+            // factor, not the asking set's: its threshold is raised from
+            // where it stands)
             if !apart {
                 return Err((
                     blame,
-                    None,
+                    kept.then_some(e),
                     format!("{row} does not decide the variables for any choice of states there"),
                 ));
             }
@@ -1663,6 +1666,13 @@ mod tests {
         // rod 0 chosen again no better than its threshold: rod 0 is to blame
         let e = holds([0.35, -0.1, 0.4, -1.0]).unwrap_err();
         assert_eq!((e.0, e.1), (0, None), "{e:?}");
+        // rod 1 kept, its constraint deciding nothing there: it is to blame
+        // at its own factor (before: none given, and the run raised its
+        // threshold by rod 0's)
+        let e = holds([0.1, -0.4, 0.0, 0.0]).unwrap_err();
+        assert!(e.2.contains("rod 1 does not decide"), "{e:?}");
+        assert_eq!(e.0, 1, "{e:?}");
+        assert!(e.1.is_some_and(|f| f != 4.0), "{e:?}");
     }
 
     #[test]
