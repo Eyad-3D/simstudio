@@ -454,11 +454,16 @@ end Judge.Pendulum;
 
 
 def pendulum(theta0: float, v0: float, t_end: float, kind: dict,
-             x_select: str | None = None) -> tuple[str, dict]:
-    """The pendulum in x and y; `x_select` x's stateSelect (`prefer`)."""
+             x_select: str | None = None, level: bool = False) -> tuple[str, dict]:
+    """The pendulum in x and y; `x_select` x's stateSelect (`prefer`);
+    `level`: released exactly level, x = L and y = 0 to the bit (with
+    theta0 = pi/2 the starts written in it put y 6e-17 m below)."""
     mark = f", stateSelect = StateSelect.{x_select}" if x_select else ""
     text = (PENDULUM.replace("{theta0}", num(theta0)).replace("{v0}", num(v0))
             .replace("{x_select}", mark))
+    if level:
+        text = (text.replace("start = L * sin(theta0)", "start = L")
+                .replace("start = -L * cos(theta0)", "start = 0"))
     case = {"model": "Judge.Pendulum", "t_end": t_end, "dt": 0.01, "atol_factor": 1e-2,
             "record": ["x", "y", "vx", "vy"],
             "judge": dict(kind="pendulum", theta0=theta0, v0=v0, m=1.0, L=1.0, g=9.81, **kind)}
@@ -905,6 +910,10 @@ def all_cases(sweep: bool) -> dict[str, tuple[str, dict]]:
                    else [0.4, 1.5, 1.55, 3.0, 3.13]):
         out[f"pendulum-swing-{theta0:.2f}"] = pendulum(theta0, 0.0, 10.0, {})
         out[f"pendulum-angle-{theta0:.2f}"] = pendulum_angle(theta0, 0.0, 10.0, {})
+    # released exactly level (x = L, y = 0 to the bit): the rod's velocity
+    # constraint x vx + y vy = 0 says nothing of vy there, and only the
+    # states y, vy work at the start
+    out["pendulum-level"] = pendulum(math.pi / 2, 0.0, 10.0, {}, level=True)
     for m in [0.5, 0.9, 0.99, 0.999]:
         v0 = math.sqrt(4 * 9.81 * 1.0 / m)
         out[f"pendulum-loop-{m}"] = pendulum(0.0, v0, 10.0, {"loop_m": m})
@@ -1713,6 +1722,9 @@ def scored(cases_dir: Path, results: Path, cache: Path) -> dict:
             row = {"rtol": r["rtol"], "ok": r["ok"], "wall_ms": 1e3 * r.get("wall_s", float("nan"))}
             if r["ok"]:
                 row.update({k: r[k] for k in ("steps", "err_test_fails", "events", "nonlin_fails")})
+                # the states chosen again during the run (dynamic state
+                # selection; a runner from before it has none)
+                row["switches"] = r.get("switches", 0)
                 try:
                     row.update(score_run(case, ref, cache, r))
                 except Exception as e:  # a run whose results cannot be scored
@@ -1889,7 +1901,7 @@ def report(cases_dir: Path, cache: Path, after: dict, before: dict | None,
                  "stair": ("event_time_error", "event time error s"),
                  "count": ("count", "count"),
                  "msl": ("limit_time_error", "limit's times error s")}[case["judge"]["kind"]]
-        cols = ["rtol", "error", "scd", extra[1], "steps", "ETF", "events", "wall ms"]
+        cols = ["rtol", "error", "scd", extra[1], "steps", "ETF", "events", "switches", "wall ms"]
         b_rows = {r["rtol"]: r for r in (before or {}).get(name, {}).get("rows", [])}
         md.append("| " + " | ".join(cols) + " |")
         md.append("|" + "---|" * len(cols))
@@ -1923,7 +1935,7 @@ def report(cases_dir: Path, cache: Path, after: dict, before: dict | None,
                 f"{r['rtol']:.0e}", error, cell("scd", ".2f"),
                 cell(extra[0], ".0f" if extra[0] == "count" else ".1e"),
                 cell("steps", "d"), cell("err_test_fails", "d"), cell("events", "d"),
-                cell("wall_ms", ".2f")]) + " |")
+                cell("switches", "d"), cell("wall_ms", ".2f")]) + " |")
         md.append("")
         if beside:
             md += beside_table(cases_dir, cache, name, results, beside)
