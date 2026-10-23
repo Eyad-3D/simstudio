@@ -377,5 +377,16 @@ class KinkCases(unittest.TestCase):
         md = judge.kink_summary(after)
         self.assertIn("| kink-a | 1e-06 | 4.00 | 2.00 | 2.00 | 10 | 12 | 1 | 1 | 3 |", md)
 
+    def test_the_other_summary_puts_each_case_beside_its_other_way(self):
+        row = lambda e, steps, events: {"rtol": 1e-6, "ok": True, "error": e, "steps": steps,
+                                        "events": events, "crossings": 3}
+        after = {"kink-b": {"rows": [row(2e-6, 10, 0)]}, "kink-b-held": {"rows": [row(8e-6, 30, 3)]},
+                 "kink-c": {"rows": [row(1e-6, 20, 6)]}, "kink-c-over": {"rows": [row(5e-5, 15, 0)]}}
+        md = judge.kink_beside_summary(after)
+        # the other way's error over the engine's
+        self.assertIn("| kink-b | held | 1e-06 | 2.00 | 8.00 | 4.00 | 10 | 30 | 0 | 3 | 3 |", md)
+        self.assertIn("| kink-c | over | 1e-06 | 1.00 | 50.00 | 50.00 | 20 | 15 | 6 | 0 | 3 |", md)
+        self.assertEqual(judge.kink_beside_summary({"kink-b": {"rows": []}}), "")
+
 if __name__ == "__main__":
     unittest.main()

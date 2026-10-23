@@ -1210,6 +1210,39 @@ def kink_2d(xs, fx, ys, gy, x0: float, v0: float, y0: float, t_end: float, dt: f
     return text, case
 
 
+KINK_PASS = '''model Judge.KinkPass "A quantity v whose rate is a table of itself, {what}: v rises through each point once{leaves}."
+  parameter Real k(unit = "1/s") = 1 "the rate per unit T";
+  parameter Real T = {table} "the rate over v";
+  Real v(start = 0, fixed = true);
+equation
+  der(v) = k * {rate} "the rate";
+end Judge.KinkPass;
+'''
+
+
+def kink_pass(what: str, points, values, interp: str | None, outside: str | None, t_end: float,
+              dt: float, located: bool) -> tuple[str, dict]:
+    """v' = T(v) from v = 0, T a table of v, positive along the way (v rises
+    through each point once); `interp` None: the table as the text format
+    writes one by default (a monotone cubic, held at its edges), its rules
+    not written. `located`: T written as `if` branches."""
+    pieces = pieces_1d(points, values, interp or "cubic", outside or "clamp")
+    table = table_text(points, values, interp or "cubic", outside or "clamp")
+    if interp is None:
+        table = table[:table.index(', xUnit')] + ")"
+    leaves = ", and leaves the data at its last" if pieces[-1][3][1:] == [] else ""
+    text = (KINK_PASS.replace("{what}", what).replace("{leaves}", leaves)
+            .replace("{table}", table)
+            .replace("{rate}", f"({if_chain(pieces, 'v')})" if located else "T(v)"))
+    if located:
+        text = (text.replace("Judge.KinkPass", "Judge.KinkPassLocated")
+                .replace("  parameter Real T = ", "  parameter Real T_table = "))
+    case = {"model": "Judge.KinkPassLocated" if located else "Judge.KinkPass",
+            "t_end": t_end, "dt": dt, "atol_factor": 1e-2, "record": ["v"],
+            "judge": {"kind": "kink", "problem": "pass", "pieces": pieces}, "located": located}
+    return text, case
+
+
 def kinks() -> dict[str, tuple[str, dict]]:
     """The kink cases, each beside its `-located` control."""
     out = {}
@@ -1221,7 +1254,8 @@ def kinks() -> dict[str, tuple[str, dict]]:
     # one breakpoint, crossed once: F = -x below 0.5, three times as stiff above
     both("kink-spring-one", kink_spring, "linear, its slope -1 below 0.5 and -3 above",
          [-1.0, 0.5, 2.0], [1.0, -0.5, -5.0], "linear", "linear", 1.0, 0.0, 2.5, 0.01)
-    # seven breakpoints, all kinks, five of them kinks, crossed about 280 times in 28 periods
+    # seven breakpoints, the five inside crossed 234 times in 100 s (about 23 periods; the
+    # edge cells are continued: no kink at -1 and 1)
     both("kink-spring-many", kink_spring,
          "linear, its slopes -4, -3, -1.83, -1, -2 and -4 from left to right",
          [-1.0, -0.7, -0.3, 0.0, 0.3, 0.7, 1.0], [2.95, 1.75, 0.55, 0.0, -0.3, -1.1, -2.3],
@@ -1245,6 +1279,40 @@ def kinks() -> dict[str, tuple[str, dict]]:
     # a table of two states: kinks at x = -0.4, 0.2, 0.8 and y = -0.2, 0.3
     both("kink-2d", kink_2d, [-1.0, -0.4, 0.2, 0.8, 1.4], [2.2, 1.0, -0.8, -2.0, -4.4],
          [-0.6, -0.2, 0.3, 0.7], [0.4, 0.0, 0.25, -0.15], 1.0, 0.0, 0.9, 30.0, 0.02)
+
+    # Beside the engine's own way, the other way (the runner's option
+    # "table_cells"): `-held`, a value read held in its cells as a read that
+    # jumps is ("kinks"); `-over`, a read that jumps stepped over ("off").
+    # Each crossing held is a restart of the integrator: dense tables show
+    # its cost against stepping over.
+    def beside(name, suffix, cells, make, *a):
+        text, case = make(*a, False)
+        out[name] = (text, case)
+        out[f"{name}-{suffix}"] = (text, dict(case, options={"table_cells": cells}))
+
+    # the density sweep: a spring whose force, -x - 2 x^3, is sampled at n
+    # points as a linear table (its value kinks: stepped over), and the gear
+    # whose ratio, 2 + w/40 + 0.25 sin(w/8), is (r' jumps: held)
+    for n in (41, 401):
+        xs = [-1.0 + 2.0 * k / (n - 1) for k in range(n)]
+        beside(f"kink-dense-spring-{n}", "held", "kinks", kink_spring, f"-x - 2 x^3 at {n} points",
+               xs, [-x - 2.0 * x ** 3 for x in xs], "linear", "linear", 0.9023, 0.0, 20.0, 0.02)
+        ws = [80.0 * k / (n - 1) for k in range(n)]
+        beside(f"kink-dense-gear-{n}", "over", "off", kink_gear,
+               f"linear through 2 + w/40 + 0.25 sin(w/8) at {n} points", ws,
+               [2.0 + w / 40.0 + 0.25 * math.sin(w / 8.0) for w in ws], "linear", "linear", None,
+               3.0, 0.01)
+    # one pass through a dense table: v' = T(v), T linear through
+    # 3 - 0.002 v^2 at 301 points on [0, 40] (v tends to 38.7: 290 crossings)
+    ps = [40.0 * k / 300 for k in range(301)]
+    beside("kink-pass-301", "held", "kinks", kink_pass, "linear through 3 - 0.002 v^2 at 301 points",
+           ps, [3.0 - 0.002 * p * p for p in ps], "linear", "linear", 60.0, 0.05)
+    # the table as the text format writes one by default (a monotone cubic,
+    # held at its edges): C1 between its points, its value kinking at the
+    # last, where v leaves the data
+    ps = [0.5 * k for k in range(41)]
+    beside("kink-pass-default", "held", "kinks", kink_pass, "2 + sin(v/3) at 41 points, the default table",
+           ps, [2.0 + math.sin(p / 3.0) for p in ps], None, None, 14.0, 0.01)
     return out
 
 
@@ -1921,6 +1989,57 @@ def kink_2d_reference(j: dict, times: list[float]) -> dict:
     return {**out, "crossings": crossings}
 
 
+def kink_pass_reference(j: dict, times: list[float]) -> dict:
+    """v' = T(v) from v = 0 (k = 1), T > 0 along the way, piece by piece at
+    40 digits: where T = a + b v, v = v_inf + (v_e - v_inf) exp(b (t - t_e))
+    (v_inf = -a/b; v_e + a (t - t_e) where b = 0), the next point reached at
+    log((hi - v_inf) / (v_e - v_inf)) / b; on a cubic piece t(v) = int dv / T
+    by quadrature, inverted by Newton's method."""
+    import mpmath as mp
+    mp.mp.dps = 40
+    pieces = j["pieces"]
+    r, _ = kink_ratio(pieces)
+    t_e, v_e, p = mp.mpf(0), mp.mpf(0), kink_piece(pieces, 0.0)
+    out, crossings, k = [], [], 0
+    while k < len(times):
+        lo, hi, x0, c = pieces[p]
+        affine = all(ck == 0 for ck in c[2:])
+        if affine:
+            b = mp.mpf(c[1]) if len(c) > 1 else mp.mpf(0)
+            a = mp.mpf(c[0]) - b * mp.mpf(x0)
+            if b == 0:
+                at = lambda tau, a=a, v_e=v_e: v_e + a * tau
+                reach = (mp.mpf(hi) - v_e) / a if hi is not None else mp.inf
+            else:
+                v_inf = -a / b
+                at = lambda tau, b=b, v_inf=v_inf, v_e=v_e: v_inf + (v_e - v_inf) * mp.exp(b * tau)
+                q = (mp.mpf(hi) - v_inf) / (v_e - v_inf) if hi is not None else mp.mpf(-1)
+                reach = mp.log(q) / b if q > 0 and mp.log(q) / b > 0 else mp.inf
+        else:
+            time_to = lambda v, p=p, v_e=v_e: mp.quad(lambda w: 1 / r(w, p), [v_e, v])
+            reach = time_to(mp.mpf(hi)) if hi is not None else mp.inf
+
+            def at(tau, p=p, v_e=v_e, time_to=time_to):
+                # Newton from the piece's start along the rate
+                v = v_e + r(v_e, p) * tau
+                for _ in range(200):
+                    step = (time_to(v) - tau) * r(v, p)
+                    v -= step
+                    if abs(step) <= mp.mpf("1e-36") * max(1, abs(v)):
+                        return v
+                raise ValueError("the pass did not converge")
+        while k < len(times) and mp.mpf(times[k]) - t_e < reach:
+            out.append(float(at(mp.mpf(times[k]) - t_e)))
+            k += 1
+        if reach == mp.inf or k == len(times):
+            break
+        t_e += reach
+        v_e = mp.mpf(hi)
+        crossings.append([float(t_e), 0, float(hi), 1.0])
+        p += 1
+    return {"v": out, "crossings": crossings}
+
+
 def kink_check(j: dict, times: list[float], ref: dict) -> float:
     """An independent check of a kink case's reference: the same problem
     integrated by DOP853 at rtol 1e-13 (scipy) piece by piece, stopped at
@@ -1955,6 +2074,13 @@ def kink_check(j: dict, times: list[float], ref: dict) -> float:
         rhs = lambda t, z, c: [z[1], value(pf, c[0], z[0]) + value(pg, c[1], z[2]), z[3], -z[2]]
         names = ["x", "v", "y"]
         chans = lambda z: [z[0], z[1], z[2]]
+    elif prob == "pass":
+        pieces = j["pieces"]
+        z0 = [0.0]
+        cells = lambda z: (kink_piece(pieces, z[0]),)
+        rhs = lambda t, z, c: [value(pieces, c[0], z[0])]
+        names = ["v"]
+        chans = lambda z: [z[0]]
     else:  # the gear in w2: J2 w2' = r t1, t1 from the rotor's balance
         pieces = j["pieces"]
         J1, J2, tau0, t_rev = j["J1"], j["J2"], j["tau0"], j["t_rev"]
@@ -1997,7 +2123,7 @@ def kink_check(j: dict, times: list[float], ref: dict) -> float:
 
 def kink_reference(j: dict, times: list[float]) -> dict:
     make = {"spring": kink_spring_reference, "gear": kink_gear_reference,
-            "2d": kink_2d_reference}[j["problem"]]
+            "2d": kink_2d_reference, "pass": kink_pass_reference}[j["problem"]]
     r = make(j, times)
     r["check"] = kink_check(j, times, r)
     return r
@@ -2707,6 +2833,36 @@ def kink_summary(after: dict) -> str:
     return "\n".join(md)
 
 
+def kink_beside_summary(after: dict) -> str:
+    """The tables read at a state run the engine's way beside the other
+    (`…-held`: a read that only kinks held in its cells as one that jumps
+    is; `…-over`: a read that jumps stepped over): per tolerance, each one's
+    error in rtol, their ratio (the other way's over the engine's), steps
+    and events."""
+    pairs = [(n, f"{n}-{v}", v) for n in sorted(after) for v in ("held", "over")
+             if n.startswith("kink-") and f"{n}-{v}" in after]
+    if not pairs:
+        return ""
+    md = ["## Tables read at a state, the engine's way beside the other\n",
+          "| case | other | rtol | error/rtol | other's | ratio | steps | other's | events | other's | crossings |",
+          "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for k, o, v in pairs:
+        rows_o = {r["rtol"]: r for r in after[o]["rows"]}
+        for r in after[k]["rows"]:
+            q = rows_o.get(r["rtol"])
+            if not (r.get("ok") and q and q.get("ok") and r.get("error") is not None
+                    and q.get("error") is not None):
+                md.append(f"| {k} | {v} | {r['rtol']:.0e} | "
+                          f"{failure_text(r) if not r.get('ok') else '–'} |" + " |" * 7)
+                continue
+            ratio = q["error"] / r["error"] if r["error"] > 0 else float("inf")
+            md.append(f"| {k} | {v} | {r['rtol']:.0e} | {r['error'] / r['rtol']:.2f} | "
+                      f"{q['error'] / q['rtol']:.2f} | {ratio:.2f} | {r['steps']} | {q['steps']} | "
+                      f"{r.get('events', '–')} | {q.get('events', '–')} | {r.get('crossings', '–')} |")
+    md.append("")
+    return "\n".join(md)
+
+
 def runs_by_rtol(results: Path, name: str) -> dict:
     f = results / f"{name}.json"
     if not f.exists():
@@ -2740,7 +2896,7 @@ def beside_table(cases_dir: Path, cache: Path, name: str, results: Path, beside:
 
 def report(cases_dir: Path, cache: Path, after: dict, before: dict | None,
            results: Path | None = None, beside: Path | None = None) -> str:
-    md = [sweep_summary(cases_dir, after), kink_summary(after)]
+    md = [sweep_summary(cases_dir, after), kink_summary(after), kink_beside_summary(after)]
     for name, a in after.items():
         case = json.loads((cases_dir / f"{name}.json").read_text())
         md.append(f"### {name}\n")

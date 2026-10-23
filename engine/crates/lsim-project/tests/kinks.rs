@@ -464,6 +464,67 @@ fn a_dense_table_read_at_a_state_is_stepped_over() {
     assert!(over[..2].iter().zip(&held).all(|(o, h)| 10.0 * o < *h), "{over:?} {held:?}");
 }
 
+/// `v' = T(v)` from 0, `T` linear through 3 − 0.002 v² at 301 points on
+/// [0, 40] (the judge's `kink-pass-301`): `v` rises through 290 of them once
+/// and tends to 38.7. Its value only kinks there: stepped over. Exact per
+/// cell, `v = v∞ + (v₀ − v∞) e^{b t}` where `T = a + b v`. Held (for
+/// comparison), each crossing a restart: 10 … 26 rtol off at rtol 1e-4 …
+/// 1e-8 with 600 … 1 900 steps, where stepped over it is 0.6 … 10 with 37
+/// … 450.
+#[test]
+fn a_single_pass_through_a_dense_table_is_stepped_over() {
+    let ps: Vec<f64> = (0..=300).map(|k| 40.0 * k as f64 / 300.0).collect();
+    let ts: Vec<f64> = ps.iter().map(|p| 3.0 - 0.002 * p * p).collect();
+    let text = format!(
+        r#"model Test.Pass "a quantity whose rate is a linear table of itself"
+  parameter Real k(unit = "1/s") = 1;
+  parameter Real T = {};
+  Real v(start = 0, fixed = true);
+equation
+  der(v) = k * T(v);
+end Test.Pass;
+"#,
+        table_text(&ps, &ts, "1", "linear", "linear")
+    );
+    // exact: per cell an exponential, the next point reached in closed form
+    let times = grid(60.0, 0.05);
+    let (mut t0, mut v0, mut c, mut crossings) = (0.0f64, 0.0f64, 0usize, 0usize);
+    let mut exact = vec![];
+    for &t in &times {
+        loop {
+            let b = (ts[c + 1] - ts[c]) / (ps[c + 1] - ps[c]);
+            let v_inf = ps[c] - ts[c] / b;
+            let q = (ps[c + 1] - v_inf) / (v0 - v_inf);
+            let reach = if q > 0.0 { math::ln(q) / b } else { f64::INFINITY };
+            if t - t0 < reach || c + 2 == ps.len() {
+                exact.push(v_inf + (v0 - v_inf) * math::exp(b * (t - t0)));
+                break;
+            }
+            (t0, v0, c) = (t0 + reach, ps[c + 1], c + 1);
+            crossings += 1;
+        }
+    }
+    assert_eq!(crossings, 290);
+    let m = prepare(&text, "Test.Pass", TableCells::Jumps);
+    assert!(m.held.is_empty(), "{:?}", m.held);
+    let kinks = prepare(&text, "Test.Pass", TableCells::Kinks);
+    let (mut over, mut held) = (vec![], vec![]);
+    for rtol in [1e-4, 1e-6, 1e-8] {
+        let r = run(&m, rtol, 60.0, 0.05);
+        assert_eq!(cells(&r), 0);
+        over.push(error(&r, "v", &exact) / rtol);
+        let h = run(&kinks, rtol, 60.0, 0.05);
+        assert_eq!(cells(&h), 290);
+        held.push(error(&h, "v", &exact) / rtol);
+    }
+    println!("error / rtol, stepped over {over:.2?}, held {held:.2?}");
+    // measured 0.58, 2.6, 10.4 stepped over, with a margin; held 10.1, 26.4,
+    // 23.2
+    for (q, bound) in over.iter().zip([5.0, 15.0, 40.0]) {
+        assert!(*q < bound, "{over:?}");
+    }
+}
+
 /// `v' = T(v)`, `T` a table of `v` as the text format writes one by default
 /// (a monotone cubic, held at its edges): `v` rises through every point
 /// once and leaves the data at its last. Its value is continuously
