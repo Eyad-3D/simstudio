@@ -674,6 +674,51 @@ fn a_pendulum_released_exactly_level_prepares_and_runs() {
     assert_eq!(states(&built), ["y", "vy"]);
     let want = reference(std::f64::consts::FRAC_PI_2, 10.0);
     runs_through(&built, &built.info, &want, 10.0, 2e3);
+    // the release is a double root of the rod's length in y (x fixed at
+    // L): the start's Newton takes it although its Jacobian is singular
+    // there, and the run says so, naming the equation and the variable
+    let opts = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.01 };
+    let r = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs");
+    let told: Vec<&String> =
+        r.report.warnings.iter().filter(|w| w.contains("exactly at the start values")).collect();
+    assert_eq!(told.len(), 1, "{:?}", r.report.warnings);
+    assert!(told[0].contains("the rod keeps its length") && told[0].contains(" by y "), "{told:?}");
+}
+
+/// Two equations that depend on each other everywhere (`x² + y = 0` and
+/// `k x² + k y = 0`: their Jacobian has rank one), at start values that
+/// solve them exactly (x = y = 0): the start is one of a continuum of
+/// roots, which the start's Newton takes, and from which the integrator
+/// cannot start. The run stops with the start's failure, naming the
+/// equations and the variable they do not decide. Before, the same start
+/// ended on IDA's flag (`IDACalcIC`, flag −14), and before the start's
+/// Newton took exact roots at a singular Jacobian (for the pendulum
+/// released exactly level), on the initialisation's failing to converge.
+#[test]
+fn a_start_its_equations_do_not_decide_stops_naming_them() {
+    let start0 = |name: &str| VarDecl { start: Some(c(0.0)), ..var(name, "1", "") };
+    let def = ComponentDef {
+        name: "Test.Dependent".into(),
+        params: vec![param("k", "1", 2.0, ""), param("tau", "s", 1.0, "")],
+        vars: vec![start0("x"), start0("y"), state("z", "1", 0.0, "")],
+        equations: vec![
+            eq(n("tau") * der("z"), n("x") * n("z") + n("y"), "z follows them"),
+            eq(n("x") * n("x") + n("y"), c(0.0), "the first"),
+            eq(n("k") * n("x") * n("x") + n("k") * n("y"), c(0.0), "the second, k times it"),
+        ],
+        ..Default::default()
+    };
+    let lib = common::library();
+    let built = common::build(&lib, &def, false);
+    let opts = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.01 };
+    let e = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect_err("cannot start");
+    let SolveError::Initialisation { t, message } = &e else { panic!("{e}") };
+    assert_eq!(*t, 0.0);
+    // (the equation the dependence shows in: the other is solved for y)
+    assert!(message.contains("the first") || message.contains("the second"), "{e}");
+    assert!(message.contains("by x ") && message.contains("not decide it"), "{e}");
 }
 
 /// A run whose states hold (released at 1 rad: the choice keeps x and vx,

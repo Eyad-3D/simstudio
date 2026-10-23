@@ -38,6 +38,64 @@ pub struct InitOutcome {
     pub homotopy_steps: usize,
     /// the largest residual at the end
     pub residual: f64,
+    /// where Newton took a point that solves the equations exactly although
+    /// their Jacobian is singular there: which equations depend on each
+    /// other there, and which unknowns they do not decide
+    pub undecided: Option<Undecided>,
+}
+
+/// Equations whose Jacobian is singular at a point that solves them
+/// exactly ([`InitOutcome::undecided`]): there they do not decide some of
+/// their unknowns to first order. The point is a multiple root (a rod
+/// released exactly level is a double root of its length's equation in
+/// the height), or one of a continuum of roots (dependent equations, an
+/// over-constrained mechanism at rest): either way the start is not
+/// decided by the equations near it, and the run starts from the point as
+/// it was given.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Undecided {
+    /// the equations (rows of the system) that depend on each other there
+    pub rows: Vec<usize>,
+    /// the unknowns (columns) they do not decide there
+    pub cols: Vec<usize>,
+}
+
+impl Undecided {
+    /// In words: the equations (`row` names each) and the unknowns (`col`).
+    pub fn describe(&self, row: impl Fn(usize) -> String, col: impl Fn(usize) -> String) -> String {
+        let list = |ks: &[usize], f: &dyn Fn(usize) -> String, what: &str| {
+            if ks.is_empty() {
+                return what.to_string();
+            }
+            let mut names: Vec<String> = ks.iter().take(4).map(|&k| f(k)).collect();
+            if ks.len() > 4 {
+                names.push(format!("{} more", ks.len() - 4));
+            }
+            match names.len() {
+                1 => names.remove(0),
+                _ => {
+                    let last = names.pop().unwrap_or_default();
+                    format!("{} and {last}", names.join(", "))
+                }
+            }
+        };
+        let (rows, cols) =
+            (list(&self.rows, &row, "the equations"), list(&self.cols, &col, "their unknowns"));
+        let them = if self.cols.len() == 1 { "it" } else { "them" };
+        let why = "a multiple root, as a rod released exactly level is of its length's \
+                   equation; or dependent equations, one of a continuum of roots";
+        if self.rows.len() == 1 {
+            format!(
+                "{rows} holds exactly at the start values, but its derivative by {cols} is zero \
+                 there: it does not decide {them} near the start ({why})"
+            )
+        } else {
+            format!(
+                "{rows} hold exactly at the start values, but there their derivatives by {cols} \
+                 are dependent: they do not decide {them} near the start ({why})"
+            )
+        }
+    }
 }
 
 impl InitOutcome {
@@ -199,9 +257,115 @@ pub(crate) fn lin_solve(n: usize, trip: &[(usize, usize, f64)], b: &[f64]) -> Op
     x.iter().all(|v| v.is_finite()).then_some(x)
 }
 
+/// Where an `n × n` matrix given as triplets is singular: the rows that
+/// depend on each other (those with a share in a combination of the rows
+/// that vanishes) and the columns they do not decide (those with a share
+/// in a vector the matrix takes to zero), by Gaussian elimination with
+/// full pivoting on the matrix with its rows and columns scaled to their
+/// largest entries (a pivot below 1e-12 counts as zero). Empty for a
+/// regular matrix; `None` above 200 rows (not worth the dense work).
+#[allow(clippy::needless_range_loop)]
+pub(crate) fn dependence(n: usize, trip: &[(usize, usize, f64)]) -> Option<Undecided> {
+    if n > 200 {
+        return None;
+    }
+    let mut a = vec![vec![0.0f64; n]; n];
+    for &(i, j, v) in trip {
+        a[i][j] += v;
+    }
+    for row in &mut a {
+        let m = row.iter().fold(0.0f64, |x, v| x.max(v.abs()));
+        if m > 0.0 {
+            row.iter_mut().for_each(|v| *v /= m);
+        }
+    }
+    for j in 0..n {
+        let m = (0..n).fold(0.0f64, |x, i| x.max(a[i][j].abs()));
+        if m > 0.0 {
+            (0..n).for_each(|i| a[i][j] /= m);
+        }
+    }
+    // the rows' combinations, and where each row and column went
+    let mut comb: Vec<Vec<f64>> =
+        (0..n).map(|i| (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
+    let mut cols: Vec<usize> = (0..n).collect();
+    let mut rank = 0;
+    while rank < n {
+        let (mut bi, mut bj, mut big) = (rank, rank, 0.0f64);
+        for (i, row) in a.iter().enumerate().skip(rank) {
+            for (j, v) in row.iter().enumerate().skip(rank) {
+                if v.abs() > big {
+                    (bi, bj, big) = (i, j, v.abs());
+                }
+            }
+        }
+        if big <= 1e-12 {
+            break;
+        }
+        a.swap(rank, bi);
+        comb.swap(rank, bi);
+        for row in &mut a {
+            row.swap(rank, bj);
+        }
+        cols.swap(rank, bj);
+        for i in rank + 1..n {
+            let f = a[i][rank] / a[rank][rank];
+            if f != 0.0 {
+                for j in rank..n {
+                    a[i][j] -= f * a[rank][j];
+                }
+                for j in 0..n {
+                    comb[i][j] -= f * comb[rank][j];
+                }
+            }
+        }
+        rank += 1;
+    }
+    let mut rows = vec![];
+    for c in comb.iter().skip(rank) {
+        let m = c.iter().fold(0.0f64, |x, v| x.max(v.abs()));
+        for (r, v) in c.iter().enumerate() {
+            if v.abs() > 1e-9 * m && !rows.contains(&r) {
+                rows.push(r);
+            }
+        }
+    }
+    // a vector the matrix takes to zero per column without a pivot: that
+    // column 1, the pivots' columns from the triangle
+    let mut undecided = vec![];
+    for f in rank..n {
+        let mut x = vec![0.0f64; n];
+        x[f] = 1.0;
+        for k in (0..rank).rev() {
+            let mut sum = a[k][f];
+            for j in k + 1..rank {
+                sum += a[k][j] * x[j];
+            }
+            x[k] = -sum / a[k][k];
+        }
+        let m = x.iter().fold(0.0f64, |y, v| y.max(v.abs()));
+        for (k, v) in x.iter().enumerate() {
+            if v.abs() > 1e-9 * m && !undecided.contains(&cols[k]) {
+                undecided.push(cols[k]);
+            }
+        }
+    }
+    rows.sort_unstable();
+    undecided.sort_unstable();
+    Some(Undecided { rows, cols: undecided })
+}
+
 /// Damped Newton on `F(w) - shift = 0`. Returns the iterations used, or
 /// `None` when it did not converge (w is then left at the best point).
-fn newton(sys: &mut dyn System, w: &mut [f64], shift: &[f64], s: &InitSettings) -> Option<usize> {
+/// Where it takes a point that solves the equations exactly although their
+/// Jacobian is singular there, `undecided` tells where.
+fn newton(
+    sys: &mut dyn System,
+    w: &mut [f64],
+    shift: &[f64],
+    s: &InitSettings,
+    undecided: &mut Option<Undecided>,
+) -> Option<usize> {
     let n = sys.n();
     let mut f = vec![0.0; n];
     let mut trial = w.to_vec();
@@ -233,8 +397,11 @@ fn newton(sys: &mut dyn System, w: &mut [f64], shift: &[f64], s: &InitSettings) 
             Some(dw) => dw,
             // a singular Jacobian at a point that solves the equations
             // exactly (a pendulum released exactly level: its rod's length
-            // `x² + y² = L²` at y = 0, a double root): that point
-            None if f.iter().all(|v| *v == 0.0) => return Some(it + 1),
+            // `x² + y² = L²` at y = 0, a double root): that point, told
+            None if f.iter().all(|v| *v == 0.0) => {
+                *undecided = Some(dependence(n, &trip).unwrap_or_default());
+                return Some(it + 1);
+            }
             None => return None,
         };
         let wt = weights(w, sys);
@@ -294,12 +461,14 @@ fn solve(
         sys.residual(w, &mut f);
         f
     };
-    if let Some(it) = newton(sys, w, &zero, s) {
+    let mut undecided = None;
+    if let Some(it) = newton(sys, w, &zero, s, &mut undecided) {
         let f = residual(sys, w);
         return Ok(InitOutcome {
             newton_iterations: it,
             homotopy_steps: 0,
             residual: f.iter().fold(0.0, |a, b| a.max(b.abs())),
+            undecided,
         });
     }
     // homotopy from the start values: H(w, λ) = F(w) - (1 - λ) F(w0)
@@ -315,7 +484,7 @@ fn solve(
         for k in 0..n {
             shift[k] = (1.0 - next) * f0[k];
         }
-        match newton(sys, w, &shift, &settings) {
+        match newton(sys, w, &shift, &settings, &mut None) {
             Some(it) => {
                 out.newton_iterations += it;
                 out.homotopy_steps += 1;
@@ -336,7 +505,7 @@ fn solve(
     }
     if lambda >= 1.0 {
         // polish at λ = 1
-        if let Some(it) = newton(sys, w, &zero, s) {
+        if let Some(it) = newton(sys, w, &zero, s, &mut out.undecided) {
             out.newton_iterations += it;
             let f = residual(sys, w);
             out.residual = f.iter().fold(0.0, |a, b| a.max(b.abs()));
@@ -543,10 +712,39 @@ pub fn initialise(
     u: &[f64],
     s: &InitSettings,
 ) -> Result<String, SolveError> {
+    start(m, info, t0, y0, d0, u, s).map(|st| st.what)
+}
+
+/// What [`start`] did.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Start {
+    /// in words, for the report
+    pub what: String,
+    /// where the initialisation's Newton took start values that solve its
+    /// equations exactly with their Jacobian singular there: in words (the
+    /// equations and the unknowns they do not decide), for the run's
+    /// warnings
+    pub undecided: Option<String>,
+}
+
+/// [`initialise`], telling also where the start values solve the
+/// initialisation's equations exactly but the equations do not decide
+/// them to first order ([`Start::undecided`]).
+#[allow(clippy::too_many_arguments)]
+pub fn start(
+    m: &dyn ModelFunctions,
+    info: &RunInfo,
+    t0: f64,
+    y0: &mut [f64],
+    d0: &mut [f64],
+    u: &[f64],
+    s: &InitSettings,
+) -> Result<Start, SolveError> {
     let l = *m.layout();
     let p = &info.params;
     let mut work = vec![0.0; l.n_work];
     let mut what = String::from("start values as declared");
+    let mut undecided = None;
     for _round in 0..5 {
         if let Some(f) = m.init() {
             let n_w = f.n_w();
@@ -567,7 +765,23 @@ pub fn initialise(
                         what = format!(
                             "the initialisation system ({n_w} unknowns) by {}",
                             out.describe()
-                        )
+                        );
+                        undecided = out.undecided.map(|u| {
+                            u.describe(
+                                |k| {
+                                    info.init_labels
+                                        .get(k)
+                                        .cloned()
+                                        .unwrap_or_else(|| format!("start equation {k}"))
+                                },
+                                |k| {
+                                    info.init_unknowns
+                                        .get(k)
+                                        .cloned()
+                                        .unwrap_or_else(|| format!("start unknown {k}"))
+                                },
+                            )
+                        });
                     }
                     Err((lambda, r)) => {
                         return Err(SolveError::Initialisation {
@@ -594,8 +808,47 @@ pub fn initialise(
         let inp = EvalInput { t: t0, y: y0, p, d: &before, u };
         m.modes(&inp, &mut work, d0);
         if d0 == before.as_slice() || m.init().is_none() {
-            return Ok(what);
+            return Ok(Start { what, undecided });
         }
     }
-    Ok(format!("{what}; the modes still changed after five rounds"))
+    Ok(Start { what: format!("{what}; the modes still changed after five rounds"), undecided })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn trip(m: &[&[f64]]) -> Vec<(usize, usize, f64)> {
+        let mut t = vec![];
+        for (i, row) in m.iter().enumerate() {
+            for (j, &v) in row.iter().enumerate() {
+                if v != 0.0 {
+                    t.push((i, j, v));
+                }
+            }
+        }
+        t
+    }
+
+    #[test]
+    fn a_singular_jacobian_is_told_by_its_dependent_rows_and_undecided_columns() {
+        // regular: nothing
+        let u = dependence(2, &trip(&[&[1.0, 2.0], &[3.0, 4.0]])).expect("small");
+        assert!(u.rows.is_empty() && u.cols.is_empty(), "{u:?}");
+        // x² + y = 0 and k x² + k y = 0 at x = 0: [[0, 1], [0, k]]: both
+        // rows, x undecided
+        let u = dependence(2, &trip(&[&[0.0, 1.0], &[0.0, 2.0]])).expect("small");
+        assert_eq!((u.rows, u.cols), (vec![0, 1], vec![0]));
+        // the rod's length in y at y = 0 beside a row in x alone
+        let u = dependence(2, &trip(&[&[0.0, 0.0], &[3.0, 0.0]])).expect("small");
+        assert_eq!((u.rows, u.cols), (vec![0], vec![1]));
+        // beside a row in both: the vector taken to zero moves both
+        let u = dependence(2, &trip(&[&[0.0, 0.0], &[1.0, 5.0]])).expect("small");
+        assert_eq!((u.rows, u.cols), (vec![0], vec![0, 1]));
+        // one row the sum of two others, every column decided but one
+        let m: &[&[f64]] = &[&[1.0, 0.0, 1.0], &[0.0, 1.0, 1.0], &[1.0, 1.0, 2.0]];
+        let u = dependence(3, &trip(m)).expect("small");
+        assert_eq!(u.rows, vec![0, 1, 2]);
+        assert_eq!(u.cols, vec![0, 1, 2]);
+    }
 }

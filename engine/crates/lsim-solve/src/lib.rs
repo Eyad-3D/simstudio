@@ -829,7 +829,7 @@ pub fn simulate(
     let mut d0 = vec![0.0; l.n_d];
     model.start(&info.params, &mut y0, &mut d0);
     let u = vec![0.0; l.n_u];
-    let start = init::initialise(
+    let start = init::start(
         model,
         info,
         grid.t0,
@@ -847,8 +847,29 @@ pub fn simulate(
     // after preparation, a cached model)
     states::check_start(model, info, grid.t0, &y0, &d0, &u)?;
     let result = run_backend(model, info, opts, grid, y0, d0, u, blocks, started);
+    // start values the initialisation's equations do not decide, from
+    // which the integrator could not start: told as the start's failure
+    let result = match (result, &start.undecided) {
+        (Err(SolveError::Integrator { t, message }), Some(why)) if t == grid.t0 => {
+            Err(SolveError::Initialisation {
+                t,
+                message: format!(
+                    "{why}, and the integrator could not start from them ({message}). Give start \
+                     values that the equations decide, or leave out the equation that depends \
+                     on the others"
+                ),
+            })
+        }
+        (r, _) => r,
+    };
     result.map(|mut r| {
-        r.report.notes.insert(0, format!("start: {start}"));
+        r.report.notes.insert(0, format!("start: {}", start.what));
+        if let Some(why) = &start.undecided {
+            r.report.warnings.insert(
+                0,
+                format!("at the start, {why}: the run starts from the start values as given"),
+            );
+        }
         if let Some(own) = env.changed() {
             r.report.notes.push(format!(
                 "the calling thread's floating-point environment (MXCSR {own:#06x}: flush-to-zero, \

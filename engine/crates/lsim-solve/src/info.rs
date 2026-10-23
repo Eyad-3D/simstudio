@@ -539,6 +539,8 @@ pub struct RunInfo {
     pub table_names: Vec<String>,
     /// for each residual of the initialisation system: the equation it is
     pub init_labels: Vec<String>,
+    /// for each unknown of the initialisation system: the variable it is
+    pub init_unknowns: Vec<String>,
     /// what the impulse projection at a rigid engagement needs; `None`: no
     /// projection (a model that declares no rigid engagement)
     pub impulse: Option<Arc<ImpulseInfo>>,
@@ -837,6 +839,7 @@ impl RunInfo {
             asserts: vec![],
             table_names: vec![],
             init_labels: vec![],
+            init_unknowns: vec![],
             impulse: None,
             time_crossings: vec![],
             events_read_z: true,
@@ -953,6 +956,15 @@ impl RunInfo {
                 .collect(),
             table_names: flat.tables.iter().map(|t| t.name.clone()).collect(),
             init_labels: m.init.residuals.iter().map(|r| labelled(&r.origin)).collect(),
+            init_unknowns: m
+                .init
+                .unknowns
+                .iter()
+                .map(|s| match *s {
+                    Slot::Var(v) => flat.var(v).name.clone(),
+                    Slot::Der(v) => format!("der({})", flat.var(v).name),
+                })
+                .collect(),
             impulse,
             time_functions: time_functions(m, &sources, &time_crossings),
             table_breaks: flat

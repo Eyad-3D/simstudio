@@ -1046,11 +1046,38 @@ impl<'m> Sundials<'m> {
             match h0 {
                 None => {
                     let h = (1e-3 * (self.t_end - t).abs()).max(1e-9);
-                    self.check(
+                    let calc = self.check(
                         IDACalcIC(self.mem, IDA_YA_YDP_INIT, t + h),
                         "the consistent initialisation (IDACalcIC)",
                         t,
-                    )?;
+                    );
+                    // iteration variables their equations do not decide at
+                    // the start (a singular Jacobian there, the start values
+                    // solving them exactly): told as the start's failure
+                    if let (Err(SolveError::Integrator { message, .. }), Some(u)) =
+                        (&calc, &outcome.undecided)
+                    {
+                        let n_x = self.prob.layout.n_x;
+                        let why = u.describe(
+                            |k| {
+                                self.info
+                                    .residual_labels
+                                    .get(k)
+                                    .cloned()
+                                    .unwrap_or_else(|| format!("residual {k}"))
+                            },
+                            |k| self.info.y_names.get(n_x + k).cloned().unwrap_or_default(),
+                        );
+                        return Err(SolveError::Initialisation {
+                            t,
+                            message: format!(
+                                "{why}, and the integrator could not start from them \
+                                 ({message}). Give start values that the equations decide, or \
+                                 leave out the equation that depends on the others"
+                            ),
+                        });
+                    }
+                    calc?;
                     self.check(
                         IDAGetConsistentIC(self.mem, self.y, self.yp),
                         "IDAGetConsistentIC",

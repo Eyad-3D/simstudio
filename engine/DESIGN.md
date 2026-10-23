@@ -1091,7 +1091,18 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    the variable's guess (its start value; a derivative 0), and the
    initialisation's Newton takes a point that solves its equations exactly
    at a singular Jacobian (`x² + y² = L²` at y = 0, a double root): it
-   prepares with y and vy, and runs through its switches. Its cost, counted
+   prepares with y and vy, and runs through its switches. Such a point is
+   told: the run's warnings name the equations whose derivatives are
+   dependent there and the unknowns they do not decide near it (found by
+   elimination with full pivoting on the Jacobian there,
+   `init::dependence`): a multiple root, as here, or one of a continuum
+   of roots (dependent equations, an over-constrained mechanism at
+   rest). Where the integrator then cannot start from it (`x² + y = 0`
+   beside `k x² + k y = 0` at x = y = 0: IDA's consistent initialisation
+   fails), the run stops with the start's failure naming them, its
+   words beside them (`state_choice.rs`; before, IDA's flag −14 alone,
+   and before the Newton took such points, the initialisation's failure
+   to converge). Its cost, counted
    in instructions against the same build with the switch off
    (`state_switch` 0) on runs that do not switch: none on the BEV's WLTC
    (no set moves: nothing is looked at; the two counts differ only by when
