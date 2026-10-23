@@ -1402,6 +1402,20 @@ fn undecided_keep_guess(
         {
             continue;
         }
+        // (the divisor and the remainder read only what the solution
+        // reads: computed before it; a row the solution was found from by
+        // substituting another variable's definition is left as it is)
+        let mut reads = vec![];
+        e.walk(&mut |x| {
+            if let Expr::Var(v) = x {
+                reads.push(*v);
+            }
+        });
+        if a.any(&mut |x| matches!(x, Expr::Var(v) if !reads.contains(v)))
+            || b.any(&mut |x| matches!(x, Expr::Var(v) if !reads.contains(v)))
+        {
+            continue;
+        }
         let abs = |x: Expr| Expr::Call(lsim_ir::Builtin::Abs, vec![x]);
         let undecided =
             Expr::Compare(CmpOp::Le, Box::new(abs(a) + abs(b)), Box::new(Expr::Const(0.0)));

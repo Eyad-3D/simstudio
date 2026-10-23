@@ -9,7 +9,7 @@ use lsim_engine::lsim_ir::component::VarDecl;
 use lsim_engine::lsim_ir::component::build::{eq, param, state, sub, var};
 use lsim_engine::lsim_ir::expr::{Builtin, Expr, c, call, der, name as n};
 use lsim_engine::lsim_ir::{ComponentDef, Library};
-use lsim_engine::lsim_solve::{OutputGrid, SolveError, SolverOptions};
+use lsim_engine::lsim_solve::{EventKind, OutputGrid, SolverOptions};
 use lsim_engine::{BuildOptions, Engine, Model};
 
 /// A pendulum on a rigid rod of length `L0`, released at rest at `theta0`
@@ -93,21 +93,28 @@ fn a_build_at_other_values_is_prepared_again_and_chooses_its_own_states() {
     assert_eq!(level.info.y_names, plain.info.y_names);
     assert_ne!(level.info.y_names, first.info.y_names, "the states are chosen at the values");
     // y and vy, chosen there, no longer decide x at the bottom of the
-    // swing (a quarter period, 0.592 s): both builds stop there, saying so
-    // (before, they passed the bottom 7e-6 m off at rtol 1e-8, 700 rtol)
+    // swing (a quarter period, 0.592 s): both builds choose the states
+    // again there, and again as the rod comes level, and go on, the same
+    // run (before dynamic state selection both stopped at the bottom,
+    // saying so; before the choice was watched, they passed it 7e-6 m off
+    // at rtol 1e-8, 700 rtol)
     let opts = SolverOptions { rtol: 1e-8, atol: 1e-8, ..Default::default() };
-    let stop = |m: &Model| {
-        m.simulate(&opts, OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.01 }).map(|_| ()).unwrap_err()
-    };
-    let (a, b) = (stop(&level), stop(&plain));
-    assert_eq!(a.to_string(), b.to_string());
-    let SolveError::StateSelection { t, message, .. } = &a else { panic!("{a}") };
-    assert!((0.58..0.592).contains(t) && message.contains("'p' (rod) decides p.x"), "{a}");
-    // before it, the swing is right: theta'' = -g sin(theta) integrated
-    // independently (rtol 1e-12) gives x(0.5) = 0.391048792
-    let run = level.simulate(&opts, OutputGrid { t0: 0.0, t_end: 0.5, dt: 0.01 }).expect("runs");
-    let x = run.values[run.names.iter().position(|v| v == "p.x").expect("p.x")][50];
-    assert!((x - 0.391048792).abs() < 1e-7, "x(0.5) = {x}");
+    let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.01 };
+    let a = level.simulate(&opts, grid).expect("runs");
+    let b = plain.simulate(&opts, grid).expect("runs");
+    assert_eq!(a.values, b.values, "the cached build's run is the plain build's");
+    let switches = a.events.iter().filter(|e| matches!(e.kind, EventKind::States(_))).count();
+    assert!(switches >= 2, "{switches} switches");
+    // and right: the closed form (Jacobi's elliptic functions, mpmath at
+    // 34 digits, as the outside judge's `pendulum_reference`) at 0.5, 1,
+    // 1.5 and 2 s, within 100 rtol
+    let ix = a.names.iter().position(|v| v == "p.x").expect("p.x");
+    for (k, want) in
+        [(50, 0.3910487916), (100, -0.9862917511), (150, -0.8841323603), (200, 0.7935661953)]
+    {
+        let x = a.values[ix][k];
+        assert!((x - want).abs() < 1e-6, "x({}) = {x}, the closed form {want}", k as f64 / 100.0);
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
