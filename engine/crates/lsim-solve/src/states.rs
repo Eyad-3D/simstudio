@@ -1608,7 +1608,8 @@ mod tests {
         fn choose(
             &self,
             _: &crate::choice::ChoicePoint,
-        ) -> Result<Arc<crate::choice::Variant>, String> {
+            _: &dyn Fn(&[String]) -> bool,
+        ) -> Result<crate::choice::Chosen, String> {
             Err("none".into())
         }
     }

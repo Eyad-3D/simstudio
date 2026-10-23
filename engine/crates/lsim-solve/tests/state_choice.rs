@@ -799,7 +799,8 @@ fn where_no_other_choice_works_the_run_stops_as_before() {
         fn choose(
             &self,
             _: &lsim_solve::choice::ChoicePoint,
-        ) -> Result<std::sync::Arc<lsim_solve::choice::Variant>, String> {
+            _: &dyn Fn(&[String]) -> bool,
+        ) -> Result<lsim_solve::choice::Chosen, String> {
             Err("no regular choice here".into())
         }
     }
@@ -1078,7 +1079,8 @@ fn each_fallback_stops_naming_why_the_states_were_not_chosen_again() {
         fn choose(
             &self,
             _: &lsim_solve::choice::ChoicePoint,
-        ) -> Result<std::sync::Arc<lsim_solve::choice::Variant>, String> {
+            _: &dyn Fn(&[String]) -> bool,
+        ) -> Result<lsim_solve::choice::Chosen, String> {
             Err("no regular choice here".into())
         }
     }
@@ -1415,8 +1417,14 @@ impl lsim_solve::choice::StateChoices for Worse {
     fn choose(
         &self,
         at: &lsim_solve::choice::ChoicePoint,
-    ) -> Result<std::sync::Arc<lsim_solve::choice::Variant>, String> {
-        let v = self.0.0.choose(at)?;
+        held: &dyn Fn(&[String]) -> bool,
+    ) -> Result<lsim_solve::choice::Chosen, String> {
+        use lsim_solve::choice::Chosen;
+        // (a choice the run holds: its own model, a [`Worse`] one already)
+        let v = match self.0.0.choose(at, held)? {
+            Chosen::Model(v) => v,
+            other => return Ok(other),
+        };
         let mut info = v.info.clone();
         for set in &mut info.state_sets {
             if set.pivots.len() == 1 && set.candidates.len() == 2 {
@@ -1424,11 +1432,11 @@ impl lsim_solve::choice::StateChoices for Worse {
             }
         }
         let states = v.states.clone();
-        Ok(std::sync::Arc::new(lsim_solve::choice::Variant {
+        Ok(Chosen::Model(std::sync::Arc::new(lsim_solve::choice::Variant {
             model: Box::new(Real(v)),
             info,
             states,
-        }))
+        })))
     }
 }
 
@@ -1506,11 +1514,60 @@ fn a_choice_two_runs_compile_at_once_is_kept_once() {
     let runs: Vec<_> = (0..2)
         .map(|_| {
             let (c, at) = (chooser.clone(), at.clone());
-            std::thread::spawn(move || c.choose(&at).expect("a choice"))
+            std::thread::spawn(move || match c.choose(&at, &|_| false).expect("a choice") {
+                lsim_solve::choice::Chosen::Model(v) => v,
+                held => panic!("{held:?}"),
+            })
         })
         .collect();
     let got: Vec<_> = runs.into_iter().map(|h| h.join().expect("ran")).collect();
     assert_eq!(got[0].states, ["x", "vx"]);
     assert!(Arc::ptr_eq(&got[0], &got[1]), "two models for one choice");
     assert_eq!(chooser.kept().len(), 1);
+}
+
+/// A run's switch to a choice it holds a model for (the one it started
+/// with, or one it switched to before) goes on with that model: the
+/// model's choices give it by its states and do not compile it again,
+/// however few choices they keep. The pendulum released at 1.50 rad
+/// switches 17 times between its two choices: one compilation, the run to
+/// the bit the run whose choices keep every one. Before, once the choices
+/// kept no longer held a choice (a run of more than 64 choices: seven or
+/// more sets switching on their own), each switch to it compiled it again
+/// (4 to 8 ms) and the run then took the model it held (here: 17).
+#[test]
+fn a_choice_the_run_holds_is_not_compiled_again() {
+    use lsim_solve::choice::{ChoicePoint, Choices, Rechooser};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let lib = common::library();
+    let def = pendulum(1.5, StateSelect::Default);
+    let built = common::build_dynamic(&lib, &def);
+    let compiled = Arc::new(AtomicUsize::new(0));
+    let (l2, d2, count) = (lib.clone(), def.clone(), compiled.clone());
+    let prepare = move |at: &ChoicePoint| {
+        lsim_prep::prepare_choosing(&l2, &d2, &Default::default(), at.clone())
+            .map_err(|d| format!("{d:?}"))
+    };
+    let compile = move |p: &lsim_ir::PreparedModel| {
+        count.fetch_add(1, Ordering::SeqCst);
+        lsim_codegen::compile(p, &Default::default())
+            .map(|j| Box::new(j) as Box<dyn lsim_ir::runtime::ModelFunctions>)
+            .map_err(|e| e.to_string())
+    };
+    let mut forgetful = built.info.clone();
+    forgetful.choices =
+        Some(Choices(Arc::new(Rechooser::new(Box::new(prepare), Box::new(compile)).keeping(0))));
+    let opts = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 10.0, dt: 0.01 };
+    let r = simulate(&built.jit, &forgetful, &opts, grid, &mut []).expect("runs");
+    let all = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs");
+    assert_eq!(switches(&r), 17);
+    assert_eq!(
+        compiled.load(Ordering::SeqCst),
+        1,
+        "compiled at {} of 17 switches",
+        compiled.load(Ordering::SeqCst)
+    );
+    assert_eq!(r.values, all.values, "the run is the run whose choices keep every one");
 }

@@ -49,10 +49,31 @@ impl std::fmt::Debug for Variant {
 
 /// Where a run gets the model with its states chosen again.
 pub trait StateChoices: Send + Sync {
-    /// The model with index reduction's states chosen at `at`, or why
-    /// there is none (no regular choice there: the parts in a singular
-    /// position).
-    fn choose(&self, at: &ChoicePoint) -> Result<Arc<Variant>, String>;
+    /// The choice of index reduction's states at `at`, or why there is
+    /// none (no regular choice there: the parts in a singular position).
+    /// `held(states)`: whether the asking run holds a model for that
+    /// choice already (the one it started with, or one it switched to):
+    /// that choice is given by its states, not compiled again.
+    fn choose(&self, at: &ChoicePoint, held: &dyn Fn(&[String]) -> bool) -> Result<Chosen, String>;
+}
+
+/// A choice of states made at a point ([`StateChoices::choose`]).
+#[derive(Debug)]
+pub enum Chosen {
+    /// one the asking run holds a model for: its states
+    Held(Vec<String>),
+    /// the model for it
+    Model(Arc<Variant>),
+}
+
+impl Chosen {
+    /// Its states, by name, in order.
+    pub fn states(&self) -> &[String] {
+        match self {
+            Chosen::Held(s) => s,
+            Chosen::Model(v) => &v.states,
+        }
+    }
 }
 
 /// A model's [`StateChoices`], as [`RunInfo::choices`] carries it.
@@ -80,6 +101,8 @@ pub struct Rechooser {
     compile: Box<Compile>,
     /// the choices kept, the one used last at the end
     kept: Mutex<Vec<Kept>>,
+    /// how many it keeps ([`Rechooser::KEPT`])
+    room: usize,
 }
 
 /// A choice compiled: its states, the channels it keeps, the model.
@@ -93,7 +116,13 @@ impl Rechooser {
 
     /// From how to prepare and how to compile.
     pub fn new(prepare: Box<PrepareAt>, compile: Box<Compile>) -> Rechooser {
-        Rechooser { prepare, compile, kept: Mutex::new(vec![]) }
+        Rechooser { prepare, compile, kept: Mutex::new(vec![]), room: Rechooser::KEPT }
+    }
+
+    /// The same, keeping the `room` choices used last (not
+    /// [`Rechooser::KEPT`]).
+    pub fn keeping(self, room: usize) -> Rechooser {
+        Rechooser { room, ..self }
     }
 
     /// The choices kept (their states), the one used last at the end.
@@ -113,13 +142,19 @@ impl Rechooser {
 }
 
 impl StateChoices for Rechooser {
-    fn choose(&self, at: &ChoicePoint) -> Result<Arc<Variant>, String> {
+    fn choose(&self, at: &ChoicePoint, held: &dyn Fn(&[String]) -> bool) -> Result<Chosen, String> {
         let prepared = (self.prepare)(at)?;
         let states: Vec<String> =
             prepared.states.iter().map(|v| prepared.flat.var(*v).name.clone()).collect();
         let lock = || self.kept.lock().map_err(|_| "a run choosing states failed".to_string());
         if let Some(v) = Rechooser::take(&mut *lock()?, &states, &at.channels) {
-            return Ok(v);
+            return Ok(Chosen::Model(v));
+        }
+        // (a choice the run holds a model for, though no longer kept here:
+        // that model; before, it was compiled again, 4 to 8 ms, by a run
+        // that had taken more choices than are kept)
+        if held(&states) {
+            return Ok(Chosen::Held(states));
         }
         // (compiled outside the lock: other runs of a sweep go on meanwhile)
         let model = (self.compile)(&prepared)?;
@@ -129,13 +164,13 @@ impl StateChoices for Rechooser {
         // (another run kept the same choice meanwhile: that one, so each
         // choice is kept once)
         if let Some(other) = Rechooser::take(&mut kept, &states, &at.channels) {
-            return Ok(other);
+            return Ok(Chosen::Model(other));
         }
         kept.push((states, at.channels.clone(), v.clone()));
-        if kept.len() > Rechooser::KEPT {
+        while kept.len() > self.room {
             kept.remove(0);
         }
-        Ok(v)
+        Ok(Chosen::Model(v))
     }
 }
 

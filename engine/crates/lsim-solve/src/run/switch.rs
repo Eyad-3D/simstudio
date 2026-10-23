@@ -18,7 +18,7 @@
 //! with the states it has, and the watch stops it where they degrade past
 //! the run's limit, naming the constraint, as without dynamic selection.
 
-use crate::choice::{ChoicePoint, Variant};
+use crate::choice::{ChoicePoint, Chosen, Variant};
 use crate::{BlockInfo, RunInfo};
 use lsim_ir::runtime::{EvalInput, ModelFunctions};
 use std::cell::OnceCell;
@@ -382,25 +382,31 @@ pub(super) fn choose_at<'a>(
     now.0.vars(&EvalInput { t, y, p: &now.1.params, d, u }, &mut work, &mut vars);
     let xdot = state_rates(now.0, now.1, t, y, d, u);
     let at = point(t, now.1, &vars, y, &xdot, recorded, window, again);
-    let v = choices.0.choose(&at)?;
-    if v.states == states_of(now.1, l.n_x) {
+    let (here, start) = (states_of(now.1, l.n_x), states_of(first.1, first.0.layout().n_x));
+    // (the models the run holds: not compiled again)
+    let held = |s: &[String]| s == here || s == start || arena.find(s).is_some();
+    let chosen = choices.0.choose(&at, &held)?;
+    let states = chosen.states().to_vec();
+    if states == here {
         return Err("choosing the states again there gives the same states".into());
     }
-    let (model, info): (&'a dyn ModelFunctions, &'a RunInfo) =
-        if v.states == states_of(first.1, first.0.layout().n_x) {
-            first
-        } else if let Some(m) = arena.find(&v.states) {
-            (&*m.variant.model, &m.info)
-        } else {
-            let info = run_info(&v, now.1)?;
-            let m = arena.keep(RunModel { variant: v.clone(), info }).ok_or_else(|| {
-                format!(
-                    "the run has switched between {MAX_MODELS} choices of states already (each \
-                     kept for the run's length)"
-                )
-            })?;
-            (&*m.variant.model, &m.info)
+    let (model, info): (&'a dyn ModelFunctions, &'a RunInfo) = if states == start {
+        first
+    } else if let Some(m) = arena.find(&states) {
+        (&*m.variant.model, &m.info)
+    } else {
+        let Chosen::Model(v) = chosen else {
+            return Err("the model's choices gave a choice the run does not hold".into());
         };
+        let info = run_info(&v, now.1)?;
+        let m = arena.keep(RunModel { variant: v, info }).ok_or_else(|| {
+            format!(
+                "the run has switched between {MAX_MODELS} choices of states already (each \
+                 kept for the run's length)"
+            )
+        })?;
+        (&*m.variant.model, &m.info)
+    };
     compatible(now, (model, info))?;
     let map = channel_map(recorded, info).ok_or_else(|| {
         "the model with the states chosen again does not have every channel the run records"
@@ -409,7 +415,7 @@ pub(super) fn choose_at<'a>(
     let y = y_from(info, &at).ok_or_else(|| {
         "the point does not give every state of the model with the states chosen again".to_string()
     })?;
-    Ok(Next { model, info, map, y, states: v.states.clone() })
+    Ok(Next { model, info, map, y, states })
 }
 
 #[cfg(test)]
