@@ -28,24 +28,7 @@ use lsim_ir::PreparedModel;
 use lsim_ir::runtime::ModelFunctions;
 use std::sync::{Arc, Mutex};
 
-/// A point of a run to choose the states at.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ChoicePoint {
-    /// the time
-    pub t: f64,
-    /// the values by name: every channel, and each state's derivative as
-    /// `der(<state>)` (the integrator's)
-    pub values: Vec<(String, f64)>,
-    /// the parameter values, in the flat system's order
-    pub params: Vec<f64>,
-    /// the channels that are derivatives (`der(…)`) of the model the run
-    /// started with: the model switched to keeps them as variables
-    pub channels: Vec<String>,
-    /// the factor the run chose again at (its switch threshold): the
-    /// pivoting there takes a preferred column only within it of a row's
-    /// largest entry, so the choice it leaves is not taken again
-    pub window: f64,
-}
+pub use lsim_ir::choice::{ChoicePoint, KeepSet};
 
 /// A model with the states chosen again.
 pub struct Variant {
@@ -91,10 +74,11 @@ pub type Compile = dyn Fn(&PreparedModel) -> Result<Box<dyn ModelFunctions>, Str
 /// [`StateChoices`] by preparing the model again with its states chosen
 /// at the point (`prepare`) and compiling it (`compile`); each choice is
 /// compiled once and kept, for this and later runs of the model (sweeps
-/// share it across threads).
+/// share it across threads), the [`Rechooser::KEPT`] used last.
 pub struct Rechooser {
     prepare: Box<PrepareAt>,
     compile: Box<Compile>,
+    /// the choices kept, the one used last at the end
     kept: Mutex<Vec<Kept>>,
 }
 
@@ -102,14 +86,29 @@ pub struct Rechooser {
 type Kept = (Vec<String>, Vec<String>, Arc<Variant>);
 
 impl Rechooser {
+    /// How many choices it keeps: a choice used less recently than the
+    /// last this many is compiled again where a run takes it again (a run
+    /// keeps every model it went on with for its own length).
+    pub const KEPT: usize = 64;
+
     /// From how to prepare and how to compile.
     pub fn new(prepare: Box<PrepareAt>, compile: Box<Compile>) -> Rechooser {
         Rechooser { prepare, compile, kept: Mutex::new(vec![]) }
     }
 
-    /// The choices made so far (their states).
+    /// The choices kept (their states), the one used last at the end.
     pub fn kept(&self) -> Vec<Vec<String>> {
         self.kept.lock().map(|k| k.iter().map(|(s, _, _)| s.clone()).collect()).unwrap_or_default()
+    }
+
+    /// The choice `states` keeping the channels `channels`, where it is
+    /// kept (made the one used last).
+    fn take(kept: &mut Vec<Kept>, states: &[String], channels: &[String]) -> Option<Arc<Variant>> {
+        let i = kept.iter().position(|(s, c, _)| s == states && c == channels)?;
+        let found = kept.remove(i);
+        let v = found.2.clone();
+        kept.push(found);
+        Some(v)
     }
 }
 
@@ -118,18 +117,40 @@ impl StateChoices for Rechooser {
         let prepared = (self.prepare)(at)?;
         let states: Vec<String> =
             prepared.states.iter().map(|v| prepared.flat.var(*v).name.clone()).collect();
-        {
-            let kept = self.kept.lock().map_err(|_| "a run choosing states failed".to_string())?;
-            if let Some((_, _, v)) = kept.iter().find(|(s, c, _)| *s == states && *c == at.channels)
-            {
-                return Ok(v.clone());
-            }
+        let lock = || self.kept.lock().map_err(|_| "a run choosing states failed".to_string());
+        if let Some(v) = Rechooser::take(&mut *lock()?, &states, &at.channels) {
+            return Ok(v);
         }
+        // (compiled outside the lock: other runs of a sweep go on meanwhile)
         let model = (self.compile)(&prepared)?;
         let info = RunInfo::from_prepared(&prepared);
         let v = Arc::new(Variant { model, info, states: states.clone() });
-        let mut kept = self.kept.lock().map_err(|_| "a run choosing states failed".to_string())?;
+        let mut kept = lock()?;
+        // (another run kept the same choice meanwhile: that one, so each
+        // choice is kept once)
+        if let Some(other) = Rechooser::take(&mut kept, &states, &at.channels) {
+            return Ok(other);
+        }
         kept.push((states, at.channels.clone(), v.clone()));
+        if kept.len() > Rechooser::KEPT {
+            kept.remove(0);
+        }
         Ok(v)
     }
+}
+
+/// The [`Choices`] of a model whose run information is `info`: the model
+/// prepared again with its states chosen at a run's point (`prepare`),
+/// compiled (`compile`), each choice once ([`Rechooser`]). `None` where no
+/// set of its choice moves with its solution (a run then never chooses
+/// again). The engine's builders give every model theirs by it.
+pub fn rechoosing(
+    info: &RunInfo,
+    prepare: Box<PrepareAt>,
+    compile: Box<Compile>,
+) -> Option<Choices> {
+    if !info.state_sets.iter().any(|s| s.reads == crate::SetReads::Variables) {
+        return None;
+    }
+    Some(Choices(Arc::new(Rechooser::new(prepare, compile))))
 }

@@ -253,6 +253,15 @@ impl Sys {
         nd.kind == NodeKind::Unknown && nd.deriv.is_none()
     }
 
+    /// The equation an equation was made from by differentiating it (itself
+    /// where it was not).
+    pub fn eq_root(&self, mut e: usize) -> usize {
+        while let Some(p) = self.eqs[e].diff_of {
+            e = p;
+        }
+        e
+    }
+
     /// How many times an equation was differentiated to make it.
     pub fn eq_level(&self, mut e: usize) -> u32 {
         let mut k = 0;

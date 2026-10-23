@@ -383,6 +383,21 @@ struct Watched {
     /// why the run last could not choose its states again for this set
     /// ([`Watch::refused`])
     refusal: Option<String>,
+    /// `switch` before any refusal raised it: where the factor falls back
+    /// under it, `switch` is this again (hysteresis)
+    switch0: f64,
+    /// the threshold was carried over from the model the run switched
+    /// from, where this set's choice was the same ([`Watch::adopt`]): the
+    /// first full check keeps it
+    carried: bool,
+    /// the factor the set must be under where the run switches to the
+    /// model this watch is on ([`Watch::holds`]; infinite: only the run's
+    /// limit, a set whose choice the switch kept)
+    need: f64,
+    /// the set of the model the run switches from to blame where this one
+    /// does not hold there (the one chosen again, or this set itself where
+    /// its choice was kept)
+    blame: usize,
 }
 
 /// The bound of [`Watch::check`] on set `w`'s factors with its moving
@@ -562,6 +577,10 @@ impl Watch {
                     base: f64::INFINITY,
                     probed: None,
                     refusal: None,
+                    switch0: f64::INFINITY,
+                    carried: false,
+                    need: f64::INFINITY,
+                    blame: k,
                 }
             })
             .collect();
@@ -630,6 +649,7 @@ impl Watch {
                     || set.kept.iter().zip(&set.masked).any(|(&k, &m)| k && m);
                 w.base = if honoured { switch.max(MARKED) } else { switch };
                 w.switch = w.base;
+                w.switch0 = w.base;
             }
         }
         self
@@ -657,6 +677,47 @@ impl Watch {
         match self.sets.iter().find(|w| w.k == k).and_then(|w| w.refusal.as_deref()) {
             Some(why) => format!("choosing the states again did not work here: {why}"),
             None => "the run did not come to choose the states again before this point".into(),
+        }
+    }
+
+    /// The watch of the model the run switches to, from `old`'s (the model
+    /// `from` it switches from, its set `again` chosen again): a set whose
+    /// choice the switch kept (not one of `again`'s levels, the same set,
+    /// the same columns decided) keeps its threshold, its raised threshold
+    /// and its last refusal, and [`Watch::holds`] asks of it only the run's
+    /// limit; a set chosen again must be under its base threshold (as a
+    /// choice that starts there), and where one is not, the set chosen
+    /// again is to blame.
+    pub(crate) fn adopt(&mut self, old: &Watch, from: &RunInfo, to: &RunInfo, again: usize) {
+        let chosen = from.state_sets.get(again);
+        for w in &mut self.sets {
+            let set = &to.state_sets[w.k];
+            // (the set chosen again, at any of index reduction's levels)
+            let chain = chosen.is_some_and(|c| c.same_chain(set));
+            let before = from
+                .state_sets
+                .iter()
+                .enumerate()
+                .find(|(_, o)| o.same_set(set))
+                .and_then(|(ko, o)| old.sets.iter().find(|ow| ow.k == ko).map(|ow| (o, ow)));
+            match before {
+                Some((o, ow)) if !chain && ow.k != again && o.same_choice(set) => {
+                    w.base = ow.base;
+                    w.switch = ow.switch;
+                    w.switch0 = ow.switch0;
+                    w.refusal.clone_from(&ow.refusal);
+                    w.carried = true;
+                    w.need = f64::INFINITY;
+                    w.blame = ow.k;
+                }
+                // a set chosen again: under its base threshold, as a
+                // choice that starts there (3, or 50 while it keeps a
+                // column the model marks)
+                _ => {
+                    w.need = w.base;
+                    w.blame = again;
+                }
+            }
         }
     }
 
@@ -811,9 +872,12 @@ impl Watch {
     }
 
     /// Whether the choice of a model the run switches to holds at `(t, y,
-    /// d)`: each set that moves regular there, its constraints apart, its
-    /// factor inside its switch threshold and the run's limit. Why not,
-    /// where it does not.
+    /// d)` ([`Watch::adopt`] having set what each set must meet): each set
+    /// that moves regular there, its constraints apart, its factor inside
+    /// the run's limit and, for a set chosen again, under the threshold it
+    /// had. Where it does not: the set of the model the run switches from
+    /// to blame, its factor there where that set's choice was kept, and
+    /// why.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn holds(
         &mut self,
@@ -823,27 +887,35 @@ impl Watch {
         y: &[f64],
         d: &[f64],
         u: &[f64],
-    ) -> Result<(), String> {
+    ) -> Result<(), (usize, Option<f64>, String)> {
         let l = *model.layout();
         let mut work = vec![0.0; l.n_work];
         let mut vars = vec![0.0; l.n_vars];
         model.vars(&EvalInput { t, y, p: &info.params, d, u }, &mut work, &mut vars);
-        let ks: Vec<(usize, f64)> =
-            self.sets.iter().filter(|w| w.moving).map(|w| (w.k, w.switch)).collect();
-        for (k, switch) in ks {
+        let ks: Vec<(usize, f64, usize)> =
+            self.sets.iter().filter(|w| w.moving).map(|w| (w.k, w.need, w.blame)).collect();
+        for (k, need, blame) in ks {
             let (e, apart) = self.standing(info, model, k, t, &vars);
             let set = &info.state_sets[k];
+            let kept = need.is_infinite();
+            let row = set.rows.first().map_or("a constraint", String::as_str);
             if !apart {
-                return Err(format!(
-                    "{} does not decide the variables for any choice of states there",
-                    set.rows.first().map_or("a constraint", String::as_str)
+                return Err((
+                    blame,
+                    None,
+                    format!("{row} does not decide the variables for any choice of states there"),
                 ));
             }
-            if e.is_nan() || e >= switch || e * DEGRADED > 1.0 {
-                return Err(format!(
-                    "the states chosen again there would have a variable that {} decides move \
-                     {e:.1} times as much as a state",
-                    set.rows.first().map_or("a constraint", String::as_str)
+            if e.is_nan() || e >= need || e * DEGRADED > 1.0 {
+                let what = if kept {
+                    "the states the switch keeps there have a variable that"
+                } else {
+                    "the states chosen again there would have a variable that"
+                };
+                return Err((
+                    blame,
+                    kept.then_some(e),
+                    format!("{what} {row} decides move {e:.1} times as much as a state"),
                 ));
             }
         }
@@ -1064,6 +1136,11 @@ impl Watch {
                     Some(b) if probed => b,
                     _ => bound(w, &self.vals),
                 };
+                // (a threshold a refusal raised, the factor back under the
+                // one it raised: the threshold again, hysteresis)
+                if w.switch > w.switch0 && b < w.switch0 {
+                    w.switch = w.switch0;
+                }
                 if b * DEGRADED < 1.0 {
                     // (the sign is the last full check's here too)
                     w.continuous = true;
@@ -1095,9 +1172,16 @@ impl Watch {
                 cell.reach = w.reach[cell.r];
             }
             let e = ps.worst_exchange();
-            // (the switch threshold from the scale the entries read now)
-            if reread && w.base.is_finite() && w.moving {
+            // (the switch threshold from the scale the entries read now,
+            // but where the switch to this model kept the set's choice:
+            // the threshold it had)
+            if reread && w.base.is_finite() && w.moving && !w.carried {
                 w.switch = if ps.exchange > 1.0 { w.base * ps.exchange } else { w.base };
+                w.switch0 = w.switch;
+            }
+            w.carried = false;
+            if w.switch > w.switch0 && ps.exchange < w.switch0 {
+                w.switch = w.switch0;
             }
             let (sign0, continuous, t0) = (w.sign, w.continuous, w.t_prev);
             let crossed = continuous && sign0 * ps.sign < 0.0;
@@ -1317,6 +1401,9 @@ mod tests {
             parts: vec!["pendulum".into()],
             candidates: (0..cols).map(|k| format!("c{k}")).collect(),
             kept: vec![false; cols],
+            eqs: vec![],
+            nodes: vec![],
+            roots: vec![],
         }
     }
 
@@ -1498,5 +1585,106 @@ mod tests {
         w.end(&info, &model, 0.2, &[0.002, 0.0], &[0.002], 1, &mut none).expect("a scale");
         let e = w.end(&info, &model, 0.3, &[0.0, 0.0], &[0.0], 2, &mut none).unwrap_err();
         assert!(e.to_string().contains("after the event here"), "{e}");
+    }
+
+    /// A model whose channels are its states (`n` of them).
+    struct Same(Layout);
+    impl ModelFunctions for Same {
+        fn layout(&self) -> &Layout {
+            &self.0
+        }
+        fn residual(&self, _: &EvalInput<'_>, _: &mut [f64], _: &mut [f64]) {}
+        fn jvp(&self, _: &EvalInput<'_>, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
+        fn roots(&self, _: &EvalInput<'_>, _: &mut [f64], _: &mut [f64]) {}
+        fn vars(&self, inp: &EvalInput<'_>, _: &mut [f64], out: &mut [f64]) {
+            out.copy_from_slice(inp.y);
+        }
+        fn when(&self, _: &EvalInput<'_>, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
+        fn start(&self, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
+    }
+
+    struct NoChoice;
+    impl crate::choice::StateChoices for NoChoice {
+        fn choose(
+            &self,
+            _: &crate::choice::ChoicePoint,
+        ) -> Result<Arc<crate::choice::Variant>, String> {
+            Err("none".into())
+        }
+    }
+
+    /// Two independent rods, channels x0, y0, x1, y1: rod `k`'s [2xₖ 2yₖ],
+    /// deciding xₖ (pivot 0) or yₖ (pivot 1), as index reduction numbers
+    /// them (equation k, candidates 2k and 2k + 1).
+    fn rods(p0: usize, p1: usize) -> (Same, RunInfo) {
+        let two = |v: u32| Expr::Const(2.0) * Expr::Var(lsim_ir::VarId(v));
+        let mut info = RunInfo::bare(4, 4, vec![]);
+        info.state_sets = (0..2u32)
+            .map(|k| StateSetInfo {
+                entries: vec![vec![two(2 * k), two(2 * k + 1)]],
+                candidates: vec![format!("x{k}"), format!("y{k}")],
+                rows: vec![format!("rod {k}")],
+                eqs: vec![k as usize],
+                nodes: vec![2 * k as usize, 2 * k as usize + 1],
+                roots: vec![k as usize],
+                ..set(vec![if k == 0 { p0 } else { p1 }], 2)
+            })
+            .collect();
+        info.choices = Some(crate::choice::Choices(Arc::new(NoChoice)));
+        let l = Layout { n_x: 4, n_vars: 4, ..no_model().0 };
+        (Same(l), info)
+    }
+
+    #[test]
+    fn a_switch_holds_each_set_to_its_own_threshold_and_blames_the_set_that_fails() {
+        // both rods deciding x; rod 0 chosen again (deciding y), rod 1 kept
+        let (model, from) = rods(0, 0);
+        let (_, to) = rods(1, 0);
+        let mut none = |_: f64, _: &mut Vec<f64>| false;
+        let mut old = Watch::new(&from, &model, false).switching(&from, 3.0);
+        // rod 1 at a factor of 2.5 where its entries were first read: its
+        // threshold 7.5; rod 0 at 0.5: 3
+        old.end(&from, &model, 0.1, &[0.8, -0.4, 0.4, -1.0], &[], 0, &mut none).expect("regular");
+        assert_eq!((old.threshold(0), old.threshold(1)), (3.0, 7.5));
+        let holds = |y: [f64; 4]| {
+            let mut w = Watch::new(&to, &model, false).switching(&to, 3.0);
+            w.adopt(&old, &from, &to, 0);
+            w.holds(&to, &model, 0.2, &y, &[], &[]).map(|()| (w.threshold(0), w.threshold(1)))
+        };
+        // rod 0 past its threshold (x0 decided moves 4 times as much as y0)
+        // and rod 1 at 6, inside its own 7.5 though past the base 3: the
+        // switch holds (before, every set was held to the base: refused),
+        // rod 1 keeping its threshold
+        assert_eq!(holds([0.1, -0.4, 0.1, -0.6]), Ok((3.0, 7.5)));
+        // rod 1 past the run's limit: it is to blame, at its factor
+        let e = holds([0.1, -0.4, 0.005, -1.0]).unwrap_err();
+        assert_eq!((e.0, e.1), (1, Some(200.0)), "{e:?}");
+        // rod 0 chosen again no better than its threshold: rod 0 is to blame
+        let e = holds([0.35, -0.1, 0.4, -1.0]).unwrap_err();
+        assert_eq!((e.0, e.1), (0, None), "{e:?}");
+    }
+
+    #[test]
+    fn a_threshold_a_refusal_raised_comes_back_where_the_factor_falls_back() {
+        let (model, info) = rods(0, 0);
+        let mut none = |_: f64, _: &mut Vec<f64>| false;
+        let mut w = Watch::new(&info, &model, false).switching(&info, 3.0);
+        w.end(&info, &model, 0.1, &[0.9, -0.3, 0.9, -0.3], &[], 0, &mut none).expect("regular");
+        assert_eq!(w.threshold(0), 3.0);
+        // refused at 4: not again before 8 (the run's limit still holds)
+        w.refused(0, 4.0, "no better choice there");
+        assert_eq!(w.threshold(0), 8.0);
+        w.end(&info, &model, 0.2, &[0.15, -0.9, 0.9, -0.3], &[], 0, &mut none).expect("regular");
+        assert_eq!(w.threshold(0), 8.0, "still past the threshold it raised");
+        // back under 3 (before, the raised threshold stayed for good)
+        w.end(&info, &model, 0.3, &[0.9, -0.4, 0.9, -0.3], &[], 0, &mut none).expect("regular");
+        assert_eq!(w.threshold(0), 3.0);
+        // five refusals in a row: no switch any more, until it falls back
+        for _ in 0..6 {
+            w.refused(0, 4.0, "no better choice there");
+        }
+        assert!(w.threshold(0).is_infinite());
+        w.end(&info, &model, 0.4, &[0.95, -0.3, 0.9, -0.3], &[], 0, &mut none).expect("regular");
+        assert_eq!(w.threshold(0), 3.0);
     }
 }

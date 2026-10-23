@@ -40,19 +40,13 @@ pub fn build_dynamic(lib: &Library, top: &ComponentDef) -> Built {
     b
 }
 
-/// The model's choices of states for a run ([`lsim_solve::RunInfo::choices`]).
+/// The model's choices of states for a run ([`lsim_solve::RunInfo::choices`]),
+/// as the engine's builders attach them (any set's choice moving or not).
 pub fn choices(lib: &Library, top: &ComponentDef) -> lsim_solve::choice::Choices {
     use lsim_solve::choice::{ChoicePoint, Choices, Rechooser};
     let (lib, top) = (lib.clone(), top.clone());
     let prepare = move |at: &ChoicePoint| {
-        let point = lsim_prep::ChoosePoint {
-            t: at.t,
-            values: at.values.iter().cloned().collect(),
-            params: at.params.clone(),
-            channels: at.channels.clone(),
-            window: at.window,
-        };
-        lsim_prep::prepare_choosing(&lib, &top, &Default::default(), point)
+        lsim_prep::prepare_choosing(&lib, &top, &Default::default(), at.clone())
             .map_err(|d| format!("{d:?}"))
     };
     let compile = |p: &PreparedModel| {

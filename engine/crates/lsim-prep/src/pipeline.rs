@@ -54,30 +54,8 @@ impl Default for Settings {
 }
 
 /// A point of a run to choose the states at ([`Settings::choose_at`]):
-/// index reduction's dummy derivatives are chosen by the same pivoting as
-/// at the start, `stateSelect` leading it, on the constraints'
-/// derivatives evaluated here. The start is not solved (the run's point
-/// is consistent).
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ChoosePoint {
-    /// the time
-    pub t: f64,
-    /// the values by name: the variables, their derivatives (`der(x)`,
-    /// `der(der(x))`) and the discrete values (one missing reads 0)
-    pub values: HashMap<String, f64>,
-    /// the parameter values, in the flat system's order (empty: its own)
-    pub params: Vec<f64>,
-    /// derivatives (`der(x)`) to keep as variables of their own whatever
-    /// the choice (the channels of the model the run switches from: a
-    /// state's derivative is then also a variable, set from it), so that
-    /// every channel the run records is in the model it switches to
-    pub channels: Vec<String>,
-    /// the pivoting's window here: a preferred column is taken within this
-    /// factor of a row's largest entry (the run's switch threshold, so the
-    /// choice the run leaves, just past it, is not taken again; 0: the
-    /// start's, 10)
-    pub window: f64,
-}
+/// [`lsim_ir::choice::ChoicePoint`].
+pub type ChoosePoint = lsim_ir::choice::ChoicePoint;
 
 /// One block of a sorted system, as the report tells it.
 #[derive(Clone, Debug)]
@@ -331,6 +309,14 @@ fn state_sets(
             pivots: cs.pivots.clone(),
             masked: cs.masked.clone(),
             kept: cs.kept.clone(),
+            eqs: cs.rows.clone(),
+            nodes: cs.cols.clone(),
+            roots: {
+                let mut r: Vec<usize> = cs.rows.iter().map(|&e| sys.eq_root(e)).collect();
+                r.sort_unstable();
+                r.dedup();
+                r
+            },
         })
         .collect()
 }
@@ -1039,32 +1025,48 @@ pub fn run(
             Some(at) => {
                 // (a value the point does not give reads 0: the entries read
                 // the positions, a derivative only through terms it zeroes)
+                let values: HashMap<&str, f64> =
+                    at.values.iter().map(|(n, v)| (n.as_str(), *v)).collect();
                 let point: Vec<f64> = (0..nn)
-                    .map(|n| at.values.get(&sys.name(&flat, n)).copied().unwrap_or(0.0))
+                    .map(|n| values.get(sys.name(&flat, n).as_str()).copied().unwrap_or(0.0))
                     .collect();
                 let p = if at.params.len() == pvals.len() { &at.params } else { &pvals };
                 let within = if at.window > 1.0 { 1.0 / at.window } else { index::WITHIN };
-                index::dummy_derivatives(&sys, at.t, &point, p, tables, &keep_node, within)
+                index::dummy_derivatives(
+                    &sys, at.t, &point, p, tables, &keep_node, within, &at.keep, &at.again,
+                )
             }
             None => {
                 let point = if solved.is_ok() { vals.clone() } else { generic_values(&sys, &flat) };
                 let within = index::WITHIN;
-                index::dummy_derivatives(&sys, 0.0, &point, &pvals, tables, &keep_node, within)
-                    .or_else(|f| {
-                        if solved.is_ok() {
-                            Err(f)
-                        } else {
-                            index::dummy_derivatives(
-                                &sys,
-                                0.0,
-                                &generic_values(&sys, &flat),
-                                &pvals,
-                                tables,
-                                &keep_node,
-                                within,
-                            )
-                        }
-                    })
+                index::dummy_derivatives(
+                    &sys,
+                    0.0,
+                    &point,
+                    &pvals,
+                    tables,
+                    &keep_node,
+                    within,
+                    &[],
+                    &[],
+                )
+                .or_else(|f| {
+                    if solved.is_ok() {
+                        Err(f)
+                    } else {
+                        index::dummy_derivatives(
+                            &sys,
+                            0.0,
+                            &generic_values(&sys, &flat),
+                            &pvals,
+                            tables,
+                            &keep_node,
+                            within,
+                            &[],
+                            &[],
+                        )
+                    }
+                })
             }
         }
         .map_err(|f| vec![index_diag(&flat, &sys, f)])?;

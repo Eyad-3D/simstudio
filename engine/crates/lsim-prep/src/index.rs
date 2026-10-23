@@ -326,6 +326,14 @@ pub struct ChosenSet {
 /// node `n` is kept a state when there is a choice ([`KEEP_NEVER`] …
 /// [`KEEP_STRONG`]). `tables` are the tables' interpolants (empty: none
 /// read). `within` is the pivoting's window ([`WITHIN`] at the start).
+/// Where a run chooses its states again (`again`: the equations of the set
+/// that degraded, non-empty), a set none of whose equations comes from
+/// the same equation as one of those (by differentiation: the same set at
+/// index reduction's other levels) and whose equations and candidates one
+/// of `kept_sets` names keeps that choice where it is regular at the
+/// point: only the set that degraded is chosen again, with the levels its
+/// choice decides the candidates of and those that decide its own.
+#[allow(clippy::too_many_arguments)]
 pub fn dummy_derivatives(
     sys: &Sys,
     t: f64,
@@ -334,7 +342,12 @@ pub fn dummy_derivatives(
     tables: &[lsim_ir::interp::Table],
     keep: &[u8],
     within: f64,
+    kept_sets: &[lsim_ir::choice::KeepSet],
+    again: &[usize],
 ) -> Result<Selection, IndexFault> {
+    // the equations index reduction differentiated a row from
+    let root = |e: usize| sys.eq_root(e);
+    let again_roots: Vec<usize> = again.iter().map(|&e| root(e)).collect();
     let n_nodes = sys.nodes.len();
     let mut dummy = vec![false; n_nodes];
     let mut sets = vec![];
@@ -481,14 +494,46 @@ pub fn dummy_derivatives(
                 }
                 None
             };
+            // a set kept as it is (a run choosing its states again keeps
+            // the sets that did not degrade), where that choice is regular
+            // here
+            let chosen_again = rows.iter().any(|&e| again_roots.contains(&root(e)));
+            let as_kept = kept_sets
+                .iter()
+                .filter(|_| !again.is_empty() && !chosen_again)
+                .find(|k| k.eqs == rows && k.nodes == col_nodes)
+                .filter(|k| {
+                    let cols = col_nodes.len();
+                    let mut seen = vec![false; cols];
+                    k.pivots.len() == rows.len()
+                        && k.masked.len() == cols
+                        && k.pivots
+                            .iter()
+                            .all(|&c| c < cols && !std::mem::replace(&mut seen[c], true))
+                        && {
+                            let mut mm = m.clone();
+                            let ps = lsim_ir::choice::pivot_state(
+                                &k.pivots,
+                                &k.masked,
+                                &mut mm,
+                                &mut Default::default(),
+                            );
+                            ps.sign != 0.0 && ps.exchange.is_finite()
+                        }
+                })
+                .map(|k| (k.pivots.clone(), k.masked.clone()));
             // within the margin, else the choice by pivoting alone
-            let selected = marked(WIDE).or_else(|| {
-                select_columns_among(&m, &pref, None, None, WIDE, within).map(|s| (s, none.clone()))
+            let selected = as_kept.clone().or_else(|| {
+                marked(WIDE).or_else(|| {
+                    select_columns_among(&m, &pref, None, None, WIDE, within)
+                        .map(|s| (s, none.clone()))
+                })
             });
             // a choice the model asks for that only the margin kept from
             // being taken (regular within the run's limit): the variables
             // it would keep that are decided now, and its factor, are told
             if moves
+                && as_kept.is_none()
                 && (classes.is_some() || strong.contains(&true))
                 && let (Some((sel, _)), Some((limit, left_out))) =
                     (&selected, marked(lsim_ir::choice::DEGRADED))

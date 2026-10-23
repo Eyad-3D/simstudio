@@ -1029,8 +1029,9 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    times its factor where the entries that do not move were last read
    (the start, the last switch, an event that changed a discrete value
    they read), where that is above one, or that the block's determinant
-   changed sign, the run chooses the states again there and goes on with
-   them. Measured from where the choice started, a scale is no
+   changed sign, the run chooses that set's states again there and goes
+   on with them, every other set keeping its choice. Measured from where
+   the choice started, a scale is no
    degeneracy: the hybrid car's clutch set starts at 3.9 (its gears'
    ratios move a decided speed that many times as much as a state), and a
    plain threshold of 3 had it switch at t = 0 and changed the golden
@@ -1048,34 +1049,89 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    back every time, the run went on from interpolated iteration variables
    and the judge's pendulums came out further off: section 15); a tick
    before the point that restarts the run leaves the switch to the point
-   after it, where the watch looks again (`state_choice.rs`). The
-   choice there is preparation's (`lsim_prep::prepare_choosing`: the same
-   flattening, aliases and differentiation, the dummy derivatives pivoted
-   at the run's point by the same rule and the same `stateSelect` classes
-   as at the start, `never` and `always` respected, its window the switch
-   threshold so the choice the run leaves is not taken again; a value the
-   point does not give reads 0), the channels the run records kept as
-   variables of their own (a derivative channel that is a state's
-   derivative in the new choice is set from it), compiled once per choice
-   and kept with the model (`Rechooser`; sweeps share it). The run goes on
-   with it where it is another choice, has the same events, discrete
-   values, inputs, table guards and energy parts, holds every recorded
-   channel, finds every one of its states and iteration variables in the
-   point, and holds there (each moving set regular, its constraints apart,
-   its factor inside its threshold and the run's limit): a new integrator
-   on the new states from the solution at the point, its iteration
-   variables solved again with the new states held (as at any event: the
-   constraints and their derivatives met), the energy integrals carried
-   over and the stored energy's change booked as an event's (the books
-   close as before: the pendulum's heights within 22 rtol across 17
-   switches, its jumps 0.1 rtol, `state_choice.rs`), the recorded channels
-   mapped by name, the sampled blocks' clocks, the conditions on time and
-   the watch set up again, and an event recorded (`EventKind::States`,
-   "the states chosen again: x, vx in place of y, vy (the rod keeps its
-   length)"). Otherwise it goes on with the states it has, that set's
-   threshold raised to twice the factor there, and the watch stops it
+   after it, where the watch looks again (`state_choice.rs`).
+   The choice there is preparation's (`lsim_prep::prepare_choosing`: the
+   same flattening, aliases and differentiation, the dummy derivatives
+   pivoted at the run's point by the same rule and the same `stateSelect`
+   classes as at the start, `never` and `always` respected; a value the
+   point does not give reads 0) for the set that degraded and the sets of
+   its constraints at index reduction's other levels (their candidates
+   follow from its choice), their window that set's switch threshold so
+   the choice the run leaves is not taken again; every other set keeps
+   the choice the run has (`ChoicePoint::keep`, `again`: a set is known
+   across preparations by index reduction's own numbering of its
+   equations and candidates, `StateSet::eqs`, `nodes`, and the equations
+   they were differentiated from, `roots`), where that choice is regular
+   at the point. The channels the run records are kept as variables of
+   their own (a derivative channel that is a state's derivative in the new
+   choice is set from it); each choice is compiled once and kept with the
+   model (`Rechooser`, the 64 used last; sweeps share it; one compiled by
+   two runs at once is kept once). The run goes on with it where it is
+   another choice, has the same events, discrete values, inputs, tables
+   and energy parts, holds every recorded channel, finds every one of its
+   states and iteration variables in the point, and holds there: each
+   moving set regular and its constraints apart; each set chosen again
+   under its base threshold, as a choice that starts there (3, or 50
+   while it keeps a column the model marks; held instead to the threshold
+   it had, up to 3 times a start's factor of 10, three runs of the sweep
+   took choices with factors of 10 to 27, at 1.68, 1.76 and 1.86 rad, left
+   them again within 0.03 s, and ended 47, 764 and 107 rtol off against
+   181, 281 and 28); each set whose choice was kept inside the run's limit,
+   its threshold carried over (the switch is no reading of its fixed
+   entries). Then a new integrator on the new
+   states from the solution at the point, its iteration variables solved
+   again with the new states held (as at any event: the constraints and
+   their derivatives met), the energy integrals carried over and the
+   stored energy's change booked as an event's (the books close as
+   before: the pendulum's heights within 22 rtol across 17 switches, its
+   jumps 0.1 rtol, `state_choice.rs`), the recorded channels mapped by
+   name, the sampled blocks' clocks, the conditions on time and the watch
+   set up again, and an event recorded (`EventKind::States`, "the states
+   chosen again for the model (the rod keeps its length): x, vx in place
+   of y, vy"). Otherwise it goes on with the states it has, the threshold
+   of the set to blame (the one chosen again, or a kept set past the run's
+   limit) raised to twice its factor there, back to its threshold where
+   its factor falls under that again (hysteresis), and the watch stops it
    where they degrade past the run's limit, naming the constraint, as
-   without the model's choices (bit for bit, `state_choice.rs`). The
+   without the model's choices (bit for bit, `state_choice.rs`); a switch
+   refused where the integrator had already been started on the new
+   states, at the step's end it was found at, leaves that point checked
+   as any step's end (the watch, the conditions' holds, a table's kink, a
+   stale mode), and a step cut back to it goes on from it. A run keeps
+   every model it went on with for its length, up to 1 024 (in pieces
+   added as needed; before, 32: a model with six or more sets switching
+   on their own, 64 choices, refused every switch after its 32nd). Before
+   any set kept its choice, a model with two moving sets could not switch:
+   the re-choice pivoted every set with the window of the one that
+   degraded (a second pendulum, not degrading, onto a choice it did not
+   need), held every set to the base threshold, and raised the threshold
+   of the set that asked, not the one that failed: two pendulums released
+   at 1.50 and 1.80 rad stopped at 0.2135 s naming rod 1 (1.50 + 1.60 at
+   2.2945 s, 1.70 + 2.00 at 0.3027 s, five at 1.50 … 1.58 rad at 2.310 s,
+   six at 1.5 … 3.05 rad at 2.91 and 4.05 s at rtol 1e-6 and 1e-10). Now
+   each rod chooses its states again on its own, as often as it does alone
+   (17 and 17 times in 10 s; the six 13 to 17 times each, as alone, taking
+   43 of their 64 choices at rtol 1e-8), each as
+   near its reference as alone within the integrator's shared steps (27
+   and 405 rtol at 1e-6, 102 and 333 at 1e-10, alone 132 and 203, 320 and
+   81; the five at 1e-10 137 … 926 rtol, alone 320 … 453; the six at 1e-8
+   100 … 18 549 rtol, alone 46 … 9 106, the larger near the top, where the
+   problem itself is that sensitive), and a run of
+   one pendulum is bitwise what it was (`state_choice.rs`:
+   `independent_pendulums_…`, `six_pendulums_…`). A double pendulum in x
+   and y (its rods' constraints one set at each level, coupled), released
+   at 1.2 and 1.6 rad, chooses its states again 9 times in 5 s and is 649,
+   100 and 52 rtol off its angles integrated independently at rtol 1e-6,
+   1e-8 and 1e-10, as before (the same double pendulum in its angles, an
+   ODE: 22, 12, 11): its error is 5.4e-5 m before the first switch and
+   grows smoothly through them, the x-y formulation's own (the review's
+   measurement). A pendulum near its top is that sensitive to any restart
+   of the integrator: the one released at 3.05 rad, 30 842 rtol off at
+   1e-10 alone, is 89 751 rtol off beside one at 1.50 rad (whose 17
+   switches restart the integrator for both), and 61 348 alone with 17
+   events at those times that change nothing it reads (22 692 against
+   42 120 at 1e-6, 97 991 against 9 106 at 1e-8): the restarts, not the
+   switches' carry-over. The
    engine's builders give every model whose choice moves with its
    solution its choices (`lsim_engine`, `lsim_project::Model`, the judge's
    runner); a run on diffsol (the cross-check) and a model whose tables
@@ -1088,8 +1144,8 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    (`state_switch` 0), or what the last try for that set ran into (each
    tested: `state_choice.rs`, `lsim-engine/tests/testcar.rs`; before,
    the run on diffsol and with the switch off said that choosing again
-   "gave none that works better", though it never tried). The models with the states chosen
-   again are compiled from the data the model was prepared with, so a run
+   "gave none that works better", though it never tried). The models with
+   the states chosen again are compiled from the data the model was prepared with, so a run
    switches only where each table the model reads is the same
    interpolant, to the bit, in the model it is on and the one it would
    go on with (`ModelFunctions::table_interp`, `Table::same`: the

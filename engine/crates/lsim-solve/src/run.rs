@@ -1893,8 +1893,10 @@ struct Probe {
     work: Vec<f64>,
 }
 
-/// A switch to the states chosen again, asked for at the point the run is
-/// at ([`switch`]).
+/// A switch to the states chosen again found in the step just taken
+/// ([`switch`]): made at its point, the step's end (where the step was cut
+/// back there), or not at all (a tick inside the step that restarted the
+/// run before it leaves the watch to look again from the tick).
 struct Pending<'a> {
     /// the set whose factor passed its threshold
     k: usize,
@@ -1905,10 +1907,82 @@ struct Pending<'a> {
     cut: bool,
     /// the set's factor there
     e: f64,
-    /// the point's time: the switch is made there or not at all (a tick
-    /// inside the step that restarted the run before it leaves the watch
-    /// to look again from the tick)
+}
+
+/// A switch to the states chosen again, ready to be made where the run is
+/// ([`ready_switch`]).
+struct Ready<'a> {
+    /// the set chosen again
+    k: usize,
+    /// the model to go on with
+    next: switch::Next<'a>,
+    /// the integrator on its states from the point
+    integ: Box<dyn Integrator + 'a>,
+    /// the watch on it
+    watch: crate::states::Watch,
+    /// its states and iteration variables there
+    y: Vec<f64>,
+}
+
+/// Starts the integrator on the model `next` (set `k` of the model `from`
+/// chosen again) at the point `(t, d)` the run is at on `old` (watched by
+/// `watch`, the energy books `books`), and checks that the run can go on
+/// with it there ([`crate::states::Watch::holds`]). Where it cannot: the
+/// set of `from` to blame, that set's factor where it is not `k`, and why.
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
+fn ready_switch<'a>(
+    opts: &SolverOptions,
+    grid: OutputGrid,
+    old: &mut dyn Integrator,
+    watch: &crate::states::Watch,
+    from: &RunInfo,
+    next: switch::Next<'a>,
+    k: usize,
     t: f64,
+    d: &[f64],
+    u: &[f64],
+    books: Option<&Ledger<'_>>,
+) -> Result<Result<Ready<'a>, (usize, Option<f64>, String)>, SolveError> {
+    let refuse = |why: &str| Ok(Err((k, None, why.to_string())));
+    let started = crate::new_integrator(
+        next.model,
+        next.info,
+        opts,
+        OutputGrid { t0: t, ..grid },
+        &next.y,
+        d.to_vec(),
+        u.to_vec(),
+    );
+    let mut integ = match started {
+        None => return refuse("the integrator cannot be started again on this backend"),
+        Some(Err(e)) => return refuse(&format!("the integrator did not start on them ({e})")),
+        Some(Ok(i)) => i,
+    };
+    let mut q = vec![0.0; books.map_or(0, |lg| lg.q.len())];
+    if !q.is_empty() {
+        old.quadrature(t, &mut q)?;
+    }
+    if !integ.set_quadratures(&q)? {
+        return refuse("the energy integrals cannot be carried over");
+    }
+    let rebinds = match (books, next.info.energy.as_ref()) {
+        (Some(lg), Some(e)) => lg.can_rebind(e),
+        (Some(_), None) => false,
+        (None, _) => true,
+    };
+    if !rebinds {
+        return refuse(
+            "the energy books cannot be read through the model with the states chosen again",
+        );
+    }
+    let mut w = crate::states::Watch::new(next.info, next.model, opts.books_kernels)
+        .switching(next.info, opts.state_switch);
+    w.adopt(watch, from, next.info, k);
+    let y = integ.y().to_vec();
+    if let Err(e) = w.holds(next.info, next.model, t, &y, d, u) {
+        return Ok(Err(e));
+    }
+    Ok(Ok(Ready { k, next, integ, watch: w, y }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2124,186 +2198,139 @@ fn run_watched<'a>(
     // dynamic state selection: the switch asked for, the work and the
     // error estimates of the integrators the run went on from, and the
     // switches made
-    let mut pending: Option<Pending<'a>> = None;
+    let mut pending: Option<Pending<'a>>;
+    let mut ready: Option<Ready<'a>> = None;
     let mut stats_left = crate::SolverStats::default();
     let mut errors_left: Vec<(String, f64, f64, f64)> = vec![];
     let mut switch_notes: Vec<String> = vec![];
     let mut switches = 0usize;
     let mut probe = Probe::default();
     while t < t_end {
+        // (a switch found in a step that a tick then cut short is not made:
+        // the watch looks again from the tick)
+        pending = None;
         // the states chosen again: the run goes on with them from here
-        if let Some(sw) = pending.take().filter(|sw| sw.t == t) {
+        if let Some(r) = ready.take() {
             let old: &mut dyn Integrator = match cur.integ.as_deref_mut() {
                 Some(i) => i,
                 None => &mut *integ0,
             };
-            let next = sw.next;
-            let started_on = crate::new_integrator(
-                next.model,
-                next.info,
-                opts,
-                OutputGrid { t0: t, ..grid },
-                &next.y,
-                d.clone(),
-                u.to_vec(),
+            let Ready { k: sw_k, next, integ: mut ni, watch: w2, y: yc } = r;
+            // what the integrator left: its work, its error estimates (by
+            // name, over the models the run was on)
+            stats_left += old.stats();
+            for i in 0..n {
+                let name = info.y_names.get(i).cloned().unwrap_or_default();
+                let (a, m, f) = (acc[i], ymax[i], opts.atol * info.y_nominal[i]);
+                match errors_left.iter_mut().find(|x| x.0 == name) {
+                    Some(x) => {
+                        x.1 += a;
+                        x.2 = x.2.max(m);
+                        x.3 = x.3.max(f);
+                    }
+                    None => errors_left.push((name, a, m, f)),
+                }
+            }
+            // the point before the switch, in the books and the recorded
+            // channels
+            lp.sample(t, &y, &d);
+            let before_vars = lp.vars.clone();
+            let before = ledger.as_mut().map(|lg| lg.before_event(t, &before_vars, p));
+            let left = lp.recorded_of(&before_vars).into_owned();
+            let from_states = switch::states_of(info, l.n_x);
+            let row =
+                info.state_sets.get(sw_k).and_then(|s| s.rows.first()).cloned().unwrap_or_default();
+            // the model the run is on
+            model = next.model;
+            info = next.info;
+            cur.model = model;
+            cur.info = info;
+            l = *model.layout();
+            n = l.n_y();
+            lp.model = model;
+            lp.info = info;
+            lp.work.resize(l.n_work, 0.0);
+            lp.vars.resize(l.n_vars, 0.0);
+            let identity =
+                next.map.iter().enumerate().all(|(c, &j)| c == j) && l.n_vars == next.map.len();
+            lp.chan = (!identity).then_some(next.map);
+            y = yc;
+            local = vec![0.0; n];
+            acc = vec![0.0; n];
+            ymax = y.iter().map(|v| v.abs()).collect();
+            yk = vec![0.0; n];
+            if let Some(lg) = ledger.as_mut()
+                && let Some(e) = info.energy.as_ref()
+            {
+                // (the same parts: ready_switch checked it)
+                let rebound = lg.rebind(e, model);
+                debug_assert!(rebound, "the books' parts were checked");
+            }
+            // the conditions on functions of time, the tables read
+            // along time, the time crossings: set up again
+            lp.tf = timefn::TimeFns::new(info.time_crossings.len().max(info.time_functions.len()));
+            lp.sample(t, &y, &d);
+            let mut mask = lp.time_functions_start(t_end);
+            mask.resize(lp.sides.len(), false);
+            for (k, tc) in info.time_crossings.iter().enumerate() {
+                mask[k] |= tc.is_some();
+            }
+            lp.use_timed = mask.iter().any(|m| *m) && ni.set_root_mask(&mask);
+            lp.t_star.iter_mut().for_each(|x| *x = f64::NAN);
+            lp.schedule(t);
+            if !info.time_tables.is_empty() {
+                lp.schedule_breaks(t, false);
+                lp.schedule_breaks(t, true);
+            }
+            scheduled_for.copy_from_slice(&d);
+            // the sampled blocks read their inputs from it
+            for (b, c) in clocks.iter_mut().enumerate() {
+                let mut fresh = clock_for(blocks[b].as_ref(), &info.blocks[b], info, opts, &l, t);
+                fresh.k = c.k;
+                fresh.stop_next = c.stop_next;
+                fresh.inputs = std::mem::take(&mut c.inputs);
+                fresh.outputs = std::mem::take(&mut c.outputs);
+                fresh.idle_run = c.idle_run;
+                *c = fresh;
+            }
+            lp.update_sides(t, &y, &d, None, None);
+            lp.push_sides(&mut *ni);
+            // the switch, an event: the stored energy's change
+            // (the iteration variables solved again) booked
+            let label = format!(
+                "the states chosen again for {row}: {} in place of {}",
+                next.states.join(", "),
+                from_states.join(", "),
             );
-            let mut q = ledger.as_ref().map_or_else(Vec::new, |lg| vec![0.0; lg.q.len()]);
-            let go = match started_on {
-                None => Err("the integrator cannot be started again on this backend".to_string()),
-                Some(Err(e)) => Err(format!("the integrator did not start on them ({e})")),
-                Some(Ok(mut ni)) => {
-                    if !q.is_empty() {
-                        old.quadrature(t, &mut q)?;
-                    }
-                    if !ni.set_quadratures(&q)? {
-                        Err("the energy integrals cannot be carried over".to_string())
-                    } else {
-                        let mut w2 =
-                            crate::states::Watch::new(next.info, next.model, opts.books_kernels)
-                                .switching(next.info, opts.state_switch);
-                        let yc = ni.y().to_vec();
-                        w2.holds(next.info, next.model, t, &yc, &d, u).map(|()| (ni, w2, yc))
-                    }
-                }
+            lp.events.push(EventRecord {
+                t,
+                when: usize::MAX,
+                label: label.clone(),
+                kind: EventKind::States(sw_k),
+            });
+            switches += 1;
+            if switch_notes.len() < 20 {
+                switch_notes.push(format!("at t = {t:.9} s, {label}"));
+            }
+            *watch = w2;
+            cur.integ = Some(ni);
+            let integ: &mut dyn Integrator = match cur.integ.as_deref_mut() {
+                Some(i) => i,
+                None => &mut *integ0,
             };
-            match go {
-                Ok((mut ni, w2, yc)) => {
-                    // what the integrator left: its work, its error estimates
-                    stats_left += old.stats();
-                    for i in 0..n {
-                        errors_left.push((
-                            info.y_names.get(i).cloned().unwrap_or_default(),
-                            acc[i],
-                            ymax[i],
-                            opts.atol * info.y_nominal[i],
-                        ));
-                    }
-                    // the point before the switch, in the books and the
-                    // recorded channels
-                    lp.sample(t, &y, &d);
-                    let before_vars = lp.vars.clone();
-                    let before = ledger.as_mut().map(|lg| lg.before_event(t, &before_vars, p));
-                    let left = lp.recorded_of(&before_vars).into_owned();
-                    let from_states = switch::states_of(info, l.n_x);
-                    let row = info
-                        .state_sets
-                        .get(sw.k)
-                        .and_then(|s| s.rows.first())
-                        .cloned()
-                        .unwrap_or_default();
-                    // the model the run is on
-                    model = next.model;
-                    info = next.info;
-                    cur.model = model;
-                    cur.info = info;
-                    l = *model.layout();
-                    n = l.n_y();
-                    lp.model = model;
-                    lp.info = info;
-                    lp.work.resize(l.n_work, 0.0);
-                    lp.vars.resize(l.n_vars, 0.0);
-                    let identity = next.map.iter().enumerate().all(|(c, &j)| c == j)
-                        && l.n_vars == next.map.len();
-                    lp.chan = (!identity).then_some(next.map);
-                    y = yc;
-                    local = vec![0.0; n];
-                    acc = vec![0.0; n];
-                    ymax = y.iter().map(|v| v.abs()).collect();
-                    yk = vec![0.0; n];
-                    if let Some(lg) = ledger.as_mut()
-                        && let Some(e) = info.energy.as_ref()
-                    {
-                        // (the parts are the same: switch::compatible)
-                        lg.rebind(e, model);
-                    }
-                    // the conditions on functions of time, the tables read
-                    // along time, the time crossings: set up again
-                    lp.tf = timefn::TimeFns::new(
-                        info.time_crossings.len().max(info.time_functions.len()),
-                    );
-                    lp.sample(t, &y, &d);
-                    let mut mask = lp.time_functions_start(t_end);
-                    mask.resize(lp.sides.len(), false);
-                    for (k, tc) in info.time_crossings.iter().enumerate() {
-                        mask[k] |= tc.is_some();
-                    }
-                    lp.use_timed = mask.iter().any(|m| *m) && ni.set_root_mask(&mask);
-                    lp.t_star.iter_mut().for_each(|x| *x = f64::NAN);
-                    lp.schedule(t);
-                    if !info.time_tables.is_empty() {
-                        lp.schedule_breaks(t, false);
-                        lp.schedule_breaks(t, true);
-                    }
-                    scheduled_for.copy_from_slice(&d);
-                    // the sampled blocks read their inputs from it
-                    for (b, c) in clocks.iter_mut().enumerate() {
-                        let mut fresh =
-                            clock_for(blocks[b].as_ref(), &info.blocks[b], info, opts, &l, t);
-                        fresh.k = c.k;
-                        fresh.stop_next = c.stop_next;
-                        fresh.inputs = std::mem::take(&mut c.inputs);
-                        fresh.outputs = std::mem::take(&mut c.outputs);
-                        fresh.idle_run = c.idle_run;
-                        *c = fresh;
-                    }
-                    lp.update_sides(t, &y, &d, None, None);
-                    lp.push_sides(&mut *ni);
-                    // the switch, an event: the stored energy's change
-                    // (the iteration variables solved again) booked
-                    let label = format!(
-                        "the states chosen again: {} in place of {} ({row})",
-                        next.states.join(", "),
-                        from_states.join(", "),
-                    );
-                    lp.events.push(EventRecord {
-                        t,
-                        when: usize::MAX,
-                        label: label.clone(),
-                        kind: EventKind::States(sw.k),
-                    });
-                    switches += 1;
-                    if switch_notes.len() < 20 {
-                        switch_notes.push(format!("at t = {t:.9} s, {label}"));
-                    }
-                    *watch = w2;
-                    cur.integ = Some(ni);
-                    let integ: &mut dyn Integrator = match cur.integ.as_deref_mut() {
-                        Some(i) => i,
-                        None => &mut *integ0,
-                    };
-                    // (as after any event: the recorded channels, as the
-                    // run records them, before and after it)
-                    lp.sample(t, &y, &d);
-                    rec.interior(t, lp.recorded());
-                    if let (Some(lg), Some(b)) = (ledger.as_mut(), before) {
-                        lg.after_event(t, &lp.vars, p, &b, None);
-                    }
-                    if rec.next_grid_time() == Some(t) {
-                        rec.left_limit(&left, lp.recorded());
-                        rec.grid_point(t, lp.recorded());
-                        if let Some(lg) = ledger.as_mut() {
-                            integ.quadrature(t, &mut lg.q)?;
-                            lg.grid_point(t, &lp.vars, p);
-                        }
-                    }
-                }
-                Err(why) => {
-                    // the run goes on with the states it has; the watch
-                    // stops it where they degrade past the run's limit
-                    if switch_notes.len() < 20 {
-                        switch_notes.push(format!(
-                            "at t = {t:.9} s, the states were not chosen again: {why}"
-                        ));
-                    }
-                    watch.refused(sw.k, sw.e, &why);
-                    if sw.cut {
-                        // (the check the cut point skipped, then the
-                        // integrator from there)
-                        lp.sample(t, &y, &d);
-                        watch_step(watch, model, info, old, t, &lp.vars, &d, u, lp.events.len())?;
-                        old.restart(t, &y)?;
-                        y.copy_from_slice(old.y());
-                    }
+            // (as after any event: the recorded channels, as the
+            // run records them, before and after it)
+            lp.sample(t, &y, &d);
+            rec.interior(t, lp.recorded());
+            if let (Some(lg), Some(b)) = (ledger.as_mut(), before) {
+                lg.after_event(t, &lp.vars, p, &b, None);
+            }
+            if rec.next_grid_time() == Some(t) {
+                rec.left_limit(&left, lp.recorded());
+                rec.grid_point(t, lp.recorded());
+                if let Some(lg) = ledger.as_mut() {
+                    integ.quadrature(t, &mut lg.q)?;
+                    lg.grid_point(t, &lp.vars, p);
                 }
             }
         }
@@ -2348,7 +2375,7 @@ fn run_watched<'a>(
             // event, or the start)
             let (e, _) = watch.standing(info, model, k, t, &lp.vars_at(t, &y, &d));
             let window = watch.threshold(k);
-            match switch::choose_at(
+            let made = match switch::choose_at(
                 arena,
                 (model, info),
                 (model0, info0),
@@ -2357,19 +2384,36 @@ fn run_watched<'a>(
                 &y,
                 &d,
                 u,
+                k,
                 window,
             ) {
-                Ok(next) => {
-                    pending = Some(Pending { k, next, cut: false, e, t });
+                Ok(next) => ready_switch(
+                    opts,
+                    grid,
+                    integ,
+                    watch,
+                    info,
+                    next,
+                    k,
+                    t,
+                    &d,
+                    u,
+                    ledger.as_ref(),
+                )?,
+                Err(why) => Err((k, None, why)),
+            };
+            match made {
+                Ok(r) => {
+                    ready = Some(r);
                     continue;
                 }
-                Err(why) => {
+                Err((blame, factor, why)) => {
                     if switch_notes.len() < 20 {
                         switch_notes.push(format!(
                             "at t = {t:.9} s, the states were not chosen again: {why}"
                         ));
                     }
-                    watch.refused(k, e, &why);
+                    watch.refused(blame, factor.unwrap_or(e), &why);
                 }
             }
         }
@@ -2460,6 +2504,7 @@ fn run_watched<'a>(
                     &ys,
                     &d,
                     u,
+                    k,
                     window,
                 ) {
                     Ok(next) => {
@@ -2467,7 +2512,7 @@ fn run_watched<'a>(
                             y_cut = Some(ys);
                             st = Step::Stopped(ts);
                         }
-                        pending = Some(Pending { k, next, cut, e, t: ts });
+                        pending = Some(Pending { k, next, cut, e });
                     }
                     Err(why) => {
                         if switch_notes.len() < 20 {
@@ -2880,15 +2925,48 @@ fn run_watched<'a>(
         }
         t = t_new;
         lp.check_asserts(t)?;
-        if pending.is_some() {
-            // the states chosen again from this point (an event here: from
-            // the point after it, should the choice still need it there)
-            if !event_now {
-                continue;
+        // the switch found in this step: the integrator started on the
+        // states chosen again here, the switch made at the loop's top; an
+        // event here: from the point after it, should the choice still
+        // need it there. Where it cannot be made, this point is checked as
+        // any step's end, and a step cut back to it goes on from it
+        let mut back = false;
+        if let Some(sw) = pending.take()
+            && !event_now
+        {
+            match ready_switch(
+                opts,
+                grid,
+                integ,
+                watch,
+                info,
+                sw.next,
+                sw.k,
+                t,
+                &d,
+                u,
+                ledger.as_ref(),
+            )? {
+                Ok(r) => {
+                    ready = Some(r);
+                    continue;
+                }
+                Err((blame, factor, why)) => {
+                    if switch_notes.len() < 20 {
+                        switch_notes.push(format!(
+                            "at t = {t:.9} s, the states were not chosen again: {why}"
+                        ));
+                    }
+                    watch.refused(blame, factor.unwrap_or(sw.e), &why);
+                    back = sw.cut;
+                }
             }
-            pending = None;
         }
         watch_step(watch, model, info, integ, t, &lp.vars, &d, u, lp.events.len())?;
+        if back {
+            integ.restart(t, &y)?;
+            y.copy_from_slice(integ.y());
+        }
         // the holds of functions that reached their side, or left it
         if !event_now && lp.release_holds(t, &y, &d) {
             lp.push_sides(integ);
@@ -3099,6 +3177,8 @@ fn run_watched<'a>(
     }
 
     // the end
+    // (the run's own integrator's notes: its start, its method)
+    let start_notes = integ0.setup_notes();
     let integ: &mut dyn Integrator = match cur.integ.as_deref_mut() {
         Some(i) => i,
         None => &mut *integ0,
@@ -3125,31 +3205,27 @@ fn run_watched<'a>(
     } else {
         // (by name, over the models the run was on)
         for i in 0..n {
-            errors_left.push((
-                info.y_names.get(i).cloned().unwrap_or_default(),
-                acc[i],
-                ymax[i],
-                opts.atol * info.y_nominal[i],
-            ));
-        }
-        let mut by: Vec<(String, f64, f64, f64)> = vec![];
-        for (name, a, m, f) in errors_left {
-            match by.iter_mut().find(|x| x.0 == name) {
+            let name = info.y_names.get(i).cloned().unwrap_or_default();
+            let (a, m, f) = (acc[i], ymax[i], opts.atol * info.y_nominal[i]);
+            match errors_left.iter_mut().find(|x| x.0 == name) {
                 Some(x) => {
                     x.1 += a;
                     x.2 = x.2.max(m);
                     x.3 = x.3.max(f);
                 }
-                None => by.push((name, a, m, f)),
+                None => errors_left.push((name, a, m, f)),
             }
         }
-        by.into_iter().map(|(name, a, m, f)| (name, a / m.max(f).max(f64::MIN_POSITIVE))).collect()
+        errors_left
+            .into_iter()
+            .map(|(name, a, m, f)| (name, a / m.max(f).max(f64::MIN_POSITIVE)))
+            .collect()
     };
     accumulated.sort_by(|a, b| b.1.total_cmp(&a.1));
     report.error = ErrorEstimate { accumulated, ..report.error };
     report.backend = integ.name();
     report.method = integ.method();
-    report.notes = integ.setup_notes();
+    report.notes = start_notes;
     if switches > 0 {
         report.notes.push(format!(
             "dynamic state selection: the states were chosen again {switches} times"

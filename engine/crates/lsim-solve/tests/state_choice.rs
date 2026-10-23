@@ -639,6 +639,7 @@ fn preparation_chooses_the_states_at_a_point_of_a_run() {
         params: first.info.params.clone(),
         channels: channels.clone(),
         window: lsim_solve::STATE_SWITCH,
+        ..Default::default()
     };
     let again = lsim_prep::prepare_choosing(&lib, &def, &Default::default(), at).expect("prepares");
     let st: Vec<&str> = again.states.iter().map(|v| again.flat.var(*v).name.as_str()).collect();
@@ -1103,5 +1104,360 @@ fn each_fallback_stops_naming_why_the_states_were_not_chosen_again() {
         assert!((t - 0.5804).abs() < 1e-3, "{e}");
         assert!(message.contains("(the rod keeps its length) decides x"), "{e}");
         assert!(message.contains(why), "not {why:?}: {e}");
+    }
+}
+
+/// `angles.len()` x-y pendulums released at rest at `angles`, independent
+/// of each other in one model (`m`, `L`, `g` shared): index reduction's
+/// choice has a set per rod (at each of its levels).
+fn pendulums(angles: &[f64]) -> ComponentDef {
+    let start = |name: String, unit: &str, value: Expr, fixed: bool| VarDecl {
+        start: Some(value),
+        fixed,
+        ..var(&name, unit, "")
+    };
+    let mut def = ComponentDef {
+        name: "Test.Pendulums".into(),
+        params: vec![
+            param("m", "kg", 1.0, "mass"),
+            param("L", "m", 1.0, "rod length"),
+            param("g", "m/s2", 9.81, "gravity"),
+        ],
+        ..Default::default()
+    };
+    for (i, &th) in angles.iter().enumerate() {
+        let v = |s: &str| format!("{s}{i}");
+        let (sin, cos) = (lsim_ir::math::sin(th), lsim_ir::math::cos(th));
+        def.vars.extend([
+            start(v("x"), "m", n("L") * c(sin), true),
+            start(v("y"), "m", -(n("L") * c(cos)), false),
+            start(v("vx"), "m/s", c(0.0), true),
+            start(v("vy"), "m/s", c(0.0), false),
+            start(v("F"), "N", n("m") * n("g"), false),
+        ]);
+        let (x, y, vx, vy, f) = (n(&v("x")), n(&v("y")), n(&v("vx")), n(&v("vy")), n(&v("F")));
+        def.equations.extend([
+            eq(der(&v("x")), vx.clone(), &format!("x{i} changes with vx{i}")),
+            eq(der(&v("y")), vy.clone(), &format!("y{i} changes with vy{i}")),
+            eq(
+                n("m") * der(&v("vx")),
+                -(x.clone() * f.clone() / n("L")),
+                &format!("rod {i} along x"),
+            ),
+            eq(
+                n("m") * der(&v("vy")),
+                -(y.clone() * f / n("L")) - n("m") * n("g"),
+                &format!("rod {i} and gravity along y"),
+            ),
+            eq(x.clone() * x + y.clone() * y, n("L") * n("L"), &format!("rod {i}")),
+        ]);
+    }
+    def
+}
+
+/// Runs the pendulums released at `angles` at `rtols`, each to its end: per
+/// tolerance, each rod's position error against its reference (in rtol)
+/// and its switches, and the distinct choices of states the run took.
+fn pendulums_run(angles: &[f64], rtols: &[f64]) -> Vec<(Vec<f64>, Vec<usize>, usize)> {
+    let built = common::build_dynamic(&common::library(), &pendulums(angles));
+    let want: Vec<Vec<(f64, f64)>> = angles.iter().map(|&a| reference(a, 10.0)).collect();
+    let mut out = vec![];
+    for &rtol in rtols {
+        let opts = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 10.0, dt: 0.01 };
+        let r = simulate(&built.jit, &built.info, &opts, grid, &mut [])
+            .unwrap_or_else(|e| panic!("rtol {rtol:e}: {e}"));
+        let ch = |name: String| &r.values[r.names.iter().position(|x| *x == name).expect("chan")];
+        let errs: Vec<f64> = (0..angles.len())
+            .map(|i| {
+                let (x, y) = (ch(format!("x{i}")), ch(format!("y{i}")));
+                want[i]
+                    .iter()
+                    .enumerate()
+                    .map(|(k, (wx, wy))| (x[k] - wx).abs().max((y[k] - wy).abs()))
+                    .fold(0.0, f64::max)
+                    / rtol
+            })
+            .collect();
+        let per: Vec<usize> = (0..angles.len())
+            .map(|i| {
+                r.events
+                    .iter()
+                    .filter(|e| matches!(e.kind, lsim_solve::EventKind::States(_)))
+                    .filter(|e| e.label.contains(&format!("(rod {i})")))
+                    .count()
+            })
+            .collect();
+        let mut choices: Vec<&str> = r
+            .events
+            .iter()
+            .filter(|e| matches!(e.kind, lsim_solve::EventKind::States(_)))
+            .filter_map(|e| e.label.split(": ").nth(1)?.split(" in place of").next())
+            .collect();
+        choices.sort_unstable();
+        choices.dedup();
+        println!(
+            "rtol {rtol:e}: {} steps, switches per rod {per:?}, {} choices; errors (rtol) {:.0?}",
+            r.stats.steps,
+            choices.len(),
+            errs
+        );
+        out.push((errs, per, choices.len()));
+    }
+    out
+}
+
+/// The pendulum released at `theta0` alone at `rtol`: its position error
+/// against its reference (in rtol) and its switches.
+fn alone(theta0: f64, rtol: f64) -> (f64, usize) {
+    let built = common::build_dynamic(&common::library(), &pendulum(theta0, StateSelect::Default));
+    let want = reference(theta0, 10.0);
+    let opts = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
+    let grid = OutputGrid { t0: 0.0, t_end: 10.0, dt: 0.01 };
+    let r = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs");
+    let ch = |name: &str| &r.values[r.names.iter().position(|x| x == name).expect(name)];
+    let (x, y) = (ch("x"), ch("y"));
+    let err = want
+        .iter()
+        .enumerate()
+        .map(|(k, (wx, wy))| (x[k] - wx).abs().max((y[k] - wy).abs()))
+        .fold(0.0, f64::max);
+    (err / rtol, switches(&r))
+}
+
+/// Two pendulums in one model, released at 1.50 and 1.80 rad: each
+/// chooses its states again where its own degrade, the other's kept, as
+/// often as it does alone, each about as near its reference as alone (the
+/// integrator's steps are the two's: not to the bit). Before, the run
+/// chose every set again with the window of the one that degraded, so the
+/// other rod (not degrading) was pivoted onto a choice it did not need,
+/// and held every set to the base threshold: every switch was refused, and
+/// the run stopped at 0.2135 s naming rod 1, as without dynamic selection.
+#[test]
+fn independent_pendulums_choose_their_states_again_each_on_its_own() {
+    let rtols = [1e-6, 1e-8, 1e-10];
+    for (rtol, (errs, per, _)) in rtols.iter().zip(pendulums_run(&[1.5, 1.8], &rtols)) {
+        for (i, theta0) in [1.5, 1.8].into_iter().enumerate() {
+            let (err, n) = alone(theta0, *rtol);
+            assert_eq!(per[i], n, "rtol {rtol:e}: rod {i}");
+            assert!(
+                errs[i] < 10.0 * err.max(100.0),
+                "rtol {rtol:e}: rod {i} {errs:?}, alone {err}"
+            );
+        }
+    }
+}
+
+/// Six pendulums released at 1.5 … 3.05 rad: 64 choices of states, of
+/// which the run takes more than the 32 it used to keep (after them it
+/// refused every switch). Each rod switches as often as alone, about as
+/// near its reference as alone.
+#[test]
+fn six_pendulums_take_more_choices_than_a_run_used_to_keep() {
+    let angles = [1.5, 1.9, 2.3, 2.6, 2.9, 3.05];
+    for (errs, per, choices) in pendulums_run(&angles, &[1e-8]) {
+        assert!(choices > 32, "{choices} choices");
+        for (i, &theta0) in angles.iter().enumerate() {
+            let (err, n) = alone(theta0, 1e-8);
+            assert_eq!(per[i], n, "rod {i}");
+            assert!(errs[i] < 10.0 * err.max(100.0), "rod {i}: {errs:?}, alone {err}");
+        }
+    }
+}
+
+/// A double pendulum in x and y (two rods, one set of constraints at each
+/// level of index reduction: coupled), released at rest at 1.2 and 1.6
+/// rad from the vertical, against its angles integrated independently
+/// (classical Runge–Kutta, 1e-4 s steps): it chooses its states again 9
+/// times in 5 s and stays within 1 000 rtol at 1e-6 … 1e-10 (the same
+/// double pendulum in its angles, an ODE: 11 to 22 rtol; the x-y form's
+/// error grows smoothly through the switches, a DOP853 reference at 1e-13
+/// agrees with this one to 1e-12).
+#[test]
+fn a_double_pendulum_in_x_and_y_chooses_its_states_again() {
+    use lsim_ir::math::{cos, sin};
+    let start = |name: &str, unit: &str, value: Expr, fixed: bool| VarDecl {
+        start: Some(value),
+        fixed,
+        ..var(name, unit, "")
+    };
+    let (a1, a2) = (1.2f64, 1.6f64);
+    let def = ComponentDef {
+        name: "Test.Double".into(),
+        params: vec![param("g", "m/s2", 9.81, "gravity")],
+        vars: vec![
+            start("x1", "m", c(sin(a1)), true),
+            start("y1", "m", c(-cos(a1)), false),
+            start("x2", "m", c(sin(a1) + sin(a2)), true),
+            start("y2", "m", c(-cos(a1) - cos(a2)), false),
+            start("vx1", "m/s", c(0.0), true),
+            start("vy1", "m/s", c(0.0), false),
+            start("vx2", "m/s", c(0.0), true),
+            start("vy2", "m/s", c(0.0), false),
+            start("F1", "1/s2", c(20.0), false),
+            start("F2", "1/s2", c(10.0), false),
+        ],
+        equations: vec![
+            eq(der("x1"), n("vx1"), "x1"),
+            eq(der("y1"), n("vy1"), "y1"),
+            eq(der("x2"), n("vx2"), "x2"),
+            eq(der("y2"), n("vy2"), "y2"),
+            eq(der("vx1"), -(n("x1") * n("F1")) + (n("x2") - n("x1")) * n("F2"), "mass 1 along x"),
+            eq(
+                der("vy1"),
+                -(n("y1") * n("F1")) + (n("y2") - n("y1")) * n("F2") - n("g"),
+                "mass 1 along y",
+            ),
+            eq(der("vx2"), -((n("x2") - n("x1")) * n("F2")), "mass 2 along x"),
+            eq(der("vy2"), -((n("y2") - n("y1")) * n("F2")) - n("g"), "mass 2 along y"),
+            eq(n("x1") * n("x1") + n("y1") * n("y1"), c(1.0), "the upper rod"),
+            eq(
+                (n("x2") - n("x1")) * (n("x2") - n("x1"))
+                    + (n("y2") - n("y1")) * (n("y2") - n("y1")),
+                c(1.0),
+                "the lower rod",
+            ),
+        ],
+        ..Default::default()
+    };
+    // the angles: (m1 + m2) L1 θ1'' + m2 L2 θ2'' cos(θ1 − θ2) + m2 L2 θ2'²
+    // sin(θ1 − θ2) + (m1 + m2) g sin θ1 = 0, and L2 θ2'' + L1 θ1'' cos(θ1 −
+    // θ2) − L1 θ1'² sin(θ1 − θ2) + g sin θ2 = 0 (unit masses and rods)
+    let f = |s: [f64; 4]| {
+        let (t1, t2, w1, w2) = (s[0], s[1], s[2], s[3]);
+        let d = t1 - t2;
+        let (a, b, cc, dd) = (2.0, cos(d), cos(d), 1.0);
+        let r1 = -w2 * w2 * sin(d) - 2.0 * 9.81 * sin(t1);
+        let r2 = w1 * w1 * sin(d) - 9.81 * sin(t2);
+        let det = a * dd - b * cc;
+        [w1, w2, (r1 * dd - b * r2) / det, (a * r2 - cc * r1) / det]
+    };
+    let mut st = [a1, a2, 0.0, 0.0];
+    let h = 1e-4;
+    let pos = |s: [f64; 4]| {
+        let (x1, y1) = (sin(s[0]), -cos(s[0]));
+        [x1, y1, x1 + sin(s[1]), y1 - cos(s[1])]
+    };
+    let mut want = vec![pos(st)];
+    for k in 1..=50_000 {
+        let add = |s: [f64; 4], d: [f64; 4], c: f64| std::array::from_fn(|i| s[i] + c * d[i]);
+        let k1 = f(st);
+        let k2 = f(add(st, k1, 0.5 * h));
+        let k3 = f(add(st, k2, 0.5 * h));
+        let k4 = f(add(st, k3, h));
+        st = std::array::from_fn(|i| st[i] + h / 6.0 * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]));
+        if k % 100 == 0 {
+            want.push(pos(st));
+        }
+    }
+    let built = common::build_dynamic(&common::library(), &def);
+    for rtol in [1e-6, 1e-8, 1e-10] {
+        let opts = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 5.0, dt: 0.01 };
+        let r = simulate(&built.jit, &built.info, &opts, grid, &mut [])
+            .unwrap_or_else(|e| panic!("rtol {rtol:e}: {e}"));
+        let ch = |name: &str| &r.values[r.names.iter().position(|x| x == name).expect(name)];
+        let got = [ch("x1"), ch("y1"), ch("x2"), ch("y2")];
+        let err = want
+            .iter()
+            .enumerate()
+            .map(|(k, w)| (0..4).map(|i| (got[i][k] - w[i]).abs()).fold(0.0, f64::max))
+            .fold(0.0, f64::max);
+        println!("rtol {rtol:e}: {} switches, {:.0} rtol off", switches(&r), err / rtol);
+        assert!(switches(&r) > 0);
+        assert!(err < 1e3 * rtol, "rtol {rtol:e}: {err:e} off");
+    }
+}
+
+/// A model's choices that give the model with the states chosen again but
+/// tell its watch the choice it left (each set's pivots swapped), so that
+/// no switch to it holds: the switch is refused only once the integrator
+/// has been started on it, at the step's end it was found at.
+struct Worse(lsim_solve::choice::Choices);
+
+/// The model a [`Worse`] gives: the real one.
+struct Real(std::sync::Arc<lsim_solve::choice::Variant>);
+
+impl lsim_ir::runtime::ModelFunctions for Real {
+    fn layout(&self) -> &lsim_ir::runtime::Layout {
+        self.0.model.layout()
+    }
+    fn residual(&self, i: &lsim_ir::runtime::EvalInput<'_>, w: &mut [f64], o: &mut [f64]) {
+        self.0.model.residual(i, w, o)
+    }
+    fn jvp(&self, i: &lsim_ir::runtime::EvalInput<'_>, v: &[f64], w: &mut [f64], o: &mut [f64]) {
+        self.0.model.jvp(i, v, w, o)
+    }
+    fn roots(&self, i: &lsim_ir::runtime::EvalInput<'_>, w: &mut [f64], o: &mut [f64]) {
+        self.0.model.roots(i, w, o)
+    }
+    fn vars(&self, i: &lsim_ir::runtime::EvalInput<'_>, w: &mut [f64], o: &mut [f64]) {
+        self.0.model.vars(i, w, o)
+    }
+    fn when(&self, i: &lsim_ir::runtime::EvalInput<'_>, f: &[f64], w: &mut [f64], d: &mut [f64]) {
+        self.0.model.when(i, f, w, d)
+    }
+    fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
+        self.0.model.start(p, y0, d0)
+    }
+    fn sparsity(&self) -> Option<&lsim_ir::runtime::SparsityPattern> {
+        self.0.model.sparsity()
+    }
+    fn jacobian_sparse(&self, i: &lsim_ir::runtime::EvalInput<'_>, w: &mut [f64], v: &mut [f64]) {
+        self.0.model.jacobian_sparse(i, w, v)
+    }
+    fn modes(&self, i: &lsim_ir::runtime::EvalInput<'_>, w: &mut [f64], d: &mut [f64]) {
+        self.0.model.modes(i, w, d)
+    }
+}
+
+impl lsim_solve::choice::StateChoices for Worse {
+    fn choose(
+        &self,
+        at: &lsim_solve::choice::ChoicePoint,
+    ) -> Result<std::sync::Arc<lsim_solve::choice::Variant>, String> {
+        let v = self.0.0.choose(at)?;
+        let mut info = v.info.clone();
+        for set in &mut info.state_sets {
+            if set.pivots.len() == 1 && set.candidates.len() == 2 {
+                set.pivots[0] = 1 - set.pivots[0];
+            }
+        }
+        let states = v.states.clone();
+        Ok(std::sync::Arc::new(lsim_solve::choice::Variant {
+            model: Box::new(Real(v)),
+            info,
+            states,
+        }))
+    }
+}
+
+/// A switch refused at the step's end it was found at, the integrator
+/// started on the new states already (here: told the choice the run
+/// leaves, which does not hold): that point is checked as any step's end
+/// before the run goes on with the states it has, and the run stops where
+/// they degrade past its limit, naming the rod and why the states were
+/// not chosen again, within 100 rtol seconds of where the run without the
+/// model's choices stops. Before, a refusal at a step end the step was not
+/// cut back to left that point unchecked: the next check compared with
+/// the point before it, and searched for where the choice failed on the
+/// next step's dense output only.
+#[test]
+fn a_switch_refused_at_a_step_s_end_leaves_that_point_checked() {
+    let lib = common::library();
+    let def = pendulum(-std::f64::consts::FRAC_PI_2, StateSelect::Default);
+    let built = common::build(&lib, &def, false);
+    let mut worse = built.info.clone();
+    worse.choices =
+        Some(lsim_solve::choice::Choices(std::sync::Arc::new(Worse(common::choices(&lib, &def)))));
+    let alone = stop_times(&built, &built.info, &Vec::new, 10.0, "x", "y");
+    for (rtol, t0) in RTOLS.into_iter().zip(&alone) {
+        let opts = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 10.0, dt: 0.01 };
+        let e = simulate(&built.jit, &worse, &opts, grid, &mut []).expect_err("stops");
+        let SolveError::StateSelection { t, message, .. } = &e else { panic!("{e}") };
+        println!("rtol {rtol:e}: stops {:+.2e} s from the run without choices", t - t0);
+        assert!(message.contains("choosing the states again did not work here"), "{e}");
+        assert!((t - t0).abs() < 100.0 * rtol, "rtol {rtol:e}: {t} against {t0}: {e}");
     }
 }

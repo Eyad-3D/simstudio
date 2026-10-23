@@ -24,8 +24,13 @@ use lsim_ir::runtime::{EvalInput, ModelFunctions};
 use std::cell::OnceCell;
 use std::sync::Arc;
 
-/// The most models one run switches between (each distinct choice once).
-pub(super) const MAX_MODELS: usize = 32;
+/// The most models one run switches between (each distinct choice once):
+/// a run that would take one more goes on with the states it has (the
+/// watch stops it where they degrade past the run's limit).
+pub(super) const MAX_MODELS: usize = 1024;
+
+/// The models kept per piece of the [`Arena`].
+const CHUNK: usize = 16;
 
 /// A model a run switches to, with the run's own information on it (its
 /// parameters, time events, sampled blocks and choices).
@@ -35,26 +40,53 @@ pub(super) struct RunModel {
 }
 
 /// The models a run switches to: each kept, in place, for the run's
-/// length (the run loop's helpers borrow them as they borrow the first).
+/// length (the run loop's helpers borrow them as they borrow the first),
+/// in pieces of [`CHUNK`] added as needed, up to [`MAX_MODELS`].
 pub(super) struct Arena {
     slots: Vec<OnceCell<RunModel>>,
+    more: OnceCell<Box<Arena>>,
 }
 
 impl Arena {
     pub fn new() -> Arena {
-        Arena { slots: (0..MAX_MODELS).map(|_| OnceCell::new()).collect() }
+        Arena { slots: (0..CHUNK).map(|_| OnceCell::new()).collect(), more: OnceCell::new() }
+    }
+
+    /// The pieces, in order.
+    fn pieces(&self) -> impl Iterator<Item = &Arena> {
+        std::iter::successors(Some(self), |a| a.more.get().map(|b| &**b))
     }
 
     /// The model kept for the choice `states`, if any.
     pub fn find(&self, states: &[String]) -> Option<&RunModel> {
-        self.slots.iter().filter_map(|s| s.get()).find(|m| m.variant.states == states)
+        self.pieces()
+            .flat_map(|a| a.slots.iter())
+            .filter_map(|s| s.get())
+            .find(|m| m.variant.states == states)
     }
 
-    /// Keeps `m`; `None` when the run has switched between too many models.
+    /// How many models it keeps.
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        self.pieces().flat_map(|a| a.slots.iter()).filter(|s| s.get().is_some()).count()
+    }
+
+    /// Keeps `m`; `None` when the run has switched between
+    /// [`MAX_MODELS`] models already.
     pub fn keep(&self, m: RunModel) -> Option<&RunModel> {
-        let slot = self.slots.iter().find(|s| s.get().is_none())?;
-        let _ = slot.set(m);
-        slot.get()
+        let mut piece = self;
+        let mut before = 0;
+        loop {
+            if let Some(slot) = piece.slots.iter().find(|s| s.get().is_none()) {
+                let _ = slot.set(m);
+                return slot.get();
+            }
+            before += piece.slots.len();
+            if before >= MAX_MODELS {
+                return None;
+            }
+            piece = piece.more.get_or_init(|| Box::new(Arena::new()));
+        }
     }
 }
 
@@ -62,6 +94,7 @@ impl Arena {
 /// names `names`, values `vars`), each state's derivative as `der(<state>)`
 /// (`xdot`), the parameters, and the derivatives among the channels the
 /// run records (`recorded`), which the model switched to keeps.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn point(
     t: f64,
     info: &RunInfo,
@@ -70,6 +103,7 @@ pub(super) fn point(
     xdot: &[f64],
     recorded: &[String],
     window: f64,
+    again: usize,
 ) -> ChoicePoint {
     let mut values: Vec<(String, f64)> =
         info.var_names.iter().cloned().zip(vars.iter().copied()).collect();
@@ -91,6 +125,16 @@ pub(super) fn point(
         params: info.params.clone(),
         channels: recorded.iter().filter(|n| n.starts_with("der(")).cloned().collect(),
         window,
+        // the set that degraded chosen again (with its own other levels),
+        // every other set kept as it is
+        keep: info
+            .state_sets
+            .iter()
+            .enumerate()
+            .filter(|&(j, _)| j != again)
+            .filter_map(|(_, s)| s.keep())
+            .collect(),
+        again: info.state_sets.get(again).map_or(vec![], |s| s.eqs.clone()),
     }
 }
 
@@ -312,9 +356,10 @@ pub(super) fn states_of(info: &RunInfo, n_x: usize) -> Vec<String> {
 }
 
 /// The model to go on with from `(t, y, d)` on `now` (the run's first
-/// model `first`, the channels it records `recorded`): the states chosen
-/// again there, by the model's choices ([`RunInfo::choices`]); why not,
-/// where the run cannot go on with another choice there.
+/// model `first`, the channels it records `recorded`): the states of set
+/// `again` chosen again there (its pivoting's window `window`), every
+/// other set's choice kept, by the model's choices ([`RunInfo::choices`]);
+/// why not, where the run cannot go on with another choice there.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn choose_at<'a>(
     arena: &'a Arena,
@@ -325,6 +370,7 @@ pub(super) fn choose_at<'a>(
     y: &[f64],
     d: &[f64],
     u: &[f64],
+    again: usize,
     window: f64,
 ) -> Result<Next<'a>, String> {
     let Some(choices) = &now.1.choices else {
@@ -335,7 +381,7 @@ pub(super) fn choose_at<'a>(
     let mut vars = vec![0.0; l.n_vars];
     now.0.vars(&EvalInput { t, y, p: &now.1.params, d, u }, &mut work, &mut vars);
     let xdot = state_rates(now.0, now.1, t, y, d, u);
-    let at = point(t, now.1, &vars, y, &xdot, recorded, window);
+    let at = point(t, now.1, &vars, y, &xdot, recorded, window, again);
     let v = choices.0.choose(&at)?;
     if v.states == states_of(now.1, l.n_x) {
         return Err("choosing the states again there gives the same states".into());
@@ -348,7 +394,10 @@ pub(super) fn choose_at<'a>(
         } else {
             let info = run_info(&v, now.1)?;
             let m = arena.keep(RunModel { variant: v.clone(), info }).ok_or_else(|| {
-                format!("the run has switched between {MAX_MODELS} choices of states already")
+                format!(
+                    "the run has switched between {MAX_MODELS} choices of states already (each \
+                     kept for the run's length)"
+                )
             })?;
             (&*m.variant.model, &m.info)
         };
@@ -361,4 +410,66 @@ pub(super) fn choose_at<'a>(
         "the point does not give every state of the model with the states chosen again".to_string()
     })?;
     Ok(Next { model, info, map, y, states: v.states.clone() })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lsim_ir::runtime::{EvalInput, Layout};
+
+    struct Nothing(Layout);
+    impl ModelFunctions for Nothing {
+        fn layout(&self) -> &Layout {
+            &self.0
+        }
+        fn residual(&self, _: &EvalInput<'_>, _: &mut [f64], _: &mut [f64]) {}
+        fn jvp(&self, _: &EvalInput<'_>, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
+        fn roots(&self, _: &EvalInput<'_>, _: &mut [f64], _: &mut [f64]) {}
+        fn vars(&self, _: &EvalInput<'_>, _: &mut [f64], _: &mut [f64]) {}
+        fn when(&self, _: &EvalInput<'_>, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
+        fn start(&self, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
+    }
+
+    fn model(k: usize) -> RunModel {
+        let layout = Layout {
+            n_x: 0,
+            n_z: 0,
+            n_p: 0,
+            n_d: 0,
+            n_u: 0,
+            n_roots: 0,
+            n_whens: 0,
+            n_vars: 0,
+            n_work: 0,
+        };
+        let variant = Variant {
+            model: Box::new(Nothing(layout)),
+            info: RunInfo::bare(0, 0, vec![]),
+            states: vec![format!("x{k}")],
+        };
+        RunModel { variant: Arc::new(variant), info: RunInfo::bare(0, 0, vec![]) }
+    }
+
+    #[test]
+    fn a_run_keeps_every_choice_it_takes_up_to_its_limit() {
+        // (before, 32 at most: a model with six sets switching on their
+        // own, 64 choices, refused every switch after its 32nd)
+        let arena = Arena::new();
+        let mut first = vec![];
+        for k in 0..100 {
+            let m = arena.keep(model(k)).expect("kept");
+            first.push(m as *const RunModel);
+        }
+        assert_eq!(arena.len(), 100);
+        for (k, &at) in first.iter().enumerate() {
+            let m = arena.find(&[format!("x{k}")]).expect("found");
+            // (in place: what the run borrowed stays where it was)
+            assert_eq!(m as *const RunModel, at);
+        }
+        for k in 100..MAX_MODELS {
+            assert!(arena.keep(model(k)).is_some());
+        }
+        assert!(arena.keep(model(MAX_MODELS)).is_none());
+        assert_eq!(arena.len(), MAX_MODELS);
+    }
 }

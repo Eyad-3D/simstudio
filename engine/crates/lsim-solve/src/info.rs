@@ -617,6 +617,16 @@ pub struct StateSetInfo {
     /// per column: the model marks it to be kept as a state (`prefer`,
     /// `always`, a restarted state)
     pub kept: Vec<bool>,
+    /// which set it is ([`lsim_ir::StateSet::eqs`],
+    /// [`lsim_ir::StateSet::nodes`]): the same in every preparation of the
+    /// model, whatever states it chose (empty: not known)
+    pub eqs: Vec<usize>,
+    /// (its candidates: with `eqs`, which set it is)
+    pub nodes: Vec<usize>,
+    /// the equations its rows were differentiated from
+    /// ([`lsim_ir::StateSet::roots`]): the sets that share one are chosen
+    /// again together
+    pub roots: Vec<usize>,
 }
 
 /// What a state set's entries read, and so when its pivots can change.
@@ -658,7 +668,46 @@ impl StateSetInfo {
             parts: s.parts.clone(),
             candidates: s.candidates.clone(),
             kept: s.kept.clone(),
+            eqs: s.eqs.clone(),
+            nodes: s.nodes.clone(),
+            roots: s.roots.clone(),
         }
+    }
+
+    /// Whether `other` is this set at another of index reduction's levels,
+    /// or this one: they share an equation they were differentiated from.
+    pub fn same_chain(&self, other: &StateSetInfo) -> bool {
+        self.roots.iter().any(|r| other.roots.contains(r))
+    }
+
+    /// Whether `other` is the same set (of another preparation of the
+    /// model), whatever its choice.
+    pub fn same_set(&self, other: &StateSetInfo) -> bool {
+        !self.eqs.is_empty() && self.eqs == other.eqs && self.nodes == other.nodes
+    }
+
+    /// Whether `other` is the same set with the same choice: the same
+    /// columns decided (in any order of its rows) and left out.
+    pub fn same_choice(&self, other: &StateSetInfo) -> bool {
+        let sorted = |p: &[usize]| {
+            let mut v = p.to_vec();
+            v.sort_unstable();
+            v
+        };
+        self.same_set(other)
+            && sorted(&self.pivots) == sorted(&other.pivots)
+            && self.masked == other.masked
+    }
+
+    /// This set's choice, to keep where a run chooses its states again
+    /// ([`lsim_ir::choice::KeepSet`]); `None` where the set is not known.
+    pub fn keep(&self) -> Option<lsim_ir::choice::KeepSet> {
+        (!self.eqs.is_empty()).then(|| lsim_ir::choice::KeepSet {
+            eqs: self.eqs.clone(),
+            nodes: self.nodes.clone(),
+            pivots: self.pivots.clone(),
+            masked: self.masked.clone(),
+        })
     }
 }
 

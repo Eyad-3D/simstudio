@@ -343,28 +343,19 @@ fn choices(
     opts: &PrepOptions,
     info: &RunInfo,
 ) -> Option<lsim_solve::choice::Choices> {
-    use lsim_solve::choice::{ChoicePoint, Choices, Rechooser};
-    if !info.state_sets.iter().any(|s| s.reads == lsim_solve::SetReads::Variables) {
-        return None;
-    }
     let (lib, top, opts) = (lib.clone(), top.clone(), opts.clone());
-    let prepare = move |at: &ChoicePoint| {
-        let point = lsim_prep::ChoosePoint {
-            t: at.t,
-            values: at.values.iter().cloned().collect(),
-            params: at.params.clone(),
-            channels: at.channels.clone(),
-            window: at.window,
-        };
-        lsim_prep::prepare_choosing(&lib, &top, &opts, point)
-            .map_err(|d| d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("; "))
-    };
-    let compile = |p: &PreparedModel| {
-        lsim_codegen::compile(p, &CodegenOptions::default())
-            .map(|j| Box::new(j) as Box<dyn ModelFunctions>)
-            .map_err(|e| e.to_string())
-    };
-    Some(Choices(Arc::new(Rechooser::new(Box::new(prepare), Box::new(compile)))))
+    lsim_solve::choice::rechoosing(
+        info,
+        Box::new(move |at: &lsim_solve::choice::ChoicePoint| {
+            lsim_prep::prepare_choosing(&lib, &top, &opts, at.clone())
+                .map_err(|d| d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("; "))
+        }),
+        Box::new(|p: &PreparedModel| {
+            lsim_codegen::compile(p, &CodegenOptions::default())
+                .map(|j| Box::new(j) as Box<dyn ModelFunctions>)
+                .map_err(|e| e.to_string())
+        }),
+    )
 }
 
 /// Which trace and which derivative fills each input of an inverse model
