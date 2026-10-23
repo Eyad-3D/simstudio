@@ -813,6 +813,64 @@ impl Table {
     pub fn continues_cells(&self, axis: usize) -> bool {
         !self.cubic && self.guard_axes.get(axis).is_some_and(|ax| ax.outside != Outside::Clamp)
     }
+
+    /// How smooth the table is along `axis` ([`axis_smoothness`]).
+    pub fn smoothness(&self, axis: usize) -> AxisSmoothness {
+        self.guard_axes.get(axis).map_or(AxisSmoothness::SMOOTH, |ax| {
+            axis_smoothness(self.cubic, ax.pts.len(), ax.outside)
+        })
+    }
+}
+
+/// How smooth a table is along one axis, as its number of continuous
+/// derivatives there (DESIGN.md §8.2, *Tables read at a state*): at its
+/// breakpoints inside its data, and at its data's two edges. `u32::MAX`
+/// where it has no breakpoint (no point inside the data: two points; the
+/// edges of a linear table continued along its edge cells; an axis of one
+/// point).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AxisSmoothness {
+    /// at the points inside the data: 0 for a linear table, 1 for a
+    /// monotone cubic
+    pub inside: u32,
+    /// at the data's edges: 0 held there (`Clamp`), else 1 for a monotone
+    /// cubic (continued along its edge slope, its second derivative 0
+    /// outside) and none for a linear table (its edge cells continued)
+    pub edges: u32,
+}
+
+impl AxisSmoothness {
+    /// No breakpoint at all.
+    pub const SMOOTH: AxisSmoothness = AxisSmoothness { inside: u32::MAX, edges: u32::MAX };
+}
+
+/// [`AxisSmoothness`] of an axis of `points` breakpoints, interpolated
+/// cubically or not, with the rule `outside` beyond its data.
+pub fn axis_smoothness(cubic: bool, points: usize, outside: Outside) -> AxisSmoothness {
+    if points < 2 {
+        return AxisSmoothness::SMOOTH;
+    }
+    let inside = if points == 2 {
+        u32::MAX
+    } else if cubic {
+        1
+    } else {
+        0
+    };
+    let edges = match outside {
+        Outside::Clamp => 0,
+        Outside::Linear | Outside::Error if cubic => 1,
+        Outside::Linear | Outside::Error => u32::MAX,
+    };
+    AxisSmoothness { inside, edges }
+}
+
+/// [`axis_smoothness`] of axis `axis` of the interpolant `data` makes,
+/// from its rules and point counts alone.
+pub fn data_smoothness(data: &TableData, axis: usize) -> AxisSmoothness {
+    let points = if axis == 0 { data.x.len() } else { data.y.len() };
+    let cubic = data.interpolation == Interpolation::MonotoneCubic;
+    axis_smoothness(cubic, points, data.outside[axis.min(1)])
 }
 
 #[cfg(test)]

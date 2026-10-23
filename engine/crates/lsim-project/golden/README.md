@@ -65,20 +65,20 @@ relaxes after a shift is in their own slip losses (below).
 
 | case | figures inside | channels inside | energy books: closure | gear shifts | as the gears engaged, kWh (today's gearbox term) | steps | events | run, s |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| aero-bev/case-hwfet | 10/10 | 63/67 | 3.2e-11 | — | — | 82568 | 670 | 0.68 |
-| aero-bev/case-udds | 14/14 | 63/67 | 1.4e-10 | — | — | 176581 | 2498 | 1.65 |
-| aero-bev/case-wltc | 18/18 | 63/67 | 1.4e-10 | — | — | 222068 | 2755 | 2.14 |
-| bev-car/case-city | 10/11 | 65/70 | 1.3e-09 | — | — | 3886 | 106 | 0.05 |
-| bev-car/case-city-live | 10/11 | 65/70 | 1.3e-09 | — | — | 3886 | 106 | 0.07 |
-| bev-car/case-wltc | 19/19 | 65/70 | 4.0e-11 | — | — | 215552 | 2879 | 2.03 |
-| bev-car/case-wltc-hvac | 19/19 | 65/70 | 6.8e-11 | — | — | 215248 | 2879 | 2.01 |
-| bev-car/case-wltc-summer | 20/20 | 65/70 | 2.3e-10 | — | — | 213736 | 2873 | 2.09 |
-| bev-car/case-wltc-winter | 20/20 | 65/70 | 1.4e-10 | — | — | 213383 | 2861 | 2.14 |
-| fs-electric/case-accel-75m | 19/19 | 65/65 | 2.5e-11 | — | — | 1221 | 104 | 0.07 |
-| hybrid-car/case-hwfet | 9/9 | 88/88 | 2.2e-13 | 16 | 0.0002062 (0.0003367) | 1922045 | 79806 | 23.55 |
-| hybrid-car/case-mixed | 9/9 | 82/88 | 2.3e-12 | 10 | 0.0001447 (0.0002622) | 572465 | 56714 | 8.56 |
-| hybrid-car/case-mixed-live | 9/9 | 82/88 | 2.3e-12 | 10 | 0.0001447 (0.0002622) | 572465 | 56714 | 8.44 |
-| hybrid-car/case-udds | 13/13 | 88/88 | 5.6e-12 | 104 | 0.0016634 (0.0035028) | 3030488 | 126830 | 36.62 |
+| aero-bev/case-hwfet | 10/10 | 63/67 | 6.4e-12 | — | — | 81983 | 17 | 0.91 |
+| aero-bev/case-udds | 14/14 | 63/67 | 4.1e-10 | — | — | 174670 | 257 | 1.67 |
+| aero-bev/case-wltc | 18/18 | 63/67 | 3.1e-11 | — | — | 224108 | 122 | 1.98 |
+| bev-car/case-city | 10/11 | 65/70 | 6.6e-10 | — | — | 4047 | 17 | 0.06 |
+| bev-car/case-city-live | 10/11 | 65/70 | 6.6e-10 | — | — | 4047 | 17 | 0.07 |
+| bev-car/case-wltc | 19/19 | 65/70 | 2.8e-10 | — | — | 213215 | 122 | 2.11 |
+| bev-car/case-wltc-hvac | 19/19 | 65/70 | 2.0e-11 | — | — | 213911 | 122 | 2.10 |
+| bev-car/case-wltc-summer | 20/20 | 65/70 | 1.1e-11 | — | — | 212949 | 122 | 2.19 |
+| bev-car/case-wltc-winter | 20/20 | 65/70 | 6.5e-11 | — | — | 213829 | 122 | 2.06 |
+| fs-electric/case-accel-75m | 19/19 | 65/65 | 8.0e-11 | — | — | 1062 | 14 | 0.06 |
+| hybrid-car/case-hwfet | 9/9 | 88/88 | 1.8e-12 | 16 | 0.0002062 (0.0003367) | 1918237 | 77005 | 26.95 |
+| hybrid-car/case-mixed | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 9.69 |
+| hybrid-car/case-mixed-live | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 9.70 |
+| hybrid-car/case-udds | 13/13 | 88/88 | 1.2e-11 | 104 | 0.0016634 (0.0035028) | 3022291 | 118072 | 42.28 |
 
 199 of the 201 figures are inside their bands (194 before work package
 4's second round, below), and 984 of 1038 channels (949 after its fourth
@@ -93,15 +93,13 @@ reports, the torque of the motors and clutches above the gear pushed
 through the gears, the inertias in between (a motor's rotor, the gears'
 own) not taken out. The two figures are the
 Battery Electric Car's recuperated energy on the city cycle (city and
-city-live), at 1.0021 × band (1.0039 × before the tables read at a
-state were held in their cells, 23 October; 1.0013 × before IDAS's order
-fix of 16 October), 1.0044 × converged; the next figure is at
+city-live), at 1.0039 × band (1.0013 × before IDAS's order fix of 16
+October), 1.0044 × converged; the next figure is at
 0.44 × band. The output points where an event happens, which put 22 of
 the hybrid's channels outside after the fourth round, are compared as
 today's engine records them, before its step (the run keeps both sides:
-below). The energy books close to 1.3e-9 of their throughput or better
-in every case (6.6e-10 before the tables read at a state were held in
-their cells, 1.5e-9 before IDAS's order fix; the hybrid's to about
+below). The energy books close to 6.6e-10 of their throughput or better
+in every case (1.5e-9 before IDAS's order fix; the hybrid's to about
 1e-11), each stored energy's rate exact. Since work package 4's twelfth
 round (16 October) the formula student car's accumulator, held at its
 output power limit, switches 1.7e-7 s earlier (a mode on an iteration
@@ -210,11 +208,9 @@ and the new engine's answers are the more accurate ones.
    convergence (0.12 % of it), a little more than its band, 7.89e-5 kWh.
 
 **The intended difference, re-checked.** *bev-car city and city-live:
-energy recuperated, +1.0021 × band (7.904e-5 kWh against a 7.888e-5 kWh
-band; +1.0039 × before the tables read at a state were held in their
-cells, +1.0013 × before IDAS's order fix); converged (rtol 1e-7, 1e-8,
-1e-9: 1.0041, 1.0044, 1.0044 × band; held in their cells 1.0040, 1.0044,
-1.0044), +7.923e-5 kWh.* By (5) the rule is the whole difference, so under the
+energy recuperated, +1.0039 × band (7.918e-5 kWh against a 7.888e-5 kWh
+band; +1.0013 × before IDAS's order fix); converged (rtol 1e-7, 1e-8,
+1e-9: 1.0041, 1.0044, 1.0044 × band), +7.923e-5 kWh.* By (5) the rule is the whole difference, so under the
 premise above the new engine's figure is the more accurate: braking, the
 rotor gives up its kinetic energy to the generator without passing the
 teeth, and today's engine takes the final drive's 2 % off that too, so it
@@ -872,32 +868,4 @@ pair. The UDDS's lower times are not its steps, which fell by 0.02 %
 them: between runs of one build the whole comparison's CPU time varies
 by up to 3.3 s on this shared machine, so the record calls the new build
 not slower, not faster.
-
-## Tables read at a state, held in their cells (23 October 2026)
-
-A table read at a value that moves with the states, where the read kinks
-or jumps at the table's points (every map the cars read: linear tables of
-the battery's SOC and the motors' speed and torque), is now held in its
-cell during every step, and each crossing of a point is an event where
-the integrator restarts in the next cell (DESIGN.md 8.2, *Tables read at
-a state*). Against the record before (e4ada13):
-
-* **Every case moved, by the tolerance.** At most 1.8e-3 × band (the
-  BEV's city recuperation, 0.07001606 → 0.07001592 kWh, outside its band
-  as before and 1.4e-7 kWh nearer it), the hybrid's clutch losses, about
-  5e-10 kW where the band is the floor of 1e-9, by 2e-1 and 2e-2 × band;
-  none across its band. The crossings are events: the BEV's WLTC 122 →
-  2 879, the aero BEV's 122 → 2 755, the hybrid's UDDS 118 072 → 126 830;
-  steps +0.25 % over the comparison (the BEV's WLTC 213 215 → 215 552, the
-  hybrid's UDDS 3 022 291 → 3 030 488). The books close to 1.3e-9 (the
-  BEV's city cycle; 6.6e-10 before).
-* **Against today's engine**: 199 of 201 figures and 984 of 1038
-  channels inside their bands, as before, each on its side.
-
-Run times, the two builds alternating, CPU time of the whole comparison:
-88.6 and 90.2 s before, 90.0 and 89.6 s now (an earlier pair of rounds:
-94.4 and 90.6 s, 90.6 and 87.9 s). The BEVs' runs take 10 to 25 % longer
-(the WLTC 1.84 → 2.03 s, the aero BEV's 1.73 → 2.14 s: about 2 800
-restarts each), the hybrid's about the same (its UDDS 37.1 → 36.6 s), so
-the whole comparison is as fast as before within this machine's noise.
 

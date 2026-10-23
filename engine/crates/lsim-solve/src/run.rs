@@ -1270,8 +1270,9 @@ impl Loop<'_> {
     ) -> Result<(), SolveError> {
         let info = self.info;
         let mut iterations = 0;
-        // the held table reads moved at this instant (crate::held::place)
-        let mut moved = vec![false; info.held.len()];
+        // the held table reads moved at this instant, per axis
+        // (crate::held::place)
+        let mut moved = vec![[false; 2]; info.held.len()];
         loop {
             if any_fired {
                 self.solve_z(integ, t, y, d, z_for)?;
@@ -1332,8 +1333,10 @@ impl Loop<'_> {
             // the table reads held in their cells whose arguments left them
             // (crate::held): in the cells they are in now
             if !info.held.is_empty() {
-                for k in crate::held::place(self.model, info, &self.roots, t, d, &moved)? {
-                    moved[k] = true;
+                for (k, axes) in crate::held::place(self.model, info, &self.roots, t, d, &moved)? {
+                    for (m, a) in moved[k].iter_mut().zip(axes) {
+                        *m |= a;
+                    }
                     again = true;
                     flipped.push(format!("the table '{}' read in its cells", info.held[k].label));
                     self.record(t, EventKind::Cell(k))?;

@@ -1,53 +1,72 @@
-//! Tables read at a state, held in their cells (DESIGN.md §8.2, *Tables
-//! read at a state*; `lsim_prep::hold`): where a model reads a table at a
-//! position that moves with its states and the read kinks or jumps at the
-//! table's breakpoints, every step integrates the cell's own polynomial and
-//! each crossing of a breakpoint is an event. Measured before against exact
-//! answers (`engine/judge`, the `kink-…` cases): stepping over a jump read
-//! through index reduction ended up to 178 rtol off where the same function
-//! with its breakpoints located is within 3, and many kinks of a value read
-//! cost up to 5 times the located run's error; held, each run is the
-//! located one.
+//! Tables read at a state (DESIGN.md §8.2, *Tables read at a state*;
+//! `lsim_prep::hold`). Where a model reads a table at a position that moves
+//! with its states and the read jumps at the table's breakpoints (a
+//! derivative index reduction reads one order more often than the table is
+//! smooth there), the read is held in its cell during every step and each
+//! crossing of a breakpoint is an event; a read that only kinks there (a
+//! linear table's value, a monotone cubic's slope) is stepped over. Every
+//! case against an exact answer: closed forms per cell, or a first integral
+//! integrated per cell and inverted.
 
+use lsim_ir::component::{ComponentDef, Library};
 use lsim_ir::interp::Table;
-use lsim_ir::{Interpolation, Outside, PreparedModel, TableData};
+use lsim_ir::math;
+use lsim_ir::{HeldCells, Interpolation, Outside, PreparedModel, TableData};
 use lsim_lang::{Report, parse_library};
-use lsim_solve::{Method, OutputGrid, RunInfo, SimResult, SolverOptions};
+use lsim_prep::hold::TableCells;
+use lsim_solve::{EventKind, OutputGrid, RunInfo, SimResult, SolverOptions};
 
 const RTOLS: [f64; 7] = [1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10];
 
-fn prepare(text: &str, name: &str, hold: bool) -> PreparedModel {
+/// The model `name` of `text` against the library, and it prepared with the
+/// tables read at a state held as `cells` asks.
+fn build(text: &str, name: &str, cells: TableCells) -> (Library, ComponentDef, PreparedModel) {
     let mut lib = lsim_lib::library();
     let parsed = parse_library(text, Some(&lib)).unwrap_or_else(|e| panic!("{}", Report(&e)));
     lib.types.extend(parsed.types);
     for def in parsed.components.into_values() {
         lib.add(def);
     }
-    let model = lib.components.get(name).cloned().expect("the model");
-    let settings = lsim_prep::Settings { hold_table_cells: hold, ..Default::default() };
-    lsim_prep::prepare_with_report(&lib, &model, None, &settings)
-        .unwrap_or_else(|d| panic!("{d:#?}"))
-        .0
+    let top = lib.components.get(name).cloned().expect("the model");
+    let opts = lsim_prep::PrepOptions { table_cells: cells, ..Default::default() };
+    let m = lsim_prep::prepare(&lib, &top, &opts).unwrap_or_else(|d| panic!("{d:#?}"));
+    (lib, top, m)
 }
 
-fn run(m: &PreparedModel, rtol: f64, t_end: f64, dt: f64, method: Method) -> SimResult {
+fn prepare(text: &str, name: &str, cells: TableCells) -> PreparedModel {
+    build(text, name, cells).2
+}
+
+fn options(rtol: f64) -> SolverOptions {
+    SolverOptions { rtol, atol: 1e-2 * rtol, ..Default::default() }
+}
+
+fn run_with(m: &PreparedModel, opts: &SolverOptions, t_end: f64, dt: f64) -> SimResult {
     let code = lsim_codegen::compile(m, &Default::default()).expect("compiles");
     let info = RunInfo::from_prepared(m);
-    let opts = SolverOptions { rtol, atol: 1e-2 * rtol, method, ..Default::default() };
-    lsim_solve::simulate(&code, &info, &opts, OutputGrid { t0: 0.0, t_end, dt }, &mut [])
+    lsim_solve::simulate(&code, &info, opts, OutputGrid { t0: 0.0, t_end, dt }, &mut [])
         .unwrap_or_else(|e| panic!("{e}"))
 }
 
+fn run(m: &PreparedModel, rtol: f64, t_end: f64, dt: f64) -> SimResult {
+    run_with(m, &options(rtol), t_end, dt)
+}
+
 /// The largest error of `channel` against `exact` over the grid, relative
-/// to its largest value.
+/// to its largest exact value.
 fn error(r: &SimResult, channel: &str, exact: &[f64]) -> f64 {
     let ch = r.channel(channel).unwrap_or_else(|| panic!("no channel {channel}"));
+    assert_eq!(ch.len(), exact.len(), "{channel}: the grid");
     let scale = exact.iter().fold(0.0f64, |a, x| a.max(x.abs()));
     ch.iter().zip(exact).fold(0.0f64, |a, (g, w)| a.max((g - w).abs())) / scale
 }
 
 fn cells(r: &SimResult) -> usize {
-    r.events.iter().filter(|e| matches!(e.kind, lsim_solve::EventKind::Cell(_))).count()
+    r.events.iter().filter(|e| matches!(e.kind, EventKind::Cell(_))).count()
+}
+
+fn grid(t_end: f64, dt: f64) -> Vec<f64> {
+    (0..=(t_end / dt).round() as usize).map(|k| k as f64 * dt).collect()
 }
 
 fn table_text(xs: &[f64], ys: &[f64], unit: &str, interp: &str, outside: &str) -> String {
@@ -59,22 +78,76 @@ fn table_text(xs: &[f64], ys: &[f64], unit: &str, interp: &str, outside: &str) -
     )
 }
 
-/// The gear of the outside judge's `kink-gear-…` cases: a rotor driven by
-/// `tau0` (reversed at `t_rev`) turns a load through a gear whose ratio is
-/// a table of the load's speed, `w1 = r(w2) w2`: index reduction
-/// differentiates it and reads `r'`, which jumps at a linear table's
-/// breakpoints and at a held table's edges.
-fn gear(table: &str, reverse: Option<f64>) -> String {
-    let tau = if reverse.is_some() { "if time < t_rev then tau0 else -tau0" } else { "tau0" };
+fn data_1d(xs: &[f64], ys: &[f64], interp: Interpolation, outside: Outside) -> TableData {
+    let mut d = TableData::new_1d(xs.to_vec(), ys.to_vec());
+    d.interpolation = interp;
+    d.outside = [outside, outside];
+    d
+}
+
+/// Gauss–Legendre nodes and weights on [-1, 1], 16 points (each pair ±x).
+const GL: [(f64, f64); 8] = [
+    (0.0950125098376374, 0.1894506104550685),
+    (0.2816035507792589, 0.1826034150449236),
+    (0.4580167776572274, 0.1691565193950025),
+    (0.6178762444026438, 0.1495959888165767),
+    (0.755404408355003, 0.1246289712555339),
+    (0.8656312023878318, 0.0951585116824928),
+    (0.9445750230732326, 0.0622535239386479),
+    (0.9894009349916499, 0.0271524594117541),
+];
+
+/// `∫_a^b f` split at the breakpoints `edges` between `a` and `b`, by
+/// 16-point Gauss–Legendre on each piece (where `f` is smooth).
+fn integral(f: &dyn Fn(f64) -> f64, edges: &[f64], a: f64, b: f64) -> f64 {
+    let (lo, hi, sign) = if a <= b { (a, b, 1.0) } else { (b, a, -1.0) };
+    let mut cuts = vec![lo];
+    cuts.extend(edges.iter().copied().filter(|&e| e > lo && e < hi));
+    cuts.push(hi);
+    let piece = |a: f64, b: f64| {
+        let (m, h) = (0.5 * (a + b), 0.5 * (b - a));
+        GL.iter().map(|&(x, w)| w * (f(m - h * x) + f(m + h * x))).sum::<f64>() * h
+    };
+    sign * cuts.windows(2).map(|w| piece(w[0], w[1])).sum::<f64>()
+}
+
+/// A gear (the outside judge's `kink-gear-…`): a rotor of inertia `j1`
+/// driven by `tau0` (reversed at `t_rev`) turns a load of inertia `j2`
+/// through a gear whose ratio is a table of the load's speed, `w1 = r(w2)
+/// w2`: index reduction differentiates it and reads `r'`.
+struct Gear {
+    j1: f64,
+    j2: f64,
+    tau0: f64,
+    t_rev: Option<f64>,
+    /// the load's speed at the start
+    w0: f64,
+    /// the rotor's speed the state (`stateSelect = prefer`), the load's
+    /// computed from it
+    rotor_state: bool,
+}
+
+const GEAR: Gear = Gear { j1: 0.05, j2: 2.0, tau0: 20.0, t_rev: None, w0: 0.0, rotor_state: false };
+
+fn gear(table: &str, g: &Gear) -> String {
+    let tau = if g.t_rev.is_some() { "if time < t_rev then tau0 else -tau0" } else { "tau0" };
+    let (w1, w2) = if g.rotor_state {
+        (
+            "start = 0, fixed = true, stateSelect = StateSelect.prefer".to_string(),
+            "start = 0".into(),
+        )
+    } else {
+        ("start = 0".to_string(), format!("start = {:?}, fixed = true", g.w0))
+    };
     format!(
         r#"model Test.KinkGear "a gear whose ratio is a table of the load's speed"
-  parameter Real J1(unit = "kg.m2") = 0.05;
-  parameter Real J2(unit = "kg.m2") = 2;
-  parameter Real tau0(unit = "N.m") = 20;
+  parameter Real J1(unit = "kg.m2") = {j1:?};
+  parameter Real J2(unit = "kg.m2") = {j2:?};
+  parameter Real tau0(unit = "N.m") = {tau0:?};
   parameter Real t_rev(unit = "s") = {t_rev:?};
   parameter Real r = {table};
-  Real w1(unit = "rad/s", start = 0);
-  Real w2(unit = "rad/s", start = 0, fixed = true);
+  Real w1(unit = "rad/s", {w1});
+  Real w2(unit = "rad/s", {w2});
   Real t1(unit = "N.m");
   Real t2(unit = "N.m");
   Real tau(unit = "N.m");
@@ -86,124 +159,373 @@ equation
   t2 = r(w2) * t1;
 end Test.KinkGear;
 "#,
-        t_rev = reverse.unwrap_or(1e9)
+        j1 = g.j1,
+        j2 = g.j2,
+        tau0 = g.tau0,
+        t_rev = g.t_rev.unwrap_or(1e9),
     )
 }
 
 /// The gear's load speed in closed form: its first integral
-/// `Φ(w2) = J1 r(w2) w2 + J2 ∫₀^w2 dw / r(w)` is `∫₀^t tau`, `Φ` rising
-/// with `w2` (the integral by 16-point Gauss–Legendre on each cell, where
-/// `1 / r` is smooth), inverted by bisection.
-fn gear_exact(data: &TableData, reverse: Option<f64>, times: &[f64]) -> Vec<f64> {
-    let (j1, j2, tau0) = (0.05, 2.0, 20.0);
+/// `Φ(w2) = J1 r(w2) w2 + J2 ∫₀^w2 dw / r(w)` grows by `∫ tau dt`, `Φ`
+/// rising with `w2` (the integral by Gauss–Legendre on each cell, where
+/// `1 / r` is smooth), inverted by bisection between `lo` and `hi`.
+fn gear_exact(data: &TableData, g: &Gear, (lo, hi): (f64, f64), times: &[f64]) -> Vec<f64> {
     let t = Table::new(data).expect("a table");
     let r = |w: f64| t.value([w, 0.0]);
-    // Gauss–Legendre nodes and weights on [-1, 1], 16 points
-    let gl: [(f64, f64); 8] = [
-        (0.0950125098376374, 0.1894506104550685),
-        (0.2816035507792589, 0.1826034150449236),
-        (0.4580167776572274, 0.1691565193950025),
-        (0.6178762444026438, 0.1495959888165767),
-        (0.755404408355003, 0.1246289712555339),
-        (0.8656312023878318, 0.0951585116824928),
-        (0.9445750230732326, 0.0622535239386479),
-        (0.9894009349916499, 0.0271524594117541),
-    ];
-    let quad = |a: f64, b: f64| -> f64 {
-        let (m, h) = (0.5 * (a + b), 0.5 * (b - a));
-        gl.iter().map(|&(x, w)| w * (1.0 / r(m - h * x) + 1.0 / r(m + h * x))).sum::<f64>() * h
-    };
-    let edges: Vec<f64> = data.x.clone();
-    let integral = |w: f64| -> f64 {
-        let mut acc = 0.0;
-        let mut lo = 0.0;
-        for &e in edges.iter().filter(|&&e| e > 0.0) {
-            if w <= e {
-                break;
-            }
-            acc += quad(lo, e);
-            lo = e;
-        }
-        acc + quad(lo, w)
-    };
-    let phi = |w: f64| j1 * r(w) * w + j2 * integral(w);
+    let inv = |w: f64| 1.0 / r(w);
+    let phi = |w: f64| g.j1 * r(w) * w + g.j2 * integral(&inv, &data.x, 0.0, w);
+    let start = phi(g.w0);
     times
         .iter()
         .map(|&tt| {
-            let f = match reverse {
-                Some(tr) if tt > tr => tau0 * (2.0 * tr - tt),
-                _ => tau0 * tt,
+            let push = match g.t_rev {
+                Some(tr) if tt > tr => g.tau0 * (2.0 * tr - tt),
+                _ => g.tau0 * tt,
             };
-            let (mut lo, mut hi) = (0.0, 200.0);
+            let (mut a, mut b) = (lo, hi);
             for _ in 0..200 {
-                let mid = 0.5 * (lo + hi);
-                if phi(mid) < f { lo = mid } else { hi = mid }
+                let mid = 0.5 * (a + b);
+                if phi(mid) < start + push { a = mid } else { b = mid }
             }
-            0.5 * (lo + hi)
+            0.5 * (a + b)
         })
         .collect()
 }
 
 /// The ratio a linear table of the load's speed: `r'` jumps at each of its
-/// four inner breakpoints. Stepped over (CVODE's Adams, as the run chose),
-/// the load's speed was 9.7, 9.9, 23, 25, 28, 167 and 178 rtol off at rtol
-/// 1e-4 … 1e-10; held, 1.1, 1.0, 1.2, 1.8, 2.8, 1.2 and 1.7 rtol, the
-/// located run's to the bit (the judge's `kink-gear-linear-located`).
+/// four inner breakpoints. Held, the load's speed is 0.83 … 2.0 rtol off
+/// at rtol 1e-4 … 1e-10 here; stepped over (for comparison only), 132 rtol
+/// at 1e-10. In the outside judge (`kink-gear-linear`, its own measure):
+/// stepped over (CVODE's Adams, as the run chose) 9.7, 9.9, 23, 25, 28, 167
+/// and 178 rtol, the error per tolerance growing as it tightens; held 1.1,
+/// 1.0, 1.2, 1.8, 2.8, 1.2 and 1.7, as the same function written as `if`
+/// branches on its breakpoints (`kink-gear-linear-located`: the same steps,
+/// the states the same to about 1e-12, not to the bit).
 #[test]
 fn a_gear_ratio_read_at_the_load_speed_is_held_in_its_cells() {
     let (ws, rs) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
-    let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), None);
-    let mut data = TableData::new_1d(ws.to_vec(), rs.to_vec());
-    data.interpolation = Interpolation::Linear;
-    data.outside = [Outside::Linear, Outside::Linear];
-    let m = prepare(&text, "Test.KinkGear", true);
-    // the ratio's value and its derivative, both read at the load's speed
+    let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &GEAR);
+    let data = data_1d(&ws, &rs, Interpolation::Linear, Outside::Linear);
+    let m = prepare(&text, "Test.KinkGear", TableCells::Jumps);
+    // the ratio's derivative jumps; its value, read at the same speed, is
+    // held with it (their edges are crossed together)
     assert_eq!(m.held.len(), 2, "{:?}", m.held);
-    let times: Vec<f64> = (0..=300).map(|k| k as f64 * 0.01).collect();
-    let exact = gear_exact(&data, None, &times);
+    assert!(m.held.iter().all(|h| h.cells == HeldCells::Points));
+    let times = grid(3.0, 0.01);
+    let exact = gear_exact(&data, &GEAR, (-30.0, 300.0), &times);
     assert!(exact.last().unwrap() > &60.0, "it crosses four breakpoints");
     let mut qs = vec![];
     for rtol in RTOLS {
-        let r = run(&m, rtol, 3.0, 0.01, Method::Auto);
-        let q = error(&r, "w2", &exact) / rtol;
-        qs.push(q);
+        let r = run(&m, rtol, 3.0, 0.01);
+        qs.push(error(&r, "w2", &exact) / rtol);
         // each crossing an event of both reads
         assert_eq!(cells(&r), 8, "rtol {rtol:e}");
     }
     println!("error / rtol, held: {qs:.2?}");
-    // the measured bound (2.8), with a margin
+    // measured at most 2.0, with a margin
     assert!(qs.iter().all(|q| *q < 8.0), "{qs:?}");
     // stepped over (for comparison only): not proportional
-    let off = prepare(&text, "Test.KinkGear", false);
+    let off = prepare(&text, "Test.KinkGear", TableCells::Off);
     assert!(off.held.is_empty());
-    let q = error(&run(&off, 1e-10, 3.0, 0.01, Method::Auto), "w2", &exact) / 1e-10;
+    let q = error(&run(&off, 1e-10, 3.0, 0.01), "w2", &exact) / 1e-10;
     println!("error / rtol at rtol 1e-10, stepped over: {q:.1}");
     assert!(q > 50.0, "{q}");
 }
 
 /// The ratio a monotone cubic held at its edges (`clamp`): `r'` jumps where
 /// the load's speed leaves the data at 40 rad/s and where it comes back,
-/// the torque reversed at 2.5 s. Stepped over: 6.7, 17, 14, 4.3, 12, 71 and
-/// 131 rtol; held, at most 3.7 (as located).
+/// the torque reversed at 2.5 s, and only kinks at the points between
+/// (`r''` jumps there). Held at its edges only: a crossing out and one
+/// back, an event of each of its two reads, where every point was an event
+/// before. Here held 0.88 … 8.4 rtol at rtol 1e-4 … 1e-10, stepped over 90
+/// at 1e-10; in the judge (`kink-gear-clamp`) held 1.1 … 12.5, stepped over
+/// 6.7, 17, 14, 4.3, 12, 71 and 131, held at every point 0.7 … 3.7.
 #[test]
-fn a_ratio_held_at_its_edges_is_held_in_its_cells_across_them() {
+fn a_ratio_held_at_its_edges_is_held_in_its_cells_at_the_edges_only() {
     let (ws, rs) = ([0.0, 10.0, 25.0, 40.0], [2.0, 2.5, 2.8, 3.5]);
-    let text = gear(&table_text(&ws, &rs, "rad/s", "monotoneCubic", "clamp"), Some(2.5));
-    let mut data = TableData::new_1d(ws.to_vec(), rs.to_vec());
-    data.outside = [Outside::Clamp, Outside::Clamp];
-    let m = prepare(&text, "Test.KinkGear", true);
+    let g = Gear { t_rev: Some(2.5), ..GEAR };
+    let text = gear(&table_text(&ws, &rs, "rad/s", "monotoneCubic", "clamp"), &g);
+    let data = data_1d(&ws, &rs, Interpolation::MonotoneCubic, Outside::Clamp);
+    let m = prepare(&text, "Test.KinkGear", TableCells::Jumps);
     assert_eq!(m.held.len(), 2, "{:?}", m.held);
-    let times: Vec<f64> = (0..=400).map(|k| k as f64 * 0.01).collect();
-    let exact = gear_exact(&data, Some(2.5), &times);
+    assert!(m.held.iter().all(|h| matches!(h.cells, HeldCells::Edges(_))), "{:?}", m.held);
+    let times = grid(4.0, 0.01);
+    let exact = gear_exact(&data, &g, (-30.0, 300.0), &times);
     let top = exact.iter().fold(0.0f64, |a, x| a.max(*x));
     assert!(top > 50.0 && *exact.last().unwrap() < 25.0, "it leaves the data and comes back");
     let mut qs = vec![];
     for rtol in RTOLS {
-        let r = run(&m, rtol, 4.0, 0.01, Method::Auto);
+        let r = run(&m, rtol, 4.0, 0.01);
+        qs.push(error(&r, "w2", &exact) / rtol);
+        assert_eq!(cells(&r), 4, "rtol {rtol:e}: out at 40 rad/s and back, both reads");
+    }
+    println!("error / rtol, held at the edges: {qs:.2?}");
+    // measured at most 8.4 (at 1e-9: the kinks between the points, stepped
+    // over), with a margin
+    assert!(qs.iter().all(|q| *q < 40.0), "{qs:?}");
+    let off = prepare(&text, "Test.KinkGear", TableCells::Off);
+    let q = error(&run(&off, 1e-10, 4.0, 0.01), "w2", &exact) / 1e-10;
+    println!("error / rtol at rtol 1e-10, stepped over: {q:.1}");
+    assert!(q > 50.0, "{q}");
+}
+
+/// A held read whose argument starts exactly on a breakpoint, moving up
+/// into the cell above it or pushed down into the cell below: one event at
+/// the start at most, and the run as accurate as from inside a cell.
+#[test]
+fn a_held_read_starting_on_a_breakpoint() {
+    let (ws, rs) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
+    let data = data_1d(&ws, &rs, Interpolation::Linear, Outside::Linear);
+    for tau0 in [20.0, -20.0] {
+        let g = Gear { tau0, w0: 25.0, ..GEAR };
+        let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &g);
+        let m = prepare(&text, "Test.KinkGear", TableCells::Jumps);
+        let times = grid(1.0, 0.01);
+        let exact = gear_exact(&data, &g, (-30.0, 300.0), &times);
+        let (first, last) = (exact[1], *exact.last().unwrap());
+        assert!(if tau0 > 0.0 { first > 25.0 && last > 40.0 } else { first < 25.0 && last < 10.0 });
+        // the breakpoints crossed, each an event of both reads: moving up,
+        // those above the start (the read starts in the cell above it, as
+        // the table takes it); pushed down, the start's own (crossed at
+        // once) and those below
+        let crossed = ws
+            .iter()
+            .filter(|&&p| if tau0 > 0.0 { p > 25.0 && p < last } else { p <= 25.0 && p > last })
+            .count();
+        let mut qs = vec![];
+        for rtol in [1e-4, 1e-7, 1e-10] {
+            let r = run(&m, rtol, 1.0, 0.01);
+            qs.push(error(&r, "w2", &exact) / rtol);
+            assert_eq!(cells(&r), 2 * crossed, "torque {tau0}, rtol {rtol:e}: {:?}", r.events);
+        }
+        println!("torque {tau0}: error / rtol {qs:.2?}");
+        assert!(qs.iter().all(|q| *q < 8.0), "torque {tau0}: {qs:?}");
+    }
+}
+
+/// A gear whose ratio falls with the load's speed, the rotor's speed the
+/// preferred state: the pivot `r + r' w2` of `w1 = r(w2) w2` falls through
+/// zero at w2 = 18.3 rad/s and dynamic state selection switches to the
+/// load's speed, the ratio's reads held in their cells across the switch
+/// (the two models hold the same reads in the same variables).
+#[test]
+fn the_states_chosen_again_with_held_reads() {
+    let (ws, rs) = ([0.0, 10.0, 20.0, 30.0, 40.0], [2.0, 1.6, 1.0, 0.6, 0.5]);
+    let g = Gear { tau0: 8.0, rotor_state: true, ..GEAR };
+    let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &g);
+    let data = data_1d(&ws, &rs, Interpolation::Linear, Outside::Linear);
+    let (lib, top, m) = build(&text, "Test.KinkGear", TableCells::Jumps);
+    assert_eq!(m.held.len(), 2);
+    let code = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
+    let mut info = RunInfo::from_prepared(&m);
+    info.choices = lsim_project::model::choices(&lib, &top, &Default::default(), &info);
+    assert!(info.choices.is_some(), "the choice of states can move");
+    let times = grid(6.0, 0.01);
+    let exact = gear_exact(&data, &g, (-20.0, 80.0), &times);
+    assert!(*exact.last().unwrap() > 20.0, "past two breakpoints and the pivot's zero");
+    let mut qs = vec![];
+    // (at rtol 1e-8 the run is 684 rtol off, held or with the breakpoints
+    // written as `if` branches alike, as it was before the reads were held:
+    // an open item of dynamic state selection, STATUS.md)
+    for rtol in [1e-4, 1e-6, 1e-10] {
+        let r = lsim_solve::simulate(
+            &code,
+            &info,
+            &options(rtol),
+            OutputGrid { t0: 0.0, t_end: 6.0, dt: 0.01 },
+            &mut [],
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        let switches = r.events.iter().filter(|e| matches!(e.kind, EventKind::States(_))).count();
+        assert_eq!(switches, 1, "rtol {rtol:e}: {:?}", r.events);
+        assert_eq!(cells(&r), 4, "rtol {rtol:e}: 10 and 20 rad/s, both reads");
         qs.push(error(&r, "w2", &exact) / rtol);
     }
-    println!("error / rtol, held: {qs:.2?}");
-    assert!(qs.iter().all(|q| *q < 10.0), "{qs:?}");
+    println!("error / rtol across the switch: {qs:.2?}");
+    // measured 3.9, 1.8, 2.9
+    assert!(qs.iter().all(|q| *q < 12.0), "{qs:?}");
+}
+
+/// The spring `x'' = F(x)` with `F` a linear table of `x` continued
+/// linearly outside, every slope negative, in closed form: per cell a
+/// harmonic motion about its centre, the crossing of the cell's next edge
+/// from its phase. Returns `x` and `v` on `times`, and the crossings.
+fn spring_exact(
+    xs: &[f64],
+    fs: &[f64],
+    (x0, v0): (f64, f64),
+    times: &[f64],
+) -> (Vec<f64>, Vec<f64>, usize) {
+    use std::f64::consts::TAU;
+    let n = xs.len();
+    // cell c: between xs[c] and xs[c + 1], the edge cells reaching out
+    let mut c = xs.partition_point(|&p| p <= x0).clamp(1, n - 1) - 1;
+    let (mut t0, mut x, mut v) = (0.0, x0, v0);
+    let (mut out_x, mut out_v, mut crossings) = (vec![], vec![], 0);
+    let mut k = 0;
+    while k < times.len() {
+        let s = (fs[c + 1] - fs[c]) / (xs[c + 1] - xs[c]);
+        assert!(s < 0.0, "a restoring force");
+        let w = (-s).sqrt();
+        let centre = xs[c] - fs[c] / s;
+        let (a, b) = (x - centre, v / w);
+        let r = (a * a + b * b).sqrt();
+        // x − centre = r cos θ, v = −r w sin θ
+        let th0 = math::atan2(-b, a);
+        let mut exit: Option<(f64, usize, f64)> = None;
+        let edges =
+            [(c > 0).then(|| (xs[c], c.wrapping_sub(1))), (c + 2 < n).then(|| (xs[c + 1], c + 1))];
+        for (e, next) in edges.into_iter().flatten() {
+            let q = (e - centre) / r;
+            if q.abs() >= 1.0 {
+                continue;
+            }
+            for th in [math::acos(q), -math::acos(q)] {
+                let mut d = (th - th0).rem_euclid(TAU);
+                // (the edge just crossed: its next visit)
+                if d < 1e-9 {
+                    d += TAU;
+                }
+                if exit.is_none_or(|(dd, _, _)| d < dd) {
+                    exit = Some((d, next, e));
+                }
+            }
+        }
+        let t_exit = exit.map_or(f64::INFINITY, |(d, _, _)| t0 + d / w);
+        while k < times.len() && times[k] < t_exit {
+            let th = th0 + w * (times[k] - t0);
+            out_x.push(centre + r * math::cos(th));
+            out_v.push(-r * w * math::sin(th));
+            k += 1;
+        }
+        let Some((d, next, e)) = exit else { break };
+        let th = th0 + d;
+        (t0, x, v, c) = (t_exit, e, -r * w * math::sin(th), next);
+        if t_exit <= times[times.len() - 1] {
+            crossings += 1;
+        }
+    }
+    (out_x, out_v, crossings)
+}
+
+/// The spring of the review's density sweep: `F = −x − 2x³` sampled at
+/// `n` points on [−1, 1] as a linear table, from x = 0.9023 at rest.
+fn dense_spring(n: usize) -> (Vec<f64>, Vec<f64>, String) {
+    let xs: Vec<f64> = (0..n).map(|k| -1.0 + 2.0 * k as f64 / (n - 1) as f64).collect();
+    let fs: Vec<f64> = xs.iter().map(|x| -x - 2.0 * x * x * x).collect();
+    let text = format!(
+        r#"model Test.Spring "a unit mass on a spring whose force is a table of its position"
+  parameter Real k(unit = "1/s2") = 1;
+  parameter Real F = {};
+  Real x(start = 0.9023, fixed = true);
+  Real v(unit = "1/s", start = 0, fixed = true);
+equation
+  der(x) = v;
+  der(v) = k * F(x);
+end Test.Spring;
+"#,
+        table_text(&xs, &fs, "1", "linear", "linear")
+    );
+    (xs, fs, text)
+}
+
+/// A table of many points read at a state: a linear table's value only
+/// kinks at its points, and is stepped over. Held, each of its 855
+/// crossings in 20 s would restart the integrator, about 3.6 rtol each:
+/// 2 900 … 3 100 rtol off at rtol 1e-4 … 1e-6 where stepped over it is
+/// 39 … 72 (the review's `d101`).
+#[test]
+fn a_dense_table_read_at_a_state_is_stepped_over() {
+    let (xs, fs, text) = dense_spring(101);
+    let times = grid(20.0, 0.02);
+    let (ex, ev, crossings) = spring_exact(&xs, &fs, (0.9023, 0.0), &times);
+    assert_eq!(crossings, 855);
+    let q = |r: &SimResult, rtol: f64| error(r, "x", &ex).max(error(r, "v", &ev)) / rtol;
+    let m = prepare(&text, "Test.Spring", TableCells::Jumps);
+    assert!(m.held.is_empty(), "a value read only kinks: {:?}", m.held);
+    let kinks = prepare(&text, "Test.Spring", TableCells::Kinks);
+    assert_eq!(kinks.held.len(), 1);
+    let (mut over, mut held) = (vec![], vec![]);
+    for rtol in [1e-4, 1e-6, 1e-8] {
+        let r = run(&m, rtol, 20.0, 0.02);
+        assert_eq!(cells(&r), 0);
+        over.push(q(&r, rtol));
+        let h = run(&kinks, rtol, 20.0, 0.02);
+        assert!(cells(&h) > 800, "{}", cells(&h));
+        held.push(q(&h, rtol));
+    }
+    println!("error / rtol, stepped over {over:.1?}, held {held:.1?}");
+    // measured 39, 154, 802 stepped over (with a margin); held 2 939, 3 107,
+    // 2 216
+    for (q, bound) in over.iter().zip([120.0, 470.0, 2500.0]) {
+        assert!(*q < bound, "{over:?}");
+    }
+    assert!(over[..2].iter().zip(&held).all(|(o, h)| 10.0 * o < *h), "{over:?} {held:?}");
+}
+
+/// `v' = T(v)`, `T` a table of `v` as the text format writes one by default
+/// (a monotone cubic, held at its edges): `v` rises through every point
+/// once and leaves the data at its last. Its value is continuously
+/// differentiable between its points and kinks at its edges: stepped over,
+/// no event, where every point of a default table was an event before.
+/// Against `t(v) = ∫ dv / T(v)` (Gauss–Legendre per cell), inverted.
+#[test]
+fn the_default_table_read_at_a_state_is_not_held() {
+    let ps: Vec<f64> = (0..=40).map(|k| k as f64 * 0.5).collect();
+    let ts: Vec<f64> = ps.iter().map(|p| 2.0 + math::sin(p / 3.0)).collect();
+    let list = |v: &[f64]| v.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ");
+    let text = format!(
+        r#"model Test.Pass "a speed whose rate is a table of itself"
+  parameter Real T(unit = "1/s") = table(x = {{{}}}, y = {{{}}});
+  Real v(start = 0, fixed = true);
+equation
+  der(v) = T(v);
+end Test.Pass;
+"#,
+        list(&ps),
+        list(&ts)
+    );
+    let data = data_1d(&ps, &ts, Interpolation::MonotoneCubic, Outside::Clamp);
+    let table = Table::new(&data).unwrap();
+    let rate = |v: f64| table.value([v, 0.0]);
+    let inv = |v: f64| 1.0 / rate(v);
+    let last = *ps.last().unwrap();
+    let t_last = integral(&inv, &ps, 0.0, last);
+    let times = grid(14.0, 0.01);
+    let exact: Vec<f64> = times
+        .iter()
+        .map(|&t| {
+            if t >= t_last {
+                // held at its last value beyond the data
+                return last + rate(last) * (t - t_last);
+            }
+            let (mut a, mut b) = (0.0, last);
+            for _ in 0..200 {
+                let mid = 0.5 * (a + b);
+                if integral(&inv, &ps, 0.0, mid) < t { a = mid } else { b = mid }
+            }
+            0.5 * (a + b)
+        })
+        .collect();
+    assert!(t_last < 12.0 && *exact.last().unwrap() > last + 4.0, "it leaves the data");
+    let m = prepare(&text, "Test.Pass", TableCells::Jumps);
+    assert!(m.held.is_empty(), "{:?}", m.held);
+    let kinks = prepare(&text, "Test.Pass", TableCells::Kinks);
+    assert!(matches!(kinks.held[..], [ref h] if matches!(h.cells, HeldCells::Edges(_))));
+    let (mut over, mut held) = (vec![], vec![]);
+    for rtol in RTOLS {
+        let r = run(&m, rtol, 14.0, 0.01);
+        assert_eq!(cells(&r), 0);
+        over.push(error(&r, "v", &exact) / rtol);
+        let h = run(&kinks, rtol, 14.0, 0.01);
+        assert_eq!(cells(&h), 1, "out at its last point only");
+        held.push(error(&h, "v", &exact) / rtol);
+    }
+    println!("error / rtol, stepped over {over:.2?}, held at its edges {held:.2?}");
+    // measured 2.0 … 37 either way (its points, where the rate's second
+    // derivative jumps, stepped over), with a margin
+    assert!(over.iter().chain(&held).all(|q| *q < 110.0), "{over:?} {held:?}");
 }
 
 /// A linear 1-D table's pieces as `if` branches on its breakpoints (a
@@ -223,12 +545,14 @@ fn if_chain(xs: &[f64], ys: &[f64], arg: &str) -> String {
 }
 
 /// A table of two states, `x'' = T(x, y)` with `y'' = -y`, linear in each
-/// between its points and continued linearly (the judge's `kink-2d`):
-/// stepped over, its error was 1.1, 2.3, 2.4, 1.9, 2.9, 3.0 and 5.0 times
-/// that of the same function written as `if` branches on its breakpoints
-/// (each crossing an event) at rtol 1e-4 … 1e-10; held, the same run.
+/// between its points and continued linearly (the judge's `kink-2d`): its
+/// value kinks across its grid lines and is stepped over, 0.68 … 4.7 times
+/// the error of the same function written as `if` branches on its
+/// breakpoints (each crossing an event) at rtol 1e-4 … 1e-10 (in the
+/// judge's measure 1.1 … 5.0); held (for comparison only), the same run as
+/// that.
 #[test]
-fn a_table_of_two_states_integrates_as_with_its_breakpoints_located() {
+fn a_table_of_two_states_is_stepped_over() {
     let (xs, fx) = ([-1.0, -0.4, 0.2, 0.8, 1.4], [2.2, 1.0, -0.8, -2.0, -4.4]);
     let (ys, gy) = ([-0.6, -0.2, 0.3, 0.7], [0.4, 0.0, 0.25, -0.15]);
     let list = |v: &[f64]| v.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ");
@@ -255,34 +579,40 @@ end Test.{name};
             values.join("; ")
         )
     };
-    let table = prepare(&model("Table", "T(x, y)"), "Test.Table", true);
-    assert_eq!(table.held.len(), 1);
+    let table = prepare(&model("Table", "T(x, y)"), "Test.Table", TableCells::Jumps);
+    assert!(table.held.is_empty());
+    let kinks = prepare(&model("Table", "T(x, y)"), "Test.Table", TableCells::Kinks);
+    assert_eq!(kinks.held.len(), 1);
     let located = format!("({} + {})", if_chain(&xs, &fx, "x"), if_chain(&ys, &gy, "y"));
-    let located = prepare(&model("Located", &located), "Test.Located", true);
+    let located = prepare(&model("Located", &located), "Test.Located", TableCells::Jumps);
     assert!(located.held.is_empty() && !located.modes.is_empty());
-    let mut ratios = vec![];
+    let worst = |r: &SimResult, s: &SimResult| {
+        let (x, z) = (r.channel("x").unwrap(), s.channel("x").unwrap());
+        x.iter().zip(z).fold(0.0f64, |m, (p, q)| m.max((p - q).abs()))
+    };
+    // the reference: the located model at a far tighter tolerance
+    let fine = run(&located, 1e-12, 30.0, 0.02);
+    let (mut over, mut held) = (vec![], vec![]);
     for rtol in RTOLS {
-        let a = run(&table, rtol, 30.0, 0.02, Method::Auto);
-        let b = run(&located, rtol, 30.0, 0.02, Method::Auto);
-        let worst = |r: &SimResult, s: &SimResult| {
-            let (x, z) = (r.channel("x").unwrap(), s.channel("x").unwrap());
-            x.iter().zip(z).fold(0.0f64, |m, (p, q)| m.max((p - q).abs()))
-        };
-        // both against a run at a far tighter tolerance of the located model
-        let fine = run(&located, 1e-12, 30.0, 0.02, Method::Auto);
-        let (ea, eb) = (worst(&a, &fine), worst(&b, &fine));
-        ratios.push(ea / eb);
-        assert!(cells(&a) > 50, "it crosses its cells' edges: {}", cells(&a));
+        let b = run(&located, rtol, 30.0, 0.02);
+        let eb = worst(&b, &fine);
+        over.push(worst(&run(&table, rtol, 30.0, 0.02), &fine) / eb);
+        let h = run(&kinks, rtol, 30.0, 0.02);
+        assert!(cells(&h) > 50, "it crosses its cells' edges: {}", cells(&h));
+        held.push(worst(&h, &fine) / eb);
     }
-    println!("error, held / located: {ratios:.3?}");
-    assert!(ratios.iter().all(|q| (0.8..1.25).contains(q)), "{ratios:?}");
+    println!("error / the located run's: stepped over {over:.2?}, held {held:.3?}");
+    assert!(held.iter().all(|q| (0.8..1.25).contains(q)), "{held:?}");
+    assert!(over.iter().all(|q| *q < 15.0), "{over:?}");
 }
 
-/// What is held: a read at a state that kinks or jumps there. Not a
-/// monotone cubic's value continued linearly (C¹), nor a read along time
-/// (the run stops at its breakpoints), nor at a parameter.
+/// What is held: a read at a state that jumps there, and the reads of its
+/// table at the same arguments. Not a read that only kinks (a linear
+/// table's value, a monotone cubic's held at its edges), nor a read along
+/// time (the run stops at its breakpoints), nor at a parameter; held for
+/// comparison, a kinking read is its table's within rounding.
 #[test]
-fn reads_are_held_where_they_kink_at_a_state() {
+fn reads_are_held_where_they_jump_at_a_state() {
     let text = |table: &str, arg: &str| {
         format!(
             r#"model Test.Spring "a spring whose force is a table"
@@ -302,48 +632,73 @@ end Test.Spring;
     };
     let xs = [-1.0, 0.0, 0.4, 1.0];
     let ys = [1.0, 0.0, -0.3, -1.2];
-    let held =
-        |table: String, arg: &str| prepare(&text(&table, arg), "Test.Spring", true).held.len();
-    assert_eq!(held(table_text(&xs, &ys, "1", "linear", "linear"), "x"), 1, "a linear table");
-    assert_eq!(held(table_text(&xs, &ys, "1", "monotoneCubic", "clamp"), "x"), 1, "held edges");
-    assert_eq!(held(table_text(&xs, &ys, "1", "monotoneCubic", "linear"), "x"), 0, "C¹");
-    assert_eq!(held(table_text(&xs, &ys, "s", "linear", "linear"), "time"), 0, "along time");
-    assert_eq!(held(table_text(&xs, &ys, "1", "linear", "linear"), "p"), 0, "a parameter");
+    let held = |table: String, arg: &str, cells: TableCells| {
+        prepare(&text(&table, arg), "Test.Spring", cells).held.len()
+    };
+    let j = TableCells::Jumps;
+    for (interp, outside) in [("linear", "linear"), ("linear", "clamp"), ("monotoneCubic", "clamp")]
+    {
+        let t = table_text(&xs, &ys, "1", interp, outside);
+        assert_eq!(held(t.clone(), "x", j), 0, "{interp}, {outside}: a value only kinks");
+        assert_eq!(held(t, "x", TableCells::Kinks), 1, "{interp}, {outside}: held for comparison");
+    }
+    let cubic = table_text(&xs, &ys, "1", "monotoneCubic", "linear");
+    assert_eq!(held(cubic, "x", TableCells::Kinks), 0, "C¹ everywhere");
+    let lin = table_text(&xs, &ys, "s", "linear", "linear");
+    assert_eq!(held(lin, "time", TableCells::Kinks), 0, "along time");
+    let lin = table_text(&xs, &ys, "1", "linear", "linear");
+    assert_eq!(held(lin, "p", TableCells::Kinks), 0, "a parameter");
     // held, the run is the table's: within rounding of it at every point
-    let m = prepare(&text(&table_text(&xs, &ys, "1", "linear", "clamp"), "x"), "Test.Spring", true);
-    let r = run(&m, 1e-8, 20.0, 0.01, Method::Auto);
-    let mut data = TableData::new_1d(xs.to_vec(), ys.to_vec());
-    data.interpolation = Interpolation::Linear;
-    data.outside = [Outside::Clamp, Outside::Clamp];
-    let t = Table::new(&data).unwrap();
-    let (x, f) = (r.channel("x").unwrap(), r.channel("f").unwrap());
-    let worst = x.iter().zip(f).fold(0.0f64, |m, (a, b)| m.max((t.value([*a, 0.0]) - b).abs()));
-    assert!(worst < 1e-14, "{worst:e}");
-    assert!(cells(&r) > 10, "{}", cells(&r));
+    let data = |interp, outside| data_1d(&xs, &ys, interp, outside);
+    for (t, d) in [
+        (table_text(&xs, &ys, "1", "linear", "clamp"), data(Interpolation::Linear, Outside::Clamp)),
+        (
+            table_text(&xs, &ys, "1", "monotoneCubic", "clamp"),
+            data(Interpolation::MonotoneCubic, Outside::Clamp),
+        ),
+    ] {
+        let m = prepare(&text(&t, "x"), "Test.Spring", TableCells::Kinks);
+        let r = run(&m, 1e-8, 20.0, 0.01);
+        let table = Table::new(&d).unwrap();
+        let (x, f) = (r.channel("x").unwrap(), r.channel("f").unwrap());
+        let worst =
+            x.iter().zip(f).fold(0.0f64, |m, (a, b)| m.max((table.value([*a, 0.0]) - b).abs()));
+        assert!(worst < 1e-14, "{t}: {worst:e}");
+        // (the linear table's points crossed; the cubic, held at its edges
+        // only, never left)
+        let crossed = if t.contains("linear") { cells(&r) > 10 } else { cells(&r) == 0 };
+        assert!(crossed, "{t}: {}", cells(&r));
+    }
 }
 
-/// A held read's polynomial has its table's degree when the model was
-/// built: given data that interpolate with a higher one after (a linear
-/// table's data swapped for a monotone cubic's), the run stops and says
-/// to build the model again, instead of reading the table wrong.
+/// A held read's cells are its table's when the model was built: given
+/// data after that interpolate with a higher degree (a linear table's data
+/// swapped for a monotone cubic's), or that jump between the points of a
+/// table held at its edges only (a cubic's swapped for linear ones), the
+/// run stops and says to build the model again, instead of reading the
+/// table wrong.
 #[test]
-fn a_held_table_given_cubic_data_after_the_build_is_refused() {
+fn a_held_table_given_other_data_after_the_build_is_refused() {
     let (ws, rs) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
-    let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), None);
-    let m = prepare(&text, "Test.KinkGear", true);
-    let code = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
-    let mut data = TableData::new_1d(ws.to_vec(), rs.to_vec());
-    data.outside = [Outside::Linear, Outside::Linear];
-    let swapped = code.with_tables(&[data]).expect("the same shape");
-    let info = RunInfo::from_prepared(&m);
-    let opts = SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
-    let e = lsim_solve::simulate(
-        &swapped,
-        &info,
-        &opts,
-        OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.01 },
-        &mut [],
-    )
-    .expect_err("refused");
-    assert!(e.to_string().contains("build the model again"), "{e}");
+    let g = Gear { t_rev: Some(2.5), ..GEAR };
+    for (interp, outside, swapped) in [
+        ("linear", "linear", data_1d(&ws, &rs, Interpolation::MonotoneCubic, Outside::Linear)),
+        ("monotoneCubic", "clamp", data_1d(&ws, &rs, Interpolation::Linear, Outside::Clamp)),
+    ] {
+        let text = gear(&table_text(&ws, &rs, "rad/s", interp, outside), &g);
+        let m = prepare(&text, "Test.KinkGear", TableCells::Jumps);
+        assert_eq!(m.held.len(), 2, "{interp}");
+        let code = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
+        let swapped = code.with_tables(&[swapped]).expect("the same shape");
+        let info = RunInfo::from_prepared(&m);
+        let e = lsim_solve::simulate(
+            &swapped,
+            &info,
+            &options(1e-6),
+            OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.01 },
+            &mut [],
+        )
+        .expect_err("refused");
+        assert!(e.to_string().contains("build the model again"), "{interp}: {e}");
+    }
 }

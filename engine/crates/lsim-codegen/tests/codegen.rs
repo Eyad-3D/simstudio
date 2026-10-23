@@ -150,7 +150,12 @@ fn implicit_form_has_a_consistent_jacobian() {
     // the same model with every block implicit: 2 states + 8 iteration
     // variables; the jvp must match finite differences of the residual
     let lib = lsim_lib::library();
-    let model = prepare(&lib, &functions_model(), &PrepOptions { force_implicit: true }).unwrap();
+    let model = prepare(
+        &lib,
+        &functions_model(),
+        &PrepOptions { force_implicit: true, ..Default::default() },
+    )
+    .unwrap();
     let jit = compile(&model, &CodegenOptions::default()).unwrap();
     let l = *jit.layout();
     let n = l.n_y();

@@ -573,22 +573,13 @@ fn implicit_points(
     // the tables held in their cells (`lsim_prep::hold`): each form holds
     // its own reads in discrete variables of its own, so a read's cell,
     // point, edges and coefficients are the explicit model's where it holds
-    // the same read, else 0 (the implicit form holds more of them: reads
+    // the same read, else 0 (the implicit form can hold more of them: reads
     // whose arguments its iteration variables move)
     let mut held = std::collections::HashMap::new();
     for h in &im.held {
         let twin = ex.held.iter().find(|e| e.read == h.read && e.degree == h.degree);
-        let own = h.axes.iter().flat_map(|a| [a.cell, a.anchor, a.lo, a.hi]).chain(h.coef.clone());
-        let theirs: Vec<VarId> = twin
-            .map(|e| {
-                e.axes
-                    .iter()
-                    .flat_map(|a| [a.cell, a.anchor, a.lo, a.hi])
-                    .chain(e.coef.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        for (k, v) in own.enumerate() {
+        let theirs: Vec<VarId> = twin.map(|e| e.discretes()).unwrap_or_default();
+        for (k, v) in h.discretes().into_iter().enumerate() {
             held.insert(v, theirs.get(k).copied());
         }
     }
@@ -626,7 +617,7 @@ fn example_projects(implicit: bool) -> Tally {
     let mut total = Tally::default();
     let explicit = cars::one_per_project(cars::cars(""));
     let cars = if implicit {
-        let opts = lsim_prep::PrepOptions { force_implicit: true };
+        let opts = lsim_prep::PrepOptions { force_implicit: true, ..Default::default() };
         cars::one_per_project(cars::cars_with("", &opts))
     } else {
         cars::one_per_project(cars::cars(""))

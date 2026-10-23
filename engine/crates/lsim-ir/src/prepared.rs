@@ -171,14 +171,14 @@ pub struct Mode {
 
 /// A table read at a state, held in its cell during every step: Park and
 /// Barton's discontinuity locking (DESIGN.md §8.2, *Tables read at a
-/// state*). Where the read (or the derivative of it the model reads) has a
-/// kink or a jump at the table's breakpoints and its argument moves with
-/// the states, preparation writes it in the equations as its cell's
-/// polynomial in powers of `(a − m)`, the coefficients and the point `m`
-/// discrete, and watches the cell's edges as zero crossings; the run sets
-/// them for the cell the argument is in at the start and whenever it
-/// crosses an edge (an event, after which the integrator restarts), so that
-/// no step integrates across a breakpoint.
+/// state*). Where the read (or the derivative of it the model reads) jumps
+/// at the table's breakpoints and its argument moves with the states,
+/// preparation writes it in the equations as its cell's own function,
+/// continued smoothly beyond the cell's edges, with discrete coefficients,
+/// and watches the cell's edges as zero crossings; the run sets them for
+/// the cell the argument is in at the start and whenever it crosses an
+/// edge (an event, after which the integrator restarts), so that no step
+/// integrates across a jump.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct HeldRead {
     /// the read as the model wrote it (flat scope, an [`Expr::Table`]):
@@ -186,23 +186,65 @@ pub struct HeldRead {
     pub read: Expr,
     /// one per argument of the read, in order
     pub axes: Vec<HeldAxis>,
-    /// the polynomial's degree along each argument (its cells' degree, the
-    /// derivative read taken off: 1 for a linear table's value, 0 for its
-    /// first derivative, 3 for a cubic's value; 0 along a second argument a
-    /// 1-D table does not have)
+    /// the polynomials' degree along each argument (their cells' degree,
+    /// the derivative read taken off: 1 for a linear table's value, 0 for
+    /// its first derivative, 3 for a cubic's value; 0 along a second
+    /// argument a 1-D table does not have)
     pub degree: [u8; 2],
-    /// the discrete coefficients, that of `(a₁ − m₁)^i (a₂ − m₂)^j` at
-    /// `i · (degree[1] + 1) + j`
+    /// the discrete coefficients: [`HeldCells::Points`], that of
+    /// `(a₁ − m₁)^i (a₂ − m₂)^j` at `i · (degree[1] + 1) + j`;
+    /// [`HeldCells::Edges`], those of the first data cell's polynomial in
+    /// powers of `(a − m)` (`m` the axis's `anchor`), then those of the
+    /// last's (at [`HeldEdges::anchor_end`]), `degree[0] + 1` each
     pub coef: Vec<VarId>,
+    /// where the cells' edges are
+    pub cells: HeldCells,
+}
+
+/// Where a [`HeldRead`]'s cells have their edges.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub enum HeldCells {
+    /// at every breakpoint (the read jumps at the points inside the data):
+    /// the read is its cell's polynomial, continued beyond its edges
+    Points,
+    /// at the data's two edges only (a 1-D table whose read is smooth
+    /// enough between its points but jumps where the table is held at its
+    /// edges: a monotone cubic's first derivative, `outside = clamp`):
+    /// three cells, below, inside and above the data. Inside, the read is
+    /// the table's own at the argument held between the edges, continued
+    /// beyond each edge by its edge cell's polynomial; outside, the table's
+    /// held value
+    Edges(HeldEdges),
+}
+
+/// The discrete variables of a [`HeldCells::Edges`] read beside its axis's:
+/// the read is `T(max(from, min(to, a))) + offset + (P_last(max(a, to)) −
+/// P_last(to)) + (P_first(min(a, from)) − P_first(from))`, inside the data
+/// `from` and `to` its edges, `offset` 0 and the polynomials its edge
+/// cells' (so that it is the table's read there, bitwise); outside, `from`
+/// and `to` the edge the argument left by, the polynomials 0 and `offset`
+/// the held value less the table's at the edge.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct HeldEdges {
+    /// the lower end of where the table is read
+    pub from: VarId,
+    /// its upper end
+    pub to: VarId,
+    /// what is added to the table's read
+    pub offset: VarId,
+    /// the point of the last data cell's polynomial (the first's is the
+    /// axis's `anchor`)
+    pub anchor_end: VarId,
 }
 
 /// An argument of a [`HeldRead`]: the discrete variables that hold its
 /// cell, and the zero crossings of the cell's edges.
 #[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct HeldAxis {
-    /// the cell (its index, as a number: 0 below the data, i between its
-    /// points i − 1 and i, n above its last point n − 1; a negative number
-    /// before the run sets it)
+    /// the cell (its index, as a number: [`HeldCells::Points`], 0 below
+    /// the data, i between its points i − 1 and i, n above its last point
+    /// n − 1; [`HeldCells::Edges`], 0 below, 1 inside, 2 above; a negative
+    /// number before the run sets it)
     pub cell: VarId,
     /// the point of the cell the polynomial is written at
     pub anchor: VarId,
@@ -215,6 +257,21 @@ pub struct HeldAxis {
     pub below: usize,
     /// the zero crossing `hi − a`
     pub above: usize,
+}
+
+impl HeldRead {
+    /// Every discrete variable of the read, in a fixed order: per axis its
+    /// cell, anchor and edges, then the coefficients, then (edges only)
+    /// `from`, `to`, `offset` and `anchor_end`.
+    pub fn discretes(&self) -> Vec<VarId> {
+        let mut v: Vec<VarId> =
+            self.axes.iter().flat_map(|a| [a.cell, a.anchor, a.lo, a.hi]).collect();
+        v.extend(&self.coef);
+        if let HeldCells::Edges(e) = &self.cells {
+            v.extend([e.from, e.to, e.offset, e.anchor_end]);
+        }
+        v
+    }
 }
 
 /// The initialisation system (DESIGN.md, *Initialisation*): it computes a

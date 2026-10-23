@@ -718,7 +718,7 @@ impl StateSetInfo {
 /// ([`crate::held`]): at the start, and at every event where its argument
 /// left the cell (its zero crossing `a − lo` or `hi − a` fell below zero),
 /// the cell its argument lies in, the point of it the polynomial is written
-/// at, the cell's edges and the polynomial's coefficients, from the table
+/// at, the cell's edges and the polynomials' coefficients, from the table
 /// the model interpolates.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeldInfo {
@@ -726,15 +726,32 @@ pub struct HeldInfo {
     pub table: u32,
     /// the derivative of it the model reads (`[0, 0]`: its value)
     pub order: [u8; 2],
-    /// the polynomial's degree along each argument
+    /// the polynomials' degree along each argument
     pub degree: [u8; 2],
     /// per argument: where its cell is held
     pub axes: Vec<HeldAxisInfo>,
-    /// the coefficients (indices into the discrete variables), that of
-    /// `(a₁ − m₁)^i (a₂ − m₂)^j` at `i · (degree[1] + 1) + j`
+    /// the coefficients (indices into the discrete variables), as
+    /// [`lsim_ir::HeldRead::coef`]
     pub coef: Vec<usize>,
+    /// where the cells' edges are: `None` at every breakpoint
+    /// ([`lsim_ir::HeldCells::Points`]), else at the data's edges only
+    pub edges: Option<HeldEdgesInfo>,
     /// the table's name
     pub label: String,
+}
+
+/// The discrete variables of a read held between its data's edges
+/// ([`lsim_ir::HeldEdges`]), as indices into the discrete variables.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HeldEdgesInfo {
+    /// where the table is read: from
+    pub from: usize,
+    /// to
+    pub to: usize,
+    /// what is added to it
+    pub offset: usize,
+    /// the point of the last data cell's polynomial
+    pub anchor_end: usize,
 }
 
 /// An argument of a [`HeldInfo`]: indices into the discrete variables and
@@ -1155,6 +1172,15 @@ impl RunInfo {
                             })
                             .collect(),
                         coef: h.coef.iter().map(at).collect(),
+                        edges: match &h.cells {
+                            lsim_ir::HeldCells::Points => None,
+                            lsim_ir::HeldCells::Edges(e) => Some(HeldEdgesInfo {
+                                from: at(&e.from),
+                                to: at(&e.to),
+                                offset: at(&e.offset),
+                                anchor_end: at(&e.anchor_end),
+                            }),
+                        },
                         label: flat.tables[table as usize].name.clone(),
                     }
                 })

@@ -242,7 +242,7 @@ impl Engine {
         let started = Instant::now();
         let cache = opts.cache.as_ref().map(cache::DiskCache::new);
         let key = cache::input_key(&self.lib, top, opts.force_implicit, inverse);
-        let popts = PrepOptions { force_implicit: opts.force_implicit };
+        let popts = PrepOptions { force_implicit: opts.force_implicit, ..Default::default() };
         let prepare = || match inverse {
             None => lsim_prep::prepare(&self.lib, top, &popts),
             Some(spec) => lsim_prep::prepare_inverse(&self.lib, top, spec, &popts),

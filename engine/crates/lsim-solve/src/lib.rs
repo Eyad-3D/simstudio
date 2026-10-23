@@ -47,9 +47,9 @@ mod tape;
 pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
 pub use info::{
-    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, HeldAxisInfo, HeldInfo,
-    ImpulseInfo, ImpulseLink, InputChain, ModeInfo, RunInfo, SetReads, StateSetInfo, StoredRates,
-    TimeCrossing, TimeFunction, VarSource,
+    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, HeldAxisInfo, HeldEdgesInfo,
+    HeldInfo, ImpulseInfo, ImpulseLink, InputChain, ModeInfo, RunInfo, SetReads, StateSetInfo,
+    StoredRates, TimeCrossing, TimeFunction, VarSource,
 };
 pub use recorder::Recorder;
 pub use run::run_loop;
