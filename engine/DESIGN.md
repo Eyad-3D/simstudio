@@ -1138,12 +1138,23 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    six at 1.5 … 3.05 rad at 2.91 and 4.05 s at rtol 1e-6 and 1e-10). Now
    each rod chooses its states again on its own, as often as it does alone
    (17 and 17 times in 10 s; the six 13 to 17 times each, as alone, taking
-   43 of their 64 choices at rtol 1e-8), each as
-   near its reference as alone within the integrator's shared steps (27
-   and 405 rtol at 1e-6, 102 and 333 at 1e-10, alone 132 and 203, 320 and
-   81; the five at 1e-10 137 … 926 rtol, alone 320 … 453; the six at 1e-8
-   100 … 18 549 rtol, alone 46 … 9 106, the larger near the top, where the
-   problem itself is that sensitive), and a run of
+   43 of their 64 choices at rtol 1e-8), but each ends about twice as far
+   from its reference as alone: over the 119 rod-runs of the judge's
+   held-out multi-pendulum cases, an x-y rod's error is 1.92 times the
+   same pendulum's alone (geometric mean; median 2.02, p90 9.4, at most
+   20); 27 and 405 rtol at 1e-6, 102 and 333 at 1e-10, alone 132 and 203,
+   320 and 81; the five at 1e-10 137 … 926 rtol, alone 320 … 453; the six
+   at 1e-8 100 … 18 549 rtol, alone 46 … 9 106. That is the cost of the
+   integrator restarts the other sets' switches force on every rod, not
+   of the switch or its carry-over: the same models in their angles (ODEs,
+   nothing to choose) given events that change nothing at exactly the x-y
+   runs' switch instants are 2.25 times as far off as without them
+   (geometric mean; median 2.06, p90 11.7), right within 100 rtol in 9 of
+   the 35 runs instead of 17, and against them the x-y rods are 1.44 times
+   as far off (median 1.33, p90 6.0), about what the single pendulum's x-y
+   form is to its angle form (1.21). (The angle forms without such events,
+   whose rods share the steps the most demanding one needs and never
+   restart, are 0.52 times their rods' errors alone.) A run of
    one pendulum is bitwise what it was but where a switch was refused
    (8 of the judge's runs: section 15, the sixth verdict;
    `state_choice.rs`: `independent_pendulums_…`, `six_pendulums_…`). A double pendulum in x
@@ -3557,7 +3568,12 @@ events name the modes that chatter.
   rod, and a pendulum near its top is that sensitive to any restart (the
   one at 3.05 rad alone 30 842 rtol at 1e-10, beside one at 1.50 rad
   89 751, alone with 17 events at those switches' times that change
-  nothing it reads 61 348: section 6 step 5). The double pendulum chooses
+  nothing it reads 61 348: section 6 step 5). Measured over the 119
+  rod-runs (the second review's control, rerun): an x-y rod is 1.92 times
+  as far off as the same pendulum alone (geometric mean); the angle forms
+  given events that change nothing at the x-y runs' switch instants are
+  2.25 times as far off as without them (right in 9 of the 35 runs
+  instead of 17), and the x-y rods 1.44 times as far off as those. The double pendulum chooses
   its states again 9 times in 5 s, as before, and is right in 5 of its 7
   runs (the angle form in 7): 10, 53, 649, 70, 100, 71 and 52 rtol, the
   angle form 12 … 11, its error 5.4e-5 m before its first switch (the x-y
