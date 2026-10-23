@@ -993,6 +993,261 @@ end Judge.PIDController;
     return text, case
 
 
+# ---------------------------------------------------------------------------
+# Tables read at a state (the solver work's item A3). A table read at a
+# state has a kink at its breakpoints (a linear table's slope, a held
+# table's edges; a monotone cubic's second derivative, which a model reads
+# where index reduction differentiates the table), at times the run loop
+# does not know ahead: the integrator steps over them with its error
+# control. Each case has its control, `-located`: the same piecewise
+# function written as `if` branches on the same breakpoints, each branch's
+# condition a mode, held during a step, its crossing found by root finding
+# and the integrator restarted there (the crossing located exactly, as
+# Park and Barton's discontinuity locking would). The references are
+# mathematics: closed forms per piece, the crossings solved at 40 digits.
+# The springs' positions and the tables are dimensionless (the `if`
+# branches' numbers carry no units); the gear's ratio is read at w2 / wu.
+# ---------------------------------------------------------------------------
+
+def steffen(x: list[float], f: list[float]) -> list[float]:
+    """Steffen's slopes as the engine computes them (lsim_ir::interp::
+    steffen_slopes), in the same floating-point operations."""
+    n = len(x)
+    h = [x[i + 1] - x[i] for i in range(n - 1)]
+    s = [(f[i + 1] - f[i]) / h[i] for i in range(n - 1)]
+    if n == 2:
+        return [s[0], s[0]]
+    sign = lambda v: 1.0 if v > 0 else (-1.0 if v < 0 else 0.0)
+    d = [0.0] * n
+    for i in range(1, n - 1):
+        p = (s[i - 1] * h[i] + s[i] * h[i - 1]) / (h[i - 1] + h[i])
+        d[i] = (sign(s[i - 1]) + sign(s[i])) * min(abs(s[i - 1]), abs(s[i]), 0.5 * abs(p))
+
+    def end(s0, s1, h0, h1):
+        p = s0 * (1.0 + h0 / (h0 + h1)) - s1 * h0 / (h0 + h1)
+        if p * s0 <= 0.0:
+            return 0.0
+        return 2.0 * s0 if abs(p) > 2.0 * abs(s0) else p
+
+    d[0] = end(s[0], s[1], h[0], h[1])
+    d[n - 1] = end(s[n - 2], s[n - 3], h[n - 2], h[n - 3])
+    return d
+
+
+def pieces_1d(points: list[float], values: list[float], interp: str, outside: str) -> list:
+    """A 1-D table's function as its pieces, as the engine interpolates it:
+    [(lo, hi, x0, [c0, c1, ...])] with the value sum c_k (x - x0)^k on
+    lo <= x < hi (lo of the first None, hi of the last None): linear between
+    the points or Steffen's monotone cubic (Hermite, power form as
+    lsim_ir::interp builds it), held at the edge values outside (clamp) or
+    continued along the edge slope (linear: a linear table's edge cells
+    continued, no kink at its edges)."""
+    x, f = [float(p) for p in points], [float(v) for v in values]
+    n = len(x)
+    if interp == "linear":
+        d = [(f[i + 1] - f[i]) / (x[i + 1] - x[i]) for i in range(n - 1)]
+        cells = [[f[i], d[i]] for i in range(n - 1)]
+        d0, d1 = d[0], d[-1]
+    else:
+        d = steffen(x, f)
+        cells = []
+        for i in range(n - 1):
+            h = x[i + 1] - x[i]
+            m = (f[i + 1] - f[i]) / h
+            cells.append([f[i], d[i], (3.0 * m - 2.0 * d[i] - d[i + 1]) / h,
+                          (d[i] + d[i + 1] - 2.0 * m) / (h * h)])
+        d0, d1 = d[0], d[-1]
+    out = [(x[i], x[i + 1], x[i], cells[i]) for i in range(n - 1)]
+    if interp == "linear" and outside == "linear":
+        # continued along the edge cells' own lines: no piece of their own
+        out[0] = (None,) + out[0][1:]
+        out[-1] = out[-1][:1] + (None,) + out[-1][2:]
+        return out
+    below = [f[0], d0] if outside == "linear" else [f[0]]
+    above = [f[-1], d1] if outside == "linear" else [f[-1]]
+    return [(None, x[0], x[0], below)] + out + [(x[-1], None, x[-1], above)]
+
+
+def table_text(points, values, interp: str, outside: str, unit: str = "1") -> str:
+    word = {"linear": "linear", "cubic": "monotoneCubic"}[interp]
+    return (f'table(x = {{{", ".join(num(p) for p in points)}}}, '
+            f'y = {{{", ".join(num(v) for v in values)}}}, xUnit = "{unit}", '
+            f'interpolation = {word}, outside = {{{outside}}})')
+
+
+def if_chain(pieces: list, arg: str) -> str:
+    """The pieces as one `if` expression of `arg`: `if arg < hi_0 then p_0
+    elseif arg < hi_1 then p_1 ... else p_last` (at a breakpoint the piece
+    to its right, as the table takes the cell to its right)."""
+    def poly(x0: float, c: list[float]) -> str:
+        s = arg if x0 == 0 else (f"({arg} - {num(x0)})" if x0 > 0 else f"({arg} + {num(-x0)})")
+        e = f"({num(c[-1])})"
+        for ck in reversed(c[:-1]):
+            e = f"({num(ck)} + {s} * {e})"
+        return e
+    parts = [f"if {arg} < {num(hi)} then {poly(x0, c)}" for (_, hi, x0, c) in pieces[:-1]]
+    return " else".join(parts) + f" else {poly(pieces[-1][2], pieces[-1][3])}" if parts else \
+        poly(pieces[-1][2], pieces[-1][3])
+
+
+KINK_SPRING = '''model Judge.KinkSpring "A unit mass on a spring whose force F is a table of its position, {what}: the force's slope jumps at its breakpoints, crossed at times the run does not know ahead."
+  parameter Real k(unit = "1/s2") = 1 "the force per unit mass and unit F";
+  parameter Real F = {table} "the spring's force over its stretch";
+  Real x(start = {x0}, fixed = true) "position";
+  Real v(unit = "1/s", start = {v0}, fixed = true) "velocity";
+equation
+  der(x) = v;
+  der(v) = k * {force} "the spring";
+end Judge.KinkSpring;
+'''
+
+
+def kink_spring(what: str, points, values, interp: str, outside: str, x0: float, v0: float,
+                t_end: float, dt: float, located: bool) -> tuple[str, dict]:
+    """m x'' = F(x) with m = 1, F a table of x; `located`: F written as `if`
+    branches on the same breakpoints (each crossing an event)."""
+    pieces = pieces_1d(points, values, interp, outside)
+    text = (KINK_SPRING.replace("{what}", what).replace("{x0}", num(x0)).replace("{v0}", num(v0))
+            .replace("{table}", table_text(points, values, interp, outside))
+            .replace("{force}", f"({if_chain(pieces, 'x')})" if located else "F(x)"))
+    if located:
+        text = (text.replace("Judge.KinkSpring", "Judge.KinkSpringLocated")
+                .replace('  parameter Real F = ', '  parameter Real F_table = ')
+                .replace('crossed at times the run does not know ahead."',
+                         'here written as if branches on its breakpoints: each crossing an event."'))
+    case = {"model": "Judge.KinkSpringLocated" if located else "Judge.KinkSpring",
+            "t_end": t_end, "dt": dt, "atol_factor": 1e-2, "record": ["x", "v"],
+            "judge": {"kind": "kink", "problem": "spring", "pieces": pieces,
+                      "x0": x0, "v0": v0}, "located": located}
+    return text, case
+
+
+KINK_GEAR = '''model Judge.KinkGear "A rotor (J1) driven by a torque turns a load (J2) through a gear whose ratio r is a table of the load's speed, {what}: w1 = r(w2) w2, which index reduction differentiates, reading r'."
+  parameter Real J1(unit = "kg.m2") = 0.05 "the rotor's inertia";
+  parameter Real J2(unit = "kg.m2") = 2 "the load's inertia";
+  parameter Real tau0(unit = "N.m") = {tau0} "the driving torque";
+  parameter Real t_rev(unit = "s") = {t_rev} "when the torque reverses";
+  parameter Real wu(unit = "rad/s") = 1 "the unit of the ratio's argument";
+  parameter Real r = {table} "the gear's ratio over the load's speed";
+  Real w1(unit = "rad/s", start = 0) "the rotor's speed";
+  Real w2(unit = "rad/s", start = 0, fixed = true) "the load's speed";
+  Real t1(unit = "N.m") "the gear's torque on the rotor";
+  Real t2(unit = "N.m") "the gear's torque on the load";
+  Real tau(unit = "N.m") "the driving torque now";
+equation
+  tau = {tau};
+  J1 * der(w1) = tau - t1;
+  J2 * der(w2) = t2;
+  w1 = {ratio} * w2 "the gear's kinematics";
+  t2 = {ratio} * t1 "an ideal gear: t1 w1 = t2 w2";
+end Judge.KinkGear;
+'''
+
+
+def kink_gear(what: str, points, values, interp: str, outside: str, t_rev: float | None,
+              t_end: float, dt: float, located: bool, tau0: float = 20.0) -> tuple[str, dict]:
+    """The gear: from rest, tau0 until t_rev, then -tau0 (none: tau0
+    throughout); the first integral J1 r(w2) w2 + J2 int_0^w2 dw / r =
+    int_0^t tau is its reference. `located`: r written as `if` branches."""
+    pieces = pieces_1d(points, values, interp, outside)
+    ratio = f"({if_chain(pieces, '(w2 / wu)')})" if located else "r(w2)"
+    text = (KINK_GEAR.replace("{what}", what).replace("{tau0}", num(tau0))
+            .replace("{t_rev}", num(t_rev if t_rev is not None else 1e9))
+            .replace("{tau}", "if time < t_rev then tau0 else -tau0" if t_rev is not None else "tau0")
+            .replace("{table}", table_text(points, values, interp, outside, "rad/s"))
+            .replace("{ratio}", ratio))
+    if located:
+        text = (text.replace("Judge.KinkGear", "Judge.KinkGearLocated")
+                .replace("  parameter Real r = ", "  parameter Real r_table = ")
+                .replace("which index reduction differentiates, reading r'.\"",
+                         "r here written as if branches on its breakpoints: each crossing an event.\""))
+    case = {"model": "Judge.KinkGearLocated" if located else "Judge.KinkGear",
+            "t_end": t_end, "dt": dt, "atol_factor": 1e-2, "record": ["w1", "w2"],
+            "judge": {"kind": "kink", "problem": "gear", "pieces": pieces, "J1": 0.05, "J2": 2.0,
+                      "tau0": tau0, "t_rev": t_rev}, "located": located}
+    return text, case
+
+
+KINK_2D = '''model Judge.Kink2D "A unit mass x driven by a table of two states, T(x, y), linear in each between its points, while y swings freely (y'' = -y): its cells' edges crossed in x and in y."
+  parameter Real k(unit = "1/s2") = 1 "the force per unit mass and unit T";
+  parameter Real T = table(x1 = {{xs}}, x2 = {{ys}}, values = [{values}], x1Unit = "1", x2Unit = "1", interpolation = linear, outside = {linear, linear}) "the force on x over x and y";
+  Real x(start = {x0}, fixed = true);
+  Real v(unit = "1/s", start = {v0}, fixed = true);
+  Real y(start = {y0}, fixed = true);
+  Real w(unit = "1/s", start = 0, fixed = true);
+equation
+  der(x) = v;
+  der(v) = k * {force} "the table's force";
+  der(y) = w;
+  der(w) = -k * y "y swings at 1 rad/s";
+end Judge.Kink2D;
+'''
+
+
+def kink_2d(xs, fx, ys, gy, x0: float, v0: float, y0: float, t_end: float, dt: float,
+            located: bool) -> tuple[str, dict]:
+    """x'' = T(x, y), y'' = -y, T bilinear on the grid xs x ys with values
+    fx_i + gy_j: between the points exactly f(x) + g(y), each linear, and
+    continued linearly outside (the reference's closed form, per pair of
+    cells, a forced oscillator). `located`: f(x) + g(y) as `if` branches."""
+    pf = pieces_1d(xs, fx, "linear", "linear")
+    pg = pieces_1d(ys, gy, "linear", "linear")
+    rows = "; ".join(", ".join(num(a + b) for b in gy) for a in fx)
+    force = f"(({if_chain(pf, 'x')}) + ({if_chain(pg, 'y')}))" if located else "T(x, y)"
+    text = (KINK_2D.replace("{xs}", ", ".join(num(v) for v in xs))
+            .replace("{ys}", ", ".join(num(v) for v in ys)).replace("{values}", rows)
+            .replace("{x0}", num(x0)).replace("{v0}", num(v0)).replace("{y0}", num(y0))
+            .replace("{force}", force))
+    if located:
+        text = (text.replace("Judge.Kink2D", "Judge.Kink2DLocated")
+                .replace("  parameter Real T = ", "  parameter Real T_table = ")
+                .replace("its cells' edges crossed in x and in y.\"",
+                         "here written as if branches on its breakpoints: each crossing an event.\""))
+    case = {"model": "Judge.Kink2DLocated" if located else "Judge.Kink2D",
+            "t_end": t_end, "dt": dt, "atol_factor": 1e-2, "record": ["x", "v", "y"],
+            "judge": {"kind": "kink", "problem": "2d", "pieces_x": pf, "pieces_y": pg,
+                      "x0": x0, "v0": v0, "y0": y0}, "located": located}
+    return text, case
+
+
+def kinks() -> dict[str, tuple[str, dict]]:
+    """The kink cases, each beside its `-located` control."""
+    out = {}
+
+    def both(name, make, *a):
+        out[name] = make(*a, False)
+        out[f"{name}-located"] = make(*a, True)
+
+    # one breakpoint, crossed once: F = -x below 0.5, three times as stiff above
+    both("kink-spring-one", kink_spring, "linear, its slope -1 below 0.5 and -3 above",
+         [-1.0, 0.5, 2.0], [1.0, -0.5, -5.0], "linear", "linear", 1.0, 0.0, 2.5, 0.01)
+    # seven breakpoints, all kinks, five of them kinks, crossed about 280 times in 28 periods
+    both("kink-spring-many", kink_spring,
+         "linear, its slopes -4, -3, -1.83, -1, -2 and -4 from left to right",
+         [-1.0, -0.7, -0.3, 0.0, 0.3, 0.7, 1.0], [2.95, 1.75, 0.55, 0.0, -0.3, -1.1, -2.3],
+         "linear", "linear", 0.95, 0.0, 100.0, 0.05)
+    # held at its edges (clamp): F = -x inside [-1, 1], constant outside; the
+    # mass leaves the data and comes back twice a period
+    both("kink-spring-clamp", kink_spring, "-x inside [-1, 1] and held at its edges outside",
+         [-1.0, 0.0, 1.0], [1.0, 0.0, -1.0], "cubic", "clamp", 2.0, 0.0, 40.0, 0.02)
+    # the gear of lsim-prep's tests: the ratio linear in the load's speed
+    gear_w = [0.0, 10.0, 25.0, 40.0, 60.0, 80.0]
+    gear_r = [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]
+    both("kink-gear-linear", kink_gear, "linear between its points", gear_w, gear_r,
+         "linear", "linear", None, 3.0, 0.01)
+    # the same data as a monotone cubic: r' is continuous, r'' jumps
+    both("kink-gear-cubic", kink_gear, "a monotone cubic through its points", gear_w, gear_r,
+         "cubic", "linear", None, 3.0, 0.01)
+    # a monotone cubic held at its edges: the torque reversed at 2.5 s, the
+    # load's speed leaves the data at 40 rad/s and comes back
+    both("kink-gear-clamp", kink_gear, "a monotone cubic held at its edges",
+         gear_w[:4], gear_r[:4], "cubic", "clamp", 2.5, 4.0, 0.01)
+    # a table of two states: kinks at x = -0.4, 0.2, 0.8 and y = -0.2, 0.3
+    both("kink-2d", kink_2d, [-1.0, -0.4, 0.2, 0.8, 1.4], [2.2, 1.0, -0.8, -2.0, -4.4],
+         [-0.6, -0.2, 0.3, 0.7], [0.4, 0.0, 0.25, -0.15], 1.0, 0.0, 0.9, 30.0, 0.02)
+    return out
+
+
 def all_cases(sweep: bool) -> dict[str, tuple[str, dict]]:
     out = {
         "testset-andrews": andrews(),
@@ -1005,6 +1260,7 @@ def all_cases(sweep: bool) -> dict[str, tuple[str, dict]]:
         "fmu-bouncingball": bouncing_ball(),
         "msl-pid-controller": pid_controller(),
         **crossings(),
+        **kinks(),
     }
     # the pendulum's closed form: released at rest from theta0 (swinging),
     # and given the speed v0 at the bottom so that m = 4 g L / v0^2 < 1
@@ -1371,6 +1627,382 @@ def bouncing_ball_at(ref: dict, t: float) -> tuple[float, float]:
     return h0 + v0 * dt + 0.5 * g * dt * dt, v0 + g * dt
 
 
+def kink_piece(pieces: list, x) -> int:
+    """The piece x lies in: lo <= x < hi (as the table takes the cell to the
+    right of a breakpoint)."""
+    for k, (lo, hi, _, _) in enumerate(pieces):
+        if (lo is None or x >= lo) and (hi is None or x < hi):
+            return k
+    raise ValueError(x)
+
+
+def kink_spring_reference(j: dict, times: list[float]) -> dict:
+    """x'' = F(x) in closed form piece by piece (F affine on each: a
+    harmonic motion about the piece's centre, or a parabola where F is
+    constant), each exit from a piece solved exactly (acos, a quadratic) at
+    40 digits."""
+    import mpmath as mp
+    mp.mp.dps = 40
+    pieces = j["pieces"]
+    t, x, v = mp.mpf(0), mp.mpf(j["x0"]), mp.mpf(j["v0"])
+    p = kink_piece(pieces, x)
+    out = {"x": [], "v": []}
+    crossings = []
+    tiny = mp.mpf("1e-30")
+    k = 0
+    while k < len(times):
+        lo, hi, x0, c = pieces[p]
+        if any(ck != 0 for ck in c[2:]):
+            raise ValueError("a spring's pieces must be affine")
+        s = mp.mpf(c[1]) if len(c) > 1 else mp.mpf(0)
+        b = mp.mpf(c[0]) - s * mp.mpf(x0)  # F = b + s x
+        if s < 0:
+            w = mp.sqrt(-s)
+            cen = -b / s
+            P, Q = x - cen, v / w
+            pos = lambda tau, P=P, Q=Q, w=w, cen=cen: cen + P * mp.cos(w * tau) + Q * mp.sin(w * tau)
+            vel = lambda tau, P=P, Q=Q, w=w: w * (Q * mp.cos(w * tau) - P * mp.sin(w * tau))
+            R, phi = mp.sqrt(P * P + Q * Q), mp.atan2(Q, P)
+
+            def roots(B, R=R, phi=phi, w=w, cen=cen):
+                rho = (B - cen) / R
+                if abs(rho) > 1:
+                    return []
+                a = mp.acos(rho)
+                found = []
+                for base in (phi + a, phi - a):
+                    n = mp.ceil((tiny * w - base) / (2 * mp.pi))
+                    found.append((base + 2 * mp.pi * n) / w)
+                return found
+        elif s == 0:
+            pos = lambda tau, x=x, v=v, b=b: x + v * tau + b * tau * tau / 2
+            vel = lambda tau, v=v, b=b: v + b * tau
+
+            def roots(B, x=x, v=v, b=b):
+                if b == 0:
+                    return [(B - x) / v] if v != 0 else []
+                disc = v * v - 2 * b * (x - B)
+                if disc < 0:
+                    return []
+                r = mp.sqrt(disc)
+                return [(-v - r) / b, (-v + r) / b]
+        else:
+            raise ValueError("a spring piece that pushes away from its centre")
+        exits = [(tau, side) for side, B in (("lo", lo), ("hi", hi)) if B is not None
+                 for tau in roots(mp.mpf(B)) if tau > tiny]
+        tau_x, side = min(exits) if exits else (mp.inf, None)
+        while k < len(times) and mp.mpf(times[k]) - t < tau_x:
+            tau = mp.mpf(times[k]) - t
+            out["x"].append(float(pos(tau)))
+            out["v"].append(float(vel(tau)))
+            k += 1
+        if side is None or k == len(times):
+            break
+        x, v = mp.mpf(hi if side == "hi" else lo), vel(tau_x)
+        t += tau_x
+        crossings.append([float(t), 0, float(x), float(v)])
+        p += 1 if side == "hi" else -1
+    return {**out, "crossings": crossings}
+
+
+def kink_ratio(pieces: list):
+    """r(w) and r'(w) of the gear's pieces, at 40 digits."""
+    import mpmath as mp
+
+    def r(w, p):
+        _, _, x0, c = pieces[p]
+        s = w - mp.mpf(x0)
+        return sum(mp.mpf(ck) * s ** n for n, ck in enumerate(c))
+
+    def dr(w, p):
+        _, _, x0, c = pieces[p]
+        s = w - mp.mpf(x0)
+        return sum(n * mp.mpf(ck) * s ** (n - 1) for n, ck in enumerate(c) if n)
+    return r, dr
+
+
+def kink_gear_reference(j: dict, times: list[float]) -> dict:
+    """The gear from rest: its first integral Phi(w2) = J1 r(w2) w2 + J2
+    int_0^w2 dw / r(w) = int_0^t tau (d Phi / dt = J1 w1' + J2 w2' / r =
+    tau - t1 + t1, as t2 = r t1), integrated per piece at 40 digits (in
+    closed form where r is affine, by quadrature where it is a cubic) and
+    inverted at each output time (Phi rises with w2)."""
+    import mpmath as mp
+    mp.mp.dps = 40
+    pieces = j["pieces"]
+    J1, J2, tau0 = mp.mpf(j["J1"]), mp.mpf(j["J2"]), mp.mpf(j["tau0"])
+    t_rev = None if j["t_rev"] is None else mp.mpf(j["t_rev"])
+    r, dr = kink_ratio(pieces)
+
+    def integral(a, b, p):
+        """int_a^b dw / r(w) inside piece p"""
+        _, _, x0, c = pieces[p]
+        if all(ck == 0 for ck in c[2:]):
+            c0 = mp.mpf(c[0])
+            c1 = mp.mpf(c[1]) if len(c) > 1 else mp.mpf(0)
+            if c1 == 0:
+                return (b - a) / c0
+            return mp.log(r(b, p) / r(a, p)) / c1
+        return mp.quad(lambda w: 1 / r(w, p), [a, b])
+
+    # Phi at the breakpoints from 0 upwards (w2 >= 0 throughout)
+    p0 = kink_piece(pieces, 0.0)
+    if pieces[p0][0] is not None and pieces[p0][0] != 0.0:
+        raise ValueError("the gear's speed starts at a breakpoint, 0")
+    edges = [mp.mpf(0)]
+    acc = [mp.mpf(0)]  # int_0^edge dw / r
+    for p in range(p0, len(pieces) - 1):
+        hi = mp.mpf(pieces[p][1])
+        acc.append(acc[-1] + integral(edges[-1], hi, p))
+        edges.append(hi)
+
+    def piece_of(w):
+        return kink_piece(pieces, float(w)) if w < edges[-1] else len(pieces) - 1
+
+    def phi(w):
+        p = piece_of(w)
+        n = p - p0
+        return J1 * r(w, p) * w + J2 * (acc[n] + integral(edges[n], w, p))
+
+    def dphi(w):
+        p = piece_of(w)
+        return J1 * (r(w, p) + dr(w, p) * w) + J2 / r(w, p)
+
+    phi_edges = [J1 * r(e, min(p0 + n, len(pieces) - 1)) * e + J2 * a
+                 for n, (e, a) in enumerate(zip(edges, acc))]
+
+    def target(t):
+        return tau0 * t if t_rev is None or t <= t_rev else tau0 * (2 * t_rev - t)
+
+    def solve(f):
+        # the bracket: between the breakpoints whose Phi encloses f
+        n = max(k for k, pe in enumerate(phi_edges) if pe <= f)
+        lo = edges[n]
+        if n + 1 < len(edges):
+            hi = edges[n + 1]
+        else:
+            hi = lo + 1
+            while phi(hi) < f:
+                hi = lo + 2 * (hi - lo)
+        w = (lo + hi) / 2
+        for _ in range(400):
+            g = phi(w) - f
+            if g > 0:
+                hi = w
+            else:
+                lo = w
+            step = w - g / dphi(w)
+            nxt = step if lo < step < hi else (lo + hi) / 2
+            if abs(nxt - w) <= mp.mpf("1e-36") * max(1, abs(w)):
+                return nxt
+            w = nxt
+        raise ValueError("the gear's speed did not converge")
+
+    out = {"w1": [], "w2": []}
+    for t in times:
+        f = target(mp.mpf(t))
+        w = solve(f) if f > 0 else mp.mpf(0)
+        out["w2"].append(float(w))
+        out["w1"].append(float(r(w, piece_of(w)) * w))
+    # the breakpoints crossed: rising up to t_rev, falling after
+    crossings = []
+    t_end = mp.mpf(times[-1])
+    top = target(t_end if t_rev is None else min(t_rev, t_end))
+    for e, pe in zip(edges[1:], phi_edges[1:]):
+        if pe < top:
+            crossings.append([float(pe / tau0), 0, float(e), 1.0])
+            if t_rev is not None:
+                down = 2 * t_rev - pe / tau0
+                if down <= t_end:
+                    crossings.append([float(down), 0, float(e), -1.0])
+    crossings.sort()
+    return {**out, "crossings": crossings}
+
+
+def kink_2d_reference(j: dict, times: list[float]) -> dict:
+    """x'' = f(x) + g(y), y = y0 cos t: per pair of pieces (f = b + s x, s =
+    -k < 0, g = e + q y) a forced oscillator in closed form, x = (b + e) / k
+    + q y0 cos t / (k - 1) + P cos(sqrt(k) (t - t_e)) + Q sin(...); y's
+    crossings solved exactly (acos), x's found by sampling every 4 ms (with
+    the extremum inside each sample interval, so that two crossings inside
+    one are not missed) and solved at 40 digits."""
+    import mpmath as mp
+    mp.mp.dps = 40
+    pf, pg = j["pieces_x"], j["pieces_y"]
+    y0 = mp.mpf(j["y0"])
+    t, x, v = mp.mpf(0), mp.mpf(j["x0"]), mp.mpf(j["v0"])
+    i, jj = kink_piece(pf, x), kink_piece(pg, y0)
+    out = {"x": [], "v": [], "y": []}
+    crossings = []
+    tiny = mp.mpf("1e-30")
+    delta = mp.mpf("0.004")
+    t_end = mp.mpf(times[-1])
+    k = 0
+
+    def affine(piece):
+        _, _, x0, c = piece
+        s = mp.mpf(c[1]) if len(c) > 1 else mp.mpf(0)
+        return s, mp.mpf(c[0]) - s * mp.mpf(x0)
+
+    while k < len(times):
+        s, b = affine(pf[i])
+        q, e = affine(pg[jj])
+        if not s < 0:
+            raise ValueError("x's pieces must pull towards their centre")
+        kk = -s
+        w = mp.sqrt(kk)
+        A = q * y0 / (kk - 1)
+        xp = lambda tt, A=A, kk=kk, b=b, e=e: (b + e) / kk + A * mp.cos(tt)
+        vp = lambda tt, A=A: -A * mp.sin(tt)
+        P, Q = x - xp(t), (v - vp(t)) / w
+        te = t
+        pos = lambda tt, P=P, Q=Q, w=w, te=te: xp(tt) + P * mp.cos(w * (tt - te)) + Q * mp.sin(w * (tt - te))
+        vel = lambda tt, P=P, Q=Q, w=w, te=te: vp(tt) + w * (Q * mp.cos(w * (tt - te)) - P * mp.sin(w * (tt - te)))
+        # y's next crossing of its piece's edges
+        ty, yside = mp.inf, None
+        for side, B in (("lo", pg[jj][0]), ("hi", pg[jj][1])):
+            if B is None or abs(mp.mpf(B)) > abs(y0):
+                continue
+            a = mp.acos(mp.mpf(B) / y0)
+            for base in (a, -a):
+                n = mp.ceil((t + tiny - base) / (2 * mp.pi))
+                tc = base + 2 * mp.pi * n
+                if tc < ty:
+                    ty, yside = tc, side
+        # x's next crossing, before y's (and the end)
+        horizon = min(ty, t_end)
+        tx, xside = mp.inf, None
+        for side, B in (("lo", pf[i][0]), ("hi", pf[i][1])):
+            if B is None:
+                continue
+            B = mp.mpf(B)
+            h = lambda tt, B=B: pos(tt) - B
+            sg = lambda val, tt: (mp.sign(val) if abs(val) > tiny else mp.sign(vel(tt)))
+            a = t
+            ha = sg(h(a), a)
+            while a < min(horizon, tx):
+                bb = min(a + delta, horizon)
+                hb = h(bb)
+                root = None
+                if mp.sign(hb) != ha and hb != 0:
+                    root = mp.findroot(h, (a, bb), solver="anderson")
+                elif hb == 0:
+                    root = bb
+                else:
+                    va, vb = vel(a), vel(bb)
+                    if va * vb < 0:
+                        tstar = mp.findroot(vel, (a, bb), solver="anderson")
+                        if mp.sign(h(tstar)) != ha:
+                            root = mp.findroot(h, (a, tstar), solver="anderson")
+                if root is not None:
+                    if root < tx:
+                        tx, xside = root, side
+                    break
+                a, ha = bb, mp.sign(hb)
+        t_next = min(tx, ty)
+        while k < len(times) and mp.mpf(times[k]) < t_next:
+            tt = mp.mpf(times[k])
+            out["x"].append(float(pos(tt)))
+            out["v"].append(float(vel(tt)))
+            out["y"].append(float(y0 * mp.cos(tt)))
+            k += 1
+        if t_next == mp.inf or t_next > t_end:
+            break
+        x, v = pos(t_next), vel(t_next)
+        if tx <= ty:
+            x = mp.mpf(pf[i][1] if xside == "hi" else pf[i][0])
+            i += 1 if xside == "hi" else -1
+            crossings.append([float(t_next), 0, float(x), float(v)])
+        else:
+            yb = mp.mpf(pg[jj][1] if yside == "hi" else pg[jj][0])
+            jj += 1 if yside == "hi" else -1
+            crossings.append([float(t_next), 1, float(yb), float(-y0 * mp.sin(t_next))])
+        t = t_next
+    return {**out, "crossings": crossings}
+
+
+def kink_check(j: dict, times: list[float], ref: dict) -> float:
+    """An independent check of a kink case's reference: the same problem
+    integrated by DOP853 at rtol 1e-13 (scipy) piece by piece, stopped at
+    each crossing the reference found and restarted there in the next
+    piece; the largest difference, relative to each channel's largest
+    value (a wrong closed form or a crossing missed shows as far more than
+    1e-12)."""
+    from scipy.integrate import solve_ivp
+
+    def value(pieces, p, z):
+        _, _, x0, c = pieces[p]
+        s = z - x0
+        return sum(ck * s ** n for n, ck in enumerate(c))
+
+    def slope(pieces, p, z):
+        _, _, x0, c = pieces[p]
+        s = z - x0
+        return sum(n * ck * s ** (n - 1) for n, ck in enumerate(c) if n)
+
+    prob = j["problem"]
+    if prob == "spring":
+        pieces = j["pieces"]
+        z0 = [j["x0"], j["v0"]]
+        cells = lambda z: (kink_piece(pieces, z[0]),)
+        rhs = lambda t, z, c: [z[1], value(pieces, c[0], z[0])]
+        names = ["x", "v"]
+        chans = lambda z: z
+    elif prob == "2d":
+        pf, pg = j["pieces_x"], j["pieces_y"]
+        z0 = [j["x0"], j["v0"], j["y0"], 0.0]
+        cells = lambda z: (kink_piece(pf, z[0]), kink_piece(pg, z[2]))
+        rhs = lambda t, z, c: [z[1], value(pf, c[0], z[0]) + value(pg, c[1], z[2]), z[3], -z[2]]
+        names = ["x", "v", "y"]
+        chans = lambda z: [z[0], z[1], z[2]]
+    else:  # the gear in w2: J2 w2' = r t1, t1 from the rotor's balance
+        pieces = j["pieces"]
+        J1, J2, tau0, t_rev = j["J1"], j["J2"], j["tau0"], j["t_rev"]
+        z0 = [0.0]
+        cells = lambda z: (kink_piece(pieces, z[0]),)
+
+        def rhs(t, z, c):
+            w = z[0]
+            rr, dd = value(pieces, c[0], w), slope(pieces, c[0], w)
+            tau = tau0 if t_rev is None or t < t_rev else -tau0
+            return [rr * tau / (J2 + J1 * rr * (rr + dd * w))]
+        names = ["w2"]
+        chans = lambda z: [z[0]]
+    events = sorted((c[0], c[1], c[3]) for c in ref["crossings"])
+    if prob == "gear" and j["t_rev"] is not None:
+        events = sorted(events + [(j["t_rev"], None, 0.0)])
+    cell = list(cells(z0))
+    t, z = 0.0, list(z0)
+    got = {n: [] for n in names}
+    k = 0
+    for n_ev, (t_stop, axis, rate) in enumerate(events + [(times[-1], None, 0.0)]):
+        last = n_ev == len(events)
+        if t_stop > t:
+            sol = solve_ivp(rhs, (t, t_stop), z, method="DOP853", rtol=1e-13, atol=1e-15,
+                            dense_output=True, args=(tuple(cell),))
+            while k < len(times) and (times[k] < t_stop or (last and times[k] <= t_stop)):
+                for n, val in zip(names, chans(sol.sol(times[k]))):
+                    got[n].append(float(val))
+                k += 1
+            z, t = list(sol.y[:, -1]), t_stop
+        if axis is not None:
+            # the crossing the reference found: into the next piece along its axis
+            cell[axis] += 1 if rate > 0 else -1
+    worst = 0.0
+    for n in names:
+        scale = max(abs(v) for v in ref[n]) or 1.0
+        worst = max(worst, max(abs(a - b) for a, b in zip(got[n], ref[n])) / scale)
+    return worst
+
+
+def kink_reference(j: dict, times: list[float]) -> dict:
+    make = {"spring": kink_spring_reference, "gear": kink_gear_reference,
+            "2d": kink_2d_reference}[j["problem"]]
+    r = make(j, times)
+    r["check"] = kink_check(j, times, r)
+    return r
+
+
 def testset_reference(path: Path) -> list[float]:
     """The reference solution at the end time from a test set problem's
     `solut` subroutine."""
@@ -1422,6 +2054,8 @@ def cases(cache: Path, out: Path, sweep: bool) -> None:
             r = bouncing_ball_reference(j)
         elif j["kind"] == "planar":
             r = planar_reference(j, times)
+        elif j["kind"] == "kink":
+            r = kink_reference(j, times)
         elif j["kind"] == "testset":
             r = {"y": testset_reference(cached(cache, j["file"]))}
         elif j["kind"] in ("stair", "count", "msl"):
@@ -1841,8 +2475,27 @@ def beside_msl(case: dict, cache: Path, a: dict, b: dict) -> dict:
                 max(abs(x - y) for x, y in zip(la, lb)) if len(la) == len(lb) else math.inf}
 
 
+def score_kink(case: dict, ref: dict, r: dict) -> dict:
+    """The largest error of each recorded channel over the grid, relative
+    to the channel's largest value in the reference; the worst of them."""
+    s = r["series"]["channels"]
+    names = case["record"]
+    pairs = on_grid(r["series"]["times"], case["dt"], len(ref[names[0]]), case.get("t0", 0.0))
+    if not pairs:
+        raise ValueError("no point of the run is on the reference's grid")
+    each = {}
+    for n in names:
+        scale = max(abs(v) for v in ref[n]) or 1.0
+        each[n] = max(abs(s[n][i] - ref[n][k]) for i, k in pairs) / scale
+    err = max(each.values())
+    return {"error": err, "scd": log_digits(err), "per_channel": each,
+            "crossings": len(ref["crossings"]), "missing": len(ref[names[0]]) - len(pairs)}
+
+
 def score_run(case: dict, ref: dict, cache: Path, r: dict) -> dict:
     kind = case["judge"]["kind"]
+    if kind == "kink":
+        return score_kink(case, ref, r)
     if kind == "msl":
         return score_msl(case, cache, r)
     if kind == "count":
@@ -1932,7 +2585,7 @@ def verdict(case: dict, row: dict) -> str | None:
     (without a message) beyond it, "stopped" (with the engine's message);
     None for the other cases."""
     if case["judge"]["kind"] not in ("pendulum", "pendulums", "double", "fourbar", "count",
-                                     "planar"):
+                                     "planar", "kink"):
         return None
     if not row.get("ok"):
         return "stopped"
@@ -2025,6 +2678,35 @@ def sweep_summary(cases_dir: Path, after: dict) -> str:
     return "\n".join(md)
 
 
+def kink_summary(after: dict) -> str:
+    """The tables read at a state (`kink-…`) beside their controls, the
+    same functions with their breakpoints located (`…-located`): per
+    tolerance, each one's error in rtol, their ratio, and their steps and
+    error-test failures."""
+    pairs = [(n, f"{n}-located") for n in sorted(after)
+             if n.startswith("kink-") and not n.endswith("-located") and f"{n}-located" in after]
+    if not pairs:
+        return ""
+    md = ["## Tables read at a state, beside their breakpoints located\n",
+          "| case | rtol | error/rtol | located | ratio | steps | located | ETF | located | crossings |",
+          "|---|---|---|---|---|---|---|---|---|---|"]
+    for k, l in pairs:
+        rows_l = {r["rtol"]: r for r in after[l]["rows"]}
+        for r in after[k]["rows"]:
+            q = rows_l.get(r["rtol"])
+            if not (r.get("ok") and q and q.get("ok") and r.get("error") is not None
+                    and q.get("error") is not None):
+                md.append(f"| {k} | {r['rtol']:.0e} | {failure_text(r) if not r.get('ok') else '–'} |"
+                          + " |" * 7)
+                continue
+            ratio = r["error"] / q["error"] if q["error"] > 0 else float("inf")
+            md.append(f"| {k} | {r['rtol']:.0e} | {r['error'] / r['rtol']:.2f} | "
+                      f"{q['error'] / q['rtol']:.2f} | {ratio:.2f} | {r['steps']} | {q['steps']} | "
+                      f"{r['err_test_fails']} | {q['err_test_fails']} | {r.get('crossings', '–')} |")
+    md.append("")
+    return "\n".join(md)
+
+
 def runs_by_rtol(results: Path, name: str) -> dict:
     f = results / f"{name}.json"
     if not f.exists():
@@ -2058,7 +2740,7 @@ def beside_table(cases_dir: Path, cache: Path, name: str, results: Path, beside:
 
 def report(cases_dir: Path, cache: Path, after: dict, before: dict | None,
            results: Path | None = None, beside: Path | None = None) -> str:
-    md = [sweep_summary(cases_dir, after)]
+    md = [sweep_summary(cases_dir, after), kink_summary(after)]
     for name, a in after.items():
         case = json.loads((cases_dir / f"{name}.json").read_text())
         md.append(f"### {name}\n")
@@ -2072,7 +2754,8 @@ def report(cases_dir: Path, cache: Path, after: dict, before: dict | None,
                  "bouncingball": ("h_error", "h error m"),
                  "stair": ("event_time_error", "event time error s"),
                  "count": ("count", "count"),
-                 "msl": ("limit_time_error", "limit's times error s")}[case["judge"]["kind"]]
+                 "msl": ("limit_time_error", "limit's times error s"),
+                 "kink": ("crossings", "crossings")}[case["judge"]["kind"]]
         cols = ["rtol", "error", "scd", extra[1], "steps", "ETF", "events", "switches", "wall ms"]
         b_rows = {r["rtol"]: r for r in (before or {}).get(name, {}).get("rows", [])}
         md.append("| " + " | ".join(cols) + " |")
@@ -2105,7 +2788,7 @@ def report(cases_dir: Path, cache: Path, after: dict, before: dict | None,
                 error += f" ({r['missing']} grid points missing)"
             md.append("| " + " | ".join([
                 f"{r['rtol']:.0e}", error, cell("scd", ".2f"),
-                cell(extra[0], ".0f" if extra[0] == "count" else ".1e"),
+                cell(extra[0], ".0f" if extra[0] in ("count", "crossings") else ".1e"),
                 cell("steps", "d"), cell("err_test_fails", "d"), cell("events", "d"),
                 cell("switches", "d"), cell("wall_ms", ".2f")]) + " |")
         md.append("")

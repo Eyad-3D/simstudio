@@ -17,6 +17,10 @@
   excused, too fast at full brake the car's.
 * MSL's planar four-bar is compared with its reference by time, MSL's
   own result beside it at the grid's times.
+* the tables read at a state (`kink-…`): the interpolants as the engine
+  builds them (Steffen's slopes, the pieces a linear table continues
+  outside), each channel's error relative to its largest value, and the
+  summary beside the located controls.
 """
 from __future__ import annotations
 
@@ -306,6 +310,72 @@ class SpeedTrace(unittest.TestCase):
         t["brake"][30] = 0.5
         self.assertEqual(judged(t)["verdict"], "driver")
 
+
+
+def piece_value(pieces, x):
+    """A table's function from its pieces (judge.pieces_1d) at x."""
+    lo, hi, x0, c = pieces[judge.kink_piece(pieces, x)]
+    return sum(ck * (x - x0) ** n for n, ck in enumerate(c))
+
+
+class KinkCases(unittest.TestCase):
+    """The tables read at a state (`kink-…`): the interpolants as the
+    engine builds them, and their scoring beside the located controls."""
+
+    def test_steffen_slopes_are_exact_on_a_parabola(self):
+        # interior and end slopes of x**2 at 0, 1, 2, as Steffen's
+        # (lsim_ir::interp::steffen_slopes) give them
+        self.assertEqual(judge.steffen([0.0, 1.0, 2.0], [0.0, 1.0, 4.0]), [0.0, 2.0, 4.0])
+        # two points: the secant
+        self.assertEqual(judge.steffen([0.0, 2.0], [1.0, 5.0]), [2.0, 2.0])
+
+    def test_pieces_are_the_tables_function(self):
+        xs, ys = [-1.0, 0.5, 2.0], [1.0, -0.5, -5.0]
+        lin = judge.pieces_1d(xs, ys, "linear", "linear")
+        # a linear table continued linearly: its edge cells reach out, no
+        # piece (and no kink) at its edges
+        self.assertEqual(len(lin), 2)
+        self.assertIsNone(lin[0][0])
+        self.assertIsNone(lin[-1][1])
+        for x, y in zip(xs, ys):
+            self.assertAlmostEqual(piece_value(lin, x), y, places=14)
+        self.assertAlmostEqual(piece_value(lin, 3.0), -5.0 - 3.0, places=14)
+        held = judge.pieces_1d(xs, ys, "linear", "clamp")
+        self.assertEqual(len(held), 4)
+        self.assertEqual(piece_value(held, -7.0), 1.0)
+        self.assertEqual(piece_value(held, 9.0), -5.0)
+        cubic = judge.pieces_1d([0.0, 1.0, 2.0], [0.0, 1.0, 4.0], "cubic", "linear")
+        for x in (0.0, 0.25, 0.5, 1.0, 1.5, 2.0):
+            self.assertAlmostEqual(piece_value(cubic, x), x * x, places=14)
+        # outside, the end slope (4 at 2)
+        self.assertAlmostEqual(piece_value(cubic, 3.0), 8.0, places=14)
+
+    def test_the_located_control_branches_on_the_breakpoints(self):
+        lin = judge.pieces_1d([-1.0, 0.5, 2.0], [1.0, -0.5, -5.0], "linear", "linear")
+        text = judge.if_chain(lin, "x")
+        self.assertEqual(text.count("if "), 1)
+        self.assertIn("x < 0.5", text)
+
+    def test_a_kink_run_is_scored_relative_to_each_channels_largest_value(self):
+        case = {"dt": 1.0, "record": ["x", "v"], "judge": {"kind": "kink"}}
+        ref = {"x": [1.0, 2.0, 4.0], "v": [0.0, -10.0, 5.0], "crossings": [[0.5, 0, 1.5, 1.0]]}
+        run = {"series": {"times": [0.0, 1.0, 1.5, 2.0],
+                          "channels": {"x": [1.0, 2.0, 9.0, 4.04], "v": [0.0, -10.05, 0.0, 5.0]}}}
+        got = judge.score_kink(case, ref, run)
+        # x: 0.04 of 4 (the row at 1.5 s is no grid point); v: 0.05 of 10
+        self.assertAlmostEqual(got["per_channel"]["x"], 0.01)
+        self.assertAlmostEqual(got["per_channel"]["v"], 0.005)
+        self.assertAlmostEqual(got["error"], 0.01)
+        self.assertEqual(got["crossings"], 1)
+        self.assertEqual(judge.verdict(case, {"ok": True, "error": 0.01, "rtol": 1e-4}), "right")
+        self.assertEqual(judge.verdict(case, {"ok": True, "error": 0.02, "rtol": 1e-4}), "wrong")
+
+    def test_the_summary_puts_each_case_beside_its_control(self):
+        row = lambda e, steps: {"rtol": 1e-6, "ok": True, "error": e, "steps": steps,
+                                "err_test_fails": 1, "crossings": 3}
+        after = {"kink-a": {"rows": [row(4e-6, 10)]}, "kink-a-located": {"rows": [row(2e-6, 12)]}}
+        md = judge.kink_summary(after)
+        self.assertIn("| kink-a | 1e-06 | 4.00 | 2.00 | 2.00 | 10 | 12 | 1 | 1 | 3 |", md)
 
 if __name__ == "__main__":
     unittest.main()
