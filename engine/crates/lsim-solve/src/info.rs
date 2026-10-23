@@ -933,6 +933,39 @@ impl RunInfo {
                 None => who,
             }
         };
+        // an equation without a label of its own (a model written in the
+        // text format): its text, where it is the only flat equation of its
+        // instance's equation (`the model: x * x + y * y = L * L`, not `the
+        // model`)
+        let mut written: HashMap<(lsim_ir::InstanceId, usize), Option<usize>> = HashMap::new();
+        let all = flat.equations.iter().chain(&flat.initial_equations);
+        for (k, e) in all.clone().enumerate() {
+            if let (lsim_ir::flat::OriginKind::Component { index }, None) =
+                (&e.origin.kind, &e.origin.label)
+            {
+                written
+                    .entry((e.origin.instance, *index))
+                    .and_modify(|one| *one = None)
+                    .or_insert(Some(k));
+            }
+        }
+        let equation = |o: &lsim_ir::Origin| {
+            let text = match (&o.kind, &o.label) {
+                (lsim_ir::flat::OriginKind::Component { index }, None) => {
+                    written.get(&(o.instance, *index)).copied().flatten()
+                }
+                _ => None,
+            };
+            match text.and_then(|k| all.clone().nth(k)) {
+                Some(e) => format!(
+                    "{}: {} = {}",
+                    flat.instance_name(o.instance),
+                    named(flat, &e.lhs),
+                    named(flat, &e.rhs)
+                ),
+                None => labelled(o),
+            }
+        };
         let d_index: HashMap<VarId, usize> =
             m.discretes.iter().enumerate().map(|(k, v)| (*v, k)).collect();
         let sources = var_sources(m);
@@ -972,7 +1005,7 @@ impl RunInfo {
             when_strict: m.whens.iter().map(|w| w.strict).collect(),
             params: flat.params.iter().map(|p| p.value).collect(),
             y_names,
-            residual_labels: m.residuals.iter().map(|r| labelled(&r.origin)).collect(),
+            residual_labels: m.residuals.iter().map(|r| equation(&r.origin)).collect(),
             modes: m
                 .modes
                 .iter()
@@ -1004,7 +1037,7 @@ impl RunInfo {
                 })
                 .collect(),
             table_names: flat.tables.iter().map(|t| t.name.clone()).collect(),
-            init_labels: m.init.residuals.iter().map(|r| labelled(&r.origin)).collect(),
+            init_labels: m.init.residuals.iter().map(|r| equation(&r.origin)).collect(),
             init_unknowns: m
                 .init
                 .unknowns
@@ -2039,6 +2072,29 @@ fn energy_info(m: &PreparedModel) -> EnergyInfo {
 
 /// `'Label'` for a diagram part, `'Label' (path.inside)` for a part inside
 /// one, else `'path'`.
+/// `e` with the flat system's names for its variables and parameters, in
+/// the text format's syntax (`x * x + y * y`).
+fn named(flat: &lsim_ir::FlatSystem, e: &Expr) -> String {
+    let name = |v: VarId| flat.vars.get(v.0 as usize).map(|x| Expr::Name(x.name.clone()));
+    e.clone()
+        .rewrite(&mut |x| match x {
+            Expr::Var(v) => name(v).unwrap_or(x),
+            Expr::Der(v) => match name(v) {
+                Some(n) => Expr::Call(lsim_ir::Builtin::Der, vec![n]),
+                None => x,
+            },
+            Expr::Pre(v) => match name(v) {
+                Some(n) => Expr::Call(lsim_ir::Builtin::Pre, vec![n]),
+                None => x,
+            },
+            Expr::Param(q) => {
+                flat.params.get(q.0 as usize).map_or(x, |p| Expr::Name(p.name.clone()))
+            }
+            other => other,
+        })
+        .to_string()
+}
+
 fn part_name(flat: &lsim_ir::FlatSystem, id: lsim_ir::InstanceId) -> String {
     let inst = flat.instance(id);
     if inst.label.is_some() {

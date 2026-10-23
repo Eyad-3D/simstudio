@@ -629,8 +629,8 @@ impl Watch {
         }
         if switch.is_nan() || switch <= 0.0 {
             self.never = Some(
-                "it keeps the states chosen at the start (dynamic state selection is off: \
-                 SolverOptions::state_switch is 0)"
+                "it keeps the states chosen at the start (dynamic state selection is turned \
+                 off for this run: its switch threshold is set to 0)"
                     .into(),
             );
             return self;

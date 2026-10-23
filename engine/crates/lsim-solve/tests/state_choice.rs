@@ -764,6 +764,21 @@ fn a_start_its_equations_do_not_decide_stops_naming_them() {
     // (the equation the dependence shows in: the other is solved for y)
     assert!(message.contains("the first") || message.contains("the second"), "{e}");
     assert!(message.contains("by x ") && message.contains("not decide it"), "{e}");
+    // the same equations without labels (as a model in the text format
+    // writes them): each named by its text (before, `the model holds
+    // exactly at the start values`)
+    let mut bare = def.clone();
+    for e in &mut bare.equations {
+        e.label = None;
+    }
+    let built = common::build(&lib, &bare, false);
+    let e = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect_err("cannot start");
+    let SolveError::Initialisation { message, .. } = &e else { panic!("{e}") };
+    assert!(
+        message.contains("the model: x * x + y = 0 holds")
+            || message.contains("the model: k * x * x + k * y = 0 holds"),
+        "{e}"
+    );
 }
 
 /// A run whose states hold (released at 1 rad: the choice keeps x and vx,
@@ -1097,7 +1112,7 @@ fn each_fallback_stops_naming_why_the_states_were_not_chosen_again() {
     let cases: [(&RunInfo, &SolverOptions, &str); 4] = [
         (&plain.info, &base, "the model was given no other choice of states to switch to"),
         (&dynamic.info, &diffsol, "the run is on diffsol, the cross-check"),
-        (&dynamic.info, &off, "SolverOptions::state_switch is 0"),
+        (&dynamic.info, &off, "dynamic state selection is turned off for this run"),
         (&refusing, &base, "did not work here: no regular choice here"),
     ];
     for (info, opts, why) in cases {
