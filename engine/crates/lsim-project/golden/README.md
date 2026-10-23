@@ -869,3 +869,32 @@ them: between runs of one build the whole comparison's CPU time varies
 by up to 3.3 s on this shared machine, so the record calls the new build
 not slower, not faster.
 
+
+## Tables read at a state (23 and 24 October 2026)
+
+For one round (A3's first, 23 October) every table read at a value that
+moves with the states, where the read kinks or jumps at the table's
+points, was held in its cell during every step, each crossing of a
+point an event where the integrator restarts (DESIGN.md 8.2, *Tables
+read at a state*). Every map the cars read is a linear table of the
+battery's SOC or a motor's speed and torque, read for its value, so
+every case moved, by the tolerance (at most 1.8e-3 × band, but the
+hybrid's clutch losses at the band's floor by 0.2 and 0.02 of it; none
+across its band), their crossings events (the BEV's WLTC 122 → 2 879,
+the hybrid's UDDS 118 072 → 126 830), the BEV's city recuperation at
+1.0021 × band. Its review found the restarts far costlier than the
+kinks they remove where crossings are many, and now only the reads that
+jump are held (a slope that index reduction reads): nothing of the cars'
+is held, and the comparison is the record above in every field but the
+run times, to the last digit (24 October: `results.json`, `results.md`
+and this README as at e4ada13).
+
+The books' closure had doubled on the city cycle while the maps were
+held (6.6e-10 → 1.3e-9) and fallen on the WLTC (2.8e-10 → 4.0e-11).
+Measured on every case at rtol 1e-4 … 1e-9, stepped over and held: the
+closure falls with the tolerance (the city cycle 2.4e-7, 5.5e-8,
+6.6e-10, 3.5e-11, 3.4e-12, 8.4e-13; slopes of its logarithm 0.9 … 1.4
+on the battery cars, 0.3 … 0.6 on the hybrid, which closes to about
+1e-12), so it is the integration's error, and the restarts moved it
+0.034 to 52 times either way at equal tolerance (geometric mean 1.05
+over 50 runs, larger in 27): it does not grow with them.

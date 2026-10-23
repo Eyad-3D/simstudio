@@ -6,20 +6,26 @@
 //! Where a model reads a table at an argument that moves with its states,
 //! the breakpoints' times are not known ahead and the integrator steps
 //! over them as over any piecewise-smooth right-hand side. Measured on
-//! exact answers (`engine/judge`, the `kink-…` cases), that is
-//! proportional to the tolerance where the read only kinks there (a
-//! linear table's value, a monotone cubic's first derivative), but not
-//! where it jumps: a derivative that index reduction reads one order more
-//! often than the table is smooth (a gear whose ratio is a linear table of
-//! the load's speed, whose `r'` jumps at every point, ended up to 178 rtol
-//! off, its error per tolerance growing as the tolerance tightens; a
-//! monotone cubic held at its edges, whose `r'` jumps there, 5 261 in a
+//! exact answers (`engine/judge`, the `kink-…` cases), that is not
+//! proportional to the tolerance where the read jumps: a derivative that
+//! index reduction reads one order more often than the table is smooth (a
+//! gear whose ratio is a linear table of the load's speed, whose `r'`
+//! jumps at every point, ended up to 178 rtol off where the located run
+//! is within 3, its error per tolerance growing as the tolerance tightens;
+//! a monotone cubic held at its edges, whose `r'` jumps there, 5 261 in a
 //! sweep). Holding a read costs a restart of the integrator at each
-//! crossing (about 3 to 4 rtol of error each, measured): far more than
-//! stepping over a kink where crossings are many, as in a table of many
-//! points, so a read that only kinks is stepped over (as Modelica tools do
-//! for a table's inputs), and [`TableCells::Kinks`] holds it too, for
-//! comparison only.
+//! crossing (about 0.1 to 4 rtol of error each, measured), which is far
+//! more than stepping over a read that only kinks (a linear table's
+//! value, a monotone cubic's first derivative) where crossings are many:
+//! on a table of 41 … 401 points held, 7 to 1 270 times as far off at rtol
+//! 1e-4 … 1e-6 (though stepped over, its error per tolerance grows too as
+//! the tolerance tightens). So a read that only kinks is stepped over (as
+//! Modelica tools do for a table's inputs), and [`TableCells::Kinks`]
+//! holds it too, for comparison only. Where a jump's crossings come faster
+//! than the integrator regains its order after each restart (a table of
+//! hundreds of points crossed back and forth), holding it costs about 0.45
+//! rtol a crossing as well, measured, and stepping over is then the more
+//! accurate at loose tolerances: an open item (STATUS.md).
 //!
 //! A held read is replaced in the equations by its cell's own function,
 //! continued smoothly beyond the cell's edges, with discrete coefficients,
