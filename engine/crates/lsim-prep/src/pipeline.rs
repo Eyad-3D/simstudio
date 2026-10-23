@@ -36,12 +36,48 @@ pub struct Settings {
     /// search, for the report ([`BlockSummary::minimal`]): a yardstick for
     /// the tearing heuristic, not needed to run
     pub tearing_minimum: bool,
+    /// choose the states at this point of a run instead of at the start
+    /// (dynamic state selection, DESIGN.md §6 step 5): the model a run
+    /// switches to where the states chosen before degrade
+    pub choose_at: Option<std::sync::Arc<ChoosePoint>>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { force_implicit: false, numeric_start: true, tearing_minimum: false }
+        Settings {
+            force_implicit: false,
+            numeric_start: true,
+            tearing_minimum: false,
+            choose_at: None,
+        }
     }
+}
+
+/// A point of a run to choose the states at ([`Settings::choose_at`]):
+/// index reduction's dummy derivatives are chosen by the same pivoting as
+/// at the start, `stateSelect` leading it, on the constraints'
+/// derivatives evaluated here. The start is not solved (the run's point
+/// is consistent).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ChoosePoint {
+    /// the time
+    pub t: f64,
+    /// the values by name: the variables, their derivatives (`der(x)`,
+    /// `der(der(x))`) and the discrete values (a derivative the run does
+    /// not hold may be missing)
+    pub values: HashMap<String, f64>,
+    /// the parameter values, in the flat system's order (empty: its own)
+    pub params: Vec<f64>,
+    /// derivatives (`der(x)`) to keep as variables of their own whatever
+    /// the choice (the channels of the model the run switches from: a
+    /// state's derivative is then also a variable, set from it), so that
+    /// every channel the run records is in the model it switches to
+    pub channels: Vec<String>,
+    /// the pivoting's window here: a preferred column is taken within this
+    /// factor of a row's largest entry (the run's switch threshold, so the
+    /// choice the run leaves, just past it, is not taken again; 0: the
+    /// start's, 10)
+    pub window: f64,
 }
 
 /// One block of a sorted system, as the report tells it.
@@ -295,6 +331,7 @@ fn state_sets(
                 .collect(),
             pivots: cs.pivots.clone(),
             masked: cs.masked.clone(),
+            marked: cs.marked,
         })
         .collect()
 }
@@ -812,7 +849,9 @@ pub fn run(
     // needed for the state choice, the modes' first values, initial
     // equations and start values the model overrides; for small models
     // always (their pivots are checked at the start too)
+    // (a point of a run chosen at is consistent: nothing to solve)
     let needed = settings.numeric_start
+        && settings.choose_at.is_none()
         && (differentiated > 0
             || !node_modes.is_empty()
             || !initial_eqs.is_empty()
@@ -976,22 +1015,38 @@ pub fn run(
     let mut chosen_sets = vec![];
     let mut unkept = vec![];
     let (is_state, dummy) = if differentiated > 0 {
-        let point = if solved.is_ok() { vals.clone() } else { generic_values(&sys, &flat) };
-        let sel = index::dummy_derivatives(&sys, &point, &pvals, tables, &keep_node)
-            .or_else(|f| {
-                if solved.is_ok() {
-                    Err(f)
-                } else {
-                    index::dummy_derivatives(
-                        &sys,
-                        &generic_values(&sys, &flat),
-                        &pvals,
-                        tables,
-                        &keep_node,
-                    )
-                }
-            })
-            .map_err(|f| vec![index_diag(&flat, &sys, f)])?;
+        let sel = match &settings.choose_at {
+            // at a point of a run (dynamic state selection)
+            Some(at) => {
+                let point: Vec<f64> = (0..nn)
+                    .map(|n| at.values.get(&sys.name(&flat, n)).copied().unwrap_or(f64::NAN))
+                    .collect();
+                let p = if at.params.len() == pvals.len() { &at.params } else { &pvals };
+                let within = if at.window > 1.0 { 1.0 / at.window } else { index::WITHIN };
+                index::dummy_derivatives(&sys, at.t, &point, p, tables, &keep_node, within)
+            }
+            None => {
+                let point = if solved.is_ok() { vals.clone() } else { generic_values(&sys, &flat) };
+                let within = index::WITHIN;
+                index::dummy_derivatives(&sys, 0.0, &point, &pvals, tables, &keep_node, within)
+                    .or_else(|f| {
+                        if solved.is_ok() {
+                            Err(f)
+                        } else {
+                            index::dummy_derivatives(
+                                &sys,
+                                0.0,
+                                &generic_values(&sys, &flat),
+                                &pvals,
+                                tables,
+                                &keep_node,
+                                within,
+                            )
+                        }
+                    })
+            }
+        }
+        .map_err(|f| vec![index_diag(&flat, &sys, f)])?;
         chosen_sets = sel.sets;
         unkept = sel.unkept;
         (sel.is_state, sel.dummy)
@@ -1080,7 +1135,8 @@ pub fn run(
 
     // nodes → slots
     let state_nodes: Vec<usize> = (0..nn).filter(|&n| is_state[n]).collect();
-    let map = sys.slots(&mut flat, &is_state);
+    let kept: &[String] = settings.choose_at.as_ref().map_or(&[], |a| &a.channels);
+    let map = sys.slots_keeping(&mut flat, &is_state, kept);
     let state_sets = state_sets(&chosen_sets, &sys, &flat, &map);
     extras.start.resize(flat.vars.len(), None);
     report.states = map.states.iter().map(|v| flat.var(*v).name.clone()).collect();
@@ -1109,6 +1165,15 @@ pub fn run(
             target: map.slot[n],
             expr: map.to_flat_owned(e),
             origin: origin_of(k, &flat),
+        });
+    }
+    // the derivatives kept as channels that are a state's derivative here
+    // (set from it, after everything else)
+    for &(v, x) in &map.kept {
+        assignments.push(Assignment {
+            target: Slot::Var(v),
+            expr: Expr::Der(x),
+            origin: init::start_origin(&flat, x),
         });
     }
     let algebraics: Vec<Slot> = sorted_iteration.iter().map(|&n| map.slot[n]).collect();

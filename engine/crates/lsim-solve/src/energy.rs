@@ -599,6 +599,25 @@ impl<'m> Ledger<'m> {
         Ok(())
     }
 
+    /// The same books read on through another model (the run's states
+    /// chosen again, [`crate::choice`]): `info` its parts, which must be
+    /// these books' parts (the same names, each declaring the same); false
+    /// (nothing changed) where they are not.
+    pub fn rebind(&mut self, info: &Arc<EnergyInfo>, model: &'m dyn ModelFunctions) -> bool {
+        let same = info.parts.len() == self.info.parts.len()
+            && info.parts.iter().zip(&self.info.parts).all(|(a, b)| {
+                a.name == b.name
+                    && a.path == b.path
+                    && a.loss.is_some() == b.loss.is_some()
+                    && a.stored.is_some() == b.stored.is_some()
+            });
+        if same {
+            self.info = info.clone();
+            self.model = model;
+        }
+        same
+    }
+
     /// At the start (the first grid point).
     pub fn start(&mut self, t: f64, vars: &[f64], params: &[f64]) {
         self.stored(t, vars, params);

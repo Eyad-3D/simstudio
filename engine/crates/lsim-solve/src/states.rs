@@ -82,6 +82,13 @@ pub use lsim_ir::choice::{DEGRADED, PivotState, Scratch};
 /// choice's failure.
 pub const OUTSIDE: f64 = 0.1;
 
+/// The factor a choice the model's `stateSelect` marks lead may reach
+/// before the run chooses again (dynamic state selection): the margin
+/// within which preparation takes a marked choice (`lsim_prep::index::WIDE`,
+/// a decided candidate moving 50 times as much as a state, half the run's
+/// limit), so a mark leads the choice wherever it is taken at all.
+pub const MARKED: f64 = 0.5 / DEGRADED;
+
 /// How the choice of `set` stands on its entries `m` (rows × columns;
 /// changed): [`lsim_ir::choice::pivot_state`].
 pub fn pivot_state(set: &StateSetInfo, m: &mut [Vec<f64>], s: &mut Scratch) -> PivotState {
@@ -353,6 +360,9 @@ struct Watched {
     t_prev: f64,
     /// whether the entries that do not move are current
     fresh: bool,
+    /// the factor (an exchange with a state the choice may take) past
+    /// which the run chooses the states again (infinite: it does not)
+    switch: f64,
 }
 
 /// An entry that moves with the solution.
@@ -429,6 +439,8 @@ pub(crate) struct Watch {
     /// scratch rows
     tmp: Vec<Vec<f64>>,
     vals: Vec<f64>,
+    /// the moving entries where [`Watch::switch_point`] looks
+    vals_probe: Vec<f64>,
     /// the last point checked: its time, and how many events the run had
     /// recorded there
     at_t: f64,
@@ -500,6 +512,7 @@ impl Watch {
                     continuous: false,
                     t_prev: f64::NAN,
                     fresh: false,
+                    switch: f64::INFINITY,
                 }
             })
             .collect();
@@ -511,6 +524,7 @@ impl Watch {
             s: Scratch::default(),
             tmp: vec![],
             vals: vec![],
+            vals_probe: vec![],
             at_t: f64::NAN,
             at_events: 0,
             at_work: vec![],
@@ -521,9 +535,177 @@ impl Watch {
         }
     }
 
+    /// The watch choosing the states again where a set's factor passes
+    /// `switch` (`MARKED`, if larger, for a set whose columns the model's
+    /// `stateSelect` marks), where the run can ([`RunInfo::choices`]):
+    /// [`Watch::switch_point`].
+    pub(crate) fn switching(mut self, info: &RunInfo, switch: f64) -> Watch {
+        if info.choices.is_none() || switch.is_nan() || switch <= 0.0 {
+            return self;
+        }
+        for w in &mut self.sets {
+            if w.moving {
+                let set = &info.state_sets[w.k];
+                w.switch = if set.marked { switch.max(MARKED) } else { switch };
+            }
+        }
+        self
+    }
+
+    /// Set `k`'s switch threshold (infinite: it is not switched).
+    pub(crate) fn threshold(&self, k: usize) -> f64 {
+        self.sets.iter().find(|w| w.k == k).map_or(f64::INFINITY, |w| w.switch)
+    }
+
+    /// Whether the watch may ask for the states to be chosen again.
+    pub(crate) fn may_switch(&self) -> bool {
+        self.sets.iter().any(|w| w.switch.is_finite())
+    }
+
     /// Whether there is anything to watch.
     pub(crate) fn active(&self) -> bool {
         !self.sets.is_empty()
+    }
+
+    /// Where the states should be chosen again inside the step just taken
+    /// to `t` (`vars` the channels there, `d` the discrete values, the run
+    /// having recorded `events` events): the first point after the last
+    /// point checked where a set's factor (an exchange with a state the
+    /// choice may take) passes its switch threshold, or its block's
+    /// determinant changes sign, found by bisection on the step's dense
+    /// output (`inside`; the step's end where it cannot be had), and the
+    /// set (its index in [`RunInfo::state_sets`]). `None`: no set needs it.
+    /// What the watch keeps is not changed: the points before the one
+    /// found are checked as they come ([`Watch::end`]).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn switch_point(
+        &mut self,
+        info: &RunInfo,
+        model: &dyn ModelFunctions,
+        t: f64,
+        vars: &[f64],
+        d: &[f64],
+        events: usize,
+        inside: &mut dyn FnMut(f64, &mut Vec<f64>) -> bool,
+    ) -> Option<(f64, usize)> {
+        if !self.may_switch() || events != self.at_events {
+            return None;
+        }
+        let mut vals = std::mem::take(&mut self.vals_probe);
+        moving_values(&self.exprs, self.compiled.as_mut(), info, model, t, vars, &mut vals);
+        let mut found: Option<(f64, usize)> = None;
+        for j in 0..self.sets.len() {
+            let w = &self.sets[j];
+            if !w.moving || !w.switch.is_finite() || !w.fresh || !w.continuous || !(w.t_prev < t) {
+                continue;
+            }
+            // (the discrete values the fixed entries read: as last read)
+            if w.dvars.iter().zip(&w.dvals).any(|(&i, &v)| d[i].to_bits() != v.to_bits()) {
+                continue;
+            }
+            // the bound of [`Watch::check`], against the switch threshold
+            let (mut g, mut eta) = (0.0f64, 0.0f64);
+            for cell in &w.cells {
+                let dm = (vals[cell.k] - cell.base).abs() * cell.reach;
+                if cell.in_s {
+                    g += dm;
+                } else {
+                    eta += dm;
+                }
+            }
+            if g < 1.0 && (w.e0 + eta) / (1.0 - g) < w.switch {
+                continue;
+            }
+            self.tmp.clone_from(&w.m);
+            for cell in &w.cells {
+                self.tmp[cell.r][cell.c] = vals[cell.k];
+            }
+            let set = &info.state_sets[w.k];
+            let ps = pivot_state(set, &mut self.tmp, &mut self.s);
+            let crossed = w.sign * ps.sign < 0.0;
+            if !(ps.exchange > w.switch || ps.exchange.is_nan() || crossed) {
+                continue;
+            }
+            let (t0, sign0, limit) = (w.t_prev, w.sign, w.switch);
+            let at = self
+                .locate(j, info, model, t0, t, sign0, inside, Some(limit))
+                .map_or(t, |(at, _)| at);
+            if found.is_none_or(|(f, _)| at < f) {
+                found = Some((at, self.sets[j].k));
+            }
+        }
+        self.vals_probe = vals;
+        found
+    }
+
+    /// A switch the run could not make for set `k` (no better choice
+    /// there): the set is not switched again before its factor has grown
+    /// past twice `factor` (the run's limit still stops it).
+    pub(crate) fn refused(&mut self, k: usize, factor: f64) {
+        for w in &mut self.sets {
+            if w.k == k {
+                let next = (2.0 * factor).max(2.0 * w.switch);
+                w.switch = if next * DEGRADED < 1.0 { next } else { f64::INFINITY };
+            }
+        }
+    }
+
+    /// Whether the choice of a model the run switches to holds at `(t, y,
+    /// d)`: each set that moves regular there, its constraints apart, its
+    /// factor inside its switch threshold and the run's limit. Why not,
+    /// where it does not.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn holds(
+        &mut self,
+        info: &RunInfo,
+        model: &dyn ModelFunctions,
+        t: f64,
+        y: &[f64],
+        d: &[f64],
+        u: &[f64],
+    ) -> Result<(), String> {
+        let l = *model.layout();
+        let mut work = vec![0.0; l.n_work];
+        let mut vars = vec![0.0; l.n_vars];
+        model.vars(&EvalInput { t, y, p: &info.params, d, u }, &mut work, &mut vars);
+        let ks: Vec<(usize, f64)> =
+            self.sets.iter().filter(|w| w.moving).map(|w| (w.k, w.switch)).collect();
+        for (k, switch) in ks {
+            let (e, apart) = self.standing(info, model, k, t, &vars);
+            let set = &info.state_sets[k];
+            if !apart {
+                return Err(format!(
+                    "{} does not decide the variables for any choice of states there",
+                    set.rows.first().map_or("a constraint", String::as_str)
+                ));
+            }
+            if e.is_nan() || e >= switch || e * DEGRADED > 1.0 {
+                return Err(format!(
+                    "the states chosen again there would have a variable that {} decides move \
+                     {e:.1} times as much as a state",
+                    set.rows.first().map_or("a constraint", String::as_str)
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// The largest factor of set `k` (an exchange with a state the choice
+    /// may take) and whether its constraints hold apart, at the channels
+    /// `vars` (`t`, the discrete values those were read with being current).
+    pub(crate) fn standing(
+        &mut self,
+        info: &RunInfo,
+        model: &dyn ModelFunctions,
+        k: usize,
+        t: f64,
+        vars: &[f64],
+    ) -> (f64, bool) {
+        let set = &info.state_sets[k];
+        let mut m = vec![];
+        entries(set, t, vars, &info.params, model, &mut m);
+        let ps = pivot_state(set, &mut m, &mut self.s);
+        (ps.exchange, ps.independence >= DEGRADED && !singular(&ps))
     }
 
     /// The point `(t, d)` the run loop is at, the run having recorded
@@ -553,7 +735,8 @@ impl Watch {
     /// recorded `events` events. Where an event came since the last point
     /// checked (or the run starts here), this point, after it, starts the
     /// next stretch ([`Watch::resume`]): fails where the choice fails
-    /// here.
+    /// here, and gives the set whose states should be chosen again here
+    /// (its factor past its switch threshold: [`Watch::switching`]).
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn begin(
         &mut self,
@@ -564,7 +747,7 @@ impl Watch {
         d: &[f64],
         u: &[f64],
         events: usize,
-    ) -> Result<(), SolveError> {
+    ) -> Result<Option<usize>, SolveError> {
         self.from_t = t;
         if events != self.from_events || self.from_d.len() != d.len() {
             self.from_d.clear();
@@ -572,7 +755,7 @@ impl Watch {
             self.from_events = events;
         }
         if !self.active() || (events == self.at_events && t == self.at_t) {
-            return Ok(());
+            return Ok(None);
         }
         let l = *model.layout();
         let mut vars = std::mem::take(&mut self.at_vars);
@@ -580,8 +763,29 @@ impl Watch {
         vars.resize(l.n_vars, 0.0);
         model.vars(&EvalInput { t, y, p: &info.params, d, u }, &mut self.at_work, &mut vars);
         let checked = self.resume(info, model, t, &vars, d, events);
+        let switch = match checked {
+            Ok(()) if self.may_switch() => self.wants_switch(info, model, t, &vars),
+            _ => None,
+        };
         self.at_vars = vars;
-        checked
+        checked.map(|()| switch)
+    }
+
+    /// The set (its index in [`RunInfo::state_sets`]) whose factor at the
+    /// channels `vars` is past its switch threshold, if any.
+    fn wants_switch(
+        &mut self,
+        info: &RunInfo,
+        model: &dyn ModelFunctions,
+        t: f64,
+        vars: &[f64],
+    ) -> Option<usize> {
+        let ks: Vec<(usize, f64)> =
+            self.sets.iter().filter(|w| w.switch.is_finite()).map(|w| (w.k, w.switch)).collect();
+        ks.into_iter().find_map(|(k, switch)| {
+            let (e, _) = self.standing(info, model, k, t, vars);
+            (e.is_nan() || e > switch).then_some(k)
+        })
     }
 
     /// The point `(t, vars, d)` right after an event (the run having
@@ -725,7 +929,7 @@ impl Watch {
             // point checked: the step's dense output holds it)
             let found = match inside.as_deref_mut() {
                 Some(inside) if moving && continuous && t0 < t => {
-                    self.locate(j, info, model, t0, t, sign0, inside)
+                    self.locate(j, info, model, t0, t, sign0, inside, None)
                 }
                 _ => None,
             };
@@ -762,6 +966,8 @@ impl Watch {
     /// factor past the limit, or its block's sign other than `sign0`), by
     /// bisection on the step's dense output (`inside`), and the set's
     /// entries there; `None` where the dense output is not to be had.
+    /// With `switch`, the first point where its factor (an exchange with a
+    /// state the choice may take) passes `switch` instead of the limit.
     #[allow(clippy::too_many_arguments)]
     fn locate(
         &mut self,
@@ -772,6 +978,7 @@ impl Watch {
         t1: f64,
         sign0: f64,
         inside: &mut dyn FnMut(f64, &mut Vec<f64>) -> bool,
+        switch: Option<f64>,
     ) -> Option<(f64, Vec<Vec<f64>>)> {
         let set = &info.state_sets[self.sets[j].k];
         let (mut lo, mut hi) = (t0, t1);
@@ -793,8 +1000,14 @@ impl Watch {
             }
             self.tmp.clone_from(&m);
             let ps = pivot_state(set, &mut self.tmp, &mut self.s);
-            let e = ps.worst_exchange();
-            if e.is_nan() || e * DEGRADED > 1.0 || sign0 * ps.sign <= 0.0 {
+            let past = match switch {
+                Some(limit) => ps.exchange.is_nan() || ps.exchange > limit,
+                None => {
+                    let e = ps.worst_exchange();
+                    e.is_nan() || e * DEGRADED > 1.0
+                }
+            };
+            if past || sign0 * ps.sign <= 0.0 {
                 hi = mid;
                 m_hi.clone_from(&m);
             } else {
@@ -915,6 +1128,7 @@ mod tests {
             rows: vec!["'pendulum' (the rod keeps its length)".into(); 3],
             parts: vec!["pendulum".into()],
             candidates: (0..cols).map(|k| format!("c{k}")).collect(),
+            marked: false,
         }
     }
 

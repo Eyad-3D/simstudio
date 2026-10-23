@@ -24,6 +24,7 @@
 
 pub mod accuracy;
 mod ad;
+pub mod choice;
 #[cfg(feature = "diffsol")]
 pub mod diffsol_backend;
 pub mod energy;
@@ -261,6 +262,15 @@ pub struct SolverOptions {
     /// bitwise the interpreter, faster). On by default; off, they are
     /// interpreted from the IR
     pub books_kernels: bool,
+    /// dynamic state selection (DESIGN.md §6 step 5): where a variable
+    /// index reduction decides from the states comes to move more than
+    /// this many times as much as a state (the choice's exchange factor,
+    /// [`states`]), the run chooses the states again there and goes on
+    /// with them ([`choice`]), where the model can ([`RunInfo::choices`];
+    /// a choice the model's `stateSelect` marks lead, up to
+    /// [`states::MARKED`]). 0: never (the run stops where the choice
+    /// degrades past its limit, naming the constraint)
+    pub state_switch: f64,
     /// read a sampled block's inputs fast: a computed input's chain run
     /// as a flat tape instead of interpreted, and the inputs of a block's
     /// ticks inside one step read together (the dense output and the
@@ -269,6 +279,9 @@ pub struct SolverOptions {
     /// default; off, each tick reads its inputs alone, interpreted
     pub tick_read_ahead: bool,
 }
+
+/// [`SolverOptions::state_switch`]'s default.
+pub const STATE_SWITCH: f64 = 10.0;
 
 impl Default for SolverOptions {
     fn default() -> Self {
@@ -293,6 +306,7 @@ impl Default for SolverOptions {
             condition_kernels: true,
             books_kernels: true,
             tick_read_ahead: true,
+            state_switch: STATE_SWITCH,
         }
     }
 }
@@ -520,6 +534,12 @@ pub trait Integrator {
     fn quadrature(&mut self, _t: f64, _out: &mut [f64]) -> Result<(), SolveError> {
         Ok(())
     }
+    /// Starts the energy integrals at `q` instead of zero, before the first
+    /// step (a run that goes on with the states chosen again carries them
+    /// over); false when the backend cannot (the run then does not switch).
+    fn set_quadratures(&mut self, _q: &[f64]) -> Result<bool, SolveError> {
+        Ok(false)
+    }
     /// The last step's estimated local error per entry of y, as a share of
     /// that entry's tolerance (|e| / (rtol |y| + atol)); false when the
     /// backend does not give it.
@@ -603,6 +623,10 @@ pub enum EventKind {
     Block(usize),
     /// a time event (index into [`RunInfo::time_events`])
     Time(usize),
+    /// the states chosen again (dynamic state selection, [`choice`]): the
+    /// set whose choice degraded (index into the `state_sets` of the model
+    /// the run went on from)
+    States(usize),
 }
 
 /// An event that happened.
@@ -834,6 +858,46 @@ pub fn simulate(
         }
         r
     })
+}
+
+/// A new integrator for `model` from `(t0, y0, d0)`, `grid` its run
+/// (the backend of `opts`): where a run goes on with its states chosen
+/// again ([`choice`]). `None` where the backend cannot be made so (diffsol,
+/// a run without SUNDIALS).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn new_integrator<'m>(
+    model: &'m dyn ModelFunctions,
+    info: &RunInfo,
+    opts: &SolverOptions,
+    grid: OutputGrid,
+    y0: &[f64],
+    d0: Vec<f64>,
+    u: Vec<f64>,
+) -> Option<Result<Box<dyn Integrator + 'm>, SolveError>> {
+    let l = *model.layout();
+    if l.n_y() == 0 || opts.backend != Backend::Sundials {
+        return None;
+    }
+    let quad = if opts.energy_books {
+        info.energy.as_ref().filter(|e| !e.parts.is_empty()).map(|e| {
+            let q = energy::Integrand::new(e, info, &l);
+            if opts.books_kernels { q.compiled_by(model) } else { q }
+        })
+    } else {
+        None
+    };
+    #[cfg(feature = "sundials")]
+    {
+        Some(
+            sundials::Sundials::new(model, info, opts, grid, y0, d0, u, quad)
+                .map(|s| Box::new(s) as Box<dyn Integrator + 'm>),
+        )
+    }
+    #[cfg(not(feature = "sundials"))]
+    {
+        let _ = (grid, y0, d0, u, quad);
+        None
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

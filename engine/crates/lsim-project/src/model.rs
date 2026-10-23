@@ -55,7 +55,8 @@ impl Model {
     ) -> Result<Model, Vec<Diagnostic>> {
         let prepared = lsim_prep::prepare(lib, top, opts)?;
         let jit = lsim_codegen::compile(&prepared, &CodegenOptions::default()).map_err(diags)?;
-        let info = RunInfo::from_prepared(&prepared);
+        let mut info = RunInfo::from_prepared(&prepared);
+        info.choices = choices(lib, top, opts, &info);
         Ok(Model { prepared, jit, info })
     }
 
@@ -94,4 +95,40 @@ impl Model {
     ) -> Result<SimResult, SolveError> {
         lsim_solve::simulate(&self.jit, &self.info, opts, grid, blocks)
     }
+}
+
+/// Where a run of the model prepared from `top` (its run information
+/// `info`) gets the model with its states chosen again (dynamic state
+/// selection, DESIGN.md §6 step 5): `top` prepared again with the states
+/// chosen at the run's point, compiled, each choice once. `None` where no
+/// choice of states the model has moves with its solution (the run then
+/// never chooses again).
+pub fn choices(
+    lib: &Library,
+    top: &ComponentDef,
+    opts: &PrepOptions,
+    info: &RunInfo,
+) -> Option<lsim_solve::choice::Choices> {
+    use lsim_solve::choice::{Choices, Rechooser};
+    if !info.state_sets.iter().any(|s| s.reads == lsim_solve::SetReads::Variables) {
+        return None;
+    }
+    let (lib, top, opts) = (lib.clone(), top.clone(), opts.clone());
+    let prepare = move |at: &lsim_solve::choice::ChoicePoint| {
+        let point = lsim_prep::ChoosePoint {
+            t: at.t,
+            values: at.values.iter().cloned().collect(),
+            params: at.params.clone(),
+            channels: at.channels.clone(),
+            window: at.window,
+        };
+        lsim_prep::prepare_choosing(&lib, &top, &opts, point)
+            .map_err(|d| d.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("; "))
+    };
+    let compile = |p: &PreparedModel| {
+        lsim_codegen::compile(p, &CodegenOptions::default())
+            .map(|j| Box::new(j) as Box<dyn lsim_ir::runtime::ModelFunctions>)
+            .map_err(|e| e.to_string())
+    };
+    Some(Choices(std::sync::Arc::new(Rechooser::new(Box::new(prepare), Box::new(compile)))))
 }

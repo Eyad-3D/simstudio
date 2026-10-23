@@ -586,6 +586,10 @@ pub struct RunInfo {
     /// the choices index reduction made among states, which the run
     /// watches ([`crate::states`])
     pub state_sets: Vec<StateSetInfo>,
+    /// where the run gets the model with the states chosen again where
+    /// those it has degrade (dynamic state selection, [`crate::choice`]);
+    /// `None`: the run stops there instead, naming the constraint
+    pub choices: Option<crate::choice::Choices>,
 }
 
 /// A choice index reduction made among states ([`lsim_ir::StateSet`]), as
@@ -608,6 +612,8 @@ pub struct StateSetInfo {
     pub parts: Vec<String>,
     /// the candidates: the variable whose derivative each column is
     pub candidates: Vec<String>,
+    /// whether the model's `stateSelect` (or a `reinit`) marks a column
+    pub marked: bool,
 }
 
 /// What a state set's entries read, and so when its pivots can change.
@@ -648,6 +654,7 @@ impl StateSetInfo {
             rows: s.words.clone(),
             parts: s.parts.clone(),
             candidates: s.candidates.clone(),
+            marked: s.marked,
         }
     }
 }
@@ -840,6 +847,7 @@ impl RunInfo {
             table_breaks: vec![],
             table_axes: vec![],
             state_sets: vec![],
+            choices: None,
         }
     }
 
@@ -970,6 +978,7 @@ impl RunInfo {
             stored_rates,
             time_tables: time_tables(m),
             state_sets: m.state_sets.iter().map(StateSetInfo::new).collect(),
+            choices: None,
         }
     }
 

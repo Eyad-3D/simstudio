@@ -1630,6 +1630,30 @@ impl Integrator for Sundials<'_> {
         s
     }
 
+    fn set_quadratures(&mut self, q: &[f64]) -> Result<bool, SolveError> {
+        if q.len() != self.n_q || !self.fresh {
+            return Ok(false);
+        }
+        if self.n_q == 0 {
+            return Ok(true);
+        }
+        let t = self.t_last;
+        // SAFETY: yq is our vector of n_q values; `mem` is live with
+        // quadratures initialised and has not stepped since its start.
+        unsafe {
+            slice(self.yq, self.n_q).copy_from_slice(q);
+            match self.kind {
+                Kind::Cvode => {
+                    self.check(CVodeQuadReInit(self.mem, self.yq), "CVodeQuadReInit", t)?;
+                }
+                Kind::Ida => {
+                    self.check(IDAQuadReInit(self.mem, self.yq), "IDAQuadReInit", t)?;
+                }
+            }
+        }
+        Ok(true)
+    }
+
     fn quadrature(&mut self, t: f64, out: &mut [f64]) -> Result<(), SolveError> {
         if self.n_q == 0 {
             return Ok(());
