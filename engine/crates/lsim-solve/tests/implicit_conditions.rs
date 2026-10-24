@@ -19,8 +19,11 @@ mod common;
 
 use lsim_ir::component::build::{discrete, eq, param, state, var};
 use lsim_ir::expr::{Builtin, CmpOp, Expr, c, call, cmp, der, name as n};
+use lsim_ir::runtime::DiscreteBlock;
 use lsim_ir::{ComponentDef, Equation, EquationDecl, VarDecl, WhenAction};
-use lsim_solve::{Backend, EventKind, OutputGrid, SimResult, SolverOptions, simulate};
+use lsim_solve::{
+    Backend, BlockInfo, EventKind, OutputGrid, SimResult, SolverOptions, VarSource, simulate,
+};
 
 const T_END: f64 = 2.0;
 
@@ -566,4 +569,230 @@ fn a_when_beside_a_mode_on_its_relation_fires_once() {
         }
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// What sets `k` at t2 in [`back_across`].
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Trigger {
+    /// a time event
+    Time,
+    /// a state `s`, s' = 1, crossing t2
+    State,
+    /// a sampled block's tick, inside one of the integrator's steps
+    Tick,
+}
+
+/// `x³ + x = r − k (r − 0.625 + e) + k2 (0.1 + e)`, `r = a t` or a state
+/// `z` (z' = a) where `with_state`: x rises through 0.5 at t1 = 0.625 / a;
+/// k, set at t2 = t1 + δ by `trigger`, puts it back under 0.5 by e / 1.75
+/// and keeps it there, until k2, set at tb = t1 + 0.5 by a time event,
+/// lifts it 0.1 / 1.75 over again. `when x > 0.5` counts n ("rise"), `when
+/// x < 0.5` m ("fall").
+fn back_across(a: f64, delta: f64, e: f64, trigger: Trigger, with_state: bool) -> ComponentDef {
+    let t1 = 0.625 / a;
+    let mut m = complementary(
+        "Test.BackAcross",
+        if with_state { n("z") } else { n("a") * Expr::Time },
+        None,
+    );
+    let r = || if with_state { n("z") } else { n("a") * Expr::Time };
+    m.equations[0] = eq(
+        cubed(n("x")) + n("x"),
+        r() - n("k") * (r() - c(0.625) + n("e")) + n("k2") * (c(0.1) + n("e")),
+        "x is solved from it",
+    );
+    // (the rise and the fall alone)
+    m.equations.truncate(3);
+    m.vars.retain(|v| v.name != "on");
+    m.params = vec![
+        param("a", "1/s", a, "the rate"),
+        param("e", "1", e, "how far k puts x³ + x back"),
+        param("t2", "s", t1 + delta, "when k is set"),
+        param("tb", "s", t1 + 0.5, "when k2 is set"),
+        param("never", "s", 1e3, "after the run"),
+    ];
+    m.vars.push(discrete("k", "1", 0.0, "set at t2"));
+    m.vars.push(discrete("k2", "1", 0.0, "set at tb"));
+    if with_state {
+        m.vars.push(state("z", "1", 0.0, "the ramp"));
+        m.equations.push(eq(der("z"), n("a"), "the ramp's rate"));
+    }
+    let at_t2 = match trigger {
+        Trigger::Time => cmp(CmpOp::Ge, Expr::Time, n("t2")),
+        Trigger::State => {
+            m.vars.push(state("s", "s", 0.0, "a clock"));
+            m.equations.push(eq(der("s"), c(1.0), "the clock's rate"));
+            cmp(CmpOp::Gt, n("s"), n("t2"))
+        }
+        // (the block sets k; the clause only declares it set)
+        Trigger::Tick => cmp(CmpOp::Ge, Expr::Time, n("never")),
+    };
+    m.equations.push(setting(at_t2, "k", 1.0, "k set"));
+    m.equations.push(setting(cmp(CmpOp::Ge, Expr::Time, n("tb")), "k2", 1.0, "k2 set"));
+    m
+}
+
+/// One tick at `at` that sets its output to 1.
+struct TickAt(f64);
+
+impl DiscreteBlock for TickAt {
+    fn name(&self) -> &str {
+        "'Tick'"
+    }
+    fn period(&self) -> f64 {
+        1e3
+    }
+    fn offset(&self) -> f64 {
+        self.0
+    }
+    fn init(&mut self, _t: f64, _i: &[f64], _o: &mut [f64]) -> Result<(), String> {
+        Ok(())
+    }
+    fn tick(&mut self, _t: f64, _i: &[f64], o: &mut [f64]) -> Result<(), String> {
+        o[0] = 1.0;
+        Ok(())
+    }
+}
+
+/// [`back_across`]'s runs (where `trigger` is a tick, a block at t2 sets
+/// k), and what is wrong in them: rises at t1 (located to 10 rtol in x)
+/// and tb (exact), a fall at t2 (exact; to 10 rtol for a state crossing).
+/// Where δ is shorter than the rise's location tolerance the integrator
+/// may locate the rise after t2, past the event that undoes it: then
+/// neither fires (the rise at tb alone), the known limit of two crossings
+/// closer than the tolerance.
+#[allow(clippy::too_many_arguments)]
+fn back_across_bad(
+    what: &str,
+    a: f64,
+    delta: f64,
+    e_of: impl Fn(f64) -> f64,
+    trigger: Trigger,
+    with_state: bool,
+    implicit: bool,
+    backend: Backend,
+) -> Vec<String> {
+    let (t1, t2, tb) = (0.625 / a, 0.625 / a + delta, 0.625 / a + 0.5);
+    let mut bad = vec![];
+    for rtol in ALL_RTOLS {
+        let m = back_across(a, delta, e_of(rtol), trigger, with_state);
+        let mut built = common::build(&common::library(), &m, implicit);
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![];
+        if trigger == Trigger::Tick {
+            let p = built.info.var_names.iter().position(|v| v == "k").expect("k");
+            let VarSource::D(k) = built.info.var_sources[p] else { panic!("k is discrete") };
+            built.info.blocks = vec![BlockInfo {
+                name: "'Tick'".into(),
+                inputs: vec![],
+                outputs: vec![k],
+                period: 1e3,
+                chains: vec![],
+            }];
+            blocks.push(Box::new(TickAt(t2)));
+        }
+        let grid = OutputGrid { t0: 0.0, t_end: T_END, dt: 0.1 };
+        let opts = SolverOptions { rtol, atol: 1e-2 * rtol, backend, ..Default::default() };
+        let r = simulate(&built.jit, &built.info, &opts, grid, &mut blocks)
+            .unwrap_or_else(|e| panic!("{what} at rtol {rtol:e}: {e}"));
+        let at = |label: &str| -> Vec<f64> {
+            r.events.iter().filter(|e| e.label.ends_with(label)).map(|e| e.t).collect()
+        };
+        let (rises, falls) = (at("rise"), at("fall"));
+        let (n_end, m_end) = (last(&r, "n"), last(&r, "m"));
+        let loc = 10.0 * rtol * 1.75 / a;
+        let fall_tol = if trigger == Trigger::State { 10.0 * rtol } else { 1e-12 };
+        let right = rises.len() == 2
+            && (rises[0] - t1).abs() <= loc
+            && (rises[1] - tb).abs() <= 1e-12
+            && falls.len() == 1
+            && (falls[0] - t2).abs() <= fall_tol
+            && (n_end, m_end) == (2.0, 1.0);
+        let limit = delta < loc
+            && rises.len() == 1
+            && (rises[0] - tb).abs() <= 1e-12
+            && falls.is_empty()
+            && (n_end, m_end) == (1.0, 0.0);
+        if !right && !limit {
+            bad.push(format!(
+                "{what}, rtol {rtol:e}: n = {n_end}, m = {m_end}, rises at {rises:?}, falls at \
+                 {falls:?} (exact {t1}, {tb}; {t2})"
+            ));
+        }
+    }
+    bad
+}
+
+/// A hold made at a crossing located a little early, and an event before
+/// the integrator's next step end that puts the condition back across
+/// (k set by a time event, at a state's crossing, or by a sampled block's
+/// tick inside a step: x from 0.5 + a δ / 1.75 to 0.5 − 5.7e-13). The
+/// hold was never released at an event's point: event iteration and the
+/// integrator kept x on the side it rose to, `when x < 0.5` never fired,
+/// nor `when x > 0.5` where k2 lifts x again (87 of an outside recheck's
+/// 515 IDA runs, 4e3afdd right in all of them; 103 of these 378 at
+/// f29ed27). A hold now stands at an event's point only where the
+/// integrator's solution there is still short of its side within the
+/// hold, as at a step's end.
+#[test]
+fn a_hold_from_an_earlier_crossing_lets_an_event_put_it_back() {
+    let mut bad = vec![];
+    for trigger in [Trigger::Time, Trigger::State, Trigger::Tick] {
+        for (with_state, implicit, how) in
+            [(true, false, "z' = a"), (true, true, "z' = a, IDA"), (false, false, "no state")]
+        {
+            for a in [0.7, 2.3, 4.4] {
+                for delta in [1e-6, 1e-4] {
+                    let what = format!("{trigger:?}, {how}, a = {a}, δ = {delta:e}");
+                    bad.extend(back_across_bad(
+                        &what,
+                        a,
+                        delta,
+                        |_| 1e-12,
+                        trigger,
+                        with_state,
+                        implicit,
+                        Backend::Sundials,
+                    ));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{} wrong:\n{}", bad.len(), bad.join("\n"));
+}
+
+/// `x³ + x = 1.25 − z` (z' = a: x falls through 0.5 at 0.625 / a, `when x
+/// < 0.5` counts n) beside `q³ + q = 1 + k`, k set where a state s = t
+/// passes 1e-6 s later (nothing x reads moves). On diffsol, whose x lags,
+/// the integrator had x still over 0.5 at that event, and the event, x
+/// solved again past it, held x there (the crossing located early, by the
+/// look of it); the hold ended at a step's end where x had gone past it,
+/// the integrator, told it was held, reporting no crossing: n stayed 0 (4
+/// of these 28 runs at f29ed27, at rtol 1e-4 and 1e-5). A condition past
+/// its hold crossed: where the integrator did not report it, the run loop
+/// does.
+#[test]
+fn a_condition_past_its_hold_fires_where_the_integrator_did_not_report_it() {
+    let mut bad = vec![];
+    for a in [0.7, 1.0, 2.3, 4.4] {
+        let t1 = 0.625 / a;
+        let down = cmp(CmpOp::Lt, n("x"), c(0.5));
+        let mut m = counter("Test.PastItsHold", a, true, c(1.25) - n("z"), down);
+        m.vars[0].start = Some(c(0.78));
+        m.params.push(param("t2", "s", t1 + 1e-6, "when k is set"));
+        m.vars.push(discrete("k", "1", 0.0, "set at t2"));
+        m.vars.push(VarDecl { start: Some(c(0.68)), ..var("q", "1", "solved beside x") });
+        m.equations.push(eq(cubed(n("q")) + n("q"), c(1.0) + n("k"), "q reads k"));
+        m.vars.push(state("s", "s", 0.0, "a clock"));
+        m.equations.push(eq(der("s"), c(1.0), "the clock's rate"));
+        m.equations.push(setting(cmp(CmpOp::Gt, n("s"), n("t2")), "k", 1.0, "k set"));
+        for (rtol, r) in run_on(&m, false, Backend::Diffsol, &ALL_RTOLS) {
+            let at: Vec<f64> =
+                r.events.iter().filter(|e| e.label.ends_with("it counts")).map(|e| e.t).collect();
+            let count = last(&r, "n");
+            if count != 1.0 || at.len() != 1 || (at[0] - t1).abs() > 10.0 * rtol * 1.75 / a {
+                bad.push(format!("a = {a}, rtol {rtol:e}: n = {count}, fired at {at:?}"));
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{} wrong:\n{}", bad.len(), bad.join("\n"));
 }

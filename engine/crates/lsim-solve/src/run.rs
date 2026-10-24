@@ -15,7 +15,10 @@
 //!   a little short of zero is held on the side it crossed to, so its
 //!   `when` fires once ([`Loop::update_sides`]); event iteration evaluates
 //!   every condition as held too, so a `when x < 0.5` beside a `when x >
-//!   0.5` does not fire at that crossing ([`Loop::hold_conditions`]).
+//!   0.5` does not fire at that crossing ([`Loop::hold_conditions`]). The
+//!   hold stands only while the integrator's own solution, wherever the
+//!   run loop has it (a step's end, an event's point), is still short of
+//!   that side within the hold.
 //! * **`when` clauses** follow Modelica: a clause fires at each instant its
 //!   condition changes from false to true while the model runs, compared
 //!   with its value just before that instant (before a sample tick set
@@ -330,6 +333,9 @@ struct Loop<'a> {
     seen_g: Vec<f64>,
     seen_dirs: Vec<i32>,
     seen_d: Vec<f64>,
+    /// the conditions the last release found past their holds
+    /// ([`Loop::release_holds`])
+    passed: Vec<usize>,
     /// per table guard: since when it is outside its data
     outside_since: Vec<Option<f64>>,
     /// per table guard: time spent outside, and when it first left
@@ -753,12 +759,17 @@ impl Loop<'_> {
     /// OpenModelica holds a relation on its side (`relationhysteresis`,
     /// by 1e-4 rtol of its operands' size, where a condition is evaluated
     /// with its iteration variables solved), here as wide as the
-    /// inconsistency it covers. Not where something else explains the
-    /// change: the event moved a state (an engagement), the new discrete
-    /// values move the function, alone at the point the integrator had or
-    /// through the iteration variables (solved for the discrete values
-    /// before the event, it was on the side the integrator saw:
-    /// [`Loop::keep_unmoved`]), or
+    /// inconsistency it covers. That is looked at wherever the run loop has
+    /// the integrator's own solution: at every step's end and at every
+    /// event's point, before event iteration reads a condition there
+    /// ([`Loop::release_holds`]); one that went back past its hold crossed
+    /// back, and its `when` fires there whether or not the integrator,
+    /// told it was held, reported it ([`Loop::passed`]). Not where
+    /// something else explains the change: the event moved a state (an
+    /// engagement), the new discrete values move the function, alone at the
+    /// point the integrator had or through the iteration variables (solved
+    /// for the discrete values before the event, it was on the side the
+    /// integrator saw: [`Loop::keep_unmoved`]), or
     /// the function is a mode's (a mode follows its relation at the event,
     /// and where that sets it back the integrator restarts and sees it
     /// cross again: [`Loop::undone`]). Event iteration, before, evaluates
@@ -951,12 +962,16 @@ impl Loop<'_> {
         }
     }
 
-    /// Releases the holds ([`Loop::update_sides`]) of the functions that
-    /// reached their held side at the end of a step (`t`, `y`), or went
-    /// back past zero by more than their hold (the integrator saw them
-    /// cross there); returns whether one was released.
+    /// Releases the holds ([`Loop::update_sides`]) of the functions that,
+    /// at a point of the integrator's own solution (`t`, `y`: a step's end,
+    /// an event's point), reached their held side, or went back past zero
+    /// by more than their hold; returns whether one was released. A
+    /// condition that went past its hold crossed back from the side the run
+    /// took it on: [`Loop::passed`] names those, a crossing there whether or
+    /// not the integrator reported it.
     fn release_holds(&mut self, t: f64, y: &[f64], d: &[f64]) -> bool {
         debug_assert_eq!(self.held, held(&self.hold), "Loop::held out of step with the holds");
+        self.passed.clear();
         if !self.held {
             return false;
         }
@@ -965,6 +980,9 @@ impl Loop<'_> {
         for c in 0..self.hold.len() {
             let (g, s, h) = (self.raw[c], self.sides[c], self.hold[c]);
             if h > 0.0 && (g * s > 0.0 || g.abs() > h) {
+                if g * s < 0.0 && self.may_hold_root(c) {
+                    self.passed.push(c);
+                }
                 self.hold[c] = 0.0;
                 if g != 0.0 {
                     self.sides[c] = g.signum();
@@ -974,6 +992,19 @@ impl Loop<'_> {
         }
         self.held = held(&self.hold);
         released
+    }
+
+    /// The crossings [`Loop::passed`] names, in their directions, merged
+    /// into those the integrator reported (`dirs`).
+    fn with_passed(&self, dirs: Option<&[i32]>) -> Vec<i32> {
+        let mut v = dirs.map_or_else(Vec::new, <[i32]>::to_vec);
+        v.resize(v.len().max(self.sides.len()), 0);
+        for &c in &self.passed {
+            if v[c] == 0 {
+                v[c] = self.sides[c] as i32;
+            }
+        }
+        v
     }
 
     /// Whether the sides put a crossing the integrator reported (`dirs`)
@@ -1597,6 +1628,14 @@ impl Loop<'_> {
         let n_whens = info.whens.len();
         let mut fired = vec![0.0; n_whens];
         let mut any_fired = false;
+        // the holds that no longer stand here, as at a step's end; a
+        // condition past its hold crossed (the integrator may not have
+        // reported it: it took the condition as held)
+        if at_event && self.release_holds(t, y, d_pre) {
+            self.push_sides(integ);
+        }
+        let merged = (at_event && !self.passed.is_empty()).then(|| self.with_passed(dirs));
+        let dirs = merged.as_deref().or(dirs);
         // the conditions just before the event, and where the integrator
         // saw them
         self.eval_roots(t, y, d_pre, true);
@@ -2644,6 +2683,7 @@ fn run_watched<'a>(
         seen_g: vec![],
         seen_dirs: vec![],
         seen_d: vec![],
+        passed: vec![],
         outside_since: vec![None; model.table_guard_list().len()],
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
@@ -3645,9 +3685,13 @@ fn run_watched<'a>(
             integ.restart(t, &y)?;
             y.copy_from_slice(integ.y());
         }
-        // the holds of functions that reached their side, or left it
+        // the holds of functions that reached their side, or left it; a
+        // condition past its hold, which the integrator did not report (a
+        // step's end is no root of it), crossed: an event here
+        let mut crossed: Option<Vec<i32>> = None;
         if !event_now && lp.release_holds(t, &y, &d) {
             lp.push_sides(integ);
+            crossed = (!lp.passed.is_empty()).then(|| lp.with_passed(None));
         }
 
         // a kink of a table read along time (index reduction differentiated
@@ -3660,33 +3704,38 @@ fn run_watched<'a>(
 
         // a mode its condition no longer agrees with (one that left zero
         // right after a restart, where root finding cannot see it)
-        if !event_now && (!info.modes.is_empty() || !info.held.is_empty()) {
-            lp.eval_roots(t, &y, &d, false);
+        if !event_now && (crossed.is_some() || !info.modes.is_empty() || !info.held.is_empty()) {
             // (the side first: a mode rarely disagrees)
-            let stale = info.modes.iter().any(|m| {
-                let g = lp.roots[m.crossing];
-                ((g > 0.0 && d[m.discrete] == 0.0) || (g < 0.0 && d[m.discrete] != 0.0))
-                    && !lp.timed(m.crossing)
-            }) || info.held.iter().flat_map(|h| &h.axes).any(|ax| {
-                // (an edge held inside, within its hold, is inside)
-                [ax.below, ax.above]
-                    .iter()
-                    .any(|&c| lp.roots[c] < -lp.hold.get(c).copied().unwrap_or(0.0))
-            });
+            let stale = crossed.is_some() || {
+                lp.eval_roots(t, &y, &d, false);
+                info.modes.iter().any(|m| {
+                    let g = lp.roots[m.crossing];
+                    ((g > 0.0 && d[m.discrete] == 0.0) || (g < 0.0 && d[m.discrete] != 0.0))
+                        && !lp.timed(m.crossing)
+                }) || info.held.iter().flat_map(|h| &h.axes).any(|ax| {
+                    // (an edge held inside, within its hold, is inside)
+                    [ax.below, ax.above]
+                        .iter()
+                        .any(|&c| lp.roots[c] < -lp.hold.get(c).copied().unwrap_or(0.0))
+                })
+            };
             if stale {
                 let before = ledger.as_mut().map(|lg| lg.before_event(t, &lp.vars, p));
                 let before_vars = lp.vars.clone();
                 let d_pre = d.clone();
                 let y_at = lp.may_hold().then(|| y.clone());
+                let dirs = crossed.as_deref();
                 let (moved, imp) =
-                    lp.settle(integ, t, &mut y, &mut d, &d_pre, None, &before_vars)?;
-                if moved {
+                    lp.settle(integ, t, &mut y, &mut d, &d_pre, dirs, &before_vars)?;
+                // (a crossing found here restarts the integrator even where
+                // it changed nothing: it took the condition as held)
+                if moved || dirs.is_some() {
                     integ.discrete_mut().copy_from_slice(&d);
                     if let Some(e) = &imp {
                         report.impulses += e.count;
                     }
                     let at = y_at.as_deref().map(|y0| (y0, d_pre.as_slice()));
-                    lp.update_sides(integ, t, &y, &d, None, at);
+                    lp.update_sides(integ, t, &y, &d, dirs, at);
                     lp.push_sides(integ);
                     integ.restart(t, &y)?;
                     y.copy_from_slice(integ.y());
