@@ -2201,6 +2201,36 @@ round).**
   now met again 1.4e-14 s after its first crossing instead of at the
   integrator's next step end 1.7e-7 s later, the case's figures moved by
   at most 6e-4 of their bands.
+  Event iteration evaluates the conditions as the integrator sees them
+  too (`Loop::hold_conditions`, 24 October): a function a hold keeps on
+  its side is on it, and at an event one that solving the iteration
+  variables again put on the other side of where the integrator saw it
+  (or on zero), within its hold and not by the new discrete values' own
+  doing, is on the side the integrator saw, the hold it gets after the
+  event. Until then the hold covered only the sides handed to the
+  integrator, and event iteration read the conditions with x solved
+  again: one `when` per threshold counted right, but complementary ones
+  did not. With `when x > 0.5`, `when x < 0.5` and `when x > 0.5 then
+  on = 1; elsewhen x < 0.5 then on = 0` on one iteration variable, the
+  rise located a little early fired the falling clauses too, and the
+  `elsewhen`'s second branch, firing last, left `on = 0` for the rest of
+  the run (4 of 14 runs of an independent review's probes, `x³ + x = t`
+  and `x³ + x = z`; before the twelfth round the re-crossing had set it
+  back, so the hold made a miscount a wrong mode); on a peak (`x³ + x =
+  0.625 + δ − (t − 1)²`) the rise fired the falling clause or the fall
+  the rising one in 38 of 42 runs. And an event whose own discrete
+  change moved a held condition across by less than its hold fired its
+  `when` there and again where the integrator, told it was held, saw it
+  pass the hold (11 of 14 runs of `x³ + x = t + 1e-12 k`, k set at
+  0.625 s). Now each crossing fires its own direction's clauses alone:
+  the probes wrong in 0 of 14 runs, the peaks in 3 of 42 (δ = 1e-4 at
+  rtol 1e-4 and 1e-6: both crossings inside one step, the known limit
+  below), every run that was right the same to the bit; the judge's eight `count-pair`/`count-peak` cases 0 of 56
+  runs wrong (33 before); such a nudge fires once, at most 3.6 rtol late
+  (where the integrator sees it past the hold); the tests in
+  `implicit_conditions.rs`, which failed before. Its other 751 cases,
+  the golden comparison and a lone `when` (the 140 runs) are the same
+  to the bit.
 * *Scheduled events are no storms.* What a sample tick or a time event
   changes at its instant (a controller switching an engine's throttle from
   one tick to the next) does not count towards `storm_events`.
@@ -3803,9 +3833,12 @@ events name the modes that chatter.
   horizontal. The four-bar does not prepare. The second verdict (work
   package 4's twelfth round: conditions on iteration variables held on
   their side, section 8.2; the judge scoring by time and by its fixed
-  criterion): a `when` on a variable solved from an implicit equation fires
-  once per crossing (it fired twice or three times in 8 of the 28 runs
-  of the four `count-implicit` cases; OpenModelica once in all), and a
+  criterion): a lone `when` on a variable solved from an implicit
+  equation fires once per crossing (it fired twice or three times in 8
+  of the 28 runs of the four `count-implicit` cases; OpenModelica once in
+  all; complementary ones, `when x > 0.5` beside `when x < 0.5`, did not
+  until event iteration held the conditions too, 24 October: section
+  8.2 and the `count-pair` and `count-peak` cases), and a
   condition on a state alone is still missed where one step holds both
   its crossings (`count-explicit-pulse` at four tolerances of seven,
   `count-oscillator-peaks` at six; section 8.2, a known limit; on the
@@ -4433,8 +4466,10 @@ work end to end) or against hand-written test doubles of the interfaces.
 * **Twelfth round (the outside judge's checks, 16 October 2026)**: a
   condition on a variable solved from an implicit equation is held on
   the side it crossed to where solving the iteration variables again at
-  its event put it back a little short of zero, so its `when` fires
-  once per crossing, and a mode that its relation set back there
+  its event put it back a little short of zero, so a lone `when` on it
+  fires once per crossing (complementary ones did not until event
+  iteration held the conditions too, 24 October: section 8.2), and a
+  mode that its relation set back there
   restarts the integrator, which meets the crossing again (section 8.2:
   before, two or three firings, a mode off until the next step end).
   The judge scores by time, not by row, with a criterion fixed before
