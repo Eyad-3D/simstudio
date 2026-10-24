@@ -158,7 +158,19 @@ fn main() {
         };
         let o =
             FastOptions { t_end: Some(rep.run.duration.min(trace.end())), ..Default::default() };
-        let run_fast = |trace: &Trace, o: &FastOptions| -> Result<(FastResult, f64), String> {
+        // the channels the figures read (`figures`: the battery's, the
+        // distance, its state of charge), by index among `names`
+        let read = |names: &[String]| -> Vec<usize> {
+            BATTERY
+                .iter()
+                .chain(["el_battery.soc"].iter())
+                .filter_map(|w| names.iter().position(|n| n == w))
+                .collect()
+        };
+        let run_fast = |trace: &Trace,
+                        o: &FastOptions,
+                        record: Option<&[usize]>|
+         -> Result<(FastResult, f64), String> {
             let hosts = golden::hosts_for(&inv.info, &rep, python.as_ref(), ScriptRunner::Native)?;
             let mut blocks: Vec<BoundBlock> = hosts
                 .blocks
@@ -172,11 +184,11 @@ fn main() {
                 .collect();
             let t0 = Instant::now();
             let r = inv
-                .fast_with(&inv.info.params, std::slice::from_ref(trace), o, None, &mut blocks)
+                .fast_with(&inv.info.params, std::slice::from_ref(trace), o, record, &mut blocks)
                 .map_err(|e| e.to_string())?;
             Ok((r, t0.elapsed().as_secs_f64()))
         };
-        match run_fast(&trace, &o) {
+        match run_fast(&trace, &o, None) {
             Ok((r, wall)) => out["fast"] = fast_figures(&r, wall, &trace.t),
             Err(e) => out["fast"] = json!({"error": e}),
         }
@@ -187,7 +199,7 @@ fn main() {
                     .map(|(k, v)| v * (1.0 + if k % 2 == 0 { rel } else { -rel }))
                     .collect();
             let shaken = Trace::new(pr.t.clone(), v).expect("the cycle, perturbed");
-            match run_fast(&shaken, &o) {
+            match run_fast(&shaken, &o, None) {
                 Ok((r, wall)) => out["perturbed"] = fast_figures(&r, wall, &shaken.t),
                 Err(e) => out["perturbed"] = json!({"error": e}),
             }
@@ -204,26 +216,35 @@ fn main() {
                 });
             match fwd {
                 Ok((m, frep)) => {
-                    let run = |dt: f64| -> Result<(SimResult, f64), String> {
-                        let mut h = golden::hosts_for(
-                            &m.info,
-                            &frep,
-                            python.as_ref(),
-                            ScriptRunner::Native,
-                        )?;
-                        let t0 = Instant::now();
-                        let grid = OutputGrid { t0: 0.0, t_end: frep.run.duration, dt };
-                        let r = m.run(&solver, grid, &mut h.blocks).map_err(|e| e.to_string())?;
-                        Ok((r, t0.elapsed().as_secs_f64()))
-                    };
+                    let run =
+                        |dt: f64, record: Option<Vec<usize>>| -> Result<(SimResult, f64), String> {
+                            let mut h = golden::hosts_for(
+                                &m.info,
+                                &frep,
+                                python.as_ref(),
+                                ScriptRunner::Native,
+                            )?;
+                            let t0 = Instant::now();
+                            let grid = OutputGrid { t0: 0.0, t_end: frep.run.duration, dt };
+                            let opts = SolverOptions { record, ..solver.clone() };
+                            let r = m.run(&opts, grid, &mut h.blocks).map_err(|e| e.to_string())?;
+                            Ok((r, t0.elapsed().as_secs_f64()))
+                        };
                     if forward {
-                        match run(frep.run.output_dt()) {
+                        match run(frep.run.output_dt(), None) {
                             Ok((r, wall)) => out["forward"] = forward_figures(&r, wall),
                             Err(e) => out["forward"] = json!({"error": e}),
                         }
                     }
                     if let Some(dt) = replay {
-                        match run(dt) {
+                        // (the channels the replay reads alone: every channel
+                        // every 0.1 s over the long-haul cycle's 23 h did
+                        // not fit in memory; the run itself is the same)
+                        let mut keep = read(&m.info.var_names);
+                        keep.extend(
+                            m.info.var_names.iter().position(|n| *n == pr.spec.prescribed[0]),
+                        );
+                        match run(dt, Some(keep)) {
                             Ok((r, wall)) => {
                                 out["forward_replayed"] = forward_figures(&r, wall);
                                 // the speed it drove (its round-off below 0
@@ -237,7 +258,8 @@ fn main() {
                                 let driven =
                                     Trace::new(r.times.clone(), v).expect("the driven speed");
                                 let o2 = FastOptions { step: dt, ..o.clone() };
-                                match run_fast(&driven, &o2) {
+                                let keep = read(&inv.info.var_names);
+                                match run_fast(&driven, &o2, Some(&keep)) {
                                     Ok((rr, wall)) => {
                                         out["replay"] = fast_figures(&rr, wall, &driven.t)
                                     }
