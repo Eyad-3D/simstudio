@@ -622,17 +622,19 @@ second: about 0.899889 after 10 s.
     read cannot be stepped over at all: the solver stops at the first point
     ("made no progress") or gives no answer within minutes. So every read
     that jumps is held by default, on both forms (on the explicit one the
-    run lets go of a read of one argument whose jumps are within the
-    tolerance or whose crossings come too often; on the implicit one it
-    holds every read through every crossing), and a change of states
-    between the forms goes through. Holding costs where the jump is small
-    or the crossings many: on a wire whose cubic is a parabola, whose
-    second derivative does not jump, 131 to 737 tolerances off against 10
-    to 187 stepped over; swung back and forth across a clamped cubic's
-    edges, 104 against 34 at rtol 1e-4 and 267 against 61 at 1e-9 (better
-    at the other tolerances). A run that stops at a point of a read it
-    steps over (held off by the option below) names the table, the read
-    and the option that holds it.
+    run lets go of a read whose jumps are within the tolerance, of one
+    argument, or whose crossings come too often, of one argument or two;
+    on the implicit one it holds every read through every crossing), and a
+    change of states between the forms goes through. Holding costs where
+    the jump is small or the crossings many: held through every crossing,
+    the swing through a table of two arguments is 631 tolerances off at
+    rtol 1e-4 against 66 stepped over (the run lets go of it there: 47);
+    on a wire whose cubic is a parabola, whose second derivative does not
+    jump, 131 to 737 tolerances off against 10 to 187 stepped over; swung
+    back and forth across a clamped cubic's edges, 104 against 34 at rtol
+    1e-4 and 267 against 61 at 1e-9 (better at the other tolerances). A
+    run that stops at a point of a read it steps over (held off by the
+    option below) names the table, the read and the option that holds it.
   * A read that only kinks (a linear table's value, a cubic's slope) is
     stepped over on both forms: up to thousands of tolerances off on long
     runs that cross a table's points many times; held, or written as `if`

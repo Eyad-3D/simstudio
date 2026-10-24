@@ -898,7 +898,9 @@ that made the default stepped over; the third round's 85.5 and 85.5 s
 against 86.6 and 85.3 s for 1d41c7d7's, run back to back; the fourth's
 92.9 and 91.6 s against 91.0 and 93.1 s for ade9eaa7's, run back to back
 on a slower day; the fifth's 104.1 and 100.7 s against 106.9 and 101.8 s
-for 85ae86e8's, run back to back on a slower one still).
+for 85ae86e8's, run back to back on a slower one still; the sixth's, whose
+releases weigh a 2-D read's crossings too, 96.6 and 95.8 s against 92.9
+and 97.1 s for 1d9e5fd1's).
 
 The books' closure had doubled on the city cycle while the maps were
 held (6.6e-10 → 1.3e-9) and fallen on the WLTC (2.8e-10 → 4.0e-11).

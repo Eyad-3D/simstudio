@@ -2254,8 +2254,9 @@ round).**
   `kink-…` cases, each beside its other ways, the A3 reviews' probes and
   sweeps; lanes notes):
   - The explicit form (no iteration variable: CVODES) holds every read
-    that jumps, with the releases below (which weigh the 1-D reads), as
-    the implicit form does: in each kind, stepping over was more than 100
+    that jumps, with the releases below (which weigh a 1-D read's jumps at
+    the start, and a 1-D or 2-D read's crossings during the run), as the
+    implicit form does: in each kind, stepping over was more than 100
     times as far off as holding in some case where held it is within 100
     rtol. It holds a linear
     table's slope at its points (a gear's ratio as a linear table of a
@@ -2294,7 +2295,8 @@ round).**
     the check's `k4-ws`): stepped over 55, 602, 21, 46, 177, 473 and
     3 480, held 2.7, 2.4, 2.6, 3.3, 5.3, 7.2 and 10.1, as its located run
     (the check's other three 2-D gears 101 to 1 200 times as far off
-    stepped over); a 2-D read is held through every crossing.
+    stepped over); its crossings are few and far apart, and the releases
+    below let it be (the run without them, to the bit).
   - The implicit form (iteration variables: IDAS, and diffsol's DAE) holds
     every read that jumps: a linear table's slope at its points, a clamped
     table's at its data's edges, a cubic's second derivative and a 2-D
@@ -2341,12 +2343,19 @@ round).**
   41 and 101 points (`kink-osc-41-always`, `kink-osc-101-always`: 1 127 and
   2 847 crossings in 20 s) is 517 and 1 238 rtol off at 10⁻⁴ where stepped
   over it is 55 and 55 (the releases let go of it there: 53 and 26), and
-  through 101 points 1 308 against 161 at the default 10⁻⁶. Where the
-  default on CVODE is worse than stepping over (1d41c7d7's default), on
-  the judge's cases: `kink-osc-101` at 10⁻⁶ (1 308 against 161),
-  `kink-osc-41` at 10⁻⁵ (522 against 168), `kink-dense-gear-401` at 10⁻⁴,
-  10⁻⁵, 10⁻⁹ and 10⁻¹⁰ (4.7, 14.5, 164 and 368 against 1.9, 1.7, 152 and
-  158), `kink-dense-gear-41` at 10⁻⁴ and 10⁻⁵ (11.5 and 19 against 5.2
+  through 101 points 1 308 against 161 at the default 10⁻⁶. The same
+  swings with their ratio read as a 2-D table, constant along its second
+  argument (`kink-osc2d-41`, `kink-osc2d-101`, the A3 check 6's probe),
+  held through every crossing are 631 and 1 480 rtol off at 10⁻⁴ where
+  stepped over they are 66 and 48; the releases weigh their crossings as
+  a 1-D read's (47 and 31; before, they weighed 1-D reads only, and the
+  default held these through every crossing). Where the default on CVODE
+  is worse than stepping over (1d41c7d7's default), on the judge's cases:
+  `kink-osc-101` at 10⁻⁶ (1 308 against 161), `kink-osc-41` at 10⁻⁵ (522
+  against 168), `kink-osc2d-101` at 10⁻⁶ (1 510 against 223),
+  `kink-osc2d-41` at 10⁻⁵ (449 against 344), `kink-dense-gear-401` at
+  10⁻⁴, 10⁻⁵, 10⁻⁹ and 10⁻¹⁰ (4.7, 14.5, 164 and 368 against 1.9, 1.7,
+  152 and 158), `kink-dense-gear-41` at 10⁻⁴ and 10⁻⁵ (11.5 and 19 against 5.2
   and 7.5), `kink-edge-11` (the swing across a clamped cubic's edges, 59
   crossings) at 10⁻⁴ and 10⁻⁹ (104 and 267 against 34 and 61), and the
   parabola bead below at every tolerance; it is better
@@ -2421,24 +2430,28 @@ round).**
   of one table at the same arguments) where holding it costs more than it
   saves; it is then the table itself, stepped over, for the rest of the
   run, its edges open, and the report has a note of it
-  (`SolverOptions::held_release`, on; a group held only for comparison is
-  never released). At the start, where its reads that jump differ
-  between their two sides at every point they are held at by no more
-  than rtol times the largest of those sides' magnitudes (a table of
-  collinear points; a clamped cubic whose end slopes are zero, as
-  Steffen's are for some data). During the run, where its last 8
-  intervals between crossings took fewer than 48 integrator steps: after
-  a restart CVODE runs at order 1 and raises its order only after q + 1
+  (`SolverOptions::held_release`, on: a group with a read that jumps,
+  1-D or 2-D; a group held only for comparison, `Kinks`' reads that only
+  kink, is never released). At the start, where its reads that jump are
+  1-D and differ between their two sides at every point they are held at
+  by no more than rtol times the largest of those sides' magnitudes (a
+  table of collinear points; a clamped cubic whose end slopes are zero,
+  as Steffen's are for some data). During the run, 1-D or 2-D, where its
+  last 8 intervals between crossings took fewer than 48 integrator steps:
+  after a restart CVODE runs at order 1 and raises its order only after q + 1
   steps at order q, so its 6th step is the first that can be at order 3,
   and a read crossed again sooner keeps the run in its restarts' low
   orders. With them, the swing through 101 points is let go of at 10⁻⁴
   and 10⁻⁵ (26 and 157 rtol, where held throughout it is 1 238 and 1 347
   and stepped over 55 and 341), not at 10⁻⁶ (1 308); through 401 points at
   10⁻⁴ … 10⁻⁷ (14 … 542 against 2 156 … 5 364 held throughout, 40 … 730
-  stepped over); through 41 at 10⁻⁴ (53); a single pass let go of on the
-  way can be worse than either way (401 points at 10⁻⁹ and 10⁻¹⁰: 229 and
-  384 against 87 and 77 held throughout, 152 and 158 stepped over). The
-  implicit form releases nothing, whatever `held_release` says: released,
+  stepped over); through 41 at 10⁻⁴ (53); the 2-D swings through 41
+  points at 10⁻⁴ and 10⁻⁵ (47 and 449, against 631 and 641 held
+  throughout and 66 and 344 stepped over) and through 101 at 10⁻⁴ … 10⁻⁶
+  (31, 138 and 1 510, against 1 480, 1 660 and 1 610, and 48, 181 and
+  223); a single pass let go of on the way can be worse than either way
+  (401 points at 10⁻⁹ and 10⁻¹⁰: 229 and 384 against 87 and 77 held
+  throughout, 152 and 158 stepped over). The implicit form releases nothing, whatever `held_release` says: released,
   the read is stepped over, which IDAS could not do in the judge's cases
   (with the releases, the runs on IDA stopped at a breakpoint after the
   release, "made no
@@ -3545,9 +3558,10 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   prove it (the BEV car's WLTC case, and the hybrid car's mixed cycle).
 * **Tables read at a state.** `table_cells` is
   `lsim_engine::BuildOptions::table_cells` (section 8.2, *Tables read at a
-  state*): `"auto"` (the default: what the model's form needs held),
-  `"off"`, `"jumps"` or `"kinks"`; another word raises `ValueError`. It is
-  part of the cache's key.
+  state*): `"auto"` (the default: every read that jumps, on either form,
+  with the releases on the explicit form), `"off"`, `"jumps"` or
+  `"kinks"`; another word raises `ValueError`. It is part of the cache's
+  key.
 * **GIL.** `build`, `simulate` and `sweep` release it while the engine
   works; a Script function takes it back for the length of one call. A sweep
   runs its sets on up to `threads` Rust threads over the one compiled model.
@@ -4122,6 +4136,22 @@ events name the modes that chatter.
   steps and events); and the swings' `…-over` (14 runs) tell the warning
   of a table read outside its data once, where they told it once per
   table guard.
+
+  Revised a sixth time after its sixth check (24 October 2026), which
+  found that the releases, which weighed 1-D reads only, held a 2-D read
+  crossed often through every crossing: the judge's swings with their
+  ratio read as a 2-D table, constant along its second argument, 631 and
+  1 480 rtol off at 10⁻⁴ where stepped over they are 66 and 48. The
+  releases now weigh a 2-D read's crossings as a 1-D read's (its jumps at
+  the start are not weighed: section 8.2). Six new cases:
+  `kink-osc2d-41` and `kink-osc2d-101`, each beside `…-over` and
+  `…-always`, against the 1-D swings' references (the same solution): the
+  default 46.8, 449, 573, 465, 369, 320 and 499 rtol at 10⁻⁴ … 10⁻¹⁰ (41
+  points) and 30.8, 138, 1 510, 1 590, 1 350, 916 and 1 030 (101), held
+  throughout 631 … 499 and 1 480 … 1 030, stepped over 66.4 … 2 580 and
+  47.7 … 2 460. The 882 runs of the 127 cases before: the same in every
+  field but the timings (the 2-D gear's crossings are few: nothing
+  released there).
 * **Performance gates**: not built yet. When they are, they compare build
   time (prepare + compile) and run time for each example car in both modes
   with the base commit (as the backend's performance job does) and with
