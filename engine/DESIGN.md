@@ -4061,7 +4061,7 @@ events name the modes that chatter.
   (`…-held` at every point, as the round before held it), all against
   DOP853 at rtol 10⁻¹³ restarted at each crossing (no closed form), its
   energy conserved to 1.7·10⁻¹² … 1.9·10⁻¹¹; the gears' `…-held` show the
-  opt-in. Stepped over, the swings are 55, 168, 819, 1 126, 829, 1 871
+  opt-in. Stepped over, the swings are 55, 168, 819, 1 126, 828, 1 871
   and 2 582 rtol off at 10⁻⁴ … 10⁻¹⁰ (41 points) and 55, 341, 161, 2 039,
   2 975, 1 269 and 2 159 (101); held throughout 517, 522, 489, 322, 282,
   346 and 407, and 1 238, 1 347, 1 308, 1 291, 1 069, 754 and 833, the
@@ -4109,7 +4109,7 @@ events name the modes that chatter.
   point), each beside `…-over` and `…-always`, against DOP853 per cell
   checked by Radau (1.6·10⁻¹¹ and 9.8·10⁻¹²: the wire's slope table is not
   its cubic's own `r'`, so no energy is conserved). Rule v4 holds that
-  kind on CVODE (section 8.2): the default 105 … 362 (11 points) and 130
+  kind on CVODE (section 8.2): the default 22.1 … 362 (11 points) and 130
   … 1 720 (41), stepped over 198 … 81 400 and 2 420 … 104 000. The 770
   runs of the 111 cases before: the solution, steps and events of each
   as before bitwise, but `kink-bead-41` (held now: 131 … 737) and
