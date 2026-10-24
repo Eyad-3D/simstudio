@@ -598,38 +598,41 @@ second: about 0.899889 after 10 s.
   linear` joins the points with straight lines instead (the slope jumps at
   each point). Read along time, a table stops the run at each point. Read
   at a value that moves with the model's states, what the solver does at
-  the points depends on the read and on the model's form (measured:
-  `engine/DESIGN.md` §8.2, *Tables read at a state*):
+  the points depends on the read (measured: `engine/DESIGN.md` §8.2,
+  *Tables read at a state*):
   * Where the model reads a derivative of the table that jumps there (a
     linear table differentiated by index reduction, as a gear whose ratio
-    is a table of a speed is), stepping over the point is not proportional
-    to the tolerance: on the explicit form (no algebraic loop the solver
-    iterates on: CVODES) 10 to 180 tolerances off on the judge's gear, 2 000
-    to 14 000 at rtol 1e-10 where the speed turns just past a point or the
-    run chooses its states again, and up to 3 000 on a table of 101 points
-    swung back and forth, where the same read held in its cell (each
-    crossing of a point found and the integrator restarted there) is 1 to
-    29 (on the swing too a thousand: each restart costs about half a
-    tolerance). So a linear table's slope is held there by default, and so
-    is a cubic's second derivative (a bead on a wire whose cubic's second
-    derivative jumps at its points: up to 81 000 tolerances off stepped
-    over, 22 to 362 held; on a wire whose cubic is a parabola, whose second
-    derivative does not jump, holding costs: 131 to 737 against 10 to
-    187). A clamped cubic's slope at its data's edges is stepped over there
-    (4 to 340 tolerances off on the judge's cases; held, better on some and
-    worse on others), and so is a table of two arguments (14 to 450
-    stepped over, 2 to 5 held on the judge's gear: not enough, by the rule
-    that decided it, to hold it).
-  * On the implicit form (a model with an algebraic loop the solver
-    iterates on: IDAS) a read that jumps cannot be stepped over at all: the
-    solver stops at the first point ("made no progress") or gives no answer
-    within minutes. So every read that jumps is held there by default, at
-    every crossing; a run that stops at a point of a read it steps over
-    (held off by the option below) names the table, the read and the option
-    that holds it. A model whose states the run chooses again holds, in
-    each of its choices of either form, what either form holds, and steps
-    over what only the implicit form holds while it is on the explicit
-    one, so that a change of states between the forms goes through.
+    is a table of a speed is; a cubic's second derivative; a clamped
+    table's slope where the value leaves its data; a table of two
+    arguments differentiated), stepping over the point is not
+    proportional to the tolerance on the explicit form (no algebraic loop
+    the solver iterates on: CVODES): 10 to 180 tolerances off on the
+    judge's gear, 2 000 to 14 000 at rtol 1e-10 where the speed turns just
+    past a point or the run chooses its states again, and up to 3 000 on a
+    table of 101 points swung back and forth, where the same read held in
+    its cell (each crossing of a point found and the integrator restarted
+    there) is 1 to 29 (on the swing too a thousand: each restart costs
+    about half a tolerance); on a bead on a wire whose cubic's second
+    derivative jumps at its points, up to 81 400 tolerances off stepped
+    over at 11 points and 104 000 at 41, 22 to 362 and 130 to 1 720 held;
+    on a gear whose ratio is a sparse clamped cubic that the speed leaves,
+    865 stepped over against 4 held at rtol 1e-10; on a gear whose ratio is
+    a table of two arguments, up to 3 480 against 10. On the implicit form
+    (a model with an algebraic loop the solver iterates on: IDAS) such a
+    read cannot be stepped over at all: the solver stops at the first point
+    ("made no progress") or gives no answer within minutes. So every read
+    that jumps is held by default, on both forms (on the explicit one the
+    run lets go of a read of one argument whose jumps are within the
+    tolerance or whose crossings come too often; on the implicit one it
+    holds every read through every crossing), and a change of states
+    between the forms goes through. Holding costs where the jump is small
+    or the crossings many: on a wire whose cubic is a parabola, whose
+    second derivative does not jump, 131 to 737 tolerances off against 10
+    to 187 stepped over; swung back and forth across a clamped cubic's
+    edges, 104 against 34 at rtol 1e-4 and 267 against 61 at 1e-9 (better
+    at the other tolerances). A run that stops at a point of a read it
+    steps over (held off by the option below) names the table, the read
+    and the option that holds it.
   * A read that only kinks (a linear table's value, a cubic's slope) is
     stepped over on both forms: up to thousands of tolerances off on long
     runs that cross a table's points many times; held, or written as `if`

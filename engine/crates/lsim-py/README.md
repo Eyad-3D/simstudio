@@ -30,14 +30,13 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
   reads at a state (a table read at a value that moves with the states,
   not with time alone) are held in their cells, each crossing of a
   breakpoint an event (`engine/DESIGN.md` §8.2): `"auto"`, the default,
-  those the model's form needs held (a linear table's slope and a cubic's
-  second derivative on the explicit form; every read that jumps on the
-  implicit form, on which the example
-  cars run, where stepped over it stopped the judge's runs at a
-  breakpoint; the cars' maps, read for their values, are held by none but
-  `"kinks"`); `"off"`, none (the integrator steps over every breakpoint);
-  `"jumps"`, every read whose slope jumps; `"kinks"`, also the reads that
-  only kink (for comparison). Another word raises
+  every read that jumps, on either form (on the implicit form, on which
+  the example cars run, stepped over such a read stopped the judge's runs
+  at a breakpoint; on the explicit form it was up to thousands of
+  tolerances off; the cars' maps, read for their values, are held by none
+  but `"kinks"`); `"off"`, none (the integrator steps over every
+  breakpoint); `"jumps"`, the reads of one argument whose slope jumps;
+  `"kinks"`, also the reads that only kink (for comparison). Another word raises
   `ValueError`; the option is part of the cache's key. With `cache_dir`,
   the prepared model is cached on disk (a second build of the same car
   with the same values skips preparation; other values are prepared

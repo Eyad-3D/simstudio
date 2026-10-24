@@ -1318,8 +1318,8 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    written as `if` branches on its breakpoints (on CVODE the same steps,
    the states the same to about 10⁻¹²). So the default holds it, on both
    forms; each restart costs a roughly fixed error, and which reads are
-   held on which form was decided by measurement (section 8.2, *Tables
-   read at a state*).
+   held was decided by measurement: every read that jumps, on either form
+   (section 8.2, *Tables read at a state*).
 
    *Not smooth enough* (`INDEX-TABLE-NOT-SMOOTH`): a table differentiated
    more often than that is refused, naming the table, the equation and
@@ -2237,8 +2237,8 @@ round).**
   (`ModelFunctions::table_axes`) where they differ from the prepared
   ones, for these stops and for the enclosures of the conditions on
   functions of time (`RunInfo::with_model_tables`).
-* *Tables read at a state: held in their cells where the model's form
-  needs it* (`lsim_prep::hold`, `lsim-solve/src/held.rs`; Park and
+* *Tables read at a state: held in their cells where the read jumps*
+  (`lsim_prep::hold`, `lsim-solve/src/held.rs`; Park and
   Barton's discontinuity locking, ACM TOMACS 6(2), 1996). A table read at
   a position that moves with the states has no breakpoint times ahead.
   Stepped over, the integrator passes a breakpoint by its error control,
@@ -2246,14 +2246,18 @@ round).**
   table's inputs); held in its cell during every step, the read is the
   cell's own smooth function, its crossing into the next cell is found by
   root finding and the integrator restarts there. Which reads are held
-  depends on the read and on the model's form (`TableCells::Auto`, the
-  default; `Holds::EXPLICIT`, `Holds::IMPLICIT`), as rule v4 below
-  decided it, measured against exact answers (closed forms per cell, first
+  depends on the read, the same on either form (`TableCells::Auto`, the
+  default, `Holds::AUTO`: every read that jumps), as rule v4 below
+  decided it per form and kind, measured against exact answers (closed forms per cell, first
   integrals integrated per cell, or DOP853 at rtol 10⁻¹³ restarted at each
   crossing, checked by the energy it conserves or by Radau; the judge's
   `kink-…` cases, each beside its other ways, the A3 reviews' probes and
   sweeps; lanes notes):
-  - The explicit form (no iteration variable: CVODES) holds a linear
+  - The explicit form (no iteration variable: CVODES) holds every read
+    that jumps, with the releases below (which weigh the 1-D reads), as
+    the implicit form does: in each kind, stepping over was more than 100
+    times as far off as holding in some case where held it is within 100
+    rtol. It holds a linear
     table's slope at its points (a gear's ratio as a linear table of a
     speed, whose `r'` index reduction reads where the constraint goes
     through the table), with the releases below. Stepped over, that read
@@ -2273,7 +2277,24 @@ round).**
     over is 320, 198, 548, 3 800, 12 000, 5 980 and 81 400 rtol off, held
     105, 35, 105, 22, 190, 362 and 114; at 41 points (`kink-bead-sin-41`)
     2 420 … 104 000 against 290 (let go of at 10⁻⁴ by the releases below),
-    130, 214, 176, 351, 237 and 1 720.
+    130, 214, 176, 351, 237 and 1 720. It holds a clamped cubic's slope at
+    its data's edges (a gear's ratio as a monotone cubic held there, which
+    the speed leaves): the judge's sparse gear of 6 points on [0, 40]
+    rad/s (`kink-gear-clamp-6`, the A3 check 5's `k3-40-h8`) is 0.86, 1.6,
+    28, 37, 36, 160 and 865 rtol off at 10⁻⁴ … 10⁻¹⁰ stepped over, 0.45,
+    1.3, 2.5, 8.4, 1.5, 19 and 4.1 held (its located run 0.23 … 4.1); four
+    more of the check's 12 sparse gears leaving their data are 152 … 195
+    rtol off stepped over at 10⁻⁹ or 10⁻¹⁰ where held they are 0.35 … 1.5
+    (101 to 436 times), and on the other seven held is within 5 % of
+    stepped over where it is the worse; `kink-gear-clamp` (4 points, the
+    torque reversed) 6.7, 17.5, 14.5, 4.3, 12.3, 71 and 131 against 1.1,
+    3.1, 3.25, 1.6, 3.2, 12.5 and 6.4. And it holds a 2-D read
+    whose slopes jump (a gear whose ratio is a bilinear table of the
+    load's speed and of a second state marked `always`, `kink-gear-2d`,
+    the check's `k4-ws`): stepped over 55, 602, 21, 46, 177, 473 and
+    3 480, held 2.7, 2.4, 2.6, 3.3, 5.3, 7.2 and 10.1, as its located run
+    (the check's other three 2-D gears 101 to 1 200 times as far off
+    stepped over); a 2-D read is held through every crossing.
   - The implicit form (iteration variables: IDAS, and diffsol's DAE) holds
     every read that jumps: a linear table's slope at its points, a clamped
     table's at its data's edges, a cubic's second derivative and a 2-D
@@ -2307,17 +2328,7 @@ round).**
     monotone cubic's slope): stepped over, it completed on both forms, and
     held it is better on some cases and worse on others (on CVODE 7 to
     1 270 times as far off as stepped over at rtol 10⁻⁴ … 10⁻⁶ on tables of
-    41 … 401 points; on IDA within 8 times either way). The explicit form
-    steps over a clamped cubic's slope at its edges (`kink-gear-clamp`
-    4.3 … 131 rtol stepped over, 1.1 … 12.5 held; `kink-edge-11` 34 … 342
-    against 17 … 309, the held run the worse at 10⁻⁴ and 10⁻⁹, 104 against
-    34 and 267 against 61) and a 2-D read whose slope jumps (the 2-D gear
-    with its torques explicit, the second state marked `always`: 76, 14,
-    14, 38, 111, 453 and 219 rtol at 10⁻⁴ … 10⁻¹⁰ stepped over, 2.1, 2.5,
-    2.7, 3.2, 4.1, 5.0 and 5.1 held, as its located run: at most 90 times
-    as far off, its slope 0.81 and its growth 9.0, so no clause of rule v4
-    holds it, though stepped over it is beyond 100 rtol at 10⁻⁸ … 10⁻¹⁰:
-    an open item, STATUS.md).
+    41 … 401 points; on IDA within 8 times either way).
 
   Holding has a price: each crossing held is an event and a restart of
   the integrator at its lowest order, which costs a roughly fixed error
@@ -2336,7 +2347,9 @@ round).**
   `kink-osc-41` at 10⁻⁵ (522 against 168), `kink-dense-gear-401` at 10⁻⁴,
   10⁻⁵, 10⁻⁹ and 10⁻¹⁰ (4.7, 14.5, 164 and 368 against 1.9, 1.7, 152 and
   158), `kink-dense-gear-41` at 10⁻⁴ and 10⁻⁵ (11.5 and 19 against 5.2
-  and 7.5), and the parabola bead below at every tolerance; it is better
+  and 7.5), `kink-edge-11` (the swing across a clamped cubic's edges, 59
+  crossings) at 10⁻⁴ and 10⁻⁹ (104 and 267 against 34 and 61), and the
+  parabola bead below at every tolerance; it is better
   at the other tolerances of these and on every other case it holds. On
   the implicit form there is no such choice: the same swings held are 862
   and 1 680 rtol off at 10⁻⁴, stepped over they give no answer. A cubic
@@ -2376,10 +2389,17 @@ round).**
   and 103 times; the turning gear and the switch above) and a cubic's
   second derivative (`kink-bead-sin-11` at 10⁻⁷, 172 times: first applied
   to the parabola bead alone, whose `r''` does not jump, it had kept that
-  kind stepped over; the A3 check 4), and no other kind (a clamped cubic's
-  edges at most 21 times, a 2-D read 90); on IDA the first holds every kind
-  that jumps, and no read that only kinks (none of its stepped-over runs
-  failed, and held it was never 100 times better).
+  kind stepped over; the A3 check 4), a clamped cubic's slope at its edges
+  (`kink-gear-clamp-6` at 10⁻¹⁰, 212 times) and a 2-D read whose slopes
+  jump (`kink-gear-2d` at 10⁻⁵ and 10⁻¹⁰, 248 and 345 times): the last two
+  had been kept stepped over on the first cases measured (`kink-gear-clamp`
+  and `kink-edge-11`, at most 21 times; the 2-D gear on its first grid,
+  90), and the A3 check 5's simple variants of those cases triggered the
+  clause (5 of 12 sparse clamped gears leaving their data; 4 of 4 2-D
+  gears). On IDA the first clause holds every kind that jumps. No read
+  that only kinks is held on either form (none of its stepped-over runs
+  failed, and held it was never 100 times better). So both forms hold the
+  same kinds.
 
   `TableCells::Off` steps over every breakpoint (the default until this
   round); `Jumps` holds the reads whose slope jumps, a linear table's at
@@ -2448,8 +2468,8 @@ round).**
   read); outside, the table's held value. The other reads of the same
   table at the same arguments (the value beside the slope index
   reduction reads) are held with it: their edges are crossed at the same
-  instants, at no further cost. A 2-D read (held on the implicit form,
-  and for comparison) is held at every breakpoint of both its arguments. Each held read is written
+  instants, at no further cost. A 2-D read is held at every breakpoint of
+  both its arguments. Each held read is written
   `if released then` the table's read `else` its cell's function (both
   evaluated, the one chosen bitwise as it stands). The run puts every held
   read in the
@@ -2483,25 +2503,29 @@ round).**
   side; a read moved along an argument at an instant does not move back
   along it at the same instant for that (along its other argument it
   still moves). Every preparation of a model holds the same reads in the
-  same discrete variables (made in the order of the reads' keys), so a
-  run that chooses its states again keeps them. Under `Auto` a model whose
-  states a run chooses again (a state set that moves with the solution)
-  holds, in every choice, what either form holds, so that its choices of
-  either form hold the same reads; the reads only the implicit form holds
-  (`HeldRead::explicit` false) are released while the run is on the
-  explicit form, at its start and at a change of the states chosen onto
-  it (with a note), and held again at a change onto the implicit form, so
-  each form keeps its own default. (Before, a choice of the other form held
+  same discrete variables (made in the order of the reads' keys), and the
+  kinds held are the same on either form, so every choice of states of a
+  model holds the same reads and a run that chooses its states again,
+  from a choice of one form to one of the other, keeps them; a read the
+  run released on the explicit form is held again at a change onto the
+  implicit form, with a note. (At ade9eaa7 a choice of the other form held
   other reads and the change of states was refused: the A3 check 4's gear
   whose ratio is a monotone cubic held at its edges, the rotor's speed
   preferred, stopped at t = 3.137 s where 1d41c7d7's run switched to the
-  explicit form; now it switches as that run did, bitwise, 1.63, 3.56
-  and 358 rtol at 10⁻⁴, 10⁻⁷ and 10⁻¹⁰; a 2-D gear 3.1, 4.71 and 137, a
-  bead whose `r''` jumps 64.5, 132 and 335, where they stopped at 2.993
-  and 0.867 s; a dense clamped gear switched onto the implicit form holds
-  its edges again there, 3.24, 9.14 and 21.7, where the switch was
-  refused, 2.58, 66.7 and 54.) A change of states refused for other held
-  reads names the table and the option. Where a choice of states decides
+  explicit form; 85ae86e8 held what either form held in every choice and
+  released, on the explicit form, what only the implicit one held, which
+  both forms holding the same made needless. The gear switches as
+  1d41c7d7's run did, bitwise, 1.63, 3.56 and 358 rtol at 10⁻⁴, 10⁻⁷ and
+  10⁻¹⁰ (it never reaches its edges; the 358 is its `r'`'s kinks between
+  the points, stepped over); a 2-D gear 3.1, 3.99 and 18.1, held on the
+  explicit form after its switch (85ae86e8, which released it there, 3.1,
+  4.71 and 137), and a bead whose `r''` jumps 64.5, 132 and 335, where
+  they stopped at 2.993 and 0.867 s; a dense clamped gear switched onto
+  the implicit form 3.24, 9.14 and 21.7, where the switch was refused,
+  2.58, 66.7 and 54.) Choices that read a table otherwise (another of its
+  derivatives, or at other arguments) hold other reads of it, and a
+  change between them is refused, naming the table: only `off`, holding
+  none, makes them the same. Where a choice of states decides
   a variable through a read whose slope in it changes sign at a breakpoint,
   that choice is singular there, and the watch (section 6 step 5) stops
   the run where its block's determinant changes sign: the A3 check 4's
@@ -4073,6 +4097,31 @@ events name the modes that chatter.
   chooses again on CVODE report the released reads' discrete values among
   their final values, and the stopped runs' messages show the argument to
   ten digits.
+
+  Revised a fifth time after its fifth check (24 October 2026), which
+  found clause (S) of rule v4 triggering on the explicit form for the two
+  kinds it had kept stepped over there, on simple variants of the cases
+  they were decided on: a clamped cubic's slope at its edges (5 of 12
+  sparse gears leaving their data) and a 2-D read whose slopes jump (4 of
+  4 variants of the 2-D gear). Both are held there now (section 8.2), and
+  both forms hold every read that jumps. Ten new cases: two each beside
+  `…-over`, `…-always` and `…-located`, `kink-gear-clamp-6`, a monotone
+  cubic of 6 points on [0, 40] rad/s that the load's speed leaves once
+  (against its first integral, checked by DOP853 to 1.4·10⁻¹⁴: stepped
+  over 0.86 … 865 rtol, held 0.45 … 19.1), and `kink-gear-2d`, the gear
+  whose ratio is a bilinear table of the load's speed (5 points every 20
+  rad/s) and of a second state c = t marked `always` (DOP853 per pair of
+  cells, the speed's edges by events and c's at their times, checked by
+  the energy the gear passes on, ½ J1 w1² + ½ J2 w2² against the torque's
+  work, to 9.0·10⁻¹⁵: stepped over 20.7 … 3 480, held 2.43 … 10.1, as its
+  located run); and `kink-gear-clamp-over`, `kink-edge-11-over`, the
+  stepped-over runs of the two cases whose default changed. The 812 runs
+  of the 117 cases before: 784 the same in every field but the timings;
+  `kink-gear-clamp` and `kink-edge-11` (14 runs) now their `…-held` runs
+  bitwise (their stepped-over runs the new `…-over`, bitwise in solution,
+  steps and events); and the swings' `…-over` (14 runs) tell the warning
+  of a table read outside its data once, where they told it once per
+  table guard.
 * **Performance gates**: not built yet. When they are, they compare build
   time (prepare + compile) and run time for each example car in both modes
   with the base commit (as the backend's performance job does) and with

@@ -886,18 +886,19 @@ the hybrid's UDDS 118 072 → 126 830), the BEV's city recuperation at
 kinks they remove where crossings are many; the next round held only
 the reads that jump (a slope that index reduction reads), and after the
 second review nothing was held by default. Since the third (24 October,
-rule v4) the default holds what the model's form needs (`TableCells::
-Auto`: a linear table's slope and, since the fourth, a cubic's second
-derivative on the explicit form, every read that jumps on the implicit
-form, on which the cars run). The cars' maps are
-read for their values, which only kink, so nothing of theirs is held in
-any of these, and the comparison is the record above in every field but
-the run times, to the last digit (24 October: `results.json` and
-`results.md` as at e4ada13; 84.6 s user on the round that made the
-default stepped over; the third round's 85.5 and 85.5 s against 86.6 and
-85.3 s for 1d41c7d7's, run back to back; the fourth's 92.9 and 91.6 s
-against 91.0 and 93.1 s for ade9eaa7's, run back to back on a slower
-day).
+rule v4) the default holds what rule v4 decided per form (`TableCells::
+Auto`), since the fifth every read that jumps on both forms (a linear
+table's slope, a clamped cubic's at its edges, a cubic's second
+derivative, a 2-D read's slopes; the cars run on the implicit form). The
+cars' maps are read for their values, which only kink, so nothing of
+theirs is held in any of these, and the comparison is the record above in
+every field but the run times, to the last digit (24 October:
+`results.json` and `results.md` as at e4ada13; 84.6 s user on the round
+that made the default stepped over; the third round's 85.5 and 85.5 s
+against 86.6 and 85.3 s for 1d41c7d7's, run back to back; the fourth's
+92.9 and 91.6 s against 91.0 and 93.1 s for ade9eaa7's, run back to back
+on a slower day; the fifth's 104.1 and 100.7 s against 106.9 and 101.8 s
+for 85ae86e8's, run back to back on a slower one still).
 
 The books' closure had doubled on the city cycle while the maps were
 held (6.6e-10 → 1.3e-9) and fallen on the WLTC (2.8e-10 → 4.0e-11).
