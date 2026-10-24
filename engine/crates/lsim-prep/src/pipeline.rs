@@ -42,7 +42,7 @@ pub struct Settings {
     pub choose_at: Option<std::sync::Arc<ChoosePoint>>,
     /// which table reads at a state are held in their cells during every
     /// step, each crossing of a cell's edge an event ([`crate::hold`]):
-    /// those that jump at their breakpoints (the default)
+    /// none by default
     pub table_cells: crate::hold::TableCells,
 }
 
@@ -53,7 +53,7 @@ impl Default for Settings {
             numeric_start: true,
             tearing_minimum: false,
             choose_at: None,
-            table_cells: crate::hold::TableCells::Jumps,
+            table_cells: crate::hold::TableCells::Off,
         }
     }
 }

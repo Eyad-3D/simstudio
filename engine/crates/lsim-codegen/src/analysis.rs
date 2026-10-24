@@ -628,18 +628,14 @@ pub(crate) struct TableSite<'m> {
     pub args: &'m [Expr],
 }
 
-/// Every table read in the model's assignments and residuals, and the
-/// reads held in their cells (which the equations read as their cells'
-/// polynomials: `PreparedModel::held`), with the guard list (one entry per
-/// axis of each read).
+/// Every table read in the model's assignments and residuals, with the
+/// guard list (one entry per axis of each read). A read held in its cells
+/// (`PreparedModel::held`) is there as written: the equations read it as
+/// `if released then` the read `else` its cell's function.
 pub(crate) fn table_sites<'m>(model: &'m PreparedModel) -> (Vec<TableSite<'m>>, Vec<TableGuard>) {
     let mut sites = vec![];
-    let exprs = model
-        .assignments
-        .iter()
-        .map(|a| &a.expr)
-        .chain(model.residuals.iter().map(|r| &r.expr))
-        .chain(model.held.iter().map(|h| &h.read));
+    let exprs =
+        model.assignments.iter().map(|a| &a.expr).chain(model.residuals.iter().map(|r| &r.expr));
     for e in exprs {
         collect_tables(e, &mut sites);
     }

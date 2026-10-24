@@ -171,9 +171,10 @@ pub struct Mode {
 
 /// A table read at a state, held in its cell during every step: Park and
 /// Barton's discontinuity locking (DESIGN.md §8.2, *Tables read at a
-/// state*). Where the read (or the derivative of it the model reads) jumps
-/// at the table's breakpoints and its argument moves with the states,
-/// preparation writes it in the equations as its cell's own function,
+/// state*; on request, `lsim_prep::hold::TableCells`). Where the read (or
+/// the derivative of it the model reads) jumps at the table's breakpoints
+/// and its argument moves with the states, preparation writes it in the
+/// equations as its cell's own function,
 /// continued smoothly beyond the cell's edges, with discrete coefficients,
 /// and watches the cell's edges as zero crossings; the run sets them for
 /// the cell the argument is in at the start and whenever it crosses an
@@ -199,6 +200,20 @@ pub struct HeldRead {
     pub coef: Vec<VarId>,
     /// where the cells' edges are
     pub cells: HeldCells,
+    /// 1 once the run has released the read (DESIGN.md §8.2: its jumps
+    /// within the tolerance, or its crossings too frequent): the equations
+    /// then read the table itself, stepped over, and its edges are open;
+    /// 0 while it is held
+    pub released: VarId,
+    /// the reads of one table at the same arguments share a group, held
+    /// and released together (their edges are crossed at the same
+    /// instants); numbered from 0 in the reads' order
+    pub group: u32,
+    /// whether the read itself jumps where it is held (read differentiated
+    /// more often than the table is continuously differentiable there);
+    /// false for a read held beside one that does, or held only for
+    /// comparison (`TableCells::Kinks`), which the run never releases
+    pub jumps: bool,
 }
 
 /// Where a [`HeldRead`]'s cells have their edges.
@@ -262,7 +277,7 @@ pub struct HeldAxis {
 impl HeldRead {
     /// Every discrete variable of the read, in a fixed order: per axis its
     /// cell, anchor and edges, then the coefficients, then (edges only)
-    /// `from`, `to`, `offset` and `anchor_end`.
+    /// `from`, `to`, `offset` and `anchor_end`, then `released`.
     pub fn discretes(&self) -> Vec<VarId> {
         let mut v: Vec<VarId> =
             self.axes.iter().flat_map(|a| [a.cell, a.anchor, a.lo, a.hi]).collect();
@@ -270,6 +285,7 @@ impl HeldRead {
         if let HeldCells::Edges(e) = &self.cells {
             v.extend([e.from, e.to, e.offset, e.anchor_end]);
         }
+        v.push(self.released);
         v
     }
 }

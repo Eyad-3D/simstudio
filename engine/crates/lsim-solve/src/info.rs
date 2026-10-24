@@ -738,6 +738,14 @@ pub struct HeldInfo {
     pub edges: Option<HeldEdgesInfo>,
     /// the table's name
     pub label: String,
+    /// 1 once released, 0 while held (index into the discrete variables,
+    /// [`lsim_ir::HeldRead::released`])
+    pub released: usize,
+    /// its group: the reads of one table at the same arguments, held and
+    /// released together ([`lsim_ir::HeldRead::group`])
+    pub group: usize,
+    /// whether it jumps itself where it is held ([`lsim_ir::HeldRead::jumps`])
+    pub jumps: bool,
 }
 
 /// The discrete variables of a read held between its data's edges
@@ -1182,6 +1190,9 @@ impl RunInfo {
                             }),
                         },
                         label: flat.tables[table as usize].name.clone(),
+                        released: at(&h.released),
+                        group: h.group as usize,
+                        jumps: h.jumps,
                     }
                 })
                 .collect(),

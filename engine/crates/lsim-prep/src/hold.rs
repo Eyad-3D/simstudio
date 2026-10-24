@@ -1,31 +1,27 @@
-//! Tables read at a state, held in their cells during every step where the
-//! read jumps at the table's breakpoints (DESIGN.md §8.2, *Tables read at
-//! a state*): Park and Barton's discontinuity locking (ACM TOMACS 6(2),
-//! 1996).
+//! Tables read at a state, held in their cells during every step on
+//! request (DESIGN.md §8.2, *Tables read at a state*): Park and Barton's
+//! discontinuity locking (ACM TOMACS 6(2), 1996).
 //!
 //! Where a model reads a table at an argument that moves with its states,
-//! the breakpoints' times are not known ahead and the integrator steps
-//! over them as over any piecewise-smooth right-hand side. Measured on
-//! exact answers (`engine/judge`, the `kink-…` cases), that is not
-//! proportional to the tolerance where the read jumps: a derivative that
-//! index reduction reads one order more often than the table is smooth (a
-//! gear whose ratio is a linear table of the load's speed, whose `r'`
-//! jumps at every point, ended up to 178 rtol off where the located run
-//! is within 3, its error per tolerance growing as the tolerance tightens;
-//! a monotone cubic held at its edges, whose `r'` jumps there, 5 261 in a
-//! sweep). Holding a read costs a restart of the integrator at each
-//! crossing (about 0.1 to 4 rtol of error each, measured), which is far
-//! more than stepping over a read that only kinks (a linear table's
-//! value, a monotone cubic's first derivative) where crossings are many:
-//! on a table of 41 … 401 points held, 7 to 1 270 times as far off at rtol
-//! 1e-4 … 1e-6 (though stepped over, its error per tolerance grows too as
-//! the tolerance tightens). So a read that only kinks is stepped over (as
-//! Modelica tools do for a table's inputs), and [`TableCells::Kinks`]
-//! holds it too, for comparison only. Where a jump's crossings come faster
-//! than the integrator regains its order after each restart (a table of
-//! hundreds of points crossed back and forth), holding it costs about 0.45
-//! rtol a crossing as well, measured, and stepping over is then the more
-//! accurate at loose tolerances: an open item (STATUS.md).
+//! the breakpoints' times are not known ahead, and by default
+//! ([`TableCells::Off`]) the integrator steps over them as over any
+//! piecewise-smooth right-hand side, as Modelica tools do for a table's
+//! inputs. Measured on exact answers (`engine/judge`, the `kink-…` cases),
+//! that is not proportional to the tolerance where the read's slope jumps
+//! (a gear whose ratio is a linear table of the load's speed, whose `r'`
+//! index reduction reads: up to 178 rtol off where the same function with
+//! its breakpoints located is within 3). Holding the read removes that,
+//! but costs a restart of the integrator at each crossing, a roughly fixed
+//! error whatever the jump (0.1 … 3.6 rtol, measured) that adds up over the
+//! crossings; where they are many (a dense table swept back and forth, a
+//! single pass through hundreds of points, a cubic whose second derivative
+//! index reduction reads) holding lost to stepping over, and it is not the
+//! default. [`TableCells::Jumps`] holds the reads whose slope jumps (a
+//! linear table's at its points, a clamped table's at its data's edges),
+//! which pays where the points are few and crossed rarely, and the run
+//! releases a held read where holding costs more than it saves
+//! (`lsim_solve::SolverOptions::held_release`); [`TableCells::Kinks`]
+//! holds also the reads that only kink, for comparison.
 //!
 //! A held read is replaced in the equations by its cell's own function,
 //! continued smoothly beyond the cell's edges, with discrete coefficients,
@@ -43,9 +39,12 @@
 //! cells are below, inside and above the data, and inside the read is the
 //! table's own, continued beyond each edge by its edge cell's polynomial.
 //! The other reads of the same table at the same arguments (the value
-//! beside the derivative index reduction reads) are held with it: their
-//! edges are crossed at the same instants, at no further cost. A 2-D read
-//! that jumps is held at every breakpoint of both its arguments.
+//! beside the derivative index reduction reads) are held with it, as one
+//! group: their edges are crossed at the same instants, at no further cost.
+//! A 2-D read is held (at every breakpoint of both its arguments) only for
+//! comparison. Each held read is written `if released then` the table
+//! itself `else` its cell's function, so that the run can release it
+//! ([`HeldRead::released`]).
 //!
 //! Not held: a read whose argument moves with time alone (the run stops at
 //! its breakpoints, `RunInfo::time_tables`) or not at all between events
@@ -59,8 +58,8 @@ use lsim_ir::flat::{FlatVar, VarRole};
 use lsim_ir::interp::data_smoothness;
 use lsim_ir::units::Unit;
 use lsim_ir::{
-    BinaryOp, Builtin, Expr, HeldAxis, HeldCells, HeldEdges, HeldRead, Origin, PreparedModel, Slot,
-    TableData, VarId, ZeroCrossing,
+    BinaryOp, Builtin, CmpOp, Expr, HeldAxis, HeldCells, HeldEdges, HeldRead, Origin,
+    PreparedModel, Slot, TableData, VarId, ZeroCrossing,
 };
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -72,13 +71,19 @@ pub const OPEN: f64 = 1e300;
 /// ([`crate::Settings::table_cells`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TableCells {
-    /// none: the integrator steps over every breakpoint (for comparison
-    /// only: a read that jumps is then not proportional to the tolerance)
-    Off,
-    /// the reads that jump at a breakpoint (read differentiated more often
-    /// than the table is continuously differentiable there), and the other
-    /// reads of their tables at the same arguments
+    /// none (the default): the integrator steps over every breakpoint, as
+    /// over any piecewise-smooth right-hand side. Where the read's slope
+    /// jumps there, that is not proportional to the tolerance; holding it
+    /// was measured and is not the better everywhere (DESIGN.md §8.2)
     #[default]
+    Off,
+    /// opt-in: the reads whose slope jumps at a breakpoint (the first
+    /// derivative of a table that is continuous there but not smooth: a
+    /// linear table's at its points, a clamped table's at its data's
+    /// edges), and the other reads of their tables at the same arguments;
+    /// released by the run where that costs more than it saves
+    /// (`SolverOptions::held_release`). Neither a cubic's second
+    /// derivative nor a 2-D read is held so
     Jumps,
     /// also the reads that kink there (a linear table's value, a monotone
     /// cubic's first derivative), for comparison only: each crossing is
@@ -103,13 +108,21 @@ enum Need {
 /// per argument, under `mode`.
 fn need(data: &TableData, order: [u8; 2], mode: TableCells) -> [Need; 2] {
     let mut out = [Need::Nowhere; 2];
+    // a 2-D read that jumps is not held by default: never measured against
+    // stepping over it (DESIGN.md §8.2)
+    if mode == TableCells::Jumps && data.dims() == 2 {
+        return out;
+    }
     for (j, n) in out.iter_mut().enumerate().take(data.dims()) {
         let s = data_smoothness(data, j);
         let o = u32::from(order[j]);
-        // (u32::MAX: no breakpoint there)
+        // (u32::MAX: no breakpoint there). Jumps: a slope that jumps (the
+        // first derivative of a table continuous there but not smooth), not
+        // a second derivative's jump (a cubic's), which holding loses to
+        // stepping over (DESIGN.md §8.2)
         let past = |c: u32| match mode {
             TableCells::Off => false,
-            TableCells::Jumps => o > c,
+            TableCells::Jumps => c == 0 && o > c,
             TableCells::Kinks => c != u32::MAX && o >= c,
         };
         *n = if past(s.inside) {
@@ -191,12 +204,17 @@ pub fn apply(model: &mut PreparedModel, mode: TableCells) {
     }
     let index: HashMap<String, usize> =
         keys.iter().enumerate().map(|(k, key)| (key.clone(), k)).collect();
-    // the held reads' variables and zero crossings, in their keys' order
+    // the held reads' variables and zero crossings, in their keys' order;
+    // their groups numbered as they come
     let mut counts: HashMap<u32, usize> = HashMap::new();
+    let mut groups: HashMap<String, u32> = HashMap::new();
     let mut held: Vec<Option<HeldRead>> = vec![None; keys.len()];
     for (k, key) in keys.iter().enumerate() {
         if let Some(c) = cells[k] {
-            held[k] = Some(hold(model, &st.reads[key], c, &mut counts));
+            let r = &st.reads[key];
+            let next = groups.len() as u32;
+            let g = *groups.entry(r.group.clone()).or_insert(next);
+            held[k] = Some(hold(model, r, c, g, &mut counts));
         }
     }
     // the names as the held reads' functions (the others as the reads
@@ -244,6 +262,8 @@ struct Pending {
     origin: Origin,
     need: [Need; 2],
     group: String,
+    /// whether it jumps itself (as [`TableCells::Jumps`] tells)
+    jumps: bool,
 }
 
 struct State {
@@ -317,6 +337,7 @@ fn named(
             origin: origin.clone(),
             need: need(data, *order, mode),
             group,
+            jumps: need(data, *order, TableCells::Jumps).iter().any(|n| *n != Need::Nowhere),
         });
         Expr::Name(format!("{NAME}{key}"))
     })
@@ -366,6 +387,7 @@ fn hold(
     model: &mut PreparedModel,
     r: &Pending,
     cells: Cells,
+    group: u32,
     counts: &mut HashMap<u32, usize>,
 ) -> HeldRead {
     let ft = &model.flat.tables[r.table as usize];
@@ -440,8 +462,9 @@ fn hold(
             })
         }
     };
+    let released = var(model, format!("{prefix}.released"), 0.0);
     let read = Expr::Table { table: r.table, args: vec![], order: r.order };
-    HeldRead { read, axes, degree, coef, cells }
+    HeldRead { read, axes, degree, coef, cells, released, group, jumps: r.jumps }
 }
 
 /// `Σ cs[i] x^i` in Horner's form.
@@ -456,8 +479,18 @@ fn horner(cs: &[Expr], x: &Expr) -> Expr {
 }
 
 /// The held read `h` of derivative `order` of table `table` at `args`, as
-/// the equations read it.
+/// the equations read it: `if released > 0.5 then` the table itself `else`
+/// the cell's function (both are evaluated, the one chosen bitwise as it
+/// stands).
 fn written(h: &HeldRead, table: u32, order: [u8; 2], args: &[Expr]) -> Expr {
+    let released =
+        Expr::Compare(CmpOp::Gt, Box::new(Expr::Var(h.released)), Box::new(Expr::Const(0.5)));
+    let own = Expr::Table { table, args: args.to_vec(), order };
+    Expr::If(Box::new(released), Box::new(own), Box::new(in_cell(h, table, order, args)))
+}
+
+/// The held read `h` as its cell's function.
+fn in_cell(h: &HeldRead, table: u32, order: [u8; 2], args: &[Expr]) -> Expr {
     use BinaryOp::{Add, Sub};
     match &h.cells {
         // `Σ c_ij (a₁ − m₁)^i (a₂ − m₂)^j`
@@ -543,7 +576,9 @@ mod tests {
         assert_eq!(need(&cub(Clamp), [0, 0], j)[0], Nowhere);
         assert_eq!(need(&cub(Outside::Linear), [1, 0], j)[0], Nowhere);
         assert_eq!(need(&cub(Clamp), [1, 0], j)[0], Edges);
-        assert_eq!(need(&cub(Outside::Linear), [2, 0], j)[0], Points);
+        // a cubic's second derivative jumps at its points (and at its
+        // data's edges, continued linearly), stepped over: not held
+        assert_eq!(need(&cub(Outside::Linear), [2, 0], j)[0], Nowhere);
         // two points: a single cell, a line continued
         assert_eq!(need(&data(Linear, Outside::Linear, 2), [1, 0], j)[0], Nowhere);
         assert_eq!(need(&data(Linear, Clamp, 2), [1, 0], j)[0], Edges);
@@ -556,5 +591,15 @@ mod tests {
         assert_eq!(need(&lin(Outside::Linear), [0, 0], k)[0], Points);
         assert_eq!(need(&data(Linear, Outside::Linear, 2), [0, 0], k)[0], Nowhere);
         assert_eq!(need(&lin(Clamp), [1, 0], TableCells::Off)[0], Nowhere);
+        // a 2-D read that jumps: not held (never measured), but for
+        // comparison
+        let mut two = TableData::new_2d(
+            vec![0.0, 1.0, 2.0],
+            vec![0.0, 1.0, 2.0],
+            (0..9).map(|v| f64::from(v * v)).collect(),
+        );
+        two.interpolation = Linear;
+        assert_eq!(need(&two, [1, 0], j), [Nowhere, Nowhere]);
+        assert_eq!(need(&two, [1, 0], k), [Points, Points]);
     }
 }

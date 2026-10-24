@@ -1,12 +1,17 @@
 //! Tables read at a state (DESIGN.md §8.2, *Tables read at a state*;
-//! `lsim_prep::hold`). Where a model reads a table at a position that moves
-//! with its states and the read jumps at the table's breakpoints (a
-//! derivative index reduction reads one order more often than the table is
-//! smooth there), the read is held in its cell during every step and each
-//! crossing of a breakpoint is an event; a read that only kinks there (a
-//! linear table's value, a monotone cubic's slope) is stepped over. Every
-//! case against an exact answer: closed forms per cell, or a first integral
-//! integrated per cell and inverted.
+//! `lsim_prep::hold`). By default the integrator steps over every
+//! breakpoint of a table read at a position that moves with the states.
+//! Where the read's slope jumps there (a derivative index reduction reads
+//! one order more often than the table is smooth), that is not proportional
+//! to the tolerance, and `TableCells::Jumps` (opt-in) holds the read in its
+//! cell during every step, each crossing of a breakpoint an event; a run
+//! releases a held read whose jumps are within the tolerance, or whose
+//! crossings come too often (`SolverOptions::held_release`). Holding costs a
+//! restart at each crossing, and where crossings are many it loses to
+//! stepping over: measured, so not the default. Every case against an exact
+//! answer (closed forms per cell, a first integral integrated per cell and
+//! inverted, an energy that is conserved) or a run at a far tighter
+//! tolerance.
 
 use lsim_ir::component::{ComponentDef, Library};
 use lsim_ir::interp::Table;
@@ -194,7 +199,8 @@ fn gear_exact(data: &TableData, g: &Gear, (lo, hi): (f64, f64), times: &[f64]) -
 }
 
 /// The ratio a linear table of the load's speed: `r'` jumps at each of its
-/// four inner breakpoints. Held, the load's speed is 0.83 … 2.0 rtol off
+/// four inner breakpoints. Held (`TableCells::Jumps`), the load's speed is
+/// 0.83 … 2.0 rtol off
 /// at rtol 1e-4 … 1e-10 here; stepped over (for comparison only), 132 rtol
 /// at 1e-10. In the outside judge (`kink-gear-linear`, its own measure):
 /// stepped over (CVODE's Adams, as the run chose) 9.7, 9.9, 23, 25, 28, 167
@@ -225,12 +231,32 @@ fn a_gear_ratio_read_at_the_load_speed_is_held_in_its_cells() {
     println!("error / rtol, held: {qs:.2?}");
     // measured at most 2.0, with a margin
     assert!(qs.iter().all(|q| *q < 8.0), "{qs:?}");
-    // stepped over (for comparison only): not proportional
+    // stepped over (the default): not proportional
     let off = prepare(&text, "Test.KinkGear", TableCells::Off);
     assert!(off.held.is_empty());
     let q = error(&run(&off, 1e-10, 3.0, 0.01), "w2", &exact) / 1e-10;
     println!("error / rtol at rtol 1e-10, stepped over: {q:.1}");
     assert!(q > 50.0, "{q}");
+}
+
+/// The default holds no table read (`TableCells::Off`): the gear above,
+/// whose ratio's slope jumps, is the stepped-over run to the bit. Holding
+/// such a read was measured against stepping over it on exact answers
+/// (the outside judge's `kink-…` cases and the oscillating gears of the
+/// A3 review) and lost where crossings are many (DESIGN.md §8.2).
+#[test]
+fn the_default_holds_no_table_read() {
+    let (ws, rs) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
+    let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &GEAR);
+    let def = prepare(&text, "Test.KinkGear", TableCells::default());
+    assert!(def.held.is_empty(), "{:?}", def.held);
+    assert_eq!(lsim_prep::PrepOptions::default().table_cells, TableCells::Off);
+    let off = prepare(&text, "Test.KinkGear", TableCells::Off);
+    for rtol in [1e-4, 1e-8] {
+        let (a, b) = (run(&def, rtol, 3.0, 0.01), run(&off, rtol, 3.0, 0.01));
+        assert_eq!(cells(&a), 0);
+        assert_eq!(a.values, b.values, "rtol {rtol:e}");
+    }
 }
 
 /// The ratio a monotone cubic held at its edges (`clamp`): `r'` jumps where
@@ -319,7 +345,9 @@ fn the_states_chosen_again_with_held_reads() {
     assert_eq!(m.held.len(), 2);
     let code = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
     let mut info = RunInfo::from_prepared(&m);
-    info.choices = lsim_project::model::choices(&lib, &top, &Default::default(), &info);
+    // (prepared again as it was: holding the same reads)
+    let opts = lsim_prep::PrepOptions { table_cells: TableCells::Jumps, ..Default::default() };
+    info.choices = lsim_project::model::choices(&lib, &top, &opts, &info);
     assert!(info.choices.is_some(), "the choice of states can move");
     let times = grid(6.0, 0.01);
     let exact = gear_exact(&data, &g, (-20.0, 80.0), &times);
@@ -773,6 +801,10 @@ fn a_held_table_given_other_data_after_the_build_is_refused() {
 /// (`f64::MIN_POSITIVE`) times an edge function at the rounding level of
 /// its crossing (1e-16) rounds to −0. The backend floors the values it
 /// gives diffsol, and a panic inside a step is the run's named failure.
+/// That run is not proportional on diffsol, held or with its breakpoints
+/// located alike (the A3 review: 105, 5 171 and 5 150 rtol at rtol 1e-4,
+/// 1e-7 and 1e-10, where CVODE's held run stays at 2 200 … 3 100): an open
+/// item of the cross-check backend (STATUS.md), pinned here as measured.
 #[test]
 fn held_reads_on_the_cross_check_backend() {
     let diffsol =
@@ -796,9 +828,220 @@ fn held_reads_on_the_cross_check_backend() {
     let times = grid(20.0, 0.02);
     let (ex, ev, crossings) = spring_exact(&xs, &fs, (0.9023, 0.0), &times);
     let kinks = prepare(&text, "Test.Spring", TableCells::Kinks);
-    let r = run_with(&kinks, &diffsol(1e-10), 20.0, 0.02);
-    assert_eq!(cells(&r), crossings, "every crossing an event, to the end");
-    let q = error(&r, "x", &ex).max(error(&r, "v", &ev)) / 1e-10;
-    println!("diffsol, a dense table held at rtol 1e-10: error / rtol {q:.1}");
-    assert!(q < 2e4, "{q}");
+    let mut qs = vec![];
+    for rtol in [1e-4, 1e-10] {
+        let r = run_with(&kinks, &diffsol(rtol), 20.0, 0.02);
+        assert_eq!(cells(&r), crossings, "rtol {rtol:e}: every crossing an event, to the end");
+        qs.push(error(&r, "x", &ex).max(error(&r, "v", &ev)) / rtol);
+    }
+    println!("diffsol, a dense table held: error / rtol {qs:.1?}");
+    // measured 105 and 5 150, with a margin
+    assert!(qs[0] < 320.0 && qs[1] < 1.6e4, "{qs:?}");
+}
+
+/// The bead of the A3 review: a bead on a wire `y = r(x)` under gravity, `r`
+/// the default table (Steffen's monotone cubic, continued linearly) of
+/// `x²/2` at 41 points, `s(x) = x` a second table for the force's
+/// direction; from `x = 1.5` at rest for 10 s. Index reduction reads `r'`
+/// and `r''`, whose jumps at the points stepping over passes by. No mode
+/// holds it but `Kinks` (for comparison): `TableCells::Jumps` held it at
+/// every point once, each of its 204 crossings a restart, 429 … 737 rtol
+/// off where stepped over it was 10 … 187 (the review, against DOP853),
+/// though Steffen's cubic of a parabola is the parabola, its `r''`
+/// continuous to rounding at its points. Against the run at rtol 1e-12
+/// and the exact energy `½ m (vx² + vy²) + m g y`.
+#[test]
+fn a_cubics_second_derivative_read_at_a_state_is_stepped_over() {
+    let xs: Vec<f64> = (0..41).map(|k| -2.0 + 4.0 * k as f64 / 40.0).collect();
+    let rs: Vec<f64> = xs.iter().map(|x| 0.5 * x * x).collect();
+    let list = |v: &[f64]| v.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ");
+    let tab = |v: &[f64]| {
+        format!(
+            "table(x = {{{}}}, y = {{{}}}, xUnit = \"m\", outside = {{linear}})",
+            list(&xs),
+            list(v)
+        )
+    };
+    let text = format!(
+        r#"model Test.Bead "a bead on a wire y = r(x) under gravity, r the default table"
+  parameter Real m(unit = "kg") = 1;
+  parameter Real g(unit = "m/s2") = 9.81;
+  parameter Real r(unit = "m") = {} "the wire's height";
+  parameter Real s = {} "its slope";
+  Real x(unit = "m", start = 1.5, fixed = true);
+  Real vx(unit = "m/s", start = 0, fixed = true);
+  Real y(unit = "m");
+  Real vy(unit = "m/s");
+  Real F(unit = "N") "the wire's force along y";
+equation
+  der(x) = vx;
+  der(y) = vy;
+  m * der(vx) = -s(x) * F;
+  m * der(vy) = F - m * g;
+  y = r(x) "on the wire";
+end Test.Bead;
+"#,
+        tab(&rs),
+        tab(&xs)
+    );
+    let def = prepare(&text, "Test.Bead", TableCells::default());
+    let jumps = prepare(&text, "Test.Bead", TableCells::Jumps);
+    assert!(def.held.is_empty() && jumps.held.is_empty(), "{:?}", jumps.held);
+    let kinks = prepare(&text, "Test.Bead", TableCells::Kinks);
+    assert!(!kinks.held.is_empty());
+    let fine = run(&def, 1e-12, 10.0, 0.01);
+    let (fx, fv) = (fine.channel("x").unwrap().to_vec(), fine.channel("vx").unwrap().to_vec());
+    let q = |r: &SimResult, rtol: f64| error(r, "x", &fx).max(error(r, "vx", &fv)) / rtol;
+    let energy = |r: &SimResult| {
+        let (vx, vy, y) =
+            (r.channel("vx").unwrap(), r.channel("vy").unwrap(), r.channel("y").unwrap());
+        let e: Vec<f64> =
+            (0..y.len()).map(|k| 0.5 * (vx[k] * vx[k] + vy[k] * vy[k]) + 9.81 * y[k]).collect();
+        e.iter().fold(0.0f64, |a, v| a.max((v - e[0]).abs())) / e[0].abs()
+    };
+    let (mut over, mut held, mut drift) = (vec![], vec![], vec![]);
+    for rtol in [1e-4, 1e-6, 1e-8] {
+        let a = run(&def, rtol, 10.0, 0.01);
+        let b = run(&jumps, rtol, 10.0, 0.01);
+        assert_eq!(a.values, b.values, "rtol {rtol:e}");
+        assert_eq!(cells(&a), 0);
+        over.push(q(&a, rtol));
+        let h = run(&kinks, rtol, 10.0, 0.01);
+        assert!(cells(&h) > 200, "{}", cells(&h));
+        held.push(q(&h, rtol));
+        drift.push((energy(&a) / rtol, energy(&h) / rtol));
+    }
+    println!(
+        "bead: error / rtol stepped over {over:.1?}, held {held:.1?}; energy drift / rtol {drift:.1?}"
+    );
+    // measured 88, 12.4, 187 stepped over (the review's against DOP853, to
+    // the digit), with a margin; held 429, 502, 528: worse at every
+    // tolerance, the energy too (drift 34, 18, 73 against 124, 145, 164)
+    for (q, bound) in over.iter().zip([300.0, 40.0, 600.0]) {
+        assert!(*q < bound, "{over:?}");
+    }
+    assert!(over.iter().zip(&held).all(|(o, h)| 2.0 * o < *h), "{over:?} {held:?}");
+    assert!(drift.iter().all(|(o, h)| o < h), "{drift:?}");
+}
+
+/// A gear whose ratio is a linear table of collinear points (`r = 2 + w /
+/// 50`): its slope does not jump at them. Held (`TableCells::Jumps`), the
+/// run releases it at the start (its jumps are within the tolerance) and it
+/// is the stepped-over run to the bit, where every point was a restart
+/// before.
+#[test]
+fn a_table_whose_slope_does_not_jump_is_released_at_the_start() {
+    let ws = [0.0, 10.0, 25.0, 40.0, 60.0, 80.0];
+    let rs: Vec<f64> = ws.iter().map(|w| 2.0 + w / 50.0).collect();
+    let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &GEAR);
+    let m = prepare(&text, "Test.KinkGear", TableCells::Jumps);
+    assert_eq!(m.held.len(), 2, "{:?}", m.held);
+    let off = prepare(&text, "Test.KinkGear", TableCells::Off);
+    for rtol in [1e-4, 1e-8] {
+        let (a, b) = (run(&m, rtol, 3.0, 0.01), run(&off, rtol, 3.0, 0.01));
+        assert_eq!(cells(&a), 0, "rtol {rtol:e}");
+        // (the held model has its cells' discrete variables besides)
+        for name in &b.names {
+            assert_eq!(a.channel(name), b.channel(name), "rtol {rtol:e}: {name}");
+        }
+        assert!(
+            a.report.notes.iter().any(|n| n.contains("continuous at its points")),
+            "{:?}",
+            a.report.notes
+        );
+        // not released: every point a restart
+        let held = SolverOptions { held_release: false, ..options(rtol) };
+        assert_eq!(cells(&run_with(&m, &held, 3.0, 0.01)), 8);
+    }
+}
+
+/// The limit of holding (the A3 review's `o041`): the gear on a torsion
+/// spring, its ratio a linear table of 41 points on [−30, 30] rad/s
+/// through `2.5 + w/50 + 0.2 sin(w/4)`, the load's speed swept back and
+/// forth through it from 28 rad/s (1 127 crossings in 20 s). Held through
+/// every crossing, each a restart costing about 0.45 rtol: 517 rtol off at
+/// rtol 1e-4 where stepped over it is 55 (against DOP853 per cell, the
+/// judge's `kink-osc-41`); held with the releases (`TableCells::Jumps`),
+/// the run lets go of it after its first crossings there (they come every
+/// few steps) and is 53. At 1e-6 the crossings are far enough apart that
+/// it stays held (489 against 819). Against the held run at rtol 1e-11 and
+/// the exact energy `½ J1 w1² + ½ J2 w2² + ½ k φ²`.
+#[test]
+fn a_dense_table_crossed_back_and_forth() {
+    let ps: Vec<f64> = (0..41).map(|k| -30.0 + 60.0 * k as f64 / 40.0).collect();
+    let vs: Vec<f64> = ps.iter().map(|p| 2.5 + 0.02 * p + 0.2 * math::sin(p / 4.0)).collect();
+    let text = format!(
+        r#"model Test.GearSpring "a gear whose ratio is a table of the load's speed, the load on a torsion spring"
+  parameter Real J1(unit = "kg.m2") = 0.05;
+  parameter Real J2(unit = "kg.m2") = 2;
+  parameter Real k(unit = "N.m/rad") = 50;
+  parameter Real r = {};
+  Real w1(unit = "rad/s", start = 0);
+  Real w2(unit = "rad/s", start = 28, fixed = true);
+  Real phi(unit = "rad", start = 0, fixed = true);
+  Real t1(unit = "N.m");
+  Real t2(unit = "N.m");
+equation
+  J1 * der(w1) = -t1;
+  J2 * der(w2) = t2 - k * phi;
+  der(phi) = w2;
+  w1 = r(w2) * w2;
+  t2 = r(w2) * t1;
+end Test.GearSpring;
+"#,
+        table_text(&ps, &vs, "rad/s", "linear", "linear")
+    );
+    let jumps = prepare(&text, "Test.GearSpring", TableCells::Jumps);
+    assert_eq!(jumps.held.len(), 2);
+    let off = prepare(&text, "Test.GearSpring", TableCells::Off);
+    let always = |rtol: f64| SolverOptions { held_release: false, ..options(rtol) };
+    let fine = run_with(&jumps, &always(1e-11), 20.0, 0.01);
+    let (fp, fw) = (fine.channel("phi").unwrap().to_vec(), fine.channel("w2").unwrap().to_vec());
+    let q = |r: &SimResult, rtol: f64| error(r, "phi", &fp).max(error(r, "w2", &fw)) / rtol;
+    let energy = |r: &SimResult| {
+        let (w1, w2, ph) =
+            (r.channel("w1").unwrap(), r.channel("w2").unwrap(), r.channel("phi").unwrap());
+        let e: Vec<f64> = (0..w2.len())
+            .map(|k| {
+                0.5 * 0.05 * w1[k] * w1[k] + 0.5 * 2.0 * w2[k] * w2[k] + 0.5 * 50.0 * ph[k] * ph[k]
+            })
+            .collect();
+        e.iter().fold(0.0f64, |a, v| a.max((v - e[0]).abs())) / e[0]
+    };
+    let mut seen = vec![];
+    for rtol in [1e-4, 1e-6] {
+        let o = run(&off, rtol, 20.0, 0.01);
+        let a = run_with(&jumps, &always(rtol), 20.0, 0.01);
+        let j = run(&jumps, rtol, 20.0, 0.01);
+        let released = j.report.notes.iter().any(|n| n.contains("no longer held"));
+        let (qo, qa, qj) = (q(&o, rtol), q(&a, rtol), q(&j, rtol));
+        println!(
+            "rtol {rtol:e}: error / rtol stepped over {qo:.1}, held always {qa:.1} ({} events), held \
+             with the releases {qj:.1} ({} events, released {released}); energy drift / rtol {:.1} \
+             {:.1} {:.1}",
+            cells(&a),
+            cells(&j),
+            energy(&o) / rtol,
+            energy(&a) / rtol,
+            energy(&j) / rtol
+        );
+        // (two reads held: two events a crossing)
+        assert!(cells(&a) > 2200, "{}", cells(&a));
+        seen.push((qo, qa, qj, released, cells(&j)));
+        if rtol == 1e-6 {
+            // the crossings far enough apart: held through every one
+            assert!(!released);
+            for name in &a.names {
+                assert_eq!(a.channel(name), j.channel(name), "{name}");
+            }
+        }
+    }
+    // measured: at 1e-4 stepped over 55, held always 517 (the restarts'
+    // cost, the limit), held with the releases 53 (let go after 9
+    // crossings); at 1e-6 819, 489, 489
+    let (qo, qa, qj, released, events) = seen[0];
+    assert!(qo < 165.0 && qa > 5.0 * qo, "{seen:?}");
+    assert!(released && events < 40 && qj < 1.5 * qo, "{seen:?}");
+    let (qo, qa, _, _, _) = seen[1];
+    assert!(qa < qo && qa < 1500.0, "{seen:?}");
 }

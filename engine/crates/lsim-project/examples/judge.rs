@@ -12,10 +12,12 @@
 //! "rtols": [..], "atol_factor": a, "record": ["<channel>", ..],
 //! "repeat": n, "options": {"energy_books": bool, "backend": "sundials" |
 //! "diffsol", "method": "auto" | "bdf" | "adams", "max_steps": n,
-//! "table_cells": "jumps" | "kinks" | "off"}}`, the text's path relative
-//! to the case file (`table_cells`: which tables read at a state are held
-//! in their cells, `lsim_prep::hold::TableCells`; "jumps", the engine's
-//! own, by default). Each run uses atol = a · rtol
+//! "table_cells": "jumps" | "kinks" | "off", "table_release": bool}}`, the
+//! text's path relative to the case file (`table_cells`: which tables read
+//! at a state are held in their cells, `lsim_prep::hold::TableCells`; none,
+//! the engine's own, by default; `table_release`: false holds them through
+//! every crossing, `SolverOptions::held_release`). Each run uses
+//! atol = a · rtol
 //! (times each variable's nominal value, as always) and is timed `repeat`
 //! times (the median is reported); a run that fails is reported with the
 //! engine's own message.
@@ -67,6 +69,9 @@ fn options(case: &Value, rtol: f64) -> SolverOptions {
     }
     if let Some(f) = o["state_switch"].as_f64() {
         opts.state_switch = f;
+    }
+    if let Some(b) = o["table_release"].as_bool() {
+        opts.held_release = b;
     }
     match o["backend"].as_str() {
         Some("diffsol") => opts.backend = Backend::Diffsol,
@@ -130,8 +135,9 @@ fn main() {
     let popts = lsim_prep::PrepOptions {
         table_cells: match case["options"]["table_cells"].as_str() {
             Some("kinks") => lsim_prep::hold::TableCells::Kinks,
+            Some("jumps") => lsim_prep::hold::TableCells::Jumps,
             Some("off") => lsim_prep::hold::TableCells::Off,
-            Some("jumps") | None => lsim_prep::hold::TableCells::Jumps,
+            None => lsim_prep::hold::TableCells::default(),
             Some(other) => panic!("unknown table_cells {other}"),
         },
         ..Default::default()

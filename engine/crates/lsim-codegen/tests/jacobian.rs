@@ -570,19 +570,6 @@ fn implicit_points(
     let u = vec![0.0; l.n_u];
     let mut w = vec![0.0; l.n_work];
     let (mut vars, mut der) = (vec![0.0; l.n_vars], vec![0.0; l.n_y()]);
-    // the tables held in their cells (`lsim_prep::hold`): each form holds
-    // its own reads in discrete variables of its own, so a read's cell,
-    // point, edges and coefficients are the explicit model's where it holds
-    // the same read, else 0 (the implicit form can hold more of them: reads
-    // whose arguments its iteration variables move)
-    let mut held = std::collections::HashMap::new();
-    for h in &im.held {
-        let twin = ex.held.iter().find(|e| e.read == h.read && e.degree == h.degree);
-        let theirs: Vec<VarId> = twin.map(|e| e.discretes()).unwrap_or_default();
-        for (k, v) in h.discretes().into_iter().enumerate() {
-            held.insert(v, theirs.get(k).copied());
-        }
-    }
     let mut out = vec![];
     for (t, y, d) in cars::trajectory(ex, ex_jit, 120.0).into_iter().step_by(every) {
         let inp = EvalInput { t, y: &y, p: &p, d: &d, u: &u };
@@ -598,15 +585,7 @@ fn implicit_points(
                 Slot::Der(v) => der_of(*v),
             }))
             .collect();
-        let di = im
-            .discretes
-            .iter()
-            .map(|v| match held.get(v) {
-                Some(Some(e)) => vars[e.0 as usize],
-                Some(None) => 0.0,
-                None => vars[v.0 as usize],
-            })
-            .collect();
+        let di = im.discretes.iter().map(|v| vars[v.0 as usize]).collect();
         out.push((t, yi, di));
     }
     out

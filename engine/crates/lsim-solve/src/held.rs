@@ -21,6 +21,13 @@
 //! argument is, held between the edges, and continued beyond them by the
 //! first and the last data cells' polynomials; outside, the table is read
 //! at the edge, with the difference to its held value outside added.
+//!
+//! A group of held reads (one table's at the same arguments) is released
+//! where holding it costs more than it saves (`SolverOptions::held_release`,
+//! DESIGN.md §8.2): at the start, where its jumps are within the tolerance
+//! ([`continuous_to`]), and during the run, where its crossings come too
+//! often ([`released_by_crossings`]). Released, it reads the table itself
+//! (stepped over) for the rest of the run, its edges open.
 
 use crate::SolveError;
 use crate::info::{HeldInfo, RunInfo};
@@ -247,6 +254,10 @@ pub(crate) fn place(
 ) -> Result<Vec<(usize, [bool; 2])>, SolveError> {
     let mut moved = vec![];
     for (k, h) in info.held.iter().enumerate() {
+        // (released: the table itself, its edges open)
+        if d[h.released] > 0.5 {
+            continue;
+        }
         let mut cells = [0usize; 2];
         let mut change = [false; 2];
         for (j, ax) in h.axes.iter().enumerate() {
@@ -312,6 +323,9 @@ pub(crate) fn settle(
     // (a cell's number unset: the edges at 0, so that the edge functions
     // are the arguments themselves)
     for h in &info.held {
+        if d[h.released] > 0.5 {
+            continue;
+        }
         for ax in &h.axes {
             if d[ax.cell].is_nan() || d[ax.cell] < 0.0 {
                 d[ax.lo] = 0.0;
@@ -327,6 +341,125 @@ pub(crate) fn settle(
         }
     }
     Ok(())
+}
+
+/// The number of groups of held reads (the reads of one table at the same
+/// arguments: [`HeldInfo::group`]).
+pub(crate) fn groups(info: &RunInfo) -> usize {
+    info.held.iter().map(|h| h.group + 1).max().unwrap_or(0)
+}
+
+/// Releases group `g` in `d`: each of its reads reads the table itself from
+/// here on, stepped over by the integrator, its edges open (their
+/// functions never cross zero again).
+pub(crate) fn release(info: &RunInfo, g: usize, d: &mut [f64]) {
+    for h in info.held.iter().filter(|h| h.group == g) {
+        d[h.released] = 1.0;
+        for ax in &h.axes {
+            d[ax.lo] = -OPEN;
+            d[ax.hi] = OPEN;
+        }
+    }
+}
+
+/// The steps between crossings below which a held read's crossings come
+/// too often ([`released_by_crossings`]): after a restart CVODE runs at
+/// order 1 and raises its order only after `q + 1` steps at order `q`, so
+/// its 6th step is the first that can be at order 3.
+pub(crate) const RAMP_STEPS: u64 = 6;
+
+/// How many intervals between a group's crossings the run looks back over.
+pub(crate) const CROSSINGS_WINDOW: usize = 8;
+
+/// Whether a group whose crossings came after the integrator's step counts
+/// `at` (oldest first, the last one now) has come to cross too often: its
+/// last [`CROSSINGS_WINDOW`] intervals between crossings took fewer than
+/// [`RAMP_STEPS`] steps each on average, so that the integrator, which
+/// restarts at every crossing, was kept in the low orders of its restarts
+/// (DESIGN.md §8.2). Then stepping over the breakpoints costs less than
+/// holding the read.
+pub(crate) fn released_by_crossings(at: &[u64]) -> bool {
+    let n = at.len();
+    n > CROSSINGS_WINDOW
+        && at[n - 1] - at[n - 1 - CROSSINGS_WINDOW] < RAMP_STEPS * CROSSINGS_WINDOW as u64
+}
+
+/// Whether group `g`'s reads that jump are continuous to the tolerance
+/// `rtol` in the table the model interpolates: at every breakpoint they are
+/// held at, the read's two sides differ by no more than `rtol` times the
+/// largest of their magnitudes over those points (the right-hand side then
+/// jumps there by about the tolerance or less, which stepping over costs
+/// no more than a restart). False for a group with no read that jumps
+/// (held only for comparison) and for a 2-D read.
+pub(crate) fn continuous_to(
+    model: &dyn ModelFunctions,
+    info: &RunInfo,
+    g: usize,
+    rtol: f64,
+    t: f64,
+) -> Result<bool, SolveError> {
+    let mut any = false;
+    let mut jump: f64 = 0.0;
+    let mut size: f64 = 0.0;
+    for h in info.held.iter().filter(|h| h.group == g && h.jumps) {
+        if h.axes.len() != 1 {
+            return Ok(false);
+        }
+        any = true;
+        let p = info.table_points(h.table, 0);
+        let n = p.len();
+        if n < 2 {
+            return Ok(false);
+        }
+        let read = |o: u8, x: f64| -> Result<f64, SolveError> {
+            crate::info::table_at(model, h.table, [o, 0], &[x]).map(|(v, _)| v).ok_or_else(|| {
+                SolveError::Integrator {
+                    t,
+                    message: format!(
+                        "the model does not give the table '{}', which a run holds in its cells \
+                         (ModelFunctions::eval_table_order)",
+                        h.label
+                    ),
+                }
+            })
+        };
+        let o = h.order[0];
+        // the two sides at each breakpoint it is held at
+        let mut sides: Vec<(f64, f64)> = vec![];
+        match h.edges {
+            None => {
+                // cell c's polynomial (its Taylor coefficients at its
+                // anchor) at x
+                let poly = |c: usize, x: f64| -> Result<f64, SolveError> {
+                    let m = anchor(p, c);
+                    let mut v = 0.0;
+                    for i in (0..=h.degree[0]).rev() {
+                        v = v * (x - m) + read(o.saturating_add(i), m)? / factorial(i);
+                    }
+                    Ok(v)
+                };
+                let merged = merged(model, h.table, 0);
+                for (c, &b) in p.iter().enumerate() {
+                    // b parts cell c from cell c + 1
+                    if merged && (c == 0 || c == n - 1) {
+                        continue;
+                    }
+                    sides.push((poly(c, b)?, poly(c + 1, b)?));
+                }
+            }
+            Some(_) => {
+                let w0 = (p[1] - p[0]).abs();
+                let w1 = (p[n - 1] - p[n - 2]).abs();
+                sides.push((read(o, p[0] - w0)?, read(o, p[0])?));
+                sides.push((read(o, p[n - 1])?, read(o, p[n - 1] + w1)?));
+            }
+        }
+        for (a, b) in sides {
+            jump = jump.max((a - b).abs());
+            size = size.max(a.abs()).max(b.abs());
+        }
+    }
+    Ok(any && jump <= rtol * size)
 }
 
 #[cfg(test)]

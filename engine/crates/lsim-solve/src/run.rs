@@ -351,6 +351,16 @@ struct Loop<'a> {
     chan: Option<Vec<usize>>,
     /// the recorded channels, read through `chan`
     chan_buf: Vec<f64>,
+    /// the integrator's internal steps so far (over every integrator the
+    /// run went on with)
+    steps: u64,
+    /// per group of held table reads ([`crate::HeldInfo::group`]): the
+    /// step counts at its last crossings (at most
+    /// [`crate::held::CROSSINGS_WINDOW`] + 1), and the instant of the last
+    crossings: Vec<Vec<u64>>,
+    crossed_at: Vec<f64>,
+    /// what the run says of itself (the held reads it released)
+    notes: Vec<String>,
 }
 
 /// Whether two times are one instant to the integrators: closer than a
@@ -1340,6 +1350,7 @@ impl Loop<'_> {
                     again = true;
                     flipped.push(format!("the table '{}' read in its cells", info.held[k].label));
                     self.record(t, EventKind::Cell(k))?;
+                    self.crossed(t, k, d);
                 }
             }
             if !again {
@@ -1360,6 +1371,39 @@ impl Loop<'_> {
             std::mem::swap(&mut self.roots_prev, &mut self.roots);
         }
         Ok(())
+    }
+
+    /// Held read `k` moved to another cell at `t` (a crossing of its
+    /// group's edges, counted once an instant): its group's crossings
+    /// recorded, and the group released ([`crate::held::release`]) where
+    /// they have come too often ([`crate::held::released_by_crossings`];
+    /// with [`SolverOptions::held_release`], and for a group that holds a
+    /// read that jumps: one held only for comparison stays held).
+    fn crossed(&mut self, t: f64, k: usize, d: &mut [f64]) {
+        let info = self.info;
+        let g = info.held[k].group;
+        if g >= self.crossings.len() || self.crossed_at[g] == t {
+            return;
+        }
+        self.crossed_at[g] = t;
+        let at = &mut self.crossings[g];
+        at.push(self.steps);
+        if at.len() > crate::held::CROSSINGS_WINDOW + 1 {
+            at.remove(0);
+        }
+        if self.opts.held_release
+            && info.held.iter().any(|h| h.group == g && h.jumps)
+            && crate::held::released_by_crossings(at)
+        {
+            crate::held::release(info, g, d);
+            self.notes.push(format!(
+                "at t = {t:.6} s the table '{}' read at a state had crossed its cells' edges {} \
+                 times within {} steps: stepped over from there, no longer held in its cells",
+                info.held[k].label,
+                at.len(),
+                at[at.len() - 1] - at[0]
+            ));
+        }
     }
 
     /// With light restarts on ([`SolverOptions::light_restarts`], opt-in),
@@ -2158,6 +2202,10 @@ fn run_watched<'a>(
         kinks_moving: vec![],
         chan: None,
         chan_buf: vec![],
+        steps: 0,
+        crossings: vec![vec![]; crate::held::groups(info)],
+        crossed_at: vec![f64::NAN; crate::held::groups(info)],
+        notes: vec![],
     };
     for (k, (c, _)) in info.whens.iter().enumerate() {
         if *c < lp.when_of_root.len() && lp.mode_of_root[*c].is_none() {
@@ -2522,6 +2570,9 @@ fn run_watched<'a>(
         // does not move across it
         let same = same_instant(t, t_stop);
         let mut st = if same { Step::Stopped(t_stop) } else { integ.step(t_stop)? };
+        if !same {
+            lp.steps += 1;
+        }
         // steps that leave the time where it was (shorter than its
         // resolution here, which the integrators take for steps all the
         // same): no step longer passes the error test, at a jump the model
@@ -3373,6 +3424,7 @@ fn run_watched<'a>(
         ));
     }
     report.notes.append(&mut switch_notes);
+    report.notes.append(&mut lp.notes);
     report.stats = integ.stats();
     report.stats += stats_left;
     report.events = lp.events.len();

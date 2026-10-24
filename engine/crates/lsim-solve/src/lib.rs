@@ -279,6 +279,15 @@ pub struct SolverOptions {
     /// row. The same values either way, to the bit (DESIGN.md §9). On by
     /// default; off, each tick reads its inputs alone, interpreted
     pub tick_read_ahead: bool,
+    /// release a table read held in its cells (DESIGN.md §8.2, *Tables
+    /// read at a state*) where holding it costs more than it saves: at the
+    /// start where its jumps are within the tolerance, and during the run
+    /// where its crossings come too often for the integrator, which
+    /// restarts at each, to leave the low orders of its restarts. A
+    /// released read is the table itself from then on, stepped over. On by
+    /// default; off, a held read stays held through every crossing (for
+    /// comparison only)
+    pub held_release: bool,
 }
 
 /// [`SolverOptions::state_switch`]'s default.
@@ -308,6 +317,7 @@ impl Default for SolverOptions {
             books_kernels: true,
             tick_read_ahead: true,
             state_switch: STATE_SWITCH,
+            held_release: true,
         }
     }
 }
@@ -833,6 +843,23 @@ pub fn simulate(
     let mut d0 = vec![0.0; l.n_d];
     model.start(&info.params, &mut y0, &mut d0);
     let u = vec![0.0; l.n_u];
+    // the held table reads whose jumps are within the tolerance: the table
+    // itself from the start (crate::held)
+    let mut released = vec![];
+    if opts.held_release {
+        for g in 0..held::groups(info) {
+            if held::continuous_to(model, info, g, opts.rtol, grid.t0)? {
+                held::release(info, g, &mut d0);
+                if let Some(h) = info.held.iter().find(|h| h.group == g) {
+                    released.push(format!(
+                        "the table '{}' read at a state is continuous at its points to the \
+                         tolerance: stepped over, not held in its cells",
+                        h.label
+                    ));
+                }
+            }
+        }
+    }
     let start = init::start(
         model,
         info,
@@ -868,6 +895,9 @@ pub fn simulate(
     };
     result.map(|mut r| {
         r.report.notes.insert(0, format!("start: {}", start.what));
+        for (i, note) in released.into_iter().enumerate() {
+            r.report.notes.insert(1 + i, note);
+        }
         if let Some(why) = &start.undecided {
             r.report.warnings.insert(
                 0,

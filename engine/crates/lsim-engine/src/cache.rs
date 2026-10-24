@@ -36,8 +36,9 @@ use std::path::{Path, PathBuf};
 /// review's F1). v6: the table reads held in their cells
 /// (`PreparedModel::held`, no default: an entry without it is prepared
 /// again). v7: only the reads that jump are held, some between their data's
-/// edges only (`HeldRead::cells`).
-const FORMAT: &str = "prepared-v7";
+/// edges only (`HeldRead::cells`). v8: a held read can be released
+/// (`HeldRead::released`, `group`, `jumps`), and a 2-D read is not held.
+const FORMAT: &str = "prepared-v8";
 
 /// The digest of the code that prepares a model (`build.rs`).
 const PREPARATION: &str = env!("LSIM_PREPARATION_DIGEST");
