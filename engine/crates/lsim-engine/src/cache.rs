@@ -41,7 +41,8 @@ use std::path::{Path, PathBuf};
 /// v9: the reads held by default depend on the model's form
 /// (`TableCells::Auto`), and the build's `table_cells` joined the key.
 /// v10: a model whose states a run chooses again holds what either form
-/// holds, in every choice (`HeldRead::explicit`, no default).
+/// holds, in every choice (`HeldRead::explicit`, no default), and the
+/// explicit form holds a cubic's second derivative.
 const FORMAT: &str = "prepared-v10";
 
 /// The digest of the code that prepares a model (`build.rs`).

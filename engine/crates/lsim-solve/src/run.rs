@@ -1397,9 +1397,10 @@ impl Loop<'_> {
     /// recorded, and the group released ([`crate::held::release`]) where
     /// they have come too often ([`crate::held::released_by_crossings`];
     /// with [`SolverOptions::held_release`], on the explicit form, and for
-    /// a group that holds a read whose slope jumps: one held only for
-    /// comparison stays held, and the implicit form, which cannot step over
-    /// a jump, holds every read through every crossing).
+    /// a group that holds a 1-D read that jumps ([`crate::HeldInfo::jumps`]):
+    /// one held only for comparison stays held, and the implicit form,
+    /// which cannot step over a jump, holds every read through every
+    /// crossing).
     fn crossed(&mut self, t: f64, k: usize, d: &mut [f64]) {
         let info = self.info;
         let g = info.held[k].group;

@@ -937,9 +937,9 @@ end Test.Bead;
 /// its edges never reaches them: its run is 1d41c7d7's to the bit. In the
 /// judge's measure (`r5/b1`, against Radau per cell, DOP853 per cell and the
 /// first integral): the gear 1.63, 3.56, 358 at rtol 1e-4, 1e-7, 1e-10; the
-/// 2-D gear 3.1, 4.71, 137 (stepped over 3.43, 5.0, 128); the bead 102, 150,
-/// 420 (stepped over 222, 197, 208; the bead runs that far off held or
-/// not).
+/// 2-D gear 3.1, 4.71, 137 (stepped over 3.43, 5.0, 128); the bead, whose
+/// `r''` both forms hold, 64.5, 132, 335 (stepped over 222, 197, 208; held
+/// on the implicit form only, 102, 150, 420).
 #[test]
 fn a_change_of_states_onto_the_explicit_form_keeps_the_held_reads() {
     // the gear, its ratio a monotone cubic held at its edges, falling
@@ -1009,8 +1009,8 @@ fn a_change_of_states_onto_the_explicit_form_keeps_the_held_reads() {
         qs.push(error(&r, "x", &fx).max(error(&r, "vx", &fv)) / rtol);
     }
     println!("the bead, onto the explicit form: error / rtol {qs:.2?}");
-    // measured 102 and 147 (the judge's, against DOP853 per cell: 102, 150)
-    assert!(qs.iter().all(|q| *q < 600.0), "{qs:?}");
+    // measured 64.5 and 132 (the judge's, against DOP853 per cell, the same)
+    assert!(qs.iter().all(|q| *q < 400.0), "{qs:?}");
 }
 
 /// The other way: a gear on the explicit form (the load's speed the state),
@@ -1518,26 +1518,78 @@ fn held_reads_on_the_cross_check_backend() {
 /// the default table (Steffen's monotone cubic, continued linearly) of
 /// `x²/2` at 41 points, `s(x) = x` a second table for the force's
 /// direction; from `x = 1.5` at rest for 10 s. Index reduction reads `r'`
-/// and `r''`, whose jumps at the points stepping over passes by. No mode
-/// holds it but `Kinks` (for comparison): `TableCells::Jumps` held it at
-/// every point once, each of its 204 crossings a restart, 429 … 737 rtol
-/// off where stepped over it was 10 … 187 (the review, against DOP853),
-/// though Steffen's cubic of a parabola is the parabola, its `r''`
-/// continuous to rounding at its points. Against the run at rtol 1e-12
-/// and the exact energy `½ m (vx² + vy²) + m g y`.
+/// and `r''`. The explicit form holds a cubic's second derivative by
+/// default (rule v4, from the wavy bead below), each of the 204 crossings a
+/// restart; this wire's `r''` does not really jump (Steffen's cubic of a
+/// parabola is the parabola, its `r''` continuous to rounding at its
+/// points; it jumps to 0 at the data's edges, which the bead does not reach,
+/// so the release at the start keeps it), and here holding is the price:
+/// 131 (released at its crossings' pace, at rtol 1e-4), 502 and 528 rtol
+/// off at 1e-4, 1e-6 and 1e-8 where stepped over (`TableCells::Off`, the
+/// default before) it is 88, 12.4 and 187 (the judge's `kink-bead-41`, all
+/// seven: 131 … 737 against 10.5 … 187). Against the run at rtol 1e-12 and
+/// the exact energy `½ m (vx² + vy²) + m g y`.
 #[test]
-fn a_cubics_second_derivative_read_at_a_state_is_stepped_over() {
+fn a_cubics_second_derivative_read_at_a_state_is_held() {
     let xs: Vec<f64> = (0..41).map(|k| -2.0 + 4.0 * k as f64 / 40.0).collect();
     let rs: Vec<f64> = xs.iter().map(|x| 0.5 * x * x).collect();
+    let text = bead(&xs, &rs, &xs);
+    let def = prepare(&text, "Test.Bead", TableCells::default());
+    assert!(def.algebraics.is_empty(), "the explicit form");
+    assert!(!def.held.is_empty() && def.held.iter().all(|h| h.explicit), "{:?}", def.held);
+    let off = prepare(&text, "Test.Bead", TableCells::Off);
+    assert!(off.held.is_empty());
+    let fine = run(&off, 1e-12, 10.0, 0.01);
+    let (fx, fv) = (fine.channel("x").unwrap().to_vec(), fine.channel("vx").unwrap().to_vec());
+    let q = |r: &SimResult, rtol: f64| error(r, "x", &fx).max(error(r, "vx", &fv)) / rtol;
+    let energy = |r: &SimResult| {
+        let (vx, vy, y) =
+            (r.channel("vx").unwrap(), r.channel("vy").unwrap(), r.channel("y").unwrap());
+        let e: Vec<f64> =
+            (0..y.len()).map(|k| 0.5 * (vx[k] * vx[k] + vy[k] * vy[k]) + 9.81 * y[k]).collect();
+        e.iter().fold(0.0f64, |a, v| a.max((v - e[0]).abs())) / e[0].abs()
+    };
+    let (mut over, mut held, mut drift) = (vec![], vec![], vec![]);
+    for rtol in [1e-4, 1e-6, 1e-8] {
+        let a = run(&off, rtol, 10.0, 0.01);
+        assert_eq!(cells(&a), 0);
+        over.push(q(&a, rtol));
+        let h = run(&def, rtol, 10.0, 0.01);
+        if rtol > 1e-5 {
+            // (its crossings too frequent for the integrator there: let go of)
+            assert!(h.report.notes.iter().any(|n| n.contains("no longer held")));
+        } else {
+            assert!(cells(&h) > 600, "{}", cells(&h));
+        }
+        held.push(q(&h, rtol));
+        drift.push((energy(&a) / rtol, energy(&h) / rtol));
+    }
+    println!(
+        "bead: error / rtol stepped over {over:.1?}, held {held:.1?}; energy drift / rtol {drift:.1?}"
+    );
+    // measured 88, 12.4, 187 stepped over (the review's against DOP853, to
+    // the digit); held 131, 502, 528, the energy too (drift 34, 18, 73
+    // stepped over), with a margin
+    for (q, bound) in over.iter().zip([300.0, 40.0, 600.0]) {
+        assert!(*q < bound, "{over:?}");
+    }
+    for (q, bound) in held.iter().zip([400.0, 1500.0, 1600.0]) {
+        assert!(*q < bound, "{held:?}");
+    }
+}
+
+/// The bead's model: a wire `y = r(x)`, `r` the default table of `rs` at
+/// `xs` (Steffen's cubic, continued linearly), `s` a table of `ss` there.
+fn bead(xs: &[f64], rs: &[f64], ss: &[f64]) -> String {
     let list = |v: &[f64]| v.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ");
     let tab = |v: &[f64]| {
         format!(
             "table(x = {{{}}}, y = {{{}}}, xUnit = \"m\", outside = {{linear}})",
-            list(&xs),
+            list(xs),
             list(v)
         )
     };
-    let text = format!(
+    format!(
         r#"model Test.Bead "a bead on a wire y = r(x) under gravity, r the default table"
   parameter Real m(unit = "kg") = 1;
   parameter Real g(unit = "m/s2") = 9.81;
@@ -1556,50 +1608,48 @@ equation
   y = r(x) "on the wire";
 end Test.Bead;
 "#,
-        tab(&rs),
-        tab(&xs)
-    );
+        tab(rs),
+        tab(ss)
+    )
+}
+
+/// A bead whose wire's cubic has a second derivative that really jumps
+/// (`x²/2 + sin(3x)/4` at 11 points, the judge's `kink-bead-sin-11`; rule
+/// v3's held-out bead) on its own form, the explicit one (CVODES). Stepped
+/// over (`TableCells::Off`, the default before), the run is 320, 198, 548,
+/// 3 800, 12 000, 5 980 and 81 400 rtol off at rtol 1e-4 … 1e-10 (the error
+/// per tolerance growing as it tightens); held (the default, rule v4's
+/// clause (S): 172 times as far off at 1e-7, where held is within 100), 105,
+/// 35, 105, 22, 190, 362 and 114 (the judge's measure, against DOP853 per
+/// cell; 50 crossings in 10 s, an event of each of the three reads).
+/// Stepped over, the error moves with the data's last bits: with the points
+/// written `-2 + 0.4 k`, 248 and 1 051 at 1e-4 and 1e-7 (held 105 and 22).
+#[test]
+fn a_cubics_second_derivative_that_jumps_is_held_on_the_explicit_form() {
+    // (the judge's points, to the bit)
+    let xs: Vec<f64> = (0..11).map(|k| -2.0 + 4.0 * k as f64 / 10.0).collect();
+    let rs: Vec<f64> = xs.iter().map(|x| 0.5 * x * x + 0.25 * math::sin(3.0 * x)).collect();
+    let ss: Vec<f64> = xs.iter().map(|x| x + 0.75 * math::cos(3.0 * x)).collect();
+    let text = bead(&xs, &rs, &ss);
     let def = prepare(&text, "Test.Bead", TableCells::default());
-    let jumps = prepare(&text, "Test.Bead", TableCells::Jumps);
-    assert!(jumps.held.is_empty(), "{:?}", jumps.held);
-    // (held for a choice of its states of the implicit form, released on the
-    // explicit one from the start)
-    assert!(def.held.iter().all(|h| !h.explicit), "{:?}", def.held);
-    let kinks = prepare(&text, "Test.Bead", TableCells::Kinks);
-    assert!(!kinks.held.is_empty());
-    let fine = run(&def, 1e-12, 10.0, 0.01);
+    assert!(def.algebraics.is_empty(), "the explicit form");
+    assert!(!def.held.is_empty() && def.held.iter().all(|h| h.explicit), "{:?}", def.held);
+    let off = prepare(&text, "Test.Bead", TableCells::Off);
+    let fine = run_with(&def, &SolverOptions { held_release: false, ..options(1e-12) }, 10.0, 0.01);
     let (fx, fv) = (fine.channel("x").unwrap().to_vec(), fine.channel("vx").unwrap().to_vec());
     let q = |r: &SimResult, rtol: f64| error(r, "x", &fx).max(error(r, "vx", &fv)) / rtol;
-    let energy = |r: &SimResult| {
-        let (vx, vy, y) =
-            (r.channel("vx").unwrap(), r.channel("vy").unwrap(), r.channel("y").unwrap());
-        let e: Vec<f64> =
-            (0..y.len()).map(|k| 0.5 * (vx[k] * vx[k] + vy[k] * vy[k]) + 9.81 * y[k]).collect();
-        e.iter().fold(0.0f64, |a, v| a.max((v - e[0]).abs())) / e[0].abs()
-    };
-    let (mut over, mut held, mut drift) = (vec![], vec![], vec![]);
-    for rtol in [1e-4, 1e-6, 1e-8] {
-        let a = run(&def, rtol, 10.0, 0.01);
-        let b = run(&jumps, rtol, 10.0, 0.01);
-        assert!(same_channels(&a, &b), "rtol {rtol:e}");
-        assert_eq!(cells(&a), 0);
-        over.push(q(&a, rtol));
-        let h = run(&kinks, rtol, 10.0, 0.01);
-        assert!(cells(&h) > 200, "{}", cells(&h));
+    let (mut held, mut over) = (vec![], vec![]);
+    for rtol in [1e-4, 1e-7] {
+        let h = run(&def, rtol, 10.0, 0.01);
+        assert!(h.backend.contains("CVODE"), "{}", h.backend);
+        assert!(cells(&h) > 140, "rtol {rtol:e}: {}", cells(&h));
         held.push(q(&h, rtol));
-        drift.push((energy(&a) / rtol, energy(&h) / rtol));
+        over.push(q(&run(&off, rtol, 10.0, 0.01), rtol));
     }
-    println!(
-        "bead: error / rtol stepped over {over:.1?}, held {held:.1?}; energy drift / rtol {drift:.1?}"
-    );
-    // measured 88, 12.4, 187 stepped over (the review's against DOP853, to
-    // the digit), with a margin; held 429, 502, 528: worse at every
-    // tolerance, the energy too (drift 34, 18, 73 against 124, 145, 164)
-    for (q, bound) in over.iter().zip([300.0, 40.0, 600.0]) {
-        assert!(*q < bound, "{over:?}");
-    }
-    assert!(over.iter().zip(&held).all(|(o, h)| 2.0 * o < *h), "{over:?} {held:?}");
-    assert!(drift.iter().all(|(o, h)| o < h), "{drift:?}");
+    println!("wavy bead, explicit form: error / rtol held {held:.1?}, stepped over {over:.1?}");
+    // measured held 105 and 22.1, stepped over 320 and 3 800, with a margin
+    assert!(held[0] < 300.0 && held[1] < 60.0, "{held:?}");
+    assert!(over[1] > 100.0 * held[1], "{over:?} {held:?}");
 }
 
 /// A gear whose ratio is a linear table of collinear points (`r = 2 + w /

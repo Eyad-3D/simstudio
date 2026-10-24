@@ -209,10 +209,13 @@ pub struct HeldRead {
     /// and released together (their edges are crossed at the same
     /// instants); numbered from 0 in the reads' order
     pub group: u32,
-    /// whether the read itself jumps where it is held (read differentiated
-    /// more often than the table is continuously differentiable there);
-    /// false for a read held beside one that does, or held only for
-    /// comparison (`TableCells::Kinks`), which the run never releases
+    /// whether the read itself jumps where it is held (a 1-D read
+    /// differentiated more often than the table is continuously
+    /// differentiable there: a slope's jump, a cubic's second derivative),
+    /// which the run's releases weigh; false for a read held beside one
+    /// that does, one that only kinks (held for comparison,
+    /// `TableCells::Kinks`) and a 2-D read, which the run never releases on
+    /// their own
     pub jumps: bool,
     /// whether it is held while the run is on the explicit form (no
     /// iteration variable: CVODES). False only for a read that a model whose

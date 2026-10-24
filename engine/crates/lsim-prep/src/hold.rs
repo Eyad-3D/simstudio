@@ -12,12 +12,14 @@
 //! tolerance on the explicit form (CVODES: the judge's gear whose ratio is
 //! a linear table of the load's speed, whose `r'` index reduction reads, up
 //! to 178 rtol off where held it is within 3, and thousands where the speed
-//! turns just past a point), and on the implicit form (IDAS) it stopped the
-//! run at the first breakpoint in every judge case of every kind that
-//! jumps. So by default ([`TableCells::Auto`]) the explicit form holds a
-//! linear table's slope ([`Holds::EXPLICIT`]) and the implicit form every
-//! read that jumps ([`Holds::IMPLICIT`]); a read that only kinks (a linear
-//! table's value) is stepped over on both. A model whose states a run
+//! turns just past a point; a cubic's second derivative read through a
+//! bead's wire, 3 800 rtol off at 1e-7 where held it is 22), and on the
+//! implicit form (IDAS) it stopped the run at a breakpoint in every judge
+//! case of every kind that jumps. So by default ([`TableCells::Auto`]) the
+//! explicit form holds a linear table's slope and a cubic's second
+//! derivative ([`Holds::EXPLICIT`]) and the implicit form every read that
+//! jumps ([`Holds::IMPLICIT`]); a read that only kinks (a linear table's
+//! value) is stepped over on both. A model whose states a run
 //! chooses again holds, in every choice, what either form holds, so that a
 //! run can switch between the forms; the run releases the reads only the
 //! implicit form holds while it is on the explicit one
@@ -81,9 +83,10 @@ pub enum TableCells {
     /// the default: the kinds of read that the model's form needs held,
     /// as measured on exact answers (DESIGN.md §8.2, rule v4). On the
     /// explicit form (no iteration variable: CVODES), a linear table's
-    /// slope at its points ([`Holds::EXPLICIT`]), where stepping over was
-    /// up to thousands of tolerances off where the held run was within
-    /// 30; on the implicit form (IDAS), every read that jumps
+    /// slope at its points and a cubic's second derivative
+    /// ([`Holds::EXPLICIT`]), where stepping over was up to thousands of
+    /// tolerances off where the held run was within 30; on the implicit
+    /// form (IDAS), every read that jumps
     /// ([`Holds::IMPLICIT`]), whose stepping over stopped the run at a
     /// breakpoint in every judge case of each kind, held through every
     /// crossing (the run releases none there). A model whose states a run
@@ -143,8 +146,12 @@ impl Holds {
     /// [`TableCells::Kinks`]: every read that is not smooth at a breakpoint
     pub const ALL: Holds =
         Holds { slope_points: true, slope_edges: true, higher: true, two_d: true, kinks: true };
-    /// [`TableCells::Auto`] on the explicit form: a linear table's slope
-    pub const EXPLICIT: Holds = Holds { slope_points: true, ..Holds::NONE };
+    /// [`TableCells::Auto`] on the explicit form: a linear table's slope and
+    /// a cubic's second derivative
+    pub const EXPLICIT: Holds = Holds { slope_points: true, higher: true, ..Holds::NONE };
+    /// the 1-D reads that jump, whose jumps the run's releases weigh
+    /// ([`HeldRead::jumps`]): a slope's jump and a higher derivative's
+    pub const JUMPS_1D: Holds = Holds { higher: true, ..Holds::JUMPS };
     /// [`TableCells::Auto`] on the implicit form: every read that jumps
     pub const IMPLICIT: Holds = Holds { kinks: false, ..Holds::ALL };
 
@@ -401,7 +408,7 @@ struct Pending {
     /// where the explicit form's default holds it ([`Holds::EXPLICIT`])
     need_explicit: [Need; 2],
     group: String,
-    /// whether its slope jumps itself (as [`TableCells::Jumps`] tells)
+    /// whether it jumps itself, a 1-D read ([`Holds::JUMPS_1D`])
     jumps: bool,
 }
 
@@ -471,7 +478,7 @@ fn named(e: Expr, model: &PreparedModel, st: &mut State, origin: &Origin, holds:
             need: need(data, *order, holds),
             need_explicit: need(data, *order, Holds::EXPLICIT),
             group,
-            jumps: need(data, *order, Holds::JUMPS).iter().any(|n| *n != Need::Nowhere),
+            jumps: need(data, *order, Holds::JUMPS_1D).iter().any(|n| *n != Need::Nowhere),
         });
         Expr::Name(format!("{NAME}{key}"))
     })
@@ -730,8 +737,12 @@ mod tests {
         assert_eq!(need(&cub(Outside::Linear), [1, 0], j)[0], Nowhere);
         assert_eq!(need(&cub(Clamp), [1, 0], j)[0], Edges);
         // a cubic's second derivative jumps at its points (and at its
-        // data's edges, continued linearly), stepped over: not held
+        // data's edges, continued linearly): not held so, but by the
+        // default on either form
         assert_eq!(need(&cub(Outside::Linear), [2, 0], j)[0], Nowhere);
+        assert_eq!(need(&cub(Outside::Linear), [2, 0], Holds::EXPLICIT)[0], Points);
+        assert_eq!(need(&cub(Outside::Linear), [2, 0], Holds::IMPLICIT)[0], Points);
+        assert_eq!(need(&cub(Clamp), [1, 0], Holds::EXPLICIT)[0], Nowhere);
         // two points: a single cell, a line continued
         assert_eq!(need(&data(Linear, Outside::Linear, 2), [1, 0], j)[0], Nowhere);
         assert_eq!(need(&data(Linear, Clamp, 2), [1, 0], j)[0], Edges);
