@@ -1,4 +1,4 @@
-//! Where IDA's error test cannot pass. A gear's output acceleration (an
+//! Where IDA's error test cannot pass (and that CVODE's passes there). A gear's output acceleration (an
 //! iteration variable index reduction made, `der(fd.w_out)`) is the
 //! derivative of what IDA integrates: where the torque driving it starts
 //! a ramp (a kink in a table read along time, a stop of the run without a
@@ -187,6 +187,102 @@ fn an_equation_that_loses_its_solution_is_named_where_the_integrator_fails() {
         assert!(message.contains("loses its solution"), "{err}");
         if message.contains("SUNDIALS flag") {
             assert!(message.contains("z, decided by the model: z's two roots meet"), "{err}");
+        }
+    }
+}
+
+/// An oscillator `x'' = a(t) − x` (x(0) = 0, x'(0) = 1) whose forcing is a
+/// table read along time: 0 until `T_KINK`, then a ramp to `A_END` over
+/// one second, then held. The run stops at the breakpoints without a
+/// restart, so the step after `T_KINK` starts from the history of a
+/// smooth swing at a high order (Adams to 12, BDF to 5) with x''' jumping.
+const T_KINK: f64 = 10.3;
+const A_END: f64 = 100.0;
+
+fn swing() -> ComponentDef {
+    use lsim_ir::component::build::state;
+    use lsim_ir::expr::der;
+    let profile = TableData {
+        interpolation: Interpolation::Linear,
+        outside: [Outside::Clamp, Outside::Clamp],
+        axis_units: ["s".into(), String::new()],
+        ..TableData::new_1d(vec![0.0, T_KINK, T_KINK + 1.0], vec![0.0, 0.0, A_END])
+    };
+    ComponentDef {
+        name: "Test.ForcedSwing".into(),
+        params: vec![
+            ParamDecl {
+                default: ParamValue::Table(profile),
+                ..param("a", "1", 0.0, "the forcing")
+            },
+            param("w2", "1/s2", 1.0, "the swing's rate squared"),
+        ],
+        vars: vec![state("x", "1", 0.0, "the swing"), state("v", "1/s", 1.0, "its rate")],
+        equations: vec![
+            eq(der("x"), n("v"), "x moves with v"),
+            eq(
+                der("v"),
+                n("w2") * (lsim_ir::expr::table("a", vec![Expr::Time]) - n("x")),
+                "forced",
+            ),
+        ],
+        ..Default::default()
+    }
+}
+
+/// The swing's exact `x(t)`: sin t, then the ramp's particular solution
+/// plus the swing it carries, then the held force's.
+fn swing_exact(t: f64) -> f64 {
+    use lsim_ir::math::{cos, sin};
+    if t <= T_KINK {
+        return sin(t);
+    }
+    let k = A_END; // the ramp's slope, per second
+    let (a, b) = (sin(T_KINK), cos(T_KINK) - k);
+    let s = t.min(T_KINK + 1.0) - T_KINK;
+    if t <= T_KINK + 1.0 {
+        return k * s + a * cos(s) + b * sin(s);
+    }
+    let (x1, v1) = (k + a * cos(1.0) + b * sin(1.0), k - a * sin(1.0) + b * cos(1.0));
+    let u = t - T_KINK - 1.0;
+    A_END + (x1 - A_END) * cos(u) + v1 * sin(u)
+}
+
+/// CVODE needs no restart at such a kink: from the history of a smooth
+/// stretch at a high order, its error test failing, it lowers the order
+/// itself and, at order 1, reloads its history from the model (after
+/// seven failures at one step it would stop: cvodes_impl.h's MXNEF), and
+/// it crosses where IDA, whose iteration variable's slope jumps there,
+/// cannot. The restart is IDA's alone: the run goes on to the exact
+/// answer here with none.
+#[test]
+fn cvode_crosses_a_kink_in_its_forcing_without_a_restart() {
+    let built = common::build(&common::library(), &swing(), false);
+    let grid = OutputGrid { t0: 0.0, t_end: T_KINK + 3.0, dt: 0.1 };
+    for method in [lsim_solve::Method::Adams, lsim_solve::Method::Bdf] {
+        for rtol in [1e-6, 1e-8, 1e-10, 1e-12] {
+            let opts = SolverOptions { rtol, atol: rtol * 1e-2, method, ..Default::default() };
+            let run = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs");
+            assert!(run.backend.contains("CVODE"), "{}", run.backend);
+            let x = run.channel("x").unwrap();
+            let worst = run
+                .times
+                .iter()
+                .zip(x)
+                .map(|(t, x)| (x - swing_exact(*t)).abs() / A_END)
+                .fold(0.0, f64::max);
+            println!(
+                "{method:?} rtol {rtol:.0e}: {} steps, {} error test failures, x {worst:.1e} \
+                 of its range off",
+                run.stats.steps, run.stats.err_test_fails
+            );
+            // (right as the outside judge counts right: within 100 rtol)
+            assert!(worst < 100.0 * rtol, "{method:?} at {rtol:e}: {worst:e}");
+            assert!(
+                !run.report.notes.iter().any(|n| n.contains("error test failed")),
+                "{:?}",
+                run.report.notes
+            );
         }
     }
 }
