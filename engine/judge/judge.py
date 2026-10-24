@@ -942,6 +942,46 @@ def crossings() -> dict[str, tuple[str, dict]]:
             f"x > 0.5 from 1 - sqrt({d:g}) to 1 + sqrt({d:g})",
             '  parameter Real c(unit = "1/s2") = 1;\n  Real x(start = 0);\n',
             f"  x ^ 3 + x = {0.625 + d!r} - c * (time - 1) ^ 2;\n", [up], [down], 0.0)
+
+    # a condition on an iteration variable that an event's own discrete
+    # change moves across its threshold, however little: its `when` fires
+    # there, once (an independent recheck's probes of the solver's third
+    # round: held where the integrator saw it, it never fired while x
+    # stayed within the hold)
+    def moved(name, doc, decl, eqs, cond, by="time >= 1"):
+        return counting(
+            name, doc, decl + '  discrete Real k(start = 0, fixed = true) "set at 1 s";\n',
+            eqs + f'  when {by} then\n    k = 1;\n  end when "k set";\n', cond, [1.0])
+
+    for e in (1e-12, 1e-7):
+        out[f"count-moved-nudge-{e:g}"] = moved(
+            "Nudge", f"x^3 + x = 0.625 + z - e + 2 e k, z' = 0, e = {e:g}, k set at 1 s: "
+            "x across 0.5 by e/1.75, then constant",
+            f"  parameter Real e = {e!r};\n"
+            "  Real z(start = 0, fixed = true);\n  Real x(start = 0.5);\n",
+            "  der(z) = 0;\n  x ^ 3 + x = 0.625 + z - e + 2 * e * k;\n", "x > 0.5")
+    out["count-moved-nudge-nostate-1e-12"] = moved(
+        "NudgeTime", "no state: x^3 + x = 0.625 - e + 2 e k, e = 1e-12, k set at 1 s",
+        "  parameter Real e = 1e-12;\n  Real x(start = 0.5);\n",
+        "  x ^ 3 + x = 0.625 - e + 2 * e * k;\n", "x > 0.5")
+    out["count-moved-land"] = moved(
+        "Land", "x^3 + x = 0.5 + 0.125 k + z, z' = 0, k set at 1 s: x from 0.41 onto 0.5",
+        "  Real z(start = 0, fixed = true);\n  Real x(start = 0.4);\n",
+        "  der(z) = 0;\n  x ^ 3 + x = 0.5 + 0.125 * k + z;\n", "x >= 0.5")
+    out["count-moved-land-nostate"] = moved(
+        "LandTime", "no state: x^3 + x = 0.5 + 0.125 k, k set at 1 s: x from 0.41 onto 0.5",
+        "  Real x(start = 0.4);\n", "  x ^ 3 + x = 0.5 + 0.125 * k;\n", "x >= 0.5")
+    out["count-moved-land-rising"] = moved(
+        "LandRising", "x^3 + x = 0.5 + (0.125 + e) k + 0.1 z, z' = a k, e = 1e-9, k set at "
+        "1 s: x from 0.41 to 0.5 + e/1.75, rising on",
+        '  parameter Real e = 1e-9;\n  parameter Real a(unit = "1/s") = 1;\n'
+        "  Real z(start = 0, fixed = true);\n  Real x(start = 0.4);\n",
+        "  der(z) = a * k;\n  x ^ 3 + x = 0.5 + (0.125 + e) * k + 0.1 * z;\n", "x >= 0.5")
+    out["count-moved-other"] = moved(
+        "Other", "x^3 + x = 0.625 - e + 2 e k, e = 1e-9, k set where a state s = t passes 1",
+        '  parameter Real e = 1e-9;\n  Real s(unit = "s", start = 0, fixed = true);\n'
+        "  Real x(start = 0.5);\n",
+        "  der(s) = 1;\n  x ^ 3 + x = 0.625 - e + 2 * e * k;\n", "x > 0.5", by="s > 1")
     return out
 
 
