@@ -63,11 +63,13 @@ RFMU = "https://raw.githubusercontent.com/modelica/Reference-FMUs/v0.0.41"
 SUNDIALS = "https://raw.githubusercontent.com/LLNL/sundials"
 SUNDIALS_REL = "https://github.com/LLNL/sundials/releases/download"
 MSL_REPO = "https://github.com/modelica/ModelicaStandardLibrary"
-MSL_PID_REF = ("https://raw.githubusercontent.com/modelica/MAP-LIB_ReferenceResults/"
-           "dac67829004dd99d00778c995a00363df6088de1/Modelica/Blocks/Examples/PID_Controller")
+# the Modelica Association's reference results, pinned to one commit by its
+# SHA: the head of their `v4.1.0` branch (a branch, not a tag: it may move)
+MSL_REF = ("https://raw.githubusercontent.com/modelica/MAP-LIB_ReferenceResults/"
+           "dac67829004dd99d00778c995a00363df6088de1")
+MSL_PID_REF = f"{MSL_REF}/Modelica/Blocks/Examples/PID_Controller"
 CFR = "https://www.govinfo.gov/content/pkg/CFR-2024-title40-vol37/xml"
 MSL = "https://raw.githubusercontent.com/modelica/ModelicaStandardLibrary/v4.1.0"
-MSL_REF = "https://raw.githubusercontent.com/modelica/MAP-LIB_ReferenceResults/v4.1.0"
 
 SOURCES = [
     # The Bari IVP Test Set (F. Mazzia, C. Magherini, release 2.4, 2008): free
@@ -3694,6 +3696,9 @@ def sundials(cache: Path, work: Path) -> None:
         "7.1.1+lsim": build_sundials(cached(cache, "sundials/sundials-7.1.1.tar.gz"), work,
                                      f"7.1.1-lsim-{sha256(patch)[:12]}", patch),
         "7.9.0": build_sundials(cached(cache, "sundials/sundials-7.9.0.tar.gz"), work, "7.9.0", None),
+        # (the patch on the newer release: it applies there, some lines down)
+        "7.9.0+lsim": build_sundials(cached(cache, "sundials/sundials-7.9.0.tar.gz"), work,
+                                     f"7.9.0-lsim-{sha256(patch)[:12]}", patch),
     }
     # the engine's copy is upstream 7.1.1 with its patch and nothing else
     upstream = work / f"7.1.1-lsim-{sha256(patch)[:12]}" / "src"
@@ -3717,7 +3722,7 @@ def sundials(cache: Path, work: Path) -> None:
             result["runs"].setdefault(name, {})[f"LLNL's {version} .out"] = {"shipped": shipped}
         src = cached(cache, f"sundials/v7.1.1/{name}.c")
         for tag, prefix in builds.items():
-            src_v = cached(cache, f"sundials/v{'7.9.0' if tag == '7.9.0' else '7.1.1'}/{name}.c")
+            src_v = cached(cache, f"sundials/v{'7.9.0' if tag.startswith('7.9.0') else '7.1.1'}/{name}.c")
             rows = {"shipped": run_example(prefix, src_v, work, tag, None)}
             for rtol in RTOLS:
                 rows[f"{rtol:g}"] = run_example(prefix, src, work, tag, rtol)
@@ -3736,6 +3741,17 @@ def sundials_report(res: dict) -> str:
                   "(sundials_config.h aside).\n")
     md.append(f"Akzo Nobel: y1(180) by the reference integration is "
               f"{res['akzo_y1_rel_error_vs_testset']:.1e} off the test set's reference.\n")
+    # the patch on either release: the same run, count for count
+    keys = ("G", "steps", "res", "jac", "nni", "etf", "ncf", "ok")
+    differ = [f"{name} {tol}" for name, runs in res["runs"].items()
+              if "7.1.1+lsim" in runs and "7.9.0+lsim" in runs
+              for tol, r in runs["7.9.0+lsim"].items()
+              if any(r.get(k) != runs["7.1.1+lsim"].get(tol, {}).get(k) for k in keys)]
+    if any("7.9.0+lsim" in runs for runs in res["runs"].values()):
+        md.append("7.9.0 with lsim.patch against 7.1.1 with it: "
+                  + ("the same G, steps, residual and Jacobian evaluations, nonlinear "
+                     "iterations, error test and convergence failures in every row.\n"
+                     if not differ else "they differ in " + ", ".join(differ) + ".\n"))
     for name, runs in res["runs"].items():
         g_ref = res["G_reference"][name]
         md.append(f"### {name} (G reference {g_ref!r})\n")
