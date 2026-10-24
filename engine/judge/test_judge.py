@@ -418,5 +418,24 @@ class KinkCases(unittest.TestCase):
         self.assertEqual({c[3] for c in r["crossings"]}, {1.0, -1.0})
         self.assertLess(r["check"], 1e-11)
 
+    def test_the_gears_on_the_implicit_form_are_the_same_problems(self):
+        # the torques written implicitly: t2 an iteration variable, the
+        # same solution, the same reference
+        k = judge.kinks()
+        for name in ("kink-gear-linear", "kink-dense-gear-41", "kink-osc-41"):
+            for v in ("", "-located"):
+                text, case = k[f"{name}-imp{v}"]
+                self.assertIn("t2 + 1e-6 * t2^3 / tu^2 = ", text)
+                self.assertIn('parameter Real tu(unit = "N.m") = 1;', text)
+                self.assertNotIn("\n  t2 = ", text)
+                self.assertEqual(case["judge"], k[name][1]["judge"])
+                self.assertEqual(case["located"], v == "-located")
+            self.assertEqual(k[f"{name}-imp-always"][1]["options"],
+                             {"table_cells": "jumps", "table_release": False})
+        # the plain relation, as kink_gear and kink_osc write it
+        with self.assertRaises(ValueError):
+            judge.implicit_torques("model M\nend M;\n")
+
+
 if __name__ == "__main__":
     unittest.main()

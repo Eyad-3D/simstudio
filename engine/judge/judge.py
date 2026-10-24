@@ -1328,13 +1328,35 @@ def kink_bead(n: int, x0: float, t_end: float, dt: float) -> tuple[str, dict]:
     return text, case
 
 
+def implicit_torques(text: str) -> str:
+    """A gear's text (`kink_gear`, `kink_osc`) with its torques written
+    implicitly, `t2 + 1e-6 t2^3 / tu^2 = r t1 + 1e-6 (r t1)^3 / tu^2`: the
+    same solution (`t2 = r t1`, the left side rising with t2), but t2 an
+    iteration variable, so that the model is of the implicit form and runs
+    on IDAS (the A3 check's probe)."""
+    m = re.search(r'^  t2 = (.*) \* t1 "([^"]*)";$', text, re.M)
+    if m is None:
+        raise ValueError("no gear relation t2 = r t1")
+    r = m.group(1)
+    line = (f"  t2 + 1e-6 * t2^3 / tu^2 = {r} * t1 + 1e-6 * ({r} * t1)^3 / tu^2 "
+            f'"{m.group(2)}, written implicitly: t2 an iteration variable";')
+    text = text[:m.start()] + line + text[m.end():]
+    unit = '  parameter Real wu(unit = "rad/s") = 1'
+    if unit not in text:
+        raise ValueError("no wu parameter")
+    return text.replace(unit, '  parameter Real tu(unit = "N.m") = 1;\n' + unit, 1)
+
+
 def kinks() -> dict[str, tuple[str, dict]]:
     """The kink cases, each beside its `-located` control, and some beside
     the other ways the runner can take (its option "table_cells"; the
-    engine's default steps over every breakpoint): `-held`, held in its
-    cells ("jumps" for a read whose slope jumps, "kinks" for one that only
-    kinks, as a read that jumps is held), `-always`, held without the
-    releases ("table_release" off)."""
+    engine's default, "auto", holds what the model's form needs: on the
+    explicit form a linear table's slope, on the implicit form every read
+    whose slope jumps): `-held`, held in its cells ("jumps" for a read
+    whose slope jumps, "kinks" for one that only kinks, as a read that
+    jumps is held), `-always`, held without the releases ("table_release"
+    off), `-over`, stepped over ("off"). `-imp…`: the gears with their
+    torques written implicitly (`implicit_torques`), on IDAS."""
     out = {}
 
     def both(name, make, *a):
@@ -1429,6 +1451,29 @@ def kinks() -> dict[str, tuple[str, dict]]:
     # constraint; held at every point ("kinks") 204 crossings, each a restart
     out["kink-bead-41"] = kink_bead(41, 1.5, 10.0, 0.01)
     other("kink-bead-41", "held", table_cells="kinks")
+    # stepped over, beside the default that holds them now (a linear
+    # table's slope on the explicit form)
+    for name in ("kink-gear-linear", "kink-dense-gear-41", "kink-dense-gear-401", "kink-osc-41",
+                 "kink-osc-101"):
+        other(name, "over", table_cells="off")
+    # the implicit form (IDAS): the default holds the read through every
+    # crossing (no release there); stepped over, the gears stop at their
+    # first breakpoint (the oscillation gives no answer within minutes: not
+    # run here)
+    ws = [80.0 * k / 40 for k in range(41)]
+    located = {"kink-dense-gear-41": kink_gear(
+        "linear through 2 + w/40 + 0.25 sin(w/8) at 41 points", ws,
+        [2.0 + w / 40.0 + 0.25 * math.sin(w / 8.0) for w in ws], "linear", "linear", None, 3.0,
+        0.01, True)}
+    for name in ("kink-gear-linear", "kink-dense-gear-41", "kink-osc-41"):
+        text, case = out[name]
+        out[f"{name}-imp"] = (implicit_torques(text), case)
+        other(f"{name}-imp", "held", table_cells="jumps")
+        other(f"{name}-imp", "always", table_cells="jumps", table_release=False)
+        if name != "kink-osc-41":
+            other(f"{name}-imp", "over", table_cells="off")
+        text, case = located.get(name) or out[f"{name}-located"]
+        out[f"{name}-imp-located"] = (implicit_torques(text), case)
     return out
 
 
@@ -3044,10 +3089,10 @@ def kink_summary(after: dict) -> str:
 
 
 def kink_beside_summary(after: dict) -> str:
-    """The tables read at a state run the engine's way (stepped over) beside
-    the others (`…-held`: held in their cells; `…-always`: held without the
-    releases; `…-over`: stepped over, of a run made before that was the
-    default): per tolerance, each one's error in rtol, their ratio (the
+    """The tables read at a state run the engine's way (its default,
+    "auto") beside the others (`…-held`: held in their cells; `…-always`:
+    held without the releases; `…-over`: stepped over, "off"): per
+    tolerance, each one's error in rtol, their ratio (the
     other way's over the engine's), steps and events (one a held read's
     crossing: two reads held together count two)."""
     pairs = [(n, f"{n}-{v}", v) for n in sorted(after) for v in ("held", "always", "over")
