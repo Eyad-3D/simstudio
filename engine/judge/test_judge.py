@@ -193,6 +193,28 @@ class Verdict(unittest.TestCase):
         b = judge.score_count(case, twice)
         self.assertEqual(judge.verdict(case, dict(b, ok=True, rtol=1e-7)), "wrong")
 
+    def test_a_count_with_other_counters_and_finals_is_right_only_when_all_are(self):
+        # `when x > 0.5` counts n, `when x < 0.5` counts m (no crossing down),
+        # an elsewhen sets on: the falling clause fired at the rise too is wrong
+        case = {"t_end": 2.0, "judge": {"kind": "count", "exact": [0.625],
+                                        "also": {"m": {"label": "it counts down", "exact": []}},
+                                        "final": {"on": 1.0}}}
+        right = {"final": {"n": 1.0, "m": 0.0, "on": 1.0}, "event_times": [0.62499996] * 2,
+                 "event_labels": ["the model: it counts", "the model: the switch"]}
+        both = {"final": {"n": 1.0, "m": 1.0, "on": 0.0}, "event_times": [0.62499996] * 4,
+                "event_labels": ["the model: it counts", "the model: the switch",
+                                 "the model: it counts down", "the model: the switch"]}
+        mode = dict(right, final={"n": 1.0, "m": 0.0, "on": 0.0})
+        a = judge.score_count(case, right)
+        self.assertAlmostEqual(a["error"], 4e-8, delta=1e-15)
+        self.assertEqual(judge.verdict(case, dict(a, ok=True, rtol=1e-7)), "right")
+        for wrong in (both, mode):
+            b = judge.score_count(case, wrong)
+            self.assertEqual(judge.verdict(case, dict(b, ok=True, rtol=1e-7)), "wrong")
+        # OpenModelica's runs: the counters' changes
+        om = {"final": {"n": 1.0, "m": 0.0, "on": 1.0}, "changes": {"n": [0.625], "m": []}}
+        self.assertEqual(judge.score_count(case, om)["error"], 0.0)
+
 
 class Positions(unittest.TestCase):
     def test_each_rod_compared_by_time_the_worst_judged(self):

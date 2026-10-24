@@ -892,6 +892,54 @@ def crossings() -> dict[str, tuple[str, dict]]:
         '  Real v(unit = "1/s", start = 0, fixed = true);\n',
         "  der(z) = v;\n  der(v) = -w * w * z;\n", "z > 0.9999",
         [float(2 * mp.pi * k) - rise for k in range(1, 10)], t_end=62.0, dt=0.5, x="z")
+
+    # complementary conditions on one iteration variable: at each crossing
+    # only its own direction's clauses fire, and the elsewhen's mode
+    # follows x (an independent review's probes of the solver's second
+    # round: the falling clauses fired at the rise too, the mode then
+    # wrong for the rest of the run)
+    def pair(name, doc, decl, eqs, ups, downs, on_end):
+        text = (f'model Judge.{name} "{doc}"\n{decl}'
+                '  discrete Real n(start = 0, fixed = true) "the rises counted";\n'
+                '  discrete Real m(start = 0, fixed = true) "the falls counted";\n'
+                '  discrete Real on(start = 0, fixed = true) "1 above 0.5, by the elsewhen";\n'
+                f'equation\n{eqs}'
+                '  when x > 0.5 then\n    n = pre(n) + 1;\n  end when "it counts";\n'
+                '  when x < 0.5 then\n    m = pre(m) + 1;\n  end when "it counts down";\n'
+                '  when x > 0.5 then\n    on = 1;\n  elsewhen x < 0.5 then\n    on = 0;\n'
+                f'  end when "the switch";\nend Judge.{name};\n')
+        case = {"model": f"Judge.{name}", "t_end": 2.0, "dt": 0.1, "atol_factor": 1e-2,
+                "record": ["x", "n", "m", "on"],
+                "judge": {"kind": "count", "exact": ups,
+                          "also": {"m": {"label": "it counts down", "exact": downs}},
+                          "final": {"on": on_end}}}
+        return text, case
+
+    for a in (1.0, 2.3):
+        out[f"count-pair-implicit-{a}"] = pair(
+            "PairRamp", "x solved from x^3 + x = z, z = a t: x > 0.5 from 0.625 / a, "
+            "x < 0.5 before; when x > 0.5, when x < 0.5 and when … elsewhen on it",
+            f'  parameter Real a(unit = "1/s") = {a!r};\n'
+            '  Real z(start = 0, fixed = true);\n  Real x(start = 0);\n',
+            "  der(z) = a;\n  x ^ 3 + x = z;\n", [0.625 / a], [], 1.0)
+        out[f"count-pair-implicit-nostate-{a}"] = pair(
+            "PairTime", "no state: x solved from x^3 + x = a time; x > 0.5 from 0.625 / a",
+            f'  parameter Real a(unit = "1/s") = {a!r};\n  Real x(start = 0);\n',
+            "  x ^ 3 + x = a * time;\n", [0.625 / a], [], 1.0)
+    for d in (1e-2, 1e-3):
+        up, down = 1 - math.sqrt(d), 1 + math.sqrt(d)
+        out[f"count-peak-implicit-{d:g}"] = pair(
+            "PeakState", f"x solved from x^3 + x = z, z'' = -2 c, z = 0.625 + {d:g} - c (t - 1)^2: "
+            f"x > 0.5 from 1 - sqrt({d:g}) to 1 + sqrt({d:g})",
+            '  parameter Real c(unit = "1/s2") = 1;\n'
+            f'  Real z(start = {0.625 + d - 1.0!r}, fixed = true);\n'
+            '  Real w(unit = "1/s", start = 2, fixed = true);\n  Real x(start = 0);\n',
+            "  der(z) = w;\n  der(w) = -2 * c;\n  x ^ 3 + x = z;\n", [up], [down], 0.0)
+        out[f"count-peak-implicit-nostate-{d:g}"] = pair(
+            "PeakTime", f"no state: x^3 + x = 0.625 + {d:g} - c (time - 1)^2: "
+            f"x > 0.5 from 1 - sqrt({d:g}) to 1 + sqrt({d:g})",
+            '  parameter Real c(unit = "1/s2") = 1;\n  Real x(start = 0);\n',
+            f"  x ^ 3 + x = {0.625 + d!r} - c * (time - 1) ^ 2;\n", [up], [down], 0.0)
     return out
 
 
@@ -2966,17 +3014,30 @@ def score_count(case: dict, r: dict) -> dict:
     the error is the largest distance of a firing from its crossing, or
     infinite where it fired too often or too seldom."""
     exact = case["judge"]["exact"]
-    n = r["final"].get("n")
-    if "changes" in r:
-        # OpenModelica's: where its result file's n changes
-        fired = r["changes"].get("n", [])
-    else:
-        fired = [t for t, label in zip(r["event_times"], r.get("event_labels") or [])
-                 if label.endswith("it counts")]
-    if n != len(exact) or len(fired) != len(exact):
+
+    def counted(var, label, exact):
+        n = r["final"].get(var)
+        if "changes" in r:
+            # OpenModelica's: where its result file's counter changes
+            fired = r["changes"].get(var, [])
+        else:
+            fired = [t for t, lab in zip(r["event_times"], r.get("event_labels") or [])
+                     if lab.endswith(label)]
+        ok = n == len(exact) and len(fired) == len(exact)
+        return n, fired, (max((abs(t - e) for t, e in zip(fired, exact)), default=0.0)
+                          if ok else math.inf)
+
+    n, fired, err = counted("n", "it counts", exact)
+    # the other counters (`also`: each its `when`'s label and crossings), and
+    # the discrete values the run must end with (`final`)
+    for var, c in case["judge"].get("also", {}).items():
+        err = max(err, counted(var, c["label"], c["exact"])[2])
+    for var, v in case["judge"].get("final", {}).items():
+        if r["final"].get(var) != v:
+            err = math.inf
+    if not math.isfinite(err):
         return {"error": math.inf, "scd": None, "count": n, "count_exact": len(exact),
                 "fired_at": fired}
-    err = max(abs(t - e) for t, e in zip(fired, exact))
     return {"error": err, "scd": log_digits(err / case["t_end"]), "count": n,
             "count_exact": len(exact), "fired_at": fired}
 
