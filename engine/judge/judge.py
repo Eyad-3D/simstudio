@@ -1338,6 +1338,32 @@ def kink_osc(what: str, points, values, interp: str, outside: str, w0: float, t_
     return text, case
 
 
+def kink_osc2d(what: str, points, values, w0: float, t_end: float, dt: float) -> tuple[str, dict]:
+    """`kink_osc` with its ratio read as a 2-D table r(w2, c) of the load's
+    speed and of c = 0.05 t (`stateSelect = always`: the explicit form),
+    linear, its values along w2 the same at each of c's points -1, 0.5 and
+    2: r(w2, c) = f(w2) exactly, so the 1-D case's reference is this one's
+    (the A3 check 6's k4osc). Its slope along w2 jumps at every point."""
+    text, case = kink_osc(what, points, values, "linear", "linear", w0, t_end, dt, False)
+    old = table_text(points, values, "linear", "linear", "rad/s")
+    rows = "; ".join(", ".join([num(v)] * 3) for v in values)
+    table = (f'table(x1 = {{{", ".join(num(p) for p in points)}}}, x2 = {{-1, 0.5, 2}}, '
+             f'values = [{rows}], x1Unit = "rad/s", x2Unit = "1", interpolation = linear, '
+             f'outside = {{linear, linear}})')
+    assert text.count(old) == 1 and text.count("= r(w2)") == 3, text
+    text = (text.replace(old, table).replace("= r(w2)", "= r(w2, c)")
+            .replace("Judge.KinkOsc", "Judge.KinkOsc2D")
+            .replace("A gear whose ratio r is a table of the load's speed,",
+                     "A gear whose ratio r is a 2-D table of the load's speed and of c = 0.05 t, the same "
+                     "along c,")
+            .replace('  Real w1(unit',
+                     '  parameter Real cu(unit = "1/s") = 0.05 "the rate of c";\n'
+                     '  Real c(start = 0, fixed = true, stateSelect = StateSelect.always) '
+                     '"the ratio\'s second argument";\n  Real w1(unit')
+            .replace("equation\n", "equation\n  der(c) = cu;\n"))
+    return text, dict(case, model="Judge.KinkOsc2D")
+
+
 KINK_BEAD = '''model Judge.KinkBead "A bead on a wire y = r(x) under gravity, r the default table (a monotone cubic) of x^2/2 at {n} points, continued linearly, s(x) = x a second one for the wire's force direction: index reduction differentiates y = r(x) twice, reading r' and r'', whose second derivative's breakpoints the bead crosses as it swings."
   parameter Real m(unit = "kg") = 1;
   parameter Real g(unit = "m/s2") = 9.81;
@@ -1415,7 +1441,7 @@ def kinks() -> dict[str, tuple[str, dict]]:
     """The kink cases, each beside its `-located` control, and some beside
     the other ways the runner can take (its option "table_cells"; the
     engine's default, "auto", holds every read that jumps, on either form,
-    and releases a held 1-D read on the explicit form where that costs more
+    and releases a held read on the explicit form where that costs more
     than it saves): `-held`, held in its cells ("jumps" for a read whose
     slope jumps, "kinks" for one that only kinks, as a read that jumps is
     held), `-always`, held without the releases ("table_release" off),
@@ -1535,12 +1561,27 @@ def kinks() -> dict[str, tuple[str, dict]]:
          0.01)
     other("kink-gear-clamp-6", "always", table_cells="jumps", table_release=False)
     # a 2-D read whose slopes jump, on the explicit form (c marked always;
-    # the A3 check 5's k4-ws): held by default on both forms (rule v4; the
-    # releases weigh 1-D reads only), beside stepped over and held always
+    # the A3 check 5's k4-ws): held by default on both forms (rule v4; its
+    # crossings few, the run releases nothing), beside stepped over and held
+    # always
     both("kink-gear-2d", kink_gear2d, "bilinear on a grid of 5 by 5 points",
          [0.0, 20.0, 40.0, 60.0, 80.0], [2.0, 2.6, 3.3, 3.6, 4.0],
          [-1.0, 0.7, 1.6, 2.4, 4.0], [0.0, 0.2, -0.1, 0.25, 0.1], 20.0, 3.0, 0.01)
     other("kink-gear-2d", "always", table_cells="kinks", table_release=False)
+    # the swings of kink-osc-41 and -101 with their ratio read as a 2-D table,
+    # constant along its second argument (c = 0.05 t, marked always; the A3
+    # check 6's k4osc): the 2-D read held by default and released, as a
+    # 1-D one, where its crossings come too often; beside stepped over and
+    # held always (the default at 1d9e5fd1, whose releases weighed 1-D reads
+    # only)
+    for n in (41, 101):
+        ws = [-30.0 + 60.0 * k / (n - 1) for k in range(n)]
+        name = f"kink-osc2d-{n}"
+        out[name] = kink_osc2d(f"linear through 2.5 + w/50 + 0.2 sin(w/4) at {n} points", ws,
+                               [2.5 + 0.02 * w + 0.2 * math.sin(w / 4.0) for w in ws], 28.0, 20.0,
+                               0.01)
+        other(name, "over", table_cells="off")
+        other(name, "always", table_cells="kinks", table_release=False)
     # stepped over, beside the default that holds them now (on the explicit
     # form: a linear table's slope, a clamped cubic's at its edges, a 2-D
     # read)

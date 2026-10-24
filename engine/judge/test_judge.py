@@ -469,6 +469,30 @@ class KinkCases(unittest.TestCase):
         self.assertEqual(sorted({c[1] for c in r["crossings"]}), [0, 1])
         self.assertLess(r["check"], 1e-12)
 
+    def test_the_two_dimensional_swings_are_the_one_dimensional_problems(self):
+        # the ratio read as r(w2, c), its values the same along c: the same
+        # solution as the 1-D swing's, so the same reference; c a state
+        # marked always (the explicit form), the table's values per row
+        k = judge.kinks()
+        for n in (41, 101):
+            text, case = k[f"kink-osc2d-{n}"]
+            one_text, one = k[f"kink-osc-{n}"]
+            self.assertEqual(case["judge"], one["judge"])
+            self.assertEqual(case["model"], "Judge.KinkOsc2D")
+            self.assertIn("  w1 = r(w2, c) * w2", text)
+            self.assertIn("  t2 = r(w2, c) * t1", text)
+            self.assertIn("  der(c) = cu;", text)
+            self.assertIn("stateSelect = StateSelect.always", text)
+            self.assertNotIn("= r(w2) ", text)
+            self.assertIn("x2 = {-1, 0.5, 2}", text)
+            rows = text.split("values = [")[1].split("]")[0].split("; ")
+            self.assertEqual(len(rows), n, "a row per point of w2")
+            self.assertTrue(all(len(set(row.split(", "))) == 1 for row in rows), "the same along c")
+            self.assertNotIn("options", case)
+            self.assertEqual(k[f"kink-osc2d-{n}-over"][1]["options"], {"table_cells": "off"})
+            self.assertEqual(k[f"kink-osc2d-{n}-always"][1]["options"],
+                             {"table_cells": "kinks", "table_release": False})
+
     def test_the_gears_on_the_implicit_form_are_the_same_problems(self):
         # the torques written implicitly: t2 an iteration variable, the
         # same solution, the same reference
