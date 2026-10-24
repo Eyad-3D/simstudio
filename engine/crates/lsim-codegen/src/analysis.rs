@@ -4,11 +4,11 @@
 //! colouring, and the table reads the run loop watches.
 
 use crate::CodegenError;
-use lsim_ir::expr::{BinaryOp, Builtin, Expr};
+use lsim_ir::expr::{BinaryOp, Builtin, CmpOp, Expr};
 use lsim_ir::prepared::{PreparedModel, Slot};
 use lsim_ir::runtime::SparsityPattern;
 use lsim_ir::{Outside, TableGuard, VarId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Where a referenced value comes from.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -628,16 +628,22 @@ pub(crate) struct TableSite<'m> {
     pub args: &'m [Expr],
 }
 
-/// Every table read in the model's assignments and residuals, with the
-/// guard list (one entry per axis of each read). A read held in its cells
-/// (`PreparedModel::held`) is there as written: the equations read it as
-/// `if released then` the read `else` its cell's function.
+/// Every table read in the model's assignments and residuals, and the
+/// reads held in their cells (`PreparedModel::held`, which the equations
+/// read as `if released then` the read `else` its cell's function: the
+/// read's site is the held read's own, after the others), with the guard
+/// list (one entry per axis of each read).
 pub(crate) fn table_sites<'m>(model: &'m PreparedModel) -> (Vec<TableSite<'m>>, Vec<TableGuard>) {
+    let released: HashSet<VarId> = model.held.iter().map(|h| h.released).collect();
     let mut sites = vec![];
-    let exprs =
-        model.assignments.iter().map(|a| &a.expr).chain(model.residuals.iter().map(|r| &r.expr));
+    let exprs = model
+        .assignments
+        .iter()
+        .map(|a| &a.expr)
+        .chain(model.residuals.iter().map(|r| &r.expr))
+        .chain(model.held.iter().map(|h| &h.read));
     for e in exprs {
-        collect_tables(e, &mut sites);
+        collect_tables(e, &released, &mut sites);
     }
     let mut guards = vec![];
     for s in &sites {
@@ -650,14 +656,23 @@ pub(crate) fn table_sites<'m>(model: &'m PreparedModel) -> (Vec<TableSite<'m>>, 
     (sites, guards)
 }
 
-fn collect_tables<'m>(e: &'m Expr, out: &mut Vec<TableSite<'m>>) {
+fn collect_tables<'m>(e: &'m Expr, released: &HashSet<VarId>, out: &mut Vec<TableSite<'m>>) {
+    // (a held read written out: its cell's function only, the read itself
+    // being the held read's site)
+    if let Expr::If(c, _, cell) = e
+        && let Expr::Compare(CmpOp::Gt, v, _) = &**c
+        && matches!(&**v, Expr::Var(r) if released.contains(r))
+    {
+        collect_tables(cell, released, out);
+        return;
+    }
     // (a derivative read's arguments are its value's, which the model
     // keeps beside it: the value's site guards them)
     if let Expr::Table { table, args, order: [0, 0] } = e {
         out.push(TableSite { table: *table, args });
     }
     for c in e.children() {
-        collect_tables(c, out);
+        collect_tables(c, released, out);
     }
 }
 
