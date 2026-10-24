@@ -1210,6 +1210,57 @@ def kink_2d(xs, fx, ys, gy, x0: float, v0: float, y0: float, t_end: float, dt: f
     return text, case
 
 
+KINK_GEAR2D = '''model Judge.KinkGear2D "A rotor (J1) driven by a torque turns a load (J2) through a gear whose ratio r is a table of the load's speed and of a state c rising at 1/s, {what}: w1 = r(w2, c) w2, which index reduction differentiates, reading both slopes of r, which jump across its grid's lines."
+  parameter Real J1(unit = "kg.m2") = 0.05 "the rotor's inertia";
+  parameter Real J2(unit = "kg.m2") = 2 "the load's inertia";
+  parameter Real tau0(unit = "N.m") = {tau0} "the driving torque";
+  parameter Real cu(unit = "1/s") = 1 "the rate of c";
+  parameter Real wu(unit = "rad/s") = 1 "the unit of the ratio's first argument";
+  parameter Real r = {table} "the gear's ratio over the load's speed and c";
+  Real w1(unit = "rad/s", start = 0) "the rotor's speed";
+  Real w2(unit = "rad/s", start = 0, fixed = true) "the load's speed";
+  Real c(start = 0, fixed = true, stateSelect = StateSelect.always) "the ratio's second argument";
+  Real t1(unit = "N.m") "the gear's torque on the rotor";
+  Real t2(unit = "N.m") "the gear's torque on the load";
+equation
+  der(c) = cu;
+  J1 * der(w1) = tau0 - t1;
+  J2 * der(w2) = t2;
+  w1 = {ratio} * w2 "the gear's kinematics";
+  t2 = {ratio} * t1 "an ideal gear: t1 w1 = t2 w2";
+end Judge.KinkGear2D;
+'''
+
+
+def kink_gear2d(what: str, ws, fw, cs, gc, tau0: float, t_end: float, dt: float,
+                located: bool) -> tuple[str, dict]:
+    """The gear whose ratio is a 2-D table of the load's speed and of c
+    (c = t, `stateSelect = always`: the explicit form), bilinear on the grid
+    ws x cs with values fw_i + gc_j: between the points exactly f(w2) +
+    g(c), each linear, continued linearly outside. The reference, per pair
+    of cells (`kink_gear2d_reference`). `located`: f(w2) + g(c) as `if`
+    branches."""
+    pf = pieces_1d(ws, fw, "linear", "linear")
+    pg = pieces_1d(cs, gc, "linear", "linear")
+    rows = "; ".join(", ".join(num(a + b) for b in gc) for a in fw)
+    table = (f'table(x1 = {{{", ".join(num(v) for v in ws)}}}, x2 = {{{", ".join(num(v) for v in cs)}}}, '
+             f'values = [{rows}], x1Unit = "rad/s", x2Unit = "1", interpolation = linear, '
+             f'outside = {{linear, linear}})')
+    ratio = f"(({if_chain(pf, '(w2 / wu)')}) + ({if_chain(pg, 'c')}))" if located else "r(w2, c)"
+    text = (KINK_GEAR2D.replace("{what}", what).replace("{tau0}", num(tau0))
+            .replace("{table}", table).replace("{ratio}", ratio))
+    if located:
+        text = (text.replace("Judge.KinkGear2D", "Judge.KinkGear2DLocated")
+                .replace("  parameter Real r = ", "  parameter Real r_table = ")
+                .replace("reading both slopes of r, which jump across its grid's lines.\"",
+                         "r here written as if branches on its breakpoints: each crossing an event.\""))
+    case = {"model": "Judge.KinkGear2DLocated" if located else "Judge.KinkGear2D",
+            "t_end": t_end, "dt": dt, "atol_factor": 1e-2, "record": ["w1", "w2"],
+            "judge": {"kind": "kink", "problem": "gear2d", "pieces_w": pf, "pieces_c": pg,
+                      "J1": 0.05, "J2": 2.0, "tau0": tau0, "cu": 1.0}, "located": located}
+    return text, case
+
+
 KINK_PASS = '''model Judge.KinkPass "A quantity v whose rate is a table of itself, {what}: v rises through each point once{leaves}."
   parameter Real k(unit = "1/s") = 1 "the rate per unit T";
   parameter Real T = {table} "the rate over v";
@@ -1363,12 +1414,12 @@ def implicit_torques(text: str) -> str:
 def kinks() -> dict[str, tuple[str, dict]]:
     """The kink cases, each beside its `-located` control, and some beside
     the other ways the runner can take (its option "table_cells"; the
-    engine's default, "auto", holds what the model's form needs: on the
-    explicit form a linear table's slope, on the implicit form every read
-    whose slope jumps): `-held`, held in its cells ("jumps" for a read
-    whose slope jumps, "kinks" for one that only kinks, as a read that
-    jumps is held), `-always`, held without the releases ("table_release"
-    off), `-over`, stepped over ("off"). `-imp…`: the gears with their
+    engine's default, "auto", holds every read that jumps, on either form,
+    and releases a held 1-D read on the explicit form where that costs more
+    than it saves): `-held`, held in its cells ("jumps" for a read whose
+    slope jumps, "kinks" for one that only kinks, as a read that jumps is
+    held), `-always`, held without the releases ("table_release" off),
+    `-over`, stepped over ("off"). `-imp…`: the gears with their
     torques written implicitly (`implicit_torques`), on IDAS."""
     out = {}
 
@@ -1473,10 +1524,29 @@ def kinks() -> dict[str, tuple[str, dict]]:
         out[f"kink-bead-sin-{n}"] = kink_bead(n, 1.5, 10.0, 0.01, wave=True)
         other(f"kink-bead-sin-{n}", "over", table_cells="off")
         other(f"kink-bead-sin-{n}", "always", table_cells="kinks", table_release=False)
-    # stepped over, beside the default that holds them now (a linear
-    # table's slope on the explicit form)
+    # a sparse monotone cubic held at its edges, 6 points on [0, 40] rad/s
+    # through 2 + w/40 + 0.25 sin(w/8), the load leaving its data at 40
+    # rad/s once (the A3 check 5's k3-40-h8): r' jumps to 0 there. Held by
+    # default on both forms (rule v4), beside stepped over and held without
+    # the releases
+    ws = [8.0 * k for k in range(6)]
+    both("kink-gear-clamp-6", kink_gear, "a monotone cubic of 6 points held at its edges", ws,
+         [2.0 + w / 40.0 + 0.25 * math.sin(w / 8.0) for w in ws], "cubic", "clamp", None, 4.0,
+         0.01)
+    other("kink-gear-clamp-6", "always", table_cells="jumps", table_release=False)
+    # a 2-D read whose slopes jump, on the explicit form (c marked always;
+    # the A3 check 5's k4-ws): held by default on both forms (rule v4; the
+    # releases weigh 1-D reads only), beside stepped over and held always
+    both("kink-gear-2d", kink_gear2d, "bilinear on a grid of 5 by 5 points",
+         [0.0, 20.0, 40.0, 60.0, 80.0], [2.0, 2.6, 3.3, 3.6, 4.0],
+         [-1.0, 0.7, 1.6, 2.4, 4.0], [0.0, 0.2, -0.1, 0.25, 0.1], 20.0, 3.0, 0.01)
+    other("kink-gear-2d", "always", table_cells="kinks", table_release=False)
+    # stepped over, beside the default that holds them now (on the explicit
+    # form: a linear table's slope, a clamped cubic's at its edges, a 2-D
+    # read)
     for name in ("kink-gear-linear", "kink-dense-gear-41", "kink-dense-gear-401", "kink-osc-41",
-                 "kink-osc-101"):
+                 "kink-osc-101", "kink-gear-clamp", "kink-edge-11", "kink-gear-clamp-6",
+                 "kink-gear-2d"):
         other(name, "over", table_cells="off")
     # the implicit form (IDAS): the default holds the read through every
     # crossing (no release there); stepped over, the gears stop at a
@@ -2324,6 +2394,78 @@ def kink_bead_reference(j: dict, times: list[float]) -> dict:
     return ref
 
 
+def kink_gear2d_reference(j: dict, times: list[float], method: str = "DOP853",
+                          rtol: float = 1e-13) -> dict:
+    """The 2-D gear (`kink_gear2d`): w2' = r (tau0 - J1 r_c c' w2) / (J2 + J1
+    r (r + r_w w2)), c = c' t, r = f(w2) + g(c) per pair of cells,
+    integrated by DOP853 at rtol 1e-13 (scipy; or `method` at `rtol`), each
+    crossing of a cell's edge in w2 found by its event and in c at its
+    known time, the integration restarted there in the next cell. Checked
+    by the energy the ideal gear passes on: 1/2 J1 w1^2 + 1/2 J2 w2^2 grows
+    by the driving torque's work, int tau0 w1 dt (integrated beside it):
+    the largest difference, relative to the largest kinetic energy."""
+    from scipy.integrate import solve_ivp
+
+    pw, pc, J1, J2, tau, cu = j["pieces_w"], j["pieces_c"], j["J1"], j["J2"], j["tau0"], j["cu"]
+
+    def val(pieces, p, x, d=0):
+        _, _, x0, c = pieces[p]
+        s = x - x0
+        return sum(math.factorial(i) / math.factorial(i - d) * ci * s ** (i - d)
+                   for i, ci in enumerate(c) if i >= d)
+
+    def rhs(t, z, a, b):
+        w, c = z[0], cu * t
+        r = val(pw, a, w) + val(pc, b, c)
+        dw = r * (tau - J1 * val(pc, b, c, 1) * cu * w) / (J2 + J1 * r * (r + val(pw, a, w, 1) * w))
+        return [dw, tau * r * w]
+
+    def kinetic(t, z, a, b):
+        r = val(pw, a, z[0]) + val(pc, b, cu * t)
+        return 0.5 * J1 * (r * z[0]) ** 2 + 0.5 * J2 * z[0] ** 2
+
+    a, b = kink_piece(pw, 0.0), kink_piece(pc, 0.0)
+    t, z, k, t_end = 0.0, [0.0, 0.0], 0, times[-1]
+    got = {"w1": [], "w2": []}
+    crossings, gap, top = [], 0.0, 0.0
+    while t < t_end:
+        lo, hi = pw[a][0], pw[a][1]
+        stop = t_end if pc[b][1] is None else min(t_end, pc[b][1] / cu)
+        evs = []
+        if lo is not None:
+            f = lambda t, z, a, b, lo=lo: z[0] - lo
+            f.terminal, f.direction = True, -1
+            evs.append((-1, f))
+        if hi is not None:
+            g = lambda t, z, a, b, hi=hi: z[0] - hi
+            g.terminal, g.direction = True, 1
+            evs.append((1, g))
+        sol = solve_ivp(rhs, (t, stop), z, method=method, rtol=rtol, atol=rtol,
+                        dense_output=True, events=[e for _, e in evs], args=(a, b))
+        t1 = sol.t[-1]
+        end = sol.status == 0 and stop >= t_end
+        while k < len(times) and (times[k] < t1 or (end and times[k] <= t1)):
+            zk = sol.sol(times[k])
+            r = val(pw, a, zk[0]) + val(pc, b, cu * times[k])
+            got["w1"].append(float(r * zk[0]))
+            got["w2"].append(float(zk[0]))
+            e = kinetic(times[k], zk, a, b)
+            top, gap = max(top, e), max(gap, abs(e - zk[1]))
+            k += 1
+        z, t = list(sol.y[:, -1]), t1
+        if sol.status == 1:
+            which = [i for i, e in enumerate(sol.t_events) if len(e)][0]
+            step = evs[which][0]
+            a += step
+            crossings.append([t, 0, z[0], float(step)])
+        elif not end:
+            b += 1
+            crossings.append([t, 1, cu * t, 1.0])
+        else:
+            break
+    return {**got, "crossings": crossings, "check": gap / top}
+
+
 def kink_check(j: dict, times: list[float], ref: dict) -> float:
     """An independent check of a kink case's reference: the same problem
     integrated by DOP853 at rtol 1e-13 (scipy) piece by piece, stopped at
@@ -2406,9 +2548,11 @@ def kink_check(j: dict, times: list[float], ref: dict) -> float:
 
 
 def kink_reference(j: dict, times: list[float]) -> dict:
-    if j["problem"] in ("osc", "bead"):
-        # (DOP853 per cell itself, its check the energy it conserves)
-        make = {"osc": kink_osc_reference, "bead": kink_bead_reference}[j["problem"]]
+    if j["problem"] in ("osc", "bead", "gear2d"):
+        # (DOP853 per cell itself, its check the energy it conserves or is
+        # given)
+        make = {"osc": kink_osc_reference, "bead": kink_bead_reference,
+                "gear2d": kink_gear2d_reference}[j["problem"]]
         return make(j, times)
     make = {"spring": kink_spring_reference, "gear": kink_gear_reference,
             "2d": kink_2d_reference, "pass": kink_pass_reference}[j["problem"]]

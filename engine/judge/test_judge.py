@@ -441,6 +441,34 @@ class KinkCases(unittest.TestCase):
         self.assertGreater(len(r["crossings"]), 2)
         self.assertLess(r["check"], 1e-9)
 
+    @unittest.skipUnless(importlib.util.find_spec("scipy"), "the references need scipy")
+    def test_the_two_dimensional_gears_reference_per_pair_of_cells(self):
+        # a constant ratio (each axis's values equal: both slopes 0): the
+        # load accelerates uniformly, w2 = r tau0 t / (J2 + J1 r^2), through
+        # every edge of both axes, which are crossings all the same
+        flat = judge.kink_gear2d("flat", [0.0, 20.0, 40.0], [2.0, 2.0, 2.0],
+                                 [-1.0, 0.7, 4.0], [0.5, 0.5, 0.5], 20.0, 3.0, 0.01, False)[1]
+        times = [0.01 * k for k in range(301)]
+        r = judge.kink_gear2d_reference(flat["judge"], times)
+        w = [2.5 * 20.0 * t / (2.0 + 0.05 * 2.5 ** 2) for t in times]
+        self.assertLess(max(abs(a - b) for a, b in zip(r["w2"], w)), 1e-10)
+        self.assertLess(max(abs(a - 2.5 * b) for a, b in zip(r["w1"], w)), 1e-10)
+        self.assertEqual(sorted({c[1] for c in r["crossings"]}), [0, 1])
+        self.assertLess(r["check"], 1e-12)
+        # the judge's case: its slopes jump across both axes' lines, the
+        # energy passed on through them; the located run's model reads the
+        # same function as if branches
+        text, case = judge.kinks()["kink-gear-2d"]
+        self.assertIn("  w1 = r(w2, c) * w2", text)
+        self.assertIn("stateSelect = StateSelect.always", text)
+        located, lcase = judge.kinks()["kink-gear-2d-located"]
+        self.assertNotIn("r(w2, c) *", located)
+        self.assertIn("  w1 = ((if (w2 / wu) < 20.0 then", located)
+        self.assertEqual(case["judge"], lcase["judge"])
+        r = judge.kink_gear2d_reference(case["judge"], times)
+        self.assertEqual(sorted({c[1] for c in r["crossings"]}), [0, 1])
+        self.assertLess(r["check"], 1e-12)
+
     def test_the_gears_on_the_implicit_form_are_the_same_problems(self):
         # the torques written implicitly: t2 an iteration variable, the
         # same solution, the same reference
