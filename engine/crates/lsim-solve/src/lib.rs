@@ -585,6 +585,12 @@ pub trait Integrator {
             ),
         })
     }
+    /// [`Integrator::consistent_z`] at a point the run loop only looks at
+    /// (where an event's conditions stood before it): what the integrator
+    /// keeps of its last solve for its restart stays as it was.
+    fn consistent_z_aside(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        self.consistent_z(t, y, d)
+    }
     /// Work done so far.
     fn stats(&self) -> SolverStats;
     /// The energy integrals at `t` (inside the last step), when the backend

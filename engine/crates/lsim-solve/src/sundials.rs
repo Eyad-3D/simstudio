@@ -1651,6 +1651,13 @@ impl Integrator for Sundials<'_> {
         Ok(())
     }
 
+    fn consistent_z_aside(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        let kept = self.z_solved.take();
+        let r = self.consistent_z(t, y, d);
+        self.z_solved = kept;
+        r
+    }
+
     fn stats(&self) -> SolverStats {
         let mut s = self.done;
         s += self.counters();

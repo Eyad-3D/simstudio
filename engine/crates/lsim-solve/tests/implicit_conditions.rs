@@ -20,7 +20,7 @@ mod common;
 use lsim_ir::component::build::{discrete, eq, param, state, var};
 use lsim_ir::expr::{Builtin, CmpOp, Expr, c, call, cmp, der, name as n};
 use lsim_ir::{ComponentDef, Equation, EquationDecl, VarDecl, WhenAction};
-use lsim_solve::{EventKind, OutputGrid, SimResult, SolverOptions, simulate};
+use lsim_solve::{Backend, EventKind, OutputGrid, SimResult, SolverOptions, simulate};
 
 const T_END: f64 = 2.0;
 
@@ -66,12 +66,22 @@ fn counter(name: &str, a: f64, with_state: bool, rhs: Expr, cond: Expr) -> Compo
 }
 
 fn run(top: &ComponentDef, rtols: &[f64]) -> Vec<(f64, SimResult)> {
-    let built = common::build(&common::library(), top, false);
+    run_on(top, false, Backend::Sundials, rtols)
+}
+
+/// [`run`] on IDA (`implicit`: every block kept implicit) or diffsol.
+fn run_on(
+    top: &ComponentDef,
+    implicit: bool,
+    backend: Backend,
+    rtols: &[f64],
+) -> Vec<(f64, SimResult)> {
+    let built = common::build(&common::library(), top, implicit);
     let grid = OutputGrid { t0: 0.0, t_end: T_END, dt: 0.1 };
     rtols
         .iter()
         .map(|&rtol| {
-            let opts = SolverOptions { rtol, atol: 1e-2 * rtol, ..Default::default() };
+            let opts = SolverOptions { rtol, atol: 1e-2 * rtol, backend, ..Default::default() };
             let r = simulate(&built.jit, &built.info, &opts, grid, &mut [])
                 .unwrap_or_else(|e| panic!("{} at rtol {rtol:e}: {e}", top.name));
             (rtol, r)
@@ -413,4 +423,106 @@ fn a_held_condition_does_not_fire_again_at_the_next_event() {
         }
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// `x³ + x = rhs` counting `cond`'s crossings, with `k` set to 1 at `t1 =
+/// 1 s`: by a time event, or where `crossing` where a state `s`, s' = 1,
+/// passes `t1` (another function's crossing); `z` integrated at `z_rate`
+/// where given.
+fn moved(name: &str, rhs: Expr, cond: Expr, crossing: bool, z_rate: Option<Expr>) -> ComponentDef {
+    let mut m = counter(name, 1.0, false, rhs, cond);
+    m.params.push(param("t1", "s", 1.0, "when k is set"));
+    m.vars.push(discrete("k", "1", 0.0, "set at t1"));
+    let trigger = if crossing {
+        m.vars.push(state("s", "s", 0.0, "a clock"));
+        m.equations.push(eq(der("s"), c(1.0), "the clock's rate"));
+        cmp(CmpOp::Gt, n("s"), n("t1"))
+    } else {
+        cmp(CmpOp::Ge, Expr::Time, n("t1"))
+    };
+    m.equations.push(setting(trigger, "k", 1.0, "k set"));
+    if let Some(r) = z_rate {
+        m.vars.push(state("z", "1", 0.0, "what x is solved from, besides"));
+        m.equations.push(eq(der("z"), r, "its rate"));
+    }
+    m
+}
+
+/// An event whose own discrete change moves a condition on an iteration
+/// variable across its threshold fires the condition's `when` there,
+/// however little it moves it (x³ + x = 0.625 − e + 2 e k: x across 0.5 by
+/// e/1.75, e = 1e-12 … 1e-5; x³ + x = 0.5 + (0.125 + e) k: x from 0.41 to
+/// 0.5 + e/1.75, onto 0.5 itself where e = 0, `when x >= 0.5`), with k set
+/// by a time event or at another function's crossing, x constant after it
+/// (or rising on, 0.1 a k: the `when` fires once, not again where x leaves
+/// what would have been its hold), on CVODE, IDA and diffsol, with a state
+/// and without (IDA). Event iteration and the integrator held such a
+/// condition on the side it was seen on where it landed within its hold:
+/// the `when` never fired while x stayed there (116 of 273 runs of an
+/// outside recheck's probes), or fired late, where x left the hold, or at
+/// the event and again there. Only a crossing that the integrator's own
+/// inconsistency located a little early is held.
+#[test]
+fn a_condition_its_event_moves_across_fires_there() {
+    let up = || cmp(CmpOp::Gt, n("x"), c(0.5));
+    let reached = || cmp(CmpOp::Ge, n("x"), c(0.5));
+    let z = || n("z");
+    let ramp = || c(0.1) * n("a") * n("k") * (Expr::Time - n("t1"));
+    let mut models: Vec<(String, ComponentDef, bool)> = vec![];
+    for e in [1e-12, 1e-9, 1e-7, 1e-5] {
+        let nudge = || c(0.625) - c(e) + c(2.0 * e) * n("k");
+        models.push((
+            format!("nudge {e:e}"),
+            moved("Test.Nudge", nudge(), up(), false, None),
+            false,
+        ));
+        let with_z = moved("Test.NudgeZ", nudge() + z(), up(), false, Some(c(0.0)));
+        models.push((format!("nudge {e:e}, z' = 0"), with_z, true));
+    }
+    for e in [0.0, 1e-9, 1e-6] {
+        let land = || c(0.5) + c(0.125 + e) * n("k");
+        models.push((
+            format!("land {e:e}"),
+            moved("Test.Land", land(), reached(), false, None),
+            false,
+        ));
+        let with_z = moved("Test.LandZ", land() + z(), reached(), false, Some(c(0.0)));
+        models.push((format!("land {e:e}, z' = 0"), with_z, true));
+        let on = moved("Test.LandOn", land() + ramp(), reached(), false, None);
+        models.push((format!("land {e:e}, rising on"), on, false));
+        let on_z =
+            moved("Test.LandOnZ", land() + c(0.1) * z(), reached(), false, Some(n("a") * n("k")));
+        models.push((format!("land {e:e}, rising on with z"), on_z, true));
+    }
+    for e in [1e-9, 1e-6] {
+        let other = moved("Test.Other", c(0.625) - c(e) + c(2.0 * e) * n("k"), up(), true, None);
+        models.push((format!("other {e:e}"), other, true));
+    }
+    let mut bad = vec![];
+    for (what, m, with_state) in &models {
+        let crossing = what.starts_with("other");
+        let mut on = vec![("", run_on(m, false, Backend::Sundials, &ALL_RTOLS))];
+        if *with_state {
+            on.push((" on IDA", run_on(m, true, Backend::Sundials, &ALL_RTOLS)));
+            on.push((" on diffsol", run_on(m, false, Backend::Diffsol, &ALL_RTOLS)));
+        }
+        for (backend, runs) in on {
+            for (rtol, r) in runs {
+                let at: Vec<f64> = r
+                    .events
+                    .iter()
+                    .filter(|e| e.label.ends_with("it counts"))
+                    .map(|e| e.t)
+                    .collect();
+                let count = last(&r, "n");
+                let near = if crossing { 10.0 * rtol } else { 0.0 };
+                if count != 1.0 || at.len() != 1 || (at[0] - 1.0).abs() > near {
+                    bad.push(format!(
+                        "{what}{backend}, rtol {rtol:e}: n = {count}, fired at {at:?}"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{} wrong:\n{}", bad.len(), bad.join("\n"));
 }
