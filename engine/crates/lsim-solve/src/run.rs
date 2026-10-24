@@ -18,7 +18,8 @@
 //!   0.5` does not fire at that crossing ([`Loop::hold_conditions`]). The
 //!   hold stands only while the integrator's own solution, wherever the
 //!   run loop has it (a step's end, an event's point), is still short of
-//!   that side within the hold.
+//!   that side within the hold, and nothing holds a condition an event
+//!   moves back across: its `when` fires there.
 //! * **`when` clauses** follow Modelica: a clause fires at each instant its
 //!   condition changes from false to true while the model runs, compared
 //!   with its value just before that instant (before a sample tick set
@@ -333,6 +334,12 @@ struct Loop<'a> {
     seen_g: Vec<f64>,
     seen_dirs: Vec<i32>,
     seen_d: Vec<f64>,
+    /// the event being iterated has them (`seen_y` …); whether the holds
+    /// standing at its point were judged, and those it moves across
+    /// ([`Loop::find_moved`])
+    seen_now: bool,
+    moved_checked: bool,
+    moved: Vec<usize>,
     /// the conditions the last release found past their holds
     /// ([`Loop::release_holds`])
     passed: Vec<usize>,
@@ -410,11 +417,12 @@ pub(crate) fn same_instant(a: f64, b: f64) -> bool {
 /// variables' tolerances allow in its function. The inconsistency it
 /// covers measured up to 0.56 of that on conditions on iteration
 /// variables (`tests/implicit_conditions.rs`' models over their rates,
-/// rtol 1e-4 … 1e-10, 50 holds). An event that moves the condition itself
-/// (a `reinit`, a discrete value an iteration variable is solved with) is
-/// not held, however little it moves it: with the iteration variables
-/// solved for the discrete values before the event, the condition was on
-/// the side the integrator saw ([`Loop::keep_unmoved`]).
+/// rtol 1e-4 … 1e-10, 50 holds). A condition an event moves across (a
+/// `reinit`, a discrete value an iteration variable is solved with) is not
+/// held after it, however little it moves it, whether the hold would be
+/// new or stood at the event's point: with the iteration variables solved
+/// for the discrete values before the event, it was on the side the
+/// integrator saw ([`Loop::keep_unmoved`], [`Loop::find_moved`]).
 const HOLD: f64 = 4.0;
 
 /// Steps in a row that leave the time where it was before the run stops
@@ -769,7 +777,8 @@ impl Loop<'_> {
     /// engagement), the new discrete values move the function, alone at the
     /// point the integrator had or through the iteration variables (solved
     /// for the discrete values before the event, it was on the side the
-    /// integrator saw: [`Loop::keep_unmoved`]), or
+    /// integrator saw: [`Loop::keep_unmoved`]; a hold standing at the
+    /// event's point is judged so too, [`Loop::find_moved`]), or
     /// the function is a mode's (a mode follows its relation at the event,
     /// and where that sets it back the integrator restarts and sees it
     /// cross again: [`Loop::undone`]). Event iteration, before, evaluates
@@ -786,6 +795,7 @@ impl Loop<'_> {
     ) {
         self.sides_and_holds(integ, t, y, d, dirs, before);
         self.held = held(&self.hold);
+        self.moved.clear();
     }
 
     /// [`Loop::update_sides`] but for [`Loop::held`].
@@ -872,7 +882,7 @@ impl Loop<'_> {
         // `when` fired again as x went on past it)
         for (c, s, h) in held {
             let g = self.raw[c];
-            if g * s <= 0.0 && g.abs() <= h {
+            if g * s <= 0.0 && g.abs() <= h && !(before.is_some() && self.moved.contains(&c)) {
                 self.sides[c] = s;
                 self.hold[c] = h;
             }
@@ -1136,8 +1146,10 @@ impl Loop<'_> {
     /// that what event iteration fires on and what the integrator watches
     /// agree (else a `when x < 0.5` beside a `when x > 0.5` fires at the
     /// rise's crossing too, where x, solved again, comes out a little
-    /// short of 0.5). A function a hold keeps on its side
-    /// ([`Loop::update_sides`]) is on that side. And at an event (`seen`:
+    /// short of 0.5). A function a hold standing at the event's point keeps
+    /// on its side ([`Loop::update_sides`]) is on that side, there and after
+    /// the event's change unless the event moved it across
+    /// ([`Loop::find_moved`]). And at an event (`seen`:
     /// where the integrator located it, [`Loop::seen_y`], and the side it
     /// saw each function on there, [`Loop::seen_side`]), one that solving the
     /// iteration variables again put on the other side of where the
@@ -1159,11 +1171,20 @@ impl Loop<'_> {
         prev: bool,
     ) {
         debug_assert_eq!(self.held, held(&self.hold), "Loop::held out of step with the holds");
+        if self.held && self.seen_now && !self.moved_checked && y != self.seen_y.as_slice() {
+            self.find_moved(integ, t);
+        }
         if self.held {
             for c in 0..self.roots.len() {
                 let (s, h) = (self.sides[c], self.hold[c]);
                 let g = if prev { self.roots_prev[c] } else { self.roots[c] };
-                if h > 0.0 && s != 0.0 && g * s <= 0.0 && g.abs() <= h && self.may_hold_root(c) {
+                if h > 0.0
+                    && s != 0.0
+                    && g * s <= 0.0
+                    && g.abs() <= h
+                    && self.may_hold_root(c)
+                    && !self.moved.contains(&c)
+                {
                     let g = if prev { &mut self.roots_prev[c] } else { &mut self.roots[c] };
                     *g = s * f64::MIN_POSITIVE;
                 }
@@ -1215,6 +1236,31 @@ impl Loop<'_> {
         for (c, s) in cs {
             self.roots[c] = s * f64::MIN_POSITIVE;
         }
+    }
+
+    /// The holds standing at the point of the event being iterated that the
+    /// event moves across ([`Loop::moved`]), once its change reached the
+    /// iteration variables or the states: with the iteration variables
+    /// solved for the discrete values before the event, the function was on
+    /// its held side already ([`Loop::keep_unmoved`], as a new hold is
+    /// judged), so the integrator's inconsistency does not explain the other
+    /// side after it. They held the conditions as the integrator saw them
+    /// at the event's point; after the event they hold nothing (its `when`
+    /// fires there), and the integrator gets them no more.
+    fn find_moved(&mut self, integ: &mut dyn Integrator, t: f64) {
+        self.moved_checked = true;
+        let standing: Vec<(usize, f64)> = (0..self.roots.len())
+            .filter(|&c| self.hold[c] > 0.0 && self.sides[c] != 0.0 && self.may_hold_root(c))
+            .map(|c| (c, self.sides[c]))
+            .collect();
+        if standing.is_empty() {
+            return;
+        }
+        let mut kept = standing.clone();
+        let (y0, d0) = (std::mem::take(&mut self.seen_y), std::mem::take(&mut self.seen_d));
+        self.keep_unmoved(integ, t, &y0, &d0, &mut kept);
+        (self.seen_y, self.seen_d) = (y0, d0);
+        self.moved.extend(standing.iter().map(|x| x.0).filter(|c| !kept.iter().any(|k| k.0 == *c)));
     }
 
     /// Hands the sides and holds to the integrator.
@@ -1640,6 +1686,8 @@ impl Loop<'_> {
         // saw them
         self.eval_roots(t, y, d_pre, true);
         let seen = at_event && self.may_hold() && !self.hold_roots.is_empty();
+        (self.seen_now, self.moved_checked) = (seen, false);
+        self.moved.clear();
         if seen {
             self.seen_y.clear();
             self.seen_y.extend_from_slice(y);
@@ -2683,6 +2731,9 @@ fn run_watched<'a>(
         seen_g: vec![],
         seen_dirs: vec![],
         seen_d: vec![],
+        seen_now: false,
+        moved_checked: false,
+        moved: vec![],
         passed: vec![],
         outside_since: vec![None; model.table_guard_list().len()],
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],

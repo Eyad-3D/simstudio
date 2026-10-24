@@ -760,6 +760,37 @@ fn a_hold_from_an_earlier_crossing_lets_an_event_put_it_back() {
     assert!(bad.is_empty(), "{} wrong:\n{}", bad.len(), bad.join("\n"));
 }
 
+/// The same on diffsol, with x put back by its tolerance (e = 1.75 rtol:
+/// half the hold; 5.7e-13 is below the noise of diffsol's iteration
+/// variable). Diffsol's x lags its equation by about a tenth of its
+/// tolerance: at an event 1e-6 s after the crossing it can still be short
+/// of 0.5, a hold standing there although x, solved for the discrete
+/// values before the event, is past it; carried over, the hold kept x on
+/// the side it rose to (`when x < 0.5` never fired; 8 of these 56 runs at
+/// f29ed27). A hold standing at an event's point that the event moves
+/// across (x solved for the discrete values before the event on its held
+/// side already) holds nothing after it, as a new one would not.
+#[test]
+fn on_diffsol_an_event_that_puts_a_held_condition_back_fires_there() {
+    let mut bad = vec![];
+    for a in [0.7, 1.0, 2.3, 4.4] {
+        for delta in [1e-6, 1e-4] {
+            let what = format!("diffsol, a = {a}, δ = {delta:e}");
+            bad.extend(back_across_bad(
+                &what,
+                a,
+                delta,
+                |rtol| 1.75 * rtol,
+                Trigger::Time,
+                true,
+                false,
+                Backend::Diffsol,
+            ));
+        }
+    }
+    assert!(bad.is_empty(), "{} wrong:\n{}", bad.len(), bad.join("\n"));
+}
+
 /// `x³ + x = 1.25 − z` (z' = a: x falls through 0.5 at 0.625 / a, `when x
 /// < 0.5` counts n) beside `q³ + q = 1 + k`, k set where a state s = t
 /// passes 1e-6 s later (nothing x reads moves). On diffsol, whose x lags,
