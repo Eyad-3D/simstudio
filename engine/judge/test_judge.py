@@ -418,6 +418,29 @@ class KinkCases(unittest.TestCase):
         self.assertEqual({c[3] for c in r["crossings"]}, {1.0, -1.0})
         self.assertLess(r["check"], 1e-11)
 
+    @unittest.skipUnless(importlib.util.find_spec("scipy"), "the references need scipy")
+    def test_the_wavy_beads_second_derivative_jumps_and_its_reference_holds(self):
+        # Steffen's cubic of x^2/2 + sin(3x)/4: its r'' differs on the two
+        # sides of each inner point (the parabola's does not), and the
+        # reference by DOP853 agrees with Radau's
+        def jumps(pr):
+            """r'' on the two sides of each inner point"""
+            def r2(p, x):
+                _, _, x0, c = pr[p]
+                return 2 * c[2] + 6 * c[3] * (x - x0)
+            return [abs(r2(p, pr[p][1]) - r2(p + 1, pr[p][1])) for p in range(1, len(pr) - 2)]
+        for n in (11, 41):
+            text, case = judge.kinks()[f"kink-bead-sin-{n}"]
+            self.assertIn("x^2/2 + sin(3x)/4", text)
+            self.assertGreater(min(jumps(case["judge"]["pieces_r"])), 1e-3 if n == 11 else 1e-5)
+        _, case = judge.kinks()["kink-bead-41"]
+        self.assertLess(max(jumps(case["judge"]["pieces_r"])), 1e-12)
+        _, case = judge.kinks()["kink-bead-sin-11"]
+        times = [0.01 * k for k in range(201)]
+        r = judge.kink_bead_reference(case["judge"], times)
+        self.assertGreater(len(r["crossings"]), 2)
+        self.assertLess(r["check"], 1e-9)
+
     def test_the_gears_on_the_implicit_form_are_the_same_problems(self):
         # the torques written implicitly: t2 an iteration variable, the
         # same solution, the same reference

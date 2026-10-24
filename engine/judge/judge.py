@@ -1307,24 +1307,37 @@ end Judge.KinkBead;
 '''
 
 
-def kink_bead(n: int, x0: float, t_end: float, dt: float) -> tuple[str, dict]:
+def kink_bead(n: int, x0: float, t_end: float, dt: float, wave: bool = False) -> tuple[str, dict]:
     """The bead of the A3 review: the wire y = r(x), r the default table of
     x^2/2 at n points on [-2, 2] (Steffen's cubic of a parabola is the
     parabola: its r'' continuous to rounding between its points; it jumps to
     0 at the data's edges, which the bead does not reach), from x0 at rest.
     vx' (1 + s r') = -s (g + r'' vx^2); no `if` form (preparation refuses
-    the bead written with `if` branches, STATE-SELECT-SINGULAR: STATUS.md)."""
+    the bead written with `if` branches, STATE-SELECT-SINGULAR: STATUS.md).
+    `wave`: the wire x^2/2 + sin(3x)/4, s the table of its slope x + 3/4
+    cos(3x) at the same points (rule v3's held-out bead: Steffen's cubic of
+    it has an r'' that really jumps at its points); s is then not the
+    cubic's own r', so the reference is checked by Radau, not by an energy."""
     xs = [-2.0 + 4.0 * k / (n - 1) for k in range(n)]
     plain = lambda ys: (f'table(x = {{{", ".join(num(v) for v in xs)}}}, '
                         f'y = {{{", ".join(num(v) for v in ys)}}}, xUnit = "m", outside = {{linear}})')
-    rs = [0.5 * x * x for x in xs]
+    if wave:
+        rs = [0.5 * x * x + 0.25 * math.sin(3.0 * x) for x in xs]
+        ss = [x + 0.75 * math.cos(3.0 * x) for x in xs]
+    else:
+        rs, ss = [0.5 * x * x for x in xs], xs
     text = (KINK_BEAD.replace("{n}", str(n)).replace("{x0}", num(x0))
-            .replace("{r}", plain(rs)).replace("{s}", plain(xs)))
+            .replace("{r}", plain(rs)).replace("{s}", plain(ss)))
+    if wave:
+        text = (text.replace("of x^2/2 at", "of x^2/2 + sin(3x)/4 at")
+                .replace("s(x) = x a second one", "s(x) its slope a second one"))
     case = {"model": "Judge.KinkBead", "t_end": t_end, "dt": dt, "atol_factor": 1e-2,
             "record": ["x", "vx"],
             "judge": {"kind": "kink", "problem": "bead", "pieces_r": pieces_1d(xs, rs, "cubic", "linear"),
-                      "pieces_s": pieces_1d(xs, xs, "cubic", "linear"), "g": 9.81, "x0": x0},
+                      "pieces_s": pieces_1d(xs, ss, "cubic", "linear"), "g": 9.81, "x0": x0},
             "located": False}
+    if wave:
+        case["judge"]["check"] = "radau"
     return text, case
 
 
@@ -1448,18 +1461,28 @@ def kinks() -> dict[str, tuple[str, dict]]:
          0.01)
     other("kink-edge-11", "held", table_cells="jumps")
     # the bead of the A3 review: r'' of the default table read through a
-    # constraint; held at every point ("kinks") 204 crossings, each a restart
+    # constraint (held by default, as "kinks" holds it: 204 crossings, each
+    # a restart, though this r'' does not really jump)
     out["kink-bead-41"] = kink_bead(41, 1.5, 10.0, 0.01)
     other("kink-bead-41", "held", table_cells="kinks")
+    # a wire whose cubic's r'' really jumps at its points (rule v3's held-out
+    # bead, the A3 check 4's B2), on its own form, the explicit one: held by
+    # default there (rule v4, with the releases), beside stepped over and
+    # held without the releases
+    for n in (11, 41):
+        out[f"kink-bead-sin-{n}"] = kink_bead(n, 1.5, 10.0, 0.01, wave=True)
+        other(f"kink-bead-sin-{n}", "over", table_cells="off")
+        other(f"kink-bead-sin-{n}", "always", table_cells="kinks", table_release=False)
     # stepped over, beside the default that holds them now (a linear
     # table's slope on the explicit form)
     for name in ("kink-gear-linear", "kink-dense-gear-41", "kink-dense-gear-401", "kink-osc-41",
                  "kink-osc-101"):
         other(name, "over", table_cells="off")
     # the implicit form (IDAS): the default holds the read through every
-    # crossing (no release there); stepped over, the gears stop at their
-    # first breakpoint (the oscillation gives no answer within minutes: not
-    # run here)
+    # crossing (no release there); stepped over, the gears stop at a
+    # breakpoint (the gear at its first, the dense one at its first, second
+    # or third), and the oscillation gives no answer within minutes: not
+    # run here
     ws = [80.0 * k / 40 for k in range(41)]
     located = {"kink-dense-gear-41": kink_gear(
         "linear through 2 + w/40 + 0.25 sin(w/8) at 41 points", ws,
@@ -2202,13 +2225,14 @@ def kink_pass_reference(j: dict, times: list[float]) -> dict:
 
 
 def kink_cells_reference(rhs, pieces: list, z0: list, axis: int, times: list[float],
-                         names: list[str], chans, energy) -> dict:
-    """A problem integrated by DOP853 at rtol 1e-13 (scipy) cell by cell of
-    one table (`pieces`, its argument z[axis]), each crossing of a cell's
-    edge found by its event and the integration restarted there in the next
-    cell; `chans(z, p)` the channels recorded, `energy(z, p)` a quantity the
-    problem conserves: its largest drift, relative, is the reference's check
-    (where no closed form is known)."""
+                         names: list[str], chans, energy, method: str = "DOP853",
+                         rtol: float = 1e-13) -> dict:
+    """A problem integrated by DOP853 at rtol 1e-13 (scipy; or `method` at
+    `rtol`) cell by cell of one table (`pieces`, its argument z[axis]), each
+    crossing of a cell's edge found by its event and the integration
+    restarted there in the next cell; `chans(z, p)` the channels recorded,
+    `energy(z, p)` a quantity the problem conserves: its largest drift,
+    relative, is the reference's check (where no closed form is known)."""
     from scipy.integrate import solve_ivp
 
     p = kink_piece(pieces, z0[axis])
@@ -2227,7 +2251,7 @@ def kink_cells_reference(rhs, pieces: list, z0: list, axis: int, times: list[flo
             g = lambda t, z, p, hi=hi: z[axis] - hi
             g.terminal, g.direction = True, 1
             evs.append((1, g))
-        sol = solve_ivp(rhs, (t, t_end), z, method="DOP853", rtol=1e-13, atol=1e-13,
+        sol = solve_ivp(rhs, (t, t_end), z, method=method, rtol=rtol, atol=rtol,
                         dense_output=True, events=[e for _, e in evs], args=(p,))
         t1 = sol.t[-1]
         while k < len(times) and (times[k] < t1 or (sol.status == 0 and times[k] <= t1)):
@@ -2287,8 +2311,17 @@ def kink_bead_reference(j: dict, times: list[float]) -> dict:
         return [v, -s0 * (G + val(pr, p, x, 2) * v * v) / (1 + s0 * val(pr, p, x, 1))]
 
     energy = lambda z, p: 0.5 * z[1] ** 2 * (1 + val(pr, p, z[0], 1) ** 2) + G * val(pr, p, z[0])
-    return kink_cells_reference(rhs, pr, [j["x0"], 0.0], 0, times, ["x", "vx"],
-                                lambda z, p: [z[0], z[1]], energy)
+    ref = kink_cells_reference(rhs, pr, [j["x0"], 0.0], 0, times, ["x", "vx"],
+                               lambda z, p: [z[0], z[1]], energy)
+    if j.get("check") == "radau":
+        # (s not the cubic's own r': no energy is conserved; the check is the
+        # same problem by Radau at rtol 1e-12, cell by cell, its largest
+        # difference relative to each channel's largest value)
+        other = kink_cells_reference(rhs, pr, [j["x0"], 0.0], 0, times, ["x", "vx"],
+                                     lambda z, p: [z[0], z[1]], energy, "Radau", 1e-12)
+        ref["check"] = max(max(abs(a - b) for a, b in zip(ref[n], other[n]))
+                           / max(abs(a) for a in ref[n]) for n in ("x", "vx"))
+    return ref
 
 
 def kink_check(j: dict, times: list[float], ref: dict) -> float:
