@@ -762,7 +762,7 @@ fn a_hold_from_an_earlier_crossing_lets_an_event_put_it_back() {
 
 /// The same on diffsol, with x put back by its tolerance (e = 1.75 rtol:
 /// half the hold; 5.7e-13 is below the noise of diffsol's iteration
-/// variable). Diffsol's x lags its equation by about a tenth of its
+/// variable). Diffsol's x lags its equation by a tenth to a quarter of its
 /// tolerance: at an event 1e-6 s after the crossing it can still be short
 /// of 0.5, a hold standing there although x, solved for the discrete
 /// values before the event, is past it; carried over, the hold kept x on

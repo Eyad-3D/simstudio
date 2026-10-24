@@ -2057,8 +2057,9 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   and gets none (it was restarted too, untested, until 24 October): it
   stops at the seventh failure (CVODES' MXNEF), lowering its order by
   one at each from the fourth (MXNEF1) and reloading its history from
-  the model only at order 1, which it reaches before the seventh only
-  from order 3 or lower (from Adams' order 12 it stops at order 9); an
+  the model only at a failure at order 1, which comes before the seventh
+  only from order 3 or lower (from order 4 it reaches order 1 at the
+  sixth; from Adams' order 12 it stops at order 9); an
   ODE's error at such a kink falls with the step, and it
   crosses one after a smooth stretch at a high order (a swing whose
   forcing starts a ramp at a table's breakpoint, Adams and BDF at rtol
@@ -2196,15 +2197,17 @@ round).**
   solved, and holds a relation on its side by 1e-4 rtol of its operands'
   size (`relationhysteresis`). Here such a function is held on the side
   the integrator saw it on until it reaches that side itself (checked at
-  step ends) or goes back past zero by more than its hold: four times
+  step ends, and since the second recheck at every event's point too:
+  *The holds' one rule* below) or goes back past zero by more than its
+  hold: four times
   what the iteration variables' tolerances allow in it, its change as
   each is moved by its tolerance, summed. The inconsistency measured up
   to 0.56 of that; an event that moves the condition itself (a `reinit`,
   a discrete value the iteration variable is solved with) moved it 5e5
-  times that and more, and is not held, nor is anything where the event
-  moved a state (an engagement) or where the new discrete values alone
-  move the function at the point the integrator had. The backends map a
-  held value to its side as they map an exact zero
+  times that and more, and is not held, nor is anything held anew where
+  the event moved a state (an engagement) or where the new discrete
+  values alone move the function at the point the integrator had. The
+  backends map a held value to its side as they map an exact zero
   (`Integrator::set_root_sides` takes the holds), and only while one is
   held: with no hold above 0, most of a run, only an exact zero moves,
   looked for eight values at a time (`run::ZeroSides`), and the step's
@@ -2285,7 +2288,9 @@ round).**
   not held, its `when` firing at the event however little it moved it;
   only a crossing the integrator's inconsistency located early (x,
   solved again, short of 0.5 before the event too) is held, in event
-  iteration and for the integrator alike. And a hold keeps an exact zero
+  iteration and for the integrator alike (and, since the second recheck
+  below, a hold standing at the event's point from an earlier crossing).
+  And a hold keeps an exact zero
   on its side, as the integrator's mapping and a release take it: a
   `when x > 0.5` beside a mode on the same relation (`y = if x > 0.5
   …`) fired at the crossing located early and again where the
@@ -2299,14 +2304,99 @@ round).**
   the judge's seven new `count-moved` cases 0 of 49 runs wrong (38 at
   d0a0b10, 6 at 4e3afdd), its 759 other cases (5 306 runs) and the
   golden comparison the same to the bit; `implicit_conditions.rs`' two
-  new tests failed before (231 of 322 runs; 1 of 56). Neither costs
-  anything measurable (cachegrind, fair scheduling, both built on the
-  same machine): the hybrid's mixed cycle 82.651 G instructions, its
+  new tests failed before (231 of 322 runs; 1 of 56). Together they
+  cost at most about 0.01 % (cachegrind, fair scheduling, both built on
+  the same machine): the hybrid's mixed cycle 82.651 G instructions, its
   HWFET 233.044 G and the BEV's WLTC 18.486 G against d0a0b10's 82.646,
-  233.037 and 18.485 G (+0.006 %, +0.003 %, +0.006 %: within what two
-  counts of one binary differ by, 0.003 … 0.013 % for 36c8a0d8's counted
-  twice), and against 36c8a0d8's 83.173, 237.718 and 19.068 G (−0.63 %,
-  −1.97 %, −3.05 %).
+  233.037 and 18.485 G (+0.006 %, +0.003 %, +0.006 %; the recheck's own
+  counts +0.008 … 0.010 %, +0.006 % and noise, about twice what two
+  counts of one binary differ by), and against 36c8a0d8's 83.173,
+  237.718 and 19.068 G (−0.63 %, −1.97 %, −3.05 %).
+* *The holds' one rule* (an independent second recheck of those fixes,
+  24 October): a hold was released only at a step's end that was no event,
+  an event's point never looked at. A hold from a crossing located a
+  little early still stood at an event shortly after, the integrator
+  having x past 0.5 there, and where the event put x back under, event
+  iteration and the integrator kept it on the side it rose to: `when x
+  < 0.5` never fired, nor `when x > 0.5` where x was lifted again (`x³ +
+  x = z − k (z − 0.625 + e) + 0.2 k2`, k set 1e-6 … 1e-2 s after the
+  rise; 87 of the recheck's 515 IDA runs, 4e3afdd right in all of them).
+  One rule holds now wherever a hold is made, carried, applied or
+  released. A hold covers the integrator's own inconsistency at a
+  crossing it located a little early, and stands only while the
+  integrator's own solution, wherever the run loop has it, is still
+  short of its side within the hold: at every step's end and at every
+  event's point (a root, a time event or crossing, a tick inside a step,
+  a stale mode's settle), before event iteration reads a condition there
+  (`Loop::release_holds`, called by `Loop::iterate`). One that reached
+  its side is released; one that went back past it crossed back, and its
+  `when` fires there whether or not the integrator reported the crossing
+  (`Loop::passed`: diffsol, told the condition was held, did not, and
+  the crossing was lost). A hold still standing at an event's point holds
+  the conditions as the integrator saw them there; after the event's
+  change it is judged as a new hold is (`Loop::find_moved`): it holds on
+  only where the function, with the iteration variables solved for the
+  discrete values before the event, was still short of its side; where
+  it was past it, the event moved it across, and nothing holds it after
+  (diffsol's x lags its equation by a tenth to a quarter of its
+  tolerance where traced: 1e-6 s after a crossing a hold could stand
+  there where x, so solved, was past 0.5). What stays a limit: where an
+  event follows a crossing by
+  less than the crossing's location tolerance (10 rtol in x), the
+  integrator can locate the crossing after the event that undoes it, and
+  then neither the crossing nor the event's move back fires (L1, as the
+  probe below names it).
+  A probe of the whole family (181 440 runs, outside the repository):
+  x rising or falling through 0.5 at 0.625/a (a = 0.7, 1, 2.3, 4.4); an
+  event 1e-6, 1e-4 or 1e-2 s later (a time event, a state's crossing, a
+  tick inside a step) that puts x back across by 5.7e-13 or by its
+  tolerance and keeps it there until a second event lifts it, puts it
+  back to let it cross again at once, moves it further on, moves nothing
+  x reads, or puts it back with a second event 1e-6 s later lifting it;
+  the crossing's own `when` alone (strict or not), with the opposite one
+  (strict or not), beside a mode on the same relation, or the mode
+  alone; on IDA (with a state, every block implicit, no state), diffsol,
+  and CVODE and the stateless backend with x explicit (nothing held);
+  rtol 1e-4 … 1e-10; each run against the hand-worked counts and times.
+  On IDA's three forms (90 720 runs) the head is wrong in none but the
+  named classes below, f29ed27 in 6 526, d0a0b10 in 40 418, 4e3afdd in
+  28 555; L1 in 1 800 (2 831, 5 500, 2 776); CVODE and the stateless
+  backend right in all 60 480 at every commit. The named classes: x left
+  5.7e-13 from its threshold, below what the iteration variables are
+  solved to (2 runs on IDA at rtol 1e-5; diffsol's x drifts by more, 2
+  384 runs), right where x is put back by its tolerance; on diffsol, a
+  crossing x makes right after the event's restart (2.5 rtol/a s later)
+  missed, its iteration variable kept at its restart value through its
+  first step and then jumping, its root finder reporting nothing (46
+  runs), and 4 runs with a second pair of crossings within the location
+  tolerance: the same 50 runs wrong or within L1 at f29ed27, d0a0b10 and
+  4e3afdd (diffsol wrong in 498 runs at f29ed27, 4 927 at 4e3afdd;
+  diffsol is the cross-check); and, not a hold, an event storm beside a
+  mode on x at its crossing (87 runs on IDA, rtol 1e-10, without a state
+  at 1e-5 … 1e-10, the mode alone too; 99 at 4e3afdd and d0a0b10, 87 at
+  f29ed27): event iteration does not settle, for each flip of the mode
+  has the iteration variables solved again although it reaches none of
+  them, and x, at its threshold to within an ulp, comes out alternately
+  on it (0.5, where the strict relation is false) and an ulp past it
+  (where the mode's crossing is positive), each solve flipping the mode
+  back. Solving them only for the discrete values they read ended the
+  storms in an experiment but changed other runs (an event's own change
+  is told by that solve): open, a round of its own.
+  The judge's 766 earlier cases (5 355 runs), the golden comparison
+  (11 347 values) and the recheck's probe sets are the same to the bit;
+  its stale-hold probe 0 of 515 IDA runs wrong; the judge's eleven new
+  `count-held-back` cases 0 of 77 runs wrong (14 at f29ed27, 77 at
+  d0a0b10, 19 at 4e3afdd); `implicit_conditions.rs`' three new tests
+  failed at f29ed27 (103 of 378 runs; 8 of 56 on diffsol; 4 of 28).
+  Instructions (cachegrind, fair scheduling, both built on this
+  machine): the hybrid's mixed cycle 82.675 G against 36c8a0d8's
+  83.177 G (−0.60 %), its HWFET 233.092 G against 237.716 G
+  (−1.95 %), the BEV's WLTC 18.487 G against 19.070 G (−3.06 %);
+  against f29ed27's counts here +0.028 %, +0.018 % and +0.018 % (23 M,
+  41 M and 3 M): the release looked for at every event's point (2 M
+  of the mixed cycle's), most of the rest in `Loop::update_sides`, on
+  a path the change leaves as it was where nothing is held, as on
+  every golden model.
 * *Scheduled events are no storms.* What a sample tick or a time event
   changes at its instant (a controller switching an engine's throttle from
   one tick to the next) does not count towards `storm_events`.
@@ -3923,7 +4013,9 @@ events name the modes that chatter.
   8.2 and the `count-pair` and `count-peak` cases; nor did one beside a
   mode on its relation, at one run of 70, or one that an event's own
   change moved across, never firing while held, until the recheck's
-  fixes of the same day: section 8.2 and the `count-moved` cases), and a
+  fixes of the same day: section 8.2 and the `count-moved` cases; nor
+  one an event put back across a hold from an earlier crossing, until
+  the second recheck's fixes: the `count-held-back` cases), and a
   condition on a state alone is still missed where one step holds both
   its crossings (`count-explicit-pulse` at four tolerances of seven,
   `count-oscillator-peaks` at six; section 8.2, a known limit; on the
@@ -4556,7 +4648,10 @@ work end to end) or against hand-written test doubles of the interfaces.
   fires once per crossing (complementary ones did not until event
   iteration held the conditions too, 24 October, nor one beside a mode
   on its relation or one an event's own change moved across until the
-  recheck's fixes: section 8.2), and a
+  recheck's fixes, nor one an event put back across a hold from an
+  earlier crossing until the second recheck's: section 8.2; a hold now
+  stands only while the integrator's own solution, at every step's end
+  and event's point, is still short of its side), and a
   mode that its relation set back there
   restarts the integrator, which meets the crossing again (section 8.2:
   before, two or three firings, a mode off until the next step end).
