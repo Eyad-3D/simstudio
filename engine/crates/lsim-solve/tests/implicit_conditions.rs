@@ -208,3 +208,209 @@ fn a_condition_its_event_sends_back_fires_at_every_crossing() {
         }
     }
 }
+
+/// `when cond then var = value` labelled `label`.
+fn setting(cond: Expr, var: &str, value: f64, label: &str) -> EquationDecl {
+    EquationDecl {
+        eq: Equation::When {
+            condition: cond,
+            actions: vec![WhenAction::Assign { var: var.into(), value: c(value) }],
+        },
+        label: Some(label.into()),
+    }
+}
+
+/// `x³ + x = rhs` (`z`, `w` integrated where `states` gives their starts:
+/// z' = w, w' = `accel` k; else `rhs` reads time; the parameters a = 1/s
+/// and k = 1/s² for its units) with complementary
+/// conditions on x: `when x > 0.5` counts `n` ("rise"), `when x < 0.5`
+/// counts `m` ("fall"), and `when x > 0.5 then on = 1; elsewhen x < 0.5
+/// then on = 0` (lowered as Modelica's `elsewhen` is: one clause per
+/// branch, the first branch last so that it wins where both fire).
+fn complementary(name: &str, rhs: Expr, states: Option<(f64, f64, f64)>) -> ComponentDef {
+    let up = || cmp(CmpOp::Gt, n("x"), c(0.5));
+    let down = || cmp(CmpOp::Lt, n("x"), c(0.5));
+    let mut vars = vec![
+        x_var(),
+        discrete("n", "1", 0.0, "the rises counted"),
+        discrete("m", "1", 0.0, "the falls counted"),
+        discrete("on", "1", 0.0, "x above 0.5, by the elsewhen"),
+    ];
+    let mut equations = vec![
+        eq(cubed(n("x")) + n("x"), rhs, "x is solved from it"),
+        EquationDecl {
+            eq: Equation::When {
+                condition: up(),
+                actions: vec![WhenAction::Assign {
+                    var: "n".into(),
+                    value: call(Builtin::Pre, vec![n("n")]) + c(1.0),
+                }],
+            },
+            label: Some("rise".into()),
+        },
+        EquationDecl {
+            eq: Equation::When {
+                condition: down(),
+                actions: vec![WhenAction::Assign {
+                    var: "m".into(),
+                    value: call(Builtin::Pre, vec![n("m")]) + c(1.0),
+                }],
+            },
+            label: Some("fall".into()),
+        },
+        setting(down(), "on", 0.0, "elsewhen x < 0.5"),
+        setting(up(), "on", 1.0, "when x > 0.5"),
+    ];
+    if let Some((z0, w0, accel)) = states {
+        vars.push(state("z", "1", z0, "what x is solved from"));
+        vars.push(state("w", "1/s", w0, "z's rate"));
+        equations.push(eq(der("z"), n("w"), "z moves with w"));
+        equations.push(eq(der("w"), c(accel) * n("k"), "w's rate"));
+    }
+    ComponentDef {
+        name: name.into(),
+        params: vec![param("a", "1/s", 1.0, "a rate"), param("k", "1/s2", 1.0, "a curvature")],
+        vars,
+        equations,
+        ..Default::default()
+    }
+}
+
+/// The complementary conditions' runs against their exact crossings: x
+/// rises through 0.5 at `rise` (and falls back at `fall`, where given), x'
+/// there `slope_rise` (`slope_fall`). Each clause fires once per crossing
+/// in its direction, located to 10 rtol in x (that over |x'| in time), and
+/// `on` is 1 at every output point between the crossings and 0 elsewhere.
+fn complementary_bad(
+    what: &str,
+    runs: &[(f64, SimResult)],
+    rise: (f64, f64),
+    fall: Option<(f64, f64)>,
+) -> Vec<String> {
+    let mut bad = vec![];
+    for (rtol, r) in runs {
+        let at = |label: &str| -> Vec<f64> {
+            r.events.iter().filter(|e| e.label.ends_with(label)).map(|e| e.t).collect()
+        };
+        let (rises, falls) = (at("rise"), at("fall"));
+        let (n_end, m_end) = (last(r, "n"), last(r, "m"));
+        let near = |got: &[f64], (exact, slope): (f64, f64)| {
+            got.len() == 1 && (got[0] - exact).abs() <= 10.0 * rtol / slope.abs()
+        };
+        let falls_ok = match fall {
+            Some(f) => near(&falls, f) && m_end == 1.0,
+            None => falls.is_empty() && m_end == 0.0,
+        };
+        if !(near(&rises, rise) && n_end == 1.0 && falls_ok) {
+            bad.push(format!(
+                "{what}, rtol {rtol:e}: n = {n_end}, m = {m_end}, rises at {rises:?}, falls at \
+                 {falls:?} (exact {rise:?}, {fall:?})"
+            ));
+        }
+        let k = r.names.iter().position(|x| x == "on").expect("on");
+        let wrong: Vec<f64> = r
+            .times
+            .iter()
+            .zip(&r.values[k])
+            .filter(|&(&t, &v)| {
+                // (the points next to a crossing: either side)
+                let close = |e: f64| (t - e).abs() <= 1e-6;
+                let inside = t > rise.0 && fall.is_none_or(|f| t < f.0);
+                !close(rise.0) && !fall.is_some_and(|f| close(f.0)) && v != f64::from(inside)
+            })
+            .map(|(&t, _)| t)
+            .collect();
+        if !wrong.is_empty() {
+            bad.push(format!("{what}, rtol {rtol:e}: `on` wrong at t = {wrong:?}"));
+        }
+    }
+    bad
+}
+
+const ALL_RTOLS: [f64; 7] = [1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10];
+
+/// `when x > 0.5`, `when x < 0.5` and `when x > 0.5 … elsewhen x < 0.5` on
+/// one iteration variable: at its crossing the integrator reports the
+/// rising functions; the event solves x again from the states, and where
+/// the crossing was located a little early x comes out a little short of
+/// 0.5. Event iteration evaluated the falling conditions there and fired
+/// them too: `m = 1` and, the elsewhen's second branch firing last, `on =
+/// 0` for the rest of the run while x > 0.5 (4 of 14 runs with x³ + x = t
+/// and with x³ + x = z, z' = 1: the outside review's probes). Now event
+/// iteration holds each condition on the side the integrator saw it on,
+/// within the hold the integrator gets after the event.
+#[test]
+fn complementary_whens_on_an_iteration_variable_fire_once_per_crossing() {
+    let mut bad = vec![];
+    // x reaches 0.5 where x³ + x = 0.625: x' = rate / (3 x² + 1) = rate / 1.75
+    let timed = complementary("Test.PairTime", n("a") * Expr::Time, None);
+    bad.extend(complementary_bad("no state", &run(&timed, &ALL_RTOLS), (0.625, 1.0 / 1.75), None));
+    let ramp = complementary("Test.PairRamp", n("z"), Some((0.0, 1.0, 0.0)));
+    bad.extend(complementary_bad("z' = 1", &run(&ramp, &ALL_RTOLS), (0.625, 1.0 / 1.75), None));
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// The same clauses on a peaked x (x³ + x = 0.625 + δ − (t − 1)², with t
+/// or with a state z, z'' = −2): x rises through 0.5 at 1 − √δ and falls
+/// back at 1 + √δ; each crossing fires its own direction's clauses only.
+/// Before, the event at the rise fired "fall" too, or the one at the fall
+/// "rise" (38 of 42 runs over δ = 1e-2, 1e-3, 1e-4).
+#[test]
+fn complementary_whens_on_a_peaked_iteration_variable_fire_once_each_way() {
+    let mut bad = vec![];
+    for delta in [1e-2, 1e-3] {
+        let (r, f) = (1.0 - lsim_ir::math::sqrt(delta), 1.0 + lsim_ir::math::sqrt(delta));
+        // x' = −2 (t − 1) / 1.75 at the crossings
+        let slope = 2.0 * lsim_ir::math::sqrt(delta) / 1.75;
+        let s = Expr::Time - c(1.0) / n("a");
+        let timed = complementary("Test.PeakTime", c(0.625 + delta) - n("k") * s.clone() * s, None);
+        let runs = run(&timed, &ALL_RTOLS);
+        bad.extend(complementary_bad(
+            &format!("no state, δ = {delta:e}"),
+            &runs,
+            (r, slope),
+            Some((f, -slope)),
+        ));
+        let peak = complementary("Test.PeakState", n("z"), Some((0.625 + delta - 1.0, 2.0, -2.0)));
+        bad.extend(complementary_bad(
+            &format!("z'' = −2, δ = {delta:e}"),
+            &run(&peak, &ALL_RTOLS),
+            (r, slope),
+            Some((f, -slope)),
+        ));
+    }
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// A hold already in force at a later event: the rise located a little
+/// early is held on its side (x, solved again, a little short of 0.5);
+/// at 0.625 s, before the integrator's next step ends, a time event sets
+/// `k`, which moves x up by 6e-13 (x³ + x = a t + 1e-12 k). Event
+/// iteration saw x short of 0.5 before that event and over it after, and
+/// fired the rise a second time; it now sees the condition as the
+/// integrator does, held on the side it crossed to: one crossing, one
+/// firing.
+#[test]
+fn a_held_condition_does_not_fire_again_at_the_next_event() {
+    let up = cmp(CmpOp::Gt, n("x"), c(0.5));
+    let at = cmp(CmpOp::Ge, Expr::Time, n("t1"));
+    let mut bad = vec![];
+    for with_state in [false, true] {
+        let rhs = if with_state { n("z") } else { n("a") * Expr::Time } + n("e") * n("k");
+        let mut m = counter("Test.HeldNextEvent", 1.0, with_state, rhs, up.clone());
+        m.params.push(param("e", "1", 1e-12, "how far k moves x³ + x"));
+        m.params.push(param("t1", "s", 0.625, "when k is set"));
+        m.vars.push(discrete("k", "1", 0.0, "set at t1"));
+        m.equations.push(setting(at.clone(), "k", 1.0, "k set"));
+        let what = if with_state { "z = t" } else { "no state" };
+        for (rtol, r) in run(&m, &ALL_RTOLS) {
+            let at: Vec<f64> =
+                r.events.iter().filter(|e| e.label.ends_with("it counts")).map(|e| e.t).collect();
+            let count = last(&r, "n");
+            if count != 1.0 || at.len() != 1 || (at[0] - 0.625).abs() > 10.0 * rtol {
+                bad.push(format!("{what}, rtol {rtol:e}: n = {count}, fired at {at:?}"));
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}

@@ -13,7 +13,9 @@
 //!   again, does not hold yet: the integrator meets it again). A
 //!   condition on an iteration variable that solving them again puts back
 //!   a little short of zero is held on the side it crossed to, so its
-//!   `when` fires once ([`Loop::update_sides`]).
+//!   `when` fires once ([`Loop::update_sides`]); event iteration evaluates
+//!   every condition as held too, so a `when x < 0.5` beside a `when x >
+//!   0.5` does not fire at that crossing ([`Loop::hold_conditions`]).
 //! * **`when` clauses** follow Modelica: a clause fires at each instant its
 //!   condition changes from false to true while the model runs, compared
 //!   with its value just before that instant (before a sample tick set
@@ -378,6 +380,14 @@ struct Loop<'a> {
     notes: &'a std::cell::RefCell<Vec<String>>,
 }
 
+/// Where the integrator saw an event's conditions ([`Loop::hold_conditions`]):
+/// the point it located the event at, and the side it saw each root
+/// function on there ([`Loop::seen_side`]).
+struct Seen {
+    y: Vec<f64>,
+    side: Vec<f64>,
+}
+
 /// Whether two times are one instant to the integrators: closer than a
 /// few ulps, an interval they cannot step (SUNDIALS refuses one shorter
 /// than 2 ulps: "tout too close to t0").
@@ -391,7 +401,11 @@ pub(crate) fn same_instant(a: f64, b: f64) -> bool {
 /// variables (`tests/implicit_conditions.rs`' models over their rates,
 /// rtol 1e-4 … 1e-10, 50 holds); an event that moves the condition itself
 /// (a `reinit`, a discrete value an iteration variable is solved with)
-/// moved it 5e5 times that and more, and is not held.
+/// moved it 5e5 times that and more, and is not held. One that moves it by
+/// less than its hold is taken as leaving it where it was: its `when`
+/// fires where the integrator sees it past the hold, later by at most the
+/// hold's width over its rate (3.6 rtol in `tests/implicit_conditions.rs`'
+/// nudge of 6e-13).
 const HOLD: f64 = 4.0;
 
 /// Steps in a row that leave the time where it was before the run stops
@@ -741,7 +755,9 @@ impl Loop<'_> {
     /// values alone move the function at the point the integrator had, or
     /// the function is a mode's (a mode follows its relation at the event,
     /// and where that sets it back the integrator restarts and sees it
-    /// cross again: [`Loop::undone`]).
+    /// cross again: [`Loop::undone`]). Event iteration, before, evaluates
+    /// the conditions held the same way ([`Loop::hold_conditions`]): what
+    /// it fires on and what the integrator watches after agree.
     fn update_sides(
         &mut self,
         t: f64,
@@ -780,14 +796,7 @@ impl Loop<'_> {
             })
             .map(|(y0, d0)| {
                 self.eval_raw(t, y0, d0);
-                let mut g = self.raw.clone();
-                apply_zero_sides(
-                    &mut g,
-                    &self.sides,
-                    self.held.then_some(self.hold.as_slice()),
-                    &[],
-                );
-                g
+                (0..self.raw.len()).map(|c| self.seen_side(c, self.raw[c], dirs)).collect()
             });
         // the holds made at earlier events
         let held: Vec<(usize, f64, f64)> = if self.held {
@@ -835,12 +844,10 @@ impl Loop<'_> {
         // the functions now on the other side of the one the integrator
         // saw them on (crossed to, where it reported a crossing)
         let mut was: Vec<(usize, f64)> = vec![];
-        for (c, seen_c) in seen.iter().enumerate() {
-            if self.mode_of_root[c].is_some() || self.timed(c) || self.held_root[c] {
+        for (c, &s) in seen.iter().enumerate() {
+            if !self.may_hold_root(c) {
                 continue;
             }
-            let r = dirs.and_then(|x| x.get(c)).copied().unwrap_or(0);
-            let s = if r != 0 { r as f64 } else { seen_c.signum() };
             if s != 0.0 && self.raw[c] * s < 0.0 {
                 was.push((c, s));
             }
@@ -856,18 +863,8 @@ impl Loop<'_> {
         if was.is_empty() {
             return;
         }
-        // what the iteration variables' tolerances allow in each
-        let mut band = vec![0.0; after.len()];
-        let mut yp = y.to_vec();
-        for i in l.n_x..l.n_y() {
-            let tol = self.opts.rtol * y[i].abs() + self.opts.atol * self.info.y_nominal[i];
-            yp[i] = y[i] + tol;
-            self.eval_raw(t, &yp, d);
-            yp[i] = y[i];
-            for &(c, _) in &was {
-                band[c] += (self.raw[c] - after[c]).abs();
-            }
-        }
+        let cs: Vec<usize> = was.iter().map(|x| x.0).collect();
+        let band = self.band(t, y, d, &after, &cs);
         for (c, s) in was {
             let h = HOLD * band[c];
             if after[c].abs() <= h {
@@ -909,17 +906,7 @@ impl Loop<'_> {
             return;
         }
         let after = self.raw.clone();
-        let mut band = vec![0.0; after.len()];
-        let mut yp = y.to_vec();
-        for i in l.n_x..l.n_y() {
-            let tol = self.opts.rtol * y[i].abs() + self.opts.atol * self.info.y_nominal[i];
-            yp[i] = y[i] + tol;
-            self.eval_raw(t, &yp, d);
-            yp[i] = y[i];
-            for &c in &near {
-                band[c] += (self.raw[c] - after[c]).abs();
-            }
-        }
+        let band = self.band(t, y, d, &after, &near);
         self.raw = after;
         for &c in &near {
             let h = HOLD * band[c];
@@ -970,6 +957,123 @@ impl Loop<'_> {
     /// events re-solve iteration variables a condition reads.
     fn may_hold(&self) -> bool {
         self.model.layout().n_z > 0 && self.info.events_read_z && !self.raw.is_empty()
+    }
+
+    /// Whether root function `c` is one an event holds on its side
+    /// ([`Loop::update_sides`]): not a mode's (a mode follows its relation
+    /// at the event: [`Loop::undone`]), a time crossing's (scheduled
+    /// exactly) or a held table read's cell edge ([`Loop::hold_cells`]).
+    fn may_hold_root(&self, c: usize) -> bool {
+        !(self.mode_of_root.get(c).is_some_and(|m| m.is_some())
+            || self.timed(c)
+            || self.held_root.get(c).copied().unwrap_or(false))
+    }
+
+    /// The side the integrator saw root function `c` on at an event's
+    /// point, where its value is `g` (unmapped): the direction it reported
+    /// it crossing in (`dirs`); else the side a hold keeps it on
+    /// ([`Loop::update_sides`]: the other side within the hold, or zero),
+    /// or its sign. At an exact zero, the side on which its `when`'s
+    /// condition has the value it has at zero (`x > 0.5` is false at zero:
+    /// the negative side; `x < 0.5` is false too: the positive side), so
+    /// that the side and the condition event iteration evaluates there
+    /// agree; else the side zero counts as.
+    fn seen_side(&self, c: usize, g: f64, dirs: Option<&[i32]>) -> f64 {
+        let r = dirs.and_then(|x| x.get(c)).copied().unwrap_or(0);
+        if r != 0 {
+            return f64::from(r);
+        }
+        let (s, h) = (self.sides[c], self.hold[c]);
+        if h > 0.0 && s != 0.0 && g * s <= 0.0 && g.abs() <= h {
+            s
+        } else if g > 0.0 {
+            1.0
+        } else if g < 0.0 {
+            -1.0
+        } else if let Some(k) = self.when_of_root.get(c).copied().flatten() {
+            let true_side = if self.info.whens[k].1 == Direction::Falling { -1.0 } else { 1.0 };
+            if self.holds(k, 0.0) { true_side } else { -true_side }
+        } else {
+            s
+        }
+    }
+
+    /// What the iteration variables' tolerances allow in each root function
+    /// `cs` names at `(t, y, d)`, where the functions are `after`: its
+    /// change as each iteration variable is moved by its tolerance, summed
+    /// ([`HOLD`] times that is a hold's width).
+    fn band(&mut self, t: f64, y: &[f64], d: &[f64], after: &[f64], cs: &[usize]) -> Vec<f64> {
+        let l = *self.model.layout();
+        let mut band = vec![0.0; after.len()];
+        let mut yp = y.to_vec();
+        for i in l.n_x..l.n_y() {
+            let tol = self.opts.rtol * y[i].abs() + self.opts.atol * self.info.y_nominal[i];
+            yp[i] = y[i] + tol;
+            self.eval_raw(t, &yp, d);
+            yp[i] = y[i];
+            for &c in cs {
+                band[c] += (self.raw[c] - after[c]).abs();
+            }
+        }
+        band
+    }
+
+    /// The conditions as event iteration evaluates them (`self.roots`, or
+    /// `self.roots_prev` where `prev`, at `(t, y, d)`): as the integrator
+    /// sees their root functions, relation hysteresis at events too, so
+    /// that what event iteration fires on and what the integrator watches
+    /// agree (else a `when x < 0.5` beside a `when x > 0.5` fires at the
+    /// rise's crossing too, where x, solved again, comes out a little
+    /// short of 0.5). A function a hold keeps on its side
+    /// ([`Loop::update_sides`]) is on that side. And at an event (`seen`:
+    /// the point the integrator located it at, and the side it saw each
+    /// function on there, [`Loop::seen_side`]), one that solving the
+    /// iteration variables again put on the other side of where the
+    /// integrator saw it, or on zero, by no more than its hold, and not
+    /// by the new discrete values' own doing, is on the side the
+    /// integrator saw: the hold the integrator gets after the event
+    /// ([`Loop::sides_and_holds`]). An event that moves the condition
+    /// itself (a discrete value an iteration variable is solved with, a
+    /// state it moves) moves it past its hold, or is no such event.
+    fn hold_conditions(&mut self, t: f64, y: &[f64], d: &[f64], seen: Option<&Seen>, prev: bool) {
+        if self.held {
+            for c in 0..self.roots.len() {
+                let (s, h) = (self.sides[c], self.hold[c]);
+                let g = if prev { self.roots_prev[c] } else { self.roots[c] };
+                if h > 0.0 && s != 0.0 && g * s <= 0.0 && g.abs() <= h && self.may_hold_root(c) {
+                    let g = if prev { &mut self.roots_prev[c] } else { &mut self.roots[c] };
+                    *g = s * f64::MIN_POSITIVE;
+                }
+            }
+        }
+        let Some(seen) = seen else { return };
+        let l = *self.model.layout();
+        if prev || y[..l.n_x] != seen.y[..l.n_x] || y[l.n_x..] == seen.y[l.n_x..] {
+            return;
+        }
+        let mut cs: Vec<(usize, f64)> = vec![];
+        for (c, &s) in seen.side.iter().enumerate() {
+            if s != 0.0 && self.roots[c] * s <= 0.0 && self.may_hold_root(c) {
+                cs.push((c, s));
+            }
+        }
+        if cs.is_empty() {
+            return;
+        }
+        // (with the new discrete values, at the point the integrator had,
+        // still where it saw it)
+        self.eval_raw(t, &seen.y, d);
+        cs.retain(|&(c, s)| self.raw[c] * s >= 0.0);
+        if cs.is_empty() {
+            return;
+        }
+        let after = self.roots.clone();
+        let band = self.band(t, y, d, &after, &cs.iter().map(|x| x.0).collect::<Vec<_>>());
+        for (c, s) in cs {
+            if after[c].abs() <= HOLD * band[c] {
+                self.roots[c] = s * f64::MIN_POSITIVE;
+            }
+        }
     }
 
     /// Hands the sides and holds to the integrator.
@@ -1364,7 +1468,10 @@ impl Loop<'_> {
     /// held) before anything reads them: the `when` values, the modes'
     /// relations and the conditions all see the algebraic equations as
     /// they hold for the new discrete values. Returns whether a discrete
-    /// value changed from `d_pre`.
+    /// value changed from `d_pre`. `at_event`: `y` is the point the
+    /// integrator had at an event (where it located a crossing, a tick in
+    /// a step, a step's end), and the conditions are held where it saw
+    /// them ([`Loop::hold_conditions`]); not at the start.
     #[allow(clippy::too_many_arguments)]
     fn iterate(
         &mut self,
@@ -1374,13 +1481,22 @@ impl Loop<'_> {
         d: &mut Vec<f64>,
         d_pre: &[f64],
         dirs: Option<&[i32]>,
+        at_event: bool,
     ) -> Result<bool, SolveError> {
         let info = self.info;
         let n_whens = info.whens.len();
         let mut fired = vec![0.0; n_whens];
         let mut any_fired = false;
-        // the conditions just before the event
+        // the conditions just before the event, and where the integrator
+        // saw them
         self.eval_roots(t, y, d_pre, true);
+        let seen = (at_event && self.may_hold()).then(|| Seen {
+            y: y.to_vec(),
+            side: (0..self.roots_prev.len())
+                .map(|c| self.seen_side(c, self.roots_prev[c], dirs))
+                .collect(),
+        });
+        self.hold_conditions(t, y, d_pre, None, true);
         // the discrete values y's iteration variables are consistent with
         let mut z_for: Vec<f64> = d_pre.to_vec();
         // the clauses on crossings the integrator reported: they fire (or
@@ -1423,7 +1539,7 @@ impl Loop<'_> {
                 }
             }
         }
-        self.rounds(integ, t, y, d, &mut fired, any_fired, &reported, &mut z_for)?;
+        self.rounds(integ, t, y, d, &mut fired, any_fired, &reported, &mut z_for, seen.as_ref())?;
         self.solve_z(integ, t, y, d, &mut z_for)?;
         Ok(d.as_slice() != d_pre)
     }
@@ -1434,6 +1550,8 @@ impl Loop<'_> {
     /// `self.roots_prev`), until nothing changes. A clause fires when its
     /// condition goes from not holding to holding (Modelica's edge);
     /// `skip`: clauses the first round does not check (decided already).
+    /// The conditions as the integrator sees them, held where it saw them
+    /// at the event (`seen`; [`Loop::hold_conditions`]).
     #[allow(clippy::too_many_arguments)]
     fn rounds(
         &mut self,
@@ -1445,6 +1563,7 @@ impl Loop<'_> {
         mut any_fired: bool,
         skip: &[bool],
         z_for: &mut Vec<f64>,
+        seen: Option<&Seen>,
     ) -> Result<(), SolveError> {
         let info = self.info;
         let mut iterations = 0;
@@ -1470,6 +1589,7 @@ impl Loop<'_> {
                 break;
             }
             self.eval_roots(t, y, d, false);
+            self.hold_conditions(t, y, d, seen, false);
             let mut again = false;
             let mut flipped = vec![];
             for (k, (c, dir)) in info.whens.iter().enumerate() {
@@ -1670,7 +1790,7 @@ impl Loop<'_> {
         dirs: Option<&[i32]>,
         before_vars: &[f64],
     ) -> Result<(bool, Option<Engagement>), SolveError> {
-        let changed = self.iterate(integ, t, y, d, d_pre, dirs)?;
+        let changed = self.iterate(integ, t, y, d, d_pre, dirs, true)?;
         if !changed || self.info.impulse.is_none() {
             return Ok((changed, None));
         }
@@ -1683,6 +1803,7 @@ impl Loop<'_> {
         loop {
             // the conditions as they stand before the states move
             self.eval_roots(t, y, d, true);
+            self.hold_conditions(t, y, d, None, true);
             let Some(e) = self.engage(integ, t, y, d, &ref_vars, &ref_d)? else { break };
             engaged += 1;
             if engaged > self.opts.max_event_iterations {
@@ -1705,7 +1826,7 @@ impl Loop<'_> {
             let mut z_for = d.clone();
             let mut fired = vec![0.0; self.info.whens.len()];
             let seen = self.events.len();
-            self.rounds(integ, t, y, d, &mut fired, false, &[], &mut z_for)?;
+            self.rounds(integ, t, y, d, &mut fired, false, &[], &mut z_for, None)?;
             self.solve_z(integ, t, y, d, &mut z_for)?;
             fired_by.clear();
             for ev in &self.events[seen..] {
@@ -2504,7 +2625,7 @@ fn run_watched<'a>(
             // initialisation no `when` fires on them (each condition starts
             // as it is), the modes follow them
             let d_init = d.clone();
-            lp.iterate(integ, t, &mut y, &mut d, &d_init, None)?;
+            lp.iterate(integ, t, &mut y, &mut d, &d_init, None, false)?;
             integ.discrete_mut().copy_from_slice(&d);
             integ.restart(t, &y)?;
             y.copy_from_slice(integ.y());
