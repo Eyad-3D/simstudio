@@ -597,13 +597,41 @@ second: about 0.899889 after 10 s.
   does not overshoot where the data rise or fall steadily. `interpolation =
   linear` joins the points with straight lines instead (the slope jumps at
   each point). Read along time, a table stops the run at each point. Read
-  at a value that moves with the model's states, the solver steps over the
-  points with no events, also where the model reads a derivative of the
-  table that jumps there (a linear table differentiated by index
-  reduction, as a gear whose ratio is a table of a speed is): there the
-  error is not proportional to the tolerance, tens to a few hundred
-  tolerances off where it would be a few (measured: `engine/DESIGN.md`
-  §8.2, *Tables read at a state*).
+  at a value that moves with the model's states, what the solver does at
+  the points depends on the read and on the model's form (measured:
+  `engine/DESIGN.md` §8.2, *Tables read at a state*):
+  * Where the model reads a derivative of the table that jumps there (a
+    linear table differentiated by index reduction, as a gear whose ratio
+    is a table of a speed is), stepping over the point is not proportional
+    to the tolerance: on the explicit form (no algebraic loop the solver
+    iterates on: CVODES) 10 to 180 tolerances off on the judge's gear, 2 000
+    to 14 000 at rtol 1e-10 where the speed turns just past a point or the
+    run chooses its states again, and up to 3 000 on a table of 101 points
+    swung back and forth, where the same read held in its cell (each
+    crossing of a point found and the integrator restarted there) is 1 to
+    29 (on the swing too a thousand: each restart costs about half a
+    tolerance). So a linear table's slope is held there by default. A
+    clamped cubic's slope at its data's edges and a cubic's second
+    derivative are stepped over there (4 to 340 tolerances off on the
+    judge's cases; held, better on some and worse on others), and so is a
+    table of two arguments (not measured on this form).
+  * On the implicit form (a model with an algebraic loop the solver
+    iterates on: IDAS) a read that jumps cannot be stepped over at all: the
+    solver stops at the first point ("made no progress") or gives no answer
+    within minutes. So every read that jumps is held there by default, at
+    every crossing; a run that stops at a point of a read it steps over
+    (held off by the option below) names the table, the read and the option
+    that holds it.
+  * A read that only kinks (a linear table's value, a cubic's slope) is
+    stepped over on both forms: up to thousands of tolerances off on long
+    runs that cross a table's points many times; held, or written as `if`
+    branches on the points, it is better on some of the judge's cases and
+    worse on others.
+  The choice is the build option `table_cells` (`lsim_engine::BuildOptions`;
+  `table_cells=` of the Python `build`): `"auto"` (the default, as above),
+  `"off"` (every point stepped over), `"jumps"` (every read whose slope
+  jumps, on both forms), `"kinks"` (also the reads that only kink, for
+  comparison); the text format has no syntax for it.
 * `outside = {clamp}` (the default) holds the edge value beyond the data;
   `linear` extends the edge's slope; `error` stops the run. Give one rule
   for each axis, or one for all.
