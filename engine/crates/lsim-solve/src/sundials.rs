@@ -60,12 +60,9 @@ struct Problem {
     quad: Option<Integrand>,
     /// for each root function: the side an exact zero counts as (+1, -1;
     /// 0: none), so a function resting at zero after its event does not
-    /// fire again
-    zero_side: Vec<f64>,
-    /// per root function: its hold (`Integrator::set_root_sides`)
-    zero_hold: Vec<f64>,
-    /// root functions not watched (time events the run loop schedules)
-    root_mask: Vec<bool>,
+    /// fire again, and its hold (`Integrator::set_root_sides`); the root
+    /// functions not watched (time events the run loop schedules)
+    zero: crate::run::ZeroSides,
     /// table guards watched after the model's own root functions
     n_guards: usize,
 }
@@ -202,7 +199,7 @@ unsafe extern "C" fn cv_root(t: f64, y: N_Vector, g: *mut f64, ud: *mut c_void) 
         if pr.n_guards > 0 {
             m.table_guards(&inp, &mut pr.work, &mut g[nr..]);
         }
-        crate::run::apply_zero_sides(g, &pr.zero_side, &pr.zero_hold, &pr.root_mask);
+        pr.zero.apply(g);
     }
     0
 }
@@ -698,9 +695,7 @@ impl<'m> Sundials<'m> {
             jac,
             lin,
             quad,
-            zero_side: vec![0.0; layout.n_roots + model.table_guard_list().len()],
-            zero_hold: vec![0.0; layout.n_roots + model.table_guard_list().len()],
-            root_mask: vec![],
+            zero: crate::run::ZeroSides::new(layout.n_roots + model.table_guard_list().len()),
             n_guards: model.table_guard_list().len(),
         });
         // SAFETY: plain SUNDIALS set-up; every object is freed in `Drop`.
@@ -1500,12 +1495,11 @@ impl Integrator for Sundials<'_> {
     }
 
     fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
-        self.prob.zero_side.copy_from_slice(sides);
-        self.prob.zero_hold.copy_from_slice(holds);
+        self.prob.zero.set(sides, holds);
     }
 
     fn set_root_mask(&mut self, mask: &[bool]) -> bool {
-        self.prob.root_mask = mask.to_vec();
+        self.prob.zero.mask(mask);
         true
     }
 

@@ -303,6 +303,9 @@ struct Loop<'a> {
     /// for each root function: how far on the other side of its side it
     /// is still taken as on it (0: not at all; [`Loop::update_sides`])
     hold: Vec<f64>,
+    /// some function is held (a hold not 0): kept with `hold`, so that the
+    /// step's end looks for holds to release only where there are any
+    held: bool,
     /// the model's root functions and table guards, unmapped
     raw: Vec<f64>,
     /// the mode whose crossing (or its falling copy) each root function is
@@ -328,6 +331,10 @@ struct Loop<'a> {
     /// per root function that depends on time only: the time it next
     /// crosses zero, scheduled exactly (NaN: not ahead)
     t_star: Vec<f64>,
+    /// the root functions `t_star` may be set for (the time crossings and
+    /// the time functions searched ahead), in order: NaN at every other,
+    /// so a step looks at these alone ([`Loop::time_live`])
+    t_live: Vec<usize>,
     /// per root function: a time crossing whose time, with the discrete
     /// values now, is this instant (its modes take their values just after
     /// it); refreshed by [`Loop::right_limits`]
@@ -351,6 +358,13 @@ struct Loop<'a> {
     chan: Option<Vec<usize>>,
     /// the recorded channels, read through `chan`
     chan_buf: Vec<f64>,
+    /// the point after an event [`after_event`] sampled `vars` at (its
+    /// time; the states and discrete values below), while `vars` still
+    /// hold those channels ([`Loop::sampled_after`]): `None` once they
+    /// change
+    after_t: Option<f64>,
+    after_y: Vec<f64>,
+    after_d: Vec<f64>,
     /// the integrator's internal steps so far (over every integrator the
     /// run went on with)
     steps: u64,
@@ -561,18 +575,100 @@ fn integrator_failure(
 /// value on the other side within its hold to that side too (a crossing
 /// that re-solving the iteration variables at its event put back a little
 /// short of zero: [`Loop::update_sides`]), and holds the masked ones (time
-/// events the run loop schedules) at a constant (the backends call this on
-/// every evaluation of the root functions).
-pub(crate) fn apply_zero_sides(g: &mut [f64], sides: &[f64], holds: &[f64], mask: &[bool]) {
-    for ((g, s), h) in g.iter_mut().zip(sides).zip(holds) {
-        if *s != 0.0 && (*g == 0.0 || (*g * *s < 0.0 && g.abs() <= *h)) {
+/// events the run loop schedules; their indices) at a constant (the
+/// backends call this on every evaluation of the root functions, through
+/// [`ZeroSides`]). `holds`: `None` where no function is held (no hold
+/// above 0, where a value on the other side never moves: only an exact
+/// zero does).
+pub(crate) fn apply_zero_sides(
+    g: &mut [f64],
+    sides: &[f64],
+    holds: Option<&[f64]>,
+    masked: &[usize],
+) {
+    match holds {
+        Some(holds) => {
+            for ((g, s), h) in g.iter_mut().zip(sides).zip(holds) {
+                if *s != 0.0 && (*g == 0.0 || (*g * *s < 0.0 && g.abs() <= *h)) {
+                    *g = *s * f64::MIN_POSITIVE;
+                }
+            }
+        }
+        None => {
+            // (an exact zero is rare: a run of values without one is passed
+            // over in one look, a vector compare)
+            let n = g.len().min(sides.len());
+            let mut gs = g[..n].chunks_exact_mut(ZERO_RUN);
+            let mut ss = sides[..n].chunks_exact(ZERO_RUN);
+            for (g, s) in (&mut gs).zip(&mut ss) {
+                if g.iter().fold(false, |zero, x| zero | (*x == 0.0)) {
+                    zeros_to_sides(g, s);
+                }
+            }
+            zeros_to_sides(gs.into_remainder(), ss.remainder());
+        }
+    }
+    for &i in masked {
+        if let Some(g) = g.get_mut(i) {
+            *g = 1.0;
+        }
+    }
+}
+
+/// Whether a function is held: a hold not 0 ([`Loop::held`]; every one
+/// looked at, a vector compare).
+fn held(hold: &[f64]) -> bool {
+    hold.iter().fold(false, |any, h| any | (*h != 0.0))
+}
+
+/// The values [`apply_zero_sides`] looks at together for an exact zero.
+const ZERO_RUN: usize = 8;
+
+/// Each exact zero of `g` to its side.
+fn zeros_to_sides(g: &mut [f64], sides: &[f64]) {
+    for (g, s) in g.iter_mut().zip(sides) {
+        if *g == 0.0 && *s != 0.0 {
             *g = *s * f64::MIN_POSITIVE;
         }
     }
-    for (g, m) in g.iter_mut().zip(mask) {
-        if *m {
-            *g = 1.0;
-        }
+}
+
+/// What a backend maps its root functions' values with
+/// ([`apply_zero_sides`]): the sides and holds the run loop hands it
+/// ([`Integrator::set_root_sides`]), and the functions it masks
+/// ([`Integrator::set_root_mask`]).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ZeroSides {
+    side: Vec<f64>,
+    hold: Vec<f64>,
+    /// a hold is above 0 (else only exact zeros move)
+    held: bool,
+    /// the masked functions
+    masked: Vec<usize>,
+}
+
+impl ZeroSides {
+    /// For `n` root functions: no side, no hold, none masked.
+    pub(crate) fn new(n: usize) -> ZeroSides {
+        ZeroSides { side: vec![0.0; n], hold: vec![0.0; n], held: false, masked: vec![] }
+    }
+
+    /// The sides and holds from the run loop.
+    pub(crate) fn set(&mut self, sides: &[f64], holds: &[f64]) {
+        self.side.copy_from_slice(sides);
+        self.hold.copy_from_slice(holds);
+        // (every one looked at: a vector compare)
+        self.held = holds.iter().fold(false, |any, h| any | (*h > 0.0));
+    }
+
+    /// The functions masked: those `mask` marks.
+    pub(crate) fn mask(&mut self, mask: &[bool]) {
+        self.masked = mask.iter().enumerate().filter(|(_, m)| **m).map(|(i, _)| i).collect();
+    }
+
+    /// `g`, the root functions' values, mapped.
+    pub(crate) fn apply(&self, g: &mut [f64]) {
+        apply_zero_sides(g, &self.side, self.held.then_some(self.hold.as_slice()), &self.masked);
     }
 }
 
@@ -654,6 +750,19 @@ impl Loop<'_> {
         dirs: Option<&[i32]>,
         before: Option<(&[f64], &[f64])>,
     ) {
+        self.sides_and_holds(t, y, d, dirs, before);
+        self.held = held(&self.hold);
+    }
+
+    /// [`Loop::update_sides`] but for [`Loop::held`].
+    fn sides_and_holds(
+        &mut self,
+        t: f64,
+        y: &[f64],
+        d: &[f64],
+        dirs: Option<&[i32]>,
+        before: Option<(&[f64], &[f64])>,
+    ) {
         if self.raw.is_empty() {
             return;
         }
@@ -672,14 +781,23 @@ impl Loop<'_> {
             .map(|(y0, d0)| {
                 self.eval_raw(t, y0, d0);
                 let mut g = self.raw.clone();
-                apply_zero_sides(&mut g, &self.sides, &self.hold, &[]);
+                apply_zero_sides(
+                    &mut g,
+                    &self.sides,
+                    self.held.then_some(self.hold.as_slice()),
+                    &[],
+                );
                 g
             });
         // the holds made at earlier events
-        let held: Vec<(usize, f64, f64)> = (0..self.hold.len())
-            .filter(|&c| self.hold[c] > 0.0)
-            .map(|c| (c, self.sides[c], self.hold[c]))
-            .collect();
+        let held: Vec<(usize, f64, f64)> = if self.held {
+            (0..self.hold.len())
+                .filter(|&c| self.hold[c] > 0.0)
+                .map(|c| (c, self.sides[c], self.hold[c]))
+                .collect()
+        } else {
+            vec![]
+        };
         self.hold.fill(0.0);
         self.eval_raw(t, y, d);
         for c in 0..self.raw.len() {
@@ -716,14 +834,17 @@ impl Loop<'_> {
         let (Some(seen), Some((y0, _))) = (seen, before) else { return };
         // the functions now on the other side of the one the integrator
         // saw them on (crossed to, where it reported a crossing)
-        let mut was: Vec<(usize, f64)> = (0..self.raw.len())
-            .filter(|&c| self.mode_of_root[c].is_none() && !self.timed(c) && !self.held_root[c])
-            .filter_map(|c| {
-                let r = dirs.and_then(|x| x.get(c)).copied().unwrap_or(0);
-                let s = if r != 0 { r as f64 } else { seen[c].signum() };
-                (s != 0.0 && self.raw[c] * s < 0.0).then_some((c, s))
-            })
-            .collect();
+        let mut was: Vec<(usize, f64)> = vec![];
+        for (c, seen_c) in seen.iter().enumerate() {
+            if self.mode_of_root[c].is_some() || self.timed(c) || self.held_root[c] {
+                continue;
+            }
+            let r = dirs.and_then(|x| x.get(c)).copied().unwrap_or(0);
+            let s = if r != 0 { r as f64 } else { seen_c.signum() };
+            if s != 0.0 && self.raw[c] * s < 0.0 {
+                was.push((c, s));
+            }
+        }
         if was.is_empty() {
             return;
         }
@@ -813,7 +934,7 @@ impl Loop<'_> {
     /// back past zero by more than their hold (the integrator saw them
     /// cross there); returns whether one was released.
     fn release_holds(&mut self, t: f64, y: &[f64], d: &[f64]) -> bool {
-        if self.hold.iter().all(|h| *h == 0.0) {
+        if !self.held {
             return false;
         }
         self.eval_raw(t, y, d);
@@ -828,6 +949,7 @@ impl Loop<'_> {
                 released = true;
             }
         }
+        self.held = held(&self.hold);
         released
     }
 
@@ -945,6 +1067,19 @@ impl Loop<'_> {
     fn timed(&self, c: usize) -> bool {
         self.use_timed
             && (self.info.time_crossings.get(c).is_some_and(|x| x.is_some()) || self.tf.searched(c))
+    }
+
+    /// The root functions [`Loop::t_star`] may be set for, in order: the
+    /// time crossings and the time functions searched ahead
+    /// ([`timefn::TimeFns::live`]).
+    fn time_live(&self) -> Vec<usize> {
+        let searched = self.tf.live();
+        (0..self.t_star.len())
+            .filter(|&k| {
+                self.info.time_crossings.get(k).is_some_and(|x| x.is_some())
+                    || searched.contains(&k)
+            })
+            .collect()
     }
 
     /// The next crossing time of every time crossing, from the parameters
@@ -1130,6 +1265,20 @@ impl Loop<'_> {
     fn sample(&mut self, t: f64, y: &[f64], d: &[f64]) {
         let inp = EvalInput { t, y, p: &self.info.params, d, u: self.u };
         self.model.vars(&inp, &mut self.work, &mut self.vars);
+        self.after_t = None;
+    }
+
+    /// The channels `vars`, where [`after_event`] sampled them at `(t, y,
+    /// d)` and nothing changed them since (the point after an event, where
+    /// the watch looks again: [`crate::states::Watch::begin`]).
+    fn sampled_after(&self, t: f64, y: &[f64], d: &[f64]) -> Option<&[f64]> {
+        let same = |a: &[f64], b: &[f64]| {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+        };
+        (self.after_t.is_some_and(|ta| ta.to_bits() == t.to_bits())
+            && same(&self.after_y, y)
+            && same(&self.after_d, d))
+        .then_some(self.vars.as_slice())
     }
 
     fn eval_roots(&mut self, t: f64, y: &[f64], d: &[f64], prev: bool) {
@@ -2210,6 +2359,7 @@ fn run_watched<'a>(
         window: (opts.storm_window * span).max(1e-6),
         sides: vec![0.0; l.n_roots + model.table_guard_list().len()],
         hold: vec![0.0; l.n_roots + model.table_guard_list().len()],
+        held: false,
         raw: vec![0.0; l.n_roots + model.table_guard_list().len()],
         mode_of_root: {
             let mut m = vec![None; l.n_roots + model.table_guard_list().len()];
@@ -2248,6 +2398,7 @@ fn run_watched<'a>(
         warnings: axes_warnings,
         scheduled: false,
         t_star: vec![f64::NAN; info.time_crossings.len().max(info.time_functions.len())],
+        t_live: vec![],
         now: vec![false; l.n_roots],
         use_timed: false,
         tf: timefn::TimeFns::new(info.time_crossings.len().max(info.time_functions.len())),
@@ -2257,6 +2408,9 @@ fn run_watched<'a>(
         kinks_moving: vec![],
         chan: None,
         chan_buf: vec![],
+        after_t: None,
+        after_y: vec![],
+        after_d: vec![],
         steps: 0,
         crossings: vec![vec![]; crate::held::groups(info)],
         crossed_at: vec![f64::NAN; crate::held::groups(info)],
@@ -2313,6 +2467,7 @@ fn run_watched<'a>(
     // (and the time functions it searches)
     {
         let mut mask = lp.time_functions_start(t_end);
+        lp.t_live = lp.time_live();
         mask.resize(lp.sides.len(), false);
         for (k, tc) in info.time_crossings.iter().enumerate() {
             mask[k] |= tc.is_some();
@@ -2462,6 +2617,7 @@ fn run_watched<'a>(
             lp.info = info;
             lp.work.resize(l.n_work, 0.0);
             lp.vars.resize(l.n_vars, 0.0);
+            lp.after_t = None;
             let identity =
                 next.map.iter().enumerate().all(|(c, &j)| c == j) && l.n_vars == next.map.len();
             lp.chan = (!identity).then_some(next.map);
@@ -2482,6 +2638,7 @@ fn run_watched<'a>(
             lp.tf = timefn::TimeFns::new(info.time_crossings.len().max(info.time_functions.len()));
             lp.sample(t, &y, &d);
             let mut mask = lp.time_functions_start(t_end);
+            lp.t_live = lp.time_live();
             mask.resize(lp.sides.len(), false);
             for (k, tc) in info.time_crossings.iter().enumerate() {
                 mask[k] |= tc.is_some();
@@ -2567,7 +2724,8 @@ fn run_watched<'a>(
         if let Some(&te) = info.time_events.get(next_time_event) {
             t_stop = t_stop.min(te);
         }
-        for &ts in &lp.t_star {
+        for &k in &lp.t_live {
+            let ts = lp.t_star[k];
             if ts > t {
                 t_stop = t_stop.min(ts);
             }
@@ -2581,7 +2739,8 @@ fn run_watched<'a>(
         // integrator is told), and the choice of states there, where an
         // event came since it was last checked: the next stretch starts
         // here
-        if let Some(k) = watch.begin(info, model, t, &y, &d, u, lp.events.len())? {
+        let sampled = lp.sampled_after(t, &y, &d);
+        if let Some(k) = watch.begin(info, model, t, &y, &d, u, lp.events.len(), sampled)? {
             // the states to be chosen again here (the point after an
             // event, or the start)
             let (e, _) = watch.standing(info, model, k, t, &lp.vars_at(t, &y, &d));
@@ -2771,7 +2930,7 @@ fn run_watched<'a>(
         let stopped = matches!(st, Step::Stopped(_));
         let due = |ts: f64| ts == t_new || ((stopped || is_root) && same_instant(ts, t_new));
         let at_time_event = info.time_events.get(next_time_event).is_some_and(|&te| due(te));
-        let crossing_due = lp.t_star.iter().any(|&ts| due(ts));
+        let crossing_due = lp.t_live.iter().any(|&k| due(lp.t_star[k]));
         let event_now = is_root || at_time_event || crossing_due;
 
         // the integrator's error estimate
@@ -3022,6 +3181,7 @@ fn run_watched<'a>(
                         && probe.y.iter().zip(&yk).all(|(a, b)| a.to_bits() == b.to_bits());
                     if same_point {
                         std::mem::swap(&mut lp.vars, &mut probe.vars);
+                        lp.after_t = None;
                         watch.probed(tk);
                     } else {
                         lp.sample(tk, &yk, &d);
@@ -3151,6 +3311,7 @@ fn run_watched<'a>(
                 // where nothing has moved since: the same values)
                 if probe.valid && probe.t == t_new {
                     std::mem::swap(&mut lp.vars, &mut probe.vars);
+                    lp.after_t = None;
                     watch.probed(t_new);
                 } else {
                     lp.sample(t_new, &y, &d);
@@ -3236,10 +3397,11 @@ fn run_watched<'a>(
         // right after a restart, where root finding cannot see it)
         if !event_now && (!info.modes.is_empty() || !info.held.is_empty()) {
             lp.eval_roots(t, &y, &d, false);
+            // (the side first: a mode rarely disagrees)
             let stale = info.modes.iter().any(|m| {
                 let g = lp.roots[m.crossing];
-                !lp.timed(m.crossing)
-                    && ((g > 0.0 && d[m.discrete] == 0.0) || (g < 0.0 && d[m.discrete] != 0.0))
+                ((g > 0.0 && d[m.discrete] == 0.0) || (g < 0.0 && d[m.discrete] != 0.0))
+                    && !lp.timed(m.crossing)
             }) || info.held.iter().flat_map(|h| &h.axes).any(|ax| {
                 // (an edge held inside, within its hold, is inside)
                 [ax.below, ax.above]
@@ -3339,6 +3501,7 @@ fn run_watched<'a>(
                 }
                 if resampled {
                     lp.vars.copy_from_slice(&before_vars);
+                    lp.after_t = None;
                 }
             }
             // the time crossings due now cross as scheduled: in their
@@ -3660,6 +3823,11 @@ fn after_event(
     impulse: Option<&Engagement>,
 ) -> Result<(), SolveError> {
     lp.sample(t, y, d);
+    lp.after_t = Some(t);
+    lp.after_y.clear();
+    lp.after_y.extend_from_slice(y);
+    lp.after_d.clear();
+    lp.after_d.extend_from_slice(d);
     rec.interior(t, lp.recorded());
     if let (Some(lg), Some(b)) = (ledger.as_mut(), before) {
         lg.after_event(t, &lp.vars, &lp.info.params, &b, impulse);

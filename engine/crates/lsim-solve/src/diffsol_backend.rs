@@ -34,9 +34,7 @@ use std::time::Instant;
 /// What the closures share with the integrator.
 struct Shared {
     d: RefCell<Vec<f64>>,
-    zero_side: RefCell<Vec<f64>>,
-    zero_hold: RefCell<Vec<f64>>,
-    root_mask: RefCell<Vec<bool>>,
+    zero: RefCell<crate::run::ZeroSides>,
     work: RefCell<Vec<f64>>,
     rhs: Cell<u64>,
     jvp: Cell<u64>,
@@ -113,9 +111,7 @@ pub fn simulate(
     )?;
     let shared = Shared {
         d: RefCell::new(d0),
-        zero_side: RefCell::new(vec![0.0; nr + ng]),
-        zero_hold: RefCell::new(vec![0.0; nr + ng]),
-        root_mask: RefCell::new(vec![]),
+        zero: RefCell::new(crate::run::ZeroSides::new(nr + ng)),
         work: RefCell::new(vec![0.0; l.n_work]),
         rhs: Cell::new(0),
         jvp: Cell::new(0),
@@ -147,12 +143,7 @@ pub fn simulate(
         if ng > 0 {
             model.table_guards(&inp, &mut work, &mut out[nr..]);
         }
-        crate::run::apply_zero_sides(
-            out,
-            &shared.zero_side.borrow(),
-            &shared.zero_hold.borrow(),
-            &shared.root_mask.borrow(),
-        );
+        shared.zero.borrow().apply(out);
         floor_roots(out);
     };
     let builder = OdeBuilder::<NalgebraMat<f64>>::new()
@@ -339,12 +330,7 @@ where
             self.model.table_guards(&inp, &mut work, &mut g[nr..]);
         }
         drop(work);
-        crate::run::apply_zero_sides(
-            &mut g,
-            &self.shared.zero_side.borrow(),
-            &self.shared.zero_hold.borrow(),
-            &self.shared.root_mask.borrow(),
-        );
+        self.shared.zero.borrow().apply(&mut g);
         g
     }
 
@@ -628,12 +614,11 @@ where
     }
 
     fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
-        self.shared.zero_side.borrow_mut().copy_from_slice(sides);
-        self.shared.zero_hold.borrow_mut().copy_from_slice(holds);
+        self.shared.zero.borrow_mut().set(sides, holds);
     }
 
     fn set_root_mask(&mut self, mask: &[bool]) -> bool {
-        *self.shared.root_mask.borrow_mut() = mask.to_vec();
+        self.shared.zero.borrow_mut().mask(mask);
         true
     }
 
