@@ -2082,8 +2082,6 @@ struct Ready<'a> {
     /// tables
     d_next: Vec<f64>,
     held_again: Vec<String>,
-    /// the tables of the reads released there for the explicit form
-    stepped_over: Vec<String>,
     /// the step was cut back to the point
     cut: bool,
     /// the set's factor there
@@ -2116,12 +2114,7 @@ fn ready_switch<'a>(
     // it is held in its cells again there (that form releases nothing)
     let mut d_next = d.to_vec();
     let mut held_again: Vec<String> = vec![];
-    // (onto the explicit form: the reads only the implicit form holds are
-    // stepped over there, as by default)
-    let mut stepped_over: Vec<String> = vec![];
-    if next.model.layout().n_z == 0 {
-        stepped_over = crate::held::release_for_explicit(next.info, &mut d_next);
-    } else {
+    if next.model.layout().n_z > 0 {
         for h in &next.info.held {
             if d_next.get(h.released).is_some_and(|r| *r > 0.5) {
                 d_next[h.released] = 0.0;
@@ -2175,20 +2168,7 @@ fn ready_switch<'a>(
     if let Err(e) = w.holds(next.info, next.model, t, &y, &d_next, u) {
         return Ok(Err(e));
     }
-    Ok(Ok(Ready {
-        k,
-        next,
-        integ,
-        watch: w,
-        y,
-        t,
-        d: d.to_vec(),
-        d_next,
-        held_again,
-        stepped_over,
-        cut,
-        e,
-    }))
+    Ok(Ok(Ready { k, next, integ, watch: w, y, t, d: d.to_vec(), d_next, held_again, cut, e }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2437,15 +2417,7 @@ fn run_watched<'a>(
                 None => &mut *integ0,
             };
             let Ready {
-                k: sw_k,
-                next,
-                integ: mut ni,
-                watch: w2,
-                y: yc,
-                d_next,
-                held_again,
-                stepped_over,
-                ..
+                k: sw_k, next, integ: mut ni, watch: w2, y: yc, d_next, held_again, ..
             } = r;
             d = d_next;
             for label in held_again {
@@ -2453,13 +2425,6 @@ fn run_watched<'a>(
                     "at t = {t:.6} s the table '{label}' read at a state, stepped over before, is \
                      held in its cells again: the model the states chosen again need is of the \
                      implicit form, which cannot step over it"
-                ));
-            }
-            for label in stepped_over {
-                lp.notes.borrow_mut().push(format!(
-                    "at t = {t:.6} s the table '{label}' read at a state is stepped over from \
-                     here, no longer held in its cells: the model the states chosen again need is \
-                     of the explicit form, which steps over it by default"
                 ));
             }
             // what the integrator left: its work, its error estimates (by
@@ -3528,7 +3493,8 @@ fn run_watched<'a>(
     report.stats = integ.stats();
     report.stats += stats_left;
     report.events = lp.events.len();
-    // time spent outside tables' data
+    // time spent outside tables' data (told once: the guards of a table's
+    // reads at the same argument, one per read, say the same)
     for (k, g) in model.table_guard_list().iter().enumerate() {
         if let Some(t0) = lp.outside_since[k].take() {
             lp.outside_total[k].0 += t_end - t0;
@@ -3536,10 +3502,13 @@ fn run_watched<'a>(
         let (total, first) = lp.outside_total[k];
         if total > 0.0 || !first.is_nan() {
             let name = info.table_names.get(g.table as usize).cloned().unwrap_or_default();
-            report.warnings.push(format!(
+            let said = format!(
                 "the table '{name}' was read outside its data on its {} axis for {total:.6} s, first at t = {first:.6} s",
                 if g.axis == 0 { "first" } else { "second" }
-            ));
+            );
+            if !report.warnings.contains(&said) {
+                report.warnings.push(said);
+            }
         }
     }
     for m in &lp.tf.mixed {

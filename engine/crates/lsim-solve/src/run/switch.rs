@@ -157,11 +157,17 @@ pub(super) fn compatible(
                 tables.push(named);
             }
         }
+        // (every choice holds the same kinds of read: these choices read
+        // the table otherwise, another of its derivatives or at other
+        // arguments, which no option of the kinds held makes the same; only
+        // holding none does)
         return Err(format!(
-            "the model with the states chosen again holds other reads of the table {} in their \
-             cells: build the model with the option table_cells = \"kinks\", which holds the \
-             same reads in every choice (lsim_engine::BuildOptions::table_cells; \
-             table_cells=\"kinks\" in Python; DESIGN.md §8.2)",
+            "the model with the states chosen again reads the table {} otherwise (another of \
+             its derivatives, or at other arguments) and holds other reads of it in their \
+             cells, which the run cannot carry over. Only the option table_cells = \"off\" \
+             holds the same in every choice, none (lsim_engine::BuildOptions::table_cells; \
+             table_cells=\"off\" in Python; DESIGN.md §8.2): the integrator then steps over \
+             the table's breakpoints, which the implicit form cannot do where a read jumps",
             tables.join(", ")
         ));
     }
@@ -495,11 +501,10 @@ mod tests {
             released: 5,
             group: 0,
             jumps: true,
-            explicit: false,
         });
         let why = compatible((&*m.variant.model, &m.info), (&*m.variant.model, &other))
             .expect_err("other reads held");
-        assert!(why.contains("'ratio'") && why.contains("table_cells"), "{why}");
+        assert!(why.contains("'ratio'") && why.contains("table_cells = \"off\""), "{why}");
         assert!(compatible((&*m.variant.model, &other), (&*m.variant.model, &other)).is_ok());
     }
 

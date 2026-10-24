@@ -82,10 +82,10 @@ pub struct BuildOptions {
     /// where prepared models are cached; `None`: no cache
     pub cache: Option<std::path::PathBuf>,
     /// which table reads at a state are held in their cells
-    /// ([`TableCells`], DESIGN.md §8.2): by default (`Auto`) those the
-    /// model's form needs held; `Off` steps over every breakpoint, `Jumps`
-    /// holds every read whose slope jumps, `Kinks` every read that is not
-    /// smooth at a breakpoint
+    /// ([`TableCells`], DESIGN.md §8.2): by default (`Auto`) every read
+    /// that jumps, on either form; `Off` steps over every breakpoint,
+    /// `Jumps` holds the 1-D reads whose slope jumps, `Kinks` every read
+    /// that is not smooth at a breakpoint
     pub table_cells: TableCells,
 }
 

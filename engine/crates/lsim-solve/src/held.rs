@@ -23,13 +23,14 @@
 //! at the edge, with the difference to its held value outside added.
 //!
 //! On the explicit form a group of held reads (one table's at the same
-//! arguments) is released where holding it costs more than it saves
-//! (`SolverOptions::held_release`, DESIGN.md §8.2): at the start, where its
-//! jumps are within the tolerance ([`continuous_to`]), and during the run,
-//! where its crossings come too often ([`released_by_crossings`]).
-//! Released, it reads the table itself (stepped over) for the rest of the
-//! run, its edges open, unless a change of the states chosen takes the run
-//! onto the implicit form, which releases nothing: it is held again there.
+//! arguments) with a 1-D read that jumps is released where holding it costs
+//! more than it saves (`SolverOptions::held_release`, DESIGN.md §8.2): at
+//! the start, where its jumps are within the tolerance ([`continuous_to`]),
+//! and during the run, where its crossings come too often
+//! ([`released_by_crossings`]). Released, it reads the table itself
+//! (stepped over) for the rest of the run, its edges open, unless a change
+//! of the states chosen takes the run onto the implicit form, which
+//! releases nothing: it is held again there.
 //! A run that stops at a breakpoint of a read it steps over names it
 //! ([`at_breakpoint`]).
 
@@ -366,32 +367,6 @@ pub(crate) fn release(info: &RunInfo, g: usize, d: &mut [f64]) {
     }
 }
 
-/// Whether group `g` is held while the run is on the explicit form: false
-/// for a group that a model whose states the run chooses again holds only
-/// for its choices of the implicit form ([`HeldInfo::explicit`]), which
-/// the explicit form steps over by default (DESIGN.md §8.2).
-pub(crate) fn held_on_explicit(info: &RunInfo, g: usize) -> bool {
-    info.held.iter().any(|h| h.group == g && h.explicit)
-}
-
-/// The groups the explicit form does not hold ([`held_on_explicit`]),
-/// released in `d` (the run is on the explicit form, at its start or at a
-/// change of the states chosen onto it); their tables' names, once each.
-pub(crate) fn release_for_explicit(info: &RunInfo, d: &mut [f64]) -> Vec<String> {
-    let mut tables = vec![];
-    for g in 0..groups(info) {
-        let Some(h) = info.held.iter().find(|h| h.group == g) else { continue };
-        if held_on_explicit(info, g) || d.get(h.released).is_some_and(|r| *r > 0.5) {
-            continue;
-        }
-        release(info, g, d);
-        if !tables.contains(&h.label) {
-            tables.push(h.label.clone());
-        }
-    }
-    tables
-}
-
 /// The steps between crossings below which a held read's crossings come
 /// too often ([`released_by_crossings`]): after a restart CVODE runs at
 /// order 1 and raises its order only after `q + 1` steps at order `q`, so
@@ -524,9 +499,6 @@ pub(crate) fn at_breakpoint(
             Some(_) => continue,
             None => false,
         };
-        // (released because the explicit form steps over it by default,
-        // not by the run's releases)
-        let by_form = matches!(r.held, Some(k) if !implicit && !info.held[k].explicit);
         for (j, a) in r.args.iter().enumerate() {
             let x = lsim_ir::eval::eval(a, &env);
             let p = info.table_points(r.table, j);
@@ -577,20 +549,10 @@ pub(crate) fn at_breakpoint(
                 _ => "its argument".to_string(),
             };
             let how = if o > c { "jumps" } else { "kinks" };
-            // the option that holds it: on the implicit form the default
-            // holds every read that jumps; on the explicit one "jumps" holds
-            // a 1-D table's slope, "kinks" the others
-            let option = if o > c && implicit {
-                "auto"
-            } else if o > c && c == 0 && r.args.len() == 1 {
-                "jumps"
-            } else {
-                "kinks"
-            };
-            let stepped = if by_form {
-                "the explicit form steps over the table's breakpoints by default (the model holds \
-                 the read in its cells only for its choices of states of the implicit form)"
-            } else if released {
+            // the option that holds it: the default holds every read that
+            // jumps, on either form; "kinks" also one that kinks
+            let option = if o > c { "auto" } else { "kinks" };
+            let stepped = if released {
                 "the run released the read from its cells at an earlier crossing (stepped over \
                  from then on)"
             } else {
@@ -602,7 +564,7 @@ pub(crate) fn at_breakpoint(
             } else {
                 "the integrator could not get past it here"
             };
-            let keep = if released && !by_form {
+            let keep = if released {
                 " and keep it held through every crossing (SolverOptions::held_release off)"
             } else {
                 ""

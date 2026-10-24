@@ -1,13 +1,13 @@
 //! Tables read at a state (DESIGN.md §8.2, *Tables read at a state*;
 //! `lsim_prep::hold`). A table read at a position that moves with the
-//! states is held in its cell during every step where the model's form
-//! needs it (`TableCells::Auto`, the default): on the explicit form
-//! (CVODES) a linear table's slope, which stepped over is not proportional
-//! to the tolerance; on the implicit form (IDAS) every read that jumps,
-//! which stepped over stops the run at the first breakpoint; each crossing
-//! of a breakpoint an event. On the explicit form the run releases a held
-//! read whose jumps are within the tolerance, or whose crossings come too
-//! often (`SolverOptions::held_release`); on the implicit form none.
+//! states is held in its cell during every step where the read jumps
+//! (`TableCells::Auto`, the default), on either form: on the explicit form
+//! (CVODES) stepping over such a read is not proportional to the tolerance,
+//! on the implicit form (IDAS) it stops the run at the first breakpoint;
+//! each crossing of a breakpoint an event. On the explicit form the run
+//! releases a held 1-D read whose jumps are within the tolerance, or whose
+//! crossings come too often (`SolverOptions::held_release`); on the
+//! implicit form none.
 //! Holding costs a restart at each crossing, and where crossings are many
 //! it loses to stepping over where stepping over can go on. Every case
 //! against an exact answer (closed forms per cell, a first integral
@@ -65,12 +65,6 @@ fn error(r: &SimResult, channel: &str, exact: &[f64]) -> f64 {
     assert_eq!(ch.len(), exact.len(), "{channel}: the grid");
     let scale = exact.iter().fold(0.0f64, |a, x| a.max(x.abs()));
     ch.iter().zip(exact).fold(0.0f64, |a, (g, w)| a.max((g - w).abs())) / scale
-}
-
-/// Whether every channel of `b` is the same, to the bit, in `a` (which may
-/// have more: the discrete variables of the reads it holds).
-fn same_channels(a: &SimResult, b: &SimResult) -> bool {
-    b.names.iter().all(|n| a.channel(n) == b.channel(n))
 }
 
 fn cells(r: &SimResult) -> usize {
@@ -273,17 +267,17 @@ fn a_gear_ratio_read_at_the_load_speed_is_held_in_its_cells() {
     assert!(q > 50.0, "{q}");
 }
 
-/// The default (`TableCells::Auto`) holds the reads the model's form needs
-/// held (DESIGN.md §8.2, rule v4). On the explicit form (CVODES), a linear
-/// table's slope at its points: the gear above is the `Jumps` run to the
-/// bit, its two reads held with the releases. A monotone cubic held at its
-/// edges is not (its slope jumps at its data's edges only; holding that
-/// was measured no better than stepping over on CVODE): the stepped-over
-/// run to the bit. (The gear's states can be chosen again during a run, and
-/// a choice of the implicit form holds the cubic's edges: every choice holds
-/// them, the explicit form releasing them from the start.)
+/// The default (`TableCells::Auto`) holds every read that jumps, on either
+/// form (DESIGN.md §8.2, rule v4). On the explicit form (CVODES): a linear
+/// table's slope at its points (the gear above: the `Jumps` run to the
+/// bit, its two reads held with the releases); a monotone cubic held at
+/// its edges, whose slope jumps there only (the `Jumps` run to the bit, its
+/// crossing out of the data and back an event of each of its reads: before,
+/// the explicit form stepped over it); and a 2-D read whose slopes jump
+/// (the `Kinks` run to the bit, held at every breakpoint of both arguments:
+/// before, stepped over). Its value alone, which only kinks, is not held.
 #[test]
-fn the_default_holds_what_the_models_form_needs() {
+fn the_default_holds_every_read_that_jumps() {
     assert_eq!(lsim_prep::PrepOptions::default().table_cells, TableCells::Auto);
     let (ws, rs) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
     let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &GEAR);
@@ -300,12 +294,25 @@ fn the_default_holds_what_the_models_form_needs() {
     let (ws, rs) = ([0.0, 10.0, 25.0, 40.0], [2.0, 2.5, 2.8, 3.5]);
     let text = gear(&table_text(&ws, &rs, "rad/s", "monotoneCubic", "clamp"), &g);
     let def = prepare(&text, "Test.KinkGear", TableCells::default());
-    assert!(!def.held.is_empty() && def.held.iter().all(|h| !h.explicit), "{:?}", def.held);
-    let off = prepare(&text, "Test.KinkGear", TableCells::Off);
+    assert!(def.algebraics.is_empty(), "the explicit form");
+    assert_eq!(def.held.len(), 2, "{:?}", def.held);
+    assert!(def.held.iter().all(|h| matches!(h.cells, HeldCells::Edges(_))), "{:?}", def.held);
+    let jumps = prepare(&text, "Test.KinkGear", TableCells::Jumps);
     for rtol in [1e-4, 1e-8] {
-        let (a, b) = (run(&def, rtol, 4.0, 0.01), run(&off, rtol, 4.0, 0.01));
-        assert_eq!(cells(&a), 0);
-        assert!(same_channels(&a, &b), "rtol {rtol:e}");
+        let (a, b) = (run(&def, rtol, 4.0, 0.01), run(&jumps, rtol, 4.0, 0.01));
+        assert_eq!(cells(&a), 4, "rtol {rtol:e}: out at 40 rad/s and back, both reads");
+        assert_eq!(a.values, b.values, "rtol {rtol:e}");
+    }
+    let (ws, fw) = ([0.0, 20.0, 40.0, 60.0, 80.0], [2.0, 2.6, 3.3, 3.6, 4.0]);
+    let text = gear_2d(&ws, &fw, &C2D, &G2D, false, "r(w2, c)");
+    let def = prepare(&text, "Test.Gear2D", TableCells::default());
+    assert!(def.algebraics.is_empty(), "the explicit form");
+    assert!(!def.held.is_empty() && def.held.iter().all(|h| h.axes.len() == 2), "{:?}", def.held);
+    let kinks = prepare(&text, "Test.Gear2D", TableCells::Kinks);
+    for rtol in [1e-4, 1e-8] {
+        let (a, b) = (run(&def, rtol, 3.0, 0.01), run(&kinks, rtol, 3.0, 0.01));
+        assert!(cells(&a) > 4, "rtol {rtol:e}: {}", cells(&a));
+        assert_eq!(a.values, b.values, "rtol {rtol:e}");
     }
 }
 
@@ -480,31 +487,35 @@ fn the_implicit_form_holds_a_clamped_tables_edges() {
     }
 }
 
-/// A gear whose ratio is a table of two states, bilinear (`f(w2) + g(c)` on
-/// its grid, `c` a state rising at 1/s), its torques written implicitly:
-/// index reduction reads both of its slopes, which jump at the grid's lines.
-/// Stepped over, the run stops at the first (w2 = 10 rad/s, t = 0.486 s)
-/// or gives no answer within 120 s; the default holds the 2-D read at
-/// every breakpoint of both arguments: 1.6, 3.9 and 3.0 rtol off at rtol
-/// 1e-4, 1e-7 and 1e-10 against the `if` branches' run at 1e-12, as that
-/// function's own runs (in the judge's measure, DOP853 per pair of cells,
-/// 0.87 … 4.96 at 1e-4 … 1e-10).
-#[test]
-fn the_implicit_form_holds_a_two_dimensional_read_that_jumps() {
-    let (ws, fw) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
-    let (cs, gc) = ([-1.0, 0.7, 1.6, 2.4, 4.0], [0.0, 0.2, -0.1, 0.25, 0.1]);
+/// The second argument's grid of the 2-D gears ([`gear_2d`]) and the ratio's
+/// part along it.
+const C2D: [f64; 5] = [-1.0, 0.7, 1.6, 2.4, 4.0];
+const G2D: [f64; 5] = [0.0, 0.2, -0.1, 0.25, 0.1];
+
+/// A gear whose ratio is a table of the load's speed and of a state `c`
+/// rising at 1/s (`stateSelect = always`), `r(w2, c) = f(w2) + g(c)`
+/// bilinear on the grid `ws` x `cs` (the values `fw_i + gc_j`), driven by
+/// 20 N·m from rest; `implicit`: the torques written implicitly (`t2` an
+/// iteration variable, the implicit form), else `t2 = r t1` (the explicit
+/// form); `ratio` as the equations read it (`r(w2, c)`, or the same
+/// function as `if` branches).
+fn gear_2d(ws: &[f64], fw: &[f64], cs: &[f64], gc: &[f64], implicit: bool, ratio: &str) -> String {
     let list = |v: &[f64]| v.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ");
     let values: Vec<String> =
         fw.iter().map(|a| list(&gc.iter().map(|b| a + b).collect::<Vec<_>>())).collect();
     let table = format!(
         "table(x1 = {{{}}}, x2 = {{{}}}, values = [{}], x1Unit = \"rad/s\", x2Unit = \"1\", interpolation = linear, outside = {{linear, linear}})",
-        list(&ws),
-        list(&cs),
+        list(ws),
+        list(cs),
         values.join("; ")
     );
-    let model = |ratio: &str| {
-        format!(
-            r#"model Test.Gear2D "a gear whose ratio is a table of the load's speed and of a state c"
+    let torques = if implicit {
+        format!("t2 + 1e-6 * t2^3 / tu^2 = {ratio} * t1 + 1e-6 * ({ratio} * t1)^3 / tu^2")
+    } else {
+        format!("t2 = {ratio} * t1")
+    };
+    format!(
+        r#"model Test.Gear2D "a gear whose ratio is a table of the load's speed and of a state c"
   parameter Real J1(unit = "kg.m2") = 0.05;
   parameter Real J2(unit = "kg.m2") = 2;
   parameter Real tau0(unit = "N.m") = 20;
@@ -522,11 +533,26 @@ equation
   J1 * der(w1) = tau0 - t1;
   J2 * der(w2) = t2;
   w1 = {ratio} * w2;
-  t2 + 1e-6 * t2^3 / tu^2 = {ratio} * t1 + 1e-6 * ({ratio} * t1)^3 / tu^2;
+  {torques};
 end Test.Gear2D;
 "#
-        )
-    };
+    )
+}
+
+/// A gear whose ratio is a table of two states, bilinear (`f(w2) + g(c)` on
+/// its grid, `c` a state rising at 1/s), its torques written implicitly:
+/// index reduction reads both of its slopes, which jump at the grid's lines.
+/// Stepped over, the run stops at the first (w2 = 10 rad/s, t = 0.486 s)
+/// or gives no answer within 120 s; the default holds the 2-D read at
+/// every breakpoint of both arguments: 1.6, 3.9 and 3.0 rtol off at rtol
+/// 1e-4, 1e-7 and 1e-10 against the `if` branches' run at 1e-12, as that
+/// function's own runs (in the judge's measure, DOP853 per pair of cells,
+/// 0.87 … 4.96 at 1e-4 … 1e-10).
+#[test]
+fn the_implicit_form_holds_a_two_dimensional_read_that_jumps() {
+    let (ws, fw) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
+    let (cs, gc) = (C2D, G2D);
+    let model = |ratio: &str| gear_2d(&ws, &fw, &cs, &gc, true, ratio);
     let def = prepare(&model("r(w2, c)"), "Test.Gear2D", TableCells::default());
     assert!(!def.algebraics.is_empty(), "the implicit form");
     assert!(!def.held.is_empty() && def.held.iter().all(|h| h.axes.len() == 2), "{:?}", def.held);
@@ -558,6 +584,47 @@ end Test.Gear2D;
     )
     .expect_err("stepped over on the implicit form");
     assert!(e.to_string().contains("the table 'r'"), "{e}");
+}
+
+/// The same 2-D gear on the explicit form (the torques `t2 = r t1`), its
+/// load's speed's grid of 5 points every 20 rad/s (the A3 check 5's
+/// `k4-ws`, the judge's `kink-gear-2d`). Stepped over (the explicit form's
+/// default before), the run is 602 and 3 483 rtol off at rtol 1e-5 and
+/// 1e-10 against the `if` branches' run at 1e-12; held at every breakpoint
+/// of both arguments (the default now, no release: the releases weigh 1-D
+/// reads only), 2.43 and 10.05, as that function's own runs (in the judge's
+/// measure, DOP853 per pair of cells: stepped over 20.7 … 3 480, held 2.43
+/// … 10.1 at 1e-4 … 1e-10).
+#[test]
+fn the_explicit_form_holds_a_two_dimensional_read_that_jumps() {
+    let (ws, fw) = ([0.0, 20.0, 40.0, 60.0, 80.0], [2.0, 2.6, 3.3, 3.6, 4.0]);
+    let model = |ratio: &str| gear_2d(&ws, &fw, &C2D, &G2D, false, ratio);
+    let def = prepare(&model("r(w2, c)"), "Test.Gear2D", TableCells::default());
+    assert!(def.algebraics.is_empty(), "the explicit form");
+    assert!(!def.held.is_empty() && def.held.iter().all(|h| h.axes.len() == 2), "{:?}", def.held);
+    let located = format!("({} + {})", if_chain(&ws, &fw, "(w2 / wu)"), if_chain(&C2D, &G2D, "c"));
+    let located = prepare(&model(&located), "Test.Gear2D", TableCells::Off);
+    let off = prepare(&model("r(w2, c)"), "Test.Gear2D", TableCells::Off);
+    assert!(located.held.is_empty() && off.held.is_empty());
+    let fine = run(&located, 1e-12, 3.0, 0.01);
+    let (f1, f2) = (fine.channel("w1").unwrap().to_vec(), fine.channel("w2").unwrap().to_vec());
+    let q = |r: &SimResult, rtol: f64| error(r, "w1", &f1).max(error(r, "w2", &f2)) / rtol;
+    let (mut held, mut over, mut ql) = (vec![], vec![], vec![]);
+    for rtol in [1e-5, 1e-10] {
+        let r = run(&def, rtol, 3.0, 0.01);
+        assert!(cells(&r) > 4, "rtol {rtol:e}: {}", cells(&r));
+        held.push(q(&r, rtol));
+        over.push(q(&run(&off, rtol, 3.0, 0.01), rtol));
+        ql.push(q(&run(&located, rtol, 3.0, 0.01), rtol));
+    }
+    println!(
+        "2-D read, explicit form: error / rtol held {held:.2?}, over {over:.1?}, located {ql:.2?}"
+    );
+    // measured 2.43 and 10.05, the located run the same, with a margin;
+    // stepped over 248 and 347 times as far off
+    assert!(held.iter().all(|q| *q < 35.0), "{held:?}");
+    assert!(held.iter().zip(&ql).all(|(h, l)| (h / l - 1.0).abs() < 0.25), "{held:?} {ql:?}");
+    assert!(over.iter().zip(&held).all(|(o, h)| *o > 200.0 && *o > 30.0 * h), "{over:?}");
 }
 
 /// A bead on a wire whose cubic's second derivative really jumps (`y =
@@ -741,6 +808,43 @@ fn a_ratio_held_at_its_edges_is_held_in_its_cells_at_the_edges_only() {
     let q = error(&run(&off, 1e-10, 4.0, 0.01), "w2", &exact) / 1e-10;
     println!("error / rtol at rtol 1e-10, stepped over: {q:.1}");
     assert!(q > 50.0, "{q}");
+}
+
+/// A sparse monotone cubic held at its edges (6 points on [0, 40] rad/s
+/// through `2 + w/40 + 0.25 sin(w/8)`, the A3 check 5's `k3-40-h8`, the
+/// judge's `kink-gear-clamp-6`), the load leaving its data at 40 rad/s once,
+/// on the explicit form (CVODES): `r'` jumps to 0 there. Stepped over (the
+/// explicit form's default before), the run is 865 rtol off at rtol 1e-10
+/// against the first integral (the load's speed; 28 … 160 at 1e-6 … 1e-9);
+/// held at its edges (the default now, as `Jumps` holds it), 0.45 … 18.6 at
+/// rtol 1e-4 … 1e-10, 3.1 at 1e-10 (in the judge's measure, both speeds:
+/// stepped over 0.86 … 865, held 0.45 … 19.1, the same function written as
+/// `if` branches 0.23 … 4.06).
+#[test]
+fn a_sparse_clamped_table_left_on_the_explicit_form_is_held() {
+    let ws: Vec<f64> = (0..6).map(|k| 8.0 * k as f64).collect();
+    let rs: Vec<f64> = ws.iter().map(|w| 2.0 + w / 40.0 + 0.25 * math::sin(w / 8.0)).collect();
+    let text = gear(&table_text(&ws, &rs, "rad/s", "monotoneCubic", "clamp"), &GEAR);
+    let data = data_1d(&ws, &rs, Interpolation::MonotoneCubic, Outside::Clamp);
+    let def = prepare(&text, "Test.KinkGear", TableCells::default());
+    assert!(def.algebraics.is_empty(), "the explicit form");
+    assert!(def.held.iter().all(|h| matches!(h.cells, HeldCells::Edges(_))), "{:?}", def.held);
+    let off = prepare(&text, "Test.KinkGear", TableCells::Off);
+    let times = grid(4.0, 0.01);
+    let exact = gear_exact(&data, &GEAR, (-30.0, 300.0), &times);
+    assert!(*exact.last().unwrap() > 40.0, "it leaves the data");
+    let (mut held, mut over) = (vec![], vec![]);
+    for rtol in RTOLS {
+        let r = run(&def, rtol, 4.0, 0.01);
+        assert_eq!(cells(&r), 2, "rtol {rtol:e}: out at 40 rad/s, both reads");
+        held.push(error(&r, "w2", &exact) / rtol);
+        over.push(error(&run(&off, rtol, 4.0, 0.01), "w2", &exact) / rtol);
+    }
+    println!("sparse clamped table, explicit form: error / rtol held {held:.2?}, over {over:.1?}");
+    // measured at most 18.6 (at 1e-9), with a margin; stepped over 865 at
+    // 1e-10, 278 times the held run's error there
+    assert!(held.iter().all(|q| *q < 60.0), "{held:?}");
+    assert!(over[6] > 300.0 && over[6] > 30.0 * held[6], "{over:?} {held:?}");
 }
 
 /// A held read whose argument starts exactly on a breakpoint, moving up
@@ -934,20 +1038,19 @@ end Test.Bead;
 /// explicit one (CVODES), the model reading a table at a state whose read
 /// jumps there: a monotone cubic held at its edges (`r'` jumps at the
 /// data's edges), a 2-D read whose slope jumps, a cubic's second
-/// derivative. The implicit form holds these by default and the explicit
-/// one steps over them; before, the model with the states chosen again held
-/// other reads, the switch was refused ("other events, discrete values or
-/// inputs") and the run stopped where its states failed (t = 3.137, 2.993,
-/// 0.867 s), where 1d41c7d7's run (`TableCells::Off`) goes through. Every
-/// choice of states of such a model now holds what either form holds, and
-/// the run releases what only the implicit form holds while it is on the
-/// explicit one: the switch goes through, as 1d41c7d7's. The gear held at
-/// its edges never reaches them: its run is 1d41c7d7's to the bit. In the
+/// derivative. Both forms hold these by default, so every choice of states
+/// holds the same reads and the switch goes through (at ade9eaa7 the choice
+/// of the other form held other reads, the switch was refused and the run
+/// stopped where its states failed, t = 3.137, 2.993 and 0.867 s); the
+/// reads stay held after it. The gear held at its edges never reaches
+/// them: its run is 1d41c7d7's (`TableCells::Off`) to the bit. In the
 /// judge's measure (`r5/b1`, against Radau per cell, DOP853 per cell and the
-/// first integral): the gear 1.63, 3.56, 358 at rtol 1e-4, 1e-7, 1e-10; the
-/// 2-D gear 3.1, 4.71, 137 (stepped over 3.43, 5.0, 128); the bead, whose
-/// `r''` both forms hold, 64.5, 132, 335 (stepped over 222, 197, 208; held
-/// on the implicit form only, 102, 150, 420).
+/// first integral): the gear 1.63, 3.56, 358 at rtol 1e-4, 1e-7, 1e-10 (the
+/// 358 the kinks of its `r'` between the points, stepped over: held there
+/// too, `Kinks`, 2.73); the 2-D gear 3.1, 3.99, 18.1, the `Kinks` run to the
+/// bit (stepped over 3.43, 5.0, 128; at 85ae86e8, which released it on the
+/// explicit form, 3.1, 4.71, 137); the bead 64.5, 132, 335 (stepped over 222,
+/// 197, 208).
 #[test]
 fn a_change_of_states_onto_the_explicit_form_keeps_the_held_reads() {
     // the gear, its ratio a monotone cubic held at its edges, falling
@@ -958,7 +1061,7 @@ fn a_change_of_states_onto_the_explicit_form_keeps_the_held_reads() {
     let auto = choosing(&text, "Test.KinkGear", TableCells::Auto);
     let off = choosing(&text, "Test.KinkGear", TableCells::Off);
     assert!(!auto.prepared.algebraics.is_empty(), "the implicit form");
-    assert!(!auto.prepared.held.is_empty() && auto.prepared.held.iter().all(|h| !h.explicit));
+    assert!(!auto.prepared.held.is_empty());
     let times = grid(6.0, 0.01);
     let exact = gear_exact(&data, &g, (-20.0, 80.0), &times);
     let mut qs = vec![];
@@ -966,7 +1069,8 @@ fn a_change_of_states_onto_the_explicit_form_keeps_the_held_reads() {
         let (r, at) = run_choosing(&auto, &options(rtol), 6.0).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(at.len(), 1, "rtol {rtol:e}: {:?}", r.events);
         assert!(r.backend.contains("CVODE"), "{}", r.backend);
-        assert!(r.report.notes.iter().any(|n| n.contains("stepped over from here")));
+        // (held on the explicit form too: none released there)
+        assert!(!r.report.notes.iter().any(|n| n.contains("stepped over")), "{:?}", r.report.notes);
         let (o, _) = run_choosing(&off, &options(rtol), 6.0).unwrap_or_else(|e| panic!("{e}"));
         for ch in ["w1", "w2"] {
             assert_eq!(r.channel(ch), o.channel(ch), "rtol {rtol:e}: 1d41c7d7's run, bitwise");
@@ -984,7 +1088,7 @@ fn a_change_of_states_onto_the_explicit_form_keeps_the_held_reads() {
     let (f1, f2) = (fine.channel("w1").unwrap().to_vec(), fine.channel("w2").unwrap().to_vec());
     let auto = choosing(&switch_gear_2d(true), "Test.SwitchGear2D", TableCells::Auto);
     assert!(!auto.prepared.algebraics.is_empty(), "the implicit form");
-    assert!(!auto.prepared.held.is_empty() && auto.prepared.held.iter().all(|h| !h.explicit));
+    assert!(!auto.prepared.held.is_empty());
     let mut qs = vec![];
     for rtol in [1e-4, 1e-7] {
         let (r, at) = run_choosing(&auto, &options(rtol), 6.0).unwrap_or_else(|e| panic!("{e}"));
@@ -993,10 +1097,12 @@ fn a_change_of_states_onto_the_explicit_form_keeps_the_held_reads() {
         let before =
             r.events.iter().filter(|e| matches!(e.kind, EventKind::Cell(_)) && e.t < at[0]);
         assert!(before.count() >= 3, "held on the implicit form: c at 1 s, w2 at 10, c at 2.5 s");
+        let after = r.events.iter().filter(|e| matches!(e.kind, EventKind::Cell(_)) && e.t > at[0]);
+        assert!(after.count() >= 2, "held on the explicit form too: {:?}", r.events);
         qs.push(error(&r, "w1", &f1).max(error(&r, "w2", &f2)) / rtol);
     }
     println!("2-D read, onto the explicit form: error / rtol {qs:.2?}");
-    // measured 3.10 and 4.71 (the judge's, against Radau per cell, the same)
+    // measured 3.10 and 3.99 (the judge's, against Radau per cell, the same)
     assert!(qs.iter().all(|q| *q < 20.0), "{qs:?}");
 
     // the bead, against the same wire with x the state (no switch), held at
@@ -1023,14 +1129,16 @@ fn a_change_of_states_onto_the_explicit_form_keeps_the_held_reads() {
 
 /// The other way: a gear on the explicit form (the load's speed the state),
 /// its ratio a monotone cubic held at its edges, dense (41 points on [0,
-/// 80] rad/s), which the explicit form steps over; where the choice's
-/// exchange factor passes 3 (t = 2.33 s), dynamic state selection takes the
-/// rotor's speed, of the implicit form, which holds the read: held in its
-/// cells again there, its crossing out of the data at 80 rad/s an event.
-/// Before, the switch was refused (the other choice held other reads) and
-/// the run went on with its states (2.58, 66.7 and 54 rtol at 1e-4, 1e-7,
-/// 1e-10 in the judge's measure); now 3.2, 9.1, 22, as 1d41c7d7's run,
-/// which switched and stepped over the edge on IDAS.
+/// 80] rad/s), held at its edges from the start (before, 85ae86e8 held it on
+/// this form only to release it at once, and held it again after the
+/// switch); where the choice's exchange factor passes 3 (t = 2.33 s),
+/// dynamic state selection takes the rotor's speed, of the implicit form,
+/// which holds it too: its crossing out of the data at 80 rad/s an event.
+/// At ade9eaa7 the switch was refused (the other choice held other reads)
+/// and the run went on with its states (2.58, 66.7 and 54 rtol at 1e-4,
+/// 1e-7, 1e-10 in the judge's measure); now 3.24, 9.14, 21.7, the `Jumps`
+/// run to the bit (1d41c7d7's run, which switched and stepped over the edge
+/// on IDAS, the same).
 #[test]
 fn a_change_of_states_onto_the_implicit_form_holds_what_the_explicit_stepped_over() {
     let ws: Vec<f64> = (0..41).map(|k| 80.0 * k as f64 / 40.0).collect();
@@ -1039,7 +1147,8 @@ fn a_change_of_states_onto_the_implicit_form_holds_what_the_explicit_stepped_ove
     let data = data_1d(&ws, &rs, Interpolation::MonotoneCubic, Outside::Clamp);
     let auto = choosing(&text, "Test.KinkGear", TableCells::Auto);
     assert!(auto.prepared.algebraics.is_empty(), "the explicit form");
-    assert!(!auto.prepared.held.is_empty() && auto.prepared.held.iter().all(|h| !h.explicit));
+    assert!(!auto.prepared.held.is_empty());
+    let jumps = choosing(&text, "Test.KinkGear", TableCells::Jumps);
     let times = grid(4.0, 0.01);
     let exact = gear_exact(&data, &GEAR, (-30.0, 300.0), &times);
     assert!(*exact.last().unwrap() > 80.0, "it leaves the data");
@@ -1048,9 +1157,13 @@ fn a_change_of_states_onto_the_implicit_form_holds_what_the_explicit_stepped_ove
         let (r, at) = run_choosing(&auto, &options(rtol), 4.0).unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(at.len(), 1, "rtol {rtol:e}: {:?}", r.events);
         assert!(r.backend.contains("IDA"), "{}", r.backend);
-        assert!(r.report.notes.iter().any(|n| n.contains("held in its cells again")));
+        // (held from the start, on the explicit form too: nothing to hold
+        // again)
+        assert!(!r.report.notes.iter().any(|n| n.contains("held in its cells again")));
         let after = r.events.iter().filter(|e| matches!(e.kind, EventKind::Cell(_)) && e.t > at[0]);
         assert_eq!(after.count(), 2, "out at 80 rad/s, both reads");
+        let (j, _) = run_choosing(&jumps, &options(rtol), 4.0).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(r.values, j.values, "rtol {rtol:e}: the Jumps run, bitwise");
         qs.push(error(&r, "w2", &exact) / rtol);
     }
     println!("held again on the implicit form: error / rtol {qs:.2?}");
@@ -1544,7 +1657,7 @@ fn a_cubics_second_derivative_read_at_a_state_is_held() {
     let text = bead(&xs, &rs, &xs);
     let def = prepare(&text, "Test.Bead", TableCells::default());
     assert!(def.algebraics.is_empty(), "the explicit form");
-    assert!(!def.held.is_empty() && def.held.iter().all(|h| h.explicit), "{:?}", def.held);
+    assert!(!def.held.is_empty(), "{:?}", def.held);
     let off = prepare(&text, "Test.Bead", TableCells::Off);
     assert!(off.held.is_empty());
     let fine = run(&off, 1e-12, 10.0, 0.01);
@@ -1641,7 +1754,7 @@ fn a_cubics_second_derivative_that_jumps_is_held_on_the_explicit_form() {
     let text = bead(&xs, &rs, &ss);
     let def = prepare(&text, "Test.Bead", TableCells::default());
     assert!(def.algebraics.is_empty(), "the explicit form");
-    assert!(!def.held.is_empty() && def.held.iter().all(|h| h.explicit), "{:?}", def.held);
+    assert!(!def.held.is_empty(), "{:?}", def.held);
     let off = prepare(&text, "Test.Bead", TableCells::Off);
     let fine = run_with(&def, &SolverOptions { held_release: false, ..options(1e-12) }, 10.0, 0.01);
     let (fx, fv) = (fine.channel("x").unwrap().to_vec(), fine.channel("vx").unwrap().to_vec());

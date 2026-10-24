@@ -8,29 +8,29 @@
 //! right-hand side; held, each crossing is found by root finding and the
 //! integrator restarts in the next cell. Measured on exact answers
 //! (`engine/judge`, the `kink-…` cases, under a rule written before the
-//! runs), stepping over a read whose slope jumps is not proportional to the
-//! tolerance on the explicit form (CVODES: the judge's gear whose ratio is
-//! a linear table of the load's speed, whose `r'` index reduction reads, up
-//! to 178 rtol off where held it is within 3, and thousands where the speed
-//! turns just past a point; a cubic's second derivative read through a
-//! bead's wire, 3 800 rtol off at 1e-7 where held it is 22), and on the
-//! implicit form (IDAS) it stopped the run at a breakpoint in every judge
-//! case of every kind that jumps. So by default ([`TableCells::Auto`]) the
-//! explicit form holds a linear table's slope and a cubic's second
-//! derivative ([`Holds::EXPLICIT`]) and the implicit form every read that
-//! jumps ([`Holds::IMPLICIT`]); a read that only kinks (a linear table's
-//! value) is stepped over on both. A model whose states a run
-//! chooses again holds, in every choice, what either form holds, so that a
-//! run can switch between the forms; the run releases the reads only the
-//! implicit form holds while it is on the explicit one
-//! ([`HeldRead::explicit`]). Holding costs a restart at each
-//! crossing, a roughly fixed error whatever the jump (0.1 … 3.6 rtol,
-//! measured) that adds up over the crossings; on the explicit form the run
-//! releases a held read where that costs more than it saves
+//! runs), stepping over a read that jumps is not proportional to the
+//! tolerance on the explicit form (CVODES), in each kind of read that
+//! jumps: a linear table's slope (the judge's gear whose ratio is a linear
+//! table of the load's speed, whose `r'` index reduction reads, up to 178
+//! rtol off where held it is within 3, and thousands where the speed turns
+//! just past a point), a cubic's second derivative read through a bead's
+//! wire (3 800 rtol off at 1e-7 where held it is 22), a clamped cubic's
+//! slope at its data's edges (a sparse gear leaving its data, 865 rtol off
+//! at 1e-10 where held it is 4.1) and a 2-D read whose slope jumps (3 480
+//! where held it is 10); and on the implicit form (IDAS) it stopped the
+//! run at a breakpoint in every judge case of every kind that jumps. So by
+//! default ([`TableCells::Auto`]) both forms hold every read that jumps
+//! ([`Holds::AUTO`]); a read that only kinks (a linear table's value) is
+//! stepped over on both. Holding costs a restart at each crossing, a
+//! roughly fixed error whatever the jump (0.1 … 3.6 rtol, measured) that
+//! adds up over the crossings; on the explicit form the run releases a
+//! held 1-D read where that costs more than it saves
 //! (`lsim_solve::SolverOptions::held_release`), on the implicit form it
-//! releases none. [`TableCells::Off`] steps over every breakpoint,
-//! [`TableCells::Jumps`] holds every read whose slope jumps on both forms,
-//! [`TableCells::Kinks`] also the reads that only kink, for comparison.
+//! releases none. Every choice of states of a model holds the same kinds,
+//! so that a run can switch between the forms. [`TableCells::Off`] steps
+//! over every breakpoint, [`TableCells::Jumps`] holds only the reads whose
+//! slope jumps (1-D), [`TableCells::Kinks`] also the reads that only kink,
+//! for comparison.
 //!
 //! A held read is replaced in the equations by its cell's own function,
 //! continued smoothly beyond the cell's edges, with discrete coefficients,
@@ -50,10 +50,9 @@
 //! The other reads of the same table at the same arguments (the value
 //! beside the derivative index reduction reads) are held with it, as one
 //! group: their edges are crossed at the same instants, at no further cost.
-//! A 2-D read is held at every breakpoint of both its arguments (on the
-//! implicit form, and for comparison). Each held read is written `if
-//! released then` the table itself `else` its cell's function, so that the
-//! run can release it ([`HeldRead::released`]).
+//! A 2-D read is held at every breakpoint of both its arguments. Each held
+//! read is written `if released then` the table itself `else` its cell's
+//! function, so that the run can release it ([`HeldRead::released`]).
 //!
 //! Not held: a read whose argument moves with time alone (the run stops at
 //! its breakpoints, `RunInfo::time_tables`) or not at all between events
@@ -80,18 +79,16 @@ pub const OPEN: f64 = 1e300;
 /// ([`crate::Settings::table_cells`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum TableCells {
-    /// the default: the kinds of read that the model's form needs held,
-    /// as measured on exact answers (DESIGN.md §8.2, rule v4). On the
-    /// explicit form (no iteration variable: CVODES), a linear table's
-    /// slope at its points and a cubic's second derivative
-    /// ([`Holds::EXPLICIT`]), where stepping over was up to thousands of
-    /// tolerances off where the held run was within 30; on the implicit
-    /// form (IDAS), every read that jumps
-    /// ([`Holds::IMPLICIT`]), whose stepping over stopped the run at a
-    /// breakpoint in every judge case of each kind, held through every
-    /// crossing (the run releases none there). A model whose states a run
-    /// chooses again holds both in every choice of its states, the explicit
-    /// form releasing what only the implicit one holds ([`apply`])
+    /// the default: every read that jumps ([`Holds::AUTO`]), on both
+    /// forms, as measured on exact answers (DESIGN.md §8.2, rule v4). On
+    /// the explicit form (no iteration variable: CVODES), stepping over
+    /// was up to thousands of tolerances off in some case of each kind of
+    /// read that jumps where the held run was within 30, and the run
+    /// releases a held 1-D read where that costs more than it saves
+    /// (`SolverOptions::held_release`); on the implicit form (IDAS),
+    /// stepping over stopped the run at a breakpoint in every judge case of
+    /// each kind, and the read is held through every crossing (the run
+    /// releases none there)
     #[default]
     Auto,
     /// none: the integrator steps over every breakpoint, as over any
@@ -146,39 +143,26 @@ impl Holds {
     /// [`TableCells::Kinks`]: every read that is not smooth at a breakpoint
     pub const ALL: Holds =
         Holds { slope_points: true, slope_edges: true, higher: true, two_d: true, kinks: true };
-    /// [`TableCells::Auto`] on the explicit form: a linear table's slope and
-    /// a cubic's second derivative
-    pub const EXPLICIT: Holds = Holds { slope_points: true, higher: true, ..Holds::NONE };
+    /// [`TableCells::Auto`], on either form: every read that jumps (a
+    /// slope's jump at the points or at the data's edges, a higher
+    /// derivative's, a 2-D read's)
+    pub const AUTO: Holds = Holds { kinks: false, ..Holds::ALL };
     /// the 1-D reads that jump, whose jumps the run's releases weigh
     /// ([`HeldRead::jumps`]): a slope's jump and a higher derivative's
     pub const JUMPS_1D: Holds = Holds { higher: true, ..Holds::JUMPS };
-    /// [`TableCells::Auto`] on the implicit form: every read that jumps
-    pub const IMPLICIT: Holds = Holds { kinks: false, ..Holds::ALL };
 
     /// whether it holds anything
     pub fn any(self) -> bool {
         self != Holds::NONE
     }
-
-    /// what either holds
-    pub fn or(self, other: Holds) -> Holds {
-        Holds {
-            slope_points: self.slope_points || other.slope_points,
-            slope_edges: self.slope_edges || other.slope_edges,
-            higher: self.higher || other.higher,
-            two_d: self.two_d || other.two_d,
-            kinks: self.kinks || other.kinks,
-        }
-    }
 }
 
 impl TableCells {
-    /// The kinds of read held on a model of the implicit form (with
-    /// iteration variables) or the explicit one.
-    pub fn holds(self, implicit: bool) -> Holds {
+    /// The kinds of read held, the same on a model of either form (so that
+    /// every choice of states of a model holds the same kinds).
+    pub fn holds(self) -> Holds {
         match self {
-            TableCells::Auto if implicit => Holds::IMPLICIT,
-            TableCells::Auto => Holds::EXPLICIT,
+            TableCells::Auto => Holds::AUTO,
             TableCells::Off => Holds::NONE,
             TableCells::Jumps => Holds::JUMPS,
             TableCells::Kinks => Holds::ALL,
@@ -258,25 +242,11 @@ fn need(data: &TableData, order: [u8; 2], holds: Holds) -> [Need; 2] {
 /// by its own key), so that every preparation of a model (one that chooses
 /// its states again at a point of a run, `lsim_prep::prepare_choosing`)
 /// holds the same reads in the same discrete variables and zero crossings.
-///
-/// Under [`TableCells::Auto`] a model whose states a run chooses again
-/// (dynamic state selection: one of its state sets moves with the solution,
-/// or `at_a_point`, the model prepared with its states chosen at a point of
-/// a run) holds what either form holds, in every choice, whatever the form
-/// of each: its choices then have the same discrete values and zero
-/// crossings, and a run can switch from one form to the other (before, a
-/// choice of the other form held other reads, and the switch was refused).
-/// A read that only the implicit form holds is marked
-/// ([`HeldRead::explicit`] false), and the run releases it while it is on
-/// the explicit form, which steps over it by default.
-pub fn apply(model: &mut PreparedModel, mode: TableCells, at_a_point: bool) {
-    // the model's form: iteration variables put it on the implicit one
-    let both = mode == TableCells::Auto && (at_a_point || rechosen(model));
-    let holds = if both {
-        TableCells::Auto.holds(true).or(TableCells::Auto.holds(false))
-    } else {
-        mode.holds(!model.algebraics.is_empty())
-    };
+/// The kinds held are the same whatever the model's form
+/// ([`TableCells::holds`]), so that a run can switch from a choice of one
+/// form to one of the other.
+pub fn apply(model: &mut PreparedModel, mode: TableCells) {
+    let holds = mode.holds();
     if model.states.is_empty() || !holds.any() {
         return;
     }
@@ -312,16 +282,9 @@ pub fn apply(model: &mut PreparedModel, mode: TableCells, at_a_point: bool) {
     // most any of them needs (held together, their edges are crossed
     // together)
     let mut group: HashMap<String, [Need; 2]> = HashMap::new();
-    // (and where the explicit form needs them: a group it does not hold is
-    // released while the run is on that form)
-    let mut group_explicit: HashMap<String, [Need; 2]> = HashMap::new();
     for r in st.reads.values() {
         let g = group.entry(r.group.clone()).or_insert([Need::Nowhere; 2]);
         for (gj, rj) in g.iter_mut().zip(r.need) {
-            *gj = (*gj).max(rj);
-        }
-        let g = group_explicit.entry(r.group.clone()).or_insert([Need::Nowhere; 2]);
-        for (gj, rj) in g.iter_mut().zip(r.need_explicit) {
             *gj = (*gj).max(rj);
         }
     }
@@ -355,10 +318,7 @@ pub fn apply(model: &mut PreparedModel, mode: TableCells, at_a_point: bool) {
             let r = &st.reads[key];
             let next = groups.len() as u32;
             let g = *groups.entry(r.group.clone()).or_insert(next);
-            // (where the model holds what either form holds: those of a
-            // group the explicit form holds, at its cells or the union's)
-            let explicit = !both || group_explicit[&r.group].iter().any(|n| *n != Need::Nowhere);
-            held[k] = Some(hold(model, r, c, g, explicit, &mut counts));
+            held[k] = Some(hold(model, r, c, g, &mut counts));
         }
     }
     // the names as the held reads' functions (the others as the reads
@@ -405,8 +365,6 @@ struct Pending {
     args: Vec<Expr>,
     origin: Origin,
     need: [Need; 2],
-    /// where the explicit form's default holds it ([`Holds::EXPLICIT`])
-    need_explicit: [Need; 2],
     group: String,
     /// whether it jumps itself, a 1-D read ([`Holds::JUMPS_1D`])
     jumps: bool,
@@ -476,29 +434,10 @@ fn named(e: Expr, model: &PreparedModel, st: &mut State, origin: &Origin, holds:
             args: args.clone(),
             origin: origin.clone(),
             need: need(data, *order, holds),
-            need_explicit: need(data, *order, Holds::EXPLICIT),
             group,
             jumps: need(data, *order, Holds::JUMPS_1D).iter().any(|n| *n != Need::Nowhere),
         });
         Expr::Name(format!("{NAME}{key}"))
-    })
-}
-
-/// Whether a run chooses the states of `model` again (dynamic state
-/// selection): one of its state sets reads variables or time, and nothing
-/// the run cannot read (`lsim_solve::SetReads::Variables`, which
-/// `lsim_solve::choice::rechoosing` asks for).
-fn rechosen(model: &PreparedModel) -> bool {
-    model.state_sets.iter().any(|s| {
-        let (mut moving, mut unreadable) = (false, false);
-        for e in s.entries.iter().flatten() {
-            e.walk(&mut |x| match x {
-                Expr::Der(_) | Expr::Pre(_) | Expr::Name(_) => unreadable = true,
-                Expr::Var(_) | Expr::Time => moving = true,
-                _ => {}
-            });
-        }
-        moving && !unreadable
     })
 }
 
@@ -547,7 +486,6 @@ fn hold(
     r: &Pending,
     cells: Cells,
     group: u32,
-    explicit: bool,
     counts: &mut HashMap<u32, usize>,
 ) -> HeldRead {
     let ft = &model.flat.tables[r.table as usize];
@@ -624,7 +562,7 @@ fn hold(
     };
     let released = var(model, format!("{prefix}.released"), 0.0);
     let read = Expr::Table { table: r.table, args: vec![], order: r.order };
-    HeldRead { read, axes, degree, coef, cells, released, group, jumps: r.jumps, explicit }
+    HeldRead { read, axes, degree, coef, cells, released, group, jumps: r.jumps }
 }
 
 /// `Σ cs[i] x^i` in Horner's form.
@@ -738,11 +676,15 @@ mod tests {
         assert_eq!(need(&cub(Clamp), [1, 0], j)[0], Edges);
         // a cubic's second derivative jumps at its points (and at its
         // data's edges, continued linearly): not held so, but by the
-        // default on either form
+        // default, on either form, as is a clamped cubic's slope at its
+        // edges
         assert_eq!(need(&cub(Outside::Linear), [2, 0], j)[0], Nowhere);
-        assert_eq!(need(&cub(Outside::Linear), [2, 0], Holds::EXPLICIT)[0], Points);
-        assert_eq!(need(&cub(Outside::Linear), [2, 0], Holds::IMPLICIT)[0], Points);
-        assert_eq!(need(&cub(Clamp), [1, 0], Holds::EXPLICIT)[0], Nowhere);
+        let auto = TableCells::Auto.holds();
+        assert_eq!(auto, Holds::AUTO);
+        assert_eq!(need(&cub(Outside::Linear), [2, 0], auto)[0], Points);
+        assert_eq!(need(&cub(Clamp), [1, 0], auto)[0], Edges);
+        assert_eq!(need(&cub(Clamp), [0, 0], auto)[0], Nowhere, "a value only kinks");
+        assert_eq!(need(&lin(Clamp), [0, 0], auto)[0], Nowhere, "a value only kinks");
         // two points: a single cell, a line continued
         assert_eq!(need(&data(Linear, Outside::Linear, 2), [1, 0], j)[0], Nowhere);
         assert_eq!(need(&data(Linear, Clamp, 2), [1, 0], j)[0], Edges);
@@ -755,8 +697,8 @@ mod tests {
         assert_eq!(need(&lin(Outside::Linear), [0, 0], k)[0], Points);
         assert_eq!(need(&data(Linear, Outside::Linear, 2), [0, 0], k)[0], Nowhere);
         assert_eq!(need(&lin(Clamp), [1, 0], Holds::NONE)[0], Nowhere);
-        // a 2-D read that jumps: not held (never measured), but for
-        // comparison
+        // a 2-D read that jumps: held by the default, not by `Jumps`; its
+        // value only kinks
         let mut two = TableData::new_2d(
             vec![0.0, 1.0, 2.0],
             vec![0.0, 1.0, 2.0],
@@ -764,6 +706,8 @@ mod tests {
         );
         two.interpolation = Linear;
         assert_eq!(need(&two, [1, 0], j), [Nowhere, Nowhere]);
+        assert_eq!(need(&two, [1, 0], auto), [Points, Nowhere]);
+        assert_eq!(need(&two, [0, 0], auto), [Nowhere, Nowhere]);
         assert_eq!(need(&two, [1, 0], k), [Points, Points]);
     }
 }

@@ -747,8 +747,8 @@ fn changes_of(item: &Bound<'_, PyAny>) -> PyResult<Result<Vec<(String, f64)>, St
 /// of a project (its JSON text). The GIL is released. `cycles_dir` is the
 /// folder of the bundled drive cycles (default: the repository's).
 /// `table_cells`: which table reads at a state are held in their cells
-/// (DESIGN.md §8.2): `"auto"` (the default: those the model's form needs
-/// held), `"off"`, `"jumps"` or `"kinks"`; another word raises
+/// (DESIGN.md §8.2): `"auto"` (the default: every read that jumps, on
+/// either form), `"off"`, `"jumps"` or `"kinks"`; another word raises
 /// `ValueError`.
 #[pyfunction]
 #[pyo3(signature = (project_json, case_id, cache_dir=None, cycles_dir=None, table_cells="auto"))]

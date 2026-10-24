@@ -319,11 +319,12 @@ pub struct SolverOptions {
     /// where its crossings come too often for the integrator, which
     /// restarts at each, to leave the low orders of its restarts. A
     /// released read is the table itself from then on, stepped over. Only
-    /// while the run is on the explicit form (CVODES): the implicit form
-    /// (IDAS, diffsol's DAE) cannot step over a read's jump, and holds
-    /// every held read through every crossing whatever this says. On by
-    /// default; off, a held read stays held through every crossing (for
-    /// comparison only)
+    /// a group with a 1-D read that jumps (a 2-D read is held through every
+    /// crossing), and only while the run is on the explicit form (CVODES):
+    /// the implicit form (IDAS, diffsol's DAE) cannot step over a read's
+    /// jump, and holds every held read through every crossing whatever
+    /// this says. On by default; off, a held read stays held through every
+    /// crossing (for comparison only)
     pub held_release: bool,
 }
 
@@ -884,18 +885,8 @@ pub fn simulate(
     // itself from the start (crate::held). Not on the implicit form (IDAS,
     // diffsol's DAE): it cannot step over a jump at all (DESIGN.md §8.2)
     let mut released = vec![];
-    if l.n_z == 0 {
-        // (the reads a model whose states the run chooses again holds only
-        // for its choices of the implicit form: stepped over on this form,
-        // as by default; held again where a change of the states chosen
-        // takes the run onto the implicit form)
-        held::release_for_explicit(info, &mut d0);
-    }
     if opts.held_release && l.n_z == 0 {
         for g in 0..held::groups(info) {
-            if !held::held_on_explicit(info, g) {
-                continue;
-            }
             if held::continuous_to(model, info, g, opts.rtol, grid.t0)? {
                 held::release(info, g, &mut d0);
                 if let Some(h) = info.held.iter().find(|h| h.group == g) {

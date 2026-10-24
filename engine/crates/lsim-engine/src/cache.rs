@@ -42,8 +42,10 @@ use std::path::{Path, PathBuf};
 /// (`TableCells::Auto`), and the build's `table_cells` joined the key.
 /// v10: a model whose states a run chooses again holds what either form
 /// holds, in every choice (`HeldRead::explicit`, no default), and the
-/// explicit form holds a cubic's second derivative.
-const FORMAT: &str = "prepared-v10";
+/// explicit form holds a cubic's second derivative. v11: both forms hold
+/// every read that jumps (a clamped cubic's slope at its edges and a 2-D
+/// read on the explicit form too), and `HeldRead::explicit` is gone.
+const FORMAT: &str = "prepared-v11";
 
 /// The digest of the code that prepares a model (`build.rs`).
 const PREPARATION: &str = env!("LSIM_PREPARATION_DIGEST");
