@@ -67,6 +67,12 @@ fn error(r: &SimResult, channel: &str, exact: &[f64]) -> f64 {
     ch.iter().zip(exact).fold(0.0f64, |a, (g, w)| a.max((g - w).abs())) / scale
 }
 
+/// Whether every channel of `b` is the same, to the bit, in `a` (which may
+/// have more: the discrete variables of the reads it holds).
+fn same_channels(a: &SimResult, b: &SimResult) -> bool {
+    b.names.iter().all(|n| a.channel(n) == b.channel(n))
+}
+
 fn cells(r: &SimResult) -> usize {
     r.events.iter().filter(|e| matches!(e.kind, EventKind::Cell(_))).count()
 }
@@ -273,7 +279,9 @@ fn a_gear_ratio_read_at_the_load_speed_is_held_in_its_cells() {
 /// bit, its two reads held with the releases. A monotone cubic held at its
 /// edges is not (its slope jumps at its data's edges only; holding that
 /// was measured no better than stepping over on CVODE): the stepped-over
-/// run to the bit.
+/// run to the bit. (The gear's states can be chosen again during a run, and
+/// a choice of the implicit form holds the cubic's edges: every choice holds
+/// them, the explicit form releasing them from the start.)
 #[test]
 fn the_default_holds_what_the_models_form_needs() {
     assert_eq!(lsim_prep::PrepOptions::default().table_cells, TableCells::Auto);
@@ -292,12 +300,12 @@ fn the_default_holds_what_the_models_form_needs() {
     let (ws, rs) = ([0.0, 10.0, 25.0, 40.0], [2.0, 2.5, 2.8, 3.5]);
     let text = gear(&table_text(&ws, &rs, "rad/s", "monotoneCubic", "clamp"), &g);
     let def = prepare(&text, "Test.KinkGear", TableCells::default());
-    assert!(def.held.is_empty(), "{:?}", def.held);
+    assert!(!def.held.is_empty() && def.held.iter().all(|h| !h.explicit), "{:?}", def.held);
     let off = prepare(&text, "Test.KinkGear", TableCells::Off);
     for rtol in [1e-4, 1e-8] {
         let (a, b) = (run(&def, rtol, 4.0, 0.01), run(&off, rtol, 4.0, 0.01));
         assert_eq!(cells(&a), 0);
-        assert_eq!(a.values, b.values, "rtol {rtol:e}");
+        assert!(same_channels(&a, &b), "rtol {rtol:e}");
     }
 }
 
@@ -804,6 +812,242 @@ fn the_states_chosen_again_with_held_reads() {
     println!("error / rtol across the switch: {qs:.2?}");
     // measured 3.9, 1.8, 2.9
     assert!(qs.iter().all(|q| *q < 12.0), "{qs:?}");
+}
+
+/// The model `name` of `text` built with its choices of states (dynamic
+/// state selection: a run can switch them), the tables read at a state held
+/// as `cells` asks.
+fn choosing(text: &str, name: &str, cells: TableCells) -> lsim_project::model::Model {
+    let (lib, top, _) = build(text, name, cells);
+    let opts = lsim_prep::PrepOptions { table_cells: cells, ..Default::default() };
+    let m = lsim_project::model::Model::build_with(&lib, &top, &opts)
+        .unwrap_or_else(|d| panic!("{d:#?}"));
+    assert!(m.info.choices.is_some(), "the choice of states can move");
+    m
+}
+
+/// A run of `m` with its choices of states, and its switches' times.
+fn run_choosing(
+    m: &lsim_project::model::Model,
+    opts: &SolverOptions,
+    t_end: f64,
+) -> Result<(SimResult, Vec<f64>), String> {
+    let r =
+        m.run(opts, OutputGrid { t0: 0.0, t_end, dt: 0.01 }, &mut []).map_err(|e| e.to_string())?;
+    let at =
+        r.events.iter().filter(|e| matches!(e.kind, EventKind::States(_))).map(|e| e.t).collect();
+    Ok((r, at))
+}
+
+/// A gear whose ratio is a table of two states, `r(w2, c) = f(w2) + g(c)`
+/// bilinear on its grid (`c` a state rising at 1/s, `stateSelect =
+/// always`), falling with the load's speed, the rotor's speed the preferred
+/// state; `prefer`: else the load's speed is the state.
+fn switch_gear_2d(prefer: bool) -> String {
+    let (ws, fs) = ([-10.0, 0.0, 10.0, 20.0, 30.0, 40.0], [2.2, 2.0, 1.6, 1.0, 0.6, 0.5]);
+    let (cs, gs) = ([-1.0, 1.0, 2.5, 8.0], [0.0, 0.05, -0.05, 0.1]);
+    let list = |v: &[f64]| v.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ");
+    let values: Vec<String> =
+        fs.iter().map(|a| list(&gs.iter().map(|b| a + b).collect::<Vec<_>>())).collect();
+    let (w1, w2) = if prefer {
+        ("start = 0, fixed = true, stateSelect = StateSelect.prefer", "start = 0")
+    } else {
+        ("start = 0", "start = 0, fixed = true")
+    };
+    format!(
+        r#"model Test.SwitchGear2D "a gear whose ratio is a table of the load's speed and of a state c"
+  parameter Real J1(unit = "kg.m2") = 0.05;
+  parameter Real J2(unit = "kg.m2") = 2;
+  parameter Real tau0(unit = "N.m") = 8;
+  parameter Real cu(unit = "1/s") = 1;
+  parameter Real r = table(x1 = {{{}}}, x2 = {{{}}}, values = [{}], x1Unit = "rad/s", x2Unit = "1", interpolation = linear, outside = {{linear, linear}});
+  Real w1(unit = "rad/s", {w1});
+  Real w2(unit = "rad/s", {w2});
+  Real c(start = 0, fixed = true, stateSelect = StateSelect.always);
+  Real t1(unit = "N.m");
+  Real t2(unit = "N.m");
+equation
+  der(c) = cu;
+  J1 * der(w1) = tau0 - t1;
+  J2 * der(w2) = t2;
+  w1 = r(w2, c) * w2;
+  t2 = r(w2, c) * t1;
+end Test.SwitchGear2D;
+"#,
+        list(&ws),
+        list(&cs),
+        values.join("; ")
+    )
+}
+
+/// A bead on the wire `y = r(x)` (`r` the default table of `x²/2 +
+/// sin(3x)/4` at 11 points, continued linearly; `s` a table of its slope),
+/// from x = 1.5 at rest; `prefer`: its height and its vertical speed the
+/// preferred states (`x` then decided from `y` by Newton: the implicit
+/// form). Index reduction reads `r''`.
+fn switch_bead(prefer: bool) -> String {
+    let xs: Vec<f64> = (0..11).map(|k| -2.0 + 0.4 * k as f64).collect();
+    let rs: Vec<f64> = xs.iter().map(|x| 0.5 * x * x + 0.25 * math::sin(3.0 * x)).collect();
+    let ss: Vec<f64> = xs.iter().map(|x| x + 0.75 * math::cos(3.0 * x)).collect();
+    let list = |v: &[f64]| v.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ");
+    let tab = |v: &[f64]| {
+        format!(
+            "table(x = {{{}}}, y = {{{}}}, xUnit = \"m\", outside = {{linear}})",
+            list(&xs),
+            list(v)
+        )
+    };
+    let sel = if prefer { ", stateSelect = StateSelect.prefer" } else { "" };
+    format!(
+        r#"model Test.Bead "a bead on a wire y = r(x) under gravity, r the default table"
+  parameter Real m(unit = "kg") = 1;
+  parameter Real g(unit = "m/s2") = 9.81;
+  parameter Real r(unit = "m") = {} "the wire's height";
+  parameter Real s = {} "its slope";
+  Real x(unit = "m", start = 1.5, fixed = true);
+  Real vx(unit = "m/s", start = 0, fixed = true);
+  Real y(unit = "m"{sel});
+  Real vy(unit = "m/s"{sel});
+  Real F(unit = "N") "the wire's force along y";
+equation
+  der(x) = vx;
+  der(y) = vy;
+  m * der(vx) = -s(x) * F;
+  m * der(vy) = F - m * g;
+  y = r(x) "on the wire";
+end Test.Bead;
+"#,
+        tab(&rs),
+        tab(&ss)
+    )
+}
+
+/// A change of the states chosen from the implicit form (IDAS) to the
+/// explicit one (CVODES), the model reading a table at a state whose read
+/// jumps there: a monotone cubic held at its edges (`r'` jumps at the
+/// data's edges), a 2-D read whose slope jumps, a cubic's second
+/// derivative. The implicit form holds these by default and the explicit
+/// one steps over them; before, the model with the states chosen again held
+/// other reads, the switch was refused ("other events, discrete values or
+/// inputs") and the run stopped where its states failed (t = 3.137, 2.993,
+/// 0.867 s), where 1d41c7d7's run (`TableCells::Off`) goes through. Every
+/// choice of states of such a model now holds what either form holds, and
+/// the run releases what only the implicit form holds while it is on the
+/// explicit one: the switch goes through, as 1d41c7d7's. The gear held at
+/// its edges never reaches them: its run is 1d41c7d7's to the bit. In the
+/// judge's measure (`r5/b1`, against Radau per cell, DOP853 per cell and the
+/// first integral): the gear 1.63, 3.56, 358 at rtol 1e-4, 1e-7, 1e-10; the
+/// 2-D gear 3.1, 4.71, 137 (stepped over 3.43, 5.0, 128); the bead 102, 150,
+/// 420 (stepped over 222, 197, 208; the bead runs that far off held or
+/// not).
+#[test]
+fn a_change_of_states_onto_the_explicit_form_keeps_the_held_reads() {
+    // the gear, its ratio a monotone cubic held at its edges, falling
+    let (ws, rs) = ([-10.0, 0.0, 10.0, 20.0, 30.0, 40.0], [2.2, 2.0, 1.6, 1.0, 0.6, 0.5]);
+    let g = Gear { tau0: 8.0, rotor_state: true, ..GEAR };
+    let text = gear(&table_text(&ws, &rs, "rad/s", "monotoneCubic", "clamp"), &g);
+    let data = data_1d(&ws, &rs, Interpolation::MonotoneCubic, Outside::Clamp);
+    let auto = choosing(&text, "Test.KinkGear", TableCells::Auto);
+    let off = choosing(&text, "Test.KinkGear", TableCells::Off);
+    assert!(!auto.prepared.algebraics.is_empty(), "the implicit form");
+    assert!(!auto.prepared.held.is_empty() && auto.prepared.held.iter().all(|h| !h.explicit));
+    let times = grid(6.0, 0.01);
+    let exact = gear_exact(&data, &g, (-20.0, 80.0), &times);
+    let mut qs = vec![];
+    for rtol in [1e-4, 1e-7] {
+        let (r, at) = run_choosing(&auto, &options(rtol), 6.0).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(at.len(), 1, "rtol {rtol:e}: {:?}", r.events);
+        assert!(r.backend.contains("CVODE"), "{}", r.backend);
+        assert!(r.report.notes.iter().any(|n| n.contains("stepped over from here")));
+        let (o, _) = run_choosing(&off, &options(rtol), 6.0).unwrap_or_else(|e| panic!("{e}"));
+        for ch in ["w1", "w2"] {
+            assert_eq!(r.channel(ch), o.channel(ch), "rtol {rtol:e}: 1d41c7d7's run, bitwise");
+        }
+        qs.push(error(&r, "w2", &exact) / rtol);
+    }
+    println!("held at its edges, onto the explicit form: error / rtol {qs:.2?}");
+    // measured 1.63 and 3.56 (the judge's measure, both speeds, the same)
+    assert!(qs.iter().all(|q| *q < 15.0), "{qs:?}");
+
+    // the 2-D gear, against its run with the load's speed the state (no
+    // switch), held at every crossing, at rtol 1e-12
+    let fine = prepare(&switch_gear_2d(false), "Test.SwitchGear2D", TableCells::Kinks);
+    let fine = run_with(&fine, &SolverOptions { held_release: false, ..options(1e-12) }, 6.0, 0.01);
+    let (f1, f2) = (fine.channel("w1").unwrap().to_vec(), fine.channel("w2").unwrap().to_vec());
+    let auto = choosing(&switch_gear_2d(true), "Test.SwitchGear2D", TableCells::Auto);
+    assert!(!auto.prepared.algebraics.is_empty(), "the implicit form");
+    assert!(!auto.prepared.held.is_empty() && auto.prepared.held.iter().all(|h| !h.explicit));
+    let mut qs = vec![];
+    for rtol in [1e-4, 1e-7] {
+        let (r, at) = run_choosing(&auto, &options(rtol), 6.0).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(at.len(), 1, "rtol {rtol:e}: {:?}", r.events);
+        assert!(r.backend.contains("CVODE"), "{}", r.backend);
+        let before =
+            r.events.iter().filter(|e| matches!(e.kind, EventKind::Cell(_)) && e.t < at[0]);
+        assert!(before.count() >= 3, "held on the implicit form: c at 1 s, w2 at 10, c at 2.5 s");
+        qs.push(error(&r, "w1", &f1).max(error(&r, "w2", &f2)) / rtol);
+    }
+    println!("2-D read, onto the explicit form: error / rtol {qs:.2?}");
+    // measured 3.10 and 4.71 (the judge's, against Radau per cell, the same)
+    assert!(qs.iter().all(|q| *q < 20.0), "{qs:?}");
+
+    // the bead, against the same wire with x the state (no switch), held at
+    // every crossing, at rtol 1e-12
+    let fine = prepare(&switch_bead(false), "Test.Bead", TableCells::Kinks);
+    let fine = run_with(&fine, &SolverOptions { held_release: false, ..options(1e-12) }, 3.0, 0.01);
+    let (fx, fv) = (fine.channel("x").unwrap().to_vec(), fine.channel("vx").unwrap().to_vec());
+    let auto = choosing(&switch_bead(true), "Test.Bead", TableCells::Auto);
+    assert!(!auto.prepared.algebraics.is_empty(), "the implicit form");
+    let mut qs = vec![];
+    for rtol in [1e-4, 1e-7] {
+        let (r, at) = run_choosing(&auto, &options(rtol), 3.0).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(at.len(), 1, "rtol {rtol:e}: {:?}", r.events);
+        assert!(r.backend.contains("CVODE"), "{}", r.backend);
+        // (x where the switch is: the wire's lowest point, r' = 0 at x = -0.35)
+        let k = (at[0] / 0.01) as usize;
+        assert!((fx[k] + 0.35).abs() < 0.1, "at t = {}: x = {}", at[0], fx[k]);
+        qs.push(error(&r, "x", &fx).max(error(&r, "vx", &fv)) / rtol);
+    }
+    println!("the bead, onto the explicit form: error / rtol {qs:.2?}");
+    // measured 102 and 147 (the judge's, against DOP853 per cell: 102, 150)
+    assert!(qs.iter().all(|q| *q < 600.0), "{qs:?}");
+}
+
+/// The other way: a gear on the explicit form (the load's speed the state),
+/// its ratio a monotone cubic held at its edges, dense (41 points on [0,
+/// 80] rad/s), which the explicit form steps over; where the choice's
+/// exchange factor passes 3 (t = 2.33 s), dynamic state selection takes the
+/// rotor's speed, of the implicit form, which holds the read: held in its
+/// cells again there, its crossing out of the data at 80 rad/s an event.
+/// Before, the switch was refused (the other choice held other reads) and
+/// the run went on with its states (2.58, 66.7 and 54 rtol at 1e-4, 1e-7,
+/// 1e-10 in the judge's measure); now 3.2, 9.1, 22, as 1d41c7d7's run,
+/// which switched and stepped over the edge on IDAS.
+#[test]
+fn a_change_of_states_onto_the_implicit_form_holds_what_the_explicit_stepped_over() {
+    let ws: Vec<f64> = (0..41).map(|k| 80.0 * k as f64 / 40.0).collect();
+    let rs: Vec<f64> = ws.iter().map(|w| 2.0 + w / 40.0 + 0.25 * math::sin(w / 8.0)).collect();
+    let text = gear(&table_text(&ws, &rs, "rad/s", "monotoneCubic", "clamp"), &GEAR);
+    let data = data_1d(&ws, &rs, Interpolation::MonotoneCubic, Outside::Clamp);
+    let auto = choosing(&text, "Test.KinkGear", TableCells::Auto);
+    assert!(auto.prepared.algebraics.is_empty(), "the explicit form");
+    assert!(!auto.prepared.held.is_empty() && auto.prepared.held.iter().all(|h| !h.explicit));
+    let times = grid(4.0, 0.01);
+    let exact = gear_exact(&data, &GEAR, (-30.0, 300.0), &times);
+    assert!(*exact.last().unwrap() > 80.0, "it leaves the data");
+    let mut qs = vec![];
+    for rtol in [1e-4, 1e-7] {
+        let (r, at) = run_choosing(&auto, &options(rtol), 4.0).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(at.len(), 1, "rtol {rtol:e}: {:?}", r.events);
+        assert!(r.backend.contains("IDA"), "{}", r.backend);
+        assert!(r.report.notes.iter().any(|n| n.contains("held in its cells again")));
+        let after = r.events.iter().filter(|e| matches!(e.kind, EventKind::Cell(_)) && e.t > at[0]);
+        assert_eq!(after.count(), 2, "out at 80 rad/s, both reads");
+        qs.push(error(&r, "w2", &exact) / rtol);
+    }
+    println!("held again on the implicit form: error / rtol {qs:.2?}");
+    // measured 3.24 and 9.14 (the judge's measure, both speeds, the same)
+    assert!(qs.iter().all(|q| *q < 30.0), "{qs:?}");
 }
 
 /// The spring `x'' = F(x)` with `F` a linear table of `x` continued
@@ -1317,7 +1561,10 @@ end Test.Bead;
     );
     let def = prepare(&text, "Test.Bead", TableCells::default());
     let jumps = prepare(&text, "Test.Bead", TableCells::Jumps);
-    assert!(def.held.is_empty() && jumps.held.is_empty(), "{:?}", jumps.held);
+    assert!(jumps.held.is_empty(), "{:?}", jumps.held);
+    // (held for a choice of its states of the implicit form, released on the
+    // explicit one from the start)
+    assert!(def.held.iter().all(|h| !h.explicit), "{:?}", def.held);
     let kinks = prepare(&text, "Test.Bead", TableCells::Kinks);
     assert!(!kinks.held.is_empty());
     let fine = run(&def, 1e-12, 10.0, 0.01);
@@ -1334,7 +1581,7 @@ end Test.Bead;
     for rtol in [1e-4, 1e-6, 1e-8] {
         let a = run(&def, rtol, 10.0, 0.01);
         let b = run(&jumps, rtol, 10.0, 0.01);
-        assert_eq!(a.values, b.values, "rtol {rtol:e}");
+        assert!(same_channels(&a, &b), "rtol {rtol:e}");
         assert_eq!(cells(&a), 0);
         over.push(q(&a, rtol));
         let h = run(&kinks, rtol, 10.0, 0.01);

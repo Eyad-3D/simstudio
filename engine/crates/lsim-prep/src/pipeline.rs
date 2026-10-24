@@ -1373,7 +1373,7 @@ pub fn run(
         held: vec![],
     };
     if spec.is_none() {
-        crate::hold::apply(&mut model, settings.table_cells);
+        crate::hold::apply(&mut model, settings.table_cells, settings.choose_at.is_some());
     }
     let (blocks, ext_diags) = external::order(&model, extras.external);
     model.external = blocks;

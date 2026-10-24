@@ -884,8 +884,18 @@ pub fn simulate(
     // itself from the start (crate::held). Not on the implicit form (IDAS,
     // diffsol's DAE): it cannot step over a jump at all (DESIGN.md §8.2)
     let mut released = vec![];
+    if l.n_z == 0 {
+        // (the reads a model whose states the run chooses again holds only
+        // for its choices of the implicit form: stepped over on this form,
+        // as by default; held again where a change of the states chosen
+        // takes the run onto the implicit form)
+        held::release_for_explicit(info, &mut d0);
+    }
     if opts.held_release && l.n_z == 0 {
         for g in 0..held::groups(info) {
+            if !held::held_on_explicit(info, g) {
+                continue;
+            }
             if held::continuous_to(model, info, g, opts.rtol, grid.t0)? {
                 held::release(info, g, &mut d0);
                 if let Some(h) = info.held.iter().find(|h| h.group == g) {

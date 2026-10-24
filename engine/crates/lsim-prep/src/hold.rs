@@ -17,7 +17,11 @@
 //! jumps. So by default ([`TableCells::Auto`]) the explicit form holds a
 //! linear table's slope ([`Holds::EXPLICIT`]) and the implicit form every
 //! read that jumps ([`Holds::IMPLICIT`]); a read that only kinks (a linear
-//! table's value) is stepped over on both. Holding costs a restart at each
+//! table's value) is stepped over on both. A model whose states a run
+//! chooses again holds, in every choice, what either form holds, so that a
+//! run can switch between the forms; the run releases the reads only the
+//! implicit form holds while it is on the explicit one
+//! ([`HeldRead::explicit`]). Holding costs a restart at each
 //! crossing, a roughly fixed error whatever the jump (0.1 … 3.6 rtol,
 //! measured) that adds up over the crossings; on the explicit form the run
 //! releases a held read where that costs more than it saves
@@ -82,7 +86,9 @@ pub enum TableCells {
     /// 30; on the implicit form (IDAS), every read that jumps
     /// ([`Holds::IMPLICIT`]), whose stepping over stopped the run at a
     /// breakpoint in every judge case of each kind, held through every
-    /// crossing (the run releases none there)
+    /// crossing (the run releases none there). A model whose states a run
+    /// chooses again holds both in every choice of its states, the explicit
+    /// form releasing what only the implicit one holds ([`apply`])
     #[default]
     Auto,
     /// none: the integrator steps over every breakpoint, as over any
@@ -145,6 +151,17 @@ impl Holds {
     /// whether it holds anything
     pub fn any(self) -> bool {
         self != Holds::NONE
+    }
+
+    /// what either holds
+    pub fn or(self, other: Holds) -> Holds {
+        Holds {
+            slope_points: self.slope_points || other.slope_points,
+            slope_edges: self.slope_edges || other.slope_edges,
+            higher: self.higher || other.higher,
+            two_d: self.two_d || other.two_d,
+            kinks: self.kinks || other.kinks,
+        }
     }
 }
 
@@ -234,9 +251,25 @@ fn need(data: &TableData, order: [u8; 2], holds: Holds) -> [Need; 2] {
 /// by its own key), so that every preparation of a model (one that chooses
 /// its states again at a point of a run, `lsim_prep::prepare_choosing`)
 /// holds the same reads in the same discrete variables and zero crossings.
-pub fn apply(model: &mut PreparedModel, mode: TableCells) {
+///
+/// Under [`TableCells::Auto`] a model whose states a run chooses again
+/// (dynamic state selection: one of its state sets moves with the solution,
+/// or `at_a_point`, the model prepared with its states chosen at a point of
+/// a run) holds what either form holds, in every choice, whatever the form
+/// of each: its choices then have the same discrete values and zero
+/// crossings, and a run can switch from one form to the other (before, a
+/// choice of the other form held other reads, and the switch was refused).
+/// A read that only the implicit form holds is marked
+/// ([`HeldRead::explicit`] false), and the run releases it while it is on
+/// the explicit form, which steps over it by default.
+pub fn apply(model: &mut PreparedModel, mode: TableCells, at_a_point: bool) {
     // the model's form: iteration variables put it on the implicit one
-    let holds = mode.holds(!model.algebraics.is_empty());
+    let both = mode == TableCells::Auto && (at_a_point || rechosen(model));
+    let holds = if both {
+        TableCells::Auto.holds(true).or(TableCells::Auto.holds(false))
+    } else {
+        mode.holds(!model.algebraics.is_empty())
+    };
     if model.states.is_empty() || !holds.any() {
         return;
     }
@@ -272,9 +305,16 @@ pub fn apply(model: &mut PreparedModel, mode: TableCells) {
     // most any of them needs (held together, their edges are crossed
     // together)
     let mut group: HashMap<String, [Need; 2]> = HashMap::new();
+    // (and where the explicit form needs them: a group it does not hold is
+    // released while the run is on that form)
+    let mut group_explicit: HashMap<String, [Need; 2]> = HashMap::new();
     for r in st.reads.values() {
         let g = group.entry(r.group.clone()).or_insert([Need::Nowhere; 2]);
         for (gj, rj) in g.iter_mut().zip(r.need) {
+            *gj = (*gj).max(rj);
+        }
+        let g = group_explicit.entry(r.group.clone()).or_insert([Need::Nowhere; 2]);
+        for (gj, rj) in g.iter_mut().zip(r.need_explicit) {
             *gj = (*gj).max(rj);
         }
     }
@@ -308,7 +348,10 @@ pub fn apply(model: &mut PreparedModel, mode: TableCells) {
             let r = &st.reads[key];
             let next = groups.len() as u32;
             let g = *groups.entry(r.group.clone()).or_insert(next);
-            held[k] = Some(hold(model, r, c, g, &mut counts));
+            // (where the model holds what either form holds: those of a
+            // group the explicit form holds, at its cells or the union's)
+            let explicit = !both || group_explicit[&r.group].iter().any(|n| *n != Need::Nowhere);
+            held[k] = Some(hold(model, r, c, g, explicit, &mut counts));
         }
     }
     // the names as the held reads' functions (the others as the reads
@@ -355,6 +398,8 @@ struct Pending {
     args: Vec<Expr>,
     origin: Origin,
     need: [Need; 2],
+    /// where the explicit form's default holds it ([`Holds::EXPLICIT`])
+    need_explicit: [Need; 2],
     group: String,
     /// whether its slope jumps itself (as [`TableCells::Jumps`] tells)
     jumps: bool,
@@ -424,10 +469,29 @@ fn named(e: Expr, model: &PreparedModel, st: &mut State, origin: &Origin, holds:
             args: args.clone(),
             origin: origin.clone(),
             need: need(data, *order, holds),
+            need_explicit: need(data, *order, Holds::EXPLICIT),
             group,
             jumps: need(data, *order, Holds::JUMPS).iter().any(|n| *n != Need::Nowhere),
         });
         Expr::Name(format!("{NAME}{key}"))
+    })
+}
+
+/// Whether a run chooses the states of `model` again (dynamic state
+/// selection): one of its state sets reads variables or time, and nothing
+/// the run cannot read (`lsim_solve::SetReads::Variables`, which
+/// `lsim_solve::choice::rechoosing` asks for).
+fn rechosen(model: &PreparedModel) -> bool {
+    model.state_sets.iter().any(|s| {
+        let (mut moving, mut unreadable) = (false, false);
+        for e in s.entries.iter().flatten() {
+            e.walk(&mut |x| match x {
+                Expr::Der(_) | Expr::Pre(_) | Expr::Name(_) => unreadable = true,
+                Expr::Var(_) | Expr::Time => moving = true,
+                _ => {}
+            });
+        }
+        moving && !unreadable
     })
 }
 
@@ -476,6 +540,7 @@ fn hold(
     r: &Pending,
     cells: Cells,
     group: u32,
+    explicit: bool,
     counts: &mut HashMap<u32, usize>,
 ) -> HeldRead {
     let ft = &model.flat.tables[r.table as usize];
@@ -552,7 +617,7 @@ fn hold(
     };
     let released = var(model, format!("{prefix}.released"), 0.0);
     let read = Expr::Table { table: r.table, args: vec![], order: r.order };
-    HeldRead { read, axes, degree, coef, cells, released, group, jumps: r.jumps }
+    HeldRead { read, axes, degree, coef, cells, released, group, jumps: r.jumps, explicit }
 }
 
 /// `Σ cs[i] x^i` in Horner's form.

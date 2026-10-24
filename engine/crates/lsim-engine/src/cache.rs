@@ -40,7 +40,9 @@ use std::path::{Path, PathBuf};
 /// (`HeldRead::released`, `group`, `jumps`), and a 2-D read is not held.
 /// v9: the reads held by default depend on the model's form
 /// (`TableCells::Auto`), and the build's `table_cells` joined the key.
-const FORMAT: &str = "prepared-v9";
+/// v10: a model whose states a run chooses again holds what either form
+/// holds, in every choice (`HeldRead::explicit`, no default).
+const FORMAT: &str = "prepared-v10";
 
 /// The digest of the code that prepares a model (`build.rs`).
 const PREPARATION: &str = env!("LSIM_PREPARATION_DIGEST");

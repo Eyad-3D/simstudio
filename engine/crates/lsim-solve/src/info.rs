@@ -771,6 +771,9 @@ pub struct HeldInfo {
     pub group: usize,
     /// whether it jumps itself where it is held ([`lsim_ir::HeldRead::jumps`])
     pub jumps: bool,
+    /// whether it is held while the run is on the explicit form, else
+    /// released there ([`lsim_ir::HeldRead::explicit`])
+    pub explicit: bool,
 }
 
 /// The discrete variables of a read held between its data's edges
@@ -1219,6 +1222,7 @@ impl RunInfo {
                         released: at(&h.released),
                         group: h.group as usize,
                         jumps: h.jumps,
+                        explicit: h.explicit,
                     }
                 })
                 .collect(),

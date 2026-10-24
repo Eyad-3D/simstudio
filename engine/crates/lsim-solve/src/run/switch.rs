@@ -145,6 +145,26 @@ pub(super) fn compatible(
     from: (&dyn ModelFunctions, &RunInfo),
     to: (&dyn ModelFunctions, &RunInfo),
 ) -> Result<(), String> {
+    // the same table reads held in their cells (named: they add discrete
+    // values and zero crossings, so the layouts would differ too)
+    let (fi, ti) = (from.1, to.1);
+    if fi.held != ti.held {
+        let mut tables: Vec<String> = vec![];
+        let apart = fi.held.iter().filter(|h| !ti.held.contains(h));
+        for h in apart.chain(ti.held.iter().filter(|h| !fi.held.contains(h))) {
+            let named = format!("'{}'", h.label);
+            if !tables.contains(&named) {
+                tables.push(named);
+            }
+        }
+        return Err(format!(
+            "the model with the states chosen again holds other reads of the table {} in their \
+             cells: build the model with the option table_cells = \"kinks\", which holds the \
+             same reads in every choice (lsim_engine::BuildOptions::table_cells; \
+             table_cells=\"kinks\" in Python; DESIGN.md §8.2)",
+            tables.join(", ")
+        ));
+    }
     let (a, b) = (from.0.layout(), to.0.layout());
     if (a.n_roots, a.n_whens, a.n_d, a.n_u, a.n_p, a.n_x)
         != (b.n_roots, b.n_whens, b.n_d, b.n_u, b.n_p, b.n_x)
@@ -176,13 +196,11 @@ pub(super) fn compatible(
             }
         }
     }
-    let (fi, ti) = (from.1, to.1);
     if fi.modes.len() != ti.modes.len()
         || fi.whens != ti.whens
         || fi.asserts.len() != ti.asserts.len()
         || fi.time_crossings.len() != ti.time_crossings.len()
         || fi.time_functions.len() != ti.time_functions.len()
-        || fi.held != ti.held
     {
         return Err("the model with the states chosen again has other conditions".into());
     }
@@ -455,6 +473,34 @@ mod tests {
             states: vec![format!("x{k}")],
         };
         RunModel { variant: Arc::new(variant), info: RunInfo::bare(0, 0, vec![]) }
+    }
+
+    /// A model with the states chosen again that holds other table reads
+    /// in their cells is refused, the table and the option named (every
+    /// preparation of a model a run chooses its states again by holds the
+    /// same reads: `lsim_prep::hold::apply`).
+    #[test]
+    fn a_choice_holding_other_reads_is_refused_naming_the_table() {
+        use crate::info::{HeldAxisInfo, HeldInfo};
+        let m = model(0);
+        let mut other = RunInfo::bare(0, 0, vec![]);
+        other.held.push(HeldInfo {
+            table: 0,
+            order: [1, 0],
+            degree: [0, 0],
+            axes: vec![HeldAxisInfo { cell: 0, anchor: 1, lo: 2, hi: 3, below: 0, above: 1 }],
+            coef: vec![4],
+            edges: None,
+            label: "ratio".into(),
+            released: 5,
+            group: 0,
+            jumps: true,
+            explicit: false,
+        });
+        let why = compatible((&*m.variant.model, &m.info), (&*m.variant.model, &other))
+            .expect_err("other reads held");
+        assert!(why.contains("'ratio'") && why.contains("table_cells"), "{why}");
+        assert!(compatible((&*m.variant.model, &other), (&*m.variant.model, &other)).is_ok());
     }
 
     #[test]

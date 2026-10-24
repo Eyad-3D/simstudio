@@ -214,6 +214,14 @@ pub struct HeldRead {
     /// false for a read held beside one that does, or held only for
     /// comparison (`TableCells::Kinks`), which the run never releases
     pub jumps: bool,
+    /// whether it is held while the run is on the explicit form (no
+    /// iteration variable: CVODES). False only for a read that a model whose
+    /// states a run chooses again holds because a choice of the implicit form
+    /// needs it, which the explicit form steps over by default
+    /// (`TableCells::Auto`, DESIGN.md §8.2): every choice of such a model
+    /// holds the same reads, so that the run can switch between the forms,
+    /// and the run releases these while it is on the explicit form
+    pub explicit: bool,
 }
 
 /// Where a [`HeldRead`]'s cells have their edges.
