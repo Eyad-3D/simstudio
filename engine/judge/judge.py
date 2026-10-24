@@ -982,6 +982,51 @@ def crossings() -> dict[str, tuple[str, dict]]:
         '  parameter Real e = 1e-9;\n  Real s(unit = "s", start = 0, fixed = true);\n'
         "  Real x(start = 0.5);\n",
         "  der(s) = 1;\n  x ^ 3 + x = 0.625 - e + 2 * e * k;\n", "x > 0.5", by="s > 1")
+
+    # a condition held from its crossing (located a little early) that an
+    # event shortly after puts back across: `when x < 0.5` fires there, and
+    # `when x > 0.5` again where k2 lifts x (an independent recheck's probes
+    # of the solver work's fourth round: the hold was not released at the
+    # event's point, x stayed on the side it rose to)
+    def held_back(name, doc, a, d, state, by):
+        t1, tb = 0.625 / a, 0.625 / a + 0.5
+        r = "z" if state else "a * time"
+        decl = (f'  parameter Real a(unit = "1/s") = {a!r};\n  parameter Real e = 1e-12;\n'
+                f'  parameter Real t2(unit = "s") = {t1 + d!r};\n'
+                f'  parameter Real tb(unit = "s") = {tb!r};\n  Real x(start = 0);\n'
+                + ('  Real z(start = 0, fixed = true);\n' if state else '')
+                + ('  Real s(unit = "s", start = 0, fixed = true);\n' if by == "s > t2" else '')
+                + '  discrete Real k(start = 0, fixed = true) "set at t2";\n'
+                '  discrete Real k2(start = 0, fixed = true) "set at tb";\n'
+                '  discrete Real n(start = 0, fixed = true) "the rises counted";\n'
+                '  discrete Real m(start = 0, fixed = true) "the falls counted";\n')
+        eqs = (('  der(z) = a;\n' if state else '') + ('  der(s) = 1;\n' if by == "s > t2" else '')
+               + f'  x ^ 3 + x = {r} - k * ({r} - 0.625 + e) + k2 * (0.1 + e);\n')
+        text = (f'model Judge.{name} "{doc}"\n{decl}equation\n{eqs}'
+                f'  when {by} then\n    k = 1;\n  end when "k set";\n'
+                '  when time >= tb then\n    k2 = 1;\n  end when "k2 set";\n'
+                '  when x > 0.5 then\n    n = pre(n) + 1;\n  end when "it counts";\n'
+                '  when x < 0.5 then\n    m = pre(m) + 1;\n  end when "it counts down";\n'
+                f'end Judge.{name};\n')
+        case = {"model": f"Judge.{name}", "t_end": 2.0, "dt": 0.1, "atol_factor": 1e-2,
+                "record": ["x", "n", "m", "k"],
+                "judge": {"kind": "count", "exact": [t1, tb],
+                          "also": {"m": {"label": "it counts down", "exact": [t1 + d]}}}}
+        return text, case
+
+    for a in (0.7, 2.3):
+        for d in (1e-6, 1e-4):
+            out[f"count-held-back-{a}-{d:g}"] = held_back(
+                "HeldBack", f"x^3 + x = z - k (z - 0.625 + e) + k2 (0.1 + e), z = {a} t, e = 1e-12: "
+                f"x over 0.5 at 0.625 / a, k set {d:g} s later puts it back under by e/1.75, "
+                "k2 lifts it over again 0.5 s after the rise", a, d, True, "time >= t2")
+            out[f"count-held-back-nostate-{a}-{d:g}"] = held_back(
+                "HeldBackTime", f"no state: x^3 + x = a t - k (a t - 0.625 + e) + k2 (0.1 + e), "
+                f"a = {a}, k set {d:g} s after the rise", a, d, False, "time >= t2")
+    for a in (0.7, 1.0, 4.4):
+        out[f"count-held-back-other-{a}-1e-03"] = held_back(
+            "HeldBackOther", f"x^3 + x = z - k (z - 0.625 + e) + k2 (0.1 + e), z = {a} t: k set "
+            "where a state s = t passes 1e-3 s after the rise", a, 1e-3, True, "s > t2")
     return out
 
 
