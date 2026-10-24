@@ -977,7 +977,11 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    sign compared with the point after the event and its dense output
    searched from there; a tick whose outputs reach nothing the integrator
    integrates (the step stands) changes nothing the choice's entries read,
-   and the stretch goes on across it. Before (the watch's first version), the step
+   and the stretch goes on across it. The point after an event is read
+   with the channels the run sampled there for its record (the same
+   values: the time, states and discrete values compared to the bit,
+   `Loop::sampled_after`), evaluated again only where it has none. Before
+   (the watch's first version), the step
    after any event, and every step with a tick inside, went unwatched: the
    pendulum released at 2.8 rad with a `when` that changed nothing 2.3 ms
    before its states degenerate crossed the horizontal in that step and
@@ -2014,7 +2018,17 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   of `error_test.rs` 206 170 steps at rtol 1e-10, where the states'
   errors are round-off rather than zero; so the patch stays as it is.
   The slider-crank fails at rtol 1e-8 and tighter on every IDAS, patched
-  or not (its corrector, at t = 4e-9 s).
+  or not (its corrector, at t = 4e-9 s). The patch's test computed the
+  quadratures' error at order k−2 at every step of order 3 or more, a
+  sum and a norm over the books' quadratures (with the 0.5 % more steps
+  the patch makes there, 0.3 to 0.4 % of the hybrid car's instructions);
+  where order k−1's error is the larger already and either a decrease is
+  to be decided there or none was, the k−2 error cannot change the order
+  (a decrease asks both to be at most order k's), and it is passed over:
+  the order, every step and every result the same to the bit (LLNL's two
+  examples at every tolerance above, the golden comparison, the judge's
+  runs), 0.2 % of the hybrid's instructions saved on its mixed cycle and
+  0.4 % on the HWFET.
 
 * **Where the error test cannot pass.** Ten failures of the error test
   at one step (the step cut by four from the second on) stop SUNDIALS.
@@ -2169,7 +2183,13 @@ round).**
   moved a state (an engagement) or where the new discrete values alone
   move the function at the point the integrator had. The backends map a
   held value to its side as they map an exact zero
-  (`Integrator::set_root_sides` takes the holds). A mode is not held: its
+  (`Integrator::set_root_sides` takes the holds), and only while one is
+  held: with no hold above 0, most of a run, only an exact zero moves,
+  looked for eight values at a time (`run::ZeroSides`), and the step's
+  end looks for a hold to release only then (`Loop::held`). Mapping
+  every value through the holds at every evaluation and scanning them at
+  every step's end had cost the hybrid car 1.6 % of its instructions,
+  holding nothing. A mode is not held: its
   relation decides at the event, and where that sets it back, the
   integrator restarts there and sees the crossing again (`Loop::undone`).
   Every one of the 140 runs counts one crossing now, a falling `when` and
@@ -2207,7 +2227,11 @@ round).**
   `when time >= t_shift`, a mode of `if time > t_on`) is taken out of root
   finding (a root mask in both backends) and reached exactly as a stop
   time, fired in its direction there, rescheduled after every discrete
-  change (`RunInfo::time_crossings`). Its modes take their values just
+  change (`RunInfo::time_crossings`). A step looks at the scheduled times
+  of these and of the functions of time searched ahead alone (`t_live`:
+  no other entry is ever set); looking at every root function's, three
+  times a step, had cost the hybrid car, which has neither, 1.6 to 2.0 %
+  of its instructions. Its modes take their values just
   after the instant while its time, with the discrete values the event
   iteration has set, is still the instant (a timer that re-arms itself at
   its own instant leaves its relation false; `t_last := time` makes `time
