@@ -67,7 +67,11 @@ fn main() {
     }
     // a file added anywhere in a crate, also at a code path that did not
     // exist at the last run (a new `build.rs` or `include/`), reruns this
-    // script: Cargo watches each crate's folder as a whole
+    // script: Cargo watches each crate's folder as a whole. So does an
+    // edit of its tests, benches or examples, which rebuilds this crate
+    // for a digest that comes out the same (it is over `PARTS` alone): the
+    // price of seeing a new code path, as Cargo watches a folder only
+    // recursively and reruns on every build a path that does not exist
     for c in CRATES {
         println!("cargo:rerun-if-changed={}", crates.join(c).display());
     }
