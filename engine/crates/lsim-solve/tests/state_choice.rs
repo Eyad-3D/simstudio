@@ -1757,3 +1757,39 @@ fn a_switch_refused_after_a_tick_at_its_cut_point_goes_on_from_the_dense_output(
         assert!(err(&xb) < 2e4 * rtol, "rtol {rtol:e}: {:e}", err(&xb));
     }
 }
+
+/// `SolverOptions::record`: the channels it names alone, in its order, the
+/// same to the bit as those of the run that records every channel (the
+/// pendulum released level chooses its states again at every passage of
+/// the bottom, where the channels are read from the model it switched
+/// to); the run itself the same, its steps and events too.
+#[test]
+fn a_run_recording_some_channels_records_them_as_the_run_that_records_all() {
+    let lib = common::library();
+    let def = pendulum(-std::f64::consts::FRAC_PI_2, StateSelect::Default);
+    let built = common::build_dynamic(&lib, &def);
+    let names = &built.info.var_names;
+    let pick: Vec<usize> = ["vy", "x", "F"]
+        .iter()
+        .map(|w| names.iter().position(|n| n == w).expect("a channel"))
+        .collect();
+    let grid = OutputGrid { t0: 0.0, t_end: 5.0, dt: 0.01 };
+    let opts = SolverOptions { rtol: 1e-8, atol: 1e-10, ..Default::default() };
+    let all = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs");
+    let some = SolverOptions { record: Some(pick.clone()), ..opts.clone() };
+    let few = simulate(&built.jit, &built.info, &some, grid, &mut []).expect("runs");
+    assert!(switches(&all) > 0, "it chooses its states again");
+    assert_eq!(few.names, ["vy", "x", "F"]);
+    assert_eq!((few.stats, few.events.len()), (all.stats, all.events.len()));
+    assert_eq!(few.times, all.times);
+    let bits = |v: &[f64]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+    for (k, &c) in pick.iter().enumerate() {
+        for (a, b) in [(&few.values, &all.values), (&few.min, &all.min), (&few.max, &all.max)] {
+            assert_eq!(bits(&a[k]), bits(&b[c]), "{}", names[c]);
+        }
+        assert_eq!(bits(&few.mean[k]), bits(&all.mean[c]), "{}", names[c]);
+    }
+    let bad = SolverOptions { record: Some(vec![names.len()]), ..opts };
+    let err = simulate(&built.jit, &built.info, &bad, grid, &mut []).map(|_| ()).unwrap_err();
+    assert!(err.to_string().contains("SolverOptions::record names channel"), "{err}");
+}

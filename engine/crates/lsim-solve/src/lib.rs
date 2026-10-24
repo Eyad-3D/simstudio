@@ -328,6 +328,12 @@ pub struct SolverOptions {
     /// this says. On by default; off, a held read stays held through every
     /// crossing (for comparison only)
     pub held_release: bool,
+    /// the channels the run records, by their index among the model's
+    /// ([`RunInfo::var_names`]), in this order: the result holds these
+    /// alone (a long run on a fine grid that needs a few of them: every
+    /// channel of a model recorded every 0.1 s over a day does not fit in
+    /// memory). `None`: every channel. The run itself is the same
+    pub record: Option<Vec<usize>>,
 }
 
 /// [`SolverOptions::state_switch`]'s default.
@@ -358,6 +364,7 @@ impl Default for SolverOptions {
             tick_read_ahead: true,
             state_switch: STATE_SWITCH,
             held_release: true,
+            record: None,
         }
     }
 }

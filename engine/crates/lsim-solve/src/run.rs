@@ -364,9 +364,10 @@ struct Loop<'a> {
     /// sorted: the integrator restarts there
     kinks_fixed: Vec<f64>,
     kinks_moving: Vec<f64>,
-    /// after the run chose its states again ([`switch`]): for each channel
-    /// it records, its index among the channels of the model it is on
-    /// (`None`: the first model's, as they are)
+    /// for each channel the run records (those [`SolverOptions::record`]
+    /// names), its index among the channels of the model it is on (after
+    /// the run chose its states again, [`switch`], the new model's; `None`:
+    /// every channel of the first model, as they are)
     chan: Option<Vec<usize>>,
     /// the recorded channels, read through `chan`
     chan_buf: Vec<f64>,
@@ -2503,7 +2504,18 @@ fn run_watched<'a>(
     let t_end = grid.t_end;
     tables_given(model, info, opts, grid.t0)?;
     let span = (t_end - grid.t0).abs();
-    let mut rec = Recorder::new(l.n_vars, &times)?;
+    // the channels recorded (SolverOptions::record): the first model's,
+    // through `Loop::chan`
+    if let Some(bad) = opts.record.iter().flatten().find(|&&c| c >= l.n_vars) {
+        return Err(SolveError::Initialisation {
+            t: grid.t0,
+            message: format!(
+                "SolverOptions::record names channel {bad}; the model has {} channels",
+                l.n_vars
+            ),
+        });
+    }
+    let mut rec = Recorder::new(opts.record.as_ref().map_or(l.n_vars, |r| r.len()), &times)?;
     let mut lp = Loop {
         model,
         info,
@@ -2569,7 +2581,7 @@ fn run_watched<'a>(
         breaks_moving: vec![],
         kinks_fixed: vec![],
         kinks_moving: vec![],
-        chan: None,
+        chan: opts.record.clone(),
         chan_buf: vec![],
         after_t: None,
         after_y: vec![],
@@ -2785,7 +2797,11 @@ fn run_watched<'a>(
             lp.after_t = None;
             let identity =
                 next.map.iter().enumerate().all(|(c, &j)| c == j) && l.n_vars == next.map.len();
-            lp.chan = (!identity).then_some(next.map);
+            lp.chan = match &opts.record {
+                // (the channels recorded, among the first model's)
+                Some(record) => Some(record.iter().map(|&c| next.map[c]).collect()),
+                None => (!identity).then_some(next.map),
+            };
             y = yc;
             local = vec![0.0; n];
             acc = vec![0.0; n];
@@ -3889,7 +3905,10 @@ fn run_watched<'a>(
     }
     Ok(SimResult {
         times,
-        names: info0.var_names.clone(),
+        names: match &opts.record {
+            Some(record) => record.iter().map(|&c| info0.var_names[c].clone()).collect(),
+            None => info0.var_names.clone(),
+        },
         values,
         min,
         max,
