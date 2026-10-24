@@ -1231,10 +1231,13 @@ impl Integrator for Sundials<'_> {
             // reduction) changes its slope after a long steady stretch. A
             // fresh start from the last step's end, its rates from the
             // model, crosses it (`tests/error_test.rs`). Once per point: a
-            // second failure there is the model's. Not CVODE's: it lowers
-            // the order itself after three failures and at order 1 reloads
-            // its history from the model, stopping at seven (CVODES'
-            // MXNEF), and an ODE's error at such a kink falls with the step;
+            // second failure there is the model's. Not CVODE's: from its
+            // fourth failure it lowers the order by one at each (CVODES'
+            // MXNEF1) and at order 1 reloads its history from the model,
+            // stopping at the seventh (MXNEF), so the reload comes only
+            // from order 3 or lower (an Adams step at order 12 meets the
+            // seventh failure at order 9), and an ODE's error at such a
+            // kink falls with the step;
             // it crosses one after a smooth stretch at a high order (the
             // same test) and reached its limit in none of 132 probe runs
             // with kinks and jumps (Adams and BDF, rtol 1e-4 … 1e-12)

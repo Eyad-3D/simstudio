@@ -2011,7 +2011,7 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   the Akzo Nobel problem at every tolerance: G closer at six of seven
   (at 1e-9, 2.6e-10 off instead of 9.9e-11), 22 % fewer to 45 % more
   steps. For the same steps (G's error interpolated log-log along
-  upstream's runs) it is 20 and 37 times as accurate at 1e-6 and 1e-8
+  upstream's runs) it is 20 and 36 times as accurate at 1e-6 and 1e-8
   (1.0e-10 in 473 steps where upstream needs 740 for 9.9e-11), 1.1 and
   1.6 times less accurate at 1e-5 and 1e-7, and 6 times less at 1e-9
   (2.6e-10 in 898 steps, where upstream's curve gives 4.2e-11); at 1e-4
@@ -2055,9 +2055,11 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   s) at rtol 1e-8 and 1e-10, and now runs to 1e-15 of the exact answer
   with one restart (`lsim-solve/tests/error_test.rs`). CVODE needs none
   and gets none (it was restarted too, untested, until 24 October): it
-  stops at seven failures, lowering its order from the fourth and, at
-  order 1, reloading its history from the model itself (CVODES' MXNEF,
-  MXNEF1), and an ODE's error at such a kink falls with the step; it
+  stops at the seventh failure (CVODES' MXNEF), lowering its order by
+  one at each from the fourth (MXNEF1) and reloading its history from
+  the model only at order 1, which it reaches before the seventh only
+  from order 3 or lower (from Adams' order 12 it stops at order 9); an
+  ODE's error at such a kink falls with the step, and it
   crosses one after a smooth stretch at a high order (a swing whose
   forcing starts a ramp at a table's breakpoint, Adams and BDF at rtol
   1e-6 … 1e-12, within 55 rtol of the exact answer, the same test), and
@@ -2226,8 +2228,9 @@ round).**
   its side is on it, and at an event one that solving the iteration
   variables again put on the other side of where the integrator saw it
   (or on zero), within its hold and not by the new discrete values' own
-  doing, is on the side the integrator saw, the hold it gets after the
-  event. Until then the hold covered only the sides handed to the
+  doing (nor, since the recheck below, by the event's change through
+  the iteration variables), is on the side the integrator saw, the hold
+  it gets after the event. Until then the hold covered only the sides handed to the
   integrator, and event iteration read the conditions with x solved
   again: one `when` per threshold counted right, but complementary ones
   did not. With `when x > 0.5`, `when x < 0.5` and `when x > 0.5 then
@@ -2247,8 +2250,9 @@ round).**
   rtol 1e-4 and 1e-6: both crossings inside one step, the known limit
   below), every run that was right the same to the bit; the judge's
   eight `count-pair` and `count-peak` cases 0 of 56 runs wrong (33
-  before); such a nudge fires once, at most 3.6 rtol late (where the
-  integrator sees it past the hold); the tests in
+  before); such a nudge fired once, 3.6 rtol late (where the integrator
+  saw it past the hold; at the event itself since the recheck below);
+  the tests in
   `implicit_conditions.rs`, which failed before. Its other 751 cases,
   the golden comparison and a lone `when` (the 140 runs) are the same
   to the bit. It costs 0.06 % of the hybrid's mixed cycle's
@@ -2257,6 +2261,52 @@ round).**
   it in each round of event iteration), 0.03 % of the HWFET's (61 M at
   its 77 005 events) and
   nothing measurable on the BEV's WLTC (cachegrind, against 4e3afdd).
+  An event's own change told from the integrator's inconsistency (an
+  independent recheck of those fixes, 24 October): the test that a
+  function on the other side was not the event's own doing evaluated it
+  at the point the integrator had with the new discrete values, where
+  an iteration variable still has its value from before the event, so a
+  move the event made through the iteration variables always passed it;
+  and only the function's value after the event was compared with the
+  hold, never how far the event had moved it. A condition an event
+  moved across to within its hold was held where the integrator saw it,
+  at any event: `x³ + x = 0.5 + 0.125 k`, k set by a time event, moved x
+  from 0.41 onto 0.5, and `when x >= 0.5` never fired while x stayed
+  there (116 of the recheck's 273 probe runs wrong, on CVODE, IDA,
+  diffsol and with no state; 4e3afdd right in all of them); a smaller
+  nudge fired 3.6 rtol late; and where x rose on, the hold handed to the
+  integrator, which had the same test since the twelfth round, let the
+  `when` fire again where x left the hold (4e3afdd) or not at all. Now
+  the functions are evaluated too where the integrator had the event,
+  the iteration variables solved for the discrete values before it
+  (`Loop::keep_unmoved`, through `Integrator::consistent_z_aside`, which
+  leaves IDA's record of its last solve for the restart as it was): one
+  that was on the side the integrator saw is one the event moved, and is
+  not held, its `when` firing at the event however little it moved it;
+  only a crossing the integrator's inconsistency located early (x,
+  solved again, short of 0.5 before the event too) is held, in event
+  iteration and for the integrator alike. And a hold keeps an exact zero
+  on its side, as the integrator's mapping and a release take it: a
+  `when x > 0.5` beside a mode on the same relation (`y = if x > 0.5
+  …`) fired at the crossing located early and again where the
+  integrator, restarted by the mode its relation set back, met the
+  mode's crossing with x exactly 0.5 (`x³ + x = t` at 0.625), the hold
+  dropped there and the strict condition's zero side taken (1 of the
+  recheck's 70 runs beside a mode, and the review pair beside one, rate
+  1, no state, rtol 1e-10). The recheck's probes 0 of 273 runs wrong,
+  its runs beside a mode 0 of 70 (the two that were wrong the only ones
+  changed), its peaks and the lone `when`'s 140 runs the same to the bit;
+  the judge's seven new `count-moved` cases 0 of 49 runs wrong (38 at
+  d0a0b10, 6 at 4e3afdd), its 759 other cases (5 306 runs) and the
+  golden comparison the same to the bit; `implicit_conditions.rs`' two
+  new tests failed before (231 of 322 runs; 1 of 56). Neither costs
+  anything measurable (cachegrind, fair scheduling, both built on the
+  same machine): the hybrid's mixed cycle 82.651 G instructions, its
+  HWFET 233.044 G and the BEV's WLTC 18.486 G against d0a0b10's 82.646,
+  233.037 and 18.485 G (+0.006 %, +0.003 %, +0.006 %: within what two
+  counts of one binary differ by, 0.003 … 0.013 % for 36c8a0d8's counted
+  twice), and against 36c8a0d8's 83.173, 237.718 and 19.068 G (−0.63 %,
+  −1.97 %, −3.05 %).
 * *Scheduled events are no storms.* What a sample tick or a time event
   changes at its instant (a controller switching an engine's throttle from
   one tick to the next) does not count towards `storm_events`.
@@ -3870,7 +3920,10 @@ events name the modes that chatter.
   of the 28 runs of the four `count-implicit` cases; OpenModelica once in
   all; complementary ones, `when x > 0.5` beside `when x < 0.5`, did not
   until event iteration held the conditions too, 24 October: section
-  8.2 and the `count-pair` and `count-peak` cases), and a
+  8.2 and the `count-pair` and `count-peak` cases; nor did one beside a
+  mode on its relation, at one run of 70, or one that an event's own
+  change moved across, never firing while held, until the recheck's
+  fixes of the same day: section 8.2 and the `count-moved` cases), and a
   condition on a state alone is still missed where one step holds both
   its crossings (`count-explicit-pulse` at four tolerances of seven,
   `count-oscillator-peaks` at six; section 8.2, a known limit; on the
@@ -4501,7 +4554,9 @@ work end to end) or against hand-written test doubles of the interfaces.
   the side it crossed to where solving the iteration variables again at
   its event put it back a little short of zero, so a lone `when` on it
   fires once per crossing (complementary ones did not until event
-  iteration held the conditions too, 24 October: section 8.2), and a
+  iteration held the conditions too, 24 October, nor one beside a mode
+  on its relation or one an event's own change moved across until the
+  recheck's fixes: section 8.2), and a
   mode that its relation set back there
   restarts the integrator, which meets the crossing again (section 8.2:
   before, two or three firings, a mode off until the next step end).
