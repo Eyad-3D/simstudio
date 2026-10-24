@@ -44,8 +44,9 @@ use std::path::{Path, PathBuf};
 /// holds, in every choice (`HeldRead::explicit`, no default), and the
 /// explicit form holds a cubic's second derivative. v11: both forms hold
 /// every read that jumps (a clamped cubic's slope at its edges and a 2-D
-/// read on the explicit form too), and `HeldRead::explicit` is gone.
-const FORMAT: &str = "prepared-v11";
+/// read on the explicit form too), and `HeldRead::explicit` is gone. v12:
+/// a 2-D read that jumps is one the releases weigh (`HeldRead::jumps`).
+const FORMAT: &str = "prepared-v12";
 
 /// The digest of the code that prepares a model (`build.rs`).
 const PREPARATION: &str = env!("LSIM_PREPARATION_DIGEST");

@@ -1,6 +1,6 @@
 //! Tables read at a state, held in their cells during every step where the
-//! model's form needs it (DESIGN.md §8.2, *Tables read at a state*): Park
-//! and Barton's discontinuity locking (ACM TOMACS 6(2), 1996).
+//! read jumps, on either form (DESIGN.md §8.2, *Tables read at a state*):
+//! Park and Barton's discontinuity locking (ACM TOMACS 6(2), 1996).
 //!
 //! Where a model reads a table at an argument that moves with its states,
 //! the breakpoints' times are not known ahead. Stepped over, the integrator
@@ -24,13 +24,15 @@
 //! stepped over on both. Holding costs a restart at each crossing, a
 //! roughly fixed error whatever the jump (0.1 … 3.6 rtol, measured) that
 //! adds up over the crossings; on the explicit form the run releases a
-//! held 1-D read where that costs more than it saves
-//! (`lsim_solve::SolverOptions::held_release`), on the implicit form it
-//! releases none. Every choice of states of a model holds the same kinds,
-//! so that a run can switch between the forms. [`TableCells::Off`] steps
-//! over every breakpoint, [`TableCells::Jumps`] holds only the reads whose
-//! slope jumps (1-D), [`TableCells::Kinks`] also the reads that only kink,
-//! for comparison.
+//! held read where that costs more than it saves
+//! (`lsim_solve::SolverOptions::held_release`: a 1-D read whose jumps are
+//! within the tolerance, at the start; a 1-D or 2-D read whose crossings
+//! come too often, during the run), on the implicit form it releases
+//! none. Every choice of states of a model holds the same kinds, so that a
+//! run can switch between the forms. [`TableCells::Off`] steps over every
+//! breakpoint, [`TableCells::Jumps`] holds only the reads whose slope jumps
+//! (1-D), [`TableCells::Kinks`] also the reads that only kink, for
+//! comparison.
 //!
 //! A held read is replaced in the equations by its cell's own function,
 //! continued smoothly beyond the cell's edges, with discrete coefficients,
@@ -84,7 +86,7 @@ pub enum TableCells {
     /// the explicit form (no iteration variable: CVODES), stepping over
     /// was up to thousands of tolerances off in some case of each kind of
     /// read that jumps where the held run was within 30, and the run
-    /// releases a held 1-D read where that costs more than it saves
+    /// releases a held read where that costs more than it saves
     /// (`SolverOptions::held_release`); on the implicit form (IDAS),
     /// stepping over stopped the run at a breakpoint in every judge case of
     /// each kind, and the read is held through every crossing (the run
@@ -145,11 +147,9 @@ impl Holds {
         Holds { slope_points: true, slope_edges: true, higher: true, two_d: true, kinks: true };
     /// [`TableCells::Auto`], on either form: every read that jumps (a
     /// slope's jump at the points or at the data's edges, a higher
-    /// derivative's, a 2-D read's)
+    /// derivative's, a 2-D read's), the reads whose crossings the run's
+    /// releases weigh ([`HeldRead::jumps`])
     pub const AUTO: Holds = Holds { kinks: false, ..Holds::ALL };
-    /// the 1-D reads that jump, whose jumps the run's releases weigh
-    /// ([`HeldRead::jumps`]): a slope's jump and a higher derivative's
-    pub const JUMPS_1D: Holds = Holds { higher: true, ..Holds::JUMPS };
 
     /// whether it holds anything
     pub fn any(self) -> bool {
@@ -234,6 +234,14 @@ fn need(data: &TableData, order: [u8; 2], holds: Holds) -> [Need; 2] {
         };
     }
     out
+}
+
+/// Whether the read of derivative `order` of the table `data` jumps
+/// somewhere (a 1-D read or a 2-D one: [`Holds::AUTO`]), which the run's
+/// releases weigh ([`HeldRead::jumps`]): not one that only kinks, held for
+/// comparison ([`TableCells::Kinks`]).
+fn jumps(data: &TableData, order: [u8; 2]) -> bool {
+    need(data, order, Holds::AUTO).iter().any(|n| *n != Need::Nowhere)
 }
 
 /// Holds the table reads of `model`'s assignments and residuals that
@@ -366,7 +374,7 @@ struct Pending {
     origin: Origin,
     need: [Need; 2],
     group: String,
-    /// whether it jumps itself, a 1-D read ([`Holds::JUMPS_1D`])
+    /// whether it jumps itself ([`jumps`])
     jumps: bool,
 }
 
@@ -435,7 +443,7 @@ fn named(e: Expr, model: &PreparedModel, st: &mut State, origin: &Origin, holds:
             origin: origin.clone(),
             need: need(data, *order, holds),
             group,
-            jumps: need(data, *order, Holds::JUMPS_1D).iter().any(|n| *n != Need::Nowhere),
+            jumps: jumps(data, *order),
         });
         Expr::Name(format!("{NAME}{key}"))
     })
@@ -709,5 +717,12 @@ mod tests {
         assert_eq!(need(&two, [1, 0], auto), [Points, Nowhere]);
         assert_eq!(need(&two, [0, 0], auto), [Nowhere, Nowhere]);
         assert_eq!(need(&two, [1, 0], k), [Points, Points]);
+        // what the run's releases weigh: every read that jumps, a 2-D one
+        // too, not one that only kinks
+        assert!(jumps(&lin(Clamp), [1, 0]) && jumps(&cub(Clamp), [1, 0]));
+        assert!(jumps(&cub(Outside::Linear), [2, 0]) && jumps(&two, [1, 0]));
+        assert!(jumps(&two, [0, 1]), "its slope along the second argument");
+        assert!(!jumps(&lin(Clamp), [0, 0]) && !jumps(&two, [0, 0]) && !jumps(&cub(Clamp), [0, 0]));
+        assert!(!jumps(&cub(Outside::Linear), [1, 0]));
     }
 }

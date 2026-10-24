@@ -5,9 +5,9 @@
 //! (CVODES) stepping over such a read is not proportional to the tolerance,
 //! on the implicit form (IDAS) it stops the run at the first breakpoint;
 //! each crossing of a breakpoint an event. On the explicit form the run
-//! releases a held 1-D read whose jumps are within the tolerance, or whose
-//! crossings come too often (`SolverOptions::held_release`); on the
-//! implicit form none.
+//! releases a held read whose jumps are within the tolerance (1-D), or
+//! whose crossings come too often (1-D or 2-D;
+//! `SolverOptions::held_release`); on the implicit form none.
 //! Holding costs a restart at each crossing, and where crossings are many
 //! it loses to stepping over where stepping over can go on. Every case
 //! against an exact answer (closed forms per cell, a first integral
@@ -591,10 +591,11 @@ fn the_implicit_form_holds_a_two_dimensional_read_that_jumps() {
 /// `k4-ws`, the judge's `kink-gear-2d`). Stepped over (the explicit form's
 /// default before), the run is 602 and 3 483 rtol off at rtol 1e-5 and
 /// 1e-10 against the `if` branches' run at 1e-12; held at every breakpoint
-/// of both arguments (the default now, no release: the releases weigh 1-D
-/// reads only), 2.43 and 10.05, as that function's own runs (in the judge's
-/// measure, DOP853 per pair of cells: stepped over 20.7 … 3 480, held 2.43
-/// … 10.1 at 1e-4 … 1e-10).
+/// of both arguments (the default now; its crossings few and far apart, so
+/// the run releases nothing: the run without the releases to the bit),
+/// 2.43 and 10.05, as that function's own runs (in the judge's measure,
+/// DOP853 per pair of cells: stepped over 20.7 … 3 480, held 2.43 … 10.1 at
+/// 1e-4 … 1e-10).
 #[test]
 fn the_explicit_form_holds_a_two_dimensional_read_that_jumps() {
     let (ws, fw) = ([0.0, 20.0, 40.0, 60.0, 80.0], [2.0, 2.6, 3.3, 3.6, 4.0]);
@@ -613,6 +614,9 @@ fn the_explicit_form_holds_a_two_dimensional_read_that_jumps() {
     for rtol in [1e-5, 1e-10] {
         let r = run(&def, rtol, 3.0, 0.01);
         assert!(cells(&r) > 4, "rtol {rtol:e}: {}", cells(&r));
+        let always =
+            run_with(&def, &SolverOptions { held_release: false, ..options(rtol) }, 3.0, 0.01);
+        assert_eq!(r.values, always.values, "rtol {rtol:e}: nothing released");
         held.push(q(&r, rtol));
         over.push(q(&run(&off, rtol, 3.0, 0.01), rtol));
         ql.push(q(&run(&located, rtol, 3.0, 0.01), rtol));
@@ -1931,4 +1935,83 @@ fn a_dense_table_crossed_back_and_forth() {
     assert!(released && events < 40 && qj < 1.5 * qo, "{seen:?}");
     let (qo, qa, _, _, _) = seen[1];
     assert!(qa < qo && qa < 1500.0, "{seen:?}");
+}
+
+/// [`gear_spring`] with its ratio read as a 2-D table `r(w2, c)` of the
+/// load's speed and of a state `c` rising at 0.05/s (`stateSelect =
+/// always`; the explicit form), its values `vs` along `w2` (at the points
+/// `ps`) the same at each of `c`'s points −1, 0.5 and 2: `r(w2, c) = f(w2)`
+/// exactly, so the solution is the 1-D table's.
+fn gear_spring_2d(ps: &[f64], vs: &[f64]) -> String {
+    let list = |v: &[f64]| v.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ");
+    let rows: Vec<String> = vs.iter().map(|v| format!("{v:?}, {v:?}, {v:?}")).collect();
+    let table = format!(
+        "table(x1 = {{{}}}, x2 = {{-1.0, 0.5, 2.0}}, values = [{}], x1Unit = \"rad/s\", x2Unit = \"1\", interpolation = linear, outside = {{linear, linear}})",
+        list(ps),
+        rows.join("; ")
+    );
+    gear_spring(&table, false)
+        .replace("= r(w2)", "= r(w2, c)")
+        .replace(
+            "  Real w1(",
+            "  parameter Real cu(unit = \"1/s\") = 0.05;\n  Real c(start = 0, fixed = true, \
+             stateSelect = StateSelect.always);\n  Real w1(",
+        )
+        .replace("equation\n", "equation\n  der(c) = cu;\n")
+}
+
+/// The swing of [`a_dense_table_crossed_back_and_forth`] with its ratio
+/// read as a 2-D table, constant along its second argument (the A3 check
+/// 6's `k4osc-41`, the judge's `kink-osc2d-41`): 1 127 crossings of `w2`'s
+/// points in 20 s. The default holds the 2-D read (its slope along `w2`
+/// jumps at every point) and, on the explicit form, lets go of it where its
+/// crossings come too often, as of a 1-D read. Before, the releases weighed
+/// 1-D reads only, and the default held this one through every crossing:
+/// 631 rtol off at rtol 1e-4 (in the judge's measure, DOP853 per cell),
+/// where stepped over it is 66. At 1e-6 the crossings are far enough apart
+/// that it stays held, as the 1-D read does. Against the 1-D table's run
+/// held at rtol 1e-11.
+#[test]
+fn a_two_dimensional_table_crossed_back_and_forth_is_released() {
+    let ps: Vec<f64> = (0..41).map(|k| -30.0 + 60.0 * k as f64 / 40.0).collect();
+    let vs: Vec<f64> = ps.iter().map(|p| 2.5 + 0.02 * p + 0.2 * math::sin(p / 4.0)).collect();
+    let text = gear_spring_2d(&ps, &vs);
+    let def = prepare(&text, "Test.GearSpring", TableCells::default());
+    assert!(def.algebraics.is_empty(), "the explicit form");
+    assert!(!def.held.is_empty() && def.held.iter().all(|h| h.axes.len() == 2), "{:?}", def.held);
+    assert!(def.held.iter().any(|h| h.jumps), "the slope's read jumps: {:?}", def.held);
+    let off = prepare(&text, "Test.GearSpring", TableCells::Off);
+    assert!(off.held.is_empty());
+    let always = |rtol: f64| SolverOptions { held_release: false, ..options(rtol) };
+    let one = gear_spring(&table_text(&ps, &vs, "rad/s", "linear", "linear"), false);
+    let one = prepare(&one, "Test.GearSpring", TableCells::Jumps);
+    let fine = run_with(&one, &always(1e-11), 20.0, 0.01);
+    let (fp, fw) = (fine.channel("phi").unwrap().to_vec(), fine.channel("w2").unwrap().to_vec());
+    let q = |r: &SimResult, rtol: f64| error(r, "phi", &fp).max(error(r, "w2", &fw)) / rtol;
+    let mut seen = vec![];
+    for rtol in [1e-4, 1e-6] {
+        let o = run(&off, rtol, 20.0, 0.01);
+        let a = run_with(&def, &always(rtol), 20.0, 0.01);
+        let d = run(&def, rtol, 20.0, 0.01);
+        let released = d.report.notes.iter().any(|n| n.contains("no longer held"));
+        let (qo, qa, qd) = (q(&o, rtol), q(&a, rtol), q(&d, rtol));
+        println!(
+            "2-D swing, rtol {rtol:e}: error / rtol stepped over {qo:.1}, held always {qa:.1} ({} \
+             events), the default {qd:.1} ({} events, released {released})",
+            cells(&a),
+            cells(&d)
+        );
+        assert!(cells(&a) > 3000, "{}", cells(&a));
+        seen.push((qo, qa, qd, released, cells(&d)));
+        if rtol == 1e-6 {
+            // the crossings far enough apart: held through every one
+            assert!(!released, "{:?}", d.report.notes);
+            for name in &a.names {
+                assert_eq!(a.channel(name), d.channel(name), "{name}");
+            }
+        }
+    }
+    let (qo, qa, qd, released, events) = seen[0];
+    assert!(released && events < 60, "{seen:?}");
+    assert!(qd < 1.5 * qo && qa > 5.0 * qd, "{seen:?}");
 }

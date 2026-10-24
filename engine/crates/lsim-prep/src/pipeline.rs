@@ -42,7 +42,7 @@ pub struct Settings {
     pub choose_at: Option<std::sync::Arc<ChoosePoint>>,
     /// which table reads at a state are held in their cells during every
     /// step, each crossing of a cell's edge an event ([`crate::hold`]): by
-    /// default those the model's form needs held
+    /// default every read that jumps, on either form
     /// ([`crate::hold::TableCells::Auto`])
     pub table_cells: crate::hold::TableCells,
 }

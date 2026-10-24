@@ -23,14 +23,14 @@
 //! at the edge, with the difference to its held value outside added.
 //!
 //! On the explicit form a group of held reads (one table's at the same
-//! arguments) with a 1-D read that jumps is released where holding it costs
+//! arguments) with a read that jumps is released where holding it costs
 //! more than it saves (`SolverOptions::held_release`, DESIGN.md §8.2): at
-//! the start, where its jumps are within the tolerance ([`continuous_to`]),
-//! and during the run, where its crossings come too often
-//! ([`released_by_crossings`]). Released, it reads the table itself
-//! (stepped over) for the rest of the run, its edges open, unless a change
-//! of the states chosen takes the run onto the implicit form, which
-//! releases nothing: it is held again there.
+//! the start, where it is 1-D and its jumps are within the tolerance
+//! ([`continuous_to`]), and during the run, 1-D or 2-D, where its
+//! crossings come too often ([`released_by_crossings`]). Released, it reads
+//! the table itself (stepped over) for the rest of the run, its edges open,
+//! unless a change of the states chosen takes the run onto the implicit
+//! form, which releases nothing: it is held again there.
 //! A run that stops at a breakpoint of a read it steps over names it
 //! ([`at_breakpoint`]).
 

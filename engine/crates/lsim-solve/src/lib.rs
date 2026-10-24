@@ -315,12 +315,14 @@ pub struct SolverOptions {
     pub tick_read_ahead: bool,
     /// release a table read held in its cells (DESIGN.md §8.2, *Tables
     /// read at a state*) where holding it costs more than it saves: at the
-    /// start where its jumps are within the tolerance, and during the run
-    /// where its crossings come too often for the integrator, which
-    /// restarts at each, to leave the low orders of its restarts. A
-    /// released read is the table itself from then on, stepped over. Only
-    /// a group with a 1-D read that jumps (a 2-D read is held through every
-    /// crossing), and only while the run is on the explicit form (CVODES):
+    /// start where its jumps are within the tolerance (a 1-D read), and
+    /// during the run where its crossings come too often for the
+    /// integrator, which restarts at each, to leave the low orders of its
+    /// restarts (a 1-D or 2-D read). A released read is the table itself
+    /// from then on, stepped over. Only a group with a read that jumps (one
+    /// held only for comparison, `TableCells::Kinks`' reads that only kink,
+    /// is held through every crossing), and only while the run is on the
+    /// explicit form (CVODES):
     /// the implicit form (IDAS, diffsol's DAE) cannot step over a read's
     /// jump, and holds every held read through every crossing whatever
     /// this says. On by default; off, a held read stays held through every
