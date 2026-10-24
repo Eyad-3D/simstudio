@@ -1243,13 +1243,107 @@ def kink_pass(what: str, points, values, interp: str | None, outside: str | None
     return text, case
 
 
+KINK_OSC = '''model Judge.KinkOsc "A gear whose ratio r is a table of the load's speed, {what}, the load (J2) on a torsion spring (k), the rotor (J1) free: w1 = r(w2) w2, which index reduction differentiates, reading r'; the speed swings back and forth through the table."
+  parameter Real J1(unit = "kg.m2") = 0.05 "the rotor's inertia";
+  parameter Real J2(unit = "kg.m2") = 2 "the load's inertia";
+  parameter Real k(unit = "N.m/rad") = 50 "the spring's stiffness";
+  parameter Real wu(unit = "rad/s") = 1 "the unit of the ratio's argument";
+  parameter Real r = {table} "the gear's ratio over the load's speed";
+  Real w1(unit = "rad/s", start = 0) "the rotor's speed";
+  Real w2(unit = "rad/s", start = {w0}, fixed = true) "the load's speed";
+  Real phi(unit = "rad", start = 0, fixed = true) "the spring's twist";
+  Real t1(unit = "N.m") "the gear's torque on the rotor";
+  Real t2(unit = "N.m") "the gear's torque on the load";
+equation
+  J1 * der(w1) = -t1;
+  J2 * der(w2) = t2 - k * phi;
+  der(phi) = w2;
+  w1 = {ratio} * w2 "the gear's kinematics";
+  t2 = {ratio} * t1 "an ideal gear";
+end Judge.KinkOsc;
+'''
+
+
+def kink_osc(what: str, points, values, interp: str, outside: str, w0: float, t_end: float,
+             dt: float, located: bool) -> tuple[str, dict]:
+    """The gear of `kink_gear` with its load on a torsion spring and no
+    driving torque: the load's speed swings from w0 back and forth through
+    the table's points, J2 w2' = -k phi / (1 + J1 r (r + r' w2) / J2).
+    `located`: r written as `if` branches."""
+    pieces = pieces_1d(points, values, interp, outside)
+    ratio = f"({if_chain(pieces, '(w2 / wu)')})" if located else "r(w2)"
+    text = (KINK_OSC.replace("{what}", what).replace("{w0}", num(w0))
+            .replace("{table}", table_text(points, values, interp, outside, "rad/s"))
+            .replace("{ratio}", ratio))
+    if located:
+        text = (text.replace("Judge.KinkOsc", "Judge.KinkOscLocated")
+                .replace("  parameter Real r = ", "  parameter Real r_table = ")
+                .replace("the speed swings back and forth through the table.\"",
+                         "r here written as if branches on its breakpoints: each crossing an event.\""))
+    case = {"model": "Judge.KinkOscLocated" if located else "Judge.KinkOsc",
+            "t_end": t_end, "dt": dt, "atol_factor": 1e-2, "record": ["phi", "w2"],
+            "judge": {"kind": "kink", "problem": "osc", "pieces": pieces, "J1": 0.05, "J2": 2.0,
+                      "k": 50.0, "w0": w0}, "located": located}
+    return text, case
+
+
+KINK_BEAD = '''model Judge.KinkBead "A bead on a wire y = r(x) under gravity, r the default table (a monotone cubic) of x^2/2 at {n} points, continued linearly, s(x) = x a second one for the wire's force direction: index reduction differentiates y = r(x) twice, reading r' and r'', whose second derivative's breakpoints the bead crosses as it swings."
+  parameter Real m(unit = "kg") = 1;
+  parameter Real g(unit = "m/s2") = 9.81;
+  parameter Real r(unit = "m") = {r} "the wire's height";
+  parameter Real s = {s} "its slope";
+  Real x(unit = "m", start = {x0}, fixed = true);
+  Real vx(unit = "m/s", start = 0, fixed = true);
+  Real y(unit = "m");
+  Real vy(unit = "m/s");
+  Real F(unit = "N") "the wire's force along y";
+equation
+  der(x) = vx;
+  der(y) = vy;
+  m * der(vx) = -s(x) * F;
+  m * der(vy) = F - m * g;
+  y = r(x) "on the wire";
+end Judge.KinkBead;
+'''
+
+
+def kink_bead(n: int, x0: float, t_end: float, dt: float) -> tuple[str, dict]:
+    """The bead of the A3 review: the wire y = r(x), r the default table of
+    x^2/2 at n points on [-2, 2] (Steffen's cubic of a parabola is the
+    parabola: its r'' continuous to rounding between its points; it jumps to
+    0 at the data's edges, which the bead does not reach), from x0 at rest.
+    vx' (1 + s r') = -s (g + r'' vx^2); no `if` form (preparation refuses
+    the bead written with `if` branches, STATE-SELECT-SINGULAR: STATUS.md)."""
+    xs = [-2.0 + 4.0 * k / (n - 1) for k in range(n)]
+    plain = lambda ys: (f'table(x = {{{", ".join(num(v) for v in xs)}}}, '
+                        f'y = {{{", ".join(num(v) for v in ys)}}}, xUnit = "m", outside = {{linear}})')
+    rs = [0.5 * x * x for x in xs]
+    text = (KINK_BEAD.replace("{n}", str(n)).replace("{x0}", num(x0))
+            .replace("{r}", plain(rs)).replace("{s}", plain(xs)))
+    case = {"model": "Judge.KinkBead", "t_end": t_end, "dt": dt, "atol_factor": 1e-2,
+            "record": ["x", "vx"],
+            "judge": {"kind": "kink", "problem": "bead", "pieces_r": pieces_1d(xs, rs, "cubic", "linear"),
+                      "pieces_s": pieces_1d(xs, xs, "cubic", "linear"), "g": 9.81, "x0": x0},
+            "located": False}
+    return text, case
+
+
 def kinks() -> dict[str, tuple[str, dict]]:
-    """The kink cases, each beside its `-located` control."""
+    """The kink cases, each beside its `-located` control, and some beside
+    the other ways the runner can take (its option "table_cells"; the
+    engine's default steps over every breakpoint): `-held`, held in its
+    cells ("jumps" for a read whose slope jumps, "kinks" for one that only
+    kinks, as a read that jumps is held), `-always`, held without the
+    releases ("table_release" off)."""
     out = {}
 
     def both(name, make, *a):
         out[name] = make(*a, False)
         out[f"{name}-located"] = make(*a, True)
+
+    def other(name, suffix, **options):
+        text, case = out[name]
+        out[f"{name}-{suffix}"] = (text, dict(case, options=options))
 
     # one breakpoint, crossed once: F = -x below 0.5, three times as stiff above
     both("kink-spring-one", kink_spring, "linear, its slope -1 below 0.5 and -3 above",
@@ -1269,6 +1363,7 @@ def kinks() -> dict[str, tuple[str, dict]]:
     gear_r = [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]
     both("kink-gear-linear", kink_gear, "linear between its points", gear_w, gear_r,
          "linear", "linear", None, 3.0, 0.01)
+    other("kink-gear-linear", "held", table_cells="jumps")
     # the same data as a monotone cubic: r' is continuous, r'' jumps
     both("kink-gear-cubic", kink_gear, "a monotone cubic through its points", gear_w, gear_r,
          "cubic", "linear", None, 3.0, 0.01)
@@ -1276,19 +1371,17 @@ def kinks() -> dict[str, tuple[str, dict]]:
     # load's speed leaves the data at 40 rad/s and comes back
     both("kink-gear-clamp", kink_gear, "a monotone cubic held at its edges",
          gear_w[:4], gear_r[:4], "cubic", "clamp", 2.5, 4.0, 0.01)
+    other("kink-gear-clamp", "held", table_cells="jumps")
     # a table of two states: kinks at x = -0.4, 0.2, 0.8 and y = -0.2, 0.3
     both("kink-2d", kink_2d, [-1.0, -0.4, 0.2, 0.8, 1.4], [2.2, 1.0, -0.8, -2.0, -4.4],
          [-0.6, -0.2, 0.3, 0.7], [0.4, 0.0, 0.25, -0.15], 1.0, 0.0, 0.9, 30.0, 0.02)
 
-    # Beside the engine's own way, the other way (the runner's option
-    # "table_cells"): `-held`, a value read held in its cells as a read that
-    # jumps is ("kinks"); `-over`, a read that jumps stepped over ("off").
-    # Each crossing held is a restart of the integrator: dense tables show
-    # its cost against stepping over.
+    # Beside the engine's own way, held (the runner's option "table_cells"):
+    # each crossing held is a restart of the integrator, and dense tables
+    # show its cost against stepping over.
     def beside(name, suffix, cells, make, *a):
-        text, case = make(*a, False)
-        out[name] = (text, case)
-        out[f"{name}-{suffix}"] = (text, dict(case, options={"table_cells": cells}))
+        out[name] = make(*a, False)
+        other(name, suffix, table_cells=cells)
 
     # the density sweep: a spring whose force, -x - 2 x^3, is sampled at n
     # points as a linear table (its value kinks: stepped over), and the gear
@@ -1298,7 +1391,7 @@ def kinks() -> dict[str, tuple[str, dict]]:
         beside(f"kink-dense-spring-{n}", "held", "kinks", kink_spring, f"-x - 2 x^3 at {n} points",
                xs, [-x - 2.0 * x ** 3 for x in xs], "linear", "linear", 0.9023, 0.0, 20.0, 0.02)
         ws = [80.0 * k / (n - 1) for k in range(n)]
-        beside(f"kink-dense-gear-{n}", "over", "off", kink_gear,
+        beside(f"kink-dense-gear-{n}", "held", "jumps", kink_gear,
                f"linear through 2 + w/40 + 0.25 sin(w/8) at {n} points", ws,
                [2.0 + w / 40.0 + 0.25 * math.sin(w / 8.0) for w in ws], "linear", "linear", None,
                3.0, 0.01)
@@ -1313,6 +1406,29 @@ def kinks() -> dict[str, tuple[str, dict]]:
     ps = [0.5 * k for k in range(41)]
     beside("kink-pass-default", "held", "kinks", kink_pass, "2 + sin(v/3) at 41 points, the default table",
            ps, [2.0 + math.sin(p / 3.0) for p in ps], None, None, 14.0, 0.01)
+    # the gear's speed swung back and forth through a dense ratio table by a
+    # torsion spring (the A3 review's o041, o101: 1 127 and 2 847 crossings
+    # in 20 s), the ratio 2.5 + w/50 + 0.2 sin(w/4) on [-30, 30] rad/s: where
+    # holding through every crossing loses to stepping over, and where its
+    # releases let go of it
+    for n in (41, 101):
+        ws = [-30.0 + 60.0 * k / (n - 1) for k in range(n)]
+        both(f"kink-osc-{n}", kink_osc, f"linear through 2.5 + w/50 + 0.2 sin(w/4) at {n} points",
+             ws, [2.5 + 0.02 * w + 0.2 * math.sin(w / 4.0) for w in ws], "linear", "linear", 28.0,
+             20.0, 0.01)
+        other(f"kink-osc-{n}", "held", table_cells="jumps")
+        other(f"kink-osc-{n}", "always", table_cells="jumps", table_release=False)
+    # the same through a monotone cubic of 11 points on [-10, 10] held at its
+    # edges, crossed 59 times in 20 s: r' jumps there only
+    ws = [-10.0 + 2.0 * k for k in range(11)]
+    both("kink-edge-11", kink_osc, "a monotone cubic of 11 points held at its edges",
+         ws, [2.5 + 0.02 * w + 0.2 * math.sin(w / 4.0) for w in ws], "cubic", "clamp", 15.0, 20.0,
+         0.01)
+    other("kink-edge-11", "held", table_cells="jumps")
+    # the bead of the A3 review: r'' of the default table read through a
+    # constraint; held at every point ("kinks") 204 crossings, each a restart
+    out["kink-bead-41"] = kink_bead(41, 1.5, 10.0, 0.01)
+    other("kink-bead-41", "held", table_cells="kinks")
     return out
 
 
@@ -2040,6 +2156,96 @@ def kink_pass_reference(j: dict, times: list[float]) -> dict:
     return {"v": out, "crossings": crossings}
 
 
+def kink_cells_reference(rhs, pieces: list, z0: list, axis: int, times: list[float],
+                         names: list[str], chans, energy) -> dict:
+    """A problem integrated by DOP853 at rtol 1e-13 (scipy) cell by cell of
+    one table (`pieces`, its argument z[axis]), each crossing of a cell's
+    edge found by its event and the integration restarted there in the next
+    cell; `chans(z, p)` the channels recorded, `energy(z, p)` a quantity the
+    problem conserves: its largest drift, relative, is the reference's check
+    (where no closed form is known)."""
+    from scipy.integrate import solve_ivp
+
+    p = kink_piece(pieces, z0[axis])
+    t, z = 0.0, list(z0)
+    got = {n: [] for n in names}
+    k, crossings, e0, drift = 0, [], energy(z0, p), 0.0
+    t_end = times[-1]
+    while t < t_end:
+        lo, hi, _, _ = pieces[p]
+        evs = []
+        if lo is not None:
+            f = lambda t, z, p, lo=lo: z[axis] - lo
+            f.terminal, f.direction = True, -1
+            evs.append((-1, f))
+        if hi is not None:
+            g = lambda t, z, p, hi=hi: z[axis] - hi
+            g.terminal, g.direction = True, 1
+            evs.append((1, g))
+        sol = solve_ivp(rhs, (t, t_end), z, method="DOP853", rtol=1e-13, atol=1e-13,
+                        dense_output=True, events=[e for _, e in evs], args=(p,))
+        t1 = sol.t[-1]
+        while k < len(times) and (times[k] < t1 or (sol.status == 0 and times[k] <= t1)):
+            for n, val in zip(names, chans(sol.sol(times[k]), p)):
+                got[n].append(float(val))
+            k += 1
+        drift = max(drift, abs(energy(sol.y[:, -1], p) - e0) / abs(e0))
+        if sol.status != 1:
+            break
+        which = [i for i, e in enumerate(sol.t_events) if len(e)][0]
+        step = evs[which][0]
+        z, t = list(sol.y[:, -1]), t1
+        p += step
+        crossings.append([t, axis, z[axis], float(step)])
+    return {**got, "crossings": crossings, "check": drift}
+
+
+def kink_osc_reference(j: dict, times: list[float]) -> dict:
+    """The oscillating gear: w2' = -k phi / (J2 + J1 r (r + r' w2)), phi' =
+    w2, r per cell of its table; checked by its energy, 1/2 J1 w1^2 + 1/2
+    J2 w2^2 + 1/2 k phi^2 (w1 = r w2)."""
+    pieces, J1, J2, K = j["pieces"], j["J1"], j["J2"], j["k"]
+
+    def val(p, w, d=0):
+        _, _, x0, c = pieces[p]
+        s = w - x0
+        return sum(math.factorial(i) / math.factorial(i - d) * ci * s ** (i - d)
+                   for i, ci in enumerate(c) if i >= d)
+
+    def rhs(t, z, p):
+        w = z[1]
+        r = val(p, w)
+        return [w, -K * z[0] / (J2 + J1 * r * (r + val(p, w, 1) * w))]
+
+    energy = lambda z, p: (0.5 * J1 * (val(p, z[1]) * z[1]) ** 2 + 0.5 * J2 * z[1] ** 2
+                           + 0.5 * K * z[0] ** 2)
+    return kink_cells_reference(rhs, pieces, [0.0, j["w0"]], 1, times, ["phi", "w2"],
+                                lambda z, p: [z[0], z[1]], energy)
+
+
+def kink_bead_reference(j: dict, times: list[float]) -> dict:
+    """The bead: vx' (1 + s r') = -s (g + r'' vx^2), x' = vx, r and s per
+    cell of their tables (the same points); checked by its energy, 1/2 (vx^2
+    + (r' vx)^2) + g r (the wire's force is normal to it: s = r' here)."""
+    pr, ps, G = j["pieces_r"], j["pieces_s"], j["g"]
+    assert [q[:3] for q in pr] == [q[:3] for q in ps], "the same cells"
+
+    def val(pieces, p, x, d=0):
+        _, _, x0, c = pieces[p]
+        s = x - x0
+        return sum(math.factorial(i) / math.factorial(i - d) * ci * s ** (i - d)
+                   for i, ci in enumerate(c) if i >= d)
+
+    def rhs(t, z, p):
+        x, v = z
+        s0 = val(ps, p, x)
+        return [v, -s0 * (G + val(pr, p, x, 2) * v * v) / (1 + s0 * val(pr, p, x, 1))]
+
+    energy = lambda z, p: 0.5 * z[1] ** 2 * (1 + val(pr, p, z[0], 1) ** 2) + G * val(pr, p, z[0])
+    return kink_cells_reference(rhs, pr, [j["x0"], 0.0], 0, times, ["x", "vx"],
+                                lambda z, p: [z[0], z[1]], energy)
+
+
 def kink_check(j: dict, times: list[float], ref: dict) -> float:
     """An independent check of a kink case's reference: the same problem
     integrated by DOP853 at rtol 1e-13 (scipy) piece by piece, stopped at
@@ -2122,6 +2328,10 @@ def kink_check(j: dict, times: list[float], ref: dict) -> float:
 
 
 def kink_reference(j: dict, times: list[float]) -> dict:
+    if j["problem"] in ("osc", "bead"):
+        # (DOP853 per cell itself, its check the energy it conserves)
+        make = {"osc": kink_osc_reference, "bead": kink_bead_reference}[j["problem"]]
+        return make(j, times)
     make = {"spring": kink_spring_reference, "gear": kink_gear_reference,
             "2d": kink_2d_reference, "pass": kink_pass_reference}[j["problem"]]
     r = make(j, times)
@@ -2834,12 +3044,13 @@ def kink_summary(after: dict) -> str:
 
 
 def kink_beside_summary(after: dict) -> str:
-    """The tables read at a state run the engine's way beside the other
-    (`…-held`: a read that only kinks held in its cells as one that jumps
-    is; `…-over`: a read that jumps stepped over): per tolerance, each one's
-    error in rtol, their ratio (the other way's over the engine's), steps
-    and events."""
-    pairs = [(n, f"{n}-{v}", v) for n in sorted(after) for v in ("held", "over")
+    """The tables read at a state run the engine's way (stepped over) beside
+    the others (`…-held`: held in their cells; `…-always`: held without the
+    releases; `…-over`: stepped over, of a run made before that was the
+    default): per tolerance, each one's error in rtol, their ratio (the
+    other way's over the engine's), steps and events (one a held read's
+    crossing: two reads held together count two)."""
+    pairs = [(n, f"{n}-{v}", v) for n in sorted(after) for v in ("held", "always", "over")
              if n.startswith("kink-") and f"{n}-{v}" in after]
     if not pairs:
         return ""

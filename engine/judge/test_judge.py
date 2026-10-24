@@ -19,11 +19,15 @@
   own result beside it at the grid's times.
 * the tables read at a state (`kink-…`): the interpolants as the engine
   builds them (Steffen's slopes, the pieces a linear table continues
-  outside), each channel's error relative to its largest value, and the
-  summary beside the located controls.
+  outside), each channel's error relative to its largest value, the
+  summaries beside the located controls and the other ways, and (where
+  scipy is there) the cell-by-cell reference of the swinging gear against
+  its closed form.
 """
 from __future__ import annotations
 
+import importlib.util
+import math
 import sys
 import tempfile
 import unittest
@@ -387,6 +391,32 @@ class KinkCases(unittest.TestCase):
         self.assertIn("| kink-b | held | 1e-06 | 2.00 | 8.00 | 4.00 | 10 | 30 | 0 | 3 | 3 |", md)
         self.assertIn("| kink-c | over | 1e-06 | 1.00 | 50.00 | 50.00 | 20 | 15 | 6 | 0 | 3 |", md)
         self.assertEqual(judge.kink_beside_summary({"kink-b": {"rows": []}}), "")
+        # held without the releases beside the engine's way too
+        after["kink-b-always"] = {"rows": [row(4e-5, 60, 12)]}
+        md = judge.kink_beside_summary(after)
+        self.assertIn("| kink-b | always | 1e-06 | 2.00 | 40.00 | 20.00 | 10 | 60 | 0 | 12 | 3 |", md)
+
+    @unittest.skipUnless(importlib.util.find_spec("scipy"), "the references need scipy")
+    def test_the_cell_by_cell_reference_of_a_swinging_gear(self):
+        # a constant ratio (two equal points, continued linearly): r' = 0,
+        # the load a harmonic oscillator, phi = (w0 / om) sin(om t),
+        # om^2 = k / (J2 + J1 r^2)
+        pieces = judge.pieces_1d([-40.0, 40.0], [2.5, 2.5], "linear", "linear")
+        j = {"pieces": pieces, "J1": 0.05, "J2": 2.0, "k": 50.0, "w0": 28.0}
+        times = [0.01 * k for k in range(301)]
+        r = judge.kink_osc_reference(j, times)
+        om = math.sqrt(50.0 / (2.0 + 0.05 * 2.5 ** 2))
+        worst = max(abs(p - 28.0 / om * math.sin(om * t)) for p, t in zip(r["phi"], times))
+        self.assertLess(worst, 1e-10)
+        self.assertEqual(r["crossings"], [])
+        self.assertLess(r["check"], 1e-12)
+        # a table of two cells: each crossing of its middle point found,
+        # both ways, the energy conserved through them
+        pieces = judge.pieces_1d([-30.0, 0.0, 30.0], [2.0, 2.5, 2.2], "linear", "linear")
+        r = judge.kink_osc_reference(dict(j, pieces=pieces), times)
+        self.assertGreater(len(r["crossings"]), 2)
+        self.assertEqual({c[3] for c in r["crossings"]}, {1.0, -1.0})
+        self.assertLess(r["check"], 1e-11)
 
 if __name__ == "__main__":
     unittest.main()
