@@ -96,6 +96,9 @@ pub struct Stateless<'m> {
     atol: f64,
     max_step: f64,
     error_control: bool,
+    /// the run's length, |t_end − t0|: no step is shorter than its
+    /// resolution there ([`Stateless::step`])
+    span: f64,
     /// the last step's start and end
     t0: f64,
     t: f64,
@@ -163,6 +166,7 @@ impl<'m> Stateless<'m> {
             atol: opts.atol,
             max_step: opts.max_step,
             error_control: opts.energy_error_control,
+            span: (grid.t_end - t0).abs(),
             t0,
             t: t0,
             fresh: true,
@@ -377,7 +381,11 @@ impl Integrator for Stateless<'_> {
                 let gap = (e1 - p1).abs().max((e7 - p7).abs());
                 !gap.is_finite() || gap <= self.rtol * size + self.atol
             });
-            let shortest = 16.0 * f64::EPSILON * t.abs().max(te.abs()).max(f64::MIN_POSITIVE);
+            // (the time's resolution, on the run's scale too: near t = 0 a
+            // channel no step resolves, a jump at the start or sqrt(time),
+            // halved down to 1e-322 s before)
+            let shortest =
+                16.0 * f64::EPSILON * t.abs().max(te.abs()).max(self.span).max(f64::MIN_POSITIVE);
             if resolved || te - t <= shortest {
                 break te;
             }
@@ -521,7 +529,7 @@ impl Integrator for Stateless<'_> {
     }
 
     fn method(&self) -> String {
-        "none (no state to integrate)".into()
+        "the channels resolved along time".into()
     }
 
     fn setup_notes(&self) -> Vec<String> {
