@@ -126,14 +126,21 @@ pytest:
 python -m venv .venv
 .venv/bin/pip install maturin numpy pytest        # on Windows: .venv\Scripts\pip
 export CARGO_INCREMENTAL=0                        # as for every engine build
-.venv/bin/maturin develop --release -m engine/crates/lsim-py/Cargo.toml
-.venv/bin/python -m pytest engine/crates/lsim-py/tests/test_api.py
+cd engine                                         # where rustup finds rust-toolchain.toml
+../.venv/bin/maturin develop --release -m crates/lsim-py/Cargo.toml
+../.venv/bin/python -m pytest crates/lsim-py/tests/test_api.py
 ```
 
-`maturin develop` builds the module and installs it in the virtual
-environment (use `--release`: the debug build is slow). To make a wheel
-instead: `maturin build --release -m engine/crates/lsim-py/Cargo.toml --out wheels`
-and `pip install wheels/lightsim_engine-*.whl`.
+Build from `engine/`, as CI does: rustup takes the pinned release from
+`engine/rust-toolchain.toml` only below that folder, and a module built
+by another release (built from the repository's root with a newer
+default toolchain) is not bitwise the golden path, which the tests build
+with the pinned one (measured with 1.97.0: the cars' brake pedal at t = 0
+is +0 where the golden path gives −0, `max(−0, 0)`; the two tests that
+compare them fail). `maturin develop` builds the module and installs it
+in the virtual environment (use `--release`: the debug build is slow). To
+make a wheel instead: `maturin build --release -m crates/lsim-py/Cargo.toml
+--out wheels` and `pip install wheels/lightsim_engine-*.whl`.
 
 Without maturin: `cargo build --release -p lsim-py --features extension-module`
 and copy `engine/target/release/liblightsim_engine.so` to a folder on
