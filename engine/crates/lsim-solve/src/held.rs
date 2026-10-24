@@ -22,12 +22,16 @@
 //! first and the last data cells' polynomials; outside, the table is read
 //! at the edge, with the difference to its held value outside added.
 //!
-//! A group of held reads (one table's at the same arguments) is released
-//! where holding it costs more than it saves (`SolverOptions::held_release`,
-//! DESIGN.md §8.2): at the start, where its jumps are within the tolerance
-//! ([`continuous_to`]), and during the run, where its crossings come too
-//! often ([`released_by_crossings`]). Released, it reads the table itself
-//! (stepped over) for the rest of the run, its edges open.
+//! On the explicit form a group of held reads (one table's at the same
+//! arguments) is released where holding it costs more than it saves
+//! (`SolverOptions::held_release`, DESIGN.md §8.2): at the start, where its
+//! jumps are within the tolerance ([`continuous_to`]), and during the run,
+//! where its crossings come too often ([`released_by_crossings`]).
+//! Released, it reads the table itself (stepped over) for the rest of the
+//! run, its edges open, unless a change of the states chosen takes the run
+//! onto the implicit form, which releases nothing: it is held again there.
+//! A run that stops at a breakpoint of a read it steps over names it
+//! ([`at_breakpoint`]).
 
 use crate::SolveError;
 use crate::info::{HeldInfo, RunInfo};
@@ -460,6 +464,130 @@ pub(crate) fn continuous_to(
         }
     }
     Ok(any && jump <= rtol * size)
+}
+
+/// Where a run stops at `(t, y, d)`: a table read at a state that the run
+/// steps over (not held in its cells, or released from them) whose
+/// argument is at one of the table's breakpoints, where the read jumps or
+/// kinks, told in words with the option that holds it (DESIGN.md §8.2).
+/// `None` where no such read is at a breakpoint (within a millionth of the
+/// cells beside it).
+pub(crate) fn at_breakpoint(
+    model: &dyn ModelFunctions,
+    info: &RunInfo,
+    t: f64,
+    y: &[f64],
+    d: &[f64],
+    u: &[f64],
+) -> Option<String> {
+    let l = *model.layout();
+    if info.state_reads.is_empty() || y.len() != l.n_y() || d.len() != l.n_d {
+        return None;
+    }
+    let mut work = vec![0.0; l.n_work];
+    let mut vars = vec![0.0; l.n_vars];
+    model.vars(&EvalInput { t, y, p: &info.params, d, u }, &mut work, &mut vars);
+    let env = crate::info::ChannelEnv { t, vars: &vars, params: &info.params, model };
+    let implicit = l.n_z > 0;
+    // (a read that jumps there told before one that kinks)
+    let mut found: Option<(bool, String)> = None;
+    for r in &info.state_reads {
+        // (held and not released: its breakpoints are events)
+        let released = match r.held {
+            Some(k) if d.get(info.held[k].released).is_some_and(|v| *v > 0.5) => true,
+            Some(_) => continue,
+            None => false,
+        };
+        for (j, a) in r.args.iter().enumerate() {
+            let x = lsim_ir::eval::eval(a, &env);
+            let p = info.table_points(r.table, j);
+            if !x.is_finite() || p.len() < 2 {
+                continue;
+            }
+            let n = p.len();
+            let i = p.partition_point(|&b| b < x);
+            let i = match (i.checked_sub(1), (i < n).then_some(i)) {
+                (Some(lo), Some(hi)) => {
+                    if x - p[lo] <= p[hi] - x {
+                        lo
+                    } else {
+                        hi
+                    }
+                }
+                (Some(lo), None) => lo,
+                (None, Some(hi)) => hi,
+                (None, None) => continue,
+            };
+            let edge = i == 0 || i == n - 1;
+            let c = if edge { r.smooth[j].1 } else { r.smooth[j].0 };
+            let o = u32::from(r.order[j]);
+            if c == u32::MAX || o < c {
+                continue;
+            }
+            let width = match (i.checked_sub(1), (i + 1 < n).then_some(i + 1)) {
+                (Some(lo), Some(hi)) => (p[i] - p[lo]).min(p[hi] - p[i]),
+                (Some(lo), None) => p[i] - p[lo],
+                (None, Some(hi)) => p[hi] - p[i],
+                (None, None) => continue,
+            };
+            if (x - p[i]).abs() > 1e-6 * width.abs() {
+                continue;
+            }
+            let what = match (r.order, r.args.len()) {
+                ([0, 0], _) => "its value".to_string(),
+                ([1, 0], 1) => "its first derivative".to_string(),
+                ([2, 0], 1) => "its second derivative".to_string(),
+                ([k, 0], 1) => format!("its derivative of order {k}"),
+                ([a, b], _) => format!("its derivative of order ({a}, {b})"),
+            };
+            let arg = match a {
+                lsim_ir::Expr::Var(v) => info
+                    .var_names
+                    .get(v.0 as usize)
+                    .map_or_else(|| "its argument".to_string(), Clone::clone),
+                _ => "its argument".to_string(),
+            };
+            let how = if o > c { "jumps" } else { "kinks" };
+            // the option that holds it: on the implicit form the default
+            // holds every read that jumps; on the explicit one "jumps" holds
+            // a 1-D table's slope, "kinks" the others
+            let option = if o > c && implicit {
+                "auto"
+            } else if o > c && c == 0 && r.args.len() == 1 {
+                "jumps"
+            } else {
+                "kinks"
+            };
+            let stepped = if released {
+                "the run released the read from its cells at an earlier crossing (stepped over \
+                 from then on)"
+            } else {
+                "the run steps over the table's breakpoints there (the read is not held in its \
+                 cells)"
+            };
+            let form = if implicit && o > c {
+                "the implicit form (IDAS) cannot step over a read's jump"
+            } else {
+                "the integrator could not get past it here"
+            };
+            let keep = if released {
+                " and keep it held through every crossing (SolverOptions::held_release off)"
+            } else {
+                ""
+            };
+            let said = format!(
+                "Here the table '{}', read at a state ({what}), is at its breakpoint {} ({arg} = \
+                 {x}), where the read {how}: {stepped}, and {form}. Hold the read in its cells: \
+                 build the model with the option table_cells = \"{option}\" \
+                 (lsim_engine::BuildOptions::table_cells; table_cells=\"{option}\" in Python){keep}",
+                r.label, p[i]
+            );
+            if found.as_ref().is_none_or(|(jump, _)| !jump && o > c) {
+                found = Some((o > c, said));
+            }
+        }
+    }
+    found.map(|(_, said)| said)
 }
 
 #[cfg(test)]

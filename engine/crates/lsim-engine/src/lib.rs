@@ -71,6 +71,7 @@ use std::time::Instant;
 
 pub use lsim_fast;
 pub use lsim_ir;
+pub use lsim_prep::hold::TableCells;
 pub use lsim_solve;
 
 /// Options for [`Engine::build`].
@@ -80,6 +81,12 @@ pub struct BuildOptions {
     pub force_implicit: bool,
     /// where prepared models are cached; `None`: no cache
     pub cache: Option<std::path::PathBuf>,
+    /// which table reads at a state are held in their cells
+    /// ([`TableCells`], DESIGN.md §8.2): by default (`Auto`) those the
+    /// model's form needs held; `Off` steps over every breakpoint, `Jumps`
+    /// holds every read whose slope jumps, `Kinks` every read that is not
+    /// smooth at a breakpoint
+    pub table_cells: TableCells,
 }
 
 /// What building took and produced.
@@ -241,8 +248,9 @@ impl Engine {
     ) -> Result<Model, Vec<Diagnostic>> {
         let started = Instant::now();
         let cache = opts.cache.as_ref().map(cache::DiskCache::new);
-        let key = cache::input_key(&self.lib, top, opts.force_implicit, inverse);
-        let popts = PrepOptions { force_implicit: opts.force_implicit, ..Default::default() };
+        let key = cache::input_key(&self.lib, top, opts.force_implicit, opts.table_cells, inverse);
+        let popts =
+            PrepOptions { force_implicit: opts.force_implicit, table_cells: opts.table_cells };
         let prepare = || match inverse {
             None => lsim_prep::prepare(&self.lib, top, &popts),
             Some(spec) => lsim_prep::prepare_inverse(&self.lib, top, spec, &popts),

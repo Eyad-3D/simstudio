@@ -38,7 +38,9 @@ use std::path::{Path, PathBuf};
 /// again). v7: only the reads that jump are held, some between their data's
 /// edges only (`HeldRead::cells`). v8: a held read can be released
 /// (`HeldRead::released`, `group`, `jumps`), and a 2-D read is not held.
-const FORMAT: &str = "prepared-v8";
+/// v9: the reads held by default depend on the model's form
+/// (`TableCells::Auto`), and the build's `table_cells` joined the key.
+const FORMAT: &str = "prepared-v9";
 
 /// The digest of the code that prepares a model (`build.rs`).
 const PREPARATION: &str = env!("LSIM_PREPARATION_DIGEST");
@@ -49,6 +51,7 @@ pub fn input_key(
     lib: &Library,
     top: &ComponentDef,
     force_implicit: bool,
+    table_cells: lsim_prep::hold::TableCells,
     inverse: Option<&InverseSpec>,
 ) -> String {
     let mut used: BTreeMap<&str, &ComponentDef> = BTreeMap::new();
@@ -71,6 +74,7 @@ pub fn input_key(
         &lib.connectors,
         &lib.types,
         force_implicit,
+        table_cells.name(),
         inverse,
     ))
     .expect("the IR serialises");
@@ -132,18 +136,31 @@ mod tests {
 
     #[test]
     fn every_input_is_in_the_key() {
+        use lsim_prep::hold::TableCells;
+        const A: TableCells = TableCells::Auto;
         let lib = lsim_lib::library();
         let a = battery_drive(&Params::default());
         let b = battery_drive(&Params { ocv: 450.0, j: 7.0, ..Params::default() });
-        assert_eq!(input_key(&lib, &a, false, None), input_key(&lib, &a.clone(), false, None));
+        assert_eq!(
+            input_key(&lib, &a, false, A, None),
+            input_key(&lib, &a.clone(), false, A, None)
+        );
         // parameter values, the options, the mode and the structure
-        assert_ne!(input_key(&lib, &a, false, None), input_key(&lib, &b, false, None));
-        assert_ne!(input_key(&lib, &a, false, None), input_key(&lib, &a, true, None));
+        assert_ne!(input_key(&lib, &a, false, A, None), input_key(&lib, &b, false, A, None));
+        assert_ne!(input_key(&lib, &a, false, A, None), input_key(&lib, &a, true, A, None));
+        // which table reads at a state are held (before, not in the key)
+        for other in [TableCells::Off, TableCells::Jumps, TableCells::Kinks] {
+            assert_ne!(
+                input_key(&lib, &a, false, A, None),
+                input_key(&lib, &a, false, other, None),
+                "{other:?}"
+            );
+        }
         let spec = InverseSpec { prescribed: vec!["inertia.w".into()], freed: vec![] };
-        assert_ne!(input_key(&lib, &a, false, None), input_key(&lib, &a, false, Some(&spec)));
+        assert_ne!(input_key(&lib, &a, false, A, None), input_key(&lib, &a, false, A, Some(&spec)));
         let mut c = a.clone();
         c.connections.pop();
-        assert_ne!(input_key(&lib, &a, false, None), input_key(&lib, &c, false, None));
+        assert_ne!(input_key(&lib, &a, false, A, None), input_key(&lib, &c, false, A, None));
         // the library's shared enumeration types (before, not in the key)
         let mut typed = lib.clone();
         typed.add_type(lsim_ir::EnumType {
@@ -151,6 +168,6 @@ mod tests {
             literals: vec![],
             doc: String::new(),
         });
-        assert_ne!(input_key(&lib, &a, false, None), input_key(&typed, &a, false, None));
+        assert_ne!(input_key(&lib, &a, false, A, None), input_key(&typed, &a, false, A, None));
     }
 }

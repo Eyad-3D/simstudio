@@ -1,17 +1,18 @@
 //! Tables read at a state (DESIGN.md §8.2, *Tables read at a state*;
-//! `lsim_prep::hold`). By default the integrator steps over every
-//! breakpoint of a table read at a position that moves with the states.
-//! Where the read's slope jumps there (a derivative index reduction reads
-//! one order more often than the table is smooth), that is not proportional
-//! to the tolerance, and `TableCells::Jumps` (opt-in) holds the read in its
-//! cell during every step, each crossing of a breakpoint an event; a run
-//! releases a held read whose jumps are within the tolerance, or whose
-//! crossings come too often (`SolverOptions::held_release`). Holding costs a
-//! restart at each crossing, and where crossings are many it loses to
-//! stepping over: measured, so not the default. Every case against an exact
-//! answer (closed forms per cell, a first integral integrated per cell and
-//! inverted, an energy that is conserved) or a run at a far tighter
-//! tolerance.
+//! `lsim_prep::hold`). A table read at a position that moves with the
+//! states is held in its cell during every step where the model's form
+//! needs it (`TableCells::Auto`, the default): on the explicit form
+//! (CVODES) a linear table's slope, which stepped over is not proportional
+//! to the tolerance; on the implicit form (IDAS) every read that jumps,
+//! which stepped over stops the run at the first breakpoint; each crossing
+//! of a breakpoint an event. On the explicit form the run releases a held
+//! read whose jumps are within the tolerance, or whose crossings come too
+//! often (`SolverOptions::held_release`); on the implicit form none.
+//! Holding costs a restart at each crossing, and where crossings are many
+//! it loses to stepping over where stepping over can go on. Every case
+//! against an exact answer (closed forms per cell, a first integral
+//! integrated per cell and inverted, an energy that is conserved) or a run
+//! at a far tighter tolerance.
 
 use lsim_ir::component::{ComponentDef, Library};
 use lsim_ir::interp::Table;
@@ -130,12 +131,38 @@ struct Gear {
     /// the rotor's speed the state (`stateSelect = prefer`), the load's
     /// computed from it
     rotor_state: bool,
+    /// the gear's torques written implicitly, `t2 + ε t2³ = r t1 + ε (r
+    /// t1)³` (the same solution, `t2 = r t1`, but `t2` an iteration
+    /// variable): the model is of the implicit form, on IDAS
+    implicit: bool,
 }
 
-const GEAR: Gear = Gear { j1: 0.05, j2: 2.0, tau0: 20.0, t_rev: None, w0: 0.0, rotor_state: false };
+const GEAR: Gear = Gear {
+    j1: 0.05,
+    j2: 2.0,
+    tau0: 20.0,
+    t_rev: None,
+    w0: 0.0,
+    rotor_state: false,
+    implicit: false,
+};
 
 fn gear(table: &str, g: &Gear) -> String {
+    gear_with(table, g, "r(w2)")
+}
+
+/// [`gear`] with the ratio written `ratio` in its equations (`r(w2)`, or
+/// the same function as `if` branches on its breakpoints).
+fn gear_with(table: &str, g: &Gear, ratio: &str) -> String {
     let tau = if g.t_rev.is_some() { "if time < t_rev then tau0 else -tau0" } else { "tau0" };
+    let (torques, tu) = if g.implicit {
+        (
+            format!("t2 + 1e-6 * t2^3 / tu^2 = {ratio} * t1 + 1e-6 * ({ratio} * t1)^3 / tu^2"),
+            "\n  parameter Real tu(unit = \"N.m\") = 1;\n  parameter Real wu(unit = \"rad/s\") = 1;",
+        )
+    } else {
+        (format!("t2 = {ratio} * t1"), "")
+    };
     let (w1, w2) = if g.rotor_state {
         (
             "start = 0, fixed = true, stateSelect = StateSelect.prefer".to_string(),
@@ -149,7 +176,7 @@ fn gear(table: &str, g: &Gear) -> String {
   parameter Real J1(unit = "kg.m2") = {j1:?};
   parameter Real J2(unit = "kg.m2") = {j2:?};
   parameter Real tau0(unit = "N.m") = {tau0:?};
-  parameter Real t_rev(unit = "s") = {t_rev:?};
+  parameter Real t_rev(unit = "s") = {t_rev:?};{tu}
   parameter Real r = {table};
   Real w1(unit = "rad/s", {w1});
   Real w2(unit = "rad/s", {w2});
@@ -160,8 +187,8 @@ equation
   tau = {tau};
   J1 * der(w1) = tau - t1;
   J2 * der(w2) = t2;
-  w1 = r(w2) * w2;
-  t2 = r(w2) * t1;
+  w1 = {ratio} * w2;
+  {torques};
 end Test.KinkGear;
 "#,
         j1 = g.j1,
@@ -201,11 +228,12 @@ fn gear_exact(data: &TableData, g: &Gear, (lo, hi): (f64, f64), times: &[f64]) -
 /// The ratio a linear table of the load's speed: `r'` jumps at each of its
 /// four inner breakpoints. Held (`TableCells::Jumps`), the load's speed is
 /// 0.83 … 2.0 rtol off
-/// at rtol 1e-4 … 1e-10 here; stepped over (for comparison only), 132 rtol
-/// at 1e-10. In the outside judge (`kink-gear-linear`, its own measure):
-/// stepped over (CVODE's Adams, as the run chose) 9.7, 9.9, 23, 25, 28, 167
-/// and 178 rtol, the error per tolerance growing as it tightens; held 1.1,
-/// 1.0, 1.2, 1.8, 2.8, 1.2 and 1.7, as the same function written as `if`
+/// at rtol 1e-4 … 1e-10 here; stepped over (`TableCells::Off`), 132 rtol
+/// at 1e-10. In the outside judge (its own measure): stepped over
+/// (`kink-gear-linear-over`, CVODE's Adams, as the run chose) 9.7, 9.9, 23,
+/// 25, 28, 167 and 178 rtol, the error per tolerance growing as it
+/// tightens; held (`kink-gear-linear`, the default now) 1.1, 1.0, 1.2,
+/// 1.8, 2.8, 1.2 and 1.7, as the same function written as `if`
 /// branches on its breakpoints (`kink-gear-linear-located`: the same steps,
 /// the states the same to about 1e-12, not to the bit).
 #[test]
@@ -231,7 +259,7 @@ fn a_gear_ratio_read_at_the_load_speed_is_held_in_its_cells() {
     println!("error / rtol, held: {qs:.2?}");
     // measured at most 2.0, with a margin
     assert!(qs.iter().all(|q| *q < 8.0), "{qs:?}");
-    // stepped over (the default): not proportional
+    // stepped over (`TableCells::Off`, the default before): not proportional
     let off = prepare(&text, "Test.KinkGear", TableCells::Off);
     assert!(off.held.is_empty());
     let q = error(&run(&off, 1e-10, 3.0, 0.01), "w2", &exact) / 1e-10;
@@ -239,24 +267,427 @@ fn a_gear_ratio_read_at_the_load_speed_is_held_in_its_cells() {
     assert!(q > 50.0, "{q}");
 }
 
-/// The default holds no table read (`TableCells::Off`): the gear above,
-/// whose ratio's slope jumps, is the stepped-over run to the bit. Holding
-/// such a read was measured against stepping over it on exact answers
-/// (the outside judge's `kink-…` cases and the oscillating gears of the
-/// A3 review) and lost where crossings are many (DESIGN.md §8.2).
+/// The default (`TableCells::Auto`) holds the reads the model's form needs
+/// held (DESIGN.md §8.2, rule v4). On the explicit form (CVODES), a linear
+/// table's slope at its points: the gear above is the `Jumps` run to the
+/// bit, its two reads held with the releases. A monotone cubic held at its
+/// edges is not (its slope jumps at its data's edges only; holding that
+/// was measured no better than stepping over on CVODE): the stepped-over
+/// run to the bit.
 #[test]
-fn the_default_holds_no_table_read() {
+fn the_default_holds_what_the_models_form_needs() {
+    assert_eq!(lsim_prep::PrepOptions::default().table_cells, TableCells::Auto);
     let (ws, rs) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
     let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &GEAR);
     let def = prepare(&text, "Test.KinkGear", TableCells::default());
+    assert!(def.algebraics.is_empty(), "the explicit form");
+    assert_eq!(def.held.len(), 2, "{:?}", def.held);
+    let jumps = prepare(&text, "Test.KinkGear", TableCells::Jumps);
+    for rtol in [1e-4, 1e-8] {
+        let (a, b) = (run(&def, rtol, 3.0, 0.01), run(&jumps, rtol, 3.0, 0.01));
+        assert_eq!(cells(&a), 8);
+        assert_eq!(a.values, b.values, "rtol {rtol:e}");
+    }
+    let g = Gear { t_rev: Some(2.5), ..GEAR };
+    let (ws, rs) = ([0.0, 10.0, 25.0, 40.0], [2.0, 2.5, 2.8, 3.5]);
+    let text = gear(&table_text(&ws, &rs, "rad/s", "monotoneCubic", "clamp"), &g);
+    let def = prepare(&text, "Test.KinkGear", TableCells::default());
     assert!(def.held.is_empty(), "{:?}", def.held);
-    assert_eq!(lsim_prep::PrepOptions::default().table_cells, TableCells::Off);
     let off = prepare(&text, "Test.KinkGear", TableCells::Off);
     for rtol in [1e-4, 1e-8] {
-        let (a, b) = (run(&def, rtol, 3.0, 0.01), run(&off, rtol, 3.0, 0.01));
+        let (a, b) = (run(&def, rtol, 4.0, 0.01), run(&off, rtol, 4.0, 0.01));
         assert_eq!(cells(&a), 0);
         assert_eq!(a.values, b.values, "rtol {rtol:e}");
     }
+}
+
+/// The gear with its torques written implicitly (`t2` an iteration
+/// variable: the implicit form, on IDAS), its ratio a linear table of the
+/// load's speed. Stepped over (`TableCells::Off`, 1d41c7d7's default), the
+/// run stops at the first breakpoint (w2 = 10 rad/s, t = 0.5088 s) at every
+/// tolerance: IDAS cannot step over the jump of `r'` in what it solves; the
+/// run names the table, the read and the option that holds it. The
+/// default holds the read (no release on this form) and is 0.92 … 4.95
+/// rtol off at rtol 1e-4 … 1e-10 (in the judge, `kink-gear-linear-imp`),
+/// as the same function written as `if` branches on its breakpoints. The
+/// same with every block kept implicit (`force_implicit`).
+#[test]
+fn the_implicit_form_holds_a_read_whose_slope_jumps() {
+    let (ws, rs) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
+    let g = Gear { implicit: true, ..GEAR };
+    let table = table_text(&ws, &rs, "rad/s", "linear", "linear");
+    let text = gear(&table, &g);
+    let data = data_1d(&ws, &rs, Interpolation::Linear, Outside::Linear);
+    let times = grid(3.0, 0.01);
+    let exact = gear_exact(&data, &g, (-30.0, 300.0), &times);
+    let def = prepare(&text, "Test.KinkGear", TableCells::default());
+    assert!(!def.algebraics.is_empty(), "the implicit form");
+    assert_eq!(def.held.len(), 2, "{:?}", def.held);
+    let located = if_chain(&ws, &rs, "(w2 / wu)");
+    let located = prepare(&gear_with(&table, &g, &located), "Test.KinkGear", TableCells::Off);
+    assert!(located.held.is_empty() && !located.modes.is_empty());
+    let off = prepare(&text, "Test.KinkGear", TableCells::Off);
+    let (mut qs, mut ql) = (vec![], vec![]);
+    for rtol in RTOLS {
+        let r = run(&def, rtol, 3.0, 0.01);
+        assert!(r.backend.contains("IDA"), "{}", r.backend);
+        assert_eq!(cells(&r), 8, "rtol {rtol:e}");
+        qs.push(error(&r, "w2", &exact) / rtol);
+        ql.push(error(&run(&located, rtol, 3.0, 0.01), "w2", &exact) / rtol);
+        let code = lsim_codegen::compile(&off, &Default::default()).expect("compiles");
+        let info = RunInfo::from_prepared(&off);
+        let grid = OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.01 };
+        let e = lsim_solve::simulate(&code, &info, &options(rtol), grid, &mut [])
+            .err()
+            .unwrap_or_else(|| panic!("rtol {rtol:e}: stepped over, the run went through"));
+        let said = e.to_string();
+        assert!(said.contains("t = 0.5087"), "rtol {rtol:e}: {said}");
+        for words in
+            ["the table 'r'", "its first derivative", "breakpoint 10", "table_cells = \"auto\""]
+        {
+            assert!(said.contains(words), "rtol {rtol:e}: {said}");
+        }
+    }
+    println!("implicit form, error / rtol held {qs:.2?}, located {ql:.2?}");
+    // measured 0.92 … 4.95, the located run the same, with a margin
+    assert!(qs.iter().all(|q| *q < 20.0), "{qs:?}");
+    assert!(qs.iter().zip(&ql).all(|(h, l)| (h / l - 1.0).abs() < 0.25), "{qs:?} {ql:?}");
+    // every block implicit (the plain gear): held by default too
+    let (lib, top, _) = build(&gear(&table, &GEAR), "Test.KinkGear", TableCells::default());
+    let opts = lsim_prep::PrepOptions { force_implicit: true, ..Default::default() };
+    let all = lsim_prep::prepare(&lib, &top, &opts).unwrap_or_else(|d| panic!("{d:#?}"));
+    assert!(!all.algebraics.is_empty() && all.held.len() == 2, "{:?}", all.held);
+    let mut qa = vec![];
+    for rtol in [1e-4, 1e-7, 1e-10] {
+        let r = run(&all, rtol, 3.0, 0.01);
+        assert_eq!(cells(&r), 8, "rtol {rtol:e}");
+        qa.push(error(&r, "w2", &exact) / rtol);
+    }
+    println!("every block implicit, error / rtol held {qa:.2?}");
+    // measured 1.41, 1.68, 2.75
+    assert!(qa.iter().all(|q| *q < 20.0), "{qa:?}");
+}
+
+/// The judge's dense gear (`kink-dense-gear-41`: the ratio linear through
+/// `2 + w/40 + 0.25 sin(w/8)` at 41 points on [0, 80] rad/s, 32 crossings
+/// in 3 s) with its torques written implicitly (the implicit form). Held
+/// with the releases as they were (1d41c7d7's `Jumps`), the run let go of
+/// the read where its crossings came often (at rtol 1e-4 and 1e-5) and
+/// IDAS then stopped at the next breakpoint ("made no progress"). On the
+/// implicit form the run releases nothing: the default holds the read
+/// through every crossing, the run with the releases switched off to the
+/// bit, 9.85 and 11.7 rtol off at rtol 1e-4 and 1e-5 (the first integral,
+/// per cell). Stepped over, it stops at a breakpoint.
+#[test]
+fn the_implicit_form_holds_a_dense_table_through_every_crossing() {
+    let ws: Vec<f64> = (0..41).map(|k| 80.0 * k as f64 / 40.0).collect();
+    let rs: Vec<f64> = ws.iter().map(|w| 2.0 + w / 40.0 + 0.25 * math::sin(w / 8.0)).collect();
+    let g = Gear { implicit: true, ..GEAR };
+    let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &g);
+    let data = data_1d(&ws, &rs, Interpolation::Linear, Outside::Linear);
+    let times = grid(3.0, 0.01);
+    let exact = gear_exact(&data, &g, (-30.0, 300.0), &times);
+    let def = prepare(&text, "Test.KinkGear", TableCells::default());
+    assert!(!def.algebraics.is_empty() && def.held.len() == 2, "{:?}", def.held);
+    let mut qs = vec![];
+    for rtol in [1e-4, 1e-5] {
+        let r = run(&def, rtol, 3.0, 0.01);
+        assert!(
+            !r.report.notes.iter().any(|n| n.contains("no longer held")),
+            "rtol {rtol:e}: {:?}",
+            r.report.notes
+        );
+        assert_eq!(cells(&r), 64, "rtol {rtol:e}: every crossing, both reads");
+        let always =
+            run_with(&def, &SolverOptions { held_release: false, ..options(rtol) }, 3.0, 0.01);
+        assert_eq!(r.values, always.values, "rtol {rtol:e}");
+        qs.push(error(&r, "w2", &exact) / rtol);
+    }
+    println!("dense gear, implicit form: error / rtol held {qs:.2?}");
+    // measured 9.85 and 11.7, with a margin
+    assert!(qs.iter().all(|q| *q < 40.0), "{qs:?}");
+    let off = prepare(&text, "Test.KinkGear", TableCells::Off);
+    let code = lsim_codegen::compile(&off, &Default::default()).expect("compiles");
+    let e = lsim_solve::simulate(
+        &code,
+        &RunInfo::from_prepared(&off),
+        &options(1e-4),
+        OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.01 },
+        &mut [],
+    )
+    .expect_err("stepped over on the implicit form");
+    assert!(e.to_string().contains("table_cells = \"auto\""), "{e}");
+}
+
+/// A monotone cubic held at its edges (`clamp`), the gear with its torques
+/// written implicitly (the judge's `kink-gear-clamp` on IDAS): the load's
+/// speed leaves the data at 40 rad/s (t = 1.84 s), where `r'` jumps to 0.
+/// Stepped over, the run stops there (or gives no answer within 120 s) at
+/// every tolerance, naming the table; the default holds it at its edges:
+/// 0.53 … 5.2 rtol off at rtol 1e-4 … 1e-10 (the first integral; in the
+/// judge's measure, both speeds, 0.78 … 5.2, the same function as `if`
+/// branches 0.29 … 4.6).
+#[test]
+fn the_implicit_form_holds_a_clamped_tables_edges() {
+    let (ws, rs) = ([0.0, 10.0, 25.0, 40.0], [2.0, 2.5, 2.8, 3.5]);
+    let g = Gear { t_rev: Some(2.5), implicit: true, ..GEAR };
+    let text = gear(&table_text(&ws, &rs, "rad/s", "monotoneCubic", "clamp"), &g);
+    let data = data_1d(&ws, &rs, Interpolation::MonotoneCubic, Outside::Clamp);
+    let def = prepare(&text, "Test.KinkGear", TableCells::default());
+    assert!(!def.algebraics.is_empty(), "the implicit form");
+    assert_eq!(def.held.len(), 2, "{:?}", def.held);
+    assert!(def.held.iter().all(|h| matches!(h.cells, HeldCells::Edges(_))), "{:?}", def.held);
+    let times = grid(4.0, 0.01);
+    let exact = gear_exact(&data, &g, (-30.0, 300.0), &times);
+    let mut qs = vec![];
+    for rtol in RTOLS {
+        let r = run(&def, rtol, 4.0, 0.01);
+        assert_eq!(cells(&r), 4, "rtol {rtol:e}: out at 40 rad/s and back, both reads");
+        qs.push(error(&r, "w2", &exact) / rtol);
+    }
+    println!("clamped cubic, implicit form: error / rtol held at the edges {qs:.2?}");
+    // measured 0.53 … 5.2, with a margin
+    assert!(qs.iter().all(|q| *q < 20.0), "{qs:?}");
+    let off = prepare(&text, "Test.KinkGear", TableCells::Off);
+    let code = lsim_codegen::compile(&off, &Default::default()).expect("compiles");
+    let e = lsim_solve::simulate(
+        &code,
+        &RunInfo::from_prepared(&off),
+        &options(1e-6),
+        OutputGrid { t0: 0.0, t_end: 4.0, dt: 0.01 },
+        &mut [],
+    )
+    .expect_err("stepped over on the implicit form");
+    let said = e.to_string();
+    for words in ["t = 1.84", "the table 'r'", "breakpoint 40", "table_cells = \"auto\""] {
+        assert!(said.contains(words), "{said}");
+    }
+}
+
+/// A gear whose ratio is a table of two states, bilinear (`f(w2) + g(c)` on
+/// its grid, `c` a state rising at 1/s), its torques written implicitly:
+/// index reduction reads both of its slopes, which jump at the grid's lines.
+/// Stepped over, the run stops at the first (w2 = 10 rad/s, t = 0.486 s)
+/// or gives no answer within 120 s; the default holds the 2-D read at
+/// every breakpoint of both arguments: 1.6, 3.9 and 3.0 rtol off at rtol
+/// 1e-4, 1e-7 and 1e-10 against the `if` branches' run at 1e-12, as that
+/// function's own runs (in the judge's measure, DOP853 per pair of cells,
+/// 0.87 … 4.96 at 1e-4 … 1e-10).
+#[test]
+fn the_implicit_form_holds_a_two_dimensional_read_that_jumps() {
+    let (ws, fw) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
+    let (cs, gc) = ([-1.0, 0.7, 1.6, 2.4, 4.0], [0.0, 0.2, -0.1, 0.25, 0.1]);
+    let list = |v: &[f64]| v.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ");
+    let values: Vec<String> =
+        fw.iter().map(|a| list(&gc.iter().map(|b| a + b).collect::<Vec<_>>())).collect();
+    let table = format!(
+        "table(x1 = {{{}}}, x2 = {{{}}}, values = [{}], x1Unit = \"rad/s\", x2Unit = \"1\", interpolation = linear, outside = {{linear, linear}})",
+        list(&ws),
+        list(&cs),
+        values.join("; ")
+    );
+    let model = |ratio: &str| {
+        format!(
+            r#"model Test.Gear2D "a gear whose ratio is a table of the load's speed and of a state c"
+  parameter Real J1(unit = "kg.m2") = 0.05;
+  parameter Real J2(unit = "kg.m2") = 2;
+  parameter Real tau0(unit = "N.m") = 20;
+  parameter Real cu(unit = "1/s") = 1;
+  parameter Real tu(unit = "N.m") = 1;
+  parameter Real wu(unit = "rad/s") = 1;
+  parameter Real r = {table};
+  Real w1(unit = "rad/s", start = 0);
+  Real w2(unit = "rad/s", start = 0, fixed = true);
+  Real c(start = 0, fixed = true, stateSelect = StateSelect.always);
+  Real t1(unit = "N.m");
+  Real t2(unit = "N.m");
+equation
+  der(c) = cu;
+  J1 * der(w1) = tau0 - t1;
+  J2 * der(w2) = t2;
+  w1 = {ratio} * w2;
+  t2 + 1e-6 * t2^3 / tu^2 = {ratio} * t1 + 1e-6 * ({ratio} * t1)^3 / tu^2;
+end Test.Gear2D;
+"#
+        )
+    };
+    let def = prepare(&model("r(w2, c)"), "Test.Gear2D", TableCells::default());
+    assert!(!def.algebraics.is_empty(), "the implicit form");
+    assert!(!def.held.is_empty() && def.held.iter().all(|h| h.axes.len() == 2), "{:?}", def.held);
+    let located = format!("({} + {})", if_chain(&ws, &fw, "(w2 / wu)"), if_chain(&cs, &gc, "c"));
+    let located = prepare(&model(&located), "Test.Gear2D", TableCells::Off);
+    assert!(located.held.is_empty());
+    // the reference: the located run at a far tighter tolerance
+    let fine = run(&located, 1e-12, 3.0, 0.01);
+    let fw2 = fine.channel("w2").unwrap().to_vec();
+    let (mut qs, mut ql) = (vec![], vec![]);
+    for rtol in [1e-4, 1e-7, 1e-10] {
+        let r = run(&def, rtol, 3.0, 0.01);
+        assert!(cells(&r) > 4, "rtol {rtol:e}: {}", cells(&r));
+        qs.push(error(&r, "w2", &fw2) / rtol);
+        ql.push(error(&run(&located, rtol, 3.0, 0.01), "w2", &fw2) / rtol);
+    }
+    println!("2-D read, implicit form: error / rtol held {qs:.2?}, located {ql:.2?}");
+    // measured 1.6, 3.9 and 3.0, the located run the same, with a margin
+    assert!(qs.iter().all(|q| *q < 20.0), "{qs:?}");
+    assert!(qs.iter().zip(&ql).all(|(h, l)| (h / l - 1.0).abs() < 0.25), "{qs:?} {ql:?}");
+    let off = prepare(&model("r(w2, c)"), "Test.Gear2D", TableCells::Off);
+    let code = lsim_codegen::compile(&off, &Default::default()).expect("compiles");
+    let e = lsim_solve::simulate(
+        &code,
+        &RunInfo::from_prepared(&off),
+        &options(1e-4),
+        OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.01 },
+        &mut [],
+    )
+    .expect_err("stepped over on the implicit form");
+    assert!(e.to_string().contains("the table 'r'"), "{e}");
+}
+
+/// A bead on a wire whose cubic's second derivative really jumps (`y =
+/// r(x)`, `r` the default table of `x²/2 + sin(3x)/4` at 11 points, `s` a
+/// table of its slope there; rule v3's held-out case), every block kept
+/// implicit (the implicit form): index reduction reads `r''`. Stepped over,
+/// IDAS gives no answer within 120 s at any tolerance (r4 work data); the
+/// default holds the reads at every point (50 crossings, each an event of
+/// both reads): 13.8, 20.7 and 12.3 rtol off at rtol 1e-4, 1e-6 and 1e-8
+/// against the same model on the explicit form held at rtol 1e-12 (7.3 …
+/// 21.9 at 1e-4 … 1e-10 against DOP853 per cell).
+#[test]
+fn the_implicit_form_holds_a_cubics_second_derivative() {
+    let xs: Vec<f64> = (0..11).map(|k| -2.0 + 0.4 * k as f64).collect();
+    let rs: Vec<f64> = xs.iter().map(|x| 0.5 * x * x + 0.25 * math::sin(3.0 * x)).collect();
+    let ss: Vec<f64> = xs.iter().map(|x| x + 0.75 * math::cos(3.0 * x)).collect();
+    let list = |v: &[f64]| v.iter().map(|x| format!("{x:?}")).collect::<Vec<_>>().join(", ");
+    let tab = |v: &[f64]| {
+        format!(
+            "table(x = {{{}}}, y = {{{}}}, xUnit = \"m\", outside = {{linear}})",
+            list(&xs),
+            list(v)
+        )
+    };
+    let text = format!(
+        r#"model Test.Bead "a bead on a wire y = r(x) under gravity, r the default table"
+  parameter Real m(unit = "kg") = 1;
+  parameter Real g(unit = "m/s2") = 9.81;
+  parameter Real r(unit = "m") = {} "the wire's height";
+  parameter Real s = {} "its slope";
+  Real x(unit = "m", start = 1.5, fixed = true);
+  Real vx(unit = "m/s", start = 0, fixed = true);
+  Real y(unit = "m");
+  Real vy(unit = "m/s");
+  Real F(unit = "N") "the wire's force along y";
+equation
+  der(x) = vx;
+  der(y) = vy;
+  m * der(vx) = -s(x) * F;
+  m * der(vy) = F - m * g;
+  y = r(x) "on the wire";
+end Test.Bead;
+"#,
+        tab(&rs),
+        tab(&ss)
+    );
+    let (lib, top, explicit) = build(&text, "Test.Bead", TableCells::Kinks);
+    assert!(explicit.algebraics.is_empty() && !explicit.held.is_empty());
+    let fine =
+        run_with(&explicit, &SolverOptions { held_release: false, ..options(1e-12) }, 10.0, 0.01);
+    let (fx, fv) = (fine.channel("x").unwrap().to_vec(), fine.channel("vx").unwrap().to_vec());
+    let opts = lsim_prep::PrepOptions { force_implicit: true, ..Default::default() };
+    let def = lsim_prep::prepare(&lib, &top, &opts).unwrap_or_else(|d| panic!("{d:#?}"));
+    assert!(!def.algebraics.is_empty() && !def.held.is_empty(), "{:?}", def.held);
+    let mut qs = vec![];
+    for rtol in [1e-4, 1e-6, 1e-8] {
+        let r = run(&def, rtol, 10.0, 0.01);
+        assert!(r.backend.contains("IDA"), "{}", r.backend);
+        assert!(cells(&r) > 50, "rtol {rtol:e}: {}", cells(&r));
+        qs.push(error(&r, "x", &fx).max(error(&r, "vx", &fv)) / rtol);
+    }
+    println!("bead (r'' jumps), implicit form: error / rtol held {qs:.2?}");
+    // measured 13.8, 20.7 and 12.3, with a margin
+    assert!(qs.iter().all(|q| *q < 60.0), "{qs:?}");
+}
+
+/// The judge's dense gear on the explicit form (`kink-dense-gear-41`), its
+/// read held with the releases: at rtol 1e-4 the run lets go of it after
+/// its first crossings (t = 0.87 s), and at t = 2.36 s dynamic state
+/// selection takes the rotor's speed as the state, whose model is of the
+/// implicit form. There the released read would be stepped over, which
+/// IDAS cannot do across a jump: it is held in its cells again (before, it
+/// went on released). The load's speed is 9.0 rtol off its first integral
+/// (in the judge's measure, both speeds, 11.5).
+#[test]
+fn a_released_read_is_held_again_on_the_implicit_form() {
+    let ws: Vec<f64> = (0..41).map(|k| 80.0 * k as f64 / 40.0).collect();
+    let rs: Vec<f64> = ws.iter().map(|w| 2.0 + w / 40.0 + 0.25 * math::sin(w / 8.0)).collect();
+    let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &GEAR);
+    let data = data_1d(&ws, &rs, Interpolation::Linear, Outside::Linear);
+    let (lib, top, m) = build(&text, "Test.KinkGear", TableCells::default());
+    assert!(m.algebraics.is_empty() && m.held.len() == 2, "{:?}", m.held);
+    let code = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
+    let mut info = RunInfo::from_prepared(&m);
+    info.choices = lsim_project::model::choices(&lib, &top, &Default::default(), &info);
+    let out = OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.01 };
+    let r = lsim_solve::simulate(&code, &info, &options(1e-4), out, &mut [])
+        .unwrap_or_else(|e| panic!("{e}"));
+    let said = |w: &str| r.report.notes.iter().any(|n| n.contains(w));
+    assert!(said("no longer held"), "{:?}", r.report.notes);
+    assert!(said("held in its cells again"), "{:?}", r.report.notes);
+    assert!(r.backend.contains("IDA"), "{}", r.backend);
+    let switched =
+        r.events.iter().find(|e| matches!(e.kind, EventKind::States(_))).expect("a switch").t;
+    let after = r.events.iter().filter(|e| matches!(e.kind, EventKind::Cell(_)) && e.t > switched);
+    assert!(after.count() > 0, "held again: its crossings are events");
+    let times = grid(3.0, 0.01);
+    let exact = gear_exact(&data, &GEAR, (-30.0, 300.0), &times);
+    let q = error(&r, "w2", &exact) / 1e-4;
+    println!("released, then held again on the implicit form: error / rtol {q:.2}");
+    // measured 9.0, with a margin
+    assert!(q < 50.0, "{q}");
+}
+
+/// A run that fails after it released a held read says so: the release's
+/// note, which a run that goes through reports, comes with its failure too
+/// (here an `assert` that stops the run after the release). Released at
+/// the start (a linear table of collinear points: its jumps are within the
+/// tolerance), and during the run (the judge's `kink-osc-41`, on the
+/// explicit form, its crossings too frequent at rtol 1e-4: released at t =
+/// 0.226 s).
+#[test]
+fn a_run_that_fails_after_a_release_says_so() {
+    let ws = [0.0, 10.0, 25.0, 40.0, 60.0, 80.0];
+    let rs: Vec<f64> = ws.iter().map(|w| 2.0 + w / 50.0).collect();
+    let text = gear(&table_text(&ws, &rs, "rad/s", "linear", "linear"), &GEAR)
+        .replace("  tau = ", "  assert(time < 1.0, \"the test stops here\");\n  tau = ");
+    let m = prepare(&text, "Test.KinkGear", TableCells::Jumps);
+    assert_eq!(m.held.len(), 2);
+    let code = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
+    let grid = OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.01 };
+    let e = lsim_solve::simulate(&code, &RunInfo::from_prepared(&m), &options(1e-6), grid, &mut [])
+        .expect_err("the assert stops it");
+    let said = e.to_string();
+    assert!(said.contains("the test stops here"), "{said}");
+    assert!(
+        said.contains("earlier in the run") && said.contains("continuous at its points"),
+        "{said}"
+    );
+    let ps: Vec<f64> = (0..41).map(|k| -30.0 + 60.0 * k as f64 / 40.0).collect();
+    let vs: Vec<f64> = ps.iter().map(|p| 2.5 + 0.02 * p + 0.2 * math::sin(p / 4.0)).collect();
+    let text = gear_spring(&table_text(&ps, &vs, "rad/s", "linear", "linear"), false).replace(
+        "  der(phi) = w2;",
+        "  der(phi) = w2;\n  assert(time < 0.5, \"the test stops here\");",
+    );
+    let m = prepare(&text, "Test.GearSpring", TableCells::Jumps);
+    let code = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
+    let grid = OutputGrid { t0: 0.0, t_end: 20.0, dt: 0.01 };
+    let e = lsim_solve::simulate(&code, &RunInfo::from_prepared(&m), &options(1e-4), grid, &mut [])
+        .expect_err("the assert stops it");
+    let said = e.to_string();
+    assert!(said.contains("the test stops here"), "{said}");
+    assert!(
+        said.contains("earlier in the run") && said.contains("no longer held in its cells"),
+        "{said}"
+    );
 }
 
 /// The ratio a monotone cubic held at its edges (`clamp`): `r'` jumps where
@@ -955,6 +1386,64 @@ fn a_table_whose_slope_does_not_jump_is_released_at_the_start() {
     }
 }
 
+/// The gear on a torsion spring, no torque driving it (the judge's
+/// `kink-osc-…`), its ratio `table` of the load's speed, from 28 rad/s;
+/// `implicit`: its torques written implicitly, as [`Gear::implicit`].
+fn gear_spring(table: &str, implicit: bool) -> String {
+    let (torques, tu) = if implicit {
+        (
+            "t2 + 1e-6 * t2^3 / tu^2 = r(w2) * t1 + 1e-6 * (r(w2) * t1)^3 / tu^2",
+            "\n  parameter Real tu(unit = \"N.m\") = 1;",
+        )
+    } else {
+        ("t2 = r(w2) * t1", "")
+    };
+    format!(
+        r#"model Test.GearSpring "a gear whose ratio is a table of the load's speed, the load on a torsion spring"
+  parameter Real J1(unit = "kg.m2") = 0.05;
+  parameter Real J2(unit = "kg.m2") = 2;
+  parameter Real k(unit = "N.m/rad") = 50;{tu}
+  parameter Real r = {table};
+  Real w1(unit = "rad/s", start = 0);
+  Real w2(unit = "rad/s", start = 28, fixed = true);
+  Real phi(unit = "rad", start = 0, fixed = true);
+  Real t1(unit = "N.m");
+  Real t2(unit = "N.m");
+equation
+  J1 * der(w1) = -t1;
+  J2 * der(w2) = t2 - k * phi;
+  der(phi) = w2;
+  w1 = r(w2) * w2;
+  {torques};
+end Test.GearSpring;
+"#
+    )
+}
+
+/// The same on the implicit form (the A3 check's probe: `kink-osc-41` with
+/// its torques written implicitly). Held with the releases as they were,
+/// the run let go of the read at rtol 1e-4 and IDAS stopped at the next
+/// breakpoint (t = 0.251 s); stepped over it gave no answer within 120 s.
+/// The default holds it through every crossing (1 127 crossings, each an
+/// event of both reads): the run with the releases off to the bit, 862
+/// rtol off (the judge, DOP853 per cell): the restarts' cost, as on the
+/// explicit form (`kink-osc-41-always`, 517).
+#[test]
+fn the_implicit_form_holds_a_table_crossed_back_and_forth() {
+    let ps: Vec<f64> = (0..41).map(|k| -30.0 + 60.0 * k as f64 / 40.0).collect();
+    let vs: Vec<f64> = ps.iter().map(|p| 2.5 + 0.02 * p + 0.2 * math::sin(p / 4.0)).collect();
+    let text = gear_spring(&table_text(&ps, &vs, "rad/s", "linear", "linear"), true);
+    let def = prepare(&text, "Test.GearSpring", TableCells::default());
+    assert!(!def.algebraics.is_empty() && def.held.len() == 2, "{:?}", def.held);
+    let r = run(&def, 1e-4, 20.0, 0.01);
+    assert!(r.backend.contains("IDA"), "{}", r.backend);
+    assert!(!r.report.notes.iter().any(|n| n.contains("no longer held")), "{:?}", r.report.notes);
+    assert!(cells(&r) > 2200, "{}", cells(&r));
+    let always =
+        run_with(&def, &SolverOptions { held_release: false, ..options(1e-4) }, 20.0, 0.01);
+    assert_eq!(r.values, always.values);
+}
+
 /// The limit of holding (the A3 review's `o041`): the gear on a torsion
 /// spring, its ratio a linear table of 41 points on [−30, 30] rad/s
 /// through `2.5 + w/50 + 0.2 sin(w/4)`, the load's speed swept back and
@@ -970,27 +1459,7 @@ fn a_table_whose_slope_does_not_jump_is_released_at_the_start() {
 fn a_dense_table_crossed_back_and_forth() {
     let ps: Vec<f64> = (0..41).map(|k| -30.0 + 60.0 * k as f64 / 40.0).collect();
     let vs: Vec<f64> = ps.iter().map(|p| 2.5 + 0.02 * p + 0.2 * math::sin(p / 4.0)).collect();
-    let text = format!(
-        r#"model Test.GearSpring "a gear whose ratio is a table of the load's speed, the load on a torsion spring"
-  parameter Real J1(unit = "kg.m2") = 0.05;
-  parameter Real J2(unit = "kg.m2") = 2;
-  parameter Real k(unit = "N.m/rad") = 50;
-  parameter Real r = {};
-  Real w1(unit = "rad/s", start = 0);
-  Real w2(unit = "rad/s", start = 28, fixed = true);
-  Real phi(unit = "rad", start = 0, fixed = true);
-  Real t1(unit = "N.m");
-  Real t2(unit = "N.m");
-equation
-  J1 * der(w1) = -t1;
-  J2 * der(w2) = t2 - k * phi;
-  der(phi) = w2;
-  w1 = r(w2) * w2;
-  t2 = r(w2) * t1;
-end Test.GearSpring;
-"#,
-        table_text(&ps, &vs, "rad/s", "linear", "linear")
-    );
+    let text = gear_spring(&table_text(&ps, &vs, "rad/s", "linear", "linear"), false);
     let jumps = prepare(&text, "Test.GearSpring", TableCells::Jumps);
     assert_eq!(jumps.held.len(), 2);
     let off = prepare(&text, "Test.GearSpring", TableCells::Off);

@@ -90,6 +90,26 @@ def test_build_cache(tmp_path):
         assert all(_same_bits(run.channels[k], plain.channels[k]) for k in plain.channels)
 
 
+def test_build_table_cells(tmp_path):
+    # which table reads at a state are held in their cells (DESIGN.md §8.2):
+    # the BEV reads its tables at states as values only, which no option but
+    # "kinks" holds, so "auto" (the default), "off" and "jumps" are the same
+    # run, bit for bit
+    plain = le.build(BEV, WLTC).simulate(t_end=60.0)
+    for cells in ("auto", "off", "jumps"):
+        run = le.build(BEV, WLTC, table_cells=cells).simulate(t_end=60.0)
+        assert set(run.channels) == set(plain.channels)
+        assert all(_same_bits(run.channels[k], plain.channels[k]) for k in plain.channels), cells
+    held = le.build(BEV, WLTC, table_cells="kinks").simulate(t_end=60.0)
+    assert not all(_same_bits(held.channels[k], plain.channels[k]) for k in plain.channels)
+    with pytest.raises(ValueError, match="table_cells"):
+        le.build(BEV, WLTC, table_cells="always")
+    # the option is in the cache's key
+    first = le.build(BEV, WLTC, cache_dir=str(tmp_path), table_cells="kinks")
+    second = le.build(BEV, WLTC, cache_dir=str(tmp_path))
+    assert first.report["cache_hit"] is False and second.report["cache_hit"] is False
+
+
 # ---- simulate --------------------------------------------------------------
 
 def test_simulate_is_sane(bev_run):

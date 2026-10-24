@@ -12,11 +12,14 @@
 //! "rtols": [..], "atol_factor": a, "record": ["<channel>", ..],
 //! "repeat": n, "options": {"energy_books": bool, "backend": "sundials" |
 //! "diffsol", "method": "auto" | "bdf" | "adams", "max_steps": n,
-//! "table_cells": "jumps" | "kinks" | "off", "table_release": bool}}`, the
+//! "table_cells": "auto" | "jumps" | "kinks" | "off", "table_release": bool,
+//! "force_implicit": bool}}`, the
 //! text's path relative to the case file (`table_cells`: which tables read
-//! at a state are held in their cells, `lsim_prep::hold::TableCells`; none,
-//! the engine's own, by default; `table_release`: false holds them through
-//! every crossing, `SolverOptions::held_release`). Each run uses
+//! at a state are held in their cells, `lsim_prep::hold::TableCells`; the
+//! engine's own, "auto", by default; `table_release`: false holds them through
+//! every crossing, `SolverOptions::held_release`; `force_implicit`: every
+//! block kept implicit, so the run is on IDAS, `PrepOptions::force_implicit`).
+//! Each run uses
 //! atol = a · rtol
 //! (times each variable's nominal value, as always) and is timed `repeat`
 //! times (the median is reported); a run that fails is reported with the
@@ -134,13 +137,11 @@ fn main() {
     };
     let popts = lsim_prep::PrepOptions {
         table_cells: match case["options"]["table_cells"].as_str() {
-            Some("kinks") => lsim_prep::hold::TableCells::Kinks,
-            Some("jumps") => lsim_prep::hold::TableCells::Jumps,
-            Some("off") => lsim_prep::hold::TableCells::Off,
             None => lsim_prep::hold::TableCells::default(),
-            Some(other) => panic!("unknown table_cells {other}"),
+            Some(name) => lsim_prep::hold::TableCells::from_name(name)
+                .unwrap_or_else(|| panic!("unknown table_cells {name}")),
         },
-        ..Default::default()
+        force_implicit: case["options"]["force_implicit"].as_bool().unwrap_or(false),
     };
     let prepared = match lsim_prep::prepare(&lib, &model, &popts) {
         Ok(p) => p,

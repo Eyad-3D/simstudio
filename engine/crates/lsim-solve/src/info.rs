@@ -594,6 +594,31 @@ pub struct RunInfo {
     pub choices: Option<crate::choice::Choices>,
     /// the table reads held in their cells during every step
     pub held: Vec<HeldInfo>,
+    /// every table read at an argument that moves with the states, held or
+    /// stepped over: a run that stops at one of their breakpoints names the
+    /// read and the option that holds it ([`crate::held::at_breakpoint`])
+    pub state_reads: Vec<StateRead>,
+}
+
+/// A table read at an argument that moves with the states (DESIGN.md
+/// §8.2), held in its cells or stepped over.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StateRead {
+    /// the table
+    pub table: u32,
+    /// the derivative of it the model reads (`[0, 0]`: its value)
+    pub order: [u8; 2],
+    /// its arguments, of the model's variables (as its channels) and
+    /// parameters
+    pub args: Vec<Expr>,
+    /// the table's name
+    pub label: String,
+    /// per argument: the table's smoothness inside its data and at its
+    /// data's edges (`C^c`; `u32::MAX`: no breakpoint there,
+    /// [`lsim_ir::interp::AxisSmoothness`])
+    pub smooth: [(u32, u32); 2],
+    /// the held read it is ([`RunInfo::held`]), if it is held
+    pub held: Option<usize>,
 }
 
 /// A choice index reduction made among states ([`lsim_ir::StateSet`]), as
@@ -971,6 +996,7 @@ impl RunInfo {
             state_sets: vec![],
             choices: None,
             held: vec![],
+            state_reads: vec![],
         }
     }
 
@@ -1196,6 +1222,7 @@ impl RunInfo {
                     }
                 })
                 .collect(),
+            state_reads: state_reads(m),
         }
     }
 
@@ -2249,6 +2276,66 @@ fn part_name(flat: &lsim_ir::FlatSystem, id: lsim_ir::InstanceId) -> String {
 
 /// Evaluates flat-scope expressions from the channel values, with the
 /// model's tables as its compiled code interpolates them.
+/// The table reads of `m`'s equations at an argument that moves with the
+/// states: one that reads a variable other than a discrete one, or a
+/// derivative (a read along time alone is a time table, whose breakpoints
+/// the run stops at). A held read is told by its own read; the other reads
+/// its cell's function makes of the same table are left out.
+fn state_reads(m: &PreparedModel) -> Vec<StateRead> {
+    let discrete: std::collections::HashSet<VarId> = m.discretes.iter().copied().collect();
+    let mut out: Vec<StateRead> = vec![];
+    let moving = |a: &Expr| {
+        let mut any = false;
+        a.walk(&mut |e| match e {
+            Expr::Var(v) if !discrete.contains(v) => any = true,
+            Expr::Der(_) => any = true,
+            _ => {}
+        });
+        any
+    };
+    let mut visit = |e: &Expr| {
+        e.walk(&mut |node| {
+            let Expr::Table { table, args, order } = node else { return };
+            let Some(ft) = m.flat.tables.get(*table as usize) else { return };
+            if args.len() != ft.data.dims() || !args.iter().any(&moving) {
+                return;
+            }
+            let held = m.held.iter().position(|h| &h.read == node);
+            if held.is_none()
+                && m.held.iter().any(|h| {
+                    matches!(&h.read, Expr::Table { table: t, order: o, .. }
+                        if t == table && o == order)
+                })
+            {
+                return;
+            }
+            if out.iter().any(|r| r.table == *table && r.order == *order && &r.args == args) {
+                return;
+            }
+            let mut smooth = [(u32::MAX, u32::MAX); 2];
+            for (j, sj) in smooth.iter_mut().enumerate().take(args.len()) {
+                let a = lsim_ir::interp::data_smoothness(&ft.data, j);
+                *sj = (a.inside, a.edges);
+            }
+            out.push(StateRead {
+                table: *table,
+                order: *order,
+                args: args.clone(),
+                label: ft.name.clone(),
+                smooth,
+                held,
+            });
+        });
+    };
+    for a in &m.assignments {
+        visit(&a.expr);
+    }
+    for r in &m.residuals {
+        visit(&r.expr);
+    }
+    out
+}
+
 pub(crate) struct ChannelEnv<'a> {
     pub t: f64,
     pub vars: &'a [f64],

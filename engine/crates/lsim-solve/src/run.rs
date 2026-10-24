@@ -359,8 +359,9 @@ struct Loop<'a> {
     /// [`crate::held::CROSSINGS_WINDOW`] + 1), and the instant of the last
     crossings: Vec<Vec<u64>>,
     crossed_at: Vec<f64>,
-    /// what the run says of itself (the held reads it released)
-    notes: Vec<String>,
+    /// what the run says of itself (the held reads it released): kept
+    /// outside the loop, so that a run that fails after a release says so
+    notes: &'a std::cell::RefCell<Vec<String>>,
 }
 
 /// Whether two times are one instant to the integrators: closer than a
@@ -460,9 +461,15 @@ fn no_progress(
     let (worst, _) = worst_variable(model, info, integ, t, y, d, u);
     let worst =
         if worst.is_empty() { worst } else { format!(" (the largest local error: {worst})") };
-    SolveError::Integrator {
-        t,
-        message: format!(
+    // a table read at a state, stepped over, at one of its breakpoints:
+    // named, with the option that holds it
+    let message = match crate::held::at_breakpoint(model, info, t, y, d, u) {
+        Some(read) => format!(
+            "{} made no progress: no step longer than the time's resolution passes its error \
+             test here{worst}. {read}",
+            integ.name()
+        ),
+        None => format!(
             "{} made no progress: no step longer than the time's resolution passes its error \
              test here{worst}. The model is not smooth here (a jump it declares no event for, \
              in a `noEvent` relation or a function that is not smooth), an equation loses its \
@@ -471,7 +478,8 @@ fn no_progress(
              an algebraic loop turns singular)",
             integ.name()
         ),
-    }
+    };
+    SolveError::Integrator { t, message }
 }
 
 /// The integrator's own failure `e` (SUNDIALS' flag), told with what the
@@ -522,6 +530,17 @@ fn integrator_failure(
             ));
         }
     }
+    let why = why.or_else(|| {
+        // a table read at a state, stepped over, at one of its breakpoints
+        crate::held::at_breakpoint(model, info, t, y, d, u).map(|read| {
+            let worst = if worst.is_empty() {
+                String::new()
+            } else {
+                format!(" (the largest local error: {worst})")
+            };
+            format!("it stopped here{worst}. {read}")
+        })
+    });
     let why = why.unwrap_or_else(|| {
         let worst =
             if worst.is_empty() { worst } else { format!(" (the largest local error: {worst})") };
@@ -1377,8 +1396,10 @@ impl Loop<'_> {
     /// group's edges, counted once an instant): its group's crossings
     /// recorded, and the group released ([`crate::held::release`]) where
     /// they have come too often ([`crate::held::released_by_crossings`];
-    /// with [`SolverOptions::held_release`], and for a group that holds a
-    /// read that jumps: one held only for comparison stays held).
+    /// with [`SolverOptions::held_release`], on the explicit form, and for
+    /// a group that holds a read whose slope jumps: one held only for
+    /// comparison stays held, and the implicit form, which cannot step over
+    /// a jump, holds every read through every crossing).
     fn crossed(&mut self, t: f64, k: usize, d: &mut [f64]) {
         let info = self.info;
         let g = info.held[k].group;
@@ -1392,11 +1413,12 @@ impl Loop<'_> {
             at.remove(0);
         }
         if self.opts.held_release
+            && self.model.layout().n_z == 0
             && info.held.iter().any(|h| h.group == g && h.jumps)
             && crate::held::released_by_crossings(at)
         {
             crate::held::release(info, g, d);
-            self.notes.push(format!(
+            self.notes.borrow_mut().push(format!(
                 "at t = {t:.6} s the table '{}' read at a state had crossed its cells' edges {} \
                  times within {} steps: stepped over from there, no longer held in its cells",
                 info.held[k].label,
@@ -1964,6 +1986,9 @@ pub fn run_loop(
     let axes_warnings = axes_missing(model, info);
     let given = info.with_model_tables(model);
     let info = given.as_ref().unwrap_or(info);
+    // what the run says of itself (the held reads it released), told with
+    // its failure too
+    let notes = std::cell::RefCell::new(vec![]);
     // the models the run switches to, and the one it is on
     let arena = switch::Arena::new();
     let mut cur = Current { model, info, integ: None };
@@ -1986,6 +2011,7 @@ pub fn run_loop(
         started,
         &mut watch,
         axes_warnings,
+        &notes,
     );
     run.map_err(|e| {
         let (model, info) = (cur.model, cur.info);
@@ -1993,7 +2019,7 @@ pub fn run_loop(
             Some(i) => i,
             None => integ,
         };
-        match watch.blamed(info, &e) {
+        let e = match watch.blamed(info, &e) {
             Some(named) => named,
             None => {
                 // (where the last step started: the integrator's solution
@@ -2002,7 +2028,8 @@ pub fn run_loop(
                 let y = integ.y().to_vec();
                 integrator_failure(model, info, integ, t, &y, d, u, e)
             }
-        }
+        };
+        e.with_notes(&notes.borrow())
     })
 }
 
@@ -2049,6 +2076,11 @@ struct Ready<'a> {
     /// the point's time, and the discrete values it was readied with
     t: f64,
     d: Vec<f64>,
+    /// the discrete values the run goes on with (the reads released on
+    /// the explicit form held again on the implicit one), and those reads'
+    /// tables
+    d_next: Vec<f64>,
+    held_again: Vec<String>,
     /// the step was cut back to the point
     cut: bool,
     /// the set's factor there
@@ -2076,13 +2108,34 @@ fn ready_switch<'a>(
     (cut, e): (bool, f64),
 ) -> Result<Result<Ready<'a>, (usize, Option<f64>, String)>, SolveError> {
     let refuse = |why: &str| Ok(Err((k, None, why.to_string())));
+    // a table read the run released (on the explicit form) would be
+    // stepped over on the implicit form, which cannot step over its jump:
+    // it is held in its cells again there (that form releases nothing)
+    let mut d_next = d.to_vec();
+    let mut held_again: Vec<String> = vec![];
+    if next.model.layout().n_z > 0 {
+        for h in &next.info.held {
+            if d_next.get(h.released).is_some_and(|r| *r > 0.5) {
+                d_next[h.released] = 0.0;
+                for ax in &h.axes {
+                    d_next[ax.cell] = -1.0;
+                }
+                if !held_again.contains(&h.label) {
+                    held_again.push(h.label.clone());
+                }
+            }
+        }
+        if !held_again.is_empty() {
+            crate::held::settle(next.model, next.info, t, &next.y, &mut d_next, u)?;
+        }
+    }
     let started = crate::new_integrator(
         next.model,
         next.info,
         opts,
         OutputGrid { t0: t, ..grid },
         &next.y,
-        d.to_vec(),
+        d_next.clone(),
         u.to_vec(),
     );
     let mut integ = match started {
@@ -2111,10 +2164,10 @@ fn ready_switch<'a>(
         .switching(next.info, opts.state_switch);
     w.adopt(watch, from, next.info, k);
     let y = integ.y().to_vec();
-    if let Err(e) = w.holds(next.info, next.model, t, &y, d, u) {
+    if let Err(e) = w.holds(next.info, next.model, t, &y, &d_next, u) {
         return Ok(Err(e));
     }
-    Ok(Ok(Ready { k, next, integ, watch: w, y, t, d: d.to_vec(), cut, e }))
+    Ok(Ok(Ready { k, next, integ, watch: w, y, t, d: d.to_vec(), d_next, held_again, cut, e }))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2129,6 +2182,7 @@ fn run_watched<'a>(
     started: Instant,
     watch: &mut crate::states::Watch,
     axes_warnings: Vec<String>,
+    notes: &'a std::cell::RefCell<Vec<String>>,
 ) -> Result<SimResult, SolveError> {
     // the default floating-point environment (lsim_ir::fenv)
     let _env = lsim_ir::fenv::DefaultFloatEnv::enter();
@@ -2205,7 +2259,7 @@ fn run_watched<'a>(
         steps: 0,
         crossings: vec![vec![]; crate::held::groups(info)],
         crossed_at: vec![f64::NAN; crate::held::groups(info)],
-        notes: vec![],
+        notes,
     };
     for (k, (c, _)) in info.whens.iter().enumerate() {
         if *c < lp.when_of_root.len() && lp.mode_of_root[*c].is_none() {
@@ -2361,7 +2415,17 @@ fn run_watched<'a>(
                 Some(i) => i,
                 None => &mut *integ0,
             };
-            let Ready { k: sw_k, next, integ: mut ni, watch: w2, y: yc, .. } = r;
+            let Ready {
+                k: sw_k, next, integ: mut ni, watch: w2, y: yc, d_next, held_again, ..
+            } = r;
+            d = d_next;
+            for label in held_again {
+                lp.notes.borrow_mut().push(format!(
+                    "at t = {t:.6} s the table '{label}' read at a state, released before, is held \
+                     in its cells again: the model the states chosen again need is of the \
+                     implicit form, which cannot step over it"
+                ));
+            }
             // what the integrator left: its work, its error estimates (by
             // name, over the models the run was on)
             stats_left += old.stats();
@@ -3424,7 +3488,7 @@ fn run_watched<'a>(
         ));
     }
     report.notes.append(&mut switch_notes);
-    report.notes.append(&mut lp.notes);
+    report.notes.append(&mut lp.notes.borrow_mut());
     report.stats = integ.stats();
     report.stats += stats_left;
     report.events = lp.events.len();

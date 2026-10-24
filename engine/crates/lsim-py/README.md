@@ -25,13 +25,25 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
 
 ## What a call gives
 
-* `build(project_json, case_id, cache_dir=None, cycles_dir=None)` returns a
-  `Model`. With `cache_dir`, the prepared model is cached on disk (a second
-  build of the same car with the same values skips preparation; other
-  values are prepared again, since preparation chooses by them: set them
-  on the built model instead, `set_params` or `sweep`). `cycles_dir` is the folder of the bundled drive cycles
-  (`backend/app/cycles` of the repository is the default). The GIL is
-  released while it works.
+* `build(project_json, case_id, cache_dir=None, cycles_dir=None,
+  table_cells="auto")` returns a `Model`. `table_cells` says which table
+  reads at a state (a table read at a value that moves with the states,
+  not with time alone) are held in their cells, each crossing of a
+  breakpoint an event (`engine/DESIGN.md` §8.2): `"auto"`, the default,
+  those the model's form needs held (a linear table's slope on the explicit
+  form; every read that jumps on the implicit form, on which the example
+  cars run, where stepped over it stopped the judge's runs at a
+  breakpoint; the cars' maps, read for their values, are held by none but
+  `"kinks"`); `"off"`, none (the integrator steps over every breakpoint);
+  `"jumps"`, every read whose slope jumps; `"kinks"`, also the reads that
+  only kink (for comparison). Another word raises
+  `ValueError`; the option is part of the cache's key. With `cache_dir`,
+  the prepared model is cached on disk (a second build of the same car
+  with the same values skips preparation; other values are prepared
+  again, since preparation chooses by them: set them on the built model
+  instead, `set_params` or `sweep`). `cycles_dir` is the folder of the
+  bundled drive cycles (`backend/app/cycles` of the repository is the
+  default). The GIL is released while it works.
 * `model.report`: sizes, import/prepare/compile seconds, whether the cache
   was hit, the structure key, `warnings` (a list of diagnostics) and the
   case (id, name, duration, the sampled blocks).

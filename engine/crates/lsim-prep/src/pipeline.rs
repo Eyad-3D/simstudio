@@ -41,8 +41,9 @@ pub struct Settings {
     /// switches to where the states chosen before degrade
     pub choose_at: Option<std::sync::Arc<ChoosePoint>>,
     /// which table reads at a state are held in their cells during every
-    /// step, each crossing of a cell's edge an event ([`crate::hold`]):
-    /// none by default
+    /// step, each crossing of a cell's edge an event ([`crate::hold`]): by
+    /// default those the model's form needs held
+    /// ([`crate::hold::TableCells::Auto`])
     pub table_cells: crate::hold::TableCells,
 }
 
@@ -53,7 +54,7 @@ impl Default for Settings {
             numeric_start: true,
             tearing_minimum: false,
             choose_at: None,
-            table_cells: crate::hold::TableCells::Off,
+            table_cells: crate::hold::TableCells::Auto,
         }
     }
 }
