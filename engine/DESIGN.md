@@ -2353,7 +2353,8 @@ round).**
   is worse than stepping over (1d41c7d7's default), on the judge's cases:
   `kink-osc-101` at 10⁻⁶ (1 308 against 161), `kink-osc-41` at 10⁻⁵ (522
   against 168), `kink-osc2d-101` at 10⁻⁶ (1 510 against 223),
-  `kink-osc2d-41` at 10⁻⁵ (449 against 344), `kink-dense-gear-401` at
+  `kink-osc2d-41` at 10⁻⁵ (449 against 344) (these two let go of at
+  t = 10 s only, by c's one crossing: below), `kink-dense-gear-401` at
   10⁻⁴, 10⁻⁵, 10⁻⁹ and 10⁻¹⁰ (4.7, 14.5, 164 and 368 against 1.9, 1.7,
   152 and 158), `kink-dense-gear-41` at 10⁻⁴ and 10⁻⁵ (11.5 and 19 against 5.2
   and 7.5), `kink-edge-11` (the swing across a clamped cubic's edges, 59
@@ -2445,11 +2446,17 @@ round).**
   and 10⁻⁵ (26 and 157 rtol, where held throughout it is 1 238 and 1 347
   and stepped over 55 and 341), not at 10⁻⁶ (1 308); through 401 points at
   10⁻⁴ … 10⁻⁷ (14 … 542 against 2 156 … 5 364 held throughout, 40 … 730
-  stepped over); through 41 at 10⁻⁴ (53); the 2-D swings through 41
-  points at 10⁻⁴ and 10⁻⁵ (47 and 449, against 631 and 641 held
-  throughout and 66 and 344 stepped over) and through 101 at 10⁻⁴ … 10⁻⁶
-  (31, 138 and 1 510, against 1 480, 1 660 and 1 610, and 48, 181 and
-  223); a single pass let go of on the way can be worse than either way
+  stepped over); through 41 at 10⁻⁴ (53); the 2-D swings where the 1-D
+  ones are (through 41 points at 10⁻⁴: 47, against 631 held throughout
+  and 66 stepped over; through 101 at 10⁻⁴ and 10⁻⁵: 31 and 138, against
+  1 480 and 1 660, and 48 and 181), and through 41 at 10⁻⁵ and 101 at
+  10⁻⁶ too, but only at t = 10 s, where c's one crossing of its point 0.5
+  adds a restart to a window just under the bar (9 crossings within 47
+  steps): 449 and 1 510, against 641 and 1 610 held throughout and 344
+  and 223 stepped over; with c crossing none of its points they are held
+  throughout at those two tolerances (640 and 1 610), and with c's point
+  at 0.25 let go of at t = 5 s (428 and 685), so these two figures depend
+  on where c's point lies (the A3 check 7); a single pass let go of on the way can be worse than either way
   (401 points at 10⁻⁹ and 10⁻¹⁰: 229 and 384 against 87 and 77 held
   throughout, 152 and 158 stepped over). The implicit form releases nothing, whatever `held_release` says: released,
   the read is stepped over, which IDAS could not do in the judge's cases
