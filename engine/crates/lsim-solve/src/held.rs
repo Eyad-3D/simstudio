@@ -607,9 +607,12 @@ pub(crate) fn at_breakpoint(
             } else {
                 ""
             };
+            // (the argument to ten digits: it is within a millionth of a
+            // cell of the breakpoint, which is shown as given)
+            let shown: f64 = format!("{x:.9e}").parse().unwrap_or(x);
             let said = format!(
                 "Here the table '{}', read at a state ({what}), is at its breakpoint {} ({arg} = \
-                 {x}), where the read {how}: {stepped}, and {form}. Hold the read in its cells: \
+                 {shown}), where the read {how}: {stepped}, and {form}. Hold the read in its cells: \
                  build the model with the option table_cells = \"{option}\" \
                  (lsim_engine::BuildOptions::table_cells; table_cells=\"{option}\" in Python){keep}",
                 r.label, p[i]

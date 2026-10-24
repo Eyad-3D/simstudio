@@ -350,9 +350,13 @@ fn the_implicit_form_holds_a_read_whose_slope_jumps() {
             .unwrap_or_else(|| panic!("rtol {rtol:e}: stepped over, the run went through"));
         let said = e.to_string();
         assert!(said.contains("t = 0.5087"), "rtol {rtol:e}: {said}");
-        for words in
-            ["the table 'r'", "its first derivative", "breakpoint 10", "table_cells = \"auto\""]
-        {
+        // (the argument shown to ten digits: it stops at 9.999999999999998)
+        for words in [
+            "the table 'r'",
+            "its first derivative",
+            "breakpoint 10 (w2 = 10)",
+            "table_cells = \"auto\"",
+        ] {
             assert!(said.contains(words), "rtol {rtol:e}: {said}");
         }
     }
