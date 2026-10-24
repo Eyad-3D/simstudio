@@ -593,15 +593,17 @@ second: about 0.899889 after 10 s.
   `x1`, one number in a row for each point of `x2`. Read it as `eff(w,
   tau)`.
 * Between the points a table is a monotone cubic curve by default: its
-  slope has no jumps, so the solver needs no events at the points, and it
+  slope has no jumps (its second derivative has, at the points), and it
   does not overshoot where the data rise or fall steadily. `interpolation =
-  linear` joins the points with straight lines instead. Read along time, a
-  table stops the run at each point. Read at a value that moves with the
-  model's states, a table's value is stepped over at its points, as any
-  smooth-enough function is; where the model reads a derivative of it that
-  jumps there (a linear table differentiated by index reduction, as a gear
-  whose ratio is a table of a speed is; a cubic's slope where it is held
-  at its edges), each crossing of such a point is an event.
+  linear` joins the points with straight lines instead (the slope jumps at
+  each point). Read along time, a table stops the run at each point. Read
+  at a value that moves with the model's states, the solver steps over the
+  points with no events, also where the model reads a derivative of the
+  table that jumps there (a linear table differentiated by index
+  reduction, as a gear whose ratio is a table of a speed is): there the
+  error is not proportional to the tolerance, tens to a few hundred
+  tolerances off where it would be a few (measured: `engine/DESIGN.md`
+  §8.2, *Tables read at a state*).
 * `outside = {clamp}` (the default) holds the edge value beyond the data;
   `linear` extends the edge's slope; `error` stops the run. Give one rule
   for each axis, or one for all.

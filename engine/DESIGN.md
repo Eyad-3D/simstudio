@@ -1302,20 +1302,22 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    jump (`TimeTable::kink`; measured on a gear whose ratio is a linear
    table over time: 2·10⁻⁸ off the closed form with a plain stop at the
    breakpoint, 4·10⁻¹¹ with this, and 1·10⁻¹¹ read backwards in time, at
-   rtol 10⁻¹⁰). Read at a state, a jump's time is not known ahead: the
-   read is held in its cell during every step and its crossing of the
-   breakpoint found by root finding, an event after which the integrator
-   restarts in the next cell (section 8.2, *Tables read at a state*).
-   Stepped over as any piecewise-smooth right-hand side, as it was until
-   23 October 2026, its error was not proportional to the tolerance: the
-   same gear with the ratio a linear table of the load's speed, written in
-   the text format (the outside judge's `kink-gear-linear`, run on CVODE's
-   Adams method as the run chose it), 9.7, 9.9, 23, 25, 28, 167 and 178
-   rtol off the closed form at rtol 10⁻⁴ … 10⁻¹⁰ (the library's gear on
-   IDA, the one measurement before, 7·10⁻¹¹ at 10⁻¹⁰); held, 1.1, 1.0, 1.2,
-   1.8, 2.8, 1.2 and 1.7 rtol, as the run of the same function written as
-   `if` branches on its breakpoints (the same steps, the states the same
-   to about 10⁻¹²).
+   rtol 10⁻¹⁰). Read at a state, a jump's time is not known ahead, and the
+   integrator steps over it as over any piecewise-smooth right-hand side
+   (section 8.2, *Tables read at a state*). That is not proportional to
+   the tolerance: the same gear with the ratio a linear table of the
+   load's speed, written in the text format (the outside judge's
+   `kink-gear-linear`, run on CVODE's Adams method as the run chose it),
+   is 9.7, 9.9, 23, 25, 28, 167 and 178 rtol off the closed form at rtol
+   10⁻⁴ … 10⁻¹⁰ (the library's gear on IDA, the one measurement before,
+   7·10⁻¹¹ at 10⁻¹⁰). Held in its cell during every step on request, its
+   crossing of the breakpoint found by root finding and the integrator
+   restarted in the next cell, it is 1.1, 1.0, 1.2, 1.8, 2.8, 1.2 and 1.7
+   rtol, as the run of the same function written as `if` branches on its
+   breakpoints (the same steps, the states the same to about 10⁻¹²); but
+   each restart costs a roughly fixed error, and where the crossings are
+   many holding loses to stepping over, so it is not the default (section
+   8.2).
 
    *Not smooth enough* (`INDEX-TABLE-NOT-SMOOTH`): a table differentiated
    more often than that is refused, naming the table, the equation and
@@ -2233,78 +2235,111 @@ round).**
   (`ModelFunctions::table_axes`) where they differ from the prepared
   ones, for these stops and for the enclosures of the conditions on
   functions of time (`RunInfo::with_model_tables`).
-* *Tables read at a state, held in their cells where the read jumps*
+* *Tables read at a state: stepped over, held in their cells on request*
   (`lsim_prep::hold`, `lsim-solve/src/held.rs`; Park and Barton's
   discontinuity locking, ACM TOMACS 6(2), 1996). A table read at a
-  position that moves with the states has no breakpoint times ahead, so
-  by default the integrator steps over its breakpoints as over any
-  piecewise-smooth right-hand side. Where the read jumps there (it is
-  read more often differentiated along an argument than the table is
-  continuously differentiable there, inside its data and at its edges
-  apart, `lsim_ir::interp::axis_smoothness`: a linear table's slope,
-  which index reduction reads where a constraint goes through the table;
-  a monotone cubic's slope where it is held at its edges, at those edges
-  only), stepping over it is not proportional to the tolerance, and the
-  read is held in its cell. Measured on exact answers (the outside
-  judge's `kink-…` cases, section 15, the seventh verdict): stepped over,
-  a gear whose ratio is a linear table of the load's speed was 9.7, 9.9,
-  23, 25, 28, 167 and 178 rtol off at rtol 10⁻⁴ … 10⁻¹⁰, its error per
-  tolerance growing as it tightens, where the same function with its
-  breakpoints located is within 2.8; a monotone cubic held at its edges,
-  the speed leaving the data and coming back, 6.7 … 131 (5 261 in a
-  sweep); held, 1.0 … 2.8 rtol in 36 … 102 steps (stepped over it took
-  41 … 180 with 17 … 75 error-test failures, now 5 … 18), and the
-  clamped cubic, held at its edges only, 1.1 … 12.5 (the kinks between
-  its points stepped over: held there too it was 0.7 … 3.7, with ten
-  cell events where it has four).
+  position that moves with the states has no breakpoint times ahead, and
+  the integrator steps over its breakpoints as over any piecewise-smooth
+  right-hand side (`TableCells::Off`, the default, as Modelica tools do
+  for a table's inputs). Where the read's slope jumps there (a linear
+  table's slope, which index reduction reads where a constraint goes
+  through the table; a clamped table's slope at its data's edges), that
+  is not proportional to the tolerance: the outside judge's gear whose
+  ratio is a linear table of the load's speed (`kink-gear-linear`,
+  section 15, the seventh verdict) is 9.7, 9.9, 23, 25, 28, 167 and 178
+  rtol off at rtol 10⁻⁴ … 10⁻¹⁰, its error per tolerance growing as it
+  tightens, and the clamped cubic swung out of its data and back
+  (`kink-gear-clamp`) 6.7 … 131 (5 261 in a sweep), where held in their
+  cells they are 1.0 … 2.8 and 1.1 … 12.5. Holding was the default for
+  two rounds of A3 (23 and 24 October 2026: every read that jumps or
+  kinks, then every read whose read derivative jumps) and is not any
+  more: each crossing held is an event and a restart of the integrator at
+  its lowest order, which costs a roughly fixed error whatever the jump
+  (0.1 … 0.5 rtol a crossing on the gears, 2 … 3.6 on the bead below and
+  on springs whose force is a table), of one sign, so that it adds up
+  over the crossings, while stepping over a small jump costs little and
+  its errors partly cancel. Where the crossings are many, holding loses.
 
-  A read that only kinks (a linear table's value, a cubic's slope inside
-  its data, the default table's value) is stepped over, as Modelica
-  tools do for a table's inputs. Holding it was measured too (A3's first
-  round held every read that kinks): each crossing is then an event and
-  a restart of the integrator at its lowest order, which costs about 0.1
-  to 4 rtol of the run's error (0.09 a crossing on a single pass through
-  a table, 3.1 … 3.7 on a spring that oscillates through one), so where
-  crossings are many it is far worse than the kinks it removes: a spring
-  whose force is a linear table of 101 points was 3 107 rtol off at the
-  default rtol 10⁻⁶ held, 72 stepped over (855 crossings in 20 s, 5 591
-  steps against 1 023); 401 points, 12 502 against 9.8; the default
-  table, every one of its points an event though it is C¹ there, 3 120
-  against 117 (the review of A3, check 1). Such dense tables stepped over
-  are themselves not proportional (the 101-point spring 39 … 5 153 rtol
-  at 10⁻⁴ … 10⁻¹⁰, its error per tolerance growing 43-fold; held 1 458
-  … 3 150), so proportionality alone does not decide: the rule (revised
-  after that review, lanes notes) holds a kind of read only where
-  stepping over is out of proportion to the tolerance (the slope and
-  growth tests: the slope of the error over the seven tolerances below
-  0.8, or its error in rtol growing tenfold from the three loosest to the
-  three tightest, where the held run's does not) *and* a work-precision
-  comparison against exact answers across table densities (6 … 401
-  points, single passes and oscillations; the judge's `kink-dense-…` and
-  `kink-pass-…`, each beside its other way) finds the held run no less
-  accurate for its work on tables of the usual size. Value reads fail
-  that: held, a value read of 41 … 401 points is 7 to 1 270 times as far
-  off as stepped over at rtol 10⁻⁴ … 10⁻⁶, and 4 to 67 000 times at
-  equal steps at 10⁻⁷ and looser; only on tables of a few points, where
-  crossings are rare against the steps, did holding mostly win (the
-  judge's springs of three to seven points 0.3 … 5 times as geometric
-  means per tolerance over sweeps, 11 points 0.7 … 20 times), a size the
-  located controls showed and the slope and growth tests did not. Jumps
-  pass it: stepped over, a gear's ratio of 41 … 401 points is 0.04 to 99
-  times as far off as held, its error growing 6- to 32-fold as the
-  tolerance tightens; held it stays within 95 rtol on a single pass.
-  The limit, measured: where crossings come faster than the integrator
-  regains its order after each restart, holding costs about 0.45 rtol a
-  crossing even for a jump. The same gear with a torsion spring on its
-  load, the speed sweeping back and forth through a ratio table of 101
-  or 401 points (2 847 and 11 448 crossings in 20 s; against DOP853 at
-  10⁻¹³ restarted at each crossing, its energy conserved to 10⁻¹²), is
-  754 … 1 347 and 2 156 … 5 581 rtol off held at every tolerance,
-  stepped over 55 … 341 and 40 … 324 at 10⁻⁴ … 10⁻⁶ and 730 … 10 869 at
-  10⁻⁷ … 10⁻¹⁰ (held is the better from 10⁻⁷ on with 101 points, from
-  10⁻⁹ with 401); with 6 or 21 points held is the better at every
-  tolerance (21 points: but 10⁻⁴, 254 against 52). Releasing a held read whose crossings are that
-  frequent is an open item (STATUS.md).
+  Measured against exact answers (closed forms per cell, first integrals
+  integrated per cell, or DOP853 at rtol 10⁻¹³ restarted at each
+  crossing and checked by the energy it conserves, to 2·10⁻¹¹; the
+  judge's `kink-…` cases, each beside its other ways, and the A3 reviews'
+  sweeps; lanes notes): a read that only kinks (a linear table's value)
+  held is 7 to 1 270 times as far off as stepped over at rtol 10⁻⁴ … 10⁻⁶
+  on tables of 41 … 401 points (a spring whose force is a linear table of
+  101 points, 3 107 rtol at 10⁻⁶ held against 72). A slope that jumps at
+  every point, swung back and forth through 41 or 101 of them (the gear on
+  a torsion spring, `kink-osc-41`, `kink-osc-101`: 1 127 and 2 847
+  crossings in 20 s), held through every crossing is 517 and 1 238 rtol
+  off at 10⁻⁴ where stepped over it is 55 and 55, and on 101 points 1 308
+  against 161 at the default rtol 10⁻⁶ (on 41, 489 against 819; held is
+  the better from 10⁻⁶ on with 41 points, from 10⁻⁷ with 101); through 6
+  or 21 points it is 17 and 162 at 10⁻⁶ against 243 and 716 (but 21 at
+  10⁻⁴: 254 against 52). A single pass through a table of 101 … 401
+  points held is the worse at 10⁻⁴ and 10⁻⁵ (up to 27 times; at 10⁻⁶
+  either way) and the better from 10⁻⁷ on. A cubic's second derivative
+  (the A3 review's bead on a wire `y = r(x)`, `kink-bead-41`, the wire
+  the default table of `x²/2` at 41 points, held at every one of them;
+  Steffen's cubic of a parabola is the parabola, so that its `r''` does
+  not even jump there) held is 429 … 737 rtol off at 10⁻⁴ … 10⁻¹⁰,
+  stepped over 10 … 187. A clamped
+  cubic's slope swung across its edges 59 times (`kink-edge-11`) held is
+  104 against 34 at 10⁻⁴ and 267 against 61 at 10⁻⁹, the better at 10⁻⁵
+  … 10⁻⁸ and 10⁻¹⁰ (17 … 309 against 144 … 342).
+
+  The decision was taken by rule: the third, written before its own
+  measurements (lanes notes, 24 October 2026), applies the second as it
+  was written (not as this section once stated it). A kind of read is
+  held by default only if stepping over it fails the slope and growth
+  tests in some case of the kind (the slope of its error over the seven
+  tolerances below 0.8, or its error in rtol growing tenfold from the
+  three loosest to the three tightest, where the held run's does not) and,
+  across table densities of 6 … 401 points in single passes and swings,
+  the held run is nowhere more than 100 rtol off where stepping over is
+  within it, and no less accurate for its work (steps) at the default rtol
+  and tighter on tables of 41 points or fewer. The held run had the two
+  releases below, made for the purpose. No kind passed: a linear table's
+  slope failed the 100 rtol test on the swing through 21 points at 10⁻⁴
+  (254 against 52: crossed every 6.6 steps on average, a little too
+  seldom to be released) and on a single pass through 101 points at 10⁻⁸
+  (released after 29 of its 82 crossings, 108 against 54; held
+  throughout, 17); a clamped cubic's slope on `kink-edge-11`; a cubic's
+  second derivative the work test on the bead at every tolerance from
+  10⁻⁶ on; a 2-D read was not measured. So
+  nothing is held by default. The earlier default (`TableCells::Jumps`
+  holding every read whose read derivative jumps, a cubic's second
+  derivative and a 2-D read among them) had been decided on a rule
+  written after the data, whose 100 rtol clause it failed (the review of
+  A3, check 2).
+
+  `TableCells::Jumps` (opt-in: `Settings::table_cells`, the judge's
+  runner's `table_cells`) holds the reads whose slope jumps, a linear
+  table's at its points and a clamped table's at its data's edges, not a
+  cubic's second derivative nor a 2-D read; `Kinks` holds also the reads
+  that only kink, a cubic's second derivative and 2-D reads, for
+  comparison only. The run releases a group of held reads (the reads of
+  one table at the same arguments) where holding it costs more than it
+  saves; it is then the table itself, stepped over, for the rest of the
+  run, its edges open, and the report has a note of it
+  (`SolverOptions::held_release`, on; a group held only for comparison is
+  never released). At the start, where its reads that jump differ
+  between their two sides at every point they are held at by no more
+  than rtol times the largest of those sides' magnitudes (a table of
+  collinear points; a clamped cubic whose end slopes are zero, as
+  Steffen's are for some data). During the run, where its last 8 intervals between
+  crossings took fewer than 48 integrator steps: after a restart CVODE
+  runs at order 1 and raises its order only after q + 1 steps at order q,
+  so its 6th step is the first that can be at order 3, and a read crossed
+  again sooner keeps the run in its restarts' low orders. With them, the
+  swing through 101 points is let go of at 10⁻⁴ and 10⁻⁵ (26 and 157
+  rtol, where held throughout it is 1 238 and 1 347 and stepped over 55
+  and 341), not at 10⁻⁶ (1 308); through 401 points at 10⁻⁴ … 10⁻⁷ (14 …
+  542 against 2 156 … 5 364 held throughout, 40 … 730 stepped over);
+  through 41 at 10⁻⁴ (53); a single pass let go of on the way can be
+  worse than either way (401 points at 10⁻⁹ and 10⁻¹⁰: 229 and 384
+  against 87 and 77 held throughout, 152 and 158 stepped over). Where the points are
+  few and crossed rarely, holding is the better (the judge's
+  `kink-gear-linear-held`, `kink-gear-clamp-held`).
 
   A held read is written in the equations as its cell's own function,
   continued smoothly beyond the cell, with discrete coefficients, and the
@@ -2321,8 +2356,11 @@ round).**
   read); outside, the table's held value. The other reads of the same
   table at the same arguments (the value beside the slope index
   reduction reads) are held with it: their edges are crossed at the same
-  instants, at no further cost. A 2-D read that jumps is held at every
-  breakpoint of both its arguments. The run puts every held read in the
+  instants, at no further cost. A 2-D read (held for comparison) is held
+  at every breakpoint of both its arguments. Each held read is written
+  `if released then` the table's read `else` its cell's function (both
+  evaluated, the one chosen bitwise as it stands). The run puts every held
+  read in the
   cell its argument lies in before the integrator starts (`init::start`),
   in every round of event iteration where an edge function is below zero
   (as a mode is set from its relation), and after a step that ended
@@ -2333,7 +2371,10 @@ round).**
   a linear one's line). Inside its cell the right-hand side is the cell's
   function, continued across the edge until root finding finds the
   crossing, where the integrator restarts in the next cell (an event,
-  `EventKind::Cell`, which is no event storm); so a step integrates
+  `EventKind::Cell`, which is no event storm: one for each read moved,
+  so that a crossing of a table held for its value and its slope counts
+  two events, the bead's three; the restarts count the crossings); so a
+  step integrates
   across a jump only where root finding misses the crossing: two
   crossings inside one step, out of a cell and back (the edge functions
   are left to root finding, not checked along the step: the known limit
@@ -2359,22 +2400,23 @@ round).**
   again: data that interpolate with a higher degree (a linear table's
   swapped for a cubic's), that jump between the points of a table held
   at its edges only (a cubic's swapped for linear ones), or that are not
-  held at its edges as they were. `Settings::table_cells`
-  (`TableCells::Jumps`, the default; `Kinks` holds the reads that kink
-  too and `Off` none, for comparison only, as the judge's runner's
-  `table_cells` option does). Held, each judge case is its located
-  run's (the ratio 1.00 at every tolerance on CVODE; on the diffsol
+  held at its edges as they were. Held throughout, each judge case is its
+  located run's (the ratio 1.00 at every tolerance on CVODE; on the diffsol
   cross-check, whose root finder took a sign change for −0 where a
   condition held on its side, `f64::MIN_POSITIVE`, met an edge function
   at its rounding level and panicked, the values it is given are now
   floored at 10⁻¹⁵⁰: the same on every 1-D case, while a 2-D read held
   for comparison is 0.97 … 1.5 times the located run's error there, the
-  cause not found). The golden cars read their motor and battery maps,
-  all linear tables, at states, values only: nothing of theirs is held,
-  and the comparison is e4ada13's record in every field but the run
-  times (held, for one round, every case had moved by the tolerance and
-  the books' closure by 0.034 to 52 times either way: section 11,
-  *Energy books*).
+  cause not found; and there neither the held nor the located runs of a
+  dense table are proportional, the spring of 101 points held 105, 5 171
+  and 5 150 rtol at 10⁻⁴, 10⁻⁷ and 10⁻¹⁰ and the swing through 101 points
+  47, 2 249 and 2 296 held, 52, 2 229 and 2 296 located, where CVODE's
+  stay flat: an open item, STATUS.md). The golden cars read their motor
+  and battery maps, all linear tables, at states, values only: nothing of
+  theirs is held in any mode but `Kinks`, and the comparison is e4ada13's
+  record in every field but the run times (held, for one round, every
+  case had moved by the tolerance and the books' closure by 0.034 to 52
+  times either way: section 11, *Energy books*).
 * *Conditions on explicit functions of time.* A zero-crossing function
   that reads time beyond `c · time + b` (`sin(2π time / T) > 0.95`: a
   heater, a PWM, a load switched by a sine) is classified by preparation
@@ -3822,6 +3864,37 @@ events name the modes that chatter.
   tolerance tightens). The judge's runs are as at e4ada13 bitwise but
   for the gears held (the linear gear's runs bitwise as held before; the
   clamped gear, held at its edges only, 1.1 … 12.5 rtol).
+
+  Revised again after its second check (24 October 2026). That rule had
+  been written after the data it rested on, and the default it chose
+  failed its own 100 rtol clause where a dense table is swung through
+  (the gear on a torsion spring) and held a kind of read nobody had
+  measured, a cubic's second derivative (the review's bead, held at every
+  point of a wire whose `r''` does not jump between them). A third rule,
+  written before its measurements (lanes notes), applied the second as
+  written, with two releases of a held read tried first (section 8.2);
+  no kind passed, and the engine holds nothing by default again. Five
+  cases join, each beside its other ways: `kink-osc-41` and
+  `kink-osc-101`, the gear on a torsion spring swung through 41 and 101
+  points of a linear ratio table (1 127 and 2 847 crossings in 20 s;
+  `…-held` with the releases, `…-always` held without them, `…-located`
+  the ratio as `if` branches), `kink-edge-11`, the same through a clamped
+  cubic of 11 points held at its edges (59 crossings), and `kink-bead-41`
+  (`…-held` at every point, as the round before held it), all against
+  DOP853 at rtol 10⁻¹³ restarted at each crossing (no closed form), its
+  energy conserved to 1.7·10⁻¹² … 1.9·10⁻¹¹; the gears' `…-held` show the
+  opt-in. Stepped over, the swings are 55, 168, 819, 1 126, 829, 1 871
+  and 2 582 rtol off at 10⁻⁴ … 10⁻¹⁰ (41 points) and 55, 341, 161, 2 039,
+  2 975, 1 269 and 2 159 (101); held throughout 517, 522, 489, 322, 282,
+  346 and 407, and 1 238, 1 347, 1 308, 1 291, 1 069, 754 and 833, the
+  located runs the same to the digits printed; with the releases 53 at
+  10⁻⁴ on 41 points, 26 and 157 at 10⁻⁴ and 10⁻⁵ on 101. The clamped
+  cubic stepped over 34 … 342, held 17 … 309 (104 at 10⁻⁴); the bead
+  stepped over 10 … 187, held 429 … 737. Every run of the judge but the
+  new variants is as at e4ada13 bitwise (448 runs of its 65 cases, and
+  the dense and pass cases of the round before as they were stepped
+  over); a held run that is not released is the held run of the round
+  before bitwise (45 runs).
 * **Performance gates**: not built yet. When they are, they compare build
   time (prepare + compile) and run time for each example car in both modes
   with the base commit (as the backend's performance job does) and with

@@ -883,11 +883,14 @@ hybrid's clutch losses at the band's floor by 0.2 and 0.02 of it; none
 across its band), their crossings events (the BEV's WLTC 122 → 2 879,
 the hybrid's UDDS 118 072 → 126 830), the BEV's city recuperation at
 1.0021 × band. Its review found the restarts far costlier than the
-kinks they remove where crossings are many, and now only the reads that
-jump are held (a slope that index reduction reads): nothing of the cars'
-is held, and the comparison is the record above in every field but the
-run times, to the last digit (24 October: `results.json`, `results.md`
-and this README as at e4ada13).
+kinks they remove where crossings are many; the next round held only
+the reads that jump (a slope that index reduction reads), and since the
+second review nothing is held by default (holding is opt-in,
+`TableCells::Jumps`). The cars' maps are read for their values, so
+nothing of theirs is held in either, and the comparison is the record
+above in every field but the run times, to the last digit (24 October:
+`results.json` and `results.md` as at e4ada13; 84.6 s user on the round
+that made the default stepped over).
 
 The books' closure had doubled on the city cycle while the maps were
 held (6.6e-10 → 1.3e-9) and fallen on the WLTC (2.8e-10 → 4.0e-11).
