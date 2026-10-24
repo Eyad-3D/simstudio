@@ -1126,8 +1126,9 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    and 37: the restart from interpolated values on a choice that has
    degraded costs that much. The path needs a tick to fall exactly on the
    point by coincidence (`a_switch_refused_after_a_tick_at_its_cut_point_…`).
-   A cut itself is not rare: across the judge 215 of its 20 581 switches
-   (1.0 %, in 31 cases: every run released at 1.68 to 1.86 rad cuts one,
+   A cut itself is not rare: across the judge 215 of its 20 641 switches
+   (1.0 %, counted again on 24 October with A3's cases, whose 63 cut
+   none; in 31 cases: every run released at 1.68 to 1.86 rad cuts one,
    the pendulum with x marked `prefer` at atan 99 eight a run) cut their
    step back, none of them at a tick, as the judge has no sampled blocks
    (the 426 switches of the pendulums released at 1.50, 2.8 and 3.0 rad
@@ -2009,8 +2010,14 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   Over rtol 1e-4 … 1e-10 it changes the slider-crank at 1e-6 alone, and
   the Akzo Nobel problem at every tolerance: G closer at six of seven
   (at 1e-9, 2.6e-10 off instead of 9.9e-11), 22 % fewer to 45 % more
-  steps, and as accurate for the same work or less (1.0e-10 in 473 steps
-  where upstream needs 740 for 9.9e-11). A patch confined to the zero
+  steps. For the same steps (G's error interpolated log-log along
+  upstream's runs) it is 20 and 37 times as accurate at 1e-6 and 1e-8
+  (1.0e-10 in 473 steps where upstream needs 740 for 9.9e-11), 1.1 and
+  1.6 times less accurate at 1e-5 and 1e-7, and 6 times less at 1e-9
+  (2.6e-10 in 898 steps, where upstream's curve gives 4.2e-11); at 1e-4
+  and 1e-10 it takes fewer or more steps than any of upstream's runs. The
+  slider-crank's one changed run (1e-6) is as accurate for its steps, 2.4
+  times less for its residual evaluations. A patch confined to the zero
   case (a decrease decided on the states' errors that are all zero
   decided again on the quadratures') leaves LLNL's examples bit for bit
   but does not mend the engine's: the spin-up then takes 136, 220 and
@@ -2018,10 +2025,14 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   of `error_test.rs` 206 170 steps at rtol 1e-10, where the states'
   errors are round-off rather than zero; so the patch stays as it is.
   The slider-crank fails at rtol 1e-8 and tighter on every IDAS, patched
-  or not (its corrector, at t = 4e-9 s). The patch's test computed the
+  or not, in its first steps (its corrector: at t = 4.0e-9 s at 1e-8,
+  4.0e-10 s at 1e-9, 1.0e-11 s at 1e-10). The patch's test computed the
   quadratures' error at order k−2 at every step of order 3 or more, a
-  sum and a norm over the books' quadratures (with the 0.5 % more steps
-  the patch makes there, 0.3 to 0.4 % of the hybrid car's instructions);
+  sum and a norm over the books' quadratures (0.3 to 0.4 % of the hybrid
+  car's instructions; its steps are as many as before the patch to 0.06
+  % on the HWFET and the UDDS, 0.5 % more on the mixed cycle against
+  36c8a0d8 and 0.6 % across the order fix's own record, which no
+  measurement puts down to the patch alone);
   where order k−1's error is the larger already and either a decrease is
   to be decided there or none was, the k−2 error cannot change the order
   (a decrease asks both to be at most order k's), and it is passed over:
@@ -2031,9 +2042,9 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   0.4 % on the HWFET.
 
 * **Where the error test cannot pass.** Ten failures of the error test
-  at one step (the step cut by four from the second on) stop SUNDIALS.
+  at one step (the step cut by four from the second on) stop IDA.
   Where that is a kink the integration's history cannot cross, the run
-  now restarts the integrator at the last step's end, once at each
+  now restarts IDA at the last step's end, once at each
   point, and goes on: a fresh start, its rates from the model, crosses
   it (the report's notes say at how many points). It is met at a
   breakpoint of a table read along time, which the run stops at without
@@ -2042,9 +2053,18 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   after a long steady stretch: a gear driven by a torque that starts a
   ramp at 1 s stopped there ("IDA failed (SUNDIALS flag -3)", h = 3.7e-6
   s) at rtol 1e-8 and 1e-10, and now runs to 1e-15 of the exact answer
-  with one restart (`lsim-solve/tests/error_test.rs`). The Battery
-  Electric Car's city cycle stopped the same way at its breakpoint at
-  120 s, at rtol 1e-10 before the patch above and at 1e-9 with it
+  with one restart (`lsim-solve/tests/error_test.rs`). CVODE needs none
+  and gets none (it was restarted too, untested, until 24 October): it
+  stops at seven failures, lowering its order from the fourth and, at
+  order 1, reloading its history from the model itself (CVODES' MXNEF,
+  MXNEF1), and an ODE's error at such a kink falls with the step; it
+  crosses one after a smooth stretch at a high order (a swing whose
+  forcing starts a ramp at a table's breakpoint, Adams and BDF at rtol
+  1e-6 … 1e-12, within 55 rtol of the exact answer, the same test), and
+  reached its limit in none of 132 probe runs with kinks and jumps (rtol
+  1e-4 … 1e-12), nor in the judge's or the golden comparison's. The
+  Battery Electric Car's city cycle stopped the same way at its
+  breakpoint at 120 s, at rtol 1e-10 before the patch above and at 1e-9 with it
   (`lsim-project/tests/golden.rs`); one restart there now. Where no step
   passes at all, at a jump the model declares no event for (in a
   `noEvent` relation, a function that is not smooth), the integrators
@@ -2225,12 +2245,18 @@ round).**
   0.625 s). Now each crossing fires its own direction's clauses alone:
   the probes wrong in 0 of 14 runs, the peaks in 3 of 42 (δ = 1e-4 at
   rtol 1e-4 and 1e-6: both crossings inside one step, the known limit
-  below), every run that was right the same to the bit; the judge's eight `count-pair`/`count-peak` cases 0 of 56
-  runs wrong (33 before); such a nudge fires once, at most 3.6 rtol late
-  (where the integrator sees it past the hold); the tests in
+  below), every run that was right the same to the bit; the judge's
+  eight `count-pair` and `count-peak` cases 0 of 56 runs wrong (33
+  before); such a nudge fires once, at most 3.6 rtol late (where the
+  integrator sees it past the hold); the tests in
   `implicit_conditions.rs`, which failed before. Its other 751 cases,
   the golden comparison and a lone `when` (the 140 runs) are the same
-  to the bit.
+  to the bit. It costs 0.06 % of the hybrid's mixed cycle's
+  instructions (48 M, about 850 at each of its 56 218 events: where the
+  integrator saw the conditions kept, and the conditions compared with
+  it in each round of event iteration), 0.03 % of the HWFET's (61 M at
+  its 77 005 events) and
+  nothing measurable on the BEV's WLTC (cachegrind, against 4e3afdd).
 * *Scheduled events are no storms.* What a sample tick or a time event
   changes at its instant (a controller switching an engine's throttle from
   one tick to the next) does not count towards `storm_events`.
@@ -2936,7 +2962,13 @@ residuals and what they solve for.
 * Output on the case's grid from the dense output (the grid never
   constrains steps). Each interval's min, max and mean over every internal
   step and both sides of events (`Recorder`, working in Stage 1; the spike
-  checks a mean against Simpson's rule on the closed form).
+  checks a mean against Simpson's rule on the closed form). Every channel
+  by default; `SolverOptions::record` names the ones a run keeps (the same
+  run, the same values to the bit: `state_choice.rs`), for a long run on a
+  fine grid that needs a few: the outside judge's replay of the long-haul
+  cycle, every channel every 0.1 s over 23 h, was killed at 12.9 GB on a
+  16 GB machine; keeping the six it reads (the battery's energies and
+  charge, the distance, the speed), it peaks at about 1 GB.
 * **Energy quadratures** (WP4): each primitive's port powers, losses and
   stored energy integrated as extra quadrature states under error control
   (CVODE's `CVodeQuad*`), section 11.
@@ -3909,11 +3941,12 @@ events name the modes that chatter.
   on the same text, MSL's Dymola result 7.1e-4 (1e-6). No run of the
   judge ends on a bare SUNDIALS flag (182 before), and every run of the
   other cases is bitwise as before (3 339 of the 4 557). The fourth
-  verdict (the independent check of the detection, fixed: the step after
-  an event watched, a marked choice taken only within half the run's
-  limit; new cases `pendulum-event-2.00` and `-2.80`, the pendulum with a
-  `when` that changes nothing about 2 ms before its states degenerate,
-  and `pendulum-prefer-x-1.5607`, x marked `prefer` at atan 99): every
+  verdict, after its check (the independent check of the detection,
+  fixed: the step after an event watched, a marked choice taken only
+  within half the run's limit; new cases `pendulum-event-2.00` and
+  `-2.80`, the pendulum with a `when` that changes nothing about 2 ms
+  before its states degenerate, and `pendulum-prefer-x-1.5607`, x
+  marked `prefer` at atan 99): every
   run of the 4 557 is bitwise as before (none has an event near a
   degenerate choice, nor a mark between 50 and 100). The event cases,
   which passed the point on the wrong branch at one tolerance each and
