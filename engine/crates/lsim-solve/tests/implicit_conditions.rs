@@ -526,3 +526,44 @@ fn a_condition_its_event_moves_across_fires_there() {
     }
     assert!(bad.is_empty(), "{} wrong:\n{}", bad.len(), bad.join("\n"));
 }
+
+/// A `when x > 0.5` beside a mode on the same relation (`y = if x > 0.5
+/// then 1 else 0`): the crossing located a little early fires the `when`
+/// and holds it on its side; the mode, set back by its relation as x is
+/// solved again, restarts the integrator, which meets the crossing again
+/// where x is exactly 0.5 (x³ + x = t at t = 0.625: an exact zero of the
+/// `when`'s function, which `x > 0.5` is false at). The hold was dropped
+/// there, the `when`'s side taken as its zero's, and it fired again as x
+/// went on past 0.5 (rate 1, no state, rtol 1e-10: at 0.6249999999967 and
+/// 0.625000000000008, an outside recheck's probe); a hold now keeps an
+/// exact zero on its side, as a release does.
+#[test]
+fn a_when_beside_a_mode_on_its_relation_fires_once() {
+    let up = || cmp(CmpOp::Gt, n("x"), c(0.5));
+    let mut bad = vec![];
+    for a in [0.7, 1.0, 2.3, 4.4] {
+        for with_state in [false, true] {
+            let rhs = if with_state { n("z") } else { n("a") * Expr::Time };
+            let mut m = counter("Test.WhenBesideMode", a, with_state, rhs, up());
+            m.vars.push(var("y", "1", "1 above 0.5, by a mode"));
+            let mode = Expr::If(Box::new(up()), Box::new(c(1.0)), Box::new(c(0.0)));
+            m.equations.push(eq(n("y"), mode, "the mode on x > 0.5"));
+            let what = if with_state { format!("z = {a} t") } else { format!("no state, {a} t") };
+            for (rtol, r) in run(&m, &ALL_RTOLS) {
+                let at: Vec<f64> = r
+                    .events
+                    .iter()
+                    .filter(|e| e.label.ends_with("it counts"))
+                    .map(|e| e.t)
+                    .collect();
+                let count = last(&r, "n");
+                // (x' = a / 1.75 at the crossing)
+                let near = 10.0 * rtol * 1.75 / a;
+                if count != 1.0 || at.len() != 1 || (at[0] - 0.625 / a).abs() > near {
+                    bad.push(format!("{what}, rtol {rtol:e}: n = {count}, fired at {at:?}"));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}

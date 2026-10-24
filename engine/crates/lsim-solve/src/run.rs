@@ -855,10 +855,13 @@ impl Loop<'_> {
                 self.sides[c]
             };
         }
-        // those still short of their side, within their hold
+        // those still short of their side, within their hold (an exact zero
+        // too: not on it yet, as a release and the integrator take it; else
+        // the side a `when`'s zero is on, `x > 0.5` false there, and the
+        // `when` fired again as x went on past it)
         for (c, s, h) in held {
             let g = self.raw[c];
-            if g * s < 0.0 && g.abs() <= h {
+            if g * s <= 0.0 && g.abs() <= h {
                 self.sides[c] = s;
                 self.hold[c] = h;
             }
@@ -866,7 +869,8 @@ impl Loop<'_> {
         self.hold_cells(t, y, d);
         let (Some(seen), Some((y0, d0))) = (seen, before) else { return };
         // the functions now on the other side of the one the integrator
-        // saw them on (crossed to, where it reported a crossing)
+        // saw them on (crossed to, where it reported a crossing), or on a
+        // zero that counts as the other side
         let mut was: Vec<(usize, f64)> = vec![];
         for (c, seen_c) in seen.iter().enumerate() {
             if !self.may_hold_root(c) {
@@ -874,7 +878,8 @@ impl Loop<'_> {
             }
             let r = dirs.and_then(|x| x.get(c)).copied().unwrap_or(0);
             let s = if r != 0 { f64::from(r) } else { seen_c.signum() };
-            if s != 0.0 && self.raw[c] * s < 0.0 {
+            let g = self.raw[c];
+            if s != 0.0 && (g * s < 0.0 || (g == 0.0 && self.sides[c] != s)) {
                 was.push((c, s));
             }
         }
