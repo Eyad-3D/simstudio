@@ -30,8 +30,9 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
   reads at a state (a table read at a value that moves with the states,
   not with time alone) are held in their cells, each crossing of a
   breakpoint an event (`engine/DESIGN.md` §8.2): `"auto"`, the default,
-  those the model's form needs held (a linear table's slope on the explicit
-  form; every read that jumps on the implicit form, on which the example
+  those the model's form needs held (a linear table's slope and a cubic's
+  second derivative on the explicit form; every read that jumps on the
+  implicit form, on which the example
   cars run, where stepped over it stopped the judge's runs at a
   breakpoint; the cars' maps, read for their values, are held by none but
   `"kinks"`); `"off"`, none (the integrator steps over every breakpoint);

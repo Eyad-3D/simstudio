@@ -315,10 +315,11 @@ fn the_default_holds_what_the_models_form_needs() {
 /// run stops at the first breakpoint (w2 = 10 rad/s, t = 0.5088 s) at every
 /// tolerance: IDAS cannot step over the jump of `r'` in what it solves; the
 /// run names the table, the read and the option that holds it. The
-/// default holds the read (no release on this form) and is 0.92 … 4.95
-/// rtol off at rtol 1e-4 … 1e-10 (in the judge, `kink-gear-linear-imp`),
-/// as the same function written as `if` branches on its breakpoints. The
-/// same with every block kept implicit (`force_implicit`).
+/// default holds the read (no release on this form) and is 0.71 … 3.9
+/// rtol off at rtol 1e-4 … 1e-10 against the first integral (the load's
+/// speed; in the judge's measure, both speeds, `kink-gear-linear-imp`, 0.92
+/// … 4.95), as the same function written as `if` branches on its
+/// breakpoints. The same with every block kept implicit (`force_implicit`).
 #[test]
 fn the_implicit_form_holds_a_read_whose_slope_jumps() {
     let (ws, rs) = ([0.0, 10.0, 25.0, 40.0, 60.0, 80.0], [2.0, 2.5, 2.8, 3.5, 3.6, 4.0]);
@@ -361,7 +362,7 @@ fn the_implicit_form_holds_a_read_whose_slope_jumps() {
         }
     }
     println!("implicit form, error / rtol held {qs:.2?}, located {ql:.2?}");
-    // measured 0.92 … 4.95, the located run the same, with a margin
+    // measured 0.71 … 3.92, the located run the same, with a margin
     assert!(qs.iter().all(|q| *q < 20.0), "{qs:?}");
     assert!(qs.iter().zip(&ql).all(|(h, l)| (h / l - 1.0).abs() < 0.25), "{qs:?} {ql:?}");
     // every block implicit (the plain gear): held by default too
@@ -376,7 +377,8 @@ fn the_implicit_form_holds_a_read_whose_slope_jumps() {
         qa.push(error(&r, "w2", &exact) / rtol);
     }
     println!("every block implicit, error / rtol held {qa:.2?}");
-    // measured 1.41, 1.68, 2.75
+    // measured 0.98, 1.22, 2.01 (the judge's measure, both speeds: 1.41,
+    // 1.68, 2.75)
     assert!(qa.iter().all(|q| *q < 20.0), "{qa:?}");
 }
 
@@ -388,8 +390,10 @@ fn the_implicit_form_holds_a_read_whose_slope_jumps() {
 /// IDAS then stopped at the next breakpoint ("made no progress"). On the
 /// implicit form the run releases nothing: the default holds the read
 /// through every crossing, the run with the releases switched off to the
-/// bit, 9.85 and 11.7 rtol off at rtol 1e-4 and 1e-5 (the first integral,
-/// per cell). Stepped over, it stops at a breakpoint.
+/// bit, 7.6 and 10.2 rtol off at rtol 1e-4 and 1e-5 against the first
+/// integral per cell (the load's speed; in the judge's measure, both
+/// speeds, 9.85 and 11.7). Stepped over, it stops at a breakpoint (its
+/// third at 1e-4, its second at 1e-5).
 #[test]
 fn the_implicit_form_holds_a_dense_table_through_every_crossing() {
     let ws: Vec<f64> = (0..41).map(|k| 80.0 * k as f64 / 40.0).collect();
@@ -416,7 +420,7 @@ fn the_implicit_form_holds_a_dense_table_through_every_crossing() {
         qs.push(error(&r, "w2", &exact) / rtol);
     }
     println!("dense gear, implicit form: error / rtol held {qs:.2?}");
-    // measured 9.85 and 11.7, with a margin
+    // measured 7.62 and 10.19, with a margin
     assert!(qs.iter().all(|q| *q < 40.0), "{qs:?}");
     let off = prepare(&text, "Test.KinkGear", TableCells::Off);
     let code = lsim_codegen::compile(&off, &Default::default()).expect("compiles");

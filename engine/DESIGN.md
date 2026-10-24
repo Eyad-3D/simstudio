@@ -2266,7 +2266,14 @@ round).**
     same steps, the states the same to about 10⁻¹²); the A3 check's gear
     whose torque reverses 1 ms past a breakpoint 2 163 against 2.2 at
     10⁻¹⁰, and a falling 41-point ratio through a change of the states
-    chosen 14 109 against 25.5 (17 201 steps against 822).
+    chosen 14 109 against 25.5 (17 201 steps against 822). It holds a
+    cubic's second derivative at its points too (a bead on a wire `y =
+    r(x)`, whose `r''` index reduction reads): on a wire whose `r''` really
+    jumps (Steffen's cubic of x²/2 + sin(3x)/4, `kink-bead-sin-11`), stepped
+    over is 320, 198, 548, 3 800, 12 000, 5 980 and 81 400 rtol off, held
+    105, 35, 105, 22, 190, 362 and 114; at 41 points (`kink-bead-sin-41`)
+    2 420 … 104 000 against 290 (let go of at 10⁻⁴ by the releases below),
+    130, 214, 176, 351, 237 and 1 720.
   - The implicit form (iteration variables: IDAS, and diffsol's DAE) holds
     every read that jumps: a linear table's slope at its points, a clamped
     table's at its data's edges, a cubic's second derivative and a 2-D
@@ -2277,7 +2284,9 @@ round).**
     torques written implicitly, `kink-gear-linear-imp`, at its first, t =
     0.5088 s; the dense gear at 0.108 … 0.313 s; the clamped cubic where
     the speed leaves its data, 1.84 s; a gear whose ratio is a bilinear
-    table of the speed and a second state, 0.486 s) or gave no answer
+    table of the speed and a second state, 0.486 s; the dense gear at its
+    first breakpoint from 10⁻⁶ on, at its second and third at 10⁻⁵ and
+    10⁻⁴) or gave no answer
     within 120 s (the swings through 41 and 101 points; a bead whose wire's
     `r''` jumps, run alone too: none within 300 s), where held each run completes: 0.92 …
     4.95 rtol (the gear), 3.1 … 11.7 (dense), 0.31 … 5.2 (clamped; swung
@@ -2285,7 +2294,9 @@ round).**
     37 (the beads), and the swings 502 … 1 200 and 1 430 … 2 910 rtol (the
     restarts' cost below); the gear, the 2-D gear and the swings as their
     located runs, the clamped cubic within 2.7 times its located run's
-    error. The same with every block kept implicit (`force_implicit`).
+    error. The same with every block kept implicit (`force_implicit`): the
+    gear 1.41, 1.68 and 2.75 at 10⁻⁴, 10⁻⁷ and 10⁻¹⁰, the 2-D gear 2.49 …
+    5.57, as their located runs.
     IDAS went through stepped over on the library's gear (lsim-prep's
     `index_tables` test, one iteration variable, a torque), 0.27 … 5.3 rtol
     off at 10⁻⁴ … 10⁻¹⁰ (held 0.37 … 0.56), and on the judge's dense gears
@@ -2300,9 +2311,13 @@ round).**
     steps over a clamped cubic's slope at its edges (`kink-gear-clamp`
     4.3 … 131 rtol stepped over, 1.1 … 12.5 held; `kink-edge-11` 34 … 342
     against 17 … 309, the held run the worse at 10⁻⁴ and 10⁻⁹, 104 against
-    34 and 267 against 61), a cubic's second derivative (the A3 review's
-    bead, `kink-bead-41`, 10 … 187 against 429 … 737) and a 2-D read (not
-    measured on that form).
+    34 and 267 against 61) and a 2-D read whose slope jumps (the 2-D gear
+    with its torques explicit, the second state marked `always`: 76, 14,
+    14, 38, 111, 453 and 219 rtol at 10⁻⁴ … 10⁻¹⁰ stepped over, 2.1, 2.5,
+    2.7, 3.2, 4.1, 5.0 and 5.1 held, as its located run: at most 90 times
+    as far off, its slope 0.81 and its growth 9.0, so no clause of rule v4
+    holds it, though stepped over it is beyond 100 rtol at 10⁻⁸ … 10⁻¹⁰:
+    an open item, STATUS.md).
 
   Holding has a price: each crossing held is an event and a restart of
   the integrator at its lowest order, which costs a roughly fixed error
@@ -2315,15 +2330,25 @@ round).**
   41 and 101 points (`kink-osc-41-always`, `kink-osc-101-always`: 1 127 and
   2 847 crossings in 20 s) is 517 and 1 238 rtol off at 10⁻⁴ where stepped
   over it is 55 and 55 (the releases let go of it there: 53 and 26), and
-  through 101 points 1 308 against 161 at the default 10⁻⁶. On the
-  implicit form there is no such choice: the same swings held are 862 and
-  1 680 rtol off at 10⁻⁴, stepped over they give no answer. A cubic whose
-  second derivative does not really jump (the bead's wire, Steffen's cubic
-  of a parabola, its `r''` continuous to 10⁻¹⁴ at its points) is held on
-  the implicit form all the same, 391 … 541 rtol off at 10⁻⁴ … 10⁻¹⁰, where
-  stepped over IDAS goes through it at 13 … 137: the release at the start
-  below (jumps within the tolerance) is the explicit form's only (an open
-  item, STATUS.md).
+  through 101 points 1 308 against 161 at the default 10⁻⁶. Where the
+  default on CVODE is worse than stepping over (1d41c7d7's default), on
+  the judge's cases: `kink-osc-101` at 10⁻⁶ (1 308 against 161),
+  `kink-osc-41` at 10⁻⁵ (522 against 168), `kink-dense-gear-401` at 10⁻⁴,
+  10⁻⁵, 10⁻⁹ and 10⁻¹⁰ (4.7, 14.5, 164 and 368 against 1.9, 1.7, 152 and
+  158), `kink-dense-gear-41` at 10⁻⁴ and 10⁻⁵ (11.5 and 19 against 5.2
+  and 7.5), and the parabola bead below at every tolerance; it is better
+  at the other tolerances of these and on every other case it holds. On
+  the implicit form there is no such choice: the same swings held are 862
+  and 1 680 rtol off at 10⁻⁴, stepped over they give no answer. A cubic
+  whose second derivative does not really jump (the bead's wire,
+  Steffen's cubic of a parabola, its `r''` continuous to 10⁻¹⁴ at its
+  points) is held on both forms all the same: on CVODE 131, 456, 502, 602,
+  528, 486 and 737 rtol off at 10⁻⁴ … 10⁻¹⁰ (`kink-bead-41`; let go of at
+  10⁻⁴ by its crossings) where stepped over it is 88, 10.5, 12.4, 97, 187,
+  55 and 183, on IDA 391 … 541 where stepped over it is 13 … 137: the
+  release at the start below keeps it, for its `r''` jumps from 1 to 0 at
+  the data's edges, which the bead never reaches (an open item,
+  STATUS.md).
 
   The decision was taken by rule (lanes notes, each version written before
   its measurements). Rule v3 (24 October 2026) held a kind of read only if
@@ -2348,11 +2373,13 @@ round).**
   run at some tolerance where the held run is within 100 rtol; v3's 100
   rtol veto does not apply to a kind so held. On CVODE the second clause
   holds a linear table's slope (`kink-gear-linear` at 10⁻⁹ and 10⁻¹⁰, 138
-  and 103 times; the turning gear and the switch above), and no other
-  kind; on IDA the first holds every kind that jumps, and no read that only
-  kinks (none of its stepped-over runs failed, and held it was never 100
-  times better). A kind not measured on a form is not held there (a 2-D
-  read on CVODE).
+  and 103 times; the turning gear and the switch above) and a cubic's
+  second derivative (`kink-bead-sin-11` at 10⁻⁷, 172 times: first applied
+  to the parabola bead alone, whose `r''` does not jump, it had kept that
+  kind stepped over; the A3 check 4), and no other kind (a clamped cubic's
+  edges at most 21 times, a 2-D read 90); on IDA the first holds every kind
+  that jumps, and no read that only kinks (none of its stepped-over runs
+  failed, and held it was never 100 times better).
 
   `TableCells::Off` steps over every breakpoint (the default until this
   round); `Jumps` holds the reads whose slope jumps, a linear table's at
@@ -2366,8 +2393,8 @@ round).**
   at a breakpoint of a read it steps over (not held, or released) names
   the table, the read, the breakpoint and the option that holds it (in the
   integrator's failures, `held::at_breakpoint`: "Here the table 'r', read
-  at a state (its first derivative), is at its breakpoint 10 (w2 =
-  9.999999999999998), where the read jumps …"), and a run that fails after
+  at a state (its first derivative), is at its breakpoint 10 (w2 = 10),
+  where the read jumps …", the argument to ten digits), and a run that fails after
   it released a read says so (the run's notes come with its failure).
 
   On the explicit form the run releases a group of held reads (the reads
@@ -2457,9 +2484,42 @@ round).**
   along it at the same instant for that (along its other argument it
   still moves). Every preparation of a model holds the same reads in the
   same discrete variables (made in the order of the reads' keys), so a
-  run that chooses its states again keeps them (under `Auto` a model
-  prepared again in the other form can hold other reads: a change of the
-  states chosen onto it is refused, as one with other conditions). Not held: a read along
+  run that chooses its states again keeps them. Under `Auto` a model whose
+  states a run chooses again (a state set that moves with the solution)
+  holds, in every choice, what either form holds, so that its choices of
+  either form hold the same reads; the reads only the implicit form holds
+  (`HeldRead::explicit` false) are released while the run is on the
+  explicit form, at its start and at a change of the states chosen onto
+  it (with a note), and held again at a change onto the implicit form, so
+  each form keeps its own default. (Before, a choice of the other form held
+  other reads and the change of states was refused: the A3 check 4's gear
+  whose ratio is a monotone cubic held at its edges, the rotor's speed
+  preferred, stopped at t = 3.137 s where 1d41c7d7's run switched to the
+  explicit form; now it switches as that run did, bitwise, 1.63, 3.56
+  and 358 rtol at 10⁻⁴, 10⁻⁷ and 10⁻¹⁰; a 2-D gear 3.1, 4.71 and 137, a
+  bead whose `r''` jumps 64.5, 132 and 335, where they stopped at 2.993
+  and 0.867 s; a dense clamped gear switched onto the implicit form holds
+  its edges again there, 3.24, 9.14 and 21.7, where the switch was
+  refused, 2.58, 66.7 and 54.) A change of states refused for other held
+  reads names the table and the option. Where a choice of states decides
+  a variable through a read whose slope in it changes sign at a breakpoint,
+  that choice is singular there, and the watch (section 6 step 5) stops
+  the run where its block's determinant changes sign: the A3 check 4's
+  first 2-D gear (its second state c not marked `always`) is taken at 0.92
+  s, by its exchange factor, to the choice that decides c from the two
+  speeds, and r's slope in c turns from −0.33 to +0.44 at c = 1.6 (the
+  constraint's value in c has its minimum on the edge); held or stepped
+  over, on either form, as at 1d41c7d7, the run stops there, named
+  ("choosing the states again there gives the same states": the pivots'
+  magnitudes choose c again). The same function as `if` branches runs
+  (2.13, 4.96 and 4.2 rtol) only because its set's entries read
+  derivatives, which the watch cannot read, so it is never chosen again.
+  Reading the held cells in the watch (a cell's edge an event to it, as a
+  mode's) was tried: the run then goes on in that choice through the
+  minimum, 5.5, 145 and 4 600 rtol off at 10⁻⁴, 10⁻⁷ and 10⁻¹⁰ (27 375
+  steps), silently, so it was not taken; choosing again without the
+  column whose entry changes sign there is state selection's open item
+  (STATUS.md). Not held: a read along
   time (the stop times above), at parameters or discrete values, in the
   initialisation, a `when` or a zero crossing, fast mode's inverse model
   and a model with no state. A table given data after the build that the
@@ -3986,14 +4046,33 @@ events name the modes that chatter.
   gear and 3.1 … 11.7 on the dense gear, as the located runs, and the
   swing 502 … 1 200, as its located run; the default, `…-held` and
   `…-always` are one run bitwise there (no release); stepped over, the two
-  gears stop at their first breakpoint at every tolerance, naming the
-  table, the read and the option. Every run of the judge's 92 cases of
+  gears stop at a breakpoint at every tolerance (the gear at its first,
+  the dense gear at its first from 10⁻⁶ on and at its second and third at
+  10⁻⁵ and 10⁻⁴), naming the table, the read and the option. Every run of the judge's 92 cases of
   the round before is as before bitwise (591 of 637) but the five cases
   whose default changed, each now its `…-held` run bitwise (its stepped-
   over run, as before, is `…-over` bitwise), and the dense gears' held
   runs that release their read and then change their states onto the
   implicit form, where the read is held again (`kink-dense-gear-41-held`
   at 10⁻⁴ … 10⁻⁷, `kink-dense-gear-401-held`).
+
+  Revised a fourth time after its fourth check (24 October 2026), which
+  found the explicit form's decision for a cubic's second derivative
+  taken on a bead whose `r''` does not jump, and a change of states
+  between the forms refused. Six new cases: `kink-bead-sin-11` and
+  `-41`, the bead on a wire of x²/2 + sin(3x)/4 (its `r''` jumps at every
+  point), each beside `…-over` and `…-always`, against DOP853 per cell
+  checked by Radau (1.6·10⁻¹¹ and 9.8·10⁻¹²: the wire's slope table is not
+  its cubic's own `r'`, so no energy is conserved). Rule v4 holds that
+  kind on CVODE (section 8.2): the default 105 … 362 (11 points) and 130
+  … 1 720 (41), stepped over 198 … 81 400 and 2 420 … 104 000. The 770
+  runs of the 111 cases before: the solution, steps and events of each
+  as before bitwise, but `kink-bead-41` (held now: 131 … 737) and
+  `kink-bead-41-held` at 10⁻⁴ (its second derivative's crossings now
+  weighed by the releases: 131 for 429); the models whose states a run
+  chooses again on CVODE report the released reads' discrete values among
+  their final values, and the stopped runs' messages show the argument to
+  ten digits.
 * **Performance gates**: not built yet. When they are, they compare build
   time (prepare + compile) and run time for each example car in both modes
   with the base commit (as the backend's performance job does) and with

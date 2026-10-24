@@ -610,18 +610,26 @@ second: about 0.899889 after 10 s.
     swung back and forth, where the same read held in its cell (each
     crossing of a point found and the integrator restarted there) is 1 to
     29 (on the swing too a thousand: each restart costs about half a
-    tolerance). So a linear table's slope is held there by default. A
-    clamped cubic's slope at its data's edges and a cubic's second
-    derivative are stepped over there (4 to 340 tolerances off on the
-    judge's cases; held, better on some and worse on others), and so is a
-    table of two arguments (not measured on this form).
+    tolerance). So a linear table's slope is held there by default, and so
+    is a cubic's second derivative (a bead on a wire whose cubic's second
+    derivative jumps at its points: up to 81 000 tolerances off stepped
+    over, 22 to 362 held; on a wire whose cubic is a parabola, whose second
+    derivative does not jump, holding costs: 131 to 737 against 10 to
+    187). A clamped cubic's slope at its data's edges is stepped over there
+    (4 to 340 tolerances off on the judge's cases; held, better on some and
+    worse on others), and so is a table of two arguments (14 to 450
+    stepped over, 2 to 5 held on the judge's gear: not enough, by the rule
+    that decided it, to hold it).
   * On the implicit form (a model with an algebraic loop the solver
     iterates on: IDAS) a read that jumps cannot be stepped over at all: the
     solver stops at the first point ("made no progress") or gives no answer
     within minutes. So every read that jumps is held there by default, at
     every crossing; a run that stops at a point of a read it steps over
     (held off by the option below) names the table, the read and the option
-    that holds it.
+    that holds it. A model whose states the run chooses again holds, in
+    each of its choices of either form, what either form holds, and steps
+    over what only the implicit form holds while it is on the explicit
+    one, so that a change of states between the forms goes through.
   * A read that only kinks (a linear table's value, a cubic's slope) is
     stepped over on both forms: up to thousands of tolerances off on long
     runs that cross a table's points many times; held, or written as `if`
