@@ -998,7 +998,23 @@ impl Watch {
         }
         let mut own = std::mem::take(&mut self.at_vars);
         let vars: &[f64] = match sampled {
-            Some(v) => v,
+            Some(v) => {
+                // (the run loop's sample after the event, where nothing
+                // changed its channels since: checked against them here)
+                #[cfg(debug_assertions)]
+                {
+                    let l = *model.layout();
+                    let (mut work, mut fresh) = (vec![0.0; l.n_work], vec![0.0; l.n_vars]);
+                    model.vars(&EvalInput { t, y, p: &info.params, d, u }, &mut work, &mut fresh);
+                    let same =
+                        |a: &f64, b: &f64| a.to_bits() == b.to_bits() || a.is_nan() && b.is_nan();
+                    debug_assert!(
+                        fresh.len() == v.len() && fresh.iter().zip(v).all(|(a, b)| same(a, b)),
+                        "the channels sampled after the event are not those at the point (t = {t})"
+                    );
+                }
+                v
+            }
             None => {
                 let l = *model.layout();
                 self.at_work.resize(l.n_work, 0.0);

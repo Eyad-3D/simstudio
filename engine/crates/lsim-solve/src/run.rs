@@ -779,6 +779,7 @@ impl Loop<'_> {
         dirs: Option<&[i32]>,
         before: Option<(&[f64], &[f64])>,
     ) {
+        debug_assert_eq!(self.held, held(&self.hold), "Loop::held out of step with the holds");
         if self.raw.is_empty() {
             return;
         }
@@ -921,6 +922,7 @@ impl Loop<'_> {
     /// back past zero by more than their hold (the integrator saw them
     /// cross there); returns whether one was released.
     fn release_holds(&mut self, t: f64, y: &[f64], d: &[f64]) -> bool {
+        debug_assert_eq!(self.held, held(&self.hold), "Loop::held out of step with the holds");
         if !self.held {
             return false;
         }
@@ -1036,6 +1038,7 @@ impl Loop<'_> {
     /// itself (a discrete value an iteration variable is solved with, a
     /// state it moves) moves it past its hold, or is no such event.
     fn hold_conditions(&mut self, t: f64, y: &[f64], d: &[f64], seen: Option<&Seen>, prev: bool) {
+        debug_assert_eq!(self.held, held(&self.hold), "Loop::held out of step with the holds");
         if self.held {
             for c in 0..self.roots.len() {
                 let (s, h) = (self.sides[c], self.hold[c]);
@@ -2845,6 +2848,12 @@ fn run_watched<'a>(
         if let Some(&te) = info.time_events.get(next_time_event) {
             t_stop = t_stop.min(te);
         }
+        // (a scheduled crossing is set only at those `t_live` names: the
+        // time crossings and the functions searched ahead)
+        debug_assert!(
+            lp.t_star.iter().enumerate().all(|(k, ts)| ts.is_nan() || lp.t_live.contains(&k)),
+            "a crossing scheduled outside Loop::t_live"
+        );
         for &k in &lp.t_live {
             let ts = lp.t_star[k];
             if ts > t {

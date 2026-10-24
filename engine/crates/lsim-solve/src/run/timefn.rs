@@ -306,6 +306,12 @@ impl<'a> Loop<'a> {
         t: f64,
         y: &[f64],
     ) -> Result<(), SolveError> {
+        // (a function is searched only from `live`, set together at the
+        // start: the run loop's `t_live` and the stops look there alone)
+        debug_assert!(
+            self.tf.searched.iter().enumerate().all(|(k, &s)| !s || self.tf.live.contains(&k)),
+            "a time function searched outside TimeFns::live"
+        );
         if !self.tf.any() {
             return Ok(());
         }
