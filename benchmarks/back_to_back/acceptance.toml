@@ -1,0 +1,331 @@
+# Step 2's acceptance file ("Wire the new engine into the app"), committed
+# before the first measured run (the roadmap's rule 1: pre-register). It
+# lists every line the step is judged on: the cases, the measure, the pass
+# mark, the judge and the expected outcome, which may be a refusal with its
+# code. A wrong refusal of a sound model is a failure. Any later change to
+# this file is listed under [[changes]] at the end with its date and reason.
+#
+# `python -m benchmarks.back_to_back all OUT` measures every line from
+# scratch and writes OUT/report.json and OUT/report.md (the harness's own
+# docstring has the parts and the options).
+
+[step]
+name = "Step 2. Wire the new engine into the app"
+registered = "2026-10-28"
+source = "deeper/roadmap-deeper.md, Part B, step 2's acceptance list; owner's answers of 20 October 2026"
+# the path under test: the app's own run function, app.solver.simulate, with
+# LIGHTSIM_ENGINE=new (backend/app/solver/new_engine.py), against today's
+# engine through the same function without it
+path = "app.solver.simulate"
+
+# ---------------------------------------------------------------------------
+# Reason codes. Every refusal and every fall-back of the new engine's path
+# carries one of these (rule 8: no silent fall-back). The harness counts them
+# and fails STRICT on any other.
+# ---------------------------------------------------------------------------
+[codes]
+NEW-NOT-FOUND = "the case is not in the project"
+NEW-CASE-KIND = "a case kind the new engine's path does not run"
+NEW-LAP = "a lap case (stays on today's lap solver: owner, 20 October)"
+NEW-LIVE = "a live (streamed or paced) run"
+NEW-FS-EVENT = "a Formula Student event case (stays refused: owner, 20 October)"
+NEW-FMU = "a project with an FMU part"
+NEW-BALANCE = "a hybrid's charge-balanced case (stays refused: owner, 20 October)"
+NEW-CELLS = "a battery built from cells (stays refused: owner, 20 October)"
+NEW-MISSING = "the module lightsim_engine is not installed"
+NEW-BUILD = "today's model builder refused the model before the new engine saw it"
+NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow in the message)"
+NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
+
+# ---------------------------------------------------------------------------
+# The items of the back-to-back diff: the 16 example cases, and probes that
+# reach the rest of the path. `expect` is what the new engine's path must
+# do: "run" (it runs the case itself) or "refuse:<code>".
+# ---------------------------------------------------------------------------
+[[item]]
+id = "aero-bev/case-udds"
+expect = "run"
+[[item]]
+id = "aero-bev/case-hwfet"
+expect = "run"
+[[item]]
+id = "aero-bev/case-wltc"
+expect = "run"
+[[item]]
+id = "bev-car/case-city"
+expect = "run"
+[[item]]
+id = "bev-car/case-wltc"
+expect = "run"
+[[item]]
+id = "bev-car/case-wltc-hvac"
+expect = "run"
+[[item]]
+id = "bev-car/case-wltc-winter"
+expect = "run"
+[[item]]
+id = "bev-car/case-wltc-summer"
+expect = "run"
+[[item]]
+id = "bev-car/case-city-live"
+expect = "run"
+note = "a live run streamed to the app (pace raised to 1000x for the diff: pace does not change a result); step 2's goal is live streaming on the new engine"
+[[item]]
+id = "fs-electric/case-accel-75m"
+expect = "run"
+[[item]]
+id = "fs-electric/case-autocross"
+expect = "refuse:NEW-LAP"
+[[item]]
+id = "fs-electric/case-endurance"
+expect = "refuse:NEW-LAP"
+[[item]]
+id = "hybrid-car/case-udds"
+expect = "refuse:NEW-BALANCE"
+[[item]]
+id = "hybrid-car/case-hwfet"
+expect = "refuse:NEW-BALANCE"
+[[item]]
+id = "hybrid-car/case-mixed"
+expect = "refuse:NEW-BALANCE"
+[[item]]
+id = "hybrid-car/case-mixed-live"
+expect = "run"
+note = "live, so not charge-balanced; its Script block runs in today's worker"
+
+# probes: the hybrid's three balanced cases as single runs, so that both
+# engines judge the same physics; a performance test; the other refusals
+[[item]]
+id = "probe/hybrid-udds-single"
+base = "hybrid-car/case-udds"
+change = "chargeBalance = false"
+expect = "run"
+[[item]]
+id = "probe/hybrid-hwfet-single"
+base = "hybrid-car/case-hwfet"
+change = "chargeBalance = false"
+expect = "run"
+[[item]]
+id = "probe/hybrid-mixed-single"
+base = "hybrid-car/case-mixed"
+change = "chargeBalance = false"
+expect = "run"
+[[item]]
+id = "probe/bev-performance"
+base = "bev-car/case-wltc"
+change = "kind = performance, a 0-100 km/h step held 30 s (duration 40 s)"
+expect = "run"
+[[item]]
+id = "probe/fs-event-acceleration"
+base = "fs-electric/case-accel-75m"
+change = "fsEvent = acceleration"
+expect = "refuse:NEW-FS-EVENT"
+[[item]]
+id = "probe/bev-cells"
+base = "bev-car/case-city"
+change = "the battery built from cells (pack_model = Cells)"
+expect = "refuse:NEW-CELLS"
+[[item]]
+id = "probe/bev-fmu"
+base = "bev-car/case-city"
+change = "an FMU block added (the backend's test FMU), its output unwired"
+expect = "run"
+note = "FMU parts are step 2's item 5; the FMU line judges their numbers"
+[[item]]
+id = "probe/no-module"
+base = "bev-car/case-city"
+change = "the module lightsim_engine hidden from the import"
+expect = "refuse:NEW-MISSING"
+
+# ---------------------------------------------------------------------------
+# The lines. Each names its judge (rule 3: not made by the implementer or
+# the owner; our own tests are guards only).
+# ---------------------------------------------------------------------------
+
+[[line]]
+id = "B2B"
+what = "Back to back: every item above on both engines, every SimResult field"
+cases = "every item; today's engine at its normal solver step (10 ms) and at a tenth of it (1 ms); the new engine's path at its own settings (rtol 1e-6)"
+measure = """
+Every field of the two SimResults: caseId, status, messages, channels (ids, labels, units, the times, \
+values, min, max and mean), summary rows (key, label, unit, value, notValid, limit, passed), partEnergy, \
+energy, duty, limits and references. A number is outside when it is outside its band: a figure's band is \
+the larger of twice the difference between today's two runs and a floor (0.1 % of the value for energies, \
+kWh and J; 0.5 % for everything else), the new value compared with today's 1 ms value; a channel's band \
+is twice the RMS of today's two runs' difference, at least 0.5 % of its RMS, the RMS of the new run's \
+difference to today's 1 ms run over every output point but the first (DESIGN.md 12.3, \
+lsim-project/golden/README.md). Text and identities compare equal or differ. Every difference is classed \
+(classes.toml): a, the new engine wrong; b, today's engine wrong, shown by an exact answer, a fully resolved \
+model, a converged reference or a conservation law; c, the band wrong for that field, for a documented, \
+sound reason, never widened to pass. The gear rows (gearbox, final drive and differential: torque, power, \
+losses) are b only where golden/definitions.py's rebuild of today's rule from the new run's own channels \
+lands inside the band. A field the new path leaves out that today's has is a difference (class a).
+"""
+pass_mark = "every item as expected (run or its refusal code); zero unclassified differences; zero class a"
+judge = "today's engine (a separate code path, the weaker judge), with the classes' evidence from exact answers and conservation laws"
+
+[[line]]
+id = "STRICT"
+what = "Strict mode: no fall-back to today's engine without a listed code"
+cases = "every item and every planted fault (FAULTS), on the new path with LIGHTSIM_ENGINE_STRICT=1"
+measure = "each refusal's code (from the run's first message); an item refused that should run; a code not in [codes]; NEW-ERROR; a refusal whose message carries no code"
+pass_mark = "zero items refused that should run, zero refused with another code than expected, zero codes outside [codes], zero NEW-ERROR, zero refusals without a code; every fault's refusal counted"
+judge = "this file's expected outcomes"
+
+[[line]]
+id = "SCHEMA"
+what = "Every result validates against the published result format"
+cases = "every result the harness records (items on both engines, both steps; faults on both engines; the META runs)"
+measure = "jsonschema 4.26 (Draft 2020-12) against docs/spec/schemas/result.schema.json, every error counted"
+pass_mark = "zero errors"
+judge = "the published JSON schema, checked by an independent validator"
+
+[[line]]
+id = "FAULTS"
+what = "The verdict matrix: planted faults on both engines, and mutation testing of verdict.py"
+cases = """
+The 160 single deletions of backend/tests/test_broken_models.py (every element, wire and signal link of \
+bev-car, fs-electric and hybrid-car), plus parameter faults: on each of the parameters below, its value \
+(the part's own or the library default) set to 0, to its negative, to 100 times and to a hundredth of it \
+(108 faults). Each fault is run on its project's first case: bev-car's City Cycle, fs-electric's 75 m \
+acceleration, hybrid-car's EPA city cycle as a single run (chargeBalance false, so both engines judge it).
+"""
+parameters = [
+  "bev-car:el-vehicle.mass_kg", "bev-car:el-vehicle.cd", "bev-car:el-vehicle.frontal_area_m2",
+  "bev-car:el-wheel-fl.radius_m", "bev-car:el-battery.capacity_kWh",
+  "bev-car:el-battery.internal_resistance_ohm", "bev-car:el-motor.torque_scale_pct",
+  "bev-car:el-final-drive.ratio", "bev-car:el-driver.driver_kp",
+  "fs-electric:el-vehicle.mass_kg", "fs-electric:el-vehicle.cd", "fs-electric:el-vehicle.frontal_area_m2",
+  "fs-electric:el-wheel-rl.radius_m", "fs-electric:el-battery.capacity_kWh",
+  "fs-electric:el-battery.internal_resistance_ohm", "fs-electric:el-motor.torque_scale_pct",
+  "fs-electric:el-final-drive.ratio", "fs-electric:el-wheel-rl.mu",
+  "hybrid-car:el-vehicle.mass_kg", "hybrid-car:el-vehicle.cd", "hybrid-car:el-vehicle.frontal_area_m2",
+  "hybrid-car:el-wheel-l.radius_m", "hybrid-car:el-battery.capacity_kWh",
+  "hybrid-car:el-battery.internal_resistance_ohm", "hybrid-car:el-motor.torque_scale_pct",
+  "hybrid-car:el-fd.ratio", "hybrid-car:el-engine.engine_scale_pct",
+]
+variants = ["zero", "negative", "x100", "div100"]
+measure = """
+Each fault's status on today's engine (default settings) and on the new path in strict mode, and its Data \
+Checks' worst level (engine-independent). A violation: today's run fails or warns and the new path's says \
+success. A hidden violation: the new path's run says warning only because of preparation notes that are not \
+about the run (the start-guess note of review finding 36: messages whose engine code is START-NOT-SOLVED, \
+INIT-UNDECIDED or INIT-START-IGNORED, and any message of the engine's own report that is not a warning of \
+the run), without which it would say success. A refusal of the new path (any NEW- code) counts as not \
+success. Mutation testing: mutmut 3 on backend/app/solver/verdict.py with the backend tests that import it \
+(test_verdict.py and the others the harness lists), resumable; every surviving mutant needs a written \
+reason in survivors.toml (equivalent, or what test would kill it and why none is wanted).
+"""
+pass_mark = "zero violations; zero hidden violations; every mutmut survivor with a written reason"
+judge = "today's engine's verdict on the same broken model (a separate code path); mutmut"
+
+[[line]]
+id = "META"
+what = "Metamorphic: the verdict does not depend on the output step or the tolerance"
+cases = """
+On the new path: bev-car/case-city, bev-car/case-wltc, fs-electric/case-accel-75m, and the faults \
+bev-car:el-motor.torque_scale_pct:div100, bev-car:el-vehicle.mass_kg:x100, \
+fs-electric:el-motor.torque_scale_pct:div100, fs-electric:el-battery.internal_resistance_ohm:x100; \
+each at the case's own output step times 0.1, 1 and 5 (a cycle case: 0.1, 1 and 5 s) at rtol 1e-6, and \
+at its own output step at rtol 1e-8.
+"""
+measure = "the verdict: the status, the set of summary keys flagged notValid (with their reasons' first words) and every limit row's passed flag; vacuous when no run of the set has a non-success status or a notValid or passed=false row"
+pass_mark = "the same verdict at all four settings for every case of the set, and not vacuous"
+judge = "the metamorphic relation itself (Chen et al., ACM Computing Surveys 51(1), 2018)"
+
+[[line]]
+id = "ANALYTIC"
+what = "Speed traces whose exact time outside the band is known from the regulations' text"
+cases = """
+Five made-up traces (piecewise linear, sampled every 0.1 s as the verdict samples a run): a plateau excursion \
+on a steady target, a lag on a ramp, an overshoot at a peak, a short excursion inside the EPA's 2.0 s \
+allowance, and a slow car below a ramp at full throttle. Their exact time outside each band is computed in \
+rational arithmetic from the rules' own words: 40 CFR 1066.425(b)(1)-(2) (2.0 mi/h above the highest and \
+below the lowest point of the trace within 1.0 s; the annual edition of 1 July 2024, judge-cache cfr/) and \
+Regulation (EU) 2017/1151 Annex XXI Sub-Annex 6, 2.6.8.3.1 (2.0 km/h, within 1.0 s; read before encoding \
+it, the copy and its checksum in the report).
+"""
+measure = "|the verdict's time outside each band (verdict.trace_metrics: outside_epa_s, outside_wltp_s) - the exact time|; and whether the run's \"cycle not followed\" message labels its 1 %/2 s allowance as LightSim's own rule, not the EPA's or the WLTP's"
+pass_mark = "every difference at most 1e-6 s; the label present"
+judge = "the regulations' text and exact arithmetic"
+
+[[line]]
+id = "ENERGY"
+what = "Energy rows, duty RMS and limit intervals from the engine's own books"
+cases = "every B2B item the new path runs; a sine probe: a Script block (sample time T/N, N = 40) commands a Power Consumer P0 + A sin(2 pi t / T) over whole periods; the BEVs' cycle cases against fast mode"
+measure = """
+E1: the sum of the result's partEnergy rows (in, out, losses, stored) against the engine's own totals of \
+the run (lightsim_engine's run.energy), relative to the throughput. E2: the Power Consumer's duty RMS \
+against sqrt(P0^2 + A^2/2), exact for a held sine sampled N >= 3 times a period over whole periods \
+(sum of sin^2 over N equally spaced phases is N/2). E3: the seconds each driveline spent at each limit \
+(the result's limits) against fast mode's limit flags on the same cycle.
+"""
+pass_mark = "E1 within 1e-12 of the throughput; E2 within 1e-9 relative; E3 within one output step per change of state"
+judge = "the engine's energy books (conservation), a closed form, fast mode (a separate solver)"
+
+[[line]]
+id = "STREAM"
+what = "Streaming, stop and replay"
+cases = "the live items (bev-car/case-city-live, hybrid-car/case-mixed-live); a stop probe on bev-car/case-wltc as a live run and on a 16-point study of bev-car/case-city (vehicle mass from 1200 to 2700 kg); a replay of bev-car/case-city and fs-electric/case-accel-75m from their RunSnapshot"
+measure = """
+S1: every streamed point (the run's "step" messages) against the final result's channels, bit for bit. \
+S2: stop latency, the wall time from a stop asked (the control's cancel, or the study's stop) to the run or \
+study returning, 20 stops each at random times; a stop shows something only when a point was running and \
+ends cancelled; fewer than half the stops showing something is "not measured", not a pass. S3: the \
+SHA-256 of the result's JSON (keys sorted) replayed from the snapshot against the original, and whether \
+the RunSnapshot records the engine, its version and the solver options.
+"""
+pass_mark = "S1 every point equal; S2 p95 at most 0.25 s for the live run and at most 1.0 s for the study, on Windows CI (tests/test_stop_latency.py; numbers taken here are labelled as from a shared machine); S3 the same SHA-256 and the three fields recorded"
+judge = "the final result itself (S1), the wall clock (S2), SHA-256 (S3)"
+
+[[line]]
+id = "FMU"
+what = "Co-simulation FMUs as sampled blocks"
+cases = "the Reference FMUs v0.0.41 that are co-simulation FMUs for x86_64-windows (FMI 2 and 3), each in a one-block project"
+measure = "every output of the FMU block run inside LightSim's new path against fmusim (BSD-2) run alone, and against FMPy 0.3.32, at the same communication step"
+pass_mark = "equal to the last digit at every communication point"
+judge = "fmusim and FMPy"
+
+[[line]]
+id = "TEXT"
+what = "Text components read from files"
+cases = "each library part the text format can express that an example uses, written as a text component in the example in its place"
+measure = "the run's result against the built-in part's"
+pass_mark = "exactly the same result"
+judge = "the built-in part"
+
+[[line]]
+id = "QUICK"
+what = "Quick mode for project files, from the app"
+cases = "the example cars' cycle cases"
+measure = "quick mode reachable from the app's run (a run option); its figures against the full run, inside the documented band; its refusals coded"
+pass_mark = "every case runs or is refused with a code; inside the band; the limits stated in the help"
+judge = "the full dynamic run (a separate solver) and FASTSim 3.1.0 for the energy (step 5)"
+
+[[line]]
+id = "SCRIPTS"
+what = "The Script decision record for the owner, with no switch"
+cases = "the record and the new path's Script blocks"
+measure = "a: Script blocks on the new path run in today's worker (native_scripts False); b: a decision record holding the STRIDE threat model, differential fuzzing against CPython 3.11 (hours, inputs, divergences), a cargo-geiger count and the PLT-35 gap; c: the owner's plain page (decisions/script-runner-explained.md)"
+pass_mark = "a, b and c"
+judge = "CPython 3.11 (the fuzzing's oracle); the owner reads the page"
+
+[[line]]
+id = "NOSKIP"
+what = "The new engine's tests do not skip where the module should be (review finding 18)"
+cases = "backend/tests/test_new_engine_flag.py and the harness's own tests"
+measure = "a: with LIGHTSIM_REQUIRE_NEW_ENGINE=1 and the module installed, how many skip (Windows-only tests aside); b: with LIGHTSIM_REQUIRE_NEW_ENGINE=1 and the module hidden, whether they fail; c: whether CI builds and installs the module where they run, with LIGHTSIM_REQUIRE_NEW_ENGINE=1"
+pass_mark = "a zero; b they fail; c yes (Windows CI runs it after the merge)"
+judge = "pytest's own counts"
+
+[[line]]
+id = "STATUS"
+what = "Today's full SimResult on the new path, and the documents true to it"
+cases = "the eleven things step 2's goal names: the verdict, the energy report, part energies, duty, limits, references, live streaming, study stop and progress, FMU parts, text components, quick mode"
+measure = "each one present on the new path in the measured results (B2B, STREAM, FMU, TEXT, QUICK), and DESIGN.md 12.3, STATUS.md and docs/KNOWN-LIMITS.md saying what the measurement shows"
+pass_mark = "11 of 11, and the documents true"
+judge = "the measured results"
+
+# ---------------------------------------------------------------------------
+# Later changes, each with its date and reason (none yet).
+# ---------------------------------------------------------------------------
