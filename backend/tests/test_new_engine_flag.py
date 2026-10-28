@@ -2,9 +2,13 @@
 (app/solver/new_engine.py); today's engine stays the default.
 
 The tests that run the new engine need the compiled module ``lightsim_engine``
-(engine/crates/lsim-py, built with maturin); CI's backend jobs do not build
-it, so they skip there."""
+(engine/crates/lsim-py, built with maturin). CI's backend jobs do not build
+it, so they skip there; the Windows engine job builds and installs it and
+runs them with ``LIGHTSIM_REQUIRE_NEW_ENGINE=1``, where a missing module
+fails them instead of skipping them (review finding 18)."""
 from __future__ import annotations
+
+import os
 
 import pytest
 
@@ -19,13 +23,22 @@ try:
 except ImportError as e:
     NEW_ENGINE_MISSING = f"the compiled module lightsim_engine is not installed ({e})"
 
-needs_engine = pytest.mark.skipif(NEW_ENGINE_MISSING is not None, reason=NEW_ENGINE_MISSING or "")
+# where the module must be there, nothing skips for want of it
+REQUIRED = os.environ.get("LIGHTSIM_REQUIRE_NEW_ENGINE", "").strip() == "1"
+needs_engine = pytest.mark.skipif(NEW_ENGINE_MISSING is not None and not REQUIRED,
+                                  reason=NEW_ENGINE_MISSING or "")
 
 WLTC = "case-wltc"
 
 
 def texts(result) -> str:
     return "\n".join(f"{m.level}: {m.text}" for m in result.messages)
+
+
+def test_the_module_is_there_where_it_must_be():
+    if not REQUIRED:
+        pytest.skip("LIGHTSIM_REQUIRE_NEW_ENGINE is not set: the module may be missing here")
+    assert NEW_ENGINE_MISSING is None, NEW_ENGINE_MISSING
 
 
 @pytest.fixture(scope="module")
@@ -48,7 +61,8 @@ def test_new_engine_runs_a_cycle_case_like_today(monkeypatch, today):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
     result = simulate(load_example("bev-car"), WLTC)
     assert result.status in ("success", "warning")
-    assert result.messages[0].level == "info" and "new engine" in result.messages[0].text
+    assert result.messages[0].level == "info"
+    assert result.messages[0].text.startswith("Run on the new engine")
     assert "today's engine" not in texts(result)
 
     # every channel of today's, in today's order (the new engine records a
@@ -86,7 +100,8 @@ def test_new_engine_runs_a_cycle_case_like_today(monkeypatch, today):
 def test_new_engine_runs_an_acceleration_test(monkeypatch):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
     result = simulate(load_example("fs-electric"), "case-accel-75m")
-    assert result.messages[0].level == "info" and "new engine" in result.messages[0].text
+    assert result.messages[0].level == "info"
+    assert result.messages[0].text.startswith("Run on the new engine")
     assert result.channels and result.summary
 
 

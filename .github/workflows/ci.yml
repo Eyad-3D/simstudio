@@ -210,6 +210,25 @@ jobs:
       - name: Python module (tests)
         run: python -m pytest crates/lsim-py/tests/test_api.py -v
 
+      # The app's path to the new engine and the both-engines diff's own
+      # tests, with the module built above (review finding 18): with
+      # LIGHTSIM_REQUIRE_NEW_ENGINE=1 a missing module fails them instead
+      # of skipping them (the backend jobs, which do not build it, skip
+      # them). The stop-latency tests' pass marks are judged here.
+      - name: The new engine in the app (backend tests)
+        working-directory: backend
+        env:
+          LIGHTSIM_REQUIRE_NEW_ENGINE: "1"
+        run: |
+          python -m pip install -r requirements-dev.txt
+          python -m pytest tests/test_new_engine_flag.py tests/test_stop_latency.py -v -rs
+
+      - name: The both-engines diff (its own tests)
+        working-directory: .
+        env:
+          LIGHTSIM_REQUIRE_NEW_ENGINE: "1"
+        run: python -m pytest benchmarks/back_to_back/tests -v -rs
+
   # Fails when the example runs get more than 10 % slower than on the commit
   # this change starts from, timed on the same runner in alternating fresh
   # processes (backend/tests/test_performance.py). No stored timings, so a
