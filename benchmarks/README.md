@@ -224,6 +224,34 @@ From [`results/lightsim-py-2026-10-09-physics-fixes.md`](results/lightsim-py-202
 change makes today's engine more accurate, regenerate it with
 `python -m benchmarks.run --skip-speed --write-baseline`.
 
+## Both engines, back to back (step 2)
+
+`benchmarks/back_to_back/` judges the new engine's path into the app
+(`LIGHTSIM_ENGINE=new`, `backend/app/solver/new_engine.py`) against today's
+engine, as step 2 of the roadmap registered it before its first measured
+run: [`back_to_back/acceptance.toml`](back_to_back/acceptance.toml) lists
+the lines, cases, measures, pass marks, judges and expected refusals.
+
+```sh
+python -m benchmarks.back_to_back all OUT        # every line; resumes where it stopped
+python -m benchmarks.back_to_back report OUT     # the tables again from OUT's raw results
+python -m pytest benchmarks/back_to_back/tests -q
+```
+
+It runs every example case (and a few probes) through the app's own
+`simulate` on today's engine at its 10 ms and 1 ms steps and on the new
+engine's path in strict mode (`LIGHTSIM_ENGINE_STRICT=1`: nothing falls
+back), compares every field of the two results against bands measured
+from today's two runs, and classes every difference
+([`back_to_back/classes.toml`](back_to_back/classes.toml)); it plants the
+160 deletions and 108 parameter faults in the examples and puts both
+engines' verdicts side by side; it checks every result against the
+published result schema, the run verdict's time outside the speed band
+against exact answers from the regulations' text, streaming, stop and
+replay, and mutation-tests the verdict (mutmut, Linux only). The
+measured baseline is in
+[`back_to_back/baseline/README.md`](back_to_back/baseline/README.md).
+
 ## Licences
 
 Everything here is LightSim's own; the problems use no outside data. The
