@@ -78,7 +78,16 @@ lands inside the band, and the same rule rebuilt from today's 1 ms run reproduce
 For a channel's minimum, maximum and mean over each output interval the rule is applied to the sources' \
 statistic there (its second check, on today's own run, shows where that holds). Only a value the new \
 run has (`what`, since 28 October, the judge's re-check): the rule is rebuilt from the sources, never from the \
-gear's own channel, so a gear channel the new run leaves out, or has as not a number, is not explained by it."""
+gear's own channel, so a gear channel the new run leaves out, or has as not a number, is not explained by it. \
+And, since the judge's third re-check (28 October: a gear channel three times off, zero or negated was still \
+b, its own values never read), the new run's own channel must be the new engine's law: diff.teeth rebuilds \
+it from the same sources (blocks/driveline.rs: the inertias before each mesh, J times the carrier's \
+acceleration over the interval before the point, taken out), and a channel's values and its mean must lie \
+inside the band of that rebuild (on baseline-3 every one classed b did, at 0.84 x band or less). A minimum or \
+maximum over an interval is not rebuilt exactly (the acceleration at it is not on the output grid), so it \
+must hold the new run's values at its interval's ends and lie no farther from the law, and from today's rule \
+on the same sources, than the inertias' term between the two plus one band. That bound's ceiling: a minimum \
+or maximum off by less than that term (on baseline-3 up to about 7 bands) is not told from the rule."""
 
 [[rule]]
 id = "preparation-note-as-warning"
@@ -106,10 +115,12 @@ class = "c"
 date = "2026-10-28"
 field = ["messages"]
 what = ["missing"]
-key = "^info: Case '.*' solved"
+key = "^info: Case '.*' solved: # (of # )?steps × # s(, the last one # s|, ended at # m driven at t = # s)? \\(# sub-steps each\\), # points recorded(, stored every #)?, # result channels\\.$"
 reason = """Today's engine's own summary of its fixed steps ("solved: N steps x dt (n sub-steps each), points \
 recorded"): it describes today's integrator, which the new engine does not have; the new path's first \
-message says which engine ran the case instead."""
+message says which engine ran the case instead. The whole message, as solver/core.py writes it (its key \
+matched only its start until the judge's third re-check, 28 October: any message that began the same way \
+was explained by it)."""
 
 [[rule]]
 id = "new-path-lacks-messages"
@@ -146,4 +157,6 @@ reason = """An acceleration test's last output time: today's engine ends at the 
 crossed the line (75.306 m at 1 ms, t = 4 s), the new engine at the line itself, an exact event (75.3000007 m \
 at t = 3.9994 s). The case asks for the time at the line (SimCase.endDistance), so today's last point is \
 today's discretisation, checked: the new engine within 1 mm of the line, today's past it by more than ten \
-times that."""
+times that; and, since the judge's third re-check (28 October: the new run's every output time x 1.5, or \
++ 1 s, was still b), the grid itself: the same number of output times, every one but the last the same, and \
+the new run's last inside today's last output step, before today's last. Any other grid stays unclassified."""

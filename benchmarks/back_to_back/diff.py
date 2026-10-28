@@ -10,8 +10,10 @@ is twice the RMS of today's two runs' difference, at least 0.5 % of its RMS
 "x", its distance from today's 1 ms value in bands; a number is outside at
 x > 1. Text, identities and presence compare equal or differ (x None).
 A point where today's two runs have a value and the new run has none (the
-path writes None for not a number) or a non-finite one is a difference
-("not finite", at the first such time), the first point among them. FIELDS
+path writes None for not a number, or its list ends sooner) or a non-finite
+one is a difference ("not finite", at the first such time), the first point
+among them; a statistic's list of another length than today's is a "grid"
+difference, as the output times are. FIELDS
 says how every field of every model of a SimResult is compared; a test
 holds it to the models. Rows are matched by their key, in order where a key
 repeats, and a key repeated a different number of times is a difference
@@ -30,7 +32,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 RULES = tomllib.loads((HERE / "classes.toml").read_text(encoding="utf-8"))["rule"]
-NUMBER = re.compile(r"[-+]?\d[\d,]*(\.\d+)?(e[-+]?\d+)?", re.I)
+NUMBER = re.compile(r"[-+]?\d+(,\d{3})*(\.\d+)?(e[-+]?\d+)?", re.I)  # (1,450: a thousands comma, not "10, 70")
 QUOTED = re.compile(r"(?<!\w)'[^']*'(?!\w)")  # a part's or a case's name in a message ('12 V Loads')
 GEAR_TYPES = ("mech.gearbox", "mech.final_drive", "mech.differential")
 
@@ -94,32 +96,33 @@ def _finite(x) -> bool:
     return x is not None and math.isfinite(x)
 
 
-def _today(n: list, f: list, v: list, first: int = 1) -> list[int]:
+def _today(n: list, f: list, first: int = 1) -> list[int]:
     """The points from ``first`` (the band: all but the first) where today's
-    two runs have a finite value (and the new run has a point at all: a
-    grid that differs is told apart)."""
-    return [k for k in range(first, min(len(n), len(f), len(v))) if _finite(n[k]) and _finite(f[k])]
+    two runs have a finite value, whatever the new run has there."""
+    return [k for k in range(first, min(len(n), len(f))) if _finite(n[k]) and _finite(f[k])]
 
 
 def _gaps(n: list, f: list, v: list) -> list[int]:
     """Where today's two runs have a value and the new run has none (None,
-    the path's not a number) or a non-finite one: every point, the first
-    among them."""
-    return [k for k in _today(n, f, v, first=0) if not _finite(v[k])]
+    the path's not a number, or no point at all: its list ends sooner) or a
+    non-finite one: every point, the first among them."""
+    return [k for k in _today(n, f, first=0) if k >= len(v) or not _finite(v[k])]
 
 
-def _series_x(n: list, f: list, v: list) -> tuple[float | None, float]:
-    """(x, band) of a channel's values ``v`` against today's ``f`` (1 ms) and
-    ``n`` (10 ms), over the points but the first where today's runs have
-    data; x is infinite where the new run has none of its own at a point
-    where today's runs have one."""
-    idx = _today(n, f, v)
+def _series_x(n: list, f: list, v: list, ref: list | None = None) -> tuple[float | None, float]:
+    """(x, band) of a channel's values ``v`` against ``ref`` (today's ``f``,
+    1 ms, unless given), in the band of today's ``f`` and ``n`` (10 ms), over
+    the points but the first where today's runs have data; x is infinite
+    where ``v`` or ``ref`` has none of its own at a point where today's runs
+    have one."""
+    ref = f if ref is None else ref
+    idx = _today(n, f)
     band = max(2.0 * rms(n[k] - f[k] for k in idx), 0.005 * rms(f[k] for k in idx), 1e-9)
-    if _gaps(n, f, v):
+    if _gaps(n, f, v) or _gaps(n, f, ref):
         return math.inf, band
     if not idx:
         return None, 0.0
-    return rms(v[k] - f[k] for k in idx) / band, band
+    return rms(v[k] - ref[k] for k in idx) / band, band
 
 
 def _series(item, field, name, n: list, f: list, v: list, times: list) -> list[Diff]:
@@ -287,14 +290,19 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
             key = "" if (tf, tv) == grid.setdefault("run", (tf, tv)) else name
             if key or not grid.get("told"):
                 grid["told"] = True
-                out.append(_d(item, "times", key, "grid", today=len(tf), new=len(tv),
-                              last=[tf[-1] if tf else None, tv[-1] if tv else None]))
+                # where the times part (the first point that differs) and today's last output step
+                first = next((k for k, (a, b) in enumerate(zip(tf, tv)) if a != b), min(len(tf), len(tv)))
+                out.append(_d(item, "times", key, "grid", today=len(tf), new=len(tv), first=first,
+                              last=[tf[-1] if tf else None, tv[-1] if tv else None],
+                              step=tf[-1] - tf[-2] if len(tf) > 1 else None))
         out += _series(item, "channels.values", name, series["n"], series["f"], series["v"], tf)
         for stat in ("min", "max", "mean"):
             fs, vs, ns = f.get(stat), v.get(stat), (n or {}).get(stat)
             if (fs is None) != (vs is None):
                 out.append(_d(item, f"channels.{stat}", name, "missing" if vs is None else "extra"))
             elif fs is not None:
+                if len(vs) != len(fs):  # a statistic at fewer or more points than today's
+                    out.append(_d(item, f"channels.{stat}", name, "grid", today=len(fs), new=len(vs)))
                 out += _series(item, f"channels.{stat}", name, ns or fs, fs, vs, tf)
 
     # summary rows, by key (by label where a row has none)
@@ -378,45 +386,117 @@ def _definitions():
     return mod
 
 
-def gear_rebuild(project: dict, normal: dict, fine: dict, new: dict) -> dict[str, tuple[float, float]]:
-    """golden/definitions.py's rebuild of today's gear rule: for each gear
-    channel it rebuilds, (x of the rule applied to the new run's own
-    channels, x of the rule applied to today's 1 ms run), both against the
-    channel's band. The first says whether today's rule explains the
-    difference, the second that the rule is today's. Keyed by the channel
-    for its values, and by "channel|min" (max, mean) for its statistics
-    over each output interval, the rule applied to the sources' statistic
-    there: right where the gear's quantity is linear in the sources' over
-    the interval, which the second number checks on today's own run."""
+def teeth(d, ch: dict, chain, motors, clutches, node, j_src: float, carrier: list, times: list) -> dict:
+    """The gear channels the new engine's law gives (lsim-lib
+    blocks/driveline.rs), rebuilt from a run's own channels ``ch`` (name →
+    values) as golden/definitions.py rebuilds today's: each gear takes the
+    torque at its mesh, what the sources send less the inertias before it
+    (the motors' rotors, ``j_src``, and the gears' own input and output
+    sides) times their acceleration, loses its efficiency on that (the way
+    the power flows) and reports it; a differential's output torques are
+    its share of it. The acceleration is the differential carrier's
+    (``carrier``, its speed at the output ``times``, which a gear change does
+    not jump) over the interval before each point, times the ratios above
+    it: a drive cycle's speed is linear between its points (the 1 s output
+    grid's), an output time on a change records the value before it, and
+    over an interval that is the mean's exact term."""
+    out: dict = {}
+    for k in range(len(carrier)):
+        ratios = [d.nearest_ratio(prm["ratios"], ch[f"{el}:sig_gear"][k]) if kind == "mech.gearbox"
+                  else float(prm.get("ratio", 1.0) or 1.0) for el, kind, prm, _ in chain]
+        a = ((carrier[k] - carrier[k - 1]) / (times[k] - times[k - 1]) / d.RPM * math.prod(ratios[:-1])
+             if k else 0.0)
+        w = (ch[f"{motors[0]}:sig_speed"] if motors else ch[f"{node}:sig_speed"])[k] / d.RPM
+        tq = sum(ch[f"{m}:sig_torque"][k] for m in motors) + sum(ch[f"{c}:sig_torque"][k] for c in clutches)
+        tq -= j_src * a
+        for (el, kind, prm, eta), ratio in zip(chain, ratios):
+            tx = tq - float(prm.get("inertia_in_kgm2") or prm.get("inertia_kgm2") or 0.0) * a
+            p = tx * w / 1000.0  # kW
+            eta_d = eta if p >= 0.0 else 1.0 / eta
+            out.setdefault(f"{el}:sig_power", []).append(p)
+            out.setdefault(f"{el}:sig_losses", []).append(p * (1.0 - eta_d))
+            if kind == "mech.differential":
+                out.setdefault(f"{el}:sig_torque_a", []).append(0.5 * ratio * eta_d * tx)
+                out.setdefault(f"{el}:sig_torque_b", []).append(0.5 * ratio * eta_d * tx)
+            a, w = a / ratio, w / ratio
+            tq = ratio * eta_d * tx - float(prm.get("inertia_out_kgm2") or 0.0) * a
+    return out
+
+
+def _holds(stat: str, s: list, values: list) -> bool:
+    """Whether a minimum (maximum) over each output interval is at most (at
+    least) the values at both ends of the interval, as the new engine's are."""
+    if len(s) != len(values) or not all(_finite(x) for x in [*s, *values]):
+        return False
+    pick = min if stat == "min" else max
+    return all(abs(s[k] - pick(s[k], values[k - 1], values[k])) <= 1e-9 * max(1.0, abs(s[k]))
+               for k in range(1, len(s)))
+
+
+GEAR_X = ("rule_today", "rule_new", "teeth", "inertia", "new_rule")
+
+
+def gear_rebuild(project: dict, normal: dict, fine: dict, new: dict) -> dict[str, dict]:
+    """golden/definitions.py's rebuild of today's gear rule, and ``teeth``'s
+    of the new engine's: for each gear channel they rebuild, in the
+    channel's band, how far (rule_today) today's rule on today's 1 ms run is
+    from today's channel (the rule is today's), (rule_new) today's rule on
+    the new run's own sources is from today's channel (the sources agree),
+    (teeth) the new run's own channel is from the new engine's law on those
+    sources (the channel is that law's), (inertia) that law is from today's
+    rule on them (the inertias' term) and (new_rule) the new run's channel
+    is from today's rule on them; for a minimum or maximum also (holds)
+    whether it holds the new run's values at its interval's ends (_holds).
+    Keyed by the channel for its values, and by "channel|min" (max, mean)
+    for its statistics over each output interval, each rule applied to the
+    sources' statistic there: right where the gear's quantity is linear in
+    the sources' over the interval, which rule_today checks on today's run."""
     d = _definitions()
     try:
         chain, motors, clutches, node = d.driveline(project)
     except (StopIteration, KeyError, IndexError):
         return {}
+    dfl = d.defaults()
+    prm = {e["id"]: {**dfl.get(e["componentDefId"], {}), **e.get("parameterOverrides", {})}
+           for s in project["systems"] for e in s["elements"]}
+    # a rotor's inertia grows with the motor's Torque Scale (lsim-lib blocks/motor.rs: J)
+    j_src = sum(float(prm[m].get("inertia_kgm2") or 0.0) * float(prm[m].get("torque_scale_pct") or 100.0) / 100.0
+                for m in motors)
+
+    def series(r, stat):
+        got = {}
+        for x in r["channels"]:
+            vs = [p["value"] for p in x["timeSeries"]] if stat == "values" else x.get(stat)
+            if vs is not None:
+                got[f"{x['elementId']}:{x['portId']}"] = [math.nan if v is None else v for v in vs]
+        return got
+    values = series(new, "values")
+    carrier = f"{chain[-1][0]}:sig_speed_in"
+    times = next(([p["t"] for p in x["timeSeries"]] for x in new["channels"]
+                  if f"{x['elementId']}:{x['portId']}" == carrier), [])
     out = {}
     for stat in ("values", "min", "max", "mean"):
-        def series(r):
-            got = {}
-            for x in r["channels"]:
-                vs = [p["value"] for p in x["timeSeries"]] if stat == "values" else x.get(stat)
-                if vs is not None:
-                    got[f"{x['elementId']}:{x['portId']}"] = [math.nan if v is None else v for v in vs]
-            return got
-        ch = {c: series(r) for c, r in (("n", normal), ("f", fine), ("v", new))}
+        ch = {c: series(r, stat) for c, r in (("n", normal), ("f", fine), ("v", new))}
         try:
             theirs = d.rebuild(ch["v"], chain, motors, clutches, node)
             mine = d.rebuild(ch["f"], chain, motors, clutches, node)
+            law = teeth(d, ch["v"], chain, motors, clutches, node, j_src, values[carrier], times)
         except (KeyError, IndexError, ZeroDivisionError):
             continue
-        for name, values in theirs.items():
-            if name not in ch["f"] or name not in ch["n"]:
+        for name, rule_new in theirs.items():
+            if any(name not in x for x in (ch["f"], ch["n"], ch["v"], law)):
                 continue
-            if name not in ch["v"] or _gaps(ch["n"][name], ch["f"][name], ch["v"][name]):
-                continue  # the rule explains the new run's channel, not one it leaves out
-            x_new, _ = _series_x(ch["n"][name], ch["f"][name], values)
-            x_today, _ = _series_x(ch["n"][name], ch["f"][name], mine[name])
-            if x_new is not None and x_today is not None:
-                out[name if stat == "values" else f"{name}|{stat}"] = (x_new, x_today)
+            n, f, v = ch["n"][name], ch["f"][name], ch["v"][name]
+            if _gaps(n, f, v):
+                continue  # the rules explain the new run's channel, not one it leaves out
+            got = {"rule_today": _series_x(n, f, mine[name])[0], "rule_new": _series_x(n, f, rule_new)[0],
+                   "teeth": _series_x(n, f, v, law[name])[0], "inertia": _series_x(n, f, law[name], rule_new)[0],
+                   "new_rule": _series_x(n, f, v, rule_new)[0]}
+            if None in got.values():
+                continue
+            if stat in ("min", "max"):
+                got["holds"] = _holds(stat, v, values.get(name, []))
+            out[name if stat == "values" else f"{name}|{stat}"] = got
     return out
 
 
@@ -446,10 +526,19 @@ def _matches(rule: dict, df: Diff, ctx: dict) -> bool:
     if "max_x" in rule and not (df["x"] is not None and df["x"] <= rule["max_x"]):
         return False
     check = rule.get("check")
-    if check == "gear_rebuild":  # today's rule on the new run lands inside, and is today's
+    if check == "gear_rebuild":  # today's rule is today's and the sources agree; the new channel is its law's
         stat = df["field"].split(".")[-1]
-        got = ctx.get("gears", {}).get(df["key"] if stat == "values" else f"{df['key']}|{stat}")
-        return got is not None and got[0] <= 1.0 and got[1] <= 1.0
+        g = ctx.get("gears", {}).get(df["key"] if stat == "values" else f"{df['key']}|{stat}")
+        if not g or not all(_finite(g.get(k)) for k in GEAR_X):
+            return False  # (a not a number passes nothing)
+        if g["rule_today"] > 1.0 or g["rule_new"] > 1.0:
+            return False
+        if stat in ("values", "mean"):  # the law rebuilt exactly: inside the band
+            return g["teeth"] <= 1.0
+        # a minimum or maximum: the acceleration at it is not on the output grid, so the law on the
+        # sources' statistic is not exact; the new statistic holds its values' ends and lies within the
+        # inertias' term (and the band) of both the law and today's rule
+        return g.get("holds") is True and max(g["teeth"], g["new_rule"]) <= g["inertia"] + 1.0
     if check == "today_has_new_none":  # today's run has it, the new path leaves it out
         return df["today"] is not None and df["new"] is None
     if check == "preparation_note":  # the message is one of the engine's build notes
@@ -457,6 +546,13 @@ def _matches(rule: dict, df: Diff, ctx: dict) -> bool:
     if check == "ends_at_the_line":  # an acceleration test's end: today past the line, the new at it
         end = ctx.get("line_end")
         if not end or not all(_finite(end.get(k)) for k in ("today", "new", "line")):
+            return False
+        # and only the last output time differs: the same count, the same times before it, the new
+        # run's last inside today's last output step
+        last_today, last_new = df.get("last") or (None, None)
+        if not (df["today"] == df["new"] and df.get("first") == df["today"] - 1
+                and all(_finite(x) for x in (last_today, last_new, df.get("step")))
+                and 0.0 < last_today - last_new < df["step"]):
             return False
         return abs(end["new"] - end["line"]) <= 1e-3 and \
             end["today"] - end["line"] > 10 * abs(end["new"] - end["line"])

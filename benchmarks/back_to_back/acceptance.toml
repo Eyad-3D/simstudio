@@ -386,6 +386,23 @@ harness took the numbers out and compared only the rest, so another limit or tim
 difference at all, which was not registered; the re-check also found a second row of the same key never \
 compared."""
 
+[[changes]]
+date = "2026-10-28"
+line = "B2B"
+change = """The gear rows are b only where, besides today's rule, the new run's own gear channel is the new \
+engine's law rebuilt from the same sources (diff.teeth: the inertias before each mesh taken out), inside the \
+band for its values and mean; a minimum or maximum, which that rebuild cannot give exactly, within the \
+inertias' term plus one band of both rules and holding its values at its interval's ends. An acceleration \
+test's last output time is b only where it is the only time that differs, inside today's last output step. \
+A channel's values or statistic at fewer points than today's lacks the others (each a value the new run \
+lacks), and a statistic at another number of points differs ("grid")."""
+reason = """The judge's third re-check (28 October): a gear channel three times off, zero or negated was b, \
+because the rule was rebuilt from the sources and the gear's own channel never read; the time axis x 1.5 or \
++ 1 s was b from the last distance alone; a minimum, maximum or mean cut to half was compared over the \
+points it kept. Each made a class or a comparison weaker than the registered words ("every point", b \
+"shown by" the rule); on baseline-3 two differences change class (the hybrid's UDDS differential torque \
+minima, b to unclassified)."""
+
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
 # at `file`.
