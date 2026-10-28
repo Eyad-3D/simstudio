@@ -9,8 +9,8 @@ it and why none is wanted), or the line fails.
 
 It works on a copy of the backend in OUT/mutation/backend (mutmut writes
 its mutants and its progress there), so a stopped run resumes: `mutmut
-run` goes on with the mutants not yet tested; a copy of other code (the
-app's or the tests', code_key) is made afresh first. The tests are the fast ones
+run` goes on with the mutants not yet tested; a copy of other code (any
+file it copies, code_key) is made afresh first. The tests are the fast ones
 that reach the verdict (TESTS: they call it, or run small models through
 it); the whole-example tests that also reach it (test_verdict.py's
 test_bundled_examples_follow_their_cycles, test_examples_plausible.py,
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -53,12 +54,25 @@ def survivors_file() -> dict:
     return tomllib.loads((HERE / "survivors.toml").read_text(encoding="utf-8")).get("survivor", {})
 
 
+IGNORE = shutil.ignore_patterns("__pycache__", ".pytest_cache", "mutants", "*.egg-info", "build", "dist",
+                                ".ruff_cache", ".hypothesis")  # caches, and mutmut's own output
+
+
+def copied(root: Path):
+    """Every file prepare copies from ``root``, as shutil.copytree walks it with IGNORE."""
+    for here, dirs, files in os.walk(root):
+        ignored = IGNORE(here, dirs + files)
+        dirs[:] = sorted(d for d in dirs if d not in ignored)
+        yield from (Path(here) / f for f in sorted(files) if f not in ignored)
+
+
 def code_key() -> str:
-    """The SHA-256 of what decides which mutants the tests kill: the app's
-    code (verdict.py among it) and the test files mutmut runs."""
-    h = hashlib.sha256()
-    files = sorted((BACKEND / "app").rglob("*.py")) + [BACKEND / t for t in TESTS if not t.startswith("-")]
-    for p in files:
+    """The SHA-256 of what decides which mutants the tests kill: every file
+    of the copy (the app's code, verdict.py among it, its library and the
+    example projects, the tests and the helpers and fixtures they read) and
+    the configuration mutmut runs with."""
+    h = hashlib.sha256(CONFIG.encode() + b"\0")
+    for p in copied(BACKEND):
         h.update(str(p.relative_to(BACKEND)).replace("\\", "/").encode() + b"\0" + p.read_bytes() + b"\0")
     return h.hexdigest()
 
@@ -73,8 +87,7 @@ def prepare(out: Path) -> Path:
     if work.exists() and kept != key:
         shutil.rmtree(work)
     if not work.exists():
-        shutil.copytree(BACKEND, work, ignore=shutil.ignore_patterns(
-            "__pycache__", ".pytest_cache", "mutants", "*.egg-info", "build", "dist", ".ruff_cache"))
+        shutil.copytree(BACKEND, work, ignore=IGNORE)
         key_file.write_text(json.dumps({"code": key}), encoding="utf-8")
     (work / "setup.cfg").write_text(CONFIG, encoding="utf-8")
     return work

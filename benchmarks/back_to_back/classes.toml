@@ -10,9 +10,11 @@
 # where it rests on the runs, the check they must pass.
 #
 # Matching: `field` (globs on the field), `what` ("missing", "extra",
-# "value", "text", "grid", "not finite"), `item` (globs), `key` (a regular
-# expression on the channel, row or message), `max_x` (at most this many
-# bands), `check` (a test diff.py runs on the item's runs).
+# "value", "text", "grid", "not finite", "duplicate"), `item` (globs), `key`
+# (a regular expression on the channel, row or message), `max_x` (at most
+# this many bands), `check` (a test diff.py runs on the item's runs). A "not
+# finite" difference (a value the new run lacks) matches only a rule whose
+# `what` names it.
 
 [[rule]]
 id = "new-path-lacks-reports"
@@ -66,6 +68,7 @@ id = "gears-today-rule"
 class = "b"
 date = "2026-10-28"
 field = ["channels.values", "channels.min", "channels.max", "channels.mean"]
+what = ["value"]
 check = "gear_rebuild"
 reason = """A gear's torque, power or losses: today's engine applies a gear's efficiency to, and reports as \
 the gear's, the torque of the sources above it, the inertias between them not taken out; the new engine \
@@ -73,7 +76,9 @@ loses it on, and reports, the torque the teeth carry (lsim-project/golden/README
 triage). Classed b only where golden/definitions.py, today's rule rebuilt from the new run's own channels, \
 lands inside the band, and the same rule rebuilt from today's 1 ms run reproduces today's channel. \
 For a channel's minimum, maximum and mean over each output interval the rule is applied to the sources' \
-statistic there (its second check, on today's own run, shows where that holds)."""
+statistic there (its second check, on today's own run, shows where that holds). Only a value the new \
+run has (`what`, since 28 October, the judge's re-check): the rule is rebuilt from the sources, never from the \
+gear's own channel, so a gear channel the new run leaves out, or has as not a number, is not explained by it."""
 
 [[rule]]
 id = "preparation-note-as-warning"
@@ -124,6 +129,7 @@ date = "2026-10-28"
 field = ["summary.value"]
 item = ["bev-car/case-city", "bev-car/case-city-live"]
 key = "^el-battery\\.energy_recuperated_kwh$"
+what = ["value"]
 max_x = 1.01
 reason = """The battery-electric car's recuperated energy on the city cycle, 1.0039 x band (the golden \
 comparison's own figure, 1.0039 x, 1.0044 x converged): the gears' rule, the triage's one cause \

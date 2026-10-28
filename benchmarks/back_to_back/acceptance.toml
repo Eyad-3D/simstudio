@@ -370,6 +370,22 @@ reason = """The report took them from one machine's folders by a fixed path, wit
 elsewhere or to say they are the copies read (the judge's checker, 28 October). The words of the rules \
 are unchanged."""
 
+[[changes]]
+date = "2026-10-28"
+line = "B2B"
+change = """How a message ("Text ... compare equal or differ") is compared: it pairs with today's 1 ms run's \
+message of the same level and the same text with its numbers taken out (a quoted name keeps its numbers: it \
+is text), in order where one repeats; a message on one side only, or repeated a different number of times, \
+differs; and each number of a pair is a figure, against the same number of today's message, its band from \
+today's 10 ms run's same message (the 0.5 % floor). Rows of a field are matched by their key in the same way: \
+a key repeated a different number of times differs ("duplicate")."""
+reason = """A message's numbers are figures of the run (a time, a limit, a distance, the verdict's time \
+outside the band), which today's own two runs give apart by up to a solver step: compared as whole text, \
+every message with a time in it would differ at any step. Until the judge's re-check (28 October) the \
+harness took the numbers out and compared only the rest, so another limit or time in a message was no \
+difference at all, which was not registered; the re-check also found a second row of the same key never \
+compared."""
+
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
 # at `file`.

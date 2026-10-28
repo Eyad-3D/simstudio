@@ -114,9 +114,47 @@ def test_a_figure_is_outside_beyond_its_band():
     assert outside[0]["x"] == pytest.approx(0.05 / 0.02)
 
 
-def test_messages_compare_without_their_numbers():
-    other = _result(messages=[{"level": "info", "text": "ran 7 steps"}])
-    assert diff.compare("x", _result(), _result(), other) == []
+def _said(text, level="warning"):
+    return _result(messages=[{"level": level, "text": text}])
+
+
+def test_a_message_pairs_by_its_text_and_compares_its_numbers():
+    # the same message at a time inside its band (today's two runs 0.01 s apart): no difference
+    normal, fine = _said("Battery 'B' empty at t = 3.01 s."), _said("Battery 'B' empty at t = 3.0 s.")
+    assert diff.compare("x", normal, fine, _said("Battery 'B' empty at t = 3.015 s.")) == []
+    ds = diff.compare("x", normal, fine, _said("Battery 'B' empty at t = 3.1 s."))
+    assert [(d["field"], d["what"], d["number"], d["today"], d["new"]) for d in ds] == [
+        ("messages", "value", 1, 3.0, 3.1)]
+    assert ds[0]["key"] == "warning: Battery 'B' empty at t = # s."
+
+
+POWER_LIMIT = ("Battery 'Accumulator' held at its Output Power Limit ({} kW at the terminals) from t = {} s "
+               "— the motors get what is left after the other loads.")
+HOLES = [  # (today's message, the new run's): the judge's re-check, recheck/diff_holes.py and message_numbers.py
+    (POWER_LIMIT.format(80, 0.21), POWER_LIMIT.format(8, 0.21)),
+    (POWER_LIMIT.format(80, 0.21), POWER_LIMIT.format(80, 2.71)),
+    ("Battery 'HV Battery' reached minimum SOC (10 %) at t = 1450 s — no further discharge.",
+     "Battery 'HV Battery' reached minimum SOC (10 %) at t = 45 s — no further discharge."),
+    ("Cycle not followed: outside the band for 12 s of 1800 s.", "Cycle not followed: outside the band for 900 s of 1800 s."),
+    ("The vehicle did not drive the cycle: 22.9 of 23.3 km covered.", "The vehicle did not drive the cycle: 0.1 of 23.3 km covered."),
+    ("Power consumer '12 V Loads' cut back at t = 300 s.", "Power consumer '48 V Loads' cut back at t = 300 s."),
+]
+
+
+@pytest.mark.parametrize("today,new", HOLES)
+def test_a_message_with_another_limit_time_figure_or_name_differs(today, new):
+    ds = diff.compare("x", _said(today), _said(today), _said(new))
+    assert ds, new
+    diff.classify(ds, {})
+    assert "c" not in {d["cls"] for d in ds} and "b" not in {d["cls"] for d in ds}
+
+
+def test_a_quoted_name_keeps_its_numbers_and_an_apostrophe_opens_no_name():
+    assert diff.masked("Power consumer '12 V Loads' cut back at t = 300 s.") == \
+        "Power consumer '12 V Loads' cut back at t = # s."
+    assert diff.masked("the tyres' Slip Stiffness (Wheel 'Wheel FL': 250000) at 3 s") == \
+        "the tyres' Slip Stiffness (Wheel 'Wheel FL': #) at # s"
+    assert diff.numbers("1,450 km in 2.5e3 s")[1] == [1450.0, 2500.0]
 
 
 def test_each_difference_takes_its_class():
@@ -156,6 +194,71 @@ def test_rules_that_read_the_runs():
         ("b", "acceleration-ends-at-the-line")]
     diff.classify(ds, {"x": {"line_end": {"today": 75.3001, "new": 75.3005, "line": 75.3}}})
     assert [d["cls"] for d in ds] == ["unclassified"] * 3
+    # a new run whose distance channel ends without a value: no class, and no crash
+    diff.classify(ds[2:], {"x": {"line_end": {"today": 75.306, "new": None, "line": 75.3}}})
+    assert ds[2]["cls"] == "unclassified"
+
+
+def test_a_value_the_new_run_lacks_takes_only_a_rule_that_names_it(monkeypatch):
+    gear = "el-diff:sig_power"
+    ctx = {"x": {"gears": {gear: (0.2, 0.1), f"{gear}|min": (0.2, 0.1)}}}
+    ds = [diff.Diff(item="x", field="channels.values", key=gear, what=w, x=x, today=None, new=None)
+          for w, x in (("value", 5.0), ("not finite", math.inf))]
+    ds.append(diff.Diff(item="x", field="channels.min", key=gear, what="missing", x=None, today=None, new=None))
+    diff.classify(ds, ctx)
+    assert [(d["what"], d["cls"]) for d in ds] == [("value", "b"), ("not finite", "unclassified"),
+                                                 ("missing", "unclassified")]
+    # any rule: one without a `what` explains no "not finite"; one that names it may
+    for what, cls in ((None, "unclassified"), (["not finite"], "c")):
+        rule = {"id": "r", "class": "c", "field": ["channels.values"]} | ({"what": what} if what else {})
+        monkeypatch.setattr(diff, "RULES", [rule])
+        diff.classify(ds[1:2], ctx)
+        assert ds[1]["cls"] == cls
+
+
+def _gear_runs():
+    """bev-car's driveline: its motors' speed and torque, and today's gear
+    channels rebuilt from them (golden/definitions.py): (sources, gears)."""
+    d = diff._definitions()
+    chain, motors, clutches, node = d.driveline(runs.example("bev-car"))
+    src = {}
+    for m in motors:
+        src[f"{m}:sig_speed"] = [1000.0 + 50.0 * k for k in range(50)]
+        src[f"{m}:sig_torque"] = [100.0 - 3.0 * k for k in range(50)]  # driving, then braking
+    for el, kind, _, _ in chain:
+        if kind == "mech.gearbox":
+            src[f"{el}:sig_gear"] = [1.0] * 50
+    return src, d.rebuild(src, chain, motors, clutches, node)
+
+
+def _channels(chans: dict) -> dict:
+    return _result(summary=[], messages=[], channels=[
+        {"elementId": n.split(":")[0], "portId": n.split(":")[1], "label": n, "unit": "kW",
+         "timeSeries": [{"t": 0.1 * k, "value": v} for k, v in enumerate(vs)]} for n, vs in chans.items()])
+
+
+def test_the_gear_rule_leaves_out_a_channel_the_new_run_lacks():
+    src, gears = _gear_runs()
+    today = _channels({**src, **gears})
+    name = next(iter(gears))
+    assert diff.gear_rebuild(runs.example("bev-car"), today, today, today)[name] == (0.0, 0.0)
+    lacks = _channels({**src, **gears, name: [gears[name][0]] + [None] * 49})
+    assert name not in diff.gear_rebuild(runs.example("bev-car"), today, today, lacks)
+
+
+def test_a_gear_channel_the_new_run_lacks_is_not_today_wrong(tmp_path, monkeypatch):
+    # through report.b2b: one gear channel 10 % off is today's rule (b); the others None
+    # after t = 0 (the path's not a number) are not (the judge's re-check, recheck/gear_nan.py)
+    item = next(i for i in runs.items() if i["id"] == "bev-car/case-city")
+    monkeypatch.setattr(runs, "items", lambda: [item])
+    src, gears = _gear_runs()
+    off = next(iter(gears))
+    new = {**src, **{n: [v * 1.1 for v in vs] if n == off else [vs[0]] + [None] * 49 for n, vs in gears.items()}}
+    for setting, chans in (("today-normal", {**src, **gears}), ("today-fine", {**src, **gears}), ("new", new)):
+        _write(tmp_path, {"kind": "item", "id": item["id"], "setting": setting}, result=_channels(chans))
+    got = {(d["key"], d["what"]): d["cls"] for d in report.b2b(tmp_path)["diffs"] if d["field"] == "channels.values"}
+    assert got.pop((off, "value")) == "b"
+    assert len(got) == len(gears) - 1 and set(got.values()) == {"unclassified"}, got
 
 
 def _channel_result(values, stats=None):
@@ -177,10 +280,78 @@ def test_a_new_run_without_its_points_differs():
         assert ("channels.values", "not finite") in got, broken[-1]
         assert {("channels.min", "not finite"), ("channels.mean", "not finite")} <= got
         first = next(d for d in ds if d["field"] == "channels.values")
-        assert first["first_t"] == (1.0 if broken[1] is None else 50.0)
+        assert first["first_t"] == (0.0 if broken[0] is None else 50.0)
     # a gap today's own runs have too is no difference
     gap = today[:50] + [None] * 50
     assert diff.compare("x", _channel_result(gap), _channel_result(gap), _channel_result(gap)) == []
+
+
+def test_a_point_the_new_run_lacks_at_the_start_differs():
+    # the first point is out of the band (DESIGN.md 12.3), not out of the gap check: a standstill's 0/0
+    today = [90.0 + 0.01 * k for k in range(100)]
+    for at0 in (None, math.nan):
+        ds = diff.compare("x", _channel_result(today, today), _channel_result(today, today),
+                          _channel_result([at0] + today[1:], [at0] + today[1:]))
+        got = {(d["field"], d["what"], d.get("first_t")) for d in ds}
+        assert {("channels.values", "not finite", 0.0), ("channels.min", "not finite", 0.0)} <= got
+    # while another value at t = 0 is still no difference
+    assert diff.compare("x", _channel_result(today), _channel_result(today),
+                        _channel_result([50.0] + today[1:])) == []
+
+
+def test_a_not_a_number_in_a_limit_or_a_change_of_state_differs():
+    import copy
+    new = copy.deepcopy(FULL)
+    new["summary"][0]["limit"] = math.nan
+    assert [(d["field"], d["what"]) for d in diff.compare("x", FULL, FULL, new)] == [("summary.limit", "text")]
+    new = copy.deepcopy(FULL)
+    new["limits"]["lanes"][0]["changes"][1][0] = math.nan
+    assert [(d["field"], d["what"]) for d in diff.compare("x", FULL, FULL, new)] == [
+        ("limits.changes", "not finite")]
+
+
+# every keyed list of rows in FULL, as a path, and a number in its first row to change
+ROW_LISTS = [("messages",), ("channels",), ("summary",), ("partEnergy",), ("energy", "parts"),
+             ("energy", "sources"), ("energy", "sinks"), ("duty",), ("duty", 0, "rows"), ("limits", "lanes"),
+             ("references",)]
+
+
+def _bump(x):
+    """``x`` with every number in it but the times and the flags far off."""
+    if isinstance(x, dict):
+        return {k: v if k == "t" else _bump(v) for k, v in x.items()}
+    if isinstance(x, list):
+        return [_bump(v) for v in x]
+    if isinstance(x, (int, float)) and not isinstance(x, bool):
+        return x * 10 + 99
+    return x.replace("12", "99") if isinstance(x, str) else x  # (a message's own number)
+
+
+def _rows_at(res, where):
+    for k in where:
+        res = res[k]
+    return res
+
+
+@pytest.mark.parametrize("where", ROW_LISTS, ids=["/".join(map(str, w)) for w in ROW_LISTS])
+def test_a_row_the_new_run_repeats_differs(where):
+    import copy
+    new = copy.deepcopy(FULL)
+    rows = _rows_at(new, where)
+    rows.append(_bump(rows[0]))  # the same key twice, the second far off
+    assert {d["what"] for d in diff.compare("x", FULL, FULL, new)} & {"duplicate", "extra"}, where
+    # the same key twice on both sides pairs in order: the second row is compared too
+    today = copy.deepcopy(new)
+    _rows_at(today, where)[1] = copy.deepcopy(rows[0])
+    assert {d["what"] for d in diff.compare("x", today, today, new)} - {"duplicate", "missing", "extra"}, where
+
+
+def test_a_duty_part_with_no_rows_is_compared():
+    part = {"elementId": "el-m", "label": "Motor", "kind": "motor.emotor", "rows": []}
+    ds = diff.compare("x", _result(duty=[part]), _result(duty=[part]), _result())
+    assert [(d["field"], d["key"], d["what"]) for d in ds] == [("duty", "el-m", "missing")]
+    ds = diff.compare("x", _result(), _result(), _result(duty=[part]))
+    assert [(d["field"], d["what"]) for d in ds] == [("duty", "extra")]
 
 
 def _models(model, seen=None) -> dict:
@@ -317,6 +488,36 @@ def test_the_mutmut_copy_is_made_afresh_for_other_code(tmp_path):
     assert (work / "progress").exists()
 
 
+@pytest.mark.parametrize("changed", ["tests/helpers.py", "tests/conftest.py", "app/library/components.json",
+                                     "projects/bev-car.json", "app/solver/verdict.py"])
+def test_the_mutmut_copy_is_made_afresh_when_what_its_tests_read_changes(tmp_path, monkeypatch, changed):
+    # what the tests read beside the code (the judge's re-check, recheck/stale_more.py)
+    from benchmarks.back_to_back import mutation
+    backend = tmp_path / "backend"
+    tests = [t for t in mutation.TESTS if not t.startswith("-")]
+    for rel in ("tests/helpers.py", "tests/conftest.py", "app/library/components.json", "projects/bev-car.json",
+                "app/solver/verdict.py", *tests):
+        (backend / rel).parent.mkdir(parents=True, exist_ok=True)
+        (backend / rel).write_text(f"# {rel}\n")
+    (backend / ".hypothesis").mkdir()
+    monkeypatch.setattr(mutation, "BACKEND", backend)
+    work = mutation.prepare(tmp_path / "out")
+    (work / "progress").write_text("mutmut's")
+    (backend / ".hypothesis" / "examples").write_text("a cache, not code")
+    mutation.prepare(tmp_path / "out")
+    assert (work / "progress").exists()  # a cache changed: kept
+    (backend / changed).write_text("# changed\n")
+    mutation.prepare(tmp_path / "out")
+    assert (work / changed).read_text() == "# changed\n" and not (work / "progress").exists()
+
+
+def test_the_noskip_probe_says_which_code_made_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(report, "_pytest", lambda *a, **k: {"tests": 1, "failed": [], "skipped": []})
+    report.noskip_probe(tmp_path)
+    assert json.loads((tmp_path / "noskip.json").read_text())["stamp"] == runs.stamp()
+    assert [m["probes"] for m in report.stamps(tmp_path)] == [["noskip.json"]]
+
+
 def test_the_report_lists_the_code_that_made_what_it_reads(tmp_path):
     s = {"commit": "abcdef0123456789", "dirty": None, "lightsim_engine": "0.1.0",
          "lightsim_engine_sha256": "f" * 64}
@@ -366,17 +567,93 @@ def test_the_label_is_read_from_the_message_a_run_writes(monkeypatch):
     assert traces.labelled()["labelled"]
 
 
-def test_scripts_reads_the_runner_each_run_names(tmp_path, monkeypatch):
+def test_scripts_reads_which_runner_served_each_step(tmp_path, monkeypatch):
     monkeypatch.delenv("LSIM_SCRATCH", raising=False)
     iid = "probe/hybrid-udds-single"
     b = {"items": [{"id": iid, "got": "run"}]}
     spec = {"kind": "item", "id": iid, "setting": "new"}
-    for scripts, a in (({"Energy manager": "python"}, True), ({"Energy manager": "native"}, False),
-                       (None, None)):
-        _write(tmp_path, spec, result=_result(), engine={} if scripts is None else {"scripts": scripts})
+    worker = {"own_pid": 100, "pids": [101]}
+    for engine, a in (
+            ({"scripts": {"HCU": "python"}, "script_calls": {"el-hcu": 9}, "script_served": {"el-hcu": 9},
+              "script_worker": worker}, True),
+            # the steps run somewhere else than today's worker (the app's own process)
+            ({"scripts": {"HCU": "python"}, "script_calls": {"el-hcu": 9}, "script_served": {},
+              "script_worker": {"own_pid": 100, "pids": []}}, False),
+            ({"scripts": {"HCU": "python"}, "script_calls": {"el-hcu": 9}, "script_served": {"el-hcu": 4},
+              "script_worker": worker}, False),
+            ({"scripts": {"HCU": "native"}, "script_calls": {"el-hcu": 0}, "script_served": {},
+              "script_worker": worker}, False),
+            ({"scripts": {"HCU": "python"}, "script_calls": {"el-hcu": 9}, "script_served": {"el-hcu": 9},
+              "script_worker": {"own_pid": 101, "pids": [101]}}, False),
+            ({"scripts": {"HCU": "python"}}, None)):  # a record made before the counts: not measured
+        _write(tmp_path, spec, result=_result(), engine=engine)
         got = report.scripts(b, tmp_path)
-        assert got["a_worker_on_new_path"] is a
+        assert got["a_worker_on_new_path"] is a, engine
         assert got["c_owner_page"] is None  # the owner's decisions out of reach: not measured
+
+
+class _InProcess:
+    """Today's in-process Script runner in place of the worker: the code run
+    in the app's own process (the judge's re-check, recheck/scripts_inprocess.py)."""
+
+    def __init__(self, specs, **_):
+        from app.solver import scripting
+        self.scripting = scripting
+        self.steps = {s.el_id: (scripting.compile_script(s.code, s.label), {}) for s in specs}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def run(self, el_id, label, t, dt, inputs, params):
+        step, state = self.steps[el_id]
+        return self.scripting.run_script(step, label, t, dt, inputs, state, params)
+
+
+@needs_engine
+def test_scripts_tells_todays_worker_from_the_apps_own_process(tmp_path, monkeypatch):
+    import lightsim_engine
+    from app.solver import new_engine, sandbox
+    for k, v in (("LIGHTSIM_ENGINE", "new"), ("LIGHTSIM_ENGINE_STRICT", "1"), ("LIGHTSIM_SCRIPT_TRUST", "off"),
+                 ("LIGHTSIM_DATA_DIR", str(tmp_path / "user")),
+                 ("LIGHTSIM_PROJECTS_DIR", str(tmp_path / "user" / "projects"))):
+        monkeypatch.setenv(k, v)
+    real = lightsim_engine.build, sandbox.ScriptSandbox.run  # runs.child wraps both
+    spec = {"kind": "probe", "id": "energy/sine", "setting": "new"}
+    try:
+        for runner, served in ((None, True), (_InProcess, False)):
+            if runner:
+                monkeypatch.setattr(new_engine, "ScriptSandbox", runner)
+            path = tmp_path / f"{served}.json"
+            runs.child(spec, path)
+            lightsim_engine.build, sandbox.ScriptSandbox.run = real
+            rec = json.loads(path.read_text(encoding="utf-8"))
+            assert report.refusal(rec["result"]) is None, rec["result"]["messages"][0]
+            assert rec["engine"]["script_calls"]["el-sine"] > 0
+            assert report.worker_served(rec["engine"]) is served, rec["engine"]
+    finally:
+        lightsim_engine.build, sandbox.ScriptSandbox.run = real
+
+
+def test_scripts_b_reads_what_the_decision_record_holds(tmp_path, monkeypatch):
+    monkeypatch.setattr(runs, "REPO", tmp_path)
+    (tmp_path / "docs").mkdir()
+    record = tmp_path / "docs" / "script-decision.md"
+    record.write_text("")  # a name alone (the judge's re-check, recheck/stale_more.py)
+    got = report.scripts({"items": []}, tmp_path)
+    assert got["b_decision_record"] == [] and got["b_records_lack"]["docs/script-decision.md"] == \
+        list(report.RECORD_PARTS)
+    record.write_text("# Script blocks: the decision\n\n## Threat model (STRIDE)\n\n...\n\n"
+                      "## Differential fuzzing against CPython 3.11\n\n- **Hours:** 24\n- Inputs: 1,200,000\n"
+                      "- Divergences: 0\n\n## Unsafe code\n\n| cargo-geiger, unsafe expressions | 12 |\n\n"
+                      "## The PLT-35 gap\n\n...\n")
+    got = report.scripts({"items": []}, tmp_path)
+    assert got["b_decision_record"] == ["docs/script-decision.md"], got["b_records_lack"]
+    record.write_text(record.read_text().replace("- Divergences: 0\n", ""))
+    assert report.scripts({"items": []}, tmp_path)["b_records_lack"]["docs/script-decision.md"] == [
+        "the fuzzing's divergences"]
 
 
 def test_sources_and_their_fetch_check_the_pinned_copies(tmp_path, monkeypatch):

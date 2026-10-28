@@ -101,8 +101,9 @@ def b2b(out: Path) -> dict:
                 ctx["gears"] = diff.gear_rebuild(project, n, f, new)
                 case = runs._case(project, case_id)
                 if case.get("kind") == "acceleration" and case.get("endDistance"):
-                    last = {k: next(c["timeSeries"][-1]["value"] for c in r["channels"]
-                                    if c["elementId"] == "el-vehicle" and c["portId"] == "sig_distance")
+                    last = {k: next((c["timeSeries"][-1]["value"] for c in r["channels"]
+                                     if c["elementId"] == "el-vehicle" and c["portId"] == "sig_distance"
+                                     and c["timeSeries"]), None)
                             for k, r in (("today", f), ("new", new))}
                     ctx["line_end"] = {**last, "line": (case.get("startLine") or 0.0) + case["endDistance"]}
             diff.classify(ds, {item["id"]: ctx})
@@ -401,25 +402,61 @@ def quick() -> dict:
                    "the full dynamic engine only" if not has else "to measure"}
 
 
+def worker_served(engine: dict | None) -> bool | None:
+    """Whether today's worker ran every step the engine asked of every
+    Script part of a run (runs._Engine's counts): the module names the
+    caller's runner ("python"), each part was asked for steps, the worker
+    (sandbox.ScriptSandbox) served each part as many, and it is a process
+    other than the run's own. None where the record does not say."""
+    if not engine or "script_calls" not in engine:
+        return None
+    calls, served = engine["script_calls"], engine.get("script_served") or {}
+    worker = engine.get("script_worker") or {}
+    return (bool(calls) and set((engine.get("scripts") or {}).values()) == {"python"}
+            and all(n > 0 and served.get(el) == n for el, n in calls.items())
+            and bool(worker.get("pids")) and worker.get("own_pid") not in worker["pids"])
+
+
+# SCRIPTS b: what the decision record must hold, each as a heading or a named field (with its number)
+RECORD_PARTS = {
+    "the STRIDE threat model": r"^#+ .*\bSTRIDE\b",
+    "the differential fuzzing against CPython 3.11": r"^#+ .*\bfuzz.*\bCPython 3\.11\b",
+    "the fuzzing's hours": r"^\W*hours\W*[:|]\s*\**\s*\d",
+    "the fuzzing's inputs": r"^\W*inputs\W*[:|]\s*\**\s*\d",
+    "the fuzzing's divergences": r"^\W*divergences\W*[:|]\s*\**\s*\d",
+    "a cargo-geiger count": r"^\W*cargo-geiger\b[^\n:|]*[:|]\s*\**\s*\d",
+    "the PLT-35 gap": r"^(#+ .*|\W*)\bPLT-35\b",
+}
+
+
+def record_lacks(text: str) -> list[str]:
+    """The parts of RECORD_PARTS a decision record does not hold."""
+    return [part for part, rx in RECORD_PARTS.items() if not re.search(rx, text, re.I | re.M)]
+
+
 def scripts(b: dict, out: Path) -> dict:
     """a: every Script part of the hybrid's single runs on the new path ran
-    on today's worker (the runner lightsim_engine's run.report["scripts"]
-    names, "python": the path's function into the worker), None where the
-    records do not say; b: the decision record; c: the owner's page, None
-    where the owner's decisions are not reachable ($LSIM_SCRATCH)."""
-    runners = {}
+    in today's worker, every step (worker_served), None where the records
+    do not say; b: a decision record holding each of RECORD_PARTS; c: the
+    owner's page, None where the owner's decisions are not reachable
+    ($LSIM_SCRATCH)."""
+    served, runners = {}, {}
     for r in b["items"]:
         if r["id"].startswith("probe/hybrid-"):
-            rec = runs.load(out, {"kind": "item", "id": r["id"], "setting": "new"}) or {}
-            runners[r["id"]] = (rec.get("engine") or {}).get("scripts") if r["got"] == "run" else {}
-    a = (None if any(v is None for v in runners.values()) else
-         bool(runners) and all(v and set(v.values()) == {"python"} for v in runners.values()))
-    records = [p for p in (runs.REPO / "docs").rglob("*.md") if "script" in p.name.lower() and "decision" in p.name.lower()]
+            engine = (runs.load(out, {"kind": "item", "id": r["id"], "setting": "new"}) or {}).get("engine")
+            served[r["id"]] = worker_served(engine) if r["got"] == "run" else False
+            runners[r["id"]] = {k: (engine or {}).get(k) for k in ("scripts", "script_calls", "script_served",
+                                                                    "script_worker")}
+    a = None if any(v is None for v in served.values()) else bool(served) and all(served.values())
+    records = {str(p.relative_to(runs.REPO)): record_lacks(p.read_text(encoding="utf-8"))
+               for p in sorted((runs.REPO / "docs").rglob("*.md"))
+               if "script" in p.name.lower() and "decision" in p.name.lower()}
+    whole = [p for p, lacks in records.items() if not lacks]
     decisions = runs.scratch() / "decisions" if runs.scratch() else None
     page = (decisions / "script-runner-explained.md").exists() if decisions and decisions.is_dir() else None
-    got = {"a_worker_on_new_path": a, "a_runners": runners,
-           "b_decision_record": [str(p.relative_to(runs.REPO)) for p in records], "c_owner_page": page}
-    each = [a, bool(records), page]
+    got = {"a_worker_on_new_path": a, "a_served": served, "a_runners": runners,
+           "b_decision_record": whole, "b_records_lack": records, "c_owner_page": page}
+    each = [a, bool(whole), page]
     state = "fail" if False in each else "not measured" if None in each else "pass"
     return {"state": state, "of_three": sum(x is True for x in each), **got}
 
@@ -469,7 +506,7 @@ def noskip_probe(out: Path) -> dict:
            "a_windows_only": sum(WINDOWS_ONLY in m for m in got["a"]["skipped"]),
            "b_tests": got["b"]["tests"], "b_failed": len(got["b"]["failed"]),
            "b_skipped_engine": sum(WINDOWS_ONLY not in m for m in got["b"]["skipped"]),
-           "c_ci": c, "detail": got}
+           "c_ci": c, "detail": got, "stamp": runs.stamp()}
     (out / "noskip.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     print(f"noskip: {res['a_tests']} tests, {res['a_skipped']} skipped with the module; "
           f"{res['b_failed']} failed and {res['b_skipped_engine']} skipped without; CI {c}", flush=True)
@@ -516,7 +553,7 @@ def stamps(out: Path) -> list[dict]:
     with the files it made (raw records, the probes' results, mutmut's),
     "none" for those made before records were stamped."""
     files = [p for _, p in sorted((str(p), p) for p in (out / "raw").glob("*/*.json"))]
-    files += [out / n for n in ("stop.json", "replay.json", "mutation.json") if (out / n).exists()]
+    files += [out / n for n in ("stop.json", "replay.json", "mutation.json", "noskip.json") if (out / n).exists()]
     seen: dict = {}
     for p in files:
         s = json.loads(p.read_text(encoding="utf-8")).get("stamp")

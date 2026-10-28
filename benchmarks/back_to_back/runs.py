@@ -365,13 +365,27 @@ def load(out: Path, spec: dict) -> dict | None:
 
 class _Engine:
     """lightsim_engine.build wrapped, to keep what the app's path drops:
-    the build's warnings with their codes, and the run's energy totals; and
-    to run at another rtol (the META line)."""
+    the build's warnings with their codes, and the run's energy totals; to
+    run at another rtol (the META line); and, for SCRIPTS a, which runner
+    served the Script parts' steps: each step the engine asks of a part
+    (script_calls), each step today's worker (sandbox.ScriptSandbox) ran
+    for it (script_served), and the worker's process beside the run's own
+    (script_worker)."""
 
     def __init__(self, rtol: float | None):
         import lightsim_engine
-        self.real, self.rtol, self.kept = lightsim_engine.build, rtol, {}
+        from app.solver import sandbox
+        self.real, self.rtol = lightsim_engine.build, rtol
+        self.kept = {"script_served": {}, "script_worker": {"own_pid": os.getpid(), "pids": []}}
         lightsim_engine.build = self.build
+        real_run, kept = sandbox.ScriptSandbox.run, self.kept
+
+        def run(box, el_id, *args, **kwargs):  # a step the worker serves
+            kept["script_served"][el_id] = kept["script_served"].get(el_id, 0) + 1
+            if box._proc.pid not in kept["script_worker"]["pids"]:
+                kept["script_worker"]["pids"].append(box._proc.pid)
+            return real_run(box, el_id, *args, **kwargs)
+        sandbox.ScriptSandbox.run = run
 
     def build(self, *args, **kwargs):
         model = self.real(*args, **kwargs)
@@ -390,8 +404,19 @@ class _Model:
     def simulate(self, **kwargs):
         if self.engine.rtol is not None:
             kwargs["rtol"] = self.engine.rtol
+        calls = self.engine.kept["script_calls"] = {}
+
+        def counted(el_id, step):
+            calls[el_id] = 0
+
+            def ask(*args, **kw):
+                calls[el_id] += 1
+                return step(*args, **kw)
+            return ask
+        if kwargs.get("scripts"):
+            kwargs["scripts"] = {el_id: counted(el_id, step) for el_id, step in kwargs["scripts"].items()}
         run = self.model.simulate(**kwargs)
-        # which runner ran each Script part ("python": the caller's, today's worker)
+        # which runner the module used for each Script part ("python": the caller's function)
         self.engine.kept["scripts"] = dict(run.report["scripts"])
         energy = run.energy
         self.engine.kept["energy"] = None if energy is None else {

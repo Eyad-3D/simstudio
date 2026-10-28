@@ -250,8 +250,9 @@ what needs them is reported as not measured.
 It runs every example case (and a few probes) through the app's own
 `simulate` on today's engine at its 10 ms and 1 ms steps and on the new
 engine's path in strict mode (`LIGHTSIM_ENGINE_STRICT=1`: nothing falls
-back), compares every field of the two results against bands measured
-from today's two runs, and classes every difference
+back), compares every field of the two results (every row, every point
+and every number in a message) against bands measured from today's two
+runs, and classes every difference
 ([`back_to_back/classes.toml`](back_to_back/classes.toml)); it plants the
 160 deletions and 108 parameter faults in the examples and puts both
 engines' verdicts side by side; it checks every result against the
