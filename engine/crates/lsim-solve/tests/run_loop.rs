@@ -4495,3 +4495,137 @@ fn an_output_grid_too_large_for_memory_is_an_error() {
     }
     assert_eq!(OutputGrid { t0: 0.0, t_end: 5.0, dt: 0.5 }.times().expect("room").len(), 11);
 }
+
+/// A crossing whose own `when` causes a rigid engagement that slows the
+/// condition (review 3's R3-B1, its engagement form): y = [p, w, x], p' =
+/// w, w' = 0, and x an iteration variable, x³ + x = p (x crosses 0.5 where
+/// p = 0.625, at t1 = 0.625 / w0); channels [p, w, the motor's speed r w,
+/// the ratio r (d0), n (d1), m (d2), x]. `when x > 0.5` (forth) counts n
+/// and steps the ratio from 1 to K, a rigid engagement: the motor (J_m = 1)
+/// and the wheel (J_w = 1e-6) meet keeping their momentum, so w drops to
+/// about w0 / K and x goes on past 0.5, K times slower. `when x < 0.5`
+/// (back) counts m. Truth: forth once, at t1; back never. The engagement
+/// changes nothing x reads at the instant, so a crossing located a little
+/// early is held (the rule's one-point test at the moved states); a time
+/// limit from the rate before the event expired before the slowed arrival
+/// and fired back, then forth again; with no hold after the move (before
+/// round 4) forth fired twice. The hold the crossing made takes the rate
+/// after the event, the engagement's included.
+#[test]
+fn an_engagement_at_its_crossing_that_slows_it_fires_once() {
+    let (jm, jw, w0, big) = (1.0, 1e-6, 0.5, 100.0);
+    let v = |k: u32| Expr::Var(VarId(k));
+    let half = |c: f64, k: u32| Expr::Const(0.5 * c) * v(k) * v(k);
+    let part = |path: &str, stored: Option<Expr>| EnergyPart {
+        path: path.into(),
+        name: format!("'{path}'"),
+        power: Expr::Const(0.0),
+        loss: None,
+        stored,
+    };
+    let t1 = 0.625 / w0;
+    let w1 = (jm * big + jw) * w0 / (jm * big * big + jw);
+    let mut early = 0;
+    let mut bad = vec![];
+    for backend in backends() {
+        for rtol in [1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10] {
+            let model = Hand {
+                layout: layout(2, 1, 0, 3, 1, 2, 7),
+                f: Box::new(|i, out| {
+                    out[0] = i.y[1];
+                    out[1] = 0.0;
+                    out[2] = i.y[2] * i.y[2] * i.y[2] + i.y[2] - i.y[0];
+                }),
+                jvp: Box::new(|i, s, out| {
+                    out[0] = s[1];
+                    out[1] = 0.0;
+                    out[2] = (3.0 * i.y[2] * i.y[2] + 1.0) * s[2] - s[0];
+                }),
+                roots: Box::new(|i, out| out[0] = i.y[2] - 0.5),
+                vars: Box::new(|i, out| {
+                    out[0] = i.y[0];
+                    out[1] = i.y[1];
+                    out[2] = i.d[0] * i.y[1];
+                    out[3] = i.d[0];
+                    out[4] = i.d[1];
+                    out[5] = i.d[2];
+                    out[6] = i.y[2];
+                }),
+                when: Box::new(move |i, fired, d| {
+                    if fired[0] != 0.0 {
+                        d[0] = big;
+                        d[1] = i.d[1] + 1.0;
+                    }
+                    if fired[1] != 0.0 {
+                        d[2] = i.d[2] + 1.0;
+                    }
+                }),
+                modes: None,
+                y0: vec![0.0, w0, 0.0],
+                d0: vec![1.0, 0.0, 0.0],
+            };
+            let mut info = RunInfo::bare(3, 7, vec![]);
+            info.root_dirs = vec![0];
+            whens(&mut info, &[(0, Direction::Rising, "forth"), (0, Direction::Falling, "back")]);
+            info.when_strict = vec![true, true];
+            info.var_sources = vec![
+                VarSource::Y(0),
+                VarSource::Y(1),
+                VarSource::Computed,
+                VarSource::D(0),
+                VarSource::D(1),
+                VarSource::D(2),
+                VarSource::Y(2),
+            ];
+            info.y_nominal = vec![1.0, 1.0, 1.0];
+            info.energy = Some(Arc::new(EnergyInfo {
+                parts: vec![
+                    part("motor", Some(half(jm, 2))),
+                    part("wheel", Some(half(jw, 1))),
+                    part("gearbox", None),
+                ],
+            }));
+            info.impulse = Some(Arc::new(ImpulseInfo::new(
+                vec![(0, vec![2]), (1, vec![1])],
+                vec![EngagementInfo { changes: v(3), part: Some(2) }],
+                vec![],
+                vec![(2, false, v(3) * v(1))],
+                vec![],
+                &info.var_sources,
+                2,
+            )));
+            let opts = SolverOptions { rtol, atol: 1e-2 * rtol, backend, ..Default::default() };
+            let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.5 };
+            let run = match simulate(&model, &info, &opts, grid, &mut []) {
+                Ok(r) => r,
+                Err(e) => {
+                    bad.push(format!("{backend:?} rtol {rtol:e}: {e}"));
+                    continue;
+                }
+            };
+            let at = |label: &str| -> Vec<f64> {
+                run.events.iter().filter(|e| e.label == label).map(|e| e.t).collect()
+            };
+            let (forth, back) = (at("forth"), at("back"));
+            let (n_end, m_end) = (*run.values[4].last().unwrap(), *run.values[5].last().unwrap());
+            let w_end = *run.values[1].last().unwrap();
+            early += usize::from(forth.first().is_some_and(|t| *t < t1));
+            let right = forth.len() == 1
+                && (forth[0] - t1).abs() <= 10.0 * rtol * 1.75 / w0
+                && back.is_empty()
+                && (n_end, m_end) == (1.0, 0.0)
+                && run.report.impulses == 1
+                && (w_end - w1).abs() <= 1e-9 * w1;
+            if !right {
+                bad.push(format!(
+                    "{backend:?} rtol {rtol:e}: forth {forth:?}, back {back:?} (t1 {t1}), n {n_end}, \
+                     m {m_end}, w {w_end} (exact {w1}), {} impulses",
+                    run.report.impulses
+                ));
+            }
+        }
+    }
+    println!("{early} crossings located early");
+    assert!(early >= 3, "only {early} crossings located early: the hold is not tested");
+    assert!(bad.is_empty(), "{} wrong:\n{}", bad.len(), bad.join("\n"));
+}

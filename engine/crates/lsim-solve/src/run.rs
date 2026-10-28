@@ -12,14 +12,18 @@
 //!   from (a mode on an iteration variable whose relation, those solved
 //!   again, does not hold yet: the integrator meets it again). A
 //!   condition on an iteration variable that solving them again puts back
-//!   a little short of zero is held on the side it crossed to, so its
-//!   `when` fires once ([`Loop::update_sides`]); event iteration evaluates
-//!   every condition as held too, so a `when x < 0.5` beside a `when x >
-//!   0.5` does not fire at that crossing ([`Loop::hold_conditions`]). The
-//!   hold stands only while the integrator's own solution, wherever the
-//!   run loop has it (a step's end, an event's point), is still short of
-//!   that side within the hold, and nothing holds a condition an event
-//!   moves back across: its `when` fires there.
+//!   a little short of zero, where the crossing was located a little early,
+//!   is held on the side it crossed to, so its `when` fires once
+//!   ([`Loop::update_sides`]); event iteration evaluates every condition as
+//!   held too, so a `when x < 0.5` beside a `when x > 0.5` does not fire at
+//!   that crossing ([`Loop::hold_conditions`]). The rule holds only what
+//!   the location error explains, never a move the event itself makes,
+//!   read where the crossing really is ([`Loop::held_by_rule`]); a hold
+//!   stands while the integrator's own solution, wherever the run loop has
+//!   it, is still short of that side within the hold, and never past its
+//!   time limit ([`Loop::set_expiry`]): from then on the condition is read
+//!   as solved, and where it is short its opposite `when` fires
+//!   ([`Loop::expiry_cut`]).
 //! * **`when` clauses** follow Modelica: a clause fires at each instant its
 //!   condition changes from false to true while the model runs, compared
 //!   with its value just before that instant (before a sample tick set
@@ -326,6 +330,36 @@ struct Loop<'a> {
     /// mode's nor a held read's edge ([`Loop::may_hold_root`] but for the
     /// time crossings, which can change)
     hold_roots: Vec<usize>,
+    /// per root function: the relation it is one side of (functions on one
+    /// relation, `x > 0.5` and `x < 0.5`, share it; [`relations`])
+    relation: Vec<usize>,
+    /// where the integrator's last step started: the second point of the
+    /// hold rule ([`Loop::second`])
+    step_from: f64,
+    /// the clauses each round of the event being iterated fired, in order
+    /// (replayed at the second point: [`Loop::second`])
+    fired_log: Vec<Vec<f64>>,
+    /// per root function: when its hold expires (∞: none), the time limit
+    /// it was made with (for a renewal), and the resolution ρ its rule
+    /// test had ([`Loop::set_expiry`])
+    expiry: Vec<f64>,
+    limit: Vec<f64>,
+    rho_of: Vec<f64>,
+    /// the holds the last expiry check found arrived, with the instant it
+    /// read them at: renewed from the step's end once that is final
+    /// ([`Loop::renew_holds`])
+    renew: Vec<(usize, f64)>,
+    /// the event being handled was caused by one relation's crossing alone
+    /// (`own_ok` from the run loop: a root, nothing scheduled, no expiry
+    /// cut; `own`: that relation, set by [`Loop::iterate`])
+    own_ok: bool,
+    own: Option<usize>,
+    /// the functions the last round of event iteration held on their side
+    /// (the engagement loop's value before the states move applies them)
+    ev_held: Vec<(usize, f64)>,
+    /// the Jacobian's structure, for the rates after an event
+    /// ([`Loop::rates_after`]); made when first needed
+    rate_jac: Option<crate::jac::JacStructure>,
     /// where the integrator saw the conditions of the event being iterated
     /// ([`Loop::hold_conditions`]): the point it located it at, the root
     /// functions there (unmapped), the crossings it reported, and the
@@ -334,12 +368,8 @@ struct Loop<'a> {
     seen_g: Vec<f64>,
     seen_dirs: Vec<i32>,
     seen_d: Vec<f64>,
-    /// the event being iterated has them (`seen_y` …); whether the holds
-    /// standing at its point were judged, and those it moves across
-    /// ([`Loop::find_moved`])
+    /// the event being iterated has them (`seen_y` …)
     seen_now: bool,
-    moved_checked: bool,
-    moved: Vec<usize>,
     /// the conditions the last release found past their holds
     /// ([`Loop::release_holds`])
     passed: Vec<usize>,
@@ -413,17 +443,40 @@ pub(crate) fn same_instant(a: f64, b: f64) -> bool {
     (a - b).abs() <= 16.0 * f64::EPSILON * a.abs().max(b.abs())
 }
 
-/// A hold's width ([`Loop::update_sides`]) in what the iteration
-/// variables' tolerances allow in its function. The inconsistency it
-/// covers measured up to 0.56 of that on conditions on iteration
-/// variables (`tests/implicit_conditions.rs`' models over their rates,
-/// rtol 1e-4 … 1e-10, 50 holds). A condition an event moves across (a
-/// `reinit`, a discrete value an iteration variable is solved with) is not
-/// held after it, however little it moves it, whether the hold would be
-/// new or stood at the event's point: with the iteration variables solved
-/// for the discrete values before the event, it was on the side the
-/// integrator saw ([`Loop::keep_unmoved`], [`Loop::find_moved`]).
-const HOLD: f64 = 4.0;
+/// A new hold's width W ([`Loop::update_sides`]), in bands: what the
+/// iteration variables' tolerances allow in its function ([`Loop::band`]).
+/// It bounds the location error a hold may cover: the holds suite's
+/// largest early location is 2.58 bands (rtol 1e-4; 0.98 at its 99th
+/// percentile), so 8 covers it 3.1 times. Whether an event's own move is
+/// held is not the width's to decide (the rule's H3 is,
+/// [`Loop::held_by_rule`]); the width bounds the time limit
+/// ([`Loop::set_expiry`]) and how far back past zero a held function may go
+/// before it counts as crossed back ([`Loop::release_holds`]).
+const HOLD: f64 = 8.0;
+
+/// A held table read's cell edge's hold ([`Loop::hold_cells`]), in bands of
+/// its argument: no `when` reads it, and it has no time limit.
+const CELL_HOLD: f64 = 4.0;
+
+/// The solve's resolution's floor, in bands: Newton stops once its WRMS
+/// update is below 1e-3 and applies it (`init::newton`), so what it leaves
+/// is of second order in that update ([`Loop::held_by_rule`]).
+const RESOLUTION: f64 = 1e-3;
+
+/// A hold's time limit in times what its function needs, at its rate, to
+/// close its shortfall ([`Loop::set_expiry`]); 2 and 4 expired before a
+/// shallow peak's slower arrival in the holds suite, 8 never.
+const LIMIT_FACTOR: f64 = 8.0;
+
+/// The second point is used where the pre-event function reaches zero
+/// within this many steps' lengths ahead (θ, [`Loop::held_by_rule`]): its
+/// propagated tolerance stays at most 0.066 band there.
+const REACH: f64 = 16.0;
+
+/// The second point is used where the step's change is at least this many
+/// times the solve's resolution ρ: the extrapolation's slope is then known
+/// to (1 + |λ|)/32 ([`Loop::held_by_rule`]).
+const SLOPE: f64 = 64.0;
 
 /// Steps in a row that leave the time where it was before the run stops
 /// (CVODE warns of the first ten, "t + h = t on the next step", and goes
@@ -605,7 +658,8 @@ fn integrator_failure(
 /// function resting at zero after its event does not fire again, and a
 /// value on the other side within its hold to that side too (a crossing
 /// that re-solving the iteration variables at its event put back a little
-/// short of zero: [`Loop::update_sides`]), and holds the masked ones (time
+/// short of zero: [`Loop::update_sides`]; until the run loop releases it, at
+/// the latest at its time limit), and holds the masked ones (time
 /// events the run loop schedules; their indices) at a constant (the
 /// backends call this on every evaluation of the root functions, through
 /// [`ZeroSides`]). `holds`: `None` where no function is held (no hold
@@ -703,6 +757,226 @@ impl ZeroSides {
     }
 }
 
+/// The hold rule's second point ([`Loop::second`]): its time, y there with
+/// the iteration variables solved for the discrete values before the event
+/// and for the replayed ones, those replayed values, and the root functions
+/// at both.
+struct SecondPoint {
+    t: f64,
+    y0: Vec<f64>,
+    y1: Vec<f64>,
+    d: Vec<f64>,
+    g0: Vec<f64>,
+    g1: Vec<f64>,
+}
+
+/// Per function of `n` (the model's root functions, then the table
+/// guards), the relation it is a side of: the first function whose
+/// expression is its own or its negation (`when x > 0.5` and `when x <
+/// 0.5` both cross on `x - 0.5`). Without the expressions (`roots`
+/// `None`) every function is its own relation.
+fn relations(n: usize, roots: Option<&[lsim_ir::Expr]>) -> Vec<usize> {
+    use lsim_ir::Expr as E;
+    use lsim_ir::expr::BinaryOp as Bo;
+    let mut rel: Vec<usize> = (0..n).collect();
+    let Some(roots) = roots else { return rel };
+    let same = |a: &E, b: &E| {
+        a == b
+            || match (a, b) {
+                (E::Neg(x), y) | (y, E::Neg(x)) => **x == *y,
+                (E::Binary(Bo::Sub, p, q), E::Binary(Bo::Sub, r, s)) => p == s && q == r,
+                _ => false,
+            }
+    };
+    for c in 1..n.min(roots.len()) {
+        if let Some(b) = (0..c).find(|&b| rel[b] == b && same(&roots[b], &roots[c])) {
+            rel[c] = b;
+        }
+    }
+    rel
+}
+
+/// What [`mag_eval`] reads: the point, the slots of y, the discrete values
+/// and the inputs, the assignments (their magnitudes found once per point).
+struct MagCx<'c> {
+    t: f64,
+    y: &'c [f64],
+    d: &'c [f64],
+    u: &'c [f64],
+    p: &'c [f64],
+    yi: &'c std::collections::HashMap<lsim_ir::Slot, usize>,
+    di: &'c std::collections::HashMap<lsim_ir::VarId, usize>,
+    ui: &'c std::collections::HashMap<lsim_ir::VarId, usize>,
+    ai: &'c std::collections::HashMap<lsim_ir::Slot, usize>,
+    assign: &'c [(lsim_ir::Slot, lsim_ir::Expr)],
+    memo: Vec<Option<(f64, f64)>>,
+    vars: &'c [f64],
+    model: &'c dyn ModelFunctions,
+}
+
+/// A slot's value and magnitude: an assigned variable's from its
+/// assignment, every other one exact (μ = 0).
+fn mag_slot(s: lsim_ir::Slot, cx: &mut MagCx<'_>) -> (f64, f64) {
+    if let Some(&k) = cx.ai.get(&s) {
+        if let Some(v) = cx.memo[k] {
+            return v;
+        }
+        let a = cx.assign;
+        let r = mag_eval(&a[k].1, cx);
+        cx.memo[k] = Some(r);
+        return r;
+    }
+    if let Some(&i) = cx.yi.get(&s) {
+        return (cx.y[i], 0.0);
+    }
+    match s {
+        lsim_ir::Slot::Var(v) => {
+            if let Some(&i) = cx.di.get(&v) {
+                (cx.d[i], 0.0)
+            } else if let Some(&i) = cx.ui.get(&v) {
+                (cx.u.get(i).copied().unwrap_or(f64::NAN), 0.0)
+            } else {
+                (cx.vars.get(v.0 as usize).copied().unwrap_or(f64::NAN), 0.0)
+            }
+        }
+        lsim_ir::Slot::Der(_) => (f64::NAN, 0.0),
+    }
+}
+
+/// A library function at `vals`, as the interpreter evaluates it.
+fn mag_call(f: lsim_ir::Builtin, vals: &[f64]) -> f64 {
+    let env = lsim_ir::eval::SliceEnv { t: 0.0, vars: &[], ders: &[], params: &[] };
+    let args: Vec<lsim_ir::Expr> = vals.iter().map(|v| lsim_ir::Expr::Const(*v)).collect();
+    lsim_ir::eval::eval(&lsim_ir::Expr::Call(f, args), &env)
+}
+
+/// An expression's value and its running-error magnitude μ (Higham,
+/// *Accuracy and Stability of Numerical Algorithms*, 2nd ed., §3.3): to
+/// first order |fl(e) − e| ≤ u μ, u = ε/2. Every operation adds its result's
+/// size and carries its operands' magnitudes through it: a ± b, μ_a + μ_b +
+/// |a ± b|; a·b, |a| μ_b + |b| μ_a + |ab|; a/b, (μ_a + |a/b| μ_b)/|b| + |a/b|;
+/// an integer power, |b| roundings (repeated squaring makes fewer); a
+/// library function, |f| (lsim-math is correctly rounded on every platform)
+/// and each argument's μ times its rate; a table read the same; an `if` its
+/// branch; a relation or a Boolean 0.
+fn mag_eval(e: &lsim_ir::Expr, cx: &mut MagCx<'_>) -> (f64, f64) {
+    use lsim_ir::Expr as E;
+    use lsim_ir::expr::BinaryOp as Bo;
+    match e {
+        E::Const(v) => (*v, 0.0),
+        E::Time => (cx.t, 0.0),
+        E::Name(_) => (f64::NAN, 0.0),
+        E::Var(v) => mag_slot(lsim_ir::Slot::Var(*v), cx),
+        E::Der(v) => mag_slot(lsim_ir::Slot::Der(*v), cx),
+        E::Pre(v) => (mag_slot(lsim_ir::Slot::Var(*v), cx).0, 0.0),
+        E::Param(p) => (cx.p.get(p.0 as usize).copied().unwrap_or(f64::NAN), 0.0),
+        E::Neg(a) => {
+            let (v, m) = mag_eval(a, cx);
+            (-v, m)
+        }
+        E::NoEvent(a) => mag_eval(a, cx),
+        E::Binary(op, a, b) => {
+            let (va, ma) = mag_eval(a, cx);
+            let (vb, mb) = mag_eval(b, cx);
+            match op {
+                Bo::Add => {
+                    let v = va + vb;
+                    (v, ma + mb + v.abs())
+                }
+                Bo::Sub => {
+                    let v = va - vb;
+                    (v, ma + mb + v.abs())
+                }
+                Bo::Mul => {
+                    let v = va * vb;
+                    (v, va.abs() * mb + vb.abs() * ma + v.abs())
+                }
+                Bo::Div => {
+                    let v = va / vb;
+                    (v, (ma + v.abs() * mb) / vb.abs() + v.abs())
+                }
+                Bo::Pow => {
+                    let v = lsim_ir::math::pow(va, vb);
+                    let da = if va != 0.0 { (vb * v / va).abs() } else { 0.0 };
+                    let db = if va > 0.0 { (lsim_ir::math::ln(va) * v).abs() } else { 0.0 };
+                    let k = if vb.fract() == 0.0 { vb.abs().max(1.0) } else { 2.0 };
+                    (v, da * ma + db * mb + k * v.abs())
+                }
+            }
+        }
+        E::Call(f, args) => {
+            let am: Vec<(f64, f64)> = args.iter().map(|x| mag_eval(x, cx)).collect();
+            let vals: Vec<f64> = am.iter().map(|x| x.0).collect();
+            let v = mag_call(*f, &vals);
+            let mut m = v.abs();
+            for i in 0..vals.len() {
+                if am[i].1 == 0.0 {
+                    continue;
+                }
+                let h = 1e-6 * vals[i].abs().max(1e-12);
+                let (mut lo, mut hi) = (vals.clone(), vals.clone());
+                lo[i] -= h;
+                hi[i] += h;
+                let dv = (mag_call(*f, &hi) - mag_call(*f, &lo)) / (2.0 * h);
+                if dv.is_finite() {
+                    m += dv.abs() * am[i].1;
+                }
+            }
+            (v, m)
+        }
+        E::Table { table, args, order } => {
+            let am: Vec<(f64, f64)> = args.iter().map(|x| mag_eval(x, cx)).collect();
+            let vals: Vec<f64> = am.iter().map(|x| x.0).collect();
+            let at = |v: &[f64]| {
+                crate::info::table_at(cx.model, *table, *order, v).map_or(f64::NAN, |x| x.0)
+            };
+            let v = at(&vals);
+            let mut m = v.abs();
+            for i in 0..vals.len() {
+                if am[i].1 == 0.0 {
+                    continue;
+                }
+                let h = 1e-6 * vals[i].abs().max(1e-12);
+                let (mut lo, mut hi) = (vals.clone(), vals.clone());
+                lo[i] -= h;
+                hi[i] += h;
+                let dv = (at(&hi) - at(&lo)) / (2.0 * h);
+                if dv.is_finite() {
+                    m += dv.abs() * am[i].1;
+                }
+            }
+            (v, m)
+        }
+        E::Compare(op, a, b) => {
+            let (va, vb) = (mag_eval(a, cx).0, mag_eval(b, cx).0);
+            use lsim_ir::CmpOp as C;
+            let r = match op {
+                C::Lt => va < vb,
+                C::Le => va <= vb,
+                C::Gt => va > vb,
+                C::Ge => va >= vb,
+            };
+            (if r { 1.0 } else { 0.0 }, 0.0)
+        }
+        E::And(a, b) => {
+            let r = mag_eval(a, cx).0 != 0.0 && mag_eval(b, cx).0 != 0.0;
+            (if r { 1.0 } else { 0.0 }, 0.0)
+        }
+        E::Or(a, b) => {
+            let r = mag_eval(a, cx).0 != 0.0 || mag_eval(b, cx).0 != 0.0;
+            (if r { 1.0 } else { 0.0 }, 0.0)
+        }
+        E::Not(a) => (if mag_eval(a, cx).0 == 0.0 { 1.0 } else { 0.0 }, 0.0),
+        E::If(c, a, b) => {
+            if mag_eval(c, cx).0 != 0.0 {
+                mag_eval(a, cx)
+            } else {
+                mag_eval(b, cx)
+            }
+        }
+    }
+}
+
 impl Loop<'_> {
     /// The model's channels at `(t, y, d)`, apart from the ones last
     /// sampled.
@@ -754,36 +1028,24 @@ impl Loop<'_> {
     /// A **hold**: the integrator locates a crossing on its interpolant of
     /// everything it integrates, the iteration variables too, which agree
     /// with their equations only to its tolerance. Where the event
-    /// re-solves the iteration variables from the states (a discrete value
-    /// changed: the `when` the crossing fired), a condition on one of them
-    /// (`x > 0.5` with `x³ + x = z`) can come out a little short of zero,
-    /// back on the side it crossed from; the integrator, restarted there,
-    /// sees it cross again a moment later, and the `when` fired twice for
-    /// one crossing (or three times). Such a function is held on the side
-    /// the integrator saw it on until it reaches that side itself, or goes
-    /// back past zero by more than its hold ([`HOLD`] times what the
-    /// iteration variables' tolerances allow in it: its change as each is
-    /// moved by its tolerance, summed): relation hysteresis, as
-    /// OpenModelica holds a relation on its side (`relationhysteresis`,
-    /// by 1e-4 rtol of its operands' size, where a condition is evaluated
-    /// with its iteration variables solved), here as wide as the
-    /// inconsistency it covers. That is looked at wherever the run loop has
-    /// the integrator's own solution: at every step's end and at every
-    /// event's point, before event iteration reads a condition there
-    /// ([`Loop::release_holds`]); one that went back past its hold crossed
-    /// back, and its `when` fires there whether or not the integrator,
-    /// told it was held, reported it ([`Loop::passed`]). Not where
-    /// something else explains the change: the event moved a state (an
-    /// engagement), the new discrete values move the function, alone at the
-    /// point the integrator had or through the iteration variables (solved
-    /// for the discrete values before the event, it was on the side the
-    /// integrator saw: [`Loop::keep_unmoved`]; a hold standing at the
-    /// event's point is judged so too, [`Loop::find_moved`]), or
-    /// the function is a mode's (a mode follows its relation at the event,
-    /// and where that sets it back the integrator restarts and sees it
-    /// cross again: [`Loop::undone`]). Event iteration, before, evaluates
-    /// the conditions held the same way ([`Loop::hold_conditions`]): what
-    /// it fires on and what the integrator watches after agree.
+    /// re-solves the iteration variables from the states, a condition on
+    /// one of them (`x > 0.5` with `x³ + x = z`) can come out a little
+    /// short of zero, back on the side it crossed from, where the crossing
+    /// was located a little early; the integrator, restarted there, would
+    /// see it cross again a moment later, and the `when` fire twice. Such a
+    /// function is held on the side the integrator saw it on (mapped to that
+    /// side wherever the run loop and the integrator read it) only where
+    /// that early location explains the shortfall, never where the event
+    /// itself moved it back ([`Loop::held_by_rule`]); and every hold ends
+    /// ([`Loop::set_expiry`]): from its expiry on, the condition is read as
+    /// solved ([`Loop::expiry_cut`], [`Loop::release_holds`]). Before that,
+    /// a hold ends where the integrator's own function reaches its side, or
+    /// goes back past zero by more than its width (a crossing back,
+    /// [`Loop::passed`]). A mode's function is never held (a mode follows
+    /// its relation at the event: [`Loop::undone`]). Event iteration
+    /// evaluates the conditions held the same way
+    /// ([`Loop::hold_conditions`]): what it fires on and what the integrator
+    /// watches after agree.
     fn update_sides(
         &mut self,
         integ: &mut dyn Integrator,
@@ -793,12 +1055,316 @@ impl Loop<'_> {
         dirs: Option<&[i32]>,
         before: Option<(&[f64], &[f64])>,
     ) {
+        let was: Vec<bool> = self.hold.iter().map(|h| *h > 0.0).collect();
         self.sides_and_holds(integ, t, y, d, dirs, before);
         self.held = held(&self.hold);
-        self.moved.clear();
+        self.set_expiry(integ, t, y, d, before, &was);
+        self.own = None;
     }
 
-    /// [`Loop::update_sides`] but for [`Loop::held`].
+    /// The time limit of the holds this event made (`was`: the functions
+    /// held before it): each expires at t + T. A hold standing from an
+    /// earlier event, carried here or made again, keeps the expiry it has;
+    /// a function no longer held has none.
+    ///
+    /// T is eight times what the function needs, at its rate, to close its
+    /// shortfall (|g1|, at least the resolution ρ its rule test had: an exact
+    /// zero needs time to leave zero too), and never more than it needs to
+    /// cross the hold's whole width W:
+    /// * a hold the crossing itself made (the event's one cause is its
+    ///   relation's crossing, [`Loop::own`]: its own `when`, a sibling on the
+    ///   same relation, the rounds and engagements they cause) takes the
+    ///   rate after the event, ġ1 = ∇g·ẏ1 at the consistent point after it
+    ///   ([`Loop::rates_after`]), where that moves it toward its side: T =
+    ///   min(8 max(|g1|, ρ), W)/|ġ1|. An event that slows the function slows
+    ///   its arrival, and the hold waits for it; what the hold can hide stays
+    ///   within W in the function's own units, and ends where it arrives;
+    /// * every other hold, and one whose rate after the event is 0 or moves
+    ///   away, takes the rate before it: σ, the consistent pre-event
+    ///   function's change over the integrator's last step (where a solve
+    ///   fails, the integrator's own), T = min(8 max(|g1|, ρ)/|σ|,
+    ///   W/max(|σ|, |ġ0(P)|)), ġ0(P) that function's rate at the event's
+    ///   point (a secant that undersells it does not stretch the cap).
+    ///
+    /// Never less than 64 ε max(|t|, 1) (the integrators cannot step 16 ε
+    /// |t|); that floor where no rate is known.
+    fn set_expiry(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        y: &[f64],
+        d: &[f64],
+        before: Option<(&[f64], &[f64])>,
+        was: &[bool],
+    ) {
+        let mut fresh: Vec<usize> = vec![];
+        for (c, &was_held) in was.iter().enumerate().take(self.hold.len()) {
+            if self.hold[c] > 0.0 && self.may_hold_root(c) {
+                if !(was_held && self.expiry[c].is_finite()) {
+                    fresh.push(c);
+                }
+            } else {
+                self.expiry[c] = f64::INFINITY;
+            }
+        }
+        if fresh.is_empty() {
+            return;
+        }
+        let own: Vec<bool> =
+            fresh.iter().map(|&c| self.own.is_some_and(|r| self.relation[c] == r)).collect();
+        let after = if own.iter().any(|o| *o) { self.rates_after(t, y, d) } else { None };
+        let before_rates = before.and_then(|(y0, d0)| self.rates_before(integ, t, y0, d0));
+        let keep = self.raw.clone();
+        self.eval_raw(t, y, d);
+        let floor = 64.0 * f64::EPSILON * t.abs().max(1.0);
+        for (&c, own) in fresh.iter().zip(own) {
+            let (s, w, g1) = (self.sides[c], self.hold[c], self.raw[c]);
+            let need = LIMIT_FACTOR * g1.abs().max(self.rho_of[c]);
+            let arrive = after.as_ref().map(|r| r[c]).filter(|r| own && s * r > 0.0);
+            let lim = match (arrive, &before_rates) {
+                (Some(r), _) => need.min(w) / r.abs(),
+                (None, Some((sig, at_p))) if sig[c].is_finite() && sig[c] != 0.0 => {
+                    let cap =
+                        sig[c].abs().max(if at_p[c].is_finite() { at_p[c].abs() } else { 0.0 });
+                    (need / sig[c].abs()).min(w / cap)
+                }
+                _ => 0.0,
+            };
+            let lim = if lim.is_finite() { lim.max(floor) } else { floor };
+            self.expiry[c] = t + lim;
+            self.limit[c] = lim;
+        }
+        self.raw = keep;
+    }
+
+    /// The rate of every root function at the consistent point after an
+    /// event, `(t, y, d)`: ∇g·ẏ, ẏ the rates there as IDA restarts from them
+    /// ([`crate::init::rates`]), by a central difference along them. `None`
+    /// where a rate is not a number.
+    fn rates_after(&mut self, t: f64, y: &[f64], d: &[f64]) -> Option<Vec<f64>> {
+        let n = self.model.layout().n_y();
+        if self.rate_jac.is_none() {
+            self.rate_jac = Some(crate::jac::JacStructure::for_model(
+                self.model,
+                self.info.pattern.as_ref(),
+                n,
+            ));
+        }
+        let mut yp = vec![0.0; n];
+        let jac = self.rate_jac.as_ref()?;
+        crate::init::rates(self.model, jac, t, y, &self.info.params, d, self.u, &mut yp);
+        if !yp.iter().all(|v| v.is_finite()) {
+            return None;
+        }
+        let h = 1e-7 * t.abs().max(1.0);
+        let ya: Vec<f64> = y.iter().zip(&yp).map(|(v, r)| v + h * r).collect();
+        let yb: Vec<f64> = y.iter().zip(&yp).map(|(v, r)| v - h * r).collect();
+        let keep = self.raw.clone();
+        self.eval_raw(t + h, &ya, d);
+        let ga = self.raw.clone();
+        self.eval_raw(t - h, &yb, d);
+        let rate: Vec<f64> = ga.iter().zip(&self.raw).map(|(a, b)| (a - b) / (2.0 * h)).collect();
+        self.raw = keep;
+        rate.iter().all(|r| r.is_finite()).then_some(rate)
+    }
+
+    /// The rates of the consistent pre-event root functions (the iteration
+    /// variables solved for `d0`) at an event at `t`, `y0` the integrator's
+    /// point: σ, their change over the integrator's last step (where a solve
+    /// fails there, the integrator's own functions'), and their rate at `t`,
+    /// a backward difference over the last sixteenth of the step (NaN where
+    /// it cannot be had). `None` where there is no last step to read.
+    fn rates_before(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        y0: &[f64],
+        d0: &[f64],
+    ) -> Option<(Vec<f64>, Vec<f64>)> {
+        let tp = self.step_from;
+        if tp >= t || same_instant(tp, t) {
+            return None;
+        }
+        let mut yp = vec![0.0; self.model.layout().n_y()];
+        integ.interpolate(tp, &mut yp).ok()?;
+        let gt = self.consistent_g(integ, t, y0, d0);
+        let sig: Vec<f64> = match (self.consistent_g(integ, tp, &yp, d0), &gt) {
+            (Some(gp), Some(gt)) => gt.iter().zip(&gp).map(|(a, b)| (a - b) / (t - tp)).collect(),
+            _ => {
+                let keep = self.raw.clone();
+                self.eval_raw(tp, &yp, d0);
+                let gp = self.raw.clone();
+                self.eval_raw(t, y0, d0);
+                let s = self.raw.iter().zip(&gp).map(|(a, b)| (a - b) / (t - tp)).collect();
+                self.raw = keep;
+                s
+            }
+        };
+        let th = t - (t - tp) / 16.0;
+        let mut at_p = vec![f64::NAN; sig.len()];
+        if let Some(gt) = &gt
+            && !same_instant(th, t)
+            && integ.interpolate(th, &mut yp).is_ok()
+            && let Some(gh) = self.consistent_g(integ, th, &yp, d0)
+        {
+            for (r, (a, b)) in at_p.iter_mut().zip(gt.iter().zip(&gh)) {
+                *r = (a - b) / (t - th);
+            }
+        }
+        Some((sig, at_p))
+    }
+
+    /// Whether root function `c`, at `g`, is short of side `s` (an exact
+    /// zero on the other side).
+    fn short_of(&self, c: usize, s: f64, g: f64) -> bool {
+        g * s < 0.0 || (g == 0.0 && self.zero_side(c) != s)
+    }
+
+    /// The time limit inside a step ([`Loop::set_expiry`]): every hold whose
+    /// expiry τ falls in (t, t_new] is read at τ as solved (the iteration
+    /// variables solved for `d` at the dense output's states there: a
+    /// backend's own can lag a step's end; where that solve fails, the
+    /// integrator's own value). Short of its side, the step is cut back to
+    /// τ: a crossing back. On its side (it arrived), the hold goes on as the
+    /// integrator holds it, renewed from the step's end once that end is
+    /// final ([`Loop::renew_holds`]); but where the function, read so, is
+    /// short again at the step's end within its hold, the step is cut back
+    /// to where it goes short (bisected on the dense output): a crossing
+    /// back. Returns the earliest cut, every function cut within an instant
+    /// of it reported crossing back, and at the step's end the crossings the
+    /// integrator reported there (`reported`) kept.
+    fn expiry_cut(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        t_new: f64,
+        d: &[f64],
+        reported: &[i32],
+    ) -> Option<(f64, Vec<i32>)> {
+        self.renew.clear();
+        if !self.held {
+            return None;
+        }
+        let cs: Vec<usize> = (0..self.hold.len())
+            .filter(|&c| self.hold[c] > 0.0 && self.expiry[c].is_finite() && self.may_hold_root(c))
+            .filter(|&c| {
+                let e = self.expiry[c];
+                e > t && (e < t_new || same_instant(e, t_new))
+            })
+            .collect();
+        if cs.is_empty() {
+            return None;
+        }
+        let mut yv = vec![0.0; self.model.layout().n_y()];
+        let mut cuts: Vec<(f64, usize)> = vec![];
+        let mut arrived: Vec<(f64, usize)> = vec![];
+        let mut end: Option<Option<Vec<f64>>> = None;
+        for c in cs {
+            let tau = self.expiry[c].min(t_new);
+            let (s, h) = (self.sides[c], self.hold[c]);
+            if integ.interpolate(tau, &mut yv).is_err() {
+                continue;
+            }
+            let g = self.solved_g(integ, tau, &yv, d, c);
+            if self.short_of(c, s, g) {
+                cuts.push((tau, c));
+                continue;
+            }
+            arrived.push((tau, c));
+            if end.is_none() {
+                let mut ye = vec![0.0; yv.len()];
+                if integ.interpolate(t_new, &mut ye).is_err() {
+                    ye.copy_from_slice(integ.y());
+                }
+                end = Some(self.consistent_g(integ, t_new, &ye, d));
+            }
+            let ge = end.as_ref().and_then(|e| e.as_ref()).map_or(f64::NAN, |e| e[c]);
+            if self.short_of(c, s, ge) && ge.abs() <= h {
+                let (mut lo, mut hi) = (tau, t_new);
+                for _ in 0..60 {
+                    if same_instant(lo, hi) {
+                        break;
+                    }
+                    let mid = 0.5 * (lo + hi);
+                    if integ.interpolate(mid, &mut yv).is_err() {
+                        break;
+                    }
+                    match self.consistent_g(integ, mid, &yv, d) {
+                        Some(gm) if self.short_of(c, s, gm[c]) => hi = mid,
+                        Some(_) => lo = mid,
+                        None => break,
+                    }
+                }
+                cuts.push((hi, c));
+            }
+        }
+        let first = cuts.iter().map(|x| x.0).fold(f64::INFINITY, f64::min);
+        let at = if same_instant(first, t_new) { t_new } else { first };
+        let cut_now = |x: &(f64, usize)| x.0 <= at || same_instant(x.0, at);
+        let mut dirs = vec![0; self.sides.len()];
+        for x in cuts.iter().filter(|x| cut_now(x)) {
+            dirs[x.1] = -(self.sides[x.1] as i32);
+        }
+        for (tau, c) in arrived {
+            if dirs[c] == 0 && (tau <= at || same_instant(tau, at)) {
+                self.renew.push((c, tau));
+            }
+        }
+        if !at.is_finite() {
+            return None;
+        }
+        if at == t_new {
+            for (o, &r) in dirs.iter_mut().zip(reported) {
+                if *o == 0 {
+                    *o = r;
+                }
+            }
+        }
+        Some((at, dirs))
+    }
+
+    /// Root function `c` at `(t, y)` with the iteration variables solved
+    /// for `d` (where that solve fails, as the integrator has it there).
+    fn solved_g(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        y: &[f64],
+        d: &[f64],
+        c: usize,
+    ) -> f64 {
+        match self.consistent_g(integ, t, y, d) {
+            Some(g) => g[c],
+            None => {
+                let keep = self.raw.clone();
+                self.eval_raw(t, y, d);
+                let g = self.raw[c];
+                self.raw = keep;
+                g
+            }
+        }
+    }
+
+    /// Renews the holds the last expiry check found arrived at an instant
+    /// at or before `t_end`, the step's end now that it is final: their time
+    /// limit again, from there. Those read later than `t_end` (the step was
+    /// cut back before them) keep their expiry, and the next step reads
+    /// them again.
+    fn renew_holds(&mut self, t_end: f64) {
+        let mut later = vec![];
+        for (c, tau) in std::mem::take(&mut self.renew) {
+            if tau <= t_end || same_instant(tau, t_end) {
+                if self.hold[c] > 0.0 && self.expiry[c].is_finite() {
+                    self.expiry[c] = t_end + self.limit[c];
+                }
+            } else {
+                later.push((c, tau));
+            }
+        }
+        self.renew = later;
+    }
+
+    /// [`Loop::update_sides`] but for [`Loop::held`] and the time limits.
     fn sides_and_holds(
         &mut self,
         integ: &mut dyn Integrator,
@@ -815,15 +1381,10 @@ impl Loop<'_> {
         let l = *self.model.layout();
         // the side each function was on as the integrator saw it before
         // this instant (with the sides and holds it had), where the event
-        // moved no state and re-solved the iteration variables a condition
-        // reads
+        // re-solved the iteration variables a condition reads (and moved
+        // the states, at an engagement)
         let seen: Option<Vec<f64>> = before
-            .filter(|(y0, _)| {
-                l.n_z > 0
-                    && self.info.events_read_z
-                    && y0[..l.n_x] == y[..l.n_x]
-                    && y0[l.n_x..] != y[l.n_x..]
-            })
+            .filter(|(y0, _)| l.n_z > 0 && self.info.events_read_z && y0[l.n_x..] != y[l.n_x..])
             .map(|(y0, d0)| {
                 self.eval_raw(t, y0, d0);
                 let mut g = self.raw.clone();
@@ -844,7 +1405,7 @@ impl Loop<'_> {
                 g
             });
         // the holds made at earlier events
-        let held: Vec<(usize, f64, f64)> = if self.held {
+        let standing: Vec<(usize, f64, f64)> = if self.held {
             (0..self.hold.len())
                 .filter(|&c| self.hold[c] > 0.0)
                 .map(|c| (c, self.sides[c], self.hold[c]))
@@ -879,13 +1440,25 @@ impl Loop<'_> {
         // those still short of their side, within their hold (an exact zero
         // too: not on it yet, as a release and the integrator take it; else
         // the side a `when`'s zero is on, `x > 0.5` false there, and the
-        // `when` fired again as x went on past it)
-        for (c, s, h) in held {
-            let g = self.raw[c];
-            if g * s <= 0.0 && g.abs() <= h && !(before.is_some() && self.moved.contains(&c)) {
-                self.sides[c] = s;
-                self.hold[c] = h;
-            }
+        // `when` fired again as x went on past it), carried where the rule
+        // holds them with the event's change (where the event changed
+        // nothing, as the integrator holds them)
+        let mut carried: Vec<(usize, f64, f64)> = standing
+            .into_iter()
+            .filter(|&(c, s, h)| self.raw[c] * s <= 0.0 && self.raw[c].abs() <= h)
+            .collect();
+        if let Some((y0, d0)) = before
+            && (y0 != y || d0 != d)
+            && !carried.is_empty()
+        {
+            let test: Vec<(usize, f64, f64, f64)> =
+                carried.iter().map(|&(c, s, h)| (c, s, self.raw[c], h / HOLD)).collect();
+            let ok = self.rule(integ, t, y, d, y0, d0, &test);
+            carried = carried.into_iter().zip(ok).filter(|x| x.1).map(|x| x.0).collect();
+        }
+        for (c, s, h) in carried {
+            self.sides[c] = s;
+            self.hold[c] = h;
         }
         self.hold_cells(t, y, d);
         let (Some(seen), Some((y0, d0))) = (seen, before) else { return };
@@ -894,7 +1467,7 @@ impl Loop<'_> {
         // zero that counts as the other side
         let mut was: Vec<(usize, f64)> = vec![];
         for (c, seen_c) in seen.iter().enumerate() {
-            if !self.may_hold_root(c) {
+            if !self.may_hold_root(c) || self.hold[c] > 0.0 {
                 continue;
             }
             let r = dirs.and_then(|x| x.get(c)).copied().unwrap_or(0);
@@ -908,25 +1481,21 @@ impl Loop<'_> {
             return;
         }
         let after = self.raw.clone();
-        // not the new discrete values' own doing: with them, at the point
-        // the integrator had, each is still where it saw it
-        self.eval_raw(t, y0, d);
-        was.retain(|&(c, s)| self.raw[c] * s >= 0.0);
-        if was.is_empty() {
-            return;
-        }
         let cs: Vec<usize> = was.iter().map(|x| x.0).collect();
         let band = self.band(t, y, d, &after, &cs);
+        // H1: short within the width
         was.retain(|&(c, _)| after[c].abs() <= HOLD * band[c]);
         if was.is_empty() {
             return;
         }
-        // nor the event's change through the iteration variables
-        // ([`Loop::keep_unmoved`])
-        self.keep_unmoved(integ, t, y0, d0, &mut was);
-        for (c, s) in was {
-            self.sides[c] = s;
-            self.hold[c] = HOLD * band[c];
+        let test: Vec<(usize, f64, f64, f64)> =
+            was.iter().map(|&(c, s)| (c, s, after[c], band[c])).collect();
+        let ok = self.rule(integ, t, y, d, y0, d0, &test);
+        for ((c, s), k) in was.into_iter().zip(ok) {
+            if k {
+                self.sides[c] = s;
+                self.hold[c] = HOLD * band[c];
+            }
         }
     }
 
@@ -937,8 +1506,8 @@ impl Loop<'_> {
     /// allow in it: the integrator makes them consistent again as it
     /// restarts, which can put the argument a little short of the edge,
     /// and a function that starts on the wrong side of zero would not be
-    /// seen to cross it when the argument goes back ([`HOLD`], as a
-    /// condition on them is held on its side).
+    /// seen to cross it when the argument goes back ([`CELL_HOLD`] bands; a
+    /// condition on them is held on its side the same way).
     fn hold_cells(&mut self, t: f64, y: &[f64], d: &[f64]) {
         if self.info.held.is_empty() {
             return;
@@ -965,7 +1534,7 @@ impl Loop<'_> {
         let band = self.band(t, y, d, &after, &near);
         self.raw = after;
         for &c in &near {
-            let h = HOLD * band[c];
+            let h = CELL_HOLD * band[c];
             if h > 0.0 && self.raw[c] <= h {
                 self.hold[c] = self.hold[c].max(h);
             }
@@ -974,11 +1543,13 @@ impl Loop<'_> {
 
     /// Releases the holds ([`Loop::update_sides`]) of the functions that,
     /// at a point of the integrator's own solution (`t`, `y`: a step's end,
-    /// an event's point), reached their held side, or went back past zero
-    /// by more than their hold; returns whether one was released. A
-    /// condition that went past its hold crossed back from the side the run
-    /// took it on: [`Loop::passed`] names those, a crossing there whether or
-    /// not the integrator reported it.
+    /// an event's point), reached their held side, went back past zero by
+    /// more than their hold, or are at or past their expiry
+    /// ([`Loop::set_expiry`]); returns whether one was released. A
+    /// condition that went past its hold, or is short of its side at its
+    /// expiry, crossed back from the side the run took it on:
+    /// [`Loop::passed`] names those, a crossing there whether or not the
+    /// integrator reported it.
     fn release_holds(&mut self, t: f64, y: &[f64], d: &[f64]) -> bool {
         debug_assert_eq!(self.held, held(&self.hold), "Loop::held out of step with the holds");
         self.passed.clear();
@@ -988,14 +1559,19 @@ impl Loop<'_> {
         self.eval_raw(t, y, d);
         let mut released = false;
         for c in 0..self.hold.len() {
-            let (g, s, h) = (self.raw[c], self.sides[c], self.hold[c]);
-            if h > 0.0 && (g * s > 0.0 || g.abs() > h) {
-                if g * s < 0.0 && self.may_hold_root(c) {
+            let (g, s, h, e) = (self.raw[c], self.sides[c], self.hold[c], self.expiry[c]);
+            let expired = h > 0.0 && e.is_finite() && (t >= e || same_instant(t, e));
+            if h > 0.0 && (g * s > 0.0 || g.abs() > h || expired) {
+                let back = g * s < 0.0 || (expired && g == 0.0 && self.zero_side(c) != s);
+                if back && self.may_hold_root(c) {
                     self.passed.push(c);
                 }
                 self.hold[c] = 0.0;
+                self.expiry[c] = f64::INFINITY;
                 if g != 0.0 {
                     self.sides[c] = g.signum();
+                } else if back {
+                    self.sides[c] = -s;
                 }
                 released = true;
             }
@@ -1083,41 +1659,296 @@ impl Loop<'_> {
         }
     }
 
-    /// Of the root functions `cs` that an event left on the other side of
-    /// the one the integrator saw each on (that side with it), keeps those
-    /// the integrator's own inconsistency put there and drops those the
-    /// event moved: at the point the integrator had (`y0`), the iteration
-    /// variables solved again for the discrete values before the event
-    /// (`d0`), one the event moved is on the side it was seen on (`x³ + x
-    /// = 0.5 + 0.125 k`, k set by a time event: x from 0.41 to 0.5, or
-    /// across 0.5 by 6e-13), one whose crossing was located a little early
-    /// is not (x short of 0.5 before the event too). An exact zero is on
-    /// the side its `when`'s condition takes there. Where the iteration
-    /// variables cannot be solved there, each is kept.
-    fn keep_unmoved(
+    /// The root functions at `(t, y0)` with the iteration variables solved
+    /// there for `d0` (the states held); `None` where they cannot be.
+    fn consistent_g(
         &mut self,
         integ: &mut dyn Integrator,
         t: f64,
         y0: &[f64],
         d0: &[f64],
-        cs: &mut Vec<(usize, f64)>,
-    ) {
+    ) -> Option<Vec<f64>> {
         let mut y = y0.to_vec();
-        if integ.consistent_z_aside(t, &mut y, d0).is_err() {
-            return;
-        }
+        integ.consistent_z_aside(t, &mut y, d0).ok()?;
+        let keep = self.raw.clone();
         self.eval_raw(t, &y, d0);
-        cs.retain(|&(c, s)| {
-            let g = self.raw[c];
-            let side = if g > 0.0 {
-                1.0
-            } else if g < 0.0 {
-                -1.0
-            } else {
-                self.zero_side(c)
-            };
-            side != s
+        Some(std::mem::replace(&mut self.raw, keep))
+    }
+
+    /// The hold rule at an event at `t` (the hold spec's rule H) for each
+    /// candidate `(c, s, g1, band)`: root function c, which the integrator
+    /// saw on side s, and which the event's change leaves at g1 at `(t, y,
+    /// d)` short of s within the hold's width (H1, the caller's), band its
+    /// [`Loop::band`]. `(y0, d0)`: the point the integrator had and the
+    /// discrete values before the event. Whether each is held
+    /// ([`Loop::held_by_rule`]), with g0 (c with the iteration variables
+    /// solved at the integrator's point for `d0`), the second point
+    /// ([`Loop::second`]; not where the event moved a state) and the
+    /// rounding bound ρ_r of a difference of two solves, u (μ_a + μ_b)
+    /// ([`Loop::rounding`]): at the point for `d0` and `d`, and at the
+    /// second point for `d0` and the replayed values. Where g0 cannot be
+    /// solved, none is held. Each one held records its resolution ρ
+    /// ([`Loop::rho_of`], for its time limit).
+    #[allow(clippy::too_many_arguments)]
+    fn rule(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        y: &[f64],
+        d: &[f64],
+        y0: &[f64],
+        d0: &[f64],
+        cs: &[(usize, f64, f64, f64)],
+    ) -> Vec<bool> {
+        let n_x = self.model.layout().n_x;
+        let mut ys0 = y0.to_vec();
+        if integ.consistent_z_aside(t, &mut ys0, d0).is_err() {
+            return vec![false; cs.len()];
+        }
+        let keep = self.raw.clone();
+        self.eval_raw(t, &ys0, d0);
+        let g0 = std::mem::replace(&mut self.raw, keep);
+        let second = if y0[..n_x] == y[..n_x] { self.second(integ, t, d0, d) } else { None };
+        let idx: Vec<usize> = cs.iter().map(|x| x.0).collect();
+        let ea = self.rounding(t, &ys0, d0, &idx);
+        let eb = self.rounding(t, y, d, &idx);
+        let at_p = |a: &[f64], b: &[f64], c: usize| a[c] + b[c];
+        let ep = second.as_ref().map(|sp| {
+            let ec = self.rounding(sp.t, &sp.y0, d0, &idx);
+            let ed = self.rounding(sp.t, &sp.y1, &sp.d, &idx);
+            (ec, ed)
         });
+        cs.iter()
+            .map(|&(c, s, g1, band)| {
+                let rr = at_p(&ea, &eb, c);
+                let rr2 = ep.as_ref().map_or(rr, |(ec, ed)| rr.max(at_p(ec, ed, c)));
+                let two = second.as_ref().map(|sp| (sp.g0[c], sp.g1[c]));
+                let (ok, rho) = self.held_by_rule(c, s, g1, g0[c], two, band, rr, rr2);
+                if ok {
+                    self.rho_of[c] = rho;
+                }
+                ok
+            })
+            .collect()
+    }
+
+    /// H2 and H3 of the hold rule for root function `c`, seen on side `s`,
+    /// short of it at `g1` after the event (H1 the caller's): `g0` the
+    /// function before the event's change at the same point (the iteration
+    /// variables solved for the discrete values before it), `two` the same
+    /// pair at the second point, `band` [`Loop::band`], `rr` and `rr2` the
+    /// rounding bounds at the point and at both points. Returns whether it
+    /// is held, and the resolution ρ the test had.
+    ///
+    /// * **H2**, not past its side before the event: g0 is short of s, or
+    ///   past zero by no more than the solve's rounding (0 ≤ s g0 ≤ ρ_r). A
+    ///   function the event moved across from the side it was on is not
+    ///   held.
+    /// * **H3**, the event leaves it on its side where the crossing really
+    ///   is. With the second point usable (the step moved the pre-event
+    ///   function toward s by at least [`SLOPE`] ρ, and it reaches zero
+    ///   within [`REACH`] steps' lengths ahead, θ = |g0|/|g0 − g0'|), the
+    ///   post-event function extrapolated to the instant the pre-event one
+    ///   reaches zero, Ĝ1 = g1 − g0 λ, λ = (g1 − g1')/(g0 − g0'), is not
+    ///   short of s by more than the four solves' propagated resolution, ρ
+    ///   (1 + 2θ)(1 + |λ|). Else the one-point test: |g1 − g0| ≤ ρ.
+    ///
+    /// ρ = max([`RESOLUTION`] band, ρ_r): Newton's stop, or the rounding.
+    #[allow(clippy::too_many_arguments)]
+    fn held_by_rule(
+        &self,
+        c: usize,
+        s: f64,
+        g1: f64,
+        g0: f64,
+        two: Option<(f64, f64)>,
+        band: f64,
+        rr: f64,
+        rr2: f64,
+    ) -> (bool, f64) {
+        let rho = (RESOLUTION * band).max(rr);
+        let side0 = if g0 > 0.0 {
+            1.0
+        } else if g0 < 0.0 {
+            -1.0
+        } else {
+            self.zero_side(c)
+        };
+        let h2 = side0 != s || (s * g0 >= 0.0 && s * g0 <= rr);
+        if !h2 {
+            return (false, rho);
+        }
+        if let Some((g0p, g1p)) = two {
+            let rho2 = (RESOLUTION * band).max(rr2);
+            let dg0 = g0 - g0p;
+            let dg1 = g1 - g1p;
+            if s * dg0 > 0.0
+                && s * dg0 >= SLOPE * rho2
+                && g0.abs() <= REACH * s * dg0
+                && dg1.is_finite()
+            {
+                let lam = dg1 / dg0;
+                let gh = g1 - g0 * lam;
+                let fac = (1.0 + 2.0 * g0.abs() / dg0.abs()) * (1.0 + lam.abs());
+                return (s * gh >= -rho2 * fac, rho2);
+            }
+        }
+        ((g1 - g0).abs() <= rho, rho)
+    }
+
+    /// The second point of the hold rule at an event at `t`: P', the start
+    /// of the integrator's last step, on its dense output, with the
+    /// iteration variables solved there for `d0` and for d', the discrete
+    /// values the event's firings set at P' (the replay: from `d0`, each
+    /// round's fired clauses' assignments evaluated at P' in turn, the
+    /// iteration variables solved for the values so far; the modes as at
+    /// the event, in `d`). It matters wherever an assignment reads a
+    /// continuous value (a `reinit`, a value frozen at the event). `None`
+    /// where P' is not before `t`, not on the dense output, or a solve there
+    /// fails.
+    fn second(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        d0: &[f64],
+        d: &[f64],
+    ) -> Option<SecondPoint> {
+        let tp = self.step_from;
+        if tp >= t || same_instant(tp, t) {
+            return None;
+        }
+        let mut yp = vec![0.0; self.model.layout().n_y()];
+        integ.interpolate(tp, &mut yp).ok()?;
+        let mut y0 = yp.clone();
+        integ.consistent_z_aside(tp, &mut y0, d0).ok()?;
+        let dp: Vec<f64> = if self.fired_log.is_empty() {
+            d.to_vec()
+        } else {
+            let mut dp = d0.to_vec();
+            let mut yz = yp.clone();
+            for k in 0..self.fired_log.len() {
+                integ.consistent_z_aside(tp, &mut yz, &dp).ok()?;
+                let mut dn = dp.clone();
+                let inp = EvalInput { t: tp, y: &yz, p: &self.info.params, d: &dp, u: self.u };
+                self.model.when(&inp, &self.fired_log[k], &mut self.work, &mut dn);
+                dp = dn;
+            }
+            for m in &self.info.modes {
+                dp[m.discrete] = d[m.discrete];
+            }
+            dp
+        };
+        let mut y1 = yp;
+        integ.consistent_z_aside(tp, &mut y1, &dp).ok()?;
+        let keep = self.raw.clone();
+        self.eval_raw(tp, &y0, d0);
+        let g0 = self.raw.clone();
+        self.eval_raw(tp, &y1, &dp);
+        let g1 = std::mem::replace(&mut self.raw, keep);
+        Some(SecondPoint { t: tp, y0, y1, d: dp, g0, g1 })
+    }
+
+    /// The rounding bound of one solve of the iteration variables at
+    /// `(t, y, d)` (y solved), per root function `cs` names: u (Σ_k |w_k|
+    /// (μ_{F_k} + Σ_j |J_kj| |z_j|) + Σ_j |∂g/∂z_j| |z_j| + μ_g), u = ε/2,
+    /// J = ∂F/∂z (by differences of a tolerance), Jᵀw = ∇_z g, μ the
+    /// running-error magnitudes of the residuals F of the iteration
+    /// variables and of g ([`mag_eval`]; without the model's expressions,
+    /// [`RunInfo::bare`], the terms in z alone). A solve converges where its
+    /// computed residuals vanish, so its iteration variables are off by J⁻¹
+    /// times the residuals' rounding, and g by w's share of it and its own.
+    #[allow(clippy::needless_range_loop)]
+    fn rounding(&mut self, t: f64, y: &[f64], d: &[f64], cs: &[usize]) -> Vec<f64> {
+        let mut out = vec![0.0; self.raw.len()];
+        let l = *self.model.layout();
+        let (nx, n) = (l.n_x, l.n_y());
+        let nz = n - nx;
+        if nz == 0 || cs.is_empty() {
+            return out;
+        }
+        let keep = self.raw.clone();
+        let mut f0 = vec![0.0; n];
+        let p = &self.info.params;
+        self.model.residual(&EvalInput { t, y, p, d, u: self.u }, &mut self.work, &mut f0);
+        self.eval_raw(t, y, d);
+        let gb = self.raw.clone();
+        let mut trip: Vec<(usize, usize, f64)> = vec![];
+        let mut a = vec![0.0; nz];
+        let mut grad = vec![vec![0.0; nz]; cs.len()];
+        let mut yp = y.to_vec();
+        let mut f1 = vec![0.0; n];
+        for j in 0..nz {
+            let iy = nx + j;
+            let tol = self.opts.rtol * y[iy].abs() + self.opts.atol * self.info.y_nominal[iy];
+            yp[iy] = y[iy] + tol;
+            let p = &self.info.params;
+            self.model.residual(&EvalInput { t, y: &yp, p, d, u: self.u }, &mut self.work, &mut f1);
+            self.eval_raw(t, &yp, d);
+            yp[iy] = y[iy];
+            for i in 0..nz {
+                let jij = (f1[nx + i] - f0[nx + i]) / tol;
+                if jij != 0.0 {
+                    // Jᵀ: row j, column i
+                    trip.push((j, i, jij));
+                    a[i] += jij.abs() * y[iy].abs();
+                }
+            }
+            for (q, &c) in cs.iter().enumerate() {
+                grad[q][j] = (self.raw[c] - gb[c]) / tol;
+            }
+        }
+        self.raw = keep;
+        let mags = self.magnitudes(t, y, d);
+        for (q, &c) in cs.iter().enumerate() {
+            let gz: f64 = (0..nz).map(|j| grad[q][j].abs() * y[nx + j].abs()).sum();
+            let (sj, sm) = match crate::init::lin_solve(nz, &trip, &grad[q]) {
+                Some(w) => (
+                    w.iter().zip(&a).map(|(w, a)| w.abs() * a).sum::<f64>(),
+                    mags.as_ref().map_or(0.0, |(mr, _)| {
+                        w.iter().zip(mr).map(|(w, m)| w.abs() * m).sum::<f64>()
+                    }),
+                ),
+                None => (0.0, 0.0),
+            };
+            let mg = mags.as_ref().map_or(0.0, |(_, mg)| mg.get(c).copied().unwrap_or(0.0));
+            out[c] = 0.5 * f64::EPSILON * (sj + gz + sm + mg);
+        }
+        out
+    }
+
+    /// The running-error magnitudes at `(t, y, d)` ([`mag_eval`]) of each
+    /// residual of the iteration variables, in their order, and of each
+    /// root function; `None` without the model's expressions.
+    fn magnitudes(&self, t: f64, y: &[f64], d: &[f64]) -> Option<(Vec<f64>, Vec<f64>)> {
+        use std::collections::HashMap;
+        let mi = self.info.mag.as_ref()?;
+        let vars = self.vars_at(t, y, d);
+        let yi: HashMap<lsim_ir::Slot, usize> =
+            mi.y_slots.iter().enumerate().map(|(i, s)| (*s, i)).collect();
+        let di: HashMap<lsim_ir::VarId, usize> =
+            mi.d_vars.iter().enumerate().map(|(i, v)| (*v, i)).collect();
+        let ui: HashMap<lsim_ir::VarId, usize> =
+            mi.u_vars.iter().enumerate().map(|(i, v)| (*v, i)).collect();
+        let ai: HashMap<lsim_ir::Slot, usize> =
+            mi.assign.iter().enumerate().map(|(i, a)| (a.0, i)).collect();
+        let mut cx = MagCx {
+            t,
+            y,
+            d,
+            u: self.u,
+            p: &self.info.params,
+            yi: &yi,
+            di: &di,
+            ui: &ui,
+            ai: &ai,
+            assign: &mi.assign,
+            memo: vec![None; mi.assign.len()],
+            vars: &vars,
+            model: self.model,
+        };
+        let res: Vec<f64> = mi.resid.iter().map(|e| mag_eval(e, &mut cx).1).collect();
+        let roots: Vec<f64> = mi.roots.iter().map(|e| mag_eval(e, &mut cx).1).collect();
+        Some((res, roots))
     }
 
     /// What the iteration variables' tolerances allow in each root function
@@ -1145,22 +1976,20 @@ impl Loop<'_> {
     /// sees their root functions, relation hysteresis at events too, so
     /// that what event iteration fires on and what the integrator watches
     /// agree (else a `when x < 0.5` beside a `when x > 0.5` fires at the
-    /// rise's crossing too, where x, solved again, comes out a little
-    /// short of 0.5). A function a hold standing at the event's point keeps
-    /// on its side ([`Loop::update_sides`]) is on that side, there and after
-    /// the event's change unless the event moved it across
-    /// ([`Loop::find_moved`]). And at an event (`seen`:
-    /// where the integrator located it, [`Loop::seen_y`], and the side it
-    /// saw each function on there, [`Loop::seen_side`]), one that solving the
-    /// iteration variables again put on the other side of where the
-    /// integrator saw it, or on zero, by no more than its hold, and not
-    /// by the event's own doing (the new discrete values alone at the point
-    /// the integrator had, or through the iteration variables:
-    /// [`Loop::keep_unmoved`]), is on the side the integrator saw: the hold
-    /// the integrator gets after the event ([`Loop::sides_and_holds`]). A
-    /// condition the event moves across (a discrete value an iteration
-    /// variable is solved with, a state it moves) is not held: its `when`
-    /// fires there.
+    /// rise's crossing too, where x, solved again, comes out a little short
+    /// of 0.5). A function a hold standing at the event's point keeps on
+    /// its side ([`Loop::update_sides`]) is on that side, there and, where
+    /// the rule holds it with the event's change ([`Loop::rule`]), after it.
+    /// And at an event (`seen`: where the integrator located it,
+    /// [`Loop::seen_y`], and the side it saw each function on there,
+    /// [`Loop::seen_side`]), one that the event's change leaves on the other
+    /// side of where the integrator saw it, or on zero, within the hold's
+    /// width, is on the side the integrator saw where the rule holds it: the
+    /// hold the integrator gets after the event ([`Loop::sides_and_holds`]).
+    /// After an engagement moved the states, the same at the moved states
+    /// (the rule's one-point test). `prev` (the value before a round, or
+    /// before an engagement's move): the holds this event's last round made
+    /// apply too ([`Loop::ev_held`]).
     fn hold_conditions(
         &mut self,
         integ: &mut dyn Integrator,
@@ -1171,30 +2000,44 @@ impl Loop<'_> {
         prev: bool,
     ) {
         debug_assert_eq!(self.held, held(&self.hold), "Loop::held out of step with the holds");
-        if self.held && self.seen_now && !self.moved_checked && y != self.seen_y.as_slice() {
-            self.find_moved(integ, t);
-        }
         if self.held {
+            let mut cs: Vec<(usize, f64, f64, f64)> = vec![];
             for c in 0..self.roots.len() {
                 let (s, h) = (self.sides[c], self.hold[c]);
                 let g = if prev { self.roots_prev[c] } else { self.roots[c] };
-                if h > 0.0
-                    && s != 0.0
-                    && g * s <= 0.0
-                    && g.abs() <= h
-                    && self.may_hold_root(c)
-                    && !self.moved.contains(&c)
-                {
+                if h > 0.0 && s != 0.0 && g * s <= 0.0 && g.abs() <= h && self.may_hold_root(c) {
+                    cs.push((c, s, g, h / HOLD));
+                }
+            }
+            let changed =
+                self.seen_now && (y != self.seen_y.as_slice() || d != self.seen_d.as_slice());
+            let ok = if changed && !cs.is_empty() {
+                let (y0, d0) = (std::mem::take(&mut self.seen_y), std::mem::take(&mut self.seen_d));
+                let ok = self.rule(integ, t, y, d, &y0, &d0, &cs);
+                (self.seen_y, self.seen_d) = (y0, d0);
+                ok
+            } else {
+                vec![true; cs.len()]
+            };
+            for (&(c, s, ..), k) in cs.iter().zip(ok) {
+                if k {
                     let g = if prev { &mut self.roots_prev[c] } else { &mut self.roots[c] };
                     *g = s * f64::MIN_POSITIVE;
                 }
             }
         }
-        if !seen || prev {
+        if prev {
+            for &(c, s) in &self.ev_held {
+                self.roots_prev[c] = s * f64::MIN_POSITIVE;
+            }
             return;
         }
+        if !seen {
+            return;
+        }
+        self.ev_held.clear();
         let l = *self.model.layout();
-        if y[..l.n_x] != self.seen_y[..l.n_x] || y[l.n_x..] == self.seen_y[l.n_x..] {
+        if y[l.n_x..] == self.seen_y[l.n_x..] {
             return;
         }
         let mut cs: Vec<(usize, f64)> = vec![];
@@ -1215,52 +2058,24 @@ impl Loop<'_> {
         if cs.is_empty() {
             return;
         }
-        // (with the new discrete values, at the point the integrator had,
-        // still where it saw it)
-        let y0 = std::mem::take(&mut self.seen_y);
-        self.eval_raw(t, &y0, d);
-        self.seen_y = y0;
-        cs.retain(|&(c, s)| self.raw[c] * s >= 0.0);
-        if cs.is_empty() {
-            return;
-        }
         let after = self.roots.clone();
         let band = self.band(t, y, d, &after, &cs.iter().map(|x| x.0).collect::<Vec<_>>());
+        // H1: short within the width
         cs.retain(|&(c, _)| after[c].abs() <= HOLD * band[c]);
         if cs.is_empty() {
             return;
         }
+        let test: Vec<(usize, f64, f64, f64)> =
+            cs.iter().map(|&(c, s)| (c, s, after[c], band[c])).collect();
         let (y0, d0) = (std::mem::take(&mut self.seen_y), std::mem::take(&mut self.seen_d));
-        self.keep_unmoved(integ, t, &y0, &d0, &mut cs);
+        let ok = self.rule(integ, t, y, d, &y0, &d0, &test);
         (self.seen_y, self.seen_d) = (y0, d0);
-        for (c, s) in cs {
-            self.roots[c] = s * f64::MIN_POSITIVE;
+        for ((c, s), k) in cs.into_iter().zip(ok) {
+            if k {
+                self.roots[c] = s * f64::MIN_POSITIVE;
+                self.ev_held.push((c, s));
+            }
         }
-    }
-
-    /// The holds standing at the point of the event being iterated that the
-    /// event moves across ([`Loop::moved`]), once its change reached the
-    /// iteration variables or the states: with the iteration variables
-    /// solved for the discrete values before the event, the function was on
-    /// its held side already ([`Loop::keep_unmoved`], as a new hold is
-    /// judged), so the integrator's inconsistency does not explain the other
-    /// side after it. They held the conditions as the integrator saw them
-    /// at the event's point; after the event they hold nothing (its `when`
-    /// fires there), and the integrator gets them no more.
-    fn find_moved(&mut self, integ: &mut dyn Integrator, t: f64) {
-        self.moved_checked = true;
-        let standing: Vec<(usize, f64)> = (0..self.roots.len())
-            .filter(|&c| self.hold[c] > 0.0 && self.sides[c] != 0.0 && self.may_hold_root(c))
-            .map(|c| (c, self.sides[c]))
-            .collect();
-        if standing.is_empty() {
-            return;
-        }
-        let mut kept = standing.clone();
-        let (y0, d0) = (std::mem::take(&mut self.seen_y), std::mem::take(&mut self.seen_d));
-        self.keep_unmoved(integ, t, &y0, &d0, &mut kept);
-        (self.seen_y, self.seen_d) = (y0, d0);
-        self.moved.extend(standing.iter().map(|x| x.0).filter(|c| !kept.iter().any(|k| k.0 == *c)));
     }
 
     /// Hands the sides and holds to the integrator.
@@ -1682,12 +2497,32 @@ impl Loop<'_> {
         }
         let merged = (at_event && !self.passed.is_empty()).then(|| self.with_passed(dirs));
         let dirs = merged.as_deref().or(dirs);
+        // the relation whose crossing alone caused this event, if one did
+        // (`own_ok`: a root, nothing scheduled due there, no expiry cut; and
+        // no tick at its instant changed a value): the holds it makes take
+        // the rate after the event for their time limits
+        // ([`Loop::set_expiry`])
+        self.own = None;
+        if at_event
+            && self.own_ok
+            && d.as_slice() == d_pre
+            && let Some(ds) = dirs
+        {
+            let mut rel =
+                ds.iter().enumerate().filter(|x| *x.1 != 0).map(|(c, _)| self.relation.get(c));
+            if let Some(Some(&first)) = rel.next()
+                && rel.all(|r| r == Some(&first))
+            {
+                self.own = Some(first);
+            }
+        }
         // the conditions just before the event, and where the integrator
         // saw them
         self.eval_roots(t, y, d_pre, true);
         let seen = at_event && self.may_hold() && !self.hold_roots.is_empty();
-        (self.seen_now, self.moved_checked) = (seen, false);
-        self.moved.clear();
+        self.seen_now = seen;
+        self.fired_log.clear();
+        self.ev_held.clear();
         if seen {
             self.seen_y.clear();
             self.seen_y.extend_from_slice(y);
@@ -1708,12 +2543,16 @@ impl Loop<'_> {
         if let Some(dirs) = dirs {
             for (k, (c, dir)) in info.whens.iter().enumerate() {
                 let r = dirs.get(*c).copied().unwrap_or(0);
-                reported[k] = r != 0;
                 let hit = match dir {
                     Direction::Rising => r > 0,
                     Direction::Falling => r < 0,
                     Direction::Both => r != 0,
                 };
+                // (a report decides the clauses it fires, no other: the
+                // stateless backend and diffsol report a function crossing
+                // in either direction, and the clause on it the other way
+                // is checked in round 0 like any clause)
+                reported[k] = hit;
                 if hit {
                     fired[k] = 1.0;
                     any_fired = true;
@@ -1776,6 +2615,7 @@ impl Loop<'_> {
         loop {
             if any_fired {
                 self.solve_z(integ, t, y, d, z_for)?;
+                self.fired_log.push(fired.to_vec());
                 let mut d_new = d.clone();
                 let inp = EvalInput { t, y, p: &info.params, d, u: self.u };
                 self.model.when(&inp, fired, &mut self.work, &mut d_new);
@@ -1980,8 +2820,12 @@ impl Loop<'_> {
     /// `max_event_iterations` engagements at one instant (each one's new
     /// speeds firing the next) stops the run with an event storm that names
     /// the engagement and the conditions; a cascade that is meant needs a
-    /// higher limit. Returns whether a discrete value changed from `d_pre`,
-    /// and where the engagements' lost energy goes.
+    /// higher limit. The conditions before the states move are those event
+    /// iteration ended with, every hold of this event applied; after the
+    /// move a condition is held only where the rule holds it at the moved
+    /// states ([`Loop::hold_conditions`], its one-point test). Returns
+    /// whether a discrete value changed from `d_pre`, and where the
+    /// engagements' lost energy goes.
     #[allow(clippy::too_many_arguments)]
     fn settle(
         &mut self,
@@ -2029,7 +2873,10 @@ impl Loop<'_> {
             let mut z_for = d.clone();
             let mut fired = vec![0.0; self.info.whens.len()];
             let seen = self.events.len();
-            self.rounds(integ, t, y, d, &mut fired, false, &[], &mut z_for, false)?;
+            // (the conditions held as at the event's point, a new hold
+            // judged at the moved states: [`Loop::hold_conditions`])
+            let at_point = self.seen_now;
+            self.rounds(integ, t, y, d, &mut fired, false, &[], &mut z_for, at_point)?;
             self.solve_z(integ, t, y, d, &mut z_for)?;
             fired_by.clear();
             for ev in &self.events[seen..] {
@@ -2727,13 +3574,22 @@ fn run_watched<'a>(
             v
         },
         hold_roots: vec![],
+        relation: vec![],
+        step_from: f64::NEG_INFINITY,
+        fired_log: vec![],
+        expiry: vec![f64::INFINITY; l.n_roots + model.table_guard_list().len()],
+        limit: vec![0.0; l.n_roots + model.table_guard_list().len()],
+        rho_of: vec![0.0; l.n_roots + model.table_guard_list().len()],
+        renew: vec![],
+        own_ok: false,
+        own: None,
+        ev_held: vec![],
+        rate_jac: None,
         seen_y: vec![],
         seen_g: vec![],
         seen_dirs: vec![],
         seen_d: vec![],
         seen_now: false,
-        moved_checked: false,
-        moved: vec![],
         passed: vec![],
         outside_since: vec![None; model.table_guard_list().len()],
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
@@ -2767,6 +3623,10 @@ fn run_watched<'a>(
     }
     lp.hold_roots =
         (0..l.n_roots).filter(|&c| lp.mode_of_root[c].is_none() && !lp.held_root[c]).collect();
+    lp.relation = relations(
+        lp.sides.len(),
+        info.mag.as_ref().filter(|_| lp.may_hold()).map(|m| m.roots.as_slice()),
+    );
     let p = &info.params;
     // (the run's own integrator until it chooses its states again)
     let integ: &mut dyn Integrator = &mut *integ0;
@@ -2960,6 +3820,7 @@ fn run_watched<'a>(
             l = *model.layout();
             n = l.n_y();
             lp.model = model;
+            lp.rate_jac = None;
             lp.info = info;
             lp.work.resize(l.n_work, 0.0);
             lp.vars.resize(l.n_vars, 0.0);
@@ -3149,6 +4010,7 @@ fn run_watched<'a>(
         // integrators cannot step so short an interval, and the solution
         // does not move across it
         let same = same_instant(t, t_stop);
+        lp.step_from = t;
         let mut st = if same { Step::Stopped(t_stop) } else { integ.step(t_stop)? };
         if !same {
             lp.steps += 1;
@@ -3169,6 +4031,24 @@ fn run_watched<'a>(
         // finding did not see (two inside one step: a pulse): the step
         // ends there, as at a root; the state there from the dense output
         let mut y_cut: Option<Vec<f64>> = None;
+        // the holds whose time limits fall in the step, read as solved there
+        // ([`Loop::expiry_cut`]): the step is cut back where one is short of
+        // its side, as at a root
+        lp.renew.clear();
+        let mut expiry_now = false;
+        if !same && lp.held {
+            let rd: Vec<i32> = if let Step::Root(_, dirs) = &st { dirs.clone() } else { vec![] };
+            let t1 = st.time();
+            if let Some((at, dirs)) = lp.expiry_cut(integ, t, t1, &d, &rd) {
+                if at != t1 {
+                    let mut yv = vec![0.0; n];
+                    integ.interpolate(at, &mut yv)?;
+                    y_cut = Some(yv);
+                }
+                st = Step::Root(at, dirs);
+                expiry_now = true;
+            }
+        }
         let reported: &[i32] = if let Step::Root(_, dirs) = &st { dirs } else { &[] };
         let timer = (opts.time_mixed_checks && !same).then(Instant::now);
         let pulse = if same { None } else { lp.scan_mixed(integ, t, st.time(), reported, &d)? };
@@ -3562,6 +4442,9 @@ fn run_watched<'a>(
                     // (the point the integrator had, for the holds)
                     let y_at = lp.may_hold().then(|| yk.clone());
                     lp.scheduled = true;
+                    // (the step ends here: the holds an expiry check found
+                    // arrived before the tick go on from it)
+                    lp.renew_holds(tk);
                     let it = lp.settle(integ, tk, &mut yk, &mut d, &d_pre, None, &before_vars);
                     lp.scheduled = false;
                     let (_, imp) = it?;
@@ -3654,6 +4537,9 @@ fn run_watched<'a>(
         if cut {
             continue;
         }
+        // the step's end is final: the holds an expiry check found arrived
+        // go on from it
+        lp.renew_holds(t_new);
 
         // the step's end point, for min/max/mean, and the asserts
         match (&resumed, &y_cut) {
@@ -3900,8 +4786,12 @@ fn run_watched<'a>(
             // a time event or crossing is scheduled; a root (with any ticks
             // at its instant) is a state event
             lp.scheduled = !is_root;
+            // (a root with nothing scheduled due and no expiry cut: its
+            // crossing may be the event's one cause, [`Loop::iterate`])
+            lp.own_ok = is_root && !at_time_event && !crossing_due && !expiry_now;
             let it = lp.settle(integ, t, &mut y, &mut d, &d_pre, dirs, &before_vars);
             lp.scheduled = false;
+            lp.own_ok = false;
             let (moved, imp) = it?;
             changed |= moved;
             if crossing_due {

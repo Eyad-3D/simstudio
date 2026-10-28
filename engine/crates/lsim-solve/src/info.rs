@@ -598,6 +598,29 @@ pub struct RunInfo {
     /// stepped over: a run that stops at one of their breakpoints names the
     /// read and the option that holds it ([`crate::held::at_breakpoint`])
     pub state_reads: Vec<StateRead>,
+    /// the expressions the hold rule reads (its rounding bound's running-
+    /// error magnitudes, and which root functions are sides of one
+    /// relation); `None` in [`RunInfo::bare`], where the rounding bound
+    /// keeps its terms in the iteration variables only and every root
+    /// function is a relation of its own
+    pub mag: Option<Arc<MagInfo>>,
+}
+
+/// What [`RunInfo::mag`] holds: the prepared model's expressions.
+#[derive(Clone, Debug, Default)]
+pub struct MagInfo {
+    /// the assignments, in order
+    pub assign: Vec<(Slot, Expr)>,
+    /// the residuals of the iteration variables, in order
+    pub resid: Vec<Expr>,
+    /// the root functions (the model's zero crossings)
+    pub roots: Vec<Expr>,
+    /// y's slots: the states, then the iteration variables
+    pub y_slots: Vec<Slot>,
+    /// the discrete variables, in order
+    pub d_vars: Vec<VarId>,
+    /// the inputs, in order
+    pub u_vars: Vec<VarId>,
 }
 
 /// A table read at an argument that moves with the states (DESIGN.md
@@ -997,6 +1020,7 @@ impl RunInfo {
             choices: None,
             held: vec![],
             state_reads: vec![],
+            mag: None,
         }
     }
 
@@ -1223,6 +1247,19 @@ impl RunInfo {
                 })
                 .collect(),
             state_reads: state_reads(m),
+            mag: Some(Arc::new(MagInfo {
+                assign: m.assignments.iter().map(|a| (a.target, a.expr.clone())).collect(),
+                resid: m.residuals.iter().map(|r| r.expr.clone()).collect(),
+                roots: m.zero_crossings.iter().map(|z| z.expr.clone()).collect(),
+                y_slots: m
+                    .states
+                    .iter()
+                    .map(|v| Slot::Var(*v))
+                    .chain(m.algebraics.iter().copied())
+                    .collect(),
+                d_vars: m.discretes.clone(),
+                u_vars: m.inputs.clone(),
+            })),
         }
     }
 
