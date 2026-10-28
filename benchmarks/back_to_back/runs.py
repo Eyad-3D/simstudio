@@ -4,14 +4,17 @@ and running it in a process of its own.
 A job is one run of one project's case on one engine at one setting. The
 parent (``run_all``) starts each job as ``python -m benchmarks.back_to_back
 job SPEC OUT`` with the engine's environment, a few at a time, and skips a
-job whose output exists (so a stopped run resumes). The child builds the
+job whose output exists and was made by this same code (so a stopped run
+resumes; a record of other code is run again). The child builds the
 project, runs it through the app's own ``app.solver.simulate`` and writes
-the SimResult with what the harness needs beside it: the wall time, the
-Data Checks' worst level, the new engine's own build warnings (with their
-codes) and energy totals, and the streamed points' check.
+the SimResult with what the harness needs beside it: the code that made
+it (``stamp``), the wall time, the Data Checks' worst level, the new
+engine's own build warnings (with their codes), energy totals and Script
+runners, and the streamed points' check.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -33,6 +36,22 @@ LIVE_PACE = 1000.0  # a live item's pace in the diff (pace does not change a res
 SUBSTEP = {"normal": 0.01, "fine": 0.001}  # today's engine's solver step, s
 # the META settings beside the base run: (output step factor, rtol)
 META = {"meta-x0.1": (0.1, 1e-6), "meta-x5": (5.0, 1e-6), "meta-rtol1e-8": (1.0, 1e-8)}
+PARTS = ("items", "faults", "meta", "energy")  # every part of the runs: what `run` and `all` run
+
+
+def scratch() -> Path | None:
+    """The lane's scratch folder, $LSIM_SCRATCH: the owner's decisions
+    (decisions/) and the judges' cache (judge-cache/); None where it is not
+    set (CI, another machine)."""
+    value = os.environ.get("LSIM_SCRATCH", "").strip()
+    return Path(value) if value else None
+
+
+def cache() -> Path | None:
+    """The judges' cache of the sources' copies: $LSIM_JUDGE_CACHE, else
+    $LSIM_SCRATCH/judge-cache; None where neither is set."""
+    value = os.environ.get("LSIM_JUDGE_CACHE", "").strip()
+    return Path(value) if value else scratch() / "judge-cache" if scratch() else None
 
 
 def example(name: str) -> dict:
@@ -199,7 +218,7 @@ def job_path(out: Path, spec: dict) -> Path:
 
 
 def specs(what: set[str]) -> list[dict]:
-    """The jobs of the parts asked for: 'items', 'faults', 'meta'."""
+    """The jobs of the parts asked for (PARTS): 'items', 'faults', 'meta', 'energy'."""
     jobs = []
     if "items" in what:
         for item in items():
@@ -259,15 +278,63 @@ def fallback_note(project, case_id: str, emit) -> str | None:
     return res.messages[0].text
 
 
+def _git(*args: str) -> bytes:
+    try:
+        return subprocess.run(["git", *args], cwd=REPO, capture_output=True).stdout
+    except OSError:
+        return b""
+
+
+def _sha(path: Path) -> str | None:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
+
+
+def stamp() -> dict:
+    """Which code made a record: the commit; the change to it not committed
+    (the SHA-256 of `git diff HEAD` and of the untracked files' names, None
+    when there is none); the module lightsim_engine's version and the
+    SHA-256 of its compiled file; and the SHA-256 of the path, the verdict
+    and the harness's own files."""
+    import importlib.util
+    from importlib.metadata import PackageNotFoundError, version
+    change = _git("diff", "HEAD", "--binary") + _git("ls-files", "--others", "--exclude-standard")
+    try:
+        engine = version("lightsim_engine")
+        found = importlib.util.find_spec("lightsim_engine")
+        binary = sorted(p for p in Path(found.origin).parent.iterdir() if p.suffix in (".so", ".pyd"))
+        engine_sha = _sha(binary[0]) if binary else None
+    except (PackageNotFoundError, ImportError, AttributeError, TypeError, ValueError):
+        engine, engine_sha = None, None
+    files = [BACKEND / "app" / "solver" / "new_engine.py", BACKEND / "app" / "solver" / "verdict.py",
+             *sorted(HERE.glob("*.py")), *sorted(HERE.glob("*.toml"))]
+    return {"commit": _git("rev-parse", "HEAD").decode().strip(),
+            "dirty": hashlib.sha256(change).hexdigest() if change else None,
+            "lightsim_engine": engine, "lightsim_engine_sha256": engine_sha,
+            "sha256": {str(p.relative_to(REPO)).replace("\\", "/"): _sha(p) for p in files}}
+
+
+def todo(out: Path, jobs: list[dict], now: dict) -> list[dict]:
+    """The jobs to run: those with no record, and those whose record another
+    code made (its stamp is not ``now``): a rerun never reuses a stale one."""
+    def stale(j):
+        rec = load(out, j)
+        return rec is None or rec.get("stamp") != now
+    return [j for j in jobs if stale(j)]
+
+
 def run_all(out: Path, jobs: list[dict], workers: int, timeout: float = 3600.0) -> None:
-    todo = [j for j in jobs if not job_path(out, j).exists()]
-    print(f"{len(jobs)} jobs, {len(jobs) - len(todo)} done before, {len(todo)} to run", flush=True)
+    now = stamp()
+    todo_ = todo(out, jobs, now)
+    stale = sum(job_path(out, j).exists() for j in todo_)
+    print(f"{len(jobs)} jobs, {len(jobs) - len(todo_)} done before at this code, {len(todo_)} to run "
+          f"({stale} of them made by other code)", flush=True)
     logs = out / "logs"
     logs.mkdir(parents=True, exist_ok=True)
 
     def one(spec: dict) -> None:
         path = job_path(out, spec)
         path.parent.mkdir(parents=True, exist_ok=True)
+        path.unlink(missing_ok=True)  # another code's record: replaced, never mixed in
         log = logs / (path.parent.name + "__" + path.stem + ".log")
         t0 = time.monotonic()
         with open(log, "w", encoding="utf-8") as f:
@@ -279,14 +346,14 @@ def run_all(out: Path, jobs: list[dict], workers: int, timeout: float = 3600.0) 
             except subprocess.TimeoutExpired:
                 code = "timeout"
         if not path.exists():  # the child died or timed out: say so, as a result
-            path.write_text(json.dumps({"spec": spec, "crashed": str(code),
+            path.write_text(json.dumps({"spec": spec, "crashed": str(code), "stamp": now,
                                         "wall_s": time.monotonic() - t0}), encoding="utf-8")
         print(f"{spec['setting']:>14} {spec['id']} ({time.monotonic() - t0:.0f} s)", flush=True)
 
     # the longest first (today's fine runs, the hybrid), so the pool ends together
-    todo.sort(key=lambda j: (j["setting"] != "today-fine", "hybrid" not in j["id"]))
+    todo_.sort(key=lambda j: (j["setting"] != "today-fine", "hybrid" not in j["id"]))
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        list(pool.map(one, todo))
+        list(pool.map(one, todo_))
 
 
 def load(out: Path, spec: dict) -> dict | None:
@@ -324,6 +391,8 @@ class _Model:
         if self.engine.rtol is not None:
             kwargs["rtol"] = self.engine.rtol
         run = self.model.simulate(**kwargs)
+        # which runner ran each Script part ("python": the caller's, today's worker)
+        self.engine.kept["scripts"] = dict(run.report["scripts"])
         energy = run.energy
         self.engine.kept["energy"] = None if energy is None else {
             k: v for k, v in energy.items() if isinstance(v, (int, float, str, bool))}
@@ -335,6 +404,7 @@ def child(spec: dict, path: Path) -> None:
     from app.solver import core, simulate
     from app.validation import validate_project
 
+    made_by = stamp()
     scratch = path.parent / (path.stem + ".work")
     if spec["kind"] == "item":
         item = next(i for i in items() if i["id"] == spec["id"])
@@ -373,7 +443,7 @@ def child(spec: dict, path: Path) -> None:
     wall = time.perf_counter() - t0
     levels = {c.level for c in validate_project(project)}
     record = {
-        "spec": spec, "case": case_id, "wall_s": wall,
+        "spec": spec, "stamp": made_by, "case": case_id, "wall_s": wall,
         "checks": next((lv for lv in ("error", "warning") if lv in levels), "info"),
         "result": result.model_dump(mode="json"),
         "engine": engine.kept if engine else None,
@@ -388,17 +458,25 @@ def child(spec: dict, path: Path) -> None:
 
 def streamed(stream: list[dict], result) -> dict:
     """The S1 check: every streamed point ("step" message) against the final
-    result's channels at that point, bit for bit."""
+    result's channels at that point, bit for bit. A message is unequal when
+    its time or a value differs, or when it lacks a channel the result has
+    a value for there (today's engine streams every channel it records);
+    S1 also needs one message for every recorded point."""
     steps = [m for m in stream if m.get("type") == "step"]
     final = {f"{c.elementId}:{c.portId}": [p["value"] for p in c.timeSeries] for c in result.channels}
     times = [p["t"] for p in result.channels[0].timeSeries] if result.channels else []
-    bad, first = 0, None
+    bad, lacking, first = 0, 0, None
     for k, m in enumerate(steps):
-        same = k < len(times) and m["t"] == times[k] and all(
+        values = m.get("values") or {}
+        lacks = [name for name, vs in final.items()
+                 if k < len(vs) and vs[k] is not None and name not in values]
+        same = k < len(times) and m["t"] == times[k] and not lacks and all(
             name in final and k < len(final[name]) and final[name][k] == value
-            for name, value in m["values"].items())
+            for name, value in values.items())
+        lacking += bool(lacks)
         if not same:
             bad += 1
-            first = first or {"index": k, "t": m["t"]}
-    return {"points": len(steps), "recorded": len(times), "unequal": bad, "first_unequal": first}
+            first = first or {"index": k, "t": m["t"], "lacks": lacks[:5]}
+    return {"points": len(steps), "recorded": len(times), "unequal": bad, "lacking_channels": lacking,
+            "first_unequal": first}
 

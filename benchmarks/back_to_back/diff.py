@@ -9,6 +9,10 @@ is twice the RMS of today's two runs' difference, at least 0.5 % of its RMS
 (and 1e-9), over every output point but the first. A difference's size is
 "x", its distance from today's 1 ms value in bands; a number is outside at
 x > 1. Text, identities and presence compare equal or differ (x None).
+A point where today's two runs have a value and the new run has none (the
+path writes None for not a number) or a non-finite one is a difference
+("not finite", at the first such time). FIELDS says how every field of
+every model of a SimResult is compared; a test holds it to the models.
 """
 from __future__ import annotations
 
@@ -64,18 +68,43 @@ def _num(item, field, key, normal, fine, new, unit) -> list[Diff]:
     return [_d(item, field, key, "value", x=x, today=fine, new=new, band=band)] if x > 1.0 else []
 
 
+def _today(n: list, f: list, v: list) -> list[int]:
+    """The points but the first where today's two runs have a finite value
+    (and the new run has a point at all: a grid that differs is told apart)."""
+    return [k for k in range(1, min(len(n), len(f), len(v)))
+            if None not in (n[k], f[k]) and math.isfinite(n[k]) and math.isfinite(f[k])]
+
+
+def _gaps(n: list, f: list, v: list) -> list[int]:
+    """Where today's two runs have a value and the new run has none (None,
+    the path's not a number) or a non-finite one."""
+    return [k for k in _today(n, f, v) if v[k] is None or not math.isfinite(v[k])]
+
+
 def _series_x(n: list, f: list, v: list) -> tuple[float | None, float]:
     """(x, band) of a channel's values ``v`` against today's ``f`` (1 ms) and
-    ``n`` (10 ms), over the points but the first where all three have data."""
-    m = min(len(n), len(f), len(v))
-    idx = [k for k in range(1, m) if None not in (n[k], f[k], v[k])
-           and math.isfinite(n[k]) and math.isfinite(f[k])]
+    ``n`` (10 ms), over the points but the first where today's runs have
+    data; x is infinite where the new run has none of its own there."""
+    idx = _today(n, f, v)
     if not idx:
         return None, 0.0
     band = max(2.0 * rms(n[k] - f[k] for k in idx), 0.005 * rms(f[k] for k in idx), 1e-9)
-    if any(not math.isfinite(v[k]) for k in idx):
+    if _gaps(n, f, v):
         return math.inf, band
     return rms(v[k] - f[k] for k in idx) / band, band
+
+
+def _series(item, field, name, n: list, f: list, v: list, times: list) -> list[Diff]:
+    """A channel's values (or one of its statistics) outside its band, or
+    not finite on the new run where today's runs have data."""
+    x, band = _series_x(n, f, v)
+    if x is None or x <= 1.0:
+        return []
+    gaps = _gaps(n, f, v)
+    if gaps:
+        return [_d(item, field, name, "not finite", x=x, band=band, points=len(gaps),
+                   first_t=times[gaps[0]] if gaps[0] < len(times) else None)]
+    return [_d(item, field, name, "value", x=x, band=band, where=where(n, f, v, band, times))]
 
 
 def where(n: list, f: list, v: list, band: float, times: list) -> dict:
@@ -104,14 +133,78 @@ def _rows(rows: list[dict], key) -> dict:
     return out
 
 
+# How each field of each model of a SimResult (app/schemas.py) is compared:
+# "key" (part of its row's key, so compared by matching the rows), "text"
+# (equal or not), a unit (a number against its band, with that unit's floor),
+# "unit" (a number in its row's own unit) or "own" (by compare's own code).
+FIELDS = {
+    "SimResult": {"caseId": "text", "status": "text", "messages": "own", "channels": "own",
+                  "summary": "own", "partEnergy": "own", "energy": "own", "duty": "own",
+                  "limits": "own", "references": "own"},
+    "SimMessage": {"level": "own", "text": "own"},
+    "Channel": {"elementId": "key", "portId": "key", "label": "text", "unit": "text",
+                "timeSeries": "own", "min": "own", "max": "own", "mean": "own"},
+    "SummaryValue": {"key": "key", "label": "text", "value": "unit", "unit": "text",
+                     "notValid": "text", "limit": "own", "passed": "text"},
+    "PartEnergyFlow": {"elementId": "key", "label": "text", "part": "key", "energyIn": "kWh",
+                       "energyOut": "kWh", "losses": "kWh", "stored": "kWh",
+                       "energyInReverse": "kWh", "peakPower": "kW", "meanPower": "kW",
+                       "rmsPower": "kW", "terms": "own"},
+    "EnergyReport": {"parts": "own", "sources": "own", "sinks": "own", "sourceKWh": "kWh",
+                     "remainderKWh": "kWh", "remainderPct": "%", "balanceErrorPct": "%"},
+    "EnergyPart": {"elementId": "key", "label": "key", "kind": "text", "inKWh": "kWh",
+                   "outKWh": "kWh", "lostKWh": "kWh", "storedKWh": "kWh", "lostPct": "%"},
+    "EnergyFlow": {"label": "key", "kWh": "kWh", "group": "text", "elementId": "key"},
+    "DutyPart": {"elementId": "key", "label": "text", "kind": "text", "rows": "own"},
+    "DutyRow": {"quantity": "key", "unit": "text", "max": "unit", "min": "unit", "mean": "unit",
+                "rms": "unit"},
+    "LimitReport": {"states": "text", "lanes": "own", "tEnd": "s"},
+    "LimitLane": {"label": "key", "elementIds": "text", "changes": "own", "seconds": "own"},
+    "ReferenceCheck": {"label": "key", "value": "unit", "reference": "unit", "unit": "text",
+                       "difference": "unit", "differencePct": "%", "tolerance": "unit",
+                       "grade": "text", "source": "text", "automatic": "text", "bound": "text",
+                       "note": "text"},
+}
+
+
+def _fields(item, field, key, model: str, f: dict, v: dict, n: dict | None) -> list[Diff]:
+    """A row's fields that compare as text or as numbers (FIELDS[model])."""
+    out: list[Diff] = []
+    for attr, how in FIELDS[model].items():
+        if how in ("key", "own"):
+            continue
+        fa, va = f.get(attr), v.get(attr)
+        if how == "text":
+            if fa != va:
+                out.append(_d(item, f"{field}.{attr}", key, "text", today=fa, new=va))
+        else:
+            out += _num(item, f"{field}.{attr}", key, (n or {}).get(attr), fa, va,
+                        (f.get("unit") or "") if how == "unit" else how)
+    return out
+
+
+def _changes(item, key, fl: dict, vl: dict, f: dict, v: dict, step: float) -> list[Diff]:
+    """A limit lane's changes of state as intervals: the same states in the
+    same order, each change within one output step of today's."""
+    def named(lane, states):
+        return [states[int(s)] if 0 <= int(s) < len(states) else s for _, s in lane["changes"]]
+    if named(f, fl["states"]) != named(v, vl["states"]):
+        return [_d(item, "limits.changes", key, "text", today=named(f, fl["states"]),
+                   new=named(v, vl["states"]))]
+    worst = max((abs(a[0] - b[0]) for a, b in zip(f["changes"], v["changes"])), default=0.0)
+    if worst > step + 1e-9:
+        return [_d(item, "limits.changes", key, "value", x=worst / step if step else math.inf,
+                   today=[c[0] for c in f["changes"]], new=[c[0] for c in v["changes"]], step=step)]
+    return []
+
+
 def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
     """Every difference between today's 1 ms result ``fine`` (with its 10 ms
-    run ``normal`` for the bands) and the new path's result ``new``."""
-    out: list[Diff] = []
-    if fine["caseId"] != new["caseId"]:
-        out.append(_d(item, "caseId", "", "text", today=fine["caseId"], new=new["caseId"]))
-    if fine["status"] != new["status"]:
-        out.append(_d(item, "status", "", "text", today=fine["status"], new=new["status"]))
+    run ``normal`` for the bands) and the new path's result ``new``: every
+    field of every model, as FIELDS says."""
+    out = _fields(item, "", "", "SimResult", fine, new, normal)
+    for d in out:
+        d["field"] = d["field"].lstrip(".")
 
     # messages, with their numbers taken out
     a = Counter((m["level"], masked(m["text"])) for m in fine["messages"])
@@ -125,36 +218,30 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
     chan = {c: _rows(r["channels"], lambda x: f"{x['elementId']}:{x['portId']}")
             for c, r in (("n", normal), ("f", fine), ("v", new))}
     grid: dict = {}
+    step = 0.0  # today's output step: the limit lanes' changes are judged to one
     for name in sorted(set(chan["f"]) | set(chan["v"])):
         f, v, n = chan["f"].get(name), chan["v"].get(name), chan["n"].get(name)
         if f is None or v is None:
             out.append(_d(item, "channels", name, "missing" if v is None else "extra"))
             continue
-        for attr in ("label", "unit"):
-            if f[attr] != v[attr]:
-                out.append(_d(item, f"channels.{attr}", name, "text", today=f[attr], new=v[attr]))
+        out += _fields(item, "channels", name, "Channel", f, v, n)
         series = {c: [p["value"] for p in (r or {}).get("timeSeries", [])]
                   for c, r in (("n", n), ("f", f), ("v", v))}
         tf, tv = [p["t"] for p in f["timeSeries"]], [p["t"] for p in v["timeSeries"]]
+        step = max([step] + [b - a for a, b in zip(tf, tf[1:])])
         if tf != tv:  # the output times: once for the run, and for any channel off its grid
             key = "" if (tf, tv) == grid.setdefault("run", (tf, tv)) else name
             if key or not grid.get("told"):
                 grid["told"] = True
                 out.append(_d(item, "times", key, "grid", today=len(tf), new=len(tv),
                               last=[tf[-1] if tf else None, tv[-1] if tv else None]))
-        x, band = _series_x(series["n"], series["f"], series["v"])
-        if x is not None and x > 1.0:
-            out.append(_d(item, "channels.values", name, "value", x=x, band=band,
-                          where=where(series["n"], series["f"], series["v"], band, tf)))
+        out += _series(item, "channels.values", name, series["n"], series["f"], series["v"], tf)
         for stat in ("min", "max", "mean"):
             fs, vs, ns = f.get(stat), v.get(stat), (n or {}).get(stat)
             if (fs is None) != (vs is None):
                 out.append(_d(item, f"channels.{stat}", name, "missing" if vs is None else "extra"))
             elif fs is not None:
-                x, band = _series_x(ns or fs, fs, vs)
-                if x is not None and x > 1.0:
-                    out.append(_d(item, f"channels.{stat}", name, "value", x=x, band=band,
-                                  where=where(ns or fs, fs, vs, band, tf)))
+                out += _series(item, f"channels.{stat}", name, ns or fs, fs, vs, tf)
 
     # summary rows, by key (by label where a row has none)
     rows = {c: _rows(r["summary"], lambda x: x["key"] or x["label"])
@@ -164,13 +251,10 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
         if f is None or v is None:
             out.append(_d(item, "summary", key, "missing" if v is None else "extra"))
             continue
-        for attr in ("label", "unit", "notValid", "passed"):
-            if f.get(attr) != v.get(attr):
-                out.append(_d(item, f"summary.{attr}", key, "text", today=f.get(attr), new=v.get(attr)))
+        out += _fields(item, "summary", key, "SummaryValue", f, v, n)
         if (f.get("limit") is None) != (v.get("limit") is None) or (
                 f.get("limit") is not None and abs(f["limit"] - v["limit"]) > 1e-9 * abs(f["limit"])):
             out.append(_d(item, "summary.limit", key, "text", today=f.get("limit"), new=v.get("limit")))
-        out += _num(item, "summary.value", key, (n or {}).get("value"), f["value"], v["value"], f["unit"])
 
     # the parts' energy books
     pe = {c: _rows(r.get("partEnergy"), lambda x: f"{x.get('elementId') or x['label']}|{x['part']}")
@@ -180,10 +264,7 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
         if f is None or v is None:
             out.append(_d(item, "partEnergy", key, "missing" if v is None else "extra"))
             continue
-        for attr in ("energyIn", "energyOut", "losses", "stored", "energyInReverse"):
-            out += _num(item, f"partEnergy.{attr}", key, n.get(attr), f.get(attr), v.get(attr), "kWh")
-        for attr in ("peakPower", "meanPower", "rmsPower"):
-            out += _num(item, f"partEnergy.{attr}", key, n.get(attr), f.get(attr), v.get(attr), "kW")
+        out += _fields(item, "partEnergy", key, "PartEnergyFlow", f, v, n)
         for term in sorted(set(f.get("terms", {})) | set(v.get("terms", {}))):
             out += _num(item, "partEnergy.terms", f"{key}|{term}", n.get("terms", {}).get(term),
                         f.get("terms", {}).get(term), v.get("terms", {}).get(term), "kWh")
@@ -193,23 +274,21 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
     if (fe is None) != (ve is None):
         out.append(_d(item, "energy", "", "missing" if ve is None else "extra"))
     elif fe is not None:
-        for attr in ("sourceKWh", "remainderKWh"):
-            out += _num(item, f"energy.{attr}", "", ne.get(attr), fe[attr], ve[attr], "kWh")
-        for group in ("parts", "sources", "sinks"):
-            gf = _rows(fe[group], lambda x: f"{x.get('elementId') or ''}|{x['label']}")
-            gv = _rows(ve[group], lambda x: f"{x.get('elementId') or ''}|{x['label']}")
-            gn = _rows(ne.get(group, []), lambda x: f"{x.get('elementId') or ''}|{x['label']}")
+        out += _fields(item, "energy", "", "EnergyReport", fe, ve, ne)
+        for group, model in (("parts", "EnergyPart"), ("sources", "EnergyFlow"), ("sinks", "EnergyFlow")):
+            gf, gv, gn = (_rows(r.get(group, []), lambda x: f"{x.get('elementId') or ''}|{x['label']}")
+                          for r in (fe, ve, ne))
             for key in sorted(set(gf) | set(gv)):
                 f, v = gf.get(key), gv.get(key)
                 if f is None or v is None:
                     out.append(_d(item, f"energy.{group}", key, "missing" if v is None else "extra"))
                     continue
-                for attr in ("inKWh", "outKWh", "lostKWh", "storedKWh", "kWh"):
-                    if attr in f:
-                        out += _num(item, f"energy.{group}.{attr}", key, gn.get(key, {}).get(attr),
-                                    f[attr], v.get(attr), "kWh")
+                out += _fields(item, f"energy.{group}", key, model, f, v, gn.get(key))
 
-    # duty
+    # duty: each part, and each of its rows
+    dp = {c: _rows(r.get("duty"), lambda x: x["elementId"]) for c, r in (("n", normal), ("f", fine), ("v", new))}
+    for key in sorted(set(dp["f"]) & set(dp["v"])):
+        out += _fields(item, "duty.part", key, "DutyPart", dp["f"][key], dp["v"][key], None)
     du = {c: {f"{p['elementId']}|{row['quantity']}": row for p in r.get("duty", []) for row in p["rows"]}
           for c, r in (("n", normal), ("f", fine), ("v", new))}
     for key in sorted(set(du["f"]) | set(du["v"])):
@@ -217,16 +296,14 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
         if f is None or v is None:
             out.append(_d(item, "duty", key, "missing" if v is None else "extra"))
             continue
-        for attr in ("max", "min", "mean", "rms"):
-            out += _num(item, f"duty.{attr}", key, n.get(attr), f[attr], v[attr], f["unit"])
+        out += _fields(item, "duty", key, "DutyRow", f, v, n)
 
     # limits
     fl, vl, nl = fine.get("limits"), new.get("limits"), normal.get("limits") or {}
     if (fl is None) != (vl is None):
         out.append(_d(item, "limits", "", "missing" if vl is None else "extra"))
     elif fl is not None:
-        if fl["states"] != vl["states"]:
-            out.append(_d(item, "limits.states", "", "text", today=fl["states"], new=vl["states"]))
+        out += _fields(item, "limits", "", "LimitReport", fl, vl, nl)
         lf, lv = _rows(fl["lanes"], lambda x: x["label"]), _rows(vl["lanes"], lambda x: x["label"])
         ln = _rows(nl.get("lanes", []), lambda x: x["label"])
         for key in sorted(set(lf) | set(lv)):
@@ -234,6 +311,8 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
             if f is None or v is None:
                 out.append(_d(item, "limits.lanes", key, "missing" if v is None else "extra"))
                 continue
+            out += _fields(item, "limits.lanes", key, "LimitLane", f, v, None)
+            out += _changes(item, key, fl, vl, f, v, step)
             for state in sorted(set(f["seconds"]) | set(v["seconds"])):
                 out += _num(item, "limits.seconds", f"{key}|{state}",
                             ln.get(key, {}).get("seconds", {}).get(state),
@@ -247,11 +326,7 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
         if f is None or v is None:
             out.append(_d(item, "references", key, "missing" if v is None else "extra"))
             continue
-        if f["grade"] != v["grade"]:
-            out.append(_d(item, "references.grade", key, "text", today=f["grade"], new=v["grade"]))
-        if f.get("value") is not None or v.get("value") is not None:
-            out += _num(item, "references.value", key, rn.get(key, {}).get("value"), f.get("value"),
-                        v.get("value"), f.get("unit", ""))
+        out += _fields(item, "references", key, "ReferenceCheck", f, v, rn.get(key))
     return out
 
 

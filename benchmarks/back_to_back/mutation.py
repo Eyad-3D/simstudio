@@ -9,7 +9,8 @@ it and why none is wanted), or the line fails.
 
 It works on a copy of the backend in OUT/mutation/backend (mutmut writes
 its mutants and its progress there), so a stopped run resumes: `mutmut
-run` goes on with the mutants not yet tested. The tests are the fast ones
+run` goes on with the mutants not yet tested; a copy of other code (the
+app's or the tests', code_key) is made afresh first. The tests are the fast ones
 that reach the verdict (TESTS: they call it, or run small models through
 it); the whole-example tests that also reach it (test_verdict.py's
 test_bundled_examples_follow_their_cycles, test_examples_plausible.py,
@@ -19,6 +20,7 @@ runs on Linux only (it forks).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -51,12 +53,37 @@ def survivors_file() -> dict:
     return tomllib.loads((HERE / "survivors.toml").read_text(encoding="utf-8")).get("survivor", {})
 
 
-def run(out: Path, max_children: int | None = None) -> dict:
-    work = out / "mutation" / "backend"
+def code_key() -> str:
+    """The SHA-256 of what decides which mutants the tests kill: the app's
+    code (verdict.py among it) and the test files mutmut runs."""
+    h = hashlib.sha256()
+    files = sorted((BACKEND / "app").rglob("*.py")) + [BACKEND / t for t in TESTS if not t.startswith("-")]
+    for p in files:
+        h.update(str(p.relative_to(BACKEND)).replace("\\", "/").encode() + b"\0" + p.read_bytes() + b"\0")
+    return h.hexdigest()
+
+
+def prepare(out: Path) -> Path:
+    """OUT/mutation/backend, the copy mutmut works in: kept (so a stopped
+    run resumes) only while the code it was copied from is unchanged
+    (code_key, in OUT/mutation/copy.json); otherwise made afresh."""
+    work, key_file = out / "mutation" / "backend", out / "mutation" / "copy.json"
+    key = code_key()
+    kept = json.loads(key_file.read_text(encoding="utf-8")).get("code") if key_file.exists() else None
+    if work.exists() and kept != key:
+        shutil.rmtree(work)
     if not work.exists():
         shutil.copytree(BACKEND, work, ignore=shutil.ignore_patterns(
             "__pycache__", ".pytest_cache", "mutants", "*.egg-info", "build", "dist", ".ruff_cache"))
+        key_file.write_text(json.dumps({"code": key}), encoding="utf-8")
     (work / "setup.cfg").write_text(CONFIG, encoding="utf-8")
+    return work
+
+
+def run(out: Path, max_children: int | None = None) -> dict:
+    from .runs import stamp
+    made_by, code = stamp(), code_key()  # the code it starts on
+    work = prepare(out)
     mutmut = str(Path(sys.executable).with_name("mutmut"))
     log = out / "mutation" / "run.log"
     with open(log, "a", encoding="utf-8") as f:
@@ -71,7 +98,7 @@ def run(out: Path, max_children: int | None = None) -> dict:
             states[m.group(1)] = m.group(2).strip()
     survived = sorted(k for k, v in states.items() if v == "survived")
     reasons = survivors_file()
-    res = {"tool": "mutmut " + _version(), "target": TARGET, "tests": TESTS,
+    res = {"stamp": made_by, "code": code, "tool": "mutmut " + _version(), "target": TARGET, "tests": TESTS,
            "mutants": len(states), "by_state": _count(states.values()),
            "survived": survived, "without_reason": [s for s in survived if not reasons.get(s)],
            "complete": bool(states) and not any(v in ("not checked", "running") for v in states.values())}

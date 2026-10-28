@@ -8,6 +8,7 @@ job) a missing module fails it instead of skipping it (review finding 18).
 from __future__ import annotations
 
 import json
+import math
 import os
 from collections import deque
 from fractions import Fraction as F
@@ -157,6 +158,303 @@ def test_rules_that_read_the_runs():
     assert [d["cls"] for d in ds] == ["unclassified"] * 3
 
 
+def _channel_result(values, stats=None):
+    ch = {"elementId": "el-vehicle", "portId": "sig_speed", "label": "Vehicle · Speed", "unit": "km/h",
+          "timeSeries": [{"t": float(k), "value": v} for k, v in enumerate(values)]}
+    if stats is not None:
+        ch.update(min=stats, max=stats, mean=stats)
+    return _result(channels=[ch], summary=[], messages=[])
+
+
+def test_a_new_run_without_its_points_differs():
+    # the path writes None for not a number (new_engine._number): today's
+    # finite points the new run lacks are a difference, not skipped
+    today = [float(k) for k in range(100)]
+    for broken in (today[:50] + [None] * 50, [None] * 100, today[:50] + [math.nan] * 50):
+        ds = diff.compare("x", _channel_result(today, today), _channel_result(today, today),
+                          _channel_result(broken, broken))
+        got = {(d["field"], d["what"]) for d in ds}
+        assert ("channels.values", "not finite") in got, broken[-1]
+        assert {("channels.min", "not finite"), ("channels.mean", "not finite")} <= got
+        first = next(d for d in ds if d["field"] == "channels.values")
+        assert first["first_t"] == (1.0 if broken[1] is None else 50.0)
+    # a gap today's own runs have too is no difference
+    gap = today[:50] + [None] * 50
+    assert diff.compare("x", _channel_result(gap), _channel_result(gap), _channel_result(gap)) == []
+
+
+def _models(model, seen=None) -> dict:
+    """Every pydantic model a SimResult is made of, by name."""
+    import typing
+
+    from pydantic import BaseModel
+    seen = {} if seen is None else seen
+    seen[model.__name__] = model
+
+    def types(a):
+        yield a
+        for x in typing.get_args(a):
+            yield from types(x)
+    for f in model.model_fields.values():
+        for t in types(f.annotation):
+            if isinstance(t, type) and issubclass(t, BaseModel) and t.__name__ not in seen:
+                _models(t, seen)
+    return seen
+
+
+def test_the_diff_says_how_it_compares_every_field_of_every_model():
+    # a field SimResult gains, or a model it gains, fails here until the diff compares it
+    from app.schemas import SimResult
+    models = _models(SimResult)
+    assert {k: set(m.model_fields) for k, m in models.items()} == \
+        {k: set(v) for k, v in diff.FIELDS.items()}
+
+
+FULL = {  # every field of every model filled in
+    "caseId": "c", "status": "warning",
+    "messages": [{"level": "warning", "text": "Cycle not followed for 12 s."}],
+    "channels": [{"elementId": "el-m", "portId": "p", "label": "Motor · P", "unit": "kW",
+                  "timeSeries": [{"t": float(k), "value": 1.0 + k} for k in range(4)],
+                  "min": [0.5 + k for k in range(4)], "max": [1.5 + k for k in range(4)],
+                  "mean": [1.0 + k for k in range(4)]}],
+    "summary": [{"key": "time_s", "label": "Time", "value": 4.0, "unit": "s", "notValid": "estimates",
+                 "limit": 5.0, "passed": True}],
+    "partEnergy": [{"elementId": "el-m", "label": "Motor", "part": "motor.emotor", "energyIn": 1.0,
+                    "energyOut": 0.9, "losses": 0.1, "stored": 0.0, "energyInReverse": 0.2,
+                    "peakPower": 30.0, "meanPower": 5.0, "rmsPower": 8.0, "terms": {"copper": 0.05}}],
+    "energy": {"parts": [{"elementId": "el-m", "label": "Motor", "kind": "motor.emotor", "inKWh": 1.0,
+                          "outKWh": 0.9, "lostKWh": 0.1, "storedKWh": 0.0, "lostPct": 10.0}],
+               "sources": [{"label": "Battery", "kWh": 1.0, "group": "source", "elementId": "el-b"}],
+               "sinks": [{"label": "Road", "kWh": 0.8, "group": "road", "elementId": "el-v"}],
+               "sourceKWh": 1.0, "remainderKWh": 0.01, "remainderPct": 1.0, "balanceErrorPct": 0.02},
+    "duty": [{"elementId": "el-m", "label": "Motor", "kind": "motor.emotor",
+              "rows": [{"quantity": "Torque", "unit": "N·m", "max": 1.0, "min": 0.0, "mean": 0.5,
+                        "rms": 0.6}]}],
+    "limits": {"states": ["free", "torque"], "tEnd": 3.0,
+               "lanes": [{"label": "Motor", "elementIds": ["el-m"], "changes": [[0.0, 0.0], [1.0, 1.0]],
+                          "seconds": {"free": 1.0, "torque": 2.0}}]},
+    "references": [{"label": "Range", "value": 400.0, "reference": 410.0, "unit": "km", "difference": -10.0,
+                    "differencePct": -2.4, "tolerance": 5.0, "grade": "within", "source": "EPA",
+                    "automatic": True, "bound": "two-sided", "note": "a note"}],
+}
+
+
+def _leaves(x, path=()):
+    if isinstance(x, dict):
+        for k, v in x.items():
+            yield from _leaves(v, path + (k,))
+    elif isinstance(x, list):
+        for k, v in enumerate(x):
+            yield from _leaves(v, path + (k,))
+    else:
+        yield path, x
+
+
+def test_a_change_in_any_field_is_a_difference():
+    import copy
+
+    from app.schemas import SimResult
+    SimResult.model_validate(FULL)
+    leaves = list(_leaves(FULL))
+    assert all(v is not None for _, v in leaves)
+    assert diff.compare("x", FULL, FULL, FULL) == []
+    for path, value in leaves:
+        if path[0] == "channels" and 0 in path[2:] and "t" not in path:
+            continue  # a channel's first point is not compared (DESIGN.md 12.3)
+        new = copy.deepcopy(FULL)
+        at = new
+        for k in path[:-1]:
+            at = at[k]
+        at[path[-1]] = (not value if isinstance(value, bool) else value * 3 + 7
+                        if isinstance(value, (int, float)) else value + "x")
+        assert diff.compare("x", FULL, FULL, new), path
+
+
+def _write(out, spec, **rec):
+    p = runs.job_path(out, spec)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"spec": spec, "wall_s": 1.0, **rec}), encoding="utf-8")
+
+
+def test_an_item_without_its_reference_runs_is_not_judged(tmp_path, monkeypatch):
+    item = {"id": "fs-electric/case-accel-75m", "expect": "run"}
+    monkeypatch.setattr(runs, "items", lambda: [item])
+    res = {"result": _result(caseId="case-accel-75m")}
+    for fine in ({"crashed": "timeout"}, None):  # run_all's record of a timeout; a job not run yet
+        out = tmp_path / str(bool(fine))
+        for setting, rec in (("today-normal", res), ("today-fine", fine), ("new", res)):
+            if rec is not None:
+                _write(out, {"kind": "item", "id": item["id"], "setting": setting}, **rec)
+        b = report.b2b(out)
+        assert b["state"] == "fail" and b["missing_reference_run"] == [item["id"]]
+        assert b["items"][0]["reference"] is False
+
+
+def test_all_runs_every_part_the_baseline_ran():
+    from benchmarks.back_to_back.__main__ import parser
+    parts = parser().parse_args(["all", "OUT"]).parts
+    assert len(runs.specs(set(parts.split(",")))) == 631  # the baseline's jobs, the sine probe's two among them
+
+
+def test_a_record_another_code_made_is_run_again(tmp_path):
+    now = {"commit": "b", "dirty": None}
+    jobs = [{"kind": "item", "id": f"x/{k}", "setting": "new"} for k in range(3)]
+    _write(tmp_path, jobs[1], stamp={"commit": "a", "dirty": None})
+    _write(tmp_path, jobs[2], stamp=now)
+    assert runs.todo(tmp_path, jobs, now) == jobs[:2]
+    assert runs.stamp()["sha256"]["backend/app/solver/verdict.py"] is not None
+
+
+def test_the_mutmut_copy_is_made_afresh_for_other_code(tmp_path):
+    from benchmarks.back_to_back import mutation
+    old = tmp_path / "mutation" / "backend" / "app" / "solver" / "verdict.py"
+    old.parent.mkdir(parents=True)
+    old.write_text("# the verdict.py of an earlier commit\n")
+    work = mutation.prepare(tmp_path)
+    assert old.read_bytes() == (runs.BACKEND / "app" / "solver" / "verdict.py").read_bytes()
+    (work / "progress").write_text("mutmut's")  # kept while the code is the same: it resumes
+    mutation.prepare(tmp_path)
+    assert (work / "progress").exists()
+
+
+def test_the_report_lists_the_code_that_made_what_it_reads(tmp_path):
+    s = {"commit": "abcdef0123456789", "dirty": None, "lightsim_engine": "0.1.0",
+         "lightsim_engine_sha256": "f" * 64}
+    _write(tmp_path, {"kind": "item", "id": "a/b", "setting": "new"}, stamp=s)
+    _write(tmp_path, {"kind": "item", "id": "a/c", "setting": "new"})
+    (tmp_path / "stop.json").write_text(json.dumps({"stamp": s}))
+    got = {json.dumps(m["stamp"]): m for m in report.stamps(tmp_path)}
+    assert got[json.dumps(s)]["records"] == 1 and got[json.dumps(s)]["probes"] == ["stop.json"]
+    assert got['"none"']["records"] == 1
+    assert "commit abcdef0123" in report._stamp_text(s)
+
+
+def test_s1_needs_every_point_with_every_channel(tmp_path):
+    from types import SimpleNamespace
+    ts = [{"t": float(k), "value": 2.0 * k} for k in range(10)]
+    result = SimpleNamespace(channels=[SimpleNamespace(elementId="el", portId="p", timeSeries=ts)])
+    full = [{"type": "step", "t": p["t"], "values": {"el:p": p["value"]}} for p in ts]
+    assert runs.streamed(full, result)["unequal"] == 0
+    empty = [{"type": "step", "t": p["t"], "values": {}} for p in ts]  # progress only
+    assert runs.streamed(empty, result)["unequal"] == 10
+    for points, state in ((1, "fail"), (600, "pass")):
+        for iid in ("bev-car/case-city-live", "hybrid-car/case-mixed-live"):
+            _write(tmp_path, {"kind": "item", "id": iid, "setting": "new"}, result=_result(),
+                   stream={"points": points, "recorded": 600, "unequal": 0})
+        assert report.stream(tmp_path)["S1"]["state"] == state
+
+
+def test_the_label_is_read_from_the_message_a_run_writes(monkeypatch):
+    import dataclasses
+
+    from app.solver import verdict
+    real = verdict.judge
+
+    def judge(*a, **k):
+        # "Cycle not followed": a comment that calls the rule LightSim's own changes no message
+        return real(*a, **k)
+    monkeypatch.setattr(verdict, "judge", judge)
+    got = traces.labelled()
+    assert got["found"] and not got["labelled"]
+
+    def labels(*a, **k):
+        v = real(*a, **k)
+        return dataclasses.replace(v, messages=tuple(
+            (lv, t + " The 1 %/2 s allowance is LightSim's own rule." if t.startswith("Cycle not") else t)
+            for lv, t in v.messages))
+    monkeypatch.setattr(verdict, "judge", labels)
+    assert traces.labelled()["labelled"]
+
+
+def test_scripts_reads_the_runner_each_run_names(tmp_path, monkeypatch):
+    monkeypatch.delenv("LSIM_SCRATCH", raising=False)
+    iid = "probe/hybrid-udds-single"
+    b = {"items": [{"id": iid, "got": "run"}]}
+    spec = {"kind": "item", "id": iid, "setting": "new"}
+    for scripts, a in (({"Energy manager": "python"}, True), ({"Energy manager": "native"}, False),
+                       (None, None)):
+        _write(tmp_path, spec, result=_result(), engine={} if scripts is None else {"scripts": scripts})
+        got = report.scripts(b, tmp_path)
+        assert got["a_worker_on_new_path"] is a
+        assert got["c_owner_page"] is None  # the owner's decisions out of reach: not measured
+
+
+def test_sources_and_their_fetch_check_the_pinned_copies(tmp_path, monkeypatch):
+    monkeypatch.delenv("LSIM_SCRATCH", raising=False)
+    monkeypatch.delenv("LSIM_JUDGE_CACHE", raising=False)
+    assert {v["state"] for v in report.sources().values()} == {"not measured"}
+    monkeypatch.setenv("LSIM_SCRATCH", str(tmp_path))
+    assert {v["state"] for v in report.sources().values()} == {"missing"}
+
+    class Answer:  # what a source's server sends: not the pinned copy
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return b"changed upstream"
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: Answer())
+    assert report.fetch(tmp_path / "judge-cache") == 1
+    assert {v["state"] for v in report.sources().values()} == {"missing"}  # kept aside, not used
+    src = next(iter(report.SOURCES.values()))
+    assert (tmp_path / "judge-cache" / (src["file"] + ".changed")).exists()
+
+
+# ---- the harness's own fixes (3e9e852) ------------------------------------------------------
+
+def test_a_study_point_stopped_before_it_ran_shows_nothing():
+    assert stream._shown({"status": "cancelled", "incomplete": "stopped at t = 0 s"}) == \
+        "cancelled before running"
+    assert stream._shown({"status": "cancelled", "incomplete": "stopped at t = 12.3 s"}) == \
+        "cancelled while running"
+    assert stream._shown({"status": "success"}) == "success"
+
+
+def test_meta_on_preparation_notes_alone_is_vacuous(tmp_path):
+    note = "v of 'Battery' and v of 'Load' carry different start guesses."
+    cases, fault_list = runs.meta_set()
+    for kind, ids in (("item", cases), ("fault", fault_list)):
+        for i in ids:
+            for setting in ("new", *runs.META):
+                _write(tmp_path, {"kind": kind, "id": i, "setting": setting},
+                       result=_result(status="warning", summary=[],
+                                      messages=[{"level": "warning", "text": note}]),
+                       engine={"build_warnings": [{"code": "START-ALIAS-CONFLICT", "message": note}]})
+    assert report.meta(tmp_path)["state"] == "vacuous"
+
+
+def test_status_counts_no_verdict_while_meta_is_vacuous():
+    b = {"items": [{"got": "run"}], "diffs": []}
+    lines = {"META": {"state": "vacuous"}, "FAULTS": {"violations": [], "hidden": []},
+             "STREAM": {"S1": {"state": "fail"}, "S2": {"state": "fail"}},
+             "FMU": {"state": "fail"}, "TEXT": {"state": "not available"}, "QUICK": {"state": "not available"}}
+    assert report.status(b, lines)["each"]["the verdict"] is False
+    lines["META"]["state"] = "pass"
+    assert report.status(b, lines)["each"]["the verdict"] is True
+
+
+def test_the_fmu_probe_builds_into_an_empty_folder(tmp_path, monkeypatch):
+    import sys
+    import zipfile
+    sys.path.insert(0, str(runs.BACKEND / "tests"))
+    from fmu import build as fmu_build
+
+    def build(target_dir):  # writes into its folder as the real one does (it needs a C compiler)
+        path = target_dir / "LightSimTest.fmu"
+        with zipfile.ZipFile(path, "w") as zf:
+            zf.writestr("modelDescription.xml", "<fmiModelDescription/>")
+        return path
+    monkeypatch.setattr(fmu_build, "build", build)
+    monkeypatch.setenv("LIGHTSIM_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path / "data" / "projects"))
+    item = next(i for i in runs.items() if i["id"] == "probe/bev-fmu")
+    project, _, _ = runs.item_project(item, tmp_path / "empty")
+    assert any(e["componentDefId"] == "signal.fmu" for e in project["systems"][0]["elements"])
+
+
 def test_mutation_testing_takes_its_tests_and_a_memory_cap():
     from benchmarks.back_to_back import mutation
     assert "source_paths = app/solver/verdict.py" in mutation.CONFIG
@@ -202,6 +500,8 @@ def test_both_engines_run_the_acceleration_test_and_the_diff_classes_it(tmp_path
     runs.run_all(tmp_path, jobs, 3)
     rec = [runs.load(tmp_path, j) for j in jobs]
     assert all("result" in r for r in rec), [r.get("crashed") for r in rec]
+    assert all(r["stamp"] == runs.stamp() for r in rec)  # each record says which code made it
+    assert runs.todo(tmp_path, jobs, runs.stamp()) == []
     new = rec[2]["result"]
     assert report.refusal(new) is None, new["messages"][0]
     assert new["messages"][0]["text"].startswith("Run on the new engine")

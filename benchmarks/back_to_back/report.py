@@ -23,7 +23,37 @@ from . import diff, runs, traces
 
 CODE = re.compile(r"\[(NEW-[A-Z-]+)\]")
 NOTE_CODES = ("START-NOT-SOLVED", "INIT-UNDECIDED", "INIT-START-IGNORED")
-CFR = Path("/home/eyada/scratch/judge-cache/cfr")  # judge.py fetch's cache (engine/judge)
+SOURCES = runs.ACCEPTANCE["source"]  # the sources' copies, pinned by SHA-256
+
+
+def fetch(cache: Path) -> int:
+    """Each source's copy into ``cache`` (at its `file`), fetched where it is
+    missing or not the pinned one; a fetched copy that is not the pinned one
+    is kept beside it (.changed) and not used. 0 when every copy is the
+    pinned one."""
+    import urllib.request
+    bad = 0
+    for src in SOURCES.values():
+        path = cache / src["file"]
+        if _sha(path) == src["sha256"]:
+            continue
+        path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with urllib.request.urlopen(src["url"], timeout=120) as r:
+                data = r.read()
+        except OSError as e:
+            print(f"fetch: {src['url']}: {e}", flush=True)
+            bad += 1
+            continue
+        if hashlib.sha256(data).hexdigest() != src["sha256"]:
+            path.with_name(path.name + ".changed").write_bytes(data)
+            print(f"fetch: {src['url']} is not the pinned copy (SHA-256 {hashlib.sha256(data).hexdigest()})",
+                  flush=True)
+            bad += 1
+            continue
+        path.write_bytes(data)
+        print(f"fetch: {src['file']}", flush=True)
+    return 1 if bad else 0
 
 
 def refusal(result: dict | None) -> str | None:
@@ -57,8 +87,10 @@ def b2b(out: Path) -> dict:
                else got == "run",
                "today": {s: (rec[s]["result"]["status"] if _ok(rec[s]) else rec[s] and rec[s].get("crashed"))
                          for s in ("today-normal", "today-fine")},
-               "new_status": new and new["status"], "classes": {}}
-        if got == "run" and _ok(rec["today-normal"]) and _ok(rec["today-fine"]):
+               "new_status": new and new["status"], "classes": {},
+               # today's two runs are the reference: an item without either is not judged
+               "reference": _ok(rec["today-normal"]) and _ok(rec["today-fine"])}
+        if got == "run" and row["reference"]:
             n, f = rec["today-normal"]["result"], rec["today-fine"]["result"]
             ds = diff.compare(item["id"], n, f, new)
             ctx = {"notes": {diff.masked(d["message"]) for d in (rec["new"].get("engine") or {})
@@ -83,8 +115,11 @@ def b2b(out: Path) -> dict:
     by_rule = Counter((d["cls"], d["rule"]) for d in all_diffs)
     unclassified = [d for d in all_diffs if d["cls"] == "unclassified"]
     expected = sum(r["as_expected"] for r in rows)
-    state = "pass" if expected == len(rows) and not unclassified and not by_class.get("a") else "fail"
+    unjudged = [r["id"] for r in rows if not r["reference"]]  # a reference run missing or crashed
+    state = ("pass" if expected == len(rows) and not unjudged and not unclassified and not by_class.get("a")
+             else "fail")
     return {"state": state, "items": rows, "as_expected": expected, "of": len(rows),
+            "missing_reference_run": unjudged,
             "differences": len(all_diffs), "by_class": dict(by_class),
             "by_rule": {f"{c} {r}": k for (c, r), k in sorted(by_rule.items(), key=str)},
             "unclassified_by_field": dict(Counter(f"{d['item']} | {d['field']} | {d['what']}"
@@ -248,15 +283,26 @@ def _sha(path: Path) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.exists() else None
 
 
+def sources() -> dict:
+    """Each source's copy in the judges' cache against its pinned SHA-256:
+    "same", "not the pinned copy", "missing", or "not measured" where there
+    is no cache."""
+    cache = runs.cache()
+    out = {}
+    for src in SOURCES.values():
+        got = _sha(cache / src["file"]) if cache else None
+        out[src["name"]] = {"file": src["file"], "sha256": src["sha256"], "url": src["url"],
+                            "state": "not measured" if cache is None else "missing" if got is None
+                            else "same" if got == src["sha256"] else "not the pinned copy"}
+    return out
+
+
 def analytic(out: Path) -> dict:
     rows = traces.measure()
     label = traces.labelled()
     worst = max(r["error_s"] for r in rows)
-    wltp = Path("/home/eyada/scratch/judge-cache/step2/wltp/sub6.html")
     return {"state": "pass" if worst <= 1e-6 and label["labelled"] else "fail", "worst_error_s": worst,
-            "mark_s": 1e-6, "rows": rows, "label": label,
-            "sources": {"40 CFR 1066.425 (2024-07-01)": _sha(CFR / "CFR-2024-title40-vol37-sec1066-425.xml"),
-                        "EU 2017/1151 Annex XXI Sub-Annex 6 (legislation.gov.uk)": _sha(wltp)}}
+            "mark_s": 1e-6, "rows": rows, "label": label, "sources": sources()}
 
 
 # ---- ENERGY, STREAM, FMU, TEXT, QUICK, SCRIPTS, NOSKIP, STATUS ---------------------
@@ -312,7 +358,9 @@ def stream(out: Path) -> dict:
             if _ok(rec):
                 s1[f"{iid} {setting}"] = {"refused": refusal(rec["result"]), "stream": rec.get("stream")}
     s1_new = [v for k, v in s1.items() if k.endswith(" new")]
+    # a message for every recorded point, each with every channel the result has there, all equal
     s1_state = ("pass" if s1_new and all(not v["refused"] and v["stream"] and v["stream"]["points"]
+                                         and v["stream"]["points"] == v["stream"]["recorded"]
                                          and not v["stream"]["unequal"] for v in s1_new) else "fail")
     stop = json.loads((out / "stop.json").read_text(encoding="utf-8")) if (out / "stop.json").exists() else None
     replay = json.loads((out / "replay.json").read_text(encoding="utf-8")) if (out / "replay.json").exists() else None
@@ -353,16 +401,27 @@ def quick() -> dict:
                    "the full dynamic engine only" if not has else "to measure"}
 
 
-def scripts(b: dict) -> dict:
-    src = (runs.BACKEND / "app" / "solver" / "new_engine.py").read_text(encoding="utf-8")
-    hybrid = [r for r in b["items"] if r["id"].startswith("probe/hybrid-")]
-    a = "native_scripts=False" in src and all(r["got"] == "run" for r in hybrid)
+def scripts(b: dict, out: Path) -> dict:
+    """a: every Script part of the hybrid's single runs on the new path ran
+    on today's worker (the runner lightsim_engine's run.report["scripts"]
+    names, "python": the path's function into the worker), None where the
+    records do not say; b: the decision record; c: the owner's page, None
+    where the owner's decisions are not reachable ($LSIM_SCRATCH)."""
+    runners = {}
+    for r in b["items"]:
+        if r["id"].startswith("probe/hybrid-"):
+            rec = runs.load(out, {"kind": "item", "id": r["id"], "setting": "new"}) or {}
+            runners[r["id"]] = (rec.get("engine") or {}).get("scripts") if r["got"] == "run" else {}
+    a = (None if any(v is None for v in runners.values()) else
+         bool(runners) and all(v and set(v.values()) == {"python"} for v in runners.values()))
     records = [p for p in (runs.REPO / "docs").rglob("*.md") if "script" in p.name.lower() and "decision" in p.name.lower()]
-    page = Path("/home/eyada/scratch/decisions/script-runner-explained.md").exists()
-    got = {"a_worker_on_new_path": a, "b_decision_record": [str(p.relative_to(runs.REPO)) for p in records],
-           "c_owner_page": page}
-    n = sum([a, bool(records), page])
-    return {"state": "pass" if n == 3 else "fail", "of_three": n, **got}
+    decisions = runs.scratch() / "decisions" if runs.scratch() else None
+    page = (decisions / "script-runner-explained.md").exists() if decisions and decisions.is_dir() else None
+    got = {"a_worker_on_new_path": a, "a_runners": runners,
+           "b_decision_record": [str(p.relative_to(runs.REPO)) for p in records], "c_owner_page": page}
+    each = [a, bool(records), page]
+    state = "fail" if False in each else "not measured" if None in each else "pass"
+    return {"state": state, "of_three": sum(x is True for x in each), **got}
 
 
 WINDOWS_ONLY = "judged on Windows only"
@@ -452,6 +511,31 @@ def status(b: dict, lines: dict) -> dict:
 
 # ---- the report ----------------------------------------------------------------------
 
+def stamps(out: Path) -> list[dict]:
+    """The code that made what the report reads: each stamp (runs.stamp)
+    with the files it made (raw records, the probes' results, mutmut's),
+    "none" for those made before records were stamped."""
+    files = [p for _, p in sorted((str(p), p) for p in (out / "raw").glob("*/*.json"))]
+    files += [out / n for n in ("stop.json", "replay.json", "mutation.json") if (out / n).exists()]
+    seen: dict = {}
+    for p in files:
+        s = json.loads(p.read_text(encoding="utf-8")).get("stamp")
+        key = json.dumps(s, sort_keys=True)
+        row = seen.setdefault(key, {"stamp": s or "none", "records": 0, "probes": []})
+        if p.parent.parent == out / "raw":
+            row["records"] += 1
+        else:
+            row["probes"].append(p.name)
+    return sorted(seen.values(), key=lambda r: -r["records"])
+
+
+def _stamp_text(s) -> str:
+    if s == "none":
+        return "no stamp (made before records were stamped)"
+    return (f"commit {s['commit'][:10]}{' with changes ' + s['dirty'][:10] if s['dirty'] else ''}, "
+            f"lightsim_engine {s['lightsim_engine']} ({(s['lightsim_engine_sha256'] or '')[:10]})")
+
+
 def fingerprint() -> dict:
     def run(*cmd):
         try:
@@ -477,12 +561,13 @@ def write(out: Path) -> dict:
     b = b2b(out)
     lines = {"B2B": b, "STRICT": strict(out, b), "SCHEMA": schema(out), "FAULTS": faults(out),
              "META": meta(out), "ANALYTIC": analytic(out), "ENERGY": energy(out, b), "STREAM": stream(out),
-             "FMU": fmu(b), "TEXT": text_line(), "QUICK": quick(), "SCRIPTS": scripts(b), "NOSKIP": noskip(out)}
+             "FMU": fmu(b), "TEXT": text_line(), "QUICK": quick(), "SCRIPTS": scripts(b, out),
+             "NOSKIP": noskip(out)}
     lines["STATUS"] = status(b, lines)
     sums = [f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(out)}"
             for p in sorted(out.rglob("*.json")) if p.name != "report.json" and "mutation/backend" not in str(p)]
     (out / "SHA256SUMS").write_text("\n".join(sums) + "\n", encoding="utf-8")
-    report = {"fingerprint": fingerprint(), "lines": lines}
+    report = {"fingerprint": fingerprint(), "made_by": stamps(out), "lines": lines}
     (out / "report.json").write_text(json.dumps(report, indent=1, default=str), encoding="utf-8")
     (out / "report.md").write_text(markdown(report), encoding="utf-8")
     print("\n".join(f"{k:9} {v['state']}" for k, v in lines.items()), flush=True)
@@ -493,9 +578,13 @@ def markdown(report: dict) -> str:
     L = report["lines"]
     b, f = L["B2B"], L["FAULTS"]
     out = ["# Step 2's acceptance lines, measured", "",
-           f"Commit {report['fingerprint']['commit'][:10]}{' (with changes)' if report['fingerprint']['dirty'] else ''}, "
+           f"Report made at commit {report['fingerprint']['commit'][:10]}"
+           f"{' (with changes)' if report['fingerprint']['dirty'] else ''}, "
            f"Python {report['fingerprint']['python']}, lightsim_engine {report['fingerprint']['lightsim_engine']}, "
-           f"{report['fingerprint']['cpu']}.", "", "| line | state |", "|---|---|"]
+           f"{report['fingerprint']['cpu']}. What it reads was made by:", ""]
+    out += [f"- {_stamp_text(m['stamp'])}: {m['records']} raw records"
+            + (f"; {', '.join(m['probes'])}" if m["probes"] else "") for m in report["made_by"]]
+    out += ["", "| line | state |", "|---|---|"]
     out += [f"| {k} | {v['state']} |" for k, v in L.items()]
     out += ["", "## B2B", "", f"{b['as_expected']} of {b['of']} items as expected; {b['differences']} differences: "
             + ", ".join(f"{k} {v}" for k, v in sorted(b["by_class"].items())) + ".", "",
@@ -505,6 +594,8 @@ def markdown(report: dict) -> str:
         out.append(f"| {r['id']} | {r['expect']} | {r['got']}{'' if r['as_expected'] else ' ✗'} | "
                    f"{r['today']['today-normal']} / {r['today']['today-fine']} | {r['new_status']} | "
                    f"{c.get('a', '')} | {c.get('b', '')} | {c.get('c', '')} | {c.get('unclassified', '')} |")
+    out += ["", "Items without today's two reference runs (not judged): "
+            + (", ".join(b["missing_reference_run"]) or "none") + "."]
     out += ["", "By rule: " + "; ".join(f"{k}: {v}" for k, v in b["by_rule"].items()), "",
             "Unclassified, by item and field:", ""]
     out += [f"- {k}: {v}" for k, v in list(b["unclassified_by_field"].items())[:60]]
@@ -534,7 +625,9 @@ def markdown(report: dict) -> str:
     out += ["", "## ANALYTIC", "", "| trace | band | exact, s | verdict, s | error, s |", "|---|---|--:|--:|--:|"]
     out += [f"| {r['trace']} | {r['band']} | {r['exact_s']:.9g} | {r['verdict_s']:.9g} | {r['error_s']:.3g} |" for r in a["rows"]]
     out += ["", f"Worst error {a['worst_error_s']:.3g} s against {a['mark_s']:g} s; the 1 %/2 s rule labelled as "
-            f"LightSim's own: {a['label']['labelled']}. Sources (SHA-256): {a['sources']}."]
+            f"LightSim's own: {a['label']['labelled']}. Sources: "
+            + "; ".join(f"{k} ({v['file']}, SHA-256 {v['sha256'][:12]}): {v['state']}" for k, v in a["sources"].items())
+            + "."]
     e = L["ENERGY"]
     out += ["", "## ENERGY", "", f"E1: {Counter(x['state'] for x in e['E1'])}. E2: {e['E2']}. E3: {e['E3']}."]
     st = L["STREAM"]

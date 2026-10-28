@@ -165,12 +165,18 @@ def _shown(msg: dict) -> str:
     return str(status)
 
 
+def _done_before(path: Path, now: dict) -> bool:
+    """Whether ``path`` holds a probe's result made by this same code."""
+    return path.exists() and json.loads(path.read_text(encoding="utf-8")).get("stamp") == now
+
+
 def stop_probe(out: Path, stops: int) -> None:
-    path = out / "stop.json"
-    if path.exists():
-        print("stop probe: done before")
+    path, now = out / "stop.json", runs.stamp()
+    if _done_before(path, now):
+        print("stop probe: done before, at this code")
         return
-    res = {"machine": "shared (the step 1 lane may be running): an indication, not the judged number"}
+    res = {"stamp": now,
+           "machine": "shared (the step 1 lane may be running): an indication, not the judged number"}
     for engine in ENGINES:
         res[engine] = {"live": live_stops(engine, stops), "study": study_stops(engine, stops)}
         print(f"stop probe {engine}: live {res[engine]['live']['state']}, "
@@ -191,12 +197,12 @@ def replay_probe(out: Path) -> None:
     from app.schemas import Project, RunSnapshot
     from app.solver import simulate
     from app.version import VERSION
-    path = out / "replay.json"
-    if path.exists():
-        print("replay probe: done before")
+    path, now = out / "replay.json", runs.stamp()
+    if _done_before(path, now):
+        print("replay probe: done before, at this code")
         return
     fields = set(RunSnapshot.model_fields)
-    res = {"snapshot_fields": sorted(fields),
+    res = {"stamp": now, "snapshot_fields": sorted(fields),
            "records_engine": bool(fields & {"engine", "engineName"}),
            "records_engine_version": bool(fields & {"engineVersion"}),
            "records_solver_options": bool(fields & {"solverOptions", "solver"}),

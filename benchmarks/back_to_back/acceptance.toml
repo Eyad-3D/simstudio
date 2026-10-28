@@ -359,3 +359,28 @@ status without them is not success, or it has a notValid or passed=false row."""
 reason = """The first report showed every run of the set at "warning", each from the start-guess note \
 (START-ALIAS-CONFLICT) and none from the verdict: by the registered words the line would pass on notes \
 that are not about the run at all, which is the vacuous case the line exists to catch (review finding 36)."""
+
+[[changes]]
+date = "2026-10-28"
+line = "ANALYTIC"
+change = """The two copies of the regulations' text the line reads are pinned below ([source]: where each \
+is fetched from and its SHA-256), as the copies read for the baseline were; `python -m \
+benchmarks.back_to_back fetch` puts them in the judges' cache and checks them."""
+reason = """The report took them from one machine's folders by a fixed path, with nothing to fetch them \
+elsewhere or to say they are the copies read (the judge's checker, 28 October). The words of the rules \
+are unchanged."""
+
+# The sources a line reads, each with where it comes from and its SHA-256:
+# kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
+# at `file`.
+[source.cfr-1066-425]
+name = "40 CFR 1066.425 (annual edition of 1 July 2024)"
+url = "https://www.govinfo.gov/content/pkg/CFR-2024-title40-vol37/xml/CFR-2024-title40-vol37-sec1066-425.xml"
+file = "cfr/CFR-2024-title40-vol37-sec1066-425.xml"
+sha256 = "90187363ce0f181d03a23ab79ad566d5d66781bcfe5675549986e2d23473de5a"
+
+[source.wltp-sub-annex-6]
+name = "Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 6 (legislation.gov.uk's copy)"
+url = "https://www.legislation.gov.uk/eur/2017/1151/annex/Sub/6"
+file = "wltp/eur-2017-1151-annex-Sub-6.html"
+sha256 = "1c465cf11633de49b8547dee633ac8dba846a4f8ef2cdd268104d2275e02d032"

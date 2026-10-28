@@ -233,10 +233,19 @@ run: [`back_to_back/acceptance.toml`](back_to_back/acceptance.toml) lists
 the lines, cases, measures, pass marks, judges and expected refusals.
 
 ```sh
-python -m benchmarks.back_to_back all OUT        # every line; resumes where it stopped
+LSIM_SCRATCH=... python -m benchmarks.back_to_back all OUT   # every line; resumes where it stopped
 python -m benchmarks.back_to_back report OUT     # the tables again from OUT's raw results
+python -m benchmarks.back_to_back fetch CACHE    # the regulations' copies, checked by SHA-256
 python -m pytest benchmarks/back_to_back/tests -q
 ```
+
+Every raw result records the code that made it (the commit, any change
+not committed, the module's version and the SHA-256 of its compiled file);
+a rerun runs again what other code made, and the report lists the code of
+everything it read. The owner's decisions are read from
+`$LSIM_SCRATCH/decisions`, the copies of the regulations' text from
+`$LSIM_JUDGE_CACHE` (else `$LSIM_SCRATCH/judge-cache`); without them,
+what needs them is reported as not measured.
 
 It runs every example case (and a few probes) through the app's own
 `simulate` on today's engine at its 10 ms and 1 ms steps and on the new

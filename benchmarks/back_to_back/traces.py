@@ -157,17 +157,40 @@ def measure() -> list[dict]:
     return rows
 
 
+class _Trace:
+    """A made-up run's speed trace, as verdict.judge reads a CycleTrace:
+    sampled every STEP, judged against time, no distance to end at."""
+
+    by_distance = False
+
+    def __init__(self, target, speed):
+        from types import SimpleNamespace
+        n = int((target[-1][0] - target[0][0]) / STEP)
+        ts = [target[0][0] + k * STEP for k in range(n + 1)]
+        self.times = [float(t) for t in ts]
+        self.target = [float(at(target, t)) for t in ts]
+        self.speed = [float(at(speed, t)) for t in ts]
+        self.ctx = SimpleNamespace(end_distance=None, full_throttle=False, model=None)
+
+    def metrics(self):
+        from app.solver import verdict
+        return verdict.trace_metrics(self.times, self.target, self.speed)
+
+
 def labelled() -> dict:
     """Whether a run's "cycle not followed" message says its 1 %/2 s
-    allowance is LightSim's own rule: the message of a run that leaves the
-    band, as the verdict writes it."""
+    allowance is LightSim's own rule: the message verdict.judge writes for
+    a run that leaves the band (the plateau excursion, 12 s outside of 60 s,
+    the distance its target asks for driven)."""
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "backend"))
-    import inspect
-
     from app.solver import verdict
-    text = inspect.getsource(verdict.judge)
-    start = text.find("Cycle not followed")
-    words = text[start:start + 900] if start >= 0 else ""
-    return {"found": start >= 0, "labelled": "LightSim's own" in words or "LightSim's rule" in words}
+
+    _, target, speed = TRACES[0]
+    trace = _Trace(target, speed)
+    km = trace.metrics().cycle_km
+    got = verdict.judge(trace, km * 1000.0, {}, duration_s=float(target[-1][0]))
+    text = next((t for _, t in got.messages if t.startswith("Cycle not followed")), None)
+    return {"found": text is not None, "message": text,
+            "labelled": text is not None and ("LightSim's own" in text or "LightSim's rule" in text)}
