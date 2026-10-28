@@ -2,28 +2,52 @@
 
 Measured on 28 October 2026 by one command, `python -m benchmarks.back_to_back
 all OUT` (with `LSIM_SCRATCH` and `LSIM_JUDGE_CACHE` set), every run, probe
-and report at commit `8887593` with a clean tree: the judge with its
-checker's ten defects fixed, the app's code unchanged since `2b94af6`. Every
-raw record and probe result carries that stamp (commit, the module's
-version and the SHA-256 of its compiled file, the files' SHA-256), and
-[`report.md`](report.md), the harness's own report of this run, lists it.
-The lines, cases, measures and pass marks are those of
-[`../acceptance.toml`](../acceptance.toml), registered in `5c82fb0` before
-the first measured run (four dated changes since, at its end). It records
-where the new engine's path into the app (`LIGHTSIM_ENGINE=new`) stands on
-every line before step 2's next parts change it. The raw results (631 runs,
-about 4 GB) are outside the repository, in the lane's cache
-(`judge-cache/step2/baseline-2`), each with its SHA-256 in `SHA256SUMS`.
+and report at commit `f735ea0` with a clean tree: the judge with its
+checker's ten defects and its re-check's eight fixed, the app's code
+unchanged since `2b94af6`. Every raw record and probe result (`noskip.json`
+too) carries that stamp (commit, the module's version and the SHA-256 of
+its compiled file, the files' SHA-256), and [`report.md`](report.md), the
+harness's own report of this run, lists it. The lines, cases, measures and
+pass marks are those of [`../acceptance.toml`](../acceptance.toml),
+registered in `5c82fb0` before the first measured run (five dated changes
+since, at its end). It records where the new engine's path into the app
+(`LIGHTSIM_ENGINE=new`) stands on every line before step 2's next parts
+change it. The raw results (631 runs, about 4 GB) are outside the
+repository, in the lane's cache (`judge-cache/step2/baseline-3`), each with
+its SHA-256 in `SHA256SUMS`.
 
-The first measurement (runs at `2b94af6`, report at `ef13ba0`; raw results
-in `judge-cache/step2/baseline`, made before records were stamped) gave the
-same result on every line, to the count: the fixed diff, which now compares
-every field and counts a new run's missing points, finds no point the new
-path leaves out and nothing more in the reports, since the new path has
-none of them (each is one difference, "missing", class a). Only these
-moved: the stop latencies (a shared machine), NOSKIP's count of tests (the
-harness has 16 more) and what SCRIPTS and ANALYTIC now read (the runs' own
-Script runners, the message a run writes, the sources' pinned copies).
+Two measurements came before. The first (runs at `2b94af6`, report at
+`ef13ba0`; `judge-cache/step2/baseline`, records not stamped) and the second
+(`8887593`, after the checker's ten defects; `judge-cache/step2/baseline-2`)
+agree on every line to the count, the second reading more (every field,
+the runs' own Script runners, the message a run writes, the sources'
+pinned copies). Against the second, line by line, this third one moved
+only here:
+
+* **B2B**: 1 019 differences became 941, class a 419 became 341. A duty
+  part the new path leaves out is now one difference, as a part energy or a
+  channel is, not one for each of its rows: 105 rows of 27 parts (the
+  matcher of duty parts now takes the parts of both runs, so a part with no
+  rows is compared). Eight messages keep their counts and classes under new
+  keys: a quoted name now keeps its numbers (five of today's "Case 'WLTC
+  Class 3b' solved" lines, class c; the hybrid's three start-guess notes
+  naming '12 V Loads', class a). b 97, c 250 and the 253 unclassified are
+  the same, difference for difference. The new checks find nothing more:
+  no point the new path leaves out (the first point included), no row
+  repeated, and no number of a message to compare, since the new path
+  writes none of today's messages.
+* **SCRIPTS** a is the same, now shown by counts: today's worker served
+  every step the engine asked of the Hybrid Control Unit (136 901 on the
+  UDDS, 76 501 on the HWFET, 60 001 on the Mixed Cycle), in a process other
+  than the run's. b reads what a record holds now; there is none.
+* **NOSKIP**: 84 tests (the harness has 35 more); with the module hidden 6
+  fail (the new Script-runner test needs it), none skips.
+* **STREAM** S2 (a shared machine): today's p95 0.09 s live and 0.26 s for
+  the study, against 0.08 s and 0.44 s.
+
+STRICT, SCHEMA, FAULTS (every fault's row, and mutmut's 935 mutants, 608
+killed, 2 timed out, 325 surviving), META, ANALYTIC, ENERGY, S1, S3, FMU,
+TEXT, QUICK and STATUS are as before, to the count.
 
 The machine: the owner's PC, WSL 2 (Ubuntu 24.04) on an AMD Ryzen 9 7900X,
 Python 3.11.17, `lightsim_engine` 0.1.0 built from this tree (release),
@@ -35,7 +59,7 @@ Windows CI, `backend/tests/test_stop_latency.py`).
 
 | line | state | what was measured |
 |---|---|---|
-| B2B | fails | 20 of 24 items as expected: the two live cases (NEW-LIVE), the performance probe (NEW-CASE-KIND) and the FMU probe (NEW-FMU) are refused where they should run. Of 1 019 differences on the 12 items both engines ran: 419 class a, 97 b, 250 c, 253 unclassified. |
+| B2B | fails | 20 of 24 items as expected: the two live cases (NEW-LIVE), the performance probe (NEW-CASE-KIND) and the FMU probe (NEW-FMU) are refused where they should run. Of 941 differences on the 12 items both engines ran: 341 class a, 97 b, 250 c, 253 unclassified. |
 | STRICT | fails | only for the four items above. 74 refusals, every one with a listed code: NEW-FAILED 46, NEW-BUILD 16, NEW-BALANCE 3, NEW-LAP 2, NEW-LIVE 2, NEW-CASE-KIND, NEW-CELLS, NEW-FMU, NEW-FS-EVENT and NEW-MISSING one each; no NEW-ERROR, no process that died, every pre-run fall-back message with its code. |
 | SCHEMA | passes | 0 errors in 631 results (every run of the harness that gave a result). |
 | FAULTS | fails | Of the 268 planted faults today's engine fails or warns on 129; 74 of those would come out "success" on the new path: 1 says so outright (fs-electric's E-Motor deleted), 73 say "warning" only because of the engine's preparation notes (finding 36). mutmut: 935 mutants of verdict.py, 325 survive, none with a written reason yet. |
@@ -46,8 +70,8 @@ Windows CI, `backend/tests/test_stop_latency.py`).
 | FMU | fails | refused (NEW-FMU): nothing to compare with fmusim or FMPy. |
 | TEXT | not available | the app reads no text components. |
 | QUICK | not available | a case has no quick-mode option. |
-| SCRIPTS | fails | one of three: on the new path the hybrid's Script part (the Hybrid Control Unit) runs in today's worker in all three single runs (the runner the module names, "python"); no decision record, no page for the owner. |
-| NOSKIP | passes here | with the module: 49 tests, none skipped but the two Windows-only stop-latency tests; with it hidden: 5 fail, none skips (before `edf809e` the tests of the time skipped 3 and passed the rest); CI's Windows engine job builds the module and runs them with LIGHTSIM_REQUIRE_NEW_ENGINE=1 (to be confirmed on Windows CI after the merge). |
+| SCRIPTS | fails | one of three: on the new path today's worker serves every step of the hybrid's Script part (the Hybrid Control Unit) in all three single runs, in a process of its own; no decision record, no page for the owner. |
+| NOSKIP | passes here | with the module: 84 tests, none skipped but the two Windows-only stop-latency tests; with it hidden: 6 fail, none skips (before `edf809e` the tests of the time skipped 3 and passed the rest); CI's Windows engine job builds the module and runs them with LIGHTSIM_REQUIRE_NEW_ENGINE=1 (to be confirmed on Windows CI after the merge). |
 | STATUS | fails | 0 of 11 of the things step 2's goal names are on the new path. |
 
 ## B2B, in detail
@@ -59,7 +83,7 @@ check):
 
 | class | rule | differences |
 |---|---|--:|
-| a | new-path-lacks-reports: no part energies, energy report, duty, limits or references | 384 |
+| a | new-path-lacks-reports: no part energies, energy report, duty, limits or references (a duty part counted once) | 306 |
 | a | preparation-note-as-warning, preparation-note-status: a start-guess note shown as the run's warning, and the status it makes | 24 |
 | a | new-path-lacks-verdict: a check row's limit and passed flag | 7 |
 | a | new-path-lacks-messages: today's run notes not written (an acceleration test's "estimates" note and its power-limit note, a typed profile's note) | 4 |
@@ -135,7 +159,7 @@ left only its last report (`integ/recovered-judge-report.txt`). Line by line:
 
 | line | then | now | why they differ |
 |---|---|---|---|
-| B2B | 22 of 25 items as expected; 1 167 differences: 462 a, 253 b, 277 c, 175 unclassified | 20 of 24; 1 019: 419 a, 97 b, 250 c, 253 unclassified | Its 25 items are not on record; this run has 24, one of them an FMU probe that step 2's goal says should run, so one more is refused wrongly (NEW-FMU). Fewer b: its rules are lost, and this run classes a statistic of a gear's power only where today's rule can be rebuilt on it, so 68 such stay unclassified on the BEVs. The hybrid's unclassified (185 against its 153) sit as its did, on a few points at the shifts, with the same likely cause. The two b figures it found are found again to the digit: 75.306 m against 75.3000007 m, and 1.0039 × band. |
+| B2B | 22 of 25 items as expected; 1 167 differences: 462 a, 253 b, 277 c, 175 unclassified | 20 of 24; 941: 341 a, 97 b, 250 c, 253 unclassified | Its 25 items are not on record, nor how it counted a missing report's rows (this run counts a duty part the new path leaves out once: one per row, it had 1 019 and 419 a); this run has 24, one of them an FMU probe that step 2's goal says should run, so one more is refused wrongly (NEW-FMU). Fewer b: its rules are lost, and this run classes a statistic of a gear's power only where today's rule can be rebuilt on it, so 68 such stay unclassified on the BEVs. The hybrid's unclassified (185 against its 153) sit as its did, on a few points at the shifts, with the same likely cause. The two b figures it found are found again to the digit: 75.306 m against 75.3000007 m, and 1.0039 × band. |
 | STRICT | fails only for the three items wrongly refused; 68 refusals, all with listed codes | fails only for the four wrongly refused; 74 refusals, all with listed codes | the FMU probe; a different parameter-fault set |
 | SCHEMA | 0 errors in 540 results | 0 errors in 631 | more runs (the META runs, the sine probe) |
 | FAULTS | 244 planted (160 deletions and 84 parameter faults, 21 parameters × 4); 68 flagged by today's engine and "success" on the new path: 1 shown, 67 hidden; mutmut 935 mutants, 325 survive, none with a reason | 268 planted (160 deletions and 108 parameter faults, 27 × 4); 129 flagged by today's engine, 74 of them "success" on the new path: 1 shown, 73 hidden; mutmut 935 mutants, 325 survive, none with a reason | Its 244 is most likely the planted faults: its words ("68 of the 244 planted faults that today's engine fails or warns on") read either way, but 160 + 21 × 4 = 244 has this run's shape (160 + 27 × 4 = 268), while 244 flagged faults would need about 340 parameter faults at this run's rates (76 of 160 deletions and 53 of 108 parameter faults flagged). Its 21 parameters and its flagged count are not on record; the planted counts differ by six parameters, and the shape is the same: one shows, the start-guess note hides the rest. 16 faults come from today's model builder (NEW-BUILD), as then. The same 935 mutants and the same 325 survivors' count, on tests chosen afresh (the first attempt's list is not on record). |
@@ -163,5 +187,6 @@ left only its last report (`integ/recovered-judge-report.txt`). Line by line:
   baseline (the backend's CI uses v0.0.39; the first attempt found the
   v0.0.41 asset answering 404).
 * **Stop latency on Windows** is for CI after the merge; the numbers here
-  (today's engine: p95 0.08 s live, 0.44 s for the study; 0.10 s and 0.36 s
-  at the first measurement) are from a shared Linux machine.
+  (today's engine: p95 0.09 s live, 0.26 s for the study; 0.08 s and 0.44 s
+  at the second measurement, 0.10 s and 0.36 s at the first) are from a
+  shared Linux machine.
