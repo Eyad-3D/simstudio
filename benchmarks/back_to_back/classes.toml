@@ -10,11 +10,13 @@
 # where it rests on the runs, the check they must pass.
 #
 # Matching: `field` (globs on the field), `what` ("missing", "extra",
-# "value", "text", "grid", "not finite", "duplicate"), `item` (globs), `key`
+# "value", "text", "grid", "not finite", "duplicate", "first point", "10 ms
+# only": what today's 10 ms run flags and neither its 1 ms run nor the new
+# run does), `item` (globs), `key`
 # (a regular expression on the channel, row or message), `max_x` (at most
 # this many bands), `check` (a test diff.py runs on the item's runs). A "not
-# finite" difference (a value the new run lacks) matches only a rule whose
-# `what` names it.
+# finite" difference (a value the new run lacks) and a "10 ms only" one match
+# only a rule whose `what` names them (no rule names "10 ms only").
 
 [[rule]]
 id = "new-path-lacks-reports"
@@ -52,7 +54,12 @@ date = "2026-10-28"
 field = ["channels"]
 what = ["extra"]
 reason = """The new engine records a few channels today's does not (the battery's current limits, among \
-others); the app shows any channel it is given (backend/tests/test_new_engine_flag.py)."""
+others); the app shows any channel it is given (backend/tests/test_new_engine_flag.py). Only a channel with \
+nothing to judge it by: one the project's data bus wires to a port today's 1 ms run records (a monitor's or a \
+driver's input, a brake's demand) is compared with that port's channel instead (diff._lend, since the judge's \
+fourth re-check, 28 October: such a channel ten times off was this rule's c and never compared), so on the \
+examples this rule is left with the battery's current limits (sig_i_ch_limit, sig_i_dis_limit) and the \
+track's signals, which no recorded port is wired to."""
 
 [[rule]]
 id = "engine-note"
@@ -183,4 +190,8 @@ at t = 3.9994 s). The case asks for the time at the line (SimCase.endDistance), 
 today's discretisation, checked: the new engine within 1 mm of the line, today's past it by more than ten \
 times that; and, since the judge's third re-check (28 October: the new run's every output time x 1.5, or \
 + 1 s, was still b), the grid itself: the same number of output times, every one but the last the same, and \
-the new run's last inside today's last output step, before today's last. Any other grid stays unclassified."""
+the new run's last inside today's last output step, before today's last. And, since the judge's fourth \
+re-check (28 October: one channel's own grid, ending 8 ms before the line while the run's other channels end \
+at it, was b from the distance channel's line), the grid's last times must be the distance channel's own, \
+today's and the new run's: a channel told on its own that ends elsewhere is not at the line. Any other grid \
+stays unclassified."""

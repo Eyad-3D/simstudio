@@ -3146,8 +3146,11 @@ against exact answers from `benchmarks/`.
   and 1 ms and on the new engine's path in strict mode (nothing falls back);
   every field of the two results is compared against the bands above (a
   channel over every point of today's 1 ms run, its first point a figure of
-  its own), over the union of what the three runs give, with a ledger per
-  case that fails it where anything is left out or taken twice, and
+  its own; one only the new engine records against the port the data bus
+  wires to it, where today records that port), over the union of what the
+  three runs give, with a ledger per case that fails it where anything is
+  left out or taken twice (what today's 10 ms run alone flags, a warning, a
+  run not valid or a check not passed, is a difference too), and
   each difference classed as above (`benchmarks/back_to_back/classes.toml`,
   each rule with its date, reason and check), beside the planted-fault
   verdict matrix, the result schema, speed traces with exact answers from

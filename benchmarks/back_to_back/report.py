@@ -75,6 +75,30 @@ def _ok(rec: dict | None) -> bool:
 
 # ---- B2B --------------------------------------------------------------------
 
+def wires(project: dict, case_id: str) -> dict[str, tuple[list[str], str | None]]:
+    """Each port the project's data bus wires to others: (those ports, the
+    label today's engine gives a channel of it, core.py's "part · port",
+    from today's model of the case), for diff.compare to judge a channel
+    only the new run records by the port wired to it."""
+    from app.schemas import Project
+    from app.solver.network import build_model
+    case = runs._case(project, case_id)
+    model = build_model(Project.model_validate(project), {}, case.get("parameterOverrides") or {})
+    to: dict = {}
+    for c in project.get("dataBusConnections") or []:
+        a, b = f"{c['element1Id']}:{c['port1Id']}", f"{c['element2Id']}:{c['port2Id']}"
+        to.setdefault(a, []).append(b)
+        to.setdefault(b, []).append(a)
+
+    def label(port):
+        el_id, port_id = port.split(":", 1)
+        el, cdef = model.elements.get(el_id), model.cdef_of.get(el_id)
+        pdef = next((p for p in [*(cdef.ports if cdef else []), *((el and el.dynamicPorts) or [])]
+                     if p.id == port_id), None)
+        return f"{el.label} · {pdef.name}" if el and pdef else None
+    return {k: (sorted(v), label(k)) for k, v in to.items()}
+
+
 def b2b(out: Path) -> dict:
     rows, all_diffs = [], []
     for item in runs.items():
@@ -93,20 +117,23 @@ def b2b(out: Path) -> dict:
                "reference": _ok(rec["today-normal"]) and _ok(rec["today-fine"])}
         if got == "run" and row["reference"]:
             n, f = rec["today-normal"]["result"], rec["today-fine"]["result"]
-            ds = diff.compare(item["id"], n, f, new)
+            project = item["id"] != "probe/bev-fmu" and runs.item_project(item, out / "user")
+            ds = diff.compare(item["id"], n, f, new, wires(*project[:2]) if project else {})
             ctx = {"notes": {diff.masked(d["message"]) for d in (rec["new"].get("engine") or {})
                              .get("build_warnings", [])},
                    "status_without_notes": _without_notes(rec["new"])}
-            if item["id"] != "probe/bev-fmu":
-                project, case_id, _ = runs.item_project(item, out / "user")
+            if project:
+                project, case_id, _ = project
                 ctx["gears"] = diff.gear_rebuild(project, n, f, new)
                 case = runs._case(project, case_id)
                 if case.get("kind") == "acceleration" and case.get("endDistance"):
-                    last = {k: next((c["timeSeries"][-1]["value"] for c in r["channels"]
+                    # the distance channel's last point, its value and its time, today's and the new run's
+                    last = {k: next((c["timeSeries"][-1] for c in r["channels"]
                                      if c["elementId"] == "el-vehicle" and c["portId"] == "sig_distance"
-                                     and c["timeSeries"]), None)
-                            for k, r in (("today", f), ("new", new))}
-                    ctx["line_end"] = {**last, "line": (case.get("startLine") or 0.0) + case["endDistance"]}
+                                     and c["timeSeries"]), {}) for k, r in (("today", f), ("new", new))}
+                    ctx["line_end"] = {"today": last["today"].get("value"), "new": last["new"].get("value"),
+                                       "t_today": last["today"].get("t"), "t_new": last["new"].get("t"),
+                                       "line": (case.get("startLine") or 0.0) + case["endDistance"]}
             diff.classify(ds, {item["id"]: ctx})
             row["classes"] = dict(Counter(d["cls"] for d in ds))
             row["ledger"] = ds.ledger.totals()  # every leaf of the three runs compared, reported or a gap
@@ -639,12 +666,16 @@ def markdown(report: dict) -> str:
     out += ["", "Items without today's two reference runs (not judged): "
             + (", ".join(b["missing_reference_run"]) or "none") + "."]
     out += ["", "Each compared item's ledger: every leaf of the union of today's two runs and the new run, "
-            "compared (both today's 1 ms run and the new run have it), reported (one of them lacks it) or a gap "
-            "(only today's 10 ms run has it); it balances when the three make the union.", "",
-            "| item | union | compared | reported | gaps | balanced |", "|---|--:|--:|--:|--:|---|"]
+            "compared (both today's 1 ms run and the new run have it), by source (a leaf of a channel only the "
+            "new run records, compared with the port the data bus wires to it), 10 ms only (compared, and "
+            "today's 10 ms run says another text or flag there than its 1 ms run), reported (one of them lacks "
+            "it) or a gap (only today's 10 ms run has it); it balances when the five make the union.", "",
+            "| item | union | compared | by source | 10 ms only | reported | gaps | balanced |",
+            "|---|--:|--:|--:|--:|--:|--:|---|"]
     def cell(paths):  # (a row's key may hold a bar: energy/sinks/el-wheel-rl|Wheel RL ...)
         return "; ".join(paths).replace("|", "\\|")
-    out += [f"| {r['id']} | {g['union']} | {g['compared']} | {g['reported']} | {g['gaps']}"
+    out += [f"| {r['id']} | {g['union']} | {g['compared']} | {g['sourced']} | {g['ten_ms_only']}"
+            f"{' (' + cell(g['first_ten_ms_only']) + ')' if g['ten_ms_only'] else ''} | {g['reported']} | {g['gaps']}"
             f"{' (' + cell(g['first_gaps']) + ')' if g['gaps'] else ''} | "
             f"{'yes' if g['balanced'] else 'no: ' + cell(g['first_unbalanced'])} |"
             for r in b["items"] if (g := r.get("ledger"))]

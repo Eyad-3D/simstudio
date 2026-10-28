@@ -190,29 +190,37 @@ def test_rules_that_read_the_runs():
           diff.Diff(item="x", field="status", key="", what="text", x=None, today="success", new="warning"),
           diff.Diff(item="x", field="times", key="", what="grid", x=None, today=401, new=401, first=400,
                     last=[4.0, 3.9994], step=0.01)]
-    diff.classify(ds, {"x": {"notes": {note}, "status_without_notes": "success",
-                             "line_end": {"today": 75.306, "new": 75.3000007, "line": 75.3}}})
+    line = {"today": 75.306, "new": 75.3000007, "line": 75.3, "t_today": 4.0, "t_new": 3.9994}
+    diff.classify(ds, {"x": {"notes": {note}, "status_without_notes": "success", "line_end": line}})
     assert [(d["cls"], d["rule"]) for d in ds] == [
         ("a", "preparation-note-as-warning"), ("a", "preparation-note-status"),
         ("b", "acceleration-ends-at-the-line")]
-    diff.classify(ds, {"x": {"line_end": {"today": 75.3001, "new": 75.3005, "line": 75.3}}})
+    diff.classify(ds, {"x": {"line_end": line | {"today": 75.3001, "new": 75.3005}}})
     assert [d["cls"] for d in ds] == ["unclassified"] * 3
     # a new run whose distance channel ends without a value: no class, and no crash
-    diff.classify(ds[2:], {"x": {"line_end": {"today": 75.306, "new": None, "line": 75.3}}})
+    diff.classify(ds[2:], {"x": {"line_end": line | {"new": None}}})
     assert ds[2]["cls"] == "unclassified"
+    # a grid that ends inside today's last step but not where the distance channel ends, at the line
+    # (the judge's fourth re-check, recheck4/accel_one_channel_grid.py: b from the distance alone)
+    for other in ({"t_new": 3.991}, {"t_today": 3.99}, {"t_new": None}):
+        diff.classify(ds[2:], {"x": {"line_end": line | other}})
+        assert ds[2]["cls"] == "unclassified", other
 
 
-def _accel_runs(out, new_times, new_end=75.3000007):
+def _accel_runs(out, new_times, new_end=75.3000007, others=None):
     """fs-electric's acceleration test as three records of its distance:
     today's on a 10 ms grid to t = 4 s, 75.306 m (past the line, 75.3 m),
-    the new run's on ``new_times`` ending at ``new_end``."""
+    the new run's on ``new_times`` ending at ``new_end``; with ``others``
+    (channel → the new run's times) more channels on the same grids, but
+    the new run's on their own."""
     today = [0.01 * k for k in range(401)]
     for setting, times, end in (("today-normal", today, 75.306), ("today-fine", today, 75.306),
                                 ("new", new_times, new_end)):
-        values = [end * (t / times[-1]) ** 2 for t in times]
+        chans = {"el-vehicle:sig_distance": times, **{k: today if setting != "new" else ts
+                                                      for k, ts in (others or {}).items()}}
         res = _result(summary=[], messages=[], channels=[
-            {"elementId": "el-vehicle", "portId": "sig_distance", "label": "Vehicle · Distance", "unit": "m",
-             "timeSeries": [{"t": t, "value": v} for t, v in zip(times, values)]}])
+            {"elementId": k.split(":")[0], "portId": k.split(":")[1], "label": k, "unit": "m",
+             "timeSeries": [{"t": t, "value": end * (t / ts[-1]) ** 2} for t in ts]} for k, ts in sorted(chans.items())])
         _write(out, {"kind": "item", "id": "fs-electric/case-accel-75m", "setting": setting}, result=res)
     return today
 
@@ -235,6 +243,21 @@ def test_an_acceleration_grid_is_b_only_where_its_last_time_alone_differs(tmp_pa
     assert [d["cls"] for d in grid] == ["b" if change == "at the line" else "unclassified"], grid
 
 
+@pytest.mark.parametrize("last", [3.9994, 3.991, 3.995])
+def test_one_channel_off_the_runs_grid_is_told_on_its_own_and_not_at_the_line(tmp_path, monkeypatch, last):
+    # the judge's fourth re-check (recheck4/accel_one_channel_grid.py): the motor's torque alone ending
+    # 8 ms before the line, every other channel at it, was b from the distance channel's line
+    item = next(i for i in runs.items() if i["id"] == "fs-electric/case-accel-75m")
+    monkeypatch.setattr(runs, "items", lambda: [item])
+    today = [0.01 * k for k in range(401)]
+    at_line = today[:-1] + [3.9994]
+    _accel_runs(tmp_path, at_line, others={"el-battery:sig_current": at_line,
+                                           "el-motor:sig_torque": today[:-1] + [last]})
+    grid = [(d["key"], d["last"][1], d["cls"]) for d in report.b2b(tmp_path)["diffs"] if d["field"] == "times"]
+    # the run's grid once (key ""), and a channel off it again, on its own
+    assert grid == [("", 3.9994, "b")] + ([] if last == 3.9994 else [("el-motor:sig_torque", last, "unclassified")])
+
+
 def test_a_value_the_new_run_lacks_takes_only_a_rule_that_names_it(monkeypatch):
     gear = "el-diff:sig_power"
     inside = dict.fromkeys(diff.GEAR_X, 0.2) | {"holds": True}
@@ -251,6 +274,12 @@ def test_a_value_the_new_run_lacks_takes_only_a_rule_that_names_it(monkeypatch):
         monkeypatch.setattr(diff, "RULES", [rule])
         diff.classify(ds[1:2], ctx)
         assert ds[1]["cls"] == cls
+    # and a flag only today's 10 ms run raises (its status: a rule on the status without a `what`)
+    flag = [diff.Diff(item="x", field="status", key="", what="10 ms only", x=None, today="failed", new="success")]
+    for what, cls in ((None, "unclassified"), (["10 ms only"], "c")):
+        monkeypatch.setattr(diff, "RULES", [{"id": "r", "class": "c", "field": ["status"]} | ({"what": what} if what else {})])
+        diff.classify(flag, {})
+        assert flag[0]["cls"] == cls
 
 
 def _gear_runs(j_motor=0.045):
@@ -315,6 +344,13 @@ def test_the_new_engines_gear_law_is_rebuilt_from_its_sources():
     today, new = _channels({**src, **gears}), _channels({**src, **law})
     assert all(x["teeth"] < 1e-9 for x in diff.gear_rebuild(scaled, today, today, new).values())
     assert max(x["teeth"] for x in diff.gear_rebuild(runs.example("bev-car"), today, today, new).values()) > 1.0
+    # taken as motor.rs scale_pct takes it: not above 0 is 100 %, and at least 1 % (the judge's fourth
+    # re-check, recheck4/revert_more.sh: v / 100 passed every test)
+    for pct, kt in ((0.0, 1.0), (-20.0, 1.0), (0.5, 0.01)):
+        motor["parameterOverrides"]["torque_scale_pct"] = pct
+        src, gears, law = _gear_runs(j_motor=0.045 * kt)
+        today, new = _channels({**src, **gears}), _channels({**src, **law})
+        assert all(x["teeth"] < 1e-9 for x in diff.gear_rebuild(scaled, today, today, new).values()), pct
 
 
 def test_the_gear_rule_leaves_out_a_channel_the_new_run_lacks():
@@ -471,6 +507,25 @@ def test_a_point_the_new_run_lacks_at_the_start_differs():
         diff.classify(ds, {})
         assert [(d["field"], d["what"], d["cls"]) for d in ds] == ([("channels.values", "first point", cls)]
                                                                  if cls else []), at0
+
+
+def test_a_first_point_is_c_only_within_the_channel_band_of_todays_first_two_values():
+    # the judge's fourth re-check (recheck4/first_point_slack.py): 16 of baseline-5's first points lie
+    # outside today's first two values, within the channel's band; no test held either bound
+    today = [90.0 + 0.01 * k for k in range(100)]
+    before = [0.0] + today[1:]
+    band = 0.005 * diff.rms(today[1:])  # (today's two runs alike: the channel's band its floor)
+    for at0, cls in ((today[1] + 0.6 * band, "c"), (today[1] + 1.4 * band, "unclassified"),
+                     (-0.6 * band, "c"), (-1.4 * band, "unclassified")):
+        ds = diff.compare("x", _channel_result(before), _channel_result(before), _channel_result([at0] + today[1:]))
+        diff.classify(ds, {})
+        assert [(d["what"], d["cls"]) for d in ds] == [("first point", cls)], at0
+    # the first point's own band is the figure's, from today's 10 ms first value: 1.0 there, 0 at 1 ms,
+    # makes it 2; a first value 1.5 off is inside it, and outside the floor without the 10 ms run
+    normal = _channel_result([1.0] + today[1:])
+    for n, got in ((normal, []), (_result(channels=[], summary=[], messages=[]), ["first point"])):
+        ds = diff.compare("x", n, _channel_result(before), _channel_result([1.5] + today[1:]))
+        assert [d["what"] for d in ds] == got
 
 
 def test_a_list_the_new_run_gives_at_fewer_or_more_points_differs():
@@ -670,8 +725,8 @@ def test_a_change_in_any_field_is_a_difference():
     assert all(v is not None for _, v in leaves)
     assert diff.compare("x", FULL, FULL, FULL) == []
     assert diff.compare("x", FULL, FULL, FULL).ledger.totals() == {
-        "union": len(leaves), "compared": len(leaves), "reported": 0, "gaps": 0, "balanced": True,
-        "unbalanced": 0, "first_unbalanced": [], "first_gaps": []}
+        "union": len(leaves), "compared": len(leaves), "sourced": 0, "ten_ms_only": 0, "reported": 0, "gaps": 0,
+        "balanced": True, "unbalanced": 0, "first_unbalanced": [], "first_gaps": [], "first_ten_ms_only": []}
     for path, value in leaves:  # (a channel's first point too: a figure of its own since the fourth re-check)
         new = copy.deepcopy(FULL)
         at = new
@@ -715,6 +770,22 @@ def _channel_more(*rs, wrong=lambda x: x):
         r["channels"].append(c)
 
 
+def _wired_more(n, f, v, wrong=lambda x: x, **more):
+    """bev-car's vehicle speed (a copy of the first channel) in all three
+    runs, and in the new run only the vehicle monitor's speed input, which
+    bev-car's data bus wires to it, with today's label for it, ``wrong`` on
+    its values and statistics and ``more`` of its fields."""
+    import copy
+    for r in (n, f, v):
+        r["channels"].append(copy.deepcopy(r["channels"][0]) | {"elementId": "el-vehicle", "portId": "sig_speed"})
+    m = copy.deepcopy(v["channels"][-1]) | {"elementId": "el-veh-monitor", "portId": "speed",
+                                            "label": report.wires(runs.example("bev-car"), "case-city")
+                                            ["el-veh-monitor:speed"][1]}
+    for p in m["timeSeries"]:
+        p["value"] = wrong(p["value"])
+    v["channels"].append(m | {s: [wrong(x) for x in m[s]] for s in ("min", "max", "mean")} | more)
+
+
 def _row_more(*rs, wrong=lambda x: x):
     for r in rs:
         r["summary"].append({"key": "range_km", "label": "Range", "value": wrong(400.0), "unit": "km",
@@ -736,6 +807,9 @@ PLANTS = {
     "a maximum": (lambda n, f, v, w: _at(v, "max", -1, w), "channels.max"),
     "a mean": (lambda n, f, v, w: _at(v, "mean", 0, w), "channels.mean"),
     "a channel only the new run has": (lambda n, f, v, w: _channel_more(v, wrong=w), "channels"),
+    # (the judge's fourth re-check, recheck4/extra_channels.py: a monitor's input ten times off was c)
+    "a channel only the new run has, wired to one today's runs have": (
+        lambda n, f, v, w: _wired_more(n, f, v, wrong=w), "channels.values"),
     "a channel only today's runs have": (lambda n, f, v, w: _channel_more(n, f, wrong=w), "channels"),
     "a field only the new run has": (lambda n, f, v, w: v["channels"][0].update(note=w(1.0)), "channels.note"),
     "a field only today's runs have": (lambda n, f, v, w: [r["summary"][0].update(note=w(1.0)) for r in (n, f)],
@@ -784,6 +858,73 @@ def test_a_wrong_value_at_any_place_surfaces_and_the_ledger_balances(tmp_path, m
     assert not {d["cls"] for d in got} & ({"b"} if place == "a channel only the new run has" else {"b", "c"}), got
 
 
+def test_a_channel_only_the_new_run_records_is_compared_with_the_port_wired_to_it(tmp_path, monkeypatch):
+    # the vehicle monitor's speed input (wired to the vehicle's speed, which today's runs record) is
+    # compared with it, every leaf "by source"; the battery's current limit (wired to nothing) stays c
+    item = next(i for i in runs.items() if i["id"] == "bev-car/case-city")
+    monkeypatch.setattr(runs, "items", lambda: [item])
+    # (today's label for the port: core.py's "part · port", the part's label and the port's name)
+    assert report.wires(runs.example("bev-car"), "case-city")["el-veh-monitor:speed"] == (
+        ["el-vehicle:sig_speed"], "Vehicle Monitor · speed")
+
+    def judge(**more):
+        n, f, v = _ten(), _ten(), _ten()
+        _wired_more(n, f, v, **more)
+        _channel_more(v)
+        v["channels"][-1].update(elementId="el-battery", portId="sig_i_ch_limit")
+        for setting, res in (("today-normal", n), ("today-fine", f), ("new", v)):
+            _write(tmp_path, {"kind": "item", "id": item["id"], "setting": setting}, result=res)
+        b = report.b2b(tmp_path)
+        assert b["items"][0]["ledger"]["balanced"], b["items"][0]["ledger"]
+        return b, [(d["field"], d["key"], d["what"], d["cls"], d.get("source")) for d in b["diffs"]]
+    b, got = judge()
+    assert got == [("channels", "el-battery:sig_i_ch_limit", "extra", "c", None)] and b["state"] == "pass"
+    monitor = 4 + 10 * 2 + 3 * 10  # its ids, label and unit; each point's time and value; min, max and mean
+    assert b["items"][0]["ledger"]["sourced"] == monitor
+    # its label and unit against today's: the one core.py gives the port, the wired port's unit
+    _, got = judge(label="Vehicle Monitor · Distance", unit="m")
+    assert [g for g in got if g[1] == "el-veh-monitor:speed"] == [
+        ("channels.label", "el-veh-monitor:speed", "text", "unclassified", "el-vehicle:sig_speed"),
+        ("channels.unit", "el-veh-monitor:speed", "text", "unclassified", "el-vehicle:sig_speed")]
+    # wired to a port today's runs do not record: nothing to compare it by
+    lent = diff._lend(_ten(), _ten(), _ten() | {"channels": _ten()["channels"] + [{"elementId": "el-x", "portId": "q"}]},
+                      {"el-x:q": (["el-y:q"], "X · Q")})
+    assert lent[2] == {}
+
+
+def test_what_only_todays_10_ms_run_flags_is_a_difference_and_its_texts_are_counted(tmp_path, monkeypatch):
+    # the judge's fourth re-check (recheck4/ten_ms_flags.py): today's 10 ms run (the app's own step) failed,
+    # a row not valid and a check not passed there, a unit renamed, and no difference, the ledger unmoved
+    item = next(i for i in runs.items() if i["id"] == "bev-car/case-city")
+    monkeypatch.setattr(runs, "items", lambda: [item])
+    n = _ten()
+    n.update(status="failed")
+    n["summary"][0].update(notValid="only at 10 ms", passed=False)
+    n["channels"][0]["unit"] = "furlongs"
+    n["channels"][0]["timeSeries"][3]["value"] += 1e-3  # (another number there is the band's, not counted)
+    f = _ten()
+    f.update(status="success")
+    f["summary"][0].update(notValid=None)  # (FULL's warning and row not valid: here only at 10 ms)
+    for setting, res in (("today-normal", n), ("today-fine", f), ("new", f)):
+        _write(tmp_path, {"kind": "item", "id": item["id"], "setting": setting}, result=res)
+    b = report.b2b(tmp_path)
+    assert b["state"] == "fail" and [(d["field"], d["key"], d["what"], d["today"], d["cls"]) for d in b["diffs"]] == [
+        ("status", "", "10 ms only", "failed", "unclassified"),
+        ("summary.notValid", "time_s", "10 ms only", "only at 10 ms", "unclassified"),
+        ("summary.passed", "time_s", "10 ms only", False, "unclassified")]
+    ledger = b["items"][0]["ledger"]
+    assert ledger["balanced"] and ledger["ten_ms_only"] == 4, ledger
+    assert ledger["first_ten_ms_only"][0] == "channels/el-m:p/0/unit: 10 ms 'furlongs', 1 ms 'kW', new 'kW'"
+    md = report.markdown({"fingerprint": report.fingerprint(), "made_by": [], "lines": _lines(b)})
+    assert "| 4 (channels/el-m:p/0/unit: 10 ms 'furlongs'" in md
+    # a flag today's 1 ms run raises too is today's (the new path lacking it is a difference of its own)
+    f["summary"][0].update(notValid="only at 10 ms")
+    _write(tmp_path, {"kind": "item", "id": item["id"], "setting": "today-fine"}, result=f)
+    assert [(d["field"], d["what"], d["cls"]) for d in report.b2b(tmp_path)["diffs"]] == [
+        ("summary.notValid", "text", "a"), ("status", "10 ms only", "unclassified"),
+        ("summary.passed", "10 ms only", "unclassified")]
+
+
 def test_an_item_whose_ledger_does_not_balance_fails(tmp_path, monkeypatch):
     # the judge fails an item where a leaf of the three runs is left out or taken twice
     item = next(i for i in runs.items() if i["id"] == "bev-car/case-city")
@@ -813,9 +954,22 @@ def test_what_only_todays_10_ms_run_has_is_a_gap():
     n["messages"].append({"level": "info", "text": "Only at 10 ms."})
     ds = diff.compare("x", n, _ten(), _ten())
     assert ds == [] and ds.ledger.totals() | {"union": None, "compared": None} == {
-        "union": None, "compared": None, "reported": 0, "gaps": 4, "balanced": True, "unbalanced": 0,
-        "first_unbalanced": [], "first_gaps": ["channels/el-m:p/0/timeSeries/10/t", "channels/el-m:p/0/timeSeries/10/value",
-                                               "messages/info: Only at # ms./0/level", "messages/info: Only at # ms./0/text"]}
+        "union": None, "compared": None, "sourced": 0, "ten_ms_only": 0, "reported": 0, "gaps": 4, "balanced": True,
+        "unbalanced": 0, "first_unbalanced": [], "first_ten_ms_only": [],
+        "first_gaps": ["channels/el-m:p/0/timeSeries/10/t", "channels/el-m:p/0/timeSeries/10/value",
+                       "messages/info: Only at # ms./0/level", "messages/info: Only at # ms./0/text"]}
+
+
+def test_what_only_todays_10_ms_run_has_under_a_record_the_new_run_lacks_is_a_gap():
+    # (the judge's fourth re-check, recheck4/revert_more.sh: no test held it; baseline-5's 13 gaps all lie
+    # under records the new path lacks, the limits and the energy report)
+    n, f = _ten(), _ten()
+    _row_more(n, f)
+    n["summary"][-1]["note"] = "only at 10 ms"
+    ds = diff.compare("x", n, f, _ten())
+    totals = ds.ledger.totals()
+    assert [(d["field"], d["key"], d["what"]) for d in ds] == [("summary", "range_km", "missing")]
+    assert totals["balanced"] and totals["gaps"] == 1 and totals["first_gaps"] == ["summary/range_km/0/note"], totals
 
 
 def test_the_report_lists_a_gap_whose_key_holds_a_bar_in_its_cell(tmp_path, monkeypatch):
@@ -832,7 +986,7 @@ def test_the_report_lists_a_gap_whose_key_holds_a_bar_in_its_cell(tmp_path, monk
     row = next(line for line in report.markdown({"fingerprint": report.fingerprint(), "made_by": [],
                                                   "lines": _lines(b)}).splitlines()
                if line.startswith(f"| {item['id']} | ") and "| yes |" in line)
-    assert len(re.split(r"(?<!\\)\|", row)) == 8 and "el-w\\|Tyre slip" in row, row
+    assert len(re.split(r"(?<!\\)\|", row)) == 10 and "el-w\\|Tyre slip" in row, row
 
 
 def test_a_channel_the_10_ms_run_lacks_is_judged_in_the_floor_band():

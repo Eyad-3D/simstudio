@@ -7,7 +7,12 @@ list and point, and every message. Its Ledger accounts for every leaf of
 that union (leaves()): one f and v both have is compared (equal or a
 difference), one either of them lacks is reported (a difference), one only
 n has is a gap. The judge fails an item whose ledger does not balance (a
-leaf left out, or taken twice).
+leaf left out, or taken twice). A channel only the new run records is
+compared with the port the project's data bus wires to it, where today's
+run records that port (_lend: its leaves "by source"); a text or flag n says
+otherwise than f at a leaf f and v share is counted ("10 ms only"), and
+what n flags (a warning or failed status, a notValid, a passed=false) that
+neither f nor v does is a difference.
 
 Bands as DESIGN.md 12.3 and lsim-project/golden/README.md set them, and as
 golden.rs computes them: a figure's band is the larger of twice the
@@ -103,12 +108,13 @@ ROWS = {
 }
 
 
-def leaves(x, path: tuple = (), shape: tuple = (), into: set | None = None) -> set:
-    """Every leaf of ``x`` (a number, a text, a flag or None) by its path: a
-    row of a keyed list (ROWS, by ``shape``: the path with its keys left
-    out) by its key and the occurrence of that key, an item of any other
-    list by its index, a dict's by its key. An empty list or dict has none."""
-    into = set() if into is None else into
+def leaves(x, path: tuple = (), shape: tuple = (), into: dict | None = None) -> dict:
+    """Every leaf of ``x`` (a number, a text, a flag or None) by its path,
+    with its value: a row of a keyed list (ROWS, by ``shape``: the path with
+    its keys left out) by its key and the occurrence of that key, an item of
+    any other list by its index, a dict's by its key. An empty list or dict
+    has none."""
+    into = {} if into is None else into
     if isinstance(x, dict):
         for k, v in x.items():
             leaves(v, path + (k,), shape + (k,), into)
@@ -122,22 +128,36 @@ def leaves(x, path: tuple = (), shape: tuple = (), into: set | None = None) -> s
             else:
                 leaves(v, path + (i,), shape, into)
     else:
-        into.add(path)
+        into[path] = x
     return into
+
+
+def _says_other(normal, fine) -> bool:
+    """Whether today's 10 ms run says another text or flag (a status, a
+    notValid, a passed, a unit; or None, the path's not a number) than its
+    1 ms run at a leaf both have; another number there is its band."""
+    def text(x):
+        return x is None or isinstance(x, (str, bool))
+    return (text(normal) or text(fine)) and normal != fine
 
 
 class Ledger:
     """compare()'s account of the union of what today's 10 ms run (n), its
     1 ms run (f) and the new run (v) give, leaf by leaf (leaves()). A leaf f
-    and v both have is compared once (same()), equal or a difference; a
-    leaf one of them lacks is reported once (told(), on it or a path above
-    it): a difference (or, for a limit lane's state, compared with the 0 s
-    its absence means); a leaf only n has is a gap (nothing to judge the
-    new run by, and the new run agrees with today's 1 ms run in lacking
-    it). It balances when each leaf of the union is exactly one of these."""
+    and v both have is compared once (same()), equal or a difference: by
+    source where it is a leaf of today's channel lent to one only the new
+    run records (``sourced``, _lend), and "10 ms only" where today's 10 ms
+    run says another text or flag there than its 1 ms run (_says_other: what
+    the app's own step says today, which the comparison with today's 1 ms
+    run does not read); a leaf one of them lacks is reported once (told(), on it or a path
+    above it): a difference (or, for a limit lane's state, compared with the
+    0 s its absence means); a leaf only n has is a gap (nothing to judge the
+    new run by, and the new run agrees with today's 1 ms run in lacking it).
+    It balances when each leaf of the union is exactly one of these."""
 
-    def __init__(self, normal: dict, fine: dict, new: dict):
+    def __init__(self, normal: dict, fine: dict, new: dict, sourced: set = frozenset()):
         self.n, self.f, self.v = leaves(normal), leaves(fine), leaves(new)
+        self.sourced = sourced
         self.compared, self.reported = Counter(), Counter()
 
     def same(self, path: tuple) -> None:
@@ -148,11 +168,16 @@ class Ledger:
 
     def totals(self) -> dict:
         lengths = sorted({len(p) for p in self.reported})
-        union, got, wrong, gaps = self.n | self.f | self.v, Counter(), [], []
+        union, got, wrong, gaps, ten = self.n.keys() | self.f.keys() | self.v.keys(), Counter(), [], [], []
         for p in union:
             c, r = self.compared[p], sum(self.reported[p[:i]] for i in lengths if i <= len(p))
             if p in self.f and p in self.v:
-                kind = "compared" if (c, r) == (1, 0) else None
+                kind = None
+                if (c, r) == (1, 0):
+                    kind = "sourced" if p in self.sourced else "compared"
+                    if kind == "compared" and p in self.n and _says_other(self.n[p], self.f[p]):
+                        kind = "ten_ms_only"
+                        ten.append(p)
             elif p in self.f or p in self.v:
                 kind = "reported" if (c, r) == (0, 1) else None
             else:
@@ -162,12 +187,15 @@ class Ledger:
                 got[kind] += 1
             else:
                 wrong.append((p, c, r))
-        return {"union": len(union), "compared": got["compared"], "reported": got["reported"], "gaps": got["gaps"],
-                "balanced": got["compared"] + got["reported"] + got["gaps"] == len(union),
+        kinds = ("compared", "sourced", "ten_ms_only", "reported", "gaps")
+        return {"union": len(union), **{k: got[k] for k in kinds},
+                "balanced": sum(got[k] for k in kinds) == len(union),
                 "unbalanced": len(wrong),
                 "first_unbalanced": [f"{'/'.join(map(str, p))}: compared {c}, reported {r}"
                                      for p, c, r in heapq.nsmallest(5, wrong, key=str)],
-                "first_gaps": ["/".join(map(str, p)) for p in heapq.nsmallest(5, gaps, key=str)]}
+                "first_gaps": ["/".join(map(str, p)) for p in heapq.nsmallest(5, gaps, key=str)],
+                "first_ten_ms_only": [f"{'/'.join(map(str, p))}: 10 ms {self.n[p]!r}, 1 ms {self.f[p]!r}, "
+                                      f"new {self.v[p]!r}" for p in heapq.nsmallest(5, ten, key=str)]}
 
 
 class Diff(dict):
@@ -439,12 +467,53 @@ class _Walk:
                           today=[c[0] for c in fc], new=[c[0] for c in vc], step=step)
 
 
-def compare(item: str, normal: dict, fine: dict, new: dict) -> Diffs:
+def _lend(normal: dict, fine: dict, new: dict, wires: dict) -> tuple[dict, dict, dict, list]:
+    """Today's runs with, for each channel only the new run records that the
+    project's data bus wires to a port today's 1 ms run records (``wires``:
+    port → (the ports wired to it, the label today's engine gives a channel
+    of it)), that port's channel of each of today's runs lent under the new
+    channel's key and today's label for it, as a port reads what is wired to
+    it: (10 ms run, 1 ms run, {channel: the port lent}, the lent rows)."""
+    key = ROWS[("channels",)]
+    today = [{key(c): c for c in reversed(r.get("channels") or [])} for r in (normal, fine)]  # (each key's first)
+    lent: dict = {}
+    for c in new.get("channels") or []:
+        k = key(c)
+        to, label = wires.get(k, ((), None))
+        src = next((s for s in sorted(to) if s in today[1]), None)
+        if k not in today[1] and k not in lent and src:
+            lent[k] = (src, {"elementId": c.get("elementId"), "portId": c.get("portId"), "label": label})
+    if not lent:
+        return normal, fine, {}, []
+    rows = [[{**chans[s], **ids} for s, ids in lent.values() if s in chans] for chans in today]
+    return ({**normal, "channels": [*(normal.get("channels") or []), *rows[0]]},
+            {**fine, "channels": [*(fine.get("channels") or []), *rows[1]]}, {k: s for k, (s, _) in lent.items()}, rows[1])
+
+
+def flags(res: dict) -> dict:
+    """What a run flags: its status where it warns or fails, each summary
+    row's notValid and a check's passed=false ({(field, key): what it says})."""
+    got = {("status", ""): res.get("status")} if res.get("status") in ("warning", "failed") else {}
+    for r in res.get("summary") or []:
+        if r.get("notValid"):
+            got[("summary.notValid", ROWS[("summary",)](r))] = r["notValid"]
+        if r.get("passed") is False:
+            got[("summary.passed", ROWS[("summary",)](r))] = False
+    return got
+
+
+def compare(item: str, normal: dict, fine: dict, new: dict, wires: dict | None = None) -> Diffs:
     """Every difference between today's 1 ms result ``fine`` (with its 10 ms
     run ``normal`` for the bands) and the new path's result ``new``: every
     field of every model, as FIELDS says, over the union of what the three
-    give, with its ledger (Diffs.ledger)."""
-    w = _Walk(item, Ledger(normal, fine, new))
+    give, with its ledger (Diffs.ledger). A channel only the new run records
+    is compared with the port the data bus wires to it (_lend), where today
+    records that one. What today's 10 ms run flags (flags()) and neither its
+    1 ms run nor the new run does is a difference ("10 ms only")."""
+    flagged = [(k, x) for k, x in flags(normal).items() if k not in flags(fine) and k not in flags(new)]
+    normal, fine, lent, rows = _lend(normal, fine, new, wires or {})
+    w = _Walk(item, Ledger(normal, fine, new, {p for c in rows for p in leaves(
+        c, ("channels", ROWS[("channels",)](c), 0), ("channels",))}))
     w.fields("", "", (), "SimResult", fine, new, normal)
     for d in w.out:
         d["field"] = d["field"].lstrip(".")
@@ -560,6 +629,14 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> Diffs:
         for key, i, f, v, n in w.match("references", ("references",), ("references",), fine["references"],
                                        new["references"], normal.get("references")):
             w.fields("references", key, ("references", key, i), "ReferenceCheck", f, v, n)
+
+    # today's engine at the app's own step flags it (warns, fails, a row not valid or a check not passed),
+    # and neither today's 1 ms run nor the new run does: the case FAULTS counts, shown here
+    for (field, key), says in flagged:
+        w.diff(field, key, "10 ms only", today=says, new=new.get("status") if field == "status" else None)
+    for d in w.out:  # (a lent channel's differences: against the port wired to it)
+        if d["field"].startswith(("channels", "times")) and (d["key"] or "").split("|")[0] in lent:
+            d["source"] = lent[d["key"].split("|")[0]]
     return w.out
 
 
@@ -741,8 +818,8 @@ def classify(diffs: list[Diff], context: dict) -> None:
 
 
 def _matches(rule: dict, df: Diff, ctx: dict) -> bool:
-    if df["what"] == "not finite" and "not finite" not in rule.get("what", ()):
-        return False  # a value the new run lacks: only a rule that names it explains it
+    if df["what"] in ("not finite", "10 ms only") and df["what"] not in rule.get("what", ()):
+        return False  # a value the new run lacks, or a flag only today's 10 ms run raises: only a rule that names it
     if "field" in rule and not any(fnmatch.fnmatchcase(df["field"], f) for f in rule["field"]):
         return False
     if "what" in rule and df["what"] not in rule["what"]:
@@ -783,6 +860,10 @@ def _matches(rule: dict, df: Diff, ctx: dict) -> bool:
         if not (df["today"] == df["new"] and df.get("first") == df["today"] - 1
                 and all(_finite(x) for x in (last_today, last_new, df.get("step")))
                 and 0.0 < last_today - last_new < df["step"]):
+            return False
+        # and this grid ends where the distance channel does, at the line (a channel told on its own, off
+        # the run's grid, that ends elsewhere is not today's discretisation)
+        if (last_today, last_new) != (end.get("t_today"), end.get("t_new")):
             return False
         return abs(end["new"] - end["line"]) <= 1e-3 and \
             end["today"] - end["line"] > 10 * abs(end["new"] - end["line"])
