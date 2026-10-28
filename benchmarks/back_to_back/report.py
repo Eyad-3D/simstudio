@@ -642,9 +642,11 @@ def markdown(report: dict) -> str:
             "compared (both today's 1 ms run and the new run have it), reported (one of them lacks it) or a gap "
             "(only today's 10 ms run has it); it balances when the three make the union.", "",
             "| item | union | compared | reported | gaps | balanced |", "|---|--:|--:|--:|--:|---|"]
+    def cell(paths):  # (a row's key may hold a bar: energy/sinks/el-wheel-rl|Wheel RL ...)
+        return "; ".join(paths).replace("|", "\\|")
     out += [f"| {r['id']} | {g['union']} | {g['compared']} | {g['reported']} | {g['gaps']}"
-            f"{' (' + '; '.join(g['first_gaps']) + ')' if g['gaps'] else ''} | "
-            f"{'yes' if g['balanced'] else 'no: ' + '; '.join(g['first_unbalanced'])} |"
+            f"{' (' + cell(g['first_gaps']) + ')' if g['gaps'] else ''} | "
+            f"{'yes' if g['balanced'] else 'no: ' + cell(g['first_unbalanced'])} |"
             for r in b["items"] if (g := r.get("ledger"))]
     out += ["", "By rule: " + "; ".join(f"{k}: {v}" for k, v in b["by_rule"].items()), "",
             "Unclassified, by item and field:", ""]

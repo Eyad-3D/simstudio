@@ -818,6 +818,23 @@ def test_what_only_todays_10_ms_run_has_is_a_gap():
                                                "messages/info: Only at # ms./0/level", "messages/info: Only at # ms./0/text"]}
 
 
+def test_the_report_lists_a_gap_whose_key_holds_a_bar_in_its_cell(tmp_path, monkeypatch):
+    # baseline-5: the hybrid's tyre-slip sinks only at 10 ms ("el-wheel-rl|Wheel RL ...") split the row
+    import re
+    item = next(i for i in runs.items() if i["id"] == "bev-car/case-city")
+    monkeypatch.setattr(runs, "items", lambda: [item])
+    n = _ten()
+    n["energy"]["sinks"].append({"label": "Tyre slip", "kWh": 0.01, "group": "slip", "elementId": "el-w"})
+    for setting, res in (("today-normal", n), ("today-fine", _ten()), ("new", _ten())):
+        _write(tmp_path, {"kind": "item", "id": item["id"], "setting": setting}, result=res)
+    b = report.b2b(tmp_path)
+    assert b["items"][0]["ledger"]["gaps"] == 4
+    row = next(line for line in report.markdown({"fingerprint": report.fingerprint(), "made_by": [],
+                                                  "lines": _lines(b)}).splitlines()
+               if line.startswith(f"| {item['id']} | ") and "| yes |" in line)
+    assert len(re.split(r"(?<!\\)\|", row)) == 8 and "el-w\\|Tyre slip" in row, row
+
+
 def test_a_channel_the_10_ms_run_lacks_is_judged_in_the_floor_band():
     # the judge's fourth re-check (recheck3/normal_short.py): its values were never compared; now in the
     # band today's 1 ms run gives it alone (0.5 % of its RMS), as its statistics were
