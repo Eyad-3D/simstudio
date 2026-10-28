@@ -2196,207 +2196,165 @@ round).**
   every tolerance: it evaluates a condition with its iteration variables
   solved, and holds a relation on its side by 1e-4 rtol of its operands'
   size (`relationhysteresis`). Here such a function is held on the side
-  the integrator saw it on until it reaches that side itself (checked at
-  step ends, and since the second recheck at every event's point too:
-  *The holds' one rule* below) or goes back past zero by more than its
-  hold: four times
-  what the iteration variables' tolerances allow in it, its change as
-  each is moved by its tolerance, summed. The inconsistency measured up
-  to 0.56 of that; an event that moves the condition itself (a `reinit`,
-  a discrete value the iteration variable is solved with) moved it 5e5
-  times that and more, and is not held, nor is anything held anew where
-  the event moved a state (an engagement) or where the new discrete
-  values alone move the function at the point the integrator had. The
-  backends map a held value to its side as they map an exact zero
-  (`Integrator::set_root_sides` takes the holds), and only while one is
-  held: with no hold above 0, most of a run, only an exact zero moves,
-  looked for eight values at a time (`run::ZeroSides`), and the step's
-  end looks for a hold to release only then (`Loop::held`). Mapping
-  every value through the holds at every evaluation and scanning them at
-  every step's end had cost the hybrid car 1.6 % of its instructions,
-  holding nothing. A mode is not held: its
-  relation decides at the event, and where that sets it back, the
-  integrator restarts there and sees the crossing again (`Loop::undone`).
-  Every one of the 140 runs counts one crossing now, a falling `when` and
-  an oscillation read through `x³ + x = z` too, and the mode's integral
-  is within 0.13 rtol of its exact 1.375 at rtol 1e-4 … 1e-10
-  (`lsim-solve/tests/implicit_conditions.rs`, which failed before on all
-  four). On the golden models nothing is held; one mode set back (the
-  formula student car's accumulator held at its output power limit) is
-  now met again 1.4e-14 s after its first crossing instead of at the
-  integrator's next step end 1.7e-7 s later, the case's figures moved by
-  at most 6e-4 of their bands.
-  Event iteration evaluates the conditions as the integrator sees them
-  too (`Loop::hold_conditions`, 24 October): a function a hold keeps on
-  its side is on it, and at an event one that solving the iteration
-  variables again put on the other side of where the integrator saw it
-  (or on zero), within its hold and not by the new discrete values' own
-  doing (nor, since the recheck below, by the event's change through
-  the iteration variables), is on the side the integrator saw, the hold
-  it gets after the event. Until then the hold covered only the sides handed to the
-  integrator, and event iteration read the conditions with x solved
-  again: one `when` per threshold counted right, but complementary ones
-  did not. With `when x > 0.5`, `when x < 0.5` and `when x > 0.5 then
-  on = 1; elsewhen x < 0.5 then on = 0` on one iteration variable, the
-  rise located a little early fired the falling clauses too, and the
-  `elsewhen`'s second branch, firing last, left `on = 0` for the rest of
-  the run (4 of 14 runs of an independent review's probes, `x³ + x = t`
-  and `x³ + x = z`; before the twelfth round the re-crossing had set it
-  back, so the hold made a miscount a wrong mode); on a peak (`x³ + x =
-  0.625 + δ − (t − 1)²`) the rise fired the falling clause or the fall
-  the rising one in 38 of 42 runs. And an event whose own discrete
-  change moved a held condition across by less than its hold fired its
-  `when` there and again where the integrator, told it was held, saw it
-  pass the hold (11 of 14 runs of `x³ + x = t + 1e-12 k`, k set at
-  0.625 s). Now each crossing fires its own direction's clauses alone:
-  the probes wrong in 0 of 14 runs, the peaks in 3 of 42 (δ = 1e-4 at
-  rtol 1e-4 and 1e-6: both crossings inside one step, the known limit
-  below), every run that was right the same to the bit; the judge's
-  eight `count-pair` and `count-peak` cases 0 of 56 runs wrong (33
-  before); such a nudge fired once, 3.6 rtol late (where the integrator
-  saw it past the hold; at the event itself since the recheck below);
-  the tests in
-  `implicit_conditions.rs`, which failed before. Its other 751 cases,
-  the golden comparison and a lone `when` (the 140 runs) are the same
-  to the bit. It costs 0.06 % of the hybrid's mixed cycle's
-  instructions (48 M, about 850 at each of its 56 218 events: where the
-  integrator saw the conditions kept, and the conditions compared with
-  it in each round of event iteration), 0.03 % of the HWFET's (61 M at
-  its 77 005 events) and
-  nothing measurable on the BEV's WLTC (cachegrind, against 4e3afdd).
-  An event's own change told from the integrator's inconsistency (an
-  independent recheck of those fixes, 24 October): the test that a
-  function on the other side was not the event's own doing evaluated it
-  at the point the integrator had with the new discrete values, where
-  an iteration variable still has its value from before the event, so a
-  move the event made through the iteration variables always passed it;
-  and only the function's value after the event was compared with the
-  hold, never how far the event had moved it. A condition an event
-  moved across to within its hold was held where the integrator saw it,
-  at any event: `x³ + x = 0.5 + 0.125 k`, k set by a time event, moved x
-  from 0.41 onto 0.5, and `when x >= 0.5` never fired while x stayed
-  there (116 of the recheck's 273 probe runs wrong, on CVODE, IDA,
-  diffsol and with no state; 4e3afdd right in all of them); a smaller
-  nudge fired 3.6 rtol late; and where x rose on, the hold handed to the
-  integrator, which had the same test since the twelfth round, let the
-  `when` fire again where x left the hold (4e3afdd) or not at all. Now
-  the functions are evaluated too where the integrator had the event,
-  the iteration variables solved for the discrete values before it
-  (`Loop::keep_unmoved`, through `Integrator::consistent_z_aside`, which
-  leaves IDA's record of its last solve for the restart as it was): one
-  that was on the side the integrator saw is one the event moved, and is
-  not held, its `when` firing at the event however little it moved it;
-  only a crossing the integrator's inconsistency located early (x,
-  solved again, short of 0.5 before the event too) is held, in event
-  iteration and for the integrator alike (and, since the second recheck
-  below, a hold standing at the event's point from an earlier crossing).
-  And a hold keeps an exact zero
-  on its side, as the integrator's mapping and a release take it: a
-  `when x > 0.5` beside a mode on the same relation (`y = if x > 0.5
-  …`) fired at the crossing located early and again where the
-  integrator, restarted by the mode its relation set back, met the
-  mode's crossing with x exactly 0.5 (`x³ + x = t` at 0.625), the hold
-  dropped there and the strict condition's zero side taken (1 of the
-  recheck's 70 runs beside a mode, and the review pair beside one, rate
-  1, no state, rtol 1e-10). The recheck's probes 0 of 273 runs wrong,
-  its runs beside a mode 0 of 70 (the two that were wrong the only ones
-  changed), its peaks and the lone `when`'s 140 runs the same to the bit;
-  the judge's seven new `count-moved` cases 0 of 49 runs wrong (38 at
-  d0a0b10, 6 at 4e3afdd), its 759 other cases (5 306 runs) and the
-  golden comparison the same to the bit; `implicit_conditions.rs`' two
-  new tests failed before (231 of 322 runs; 1 of 56). Together they
-  cost at most about 0.01 % (cachegrind, fair scheduling, both built on
-  the same machine): the hybrid's mixed cycle 82.651 G instructions, its
-  HWFET 233.044 G and the BEV's WLTC 18.486 G against d0a0b10's 82.646,
-  233.037 and 18.485 G (+0.006 %, +0.003 %, +0.006 %; the recheck's own
-  counts +0.008 … 0.010 %, +0.006 % and noise, about twice what two
-  counts of one binary differ by), and against 36c8a0d8's 83.173,
-  237.718 and 19.068 G (−0.63 %, −1.97 %, −3.05 %).
-* *The holds' one rule* (an independent second recheck of those fixes,
-  24 October): a hold was released only at a step's end that was no event,
-  an event's point never looked at. A hold from a crossing located a
-  little early still stood at an event shortly after, the integrator
-  having x past 0.5 there, and where the event put x back under, event
-  iteration and the integrator kept it on the side it rose to: `when x
-  < 0.5` never fired, nor `when x > 0.5` where x was lifted again (`x³ +
-  x = z − k (z − 0.625 + e) + 0.2 k2`, k set 1e-6 … 1e-2 s after the
-  rise; 87 of the recheck's 515 IDA runs, 4e3afdd right in all of them).
-  One rule holds now wherever a hold is made, carried, applied or
-  released. A hold covers the integrator's own inconsistency at a
-  crossing it located a little early, and stands only while the
-  integrator's own solution, wherever the run loop has it, is still
-  short of its side within the hold: at every step's end and at every
-  event's point (a root, a time event or crossing, a tick inside a step,
-  a stale mode's settle), before event iteration reads a condition there
-  (`Loop::release_holds`, called by `Loop::iterate`). One that reached
-  its side is released; one that went back past it crossed back, and its
-  `when` fires there whether or not the integrator reported the crossing
-  (`Loop::passed`: diffsol, told the condition was held, did not, and
-  the crossing was lost). A hold still standing at an event's point holds
-  the conditions as the integrator saw them there; after the event's
-  change it is judged as a new hold is (`Loop::find_moved`): it holds on
-  only where the function, with the iteration variables solved for the
-  discrete values before the event, was still short of its side; where
-  it was past it, the event moved it across, and nothing holds it after
-  (diffsol's x lags its equation by a tenth to a quarter of its
-  tolerance where traced: 1e-6 s after a crossing a hold could stand
-  there where x, so solved, was past 0.5). What stays a limit: where an
-  event follows a crossing by
-  less than the crossing's location tolerance (10 rtol in x), the
-  integrator can locate the crossing after the event that undoes it, and
-  then neither the crossing nor the event's move back fires (L1, as the
-  probe below names it).
-  A probe of the whole family (181 440 runs, outside the repository):
-  x rising or falling through 0.5 at 0.625/a (a = 0.7, 1, 2.3, 4.4); an
-  event 1e-6, 1e-4 or 1e-2 s later (a time event, a state's crossing, a
-  tick inside a step) that puts x back across by 5.7e-13 or by its
-  tolerance and keeps it there until a second event lifts it, puts it
-  back to let it cross again at once, moves it further on, moves nothing
-  x reads, or puts it back with a second event 1e-6 s later lifting it;
-  the crossing's own `when` alone (strict or not), with the opposite one
-  (strict or not), beside a mode on the same relation, or the mode
-  alone; on IDA (with a state, every block implicit, no state), diffsol,
-  and CVODE and the stateless backend with x explicit (nothing held);
-  rtol 1e-4 … 1e-10; each run against the hand-worked counts and times.
-  On IDA's three forms (90 720 runs) the head is wrong in none but the
-  named classes below, f29ed27 in 6 526, d0a0b10 in 40 418, 4e3afdd in
-  28 555; L1 in 1 800 (2 831, 5 500, 2 776); CVODE and the stateless
-  backend right in all 60 480 at every commit. The named classes: x left
-  5.7e-13 from its threshold, below what the iteration variables are
-  solved to (2 runs on IDA at rtol 1e-5; diffsol's x drifts by more, 2
-  384 runs), right where x is put back by its tolerance; on diffsol, a
-  crossing x makes right after the event's restart (2.5 rtol/a s later)
-  missed, its iteration variable kept at its restart value through its
-  first step and then jumping, its root finder reporting nothing (46
-  runs), and 4 runs with a second pair of crossings within the location
-  tolerance: the same 50 runs wrong or within L1 at f29ed27, d0a0b10 and
-  4e3afdd (diffsol wrong in 498 runs at f29ed27, 4 927 at 4e3afdd;
-  diffsol is the cross-check); and, not a hold, an event storm beside a
-  mode on x at its crossing (87 runs on IDA, rtol 1e-10, without a state
-  at 1e-5 … 1e-10, the mode alone too; 99 at 4e3afdd and d0a0b10, 87 at
-  f29ed27): event iteration does not settle, for each flip of the mode
-  has the iteration variables solved again although it reaches none of
-  them, and x, at its threshold to within an ulp, comes out alternately
-  on it (0.5, where the strict relation is false) and an ulp past it
-  (where the mode's crossing is positive), each solve flipping the mode
-  back. Solving them only for the discrete values they read ended the
-  storms in an experiment but changed other runs (an event's own change
-  is told by that solve): open, a round of its own.
-  The judge's 766 earlier cases (5 355 runs), the golden comparison
-  (11 347 values) and the recheck's probe sets are the same to the bit;
-  its stale-hold probe 0 of 515 IDA runs wrong; the judge's eleven new
-  `count-held-back` cases 0 of 77 runs wrong (14 at f29ed27, 77 at
-  d0a0b10, 19 at 4e3afdd); `implicit_conditions.rs`' three new tests
-  failed at f29ed27 (103 of 378 runs; 8 of 56 on diffsol; 4 of 28).
-  Instructions (cachegrind, fair scheduling, both built on this
-  machine): the hybrid's mixed cycle 82.675 G against 36c8a0d8's
-  83.177 G (−0.60 %), its HWFET 233.092 G against 237.716 G
-  (−1.95 %), the BEV's WLTC 18.487 G against 19.070 G (−3.06 %);
-  against f29ed27's counts here +0.028 %, +0.018 % and +0.018 % (23 M,
-  41 M and 3 M): the release looked for at every event's point (2 M
-  of the mixed cycle's), most of the rest in `Loop::update_sides`, on
-  a path the change leaves as it was where nothing is held, as on
-  every golden model.
+  the integrator saw it on by one rule (round 4, *the hold rule*: the
+  hold spec of 28 October, revision 3, states it whole with every
+  measurement), and every hold ends.
+
+  *The rule* (`Loop::rule`, `Loop::held_by_rule`). At an event, a `when`
+  condition's root function that the event's change leaves short of the
+  side s the integrator saw it on (crossed to, where it reported a
+  crossing) is held on s only where all three hold:
+  - **H1**, solved after the event it is short of s by no more than the
+    hold's width W, 8 bands (a band: its change as each iteration
+    variable moves by its tolerance, summed; the holds suite's largest
+    early location is 2.58 bands);
+  - **H2**, solved at the same point for the discrete values before the
+    event it was short of s too (the crossing was located early), or
+    past zero by no more than the solves' rounding;
+  - **H3**, the event leaves it on s at the instant the crossing really
+    is. From the integrator's last step (P, the event's point; P', the
+    step's start, with the event's firings replayed there, so that a
+    `reinit` or a value frozen at the event is recomputed at P'), the
+    post-event function extrapolated to where the pre-event one reaches
+    zero, Ĝ1 = g1 − g0·λ, λ = (g1 − g1')/(g0 − g0'), is not short of s
+    by more than the four solves' propagated resolution, ρ(1 + 2θ)(1 +
+    |λ|), θ = |g0|/|g0 − g0'|. Where P' is not usable (a state moved,
+    the step moved the function toward s by less than 64ρ, the crossing
+    lies more than 16 steps' lengths ahead, a solve there fails), the
+    one-point test |g1 − g0| ≤ ρ decides.
+  ρ is the larger of Newton's stop (1e-3 band) and ρ_r, the rounding
+  bound of the two solves compared, u·(μ_a + μ_b): running-error
+  magnitudes (Higham §3.3) of the residuals of the iteration variables
+  and of the root function, every operation, states, time and
+  parameters included, carried to g through the solve's adjoint (Jᵀw =
+  ∇_z g), each at its own discrete values and point. The same test
+  decides a new hold, a hold standing from an earlier event at this one,
+  the conditions event iteration reads in every round
+  (`Loop::hold_conditions`), and, after an engagement, the conditions at
+  the moved states (the one-point test; the engagement loop's value
+  before the move applies every hold of the event). Where g0 cannot be
+  solved, nothing is held.
+
+  *Every hold ends* (`Loop::set_expiry`). A hold made at t expires at t
+  + T, T = min(8·max(|g1|, ρ), W)/rate. A hold the crossing itself made
+  (the event's one cause is its relation's crossing: its own `when`, a
+  sibling on the same relation, the rounds and engagements they cause;
+  no time event, time crossing, tick or other function's crossing due
+  there) takes the rate after the event, ġ1 = ∇g·ẏ1 at the post-event
+  consistent point (`Loop::rates_after`, `init::rates`), where it moves
+  toward s; every other hold, and one whose ġ1 is 0 or points away,
+  the consistent pre-event function's change over the last step, σ, its
+  cap W over max(|σ|, |ġ0(P)|) (`Loop::rates_before`). At least 64 ε
+  |t|. A hold carried or made again keeps its expiry. After every step
+  that crosses an expiry the condition is read as solved there
+  (`Loop::expiry_cut`; diffsol's own iteration variables can lag a
+  step's end): short of s, the step is cut back to the expiry and the
+  opposite `when` fires there (every function cut at that instant
+  reported, the integrator's own reports at the step's end kept);
+  arrived, the hold goes on, renewed from the step's end once that end
+  is final (`Loop::renew_holds`). The release at every step's end and
+  event's point releases an expired hold, a crossing back where it is
+  short (`Loop::passed`). So a hold the crossing made hides at most W of
+  its function and ends at x's arrival (a crossing its own event slowed
+  K times waits K times as long, as the truth does: x reached its
+  threshold at the crossing and goes on past it); every other hold ends
+  within W/max(|σ|, |ġ0(P)|), 0.41 of the location tolerance in the
+  holds suite. Whatever a hold gets wrong, found or not, is bounded so.
+
+  *Where.* At every step's end and every event's point the release runs
+  first: a function that reached its side is released; one back past
+  its width, or short at its expiry, crossed back (`Loop::passed`, a
+  crossing whether or not the integrator reported it). At every event (a
+  root, a time event or crossing, a tick inside a step, a stale mode's
+  settle) event iteration reads the conditions held as above; after it
+  the holds are made, carried or dropped and handed to the integrator,
+  which maps a held value to its side as it maps an exact zero
+  (`Integrator::set_root_sides`, `run::ZeroSides`). The mixed
+  conditions' scan does not look at a held condition
+  (`Loop::scan_mixed`). A mode's function is never held: its relation
+  decides at the event, and where that sets it back the integrator
+  restarts and meets the crossing again (`Loop::undone`). A held table
+  read's cell edges keep their own hold, 4 bands of their argument, with
+  no time limit (`Loop::hold_cells`). With no hold before an event and
+  none after it, nothing of this runs beyond a flag; the golden models
+  hold nothing.
+
+  *A report decides only the clauses it fires* (`Loop::iterate`:
+  `reported[k] = hit`). Diffsol and the run loop's time crossings report
+  a function crossing in either direction, and the clause on it the
+  other way was marked decided without firing: the opposite `when` of a
+  crossing's own move never fired on diffsol or the stateless backend
+  (there since 36c8a0d8). It is checked in event iteration's first
+  round like any clause now.
+
+  *The named limits* (the holds suite scores each, section 15): L1 (an
+  event less than the location tolerance after a crossing, the crossing
+  located after it: neither fires), located (the run is the truth redone
+  with the crossing at the instant the run located it, every event's
+  values from the exact ones just before it, its firings inside the
+  truth's windows), noise (x left within the solves' resolution of its
+  threshold), onestep, the storm beside a mode (out of scope), mode read
+  (a mode and a `when` on one relation: the `when` held, the mode read
+  literally in the same event; open), shallow peak and diffsol's restart
+  loss (no hold involved), and bounded (inside the location tolerance of
+  a crossing an extra or a lost pair of firings: what a hold's time
+  limit can cost; never a firing lost for good).
+
+  *How it came to this* (each round's check found a variant the round
+  before had missed). The twelfth round (f0c13ce6) held a crossing
+  located early. A recheck found an event that moved the condition
+  across within the hold held too; the fix judged the event's change
+  through the iteration variables (24 October). A second recheck found a
+  hold never released at an event's point; the fix released holds there
+  (*the one rule*, 24 October). Recheck 3 found an event at the crossing
+  itself that puts the condition back (its own `when`, a sibling, a
+  `reinit`) held wherever the crossing was located early (1 616 of 4 480
+  IDA runs wrong at 4d24528), and, older and not a hold, the opposite
+  `when` never firing on diffsol and the stateless backend (RC3-B2).
+  Round 4 wrote the rule down first and had it reviewed three times:
+  review 1 found a reset landing on the located value held (coin),
+  rounding read as a move (noisy2), the mixed scan reading a held
+  condition raw and engagements unruled; review 2 a hold on a function
+  that never arrives with no end (bfreeze, bcoinw) and a rounding bound
+  that missed terms outside the iteration variables (noisy3); review 3 a
+  time limit from the rate before the event expiring a right hold where
+  the crossing's own event slows the function (slow: 1 651 runs outside
+  every limit), and a rounding bound taken at the post-event values
+  only (noisy3r). Every one of those shapes is in the holds suite now.
+
+  *Measured* (the holds suite's full tier, 279 950 counted runs, at
+  80df28d's scorer; wrong / bounded / the other limits / right): this
+  rule 1 345 / 655 / 7 390 / 270 560; 4d24528 12 399 / 44 / 5 666 /
+  261 841; no holds 18 413 / 28 388 / 7 027 / 226 122; 0b66315, before
+  the holds, 23 123 / 28 189 / 7 038 / 221 600. Every wrong run is a
+  solver's or a restart's stop on cancelling terms (1 338) or diffsol's
+  (7), the same runs stopping at 4d24528. No run right at 4d24528 is
+  wrong: 247 go to noise, 49 to bounded (a freeze held and read at its
+  expiry, frzf 12; a rounding bound wider than a move, noisyown 26; a
+  solve that cannot meet its tolerance at d0, so nothing held, noisy3r
+  11) and 2 to restart loss (noisy3r on diffsol: not held, back at the
+  event, the re-crossing lost after the restart; right at 4d24528 only
+  by RC3-B2's skip). The judge's 777 cases (5 432 runs) and the golden
+  comparison (11 347 values) are the same to the bit. Instructions
+  (cachegrind, fair scheduling, every build counted on this machine):
+  the hybrid's mixed cycle 82.704 G against 4d24528's 82.673 G
+  (+0.037 %), its HWFET 233.149 G against 233.103 G (+0.020 %), the
+  BEV's WLTC 18.491 G against 18.484 G (+0.042 %); against 36c8a0d8's
+  83.167, 237.709 and 19.068 G, −0.56 %, −1.92 % and −3.03 %. Where
+  nothing is held, as on every golden model, the rule costs a flag per
+  step and per event (the first build counted, which set the time
+  limits at every event, cost +0.28 % on the mixed cycle: 7ad9a73 skips
+  that where no hold stands before or after). The holds suite's full
+  tier takes 4.1 to 4.3 s on 12 threads against 4d24528's 3.5 to 3.7 s
+  (the rule's solves at its 616 521 tests).
+  The family probe of fix round 3 (181 440 runs, now the suite's `fam`
+  family) was reported at 4d24528 as, on IDA's forms, L1 1 800, storms
+  87 and noise 2, and on diffsol 50 runs wrong or within L1 beside
+  2 384 noise; that left out diffsol's 14 runs stopped with "made no
+  progress" (rtol 1e-9 and 1e-10), its 761 L1 and its 1 storm. By the
+  suite's scorer, with this rule, the family: 6 wrong (diffsol's
+  stops), 4 bounded, 2 561 L1, 2 386 noise, 54 storms, 36 restart
+  losses, 176 393 right.
 * *Scheduled events are no storms.* What a sample tick or a time event
   changes at its instant (a controller switching an engine's throttle from
   one tick to the next) does not count towards `storm_events`.
@@ -4015,12 +3973,30 @@ events name the modes that chatter.
   change moved across, never firing while held, until the recheck's
   fixes of the same day: section 8.2 and the `count-moved` cases; nor
   one an event put back across a hold from an earlier crossing, until
-  the second recheck's fixes: the `count-held-back` cases), and a
+  the second recheck's fixes: the `count-held-back` cases; nor one whose
+  crossing's own event put it back, or slowed it, until round 4's hold
+  rule: section 8.2 and the holds suite below), and a
   condition on a state alone is still missed where one step holds both
   its crossings (`count-explicit-pulse` at four tolerances of seven,
   `count-oscillator-peaks` at six; section 8.2, a known limit; on the
   oscillator OpenModelica misses at five); every other case is the
   same, steps, error and events, as before the round.
+  The holds suite (round 4, `engine/judge/holds.py`, README *The holds
+  suite*): every probe the solver work's reviews ran on conditions on
+  iteration variables, scored against hand-worked counts and times,
+  never a commit's output, with the named limits of section 8.2 computed
+  by its scorer. `judge.py holds cases OUT --tier full` (1 726 models,
+  281 696 runs; `--tier quick`: 446, 5 546), `holds build CHECKOUT
+  RUNNER` (the same runner at every commit), `holds run`, `holds score`.
+  Its full tier (279 950 counted runs; wrong / bounded / other limits /
+  right): the hold rule 1 345 / 655 / 7 390 / 270 560, every wrong run a
+  stop that stops at 4d24528 too; 4d24528 12 399 / 44 / 5 666 /
+  261 841; no holds 18 413 / 28 388 / 7 027 / 226 122; 0b66315 23 123 /
+  28 189 / 7 038 / 221 600. The quick tier runs in a fifth of a second;
+  `lsim-solve/tests/implicit_conditions.rs` keeps a sample of every
+  shape a review found (seven tests, six of which fail at 4d24528, the
+  seventh under revision 2's time limit), and `run_loop.rs` an engagement
+  at its crossing that slows the condition.
   The third verdict (20 October 2026, the solver work's item D: the
   library Driver's anti-windup, section 12.2): the Modelica Standard
   Library's `Blocks.Examples.PID_Controller` with the Driver as its

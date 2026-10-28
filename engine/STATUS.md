@@ -136,18 +136,28 @@ also run on Linux, but only Windows CI proves what ships.
   the conditions without the hold: since 24 October it reads them as
   the integrator does, and each crossing fires its own direction's
   clauses alone (both crossings inside one step stay a known limit).
-  A condition on one that an event's own change moves across fires
-  there, however little it moves it (held where the integrator saw it,
-  it never fired while x stayed within the hold), and a `when` beside a
-  mode on its relation fires once (it fired again where the mode met the
-  crossing with x exactly at its threshold); only a crossing the
-  integrator located a little early is held (since the recheck of 24
-  October), and only while the integrator's own solution, at every
-  step's end and every event's point, is still short of the side it
-  crossed to: an event that puts it back fires there, a hold from an
-  earlier crossing standing or not, and one that went back past its
-  hold fires where the run loop finds it, reported or not (since the
-  second recheck of 24 October; DESIGN.md 8.2, *The holds' one rule*).
+  A condition on one is held only where the crossing's early location
+  explains why it reads short, never where the event itself moved it
+  back (its own `when`, a sibling, a `reinit`, a value it froze, a
+  rounding wider than the solve's), read where the crossing really is;
+  and every hold ends: if x does not get across by itself in eight times
+  what its shortfall needs (at the speed x has after the event where the
+  crossing's own event changed it, else at the speed it had), it is read
+  as it is, and its opposite `when` fires there. A hold that is wrong
+  can so hide at most its width of x, never past x's arrival; where x
+  stops or turns back, a firing moves by less than the solver's timing
+  precision (round 4, the hold rule: DESIGN.md 8.2, *Conditions on
+  iteration variables*). On diffsol and the stateless backend the
+  opposite `when` of a crossing's own move now fires (it never did).
+  The holds suite (`engine/judge/holds.py`, 279 950 runs of every shape
+  the reviews found, against hand-worked counts and times): 270 560
+  right, 655 bounded (an extra or a lost pair of firings within the
+  solver's timing precision), 7 390 within the other named limits, 1 345
+  wrong, every one a solver stop that happens at the last commit and
+  without holds too; no run right at the last commit is wrong. Known
+  limits: a mode and a `when` on one relation can read two values at one
+  event (mode read), the event storm beside a mode, and diffsol losing a
+  crossing right after a restart.
 
 ## The vendored IDAS against SUNDIALS 7.9.0 (20 October 2026)
 

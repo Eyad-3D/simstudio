@@ -394,4 +394,6 @@ order, after the limits above):
   right after an event (an instant where the run fired, or the shape's
   t2): with that firing put back just after the event, it is; never a
   firing the truth ties to another's instant (event iteration's own) or a
-  scheduled one.
+  scheduled one, and not in a shape whose events slow or stop x (slow,
+  slowsib, slowr, bfreeze, bfreezew, extra's freezes), where a lost
+  firing may be a late one.
