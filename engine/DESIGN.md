@@ -3140,6 +3140,18 @@ against exact answers from `benchmarks/`.
   yet: the energy report, part energies, duty, limits, references and
   today's run verdict (a cycle not followed, data run past: `notValid`,
   `limit`, `passed`), STATUS WP6.
+* **The app's path, both engines** (step 2's judge,
+  `python -m benchmarks.back_to_back`): every example case and eight
+  probes run through the app's own `simulate`, on today's engine at 10 ms
+  and 1 ms and on the new engine's path in strict mode (nothing falls back);
+  every field of the two results is compared against the bands above and
+  each difference classed as above (`benchmarks/back_to_back/classes.toml`,
+  each rule with its date, reason and check), beside the planted-fault
+  verdict matrix, the result schema, speed traces with exact answers from
+  the regulations' text, streaming, stop and replay. What it judges and
+  the pass marks were registered before its first run
+  (`benchmarks/back_to_back/acceptance.toml`); where the path stood before
+  the wiring is `benchmarks/back_to_back/baseline/README.md`.
 
 ## 13. Python API
 

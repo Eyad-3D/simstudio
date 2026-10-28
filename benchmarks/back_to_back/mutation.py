@@ -10,10 +10,12 @@ it and why none is wanted), or the line fails.
 It works on a copy of the backend in OUT/mutation/backend (mutmut writes
 its mutants and its progress there), so a stopped run resumes: `mutmut
 run` goes on with the mutants not yet tested. The tests are the fast ones
-that call the verdict directly (TESTS); the whole-example tests that also
-reach it (test_examples_plausible.py, golden_compare.py through
-test_golden.py) take minutes a run and are left out, which can only make
-the survivors more, never fewer. mutmut runs on Linux only (it forks).
+that reach the verdict (TESTS: they call it, or run small models through
+it); the whole-example tests that also reach it (test_verdict.py's
+test_bundled_examples_follow_their_cycles, test_examples_plausible.py,
+golden_compare.py through test_golden.py) take a minute or more a run and
+are left out, which can only make the survivors more, never fewer. mutmut
+runs on Linux only (it forks).
 """
 from __future__ import annotations
 
@@ -27,12 +29,18 @@ from pathlib import Path
 
 from .runs import BACKEND, HERE
 
+MEMORY = 2_500_000_000  # bytes of address space a test process may take: a mutant that loops
+#                         growing a list (one of _RangeMinMax's did, to 5.5 GB) fails there, killed
 TARGET = "app/solver/verdict.py"
-TESTS = ["tests/test_verdict.py", "tests/test_distance_profile.py", "tests/test_map_edges.py"]
+TESTS = ["tests/test_verdict.py", "tests/test_distance_profile.py", "tests/test_map_edges.py",
+         "tests/test_acceleration.py", "tests/test_run_warnings.py", "tests/test_power_limit.py",
+         # a minute a run, every bundled example to its end: left out (see above)
+         "--deselect=tests/test_verdict.py::test_bundled_examples_follow_their_cycles"]
+_LIST = "".join(f"    {t}\n" for t in TESTS)  # setup.cfg's lists: one item a line
 CONFIG = f"""[mutmut]
-paths_to_mutate = {TARGET}
-tests_dir = {", ".join(TESTS)}
-also_copy =
+source_paths = {TARGET}
+pytest_add_cli_args_test_selection =
+{_LIST}also_copy =
     app/
     projects/
     tests/
@@ -52,8 +60,8 @@ def run(out: Path, max_children: int | None = None) -> dict:
     mutmut = str(Path(sys.executable).with_name("mutmut"))
     log = out / "mutation" / "run.log"
     with open(log, "a", encoding="utf-8") as f:
-        subprocess.run([mutmut, "run", "--max-children", str(max_children or 4)], cwd=work,
-                       stdout=f, stderr=subprocess.STDOUT)
+        subprocess.run([mutmut, "run", "--max-children", str(max_children or 2)], cwd=work,
+                       stdout=f, stderr=subprocess.STDOUT, preexec_fn=_limit)
     listing = subprocess.run([mutmut, "results", "--all", "true"], cwd=work, capture_output=True,
                              text=True).stdout
     states: dict[str, str] = {}
@@ -70,6 +78,11 @@ def run(out: Path, max_children: int | None = None) -> dict:
     (out / "mutation.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     print(f"mutmut: {res['mutants']} mutants, {res['by_state']}", flush=True)
     return res
+
+
+def _limit() -> None:
+    import resource
+    resource.setrlimit(resource.RLIMIT_AS, (MEMORY, MEMORY))
 
 
 def _count(values) -> dict:

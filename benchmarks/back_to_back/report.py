@@ -61,10 +61,18 @@ def b2b(out: Path) -> dict:
         if got == "run" and _ok(rec["today-normal"]) and _ok(rec["today-fine"]):
             n, f = rec["today-normal"]["result"], rec["today-fine"]["result"]
             ds = diff.compare(item["id"], n, f, new)
-            ctx = {}
+            ctx = {"notes": {diff.masked(d["message"]) for d in (rec["new"].get("engine") or {})
+                             .get("build_warnings", [])},
+                   "status_without_notes": _without_notes(rec["new"])}
             if item["id"] != "probe/bev-fmu":
-                project, _, _ = runs.item_project(item, out / "user")
-                ctx = {"gears": diff.gear_rebuild(project, n, f, new)}
+                project, case_id, _ = runs.item_project(item, out / "user")
+                ctx["gears"] = diff.gear_rebuild(project, n, f, new)
+                case = runs._case(project, case_id)
+                if case.get("kind") == "acceleration" and case.get("endDistance"):
+                    last = {k: next(c["timeSeries"][-1]["value"] for c in r["channels"]
+                                    if c["elementId"] == "el-vehicle" and c["portId"] == "sig_distance")
+                            for k, r in (("today", f), ("new", new))}
+                    ctx["line_end"] = {**last, "line": (case.get("startLine") or 0.0) + case["endDistance"]}
             diff.classify(ds, {item["id"]: ctx})
             row["classes"] = dict(Counter(d["cls"] for d in ds))
             row["wall_s"] = {"today-normal": rec["today-normal"]["wall_s"],
@@ -79,7 +87,7 @@ def b2b(out: Path) -> dict:
     return {"state": state, "items": rows, "as_expected": expected, "of": len(rows),
             "differences": len(all_diffs), "by_class": dict(by_class),
             "by_rule": {f"{c} {r}": k for (c, r), k in sorted(by_rule.items(), key=str)},
-            "unclassified_by_field": dict(Counter((d["item"], d["field"], d["what"])
+            "unclassified_by_field": dict(Counter(f"{d['item']} | {d['field']} | {d['what']}"
                                                   for d in unclassified).most_common()),
             "unclassified": unclassified, "diffs": all_diffs}
 
@@ -117,21 +125,45 @@ def strict(out: Path, b: dict) -> dict:
             "refusals_total": sum(seen.values()), "wrong_items": wrong, "bad": bad}
 
 
-def schema(out: Path) -> dict:
+SCHEMA = runs.REPO / "docs" / "spec" / "schemas" / "result.schema.json"
+
+
+def _validate(path: Path) -> tuple[str, str, list[dict]]:
+    """(file, its SHA-256, the schema errors of its result) — a few seconds a
+    large result in pure Python, so the report runs them on several cores
+    and keeps them by checksum (OUT/schema.json) for the next report."""
     import jsonschema
-    spec = json.loads((runs.REPO / "docs" / "spec" / "schemas" / "result.schema.json").read_text(encoding="utf-8"))
-    validator = jsonschema.Draft202012Validator(spec)
-    n, errors = 0, []
-    for path, rec in _all_records(out):
-        if not _ok(rec):
-            continue
-        n += 1
-        for e in validator.iter_errors(rec["result"]):
-            errors.append({"file": f"{path.parent.name}/{path.name}", "at": "/".join(map(str, e.path)),
-                           "error": e.message[:200]})
-    return {"state": "pass" if n and not errors else "fail", "results": n, "errors": len(errors),
-            "first_errors": errors[:20], "validator": f"jsonschema {jsonschema.__version__}"
-            if hasattr(jsonschema, "__version__") else "jsonschema"}
+    raw = path.read_bytes()
+    rec = json.loads(raw)
+    errors = []
+    if _ok(rec):
+        validator = jsonschema.Draft202012Validator(json.loads(SCHEMA.read_text(encoding="utf-8")))
+        errors = [{"at": "/".join(map(str, e.path)), "error": e.message[:200]}
+                  for e in validator.iter_errors(rec["result"])]
+    return str(path), hashlib.sha256(raw).hexdigest() + ("" if _ok(rec) else ":no result"), errors
+
+
+def schema(out: Path) -> dict:
+    from concurrent.futures import ProcessPoolExecutor
+    from importlib.metadata import version
+    cache_path = out / "schema.json"
+    key = hashlib.sha256(SCHEMA.read_bytes()).hexdigest()
+    cache = json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else {}
+    if cache.get("schema") != key:
+        cache = {"schema": key, "files": {}}
+    paths = sorted((out / "raw").glob("*/*.json"))
+    sums = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in paths}
+    todo = [p for p in paths if not str(cache["files"].get(str(p), {}).get("sha", "")).startswith(sums[str(p)])]
+    with ProcessPoolExecutor(max_workers=6) as pool:
+        for name, sha, errs in pool.map(_validate, todo, chunksize=4):
+            cache["files"][name] = {"sha": sha, "errors": errs}
+    cache_path.write_text(json.dumps(cache), encoding="utf-8")
+    files = {k: v for k, v in cache["files"].items() if k in sums}
+    checked = [k for k, v in files.items() if not v["sha"].endswith(":no result")]
+    errors = [{"file": "/".join(Path(k).parts[-2:]), **e} for k in checked for e in files[k]["errors"]]
+    return {"state": "pass" if checked and not errors else "fail", "results": len(checked),
+            "errors": len(errors), "first_errors": errors[:20],
+            "validator": f"jsonschema {version('jsonschema')} (Draft 2020-12)"}
 
 
 def _without_notes(rec: dict) -> str:
@@ -197,9 +229,11 @@ def meta(out: Path) -> dict:
                 rec = runs.load(out, {"kind": kind, "id": i, "setting": setting})
                 if _ok(rec):
                     res = rec["result"]
-                    got[setting] = {"verdict": _verdict(res), "refused": refusal(res)}
+                    got[setting] = {"verdict": _verdict(res), "refused": refusal(res),
+                                    "status_without_notes": _without_notes(rec)}
                     v = got[setting]["verdict"]
-                    if not got[setting]["refused"] and (v[0] != "success" or v[1] or any(not p for _, p in v[2])):
+                    if not got[setting]["refused"] and (got[setting]["status_without_notes"] != "success"
+                                                        or v[1] or any(not p for _, p in v[2])):
                         judged = True
             same = len({json.dumps(g["verdict"]) for g in got.values()}) == 1 and len(got) == 1 + len(runs.META)
             rows.append({"id": i, "same": same, "settings": got})
@@ -394,13 +428,18 @@ def noskip(out: Path) -> dict:
 
 
 def status(b: dict, lines: dict) -> dict:
-    fields = {"the verdict": "summary.notValid", "the energy report": "energy", "part energies": "partEnergy",
-              "duty": "duty", "limits": "limits", "references": "references"}
-    present = {}
-    for name, field in fields.items():
-        missing = [d for d in b["diffs"] if d["field"] == field and d["what"] in ("missing", "text")
-                   and (field != "summary.notValid" or d["today"] is not None)]
-        present[name] = not missing and bool(b["diffs"])
+    ran = any(r["got"] == "run" for r in b["items"])
+    fields = {"the energy report": "energy", "part energies": "partEnergy", "duty": "duty",
+              "limits": "limits", "references": "references"}
+    present = {name: ran and not any(d["field"] == field and d["what"] == "missing" for d in b["diffs"])
+               for name, field in fields.items()}
+    # the verdict: none of today's verdict missing or a note standing in for it, a verdict that
+    # judges something (META) and no planted fault let through (FAULTS)
+    verdict_rules = {"new-path-lacks-verdict", "new-path-lacks-messages", "preparation-note-as-warning",
+                     "preparation-note-status"}
+    present["the verdict"] = (ran and not any(d["rule"] in verdict_rules for d in b["diffs"])
+                              and lines["META"]["state"] == "pass"
+                              and not lines["FAULTS"]["violations"] and not lines["FAULTS"]["hidden"])
     present["live streaming"] = lines["STREAM"]["S1"]["state"] == "pass"
     present["study stop and progress"] = lines["STREAM"]["S2"]["state"] == "pass"
     present["FMU parts"] = lines["FMU"]["state"] == "pass"

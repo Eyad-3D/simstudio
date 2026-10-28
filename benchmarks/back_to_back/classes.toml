@@ -65,10 +65,79 @@ reason = "The first message of a run on the new path says which engine ran it (n
 id = "gears-today-rule"
 class = "b"
 date = "2026-10-28"
-field = ["channels.values"]
+field = ["channels.values", "channels.min", "channels.max", "channels.mean"]
 check = "gear_rebuild"
 reason = """A gear's torque, power or losses: today's engine applies a gear's efficiency to, and reports as \
 the gear's, the torque of the sources above it, the inertias between them not taken out; the new engine \
 loses it on, and reports, the torque the teeth carry (lsim-project/golden/README.md, the October 2026 \
 triage). Classed b only where golden/definitions.py, today's rule rebuilt from the new run's own channels, \
-lands inside the band, and the same rule rebuilt from today's 1 ms run reproduces today's channel."""
+lands inside the band, and the same rule rebuilt from today's 1 ms run reproduces today's channel. \
+For a channel's minimum, maximum and mean over each output interval the rule is applied to the sources' \
+statistic there (its second check, on today's own run, shows where that holds)."""
+
+[[rule]]
+id = "preparation-note-as-warning"
+class = "a"
+date = "2026-10-28"
+field = ["messages"]
+what = ["extra"]
+check = "preparation_note"
+reason = """A note of the new engine's preparation (a start guess two names of one variable disagree on, \
+START-ALIAS-CONFLICT; a start the preparation could not solve) shown as a warning of the run: it is about \
+the start values, not about the run's result (review finding 36; it also hides faults: FAULTS)."""
+
+[[rule]]
+id = "preparation-note-status"
+class = "a"
+date = "2026-10-28"
+field = ["status"]
+check = "status_from_notes"
+reason = """The new run says "warning" only because of the engine's preparation notes; without them it says \
+today's status (review finding 36)."""
+
+[[rule]]
+id = "today-run-summary"
+class = "c"
+date = "2026-10-28"
+field = ["messages"]
+what = ["missing"]
+key = "^info: Case '.*' solved"
+reason = """Today's engine's own summary of its fixed steps ("solved: N steps x dt (n sub-steps each), points \
+recorded"): it describes today's integrator, which the new engine does not have; the new path's first \
+message says which engine ran the case instead."""
+
+[[rule]]
+id = "new-path-lacks-messages"
+class = "a"
+date = "2026-10-28"
+field = ["messages"]
+what = ["missing"]
+reason = """A note or warning of today's run that the new path does not write: the verdict's and the run's \
+messages (an acceleration test's "results are estimates", a battery held at its output power limit, a \
+Driving Task that follows a typed profile, CON-26). The new path's messages are its build warnings only \
+(new_engine.run_new; review finding 36)."""
+
+[[rule]]
+id = "bev-city-recuperation"
+class = "b"
+date = "2026-10-28"
+field = ["summary.value"]
+item = ["bev-car/case-city", "bev-car/case-city-live"]
+key = "^el-battery\\.energy_recuperated_kwh$"
+max_x = 1.01
+reason = """The battery-electric car's recuperated energy on the city cycle, 1.0039 x band (the golden \
+comparison's own figure, 1.0039 x, 1.0044 x converged): the gears' rule, the triage's one cause \
+(lsim-project/golden/README.md, "the two figures"). Capped: a larger difference stays unclassified."""
+
+[[rule]]
+id = "acceleration-ends-at-the-line"
+class = "b"
+date = "2026-10-28"
+field = ["times"]
+what = ["grid"]
+check = "ends_at_the_line"
+reason = """An acceleration test's last output time: today's engine ends at the end of the solver step that \
+crossed the line (75.306 m at 1 ms, t = 4 s), the new engine at the line itself, an exact event (75.3000007 m \
+at t = 3.9994 s). The case asks for the time at the line (SimCase.endDistance), so today's last point is \
+today's discretisation, checked: the new engine within 1 mm of the line, today's past it by more than ten \
+times that."""

@@ -13,6 +13,16 @@ The rules, as published:
   ± 1,0 second of the given point in time; Lower limit: 2,0 km/h lower than
   the lowest point of the trace within ± 1,0 second of the given time."
 
+Neither rule's allowances change the time outside the limits, which is what
+the verdict reports and the pass mark judges; they decide what counts
+against a test. 40 CFR 1066.425(b)(4)(ii): for a vehicle that cannot keep
+the acceleration, "do not count the insufficient acceleration as being
+outside the specified limits"; the WLTP's 2.6.8.3: such a vehicle is driven
+with the accelerator fully activated and its "speed trace violations under
+these circumstances shall not void a test". So the slow car's whole
+excursion (it is at full throttle throughout) counts for nothing under
+either rule: the report says so beside its time outside.
+
 So at every instant t the band is [min - tol, max + tol] of the target
 over [t - 1 s, t + 1 s] (cut to the trace's span), and the time outside is
 the measure of the instants where the driven speed is beyond it. Both the
@@ -141,7 +151,9 @@ def measure() -> list[dict]:
             exact = exact_outside(target, speed, tol)
             got = m.outside_epa_s if band == "epa" else m.outside_wltp_s
             rows.append({"trace": name, "band": band, "exact_s": float(exact),
-                         "exact": str(exact), "verdict_s": got, "error_s": abs(got - float(exact))})
+                         "exact": str(exact), "verdict_s": got, "error_s": abs(got - float(exact)),
+                         # (b)(4)(ii) and 2.6.8.3: at full throttle, behind, none of it counts
+                         "counts_s": 0.0 if name == "slow car below a ramp" else None})
     return rows
 
 

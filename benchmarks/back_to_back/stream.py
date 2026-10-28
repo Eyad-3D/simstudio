@@ -18,6 +18,7 @@ import json
 import math
 import os
 import random
+import re
 import statistics
 import threading
 import time
@@ -120,7 +121,7 @@ def study_stops(engine: str, stops: int, seed: int = 3) -> dict:
         seen: list[str] = []
 
         async def send(msg: dict) -> None:
-            seen.append(msg.get("status"))
+            seen.append(_shown(msg))
 
         asked: list[float] = []
 
@@ -144,13 +145,24 @@ def study_stops(engine: str, stops: int, seed: int = 3) -> dict:
         for _ in range(stops):
             _, latency, seen = asyncio.run(one(rng.uniform(0.2, 0.8) * length))
             statuses.append(seen)
-            if latency is not None and "cancelled" in seen:
+            if latency is not None and "cancelled while running" in seen:
                 shown += 1
                 lat.append(latency)
     out = _summary(lat, shown, stops, 1.0)
     out.update(unstopped_s=length, unstopped_statuses=sorted(set(first)),
                stopped_statuses=[sorted(set(s)) for s in statuses])
     return out
+
+
+def _shown(msg: dict) -> str:
+    """A study point's message as the stop probe counts it: a point the stop
+    reached while it ran ends cancelled at some t > 0; one cancelled at t = 0
+    never ran (its worker saw the stop before it started)."""
+    status = msg.get("status")
+    if status == "cancelled":
+        m = re.search(r"t = ([-\d.e+]+) s", msg.get("incomplete") or "")
+        return "cancelled while running" if m and float(m.group(1)) > 0 else "cancelled before running"
+    return str(status)
 
 
 def stop_probe(out: Path, stops: int) -> None:

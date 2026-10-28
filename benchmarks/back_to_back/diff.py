@@ -78,6 +78,25 @@ def _series_x(n: list, f: list, v: list) -> tuple[float | None, float]:
     return rms(v[k] - f[k] for k in idx) / band, band
 
 
+def where(n: list, f: list, v: list, band: float, times: list) -> dict:
+    """Where a channel's difference sits: how many of its worst points must
+    go for the rest to be inside the band (and their share), the times of
+    the five worst, and on which side of today's 1 ms value the new one lies
+    (above, below: the shares of the points)."""
+    m = min(len(n), len(f), len(v), len(times))
+    idx = [k for k in range(1, m) if None not in (n[k], f[k], v[k]) and math.isfinite(v[k])]
+    err = sorted(((v[k] - f[k]) ** 2, k) for k in idx)
+    total, drop = sum(e for e, _ in err), 0
+    while err[:len(err) - drop] and math.sqrt(max(0.0, total) / max(1, len(err) - drop)) > band:
+        total -= err[len(err) - 1 - drop][0]
+        drop += 1
+    worst = [times[k] for _, k in reversed(err[-5:])]
+    above = sum(v[k] > f[k] for k in idx) / max(1, len(idx))
+    below = sum(v[k] < f[k] for k in idx) / max(1, len(idx))
+    return {"points": drop, "share": drop / max(1, len(idx)), "worst_t": worst,
+            "above": above, "below": below}
+
+
 def _rows(rows: list[dict], key) -> dict:
     out: dict = {}
     for r in rows or []:
@@ -125,7 +144,8 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
                               last=[tf[-1] if tf else None, tv[-1] if tv else None]))
         x, band = _series_x(series["n"], series["f"], series["v"])
         if x is not None and x > 1.0:
-            out.append(_d(item, "channels.values", name, "value", x=x, band=band))
+            out.append(_d(item, "channels.values", name, "value", x=x, band=band,
+                          where=where(series["n"], series["f"], series["v"], band, tf)))
         for stat in ("min", "max", "mean"):
             fs, vs, ns = f.get(stat), v.get(stat), (n or {}).get(stat)
             if (fs is None) != (vs is None):
@@ -133,7 +153,8 @@ def compare(item: str, normal: dict, fine: dict, new: dict) -> list[Diff]:
             elif fs is not None:
                 x, band = _series_x(ns or fs, fs, vs)
                 if x is not None and x > 1.0:
-                    out.append(_d(item, f"channels.{stat}", name, "value", x=x, band=band))
+                    out.append(_d(item, f"channels.{stat}", name, "value", x=x, band=band,
+                                  where=where(ns or fs, fs, vs, band, tf)))
 
     # summary rows, by key (by label where a row has none)
     rows = {c: _rows(r["summary"], lambda x: x["key"] or x["label"])
@@ -249,28 +270,38 @@ def gear_rebuild(project: dict, normal: dict, fine: dict, new: dict) -> dict[str
     channel it rebuilds, (x of the rule applied to the new run's own
     channels, x of the rule applied to today's 1 ms run), both against the
     channel's band. The first says whether today's rule explains the
-    difference, the second that the rule is today's."""
+    difference, the second that the rule is today's. Keyed by the channel
+    for its values, and by "channel|min" (max, mean) for its statistics
+    over each output interval, the rule applied to the sources' statistic
+    there: right where the gear's quantity is linear in the sources' over
+    the interval, which the second number checks on today's own run."""
     d = _definitions()
     try:
         chain, motors, clutches, node = d.driveline(project)
     except (StopIteration, KeyError, IndexError):
         return {}
-    ch = {c: {f"{x['elementId']}:{x['portId']}": [p["value"] if p["value"] is not None else math.nan
-                                                  for p in x["timeSeries"]] for x in r["channels"]}
-          for c, r in (("n", normal), ("f", fine), ("v", new))}
-    try:
-        theirs = d.rebuild(ch["v"], chain, motors, clutches, node)
-        mine = d.rebuild(ch["f"], chain, motors, clutches, node)
-    except (KeyError, IndexError, ZeroDivisionError):
-        return {}
     out = {}
-    for name, values in theirs.items():
-        if name not in ch["f"] or name not in ch["n"]:
+    for stat in ("values", "min", "max", "mean"):
+        def series(r):
+            got = {}
+            for x in r["channels"]:
+                vs = [p["value"] for p in x["timeSeries"]] if stat == "values" else x.get(stat)
+                if vs is not None:
+                    got[f"{x['elementId']}:{x['portId']}"] = [math.nan if v is None else v for v in vs]
+            return got
+        ch = {c: series(r) for c, r in (("n", normal), ("f", fine), ("v", new))}
+        try:
+            theirs = d.rebuild(ch["v"], chain, motors, clutches, node)
+            mine = d.rebuild(ch["f"], chain, motors, clutches, node)
+        except (KeyError, IndexError, ZeroDivisionError):
             continue
-        x_new, _ = _series_x(ch["n"][name], ch["f"][name], values)
-        x_today, _ = _series_x(ch["n"][name], ch["f"][name], mine[name])
-        if x_new is not None and x_today is not None:
-            out[name] = (x_new, x_today)
+        for name, values in theirs.items():
+            if name not in ch["f"] or name not in ch["n"]:
+                continue
+            x_new, _ = _series_x(ch["n"][name], ch["f"][name], values)
+            x_today, _ = _series_x(ch["n"][name], ch["f"][name], mine[name])
+            if x_new is not None and x_today is not None:
+                out[name if stat == "values" else f"{name}|{stat}"] = (x_new, x_today)
     return out
 
 
@@ -299,8 +330,17 @@ def _matches(rule: dict, df: Diff, ctx: dict) -> bool:
         return False
     check = rule.get("check")
     if check == "gear_rebuild":  # today's rule on the new run lands inside, and is today's
-        got = ctx.get("gears", {}).get(df["key"])
+        stat = df["field"].split(".")[-1]
+        got = ctx.get("gears", {}).get(df["key"] if stat == "values" else f"{df['key']}|{stat}")
         return got is not None and got[0] <= 1.0 and got[1] <= 1.0
     if check == "today_has_new_none":  # today's run has it, the new path leaves it out
         return df["today"] is not None and df["new"] is None
+    if check == "preparation_note":  # the message is one of the engine's build notes
+        return df["key"].split(": ", 1)[-1] in ctx.get("notes", ())
+    if check == "ends_at_the_line":  # an acceleration test's end: today past the line, the new at it
+        end = ctx.get("line_end")
+        return bool(end) and abs(end["new"] - end["line"]) <= 1e-3 and \
+            end["today"] - end["line"] > 10 * abs(end["new"] - end["line"])
+    if check == "status_from_notes":  # without its build notes the new run says today's status
+        return ctx.get("status_without_notes") == df["today"]
     return True

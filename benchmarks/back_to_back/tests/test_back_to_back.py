@@ -133,6 +133,38 @@ def test_each_difference_takes_its_class():
     assert sorted(d["cls"] for d in ds) == ["a", "c", "unclassified"]
 
 
+def test_where_a_difference_sits():
+    today = [float(k) for k in range(101)]
+    new = list(today)
+    new[40] += 50.0  # one point far off
+    got = diff.where(today, today, new, band=1.0, times=today)
+    assert got["points"] == 1 and got["worst_t"][0] == 40.0
+    assert got["above"] == pytest.approx(1 / 100)
+
+
+def test_rules_that_read_the_runs():
+    note = "v of 'A' (# V) and v of 'B' (# V) carry different start guesses."
+    ds = [diff.Diff(item="x", field="messages", key=f"warning: {note}", what="extra", x=None,
+                    today=0, new=1),
+          diff.Diff(item="x", field="status", key="", what="text", x=None, today="success", new="warning"),
+          diff.Diff(item="x", field="times", key="", what="grid", x=None, today=401, new=401)]
+    diff.classify(ds, {"x": {"notes": {note}, "status_without_notes": "success",
+                             "line_end": {"today": 75.306, "new": 75.3000007, "line": 75.3}}})
+    assert [(d["cls"], d["rule"]) for d in ds] == [
+        ("a", "preparation-note-as-warning"), ("a", "preparation-note-status"),
+        ("b", "acceleration-ends-at-the-line")]
+    diff.classify(ds, {"x": {"line_end": {"today": 75.3001, "new": 75.3005, "line": 75.3}}})
+    assert [d["cls"] for d in ds] == ["unclassified"] * 3
+
+
+def test_mutation_testing_takes_its_tests_and_a_memory_cap():
+    from benchmarks.back_to_back import mutation
+    assert "source_paths = app/solver/verdict.py" in mutation.CONFIG
+    for t in mutation.TESTS:
+        assert f"    {t}\n" in mutation.CONFIG
+    assert 0 < mutation.MEMORY <= 4_000_000_000
+
+
 # ---- the report's measures ---------------------------------------------------------------
 
 def test_a_refusal_is_read_from_the_first_message():

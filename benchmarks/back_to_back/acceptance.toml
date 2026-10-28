@@ -327,5 +327,35 @@ pass_mark = "11 of 11, and the documents true"
 judge = "the measured results"
 
 # ---------------------------------------------------------------------------
-# Later changes, each with its date and reason (none yet).
+# Later changes, each with its date and reason. The lines above keep their
+# registered words; a change says what it replaces.
 # ---------------------------------------------------------------------------
+
+[[changes]]
+date = "2026-10-28"
+line = "ENERGY"
+change = """E2 reads the battery's "Power" duty row, not "the Power Consumer's duty RMS"; the probe's battery \
+has no resistance (R0 and the RC pair 0)."""
+reason = """The first run of the sine probe on today's engine showed that a Power Consumer has no duty part: \
+today's reports give duty rows to motors, batteries, engines, fuel cells and DC-DC converters only \
+(app/solver/reports.py, duty_parts). The battery is the consumer's only supply and, without resistance, \
+carries exactly its power, so its RMS is the same closed form. Today's engine gave 5.431390245600112 kW \
+against the exact 5.431390245600108 kW."""
+
+[[changes]]
+date = "2026-10-28"
+line = "META"
+change = """A run the new engine's path refuses (a NEW- code in its first message) judges nothing: it does \
+not make the set "not vacuous"."""
+reason = """Said outright before the baseline was reported: a refusal's "failed" status is the path's, not \
+a verdict of the engine on the run, and would make any set of refused runs look judged."""
+
+[[changes]]
+date = "2026-10-28"
+line = "META"
+change = """Nor does a "warning" that comes only from the engine's preparation notes (the FAULTS line's hidden \
+rule: the run's status without its build report's messages): such a run counts as judged only when its \
+status without them is not success, or it has a notValid or passed=false row."""
+reason = """The first report showed every run of the set at "warning", each from the start-guess note \
+(START-ALIAS-CONFLICT) and none from the verdict: by the registered words the line would pass on notes \
+that are not about the run at all, which is the vacuous case the line exists to catch (review finding 36)."""

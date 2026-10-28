@@ -87,6 +87,7 @@ def _add_test_fmu(project: dict, scratch: Path) -> None:
     from app.fmu import store
     from fmu.build import build as build_test_fmu  # the backend's own test FMU
 
+    (scratch / "fmu-build").mkdir(parents=True, exist_ok=True)
     path = build_test_fmu(scratch / "fmu-build")
     sha, kept = store.store_bytes(path.read_bytes())
     store.allow(sha, path.name)
