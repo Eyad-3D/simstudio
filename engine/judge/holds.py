@@ -1551,6 +1551,10 @@ def shallow_peak(b, r, res) -> bool:
     return all(res.get("final", {}).get(v, 0) == 0 for v in ("n", "m", "on"))
 
 
+# the families whose events change x's rate (restart_loss)
+RATE_CHANGING = {"slow", "slowsib", "slowr", "bfreeze", "bfreezew"}
+
+
 def restart_loss(b, r, res, cls_of_key) -> bool:
     """Diffsol right after an event's restart (the hold spec, 4.10; no hold
     involved, out of scope by the brief): the run is right, or inside L1,
@@ -1559,8 +1563,14 @@ def restart_loss(b, r, res, cls_of_key) -> bool:
     t2): with that firing put back just after the event, it is. Not a
     firing the truth ties to another's instant (event iteration's, at the
     event itself: `same`), nor one at a scheduled instant: those are not
-    crossings the integrator finds after a restart."""
+    crossings the integrator finds after a restart. Only in shapes whose
+    events leave x's rate as it was (a crossing x makes after the event
+    then comes within the location's scale of it): not where an event
+    slows or stops x (slow, slowsib, slowr, bfreeze, bfreezew, extra's
+    freezes), where a lost firing may be a late one."""
     if b["config"] != "diffsol" or not res or not res.get("ok"):
+        return False
+    if b["family"] in RATE_CHANGING or b["shape"].get("kind") in ("frzf", "frzb"):
         return False
     tied = {x for la, _, lb, _ in r["truth"].get("same", []) for x in (la, lb)}
     labels = b["labels"]
