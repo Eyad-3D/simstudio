@@ -1,8 +1,8 @@
 # Step 2's acceptance lines, measured
 
-Report made at commit 2f5a844982, Python 3.11.17, lightsim_engine 0.1.0, AMD Ryzen 9 7900X 12-Core Processor. What it reads was made by:
+Report made at commit 95b945d85f, Python 3.11.17, lightsim_engine 0.1.0, AMD Ryzen 9 7900X 12-Core Processor. What it reads was made by:
 
-- commit 581139f68d, lightsim_engine 0.1.0 (b10f82f0a1): 631 raw records; stop.json, replay.json, mutation.json, noskip.json
+- commit 95b945d85f, lightsim_engine 0.1.0 (b10f82f0a1): 631 raw records; stop.json, replay.json, mutation.json, noskip.json
 
 | line | state |
 |---|---|
@@ -23,29 +23,29 @@ Report made at commit 2f5a844982, Python 3.11.17, lightsim_engine 0.1.0, AMD Ryz
 
 ## B2B
 
-20 of 24 items as expected; 1253 differences: a 341, b 95, c 562, unclassified 255.
+20 of 24 items as expected; 1147 differences: a 341, b 95, c 441, unclassified 270.
 
 | item | expect | got | today 10 ms / 1 ms | new | a | b | c | unclassified |
 |---|---|---|---|---|--:|--:|--:|--:|
-| aero-bev/case-udds | run | run | success / success | warning | 26 | 10 | 39 | 9 |
-| aero-bev/case-hwfet | run | run | success / success | warning | 26 | 10 | 39 | 7 |
-| aero-bev/case-wltc | run | run | success / success | warning | 26 | 10 | 39 | 7 |
-| bev-car/case-city | run | run | success / success | warning | 28 | 12 | 39 | 9 |
-| bev-car/case-wltc | run | run | success / success | warning | 27 | 11 | 39 | 9 |
-| bev-car/case-wltc-hvac | run | run | success / success | warning | 27 | 11 | 39 | 9 |
-| bev-car/case-wltc-winter | run | run | success / success | warning | 27 | 11 | 51 | 9 |
-| bev-car/case-wltc-summer | run | run | success / success | warning | 27 | 11 | 51 | 9 |
+| aero-bev/case-udds | run | run | success / success | warning | 26 | 10 | 30 | 9 |
+| aero-bev/case-hwfet | run | run | success / success | warning | 26 | 10 | 30 | 7 |
+| aero-bev/case-wltc | run | run | success / success | warning | 26 | 10 | 30 | 7 |
+| bev-car/case-city | run | run | success / success | warning | 28 | 12 | 30 | 9 |
+| bev-car/case-wltc | run | run | success / success | warning | 27 | 11 | 30 | 9 |
+| bev-car/case-wltc-hvac | run | run | success / success | warning | 27 | 11 | 30 | 9 |
+| bev-car/case-wltc-winter | run | run | success / success | warning | 27 | 11 | 42 | 9 |
+| bev-car/case-wltc-summer | run | run | success / success | warning | 27 | 11 | 42 | 9 |
 | bev-car/case-city-live | run | NEW-LIVE ✗ | success / success | failed |  |  |  |  |
-| fs-electric/case-accel-75m | run | run | success / success | warning | 34 | 1 | 76 |  |
+| fs-electric/case-accel-75m | run | run | success / success | warning | 34 | 1 | 75 |  |
 | fs-electric/case-autocross | refuse:NEW-LAP | NEW-LAP | success / success | failed |  |  |  |  |
 | fs-electric/case-endurance | refuse:NEW-LAP | NEW-LAP | success / success | failed |  |  |  |  |
 | hybrid-car/case-udds | refuse:NEW-BALANCE | NEW-BALANCE | success / success | failed |  |  |  |  |
 | hybrid-car/case-hwfet | refuse:NEW-BALANCE | NEW-BALANCE | success / success | failed |  |  |  |  |
 | hybrid-car/case-mixed | refuse:NEW-BALANCE | NEW-BALANCE | success / success | failed |  |  |  |  |
 | hybrid-car/case-mixed-live | run | NEW-LIVE ✗ | success / success | failed |  |  |  |  |
-| probe/hybrid-udds-single | run | run | success / success | warning | 31 | 2 | 50 | 73 |
-| probe/hybrid-hwfet-single | run | run | success / success | warning | 31 |  | 50 | 61 |
-| probe/hybrid-mixed-single | run | run | success / success | warning | 31 | 6 | 50 | 53 |
+| probe/hybrid-udds-single | run | run | success / success | warning | 31 | 2 | 34 | 78 |
+| probe/hybrid-hwfet-single | run | run | success / success | warning | 31 |  | 34 | 69 |
+| probe/hybrid-mixed-single | run | run | success / success | warning | 31 | 6 | 34 | 55 |
 | probe/bev-performance | run | NEW-CASE-KIND ✗ | success / success | failed |  |  |  |  |
 | probe/fs-event-acceleration | refuse:NEW-FS-EVENT | NEW-FS-EVENT | success / success | failed |  |  |  |  |
 | probe/bev-cells | refuse:NEW-CELLS | NEW-CELLS | success / success | failed |  |  |  |  |
@@ -54,35 +54,35 @@ Report made at commit 2f5a844982, Python 3.11.17, lightsim_engine 0.1.0, AMD Ryz
 
 Items without today's two reference runs (not judged): none.
 
-Each compared item's ledger: every leaf of the union of today's two runs and the new run, compared (both today's 1 ms run and the new run have it), reported (one of them lacks it) or a gap (only today's 10 ms run has it); it balances when the three make the union.
+Each compared item's ledger: every leaf of the union of today's two runs and the new run, compared (both today's 1 ms run and the new run have it), by source (a leaf of a channel only the new run records, compared with the port the data bus wires to it), 10 ms only (compared, and today's 10 ms run says another text or flag there than its 1 ms run), reported (one of them lacks it) or a gap (only today's 10 ms run has it); it balances when the five make the union.
 
-| item | union | compared | reported | gaps | balanced |
-|---|--:|--:|--:|--:|---|
-| aero-bev/case-udds | 562930 | 459318 | 103612 | 0 | yes |
-| aero-bev/case-hwfet | 314990 | 256950 | 58040 | 0 | yes |
-| aero-bev/case-wltc | 739648 | 603731 | 135917 | 0 | yes |
-| bev-car/case-city | 256304 | 210709 | 45595 | 0 | yes |
-| bev-car/case-wltc | 766685 | 630765 | 135920 | 0 | yes |
-| bev-car/case-wltc-hvac | 766685 | 630765 | 135920 | 0 | yes |
-| bev-car/case-wltc-winter | 766692 | 630772 | 135920 | 0 | yes |
-| bev-car/case-wltc-summer | 766704 | 630772 | 135932 | 0 | yes |
-| fs-electric/case-accel-75m | 163341 | 130720 | 32616 | 5 (limits/lanes/E-Motor/0/changes/2/0; limits/lanes/E-Motor/0/changes/2/1; limits/lanes/E-Motor/0/seconds/machine; messages/info: Solver step reduced to # ms (from # ms) because the tyres' Slip Stiffness (Wheel 'Wheel FL': #) is too stiff for the larger step: the run takes about # times as long./0/level; messages/info: Solver step reduced to # ms (from # ms) because the tyres' Slip Stiffness (Wheel 'Wheel FL': #) is too stiff for the larger step: the run takes about # times as long./0/text) | yes |
-| probe/hybrid-udds-single | 755874 | 603259 | 152615 | 0 | yes |
-| probe/hybrid-hwfet-single | 422753 | 337471 | 85282 | 0 | yes |
-| probe/hybrid-mixed-single | 331673 | 264871 | 66794 | 8 (energy/sinks/el-wheel-rl\|Wheel RL — tyre slip/0/elementId; energy/sinks/el-wheel-rl\|Wheel RL — tyre slip/0/group; energy/sinks/el-wheel-rl\|Wheel RL — tyre slip/0/kWh; energy/sinks/el-wheel-rl\|Wheel RL — tyre slip/0/label; energy/sinks/el-wheel-rr\|Wheel RR — tyre slip/0/elementId) | yes |
+| item | union | compared | by source | 10 ms only | reported | gaps | balanced |
+|---|--:|--:|--:|--:|--:|--:|---|
+| aero-bev/case-udds | 562930 | 459318 | 89102 | 0 | 14510 | 0 | yes |
+| aero-bev/case-hwfet | 314990 | 256950 | 49842 | 0 | 8198 | 0 | yes |
+| aero-bev/case-wltc | 739648 | 603731 | 117117 | 0 | 18800 | 0 | yes |
+| bev-car/case-city | 256304 | 210709 | 39117 | 0 | 6478 | 0 | yes |
+| bev-car/case-wltc | 766685 | 630765 | 117117 | 0 | 18803 | 0 | yes |
+| bev-car/case-wltc-hvac | 766685 | 630765 | 117117 | 0 | 18803 | 0 | yes |
+| bev-car/case-wltc-winter | 766692 | 630772 | 117117 | 0 | 18803 | 0 | yes |
+| bev-car/case-wltc-summer | 766704 | 630772 | 117117 | 0 | 18815 | 0 | yes |
+| fs-electric/case-accel-75m | 163341 | 130720 | 10045 | 0 | 22571 | 5 (limits/lanes/E-Motor/0/changes/2/0; limits/lanes/E-Motor/0/changes/2/1; limits/lanes/E-Motor/0/seconds/machine; messages/info: Solver step reduced to # ms (from # ms) because the tyres' Slip Stiffness (Wheel 'Wheel FL': #) is too stiff for the larger step: the run takes about # times as long./0/level; messages/info: Solver step reduced to # ms (from # ms) because the tyres' Slip Stiffness (Wheel 'Wheel FL': #) is too stiff for the larger step: the run takes about # times as long./0/text) | yes |
+| probe/hybrid-udds-single | 755874 | 603259 | 137080 | 0 | 15535 | 0 | yes |
+| probe/hybrid-hwfet-single | 422753 | 337471 | 76680 | 0 | 8602 | 0 | yes |
+| probe/hybrid-mixed-single | 331673 | 264871 | 60180 | 0 | 6614 | 8 (energy/sinks/el-wheel-rl\|Wheel RL — tyre slip/0/elementId; energy/sinks/el-wheel-rl\|Wheel RL — tyre slip/0/group; energy/sinks/el-wheel-rl\|Wheel RL — tyre slip/0/kWh; energy/sinks/el-wheel-rl\|Wheel RL — tyre slip/0/label; energy/sinks/el-wheel-rr\|Wheel RR — tyre slip/0/elementId) | yes |
 
-By rule: a new-path-lacks-messages: 4; a new-path-lacks-reports: 306; a new-path-lacks-verdict: 7; a preparation-note-as-warning: 12; a preparation-note-status: 12; b acceleration-ends-at-the-line: 1; b bev-city-recuperation: 1; b gears-today-rule: 93; c engine-note: 12; c new-records-more: 202; c today-first-point-before-its-step: 312; c today-integrator-checks: 24; c today-run-summary: 12; unclassified None: 255
+By rule: a new-path-lacks-messages: 4; a new-path-lacks-reports: 306; a new-path-lacks-verdict: 7; a preparation-note-as-warning: 12; a preparation-note-status: 12; b acceleration-ends-at-the-line: 1; b bev-city-recuperation: 1; b gears-today-rule: 93; c engine-note: 12; c new-records-more: 33; c today-first-point-before-its-step: 360; c today-integrator-checks: 24; c today-run-summary: 12; unclassified None: 270
 
 Unclassified, by item and field:
 
-- probe/hybrid-udds-single | channels.max | value: 27
-- probe/hybrid-udds-single | channels.min | value: 23
-- probe/hybrid-mixed-single | channels.min | value: 23
-- probe/hybrid-hwfet-single | channels.min | value: 19
-- probe/hybrid-hwfet-single | channels.max | value: 19
+- probe/hybrid-udds-single | channels.max | value: 29
+- probe/hybrid-mixed-single | channels.min | value: 25
+- probe/hybrid-udds-single | channels.min | value: 24
+- probe/hybrid-hwfet-single | channels.min | value: 22
+- probe/hybrid-hwfet-single | channels.max | value: 21
+- probe/hybrid-udds-single | channels.values | value: 19
+- probe/hybrid-hwfet-single | channels.values | value: 19
 - probe/hybrid-mixed-single | channels.max | value: 18
-- probe/hybrid-udds-single | channels.values | value: 17
-- probe/hybrid-hwfet-single | channels.values | value: 16
 - probe/hybrid-mixed-single | channels.mean | value: 12
 - probe/hybrid-hwfet-single | channels.mean | value: 7
 - probe/hybrid-udds-single | channels.mean | value: 6
@@ -171,7 +171,7 @@ E1: Counter({'cannot be measured': 12}). E2: {'exact_kw': 5.431390245600108, 'to
 
 S1 fail: bev-car/case-city-live today-normal: {'points': 601, 'recorded': 601, 'unequal': 0, 'lacking_channels': 0, 'first_unequal': None}; bev-car/case-city-live new: NEW-LIVE; hybrid-car/case-mixed-live today-normal: {'points': 601, 'recorded': 601, 'unequal': 0, 'lacking_channels': 0, 'first_unequal': None}; hybrid-car/case-mixed-live new: NEW-LIVE
 
-S2 fail: {"live": {"today": {"stops": 20, "shown": 20, "p95_s": 0.0994371140000112, "median_s": 0.05996693849988333, "max_s": 0.1009118629999648, "mark_s": 0.25, "state": "pass", "unstopped_s": 14.548159553999994, "unstopped_status": "success", "unstopped_first": "Case 'WLTC Class 3b' solved: 1800 steps \u00d7 1 s (100 sub-steps each), 1801 points recorded, 70 result channels."}, "new": {"stops": 20, "shown": 0, "p95_s": null, "median_s": null, "max_s": null, "mark_s": 0.25, "state": "not measured", "unstopped_s": 2.442899995003245e-05, "unstopped_status": "failed", "unstopped_first": "Not run [NEW-LIVE]: it does not stream a live run yet; with LIGHTSIM_ENGINE_STRICT=1 no case runs on today's engine instead."}}, "study": {"today": {"stops": 20, "shown": 20, "p95_s": 0.4491627669999616, "median_s": 0.21810411899991777, "max_s": 0.4510422559997096, "mark_s": 1.0, "state": "pass", "unstopped_s": 20.757018037999842, "unstopped_statuses": ["success"], "stopped_statuses": [["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run"], ["cancelled before running", "cancelled while running", "not run"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"]]}, "new": {"stops": 20, "shown": 0, "p95_s": null, "median_s": null, "max_s": null, "mark_s": 1.0, "state": "not measured", "unstopped_s": 0.979752785999608, "unstopped_statuses": ["warning"], "stopped_statuses": [["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "warning"], ["cancelled before running", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "warning"]]}}, "machine": "shared (the step 1 lane may be running): an indication, not the judged number"}
+S2 fail: {"live": {"today": {"stops": 20, "shown": 20, "p95_s": 0.08709113599979901, "median_s": 0.05906274799963285, "max_s": 0.10452796800018405, "mark_s": 0.25, "state": "pass", "unstopped_s": 14.515595955999743, "unstopped_status": "success", "unstopped_first": "Case 'WLTC Class 3b' solved: 1800 steps \u00d7 1 s (100 sub-steps each), 1801 points recorded, 70 result channels."}, "new": {"stops": 20, "shown": 0, "p95_s": null, "median_s": null, "max_s": null, "mark_s": 0.25, "state": "not measured", "unstopped_s": 2.7566999051487073e-05, "unstopped_status": "failed", "unstopped_first": "Not run [NEW-LIVE]: it does not stream a live run yet; with LIGHTSIM_ENGINE_STRICT=1 no case runs on today's engine instead."}}, "study": {"today": {"stops": 20, "shown": 20, "p95_s": 0.4818318300003739, "median_s": 0.2553917259992886, "max_s": 0.5078307589992619, "mark_s": 1.0, "state": "pass", "unstopped_s": 21.5174524999984, "unstopped_statuses": ["success"], "stopped_statuses": [["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run"], ["cancelled before running", "cancelled while running", "not run"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "not run", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "success"], ["cancelled before running", "cancelled while running", "success"]]}, "new": {"stops": 20, "shown": 0, "p95_s": null, "median_s": null, "max_s": null, "mark_s": 1.0, "state": "not measured", "unstopped_s": 0.981472550000035, "unstopped_statuses": ["warning"], "stopped_statuses": [["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "warning"], ["cancelled before running", "warning"], ["cancelled before running", "not run", "warning"], ["cancelled before running", "warning"]]}}, "machine": "shared (the step 1 lane may be running): an indication, not the judged number"}
 
 S3 fail: {"records_engine": false, "records_engine_version": false, "records_solver_options": false, "runs": [{"engine": "today", "case": "bev-car/case-city", "status": "success", "first": "Case 'City Cycle' solved: 600 steps \u00d7 1 s (100 sub-steps each), 601 points recorded, 70 result channels.", "sha256": "604eb740f1eeee48f30e5cf24cb25f11f10558f34de268ef50f27d1ae4c197a6", "replayed": "604eb740f1eeee48f30e5cf24cb25f11f10558f34de268ef50f27d1ae4c197a6", "same": true}, {"engine": "today", "case": "fs-electric/case-accel-75m", "status": "success", "first": "Case 'Acceleration 75 m' solved: 399 of 2500 steps \u00d7 0.01 s, ended at 75.3 m driven at t = 3.985 s (2 sub-steps each), 400 points recorded, 65 result channels.", "sha256": "7af6d9c7a75778da4fc511a39a48547bfa2093a4a05c4efe6be7f487300176c8", "replayed": "7af6d9c7a75778da4fc511a39a48547bfa2093a4a05c4efe6be7f487300176c8", "same": true}, {"engine": "new", "case": "bev-car/case-city", "status": "warning", "first": "Run on the new engine (LIGHTSIM_ENGINE=new).", "sha256": "a349cbf25e868122f71530c74e458044d7e7bf6f476f0c23d545ab48c6c386aa", "replayed": "a349cbf25e868122f71530c74e458044d7e7bf6f476f0c23d545ab48c6c386aa", "same": true}, {"engine": "new", "case": "fs-electric/case-accel-75m", "status": "warning", "first": "Run on the new engine (LIGHTSIM_ENGINE=new).", "sha256": "ffe24e8d8f35c929cd2415fb013fbe23693970aac5268d3bb6d8acb8ce60bf98", "replayed": "ffe24e8d8f35c929cd2415fb013fbe23693970aac5268d3bb6d8acb8ce60bf98", "same": true}]}
 
@@ -189,11 +189,11 @@ S3 fail: {"records_engine": false, "records_engine_version": false, "records_sol
 
 ## SCRIPTS
 
-{"state": "fail", "of_three": 1, "a_worker_on_new_path": true, "a_served": {"probe/hybrid-udds-single": true, "probe/hybrid-hwfet-single": true, "probe/hybrid-mixed-single": true}, "a_runners": {"probe/hybrid-udds-single": {"scripts": {"Hybrid Control Unit": "python"}, "script_calls": {"el-hcu": 136901}, "script_served": {"el-hcu": 136901}, "script_worker": {"own_pid": 1419, "pids": [1443]}}, "probe/hybrid-hwfet-single": {"scripts": {"Hybrid Control Unit": "python"}, "script_calls": {"el-hcu": 76501}, "script_served": {"el-hcu": 76501}, "script_worker": {"own_pid": 1472, "pids": [1494]}}, "probe/hybrid-mixed-single": {"scripts": {"Hybrid Control Unit": "python"}, "script_calls": {"el-hcu": 60001}, "script_served": {"el-hcu": 60001}, "script_worker": {"own_pid": 1511, "pids": [1540]}}}, "b_decision_record": [], "b_records_lack": {}, "c_owner_page": false}
+{"state": "fail", "of_three": 1, "a_worker_on_new_path": true, "a_served": {"probe/hybrid-udds-single": true, "probe/hybrid-hwfet-single": true, "probe/hybrid-mixed-single": true}, "a_runners": {"probe/hybrid-udds-single": {"scripts": {"Hybrid Control Unit": "python"}, "script_calls": {"el-hcu": 136901}, "script_served": {"el-hcu": 136901}, "script_worker": {"own_pid": 5613, "pids": [5635]}}, "probe/hybrid-hwfet-single": {"scripts": {"Hybrid Control Unit": "python"}, "script_calls": {"el-hcu": 76501}, "script_served": {"el-hcu": 76501}, "script_worker": {"own_pid": 5662, "pids": [5686]}}, "probe/hybrid-mixed-single": {"scripts": {"Hybrid Control Unit": "python"}, "script_calls": {"el-hcu": 60001}, "script_served": {"el-hcu": 60001}, "script_worker": {"own_pid": 5712, "pids": [5734]}}}, "b_decision_record": [], "b_records_lack": {}, "c_owner_page": false}
 
 ## NOSKIP
 
-{"state": "pass", "a_tests": 143, "a_failed": 0, "a_skipped": 0, "a_windows_only": 2, "b_tests": 143, "b_failed": 6, "b_skipped_engine": 0, "c_ci": true, "detail": {"a": {"tests": 143, "failed": [], "skipped": ["stop latency is judged on Windows only", "stop latency is judged on Windows only"]}, "b": {"tests": 143, "failed": ["test_the_module_is_there_where_it_must_be", "test_new_engine_runs_a_cycle_case_like_today", "test_new_engine_runs_an_acceleration_test", "test_a_failing_new_engine_falls_back_with_a_warning", "test_scripts_tells_todays_worker_from_the_apps_own_process", "test_both_engines_run_the_acceleration_test_and_the_diff_classes_it"], "skipped": ["stop latency is judged on Windows only", "stop latency is judged on Windows only"]}}, "stamp": {"commit": "581139f68d6feb4856abed40d4a2f1e5c076c3bc", "dirty": null, "lightsim_engine": "0.1.0", "lightsim_engine_sha256": "b10f82f0a17833890c133ed1967b55966f6e3819a366adafce5e0e3b0495e668", "sha256": {"backend/app/solver/new_engine.py": "cf0bb840d133d5a3766ed51d92e702210b5275a95472f74bf9d393143e693a39", "backend/app/solver/verdict.py": "42aea04576d69bcd14193b00fc94844ce18fb6ae4b6a0cad697b9f342de24d3d", "benchmarks/back_to_back/__init__.py": "21d5dccb4ed68b4670b8cb19e292ab2d6682269a22b28bdc8ace1a08856178cb", "benchmarks/back_to_back/__main__.py": "94d871e7fbfc01af4b647b65f2dfa48dec20484b55c0fd08f1030eeedc9a291d", "benchmarks/back_to_back/diff.py": "9aad4ad61f0f480dc26a8de253ff5debcdb3e109137e2cd3789b7b648b5bafec", "benchmarks/back_to_back/mutation.py": "7b4ef81645941f59695dc963a93f915bbf0b1a08d7230502638b897423154eaa", "benchmarks/back_to_back/report.py": "69705fd39b82c85b18c3b5add2e78c5f065f08f98c23335e03d38a37bb7da7f7", "benchmarks/back_to_back/runs.py": "dd26920616dc186cdb9605689e718d4599481c014003b6fab1ac9a79e3ed0aa0", "benchmarks/back_to_back/stream.py": "02e5aebc5fdc3edad5d0c43cf9e7ebdd9c1d2ffd4f8a6d9eef065b4bbccf9fcd", "benchmarks/back_to_back/traces.py": "d50ff090cd1720b89da900fd190407030e584f0884829402f2414e4b94b6c522", "benchmarks/back_to_back/acceptance.toml": "edafda423b2ca8674714229cb13828bc8820eb830075c2f4b71f0ae1801a043e", "benchmarks/back_to_back/classes.toml": "ea4feb7137851d115ca5632692ea9ef59e7b5f52197cc6fbee38ec011017c538", "benchmarks/back_to_back/survivors.toml": "078069bdee7ef5909c6db2196ce73f5cfbe52408c78b709f955043ad2629aee0"}}}
+{"state": "pass", "a_tests": 153, "a_failed": 0, "a_skipped": 0, "a_windows_only": 2, "b_tests": 153, "b_failed": 6, "b_skipped_engine": 0, "c_ci": true, "detail": {"a": {"tests": 153, "failed": [], "skipped": ["stop latency is judged on Windows only", "stop latency is judged on Windows only"]}, "b": {"tests": 153, "failed": ["test_the_module_is_there_where_it_must_be", "test_new_engine_runs_a_cycle_case_like_today", "test_new_engine_runs_an_acceleration_test", "test_a_failing_new_engine_falls_back_with_a_warning", "test_scripts_tells_todays_worker_from_the_apps_own_process", "test_both_engines_run_the_acceleration_test_and_the_diff_classes_it"], "skipped": ["stop latency is judged on Windows only", "stop latency is judged on Windows only"]}}, "stamp": {"commit": "95b945d85f9917a0fe6b51ace9dcbb1b23a14038", "dirty": null, "lightsim_engine": "0.1.0", "lightsim_engine_sha256": "b10f82f0a17833890c133ed1967b55966f6e3819a366adafce5e0e3b0495e668", "sha256": {"backend/app/solver/new_engine.py": "cf0bb840d133d5a3766ed51d92e702210b5275a95472f74bf9d393143e693a39", "backend/app/solver/verdict.py": "42aea04576d69bcd14193b00fc94844ce18fb6ae4b6a0cad697b9f342de24d3d", "benchmarks/back_to_back/__init__.py": "21d5dccb4ed68b4670b8cb19e292ab2d6682269a22b28bdc8ace1a08856178cb", "benchmarks/back_to_back/__main__.py": "94d871e7fbfc01af4b647b65f2dfa48dec20484b55c0fd08f1030eeedc9a291d", "benchmarks/back_to_back/diff.py": "9293e7f02aceb6e9739b034ac588730945d66117811e5e91ba5fdf47e1474eb7", "benchmarks/back_to_back/mutation.py": "7b4ef81645941f59695dc963a93f915bbf0b1a08d7230502638b897423154eaa", "benchmarks/back_to_back/report.py": "712d5fab30300e75f87ab56979a4e151a6e254aeb97db9b71424f6e3caa7db7a", "benchmarks/back_to_back/runs.py": "dd26920616dc186cdb9605689e718d4599481c014003b6fab1ac9a79e3ed0aa0", "benchmarks/back_to_back/stream.py": "02e5aebc5fdc3edad5d0c43cf9e7ebdd9c1d2ffd4f8a6d9eef065b4bbccf9fcd", "benchmarks/back_to_back/traces.py": "d50ff090cd1720b89da900fd190407030e584f0884829402f2414e4b94b6c522", "benchmarks/back_to_back/acceptance.toml": "b889b1a9a35b34dcd24cb16c18a27feb5b591a28698299f689107129badf3e83", "benchmarks/back_to_back/classes.toml": "877d47539f675c221a4abeef433993b33c81e44c6d0f880f8d11b8644fd845ac", "benchmarks/back_to_back/survivors.toml": "078069bdee7ef5909c6db2196ce73f5cfbe52408c78b709f955043ad2629aee0"}}}
 
 ## STATUS
 
