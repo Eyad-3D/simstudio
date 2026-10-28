@@ -16,6 +16,10 @@ correct digits, steps, error-test failures, events, wall time).
                                              is on the PATH (a case written on the
                                              engine's own library: the original model,
                                              from the library in CACHE)
+    judge.py holds    cases|build|run|score|selftest ...
+                                             the holds suite: every probe of conditions
+                                             on iteration variables, against hand-worked
+                                             counts and times (holds.py, README.md)
 
 `run` takes the runner built by `cargo build --release -p lsim-project
 --example judge`. CACHE, CASES and RESULTS are folders outside the
@@ -4021,6 +4025,10 @@ def omc(cases_dir: Path, results: Path, only: list[str], cache: Path | None = No
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    if sys.argv[1:2] == ["holds"]:
+        import holds  # the holds suite, beside this file
+        holds.main(sys.argv[2:])
+        return
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("fetch")

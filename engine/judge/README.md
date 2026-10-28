@@ -252,3 +252,101 @@ one of its equations (to 1e-14; one weight changed shows as 4.9).
 Every run either matches its reference or stops with the engine's own
 message, which the table quotes; a run that returns a wrong answer without
 a message is the worst result and is marked by its error.
+
+## The holds suite
+
+`holds.py` (`judge.py holds`) gathers every probe the solver work's reviews
+ran on conditions on iteration variables (a `when x > 0.5` with x solved
+from x³ + x = R, and the events that move R) and scores each run against
+the counts and times a hand calculation gives, never against a commit's
+output. Its runner, `holds_runner.rs`, is not part of the workspace:
+`build` copies it into a checkout's `lsim-project/examples`, builds it and
+takes it out again, so the same runner measures every commit (it uses only
+APIs that 36c8a0d8, step 1's base, has too). It reads the models in the
+text format, prepares and compiles each once and runs it at each of its
+parameter sets, tolerances and backends on threads.
+
+```text
+python3 engine/judge/judge.py holds cases OUT --tier quick    # 340 models, 4 160 runs
+python3 engine/judge/judge.py holds cases OUT --tier full     # 1 446 models, 211 904 runs
+python3 engine/judge/judge.py holds build CHECKOUT RUNNER     # cargo, CARGO_TARGET_DIR as set
+python3 engine/judge/judge.py holds run   RUNNER OUT RESULTS.jsonl [--threads 12]
+python3 engine/judge/judge.py holds score OUT LABEL=RESULTS.jsonl ... [--out FILE.md]
+python3 engine/judge/judge.py holds selftest                  # the scorer on made-up runs
+```
+
+The full tier is every probe at the size that found its bug: the fix
+round's family probe whole (181 440 runs) and recheck 3's own-move probe
+whole, with the smaller sets beside them. The quick tier keeps a few rates,
+delays and tolerances (1e-5, 1e-8, 1e-10) of each family on every backend.
+Each model runs on six configurations: `cvode` (x written explicitly, x =
+0.5 + (R − 0.625)/1.75: no iteration variable, nothing to hold, the
+control), `ida` (x³ + x = R, r a state z, z' = a), `ida-implicit` (the
+same, every block kept implicit), `diffsol`, `nostate-ida` (x³ + x = R
+with r = a t: no state) and `nostate-explicit` (the stateless backend); the
+judge's own count cases run as the judge runs them (`default`). rtol 1e-4 …
+1e-10, atol 1e-2 rtol, output every 0.1 s. `score` regenerates the truth
+from this file and tabulates the classes below by family, shape family and
+configuration, with the wrong runs by how they are wrong; several results
+files side by side compare builds.
+
+**Why each truth holds.** x³ + x is increasing and 0.5³ + 0.5 = 0.625, so
+x crosses 0.5 exactly where R crosses 0.625, with x' = R'/(3x² + 1) =
+R'/1.75 there; the explicit form crosses at the same instants with the
+same slope. With r = a t (or z, z' = a, z(0) = 0) and dd = r − 0.625, R =
+0.625 + s (dd + φ) (s = +1 rising, −1 falling) crosses at t1 = 0.625/a
+while φ = 0. `forth` is the crossing's own direction (`x > 0.5` rising,
+`x < 0.5` falling; `>=`, `<=` where not strict), `back` the opposite. A
+discrete value an event sets changes φ, so R and x jump at that instant (x
+by ΔR/1.75 to first order), and event iteration (Modelica's semantics)
+fires every `when` whose condition the jump turns true, at that same
+instant.
+
+| family | shape (parameters) | truth: firings (counters at the end) | from |
+|---|---|---|---|
+| `ramp` | R = r rising, 1.25 − r falling; a ∈ {0.3, 0.37, 0.5, 0.7, 0.81, 1, 1.29, 1.3, 1.7, 2.3, 3.1, 4.4, 6, 7}, T = 2/min(a, 1) + 1; forth alone (strict, not); with back (strict, not); with back and the switch `when forth then on = 1 elsewhen back then on = 0`; that and a mode y = if forth; forth beside y; w' = if forth then 1 else 0 alone; `two`: v³ + v = 2 r beside, `when v < 0.5` | forth once, at t1 = 0.625/a; back never; on = 0 before t1, 1 after; y(T) = 1; w(T) = T − t1; v crosses 0.5 at t1/2 upwards, so `when v < 0.5` never fires | review A's ramps and pair, recheck 1's probes P4–P7, ramps and modes, implicit_conditions.rs' first, mode, beside-a-mode and complementary tests |
+| `ramp` `fall2`, `osc` | R = 2 − r (a = 1); z = 0.5 sin 3t (z' = v, v' = −9 z), `when x > 0.3` | once, at 1.375/a; once, at asin(0.327/0.5)/3 = 0.2376 s (0.3³ + 0.3 = 0.327, x' = z'/1.27) | implicit_conditions.rs' falling and oscillation tests |
+| `peak` | R = 0.625 + d − (t − 1)² (or z'' = −2 from z(0) = d − 0.375, z'(0) = 2); d ∈ {1e-2, 1e-3, 1e-4}; forth alone, with back, with back and the switch | forth at 1 − √d, back at 1 + √d (x' = ±2√d/1.75 there); on = 1 between them, 0 after | review A's peaks, recheck 1's peaks, count-peak, the peaked complementary test |
+| `moved` | k set at 1 s by `time >= 1` or where a state s = t passes 1. `nudge`: R = 0.625 − e + 2 e k (+ z, z' = 0), e ∈ {1e-12, 1e-9, 1e-7, 1e-5}; `land`: R = 0.5 + (0.125 + e) k, `when x >= 0.5`, e ∈ {0, 1e-9, 1e-6}; `landrise`: the same + 0.1 a k (t − 1) (or + 0.1 z, z' = a k); `heldnext`: R = r + e k, k set at t1 itself, a ∈ {0.7, 1, 2.3, 4.4}; each also at e = 1.75 rtol | nudge: x from 0.5 − e/1.75 to 0.5 + e/1.75, then constant: once, at 1; land: x from 0.4115 (x³ + x = 0.5) to 0.5 + e/1.75 (exactly 0.5 at e = 0, where `>=` holds): once, at 1, and not again where x rises on; heldnext: x moved further on: once, at t1 | recheck 1's P1, P2 and P8, fix 2's held nudge, count-moved, the moved and held-next tests |
+| `stale` | R = r (1 − k) + (0.625 − e) k + 0.2 k2: k at t2 = t1 + δ (a time event, or a state s = t passing t2), k2 at 1.5 s; a ∈ {0.7, 1, 1.3, 2.3, 4.4}, δ ∈ {1e-6, 1e-4, 1e-2}, e ∈ {1e-12, 1.75 rtol} | forth at [t1, 1.5], back at [t2] (R(t2+) = 0.625 − e: x = 0.5 − e/1.75; R(1.5+) = 0.825 − e) | recheck 2's stale probe |
+| `fam` | k set at t2 = t1 + δ by a time event, a state s = t passing t2, or a sampled block's tick inside a step. `back`: φ = −k (dd + e) + k2 (0.1 + e), k2 at tb = t1 + 0.5; `rerise`: φ = −k j, j = a δ + e; `further`: φ = 0.1 k; `nothing`: φ = 0, q³ + q = 1 + k beside; `backfwd`: as back, with k3 (0.1 + e) set at t2b = t2 + 1e-6 by the same kind. Conditions: forth alone (strict, not), with back (strict, not), strict both with a mode y = if forth (and w' = y where the model has a state), the mode (and w) alone. a ∈ {0.7, 1, 2.3, 4.4}, δ ∈ {1e-6, 1e-4, 1e-2}, e ∈ {1e-12, 1.75 rtol}; rising and falling | back: forth at [t1, tb], back at [t2] (R(t2+) = 0.625 − s e, R(tb+) = 0.625 + 0.1 s); rerise: forth at [t1, t3 = t2 + e/a] (R climbs back from 0.625 − s e at a), back at [t2]; further, nothing: forth at [t1]; backfwd: forth at [t1, t2b], back at [t2]; w(2) is the time on the forth side, (t2 − t1) + (2 − the second forth) or 2 − t1 | fix round 3's family probe, whole; recheck 2's held-back cases, count-held-back, implicit_conditions.rs' hold-from-an-earlier-crossing, diffsol and past-its-hold tests |
+| `own` | the crossing's own event, E = 1.75 ex. `own`: the crossing's `when` sets k, φ = −k (dd + E) + k2 (0.1 + E); `sep`: k set by another `when` on the same condition; `thr`: the threshold moves to 0.5 + s k ex, φ = −k dd + 0.1 k2; `reinit`: forth reinits z to 0.625 − E and stops it (z' = a (1 − k)), φ = k2 (0.1 + E); `ownmode`: own beside y = if back. k2 at tb = t1 + 0.5; ex ∈ {5.7e-13, 0.5, 1, 1.5, 100} rtol; a ∈ {0.7, 1, 2.3, 4.4}; rising and falling; strict and not | forth at [t1, tb]; back at the same instant as forth's first firing (after k, x is back across by ex, so event iteration fires back there); R(tb+) = 0.625 + 0.1 s, past the threshold again. Not strict: x is exactly 0.5 at t1, so the back relation is true there already and may never turn: back at t1, or never (both right) | recheck 3's own-move probe, whole, and its judge-format cases |
+| `own` `kick`, `steps`, `saw` | R = r − 0.2 k, with the own `when` setting k, beside `when x < 0.5`; R = r − 0.6 n; forth reinits z to 0 (a = 1) | kick: forth at [0.625, 0.825], back at forth's first instant; steps: forth at 0.625, 1.225, 1.825; saw: forth at 0.625, 1.25, 1.875 | recheck 1's P3, implicit_conditions.rs' sends-back test |
+| `count` | the judge's count-implicit, count-pair, count-peak, count-moved and count-held-back cases, their texts as `crossings()` writes them | as their rows in the table above | `judge.py crossings()` |
+
+A firing matches its time within these tolerances: a located crossing,
+10 rtol in x over |x'| (10 rtol · 1.75/a on the ramps) + 1e-12; a time
+event or a tick, 1e-12; a state's own crossing (s = t passing t2), 10 rtol
++ 1e-12; t3 (rerise), its crossing's tolerance plus t2's. The counters must
+end as counted, w within 4 crossing tolerances + 20 rtol, and `on` must be
+right at every output point more than 1e-6 s from a crossing.
+
+**Classes.** A run is *right* when it is the truth. Otherwise it is one of
+the named limits where that limit's criterion holds, else *wrong*; a run
+that stops is wrong unless it is a storm as below.
+
+* **L1**, an event closer to a crossing than the crossing's location
+  tolerance: the event that undoes a crossing comes 0 < t2 − t1 < 10 rtol
+  / |x'| after it (fam back, rerise, backfwd; stale; count-held-back), and
+  the run is the truth without that pair (the crossing's firing and the
+  event's back firing): the integrator located the crossing after the
+  event, and then neither fires.
+* **noise**, the condition left within the solve's resolution of its
+  threshold: the event leaves |x − 0.5| ≤ (0.5 rtol + atol)/3, a third of
+  the tolerance on x (the integrators' Newton iterations stop there;
+  diffsol's x lags its equation by a tenth to a quarter of it), as e =
+  1e-12 does (x 5.7e-13 off) at every tolerance and the small nudges and
+  landings do at the loose ones. The run is the truth outside the stretch
+  x sits there (from the event to where the shape takes it away: tb, t3,
+  t2b, or the run's end), anything inside it; and its twin, the same run
+  with x moved by rtol (e = 1.75 rtol, three times the resolution), is
+  right or L1, so that an error which does not depend on the move's size
+  is not excused.
+* **onestep**, both crossings inside one step: the run fires neither
+  crossing of a peak (no firing, `on` never 1), all else right, and its
+  twin with a largest step of a quarter of the peak's width, which no step
+  can jump, is right. (The twins are not counted.)
+* **storm**, the event storm beside a mode on an iteration variable (there
+  before the holds): in a shape with a mode on the condition's relation, the
+  run stops with the engine's event storm at a time within the location
+  tolerance of one of the shape's crossings or events.
