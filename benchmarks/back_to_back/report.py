@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import platform
 import re
 import subprocess
@@ -183,7 +184,8 @@ def schema(out: Path) -> dict:
     from concurrent.futures import ProcessPoolExecutor
     from importlib.metadata import version
     cache_path = out / "schema.json"
-    key = hashlib.sha256(SCHEMA.read_bytes()).hexdigest()
+    # kept for the same schema and validator only
+    key = hashlib.sha256(SCHEMA.read_bytes() + version("jsonschema").encode()).hexdigest()
     cache = json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else {}
     if cache.get("schema") != key:
         cache = {"schema": key, "files": {}}
@@ -301,7 +303,8 @@ def sources() -> dict:
 def analytic(out: Path) -> dict:
     rows = traces.measure()
     label = traces.labelled()
-    worst = max(r["error_s"] for r in rows)
+    # a not-a-number error is the worst there is (max() would keep or drop it by its place)
+    worst = max(r["error_s"] if diff._finite(r["error_s"]) else math.inf for r in rows)
     return {"state": "pass" if worst <= 1e-6 and label["labelled"] else "fail", "worst_error_s": worst,
             "mark_s": 1e-6, "rows": rows, "label": label, "sources": sources()}
 

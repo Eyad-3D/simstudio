@@ -42,7 +42,8 @@ def rms(xs) -> float:
 
 def figure_band(normal: float | None, fine: float, unit: str) -> float:
     floor = 0.001 if unit in ("kWh", "J") else 0.005
-    spread = 2.0 * abs(normal - fine) if normal is not None else 0.0
+    # (a 10 ms value that is not a number gives no spread: a band of not a number would pass anything)
+    spread = 2.0 * abs(normal - fine) if _finite(normal) else 0.0
     return max(spread, floor * abs(fine), 1e-9)
 
 

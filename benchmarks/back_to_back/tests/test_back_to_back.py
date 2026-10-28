@@ -346,6 +346,30 @@ def test_a_row_the_new_run_repeats_differs(where):
     assert {d["what"] for d in diff.compare("x", today, today, new)} - {"duplicate", "missing", "extra"}, where
 
 
+def test_a_band_from_a_ten_ms_value_that_is_not_a_number_passes_nothing():
+    normal = _result(value=math.nan)
+    assert [(d["field"], d["what"]) for d in diff.compare("x", normal, _result(10.0), _result(99.0))] == [
+        ("summary.value", "value")]
+
+
+def test_an_error_that_is_not_a_number_fails_analytic(monkeypatch):
+    rows = [{"error_s": 0.0}, {"error_s": math.nan}, {"error_s": 0.0}]
+    monkeypatch.setattr(traces, "measure", lambda: rows)
+    monkeypatch.setattr(traces, "labelled", lambda: {"labelled": True})
+    got = report.analytic(None)
+    assert got["state"] == "fail" and got["worst_error_s"] == math.inf
+
+
+def test_the_schema_checks_are_kept_for_the_same_validator_only(tmp_path, monkeypatch):
+    import importlib.metadata
+    _write(tmp_path, {"kind": "item", "id": "a/b", "setting": "new"}, result=_result())
+    report.schema(tmp_path)
+    key = json.loads((tmp_path / "schema.json").read_text())["schema"]
+    monkeypatch.setattr(importlib.metadata, "version", lambda name: "0.0-another")
+    report.schema(tmp_path)
+    assert json.loads((tmp_path / "schema.json").read_text())["schema"] != key
+
+
 def test_a_duty_part_with_no_rows_is_compared():
     part = {"elementId": "el-m", "label": "Motor", "kind": "motor.emotor", "rows": []}
     ds = diff.compare("x", _result(duty=[part]), _result(duty=[part]), _result())
