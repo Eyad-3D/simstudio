@@ -4,7 +4,11 @@
 Rust module ``lightsim_engine``, for the cases it can run: a drive cycle or an
 acceleration test. Everything else, and any failure of the new engine, runs on
 today's engine, and the result's messages say which engine ran the case and,
-after a fall-back, why. Without the flag (or with ``today``) nothing here is
+after a fall-back, why, with a stable reason code in brackets (``[NEW-LAP]``;
+CODES lists them, and benchmarks/back_to_back counts them). With
+``LIGHTSIM_ENGINE_STRICT=1`` as well nothing falls back: a case the new
+engine's path does not run fails with its code instead (the both-engines
+diff's strict mode). Without the flag (or with ``today``) nothing here is
 used.
 
 The new engine's run is turned into today's SimResult: its channels and
@@ -16,21 +20,46 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Callable, Optional
+from typing import Callable, NamedTuple, Optional
 
 from .. import cycles, script_trust
 from ..library import unit_groups
 from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
 from . import balance
+from .battery import CELLS
 from .keys import fill_keys
-from .network import build_model
+from .network import ModelError, build_model
 from .runtime import ControlFn, EmitFn
 from .sandbox import ScriptSandbox, ScriptSpec
 
 ENV_VAR = "LIGHTSIM_ENGINE"
+STRICT_VAR = "LIGHTSIM_ENGINE_STRICT"
 KINDS = ("cycle", "acceleration")  # the case kinds the new engine runs
 
+# why the new engine's path does not run a case (benchmarks/back_to_back/acceptance.toml)
+CODES = {
+    "NEW-NOT-FOUND": "the case is not in the project",
+    "NEW-CASE-KIND": "a case kind the new engine's path does not run",
+    "NEW-LAP": "a lap case",
+    "NEW-LIVE": "a live (streamed or paced) run",
+    "NEW-FS-EVENT": "a Formula Student event case",
+    "NEW-FMU": "a project with an FMU part",
+    "NEW-BALANCE": "a hybrid's charge-balanced case",
+    "NEW-CELLS": "a battery built from cells",
+    "NEW-MISSING": "the module lightsim_engine is not installed",
+    "NEW-BUILD": "today's model builder refused the model",
+    "NEW-FAILED": "the new engine refused or stopped (its own codes follow)",
+    "NEW-ERROR": "an exception that is not the engine's own refusal",
+}
+
 TodayFn = Callable[[Project, str, Optional[EmitFn], Optional[ControlFn]], SimResult]
+
+
+class Refusal(NamedTuple):
+    """Why the new engine's path did not run a case: a code of CODES and
+    the reason in words."""
+    code: str
+    why: str
 
 
 def wanted() -> bool:
@@ -38,10 +67,16 @@ def wanted() -> bool:
     return os.environ.get(ENV_VAR, "today").strip().lower() == "new"
 
 
+def strict() -> bool:
+    """Whether nothing may fall back to today's engine (read at each run)."""
+    return os.environ.get(STRICT_VAR, "").strip() == "1"
+
+
 def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
              control: Optional[ControlFn], today: TodayFn) -> SimResult:
     """Run the case on the new engine when it can, otherwise on ``today``'s
-    engine, with a message saying which ran it."""
+    engine, with a message saying which ran it (in strict mode not at all:
+    the case fails with the reason's code)."""
     why = unsupported(project, case_id, emit)
     if why is None:
         try:
@@ -50,37 +85,75 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
                 level="info", text=f"Run on the new engine ({ENV_VAR}=new)."))
             return result
         except Exception as e:  # noqa: BLE001 — the new engine must never break a run
+            why = failure(e)
+            if strict():
+                return refused(case_id, why, str(e))
             result = today(project, case_id, emit, control)
             result.messages.insert(0, SimMessage(
-                level="warning", text=f"The new engine could not run this case ({e}); "
-                                      f"it ran on today's engine instead."))
+                level="warning", text=f"The new engine could not run this case [{why.code}] "
+                                      f"({e}); it ran on today's engine instead."))
             _refresh_status(result)
             return result
+    if strict():
+        return refused(case_id, why)
     result = today(project, case_id, emit, control)
     result.messages.insert(0, SimMessage(
-        level="info", text=f"Run on today's engine, not the new one ({ENV_VAR}=new): {why}."))
+        level="info", text=f"Run on today's engine, not the new one ({ENV_VAR}=new) "
+                           f"[{why.code}]: {why.why}."))
     return result
 
 
-def unsupported(project: Project, case_id: str, emit: Optional[EmitFn]) -> Optional[str]:
+def failure(e: Exception) -> Refusal:
+    """The reason code of an exception out of ``run_new``: the new engine's
+    own refusal (its diagnostics' codes in the words), today's model
+    builder's, or anything else (a fault of this path)."""
+    try:
+        from lightsim_engine import ModelError as EngineError
+    except ImportError:
+        EngineError = ()  # noqa: N806 — nothing is the engine's without it
+    if isinstance(e, EngineError):
+        codes = sorted({str(d.get("code")) for d in getattr(e, "diagnostics", None) or []})
+        return Refusal("NEW-FAILED", f"the new engine refused it ({', '.join(codes) or 'no code'})")
+    if isinstance(e, ModelError):
+        return Refusal("NEW-BUILD", "today's model builder refused it")
+    return Refusal("NEW-ERROR", f"{type(e).__name__} in the new engine's path")
+
+
+def refused(case_id: str, why: Refusal, detail: str = "") -> SimResult:
+    """Strict mode's result for a case the new engine's path did not run."""
+    more = f" ({detail})" if detail else ""
+    return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
+        level="error", text=f"Not run [{why.code}]: {why.why}{more}; with {STRICT_VAR}=1 no "
+                            f"case runs on today's engine instead.")])
+
+
+def unsupported(project: Project, case_id: str, emit: Optional[EmitFn]) -> Optional[Refusal]:
     """Why the new engine does not run this case, or None when it does."""
     case = next((c for c in project.cases if c.id == case_id), None)
     if case is None:
-        return "the case was not found"
+        return Refusal("NEW-NOT-FOUND", "the case was not found")
+    if case.kind == "lap":
+        return Refusal("NEW-LAP", "it does not run lap cases")
     if case.kind not in KINDS:
-        return f"it does not run {case.kind} cases yet"
+        return Refusal("NEW-CASE-KIND", f"it does not run {case.kind} cases yet")
     if emit is not None or (case.realtimeFactor or 0) > 0:
-        return "it does not stream a live run yet"
+        return Refusal("NEW-LIVE", "it does not stream a live run yet")
     if case.fsEvent:
-        return "it does not score Formula Student events yet"
-    if any(el.componentDefId == "signal.fmu" for s in project.systems for el in s.elements):
-        return "it does not run FMU parts yet"
+        return Refusal("NEW-FS-EVENT", "it does not score Formula Student events")
+    elements = [el for s in project.systems for el in s.elements]
+    if any(el.componentDefId == "signal.fmu" for el in elements):
+        return Refusal("NEW-FMU", "it does not run FMU parts yet")
     if balance.applies(project, case):
-        return "it does not charge-balance a hybrid's case yet"
+        return Refusal("NEW-BALANCE", "it does not charge-balance a hybrid's case")
+    overrides = getattr(case, "parameterOverrides", None) or {}
+    if any(el.componentDefId == "battery.generic"
+           and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
+           for el in elements):
+        return Refusal("NEW-CELLS", "it does not run a battery built from cells")
     try:
         import lightsim_engine  # noqa: F401
     except ImportError:
-        return "the new engine is not installed"
+        return Refusal("NEW-MISSING", "the new engine is not installed")
     return None
 
 
@@ -112,7 +185,11 @@ def run_new(project: Project, case_id: str) -> SimResult:
         # runs in the locked-down worker process (script_trust.py, sandbox.py);
         # the engine's own Script runner is not used from the app until the
         # owner has decided it may replace the worker (native_scripts=False)
-        script_trust.check([(sp.label, sp.code) for sp in specs])
+        try:
+            script_trust.check([(sp.label, sp.code) for sp in specs])
+        except script_trust.ScriptsNotApproved as e:  # as today's engine says it
+            return SimResult(caseId=case_id, status="failed", channels=[],
+                             messages=[SimMessage(level="error", text=str(e))])
         with ScriptSandbox(specs) as sandbox:
             def runner(spec: ScriptSpec):
                 def step(t, dt, inputs):

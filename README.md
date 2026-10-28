@@ -373,11 +373,17 @@ variable `LIGHTSIM_ENGINE=new`. The values are `today` (the default, also
 when the variable is not set) and `new`. With `new`, a drive cycle or an
 acceleration test runs on the new engine, and everything else runs on
 today's engine: lap cases, cases with FMU parts, a hybrid's charge-balanced
-case, Formula Student event cases, live runs in the app, and any case when
+case, Formula Student event cases, live runs in the app, a battery built
+from cells, and any case when
 the module is not installed. If the new engine fails on a case, the case
 runs on today's engine and the result carries a warning with the new
 engine's own message. The first message of every result says which engine
-ran the case and, after a fall-back, why. Script blocks keep today's checks
+ran the case and, after a fall-back, why, with a reason code in brackets
+(`[NEW-LAP]`, `[NEW-FAILED]`; the list is in
+`benchmarks/back_to_back/acceptance.toml`). With `LIGHTSIM_ENGINE_STRICT=1`
+as well, nothing falls back: such a case fails with its code instead (the
+both-engines diff, `python -m benchmarks.back_to_back`, runs this way).
+Script blocks keep today's checks
 (approved code only, run in the locked-down worker). The new engine's
 results do not have the energy report, part energies, duty, limits or
 references yet.

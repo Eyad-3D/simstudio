@@ -3221,9 +3221,13 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
 * **The app.** With `LIGHTSIM_ENGINE=new` the backend
   (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
   cases on this module and everything else on today's engine (live runs,
-  FMU parts, Formula Student events and hybrid charge-balance cases too);
-  any failure of the new engine runs the case on today's engine with a
-  warning. The result has channels with min/max/mean, the summary figures
+  FMU parts, Formula Student events, hybrid charge-balance cases and
+  batteries built from cells too); any failure of the new engine runs the
+  case on today's engine with a warning. Every fall-back carries a reason
+  code (`NEW-LAP`, `NEW-FAILED` with the engine's own codes, ...:
+  `new_engine.CODES`), and with `LIGHTSIM_ENGINE_STRICT=1` nothing falls
+  back: the case fails with its code (the both-engines diff's strict mode,
+  `benchmarks/back_to_back`). The result has channels with min/max/mean, the summary figures
   and messages, but no energy report, part energies, duty, limits,
   references or run verdict yet (section 12.3). The
   default is today's engine. There the Script blocks run in today's
