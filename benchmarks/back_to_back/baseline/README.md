@@ -3,8 +3,10 @@
 Measured on 28 October 2026 by `python -m benchmarks.back_to_back` (its
 `run`, `replay`, `stop`, `mutation`, `noskip` and `report` parts: what `all`
 runs), the runs with the app's code of `2b94af6` (unchanged since: only the
-harness moved), the report by the harness of `3e9e852`, with the lines,
-cases, measures and pass marks of
+harness moved), the report by the harness as committed in `3e9e852` (run
+again, unchanged, at `ef13ba0` after NOSKIP was measured again: `edf809e`
+had made one more test fail without the module), with the lines, cases,
+measures and pass marks of
 [`../acceptance.toml`](../acceptance.toml), registered in `5c82fb0` before
 the first measured run (three dated changes since, at its end). It records
 where the new engine's path into the app (`LIGHTSIM_ENGINE=new`) stands on
@@ -35,7 +37,7 @@ marks are judged on Windows CI, `backend/tests/test_stop_latency.py`).
 | TEXT | not available | the app reads no text components. |
 | QUICK | not available | a case has no quick-mode option. |
 | SCRIPTS | fails | one of three: Script blocks run in today's worker on the new path (the hybrid's single runs); no decision record, no page for the owner. |
-| NOSKIP | passes here | with the module: 30 tests, none skipped but the two Windows-only stop-latency tests; with it hidden: 4 fail, none skips; CI's Windows engine job builds the module and runs them with LIGHTSIM_REQUIRE_NEW_ENGINE=1 (to be confirmed on Windows CI after the merge). |
+| NOSKIP | passes here | with the module: 33 tests, none skipped but the two Windows-only stop-latency tests; with it hidden: 5 fail, none skips (before `edf809e` the same tests skipped 3 and passed the rest); CI's Windows engine job builds the module and runs them with LIGHTSIM_REQUIRE_NEW_ENGINE=1 (to be confirmed on Windows CI after the merge). |
 | STATUS | fails | 0 of 11 of the things step 2's goal names are on the new path. |
 
 ## B2B, in detail

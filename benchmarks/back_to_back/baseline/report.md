@@ -1,6 +1,6 @@
 # Step 2's acceptance lines, measured
 
-Commit 3e9e852d25, Python 3.11.17, lightsim_engine 0.1.0, AMD Ryzen 9 7900X 12-Core Processor.
+Commit ef13ba0bff, Python 3.11.17, lightsim_engine 0.1.0, AMD Ryzen 9 7900X 12-Core Processor.
 
 | line | state |
 |---|---|
@@ -172,7 +172,7 @@ S3 fail: {"records_engine": false, "records_engine_version": false, "records_sol
 
 ## NOSKIP
 
-{"state": "pass", "a_tests": 30, "a_failed": 0, "a_skipped": 0, "a_windows_only": 2, "b_tests": 30, "b_failed": 4, "b_skipped_engine": 0, "c_ci": true, "detail": {"a": {"tests": 30, "failed": [], "skipped": ["stop latency is judged on Windows only", "stop latency is judged on Windows only"]}, "b": {"tests": 30, "failed": ["test_the_module_is_there_where_it_must_be", "test_new_engine_runs_a_cycle_case_like_today", "test_a_failing_new_engine_falls_back_with_a_warning", "test_both_engines_run_the_acceleration_test_and_the_diff_classes_it"], "skipped": ["stop latency is judged on Windows only", "stop latency is judged on Windows only"]}}}
+{"state": "pass", "a_tests": 33, "a_failed": 0, "a_skipped": 0, "a_windows_only": 2, "b_tests": 33, "b_failed": 5, "b_skipped_engine": 0, "c_ci": true, "detail": {"a": {"tests": 33, "failed": [], "skipped": ["stop latency is judged on Windows only", "stop latency is judged on Windows only"]}, "b": {"tests": 33, "failed": ["test_the_module_is_there_where_it_must_be", "test_new_engine_runs_a_cycle_case_like_today", "test_new_engine_runs_an_acceleration_test", "test_a_failing_new_engine_falls_back_with_a_warning", "test_both_engines_run_the_acceleration_test_and_the_diff_classes_it"], "skipped": ["stop latency is judged on Windows only", "stop latency is judged on Windows only"]}}}
 
 ## STATUS
 
