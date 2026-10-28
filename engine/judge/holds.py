@@ -12,7 +12,12 @@ counts and times a hand calculation gives, never against a commit's output.
 `build` copies `holds_runner.rs` into the checkout's lsim-project examples,
 builds it (`cargo build --release --locked`, CARGO_TARGET_DIR as set) and
 takes it out again: the same runner at every commit measured. README.md
-(*The holds suite*) has the shapes, their truth and the named limits.
+(*The holds suite*) has the shapes, their truth and the named limits:
+the round-4 review shapes (extra, coin, coinr, before, rdmode, noisy,
+noisy2, noisy3, noisy3r, noisyown, mixedc, bcoin, bcoinw, bfreeze,
+bfreezew, slow, slowsib, slowr) beside the probes before them; and the
+limits bounded, located, moderead, shallowpeak and restartloss (the hold
+spec, 4.9 and 4.10) beside L1, noise, onestep and storm.
 
 Every x crosses 0.5 where R crosses 0.625 (x^3 + x is increasing and
 0.5^3 + 0.5 = 0.625), with x' = R' / (3 x^2 + 1) = R' / 1.75 there. On
@@ -819,8 +824,488 @@ def count_cases(tier: str) -> list:
     return out
 
 
+# ---------------------------------------------------------------------------
+# The hold rule's review shapes (round 4: the hold spec's reviews 1 to 3)
+# ---------------------------------------------------------------------------
+
+# the configurations where x is an iteration variable
+IMPL = ["ida", "ida-implicit", "nostate-ida", "diffsol"]
+SHAPE_RATES = [0.5, 0.7, 1.0, 1.3, 2.3, 3.1, 4.4, 6.0, 7.0]
+# the coin shapes' located instants: where a first run (own's reset, or its
+# reinit, at ex = 1 rtol) located the crossing, per configuration, shape, a
+# and rtol. The integration up to the first event is the same at every
+# commit of round 4 (4d24528 to the fix); where the integrator changes, the
+# shapes stay right by their truth but no longer land on the coincidence
+TF = HERE / "holds_tf.json"
+
+
+def band(rtol: float) -> float:
+    """The hold's band in x: what x's tolerance allows there, rtol |x| + atol
+    at x = 0.5 (atol = 1e-2 rtol)."""
+    return 0.5 * rtol + 1e-2 * rtol
+
+
+def extra(tier: str) -> list:
+    """Round 4's extra shapes: moves smaller than a location error can be, at
+    the crossing itself (the crossing's own `when`, forth, counts n and sets
+    k; back counts m), E = 1.75 fx (or ex):
+      fwd:   R = 0.625 + s (dd + k E): x from 0.5 to 0.5 + s fx: forth once,
+             back never;
+      small: own's reset at ex = 0.05 .. 0.3 rtol: forth [t1, tb], back at
+             forth's first instant;
+      frzf:  a freeze and a forward move, rs := r at the event, R = 0.625 + s
+             ((1 - k) dd + k (rs - 0.625 + E)): x = 0.5 + s fx frozen: forth
+             once, back never;
+      frzb:  the same backward (- E), lifted at tb (k2): forth [t1, tb], back
+             at forth's first instant.
+    fx, ex: 5.7e-13 and 0.05 .. 1 rtol."""
+    quick = tier == "quick"
+    out = []
+    for kind in ("fwd", "small", "frzf", "frzb"):
+        for up in ((True,) if quick else (True, False)):
+            for config in CONFIGS:
+                out.append(extra_build(kind, up, config, [1.0, 4.4] if quick else [0.7, 1.0, 2.3, 4.4],
+                                       ["noise", "0.2", "1"] if quick else
+                                       ["noise", "0.05", "0.1", "0.2", "0.3", "0.5", "1"],
+                                       QUICK_RTOLS if quick else RTOLS))
+    return out
+
+
+def extra_build(kind, up, config, rates, exks, rtols):
+    implicit, z_state, _, _ = CONFIGS[config]
+    sg = "+" if up else "-"
+    r = "z" if z_state else "a * time"
+    dd = f"({r} - 0.625)"
+    E = "1.75 * ex"
+    phi = {"fwd": f"+ k * {E}",
+           "small": f"- k * ({dd} + {E}) + k2 * (0.1 + {E})",
+           "frzf": f"- k * {dd} + k * (rs - 0.625 + {E})",
+           "frzb": f"- k * {dd} + k * (rs - 0.625 - {E}) + k2 * (0.1 + {E})"}[kind]
+    rr = f"0.625 {sg} ({dd} {phi})"
+    params = {"a": (1.0, "1/s"), "tb": (1.0, "s"), "ex": (1e-6, "")}
+    decls = [f"Real x(start = {0.0 if up else 0.78})"] + [DISC.format(v) for v in ("n", "m", "k", "k2", "rs")]
+    eqs = []
+    if z_state:
+        decls.append("Real z(start = 0, fixed = true)")
+        eqs.append("der(z) = a")
+    eqs.append(x_eq(implicit, rr))
+    fop, bop = ops(up, True)
+    forth = [count("n"), "k = 1"] + ([f"rs = {r}"] if kind.startswith("frz") else [])
+    whens = [(f"x {fop} 0.5", forth, "forth"), (f"x {bop} 0.5", [count("m")], "back"),
+             ("time >= tb", ["k2 = 1"], "k2 set")]
+    text = mo(params, decls, eqs, whens)
+    back_kind = kind in ("small", "frzb")
+    runs = []
+    for a in rates:
+        for exk in exks:
+            for rtol in rtols:
+                ex = 1e-12 / 1.75 if exk == "noise" else float(exk) * rtol
+                t1, tb = 0.625 / a, 0.625 / a + 0.5
+                L = loc(rtol, a / 1.75)
+                tag = {"a": a, "ex": exk}
+                limits = []
+                if back_kind:
+                    req = {"forth": [[t1, L], [tb, EXACT]], "back": [[t1, L]]}
+                    fin = {"n": [2, 0], "m": [1, 0]}
+                    same = [["back", 0, "forth", 0]]
+                    free = [t1 - L, tb + EXACT]
+                else:
+                    req = {"forth": [[t1, L]], "back": []}
+                    fin = {"n": [1, 0], "m": [0, 0]}
+                    same = []
+                    free = [t1 - L, t1 + L]
+                if ex <= resolution(rtol):
+                    keep = {"forth": [[t1, L]], "back": [], "_counters": {"n": "forth", "m": "back"}}
+                    limits.append(noise_alt(keep, free, dict(tag, ex="1", rtol=rtol)))
+                tr = truth(req, fin, same=same, limits=limits)
+                runs.append(run({"a": a, "tb": tb, "ex": ex}, rtol, tr, tag))
+    shape = {"kind": kind, "dir": "up" if up else "down"}
+    return build("extra", shape, config, text, runs, ["forth", "back"], ["n", "m"])
+
+
+def coin(tier: str) -> list:
+    """Review 1's coin (B2): own's reset (forth sets k, R back to 0.625 - s
+    E) with ex = a (t1 - tf) / 1.75, tf the instant a first run (ex = 1
+    rtol) located the crossing at ([`TF`]): the reset lands x on the value
+    the consistent x had there, so at the event's point it changes nothing.
+    Where the first run located it late, ex = 1 rtol (no coincidence). And
+    coinr (revision 1): own's reinit (forth reinits z to 0.625 - E) with ex
+    = q a (t1 - tf) / 1.75, q = 0.5 and 1, early-located runs only. Truth:
+    own's (forth [t1, tb], back at forth's first instant). Each run has its
+    twin at ex = 1 rtol (the noise limit's)."""
+    tf = json.loads(TF.read_text())
+    quick = tier == "quick"
+    rates, rtols = ([0.7, 2.3, 4.4], QUICK_RTOLS) if quick else (SHAPE_RATES, RTOLS)
+    out = []
+    for fam_, kind, configs in (("coin", "own", IMPL), ("coinr", "reinit", ["ida", "ida-implicit", "diffsol"])):
+        for up in ((True,) if quick else (True, False)):
+            for strict in ((True,) if quick else (True, False)):
+                for config in configs:
+                    base = own_build(kind, up, strict, config, [1.0], ["1"], [1e-6])
+                    d = f"{'up' if up else 'down'}-{'s' if strict else 'n'}"
+                    runs, twins = [], {}
+                    for a in rates:
+                        for rtol in rtols:
+                            t1 = 0.625 / a
+                            f = tf.get(f"{config}|{d}|{kind}|{a!r}|{rtol!r}")
+                            for q in ((1.0,) if fam_ == "coin" else (0.5, 1.0)):
+                                if f is None or f >= t1:
+                                    if fam_ == "coinr":
+                                        continue
+                                    ex, tag = rtol, {"a": a, "q": "late"}
+                                else:
+                                    ex, tag = q * a * (t1 - f) / 1.75, {"a": a, "q": q}
+                                r = own_build(kind, up, strict, config, [a], [repr(ex / rtol)], [rtol])["runs"][0]
+                                r["tag"] = dict(tag, rtol=rtol)
+                                r["key"] = key(r["tag"])
+                                tw = own_build(kind, up, strict, config, [a], ["1"], [rtol])["runs"][0]
+                                tw["tag"] = {"a": a, "twin": True, "rtol": rtol}
+                                tw["key"] = key(tw["tag"])
+                                for lim in r["truth"]["limits"]:
+                                    if "twin" in lim:
+                                        lim["twin"] = tw["key"]
+                                runs.append(r)
+                                twins[tw["key"]] = tw
+                    if runs:
+                        out.append(dict(base, runs=runs + list(twins.values()), family=fam_,
+                                        id=base["id"].replace("own/", fam_ + "/")))
+    return out
+
+
+def before(tier: str) -> list:
+    """Review 1's before (S2): a time event at t2 = t1 - d, before the
+    crossing, resets R to 0.625 - s e (x stays on the back side), lifted at
+    tb (k2). Truth: forth [tb], back never. Where the crossing was located
+    before t2, the run fires forth there and back at t2: located (the
+    mirror of L1)."""
+    quick = tier == "quick"
+    out = []
+    for config in CONFIGS:
+        implicit, z_state, _, _ = CONFIGS[config]
+        for up in ((True,) if quick else (True, False)):
+            sg = "+" if up else "-"
+            r = "z" if z_state else "a * time"
+            dd = f"({r} - 0.625)"
+            rr = f"0.625 {sg} ({dd} - k * ({dd} + e) + k2 * (0.1 + e))"
+            params = {"a": (1.0, "1/s"), "t2": (1.0, "s"), "tb": (1.0, "s"), "e": (1e-12, "")}
+            decls = [f"Real x(start = {0.0 if up else 0.78})"] + [DISC.format(v) for v in ("n", "m", "k", "k2")]
+            eqs = []
+            if z_state:
+                decls.append("Real z(start = 0, fixed = true)")
+                eqs.append("der(z) = a")
+            eqs.append(x_eq(implicit, rr))
+            fop, bop = ops(up, True)
+            whens = [("time >= t2", ["k = 1"], "k set"), ("time >= tb", ["k2 = 1"], "k2 set"),
+                     (f"x {fop} 0.5", [count("n")], "forth"), (f"x {bop} 0.5", [count("m")], "back")]
+            runs = []
+            for a in ([1.0, 4.4] if quick else [0.7, 1.0, 2.3, 4.4]):
+                for d in ([1e-7, 1e-5] if quick else [1e-8, 1e-7, 1e-6, 1e-5]):
+                    for ek in ("e05", "erel"):
+                        for rtol in (QUICK_RTOLS if quick else RTOLS):
+                            e = (0.875 if ek == "e05" else 1.75) * rtol
+                            t1 = 0.625 / a
+                            t2, tb = t1 - d, t1 + 0.5
+                            tr = truth({"forth": [[tb, EXACT]], "back": []}, {"n": [1, 0], "m": [0, 0]})
+                            runs.append(run({"a": a, "t2": t2, "tb": tb, "e": e}, rtol, tr, {"a": a, "d": d, "e": ek}))
+            out.append(build("before", {"dir": "up" if up else "down"}, config, mo(params, decls, eqs, whens),
+                             runs, ["forth", "back"], ["n", "m"]))
+    return out
+
+
+def rdmode(tier: str) -> list:
+    """Review 1's rdmode (S1): y = if x > 0.5 then 1 else 0; forth sets k,
+    and `when k > 0.5 then m = y` (the next round of event iteration reads
+    the mode), or forth sets m = y itself (own). Truth: m = 1 (the relation
+    holds just after its event instant), n = 1. A crossing located early
+    sets the mode from its relation literally (0) while the `when`'s hold
+    holds: mode read, a named limit (the hold spec's open question 2)."""
+    quick = tier == "quick"
+    out = []
+    for config in CONFIGS:
+        implicit, z_state, _, _ = CONFIGS[config]
+        for strict in ((True,) if quick else (True, False)):
+            for own_ in (False, True):
+                r = "z" if z_state else "a * time"
+                params = {"a": (1.0, "1/s")}
+                decls = ["Real x(start = 0)", "Real y"] + [DISC.format(v) for v in ("n", "m", "k")]
+                eqs = []
+                if z_state:
+                    decls.append("Real z(start = 0, fixed = true)")
+                    eqs.append("der(z) = a")
+                eqs.append(x_eq(implicit, r))
+                fop, _ = ops(True, strict)
+                eqs.append(f"y = if x {fop} 0.5 then 1 else 0")
+                if own_:
+                    whens = [(f"x {fop} 0.5", [count("n"), "m = y"], "forth")]
+                else:
+                    whens = [(f"x {fop} 0.5", [count("n"), "k = 1"], "forth"), ("k > 0.5", ["m = y"], "read")]
+                runs = []
+                for a in ([1.0, 4.4] if quick else SHAPE_RATES):
+                    for rtol in (QUICK_RTOLS if quick else RTOLS):
+                        t1 = 0.625 / a
+                        tr = truth({"forth": [[t1, loc(rtol, a / 1.75)]]}, {"n": [1, 0], "m": [1, 0]})
+                        runs.append(run({"a": a}, rtol, tr, {"a": a}))
+                out.append(build("rdmode", {"s": "s" if strict else "n", "own": "own" if own_ else "next"}, config,
+                                 mo(params, decls, eqs, whens), runs, ["forth"], ["n", "m"]))
+    return out
+
+
+def noisy(tier: str) -> list:
+    """Rounding the event changes (review 1's B1, review 2's B2 and review
+    3's S1): the event changes x only by the solve's rounding. Truth: forth
+    once at t1, back never.
+      noisy:    x^3 + x + B w = R + B c, w^3 + w = c^3 + c (w = c), q^3 + q =
+                1 + k; forth sets k (k moves q only);
+      noisy2:   x^3 + x + B (u - v) = R, u^3 + u = 1 + k, v = (1 + k) / (u^2
+                + 1): u = v exactly; forth sets k;
+      noisy3:   x^3 + x + (B t + k c) - B t - k c = R (exactly x^3 + x = R),
+                c = 0.3; forth sets k;
+      noisy3r:  the same with k from 1, forth clearing it, C 1e3 .. 1e6: the
+                large term switched off.
+    (Where the integrator or a restart cannot meet the tolerance through the
+    rounding, the run stops: wrong, as it stops without holds too.)"""
+    quick = tier == "quick"
+    out = []
+    rtols = QUICK_RTOLS if quick else RTOLS
+    for config in IMPL:
+        _, z_state, _, _ = CONFIGS[config]
+        r = "z" if z_state else "a * time"
+        zdecl = ["Real z(start = 0, fixed = true)"] if z_state else []
+        zeq = ["der(z) = a"] if z_state else []
+        shapes = []
+        decls = ["Real x(start = 0)", "Real w(start = 0.5)", "Real q(start = 0.68)"] + \
+            [DISC.format(v) for v in ("n", "m", "k")] + zdecl
+        eqs = zeq + [f"x ^ 3 + x + B * w = {r} + B * c", "w ^ 3 + w = c ^ 3 + c", "q ^ 3 + q = 1 + k"]
+        shapes.append(("noisy", {"a": (1.0, "1/s"), "B": (1.0, ""), "c": (0.5, "")}, decls, eqs, "k = 1",
+                       [{"B": B, "c": 0.5} for B in ([0.0, 1e4] if quick else [0.0, 1e2, 1e3, 1e4, 1e5])], [0.7, 1.0, 2.3, 4.4]))
+        decls = ["Real x(start = 0)", "Real u(start = 0.68)", "Real v"] + [DISC.format(w) for w in ("n", "m", "k")] + zdecl
+        eqs = zeq + [f"x ^ 3 + x + B * (u - v) = {r}", "u ^ 3 + u = 1 + k", "v = (1 + k) / (u ^ 2 + 1)"]
+        shapes.append(("noisy2", {"a": (1.0, "1/s"), "B": (1.0, "")}, decls, eqs, "k = 1",
+                       [{"B": B} for B in ([0.0, 1e5] if quick else [0.0, 1e2, 1e3, 1e4, 1e5, 1e6])], [0.7, 1.0, 2.3, 4.4]))
+        for up in ((True,) if quick else (True, False)):
+            sg = "+" if up else "-"
+            rr = f"0.625 {sg} ({r} - 0.625)"
+            x0 = 0.0 if up else 0.78
+            decls = [f"Real x(start = {x0})"] + [DISC.format(v) for v in ("n", "m", "k")] + zdecl
+            eqs = zeq + [f"x ^ 3 + x + (B * time + k * c) - B * time - k * c = {rr}"]
+            shapes.append((f"noisy3/{'up' if up else 'down'}", {"a": (1.0, "1/s"), "B": (1.0, "1/s"), "c": (0.3, "")},
+                           decls, eqs, "k = 1",
+                           [{"B": B} for B in ([1e4] if quick else [1e3, 1e4, 1e5, 1e6])], SHAPE_RATES))
+            decls = [f"Real x(start = {x0})"] + [DISC.format(v) for v in ("n", "m")] + \
+                ["discrete Real k(start = 1, fixed = true)"] + zdecl
+            eqs = zeq + [f"x ^ 3 + x + (B * time + k * C) - B * time - k * C = {rr}"]
+            shapes.append((f"noisy3r/{'up' if up else 'down'}", {"a": (1.0, "1/s"), "B": (1.0, "1/s"), "C": (1.0, "")},
+                           decls, eqs, "k = 0",
+                           [{"B": B, "C": C} for B in (0.0, 1e3) for C in ([1e5] if quick else [1e3, 1e4, 1e5, 1e6])],
+                           SHAPE_RATES))
+        for name, params, decls, eqs, act, sets, rates in shapes:
+            fam_, *d = name.split("/")
+            up = not d or d[0] == "up"
+            fop, bop = ops(up, True)
+            whens = [(f"x {fop} 0.5", [count("n"), act], "forth"), (f"x {bop} 0.5", [count("m")], "back")]
+            runs = []
+            for ps in sets:
+                for a in ([1.0, 4.4] if quick else rates):
+                    for rtol in rtols:
+                        t1 = 0.625 / a
+                        tr = truth({"forth": [[t1, loc(rtol, a / 1.75)]], "back": []}, {"n": [1, 0], "m": [0, 0]})
+                        runs.append(run(dict(ps, a=a), rtol, tr, dict(ps, a=a)))
+            shape = {"dir": "up" if up else "down"}
+            out.append(build(fam_, shape, config, mo(params, decls, eqs, whens), runs, ["forth", "back"], ["n", "m"]))
+    return out
+
+
+def noisyown(tier: str) -> list:
+    """Revision 2's noisyown (review 2's S2): noisy2's cancelling terms (x^3
+    + x + B (u - v) = R, u = v exactly) beside own's reset (forth puts x
+    back by ex = q band through k, q = 0.5 and 1; lifted at tb). Truth:
+    own's (forth [t1, tb], back at forth's first instant). Where the
+    rounding bound exceeds ex (B 1e5 and 1e6 at rtol 1e-9 and 1e-10), the
+    rule cannot resolve the move: held, read at the hold's expiry."""
+    quick = tier == "quick"
+    out = []
+    for config in IMPL:
+        implicit, z_state, _, _ = CONFIGS[config]
+        for up in ((True,) if quick else (True, False)):
+            sg = "+" if up else "-"
+            r = "z" if z_state else "a * time"
+            dd = f"({r} - 0.625)"
+            E = "1.75 * ex"
+            rr = f"0.625 {sg} ({dd} - k * ({dd} + {E}) + k2 * (0.1 + {E}))"
+            params = {"a": (1.0, "1/s"), "B": (1.0, ""), "tb": (1.0, "s"), "ex": (1e-6, "")}
+            decls = [f"Real x(start = {0.0 if up else 0.78})", "Real u(start = 0.68)", "Real v"] + \
+                [DISC.format(w) for w in ("n", "m", "k", "k2")]
+            eqs = []
+            if z_state:
+                decls.append("Real z(start = 0, fixed = true)")
+                eqs.append("der(z) = a")
+            eqs += [f"x ^ 3 + x + B * (u - v) = {rr}", "u ^ 3 + u = 1 + k", "v = (1 + k) / (u ^ 2 + 1)"]
+            fop, bop = ops(up, True)
+            whens = [(f"x {fop} 0.5", [count("n"), "k = 1"], "forth"), (f"x {bop} 0.5", [count("m")], "back"),
+                     ("time >= tb", ["k2 = 1"], "k2 set")]
+            runs = []
+            for B in ((0.0, 1e5) if quick else (0.0, 1e4, 1e5, 1e6)):
+                for a in ((1.0,) if quick else (0.7, 1.0, 2.3, 4.4)):
+                    for q in (0.5, 1.0):
+                        for rtol in (QUICK_RTOLS if quick else RTOLS):
+                            ex = q * band(rtol)
+                            t1, tb = 0.625 / a, 0.625 / a + 0.5
+                            L = loc(rtol, a / 1.75)
+                            req = {"forth": [[t1, L], [tb, EXACT]], "back": [[t1, L]]}
+                            tr = truth(req, {"n": [2, 0], "m": [1, 0]}, same=[["back", 0, "forth", 0]])
+                            runs.append(run({"a": a, "B": B, "tb": tb, "ex": ex}, rtol, tr, {"a": a, "B": B, "q": q}))
+            out.append(build("noisyown", {"dir": "up" if up else "down"}, config, mo(params, decls, eqs, whens),
+                             runs, ["forth", "back"], ["n", "m"]))
+    return out
+
+
+def rest(tier: str) -> list:
+    """Review 2's shapes (R2-B1): x stopped short of 0.5 by an event between
+    an early-located crossing and the true one, at t2 = t1 - d, d = q band /
+    |x'| (q 0.35 .. 2), by a time event (bcoin, bfreeze) or where a state w
+    = t passes t2 (bcoinw, bfreezew):
+      bcoin:   R reset to its own value there (0.625 - s a d): x = 0.5 - s q
+               band, until k2 at tb lifts it;
+      bfreeze: z stopped (z' = a (1 - k); with no state R = a t - k a (t -
+               t2)): the same trajectory, by a rate change.
+    Truth: forth [tb], back never. Where the crossing was located before t2,
+    the run fires forth there and back at t2 (the event read as a change):
+    located, the mirror of L1."""
+    quick = tier == "quick"
+    out = []
+    for kind, trig in (("bcoin", "time"), ("bfreeze", "time"), ("bcoin", "w"), ("bfreeze", "w")):
+        for config in IMPL:
+            implicit, z_state, _, _ = CONFIGS[config]
+            for up in ((True,) if quick else (True, False)):
+                for strict in ((True,) if quick else (True, False)):
+                    sg = "+" if up else "-"
+                    r = "z" if z_state else "a * time"
+                    dd = f"({r} - 0.625)"
+                    if kind == "bcoin":
+                        rr = f"0.625 {sg} ({dd} - k * ({dd} + e) + k2 * (0.1 + e))"
+                    elif z_state:
+                        rr = f"0.625 {sg} ({dd} + k2 * 0.1)"
+                    else:
+                        rr = f"0.625 {sg} ({dd} - k * a * (time - t2) + k2 * 0.1)"
+                    params = {"a": (1.0, "1/s"), "t2": (1.0, "s"), "tb": (1.0, "s"), "e": (1e-12, "")}
+                    decls = [f"Real x(start = {0.0 if up else 0.78})"] + [DISC.format(v) for v in ("n", "m", "k", "k2")]
+                    eqs = []
+                    if z_state:
+                        decls.append("Real z(start = 0, fixed = true)")
+                        eqs.append("der(z) = a * (1 - k)" if kind == "bfreeze" else "der(z) = a")
+                    eqs.append(x_eq(implicit, rr))
+                    fop, bop = ops(up, strict)
+                    if trig == "w":
+                        decls.append('Real w(unit = "s", start = 0, fixed = true)')
+                        eqs.append("der(w) = 1")
+                    t2c = "w > t2" if trig == "w" else "time >= t2"
+                    whens = [(t2c, ["k = 1"], "k set"), ("time >= tb", ["k2 = 1"], "k2 set"),
+                             (f"x {fop} 0.5", [count("n")], "forth"), (f"x {bop} 0.5", [count("m")], "back")]
+                    runs = []
+                    for a in ([1.0, 4.4] if quick else SHAPE_RATES):
+                        for q in ([0.4, 1.0] if quick else [0.35, 0.4, 0.5, 0.7, 1.0, 1.5, 2.0]):
+                            for rtol in (QUICK_RTOLS if quick else RTOLS):
+                                t1 = 0.625 / a
+                                d = q * band(rtol) * 1.75 / a
+                                t2, tb = t1 - d, t1 + 0.5
+                                e = a * d
+                                L = loc(rtol, a / 1.75)
+                                tr = truth({"forth": [[tb, EXACT]], "back": []}, {"n": [1, 0], "m": [0, 0]})
+                                ev = ev_tol("state" if trig == "w" else "time", rtol)
+                                tr["limits"] = [{"cls": "located", "req": {"forth": [[t1, L], [tb, EXACT]],
+                                                                           "back": [[t2, ev]]},
+                                                 "final": {"n": [2, 0], "m": [1, 0]}}]
+                                runs.append(run({"a": a, "t2": t2, "tb": tb, "e": e}, rtol, tr, {"a": a, "q": q}))
+                    fam_ = kind + ("w" if trig == "w" else "")
+                    out.append(build(fam_, {"dir": "up" if up else "down", "s": "s" if strict else "n"}, config,
+                                     mo(params, decls, eqs, whens), runs, ["forth", "back"], ["n", "m"]))
+    return out
+
+
+def mixedc(tier: str) -> list:
+    """Review 1's mixedc (B3): a condition that reads time and an iteration
+    variable (a mixed one, checked along the dense output every step), `x >
+    0.5 + c (t - t1p)`, t1p = t1: it crosses at t1, x' - c = a / 1.75 - c
+    there. Truth: forth once at t1, back never."""
+    quick = tier == "quick"
+    out = []
+    for config in CONFIGS:
+        implicit, z_state, _, _ = CONFIGS[config]
+        for strict in ((True,) if quick else (True, False)):
+            r = "z" if z_state else "a * time"
+            params = {"a": (1.0, "1/s"), "c": (0.05, "1/s"), "t1p": (1.0, "s")}
+            decls = ["Real x(start = 0)"] + [DISC.format(w) for w in ("n", "m")]
+            eqs = []
+            if z_state:
+                decls.append("Real z(start = 0, fixed = true)")
+                eqs.append("der(z) = a")
+            eqs.append(x_eq(implicit, r))
+            fop, bop = ops(True, strict)
+            th = "0.5 + c * (time - t1p)"
+            whens = [(f"x {fop} {th}", [count("n")], "forth"), (f"x {bop} {th}", [count("m")], "back")]
+            runs = []
+            for a in ([1.0, 4.4] if quick else SHAPE_RATES):
+                for rtol in (QUICK_RTOLS if quick else RTOLS):
+                    t1 = 0.625 / a
+                    tr = truth({"forth": [[t1, loc(rtol, a / 1.75 - 0.05)]], "back": []}, {"n": [1, 0], "m": [0, 0]})
+                    runs.append(run({"a": a, "c": 0.05, "t1p": t1}, rtol, tr, {"a": a}))
+            out.append(build("mixedc", {"s": "s" if strict else "n"}, config, mo(params, decls, eqs, whens), runs,
+                             ["forth", "back"], ["n", "m"]))
+    return out
+
+
+def slow(tier: str) -> list:
+    """Review 3's R3-B1: the crossing's own event slows x by K (z' = a (1 -
+    c k), c = 1 - 1/K; with no state R = a t - k c a (t - tk), tk := time at
+    the event), K = 10 .. 1e4:
+      slow:    forth (counts n) sets k;
+      slowsib: a sibling `when` on the same relation sets it (forth only
+               counts);
+      slowr:   forth sets k, back (counts m) clears it (fast below, slow
+               above).
+    In truth x reaches 0.5 at t1 and goes on past it, slower: forth [t1]
+    once, back never."""
+    quick = tier == "quick"
+    out = []
+    for kind in ("slow", "slowsib", "slowr"):
+        for config in IMPL + ["cvode"]:
+            implicit, z_state, _, _ = CONFIGS[config]
+            for up in ((True,) if quick else (True, False)):
+                for strict in ((True,) if quick else (True, False)):
+                    sg = "+" if up else "-"
+                    dd = "(z - 0.625)" if z_state else "(a * time - 0.625 - k * c * a * (time - tk))"
+                    rr = f"0.625 {sg} {dd}"
+                    params = {"a": (1.0, "1/s"), "c": (0.0, "")}
+                    decls = [f"Real x(start = {0.0 if up else 0.78})"] + [DISC.format(v) for v in ("n", "m", "k")] + \
+                        ['discrete Real tk(unit = "s", start = 0, fixed = true)']
+                    eqs = []
+                    if z_state:
+                        decls.append("Real z(start = 0, fixed = true)")
+                        eqs.append("der(z) = a * (1 - c * k)")
+                    eqs.append(x_eq(implicit, rr))
+                    fop, bop = ops(up, strict)
+                    if kind == "slowsib":
+                        whens = [(f"x {fop} 0.5", [count("n")], "forth"), (f"x {fop} 0.5", ["k = 1", "tk = time"], "slows"),
+                                 (f"x {bop} 0.5", [count("m")], "back")]
+                    else:
+                        whens = [(f"x {fop} 0.5", [count("n"), "k = 1", "tk = time"], "forth"),
+                                 (f"x {bop} 0.5", [count("m")] + (["k = 0"] if kind == "slowr" else []), "back")]
+                    runs = []
+                    for a in ([0.5, 2.3] if quick else SHAPE_RATES):
+                        for K in ([100.0, 1e4] if quick else [10.0, 100.0, 1000.0, 1e4]):
+                            for rtol in (QUICK_RTOLS if quick else RTOLS):
+                                t1 = 0.625 / a
+                                tr = truth({"forth": [[t1, loc(rtol, a / 1.75)]], "back": []}, {"n": [1, 0], "m": [0, 0]})
+                                runs.append(run({"a": a, "c": 1.0 - 1.0 / K}, rtol, tr, {"a": a, "K": K}))
+                    out.append(build(kind, {"dir": "up" if up else "down", "s": "s" if strict else "n"}, config,
+                                     mo(params, decls, eqs, whens), runs, ["forth", "back"], ["n", "m"]))
+    return out
+
+
+
 FAMILIES = {"fam": fam, "own": own, "ramp": ramp, "peak": peak, "moved": moved, "stale": stale,
-            "count": count_cases}
+            "count": count_cases, "extra": extra, "coin": coin, "before": before, "rdmode": rdmode,
+            "noisy": noisy, "noisyown": noisyown, "rest": rest, "mixedc": mixedc, "slow": slow}
 
 
 def all_builds(tier: str) -> list:
@@ -916,6 +1401,219 @@ def classify(res, tr, labels, cls_of_key) -> str:
     return "wrong"
 
 
+# ---------------------------------------------------------------------------
+# The named limits the hold rule's own reading needs (the hold spec, 4.9 and
+# 4.10): a run `classify` finds wrong is tried against these, in order
+# ---------------------------------------------------------------------------
+
+def windows(r) -> list:
+    """The truth's crossing windows: [tc - L, tc + L] around the crossing
+    t1 = 0.625 / a (where the shape has a) and around every required firing
+    with a tolerance of at least 1e-9 s (a located one; a scheduled instant
+    gets none)."""
+    w = []
+    p, rtol = r["params"], r["rtol"]
+    if "a" in p:
+        a = p["a"]
+        L = loc(rtol, a / 1.75)
+        w.append((0.625 / a - L, 0.625 / a + L))
+    for req in r["truth"]["req"].values():
+        for t, tol in req:
+            if tol >= 1e-9:
+                w.append((t - tol, t + tol))
+    return w
+
+
+def located_truth(b, r, res):
+    """The one located definition (the hold spec, 4.9), computed where a
+    shape's truth depends on it: the truth redone with the crossing at the
+    instant tf the run fired the crossing's own `when` (|tf - t1| <= L),
+    each event's new values from the exact values just before it. `None`
+    where it is the truth or does not apply.
+      extra fwd, frzf (x0(tf) + fx short of 0.5: back at tf; fwd forth again
+        at t1 - E / a), frzb (late: x0(tf) - ex still past 0.5, frozen: forth
+        once);
+      before (the mirror: the crossing located before t2, forth there, back
+        at t2, forth at tb)."""
+    fam_ = b["family"]
+    if not res or not res.get("ok"):
+        return None
+    p, rtol = r["params"], r["rtol"]
+    f = fired_by(res, ["forth"])["forth"]
+    if not f or "a" not in p:
+        return None
+    a = p["a"]
+    t1 = 0.625 / a
+    L = loc(rtol, a / 1.75)
+    tf = f[0]
+    if abs(tf - t1) > L:
+        return None
+    if fam_ == "extra":
+        kind = b["shape"]["kind"]
+        E = 1.75 * p["ex"]
+        if kind in ("fwd", "frzf"):
+            if a * (tf - t1) + E > 0:
+                return None
+            if kind == "fwd":
+                return truth({"forth": [[tf, EXACT], [t1 - E / a, L]], "back": [[tf, EXACT]]},
+                             {"n": [2, 0], "m": [1, 0]})
+            return truth({"forth": [[tf, EXACT]], "back": [[tf, EXACT]]}, {"n": [1, 0], "m": [1, 0]})
+        if kind == "frzb" and a * (tf - t1) - E >= 0:
+            return truth({"forth": [[tf, EXACT]], "back": []}, {"n": [1, 0], "m": [0, 0]})
+        return None
+    if fam_ == "before" and tf <= p["t2"] + EXACT:
+        return truth({"forth": [[tf, EXACT], [p["tb"], EXACT]], "back": [[p["t2"], EXACT]]},
+                     {"n": [2, 0], "m": [1, 0]})
+    return None
+
+
+def in_windows(spec, r) -> bool:
+    """Every firing `spec` requires is one the truth requires (at its
+    instant, within its tolerance) or lies inside one of the truth's
+    windows (review 3's S3: a located truth counts only where it moves
+    firings within the location's own scale)."""
+    ws = windows(r)
+    req = r["truth"]["req"]
+    return all(any(lo <= t <= hi for lo, hi in ws) or any(abs(t - q[0]) <= q[1] for q in req.get(lab, []))
+               for lab, want in spec["req"].items() for t, _ in want)
+
+
+def bounded(b, r, res) -> bool:
+    """The time limit's bound (the hold spec, 4.9, as review 3's S2
+    tightened it): the run did not stop; outside the truth's windows each
+    counted `when` fires exactly as the truth requires; inside each window
+    an extra or a lost pair at most (where the shape counts back, forth's
+    and back's differences from the truth are equal, so the relation ends
+    the window as the truth's does; with forth alone, one extra firing at
+    most); the counters equal the firings. A lone firing lost for good is
+    not bounded."""
+    if not res or not res.get("ok"):
+        return False
+    labels = b["labels"]
+    fired = fired_by(res, labels)
+    ws = windows(r)
+    req = r["truth"]["req"]
+
+    def inw(t):
+        return [i for i, (lo, hi) in enumerate(ws) if lo <= t <= hi]
+
+    for lab in labels:
+        want = req.get(lab, [])
+        out_req = [q for q in want if not inw(q[0])]
+        out_got = [t for t in fired[lab] if not inw(t)]
+        if len(out_req) != len(out_got) or any(abs(t - q[0]) > q[1] for t, q in zip(out_got, out_req)):
+            return False
+    pair = len(labels) >= 2 and labels[1] in ("back", "it counts down")
+    for i in range(len(ws)):
+        diff = [sum(1 for t in fired[lab] if i in inw(t)) - sum(1 for q in req.get(lab, []) if i in inw(q[0]))
+                for lab in labels[:2]]
+        if pair:
+            if diff[0] != diff[1] or abs(diff[0]) > 1:
+                return False
+        elif diff and diff[0] not in (0, 1):
+            return False
+    fin = res.get("final", {})
+    cnt = dict(zip(["n", "m"], labels))
+    for v, (want, tol) in r["truth"].get("final", {}).items():
+        g = fin.get(v)
+        if v in cnt:
+            if g != len(fired[cnt[v]]):
+                return False
+        elif want != "count" and (g is None or abs(g - want) > tol):
+            return False
+    return True
+
+
+def moved_back(b, r, res, lt) -> bool:
+    """A lone back moved by the time limit (review 3's S2: frzf): the run is
+    the located truth with its back firings up to W / |x'| later (W = 8
+    bands, the hold's width)."""
+    if lt is None or "a" not in r["params"]:
+        return False
+    w = 8 * band(r["rtol"]) * 1.75 / r["params"]["a"]
+    spec = dict(lt, req={k: ([[t + w / 2, w / 2 + EXACT] for t, _ in v] if k == "back" else v)
+                         for k, v in lt["req"].items()})
+    return matches(res, spec, b["labels"])
+
+
+def shallow_peak(b, r, res) -> bool:
+    """A missed shallow peak (the hold spec, 4.10; no hold involved): a peak
+    whose height above the threshold, d / 1.75 in x, is within 100 rtol, and
+    the run fires none of its crossings (every counter 0): the error test
+    lets the integrators step over a peak so shallow (the twin with a short
+    largest step need not catch it either)."""
+    if b["family"] != "peak" or not res or not res.get("ok"):
+        return False
+    if b["shape"]["d"] / 1.75 > 100 * r["rtol"]:
+        return False
+    if any(fired_by(res, b["labels"]).values()):
+        return False
+    return all(res.get("final", {}).get(v, 0) == 0 for v in ("n", "m", "on"))
+
+
+def restart_loss(b, r, res, cls_of_key) -> bool:
+    """Diffsol right after an event's restart (the hold spec, 4.10; no hold
+    involved, out of scope by the brief): the run is right, or inside L1,
+    noise, located or bounded, but for one firing of a counted `when` lost
+    right after an event (an instant where the run fired, or the shape's
+    t2): with that firing put back just after the event, it is. Not a
+    firing the truth ties to another's instant (event iteration's, at the
+    event itself: `same`), nor one at a scheduled instant: those are not
+    crossings the integrator finds after a restart."""
+    if b["config"] != "diffsol" or not res or not res.get("ok"):
+        return False
+    tied = {x for la, _, lb, _ in r["truth"].get("same", []) for x in (la, lb)}
+    labels = b["labels"]
+    insts = {t for t, _ in res.get("fired", [])}
+    if "t2" in r["params"]:
+        insts.add(r["params"]["t2"])
+    counters = dict(zip(labels, ["n", "m"]))
+    for te in sorted(insts):
+        for lab in labels:
+            if lab in tied:
+                continue
+            fin = dict(res.get("final", {}))
+            v = counters.get(lab)
+            if v in fin and fin[v] is not None:
+                fin[v] = fin[v] + 1
+            fired = sorted(res.get("fired", []) + [[te + 1e-13, lab]], key=lambda x: x[0])
+            put = dict(res, fired=fired, final=fin)
+            # (the firing put back answers a located requirement, not a
+            # scheduled one: its tolerance is at least 1e-9 s)
+            if not any(abs(te - q[0]) <= q[1] and q[1] >= 1e-9 for q in r["truth"]["req"].get(lab, [])) and \
+                    not any(lo <= te <= hi for lo, hi in windows(r)):
+                continue
+            c = classify(put, r["truth"], labels, cls_of_key)
+            if c in ("right", "L1", "noise", "located") or bounded(b, r, put):
+                return True
+    return False
+
+
+def classify_run(b, r, res, cls_of_key) -> str:
+    """A run's class: `classify`'s (right, or a limit its truth names: L1,
+    noise, onestep, located, storm), else, in order, located (the one
+    located definition, its firings inside the truth's windows), moderead,
+    shallowpeak, bounded (with a lone back moved by the time limit),
+    restartloss, else wrong."""
+    c = classify(res, r["truth"], b["labels"], cls_of_key)
+    if c != "wrong":
+        return c
+    lt = located_truth(b, r, res)
+    if lt is not None and in_windows(lt, r) and matches(res, lt, b["labels"]):
+        return "located"
+    if b["family"] == "rdmode":
+        f = fired_by(res or {}, ["forth"])["forth"]
+        if f and f[0] < 0.625 / r["params"]["a"]:
+            return "moderead"
+    if shallow_peak(b, r, res):
+        return "shallowpeak"
+    if bounded(b, r, res) or moved_back(b, r, res, lt):
+        return "bounded"
+    if restart_loss(b, r, res, cls_of_key):
+        return "restartloss"
+    return "wrong"
+
+
 def describe(res, tr, labels) -> str:
     """How a wrong run differs from the truth, in a few words."""
     if not res.get("ok"):
@@ -962,7 +1660,7 @@ def score_one(builds, res: dict):
         if (bid, k) not in keyed:
             return "missing"
         b, i, r = keyed[(bid, k)]
-        c = classify(res.get((bid, i)), r["truth"], b["labels"], lambda tk: of(bid, tk))
+        c = classify_run(b, r, res.get((bid, i)), lambda tk: of(bid, tk))
         cls[(bid, k)] = c
         return c
 
@@ -971,8 +1669,10 @@ def score_one(builds, res: dict):
     return cls, keyed
 
 
-CLASSES = ["right", "L1", "noise", "onestep", "storm", "wrong", "missing"]
-SHOWN = ["wrong", "L1", "noise", "onestep", "storm", "right"]
+CLASSES = ["right", "L1", "located", "moderead", "noise", "onestep", "storm", "shallowpeak", "restartloss",
+           "bounded", "wrong", "missing"]
+SHOWN = ["wrong", "bounded", "L1", "located", "moderead", "noise", "onestep", "storm", "shallowpeak",
+         "restartloss", "right"]
 
 
 def sub(b) -> str:
@@ -981,7 +1681,9 @@ def sub(b) -> str:
         return "count:" + re.sub(r"-(implicit|nostate|other|nudge|land|rising)?-?[\d.e-]*$", "",
                                  b["shape"]["case"][6:]).split("-implicit")[0]
     k = {"fam": "effect", "own": "kind", "ramp": "cond", "peak": "cond", "moved": "shape", "stale": "trig"}
-    return f"{b['family']}:{b['shape'][k[b['family']]]}"
+    sh = b["shape"]
+    v = sh[k[b["family"]]] if b["family"] in k else sh.get("kind", sh.get("own", sh.get("s", sh.get("dir", ""))))
+    return f"{b['family']}:{v}"
 
 
 def tally(builds, labelled: list, out_path: Path | None) -> str:
@@ -1001,7 +1703,7 @@ def tally(builds, labelled: list, out_path: Path | None) -> str:
         lines.append(f"| {label} | {sum(c.values())} | " + " | ".join(str(c[k]) for k in SHOWN) + " |")
 
     def table(title, keyf, keys):
-        lines.append(f"\n## {title}: wrong / L1 / noise / onestep / storm / right\n")
+        lines.append(f"\n## {title}: {' / '.join(SHOWN)}\n")
         lines.append("| | " + " | ".join(lab for lab, *_ in scored) + " |")
         lines.append("|---|" + "---|" * len(scored))
         for k in keys:
@@ -1016,7 +1718,8 @@ def tally(builds, labelled: list, out_path: Path | None) -> str:
     table("By configuration", lambda b: b["config"], list(CONFIGS) + ["default"])
     table("By shape family", sub, subs)
     cfgs = list(CONFIGS) + ["default"]
-    abbr = {"L1": "L1", "noise": "N", "onestep": "S1", "storm": "St"}
+    abbr = {"bounded": "B", "L1": "L1", "located": "Lo", "moderead": "M", "noise": "N", "onestep": "S1",
+            "storm": "St", "shallowpeak": "P", "restartloss": "R"}
     label0, res0, cls0, keyed0 = scored[0]
     runs = collections.Counter((sub(keyed0[kk][0]), keyed0[kk][0]["config"]) for kk in cls0)
     lines.append("\n## Runs, by shape family and configuration\n")
@@ -1030,7 +1733,8 @@ def tally(builds, labelled: list, out_path: Path | None) -> str:
             b = keyed[kk][0]
             per[(sub(b), b["config"])][v] += 1
         lines.append(f"\n### {label}: wrong, and named limits, by shape family and configuration\n")
-        lines.append("Each cell: wrong runs, then the named limits (L1, N noise, S1 onestep, St storm); "
+        lines.append("Each cell: wrong runs, then the named limits (B bounded, L1, Lo located, M mode read, "
+                     "N noise, S1 onestep, St storm, P shallow peak, R restart loss); "
                      "· none; the rest of the cell's runs (table above) right.\n")
         lines.append("| shape family | " + " | ".join(cfgs) + " |")
         lines.append("|---|" + "---|" * len(cfgs))
@@ -1134,6 +1838,18 @@ def selftest() -> None:
     assert classify(hidden, nz, lab, lambda k: "wrong") == "wrong"
     assert classify({"ok": False, "error": "event storm at t = 1.01 s: ..."},
                     dict(tr, storm=[[1.0, 0.1]]), lab, None) == "storm"
+    # bounded (review 3's S2): an extra pair within the crossing's window, not a lone lost firing
+    bb = {"family": "own", "config": "ida", "labels": lab, "shape": {}}
+    rr = {"params": {"a": 1.0}, "rtol": 1e-6, "truth": truth({"forth": [[0.625, loc(1e-6, 1 / 1.75)]], "back": []},
+                                                            {"n": [1, 0], "m": [0, 0]})}
+    pair = {"ok": True, "fired": [[0.62499, "forth"], [0.625001, "back"], [0.625002, "forth"]], "final": {"n": 2, "m": 1}}
+    assert classify_run(bb, rr, pair, lambda k: "wrong") == "bounded"
+    lost = {"ok": True, "fired": [], "final": {"n": 0, "m": 0}}
+    assert classify_run(bb, rr, lost, lambda k: "wrong") == "wrong"
+    lone = {"ok": True, "fired": [[0.62499, "forth"], [0.625001, "back"]], "final": {"n": 1, "m": 1}}
+    assert classify_run(bb, rr, lone, lambda k: "wrong") == "wrong"
+    far = {"ok": True, "fired": [[0.62499, "forth"], [0.625001, "back"], [0.7, "forth"]], "final": {"n": 2, "m": 1}}
+    assert classify_run(bb, rr, far, lambda k: "wrong") == "wrong"
     # the truth's own numbers: x^3 + x = 0.625 at 0.5, and the fam probe's back effect
     assert 0.5 ** 3 + 0.5 == 0.625
     b = fam_build(True, "time", "back", "pairs", "ida", [1.0], [1e-4], [1e-6])

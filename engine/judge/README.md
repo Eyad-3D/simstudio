@@ -267,8 +267,8 @@ text format, prepares and compiles each once and runs it at each of its
 parameter sets, tolerances and backends on threads.
 
 ```text
-python3 engine/judge/judge.py holds cases OUT --tier quick    # 340 models, 4 160 runs
-python3 engine/judge/judge.py holds cases OUT --tier full     # 1 446 models, 211 904 runs
+python3 engine/judge/judge.py holds cases OUT --tier quick    # 446 models, 5 546 runs
+python3 engine/judge/judge.py holds cases OUT --tier full     # 1 726 models, 281 696 runs
 python3 engine/judge/judge.py holds build CHECKOUT RUNNER     # cargo, CARGO_TARGET_DIR as set
 python3 engine/judge/judge.py holds run   RUNNER OUT RESULTS.jsonl [--threads 12]
 python3 engine/judge/judge.py holds score OUT LABEL=RESULTS.jsonl ... [--out FILE.md]
@@ -276,8 +276,9 @@ python3 engine/judge/judge.py holds selftest                  # the scorer on ma
 ```
 
 The full tier is every probe at the size that found its bug: the fix
-round's family probe whole (181 440 runs) and recheck 3's own-move probe
-whole, with the smaller sets beside them. The quick tier keeps a few rates,
+round's family probe whole (181 440 runs), recheck 3's own-move probe
+whole, and every shape the hold rule's three reviews made (round 4: the
+hold spec), with the smaller sets beside them. The quick tier keeps a few rates,
 delays and tolerances (1e-5, 1e-8, 1e-10) of each family on every backend.
 Each model runs on six configurations: `cvode` (x written explicitly, x =
 0.5 + (R − 0.625)/1.75: no iteration variable, nothing to hold, the
@@ -313,6 +314,15 @@ instant.
 | `own` | the crossing's own event, E = 1.75 ex. `own`: the crossing's `when` sets k, φ = −k (dd + E) + k2 (0.1 + E); `sep`: k set by another `when` on the same condition; `thr`: the threshold moves to 0.5 + s k ex, φ = −k dd + 0.1 k2; `reinit`: forth reinits z to 0.625 − E and stops it (z' = a (1 − k)), φ = k2 (0.1 + E); `ownmode`: own beside y = if back. k2 at tb = t1 + 0.5; ex ∈ {5.7e-13, 0.5, 1, 1.5, 100} rtol; a ∈ {0.7, 1, 2.3, 4.4}; rising and falling; strict and not | forth at [t1, tb]; back at the same instant as forth's first firing (after k, x is back across by ex, so event iteration fires back there); R(tb+) = 0.625 + 0.1 s, past the threshold again. Not strict: x is exactly 0.5 at t1, so the back relation is true there already and may never turn: back at t1, or never (both right) | recheck 3's own-move probe, whole, and its judge-format cases |
 | `own` `kick`, `steps`, `saw` | R = r − 0.2 k, with the own `when` setting k, beside `when x < 0.5`; R = r − 0.6 n; forth reinits z to 0 (a = 1) | kick: forth at [0.625, 0.825], back at forth's first instant; steps: forth at 0.625, 1.225, 1.825; saw: forth at 0.625, 1.25, 1.875 | recheck 1's P3, implicit_conditions.rs' sends-back test |
 | `count` | the judge's count-implicit, count-pair, count-peak, count-moved and count-held-back cases, their texts as `crossings()` writes them | as their rows in the table above | `judge.py crossings()` |
+| `extra` | at the crossing itself, the crossing's own `when` (forth) sets k, E = 1.75 fx: `fwd` R = 0.625 + s (dd + k E); `small` own's reset at ex = 0.05 … 0.3 rtol; `frzf` a freeze and a forward move, rs := r at the event, R = 0.625 + s ((1 − k) dd + k (rs − 0.625 + E)); `frzb` the same backward, lifted at tb; fx, ex 5.7e-13 and 0.05 … 1 rtol; a ∈ {0.7, 1, 2.3, 4.4} | fwd, frzf: forth once (x at 0.5 + s fx after the event), back never; small, frzb: forth at [t1, tb], back at forth's first instant | the hold spec's extra shapes (round 4) |
+| `coin`, `coinr` | own's reset (coin) or reinit (coinr) with ex = q a (t1 − tf) / 1.75, tf where a first run (ex = 1 rtol) located the crossing (`holds_tf.json`, from the round-4 runs: the integration before the first event is the same at every commit measured), q = 1 (coin; ex = 1 rtol where located late) or 0.5 and 1 (coinr, early-located runs only), each beside its twin at ex = 1 rtol; nine rates | own's | the hold spec's review 1 (B2) and revision 1 |
+| `before` | a time event at t2 = t1 − d (d 1e-8 … 1e-5) resets R behind 0.5 by e (0.5 or 1 rtol in x), lifted at tb | forth [tb], back never | review 1 (S2) |
+| `rdmode` | y = if x > 0.5 then 1 else 0; forth sets k and `when k > 0.5 then m = y` (or forth sets m = y itself) | n = 1, m = 1 (the relation holds just after its event) | review 1 (S1) |
+| `noisy`, `noisy2`, `noisy3`, `noisy3r` | the event changes x only by the solve's rounding: x³ + x + B w = R + B c with w³ + w = c³ + c (k moves q³ + q = 1 + k only); x³ + x + B (u − v) = R with u³ + u = 1 + k, v = (1 + k)/(u² + 1) (u = v exactly); x³ + x + (B t + k c) − B t − k c = R, forth setting k (noisy3) or clearing it (noisy3r, C 1e3 … 1e6: the large term switched off) | forth once at t1, back never | review 1 (B1), review 2 (B2), review 3 (S1) |
+| `noisyown` | noisy2's cancelling terms beside own's reset by ex = 0.5 and 1 band; B 0 … 1e6 | own's | revision 2 (review 2's S2) |
+| `mixedc` | `x > 0.5 + c (t − t1)` (a mixed condition, checked along the dense output), c = 0.05/s | forth once at t1, back never | review 1 (B3) |
+| `bcoin`, `bcoinw`, `bfreeze`, `bfreezew` | at t2 = t1 − d, d = q band / x' (q 0.35 … 2), by a time event or where a state w = t passes t2 (`…w`), R is reset to its own value there (bcoin) or z stops (bfreeze): x stays short of 0.5 by q band until k2 at tb lifts it | forth [tb], back never | review 2 (R2-B1) |
+| `slow`, `slowsib`, `slowr` | the crossing's own event slows x by K (z' = a (1 − c k), c = 1 − 1/K; with no state R = a t − k c a (t − tk), tk := time at the event): forth sets k (slow), a sibling `when` on the same relation does (slowsib), or forth sets it and back clears it (slowr); K 10 … 1e4; nine rates; CVODE beside | forth once at t1, back never: x reaches 0.5 at t1 and goes on past it, slower | review 3 (R3-B1) |
 
 A firing matches its time within these tolerances: a located crossing,
 10 rtol in x over |x'| (10 rtol · 1.75/a on the ramps) + 1e-12; a time
@@ -350,3 +360,38 @@ that stops is wrong unless it is a storm as below.
   before the holds): in a shape with a mode on the condition's relation, the
   run stops with the engine's event storm at a time within the location
   tolerance of one of the shape's crossings or events.
+
+The hold rule's own reading (the hold spec, 4.9 and 4.10; scored in this
+order, after the limits above):
+
+* **located**, the one located definition: the run equals the truth redone
+  with the crossing at the instant tf the run fired its own `when` (within
+  L of t1), each event's new values from the exact values just before it:
+  the extra shapes' fwd, frzf and frzb, before's mirror (the crossing
+  located before t2: forth at tf, back at t2, forth at tb) and bcoin's and
+  bfreeze's (the same, written into their truth). It counts only where
+  every firing it moves lies inside the truth's windows (below; review 3's
+  S3), so a rate the event changes cannot stretch it.
+* **moderead**, a mode and a `when` on one relation: rdmode's crossing
+  located early (tf < t1), the mode set from its relation literally while
+  the `when`'s hold holds (the spec's open question 2).
+* **shallowpeak**, a missed shallow peak (no hold involved): a peak whose
+  height above the threshold, d / 1.75 in x, is within 100 rtol, the run
+  firing none of its crossings, every counter 0.
+* **bounded**, the time limit's bound: around t1 and every required
+  firing located within at least 1e-9 s, the window [tc − L, tc + L];
+  outside every window each counted `when` fires exactly as the truth
+  requires; inside each window an extra or a lost pair at most (forth's and
+  back's differences from the truth equal, so the relation ends the window
+  as the truth's does; with forth alone, one extra firing); the counters
+  equal the firings; no stop. A lone back moved by at most the hold's width
+  over x' (W / |x'|, W = 8 bands) from the located truth's is bounded too
+  (frzf: a held freeze read at the expiry). A firing lost for good is not
+  (review 3's S2).
+* **restartloss**, diffsol right after an event's restart (no hold
+  involved; out of scope by the brief): the run is right, or inside L1,
+  noise, located or bounded, but for one firing of a counted `when` lost
+  right after an event (an instant where the run fired, or the shape's
+  t2): with that firing put back just after the event, it is; never a
+  firing the truth ties to another's instant (event iteration's own) or a
+  scheduled one.
