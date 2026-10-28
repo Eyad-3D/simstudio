@@ -11,8 +11,8 @@ leaf left out, or taken twice). A channel only the new run records is
 compared with the port the project's data bus wires to it, where today's
 run records that port (_lend: its leaves "by source"); a text or flag n says
 otherwise than f at a leaf f and v share is counted ("10 ms only"), and
-what n flags (a warning or failed status, a notValid, a passed=false) that
-neither f nor v does is a difference.
+what n flags (a warning or failed status, a notValid, a passed=false, a
+warning or error it writes) that neither f nor v does is a difference.
 
 Bands as DESIGN.md 12.3 and lsim-project/golden/README.md set them, and as
 golden.rs computes them: a figure's band is the larger of twice the
@@ -134,11 +134,15 @@ def leaves(x, path: tuple = (), shape: tuple = (), into: dict | None = None) -> 
 
 def _says_other(normal, fine) -> bool:
     """Whether today's 10 ms run says another text or flag (a status, a
-    notValid, a passed, a unit; or None, the path's not a number) than its
-    1 ms run at a leaf both have; another number there is its band."""
+    notValid, a passed, a unit; or no number: None, the path's not a
+    number, or a non-finite one) than its 1 ms run at a leaf both have;
+    another number there is its band."""
     def text(x):
-        return x is None or isinstance(x, (str, bool))
-    return (text(normal) or text(fine)) and normal != fine
+        return x is None or isinstance(x, (str, bool)) or not math.isfinite(x)
+
+    def nan(x):
+        return isinstance(x, float) and math.isnan(x)
+    return (text(normal) or text(fine)) and normal != fine and not (nan(normal) and nan(fine))
 
 
 class Ledger:
@@ -475,13 +479,13 @@ def _lend(normal: dict, fine: dict, new: dict, wires: dict) -> tuple[dict, dict,
     channel's key and today's label for it, as a port reads what is wired to
     it: (10 ms run, 1 ms run, {channel: the port lent}, the lent rows)."""
     key = ROWS[("channels",)]
-    today = [{key(c): c for c in reversed(r.get("channels") or [])} for r in (normal, fine)]  # (each key's first)
+    today = [{key(c): c for c in r.get("channels") or []} for r in (normal, fine)]
     lent: dict = {}
     for c in new.get("channels") or []:
         k = key(c)
         to, label = wires.get(k, ((), None))
         src = next((s for s in sorted(to) if s in today[1]), None)
-        if k not in today[1] and k not in lent and src:
+        if k not in today[1] and src:
             lent[k] = (src, {"elementId": c.get("elementId"), "portId": c.get("portId"), "label": label})
     if not lent:
         return normal, fine, {}, []
@@ -492,13 +496,17 @@ def _lend(normal: dict, fine: dict, new: dict, wires: dict) -> tuple[dict, dict,
 
 def flags(res: dict) -> dict:
     """What a run flags: its status where it warns or fails, each summary
-    row's notValid and a check's passed=false ({(field, key): what it says})."""
+    row's notValid and a check's passed=false, each warning or error it
+    writes ({(field, key): what it says})."""
     got = {("status", ""): res.get("status")} if res.get("status") in ("warning", "failed") else {}
     for r in res.get("summary") or []:
         if r.get("notValid"):
             got[("summary.notValid", ROWS[("summary",)](r))] = r["notValid"]
         if r.get("passed") is False:
             got[("summary.passed", ROWS[("summary",)](r))] = False
+    for m in res.get("messages") or []:
+        if m.get("level") in ("warning", "error"):
+            got[("messages", ROWS[("messages",)](m))] = m.get("text")
     return got
 
 

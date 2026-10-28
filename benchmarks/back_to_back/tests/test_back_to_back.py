@@ -863,9 +863,12 @@ def test_a_channel_only_the_new_run_records_is_compared_with_the_port_wired_to_i
     # compared with it, every leaf "by source"; the battery's current limit (wired to nothing) stays c
     item = next(i for i in runs.items() if i["id"] == "bev-car/case-city")
     monkeypatch.setattr(runs, "items", lambda: [item])
-    # (today's label for the port: core.py's "part · port", the part's label and the port's name)
-    assert report.wires(runs.example("bev-car"), "case-city")["el-veh-monitor:speed"] == (
-        ["el-vehicle:sig_speed"], "Vehicle Monitor · speed")
+    # (today's label for the port: core.py's "part · port", the part's label and the port's name; and a
+    # connection read both ways, an output wired to every input it feeds)
+    wires = report.wires(runs.example("bev-car"), "case-city")
+    assert wires["el-veh-monitor:speed"] == (["el-vehicle:sig_speed"], "Vehicle Monitor · speed")
+    assert wires["el-vehicle:sig_speed"] == (["el-driver:sig_speed_in", "el-veh-monitor:speed"],
+                                             "Vehicle · Vehicle Speed")
 
     def judge(**more):
         n, f, v = _ten(), _ten(), _ten()
@@ -886,10 +889,15 @@ def test_a_channel_only_the_new_run_records_is_compared_with_the_port_wired_to_i
     assert [g for g in got if g[1] == "el-veh-monitor:speed"] == [
         ("channels.label", "el-veh-monitor:speed", "text", "unclassified", "el-vehicle:sig_speed"),
         ("channels.unit", "el-veh-monitor:speed", "text", "unclassified", "el-vehicle:sig_speed")]
-    # wired to a port today's runs do not record: nothing to compare it by
-    lent = diff._lend(_ten(), _ten(), _ten() | {"channels": _ten()["channels"] + [{"elementId": "el-x", "portId": "q"}]},
-                      {"el-x:q": (["el-y:q"], "X · Q")})
-    assert lent[2] == {}
+    # wired to a port today's runs do not record: nothing to compare it by; one only today's 1 ms run
+    # records: lent to it alone (the band its floor)
+    v = _ten() | {"channels": _ten()["channels"] + [{"elementId": "el-x", "portId": "q"}]}
+    assert diff._lend(_ten(), _ten(), v, {"el-x:q": (["el-y:q"], "X · Q")})[2] == {}
+    f = _ten()
+    f["channels"][0].update(elementId="el-y", portId="q")
+    n, f2, lent, _ = diff._lend(_result(channels=[]), f, v, {"el-x:q": (["el-y:q"], "X · Q")})
+    assert lent == {"el-x:q": "el-y:q"} and n["channels"] == [] and \
+        [(c["elementId"], c["portId"], c["label"]) for c in f2["channels"]] == [("el-y", "q", "Motor · P"), ("el-x", "q", "X · Q")]
 
 
 def test_what_only_todays_10_ms_run_flags_is_a_difference_and_its_texts_are_counted(tmp_path, monkeypatch):
@@ -902,27 +910,33 @@ def test_what_only_todays_10_ms_run_flags_is_a_difference_and_its_texts_are_coun
     n["summary"][0].update(notValid="only at 10 ms", passed=False)
     n["channels"][0]["unit"] = "furlongs"
     n["channels"][0]["timeSeries"][3]["value"] += 1e-3  # (another number there is the band's, not counted)
+    n["channels"][0]["timeSeries"][5]["value"] = math.nan  # (no number where today's 1 ms run has one: counted)
+    n["messages"].append({"level": "warning", "text": "Only at 10 ms."})  # (a warning only it writes: a gap too)
     f = _ten()
     f.update(status="success")
     f["summary"][0].update(notValid=None)  # (FULL's warning and row not valid: here only at 10 ms)
+    for r in (n, f):  # (not a number in both of today's runs: the same, not counted)
+        r["channels"][0]["timeSeries"][6]["value"] = math.nan
     for setting, res in (("today-normal", n), ("today-fine", f), ("new", f)):
         _write(tmp_path, {"kind": "item", "id": item["id"], "setting": setting}, result=res)
     b = report.b2b(tmp_path)
     assert b["state"] == "fail" and [(d["field"], d["key"], d["what"], d["today"], d["cls"]) for d in b["diffs"]] == [
         ("status", "", "10 ms only", "failed", "unclassified"),
         ("summary.notValid", "time_s", "10 ms only", "only at 10 ms", "unclassified"),
-        ("summary.passed", "time_s", "10 ms only", False, "unclassified")]
+        ("summary.passed", "time_s", "10 ms only", False, "unclassified"),
+        ("messages", "warning: Only at # ms.", "10 ms only", "Only at 10 ms.", "unclassified")]
     ledger = b["items"][0]["ledger"]
-    assert ledger["balanced"] and ledger["ten_ms_only"] == 4, ledger
-    assert ledger["first_ten_ms_only"][0] == "channels/el-m:p/0/unit: 10 ms 'furlongs', 1 ms 'kW', new 'kW'"
+    assert ledger["balanced"] and ledger["ten_ms_only"] == 5 and ledger["gaps"] == 2, ledger
+    assert ledger["first_ten_ms_only"][:2] == ["channels/el-m:p/0/timeSeries/5/value: 10 ms nan, 1 ms 6.0, new 6.0",
+                                               "channels/el-m:p/0/unit: 10 ms 'furlongs', 1 ms 'kW', new 'kW'"]
     md = report.markdown({"fingerprint": report.fingerprint(), "made_by": [], "lines": _lines(b)})
-    assert "| 4 (channels/el-m:p/0/unit: 10 ms 'furlongs'" in md
+    assert "| 5 (channels/el-m:p/0/timeSeries/5/value: 10 ms nan" in md
     # a flag today's 1 ms run raises too is today's (the new path lacking it is a difference of its own)
     f["summary"][0].update(notValid="only at 10 ms")
     _write(tmp_path, {"kind": "item", "id": item["id"], "setting": "today-fine"}, result=f)
     assert [(d["field"], d["what"], d["cls"]) for d in report.b2b(tmp_path)["diffs"]] == [
         ("summary.notValid", "text", "a"), ("status", "10 ms only", "unclassified"),
-        ("summary.passed", "10 ms only", "unclassified")]
+        ("summary.passed", "10 ms only", "unclassified"), ("messages", "10 ms only", "unclassified")]
 
 
 def test_an_item_whose_ledger_does_not_balance_fails(tmp_path, monkeypatch):

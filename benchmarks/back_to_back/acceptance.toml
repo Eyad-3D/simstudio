@@ -442,16 +442,17 @@ reads what is wired to it: its values and statistics in that channel's band, its
 against the one today's engine gives the port (core.py, "part · port"); its leaves are counted "by source" in \
 the ledger, and only a channel with no recorded port wired to it is "extra" (new-records-more, class c). An \
 acceleration test's grid is b only where its last times are the distance channel's own, the run's time at the \
-line. The ledger counts a leaf where today's 10 ms run says another text or flag than its 1 ms run on its own \
-("10 ms only"), and what today's 10 ms run flags (a warning or failed status, a notValid, a passed=false) that \
-neither its 1 ms run nor the new run does is a difference ("10 ms only", which no rule explains)."""
+line. The ledger counts a leaf where today's 10 ms run says another text or flag than its 1 ms run (or no \
+number where it has one) on its own ("10 ms only"), and what today's 10 ms run flags (a warning or failed \
+status, a notValid, a passed=false, a warning or error it writes) that neither its 1 ms run nor the new run \
+does is a difference ("10 ms only", which no rule explains)."""
 reason = """The judge's fourth re-check (28 October): 26 of the 39 channel keys only the new run records are \
 input ports whose source today records, each equal to its source on the new run, yet classed c and never \
 compared, so the vehicle monitor's speed ten times off moved nothing; one channel's own grid ending 8 ms \
 before the line was b from the distance channel's line; and what only today's 10 ms run says (the app's own \
 step today: a status of failed, a row not valid, a check not passed) was neither compared nor counted, so a \
-case today's engine flags at the app's setting could pass. Written before baseline-6 was measured; on \
-baseline-5's records this judge takes the 169 lent channels' "extra" (c) away and adds 48 first points on them \
+case today's engine flags at the app's setting could pass (and so could a warning only that run writes, a \
+sibling of the same hole). Written before baseline-6 was measured; on baseline-5's records this judge takes the 169 lent channels' "extra" (c) away and adds 48 first points on them \
 (c) and 15 value differences (unclassified, each its source's own on the hybrid), and moves nothing else."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
