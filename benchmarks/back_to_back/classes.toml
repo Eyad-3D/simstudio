@@ -1,0 +1,74 @@
+# The classes of the both-engines diff's differences (DESIGN.md 12.3):
+#   a  the new engine (or its path into the app) wrong: to be fixed
+#   b  today's engine wrong, shown by an exact answer, a fully resolved
+#      model, a converged reference or a conservation law (today's engine
+#      is not changed for it)
+#   c  the band wrong for that field: the comparison changed only for a
+#      documented, sound reason, never widened to pass
+# A difference takes the first rule that matches it (diff.classify); one
+# that matches none is unclassified. Each rule has its date, its reason and,
+# where it rests on the runs, the check they must pass.
+#
+# Matching: `field` (globs on the field), `what` ("missing", "extra",
+# "value", "text", "grid", "not finite"), `item` (globs), `key` (a regular
+# expression on the channel, row or message), `max_x` (at most this many
+# bands), `check` (a test diff.py runs on the item's runs).
+
+[[rule]]
+id = "new-path-lacks-reports"
+class = "a"
+date = "2026-10-28"
+field = ["partEnergy", "energy", "duty", "limits", "references"]
+what = ["missing"]
+reason = """The new engine's path builds no part energies, energy report, duty, limits or references yet \
+(DESIGN.md 12.3 "Not yet"; review findings 34 and 35; step 2's items 1 to 3)."""
+
+[[rule]]
+id = "new-path-lacks-verdict"
+class = "a"
+date = "2026-10-28"
+field = ["summary.notValid", "summary.passed", "summary.limit"]
+what = ["text"]
+check = "today_has_new_none"
+reason = """Today's run verdict on a summary row (notValid, or a check's limit and passed) is not made on the new path (DESIGN.md 12.3; review finding 36)."""
+
+[[rule]]
+id = "today-integrator-checks"
+class = "c"
+date = "2026-10-28"
+field = ["summary"]
+what = ["missing"]
+key = "^(energy_balance_residual_pct|energy_balance_error_pct)$"
+reason = """Today's "Energy balance residual" and "Electrical energy balance error" check today's own \
+integrator; the new engine's energy books report their own closure instead (lsim-project/golden/README.md, \
+"Not compared")."""
+
+[[rule]]
+id = "new-records-more"
+class = "c"
+date = "2026-10-28"
+field = ["channels"]
+what = ["extra"]
+reason = """The new engine records a few channels today's does not (the battery's current limits, among \
+others); the app shows any channel it is given (backend/tests/test_new_engine_flag.py)."""
+
+[[rule]]
+id = "engine-note"
+class = "c"
+date = "2026-10-28"
+field = ["messages"]
+what = ["extra"]
+key = "^info: Run on the new engine \\(LIGHTSIM_ENGINE=new\\)\\.$"
+reason = "The first message of a run on the new path says which engine ran it (new_engine.py), by design."
+
+[[rule]]
+id = "gears-today-rule"
+class = "b"
+date = "2026-10-28"
+field = ["channels.values"]
+check = "gear_rebuild"
+reason = """A gear's torque, power or losses: today's engine applies a gear's efficiency to, and reports as \
+the gear's, the torque of the sources above it, the inertias between them not taken out; the new engine \
+loses it on, and reports, the torque the teeth carry (lsim-project/golden/README.md, the October 2026 \
+triage). Classed b only where golden/definitions.py, today's rule rebuilt from the new run's own channels, \
+lands inside the band, and the same rule rebuilt from today's 1 ms run reproduces today's channel."""
