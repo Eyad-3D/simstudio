@@ -1055,15 +1055,21 @@ impl Loop<'_> {
         dirs: Option<&[i32]>,
         before: Option<(&[f64], &[f64])>,
     ) {
-        let was: Vec<bool> = self.hold.iter().map(|h| *h > 0.0).collect();
+        // (no hold before the event and none after: every expiry is none
+        // already, and the event costs nothing more, as on every golden
+        // model)
+        let was: Vec<bool> =
+            if self.held { self.hold.iter().map(|h| *h > 0.0).collect() } else { vec![] };
         self.sides_and_holds(integ, t, y, d, dirs, before);
         self.held = held(&self.hold);
-        self.set_expiry(integ, t, y, d, before, &was);
+        if self.held || !was.is_empty() {
+            self.set_expiry(integ, t, y, d, before, &was);
+        }
         self.own = None;
     }
 
     /// The time limit of the holds this event made (`was`: the functions
-    /// held before it): each expires at t + T. A hold standing from an
+    /// held before it, empty where none was): each expires at t + T. A hold standing from an
     /// earlier event, carried here or made again, keeps the expiry it has;
     /// a function no longer held has none.
     ///
@@ -1098,9 +1104,9 @@ impl Loop<'_> {
         was: &[bool],
     ) {
         let mut fresh: Vec<usize> = vec![];
-        for (c, &was_held) in was.iter().enumerate().take(self.hold.len()) {
+        for c in 0..self.hold.len() {
             if self.hold[c] > 0.0 && self.may_hold_root(c) {
-                if !(was_held && self.expiry[c].is_finite()) {
+                if !(was.get(c).copied().unwrap_or(false) && self.expiry[c].is_finite()) {
                     fresh.push(c);
                 }
             } else {
@@ -1349,7 +1355,8 @@ impl Loop<'_> {
     /// at or before `t_end`, the step's end now that it is final: their time
     /// limit again, from there. Those read later than `t_end` (the step was
     /// cut back before them) keep their expiry, and the next step reads
-    /// them again.
+    /// them again. (A stale entry, its hold released since, renews
+    /// nothing; the next expiry check starts the list afresh.)
     fn renew_holds(&mut self, t_end: f64) {
         let mut later = vec![];
         for (c, tau) in std::mem::take(&mut self.renew) {
@@ -4034,7 +4041,6 @@ fn run_watched<'a>(
         // the holds whose time limits fall in the step, read as solved there
         // ([`Loop::expiry_cut`]): the step is cut back where one is short of
         // its side, as at a root
-        lp.renew.clear();
         let mut expiry_now = false;
         if !same && lp.held {
             let rd: Vec<i32> = if let Step::Root(_, dirs) = &st { dirs.clone() } else { vec![] };
@@ -4444,7 +4450,9 @@ fn run_watched<'a>(
                     lp.scheduled = true;
                     // (the step ends here: the holds an expiry check found
                     // arrived before the tick go on from it)
-                    lp.renew_holds(tk);
+                    if !lp.renew.is_empty() {
+                        lp.renew_holds(tk);
+                    }
                     let it = lp.settle(integ, tk, &mut yk, &mut d, &d_pre, None, &before_vars);
                     lp.scheduled = false;
                     let (_, imp) = it?;
@@ -4539,7 +4547,9 @@ fn run_watched<'a>(
         }
         // the step's end is final: the holds an expiry check found arrived
         // go on from it
-        lp.renew_holds(t_new);
+        if !lp.renew.is_empty() {
+            lp.renew_holds(t_new);
+        }
 
         // the step's end point, for min/max/mean, and the asserts
         match (&resumed, &y_cut) {
