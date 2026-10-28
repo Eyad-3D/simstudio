@@ -86,8 +86,32 @@ acceleration over the interval before the point, taken out), and a channel's val
 inside the band of that rebuild (on baseline-3 every one classed b did, at 0.84 x band or less). A minimum or \
 maximum over an interval is not rebuilt exactly (the acceleration at it is not on the output grid), so it \
 must hold the new run's values at its interval's ends and lie no farther from the law, and from today's rule \
-on the same sources, than the inertias' term between the two plus one band. That bound's ceiling: a minimum \
-or maximum off by less than that term (on baseline-3 up to about 7 bands) is not told from the rule."""
+on the same sources, than the inertias' term between the two plus one band. That bound is an RMS over every \
+interval, so, since the judge's fourth re-check (28 October: a WLTC differential torque minimum flipped from \
++27 to -128 N m at one interval, 161 bands, was still b), the minimum or maximum must also lie, at every \
+interval, within one band of the range the law gives it there (diff._interval): the law on the sources' \
+statistic at the accelerations of that interval and of the ones before and after it (the speed is not linear \
+inside an interval), widened by the law's own error on the run's values at the interval's two ends (an \
+extremum taken at an end is that end's value). The one band is the comparison's own and the range and the \
+error come from the run itself, not from a baseline. Its ceiling, interval by interval: a minimum or maximum \
+inside that range (the inertias' term over the neighbouring accelerations, the law's error at the ends and \
+one band) is not told from the rule."""
+
+[[rule]]
+id = "today-first-point-before-its-step"
+class = "c"
+date = "2026-10-28"
+field = ["channels.values", "channels.min", "channels.max", "channels.mean"]
+what = ["first point"]
+check = "before_first_step"
+reason = """A channel's first point: today's engine records it before its first step, when the signals its \
+blocks publish still read 0 (lsim-project/golden/README.md; DESIGN.md 12.3's band leaves it out), while the \
+new engine starts from a consistent state. Until the judge's fourth re-check (28 October) the diff left the \
+first point's value out altogether (only its absence was a difference), so a first value ten times off was no \
+difference; it is now a figure of its own ("first point"), classed c only where the new run's first value \
+lies between today's first two values, within the channel's band: where today's run is once it has taken its \
+first step. Its ceiling: a first value anywhere in that range passes, however wide today's first output step \
+makes it."""
 
 [[rule]]
 id = "preparation-note-as-warning"

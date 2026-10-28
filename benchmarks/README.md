@@ -252,7 +252,8 @@ It runs every example case (and a few probes) through the app's own
 engine's path in strict mode (`LIGHTSIM_ENGINE_STRICT=1`: nothing falls
 back), compares every field of the two results (every row, every point
 and every number in a message) against bands measured from today's two
-runs, and classes every difference
+runs, over the union of what the three runs give, with a ledger per case
+that fails it where anything is left out, and classes every difference
 ([`back_to_back/classes.toml`](back_to_back/classes.toml)); it plants the
 160 deletions and 108 parameter faults in the examples and puts both
 engines' verdicts side by side; it checks every result against the

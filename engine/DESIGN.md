@@ -3144,7 +3144,10 @@ against exact answers from `benchmarks/`.
   `python -m benchmarks.back_to_back`): every example case and eight
   probes run through the app's own `simulate`, on today's engine at 10 ms
   and 1 ms and on the new engine's path in strict mode (nothing falls back);
-  every field of the two results is compared against the bands above and
+  every field of the two results is compared against the bands above (a
+  channel over every point of today's 1 ms run, its first point a figure of
+  its own), over the union of what the three runs give, with a ledger per
+  case that fails it where anything is left out or taken twice, and
   each difference classed as above (`benchmarks/back_to_back/classes.toml`,
   each rule with its date, reason and check), beside the planted-fault
   verdict matrix, the result schema, speed traces with exact answers from

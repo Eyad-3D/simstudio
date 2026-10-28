@@ -109,6 +109,7 @@ def b2b(out: Path) -> dict:
                     ctx["line_end"] = {**last, "line": (case.get("startLine") or 0.0) + case["endDistance"]}
             diff.classify(ds, {item["id"]: ctx})
             row["classes"] = dict(Counter(d["cls"] for d in ds))
+            row["ledger"] = ds.ledger.totals()  # every leaf of the three runs compared, reported or a gap
             row["wall_s"] = {"today-normal": rec["today-normal"]["wall_s"],
                              "today-fine": rec["today-fine"]["wall_s"], "new": rec["new"]["wall_s"]}
             all_diffs += ds
@@ -118,10 +119,11 @@ def b2b(out: Path) -> dict:
     unclassified = [d for d in all_diffs if d["cls"] == "unclassified"]
     expected = sum(r["as_expected"] for r in rows)
     unjudged = [r["id"] for r in rows if not r["reference"]]  # a reference run missing or crashed
-    state = ("pass" if expected == len(rows) and not unjudged and not unclassified and not by_class.get("a")
-             else "fail")
+    unbalanced = [r["id"] for r in rows if "ledger" in r and not r["ledger"]["balanced"]]  # a leaf not judged
+    state = ("pass" if expected == len(rows) and not unjudged and not unbalanced and not unclassified
+             and not by_class.get("a") else "fail")
     return {"state": state, "items": rows, "as_expected": expected, "of": len(rows),
-            "missing_reference_run": unjudged,
+            "missing_reference_run": unjudged, "unbalanced_ledger": unbalanced,
             "differences": len(all_diffs), "by_class": dict(by_class),
             "by_rule": {f"{c} {r}": k for (c, r), k in sorted(by_rule.items(), key=str)},
             "unclassified_by_field": dict(Counter(f"{d['item']} | {d['field']} | {d['what']}"
@@ -636,6 +638,14 @@ def markdown(report: dict) -> str:
                    f"{c.get('a', '')} | {c.get('b', '')} | {c.get('c', '')} | {c.get('unclassified', '')} |")
     out += ["", "Items without today's two reference runs (not judged): "
             + (", ".join(b["missing_reference_run"]) or "none") + "."]
+    out += ["", "Each compared item's ledger: every leaf of the union of today's two runs and the new run, "
+            "compared (both today's 1 ms run and the new run have it), reported (one of them lacks it) or a gap "
+            "(only today's 10 ms run has it); it balances when the three make the union.", "",
+            "| item | union | compared | reported | gaps | balanced |", "|---|--:|--:|--:|--:|---|"]
+    out += [f"| {r['id']} | {g['union']} | {g['compared']} | {g['reported']} | {g['gaps']}"
+            f"{' (' + '; '.join(g['first_gaps']) + ')' if g['gaps'] else ''} | "
+            f"{'yes' if g['balanced'] else 'no: ' + '; '.join(g['first_unbalanced'])} |"
+            for r in b["items"] if (g := r.get("ledger"))]
     out += ["", "By rule: " + "; ".join(f"{k}: {v}" for k, v in b["by_rule"].items()), "",
             "Unclassified, by item and field:", ""]
     out += [f"- {k}: {v}" for k, v in list(b["unclassified_by_field"].items())[:60]]

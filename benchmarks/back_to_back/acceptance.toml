@@ -403,6 +403,36 @@ points it kept. Each made a class or a comparison weaker than the registered wor
 "shown by" the rule); on baseline-3 two differences change class (the hybrid's UDDS differential torque \
 minima, b to unclassified)."""
 
+[[changes]]
+date = "2026-10-28"
+line = "B2B"
+change = """The comparison walks the union of what today's 10 ms run, today's 1 ms run and the new run give \
+(every record, field, channel, statistic, list and point, and every message) and keeps a ledger per item: a \
+leaf both today's 1 ms run and the new run have is compared, one either of them lacks is reported as a \
+difference, one only today's 10 ms run has is a gap; an item whose ledger does not balance (a leaf left out, \
+or taken twice) fails the line, and the report shows each item's totals. A channel's size is the RMS over \
+every point of today's 1 ms run but the first, its band from the points both of today's runs have and its \
+floor from today's 1 ms run, so a point past the end of today's 10 ms list, and a channel that run lacks, are \
+compared; a value the new run has where today's 1 ms run has none differs ("extra"); the first point, which \
+the band leaves out, is a figure of its own ("first point", in its figure band), classed c \
+(today-first-point-before-its-step) only where the new run's first value lies between today's first two \
+values, within the channel's band. A gear row's minimum or maximum is b only where it also lies, at every \
+output interval, within one band of the range the new engine's law gives it there: the law at the \
+accelerations of the interval and of its two neighbours, widened by the law's own error on the run's values \
+at the interval's two ends."""
+reason = """The judge's fourth re-check (28 October): today's 10 ms run ends one point before the 1 ms run on \
+the acceleration test (400 points against 401) and the diff ran over the points both of today's runs had, so \
+the new run's state at the line was never compared on any channel (ten times off, or not a number, was no \
+difference), nor the values of a channel the 10 ms run lacks. Three earlier rounds had each found another \
+place the comparison never looked; the ledger closes that class, because anything the walk leaves out fails \
+the item instead of passing. A first value ten times off was no difference either, which the registered \
+words ("every output point but the first") left open; the first point keeps its documented reason (today \
+records it before its first step, lsim-project/golden/README.md) as a checked class c. The gear bound was an \
+RMS over every interval, so one interval of 1801 at 161 bands passed; the room at each interval comes from \
+the run itself (the law's spread over the neighbouring accelerations and its error on the values), the one \
+band from the comparison, neither from a baseline. Written before baseline-5 was measured; on baseline-4's \
+records this judge adds the 312 first points (all class c) and moves nothing else."""
+
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
 # at `file`.
