@@ -41,10 +41,50 @@ def test_trace_band_allows_one_second_of_lag_but_not_two():
     assert close.outside_wltp_s == 0.0
     late = trace_metrics(ts, target, lagging(2.5))
     assert late.max_err_kmh == pytest.approx(-5.0)  # 3 km/h beyond the 1 s band
-    assert late.outside_wltp_s == pytest.approx(29.0)  # t = 2.5 … 31 s
+    # from t = 2 s (the band's lower edge 2 (t - 1) - 2 rises above the
+    # standing car) to 31.5 s (the speed 2 (t - 2.5) reaches the plateau's
+    # 60 - 2), exactly: before, each 0.5 s sample outside counted its step
+    # (29.0 s, from 2.5 to 31 s)
+    assert late.outside_wltp_s == pytest.approx(29.5, abs=1e-12)
     assert late.outside_epa_s == 0.0  # 3 km/h off is inside the wider ±2 mph band
     assert late.cycle_km == pytest.approx(close.cycle_km)
     assert close.cycle_km == pytest.approx((30 * 30 + 60 * 30) / 3600)  # ramp + plateau
+
+
+def test_the_time_outside_the_band_is_exact_on_the_samples_lines():
+    """The time outside each band is that of the lines through the trace's
+    samples, exactly (40 CFR 1066.425(b)(1)-(2), WLTP 2.6.8.3.1: at each
+    instant the band spans the target's lowest and highest point within 1 s
+    of it): 50 km/h held, the speed rising at 1 km/h/s from 10 s to 56 km/h,
+    held, falling back from 20 s. Above 52 km/h from 12 to 24 s; above 50 +
+    3.218688 (2 mi/h) from 13.218688 to 22.781312 s. Before, each 0.1 s
+    sample outside counted its whole step (EPA: 9.6 s)."""
+    ts = [k / 10 for k in range(601)]
+    target = [50.0] * len(ts)
+    speed = [50.0 + max(0.0, min(6.0, t - 10.0, 26.0 - t)) for t in ts]
+    m = trace_metrics(ts, target, speed)
+    assert m.outside_wltp_s == pytest.approx(12.0, abs=1e-9)
+    assert m.outside_epa_s == pytest.approx(9.562624, abs=1e-9)
+    # a lag on a ramp, the band's edge moving: the target 0 to 60 km/h from 10
+    # to 40 s, the speed 3 s behind it. The lower edge, 2 (t - 11) - 2, rises
+    # above the standing car at 12 s; the speed, 2 (t - 13), stays below it
+    # until the edge holds at 58 km/h (from 41 s) and the speed reaches 58 at
+    # 42 s: 30 s
+    target = [min(60.0, max(0.0, 2.0 * (t - 10.0))) for t in ts]
+    speed = [min(60.0, max(0.0, 2.0 * (t - 13.0))) for t in ts]
+    m = trace_metrics(ts, target, speed)
+    assert m.outside_wltp_s == pytest.approx(30.0, abs=1e-9)
+
+
+def test_the_cycle_not_followed_message_says_whose_rule_its_allowance_is():
+    """The 1 % (at least 2 s) allowed outside the band is LightSim's own
+    rule, not the EPA's (2.0 s on any one occasion, 40 CFR
+    1066.425(b)(4)(i)) nor the WLTP's (1 s on any one occasion, ten a cycle,
+    2.6.8.3.1): the message says so."""
+    result = simulate(bev_axle(profile="0:0; 3:200; 30:200"), "case")
+    text = next(m.text for m in result.messages if m.text.startswith("Cycle not followed"))
+    assert "LightSim's own rule" in text
+    assert "40 CFR 1066.425(b)(4)(i)" in text and "2.6.8.3.1" in text
 
 
 def test_following_the_cycle_is_a_success():
