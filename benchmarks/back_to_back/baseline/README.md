@@ -22,6 +22,28 @@ code unchanged since `2b94af6`); the sixth (`95b945d`,
 `judge-cache/step2/baseline-6`) is this one's reference below, and the
 lists after it say how each earlier one moved.
 
+## Since the seventh measurement (not measured again yet)
+
+The evidence part's review found five blocking and four other defects;
+`aab11d9`, `f7889c0` and `5e5e885` fix them (the lane's notes,
+`lanes/step2-notes.md`, say which and with what test). They change how
+the lines read, so the seventh measurement's numbers below are of the code
+before them: by the judge as it is now, its ENERGY is **vacuous**, not a
+pass (E3 met no limit on any item), FAULTS lists one more number, the
+flips (today's engine passes, the new path warns or fails), and META's
+set has two more items (bev-car's city cycle with a checked battery limit,
+over 0.5 s and over none), which the seventh measurement did not run.
+Previews at `5e5e885`, not measurements (`lane-step2/fix6`): META the
+same verdict at all four settings on all nine of its set, judged;
+FAULTS on the seventh measurement's runs of today's engine: no fault
+hidden, the one violation of before (bev-car's Driver P gain 0: the two
+Driver laws differ) and one flip, bev-car's E-Motor scaled 100 times,
+whose new run says its charging was held back (the new engine's Driver
+asks it for up to 536 kW of recuperation where the battery takes 120 kW,
+131 kJ lost; today's Driver never asks more than the supply takes, a
+difference of the Driver laws written in `docs/KNOWN-LIMITS.md`); the
+enforced cap read as broken before is no longer a flip.
+
 ## The seventh measurement: the path wired to the run's evidence
 
 The new engine's path now returns today's whole result, made by today's own
