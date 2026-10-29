@@ -15,9 +15,10 @@ takes it out again: the same runner at every commit measured. README.md
 (*The holds suite*) has the shapes, their truth and the named limits:
 the round-4 review shapes (extra, coin, coinr, before, rdmode, noisy,
 noisy2, noisy3, noisy3r, noisyown, mixedc, bcoin, bcoinw, bfreeze,
-bfreezew, slow, slowsib, slowr) beside the probes before them; and the
-limits bounded, located, moderead, shallowpeak and restartloss (the hold
-spec, 4.9 and 4.10) beside L1, noise, onestep and storm.
+bfreezew, slow, slowsib, slowr) and re-check 4's (sibeq, slowbp, slowobs,
+slowmode, asym, slowfrz, slowstop) beside the probes before them; and the
+limits bounded, postlimit, located, moderead, shallowpeak and restartloss
+(the hold spec, 4.9 and 4.10) beside L1, noise, onestep and storm.
 
 Every x crosses 0.5 where R crosses 0.625 (x^3 + x is increasing and
 0.5^3 + 0.5 = 0.625), with x' = R' / (3 x^2 + 1) = R' / 1.75 there. On
@@ -833,7 +834,7 @@ IMPL = ["ida", "ida-implicit", "nostate-ida", "diffsol"]
 SHAPE_RATES = [0.5, 0.7, 1.0, 1.3, 2.3, 3.1, 4.4, 6.0, 7.0]
 # the coin shapes' located instants: where a first run (own's reset, or its
 # reinit, at ex = 1 rtol) located the crossing, per configuration, shape, a
-# and rtol. The integration up to the first event is the same at every
+# and rtol; and slowstop's (slow, the stop never), per K too. The integration up to the first event is the same at every
 # commit of round 4 (4d24528 to the fix); where the integrator changes, the
 # shapes stay right by their truth but no longer land on the coincidence
 TF = HERE / "holds_tf.json"
@@ -917,7 +918,8 @@ def extra_build(kind, up, config, rates, exks, rtols):
                 if ex <= resolution(rtol):
                     keep = {"forth": [[t1, L]], "back": [], "_counters": {"n": "forth", "m": "back"}}
                     limits.append(noise_alt(keep, free, dict(tag, ex="1", rtol=rtol)))
-                tr = truth(req, fin, same=same, limits=limits)
+                tr = truth(req, fin, same=same, limits=limits,
+                           **({"after": slowed(0.0)} if kind.startswith("frz") else {}))
                 runs.append(run({"a": a, "tb": tb, "ex": ex}, rtol, tr, tag))
     shape = {"kind": kind, "dir": "up" if up else "down"}
     return build("extra", shape, config, text, runs, ["forth", "back"], ["n", "m"])
@@ -1210,7 +1212,8 @@ def rest(tier: str) -> list:
                                 t2, tb = t1 - d, t1 + 0.5
                                 e = a * d
                                 L = loc(rtol, a / 1.75)
-                                tr = truth({"forth": [[tb, EXACT]], "back": []}, {"n": [1, 0], "m": [0, 0]})
+                                tr = truth({"forth": [[tb, EXACT]], "back": []}, {"n": [1, 0], "m": [0, 0]},
+                                           **({"after": slowed(0.0)} if kind == "bfreeze" else {}))
                                 ev = ev_tol("state" if trig == "w" else "time", rtol)
                                 tr["limits"] = [{"cls": "located", "req": {"forth": [[t1, L], [tb, EXACT]],
                                                                            "back": [[t2, ev]]},
@@ -1295,17 +1298,188 @@ def slow(tier: str) -> list:
                         for K in ([100.0, 1e4] if quick else [10.0, 100.0, 1000.0, 1e4]):
                             for rtol in (QUICK_RTOLS if quick else RTOLS):
                                 t1 = 0.625 / a
-                                tr = truth({"forth": [[t1, loc(rtol, a / 1.75)]], "back": []}, {"n": [1, 0], "m": [0, 0]})
+                                aft = slowed(a / K, rb=a if kind == "slowr" else None)
+                                tr = truth({"forth": [[t1, loc(rtol, a / 1.75)]], "back": []}, {"n": [1, 0], "m": [0, 0]},
+                                           after=aft)
                                 runs.append(run({"a": a, "c": 1.0 - 1.0 / K}, rtol, tr, {"a": a, "K": K}))
                     out.append(build(kind, {"dir": "up" if up else "down", "s": "s" if strict else "n"}, config,
                                      mo(params, decls, eqs, whens), runs, ["forth", "back"], ["n", "m"]))
     return out
 
 
+def slowed(r, rb=None, D=None, t2=None) -> dict:
+    """How the events of a shape change x's rate, for the scorer (the
+    truth's `after`; also where restart loss is not applied): R's rate
+    right after the crossing's own event `r` (x's is r / 1.75; 0 where an
+    event stops x); `rb` R's rate after a back at that instant (slowr, a
+    mode on the relation: the fast one); `D` the headroom R tends to above
+    its value at the event, at rate r / D (asym); `t2` an event that stops
+    R (slowstop, slowfrz)."""
+    out = {"r": r}
+    for k, v in (("rb", rb), ("D", D), ("t2", t2)):
+        if v is not None:
+            out[k] = v
+    return out
+
+
+SIBS = {"two": "2 * x {op} 1", "par": "x {op} p", "sub": "x - 0.5 {op} 0", "flip": "0.5 {rop} x"}
+FLIP = {">": "<", "<": ">", ">=": "<=", "<=": ">="}
+
+
+def recheck4(tier: str) -> list:
+    """Re-check 4's shapes (RC4-B1, RC4-B2), each built from review 3's slow
+    (z' = a (1 - c k), c = 1 - 1/K; with no state R = a t - k c a (t - tk))
+    with the hand-worked truth forth [t1] once, back never:
+      sibeq:    slowsib with the slowing `when` written another way on an
+                equal relation (2 x > 1, x > p with p = 0.5, x - 0.5 > 0,
+                0.5 < x);
+      slowbp:   slow with back written x < p or 2 x < 1;
+      slowobs:  slow beside a passive `when` on an equal relation that only
+                counts (o, once at t1);
+      slowmode: a mode on the relation slows x (z' = if x > 0.5 then a / K
+                else a);
+      asym:     the crossing's own `when` sets k and freezes zs := z; z then
+                tends to zs + D at rate c (z' = c (zs + D - z)), D / 1.75 = q
+                rtol, q 0.25 .. 0.6: x tends to 0.5 + q rtol;
+      slowfrz:  slow, and a time event at t2 = t1 + q rtol 1.75 K / a that
+                stops z: x frozen at 0.5 + q rtol;
+      slowstop: slow, and a time event that stops z half-way to the run's own
+                slowed arrival, t2 = tf + K (t1 - tf) / 2 (tf where a first
+                run, t2 never, located the crossing: `holds_tf.json`; early
+                runs only): x frozen above 0.5 in truth, short of it in the
+                run's located truth."""
+    quick = tier == "quick"
+    rates, rtols = ([1.0, 4.4], QUICK_RTOLS) if quick else (SHAPE_RATES, RTOLS)
+    Ks = [100.0, 1e4] if quick else [10.0, 100.0, 1000.0, 1e4]
+    dirs = [(True, True)] if quick else [(u, s) for u in (True, False) for s in (True, False)]
+    tfs = json.loads(TF.read_text())
+    out = []
+
+    def model(config, up, strict, slow_by, acts, whens_more, extra_params=(), extra_decls=(), dd=None, rate=None):
+        implicit, z_state, _, _ = CONFIGS[config]
+        sg = "+" if up else "-"
+        if dd is None:
+            dd = "(z - 0.625)" if z_state else "(a * time - 0.625 - k * c * a * (time - tk))"
+        params = {"a": (1.0, "1/s"), "c": (0.0, ""), **dict(extra_params)}
+        decls = [f"Real x(start = {0.0 if up else 0.78})"] + [DISC.format(v) for v in ("n", "m", "k")] + \
+            ['discrete Real tk(unit = "s", start = 0, fixed = true)'] + list(extra_decls)
+        eqs = []
+        if z_state:
+            decls.append("Real z(start = 0, fixed = true)")
+            eqs.append(f"der(z) = {rate or 'a * (1 - c * k)'}")
+        eqs.append(x_eq(implicit, f"0.625 {sg} {dd}"))
+        fop, bop = ops(up, strict)
+        whens = [(f"x {fop} 0.5", [count("n")] + (acts if slow_by == "forth" else []), "forth")]
+        whens += [(f"x {bop} 0.5", [count("m")], "back")] + whens_more(fop, bop)
+        return params, decls, eqs, whens, z_state
+
+    def tr1(a, rtol, after, **fin):
+        return truth({"forth": [[0.625 / a, loc(rtol, a / 1.75)]], "back": []}, {"n": [1, 0], "m": [0, 0], **fin},
+                     after=after)
+
+    slowing = ["k = 1", "tk = time"]
+    # sibeq, slowbp, slowobs: RC4-B1's equal relations written otherwise
+    for form, pat in SIBS.items():
+        for config in IMPL + ["cvode"]:
+            for up in ((True,) if quick else (True, False)):
+                fop0 = ops(up, True)[0]
+                sib = pat.format(op=fop0, rop=FLIP[fop0])
+                p, dcl, eqs, whens, _ = model(config, up, True, "sib", [],
+                                              lambda f, b: [(sib, slowing, "slows")], {"p": (0.5, "")}.items())
+                runs = [run({"a": a, "c": 1.0 - 1.0 / K}, rtol, tr1(a, rtol, slowed(a / K)), {"a": a, "K": K})
+                        for a in rates for K in Ks for rtol in rtols]
+                out.append(build("sibeq", {"form": form, "dir": "up" if up else "down"}, config,
+                                 mo(p, dcl, eqs, whens), runs, ["forth", "back"], ["n", "m"]))
+    for form, pat in (("par", "x {op} p"), ("two", "2 * x {op} 1")):
+        for config in IMPL + ["cvode"]:
+            for up in ((True,) if quick else (True, False)):
+                bop0 = ops(up, True)[1]
+                p, dcl, eqs, whens, _ = model(config, up, True, "forth", slowing, lambda f, b: [],
+                                              {"p": (0.5, "")}.items())
+                whens[1] = (pat.format(op=bop0), [count("m")], "back")
+                runs = [run({"a": a, "c": 1.0 - 1.0 / K}, rtol, tr1(a, rtol, slowed(a / K)), {"a": a, "K": K})
+                        for a in rates for K in Ks for rtol in rtols]
+                out.append(build("slowbp", {"form": form, "dir": "up" if up else "down"}, config,
+                                 mo(p, dcl, eqs, whens), runs, ["forth", "back"], ["n", "m"]))
+    for form, pat in (("two", "2 * x > 1"), ("par", "x > p")):
+        for config in IMPL + ["cvode"]:
+            p, dcl, eqs, whens, _ = model(config, True, True, "forth", slowing,
+                                          lambda f, b: [(pat, [count("o")], "observer")], {"p": (0.5, "")}.items(),
+                                          [DISC.format("o")])
+            runs = [run({"a": a, "c": 1.0 - 1.0 / K}, rtol, tr1(a, rtol, slowed(a / K), o=[1, 0]), {"a": a, "K": K})
+                    for a in rates for K in Ks for rtol in rtols]
+            out.append(build("slowobs", {"form": form}, config, mo(p, dcl, eqs, whens), runs, ["forth", "back"],
+                             ["n", "m", "o"]))
+    # slowmode: a mode on the relation slows x (its state z only)
+    for config in ["ida", "ida-implicit", "diffsol", "cvode"]:
+        for up, strict in dirs:
+            fop = ops(up, strict)[0]
+            p, dcl, eqs, whens, _ = model(config, up, strict, "none", [], lambda f, b: [], {"K": (1.0, "")}.items(),
+                                          rate=f"if x {fop} 0.5 then a / K else a")
+            runs = [run({"a": a, "K": K}, rtol, tr1(a, rtol, slowed(a / K, rb=a)), {"a": a, "K": K})
+                    for a in rates for K in Ks for rtol in rtols]
+            out.append(build("slowmode", {"dir": "up" if up else "down", "s": "s" if strict else "n"}, config,
+                             mo(p, dcl, eqs, whens), runs, ["forth", "back"], ["n", "m"]))
+    # asym: the crossing's own event makes x tend to 0.5 + q rtol
+    for config in IMPL + ["cvode"]:
+        z_state = CONFIGS[config][1]
+        dd = "(z - 0.625)" if z_state else \
+            "(a * time * (1 - k) + k * (a * tk + D * (1 - exp(-c * (time - tk)))) - 0.625)"
+        for up, strict in dirs:
+            p, dcl, eqs, whens, _ = model(config, up, strict, "forth", slowing + (["zs = z"] if z_state else []),
+                                          lambda f, b: [], {"c": (1.0, "1/s"), "D": (0.0, "")}.items(),
+                                          [DISC.format("zs")], dd=dd,
+                                          rate="a * (1 - k) + k * c * (zs + D - z)")
+            runs = []
+            for a in rates:
+                for q in ([0.4] if quick else [0.25, 0.4, 0.6]):
+                    for cc in ([500.0] if quick else [50.0, 500.0]):
+                        for rtol in rtols:
+                            D = 1.75 * q * rtol
+                            runs.append(run({"a": a, "c": cc, "D": D}, rtol, tr1(a, rtol, slowed(cc * D, D=D)),
+                                            {"a": a, "q": q, "c": cc}))
+            out.append(build("asym", {"dir": "up" if up else "down", "s": "s" if strict else "n"}, config,
+                             mo(p, dcl, eqs, whens), runs, ["forth", "back"], ["n", "m"], t_end=3.0))
+    # slowfrz and slowstop: slow, then a time event stops z
+    for fam_ in ("slowfrz", "slowstop"):
+        for config in IMPL + (["cvode"] if fam_ == "slowfrz" else []):
+            z_state = CONFIGS[config][1]
+            dd = "(z - 0.625)" if z_state else "((1 - k2) * (a * time - k * c * a * (time - tk)) + k2 * rf - 0.625)"
+            stop = ["k2 = 1"] if z_state else ["k2 = 1", "rf = a * time - k * c * a * (time - tk)"]
+            for up, strict in dirs:
+                d_ = f"{'up' if up else 'down'}-{'s' if strict else 'n'}"
+                p, dcl, eqs, whens, _ = model(config, up, strict, "forth", slowing,
+                                              lambda f, b: [("time >= t2", stop, "stop")], {"t2": (1.0, "s")}.items(),
+                                              [DISC.format("k2"), DISC.format("rf")], dd=dd,
+                                              rate="a * (1 - c * k) * (1 - k2)")
+                runs = []
+                for a in rates:
+                    for K in ([1e3, 1e4] if not quick else [1e4]):
+                        for rtol in rtols:
+                            t1 = 0.625 / a
+                            if fam_ == "slowfrz":
+                                for q in ([0.4] if quick else [0.25, 0.4, 0.6]):
+                                    t2 = t1 + q * rtol * 1.75 * K / a
+                                    runs.append(run({"a": a, "c": 1.0 - 1.0 / K, "t2": t2}, rtol,
+                                                    tr1(a, rtol, slowed(a / K, t2=t2)), {"a": a, "K": K, "q": q}))
+                                continue
+                            tf = tfs.get(f"slowstop|{config}|{d_}|{a!r}|{K!r}|{rtol!r}")
+                            if tf is None or tf >= t1:
+                                continue
+                            t2 = tf + 0.5 * K * (t1 - tf)
+                            runs.append(run({"a": a, "c": 1.0 - 1.0 / K, "t2": t2}, rtol,
+                                            tr1(a, rtol, slowed(a / K, t2=t2)), {"a": a, "K": K}))
+                if runs:
+                    out.append(build(fam_, {"dir": "up" if up else "down", "s": "s" if strict else "n"}, config,
+                                     mo(p, dcl, eqs, whens), runs, ["forth", "back"], ["n", "m"], t_end=3.0))
+    return out
+
+
 
 FAMILIES = {"fam": fam, "own": own, "ramp": ramp, "peak": peak, "moved": moved, "stale": stale,
             "count": count_cases, "extra": extra, "coin": coin, "before": before, "rdmode": rdmode,
-            "noisy": noisy, "noisyown": noisyown, "rest": rest, "mixedc": mixedc, "slow": slow}
+            "noisy": noisy, "noisyown": noisyown, "rest": rest, "mixedc": mixedc, "slow": slow,
+            "recheck4": recheck4}
 
 
 def all_builds(tier: str) -> list:
@@ -1464,6 +1638,24 @@ def located_truth(b, r, res):
     if fam_ == "before" and tf <= p["t2"] + EXACT:
         return truth({"forth": [[tf, EXACT], [p["tb"], EXACT]], "back": [[p["t2"], EXACT]]},
                      {"n": [2, 0], "m": [1, 0]})
+    aft = r["truth"].get("after")
+    if aft and aft["r"] > 0 and tf < t1:
+        # the crossing's own event at tf slows R (`slowed`): x0(tf) is short,
+        # so back fires there; x arrives where R, from its value at tf at the
+        # rate after (after a back, `rb`), reaches 0.625, unless it tends to
+        # a level short of it (asym) or an event stops it first
+        short, ra = a * (tf - t1) * -1.0, aft.get("rb", aft["r"])
+        if "D" in aft:
+            ta = tf - math.log(1.0 - short / aft["D"]) * aft["D"] / ra if short < aft["D"] else None
+        else:
+            ta = tf + short / ra
+            if "t2" in aft and ta > aft["t2"]:
+                ta = None
+        forth = [[tf, EXACT]] + ([[ta, loc(rtol, ra / 1.75)]] if ta is not None else [])
+        fin = dict(r["truth"]["final"], n=[len(forth), 0], m=[1, 0])
+        if "o" in fin:
+            fin["o"] = [len(forth), 0]
+        return truth({"forth": forth, "back": [[tf, EXACT]]}, fin)
     return None
 
 
@@ -1478,7 +1670,7 @@ def in_windows(spec, r) -> bool:
                for lab, want in spec["req"].items() for t, _ in want)
 
 
-def bounded(b, r, res) -> bool:
+def bounded(b, r, res, ws=None) -> bool:
     """The time limit's bound (the hold spec, 4.9, as review 3's S2
     tightened it): the run did not stop; outside the truth's windows each
     counted `when` fires exactly as the truth requires; inside each window
@@ -1486,12 +1678,12 @@ def bounded(b, r, res) -> bool:
     and back's differences from the truth are equal, so the relation ends
     the window as the truth's does; with forth alone, one extra firing at
     most); the counters equal the firings. A lone firing lost for good is
-    not bounded."""
+    not bounded. `ws`: other windows than the truth's ([`postlimit`])."""
     if not res or not res.get("ok"):
         return False
     labels = b["labels"]
     fired = fired_by(res, labels)
-    ws = windows(r)
+    ws = windows(r) if ws is None else ws
     req = r["truth"]["req"]
 
     def inw(t):
@@ -1536,6 +1728,41 @@ def moved_back(b, r, res, lt) -> bool:
     return matches(res, spec, b["labels"])
 
 
+def postlimit(b, r, res) -> bool:
+    """The time limit of a hold the crossing made, at x's speed after the
+    latest event (the hold spec's revision 4, variant A): in a shape whose
+    events slow x (the truth's `after`), B = W / |x'|, W = 8 bands and x' the
+    truth's rate after the crossing's own event (where a later event stops
+    x, the rate before that event: the limit there is revision 2's, from it).
+    The run is bounded (an extra or a lost pair, never a lone firing lost)
+    within the crossing's window stretched to B after the latest event in
+    it (the crossing's own, or another event of the run's: its scheduled
+    ones); or it is the located truth (in the truth's windows) with its back
+    firings up to that bound later. Anything beyond it is wrong."""
+    aft = r["truth"].get("after")
+    if not aft or aft["r"] <= 0 or not res or not res.get("ok") or "a" not in r["params"]:
+        return False
+    a, rtol = r["params"]["a"], r["rtol"]
+    t1, L = 0.625 / a, loc(rtol, a / 1.75)
+    B = 8 * band(rtol) * 1.75 / aft["r"]
+    labels = b["labels"]
+    # the latest event in the window, the window growing with it
+    evs = sorted(t for t, lab in res.get("fired", []) if not any(lab.endswith(x) for x in labels))
+    end = t1 + L + B
+    for t in evs:
+        if t1 - L <= t <= end:
+            end = max(end, t + B)
+    ws = [(t1 - L, end)] + [w for w in windows(r) if w[1] < t1 - L or w[0] > end]
+    if bounded(b, r, res, ws):
+        return True
+    lt = located_truth(b, r, res)
+    if lt is None or not in_windows(lt, r):
+        return False
+    spec = dict(lt, req={k: ([[(t + end) / 2, (end - t) / 2 + EXACT] for t, _ in v] if k == "back" else v)
+                         for k, v in lt["req"].items()})
+    return matches(res, spec, labels)
+
+
 def shallow_peak(b, r, res) -> bool:
     """A missed shallow peak (the hold spec, 4.10; no hold involved): a peak
     whose height above the threshold, d / 1.75 in x, is within 100 rtol, and
@@ -1551,10 +1778,6 @@ def shallow_peak(b, r, res) -> bool:
     return all(res.get("final", {}).get(v, 0) == 0 for v in ("n", "m", "on"))
 
 
-# the families whose events change x's rate (restart_loss)
-RATE_CHANGING = {"slow", "slowsib", "slowr", "bfreeze", "bfreezew"}
-
-
 def restart_loss(b, r, res, cls_of_key) -> bool:
     """Diffsol right after an event's restart (the hold spec, 4.10; no hold
     involved, out of scope by the brief): the run is right, or inside L1,
@@ -1566,11 +1789,11 @@ def restart_loss(b, r, res, cls_of_key) -> bool:
     crossings the integrator finds after a restart. Only in shapes whose
     events leave x's rate as it was (a crossing x makes after the event
     then comes within the location's scale of it): not where an event
-    slows or stops x (slow, slowsib, slowr, bfreeze, bfreezew, extra's
-    freezes), where a lost firing may be a late one."""
+    slows or stops x (its truth says how: `after`, [`slowed`]), where a
+    lost firing may be a late one."""
     if b["config"] != "diffsol" or not res or not res.get("ok"):
         return False
-    if b["family"] in RATE_CHANGING or b["shape"].get("kind") in ("frzf", "frzb"):
+    if "after" in r["truth"]:
         return False
     tied = {x for la, _, lb, _ in r["truth"].get("same", []) for x in (la, lb)}
     labels = b["labels"]
@@ -1604,24 +1827,40 @@ def classify_run(b, r, res, cls_of_key) -> str:
     noise, onestep, located, storm), else, in order, located (the one
     located definition, its firings inside the truth's windows), moderead,
     shallowpeak, bounded (with a lone back moved by the time limit),
-    restartloss, else wrong."""
+    postlimit, restartloss, else wrong."""
     c = classify(res, r["truth"], b["labels"], cls_of_key)
     if c != "wrong":
         return c
     lt = located_truth(b, r, res)
     if lt is not None and in_windows(lt, r) and matches(res, lt, b["labels"]):
         return "located"
-    if b["family"] == "rdmode":
-        f = fired_by(res or {}, ["forth"])["forth"]
-        if f and f[0] < 0.625 / r["params"]["a"]:
-            return "moderead"
+    if mode_read(b, r, res):
+        return "moderead"
     if shallow_peak(b, r, res):
         return "shallowpeak"
     if bounded(b, r, res) or moved_back(b, r, res, lt):
         return "bounded"
+    if postlimit(b, r, res):
+        return "postlimit"
     if restart_loss(b, r, res, cls_of_key):
         return "restartloss"
     return "wrong"
+
+
+def mode_read(b, r, res) -> bool:
+    """Mode read (the hold spec, S1): the crossing was located early (its
+    `when` fired before t1), and the run is the truth in every firing and
+    value but m, the value a later round of that event read from the mode on
+    the same relation."""
+    if not res or not res.get("ok") or "m" not in r["truth"]["final"] or "a" not in r["params"]:
+        return False
+    f = fired_by(res, ["forth"])["forth"]
+    if not f or f[0] >= 0.625 / r["params"]["a"]:
+        return False
+    want = r["truth"]["final"]["m"]
+    got = res.get("final", {}).get("m")
+    rest = dict(r["truth"], final={k: v for k, v in r["truth"]["final"].items() if k != "m"})
+    return got is not None and abs(got - want[0]) > want[1] and matches(res, rest, b["labels"])
 
 
 def describe(res, tr, labels) -> str:
@@ -1680,8 +1919,8 @@ def score_one(builds, res: dict):
 
 
 CLASSES = ["right", "L1", "located", "moderead", "noise", "onestep", "storm", "shallowpeak", "restartloss",
-           "bounded", "wrong", "missing"]
-SHOWN = ["wrong", "bounded", "L1", "located", "moderead", "noise", "onestep", "storm", "shallowpeak",
+           "bounded", "postlimit", "wrong", "missing"]
+SHOWN = ["wrong", "bounded", "postlimit", "L1", "located", "moderead", "noise", "onestep", "storm", "shallowpeak",
          "restartloss", "right"]
 
 
@@ -1728,7 +1967,7 @@ def tally(builds, labelled: list, out_path: Path | None) -> str:
     table("By configuration", lambda b: b["config"], list(CONFIGS) + ["default"])
     table("By shape family", sub, subs)
     cfgs = list(CONFIGS) + ["default"]
-    abbr = {"bounded": "B", "L1": "L1", "located": "Lo", "moderead": "M", "noise": "N", "onestep": "S1",
+    abbr = {"bounded": "B", "postlimit": "A", "L1": "L1", "located": "Lo", "moderead": "M", "noise": "N", "onestep": "S1",
             "storm": "St", "shallowpeak": "P", "restartloss": "R"}
     label0, res0, cls0, keyed0 = scored[0]
     runs = collections.Counter((sub(keyed0[kk][0]), keyed0[kk][0]["config"]) for kk in cls0)
@@ -1743,7 +1982,7 @@ def tally(builds, labelled: list, out_path: Path | None) -> str:
             b = keyed[kk][0]
             per[(sub(b), b["config"])][v] += 1
         lines.append(f"\n### {label}: wrong, and named limits, by shape family and configuration\n")
-        lines.append("Each cell: wrong runs, then the named limits (B bounded, L1, Lo located, M mode read, "
+        lines.append("Each cell: wrong runs, then the named limits (B bounded, A postlimit, L1, Lo located, M mode read, "
                      "N noise, S1 onestep, St storm, P shallow peak, R restart loss); "
                      "· none; the rest of the cell's runs (table above) right.\n")
         lines.append("| shape family | " + " | ".join(cfgs) + " |")
@@ -1860,6 +2099,22 @@ def selftest() -> None:
     assert classify_run(bb, rr, lone, lambda k: "wrong") == "wrong"
     far = {"ok": True, "fired": [[0.62499, "forth"], [0.625001, "back"], [0.7, "forth"]], "final": {"n": 2, "m": 1}}
     assert classify_run(bb, rr, far, lambda k: "wrong") == "wrong"
+    # postlimit (revision 4): a slowed shape whose run never arrives, back moved by the time limit at the
+    # rate after the event (B = 8 bands / (r / 1.75) = 0.0714 s here), and no further
+    sl = {"family": "asym", "config": "ida", "labels": lab, "shape": {}}
+    rs = dict(rr, truth=dict(rr["truth"], after=slowed(1e-4, D=1e-6)))
+    moved = {"ok": True, "fired": [[0.62499, "forth"], [0.69, "back"]], "final": {"n": 1, "m": 1}}
+    assert classify_run(sl, rs, moved, lambda k: "wrong") == "postlimit"
+    beyond = dict(moved, fired=[[0.62499, "forth"], [0.7, "back"]])
+    assert classify_run(sl, rs, beyond, lambda k: "wrong") == "wrong"
+    assert classify_run(bb, rr, moved, lambda k: "wrong") == "wrong"
+    # moderead: only m differs from the truth; a double firing is not one
+    md = {"family": "rdmode", "config": "ida", "labels": ["forth"], "shape": {}}
+    rm = dict(rr, truth=truth({"forth": [[0.625, loc(1e-6, 1 / 1.75)]]}, {"n": [1, 0], "m": [1, 0]}))
+    read0 = {"ok": True, "fired": [[0.62499, "forth"]], "final": {"n": 1, "m": 0}}
+    assert classify_run(md, rm, read0, lambda k: "wrong") == "moderead"
+    twice0 = {"ok": True, "fired": [[0.62499, "forth"], [0.625001, "forth"]], "final": {"n": 2, "m": 0}}
+    assert classify_run(md, rm, twice0, lambda k: "wrong") == "wrong"
     # the truth's own numbers: x^3 + x = 0.625 at 0.5, and the fam probe's back effect
     assert 0.5 ** 3 + 0.5 == 0.625
     b = fam_build(True, "time", "back", "pairs", "ida", [1.0], [1e-4], [1e-6])
