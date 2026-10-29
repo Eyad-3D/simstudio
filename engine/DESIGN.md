@@ -3204,8 +3204,15 @@ against exact answers from `benchmarks/`.
   Max Charge Power; a fuel cell at its maximum power or taking nothing
   back; a bus with no source; a consumer cut back) come from the trace
   of each motor's time held and recuperation lost, each consumer's share
-  served and each battery's window, each once in today's words; a Script
-  output with no port is today's warning too.
+  served and each battery's window, each once in today's words (a fuel
+  cell whose Hydrogen Tank the run drains holds the motors back at its
+  maximum power in today's words, as today's, which holds it to the
+  hydrogen left; one empty from the start says the tank is empty); a
+  battery reaching its minimum SOC is said at the run's event; a Script
+  output with no port is today's warning too. A judged battery check the
+  run kept no record of (its power's moving average) fails the path with
+  `NEW-ERROR`, never passes at 0 kW. The harness counts the notes'
+  codes by code (its `[note_codes]`).
   The engine's own warnings on its run reach the user; its preparation's
   notes about the start values (`START-ALIAS-CONFLICT`, `START-NOT-SOLVED`,
   `INIT-START-ASSUMED`, `INIT-UNDECIDED`, `INIT-START-IGNORED`: review

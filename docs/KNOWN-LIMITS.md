@@ -626,9 +626,10 @@ minimum or an average, for example from the CSV export, or put the
   the motor is powered) still counts as read past, so the run can warn
   where today's does not; a Driving Task's profile run past its end is
   not judged, and a note with the code `NEW-TABLE-NOT-JUDGED` says so.
-  Its Driver can ask a motor for more recuperation than the battery
+  Its Driver can ask a motor for more recuperation than its supply
   takes, where today's never asks it: the run then says the charging was
-  held back. *Roadmap:* ENG-16.
+  held back, or, on a fuel cell, which takes nothing back, that it cannot
+  take power back. *Roadmap:* ENG-16.
 - **Fuel energy is a heating value you set.** The fuel's energy is the
   fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by
   default; background knowledge, not checked against a source; a model

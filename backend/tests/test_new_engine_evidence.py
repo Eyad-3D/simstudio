@@ -499,6 +499,23 @@ def test_a_motor_driven_past_its_maximum_speed_is_judged(new, monkeypatch):
                for t in _texts(result, "info"))
 
 
+def test_a_speed_at_its_maximum_to_the_solver_s_tolerance_is_not_above_it():
+    """A machine its limiter holds at its maximum speed, to the solver's
+    tolerance (1e-7 of it above), is not above it, as today's counts no
+    step its own limiter holds it there; 1e-5 above it is (a trace of the
+    run, no engine: no example case reaches the limit that way)."""
+    from types import SimpleNamespace as NS
+    for over, above in ((1e-7, 0.0), (1e-5, 3.0)):
+        use = NS(edge=8000.0, outside_s=0.0, value=0.0, t=0.0)
+        ctx = NS(motors={"m": NS(speed_use=use)}, engines={}, model=NS(elements={"m": NS(label="M")}))
+        speed = [8000.0 * (1 + over)] * 4
+        run = NS(trace={"times": [0.0, 1.0, 2.0, 3.0], "m:sig_speed": speed},
+                 integrals={"m:sig_speed": {"max": max(speed), "min": 0.0}})
+        said: list = []
+        new_engine._over_speed(ctx, NS(speeds={"m": "m:sig_speed"}), run, said)
+        assert use.outside_s == pytest.approx(above, rel=1e-6) and len(said) == (above > 0), over
+
+
 def _fuel_cell_on_the_motor_bus(max_current_a: float) -> Project:
     """The tests' fuel cell car with its fuel cell straight on the motor's
     bus (no DC-DC, no battery), short of the car's peak demand."""
@@ -537,6 +554,125 @@ def test_a_supply_at_its_limit_warns_as_today(new, monkeypatch):
         return float(said[0][len(cut):].split(" ")[0])
     assert when(simulate(empty, "case-city")) == pytest.approx(
         when(_today(empty, "case-city", monkeypatch)), abs=1.0)
+
+
+@pytest.mark.parametrize("layout", ["runs-dry", "empty", "braking"])
+def test_a_fuel_cell_s_supply_warnings_are_today_s(new, monkeypatch, layout):
+    """The fuel cell on the motor's bus, judged by today's engine: its tank
+    run dry 1.6 s before the end (today's says its demand exceeds its
+    maximum power; before, the new path dropped every stretch held after
+    the tank was empty and said nothing, a success where today's warns),
+    its tank empty from the start (today's says so, and nothing of its
+    maximum power), and braking (no stretch held while recuperating is
+    one held while drawing). Its cannot-take-power-back warning is left
+    out: today's Driver never asks a fuel cell for recuperation, the new
+    engine's does (KNOWN-LIMITS)."""
+    proj = _fuel_cell_on_the_motor_bus(400.0)
+    tank = next(e for e in proj.systems[0].elements if e.id == "h2").parameterOverrides
+    if layout == "runs-dry":  # (empty at 118.4 s of 120 s on the new engine)
+        tank.update(capacity_kg=0.018, initial_fill_pct=100.0)
+    elif layout == "empty":
+        tank.update(capacity_kg=1.0, initial_fill_pct=0.0)
+    else:
+        next(e for e in proj.systems[0].elements if e.id == "task").parameterOverrides[
+            "profile"] = "0:0; 8:70; 60:70; 66:0; 120:0"
+
+    def said(r):
+        return sorted(t for t in _texts(r, "warning") if t.startswith(("Fuel cell", "Hydrogen tank"))
+                      and "cannot take power back" not in t)
+    today, result = _today(proj, "case", monkeypatch), simulate(proj, "case")
+    assert said(result) == said(today)
+    assert said(today) == {"runs-dry": ["Fuel cell 'Fuel Cell' demand exceeds its maximum power — motor "
+                                        "torque limited."],
+                           "empty": ["Hydrogen tank empty — fuel cell shut down."], "braking": []}[layout]
+    assert result.status == today.status
+
+
+def test_a_consumer_a_fuel_cell_cuts_back_is_all_it_says(new, monkeypatch):
+    """The BEV with a circuit of its own, a fuel cell short of the 60 kW
+    Power Consumer on it and no motor: today's engine says the consumer is
+    cut back and nothing of the fuel cell's maximum power, which holds back
+    no motor; so does the new path."""
+    from helpers import conn
+    proj = load_example("bev-car")
+    system = proj.systems[0]
+    system.elements += [el("fc", "fuelcell.stack", "Fuel Cell", max_current_A=100.0),
+                        el("h2", "fuel.h2_tank", "H2 Tank"), el("fcbus", "electric.node", "FC Bus"),
+                        el("load", "electric.constant_drive", "Load", power_kW=60.0),
+                        el("gnd2", "boundary.ground", "Ground 2")]
+    system.connections += [conn(90, "fc", "pos", "fcbus", "t1"), conn(91, "load", "pos", "fcbus", "t2"),
+                           conn(92, "fc", "neg", "gnd2", "t1"), conn(93, "load", "neg", "gnd2", "t2")]
+    next(c for c in proj.cases if c.id == "case-city").duration = 120.0
+    today, result = _today(proj, "case-city", monkeypatch), simulate(proj, "case-city")
+    assert _texts(result, "warning") == _texts(today, "warning") == [
+        "Power consumer 'Load' cut back at t = 0 s — its source cannot supply it."]
+    assert result.status == today.status == "warning"
+
+
+@pytest.mark.parametrize("over", [{"capacity_kWh": 0.62}, {"max_discharge_current_A": 60.0}])
+def test_a_battery_held_by_its_own_limits_warns_as_today(new, monkeypatch, over):
+    """A battery that holds the motors back at its minimum SOC, or at its
+    battery management's discharge current limit, is not at its
+    maximum-power point: today's warnings exactly (the minimum SOC's own,
+    at the run's event: 214 s, where the output grid's next point said
+    215 s), today's verdict, and no maximum-power-point warning (each was
+    said with its exclusion taken back)."""
+    proj = _battery(load_example("bev-car"), **over)
+    today, result = _today(proj, "case-city", monkeypatch), simulate(proj, "case-city")
+
+    def said(r):  # (the cycle's verdict in words carries the run's own numbers)
+        return [t for t in _texts(r, "warning") if not t.startswith("Cycle not followed")]
+    assert said(result) == said(today)
+    assert _verdict(result) == _verdict(today)
+    assert not [t for t in _texts(result) if "maximum power point" in t]
+
+
+def test_a_checked_battery_limit_with_a_script_is_judged_as_today(new, monkeypatch):
+    """The battery check of a project with a Script block, whose run goes
+    through today's worker (the path's second call of the engine): its
+    averaged peak over every step, today's verdict (before the window was
+    asked there too, its row read 0.0 kW and passed)."""
+    monkeypatch.setenv("LIGHTSIM_SCRIPT_TRUST", "off")
+    proj = _battery(load_example("bev-car"), output_power_limit_kW=23.0, power_limit_window_s=0.5,
+                    power_limit_enforced=False)
+    code = "def step(t, dt, inputs, state, params):\n    return {'y': 1.0}\n"
+    proj.systems[0].elements.append(ElementInstance(
+        id="s", componentDefId="signal.script", label="S", position={"x": 0, "y": 0},
+        parameterOverrides={"code": code, "sample_time_s": 0.1},
+        dynamicPorts=[sig_port("y", "output")]))
+    proj.systems[0].elements.append(el("mon", "signal.monitor", "Monitor"))
+    proj.dataBusConnections.append(dbc(50, "s", "y", "mon", "sig_in"))
+    key = "el-battery.peak_terminal_power_averaged_kw"
+    today, result = _today(proj, "case-city", monkeypatch), simulate(proj, "case-city")
+    assert result.messages[0].text.startswith("Run on the new engine")
+    row, old = (next(s for s in r.summary if s.key == key) for r in (result, today))
+    assert result.status == today.status == "warning"
+    assert row.passed is old.passed is False
+    assert row.value == pytest.approx(old.value, rel=2e-3)
+
+
+def test_a_battery_check_the_run_kept_no_record_of_is_the_path_s_fault(new, monkeypatch):
+    """A checked battery whose run kept no moving average of its power (an
+    engine call that did not ask for it) fails with the path's code, not a
+    pass at 0 kW: before, its averaged peak stayed 0 and passed."""
+    real = lightsim_engine.build
+
+    class NoWindows:
+        def __init__(self, m):
+            self.m = m
+
+        def __getattr__(self, name):
+            return getattr(self.m, name)
+
+        def simulate(self, **kw):
+            return self.m.simulate(**{k: v for k, v in kw.items() if k != "windows"})
+    monkeypatch.setattr(lightsim_engine, "build", lambda *a, **k: NoWindows(real(*a, **k)))
+    proj = _battery(load_example("bev-car"), output_power_limit_kW=23.0, power_limit_window_s=0.5,
+                    power_limit_enforced=False)
+    result = simulate(proj, "case-city")
+    assert result.status == "failed"
+    first = result.messages[0].text
+    assert first.startswith("Not run [NEW-ERROR]") and "the moving average of el-battery:sig_power" in first
 
 
 def test_a_script_output_with_no_port_warns_as_today(new, monkeypatch):

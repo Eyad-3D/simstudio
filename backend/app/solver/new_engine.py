@@ -196,7 +196,7 @@ def run_new(project: Project, case_id: str) -> SimResult:
     # the channels, the Script blocks' code, ports and parameters, and, in a
     # RunContext built and never stepped, the parts as today's engine reads
     # them (each battery's capacity and checks, each motor's maximum speed,
-    # each driveline's parts, each table's axes)
+    # each driveline's parts, each table's axes, each tank's start)
     model = build_model(project, {}, overrides)
     try:
         ctx = RunContext(project, model, Runtime(model, None), {}, overrides, workers=False)
@@ -330,12 +330,11 @@ class _Plan:
         # back (_supply): each motor's time held and recuperation lost,
         # each battery's state of charge, discharge current limits, charge
         # window and time at its cap, each consumer's share served and
-        # demand, the hydrogen tank's mass
+        # demand
         self.supply = {el: {v: var(el, v) for v in vs} for el, vs in (
             *((m, ("t_limited", "e_regen_lost")) for m in ctx.motors),
             *((b, ("soc", "i_mpp", "i_dis_lim", "p_absorb", "t_held")) for b in ctx.batteries),
             *((c, ("served", "p_dem")) for c, cd in model.cdef_of.items() if cd.id in CONSUMER_TYPES))}
-        self.h2 = want(f"{model.h2_tank}:sig_mass") if model.h2_tank else None
         # each checked battery's power: its highest average over its check's
         # window, from every point the integrator visited (_terminal)
         self.windows = {f"{b.el_id}:sig_power": b.check.window_s for b in ctx.batteries.values()
@@ -395,10 +394,15 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
         low = total(f"{b.el_id}:sig_soc", "min")
         if s is not None and len(s) and low <= b.min_soc * 100.0 + 1e-6:
             b.depleted_flagged = True
-            k = next((k for k, x in enumerate(s) if x <= b.min_soc * 100.0 + 1e-6), len(s) - 1)
+            # when: on the trace, at the run's own event (the output grid's
+            # next point is up to its step late: 215 s where today's says 214)
+            t_low = _first(run, plan.supply[b.el_id]["soc"], lambda x: x <= b.min_soc + 1e-8)
+            if t_low is None:
+                t_low = times[next((k for k, x in enumerate(s) if x <= b.min_soc * 100.0 + 1e-6),
+                                   len(s) - 1)]
             messages.append(SimMessage(level="warning", text=(
                 f"Battery '{label}' reached minimum SOC ({b.min_soc * 100:.0f} %) at "
-                f"t = {times[k]:.0f} s — no further discharge; the motors get only what is "
+                f"t = {t_low:.0f} s — no further discharge; the motors get only what is "
                 f"left.")))
         if b.check is not None:
             _terminal(b.check, run, b.el_id, last(b.el_id, "t_held"))
@@ -559,10 +563,19 @@ def _terminal(chk, run, el_id: str, held_s: float) -> None:
     its peak over the check window (the engine's moving average of the
     line through every point it visited, as today's is of every step:
     the output step changes neither; 0 s, the peak itself), its highest
-    and lowest voltage, the time held at (or over) its limit."""
+    and lowest voltage, the time held at (or over) its limit. A judged
+    number the run kept no record of is this path's fault (NEW-ERROR), not
+    a pass at 0 kW."""
     times = [float(t) for t in run.times]
     power, volt = f"{el_id}:sig_power", f"{el_id}:sig_voltage"
     integ = run.integrals
+    gone = [n for n, judged in ((power, chk.limit_w > 0), (volt, chk.v_class > 0))
+            if judged and n not in integ]
+    if chk.limit_w > 0 and power in integ and not run.windows.get(power):
+        gone.append(f"the moving average of {power} over {chk.window_s:g} s")
+    if gone:
+        raise RuntimeError(f"the run kept no record of {', '.join(gone)}, which battery {el_id}'s "
+                           f"checks are judged on")
     if power in integ:
         chk.peak_w = max(chk.peak_w, float(integ[power]["max"]) * 1000.0)
         got = run.windows.get(power)
@@ -631,12 +644,31 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
 # the note's code for a table record the verdict does not judge (_tables)
 NOT_JUDGED = "NEW-TABLE-NOT-JUDGED"
 
+# the codes of the path's notes on a run it ran: what of it the verdict does
+# not judge (benchmarks/back_to_back/acceptance.toml's [note_codes])
+NOTE_CODES = {NOT_JUDGED: "a table the run read past its data that today's engine does not read "
+                          "as a part's data: a note, not judged"}
+
 
 def _at_event(ev_times: list[float], t0: float, t1: float) -> float:
     """When a change seen between two traced points happened: at the run's
     last event inside that stretch (exact), else at its start."""
     i = bisect.bisect_right(ev_times, t1) - 1
     return ev_times[i] if i >= 0 and ev_times[i] > t0 else t0
+
+
+def _first(run, name: Optional[str], hit: Callable[[float], bool]) -> Optional[float]:
+    """When the traced ``name`` first meets ``hit``: at the run's last event
+    in the traced stretch where it does (_at_event); None when it never does
+    or is not traced."""
+    tr = run.trace or {}
+    if name is None or name not in tr:
+        return None
+    k = next((k for k, x in enumerate(tr[name]) if hit(float(x))), None)
+    if k is None or k == 0:
+        return None if k is None else float(tr["times"][0])
+    return _at_event(sorted(float(e["t"]) for e in run.events),
+                     float(tr["times"][k - 1]), float(tr["times"][k]))
 
 
 def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
@@ -698,14 +730,26 @@ def _supply(ctx, plan: _Plan, run) -> list[str]:
     management (today's note, not said here) holds back no warning; else a
     battery at its maximum-power point ("maxp"), full ("full"), at its Max
     Charge Power ("chg"); a fuel cell at its maximum power ("fcmax") or one
-    that takes nothing back ("fcback"); a bus with no source ("nosrc")."""
+    that takes nothing back ("fcback"); a bus with no source ("nosrc").
+
+    A fuel cell whose Hydrogen Tank is empty from the start gives nothing:
+    today's says so ("h2empty") and never "fcmax". One whose tank the run
+    drains: the new engine's fuel cell gives its maximum power until the
+    tank is empty (an event) and nothing after, where today's holds it to
+    the hydrogen left, so its tank never quite reaches 0 and the stretches
+    it holds the motors are "fcmax"; so are the new run's after its tank
+    ran dry."""
+    model = ctx.model
+    out: dict[str, str] = {}
+    tank = ctx.tanks.get(model.h2_tank) if model.h2_tank else None
+    h2_empty = tank is not None and tank.mass_kg <= 0  # (today's RunContext at its start)
+    if h2_empty and ctx.fuelcells:
+        out["h2empty"] = "Hydrogen tank empty — fuel cell shut down."
     tr = run.trace or {}
     times = [float(t) for t in tr.get("times", [])]
     if len(times) < 2:
-        return []
-    model = ctx.model
+        return list(out.values())
     ev_times = sorted(float(e["t"]) for e in run.events)
-    out: dict[str, str] = {}
 
     def at(el_id: str, v: str, k: int) -> Optional[float]:
         name = plan.supply.get(el_id, {}).get(v)
@@ -744,7 +788,7 @@ def _supply(ctx, plan: _Plan, run) -> list[str]:
                 out.setdefault(f"fcback:{root.fuelcell}", (
                     f"Fuel cell '{label}' cannot take power back — regenerative torque "
                     f"limited."))
-            elif plan.h2 is None or float(tr[plan.h2][k]) > 0:
+            elif not h2_empty:
                 out.setdefault(f"fcmax:{root.fuelcell}", (
                     f"Fuel cell '{label}' demand exceeds its maximum power — motor torque "
                     f"limited."))
