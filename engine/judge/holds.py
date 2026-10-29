@@ -1416,7 +1416,9 @@ def recheck4(tier: str) -> list:
             fop = ops(up, strict)[0]
             p, dcl, eqs, whens, _ = model(config, up, strict, "none", [], lambda f, b: [], {"K": (1.0, "")}.items(),
                                           rate=f"if x {fop} 0.5 then a / K else a")
-            runs = [run({"a": a, "K": K}, rtol, tr1(a, rtol, slowed(a / K, rb=a)), {"a": a, "K": K})
+            # (a mode on the condition's relation: the storm beside it is a named limit, as in ramp and fam)
+            runs = [run({"a": a, "K": K}, rtol, dict(tr1(a, rtol, slowed(a / K, rb=a)),
+                                                     storm=[[0.625 / a, loc(rtol, a / 1.75)]]), {"a": a, "K": K})
                     for a in rates for K in Ks for rtol in rtols]
             out.append(build("slowmode", {"dir": "up" if up else "down", "s": "s" if strict else "n"}, config,
                              mo(p, dcl, eqs, whens), runs, ["forth", "back"], ["n", "m"]))
