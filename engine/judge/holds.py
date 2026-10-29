@@ -1670,7 +1670,7 @@ def in_windows(spec, r) -> bool:
                for lab, want in spec["req"].items() for t, _ in want)
 
 
-def bounded(b, r, res, ws=None) -> bool:
+def bounded(b, r, res) -> bool:
     """The time limit's bound (the hold spec, 4.9, as review 3's S2
     tightened it): the run did not stop; outside the truth's windows each
     counted `when` fires exactly as the truth requires; inside each window
@@ -1678,12 +1678,12 @@ def bounded(b, r, res, ws=None) -> bool:
     and back's differences from the truth are equal, so the relation ends
     the window as the truth's does; with forth alone, one extra firing at
     most); the counters equal the firings. A lone firing lost for good is
-    not bounded. `ws`: other windows than the truth's ([`postlimit`])."""
+    not bounded."""
     if not res or not res.get("ok"):
         return False
     labels = b["labels"]
     fired = fired_by(res, labels)
-    ws = windows(r) if ws is None else ws
+    ws = windows(r)
     req = r["truth"]["req"]
 
     def inw(t):
@@ -1718,9 +1718,9 @@ def bounded(b, r, res, ws=None) -> bool:
 
 def moved_back(b, r, res, lt) -> bool:
     """A lone back moved by the time limit (review 3's S2: frzf): the run is
-    the located truth with its back firings up to W / |x'| later (W = 8
-    bands, the hold's width)."""
-    if lt is None or "a" not in r["params"]:
+    the located truth (inside the truth's windows) with its back firings up
+    to W / |x'| later (W = 8 bands, the hold's width)."""
+    if lt is None or "a" not in r["params"] or not in_windows(lt, r):
         return False
     w = 8 * band(r["rtol"]) * 1.75 / r["params"]["a"]
     spec = dict(lt, req={k: ([[t + w / 2, w / 2 + EXACT] for t, _ in v] if k == "back" else v)
@@ -1734,33 +1734,41 @@ def postlimit(b, r, res) -> bool:
     events slow x (the truth's `after`), B = W / |x'|, W = 8 bands and x' the
     truth's rate after the crossing's own event (where a later event stops
     x, the rate before that event: the limit there is revision 2's, from it).
-    The run is bounded (an extra or a lost pair, never a lone firing lost)
-    within the crossing's window stretched to B after the latest event in
-    it (the crossing's own, or another event of the run's: its scheduled
-    ones); or it is the located truth (in the truth's windows) with its back
-    firings up to that bound later. Anything beyond it is wrong."""
+    The run is the located truth (4.9: the crossing at the instant tf the
+    run fired it, x0(tf) read from there on, x at the rate after the event)
+    with each firing up to B later than the latest event from its located
+    instant on (that instant, or one of the run's other events in between:
+    a stop at t2); and every firing of that located truth lies no more than
+    B after the crossing's window or the latest other event before it.
+    Anything beyond it is wrong."""
     aft = r["truth"].get("after")
     if not aft or aft["r"] <= 0 or not res or not res.get("ok") or "a" not in r["params"]:
+        return False
+    lt = located_truth(b, r, res)
+    if lt is None:
         return False
     a, rtol = r["params"]["a"], r["rtol"]
     t1, L = 0.625 / a, loc(rtol, a / 1.75)
     B = 8 * band(rtol) * 1.75 / aft["r"]
     labels = b["labels"]
-    # the latest event in the window, the window growing with it
     evs = sorted(t for t, lab in res.get("fired", []) if not any(lab.endswith(x) for x in labels))
-    end = t1 + L + B
-    for t in evs:
-        if t1 - L <= t <= end:
-            end = max(end, t + B)
-    ws = [(t1 - L, end)] + [w for w in windows(r) if w[1] < t1 - L or w[0] > end]
-    if bounded(b, r, res, ws):
-        return True
-    lt = located_truth(b, r, res)
-    if lt is None or not in_windows(lt, r):
+    if any(q > max([t1 + L] + [e for e in evs if e <= q]) + B for v in lt["req"].values() for q, _ in v):
         return False
-    spec = dict(lt, req={k: ([[(t + end) / 2, (end - t) / 2 + EXACT] for t, _ in v] if k == "back" else v)
-                         for k, v in lt["req"].items()})
-    return matches(res, spec, labels)
+    fired = fired_by(res, labels)
+    for lab in labels:
+        want, got = lt["req"].get(lab, []), fired[lab]
+        if len(got) != len(want):
+            return False
+        for t, (q, tol) in zip(got, want):
+            anchor = max([q] + [e for e in evs if q <= e < t])
+            if not q - tol <= t <= max(q + tol, anchor + B):
+                return False
+    cnt = dict(zip(["n", "m"], labels))
+    for v, (want, tol) in lt["final"].items():
+        g = res.get("final", {}).get(v)
+        if g is None or (g != len(fired[cnt[v]]) if v in cnt else abs(g - want) > tol):
+            return False
+    return True
 
 
 def shallow_peak(b, r, res) -> bool:

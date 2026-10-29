@@ -396,17 +396,18 @@ order, after the limits above):
   back's differences from the truth equal, so the relation ends the window
   as the truth's does; with forth alone, one extra firing); the counters
   equal the firings; no stop. A lone back moved by at most the hold's width
-  over x' (W / |x'|, W = 8 bands) from the located truth's is bounded too
-  (frzf: a held freeze read at the expiry). A firing lost for good is not
-  (review 3's S2).
+  over x' (W / |x'|, W = 8 bands) from the located truth's (inside the
+  truth's windows) is bounded too (frzf: a held freeze read at the expiry).
+  A firing lost for good is not (review 3's S2).
 * **postlimit**, the time limit of a hold the crossing made (the hold
   spec's revision 4): in a shape whose events slow x, the bound B = W /
   |x'|, x' the truth's rate after the crossing's own event (where a later
-  event stops x, the rate before that event). The run is bounded as above
-  within the crossing's window stretched to B after the latest event in it
-  (the crossing's own, or one of the run's other events: a stop at t2), or
-  it is the located truth with its back firings up to that bound later.
-  Anything beyond it is wrong.
+  event stops x, the rate before that event). The run is the located truth
+  with each firing up to B later than the latest event from its located
+  instant on (that instant, or one of the run's other events in between: a
+  stop at t2), every firing of that located truth no more than B after the
+  crossing's window or the latest other event before it. Anything beyond
+  it is wrong.
 * **restartloss**, diffsol right after an event's restart (no hold
   involved; out of scope by the brief): the run is right, or inside L1,
   noise, located or bounded, but for one firing of a counted `when` lost
