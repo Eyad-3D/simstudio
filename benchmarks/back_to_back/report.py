@@ -240,7 +240,9 @@ def _without_notes(rec: dict) -> str:
     if res["status"] != "warning":
         return res["status"]
     notes = {d["message"] for d in (rec.get("engine") or {}).get("build_warnings", [])}
-    left = [m for m in res["messages"] if m["level"] == "warning" and m["text"] not in notes]
+    # (the path shows a note with its code before its words: "Preparation [CODE]: ...")
+    left = [m for m in res["messages"] if m["level"] == "warning"
+            and not any(m["text"] == n or m["text"].endswith(f"]: {n}") for n in notes)]
     return "warning" if left else "success"
 
 
@@ -355,7 +357,10 @@ def energy(out: Path, b: dict) -> dict:
         rows = res["partEnergy"]
         sums = {k: sum(r[k] for r in rows) for k in ("energyIn", "energyOut", "losses", "stored")}
         through = books["throughput_J"] * kwh
-        gap = abs(sums["losses"] - books["lost_J"] * kwh) + abs(sums["stored"] - books["stored_change_J"] * kwh)
+        # the parts' losses: what they lost to heat, and what a rigid engagement took at the part the
+        # books name (a gear shift: today's books have it as the gearbox's loss)
+        lost = books["lost_J"] + books.get("parts_impulse_lost_J", 0.0)
+        gap = abs(sums["losses"] - lost * kwh) + abs(sums["stored"] - books["stored_change_J"] * kwh)
         e1.append({"id": row["id"], "state": "pass" if gap <= 1e-12 * through else "fail",
                    "gap_rel": gap / through if through else None})
     sine = {s: runs.load(out, {"kind": "probe", "id": "energy/sine", "setting": s}) for s in ("today-normal", "new")}
@@ -374,13 +379,70 @@ def energy(out: Path, b: dict) -> dict:
           "new_status": _ok(sine["new"]) and sine["new"]["result"]["status"]}
     e2["state"] = ("cannot be measured" if e2["new_kw"] is None else
                    "pass" if abs(e2["new_kw"] - exact) <= 1e-9 * exact else "fail")
-    e3 = {"state": "cannot be measured",
-          "why": "the new path makes no limits report, and fast mode is not reachable from Python "
-                 "(lightsim_engine has no fast-mode call: engine/crates/lsim-py/README.md)"}
+    e3 = e3_rows(out)
     parts = [x["state"] for x in e1] + [e2["state"], e3["state"]]
     state = ("pass" if all(s == "pass" for s in parts) else
              "cannot be measured" if all(s == "cannot be measured" for s in parts) else "fail")
     return {"state": state, "E1": e1, "E2": e2, "E3": e3}
+
+
+LIMITED = ("grip", "set_limit", "supply", "machine")  # the lanes' states at a limit
+
+
+def _stretches(spans: list[tuple[float, float]]) -> list[list[float]]:
+    """Time stretches, joined where they touch or overlap."""
+    out: list[list[float]] = []
+    for a, b in sorted(spans):
+        if out and a <= out[-1][1] + 1e-9:
+            out[-1][1] = max(out[-1][1], b)
+        else:
+            out.append([a, b])
+    return out
+
+
+def lane_limits(limits: dict | None) -> list[list[float]]:
+    """The stretches a result's limit lanes spent at a limit (LIMITED)."""
+    spans = []
+    for lane in (limits or {}).get("lanes", []):
+        changes = lane["changes"]
+        for k, (t, code) in enumerate(changes):
+            end = changes[k + 1][0] if k + 1 < len(changes) else limits["tEnd"]
+            if limits["states"][int(code)] in LIMITED and end > t:
+                spans.append((float(t), float(end)))
+    return _stretches(spans)
+
+
+def e3_rows(out: Path) -> dict:
+    """E3: the stretches the new path's limit lanes spend at a limit against
+    fast mode's flags on the same cycle (runs.fast_run), each start and end
+    within one output step of the case; "not measured" without fast mode's
+    runner."""
+    rows = []
+    for iid in runs.fast_items():
+        f = runs.load(out, {"kind": "probe", "id": f"fast/{iid}", "setting": "fast"})
+        v = runs.load(out, {"kind": "item", "id": iid, "setting": "new"})
+        fast = (f or {}).get("fast") or {"error": "no record"}
+        if "error" in fast or not _ok(v) or refusal(v["result"]):
+            rows.append({"id": iid, "state": "not measured" if "error" in fast else "fail",
+                         "why": fast.get("error") or "the new path did not run it"})
+            continue
+        name, case_id = iid.split("/")
+        step = float(runs._case(runs.example(name), case_id).get("timeStep", 1.0))
+        ours = lane_limits(v["result"].get("limits"))
+        theirs = _stretches([(x["t_start"], x["t_end"]) for x in fast.get("flag_spans", [])])
+        same = len(ours) == len(theirs) and all(
+            abs(a[0] - b[0]) <= step and abs(a[1] - b[1]) <= step for a, b in zip(ours, theirs))
+        rows.append({"id": iid, "state": "pass" if same else "fail", "step_s": step,
+                     "lanes_limited_s": sum(b - a for a, b in ours),
+                     "fast_flagged_s": sum(b - a for a, b in theirs),
+                     "lanes": ours[:20], "fast": theirs[:20]})
+    states = {r["state"] for r in rows}
+    state = ("not measured" if not rows or states == {"not measured"} else
+             "pass" if states == {"pass"} else "fail")
+    # (where no lane meets a limit and fast mode flags nothing, the rows agree on nothing being
+    # limited: the report says how many lanes met one)
+    return {"state": state, "rows": rows,
+            "met_a_limit": sum(1 for r in rows if r.get("lanes_limited_s") or r.get("fast_flagged_s"))}
 
 
 def stream(out: Path) -> dict:

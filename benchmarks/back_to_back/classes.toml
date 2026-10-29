@@ -121,6 +121,18 @@ first step. Its ceiling: a first value anywhere in that range passes, however wi
 makes it."""
 
 [[rule]]
+id = "engine-preparation-notes"
+class = "c"
+date = "2026-10-29"
+field = ["messages"]
+what = ["extra"]
+key = "^info: Preparation note \\[(START-ALIAS-CONFLICT|START-NOT-SOLVED|INIT-START-ASSUMED|INIT-UNDECIDED|INIT-START-IGNORED)\\]: "
+reason = """The new engine's notes about its start values (two names of one variable with different start guesses, a \
+start preparation could not solve, a start not fully given), shown as notes since step 2's evidence part \
+(new_engine.START_NOTES; review finding 36): about the engine's own preparation, which today's engine has none of, \
+by design, as the engine-note is. A warning or an error of the engine's build is no such note: it is not matched."""
+
+[[rule]]
 id = "preparation-note-as-warning"
 class = "a"
 date = "2026-10-28"

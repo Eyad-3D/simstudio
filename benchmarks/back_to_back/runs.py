@@ -37,6 +37,10 @@ SUBSTEP = {"normal": 0.01, "fine": 0.001}  # today's engine's solver step, s
 # the META settings beside the base run: (output step factor, rtol)
 META = {"meta-x0.1": (0.1, 1e-6), "meta-x5": (5.0, 1e-6), "meta-rtol1e-8": (1.0, 1e-8)}
 PARTS = ("items", "faults", "meta", "energy")  # every part of the runs: what `run` and `all` run
+# fast mode's runner for the ENERGY line's E3: the built example
+# engine/crates/lsim-project/examples/fast.rs (`cargo build --release -p
+# lsim-project --example fast`); without it E3 is "not measured"
+FAST_BIN = "LSIM_FAST_BIN"
 
 
 def scratch() -> Path | None:
@@ -168,6 +172,39 @@ def sine_project() -> tuple[dict, str]:
     return project, "case-sine"
 
 
+def fast_items() -> list[str]:
+    """The ENERGY line's E3 cases, "the BEVs' cycle cases against fast mode":
+    the battery-electric cars' cycle items the new path runs (not the live
+    one, which it streams)."""
+    out = []
+    for item in items():
+        name, case_id = item.get("base", item["id"]).split("/")
+        if name not in ("bev-car", "aero-bev") or item["id"].startswith("probe/"):
+            continue
+        case = _case(example(name), case_id)
+        if case.get("kind", "cycle") == "cycle" and not (case.get("realtimeFactor") or 0) > 0:
+            out.append(item["id"])
+    return out
+
+
+def fast_run(iid: str, scratch: Path) -> dict:
+    """Fast mode on an item's case, by its runner (FAST_BIN): its result
+    (the run's figures and its flags' stretches), or why there is none."""
+    binary = os.environ.get(FAST_BIN, "").strip()
+    if not binary:
+        return {"error": f"not measured: {FAST_BIN} is not set"}
+    item = next(i for i in items() if i["id"] == iid)
+    project, case_id, _ = item_project(item, scratch)
+    scratch.mkdir(parents=True, exist_ok=True)
+    path = scratch / "project.json"
+    path.write_text(json.dumps(project), encoding="utf-8")
+    got = subprocess.run([binary, f"{path}/{case_id}"], capture_output=True, text=True, timeout=1800)
+    lines = [ln for ln in got.stdout.splitlines() if ln.startswith("{")]
+    if got.returncode or not lines:
+        return {"error": f"the runner failed ({got.returncode}): {got.stderr[-500:]}"}
+    return json.loads(lines[-1]).get("fast") or {"error": "no fast run in the runner's output"}
+
+
 # ---- faults -----------------------------------------------------------------
 
 def _deletions(name: str):
@@ -230,6 +267,7 @@ def specs(what: set[str]) -> list[dict]:
                 jobs.append({"kind": "fault", "id": fault, "setting": setting})
     if "energy" in what:
         jobs += [{"kind": "probe", "id": "energy/sine", "setting": s} for s in ("today-normal", "new")]
+        jobs += [{"kind": "probe", "id": f"fast/{iid}", "setting": "fast"} for iid in fast_items()]
     if "meta" in what:
         cases, faults = meta_set()
         for setting in META:
@@ -306,10 +344,13 @@ def stamp() -> dict:
     except (PackageNotFoundError, ImportError, AttributeError, TypeError, ValueError):
         engine, engine_sha = None, None
     files = [BACKEND / "app" / "solver" / "new_engine.py", BACKEND / "app" / "solver" / "verdict.py",
+             BACKEND / "app" / "solver" / "evidence.py",
              *sorted(HERE.glob("*.py")), *sorted(HERE.glob("*.toml"))]
+    fast = os.environ.get(FAST_BIN, "").strip()
     return {"commit": _git("rev-parse", "HEAD").decode().strip(),
             "dirty": hashlib.sha256(change).hexdigest() if change else None,
             "lightsim_engine": engine, "lightsim_engine_sha256": engine_sha,
+            "fast_runner_sha256": _sha(Path(fast)) if fast else None,
             "sha256": {str(p.relative_to(REPO)).replace("\\", "/"): _sha(p) for p in files}}
 
 
@@ -401,6 +442,9 @@ class _Model:
     def report(self):
         return self.model.report
 
+    def __getattr__(self, name):  # the rest of the model as it is (var_names, params, ...)
+        return getattr(self.model, name)
+
     def simulate(self, **kwargs):
         if self.engine.rtol is not None:
             kwargs["rtol"] = self.engine.rtol
@@ -420,7 +464,9 @@ class _Model:
         self.engine.kept["scripts"] = dict(run.report["scripts"])
         energy = run.energy
         self.engine.kept["energy"] = None if energy is None else {
-            k: v for k, v in energy.items() if isinstance(v, (int, float, str, bool))}
+            k: v for k, v in energy.items() if isinstance(v, (int, float, str, bool))} | {
+            # what the rigid engagements took at the parts the books name (gear shifts)
+            "parts_impulse_lost_J": sum(p["impulse_lost_J"] for p in energy["parts"])}
         return run
 
 
@@ -431,6 +477,14 @@ def child(spec: dict, path: Path) -> None:
 
     made_by = stamp()
     scratch = path.parent / (path.stem + ".work")
+    if spec["kind"] == "probe" and spec["id"].startswith("fast/"):  # E3: fast mode, not the app
+        t0 = time.perf_counter()
+        fast = fast_run(spec["id"][len("fast/"):], scratch)
+        record = {"spec": spec, "stamp": made_by, "wall_s": time.perf_counter() - t0, "fast": fast}
+        tmp = path.with_suffix(".part")
+        tmp.write_text(json.dumps(record), encoding="utf-8")
+        tmp.replace(path)
+        return
     if spec["kind"] == "item":
         item = next(i for i in items() if i["id"] == spec["id"])
         raw, case_id, how = item_project(item, scratch)

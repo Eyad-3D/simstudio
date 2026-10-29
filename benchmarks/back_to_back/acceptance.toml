@@ -455,6 +455,45 @@ case today's engine flags at the app's setting could pass (and so could a warnin
 sibling of the same hole). Written before baseline-6 was measured; on baseline-5's records this judge takes the 169 lent channels' "extra" (c) away and adds 48 first points on them \
 (c) and 15 value differences (unclassified, each its source's own on the hybrid), and moves nothing else."""
 
+[[changes]]
+date = "2026-10-29"
+line = "ENERGY"
+change = """E3 runs fast mode by its own runner (engine/crates/lsim-project/examples/fast.rs, built: \
+$LSIM_FAST_BIN), which prints its flags' stretches (flag_spans), on each of the BEVs' cycle items the new path \
+runs (aero-bev's three cycles and bev-car's five; not the live one, which it streams), and judges the stretches \
+the new run's limit lanes spend at a limit (grip, set_limit, supply or machine, joined where they touch) against \
+fast mode's flagged stretches (joined likewise): the same number, each start and end within the case's output \
+step. Without the runner it is "not measured". The report says how many items met a limit on either side."""
+reason = """Registered with no runner named: fast mode for project files is not reachable from Python (lightsim_engine \
+has no fast-mode call; quick mode in the app is a later part of step 2), so the judge runs fast mode as a process \
+of its own, as engine/judge does. The stretches are judged, which the seconds follow from, the pass mark's "one \
+output step per change of state" read at each stretch's two ends. Written before the evidence part's first \
+measured run; a probe run then showed neither side meeting a limit on bev-car's city, WLTC and aero-bev's UDDS \
+cycles (no flag, no limited stretch), so on the registered cases E3 can show agreement only on nothing being \
+limited: the report counts the items that met one."""
+
+[[changes]]
+date = "2026-10-29"
+line = "FAULTS"
+change = """The hidden rule's "message of the engine's own report" is also matched where the path shows it with its \
+code before its words ("Preparation [CODE]: <the report's message>", new_engine.py), not only word for word; the \
+META line reads the same function (report._without_notes)."""
+reason = """Step 2's evidence part shows the engine's build notes about its start values as notes (info) and any other \
+build warning as "Preparation [CODE]: ...": matched word for word only, such a warning would count as the run's \
+own and could hide a fault the registered words count as hidden. Written before the part's first measured run."""
+
+[[changes]]
+date = "2026-10-29"
+line = "ENERGY"
+change = """E1's engine totals: the parts' losses sum to what the books say the parts lost to heat (lost_J) plus what \
+the rigid engagements took at the parts the books name (each part's impulse_lost_J, a gear shift's: \
+parts_impulse_lost_J in the record), their stored energies to the books' change of stored energy (stored_change_J); \
+each to 1e-12 of the throughput."""
+reason = """The new path books what a gear shift's impulse takes as the gearbox's loss, as today's books do (today's \
+RunContext.carry_over: "the kinetic energy that loses is the gearbox's loss"); the engine's books keep it apart \
+from the heat (event and impulse losses), so lost_J alone leaves the hybrid's shifts out. Written before the \
+evidence part's first measured run."""
+
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
 # at `file`.

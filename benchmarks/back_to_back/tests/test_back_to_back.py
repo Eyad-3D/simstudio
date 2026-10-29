@@ -1060,7 +1060,9 @@ def test_an_item_without_its_reference_runs_is_not_judged(tmp_path, monkeypatch)
 def test_all_runs_every_part_the_baseline_ran():
     from benchmarks.back_to_back.__main__ import parser
     parts = parser().parse_args(["all", "OUT"]).parts
-    assert len(runs.specs(set(parts.split(",")))) == 631  # the baseline's jobs, the sine probe's two among them
+    # the baseline's jobs, the sine probe's two among them, and (since the evidence part) fast mode
+    # on the BEVs' eight cycle items for E3
+    assert len(runs.specs(set(parts.split(",")))) == 631 + 8
 
 
 def test_a_record_another_code_made_is_run_again(tmp_path):
@@ -1147,20 +1149,17 @@ def test_the_label_is_read_from_the_message_a_run_writes(monkeypatch):
     from app.solver import verdict
     real = verdict.judge
 
-    def judge(*a, **k):
-        # "Cycle not followed": a comment that calls the rule LightSim's own changes no message
-        return real(*a, **k)
-    monkeypatch.setattr(verdict, "judge", judge)
-    got = traces.labelled()
-    assert got["found"] and not got["labelled"]
+    # the verdict's own message labels its allowance (since the evidence part)
+    assert traces.labelled()["labelled"]
 
-    def labels(*a, **k):
+    def unlabelled(*a, **k):
+        # the same message without its label: "LightSim's own" in the source is no label
         v = real(*a, **k)
         return dataclasses.replace(v, messages=tuple(
-            (lv, t + " The 1 %/2 s allowance is LightSim's own rule." if t.startswith("Cycle not") else t)
-            for lv, t in v.messages))
-    monkeypatch.setattr(verdict, "judge", labels)
-    assert traces.labelled()["labelled"]
+            (lv, t.split(" Allowing 1 %")[0] if t.startswith("Cycle not") else t) for lv, t in v.messages))
+    monkeypatch.setattr(verdict, "judge", unlabelled)
+    got = traces.labelled()
+    assert got["found"] and not got["labelled"]
 
 
 def test_scripts_reads_which_runner_served_each_step(tmp_path, monkeypatch):
@@ -1354,6 +1353,51 @@ def test_a_preparation_note_does_not_count_as_the_verdict():
     assert report._without_notes(rec) == "success"
     rec["result"]["messages"].append({"level": "warning", "text": "Cycle not followed: ..."})
     assert report._without_notes(rec) == "warning"
+    # the path shows a build note with its code before its words (new_engine.py)
+    rec["result"]["messages"] = [{"level": "warning", "text": f"Preparation [STATE-SELECT-NEVER]: {note}"}]
+    assert report._without_notes(rec) == "success"
+    rec["result"]["messages"] = [{"level": "warning", "text": f"Not the note: {note} and more"}]
+    assert report._without_notes(rec) == "warning"
+
+
+def test_e3_judges_the_lanes_stretches_at_a_limit_against_fast_mode(tmp_path, monkeypatch):
+    """E3: the new run's limit lanes' stretches at a limit against fast mode's
+    flags, each end within the case's output step; not measured without fast
+    mode's runner; a lane that meets no limit against no flag agrees."""
+    monkeypatch.setattr(runs, "fast_items", lambda: ["bev-car/case-city"])
+    states = ["braking", "grip", "set_limit", "supply", "machine", "coasting", "demand"]
+
+    def new_run(changes):
+        return {"result": _result(caseId="case-city", limits={
+            "states": states, "tEnd": 600.0,
+            "lanes": [{"label": "E-Motor", "elementIds": ["el-motor"], "changes": changes, "seconds": {}}]})}
+    spec_new = {"kind": "item", "id": "bev-car/case-city", "setting": "new"}
+    spec_fast = {"kind": "probe", "id": "fast/bev-car/case-city", "setting": "fast"}
+    _write(tmp_path, spec_new, **new_run([[0.0, 6], [24.4, 2], [31.6, 6], [300.1, 0], [330.0, 6]]))
+    _write(tmp_path, spec_fast, fast={"error": "not measured: LSIM_FAST_BIN is not set"})
+    assert report.e3_rows(tmp_path)["state"] == "not measured"
+    _write(tmp_path, spec_fast, fast={"flag_spans": [{"t_start": 24.7, "t_end": 31.0}]})
+    got = report.e3_rows(tmp_path)
+    assert got["state"] == "pass" and got["rows"][0]["lanes"] == [[24.4, 31.6]]
+    assert got["met_a_limit"] == 1
+    _write(tmp_path, spec_fast, fast={"flag_spans": [{"t_start": 24.7, "t_end": 30.0}]})  # 1.6 s off: fails
+    assert report.e3_rows(tmp_path)["state"] == "fail"
+    _write(tmp_path, spec_fast, fast={"flag_spans": []})
+    assert report.e3_rows(tmp_path)["state"] == "fail"  # a stretch fast mode does not flag
+    _write(tmp_path, spec_new, **new_run([[0.0, 6], [300.1, 0], [330.0, 6]]))
+    got = report.e3_rows(tmp_path)
+    assert got["state"] == "pass" and got["met_a_limit"] == 0  # nothing limited, nothing flagged
+    assert report.lane_limits({"states": states, "tEnd": 10.0, "lanes": [
+        {"changes": [[0.0, 3], [2.0, 4], [5.0, 6], [8.0, 1]]}]}) == [[0.0, 5.0], [8.0, 10.0]]
+
+
+def test_the_e3_cases_are_the_bevs_cycle_cases():
+    got = runs.fast_items()
+    assert got == ["aero-bev/case-udds", "aero-bev/case-hwfet", "aero-bev/case-wltc", "bev-car/case-city",
+                   "bev-car/case-wltc", "bev-car/case-wltc-hvac", "bev-car/case-wltc-winter",
+                   "bev-car/case-wltc-summer"]
+    jobs = runs.specs({"energy"})
+    assert [j["id"] for j in jobs if j["setting"] == "fast"] == [f"fast/{i}" for i in got]
 
 
 def test_p95_and_a_stop_that_shows_nothing():
@@ -1381,7 +1425,10 @@ def test_both_engines_run_the_acceleration_test_and_the_diff_classes_it(tmp_path
     assert rec[2]["engine"]["energy"]["throughput_J"] > 0
     ds = diff.compare("fs", rec[0]["result"], rec[1]["result"], new)
     diff.classify(ds, {})
-    assert ("a", "new-path-lacks-reports") in {(d["cls"], d["rule"]) for d in ds}
+    # the new path makes today's reports (the evidence part): none lacks, its start notes are notes
+    got = {(d["cls"], d["rule"]) for d in ds}
+    assert ("a", "new-path-lacks-reports") not in got and ("c", "engine-preparation-notes") in got
+    assert new["partEnergy"] and new["energy"] and new["duty"] and new["limits"] and new["references"]
     import jsonschema
     schema = json.loads((runs.REPO / "docs" / "spec" / "schemas" / "result.schema.json").read_text())
     for r in rec:
