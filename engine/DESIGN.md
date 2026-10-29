@@ -3207,8 +3207,9 @@ against exact answers from `benchmarks/`.
   verdict matrix, the result schema, speed traces with exact answers from
   the regulations' text, streaming, stop and replay. What it judges and
   the pass marks were registered before its first run
-  (`benchmarks/back_to_back/acceptance.toml`); where the path stood before
-  the wiring is `benchmarks/back_to_back/baseline/README.md`.
+  (`benchmarks/back_to_back/acceptance.toml`); where the path stands,
+  measured before the wiring and after its evidence part, is
+  `benchmarks/back_to_back/baseline/README.md`.
 
 ## 13. Python API
 

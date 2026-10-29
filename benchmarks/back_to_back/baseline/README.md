@@ -1,22 +1,162 @@
-# Step 2's baseline: the new engine's path before the wiring
+# Step 2's baseline: where the new engine's path stands
 
-Measured on 28 October 2026 by one command, `python -m benchmarks.back_to_back
-all OUT` (with `LSIM_SCRATCH` and `LSIM_JUDGE_CACHE` set), every run and
-probe at commit `95b945d` with a clean tree: the judge with its checker's
-ten defects, its re-check's eight, its third re-check's three, its fourth
-re-check's three and its fifth re-check's four fixed, the app's code
-unchanged since `2b94af6`. Every raw record and probe result
-(`noskip.json` too) carries that stamp (commit, the module's version and
-the SHA-256 of its compiled file, the files' SHA-256), and
+Measured on 29 October 2026 by one command, `python -m benchmarks.back_to_back
+all OUT` (with `LSIM_SCRATCH`, `LSIM_JUDGE_CACHE` and, for the ENERGY line's
+E3, `LSIM_FAST_BIN`, fast mode's runner built from this tree:
+`cargo build --release -p lsim-project --example fast`), every run and probe
+at commit `cbf7f39` with a clean tree: the seventh measurement, the first
+after step 2's evidence part (items 1 to 3 and review findings 34 to 36:
+`bad15c5`, `7b05396`, `6a2b22c`, `cbf7f39`). Every raw record and probe
+result carries that stamp (commit, the module's version and the SHA-256 of
+its compiled file, fast mode's runner's SHA-256, the files' SHA-256), and
 [`report.md`](report.md), the harness's own report of this run, lists it.
 The lines, cases, measures and pass marks are those of
 [`../acceptance.toml`](../acceptance.toml), registered in `5c82fb0` before
-the first measured run (eight dated changes since, at its end; the last
-written before this measurement). It records where the new engine's path
-into the app (`LIGHTSIM_ENGINE=new`) stands on every line before step 2's
-next parts change it. The raw results (631 runs, about 4 GB) are outside
-the repository, in the lane's cache (`judge-cache/step2/baseline-6`), each
-with its SHA-256 in `SHA256SUMS`.
+the first measured run (eleven dated changes since, at its end; the last
+three written before this measurement). The raw results (639 runs) are
+outside the repository, in the lane's cache
+(`judge-cache/step2/baseline-7`), each with its SHA-256 in `SHA256SUMS`.
+
+Six measurements came before, all of the path before the wiring (the app's
+code unchanged since `2b94af6`); the sixth (`95b945d`,
+`judge-cache/step2/baseline-6`) is this one's reference below, and the
+lists after it say how each earlier one moved.
+
+## The seventh measurement: the path wired to the run's evidence
+
+The new engine's path now returns today's whole result, made by today's own
+code from the run's evidence (`backend/app/solver/evidence.py`,
+`new_engine.py`; DESIGN.md 12.3): the run verdict, the part energies and
+the energy report, the duty, what held each driveline back, the references
+and the hand calculations. Against the sixth measurement:
+
+* **B2B**: of 1 302 differences on the 12 items both engines ran, **none is
+  class a** (341 before: the reports, the verdict, the notes and the
+  messages the path left out), 95 b, 465 c and 742 unclassified (270
+  before). The two the path still left out are written now (an
+  acceleration test's estimates note and a battery held at its power cap);
+  the start-guess notes are notes (`engine-preparation-notes`, c, 24). The
+  unclassified grew by the fields now compared: of the 742, 270 are the
+  channels' differences of before (68 on the BEVs' gears' statistics, 202
+  on the hybrid's single runs, as listed below), and 472 are in the
+  reports:
+  * 237 part energies and 200 energy-table and Sankey rows: 193 on the
+    gears (the BEVs' final drive and differential, the hybrid's gearbox,
+    clutch, final drive and differential: today's rule puts the gear's
+    efficiency on the torque of the sources above the mesh, the inertias
+    not taken out, so the gears' power, losses and flows each way differ
+    by 1.0 to 61 bands, as their channels do, which `gears-today-rule`
+    explains on channels only), 197 on the wheels and brakes (their flows
+    each way from the run's 0.1 s trace of their ports, where today books
+    every solver step: 1.0 to 411 bands, the free wheels' small flows the
+    largest), 33 the energy report's remainder and balance error (the new
+    engine's books close to about 1e-10 of their throughput, today's to 0
+    by construction), 3 the gearbox's *gear shifts* term today's books
+    name and the new path does not (the shift's loss is in the gearbox's
+    losses), and the rest on the batteries, motors and the Vehicle (its
+    peak, mean and RMS power from the trace);
+  * 25 duty rows: the acceleration test's minima (today's sampling starts
+    after its first step, the new path's extremes include the start: its
+    battery's power 4.28 kW against 5.30 kW), the hybrid's regeneration
+    peaks (1.5 to 5.4 bands), the battery's *Losses* (all its internal
+    losses on the new path, R0's alone on today's) and one motor's losses'
+    mean (1.55 bands);
+  * 9 limit lanes: the hybrid's tyres at their grip for 0.9 s against
+    today's 0.012 s on the UDDS, its braking 87.7 s against 87.0 s on the
+    HWFET, a lane's first 8 ms, and the order of states where those move;
+  * one reference's percentage (the hybrid's fuel consumption against its
+    reference: -0.366 % against -0.363 %).
+  Every item's ledger balances.
+* **FAULTS**: of the 129 planted faults today's engine fails or warns on,
+  **none is hidden** (73 before, all by the start-guess note) and one is a
+  violation: bev-car with its Driver's P gain at zero, which today's
+  engine runs 335 of its 601 points off the band (*cycle not followed*,
+  17 km/h off) and the new engine within 1.6 km/h of the target (success):
+  its Driver is LimPID's PI with back-calculation anti-windup (DESIGN.md
+  12.2), whose integral alone follows the cycle; today's clamps its
+  integral. Not a fault the verdict misses: the two Drivers are different
+  laws, and the verdict reads each run's own trace. (The one violation of
+  before, the Formula Student car with its E-Motor deleted, now warns as
+  today's does.)
+  The new path refuses 59 faults itself, as before (NEW-FAILED 43,
+  NEW-BUILD 16). mutmut on `verdict.py` (which grew by the exact band):
+  1 097 mutants, 734 killed, 348 survived, 14 with no test, 1 timed out;
+  none of the survivors has a written reason in `../survivors.toml` yet, so
+  the line fails on them too.
+* **META passes**: the same verdict at the output steps 0.1, 1 and 5 s and
+  at rtol 1e-8 for all 7 runs, and not vacuous (3 of them fail and 1
+  warns: the verdict judges them).
+* **ANALYTIC passes**: the five traces' time outside both bands within
+  2.7e-14 s of the exact answers (0.1 s before), and the "cycle not
+  followed" message labels its 1 %/2 s allowance as LightSim's own rule.
+* **ENERGY passes**: E1, the part energies' losses and stored energies
+  against the engine's books, within 5e-16 of the throughput on all 12
+  items; E2, the held sine's battery power RMS 5.4313902456001095 kW
+  against the exact 5.431390245600108 kW (3e-16); E3, fast mode's flags
+  against the lanes' stretches at a limit, on all 8 BEV cycle items, the
+  same: neither side meets a limit on any of them (no flag, no limited
+  stretch), so E3 shows agreement only on nothing being limited. A probe
+  outside the registered cases (bev-car's city cycle with its battery's
+  power held to 15 kW, `lane-step2/evidence/cap15-e3.log`) does meet one:
+  fast mode flags 24.70-30.00 s and 126.56-150.00 s, the new path's lane
+  is at the set limit 24.39-31.60 s and 125.92-170.20 s, its stretches'
+  starts within 0.7 s, its ends up to 20 s later, as a car that fell
+  behind the cycle catches up at its limit (fast mode follows the cycle by
+  construction): E3's pass mark would fail it, for that reason.
+* **STATUS**: 5 of 11 (the energy report, part energies, duty, limits,
+  references; the verdict counts once FAULTS has no violation).
+
+Every other line is as at the sixth measurement: STRICT's 74 refusals with
+the same four items refused that should run, SCHEMA's 0 errors in 631,
+STREAM (the live runs refused; S2 on a shared machine: today's p95 0.17 s
+live and 0.59 s for the study; S3 the same SHA-256, no engine fields),
+FMU, TEXT, QUICK, SCRIPTS 1 of 3 and NOSKIP (155 tests, none skipped
+but the two Windows-only ones; with the module hidden 6 fail, none
+skips). After the measurement `51e3585` made a battery check with no
+averaging window a plain result (its passed flag had been NumPy's bool,
+which no result could be written with); no run here has such a battery
+(the examples' power limit, fs-electric's, averages over 0.5 s), so these
+records stand for that code too.
+
+The machine: the owner's PC, WSL 2 (Ubuntu 24.04) on an AMD Ryzen 9 7900X,
+Python 3.11.17, `lightsim_engine` 0.1.0 built from this tree (release),
+jsonschema 4.26.0, mutmut 3.8.1. The stop latencies are an indication
+only, from a machine another lane shares (their pass marks are judged on
+Windows CI, `backend/tests/test_stop_latency.py`).
+
+## Where each line stands
+
+| line | state | what was measured |
+|---|---|---|
+| B2B | fails | 20 of 24 items as expected: the two live cases (NEW-LIVE), the performance probe (NEW-CASE-KIND) and the FMU probe (NEW-FMU) are refused where they should run. Of 1 302 differences on the 12 items both engines ran: 0 class a, 95 b, 465 c, 742 unclassified. Every item's ledger balances. |
+| STRICT | fails | only for the four items above. 74 refusals, every one with a listed code: NEW-FAILED 46, NEW-BUILD 16, NEW-BALANCE 3, NEW-LAP 2, NEW-LIVE 2, NEW-CASE-KIND, NEW-CELLS, NEW-FMU, NEW-FS-EVENT and NEW-MISSING one each; no NEW-ERROR, no process that died. |
+| SCHEMA | passes | 0 errors in 631 results. |
+| FAULTS | fails | Of the 268 planted faults today's engine fails or warns on 129; none is hidden by a note; one comes out "success" on the new path (bev-car's Driver with no P gain, which the new engine's Driver follows the cycle without: the two Drivers' laws differ). mutmut: 1 097 mutants of verdict.py, 348 survive, none with a written reason yet. |
+| META | passes | the same verdict (status, notValid rows, passed flags) at every output step (0.1, 1, 5 times the case's) and at rtol 1e-8 for all 7 runs; 3 fail and 1 warns. |
+| ANALYTIC | passes | the verdict's time outside both bands within 2.7e-14 s of the exact answers on all five traces; the "cycle not followed" message labels its 1 %/2 s allowance LightSim's own. Both sources' copies are the pinned ones. |
+| ENERGY | passes | E1: the part energies' losses and stored energies against the engine's books within 5e-16 of the throughput, all 12 items. E2: the held sine's battery power RMS within 3e-16 of the closed form. E3: fast mode's flags and the lanes' stretches at a limit the same on the 8 BEV cycle items, none of which meets a limit on either side. |
+| STREAM | fails | S1: live runs refused (today's engine streams all 601 points of both live cases, equal to its result). S2: the live run is refused, and the study's stops reach no running point on the new path (its points are done in about 1.3 s): not measured; today's p95 0.17 s live, 0.59 s for the study (a shared machine). S3: a replay gives the same SHA-256 on both engines, but RunSnapshot records no engine, version or solver options. |
+| FMU | fails | refused (NEW-FMU): nothing to compare with fmusim or FMPy. |
+| TEXT | not available | the app reads no text components. |
+| QUICK | not available | a case has no quick-mode option. |
+| SCRIPTS | fails | one of three: on the new path today's worker serves every step of the hybrid's Script part in all three single runs; no decision record, no page for the owner. |
+| NOSKIP | passes here | with the module: 155 tests, none skipped but the two Windows-only stop-latency tests; with it hidden: 6 fail, none skips; CI's Windows engine job runs them with LIGHTSIM_REQUIRE_NEW_ENGINE=1 (to be confirmed on Windows CI after the merge). |
+| STATUS | fails | 5 of 11: the energy report, part energies, duty, limits and references; not yet the verdict (FAULTS has a violation), live streaming, study stop and progress, FMU parts, text components, quick mode. |
+
+## Before the wiring: the six measurements
+
+The rest of this page is the account of the first six measurements, of
+the path before its evidence part; the sixth's tables are its own.
+
+The sixth measurement was made on 28 October by the same command (with
+`LSIM_SCRATCH` and `LSIM_JUDGE_CACHE` set), every run and probe at commit
+`95b945d` with a clean tree: the judge with its checker's ten defects, its
+re-check's eight, its third re-check's three, its fourth re-check's three
+and its fifth re-check's four fixed, the app's code unchanged since
+`2b94af6`, the acceptance file with eight dated changes. Its raw results
+(631 runs, about 4 GB) are in the lane's cache
+(`judge-cache/step2/baseline-6`); its `report.md` and `SHA256SUMS` are this
+folder's at `e0b81e5`.
 
 Five measurements came before. The first (runs at `2b94af6`, report at
 `ef13ba0`; `judge-cache/step2/baseline`, records not stamped) and the second
@@ -144,13 +284,8 @@ killed, 2 timed out, 325 surviving), META, ANALYTIC, ENERGY, S1, S3, FMU,
 TEXT, QUICK and STATUS were as in the second, to the count, and are so in
 the fourth, the fifth and the sixth.
 
-The machine: the owner's PC, WSL 2 (Ubuntu 24.04) on an AMD Ryzen 9 7900X,
-Python 3.11.17, `lightsim_engine` 0.1.0 built from this tree (release),
-jsonschema 4.26.0, mutmut 3.8.1. The stop latencies below are an indication
-only, from a machine another lane shares (their pass marks are judged on
-Windows CI, `backend/tests/test_stop_latency.py`).
 
-## Where each line stands
+## Where each line stood at the sixth measurement
 
 | line | state | what was measured |
 |---|---|---|
@@ -169,7 +304,7 @@ Windows CI, `backend/tests/test_stop_latency.py`).
 | NOSKIP | passes here | with the module: 153 tests, none skipped but the two Windows-only stop-latency tests; with it hidden: 6 fail, none skips (before `edf809e` the tests of the time skipped 3 and passed the rest); CI's Windows engine job builds the module and runs them with LIGHTSIM_REQUIRE_NEW_ENGINE=1 (to be confirmed on Windows CI after the merge). |
 | STATUS | fails | 0 of 11 of the things step 2's goal names are on the new path. |
 
-## B2B, in detail
+## B2B at the sixth measurement, in detail
 
 The 12 items both engines ran (the BEVs' and the aerodynamic BEV's cycles,
 the acceleration test, the hybrid's three cycles as single runs) and their
@@ -225,7 +360,7 @@ of a channel's worst points must go for the rest to be inside its band):
   minimum power and the E-Motor's losses on the UDDS (1.01 to 2.57 bands,
   1 to 87 points).
 
-## FAULTS, in detail
+## FAULTS at the sixth measurement, in detail
 
 | | deletions | parameter faults | all |
 |---|--:|--:|--:|
@@ -280,6 +415,33 @@ left only its last report (`integ/recovered-judge-report.txt`). Line by line:
 | STATUS | 0 of 11 | 0 of 11 | the same |
 
 ## What could not be done here
+
+At the seventh measurement:
+
+* **E3** is measured on the registered cases only where nothing is
+  limited: none of the eight BEV cycle items meets a limit on either side.
+  The probe beside it (a 15 kW battery cap) shows the lanes' stretches
+  starting with fast mode's but ending later, the forward car catching up
+  with a cycle it fell behind: by its pass mark E3 would fail there, for a
+  reason of the two modes, not of the report.
+* **The duty's RMS** comes from the recorder's integral of the line
+  through every point the integrator visited, exact for a value held
+  between events, not from quadratures under the integrator's error
+  control (the energy books are those); **a wheel's and a gear's flows each
+  way** and a clutch's and the Vehicle's peak, mean and RMS power come
+  from the run's 0.1 s trace of their ports (the engine's books keep a
+  part's net power only).
+* **A table guard** of the engine counts a read wherever its expression is
+  evaluated, also in a branch the run does not take: the E-Motor's drag
+  table, read while the motor is powered, says it ran past its data where
+  today's engine counts only the operating point it used (a probe with
+  the drag table cut at 6 000 1/min: 548 s outside on the WLTC, today
+  none). No example is affected; fixing it is the engine's (its guards on
+  the branch taken).
+* **mutmut's survivors** (348) still need their written reasons, and
+  **Windows CI** still has to run NOSKIP and the stop latency.
+
+Before:
 
 * **The WLTP's text** comes from legislation.gov.uk's copy of Regulation
   (EU) 2017/1151 (Annex XXI, Sub-Annex 6, 2.6.8.3.1; its URL and SHA-256
