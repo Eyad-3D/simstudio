@@ -248,26 +248,64 @@ def test_non_finite_values_are_judged_before_they_are_gaps(new, monkeypatch):
                if s.label != "Simulated duration")
 
 
+def _verdict(result):
+    return (result.status, sorted((s.key, s.notValid) for s in result.summary if s.notValid),
+            sorted((s.key, s.passed) for s in result.summary if s.passed is not None))
+
+
 def test_a_table_read_past_its_data_is_judged(new, monkeypatch):
     """The engine's records of a table read past its data (its first time,
-    for how long, how far) become today's summary rows, note and verdict:
-    the BEV's E-Motor drag table cut at 6000 1/min, which the WLTC's top
-    speed runs past for much longer than the run's allowance."""
+    for how long, how far) become today's summary rows, note and verdict,
+    and today's engine is the judge: the BEV's winter WLTC at -30 °C, below
+    its climate demand table's -20 °C, both engines read for the whole run.
+    The axis is shown in °C (before: 273.15 off, -303.15 °C, as if the
+    engine read it in kelvin), and the record's words are its note, not
+    also a warning of the engine's run."""
+    proj = load_example("bev-car")
+    case = next(c for c in proj.cases if c.id == "case-wltc-winter")
+    case.parameterOverrides["el-ambient"]["temperature_C"] = -30.0
+    today = _today(proj, "case-wltc-winter", monkeypatch)
+    result = simulate(proj, "case-wltc-winter")
+    assert _verdict(result) == _verdict(today)
+    assert result.status == "warning"
+    stem = "el-climate.outside_demand_table_outside_temperature"
+    rows, old = {s.key: s for s in result.summary}, {s.key: s for s in today.summary}
+    assert (rows[f"{stem}_furthest"].value, rows[f"{stem}_furthest"].unit) == (-30.0, "°C")
+    assert rows[f"{stem}_furthest"].value == old[f"{stem}_furthest"].value
+    assert rows[f"{stem}_time_pct"].value == pytest.approx(old[f"{stem}_time_pct"].value)
+    note = [t for t in _texts(result, "info") if "Heating/Cooling Demand: Outside Temperature" in t]
+    assert len(note) == 1 and "-30 °C is past the edge of its data (-20 °C)" in note[0], note
+    assert not [t for t in _texts(result) if "demand_table" in t], "the record told twice"
+
+
+@pytest.mark.xfail(strict=True, reason="the engine's table guards count a read in a branch the run "
+                                       "does not take (the E-Motor's drag table while it is powered)")
+def test_a_table_read_only_in_a_branch_not_taken_is_not_judged(new, monkeypatch):
+    """The BEV's E-Motor drag table cut at 6000 1/min on the WLTC: today's
+    engine reads it only while the motor is unpowered, below 6000 1/min, and
+    passes the run; the engine's guard counts the read while it is powered
+    too (548 s past it) and the verdict warns. Today's verdict is the
+    judge."""
     proj = load_example("bev-car")
     motor = next(e for e in proj.systems[0].elements if e.id == "el-motor")
     motor.parameterOverrides["drag_torque"] = {"0": 0.0, "3000": 0.7, "6000": 0.8}
+    assert _verdict(simulate(proj, "case-wltc")) == _verdict(_today(proj, "case-wltc", monkeypatch))
+
+
+def test_a_cycle_run_past_its_end_is_not_judged_on_its_schedule(new, monkeypatch):
+    """A WLTC run 100 s past its 1800 s: its Driving Task's profile is read
+    past its data, a schedule today's engine holds at its end and does not
+    judge as a part's data; the new path's verdict is today's (before: a
+    warning and 12 rows not valid, with an empty unit), and a note with its
+    code says the record is not judged."""
+    proj = load_example("bev-car")
+    next(c for c in proj.cases if c.id == "case-wltc").duration = 1900.0
     result = simulate(proj, "case-wltc")
-    rows = {s.key: s for s in result.summary}
-    share = rows["el-motor.outside_drag_torque_speed_time_pct"]
-    far = rows["el-motor.outside_drag_torque_speed_furthest"]
-    speed = next(c for c in result.channels if c.elementId == "el-motor" and c.portId == "sig_speed")
-    top = max(v for v in speed.max if v is not None)
-    assert far.unit == "1/min" and 6000.0 < far.value <= top * (1 + 1e-6)
-    assert far.value == pytest.approx(top, rel=1e-3)
-    assert 1.0 < share.value < 100.0 and share.unit == "%"
-    assert any("past its 'Drag Torque (unpowered)' table" in t for t in _texts(result, "warning"))
-    assert rows["consumption_kwh_per_100km"].notValid.startswith("E-Motor 'E-Motor' ran")
-    assert result.status == "warning"
+    assert _verdict(result) == _verdict(_today(proj, "case-wltc", monkeypatch))
+    assert result.status == "success", _texts(result, "warning")
+    notes = [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
+    assert len(notes) == 1 and notes[0].startswith("'Vehicle Task' profile:"), notes
+    assert not any(k.startswith("el-task.outside") for k in (s.key for s in result.summary))
 
 
 @pytest.mark.parametrize("name, case_id, profile", [
@@ -376,3 +414,198 @@ def test_lab_rows_share_their_base_rows_validity_by_key(monkeypatch):
         _today(proj, case_id, monkeypatch)
         assert got["base"], name
         assert lab_base(got["rows"], electric=name == "bev-car") == got["base"], name
+
+
+def _battery(proj, **over):
+    next(e for e in proj.systems[0].elements if e.id == "el-battery").parameterOverrides.update(over)
+    return proj
+
+
+@pytest.mark.parametrize("limit_kw, window_s", [(23.0, 0.5), (23.6, 0.0)])
+def test_a_checked_battery_limit_is_judged_on_every_step(new, monkeypatch, limit_kw, window_s):
+    """A battery's Output Power Limit, only checked: its averaged peak is the
+    engine's highest moving average of the battery's power over every point
+    it visited (today's: over every step), so the verdict is today's at an
+    output step of 0.1, 1 and 5 s (the META line's relation); with no
+    window it is the peak itself, and the row shows the number its passed
+    flag is judged on. Before, from the output grid's means: a success at
+    5 s with a 0.5 s window, and at the case's own 1 s with none, its row
+    23.602 kW against 23.6 kW marked passed."""
+    proj = _battery(load_example("bev-car"), output_power_limit_kW=limit_kw,
+                    power_limit_window_s=window_s, power_limit_enforced=False)
+    key = "el-battery.peak_terminal_power_averaged_kw"
+    today = next(s for s in _today(proj, "case-city", monkeypatch).summary if s.key == key)
+    assert today.passed is False
+    for step in (0.1, 1.0, 5.0):
+        p = copy.deepcopy(proj)
+        next(c for c in p.cases if c.id == "case-city").timeStep = step
+        result = simulate(p, "case-city")
+        row = next(s for s in result.summary if s.key == key)
+        assert result.status == "warning" and row.passed is False, (step, row.value)
+        assert row.value > limit_kw and row.value == pytest.approx(today.value, rel=2e-3), step
+        assert any(t.startswith("Battery 'HV Battery Pack' broke its Output Power Limit")
+                   for t in _texts(result, "warning")), step
+
+
+def test_an_enforced_cap_held_to_the_solver_s_tolerance_is_not_broken(new):
+    """An enforced Output Power Limit holds the battery at it: the engine
+    holds it to its tolerance (80.0000020 kW at 80 kW, rtol 1e-6), which is
+    at the cap, not over it (before: "broke its Output Power Limit", where
+    today's engine passes): the Formula Student car with no internal
+    resistance."""
+    proj = _battery(load_example("fs-electric"), internal_resistance_ohm=0.0)
+    result = simulate(proj, "case-accel-75m")
+    row = next(s for s in result.summary if s.key == "el-battery.peak_terminal_power_averaged_kw")
+    assert row.passed is True and row.value == pytest.approx(80.0, rel=1e-12)
+    assert result.status == "success", _texts(result, "warning")
+
+
+def _dragged_past_its_maximum_speed() -> Project:
+    """The BEV of 20 t started at 140 km/h, its Driver asked by a Constant
+    for 0 km/h, its E-Motor's Maximum Speed 8000 1/min: the car drags the
+    motor past it for its first 17 s."""
+    proj = load_example("bev-car")
+    proj.systems[0].elements.append(el("el-src", "signal.constant", "Target", value=0.0))
+    for c in proj.dataBusConnections:
+        if c.element1Id == "el-task" and c.port1Id == "sig_demand":
+            c.element1Id, c.port1Id = "el-src", "sig_out"
+    for e in proj.systems[0].elements:
+        if e.id == "el-vehicle":
+            e.parameterOverrides.update(initial_speed_kmh=140.0, mass_kg=20000.0)
+        elif e.id == "el-motor":
+            e.parameterOverrides["max_speed_rpm"] = 8000.0
+    next(c for c in proj.cases if c.id == "case-city").duration = 200.0
+    return proj
+
+
+def test_a_motor_driven_past_its_maximum_speed_is_judged(new, monkeypatch):
+    """A motor the car drives above its Maximum Speed: its time above it and
+    its highest speed, the summary's rows and the verdict's warning, as
+    today's engine gives them (before: never judged, the rows missing and
+    the run a success)."""
+    proj = _dragged_past_its_maximum_speed()
+    today = _today(proj, "case-city", monkeypatch)
+    result = simulate(proj, "case-city")
+    rows, old = {s.key: s for s in result.summary}, {s.key: s for s in today.summary}
+    assert rows["el-motor.highest_speed_rpm"].value == pytest.approx(
+        old["el-motor.highest_speed_rpm"].value, rel=1e-4)
+    assert rows["el-motor.time_above_max_speed_pct"].value == pytest.approx(
+        old["el-motor.time_above_max_speed_pct"].value, abs=0.1)
+    said = [t for t in _texts(result, "warning") if "past its maximum speed" in t]
+    assert len(said) == 1 and said[0].startswith(
+        "E-Motor 'E-Motor' ran 5,628 1/min past its maximum speed for 17 s of 200 s"), said
+    assert result.status == today.status == "warning"
+    assert any(t.startswith("E-Motor 'E-Motor' was driven above its maximum speed (8,000 1/min)")
+               for t in _texts(result, "info"))
+
+
+def _fuel_cell_on_the_motor_bus(max_current_a: float) -> Project:
+    """The tests' fuel cell car with its fuel cell straight on the motor's
+    bus (no DC-DC, no battery), short of the car's peak demand."""
+    from helpers import conn, fuel_cell_car
+    proj = fuel_cell_car(profile="0:0; 8:70; 120:70")
+    system = proj.systems[0]
+    gone = {"dc", "fcbus", "batt"}
+    system.elements = [e for e in system.elements if e.id not in gone]
+    system.elements.append(el("gnd", "boundary.ground", "Ground"))
+    system.connections = [c for c in system.connections
+                          if not {c.sourceElementId, c.targetElementId} & gone]
+    system.connections += [conn(20, "fc", "pos", "hvbus", "t1"), conn(21, "fc", "neg", "gnd", "t1"),
+                           conn(22, "mot", "neg", "gnd", "t2")]
+    next(e for e in system.elements if e.id == "fc").parameterOverrides["max_current_A"] = max_current_a
+    return proj
+
+
+def test_a_supply_at_its_limit_warns_as_today(new, monkeypatch):
+    """Today's run-time warnings that a supply limit held the car back, each
+    once and in today's words, judged by today's engine: a fuel cell short
+    of the motor's demand, and a battery run empty that cuts its consumer
+    back (before: the new path said nothing of either, a success where
+    today's warns)."""
+    fc = _fuel_cell_on_the_motor_bus(300.0)
+    msg = "Fuel cell 'Fuel Cell' demand exceeds its maximum power — motor torque limited."
+    today, result = _today(fc, "case", monkeypatch), simulate(fc, "case")
+    assert msg in _texts(today, "warning") and _texts(result, "warning").count(msg) == 1
+    assert result.status == today.status == "warning"
+    assert msg not in _texts(simulate(_fuel_cell_on_the_motor_bus(400.0), "case"))  # (it keeps up)
+    empty = _battery(load_example("bev-car"), capacity_kWh=0.62)
+    cut = "Power consumer 'Power Consumer' cut back at t = "
+
+    def when(r):
+        said = [t for t in _texts(r, "warning") if t.startswith(cut)]
+        assert len(said) == 1, _texts(r, "warning")
+        return float(said[0][len(cut):].split(" ")[0])
+    assert when(simulate(empty, "case-city")) == pytest.approx(
+        when(_today(empty, "case-city", monkeypatch)), abs=1.0)
+
+
+def test_a_script_output_with_no_port_warns_as_today(new, monkeypatch):
+    """A Script that returns a key none of its output ports has: today's
+    engine drops the value and says so, once; so does the new path's runner
+    of today's worker (before: a success, nothing said)."""
+    monkeypatch.setenv("LIGHTSIM_SCRIPT_TRUST", "off")
+    proj = load_example("bev-car")
+    code = "def step(t, dt, inputs, state, params):\n    return {'y': 1.0, 'z': 2.0}\n"
+    proj.systems[0].elements.append(ElementInstance(
+        id="s", componentDefId="signal.script", label="S", position={"x": 0, "y": 0},
+        parameterOverrides={"code": code, "sample_time_s": 0.1},
+        dynamicPorts=[sig_port("y", "output")]))
+    proj.systems[0].elements.append(el("mon", "signal.monitor", "Monitor"))
+    proj.dataBusConnections.append(dbc(50, "s", "y", "mon", "sig_in"))
+    next(c for c in proj.cases if c.id == "case-city").duration = 60.0
+    msg = "Script 'S' returned 'z' which is not one of its output ports — value dropped."
+    today, result = _today(proj, "case-city", monkeypatch), simulate(proj, "case-city")
+    assert _texts(today, "warning").count(msg) == 1 == _texts(result, "warning").count(msg)
+    assert result.status == today.status == "warning"
+
+
+def test_a_battery_at_its_minimum_soc_is_flagged(new, monkeypatch):
+    """A battery run empty: today's flag, which its checks' "usable energy
+    left" row fails on (and the consumption rows' first reason), as today's
+    engine sets it: without the flag the row passed."""
+    proj = _battery(load_example("bev-car"), capacity_kWh=0.62, output_power_limit_kW=200.0)
+    key = "el-battery.usable_energy_left_kwh"
+    rows = {s.key: s for s in simulate(proj, "case-city").summary}
+    old = {s.key: s for s in _today(proj, "case-city", monkeypatch).summary}
+    assert rows[key].passed is False and old[key].passed is False
+
+
+def test_an_empty_fuel_tank_is_flagged(new, monkeypatch):
+    """The hybrid's fuel tank run empty on a single UDDS run: its fuel and
+    CO₂ rows are not valid, "the fuel tank ran empty", as today's engine
+    has them (the flag, not only the message)."""
+    monkeypatch.setenv("LIGHTSIM_SCRIPT_TRUST", "off")
+    proj = load_example("hybrid-car")
+    case = next(c for c in proj.cases if c.id == "case-udds")
+    case.chargeBalance, case.duration = False, 400.0
+    next(e for e in proj.systems[0].elements if e.id == "el-tank").parameterOverrides["capacity_kg"] = 0.05
+    result = simulate(proj, "case-udds")
+    assert result.messages[0].text.startswith("Run on the new engine")
+    assert _verdict(result) == _verdict(_today(proj, "case-udds", monkeypatch))
+    rows = {s.key: s for s in result.summary}
+    assert rows["fuel_consumption_l_per_100km"].notValid == "the fuel tank ran empty"
+
+
+def test_a_preparation_note_that_is_not_a_warning_is_a_note(new, monkeypatch):
+    """A build diagnostic whose severity is not "warning" (and which is no
+    start note) is a note: it neither makes the run a warning nor hides a
+    fault (the build's warnings stay warnings)."""
+    real = lightsim_engine.build
+
+    class Noted:
+        def __init__(self, m):
+            self.m = m
+
+        def __getattr__(self, name):
+            return getattr(self.m, name)
+
+        @property
+        def report(self):
+            rep = dict(self.m.report)
+            rep["warnings"] = [*rep["warnings"], {"code": "SOME-NOTE", "severity": "info",
+                                                  "message": "something worth knowing"}]
+            return rep
+    monkeypatch.setattr(lightsim_engine, "build", lambda *a, **k: Noted(real(*a, **k)))
+    result = simulate(load_example("bev-car"), "case-city")
+    assert "Preparation note [SOME-NOTE]: something worth knowing" in _texts(result, "info")
+    assert result.status == "success", _texts(result, "warning")

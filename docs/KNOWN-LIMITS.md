@@ -614,6 +614,21 @@ minimum or an average, for example from the CSV export, or put the
   takes the duty from its integrals over every step it takes and the
   limit band from a 0.1 s trace of its run, each change at the run's own
   event inside it where there is one. *Roadmap:* ENG-16.
+- **The new engine judges a few checks its own way.** On the new engine
+  (not the default: `LIGHTSIM_ENGINE=new`) a battery's averaged power
+  peak is over every step the engine took, as today's; a motor's or
+  engine's time above its maximum speed is that of a 0.1 s trace of its
+  speed (0.01 s in an acceleration test); which supply limit held the car
+  back, or cut a consumer back, is read from the same trace, so a limit
+  met for less than its step can go unsaid, and a battery management
+  limit's note is not given. A table it reads past its data in a branch
+  of its equations the run does not take (the E-Motor's drag table while
+  the motor is powered) still counts as read past, so the run can warn
+  where today's does not; a Driving Task's profile run past its end is
+  not judged, and a note with the code `NEW-TABLE-NOT-JUDGED` says so.
+  Its Driver can ask a motor for more recuperation than the battery
+  takes, where today's never asks it: the run then says the charging was
+  held back. *Roadmap:* ENG-16.
 - **Fuel energy is a heating value you set.** The fuel's energy is the
   fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by
   default; background knowledge, not checked against a source; a model

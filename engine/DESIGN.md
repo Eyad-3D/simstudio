@@ -2536,7 +2536,13 @@ residuals and what they solve for.
   from the dense output every spacing and at the run's end, interleaved
   with the grid points and the blocks' ticks as they are, and changes
   nothing the grid records (a test checks the values, means and integrals
-  to the bit with and without it): `SimResult::trace`. The run tells each
+  to the bit with and without it): `SimResult::trace`. A window
+  (`SolverOptions::windows`: a channel and a span of time) keeps the
+  channel's highest moving average over that span, of the same line
+  through every point visited, read at each, with nothing before the
+  start (an energy meter's log; 0 s: the highest value), and when the span
+  ended: `SimResult::windows` (a battery check's averaged peak, which the
+  output step does not change). The run tells each
   table axis it read past its data with numbers beside its words
   (`SolverReport::table_outside`: the table, the axis, when it first left,
   for how long, the argument furthest past the data at the steps' ends
@@ -2548,7 +2554,9 @@ residuals and what they solve for.
   is evaluated, also in a branch of an `if` its result does not take (the
   E-Motor's drag table is read while the motor is powered), where today's
   engine counts only the operating point it used: the app's verdict can
-  then name a table today's would not.
+  then name a table today's would not (a test holds today's verdict on
+  such a case, marked as expected to fail until the guard counts only the
+  branch taken).
 
 **As built (work package 4).** The energy integrals are under the
 integrator's error control by default (`energy_error_control`): without
@@ -3169,7 +3177,13 @@ against exact answers from `benchmarks/`.
   from its `RunContext`) today's own code makes the rest: the run verdict
   (`verdict.judge` on the Driver's trace from the dense output, every
   0.1 s whatever the output step, 0.01 s in an acceleration test; the
-  battery checks; the rows a failed check makes `notValid`; the status;
+  battery checks, the averaged peak from the run's window
+  (`SimResult::windows`) and the row showing the number its flag is
+  judged on, an enforced cap the engine holds to its tolerance (within
+  100 times the run's rtol) at the cap, not over it; each E-Motor's and
+  Engine's time above its maximum speed, by more than 1e-6 of it, on the
+  line through the trace, and its highest speed from the integrals; the
+  rows a failed check makes `notValid`; the status;
   a value that is not a number judged before the result shows it as a
   gap), the part energies and the energy report (each part's losses and
   stored energy's change from the engine's books, `ImportReport::instances`
@@ -3182,7 +3196,16 @@ against exact answers from `benchmarks/`.
   driveline back (today's rule, `reports.lane_state`, on the trace, a
   change at the last event of the run inside the 0.1 s before it), the
   references and hand calculations, a table read past its data
-  (`SolverReport::table_outside`, today's summary rows, note and verdict).
+  (`SolverReport::table_outside`, today's summary rows, note and verdict,
+  for a table today's engine reads as a part's data; a record of another,
+  a Driving Task's schedule, is a note with the code
+  `NEW-TABLE-NOT-JUDGED`, not judged). Today's warnings that a supply
+  held the car back (a battery at its maximum-power point, full or at its
+  Max Charge Power; a fuel cell at its maximum power or taking nothing
+  back; a bus with no source; a consumer cut back) come from the trace
+  of each motor's time held and recuperation lost, each consumer's share
+  served and each battery's window, each once in today's words; a Script
+  output with no port is today's warning too.
   The engine's own warnings on its run reach the user; its preparation's
   notes about the start values (`START-ALIAS-CONFLICT`, `START-NOT-SOLVED`,
   `INIT-START-ASSUMED`, `INIT-UNDECIDED`, `INIT-START-IGNORED`: review
@@ -3230,14 +3253,14 @@ model.param_names()       # the engine's parameter names
 model.params()            # current values, SI
 model.set_params({"el_vehicle.cd": 0.30})                 # runtime, no rebuild
 run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
-                     native_scripts=True, trace=None, trace_step=0.1)
+                     native_scripts=True, trace=None, trace_step=0.1, windows=None)
 run.times                 # NumPy float64
 run.channels["el-battery:sig_soc"]   # today's names and display units, NumPy arrays
 run.engine_channels       # the engine's own names, SI
 run.min, run.max, run.mean           # like channels, per output interval
 run.events, run.report, run.energy   # energy: the books, or None
 run.figures               # today's summary figures {key, label, value, unit}
-run.integrals, run.trace, run.table_outside      # the evidence for the app's verdict and reports
+run.integrals, run.trace, run.windows, run.table_outside   # the evidence for the app's verdict and reports
 runs = model.sweep([{...}, {...}], threads=4)   # Runs, or the exception for a failed set
 le.diagnose(project_json, case_id)    # structural and unit checks only
 le.ModelError             # .diagnostics: [{severity, code, message, parts, hint, detail}]
@@ -3286,9 +3309,14 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   else (`run.trace`: NumPy arrays, `times` among them); `run.integrals`
   gives each channel (display units) and each engine variable (SI) over
   the run: `integral` (∫x dt), `square` (∫x² dt), `magnitude` (∫|x| dt,
-  NaN for a unit with an offset), `max` and `min`; `run.table_outside`
+  NaN for a unit with an offset), `max` and `min`; `simulate(...,
+  windows={name: seconds})` keeps each name's highest moving average over
+  its span of time (`run.windows`: `window`, `peak` in the name's unit, and
+  `t`, when the span ended; 0 s: the highest value); `run.table_outside`
   each table axis read past its data (table, part, axis, first, total,
-  and in SI furthest, edge, t_furthest, lo, hi, with its warning's words);
+  t_furthest, and in the unit the engine reads the axis in, SI but for the
+  climate demand's outside temperature in °C, furthest, edge, lo, hi, with
+  its warning's words);
   `run.report["asserts"]` each warning assert that did not hold (`t`,
   `message`); `model.report["instances"]` each element's instance name
   (the energy books' parts' paths); `model.var_names()` the engine's

@@ -15,7 +15,10 @@ The new engine's run is turned into today's whole SimResult: its channels
 and figures are already in today's names and units; this module adds the
 channels' labels and units, and gathers the run's evidence (evidence.py) for
 today's own code to judge and report: the verdict (verdict.judge, the
-battery checks, the rows a failed check makes not valid, the status), the
+battery checks on the engine's moving average of each battery's power over
+every step, each machine's time above its maximum speed, the tables run
+past that today's engine reads, today's warnings of a supply limit, the
+rows a failed check makes not valid, the status), the
 part energies and the energy report (from the engine's per-part energy
 books), the duty (from the engine's integrals over every step it took), what
 held each driveline back (today's rule on a trace of the run from its dense
@@ -41,8 +44,8 @@ from .energy import BookFlow, energy_flows
 from .evidence import Evidence
 from .keys import fill_keys
 from .labfig import lab_base
-from .maps import MapUse, interp1
-from .network import ModelError, build_model
+from .maps import interp1
+from .network import CONSUMER_TYPES, ModelError, build_model
 from .profiles import distance_axis
 from .references import check_references, hand_checks
 from .reports import DUTY_QUANTITIES, RunRecorder, lane_state, make_reports
@@ -219,8 +222,9 @@ def run_new(project: Project, case_id: str) -> SimResult:
         )
         for el_id in model.signal_blocks if model.cdef_of[el_id].id == "signal.script"
     ]
+    dropped: dict[tuple[str, str], str] = {}  # (Script, key): today's warning, once
     if not specs:
-        run = built.simulate(trace=plan.names, trace_step=step)
+        run = built.simulate(trace=plan.names, trace_step=step, windows=plan.windows)
     else:
         # the same checks as today's engine: only approved code runs, and it
         # runs in the locked-down worker process (script_trust.py, sandbox.py);
@@ -233,12 +237,23 @@ def run_new(project: Project, case_id: str) -> SimResult:
                              messages=[SimMessage(level="error", text=str(e))])
         with ScriptSandbox(specs) as sandbox:
             def runner(spec: ScriptSpec):
+                ports = {p.id for p in model.elements[spec.el_id].dynamicPorts or []
+                         if p.direction == "output"}
+
                 def step_fn(t, dt, inputs):
-                    return sandbox.run(spec.el_id, spec.label, t, dt, dict(inputs), spec.params)
+                    outs = sandbox.run(spec.el_id, spec.label, t, dt, dict(inputs), spec.params)
+                    for key in outs or {}:  # (the engine takes only its ports, as today's does)
+                        if key not in ports:
+                            dropped.setdefault((spec.el_id, key), (
+                                f"Script '{spec.label}' returned '{key}' which is not one of its "
+                                f"output ports — value dropped."))
+                    return outs
                 return step_fn
             run = built.simulate(scripts={sp.el_id: runner(sp) for sp in specs},
-                                 native_scripts=False, trace=plan.names, trace_step=step)
-    return _result(project, case, model, ctx, built, run, plan, lanes, laps_warning)
+                                 native_scripts=False, trace=plan.names, trace_step=step,
+                                 windows=plan.windows)
+    return _result(project, case, model, ctx, built, run, plan, lanes, laps_warning,
+                   list(dropped.values()))
 
 
 ACCEL_TRACE_STEP_S = 0.01  # the trace of a test that is not a cycle (today: every solver step)
@@ -308,6 +323,24 @@ class _Plan:
                 if speed and f"{stem}{port}.{speed}" in have:
                     self.ports.setdefault(el_id, []).append(
                         (port, want(name), want(f"{stem}{port}.{speed}")))
+        # each E-Motor's and Engine's speed: its time above its maximum
+        # speed (_over_speed)
+        self.speeds = {el: want(f"{el}:sig_speed") for el in (*ctx.motors, *ctx.engines)}
+        # what says which supply limit held a motor back or cut a consumer
+        # back (_supply): each motor's time held and recuperation lost,
+        # each battery's state of charge, discharge current limits, charge
+        # window and time at its cap, each consumer's share served and
+        # demand, the hydrogen tank's mass
+        self.supply = {el: {v: var(el, v) for v in vs} for el, vs in (
+            *((m, ("t_limited", "e_regen_lost")) for m in ctx.motors),
+            *((b, ("soc", "i_mpp", "i_dis_lim", "p_absorb", "t_held")) for b in ctx.batteries),
+            *((c, ("served", "p_dem")) for c, cd in model.cdef_of.items() if cd.id in CONSUMER_TYPES))}
+        self.h2 = want(f"{model.h2_tank}:sig_mass") if model.h2_tank else None
+        # each checked battery's power: its highest average over its check's
+        # window, from every point the integrator visited (_terminal)
+        self.windows = {f"{b.el_id}:sig_power": b.check.window_s for b in ctx.batteries.values()
+                        if b.check is not None and b.check.limit_w > 0
+                        and f"{b.el_id}:sig_power" in have}
 
 
 def _finite(x) -> bool:
@@ -315,7 +348,7 @@ def _finite(x) -> bool:
 
 
 def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
-            laps_warning: Optional[str]) -> SimResult:
+            laps_warning: Optional[str], script_warnings: tuple[str, ...] = ()) -> SimResult:
     """Today's SimResult of the new engine's run: its evidence judged by the
     verdict and made into the reports by today's code (evidence.py)."""
     from . import core
@@ -369,6 +402,13 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
                 f"left.")))
         if b.check is not None:
             _terminal(b.check, run, b.el_id, last(b.el_id, "t_held"))
+            if b.check.enforced and b.check.avg_peak_w > b.p_cap_w:
+                # an enforced cap the engine holds to its tolerance: the
+                # power at the cap, not over it (80.0000020 kW at 80 kW
+                # with rtol 1e-6); past 100 times the run's rtol it is over
+                slack = 100.0 * float(run.report.get("rtol", 1e-6))
+                if b.check.avg_peak_w <= b.p_cap_w * (1.0 + slack):
+                    b.check.avg_peak_w = b.p_cap_w
             held = next((float(e["t"]) for e in run.events
                          if e["label"].startswith(f"'{label}': the time it is held")), None)
             if b.check.enforced and b.check.limit_s > 0 and held is not None:
@@ -402,6 +442,9 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
         ev.grip_limited_s = pct / 100.0 * (solved - (times[0] if times else 0.0))
     ev.grip_limited_s = ev.grip_limited_s or 0.0
     _tables(ctx, run, messages)
+    _over_speed(ctx, plan, run, messages)
+    messages += [SimMessage(level="warning", text=t)
+                 for t in _supply(ctx, plan, run) + list(script_warnings)]
     books = run.energy or {}
     ev.flows = _flows(model, inst, books, integ, _port_flows(plan, run))
     ev.time_s = ev.duty_s = solved - (times[0] if times else 0.0)
@@ -478,7 +521,8 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
             if s is None:
                 s = by_key[k] = SummaryValue(key=k, label=row_label, value=v, unit=u)
                 summary.append(s)
-            s.label, s.limit, s.passed = row_label, lim, ok
+            # (the value its passed flag is judged on, not the engine's figure)
+            s.label, s.value, s.limit, s.passed = row_label, v, lim, ok
         messages += [SimMessage(level="warning", text=t) for t in problems]
     edge_rows: set[str] = {"Energy balance residual"}
     edges = core.outside_rows(ev, solved)
@@ -510,42 +554,21 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
                      + hand_checks(ev, channels))
 
 
-def _peak_window(times: list[float], means, window: float) -> tuple[float, float]:
-    """The largest moving average of a channel over ``window`` s, and when:
-    today's MovingAverage on the intervals' means at the output times (no
-    power before the start; 0 s: the largest mean), as golden.figures_with
-    takes it."""
-    best, t_best = -math.inf, 0.0
-    if not len(times):
-        return 0.0, 0.0
-    if window <= 0:
-        for t, m in zip(times[1:], means[1:]):
-            if float(m) > best:  # (a NumPy number: a check's passed flag would be NumPy's bool)
-                best, t_best = float(m), t
-        return (best, t_best) if best > -math.inf else (0.0, 0.0)
-    acc: list[tuple[float, float, float]] = []  # (t0, t1, mean) of the intervals in the window
-    for k in range(1, len(times)):
-        acc.append((times[k - 1], times[k], float(means[k])))
-        lo = times[k] - window
-        area = sum(m * (min(b, times[k]) - max(a, lo)) for a, b, m in acc if b > lo)
-        acc = [x for x in acc if x[1] > lo]
-        avg = area / window
-        if avg > best:
-            best, t_best = avg, times[k]
-    return (best, t_best) if best > -math.inf else (0.0, 0.0)
-
-
 def _terminal(chk, run, el_id: str, held_s: float) -> None:
     """A battery's TerminalCheck from the run: its terminal power's peak and
-    its peak over the check window, its highest and lowest voltage, the
-    time held at (or over) its limit."""
+    its peak over the check window (the engine's moving average of the
+    line through every point it visited, as today's is of every step:
+    the output step changes neither; 0 s, the peak itself), its highest
+    and lowest voltage, the time held at (or over) its limit."""
     times = [float(t) for t in run.times]
     power, volt = f"{el_id}:sig_power", f"{el_id}:sig_voltage"
     integ = run.integrals
     if power in integ:
         chk.peak_w = max(chk.peak_w, float(integ[power]["max"]) * 1000.0)
-        avg, t_avg = _peak_window(times, run.mean[power], chk.window_s)
-        chk.avg_peak_w, chk.t_avg_peak = avg * 1000.0, t_avg
+        got = run.windows.get(power)
+        # (float: a NumPy number would make the passed flag NumPy's bool)
+        if got and float(got["peak"]) * 1000.0 > chk.avg_peak_w:
+            chk.avg_peak_w, chk.t_avg_peak = float(got["peak"]) * 1000.0, float(got["t"])
     if volt in integ:
         hi = run.max[volt]
         k = max(range(len(hi)), key=lambda i: hi[i]) if len(hi) else 0
@@ -558,29 +581,34 @@ def _terminal(chk, run, el_id: str, held_s: float) -> None:
 
 def _tables(ctx, run, messages: list[SimMessage]) -> None:
     """The tables the run read past their data, from the engine's records,
-    into today's MapUse records (in the axis's unit: the engine's SI axis
-    mapped onto today's), each said once as today's engine says it."""
+    into today's MapUse records (in the axis's unit: the engine's axis
+    mapped onto today's), each said once as today's engine says it. A
+    record of a table today's engine does not read as a part's data (a
+    Driving Task's schedule) is not judged: a note with its code says so
+    (NOT_JUDGED)."""
     for rec in run.table_outside:
         el_id, key, axis = rec["part"], rec["table"].rsplit(".", 1)[-1], int(rec["axis"])
         if el_id is None:
             continue
         uses = [u for u in ctx.map_use if u.el_id == el_id and u.table == key]
         m = ctx.maps.get((el_id, key))
-        if axis < len(uses):
-            use = uses[axis]
-        else:  # a table today's engine does not read
-            use = MapUse(el_id, f"'{key}' table", f"axis {axis + 1}", "", math.nan, table=key)
-            ctx.map_use.append(use)
+        if axis >= len(uses):
+            messages.append(SimMessage(level="info", text=(
+                f"'{ctx.model.elements[el_id].label}' {key}: the new engine read it past its data "
+                f"on axis {axis + 1} for {float(rec['total']):g} s from t = "
+                f"{float(rec['first']):.2f} s (to {float(rec['furthest']):g} against its edge "
+                f"{float(rec['edge']):g}, in the engine's units); today's engine does not read "
+                f"it as a part's data, so the verdict does not judge it [{NOT_JUDGED}].")))
+            continue
+        use = uses[axis]
         lo, hi = rec["lo"], rec["hi"]
         rng = m.ranges[axis] if m is not None and axis < len(m.ranges) else None
 
-        def shown(x: float, rng=rng, lo=lo, hi=hi, unit=use.unit) -> float:
-            # the engine's axis in SI against today's in its unit: a scale,
-            # from the ends they share (the engine mirrors a table read at a
+        def shown(x: float, rng=rng, lo=lo, hi=hi) -> float:
+            # the engine's axis against today's in its unit: a scale, from
+            # the ends they share (the engine mirrors a table read at a
             # speed's magnitude to the negative speeds: its last points
-            # still meet), but a temperature's offset
-            if unit == "°C":
-                return x - 273.15
+            # still meet); a temperature axis the engine reads in °C too
             if rng is None:
                 return x
             if _finite(hi) and hi != 0:
@@ -598,6 +626,151 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
             f"{name}: {use.axis} {use.value:.6g} {use.unit} is past the edge of its data "
             f"({use.edge:g} {use.unit}) from t = {float(rec['first']):.2f} s — {how} there. "
             f"The run summary says for how long and how far.")))
+
+
+# the note's code for a table record the verdict does not judge (_tables)
+NOT_JUDGED = "NEW-TABLE-NOT-JUDGED"
+
+
+def _at_event(ev_times: list[float], t0: float, t1: float) -> float:
+    """When a change seen between two traced points happened: at the run's
+    last event inside that stretch (exact), else at its start."""
+    i = bisect.bisect_right(ev_times, t1) - 1
+    return ev_times[i] if i >= 0 and ev_times[i] > t0 else t0
+
+
+def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
+    """Each E-Motor's and Engine's time above its maximum speed and its
+    highest speed then (today's speed_use records, which the verdict and
+    the summary judge), from the run: the time the line through its traced
+    speed spends above that speed by more than 1e-6 of it (today's
+    over_speed counts no step its own drive or a limiter holds it there;
+    the engine's motor gives no drive torque at its maximum speed and its
+    limiter switches at it, so only what drives it higher is above), its
+    highest speed over every point the integrator visited and when the
+    trace saw it; and, as today's engine says it, a note when it first
+    went above."""
+    tr = run.trace or {}
+    times = [float(t) for t in tr.get("times", [])]
+    integ = run.integrals
+    for el_id, m in (*ctx.motors.items(), *ctx.engines.items()):
+        name = plan.speeds.get(el_id)
+        use, got = m.speed_use, integ.get(f"{el_id}:sig_speed")
+        if name is None or not got or len(times) < 2:
+            continue
+        n_max = use.edge
+        top = n_max * (1.0 + 1e-6)
+        xs = [abs(float(x)) for x in tr[name]]
+        above, first = 0.0, None
+        for k in range(1, len(times)):
+            a, b, dt = xs[k - 1] - top, xs[k] - top, times[k] - times[k - 1]
+            if a > 0 or b > 0:
+                share = 1.0 if a > 0 and b > 0 else max(a, b) / abs(a - b)
+                above += share * dt
+                if first is None:
+                    first = times[k - 1] if a > 0 else times[k] - share * dt
+        if above <= 0:
+            continue
+        k = max(range(len(xs)), key=xs.__getitem__)
+        use.outside_s = above
+        use.value = max(float(got["max"]), -float(got["min"]))
+        use.t = times[k]
+        label = ctx.model.elements[el_id].label
+        messages.append(SimMessage(level="info", text=(
+            f"E-Motor '{label}' was driven above its maximum speed ({n_max:,.0f} 1/min) at "
+            f"t = {first:.2f} s; its inverter is off above it, so it gives no drive torque and "
+            f"no regeneration. The run summary says for how long and how far."
+            if el_id in ctx.motors else
+            f"Engine '{label}' was driven above its maximum speed ({n_max:,.0f} 1/min, the "
+            f"full-load curve's last point) at t = {first:.2f} s; it is not fired above it. The "
+            f"run summary says for how long and how far.")))
+
+
+def _supply(ctx, plan: _Plan, run) -> list[str]:
+    """Today's warnings that a supply limit held a motor back or cut a
+    consumer back (RunContext.limit_message and update_source_limits), each
+    said once with today's words, from the run's trace: a motor held below
+    its command over a traced stretch (its time held grew) recuperating
+    there (its recuperation lost grew) or drawing; a consumer served less
+    than its demand. Which limit, as today's says it: a battery at its
+    Output Power Limit (a note, the run's own event), at its minimum SOC (a
+    warning of its own) or at a current or voltage limit of its battery
+    management (today's note, not said here) holds back no warning; else a
+    battery at its maximum-power point ("maxp"), full ("full"), at its Max
+    Charge Power ("chg"); a fuel cell at its maximum power ("fcmax") or one
+    that takes nothing back ("fcback"); a bus with no source ("nosrc")."""
+    tr = run.trace or {}
+    times = [float(t) for t in tr.get("times", [])]
+    if len(times) < 2:
+        return []
+    model = ctx.model
+    ev_times = sorted(float(e["t"]) for e in run.events)
+    out: dict[str, str] = {}
+
+    def at(el_id: str, v: str, k: int) -> Optional[float]:
+        name = plan.supply.get(el_id, {}).get(v)
+        return None if name is None else float(tr[name][k])
+
+    def grew(el_id: str, v: str, k: int) -> bool:
+        a, b = at(el_id, v, k - 1), at(el_id, v, k)
+        return a is not None and b is not None and b > a
+
+    root_of = {bus.id: nodes[0][0] for nodes in ctx.bus_tree.values() for bus, _, _ in nodes}
+
+    def held_back(root, discharge: bool, k: int) -> None:
+        if root.battery:
+            b = ctx.batteries[root.battery]
+            label = model.elements[b.el_id].label
+            soc = at(b.el_id, "soc", k)
+            if discharge:
+                i_mpp, i_lim = at(b.el_id, "i_mpp", k), at(b.el_id, "i_dis_lim", k)
+                if ((b.check is not None and b.check.enforced and grew(b.el_id, "t_held", k))
+                        or (soc is not None and soc <= b.min_soc + 1e-9)
+                        or (i_mpp is not None and i_lim is not None and i_lim < i_mpp)):
+                    return
+                out.setdefault(f"maxp:{b.el_id}", (
+                    f"Battery '{label}' demand exceeds its deliverable power — motor torque "
+                    f"limited at the maximum power point."))
+            elif soc is not None and soc >= 1.0 - 1e-9:
+                out.setdefault(f"full:{b.el_id}",
+                               f"Battery '{label}' is full — regenerative torque limited.")
+            elif (at(b.el_id, "p_absorb", k) or 0.0) >= b.max_charge_w * (1.0 - 1e-6):
+                out.setdefault(f"chg:{b.el_id}", (
+                    f"Charging exceeds max charge power of '{label}' — regenerative torque "
+                    f"limited."))
+        elif root.fuelcell:
+            label = model.elements[root.fuelcell].label
+            if not discharge:
+                out.setdefault(f"fcback:{root.fuelcell}", (
+                    f"Fuel cell '{label}' cannot take power back — regenerative torque "
+                    f"limited."))
+            elif plan.h2 is None or float(tr[plan.h2][k]) > 0:
+                out.setdefault(f"fcmax:{root.fuelcell}", (
+                    f"Fuel cell '{label}' demand exceeds its maximum power — motor torque "
+                    f"limited."))
+        elif not root.vsource:
+            out.setdefault(f"nosrc:{root.id}",
+                           "An electrical bus has load but no source — demand is unmet.")
+
+    for k in range(1, len(times)):
+        for m_id in ctx.motors:
+            bus = ctx.motor_bus.get(m_id)
+            if bus is not None and bus.id in root_of and grew(m_id, "t_limited", k):
+                held_back(root_of[bus.id], not grew(m_id, "e_regen_lost", k), k)
+        for bus in model.buses:
+            if bus.id not in root_of:
+                continue
+            for c_id in bus.consumers:
+                served, demand = at(c_id, "served", k), at(c_id, "p_dem", k)
+                if served is None or demand is None or not (demand > 0 and served < 1.0 - 1e-9):
+                    continue
+                if f"shed:{c_id}" not in out:
+                    t = _at_event(ev_times, times[k - 1], times[k])
+                    out[f"shed:{c_id}"] = (f"Power consumer '{model.elements[c_id].label}' cut "
+                                           f"back at t = {t:.0f} s — its source cannot supply it.")
+                if not root_of[bus.id].fuelcell:  # (today's says which battery limit, or no source)
+                    held_back(root_of[bus.id], True, k)
+    return list(out.values())
 
 
 # the throughput power a part's duty values are of (energy.py), by its kind
@@ -838,9 +1011,7 @@ def _lanes(lanes, plan: _Plan, run) -> list:
                               lambda k=k: any(at(w, k) > 0.5 for w in wheels))
             if code != lane.state:
                 if lane.state >= 0:
-                    # the change: at the stretch's last event, else its start
-                    i = bisect.bisect_right(ev_times, times[k]) - 1
-                    t_change = ev_times[i] if i >= 0 and ev_times[i] > times[k - 1] else times[k - 1]
+                    t_change = _at_event(ev_times, times[k - 1], times[k])
                     lane.seconds[lane.state] += t_change - start
                     start = t_change
                 lane.state = code
