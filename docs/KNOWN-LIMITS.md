@@ -119,8 +119,14 @@ either. Also:
   first touch, however brief; the figures stay valid, because the limit is
   part of the model. The summary says how long each motor was limited and
   how much regeneration was not recovered.
-- The tolerance (1 % of the run, at least 2 s) is LightSim's own choice:
-  test procedures such as WLTP set no allowance for a simulation.
+- The tolerance (1 % of the run, at least 2 s, outside the band in all)
+  is LightSim's own rule, and the run's message says so: the EPA accepts
+  speeds beyond its limits for up to 2.0 s on any one occasion (40 CFR
+  1066.425(b)(4)(i)), the WLTP for up to 1 s on any one occasion and ten
+  such a cycle (Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 6,
+  2.6.8.3.1). The time outside is that of the line through the speed
+  trace's samples, taken every 0.1 s of solver time, exactly; a trace
+  judged against distance still counts whole samples.
 - The two automatic hand calculations under each run's expected values
   (VAL-35) are bounds, not predictions: the top speed one reads the gear
   ratio from the run at its fastest point, and the energy one sums the
@@ -604,7 +610,10 @@ minimum or an average, for example from the CSV export, or put the
   the time since the last, so their totals cover the whole run, but a
   duty's highest and lowest value is that of the steps sampled and a state
   shorter than 40 ms can be missed by the limit band. (The energy is booked
-  every step.) *Roadmap:* ENG-16.
+  every step.) The new engine (not the default: `LIGHTSIM_ENGINE=new`)
+  takes the duty from its integrals over every step it takes and the
+  limit band from a 0.1 s trace of its run, each change at the run's own
+  event inside it where there is one. *Roadmap:* ENG-16.
 - **Fuel energy is a heating value you set.** The fuel's energy is the
   fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by
   default; background knowledge, not checked against a source; a model

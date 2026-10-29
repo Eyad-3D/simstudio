@@ -35,6 +35,7 @@ from . import balance, fs_events, lapsim, new_engine
 from .battery import SOP_PULSES, sop
 from .domains import ModelInitError, RunContext, build_slaves
 from .energy import add_lap, energy_flows
+from .evidence import Evidence
 from .keys import fill_keys
 from .labfig import LabLog, lab_rows
 from .maps import OutsideDataError, slug
@@ -42,7 +43,7 @@ from .master import Master, SlaveStepError
 from .network import NO_WHEELS, ModelError, build_model, moves_unpowered
 from .profiles import distance_axis, lap_length
 from .references import check_references, hand_checks
-from .reports import RunRecorder
+from .reports import RunRecorder, make_reports
 from .runtime import (  # noqa: F401 — re-exported for backward compatibility
     AIR_DENSITY,
     CLUTCH_BAND,
@@ -127,9 +128,7 @@ def run_case(
         )
 
     rt = Runtime(model, emit)
-    for w in model.warnings:
-        if w == NO_WHEELS and moves_unpowered(model):
-            continue  # a coast-down: it moves, with nothing driving it
+    for w in model_warnings(model):
         rt.message("warning", w)
 
     dt_rec = max(1e-4, case.timeStep)
@@ -165,41 +164,12 @@ def run_case(
     if case.fsEvent:  # its power rule check, on the rules' own average (MOD-43)
         for b in ctx.batteries.values():
             b.rule_avg = MovingAverage(fs_events.RULE_WINDOW_S)
-    if case.kind == "cycle":  # say when the figures cannot be compared (CON-26)
-        for el_id, cdef in model.cdef_of.items():
-            if cdef.id != "signal.driving_task":
-                continue
-            task_p = model.params_of[el_id]
-            if not task_p.get("cycle"):
-                rt.message("info", f"Driving Task '{model.elements[el_id].label}' follows a typed "
-                                   f"profile (a demo or your own points), not a standard "
-                                   f"drive cycle: compare its "
-                                   f"figures only with runs on the same profile, not with "
-                                   f"published ones.")
-            elif cycles.Catalogue.of(project).is_own(str(task_p["cycle"])):
-                name = cycles.Catalogue.of(project).name(str(task_p["cycle"]))
-                rt.message("info", f"Driving Task '{model.elements[el_id].label}' drives "
-                                   f"'{name}', a drive cycle of this project's own, not a "
-                                   f"standard one: compare its figures only with runs on the "
-                                   f"same cycle, not with published ones.")
-            elif why := cycles.not_as_published(task_p, t_end):
-                name = cycles.CYCLES.get(str(task_p["cycle"]), {}).get("name", task_p["cycle"])
-                rt.message("info", f"Driving Task '{model.elements[el_id].label}' drives {name} "
-                                   f"{why}, not the standard drive cycle: compare its figures "
-                                   f"only with runs on the same settings, not with published "
-                                   f"ones. The run has no per-phase figures.")
+    for text in case_notes(project, model, case, t_end):
+        rt.message("info", text)
     # the run ends when the vehicle has driven this far, m (None: at the duration)
-    end_d = (max(0.0, case.startLine) + case.endDistance
-             if case.endDistance and case.endDistance > 0 else None)
-    if end_d is None and case.endLaps and case.endLaps > 0 and case.kind in ("cycle", "performance"):
-        end_d = _laps_distance(ctx, case.endLaps)
-        if end_d is None:
-            rt.message("warning", f"Case '{case.name}' asks for {case.endLaps:g} laps, but the "
-                                  f"Driver does not follow a Driving Task whose Profile Axis is "
-                                  f"Distance (with at least two points), so the run lasts its "
-                                  f"{t_end:g} s duration.")
-        else:
-            end_d += max(0.0, case.startLine)
+    end_d, why = end_distance(ctx, case, t_end)
+    if why:
+        rt.message("warning", why)
     ctx.end_distance = end_d
 
     try:
@@ -425,12 +395,11 @@ def run_case(
                 break
 
         # ---- assemble result -------------------------------------------------------
-        # a Lookup block's table is a controller's own schedule: held at its
-        # edge it gives what the controller asks for, not physics past its
-        # data, so only its summary rows say it left the table
-        verdict = judge(trace, ctx.distance, rt.series, ctx.performance, solved,
-                        [u for u in ctx.map_use if model.cdef_of[u.el_id].id != "signal.lookup"],
-                        stopped or failed_at is not None, case)
+        # the run's evidence: what the verdict, the reports and the hand
+        # calculations read of it (the reports' parts are added at the end)
+        ev = Evidence.of_context(ctx, energy_report=recorder.energy_on)
+        verdict = judge(trace.judged(ev), ctx.distance, rt.series, ctx.performance, solved,
+                        judged_uses(ev), stopped or failed_at is not None, case)
         for level, text in verdict.messages:
             rt.message(level, text)
         unit_map = unit_groups()
@@ -582,33 +551,10 @@ def run_case(
             summary.append(SummaryValue(
                 key="energy_balance_error_pct", label="Electrical energy balance error",
                 value=100.0 * ctx.residual_wh / ctx.throughput_wh, unit="%"))
-        # tables the run went past (listed only then, like the rows above):
-        # for how long, as a share of the time solved, and how far; per
-        # E-Motor or Engine the time above its maximum speed and the highest
-        # speed
         edge_rows: set[str] = {"Energy balance residual"}  # time and speeds, not energy figures
-        for use in ctx.map_use:
-            if use.outside_s <= 0:
-                continue
-            label = model.elements[use.el_id].label
-            if use.what == "maximum speed":
-                share_key = f"{use.el_id}.time_above_max_speed_pct"
-                share_label = f"{label} — time above maximum speed"
-                far = SummaryValue(key=f"{use.el_id}.highest_speed_rpm",
-                                   label=f"{label} — highest speed",
-                                   value=use.value, unit="1/min")
-            else:
-                stem = f"{use.el_id}.outside_{use.table}_{slug(use.axis)}"
-                share_key = f"{stem}_time_pct"
-                share_label = f"{label} — time outside its {use.what} ({use.axis})"
-                far = SummaryValue(key=f"{stem}_furthest",
-                                   label=f"{label} — furthest {use.axis} outside its {use.what}",
-                                   value=use.value, unit=use.unit)
-            edge_rows |= {share_label, far.label}
-            summary.append(SummaryValue(
-                key=share_key, label=share_label, value=100.0 * use.outside_s / max(solved, 1e-9),
-                unit="%"))
-            summary.append(far)
+        edges = outside_rows(ev, solved)
+        edge_rows |= {r.label for r in edges}
+        summary += edges
         rows = [SummaryValue(key=k, label=label, value=v, unit=u, limit=lim, passed=ok)
                 for label, v, u, lim, ok, k in verdict.rows]
         edge_rows |= {r.label for r in rows if r.unit == "%"}  # a test's time shares
@@ -623,27 +569,13 @@ def run_case(
         summary.append(SummaryValue(key="simulated_duration_s", label="Simulated duration", value=times[-1] if times else 0.0, unit="s"))
 
         # headline numbers that a failed check makes meaningless say why
-        not_valid: dict[str, str] = {}
-        if any(b.depleted_flagged for b in ctx.batteries.values()):
-            not_valid["Consumption"] = "the battery reached its minimum SOC"
-        if any(ec.stalled_flagged for ec in ctx.engines.values()):
-            not_valid["Fuel consumption"] = not_valid["CO₂ emissions"] = "the fuel tank ran empty"
-        if verdict.cycle_not_followed:
-            for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
-                not_valid[label] = "cycle not followed"
-        if (stopped or failed_at is not None) and times:
-            # figures per distance cover only the part of the cycle driven so
-            # far, and a performance test's top speed only its speed so far
+        not_valid = not_valid_first(ev, verdict, summary, stopped, failed_at, times)
+        if (stopped or failed_at is not None) and times and lap is not None:
+            # the laps it finished, and energy from the one it did not
             why = (f"run cancelled at t = {times[-1]:g} s" if stopped
                    else f"run stopped by an error at t = {failed_at:.2f} s")
-            for label in ("Consumption", "Fuel consumption", "CO₂ emissions", "Maximum speed"):
+            for label, *_ in lap.rows():
                 not_valid.setdefault(label, why)
-            for s in summary:  # a check it passed so far, not over the whole run
-                if s.passed:
-                    not_valid.setdefault(s.label, why)
-            if lap is not None:  # the laps it finished, and energy from the one it did not
-                for label, *_ in lap.rows():
-                    not_valid.setdefault(label, why)
         # a lap case's rows, but its balance error (a check of the solver)
         lap_rows = ([label for label, *_ in lap.rows() if label != "Lap energy balance error"]
                     if lap is not None else [])
@@ -680,24 +612,7 @@ def run_case(
                                       f"consumers) differs from what the sources gave by "
                                       f"{error:+.2f} %, more than {lapsim.BALANCE_PCT:g} %"
                                       f"{short_text}. The Energy per lap is not valid.")
-        if verdict.beyond_reason:
-            # a machine or source ran past its data: what depends on how it ran
-            for label in ("Consumption", "Fuel consumption", "CO₂ emissions",
-                          *(row[0] for row in verdict.rows), *lap_rows):
-                not_valid[label] = verdict.beyond_reason
-        if ctx.throughput_wh > 0 and ctx.residual_wh > 1e-3 * ctx.throughput_wh:
-            for s in summary:
-                if (s.unit in ("kWh", "kWh/100km", "%") and s.label not in edge_rows
-                        and s.label != "Electrical energy balance error"):
-                    not_valid.setdefault(s.label, "the electrical energy balance does not close")
-        if verdict.broke_down:
-            for s in summary:
-                if s.label != "Simulated duration":
-                    not_valid[s.label] = "the solution broke down"
-        for s in summary:
-            s.notValid = not_valid.get(s.label)
-            if s.notValid is None and s.label in lab_base:  # shares its base row's validity
-                s.notValid = not_valid.get(lab_base[s.label])
+        not_valid_last(ev, verdict, summary, not_valid, edge_rows, lab_base, lap_rows)
         event = case.fsEvent
         if event and case.kind != ("acceleration" if event == "acceleration" else "lap") \
                 and not (event == "endurance" and case.kind == "cycle"):
@@ -714,10 +629,7 @@ def run_case(
             for level, text in msgs_ev:
                 rt.message(level, text)
 
-        has_error = any(m.level == "error" for m in rt.messages)
-        has_warning = any(m.level == "warning" for m in rt.messages)
-        status = ("failed" if has_error else "cancelled" if stopped
-                  else "warning" if has_warning else "success")
+        status = status_of(rt.messages, stopped)
         rec_note = f", stored every {output_every}" if output_every > 1 else ""
         last_note = f", the last one {h_last:g} s" if steps and short_last else ""
         n_steps = f"{steps}"
@@ -736,21 +648,177 @@ def run_case(
         rt.messages.insert(0, SimMessage(level="info", text=text))
         if totals is not None:
             totals.update(balance.run_totals(ctx, soc_start))
-        energy, duty, limits = recorder.finish(lap)
+        # the reports, from the run's books (closed above, a lap case's
+        # mechanics added) and its duty and limit records
+        recorder.close()
+        ev.flows, ev.time_s = list(ctx.book.flows.values()), ctx.book.time_s
+        ev.duty, ev.lanes, ev.duty_s = recorder.duty_stats(), recorder.lanes, recorder.t
+        energy, duty, limits = make_reports(ev)
         return SimResult(
             caseId=case_id,
             status=status,
             messages=rt.messages,
             channels=channels,
             summary=summary,
-            partEnergy=energy_flows(ctx.book),
+            partEnergy=energy_flows(ev.flows, ev.time_s),
             energy=energy,
             duty=duty,
             limits=limits,
-            references=check_references(case.references, summary) + hand_checks(ctx, channels),
+            references=check_references(case.references, summary) + hand_checks(ev, channels),
         )
     finally:
         ctx.close_sandboxes()
+
+
+def model_warnings(model) -> list[str]:
+    """The model builder's warnings a run shows (both engines)."""
+    # (a Vehicle with no wheels in a coast-down: it moves, with nothing driving it)
+    return [w for w in model.warnings if not (w == NO_WHEELS and moves_unpowered(model))]
+
+
+def case_notes(project: Project, model, case, t_end: float) -> list[str]:
+    """What a cycle case's notes say when its figures cannot be compared
+    with published ones (CON-26), for either engine."""
+    out: list[str] = []
+    if case.kind != "cycle":
+        return out
+    for el_id, cdef in model.cdef_of.items():
+        if cdef.id != "signal.driving_task":
+            continue
+        task_p = model.params_of[el_id]
+        if not task_p.get("cycle"):
+            out.append(f"Driving Task '{model.elements[el_id].label}' follows a typed "
+                       f"profile (a demo or your own points), not a standard "
+                       f"drive cycle: compare its "
+                       f"figures only with runs on the same profile, not with "
+                       f"published ones.")
+        elif cycles.Catalogue.of(project).is_own(str(task_p["cycle"])):
+            name = cycles.Catalogue.of(project).name(str(task_p["cycle"]))
+            out.append(f"Driving Task '{model.elements[el_id].label}' drives "
+                       f"'{name}', a drive cycle of this project's own, not a "
+                       f"standard one: compare its figures only with runs on the "
+                       f"same cycle, not with published ones.")
+        elif why := cycles.not_as_published(task_p, t_end):
+            name = cycles.CYCLES.get(str(task_p["cycle"]), {}).get("name", task_p["cycle"])
+            out.append(f"Driving Task '{model.elements[el_id].label}' drives {name} "
+                       f"{why}, not the standard drive cycle: compare its figures "
+                       f"only with runs on the same settings, not with published "
+                       f"ones. The run has no per-phase figures.")
+    return out
+
+
+def judged_uses(ev: Evidence) -> list:
+    """The run's MapUse records the verdict judges: a Lookup block's table
+    is a controller's own schedule (held at its edge it gives what the
+    controller asks for, not physics past its data), so only its summary
+    rows say it left the table."""
+    return [u for u in ev.map_use if ev.model.cdef_of[u.el_id].id != "signal.lookup"]
+
+
+def outside_rows(ev: Evidence, solved: float) -> list[SummaryValue]:
+    """The tables the run went past (listed only then): for how long, as a
+    share of the time solved, and how far; per E-Motor or Engine the time
+    above its maximum speed and the highest speed."""
+    out: list[SummaryValue] = []
+    for use in ev.map_use:
+        if use.outside_s <= 0:
+            continue
+        label = ev.model.elements[use.el_id].label
+        if use.what == "maximum speed":
+            share_key = f"{use.el_id}.time_above_max_speed_pct"
+            share_label = f"{label} — time above maximum speed"
+            far = SummaryValue(key=f"{use.el_id}.highest_speed_rpm",
+                               label=f"{label} — highest speed",
+                               value=use.value, unit="1/min")
+        else:
+            stem = f"{use.el_id}.outside_{use.table}_{slug(use.axis)}"
+            share_key = f"{stem}_time_pct"
+            share_label = f"{label} — time outside its {use.what} ({use.axis})"
+            far = SummaryValue(key=f"{stem}_furthest",
+                               label=f"{label} — furthest {use.axis} outside its {use.what}",
+                               value=use.value, unit=use.unit)
+        out.append(SummaryValue(
+            key=share_key, label=share_label, value=100.0 * use.outside_s / max(solved, 1e-9),
+            unit="%"))
+        out.append(far)
+    return out
+
+
+def not_valid_first(ev: Evidence, verdict, summary: list[SummaryValue], stopped: bool,
+                    failed_at: Optional[float], times: list[float]) -> dict[str, str]:
+    """Which headline rows a failed check makes meaningless, and why: the
+    first of the run's flags (an empty battery or tank, the cycle not
+    followed, a run cut short), as {label: why}."""
+    not_valid: dict[str, str] = {}
+    if any(b.depleted_flagged for b in ev.batteries.values()):
+        not_valid["Consumption"] = "the battery reached its minimum SOC"
+    if any(ec.stalled_flagged for ec in ev.engines.values()):
+        not_valid["Fuel consumption"] = not_valid["CO₂ emissions"] = "the fuel tank ran empty"
+    if verdict.cycle_not_followed:
+        for label in ("Consumption", "Fuel consumption", "CO₂ emissions"):
+            not_valid[label] = "cycle not followed"
+    if (stopped or failed_at is not None) and times:
+        # figures per distance cover only the part of the cycle driven so
+        # far, and a performance test's top speed only its speed so far
+        why = (f"run cancelled at t = {times[-1]:g} s" if stopped
+               else f"run stopped by an error at t = {failed_at:.2f} s")
+        for label in ("Consumption", "Fuel consumption", "CO₂ emissions", "Maximum speed"):
+            not_valid.setdefault(label, why)
+        for s in summary:  # a check it passed so far, not over the whole run
+            if s.passed:
+                not_valid.setdefault(s.label, why)
+    return not_valid
+
+
+def not_valid_last(ev: Evidence, verdict, summary: list[SummaryValue], not_valid: dict[str, str],
+                   edge_rows: set[str], lab_base: dict[str, str], lap_rows=()) -> None:
+    """The rest of the flags (data run past, the books not closing, a
+    solution that broke down), then each row's notValid, a lab row sharing
+    its base row's."""
+    if verdict.beyond_reason:
+        # a machine or source ran past its data: what depends on how it ran
+        for label in ("Consumption", "Fuel consumption", "CO₂ emissions",
+                      *(row[0] for row in verdict.rows), *lap_rows):
+            not_valid[label] = verdict.beyond_reason
+    if ev.throughput_wh > 0 and ev.residual_wh > 1e-3 * ev.throughput_wh:
+        for s in summary:
+            if (s.unit in ("kWh", "kWh/100km", "%") and s.label not in edge_rows
+                    and s.label != "Electrical energy balance error"):
+                not_valid.setdefault(s.label, "the electrical energy balance does not close")
+    if verdict.broke_down:
+        for s in summary:
+            if s.label != "Simulated duration":
+                not_valid[s.label] = "the solution broke down"
+    for s in summary:
+        s.notValid = not_valid.get(s.label)
+        if s.notValid is None and s.label in lab_base:  # shares its base row's validity
+            s.notValid = not_valid.get(lab_base[s.label])
+
+
+def status_of(messages: list[SimMessage], stopped: bool) -> str:
+    """A run's status from its messages: an error fails it, a warning keeps
+    it from success."""
+    if any(m.level == "error" for m in messages):
+        return "failed"
+    if stopped:
+        return "cancelled"
+    return "warning" if any(m.level == "warning" for m in messages) else "success"
+
+
+def end_distance(ctx: RunContext, case, t_end: float) -> tuple[Optional[float], Optional[str]]:
+    """Where the case ends, m (None: at its duration), and the warning of
+    a case that asks for laps the run cannot count (both engines)."""
+    end_d = (max(0.0, case.startLine) + case.endDistance
+             if case.endDistance and case.endDistance > 0 else None)
+    if end_d is None and case.endLaps and case.endLaps > 0 and case.kind in ("cycle", "performance"):
+        end_d = _laps_distance(ctx, case.endLaps)
+        if end_d is None:
+            return None, (f"Case '{case.name}' asks for {case.endLaps:g} laps, but the "
+                          f"Driver does not follow a Driving Task whose Profile Axis is "
+                          f"Distance (with at least two points), so the run lasts its "
+                          f"{t_end:g} s duration.")
+        end_d += max(0.0, case.startLine)
+    return end_d, None
 
 
 def _laps_distance(ctx: RunContext, laps: float) -> Optional[float]:

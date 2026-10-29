@@ -2524,6 +2524,31 @@ residuals and what they solve for.
 * **Parallel sweeps** (WP4/WP6): `rayon` over parameter sets, one
   integrator and buffer set per worker, one shared compiled model, the
   Python GIL released for the whole sweep.
+* **The run's evidence** (step 2, for the app's verdict and reports):
+  the recorder also integrates each channel's square and magnitude over
+  the whole run, as integrals of the line through every point the
+  integrator visited (its steps, both sides of every event), the means'
+  own trapezoid: `SimResult::square_integral` and `magnitude_integral`
+  (a duty's RMS, a flow's two directions; exact for a value held between
+  events, O(h²) on a smooth one over the integrator's own steps, not
+  under its error control as the energy books are). A trace
+  (`SolverOptions::trace`: channels and a spacing) samples a few channels
+  from the dense output every spacing and at the run's end, interleaved
+  with the grid points and the blocks' ticks as they are, and changes
+  nothing the grid records (a test checks the values, means and integrals
+  to the bit with and without it): `SimResult::trace`. The run tells each
+  table axis it read past its data with numbers beside its words
+  (`SolverReport::table_outside`: the table, the axis, when it first left,
+  for how long, the argument furthest past the data at the steps' ends
+  and the edge it was past, the axis's first and last point), each guard's
+  argument taken from `RunInfo::table_args` in code generation's order (a
+  test holds the order to the compiled model's guard list on every example
+  case), and each warning `assert` that did not hold
+  (`SolverReport::asserts`). A guard counts a read wherever its expression
+  is evaluated, also in a branch of an `if` its result does not take (the
+  E-Motor's drag table is read while the motor is powered), where today's
+  engine counts only the operating point it used: the app's verdict can
+  then name a table today's would not.
 
 **As built (work package 4).** The energy integrals are under the
 integrator's error control by default (`energy_error_control`): without
@@ -2996,10 +3021,12 @@ save most of those 10 ms in every run, sequential or not (a change to
   project importer's channel map gives today's names
   (`el-battery:sig_soc`), so the app and the Python package read results
   as today.
-* **Summary rows, duty, limits, references**: computed by today's Python
-  code from the channels at first (the app's KPIs keep their keys; not yet
-  wired for new-engine runs, section 12.3); moved into Rust only where
-  speed requires (WP6).
+* **Summary rows, duty, limits, references**: the figures from the
+  channels (`golden::figures_with`, the app's KPIs keep their keys); the
+  verdict, the energy report, part energies, duty, limits, references and
+  hand calculations by today's Python code from the run's evidence
+  (`backend/app/solver/evidence.py`, section 12.3: no Rust copy of them);
+  moved into Rust only where speed requires (WP6).
 * **Energy books**: for every primitive, `energyIn − energyOut − losses −
   stored = 0` from its port powers (across × through), its loss expression
   and its stored-energy expression — today's `partEnergy`. A part's books
@@ -3135,11 +3162,35 @@ against exact answers from `benchmarks/`.
   efficiency on, and report, the torque their teeth carry, after the
   inertias before the mesh (`lsim-project/golden/README.md`).
 * **Same result schema**: the Python layer converts `SimResult` into
-  today's `SimResult` JSON, so the app needs no change to show new runs.
-  Done: channels with min/max/mean, the summary figures and messages. Not
-  yet: the energy report, part energies, duty, limits, references and
-  today's run verdict (a cycle not followed, data run past: `notValid`,
-  `limit`, `passed`), STATUS WP6.
+  today's whole `SimResult` JSON, so the app needs no change to show new
+  runs (step 2's evidence part, `backend/app/solver/new_engine.py`): the
+  channels with min/max/mean and the summary figures, and from the run's
+  evidence (`evidence.Evidence`, the one object today's engine also fills
+  from its `RunContext`) today's own code makes the rest: the run verdict
+  (`verdict.judge` on the Driver's trace from the dense output, every
+  0.1 s whatever the output step, 0.01 s in an acceleration test; the
+  battery checks; the rows a failed check makes `notValid`; the status;
+  a value that is not a number judged before the result shows it as a
+  gap), the part energies and the energy report (each part's losses and
+  stored energy's change from the engine's books, `ImportReport::instances`
+  mapping its path to the element; what went in and out each way from an
+  E-Motor's channels' integrals and a mechanical part's ports' powers on
+  the trace, what came out being what went in less what it lost and
+  stored, so each part's books close exactly; the Vehicle's named terms
+  from its road-load channels), the duty (mean and RMS from the run's
+  integrals, extremes from the output intervals'), what held each
+  driveline back (today's rule, `reports.lane_state`, on the trace, a
+  change at the last event of the run inside the 0.1 s before it), the
+  references and hand calculations, a table read past its data
+  (`SolverReport::table_outside`, today's summary rows, note and verdict).
+  The engine's own warnings on its run reach the user; its preparation's
+  notes about the start values (`START-ALIAS-CONFLICT`, `START-NOT-SOLVED`,
+  `INIT-START-ASSUMED`, `INIT-UNDECIDED`, `INIT-START-IGNORED`: review
+  finding 36) are notes, never the run's warnings. Not the same: the
+  engine books each inertia with its part (today's books have a
+  driveline's spinning parts as one *Rotating parts* row), a battery's
+  duty *Losses* are all its internal losses (today's: R0's alone), and a
+  wheel's or a gear's flows each way come from a 0.1 s trace.
 * **The app's path, both engines** (step 2's judge,
   `python -m benchmarks.back_to_back`): every example case and eight
   probes run through the app's own `simulate`, on today's engine at 10 ms
@@ -3178,13 +3229,14 @@ model.param_names()       # the engine's parameter names
 model.params()            # current values, SI
 model.set_params({"el_vehicle.cd": 0.30})                 # runtime, no rebuild
 run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
-                     native_scripts=True)
+                     native_scripts=True, trace=None, trace_step=0.1)
 run.times                 # NumPy float64
 run.channels["el-battery:sig_soc"]   # today's names and display units, NumPy arrays
 run.engine_channels       # the engine's own names, SI
 run.min, run.max, run.mean           # like channels, per output interval
 run.events, run.report, run.energy   # energy: the books, or None
 run.figures               # today's summary figures {key, label, value, unit}
+run.integrals, run.trace, run.table_outside      # the evidence for the app's verdict and reports
 runs = model.sweep([{...}, {...}], threads=4)   # Runs, or the exception for a failed set
 le.diagnose(project_json, case_id)    # structural and unit checks only
 le.ModelError             # .diagnostics: [{severity, code, message, parts, hint, detail}]
@@ -3226,6 +3278,21 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   (`"python"` or `"native"`). `script_host` in `lib.rs` is the single
   place a Script block's host is chosen. FMU parts raise a `ModelError`
   (not supported yet).
+* **The run's evidence** (step 2's evidence part): `simulate(...,
+  trace=[names], trace_step=0.1)` samples channels (today's `element:port`,
+  in their display units) or engine variables (SI) from the dense output
+  every `trace_step` s and at the run's end, without changing anything
+  else (`run.trace`: NumPy arrays, `times` among them); `run.integrals`
+  gives each channel (display units) and each engine variable (SI) over
+  the run: `integral` (∫x dt), `square` (∫x² dt), `magnitude` (∫|x| dt,
+  NaN for a unit with an offset), `max` and `min`; `run.table_outside`
+  each table axis read past its data (table, part, axis, first, total,
+  and in SI furthest, edge, t_furthest, lo, hi, with its warning's words);
+  `run.report["asserts"]` each warning assert that did not hold (`t`,
+  `message`); `model.report["instances"]` each element's instance name
+  (the energy books' parts' paths); `model.var_names()` the engine's
+  variables and today's channels. What the app reads of them is section
+  12.3's.
 * **Output grid.** A grid (from `t_end` and `output_step`, the caller's or
   the case's own) of more than 10⁷ points, or whose results would take
   more than 4 GB (each point holds every recorded variable's value, min,
@@ -3245,9 +3312,8 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   code (`NEW-LAP`, `NEW-FAILED` with the engine's own codes, ...:
   `new_engine.CODES`), and with `LIGHTSIM_ENGINE_STRICT=1` nothing falls
   back: the case fails with its code (the both-engines diff's strict mode,
-  `benchmarks/back_to_back`). The result has channels with min/max/mean, the summary figures
-  and messages, but no energy report, part energies, duty, limits,
-  references or run verdict yet (section 12.3). The
+  `benchmarks/back_to_back`). The result is today's whole result, made
+  by today's own code from the run's evidence (section 12.3). The
   default is today's engine. There the Script blocks run in today's
   locked-down worker (each part is given a function that calls it, and
   `native_scripts=False`) until the owner decides the native runner may

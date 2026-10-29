@@ -134,7 +134,13 @@ def full_torque(mc: MotorCache, volts: float, rpm: float, drive: bool = True) ->
 
 class RunContext:
     """All shared solver state for one run — the former closure variables of
-    simulate(), promoted to attributes so the domain slaves can share them."""
+    simulate(), promoted to attributes so the domain slaves can share them.
+
+    With ``workers`` False it starts no Script or FMU worker: the new
+    engine's path (new_engine.py) builds one, never steps it, and reads the
+    project's parts from it as today's engine does (each battery's capacity
+    and checks, each motor's maximum speed, each driveline's parts, each
+    table's axes), filling in their totals from its own run."""
 
     def __init__(
         self,
@@ -143,6 +149,7 @@ class RunContext:
         rt: Runtime,
         gear_of: dict[str, float],
         case_overrides: dict,
+        workers: bool = True,
     ):
         self.project = project
         self.model = model
@@ -157,6 +164,7 @@ class RunContext:
         # speed": a motor's Maximum Speed, an engine's full-load curve's last
         # speed). The run summary lists the records with outside_s > 0.
         self.map_use: list[MapUse] = []
+        self.maps: dict[tuple[str, str], Map] = {}  # each table read, by (element, key)
         self.amb_id = model.ambient  # sets the air density (None: 20 °C, 101.325 kPa)
 
         # ---- element caches --------------------------------------------------
@@ -301,7 +309,7 @@ class RunContext:
                             if p.direction == "input"],
                 params=dict(self.params(el_id)),
             ))
-        if script_specs:
+        if script_specs and workers:
             # Only code this user has approved runs (app/script_trust.py).
             try:
                 script_trust.check([(sp.label, sp.code) for sp in script_specs])
@@ -318,7 +326,7 @@ class RunContext:
         self.fmus: dict = {}  # element id -> fmu.sandbox.FmuSandbox
         fmu_ids = [el_id for el_id in model.signal_blocks
                    if model.cdef_of[el_id].id == FMU_COMPONENT]
-        if fmu_ids:
+        if fmu_ids and workers:
             # imported here: the FMU worker process imports this package, and
             # the FMU modules import the worker
             from ..fmu.block import spec_for as fmu_spec_for
@@ -570,7 +578,8 @@ class RunContext:
         uses = [MapUse(el_id, f"'{pdef.label}' table", a.name, a.unit, 0.0, table=key)
                 for a in axes]
         self.map_use += uses
-        return Map(pts, f"{cdef.name} '{el.label}' {pdef.label}", policy, uses)
+        m = self.maps[(el_id, key)] = Map(pts, f"{cdef.name} '{el.label}' {pdef.label}", policy, uses)
+        return m
 
     def speed_use(self, el_id: str, n_max: float) -> MapUse:
         use = MapUse(el_id, "maximum speed", "Speed", "1/min", n_max)

@@ -15,14 +15,19 @@ the flow into the next: the solver's step), the summary's *Energy balance
 residual*. A lap case's gears and friction brakes are booked by the lap's
 own energy pass, as the Vehicle's terms.
 
-A :class:`RunRecorder` looks at the run's state after every fourth solver
-step for the duty and the limit band; it changes nothing in the run.
+A :class:`RunRecorder` looks at today's engine's run state after every
+fourth solver step for the duty and the limit band; it changes nothing in
+the run. The reports themselves are made from the run's evidence
+(evidence.Evidence: the books, each duty part's integrals and extremes, each
+driveline's states), by :func:`make_reports`, whichever engine ran it: the
+new engine gives the duty from its integrals over every step it took and
+the states' changes from its trace and events (new_engine.py).
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from ..schemas import (
     DutyPart,
@@ -79,7 +84,9 @@ def _stat() -> list:
 
 
 @dataclass
-class _Lane:
+class Lane:
+    """One driveline's parts that pull, and what held it back: the
+    seconds in each of LIMIT_STATES and the state from each change on."""
     label: str
     element_ids: list[str]
     motors: list  # (MotorCache, demand route key, battery or None)
@@ -88,6 +95,41 @@ class _Lane:
     seconds: list[float] = field(default_factory=lambda: [0.0] * len(LIMIT_STATES))
     changes: list[tuple[float, int]] = field(default_factory=list)
     state: int = -1
+
+
+def lane_state(braking: bool, motors, engines, grip: Callable[[], bool]) -> int:
+    """What holds a driveline back now, as an index into LIMIT_STATES:
+    ``braking`` whether the driver brakes; per motor (its demand, whether it
+    is at its full command or its speed limit, whether its supply held it
+    below its command, whether that was its battery's own power cap); per
+    engine (its torque, whether at its full load); ``grip()`` whether a
+    driven wheel is at the tyres' grip limit (asked only when it matters).
+    The same rule for both engines."""
+    asked = full = False
+    held = 0
+    # a motor asked for negative torque while an engine on this driveline
+    # pulls is charging the battery (a hybrid's strategy), not braking; with
+    # no engine pulling it is regenerative braking
+    engine_pulls = any(torque > 0 for torque, _ in engines)
+    for d, at_full, limited, at_cap in motors:
+        if d < 0:
+            if not engine_pulls:
+                braking = True
+        elif d > 0:
+            asked = True
+            if at_full:
+                full = True
+        if limited:
+            held = 2 if at_cap else (held or 3)
+    for torque, at_full in engines:
+        if torque > 0:
+            asked = True
+            full = full or at_full
+    if braking:
+        return 0
+    if asked:
+        return 1 if grip() else held or (4 if full else 6)
+    return 5
 
 
 class RunRecorder:
@@ -116,7 +158,7 @@ class RunRecorder:
         self.dcdc_volts = {d: float(ctx.params(d).get("output_voltage_V", 400) or 0)
                            for d, cdef in model.cdef_of.items() if cdef.id == "controller.dcdc"}
         # what holds each driveline back
-        self.lanes: list[_Lane] = []
+        self.lanes: list[Lane] = []
         bus_root: dict[int, object] = {}
         for nodes in ctx.bus_tree.values():
             for node, _, _ in nodes:
@@ -137,8 +179,8 @@ class RunRecorder:
                         engines.append(ctx.engines[src.el_id])
                         ids.append(src.el_id)
             if ids:  # (a driveline nothing drives has nothing to hold it back)
-                self.lanes.append(_Lane(label=", ".join(self.label[i] for i in ids), element_ids=ids,
-                                        motors=motors, engines=engines, wheels=wheels))
+                self.lanes.append(Lane(label=", ".join(self.label[i] for i in ids), element_ids=ids,
+                                       motors=motors, engines=engines, wheels=wheels))
         self.limited_prev = {mc.el_id: mc.limited_s for mc in ctx.motors.values()}
         self.brake_key = (model.driver, "sig_brake_cmd") if model.driver else None
         self.traction_key = (model.driver, "sig_traction_cmd") if model.driver else None
@@ -214,46 +256,28 @@ class RunRecorder:
         forces = ctx.last_forces
         limited_prev = self.limited_prev
         for lane in self.lanes:
-            code = 6  # the driver's demand met
-            asked = False
-            full = False
-            held = 0
-            braking = driver_braking
-            # a motor asked for negative torque while an engine on this
-            # driveline pulls is charging the battery (a hybrid's strategy),
-            # not braking; with no engine pulling it is regenerative braking
-            engine_pulls = any(ec.torque > 0 for ec in lane.engines)
+            motors = []
             for mc, key, bat in lane.motors:
                 d = (values.get(key) or 0.0) if key is not None else 0.0
-                if d < 0:
-                    if not engine_pulls:
-                        braking = True
-                elif d > 0:
-                    asked = True
-                    if d >= 0.999 or mc.rpm > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND):
-                        full = True
+                limited = at_cap = False
                 if mc.limited_s > limited_prev[mc.el_id]:
                     limited_prev[mc.el_id] = mc.limited_s
+                    limited = True
                     at_cap = (bat is not None and bat.check is not None and bat.check.enforced
                               and bat.capped and bat.power_w >= bat.p_cap_w * (1.0 - 1e-6))
-                    held = 2 if at_cap else (held or 3)
-            for ec in lane.engines:
-                if ec.torque > 0:
-                    asked = True
-                    full = full or _engine_full(ec)
-            if braking:
-                code = 0
-            elif asked:
+                motors.append((d, d >= 0.999 or mc.rpm > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND),
+                               limited, at_cap))
+
+            def grip(lane=lane) -> bool:
                 for w in lane.wheels:
                     n = w.n_load
                     f = forces.get(w.el_id)
                     if f and n > 0 and abs(f) >= (tyre_mu(w, n) if w.dmu_per_n else w.mu) * n:
-                        code = 1
-                        break
-                else:
-                    code = held or (4 if full else 6)
-            else:
-                code = 5
+                        return True
+                return False
+            code = lane_state(driver_braking, motors,
+                              [(ec.torque, ec.torque > 0 and _engine_full(ec)) for ec in lane.engines],
+                              grip)
             lane.seconds[code] += dt
             if code != lane.state:
                 lane.state = code
@@ -261,23 +285,14 @@ class RunRecorder:
 
     # ---- at the end -------------------------------------------------------------------
 
-    def finish(self, lap=None) -> tuple[Optional[EnergyReport], list[DutyPart], Optional[LimitReport]]:
-        """The three reports. Run once the energy book is closed (and a lap
-        case's mechanics added to it), so the energy report has the whole
-        run."""
+    def close(self) -> None:
+        """Book the time solved since the last booked step."""
         if self.pending > 0:
             self.book()
-        ctx = self.ctx
-        energy = None
-        if self.energy_on:
-            energy = book_report(ctx.book.flows.values(),
-                                 fuel_tank=bool(ctx.model.fuel_tank),
-                                 h2_tank=bool(ctx.model.h2_tank),
-                                 residual_wh=ctx.residual_wh, throughput_wh=ctx.throughput_wh)
-        return energy, self.duty_parts(), self.limit_report()
 
-    def duty_parts(self) -> list[DutyPart]:
-        t = self.t
+    def duty_stats(self) -> list:
+        """Each duty part's quantities as the evidence keeps them:
+        (element id, [(quantity, unit, [∫x dt, ∫x² dt, max, min])])."""
         out = []
         quantities = (
             ([(mc, st) for mc, st, _ in self.d_motors], (("Shaft power", "kW"), ("Electrical power", "kW"), ("Torque", "N·m"),
@@ -288,32 +303,68 @@ class RunRecorder:
             ([(type("_", (), {"el_id": d})(), s) for d, s in self.d_dcdc.items()],
              (("Power in", "kW"), ("Power out", "kW"), ("Losses", "kW"), ("Output current", "A"))),
         )
-        if t <= 0:
-            return out
         for items, names in quantities:
             for obj, stats in items:
-                rows = [DutyRow(quantity=q, unit=u, max=s[2], min=s[3],
-                                mean=s[0] / t, rms=math.sqrt(max(0.0, s[1] / t)))
-                        for (q, u), s in zip(names, stats) if s[2] > -math.inf]
-                if rows:
-                    el_id = obj.el_id
-                    out.append(DutyPart(elementId=el_id, label=self.label.get(el_id, el_id),
-                                        kind=self.kind.get(el_id, ""), rows=rows))
+                out.append((obj.el_id, [(q, u, s) for (q, u), s in zip(names, stats)]))
         return out
 
-    def limit_report(self) -> Optional[LimitReport]:
-        if not self.lanes or self.t <= 0:
-            return None
-        lanes = []
-        for lane in self.lanes:
-            changes = lane.changes
-            if len(changes) > MAX_CHANGES:
-                changes = _binned(changes, self.t, MAX_CHANGES)
-            lanes.append(LimitLane(
-                label=lane.label, elementIds=lane.element_ids,
-                changes=[[t, c] for t, c in changes],
-                seconds={LIMIT_STATES[i]: round(v, 4) for i, v in enumerate(lane.seconds) if v > 0}))
-        return LimitReport(states=LIMIT_STATES, lanes=lanes, tEnd=round(self.t, 4))
+
+# what a duty part has, by its kind: (quantity, unit), in RunRecorder's order
+DUTY_QUANTITIES = {
+    "motor.emotor": (("Shaft power", "kW"), ("Electrical power", "kW"), ("Torque", "N·m"),
+                     ("DC current", "A"), ("Losses", "kW")),
+    "battery.generic": (("Power", "kW"), ("Current", "A"), ("Losses", "kW")),
+    "engine.combustion": (("Power", "kW"), ("Torque", "N·m"), ("Fuel rate", "kg/h")),
+    "fuelcell.stack": (("Power", "kW"), ("Current", "A")),
+    "controller.dcdc": (("Power in", "kW"), ("Power out", "kW"), ("Losses", "kW"),
+                        ("Output current", "A")),
+}
+
+
+def make_reports(ev) -> tuple[Optional[EnergyReport], list[DutyPart], Optional[LimitReport]]:
+    """The three reports of a run's evidence (evidence.Evidence), whichever
+    engine ran it: the energy report from its books (when the case asks for
+    it), each part's duty over ``ev.duty_s`` and what held each driveline
+    back."""
+    model = ev.model
+    energy = None
+    if ev.energy_report:
+        energy = book_report(ev.flows, fuel_tank=bool(model.fuel_tank),
+                             h2_tank=bool(model.h2_tank),
+                             residual_wh=ev.residual_wh, throughput_wh=ev.throughput_wh)
+    return energy, duty_parts(ev), limit_report(ev.lanes, ev.duty_s)
+
+
+def duty_parts(ev) -> list[DutyPart]:
+    t = ev.duty_s
+    out: list[DutyPart] = []
+    if t <= 0:
+        return out
+    for el_id, quantities in ev.duty:
+        rows = [DutyRow(quantity=q, unit=u, max=s[2], min=s[3],
+                        mean=s[0] / t, rms=math.sqrt(max(0.0, s[1] / t)))
+                for q, u, s in quantities if s[2] > -math.inf]
+        if rows:
+            el = ev.model.elements.get(el_id)
+            cdef = ev.model.cdef_of.get(el_id)
+            out.append(DutyPart(elementId=el_id, label=el.label if el else el_id,
+                                kind=cdef.id if cdef else "", rows=rows))
+    return out
+
+
+def limit_report(lanes: list, t_end: float) -> Optional[LimitReport]:
+    if not lanes or t_end <= 0:
+        return None
+    out = []
+    for lane in lanes:
+        changes = lane.changes
+        if len(changes) > MAX_CHANGES:
+            changes = _binned(changes, t_end, MAX_CHANGES)
+        out.append(LimitLane(
+            label=lane.label, elementIds=lane.element_ids,
+            changes=[[t, c] for t, c in changes],
+            seconds={LIMIT_STATES[i]: round(v, 4) for i, v in enumerate(lane.seconds) if v > 0}))
+    return LimitReport(states=LIMIT_STATES, lanes=out, tEnd=round(t_end, 4))
 
 
 def _engine_full(ec) -> bool:
