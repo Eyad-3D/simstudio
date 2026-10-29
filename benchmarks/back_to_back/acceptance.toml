@@ -137,6 +137,20 @@ base = "bev-car/case-city"
 change = "the module lightsim_engine hidden from the import"
 expect = "refuse:NEW-MISSING"
 
+# a battery's Output Power Limit only checked, which the verdict judges on
+# the averaged peak: META's cases with a battery check (added 2026-10-29,
+# see the changes)
+[[item]]
+id = "bev-car/case-city-checked"
+base = "bev-car/case-city"
+change = "the battery's Output Power Limit 23 kW, only checked (not enforced), averaged over 0.5 s"
+expect = "run"
+[[item]]
+id = "bev-car/case-city-checked-w0"
+base = "bev-car/case-city"
+change = "the battery's Output Power Limit 23.6 kW, only checked, with no averaging window"
+expect = "run"
+
 # ---------------------------------------------------------------------------
 # The lines. Each names its judge (rule 3: not made by the implementer or
 # the owner; our own tests are guards only).
@@ -223,7 +237,8 @@ judge = "today's engine's verdict on the same broken model (a separate code path
 id = "META"
 what = "Metamorphic: the verdict does not depend on the output step or the tolerance"
 cases = """
-On the new path: bev-car/case-city, bev-car/case-wltc, fs-electric/case-accel-75m, and the faults \
+On the new path: bev-car/case-city, bev-car/case-wltc, fs-electric/case-accel-75m, \
+bev-car/case-city-checked, bev-car/case-city-checked-w0, and the faults \
 bev-car:el-motor.torque_scale_pct:div100, bev-car:el-vehicle.mass_kg:x100, \
 fs-electric:el-motor.torque_scale_pct:div100, fs-electric:el-battery.internal_resistance_ohm:x100; \
 each at the case's own output step times 0.1, 1 and 5 (a cycle case: 0.1, 1 and 5 s) at rtol 1e-6, and \
@@ -493,6 +508,37 @@ reason = """The new path books what a gear shift's impulse takes as the gearbox'
 RunContext.carry_over: "the kinetic energy that loses is the gearbox's loss"); the engine's books keep it apart \
 from the heat (event and impulse losses), so lost_J alone leaves the hybrid's shifts out. Written before the \
 evidence part's first measured run."""
+
+[[changes]]
+date = "2026-10-29"
+line = "META"
+change = """Two cases added to the set, and as items to B2B: bev-car/case-city with its battery's Output Power Limit \
+only checked, 23 kW averaged over 0.5 s (bev-car/case-city-checked), and 23.6 kW with no averaging window \
+(bev-car/case-city-checked-w0); both are flagged by today's engine (23.5 and 23.6 kW)."""
+reason = """The evidence part's review found the battery check's averaged peak taken from the output grid's means \
+(a success at an output step of 5 s, where 0.1 and 1 s and today's engine warn), which none of the five cases \
+had a battery check to show. Written before the next measured run (baseline-7's records have no runs of them)."""
+
+[[changes]]
+date = "2026-10-29"
+line = "ENERGY"
+change = """E3 is "vacuous" when every item passes and none met a limit on either side, and ENERGY is "vacuous" when \
+its parts pass but one is vacuous; neither is a pass. Its pass mark is not changed for a stretch where the \
+forward car falls behind the cycle and fast mode, which drives it exactly, cannot: such a case is still to be \
+registered (engine/STATUS.md)."""
+reason = """Baseline-7 reported ENERGY "pass" on an E3 whose eight items met no limit on either side (met_a_limit 0), \
+which cannot fail; META's pass mark already counts that case as vacuous. The one probe that meets a limit (a 15 kW \
+cap on bev-car) fails E3's mark, its limited stretches ending up to 20 s later than fast mode's while the forward \
+car catches up the cycle: registering it needs a pass mark for that, which is open."""
+
+[[changes]]
+date = "2026-10-29"
+line = "FAULTS"
+change = """The report lists the flips beside the violations and the hidden: a planted fault today's engine passes \
+and the new path warns or fails on (not refused). They are counted, not in the pass mark."""
+reason = """The evidence part's review found such a case (an enforced 80 kW cap held to the solver's tolerance read as \
+broken, fs-electric with no internal resistance, itself a planted fault) counted nowhere. A flip can be the new \
+engine's own physics, which B2B classes; FAULTS lists them so that none goes unseen."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)

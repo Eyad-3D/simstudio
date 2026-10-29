@@ -261,7 +261,9 @@ def faults(out: Path) -> dict:
         rows.append({"fault": fault, "checks": t["checks"], "today": today, "new": new, "refused": code,
                      "new_without_notes": bare, "engine_notes": notes,
                      "violation": today in ("failed", "warning") and new == "success",
-                     "hidden": today in ("failed", "warning") and new == "warning" and bare == "success"})
+                     "hidden": today in ("failed", "warning") and new == "warning" and bare == "success",
+                     # the other way: the new path warns or fails a model today's engine passes
+                     "flip": today == "success" and new in ("failed", "warning") and not code})
     mut_path = out / "mutation.json"
     mut = json.loads(mut_path.read_text(encoding="utf-8")) if mut_path.exists() else None
     done = [r for r in rows if not r.get("missing")]
@@ -272,6 +274,7 @@ def faults(out: Path) -> dict:
     state = "pass" if not viol and not hidden and mut_ok and len(done) == len(rows) else "fail"
     return {"state": state, "faults": len(rows), "measured": len(done),
             "today_fails_or_warns": len(flagged), "violations": viol, "hidden": hidden,
+            "flips": [r["fault"] for r in done if r["flip"]],
             "refused": dict(Counter(r["refused"] for r in done if r["refused"])),
             "today": dict(Counter(r["today"] for r in done)), "new": dict(Counter(r["new"] for r in done)),
             "engine_notes": dict(Counter(c for r in done for c in r["engine_notes"])),
@@ -382,6 +385,7 @@ def energy(out: Path, b: dict) -> dict:
     e3 = e3_rows(out)
     parts = [x["state"] for x in e1] + [e2["state"], e3["state"]]
     state = ("pass" if all(s == "pass" for s in parts) else
+             "vacuous" if all(s in ("pass", "vacuous") for s in parts) else
              "cannot be measured" if all(s == "cannot be measured" for s in parts) else "fail")
     return {"state": state, "E1": e1, "E2": e2, "E3": e3}
 
@@ -437,12 +441,12 @@ def e3_rows(out: Path) -> dict:
                      "fast_flagged_s": sum(b - a for a, b in theirs),
                      "lanes": ours[:20], "fast": theirs[:20]})
     states = {r["state"] for r in rows}
+    met = sum(1 for r in rows if r.get("lanes_limited_s") or r.get("fast_flagged_s"))
+    # where no lane meets a limit and fast mode flags nothing, the rows agree on nothing being
+    # limited, which cannot fail: vacuous, as META's pass mark counts it
     state = ("not measured" if not rows or states == {"not measured"} else
-             "pass" if states == {"pass"} else "fail")
-    # (where no lane meets a limit and fast mode flags nothing, the rows agree on nothing being
-    # limited: the report says how many lanes met one)
-    return {"state": state, "rows": rows,
-            "met_a_limit": sum(1 for r in rows if r.get("lanes_limited_s") or r.get("fast_flagged_s"))}
+             ("pass" if met else "vacuous") if states == {"pass"} else "fail")
+    return {"state": state, "rows": rows, "met_a_limit": met}
 
 
 def stream(out: Path) -> dict:
@@ -758,7 +762,9 @@ def markdown(report: dict) -> str:
             f"Today: {f['today']}. New path: {f['new']}. Refused: {f['refused']}. Engine notes on the new runs: "
             f"{f['engine_notes']}.", "", f"Mutation: {f['mutation']}.", "",
             "Violations: " + (", ".join(f["violations"]) or "none") + ".", "",
-            "Hidden: " + (", ".join(f["hidden"]) or "none") + "."]
+            "Hidden: " + (", ".join(f["hidden"]) or "none") + ".", "",
+            "Flips (today's engine passes, the new path warns or fails; counted, not in the pass mark): "
+            + (", ".join(f.get("flips", [])) or "none") + "."]
     m = L["META"]
     out += ["", "## META", "", f"{sum(r['same'] for r in m['rows'])} of {len(m['rows'])} the same at every setting; "
             f"something judged: {m['judged_something']}."]

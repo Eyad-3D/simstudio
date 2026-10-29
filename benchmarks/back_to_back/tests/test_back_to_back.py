@@ -37,10 +37,12 @@ def test_the_acceptance_file_names_every_line_and_code():
     assert set(acc["codes"]) == set(new_engine.CODES)
     for item in acc["item"]:
         assert item["expect"] == "run" or item["expect"].removeprefix("refuse:") in acc["codes"]
-    assert len(acc["item"]) == 24
+    assert len(acc["item"]) == 26
     assert len(runs.fault_ids()) == 160 + 27 * 4
     cases, faults = runs.meta_set()
-    assert len(cases) == 3 and len(faults) == 4
+    assert len(cases) == 5 and len(faults) == 4
+    # (two of them with a checked battery limit, averaged over 0.5 s and over none)
+    assert {"bev-car/case-city-checked", "bev-car/case-city-checked-w0"} <= set(cases)
 
 
 # ---- ANALYTIC ---------------------------------------------------------------------
@@ -1061,8 +1063,9 @@ def test_all_runs_every_part_the_baseline_ran():
     from benchmarks.back_to_back.__main__ import parser
     parts = parser().parse_args(["all", "OUT"]).parts
     # the baseline's jobs, the sine probe's two among them, and (since the evidence part) fast mode
-    # on the BEVs' eight cycle items for E3
-    assert len(runs.specs(set(parts.split(",")))) == 631 + 8
+    # on the BEVs' eight cycle items for E3, and (since the evidence part's review) the two items
+    # with a battery check, on both engines and at META's three settings
+    assert len(runs.specs(set(parts.split(",")))) == 631 + 8 + 2 * (3 + 3)
 
 
 def test_a_record_another_code_made_is_run_again(tmp_path):
@@ -1386,9 +1389,42 @@ def test_e3_judges_the_lanes_stretches_at_a_limit_against_fast_mode(tmp_path, mo
     assert report.e3_rows(tmp_path)["state"] == "fail"  # a stretch fast mode does not flag
     _write(tmp_path, spec_new, **new_run([[0.0, 6], [300.1, 0], [330.0, 6]]))
     got = report.e3_rows(tmp_path)
-    assert got["state"] == "pass" and got["met_a_limit"] == 0  # nothing limited, nothing flagged
+    # nothing limited, nothing flagged: they agree on nothing, which cannot fail (before: "pass")
+    assert got["state"] == "vacuous" and got["met_a_limit"] == 0
     assert report.lane_limits({"states": states, "tEnd": 10.0, "lanes": [
         {"changes": [[0.0, 3], [2.0, 4], [5.0, 6], [8.0, 1]]}]}) == [[0.0, 5.0], [8.0, 10.0]]
+
+
+def test_energy_with_a_vacuous_e3_is_not_a_pass(tmp_path, monkeypatch):
+    """ENERGY passes only when each of its parts does: E3 agreeing on
+    nothing limited makes the line vacuous, not a pass (before: "pass" on
+    eight items none of which met a limit on either side)."""
+    monkeypatch.setattr(report, "e3_rows", lambda out: {"state": "vacuous", "rows": [], "met_a_limit": 0})
+    b = {"items": []}
+    sine = runs.SINE
+    rms = (sine["P0"] ** 2 + sine["A"] ** 2 / 2) ** 0.5
+    duty = [{"elementId": "el-battery", "rows": [{"quantity": "Power", "rms": rms}]}]
+    for setting in ("today-normal", "new"):
+        _write(tmp_path, {"kind": "probe", "id": "energy/sine", "setting": setting},
+               result=_result(duty=duty))
+    assert report.energy(tmp_path, b)["state"] == "vacuous"
+
+
+def test_faults_lists_a_model_only_the_new_path_flags(tmp_path, monkeypatch):
+    """FAULTS lists the flips beside the violations: a planted fault today's
+    engine passes and the new path warns or fails on (an enforced cap held
+    to the solver's tolerance read as broken, the evidence part's review),
+    which neither the violations nor the hidden counted."""
+    flip, same = "fs-electric:el-battery.internal_resistance_ohm:zero", "bev-car:el-motor"
+    monkeypatch.setattr(runs, "fault_ids", lambda: [flip, same])
+    for fid, status in ((flip, "warning"), (same, "success")):
+        _write(tmp_path, {"kind": "fault", "id": fid, "setting": "today-normal"}, checks=[],
+               result=_result())
+        _write(tmp_path, {"kind": "fault", "id": fid, "setting": "new"}, result=_result(
+            status=status, messages=[{"level": "warning" if status == "warning" else "info",
+                                      "text": "Battery 'Accumulator' broke its Output Power Limit"}]))
+    got = report.faults(tmp_path)
+    assert got["flips"] == [flip] and got["violations"] == [] and got["hidden"] == []
 
 
 def test_the_e3_cases_are_the_bevs_cycle_cases():

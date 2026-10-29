@@ -100,7 +100,19 @@ def item_project(item: dict, scratch: Path) -> tuple[dict, str, dict]:
         _add_test_fmu(project, scratch)
     elif iid == "probe/no-module":
         how["hide_module"] = True
+    elif iid in CHECKED:  # (the META line's battery checks)
+        _element(project, "el-battery").setdefault("parameterOverrides", {}).update(CHECKED[iid])
     return project, case_id, how
+
+
+# the items with a battery's Output Power Limit only checked, which its
+# verdict judges on the averaged peak (META, since the evidence part's review)
+CHECKED = {
+    "bev-car/case-city-checked": {"output_power_limit_kW": 23.0, "power_limit_window_s": 0.5,
+                                  "power_limit_enforced": False},
+    "bev-car/case-city-checked-w0": {"output_power_limit_kW": 23.6, "power_limit_window_s": 0.0,
+                                     "power_limit_enforced": False},
+}
 
 
 def _add_test_fmu(project: dict, scratch: Path) -> None:
@@ -175,11 +187,11 @@ def sine_project() -> tuple[dict, str]:
 def fast_items() -> list[str]:
     """The ENERGY line's E3 cases, "the BEVs' cycle cases against fast mode":
     the battery-electric cars' cycle items the new path runs (not the live
-    one, which it streams)."""
+    one, which it streams, nor one changed from its example's case)."""
     out = []
     for item in items():
         name, case_id = item.get("base", item["id"]).split("/")
-        if name not in ("bev-car", "aero-bev") or item["id"].startswith("probe/"):
+        if name not in ("bev-car", "aero-bev") or item["id"].startswith("probe/") or "base" in item:
             continue
         case = _case(example(name), case_id)
         if case.get("kind", "cycle") == "cycle" and not (case.get("realtimeFactor") or 0) > 0:
