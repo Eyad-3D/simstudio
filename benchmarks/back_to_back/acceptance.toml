@@ -37,6 +37,13 @@ NEW-BUILD = "today's model builder refused the model before the new engine saw i
 NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow in the message)"
 NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
 
+# Notes' codes. A note of the new engine's path saying that something of a
+# run it ran is not judged by the verdict carries one of these; B2B and
+# FAULTS count them by code, and STRICT fails on a [NEW-...] code in any
+# message that neither section lists (added 29 October: [[changes]]).
+[note_codes]
+NEW-TABLE-NOT-JUDGED = "a table the run read past its data that today's engine does not read as a part's data (a Driving Task's profile run past its end): a note, not judged"
+
 # ---------------------------------------------------------------------------
 # The items of the back-to-back diff: the 16 example cases, and probes that
 # reach the rest of the path. `expect` is what the new engine's path must
@@ -539,6 +546,16 @@ and the new path warns or fails on (not refused). They are counted, not in the p
 reason = """The evidence part's review found such a case (an enforced 80 kW cap held to the solver's tolerance read as \
 broken, fs-electric with no internal resistance, itself a planted fault) counted nowhere. A flip can be the new \
 engine's own physics, which B2B classes; FAULTS lists them so that none goes unseen."""
+
+[[changes]]
+date = "2026-10-29"
+line = "STRICT"
+change = """A [note_codes] section beside [codes], listing NEW-TABLE-NOT-JUDGED: B2B and FAULTS count each run's \
+notes by their code, and STRICT fails on a [NEW-...] code in any message of a new-path run (not only its first) \
+that neither section lists."""
+reason = """The evidence part's second review found the path's note NEW-TABLE-NOT-JUDGED, which leaves a record of \
+the run out of the verdict, in no section and counted by no line: rule 8 wants every such skip coded and counted. \
+No pass mark is loosened."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)

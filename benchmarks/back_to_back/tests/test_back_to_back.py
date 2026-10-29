@@ -35,6 +35,7 @@ def test_the_acceptance_file_names_every_line_and_code():
     for line in acc["line"]:
         assert all(line.get(k) for k in ("what", "cases", "measure", "pass_mark", "judge")), line["id"]
     assert set(acc["codes"]) == set(new_engine.CODES)
+    assert set(acc["note_codes"]) == set(new_engine.NOTE_CODES) and not set(acc["note_codes"]) & set(acc["codes"])
     for item in acc["item"]:
         assert item["expect"] == "run" or item["expect"].removeprefix("refuse:") in acc["codes"]
     assert len(acc["item"]) == 26
@@ -1425,6 +1426,35 @@ def test_faults_lists_a_model_only_the_new_path_flags(tmp_path, monkeypatch):
                                       "text": "Battery 'Accumulator' broke its Output Power Limit"}]))
     got = report.faults(tmp_path)
     assert got["flips"] == [flip] and got["violations"] == [] and got["hidden"] == []
+
+
+def test_a_note_of_what_the_verdict_does_not_judge_is_counted_by_its_code(tmp_path, monkeypatch):
+    """The path's note that a record of the run is not judged (the second
+    review of the evidence part: in no section, counted by no line) is
+    counted by its code in B2B and FAULTS, and STRICT fails on a code in a
+    message that no section lists, not only in a refusal's."""
+    note = {"level": "info", "text": "'Vehicle Task' profile: the new engine read it past its data on axis 1 "
+                                     "... so the verdict does not judge it [NEW-TABLE-NOT-JUDGED]."}
+    item, fault = {"id": "bev-car/case-wltc", "expect": "run"}, "bev-car:el-motor"
+    monkeypatch.setattr(runs, "items", lambda: [item])
+    monkeypatch.setattr(runs, "fault_ids", lambda: [fault])
+    ran = {"level": "info", "text": "Run on the new engine (LIGHTSIM_ENGINE=new)."}
+    _write(tmp_path, {"kind": "item", "id": item["id"], "setting": "new"},
+           result=_result(caseId="case-wltc", messages=[ran, note]))
+    _write(tmp_path, {"kind": "fault", "id": fault, "setting": "today-normal"}, checks=[], result=_result())
+    _write(tmp_path, {"kind": "fault", "id": fault, "setting": "new"}, result=_result(messages=[
+        ran, note, {"level": "info", "text": "something else not judged [NEW-SOMETHING-ELSE]"}]))
+    b = report.b2b(tmp_path)
+    assert b["notes"] == {"NEW-TABLE-NOT-JUDGED": 1} == b["items"][0]["notes"]
+    f = report.faults(tmp_path)
+    assert f["notes"] == {"NEW-TABLE-NOT-JUDGED": 1} == f["rows"][0]["notes"]
+    s = report.strict(tmp_path, b)
+    assert [x["why"].split(":")[0] for x in s["bad"]] == ["code NEW-SOMETHING-ELSE is not listed"]
+    assert s["state"] == "fail"
+    lines = {**_lines(b), "FAULTS": f}
+    md = report.markdown({"lines": lines, "made_by": [], "fingerprint": {
+        "commit": "0" * 10, "dirty": False, "python": "", "lightsim_engine": "", "cpu": ""}})
+    assert md.count("NEW-TABLE-NOT-JUDGED") == 2  # (B2B's and FAULTS')
 
 
 def test_the_e3_cases_are_the_bevs_cycle_cases():

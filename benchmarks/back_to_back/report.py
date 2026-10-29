@@ -73,6 +73,14 @@ def _ok(rec: dict | None) -> bool:
     return bool(rec) and "result" in rec
 
 
+def note_counts(result: dict | None) -> Counter:
+    """A run's notes of what the verdict does not judge, by their code
+    (acceptance.toml's [note_codes])."""
+    listed = runs.ACCEPTANCE["note_codes"]
+    return Counter(code for m in (result or {}).get("messages") or []
+                   for code in CODE.findall(m["text"]) if code in listed)
+
+
 # ---- B2B --------------------------------------------------------------------
 
 def wires(project: dict, case_id: str) -> dict[str, tuple[list[str], str | None]]:
@@ -112,7 +120,7 @@ def b2b(out: Path) -> dict:
                else got == "run",
                "today": {s: (rec[s]["result"]["status"] if _ok(rec[s]) else rec[s] and rec[s].get("crashed"))
                          for s in ("today-normal", "today-fine")},
-               "new_status": new and new["status"], "classes": {},
+               "new_status": new and new["status"], "classes": {}, "notes": dict(note_counts(new)),
                # today's two runs are the reference: an item without either is not judged
                "reference": _ok(rec["today-normal"]) and _ok(rec["today-fine"])}
         if got == "run" and row["reference"]:
@@ -152,6 +160,7 @@ def b2b(out: Path) -> dict:
     return {"state": state, "items": rows, "as_expected": expected, "of": len(rows),
             "missing_reference_run": unjudged, "unbalanced_ledger": unbalanced,
             "differences": len(all_diffs), "by_class": dict(by_class),
+            "notes": dict(sum((Counter(r["notes"]) for r in rows), Counter())),
             "by_rule": {f"{c} {r}": k for (c, r), k in sorted(by_rule.items(), key=str)},
             "unclassified_by_field": dict(Counter(f"{d['item']} | {d['field']} | {d['what']}"
                                                   for d in unclassified).most_common()),
@@ -167,6 +176,7 @@ def _all_records(out: Path):
 
 def strict(out: Path, b: dict) -> dict:
     codes = set(runs.ACCEPTANCE["codes"])
+    listed = codes | set(runs.ACCEPTANCE["note_codes"])
     seen, bad = Counter(), []
     for path, rec in _all_records(out):
         spec = rec.get("spec", {})
@@ -176,6 +186,10 @@ def strict(out: Path, b: dict) -> dict:
             bad.append({"job": spec, "why": f"the run's process ended without a result ({rec.get('crashed')})"})
             continue
         code = refusal(rec["result"])
+        # a code in any other of its messages, a note's among them, is a listed one
+        for m in (rec["result"].get("messages") or [])[1 if code else 0:]:
+            bad += [{"job": spec, "why": f"code {c} is not listed: {m['text'][:120]}"}
+                    for c in CODE.findall(m["text"]) if c not in listed]
         if code is None:
             continue
         seen[code] += 1
@@ -260,6 +274,7 @@ def faults(out: Path) -> dict:
         notes = sorted({d["code"] for d in (v.get("engine") or {}).get("build_warnings", [])})
         rows.append({"fault": fault, "checks": t["checks"], "today": today, "new": new, "refused": code,
                      "new_without_notes": bare, "engine_notes": notes,
+                     "notes": dict(note_counts(v["result"])),
                      "violation": today in ("failed", "warning") and new == "success",
                      "hidden": today in ("failed", "warning") and new == "warning" and bare == "success",
                      # the other way: the new path warns or fails a model today's engine passes
@@ -278,6 +293,7 @@ def faults(out: Path) -> dict:
             "refused": dict(Counter(r["refused"] for r in done if r["refused"])),
             "today": dict(Counter(r["today"] for r in done)), "new": dict(Counter(r["new"] for r in done)),
             "engine_notes": dict(Counter(c for r in done for c in r["engine_notes"])),
+            "notes": dict(sum((Counter(r["notes"]) for r in done), Counter())),
             "mutation": mut and {k: mut[k] for k in ("tool", "mutants", "by_state", "complete")}
             | {"survived": len(mut["survived"]), "without_reason": len(mut["without_reason"])},
             "rows": rows}
@@ -730,7 +746,9 @@ def markdown(report: dict) -> str:
                    f"{r['today']['today-normal']} / {r['today']['today-fine']} | {r['new_status']} | "
                    f"{c.get('a', '')} | {c.get('b', '')} | {c.get('c', '')} | {c.get('unclassified', '')} |")
     out += ["", "Items without today's two reference runs (not judged): "
-            + (", ".join(b["missing_reference_run"]) or "none") + "."]
+            + (", ".join(b["missing_reference_run"]) or "none") + ".", "",
+            "Notes of what the verdict does not judge, by code ([note_codes]): "
+            + (", ".join(f"{k} {v}" for k, v in sorted(b.get("notes", {}).items())) or "none") + "."]
     out += ["", "Each compared item's ledger: every leaf of the union of today's two runs and the new run, "
             "compared (both today's 1 ms run and the new run have it), by source (a leaf of a channel only the "
             "new run records, compared with the port the data bus wires to it), 10 ms only (compared, and "
@@ -760,7 +778,8 @@ def markdown(report: dict) -> str:
             f"{f['today_fails_or_warns']}; violations (today fails or warns, the new path says success): "
             f"{len(f['violations'])}; hidden by the engine's preparation notes: {len(f['hidden'])}.", "",
             f"Today: {f['today']}. New path: {f['new']}. Refused: {f['refused']}. Engine notes on the new runs: "
-            f"{f['engine_notes']}.", "", f"Mutation: {f['mutation']}.", "",
+            f"{f['engine_notes']}. Notes of what the verdict does not judge, by code: {f.get('notes', {})}.",
+            "", f"Mutation: {f['mutation']}.", "",
             "Violations: " + (", ".join(f["violations"]) or "none") + ".", "",
             "Hidden: " + (", ".join(f["hidden"]) or "none") + ".", "",
             "Flips (today's engine passes, the new path warns or fails; counted, not in the pass mark): "
