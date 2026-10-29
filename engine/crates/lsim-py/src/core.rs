@@ -219,6 +219,9 @@ pub struct RunOptions {
     /// channels sampled from the dense output at times of their own
     /// ([`lsim_solve::SolverOptions::trace`]; [`trace_channels`] finds them)
     pub trace: Option<TraceSpec>,
+    /// `(channel, window s)` whose highest moving average to keep
+    /// ([`lsim_solve::SolverOptions::windows`])
+    pub windows: Vec<(usize, f64)>,
 }
 
 /// The most output points a run records.
@@ -241,6 +244,7 @@ impl Default for RunOptions {
             t_end: None,
             native_scripts: true,
             trace: None,
+            windows: vec![],
         }
     }
 }
@@ -264,6 +268,9 @@ impl RunOptions {
         }
         if let Some(tr) = &self.trace {
             positive("trace_step", tr.step)?;
+        }
+        if let Some(&(_, w)) = self.windows.iter().find(|(_, w)| !(w.is_finite() && *w >= 0.0)) {
+            return Err(Failure::Value(format!("a window must be 0 s or more, not {w}.")));
         }
         Ok(())
     }
@@ -311,6 +318,8 @@ pub struct RunOutput {
     pub scripts: Vec<(String, &'static str)>,
     /// the names the trace was asked for by, in its order
     pub trace_names: Option<Vec<String>>,
+    /// the names the windows were asked for by, in their order
+    pub window_names: Vec<String>,
 }
 
 /// A run's sampled blocks' hosts.
@@ -393,8 +402,13 @@ pub fn run(
         if let Some(tr) = &o.trace {
             RunOptions::check_grid(t_end, tr.step, tr.channels.len())?;
         }
-        let opts =
-            SolverOptions { rtol: o.rtol, atol: o.atol, trace: o.trace.clone(), ..Default::default() };
+        let opts = SolverOptions {
+            rtol: o.rtol,
+            atol: o.atol,
+            trace: o.trace.clone(),
+            windows: o.windows.clone(),
+            ..Default::default()
+        };
         let scripts = std::cell::RefCell::new(vec![]);
         let go = |t_end: f64| -> Result<SimResult, Failure> {
             let grid = OutputGrid { t0: 0.0, t_end, dt: output_step };
@@ -440,6 +454,7 @@ pub fn run(
             output_step,
             scripts: scripts.into_inner(),
             trace_names: None,
+            window_names: vec![],
         })
     })
 }

@@ -11,10 +11,10 @@
 //! model.report                                              # sizes, times, cache hit, warnings
 //! model.set_params({"el-battery.Q": 756000.0})              # runtime, no rebuild
 //! run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
-//!                      native_scripts=True, trace=None, trace_step=0.1)
+//!                      native_scripts=True, trace=None, trace_step=0.1, windows=None)
 //! run.times, run.channels["el-battery:sig_soc"]             # NumPy arrays, today's names
 //! run.min / run.max / run.mean / run.events / run.report / run.energy / run.figures
-//! run.integrals / run.trace / run.table_outside             # the evidence for the verdict
+//! run.integrals / run.trace / run.windows / run.table_outside  # the evidence for the verdict
 //! runs = model.sweep([{…}, {…}], threads=4)                 # parallel, GIL released
 //! le.diagnose(project_json, case_id)                        # structural and unit checks
 //! ```
@@ -468,16 +468,38 @@ impl Run {
         d.set_item("times", copy(py, &tr.times, || "the trace's times".into())?)?;
         for (name, values) in names.iter().zip(&tr.values) {
             let unit = core::trace_unit(&self.built, name);
-            let v = core::copied(values, unit, || format!("the trace of {name}")).map_err(no_room)?;
+            let v =
+                core::copied(values, unit, || format!("the trace of {name}")).map_err(no_room)?;
             d.set_item(name, array(py, v))?;
         }
         Ok(Some(d))
     }
 
+    /// The highest moving averages `simulate(windows=...)` asked for: a
+    /// dict by each name asked for of dicts with `window` (s), `peak` (a
+    /// channel in its display unit, an engine variable in SI; the line
+    /// through every point the integrator visited, read at each, nothing
+    /// before the start; −inf for a run with no point) and `t` (when the
+    /// window it was over ended, s).
+    #[getter]
+    fn windows<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let out = PyDict::new(py);
+        for (name, w) in self.out.window_names.iter().zip(&self.out.result.windows) {
+            let unit = core::trace_unit(&self.built, name);
+            out.set_item(
+                name,
+                float_dict(py, &[("window", w.window), ("peak", unit(w.peak)), ("t", w.t)])?,
+            )?;
+        }
+        Ok(out)
+    }
+
     /// Each table axis the run read outside its data (on an axis whose
     /// setting lets the run go on): dicts with `table`, `part` (the element
-    /// id, or None), `axis` (0 or 1), `first` and `total` (s), and in SI
-    /// `furthest` (the axis argument furthest outside at the steps' ends,
+    /// id, or None), `axis` (0 or 1), `first` and `total` (s), and in the
+    /// unit the engine reads the axis in (SI, but the climate demand's
+    /// outside temperature in °C) `furthest` (the axis argument furthest
+    /// outside at the steps' ends,
     /// NaN when not seen), `edge` (the data's edge it was past), `t_furthest`,
     /// `lo` and `hi` (the axis's first and last point), and `warning` (the
     /// run's words for it, among `report["warnings"]`).
@@ -637,7 +659,7 @@ fn run_options(
     t_end: Option<f64>,
     native_scripts: bool,
 ) -> RunOptions {
-    RunOptions { rtol, atol, output_step, t_end, native_scripts, trace: None }
+    RunOptions { rtol, atol, output_step, t_end, native_scripts, trace: None, windows: vec![] }
 }
 
 #[pymethods]
@@ -747,7 +769,9 @@ impl Model {
     /// (today's `element:port`, or the engine's own variables) to sample
     /// from the dense output every `trace_step` s and at the run's end,
     /// besides the output grid and without changing it (`run.trace`).
-    #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true, trace=None, trace_step=0.1))]
+    /// `windows` maps names of the same kind to a span of time, s (0 or
+    /// more), whose highest moving average to keep (`run.windows`).
+    #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true, trace=None, trace_step=0.1, windows=None))]
     #[allow(clippy::too_many_arguments)]
     fn simulate(
         &self,
@@ -760,6 +784,7 @@ impl Model {
         native_scripts: bool,
         trace: Option<Vec<String>>,
         trace_step: f64,
+        windows: Option<BTreeMap<String, f64>>,
     ) -> PyResult<Run> {
         let scripts = scripts_of(scripts)?;
         core::check_script_keys(&self.built, scripts.keys()).map_err(|f| to_err(py, f))?;
@@ -771,9 +796,14 @@ impl Model {
             let channels = core::trace_channels(&built, names).map_err(|f| to_err(py, f))?;
             opts.trace = Some(lsim_solve::TraceSpec { step: trace_step, channels });
         }
+        let (window_names, spans): (Vec<String>, Vec<f64>) =
+            windows.unwrap_or_default().into_iter().unzip();
+        let channels = core::trace_channels(&built, &window_names).map_err(|f| to_err(py, f))?;
+        opts.windows = channels.into_iter().zip(spans).collect();
         let mut out =
             py.detach(|| core::run(&built, &params, &opts, &factory)).map_err(|f| to_err(py, f))?;
         out.trace_names = trace;
+        out.window_names = window_names;
         Ok(Run::new(built, out))
     }
 

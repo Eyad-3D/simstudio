@@ -2068,6 +2068,15 @@ fn run_watched<'a>(
         let at = OutputGrid { t0: grid.t0, t_end, dt: tr.step }.times()?;
         rec = rec.with_trace(at, tr.channels.clone())?;
     }
+    if let Some(&(c, w)) =
+        opts.windows.iter().find(|&&(c, w)| c >= l.n_vars || !(w.is_finite() && w >= 0.0))
+    {
+        return Err(SolveError::Integrator {
+            t: grid.t0,
+            message: format!("a window of {w} s asked for channel {c} of {}", l.n_vars),
+        });
+    }
+    rec = rec.with_windows(&opts.windows);
     let mut lp = Loop {
         model,
         info,
@@ -3418,6 +3427,7 @@ fn run_watched<'a>(
         square_integral: recd.square,
         magnitude_integral: recd.magnitude,
         trace: recd.trace,
+        windows: recd.windows,
         events: lp.events,
         stats: report.stats,
         backend: integ.name(),

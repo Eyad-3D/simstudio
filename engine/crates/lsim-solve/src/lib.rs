@@ -50,7 +50,7 @@ pub use info::{
     InputChain, ModeInfo, RunInfo, SetReads, StateSetInfo, StoredRates, TimeCrossing, TimeFunction,
     VarSource,
 };
-pub use recorder::{Recorded, Recorder, Traced};
+pub use recorder::{Recorded, Recorder, Traced, WindowPeak};
 pub use run::run_loop;
 pub use sweep::sweep;
 
@@ -283,6 +283,11 @@ pub struct SolverOptions {
     /// trace for its verdict, independent of the output step:
     /// [`SimResult::trace`]); `None`, the default: no trace
     pub trace: Option<TraceSpec>,
+    /// `(channel, window s)`: keep each channel's highest moving average
+    /// over its window, of the line through every point the integrator
+    /// visited, read at each ([`SimResult::windows`]; a battery's averaged
+    /// power peak, independent of the output step); empty by default
+    pub windows: Vec<(usize, f64)>,
 }
 
 /// Channels to sample from the dense output every `step` s from the
@@ -323,6 +328,7 @@ impl Default for SolverOptions {
             tick_read_ahead: true,
             state_switch: STATE_SWITCH,
             trace: None,
+            windows: vec![],
         }
     }
 }
@@ -803,6 +809,9 @@ pub struct SimResult {
     pub magnitude_integral: Vec<f64>,
     /// the channels [`SolverOptions::trace`] asked for, at its times
     pub trace: Option<Traced>,
+    /// the highest moving averages [`SolverOptions::windows`] asked for,
+    /// in its order
+    pub windows: Vec<WindowPeak>,
     /// the events, in order
     pub events: Vec<EventRecord>,
     /// work counters

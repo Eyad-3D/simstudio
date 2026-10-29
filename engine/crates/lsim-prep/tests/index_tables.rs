@@ -1064,7 +1064,11 @@ fn a_table_read_past_its_data_is_told_in_numbers() {
             sub("r", "Electrical.Resistor", &[("R", c(2.0))]),
             sub("gnd", "Electrical.Ground", &[]),
         ],
-        connections: vec![connect("src.p", "r.p"), connect("src.n", "r.n"), connect("src.n", "gnd.p")],
+        connections: vec![
+            connect("src.p", "r.p"),
+            connect("src.n", "r.n"),
+            connect("src.n", "gnd.p"),
+        ],
         ..Default::default()
     };
     let (m, _) = prepare(&top);
@@ -1076,7 +1080,8 @@ fn a_table_read_past_its_data_is_told_in_numbers() {
     assert!(!guards.is_empty());
     let v = info.var_names.iter().position(|n| n == "src.v").expect("src.v");
     let run_with = |trace: Option<lsim_solve::TraceSpec>| {
-        let opts = lsim_solve::SolverOptions { rtol: 1e-8, atol: 1e-8, trace, ..Default::default() };
+        let opts =
+            lsim_solve::SolverOptions { rtol: 1e-8, atol: 1e-8, trace, ..Default::default() };
         let grid = lsim_solve::OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.4 };
         lsim_solve::simulate(&jit, &info, &opts, grid, &mut []).expect("runs")
     };
@@ -1111,4 +1116,31 @@ fn a_table_read_past_its_data_is_told_in_numbers() {
     let exact = 1.0 / 3.0 + 2.0;
     assert!((run.square_integral[v] - exact).abs() < 1e-8, "{}", run.square_integral[v]);
     assert!((run.magnitude_integral[v] - 2.5).abs() < 1e-8, "{}", run.magnitude_integral[v]);
+    // its highest moving averages over 0.5 s and 1 s (v = t to 1 s, then
+    // 1: each reaches 1 once its window holds only the held part) and its
+    // highest value, from every point visited; the grid the same to the bit
+    let opts = lsim_solve::SolverOptions {
+        rtol: 1e-8,
+        atol: 1e-8,
+        windows: vec![(v, 0.5), (v, 1.0), (v, 0.0)],
+        ..Default::default()
+    };
+    let grid = lsim_solve::OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.4 };
+    let windowed = lsim_solve::simulate(&jit, &info, &opts, grid, &mut []).expect("runs");
+    assert_eq!(windowed.values, plain.values);
+    let w = &windowed.windows;
+    assert_eq!(w.iter().map(|w| (w.channel, w.window)).collect::<Vec<_>>(), opts.windows);
+    assert!((w[0].peak - 1.0).abs() < 1e-8 && w[0].t >= 1.5 - 1e-8, "{w:?}");
+    assert!((w[1].peak - 1.0).abs() < 1e-8 && w[1].t >= 2.0 - 1e-8, "{w:?}");
+    assert!((w[2].peak - 1.0).abs() < 1e-8 && w[2].t >= 1.0 - 1e-8, "{w:?}");
+    // to 1 s: ∫ t dt = 0.5 over a window of 1 s, nothing before the start
+    let early = lsim_solve::simulate(
+        &jit,
+        &info,
+        &lsim_solve::SolverOptions { windows: vec![(v, 1.0)], ..opts.clone() },
+        lsim_solve::OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.4 },
+        &mut [],
+    )
+    .expect("runs");
+    assert!((early.windows[0].peak - 0.5).abs() < 1e-8, "{:?}", early.windows);
 }

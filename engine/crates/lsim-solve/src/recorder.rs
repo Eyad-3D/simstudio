@@ -15,7 +15,14 @@
 //! read from, at every step the integrator took and not at sampled ones.
 //! A trace ([`crate::SolverOptions::trace`]) samples a few channels at
 //! times of its own from the same dense output, besides the grid and
-//! without changing what the grid records.
+//! without changing what the grid records. A window
+//! ([`crate::SolverOptions::windows`]) keeps a channel's highest moving
+//! average over a span of time, of the same line through every point
+//! visited, read at each of them (a battery's power over its check's
+//! averaging window, as an energy meter's log has it: nothing before the
+//! start).
+
+use std::collections::VecDeque;
 
 /// Collects channels on the output grid.
 pub struct Recorder {
@@ -40,6 +47,65 @@ pub struct Recorder {
     trace: Option<Traced>,
     /// the next trace time to record
     trace_next: usize,
+    windows: Vec<Window>,
+}
+
+/// A channel's highest moving average over a window of time, of the line
+/// through every point the integrator visited, read at each of them, with
+/// no value before the run's start (it counts as 0 there); a window of 0
+/// s: the channel's highest value ([`crate::SolverOptions::windows`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct WindowPeak {
+    /// the channel (index of the flat variables)
+    pub channel: usize,
+    /// the window, s
+    pub window: f64,
+    /// the highest average (−∞ before any point)
+    pub peak: f64,
+    /// when the window it was over ended, s
+    pub t: f64,
+}
+
+/// A [`WindowPeak`] being kept: the points in its window and the one just
+/// before it, each with the line's integral from the start up to it.
+struct Window {
+    peak: WindowPeak,
+    pts: VecDeque<(f64, f64, f64)>,
+}
+
+impl Window {
+    fn add(&mut self, t: f64, x: f64) {
+        let w = self.peak.window;
+        let cum = self.pts.back().map_or(0.0, |&(ta, xa, ca)| ca + 0.5 * (xa + x) * (t - ta));
+        self.pts.push_back((t, x, cum));
+        let avg = if w > 0.0 {
+            let lo = t - w;
+            while self.pts.len() > 1 && self.pts[1].0 <= lo {
+                self.pts.pop_front();
+            }
+            // the integral up to the window's start: 0 before the first
+            // point (then the start's, whose integral is 0), else along the
+            // line from the point before it
+            let (ta, xa, ca) = self.pts[0];
+            let before = if lo <= ta {
+                ca
+            } else {
+                let (tb, xb, _) = self.pts[1];
+                let x_lo = xa + (xb - xa) * (lo - ta) / (tb - ta);
+                ca + 0.5 * (xa + x_lo) * (lo - ta)
+            };
+            (cum - before) / w
+        } else {
+            if self.pts.len() > 1 {
+                self.pts.pop_front(); // (only the last point is needed)
+            }
+            x
+        };
+        if avg > self.peak.peak {
+            self.peak.peak = avg;
+            self.peak.t = t;
+        }
+    }
 }
 
 /// Channels sampled at times of their own from the dense output (a run's
@@ -72,6 +138,8 @@ pub struct Recorded {
     pub magnitude: Vec<f64>,
     /// the trace, when one was asked for
     pub trace: Option<Traced>,
+    /// the windows asked for, in their order
+    pub windows: Vec<WindowPeak>,
 }
 
 impl Recorder {
@@ -113,7 +181,21 @@ impl Recorder {
             magnitude: vec![0.0; n],
             trace: None,
             trace_next: 0,
+            windows: vec![],
         })
+    }
+
+    /// The same, keeping also each `(channel, window)`'s highest moving
+    /// average ([`WindowPeak`]).
+    pub fn with_windows(mut self, windows: &[(usize, f64)]) -> Self {
+        self.windows = windows
+            .iter()
+            .map(|&(channel, window)| Window {
+                peak: WindowPeak { channel, window, peak: f64::NEG_INFINITY, t: 0.0 },
+                pts: VecDeque::new(),
+            })
+            .collect();
+        self
     }
 
     /// The same, sampling also the channels `channels` at `times`
@@ -166,6 +248,9 @@ impl Recorder {
             self.max[i].push(*x);
             self.mean[i].push(*x);
         }
+        for w in &mut self.windows {
+            w.add(t, v[w.peak.channel]);
+        }
         self.next = 1;
         self.reset(t, v);
     }
@@ -196,6 +281,9 @@ impl Recorder {
                 0.5 * (a * a + b * b) / (a.abs() + b.abs())
             };
             self.magnitude[i] += m * dt;
+        }
+        for w in &mut self.windows {
+            w.add(t, v[w.peak.channel]);
         }
         self.last.copy_from_slice(v);
         self.last_t = t;
@@ -247,6 +335,7 @@ impl Recorder {
             square: self.square,
             magnitude: self.magnitude,
             trace,
+            windows: self.windows.into_iter().map(|w| w.peak).collect(),
         }
     }
 }
@@ -280,7 +369,7 @@ mod tests {
         r.start(0.0, &[0.0]);
         for k in 1..n {
             let t = k as f64 / n as f64;
-            r.interior(t, &[(2.0 * std::f64::consts::PI * t).sin()]);
+            r.interior(t, &[lsim_ir::math::sin(2.0 * std::f64::consts::PI * t)]);
         }
         r.grid_point(1.0, &[0.0]);
         let got = r.finish();
@@ -337,6 +426,45 @@ mod tests {
         assert!(plain.trace.is_none());
         assert_eq!(plain.values, traced.values);
         assert_eq!(plain.max, vec![vec![0.0, 1.0, 2.0], vec![10.0, 11.0, 12.0]]);
+    }
+
+    /// A window's highest moving average is that of the line through the
+    /// points visited, read at each, with nothing before the start: a held
+    /// value reaches itself once the window is full, a pulse's area over a
+    /// window that holds it all, a window starting between two points reads
+    /// the line there; a window of 0 s is the highest value and its time.
+    #[test]
+    fn a_window_keeps_the_highest_moving_average_of_the_line() {
+        let run = |pts: &[(f64, f64)], windows: &[(usize, f64)]| {
+            let mut r =
+                Recorder::new(1, &[pts[0].0, pts[pts.len() - 1].0]).unwrap().with_windows(windows);
+            r.start(pts[0].0, &[pts[0].1]);
+            for &(t, x) in &pts[1..pts.len() - 1] {
+                r.interior(t, &[x]);
+            }
+            let &(t, x) = pts.last().unwrap();
+            r.grid_point(t, &[x]);
+            r.finish().windows
+        };
+        let held: Vec<(f64, f64)> = (0..=40).map(|k| (k as f64 * 0.25, 2.0)).collect();
+        let got = run(&held, &[(0, 1.0)]);
+        assert_eq!((got[0].peak, got[0].t), (2.0, 1.0)); // (0.5 at 0.25 s: nothing before the start)
+        // a triangle of area 5 between 5 and 6 s
+        let pulse = [(0.0, 0.0), (5.0, 0.0), (5.5, 10.0), (6.0, 0.0), (6.5, 0.0), (9.0, 0.0)];
+        let got = run(&pulse, &[(0, 1.0), (0, 0.0), (0, 4.0)]);
+        assert_eq!((got[0].peak, got[0].t), (5.0, 6.0));
+        assert_eq!((got[1].peak, got[1].t), (10.0, 5.5));
+        assert_eq!((got[2].peak, got[2].t), (5.0 / 4.0, 6.0));
+        // the window at 3 s starts at 1.5 s, on the line from (1, 0) to (2, 4)
+        let step = [(0.0, 0.0), (1.0, 0.0), (2.0, 4.0), (3.0, 4.0)];
+        let got = run(&step, &[(0, 1.5)]);
+        assert!((got[0].peak - (0.5 * (2.0 + 4.0) * 0.5 + 4.0) / 1.5).abs() < 1e-15);
+        assert_eq!(got[0].t, 3.0);
+        // both sides of an event at one time: a jump, the line holds it
+        let jump = [(0.0, 1.0), (1.0, 1.0), (1.0, 3.0), (2.0, 3.0)];
+        let got = run(&jump, &[(0, 1.0), (0, 0.0)]);
+        assert_eq!((got[0].peak, got[0].t), (3.0, 2.0));
+        assert_eq!((got[1].peak, got[1].t), (3.0, 1.0));
     }
 
     /// Channels that do not fit in memory are an error the caller gets, not

@@ -65,7 +65,11 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
   visited, `max`, `min`), `trace` (the channels or variables
   `simulate(trace=[...], trace_step=0.1)` asked for, sampled from the
   dense output every `trace_step` s and at the end, besides the output
-  grid and without changing it; `None` without one), `table_outside`
+  grid and without changing it; `None` without one), `windows` (for each
+  name `simulate(windows={name: seconds})` asked for, its highest moving
+  average over that span, `peak`, and when the span ended, `t`: of the same
+  line through every point visited, read at each, nothing before the
+  start; 0 s gives the highest value), `table_outside`
   (each table axis read past its data: when it first left, for how long,
   how far, its part) and `report["asserts"]` (each warning `assert` that
   did not hold). `model.report["instances"]` maps each element to its
