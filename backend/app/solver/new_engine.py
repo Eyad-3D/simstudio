@@ -520,8 +520,8 @@ def _peak_window(times: list[float], means, window: float) -> tuple[float, float
         return 0.0, 0.0
     if window <= 0:
         for t, m in zip(times[1:], means[1:]):
-            if m > best:
-                best, t_best = m, t
+            if float(m) > best:  # (a NumPy number: a check's passed flag would be NumPy's bool)
+                best, t_best = float(m), t
         return (best, t_best) if best > -math.inf else (0.0, 0.0)
     acc: list[tuple[float, float, float]] = []  # (t0, t1, mean) of the intervals in the window
     for k in range(1, len(times)):

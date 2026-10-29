@@ -320,6 +320,24 @@ def test_an_acceleration_test_reaches_its_line_at_any_tolerance(new, monkeypatch
     assert rows["accel_time_s"].value == pytest.approx(3.7537, abs=1e-3)
 
 
+def test_a_battery_check_with_no_window_is_a_plain_result(new):
+    """A battery with an Output Power Limit and no averaging window: its
+    check's passed flag was NumPy's bool (the peak read from the run's
+    arrays), and the result could not be written as JSON (the app's save,
+    the harness's record): a crash of the path where none should be."""
+    proj = load_example("bev-car")
+    bat = next(e for e in proj.systems[0].elements if e.id == "el-battery")
+    bat.parameterOverrides.update(output_power_limit_kW=15.0, power_limit_window_s=0.0)
+    result = simulate(proj, "case-city")
+    row = next(s for s in result.summary if s.key == "el-battery.peak_terminal_power_averaged_kw")
+    assert type(row.passed) is bool and type(row.value) is float
+    import json
+    assert json.loads(result.model_dump_json())["summary"]
+    # held at its cap (enforced): the run says so, as today's does
+    assert any(t.startswith("Battery 'HV Battery Pack' held at its Output Power Limit")
+               for t in _texts(result, "info"))
+
+
 def test_a_limit_change_is_at_the_run_s_own_event(new):
     """What held the driveline back changes at the engine's own events: the
     BEV with a tiny battery is held by its supply from the moment its
