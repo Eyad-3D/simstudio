@@ -20,7 +20,8 @@
 //! lsim-script's native runner where their code is within its subset, else
 //! on today's Python runner (`LSIM_PYTHON`, as for the golden comparison).
 //!
-//! Prints one JSON object per case: the battery's charge used and energies
+//! Prints one JSON object per case (fast mode's flags also as `flag_spans`,
+//! each stretch's times, words, part and side): the battery's charge used and energies
 //! (terminal energy out and back, internal losses: J), the distance (m),
 //! the energy at the wall per km as EPA's reference suite counts it
 //! (terminal energy net of recuperation, plus the battery's internal
@@ -78,6 +79,15 @@ fn fast_figures(r: &FastResult, wall: f64, samples: &[f64]) -> Value {
         r.flags
             .iter()
             .map(|f| format!("{:.1}..{:.1} {}", f.t_start, f.t_end, f.label))
+            .collect::<Vec<_>>()
+    );
+    // each flag's stretch with its numbers, for step 2's judge (the ENERGY
+    // line's E3: the app's limit lanes against these)
+    v["flag_spans"] = json!(
+        r.flags
+            .iter()
+            .map(|f| json!({"t_start": f.t_start, "t_end": f.t_end, "label": f.label,
+                            "part": f.part, "upper": f.upper}))
             .collect::<Vec<_>>()
     );
     v["newton_restarts"] = json!(r.report.newton_restarts);

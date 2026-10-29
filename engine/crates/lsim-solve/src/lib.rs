@@ -50,7 +50,7 @@ pub use info::{
     InputChain, ModeInfo, RunInfo, SetReads, StateSetInfo, StoredRates, TimeCrossing, TimeFunction,
     VarSource,
 };
-pub use recorder::Recorder;
+pub use recorder::{Recorded, Recorder, Traced};
 pub use run::run_loop;
 pub use sweep::sweep;
 
@@ -278,6 +278,21 @@ pub struct SolverOptions {
     /// row. The same values either way, to the bit (DESIGN.md §9). On by
     /// default; off, each tick reads its inputs alone, interpreted
     pub tick_read_ahead: bool,
+    /// sample a few channels from the dense output at times of their own,
+    /// besides the output grid and without changing it (a run's speed
+    /// trace for its verdict, independent of the output step:
+    /// [`SimResult::trace`]); `None`, the default: no trace
+    pub trace: Option<TraceSpec>,
+}
+
+/// Channels to sample from the dense output every `step` s from the
+/// grid's start, and at its end ([`SolverOptions::trace`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TraceSpec {
+    /// the spacing, s
+    pub step: f64,
+    /// the channels (indices of the flat variables)
+    pub channels: Vec<usize>,
 }
 
 /// [`SolverOptions::state_switch`]'s default.
@@ -307,6 +322,7 @@ impl Default for SolverOptions {
             books_kernels: true,
             tick_read_ahead: true,
             state_switch: STATE_SWITCH,
+            trace: None,
         }
     }
 }
@@ -712,6 +728,47 @@ pub struct SolverReport {
     pub error: ErrorEstimate,
     /// warnings for the user
     pub warnings: Vec<String>,
+    /// each table axis the run read outside its data (one whose setting
+    /// lets it go on), as its warning says, with numbers
+    pub table_outside: Vec<TableOutside>,
+    /// each warning `assert` that did not hold, the first time
+    pub asserts: Vec<AssertHit>,
+}
+
+/// A table axis a run read outside its data ([`SolverReport::table_outside`]),
+/// in SI.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TableOutside {
+    /// the table's name
+    pub table: String,
+    /// 0: its first axis, 1: its second
+    pub axis: u8,
+    /// when the run first read it outside, s
+    pub first: f64,
+    /// how long it read it outside, s (the crossings located as events)
+    pub total: f64,
+    /// the axis argument furthest outside at the steps' ends (NaN: not
+    /// known, or never outside at a step's end)
+    pub furthest: f64,
+    /// the edge of the data it was past then
+    pub edge: f64,
+    /// when, s
+    pub t_furthest: f64,
+    /// the axis's first and last data point (NaN: not known)
+    pub lo: f64,
+    /// (see `lo`)
+    pub hi: f64,
+    /// the warning the run wrote for it ([`SolverReport::warnings`])
+    pub warning: String,
+}
+
+/// A warning `assert` that did not hold ([`SolverReport::asserts`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AssertHit {
+    /// when, s
+    pub t: f64,
+    /// its message, naming the part
+    pub message: String,
 }
 
 /// A run's results.
@@ -737,6 +794,15 @@ pub struct SimResult {
     /// as Modelica tools write them to their result files (the left one
     /// first)
     pub left_limits: Vec<LeftLimit>,
+    /// per channel, ∫ x² dt over the run, of the line through every point
+    /// the integrator visited (its steps, both sides of every event), as
+    /// the means are taken: a duty's RMS ([`Recorder`])
+    pub square_integral: Vec<f64>,
+    /// per channel, ∫ |x| dt over the run, the same way: with the means,
+    /// the energy a flow carried each way
+    pub magnitude_integral: Vec<f64>,
+    /// the channels [`SolverOptions::trace`] asked for, at its times
+    pub trace: Option<Traced>,
     /// the events, in order
     pub events: Vec<EventRecord>,
     /// work counters

@@ -10,7 +10,7 @@ use lsim_ir::runtime::DiscreteBlock;
 use lsim_project::golden::{Figure, TractionHost, figures_with, sampled_spec};
 use lsim_project::import::{ImportOptions, ImportReport, SampledKind, SampledSpec};
 use lsim_project::{import_case, standard_registry};
-use lsim_solve::{OutputGrid, SimResult, SolveError, SolverOptions};
+use lsim_solve::{OutputGrid, SimResult, SolveError, SolverOptions, TraceSpec};
 use serde_json::Value;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
@@ -216,6 +216,9 @@ pub struct RunOptions {
     /// engine's runner of a subset of Python (bitwise the app's Script
     /// runner's results); a part given a function always runs that
     pub native_scripts: bool,
+    /// channels sampled from the dense output at times of their own
+    /// ([`lsim_solve::SolverOptions::trace`]; [`trace_channels`] finds them)
+    pub trace: Option<TraceSpec>,
 }
 
 /// The most output points a run records.
@@ -231,7 +234,14 @@ pub const MAX_RESULT_BYTES: f64 = 4e9;
 impl Default for RunOptions {
     fn default() -> Self {
         // the golden comparison's: IDA with the energy books on
-        RunOptions { rtol: 1e-6, atol: 1e-8, output_step: None, t_end: None, native_scripts: true }
+        RunOptions {
+            rtol: 1e-6,
+            atol: 1e-8,
+            output_step: None,
+            t_end: None,
+            native_scripts: true,
+            trace: None,
+        }
     }
 }
 
@@ -251,6 +261,9 @@ impl RunOptions {
         }
         if let Some(v) = self.t_end {
             positive("t_end", v)?;
+        }
+        if let Some(tr) = &self.trace {
+            positive("trace_step", tr.step)?;
         }
         Ok(())
     }
@@ -296,6 +309,8 @@ pub struct RunOutput {
     /// own code on the engine's runner of the Python subset, or
     /// `"python"`, the caller's function)
     pub scripts: Vec<(String, &'static str)>,
+    /// the names the trace was asked for by, in its order
+    pub trace_names: Option<Vec<String>>,
 }
 
 /// A run's sampled blocks' hosts.
@@ -375,7 +390,11 @@ pub fn run(
         let t_end = o.t_end.unwrap_or(run.duration);
         let output_step = o.output_step.unwrap_or_else(|| run.output_dt());
         RunOptions::check_grid(t_end, output_step, built.model.info.var_names.len())?;
-        let opts = SolverOptions { rtol: o.rtol, atol: o.atol, ..Default::default() };
+        if let Some(tr) = &o.trace {
+            RunOptions::check_grid(t_end, tr.step, tr.channels.len())?;
+        }
+        let opts =
+            SolverOptions { rtol: o.rtol, atol: o.atol, trace: o.trace.clone(), ..Default::default() };
         let scripts = std::cell::RefCell::new(vec![]);
         let go = |t_end: f64| -> Result<SimResult, Failure> {
             let grid = OutputGrid { t0: 0.0, t_end, dt: output_step };
@@ -420,6 +439,7 @@ pub fn run(
             t_end,
             output_step,
             scripts: scripts.into_inner(),
+            trace_names: None,
         })
     })
 }
@@ -494,6 +514,80 @@ pub fn today_channels(
         ));
     }
     Ok(out)
+}
+
+/// The flat variables of `names`, each today's channel name
+/// (`element:port`) or the engine's own variable name, for a trace.
+pub fn trace_channels(built: &Built, names: &[String]) -> Result<Vec<usize>, Failure> {
+    let vars = &built.model.info.var_names;
+    names
+        .iter()
+        .map(|n| {
+            let var = built.rep.channels.get(n).map_or(n.as_str(), |c| c.var.as_str());
+            vars.iter().position(|v| v == var).ok_or_else(|| {
+                Failure::Value(format!(
+                    "trace: '{n}' is neither a channel (element:port) nor a variable of the case"
+                ))
+            })
+        })
+        .collect()
+}
+
+/// A traced value in the unit the caller named it in: today's display
+/// unit for a channel, SI for an engine variable.
+pub fn trace_unit<'a>(built: &'a Built, name: &str) -> impl Fn(f64) -> f64 + 'a {
+    let unit = built.rep.channels.get(name).map(|c| &c.unit);
+    move |x| unit.map_or(x, |u| u.from_si(x))
+}
+
+/// Each of today's channels (in its display unit) and each of the engine's
+/// variables (by its own name, SI) over the run: ∫ x dt (from the
+/// intervals' means), ∫ x² dt and ∫ |x| dt (the recorder's, of the line
+/// through every point the integrator visited), and the highest and
+/// lowest value (the intervals' extremes). ∫ |x| needs a unit without an
+/// offset (not °C): NaN otherwise.
+pub fn integrals(built: &Built, res: &SimResult) -> Vec<(String, [f64; 5])> {
+    let span = res.times.last().copied().unwrap_or(0.0) - res.times.first().copied().unwrap_or(0.0);
+    let of = |i: usize, a: f64, b: f64| -> Option<[f64; 5]> {
+        let (&sq, &mag) = (res.square_integral.get(i)?, res.magnitude_integral.get(i)?);
+        let si: f64 =
+            (1..res.times.len()).map(|k| res.mean[i][k] * (res.times[k] - res.times[k - 1])).sum();
+        // (display = a·SI + b, a > 0)
+        let hi = res.max[i].iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let lo = res.min[i].iter().copied().fold(f64::INFINITY, f64::min);
+        // a value that is not a number anywhere is so here too (fold's max drops it)
+        let nan = res.max[i].iter().chain(&res.min[i]).any(|x| x.is_nan());
+        let (hi, lo) = if nan { (f64::NAN, f64::NAN) } else { (a * hi + b, a * lo + b) };
+        Some([
+            a * si + b * span,
+            a * a * sq + 2.0 * a * b * si + b * b * span,
+            if b == 0.0 { a.abs() * mag } else { f64::NAN },
+            hi,
+            lo,
+        ])
+    };
+    let mut out = vec![];
+    for (name, c) in &built.rep.channels {
+        let Some(i) = res.names.iter().position(|n| *n == c.var) else { continue };
+        let b = c.unit.from_si(0.0);
+        out.extend(of(i, c.unit.from_si(1.0) - b, b).map(|v| (name.clone(), v)));
+    }
+    for (i, name) in res.names.iter().enumerate() {
+        out.extend(of(i, 1.0, 0.0).map(|v| (name.clone(), v)));
+    }
+    out
+}
+
+/// The part (element id) a table, a part's path or another dotted name of
+/// the engine belongs to: the element whose instance name it starts with.
+pub fn part_of<'a>(built: &'a Built, name: &str) -> Option<&'a str> {
+    built
+        .rep
+        .instances
+        .iter()
+        .filter(|(_, inst)| name == inst.as_str() || name.starts_with(&format!("{inst}.")))
+        .max_by_key(|(_, inst)| inst.len())
+        .map(|(id, _)| id.as_str())
 }
 
 /// The Script parts of the run (each block the run's loop drives that is a

@@ -497,6 +497,26 @@ pub struct EnergyInfo {
     pub parts: Vec<EnergyPart>,
 }
 
+/// Each table guard's table and argument, in code generation's order
+/// (lsim-codegen's `table_sites`): the table reads (of their values, not
+/// their derivatives) of the assignments, then of the residuals, each read
+/// before the reads inside its arguments, an entry per axis.
+fn table_args(m: &PreparedModel) -> Vec<(u32, Expr)> {
+    fn walk(e: &Expr, out: &mut Vec<(u32, Expr)>) {
+        if let Expr::Table { table, args, order: [0, 0] } = e {
+            out.extend(args.iter().map(|a| (*table, a.clone())));
+        }
+        for c in e.children() {
+            walk(c, out);
+        }
+    }
+    let mut out = vec![];
+    for e in m.assignments.iter().map(|a| &a.expr).chain(m.residuals.iter().map(|r| &r.expr)) {
+        walk(e, &mut out);
+    }
+    out
+}
+
 /// What the run loop needs to know about a model besides its functions.
 #[derive(Clone, Debug)]
 pub struct RunInfo {
@@ -537,6 +557,12 @@ pub struct RunInfo {
     /// each table's name (index: the table's number in the flat system),
     /// for the table guards' messages
     pub table_names: Vec<String>,
+    /// per table guard, in the order code generation lists them
+    /// ([`lsim_ir::runtime::ModelFunctions::table_guard_list`]: each table
+    /// read of the assignments, then of the residuals, depth first, one
+    /// guard per axis): the table and that axis's argument, so the run can
+    /// tell how far past its data a table was read; empty: not known
+    pub table_args: Vec<(u32, Expr)>,
     /// for each residual of the initialisation system: the equation it is
     pub init_labels: Vec<String>,
     /// for each unknown of the initialisation system: the variable it is
@@ -887,6 +913,7 @@ impl RunInfo {
             energy: None,
             asserts: vec![],
             table_names: vec![],
+            table_args: vec![],
             init_labels: vec![],
             init_unknowns: vec![],
             impulse: None,
@@ -1037,6 +1064,7 @@ impl RunInfo {
                 })
                 .collect(),
             table_names: flat.tables.iter().map(|t| t.name.clone()).collect(),
+            table_args: table_args(m),
             init_labels: m.init.residuals.iter().map(|r| equation(&r.origin)).collect(),
             init_unknowns: m
                 .init

@@ -11,9 +11,10 @@
 //! model.report                                              # sizes, times, cache hit, warnings
 //! model.set_params({"el-battery.Q": 756000.0})              # runtime, no rebuild
 //! run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
-//!                      native_scripts=True)
+//!                      native_scripts=True, trace=None, trace_step=0.1)
 //! run.times, run.channels["el-battery:sig_soc"]             # NumPy arrays, today's names
 //! run.min / run.max / run.mean / run.events / run.report / run.energy / run.figures
+//! run.integrals / run.trace / run.table_outside             # the evidence for the verdict
 //! runs = model.sweep([{…}, {…}], threads=4)                 # parallel, GIL released
 //! le.diagnose(project_json, case_id)                        # structural and unit checks
 //! ```
@@ -81,6 +82,14 @@ fn diag_dict<'py>(py: Python<'py>, d: &Diagnostic) -> PyResult<Bound<'py, PyDict
     out.set_item("hint", d.hint.as_deref())?;
     out.set_item("detail", &d.detail)?;
     Ok(out)
+}
+
+fn float_dict<'py>(py: Python<'py>, items: &[(&str, f64)]) -> PyResult<Bound<'py, PyDict>> {
+    let d = PyDict::new(py);
+    for (k, v) in items {
+        d.set_item(*k, *v)?;
+    }
+    Ok(d)
 }
 
 fn diag_list<'py>(py: Python<'py>, ds: &[Diagnostic]) -> PyResult<Bound<'py, PyList>> {
@@ -417,6 +426,86 @@ impl Run {
         self.series(py, &self.mean, Series::Mean)
     }
 
+    /// Each of today's channels (by `element:port`, in its display unit)
+    /// and each of the engine's variables (by its own name, SI) over the
+    /// run: dicts with `integral` (∫ x dt, from the intervals' means),
+    /// `square` (∫ x² dt) and `magnitude` (∫ |x| dt; NaN for a unit with
+    /// an offset), the last two of the line through every point the
+    /// integrator visited, and `max` and `min` (the intervals' extremes).
+    /// A duty's figures, and the energy a flow carried each way, come from
+    /// them.
+    #[getter]
+    fn integrals<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let out = PyDict::new(py);
+        for (name, [integral, square, magnitude, hi, lo]) in
+            core::integrals(&self.built, &self.out.result)
+        {
+            let d = float_dict(
+                py,
+                &[
+                    ("integral", integral),
+                    ("square", square),
+                    ("magnitude", magnitude),
+                    ("max", hi),
+                    ("min", lo),
+                ],
+            )?;
+            out.set_item(name, d)?;
+        }
+        Ok(out)
+    }
+
+    /// The channels `simulate(trace=...)` asked for, sampled from the dense
+    /// output every `trace_step` s and at the run's end: a dict of NumPy
+    /// arrays, `times` and each name asked for (a channel in its display
+    /// unit, an engine variable in SI); None without a trace.
+    #[getter]
+    fn trace<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let (Some(tr), Some(names)) = (&self.out.result.trace, &self.out.trace_names) else {
+            return Ok(None);
+        };
+        let d = PyDict::new(py);
+        d.set_item("times", copy(py, &tr.times, || "the trace's times".into())?)?;
+        for (name, values) in names.iter().zip(&tr.values) {
+            let unit = core::trace_unit(&self.built, name);
+            let v = core::copied(values, unit, || format!("the trace of {name}")).map_err(no_room)?;
+            d.set_item(name, array(py, v))?;
+        }
+        Ok(Some(d))
+    }
+
+    /// Each table axis the run read outside its data (on an axis whose
+    /// setting lets the run go on): dicts with `table`, `part` (the element
+    /// id, or None), `axis` (0 or 1), `first` and `total` (s), and in SI
+    /// `furthest` (the axis argument furthest outside at the steps' ends,
+    /// NaN when not seen), `edge` (the data's edge it was past), `t_furthest`,
+    /// `lo` and `hi` (the axis's first and last point), and `warning` (the
+    /// run's words for it, among `report["warnings"]`).
+    #[getter]
+    fn table_outside<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let out = PyList::empty(py);
+        for t in &self.out.result.report.table_outside {
+            let d = float_dict(
+                py,
+                &[
+                    ("first", t.first),
+                    ("total", t.total),
+                    ("furthest", t.furthest),
+                    ("edge", t.edge),
+                    ("t_furthest", t.t_furthest),
+                    ("lo", t.lo),
+                    ("hi", t.hi),
+                ],
+            )?;
+            d.set_item("table", &t.table)?;
+            d.set_item("part", core::part_of(&self.built, &t.table))?;
+            d.set_item("axis", t.axis)?;
+            d.set_item("warning", &t.warning)?;
+            out.append(d)?;
+        }
+        Ok(out)
+    }
+
     /// The events, in order: dicts with `t`, `label` and `kind`.
     #[getter]
     fn events<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
@@ -470,6 +559,14 @@ impl Run {
         d.set_item("impulses", s.impulses)?;
         d.set_item("notes", &s.notes)?;
         d.set_item("warnings", &s.warnings)?;
+        let asserts = PyList::empty(py);
+        for a in &s.asserts {
+            let x = PyDict::new(py);
+            x.set_item("t", a.t)?;
+            x.set_item("message", &a.message)?;
+            asserts.append(x)?;
+        }
+        d.set_item("asserts", asserts)?;
         let acc = PyDict::new(py);
         acc.set_item("worst_local", s.error.worst_local)?;
         acc.set_item("worst_local_var", &s.error.worst_local_var)?;
@@ -540,7 +637,7 @@ fn run_options(
     t_end: Option<f64>,
     native_scripts: bool,
 ) -> RunOptions {
-    RunOptions { rtol, atol, output_step, t_end, native_scripts }
+    RunOptions { rtol, atol, output_step, t_end, native_scripts, trace: None }
 }
 
 #[pymethods]
@@ -570,6 +667,7 @@ impl Model {
         d.set_item("cache_key", &r.cache_key)?;
         d.set_item("structure_key", &r.structure_key)?;
         d.set_item("warnings", diag_list(py, &b.warnings())?)?;
+        d.set_item("instances", &b.rep.instances)?;
         let run = &b.rep.run;
         let case = PyDict::new(py);
         case.set_item("id", &b.case_id)?;
@@ -596,6 +694,13 @@ impl Model {
         case.set_item("sampled_blocks", blocks)?;
         d.set_item("case", case)?;
         Ok(d)
+    }
+
+    /// The engine's variables (what `simulate(trace=...)` and
+    /// `run.engine_channels` name), and today's channels (`element:port`).
+    fn var_names(&self) -> (Vec<String>, Vec<String>) {
+        let b = &self.built;
+        (b.model.info.var_names.clone(), b.rep.channels.keys().cloned().collect())
     }
 
     /// The engine names of the parameters.
@@ -638,8 +743,11 @@ impl Model {
     /// named by two keys (its id and its label), is a ValueError. A grid of
     /// more than 1e7 output points, or whose results
     /// would take more than 4 GB, is refused; results read without the
-    /// memory left for them raise MemoryError.
-    #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true))]
+    /// memory left for them raise MemoryError. `trace` names channels
+    /// (today's `element:port`, or the engine's own variables) to sample
+    /// from the dense output every `trace_step` s and at the run's end,
+    /// besides the output grid and without changing it (`run.trace`).
+    #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true, trace=None, trace_step=0.1))]
     #[allow(clippy::too_many_arguments)]
     fn simulate(
         &self,
@@ -650,15 +758,22 @@ impl Model {
         t_end: Option<f64>,
         scripts: Option<&Bound<'_, PyAny>>,
         native_scripts: bool,
+        trace: Option<Vec<String>>,
+        trace_step: f64,
     ) -> PyResult<Run> {
         let scripts = scripts_of(scripts)?;
         core::check_script_keys(&self.built, scripts.keys()).map_err(|f| to_err(py, f))?;
         let factory = host_factory(scripts);
         let params = self.state().values.clone();
         let built = Arc::clone(&self.built);
-        let opts = run_options(rtol, atol, output_step, t_end, native_scripts);
-        let out =
+        let mut opts = run_options(rtol, atol, output_step, t_end, native_scripts);
+        if let Some(names) = &trace {
+            let channels = core::trace_channels(&built, names).map_err(|f| to_err(py, f))?;
+            opts.trace = Some(lsim_solve::TraceSpec { step: trace_step, channels });
+        }
+        let mut out =
             py.detach(|| core::run(&built, &params, &opts, &factory)).map_err(|f| to_err(py, f))?;
+        out.trace_names = trace;
         Ok(Run::new(built, out))
     }
 

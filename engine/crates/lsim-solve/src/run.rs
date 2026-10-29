@@ -314,8 +314,13 @@ struct Loop<'a> {
     outside_since: Vec<Option<f64>>,
     /// per table guard: time spent outside, and when it first left
     outside_total: Vec<(f64, f64)>,
+    /// per table guard: the furthest its argument was read past the data
+    /// at the steps' ends, the edge it was past and when (NaN: not seen)
+    outside_far: Vec<[f64; 3]>,
     /// asserts that already warned
     warned: Vec<bool>,
+    /// the warning asserts that held false, each the first time
+    assert_hits: Vec<crate::AssertHit>,
     /// whether several links shared an engagement's impulse (warned once)
     warned_links: bool,
     warnings: Vec<String>,
@@ -980,10 +985,56 @@ impl Loop<'_> {
                 if !self.warned[k] {
                     self.warned[k] = true;
                     self.warnings.push(format!("at t = {t:.6} s: {}", a.message));
+                    self.assert_hits.push(crate::AssertHit { t, message: a.message.clone() });
                 }
             }
         }
         Ok(())
+    }
+
+    /// Guard `k`'s table axis's first and last point, and its argument at
+    /// the channels just sampled; `None` where the run does not know them.
+    fn guard_reading(&self, k: usize, t: f64) -> Option<(f64, f64, f64)> {
+        let guards = self.model.table_guard_list();
+        let (g, (table, arg)) = (guards.get(k)?, self.info.table_args.get(k)?);
+        if self.info.table_args.len() != guards.len() || *table != g.table {
+            return None;
+        }
+        let k_t = g.table as usize;
+        let points = match self.info.table_axes.get(k_t) {
+            Some(ax) if !ax[0].is_empty() => &ax[g.axis as usize],
+            _ => self.info.table_breaks.get(k_t)?,
+        };
+        let (lo, hi) = (*points.first()?, *points.last()?);
+        let env = crate::info::ChannelEnv {
+            t,
+            vars: &self.vars,
+            params: &self.info.params,
+            model: self.model,
+        };
+        Some((lo, hi, lsim_ir::eval::eval(arg, &env)))
+    }
+
+    /// At a step's end, the channels just sampled: how far past its data
+    /// each table read outside it now is, kept when it is the furthest.
+    fn track_outside(&mut self, t: f64) {
+        for k in 0..self.outside_since.len() {
+            if self.outside_since[k].is_none() {
+                continue;
+            }
+            let Some((lo, hi, a)) = self.guard_reading(k, t) else { continue };
+            let edge = if a < lo {
+                lo
+            } else if a > hi {
+                hi
+            } else {
+                continue;
+            };
+            let far = &mut self.outside_far[k];
+            if far[0].is_nan() || (a - edge).abs() > (far[0] - far[1]).abs() {
+                *far = [a, edge, t];
+            }
+        }
     }
 
     /// Table guards that crossed at `t`: leaving the data on an `Error`
@@ -2007,6 +2058,16 @@ fn run_watched<'a>(
     tables_given(model, info, opts, grid.t0)?;
     let span = (t_end - grid.t0).abs();
     let mut rec = Recorder::new(l.n_vars, &times)?;
+    if let Some(tr) = &opts.trace {
+        if let Some(&c) = tr.channels.iter().find(|&&c| c >= l.n_vars) {
+            return Err(SolveError::Integrator {
+                t: grid.t0,
+                message: format!("the trace asks for channel {c} of {}", l.n_vars),
+            });
+        }
+        let at = OutputGrid { t0: grid.t0, t_end, dt: tr.step }.times()?;
+        rec = rec.with_trace(at, tr.channels.clone())?;
+    }
     let mut lp = Loop {
         model,
         info,
@@ -2043,7 +2104,9 @@ fn run_watched<'a>(
         when_of_root: vec![None; l.n_roots + model.table_guard_list().len()],
         outside_since: vec![None; model.table_guard_list().len()],
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
+        outside_far: vec![[f64::NAN; 3]; model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
+        assert_hits: vec![],
         warned_links: false,
         warnings: axes_warnings,
         scheduled: false,
@@ -2323,9 +2386,10 @@ fn run_watched<'a>(
                 lg.after_event(t, &lp.vars, p, &b, None);
             }
             if rec.next_grid_time() == Some(t) {
-                rec.left_limit(&left, lp.recorded());
-                rec.grid_point(t, lp.recorded());
-                if let Some(lg) = ledger.as_mut() {
+                rec.left_limit(t, &left, lp.recorded());
+                if rec.grid_point(t, lp.recorded())
+                    && let Some(lg) = ledger.as_mut()
+                {
                     integ.quadrature(t, &mut lg.q)?;
                     lg.grid_point(t, &lp.vars, p);
                 }
@@ -2943,6 +3007,7 @@ fn run_watched<'a>(
         }
         t = t_new;
         lp.check_asserts(t)?;
+        lp.track_outside(t);
         // the switch readied in this step: made at the loop's top (an event
         // here: not made, the watch looks again from the point after it). A
         // tick at the point that changed the discrete values (going on
@@ -3218,7 +3283,7 @@ fn run_watched<'a>(
         Some(i) => i,
         None => &mut *integ0,
     };
-    let (values, min, max, mean, left_limits) = rec.finish();
+    let recd = rec.finish();
     let energy = match ledger {
         Some(mut lg) => {
             integ.quadrature(t_end, &mut lg.q)?;
@@ -3278,12 +3343,28 @@ fn run_watched<'a>(
         let (total, first) = lp.outside_total[k];
         if total > 0.0 || !first.is_nan() {
             let name = info.table_names.get(g.table as usize).cloned().unwrap_or_default();
-            report.warnings.push(format!(
+            let words = format!(
                 "the table '{name}' was read outside its data on its {} axis for {total:.6} s, first at t = {first:.6} s",
                 if g.axis == 0 { "first" } else { "second" }
-            ));
+            );
+            report.warnings.push(words.clone());
+            let [furthest, edge, t_furthest] = lp.outside_far[k];
+            let (lo, hi) = lp.guard_reading(k, t_end).map_or((f64::NAN, f64::NAN), |r| (r.0, r.1));
+            report.table_outside.push(crate::TableOutside {
+                table: name,
+                axis: g.axis,
+                first,
+                total,
+                furthest,
+                edge,
+                t_furthest,
+                lo,
+                hi,
+                warning: words,
+            });
         }
     }
+    report.asserts = std::mem::take(&mut lp.assert_hits);
     for m in &lp.tf.mixed {
         report.mixed_certified += m.certified;
         report.mixed_scanned += m.scanned;
@@ -3329,11 +3410,14 @@ fn run_watched<'a>(
     Ok(SimResult {
         times,
         names: info0.var_names.clone(),
-        values,
-        min,
-        max,
-        mean,
-        left_limits,
+        values: recd.values,
+        min: recd.min,
+        max: recd.max,
+        mean: recd.mean,
+        left_limits: recd.left,
+        square_integral: recd.square,
+        magnitude_integral: recd.magnitude,
+        trace: recd.trace,
         events: lp.events,
         stats: report.stats,
         backend: integ.name(),
@@ -3370,8 +3454,10 @@ fn grid_point(
 ) -> Result<(), SolveError> {
     integ.interpolate(t, yk)?;
     lp.sample(t, yk, d);
-    rec.grid_point(t, lp.recorded());
-    if let Some(lg) = ledger.as_mut() {
+    // (a trace's time alone is no point of the books)
+    if rec.grid_point(t, lp.recorded())
+        && let Some(lg) = ledger.as_mut()
+    {
         integ.quadrature(t, &mut lg.q)?;
         lg.grid_point(t, &lp.vars, &lp.info.params);
     }
@@ -3439,9 +3525,10 @@ fn after_event(
     }
     if rec.next_grid_time() == Some(t) {
         let left = lp.recorded_of(left);
-        rec.left_limit(&left, lp.recorded());
-        rec.grid_point(t, lp.recorded());
-        if let Some(lg) = ledger.as_mut() {
+        rec.left_limit(t, &left, lp.recorded());
+        if rec.grid_point(t, lp.recorded())
+            && let Some(lg) = ledger.as_mut()
+        {
             integ.quadrature(t, &mut lg.q)?;
             lg.grid_point(t, &lp.vars, &lp.info.params);
         }

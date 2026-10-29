@@ -58,7 +58,19 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
 * `Run`: `times`, `channels`, `min`, `max`, `mean` (today's names and units,
   NumPy arrays; `min`/`max`/`mean` are per output interval),
   `engine_channels` (the engine's own names, SI), `events`, `report`,
-  `energy` (the books, or `None`) and `figures`.
+  `energy` (the books, or `None`) and `figures`; and what the app's
+  verdict and reports are made from: `integrals` (each channel, in its
+  display unit, and each engine variable, SI, over the run: `integral`,
+  `square` and `magnitude` of the line through every point the integrator
+  visited, `max`, `min`), `trace` (the channels or variables
+  `simulate(trace=[...], trace_step=0.1)` asked for, sampled from the
+  dense output every `trace_step` s and at the end, besides the output
+  grid and without changing it; `None` without one), `table_outside`
+  (each table axis read past its data: when it first left, for how long,
+  how far, its part) and `report["asserts"]` (each warning `assert` that
+  did not hold). `model.report["instances"]` maps each element to its
+  instance name (the energy books' parts' paths); `model.var_names()`
+  lists the engine's variables and today's channels.
 * `model.sweep(sets, threads=4, ...)` runs each set (on top of what
   `set_params` set) in parallel. The list it returns has a `Run` for each
   set that ran and the exception object for each that failed, in order.
