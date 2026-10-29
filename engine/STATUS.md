@@ -140,23 +140,27 @@ also run on Linux, but only Windows CI proves what ships.
   explains why it reads short, never where the event itself moved it
   back (its own `when`, a sibling, a `reinit`, a value it froze, a
   rounding wider than the solve's), read where the crossing really is;
-  and every hold ends: if x does not get across by itself in eight times
-  what its shortfall needs (at the speed x has after the event where the
-  crossing's own event changed it, else at the speed it had), it is read
-  as it is, and its opposite `when` fires there. A hold that is wrong
-  can so hide at most its width of x, never past x's arrival; where x
-  stops or turns back, a firing moves by less than the solver's timing
-  precision (round 4, the hold rule: DESIGN.md 8.2, *Conditions on
-  iteration variables*). On diffsol and the stateless backend the
-  opposite `when` of a crossing's own move now fires (it never did).
-  The holds suite (`engine/judge/holds.py`, 279 950 runs of every shape
-  the reviews found, against hand-worked counts and times): 270 560
-  right, 655 bounded (an extra or a lost pair of firings within the
-  solver's timing precision), 7 390 within the other named limits, 1 345
-  wrong, every one a solver stop that happens at the last commit and
-  without holds too; no run right at the last commit is wrong. Known
-  limits: a mode and a `when` on one relation can read two values at one
-  event (mode read), the event storm beside a mode, and diffsol losing a
+  and every hold ends: at every event its time is worked out again, and
+  if x does not get across by itself in eight times what its shortfall
+  needs (at the speed x has after the event where the condition is on
+  the crossing's line, however it is written, else at the speed it had),
+  it is read as it is, and its opposite `when` fires there. A hold that
+  is wrong can so hide at most its width of x, for no longer than x
+  needs to cross that width at its speed after the latest event: within
+  the solver's timing precision where no event changes x's speed, K
+  times that where an event slows x K times (round 4, the hold rule:
+  DESIGN.md 8.2, *Conditions on iteration variables*). On diffsol and the
+  stateless backend the opposite `when` of a crossing's own move now
+  fires (it never did). The holds suite (`engine/judge/holds.py`,
+  317 490 runs of every shape the reviews and re-checks found, against
+  hand-worked counts and times): 307 722 right, 635 bounded (an extra or
+  a lost pair of firings within the solver's timing precision), 282
+  within the time limit where an event slows x, 7 422 within the other
+  named limits, 1 429 wrong, every one wrong at 4d24528 too (1 345
+  solver stops, and 84 runs where diffsol's own x drifts below the line
+  it should stay above); no run right at 4d24528 is wrong. Known limits:
+  a mode and a `when` on one relation can read two values at one event
+  (mode read), the event storm beside a mode, and diffsol losing a
   crossing right after a restart.
 
 ## The vendored IDAS against SUNDIALS 7.9.0 (20 October 2026)

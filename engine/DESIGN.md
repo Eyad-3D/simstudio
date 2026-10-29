@@ -2197,7 +2197,7 @@ round).**
   solved, and holds a relation on its side by 1e-4 rtol of its operands'
   size (`relationhysteresis`). Here such a function is held on the side
   the integrator saw it on by one rule (round 4, *the hold rule*: the
-  hold spec of 28 October, revision 3, states it whole with every
+  hold spec of 29 October, revision 4, states it whole with every
   measurement), and every hold ends.
 
   *The rule* (`Loop::rule`, `Loop::held_by_rule`). At an event, a `when`
@@ -2235,17 +2235,22 @@ round).**
   before the move applies every hold of the event). Where g0 cannot be
   solved, nothing is held.
 
-  *Every hold ends* (`Loop::set_expiry`). A hold made at t expires at t
-  + T, T = min(8·max(|g1|, ρ), W)/rate. A hold the crossing itself made
-  (the event's one cause is its relation's crossing: its own `when`, a
-  sibling on the same relation, the rounds and engagements they cause;
-  no time event, time crossing, tick or other function's crossing due
-  there) takes the rate after the event, ġ1 = ∇g·ẏ1 at the post-event
-  consistent point (`Loop::rates_after`, `init::rates`), where it moves
-  toward s; every other hold, and one whose ġ1 is 0 or points away,
-  the consistent pre-event function's change over the last step, σ, its
-  cap W over max(|σ|, |ġ0(P)|) (`Loop::rates_before`). At least 64 ε
-  |t|. A hold carried or made again keeps its expiry. After every step
+  *Every hold ends* (`Loop::set_expiry`). At every event, every hold
+  standing after it, made there or carried from an earlier one, is timed
+  from that event: it expires at t + T, T = min(8·max(|g1|, ρ), h)/rate,
+  h its width. A hold on one of the crossing's own conditions takes the
+  rate after the event, ġ1 = ∇g·ẏ1 at the post-event consistent point
+  (`Loop::rates_after`, `init::rates`), where it moves toward s. The
+  crossing's own conditions are known by value (`Loop::own`): at a root
+  event with no time event, time crossing, tick change or expiry cut due
+  there, every function within its hold's width of zero as the
+  integrator had it at the event's point, whatever its expression (`2 x
+  > 1` or `x > p` beside `x > 0.5`, the opposite `when` of each). Every
+  other hold, and one whose ġ1 is 0 or points away, takes the consistent
+  pre-event function's change over the last step, σ, its cap h over
+  max(|σ|, |ġ0(P)|) (`Loop::rates_before`). At least 64 ε |t| for a hold
+  made with no rate known; a standing hold the event gives no rate keeps
+  its expiry. After every step
   that crosses an expiry the condition is read as solved there
   (`Loop::expiry_cut`; diffsol's own iteration variables can lag a
   step's end): short of s, the step is cut back to the expiry and the
@@ -2254,12 +2259,18 @@ round).**
   arrived, the hold goes on, renewed from the step's end once that end
   is final (`Loop::renew_holds`). The release at every step's end and
   event's point releases an expired hold, a crossing back where it is
-  short (`Loop::passed`). So a hold the crossing made hides at most W of
-  its function and ends at x's arrival (a crossing its own event slowed
-  K times waits K times as long, as the truth does: x reached its
-  threshold at the crossing and goes on past it); every other hold ends
-  within W/max(|σ|, |ġ0(P)|), 0.41 of the location tolerance in the
-  holds suite. Whatever a hold gets wrong, found or not, is bounded so.
+  short (`Loop::passed`). So a hold maps at most its width of its
+  function to its side, and never outlasts that width at x's speed after
+  the latest event (the speed before it, where that event stopped or
+  turned x): 0.41 of the location tolerance in the holds suite where no
+  event changes x's rate, K times that where the crossing's own event
+  slows x K times (a crossing so slowed waits K times as long, as the
+  truth does: x reached its threshold at the crossing and goes on past
+  it). A firing a hold moves comes no later than that after the latest
+  event, or the last expiry check that found it on its side. The other
+  way measured, no time limit for the crossing's own holds, lost firings
+  for good (26 holds-suite runs right at 4d24528 went wrong, 224 lost a
+  later firing) and is not taken.
 
   *Where.* At every step's end and every event's point the release runs
   first: a function that reached its side is released; one back past
@@ -2296,9 +2307,12 @@ round).**
   threshold), onestep, the storm beside a mode (out of scope), mode read
   (a mode and a `when` on one relation: the `when` held, the mode read
   literally in the same event; open), shallow peak and diffsol's restart
-  loss (no hold involved), and bounded (inside the location tolerance of
-  a crossing an extra or a lost pair of firings: what a hold's time
-  limit can cost; never a firing lost for good).
+  loss (no hold involved; not applied where the shape's events slow or
+  stop x, as its truth says), bounded (inside the location tolerance of
+  a crossing an extra or a lost pair of firings; never a firing lost for
+  good), and postlimit (where an event slows x: the located truth with
+  each firing at most the hold's width over x's speed after the latest
+  event later: what a hold's time limit can cost there).
 
   *How it came to this* (each round's check found a variant the round
   before had missed). The twelfth round (f0c13ce6) held a crossing
@@ -2320,33 +2334,45 @@ round).**
   time limit from the rate before the event expiring a right hold where
   the crossing's own event slows the function (slow: 1 651 runs outside
   every limit), and a rounding bound taken at the post-event values
-  only (noisy3r). Every one of those shapes is in the holds suite now.
+  only (noisy3r). Re-check 4 of the code found the crossing's own
+  conditions read from their expressions (the same line written `2 x >
+  1` or `x > p` took the short limit and fired back: sibeq, slowbp,
+  slowobs, 2 418 runs right at 4d24528 wrong) and a limit, once set,
+  kept where a later event stopped x (slowstop); the owner had both ways
+  for the second measured (every hold timed again at every event, or no
+  limit for the crossing's own holds) and took the one his rule found
+  clean. Every one of those shapes is in the holds suite now.
 
-  *Measured* (the holds suite's full tier, 279 950 counted runs, at
-  80df28d's scorer; wrong / bounded / the other limits / right): this
-  rule 1 345 / 655 / 7 390 / 270 560; 4d24528 12 399 / 44 / 5 666 /
-  261 841; no holds 18 413 / 28 388 / 7 027 / 226 122; 0b66315, before
-  the holds, 23 123 / 28 189 / 7 038 / 221 600. Every wrong run is a
-  solver's or a restart's stop on cancelling terms (1 338) or diffsol's
-  (7), the same runs stopping at 4d24528. No run right at 4d24528 is
-  wrong: 247 go to noise, 49 to bounded (a freeze held and read at its
-  expiry, frzf 12; a rounding bound wider than a move, noisyown 26; a
-  solve that cannot meet its tolerance at d0, so nothing held, noisy3r
-  11) and 2 to restart loss (noisy3r on diffsol: not held, back at the
-  event, the re-crossing lost after the restart; right at 4d24528 only
-  by RC3-B2's skip). The judge's 777 cases (5 432 runs) and the golden
-  comparison (11 347 values) are the same to the bit. Instructions
-  (cachegrind, fair scheduling, every build counted on this machine):
-  the hybrid's mixed cycle 82.704 G against 4d24528's 82.673 G
-  (+0.037 %), its HWFET 233.149 G against 233.103 G (+0.020 %), the
-  BEV's WLTC 18.491 G against 18.484 G (+0.042 %); against 36c8a0d8's
-  83.167, 237.709 and 19.068 G, −0.56 %, −1.92 % and −3.03 %. Where
-  nothing is held, as on every golden model, the rule costs a flag per
-  step and per event (the first build counted, which set the time
-  limits at every event, cost +0.28 % on the mixed cycle: 7ad9a73 skips
-  that where no hold stands before or after). The holds suite's full
-  tier takes 4.1 to 4.3 s on 12 threads against 4d24528's 3.5 to 3.7 s
-  (the rule's solves at its 616 521 tests).
+  *Measured* (the holds suite's full tier, 317 490 counted runs, at
+  f3355cb's scorer; wrong / bounded / postlimit / the other limits /
+  right): this rule (8c06970) 1 429 / 635 / 282 / 7 422 / 307 722; the
+  rule before re-check 4 (3a0e8b5) 3 329 / 1 631 / 1 494 / 7 426 /
+  303 610; 4d24528 12 497 / 44 / 44 / 5 678 / 299 227; no holds 19 861
+  / 26 596 / 4 602 / 12 295 / 254 136; 0b66315, before the holds,
+  24 924 / 26 449 / 4 266 / 12 140 / 249 711 (postlimit is this rule's
+  bound; another build's runs in it are outside that build's own). Every
+  wrong run is wrong at 4d24528 too: a solver's or a restart's stop on
+  cancelling terms (1 338) or diffsol's (7), the same runs stopping at
+  4d24528, and 84 runs where diffsol's own x drifts below 0.5 (asym,
+  slowstop: back fires there at every build, no holds included). No run
+  right at 4d24528 is wrong: 247 go to noise, 49 to bounded (a freeze
+  held and read at its expiry, frzf 12; a rounding bound wider than a
+  move, noisyown 26; a solve that cannot meet its tolerance at d0, so
+  nothing held, noisy3r 11), 2 to restart loss (noisy3r on diffsol: not
+  held, back at the event, the re-crossing lost after the restart; right
+  at 4d24528 only by RC3-B2's skip) and 224 to postlimit (asym 40,
+  slowstop 184: the run's x, located early, settles or is stopped short
+  of 0.5, and the hold expires within its bound). The judge's 777 cases
+  (5 432 runs) and the golden comparison (11 347 values) are the same to
+  the bit. Instructions (cachegrind, fair scheduling, every build
+  counted on this machine): the hybrid's mixed cycle 82.697 G, its HWFET
+  233.128 G, the BEV's WLTC 18.492 G: against the rule before re-check 4
+  (7ad9a73's engine, 3a0e8b5) −0.009 %, −0.009 % and +0.004 %, against
+  36c8a0d8's 83.169, 237.715 and 19.066 G −0.57 %, −1.93 % and −3.01 %.
+  Where nothing is held, as on every golden model, the rule costs a flag
+  per step and per event. The holds suite's full tier takes 4.6 to 4.7 s
+  on 12 threads against 4d24528's 4.1 to 4.2 s (the rule's solves at its
+  tests).
   The family probe of fix round 3 (181 440 runs, now the suite's `fam`
   family) was reported at 4d24528 as, on IDA's forms, L1 1 800, storms
   87 and noise 2, and on diffsol 50 runs wrong or within L1 beside
@@ -3985,18 +4011,22 @@ events name the modes that chatter.
   suite*): every probe the solver work's reviews ran on conditions on
   iteration variables, scored against hand-worked counts and times,
   never a commit's output, with the named limits of section 8.2 computed
-  by its scorer. `judge.py holds cases OUT --tier full` (1 726 models,
-  281 696 runs; `--tier quick`: 446, 5 546), `holds build CHECKOUT
+  by its scorer. `judge.py holds cases OUT --tier full` (1 868 models,
+  319 236 runs; `--tier quick`: 504, 6 150), `holds build CHECKOUT
   RUNNER` (the same runner at every commit), `holds run`, `holds score`.
-  Its full tier (279 950 counted runs; wrong / bounded / other limits /
-  right): the hold rule 1 345 / 655 / 7 390 / 270 560, every wrong run a
-  stop that stops at 4d24528 too; 4d24528 12 399 / 44 / 5 666 /
-  261 841; no holds 18 413 / 28 388 / 7 027 / 226 122; 0b66315 23 123 /
-  28 189 / 7 038 / 221 600. The quick tier runs in a fifth of a second;
+  Its full tier (317 490 counted runs; wrong / bounded / postlimit /
+  other limits / right): the hold rule 1 429 / 635 / 282 / 7 422 /
+  307 722, every wrong run wrong at 4d24528 too; the rule before
+  re-check 4 (3a0e8b5) 3 329 / 1 631 / 1 494 / 7 426 / 303 610; 4d24528
+  12 497 / 44 / 44 / 5 678 / 299 227; no holds 19 861 / 26 596 / 4 602 /
+  12 295 / 254 136; 0b66315 24 924 / 26 449 / 4 266 / 12 140 / 249 711.
+  The quick tier runs in a fifth of a second;
   `lsim-solve/tests/implicit_conditions.rs` keeps a sample of every
-  shape a review found (seven tests, six of which fail at 4d24528, the
-  seventh under revision 2's time limit), and `run_loop.rs` an engagement
-  at its crossing that slows the condition.
+  shape a review found (nine tests: six fail at 4d24528, one under
+  revision 2's time limit, two at 3a0e8b5: the crossing's line written
+  another way, and a hold timed again at a later event that stops x),
+  and `run_loop.rs` an engagement at its crossing that slows the
+  condition.
   The third verdict (20 October 2026, the solver work's item D: the
   library Driver's anti-windup, section 12.2): the Modelica Standard
   Library's `Blocks.Examples.PID_Controller` with the Driver as its
