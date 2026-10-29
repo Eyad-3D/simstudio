@@ -962,6 +962,18 @@ fn holds_run(
     ps: &[(&str, f64)],
     rtol: f64,
 ) -> Result<HoldsRun, String> {
+    holds_run_more(built, config, ps, rtol, T_END, &[]).map(|x| x.0)
+}
+
+/// [`holds_run`] to `t_end`, with the last values of the variables `more`.
+fn holds_run_more(
+    built: &common::Built,
+    config: Config,
+    ps: &[(&str, f64)],
+    rtol: f64,
+    t_end: f64,
+    more: &[&str],
+) -> Result<(HoldsRun, Vec<f64>), String> {
     let mut info = built.info.clone();
     for (name, v) in ps {
         let k =
@@ -970,7 +982,7 @@ fn holds_run(
     }
     let backend = if config == Config::Diffsol { Backend::Diffsol } else { Backend::Sundials };
     let opts = SolverOptions { rtol, atol: 1e-2 * rtol, backend, ..Default::default() };
-    let grid = OutputGrid { t0: 0.0, t_end: T_END, dt: 0.1 };
+    let grid = OutputGrid { t0: 0.0, t_end, dt: 0.1 };
     let r = simulate(&built.jit, &info, &opts, grid, &mut []).map_err(|e| e.to_string())?;
     let at = |label: &str| -> Vec<f64> {
         r.events
@@ -979,7 +991,11 @@ fn holds_run(
             .map(|e| e.t)
             .collect()
     };
-    Ok(HoldsRun { forth: at("forth"), back: at("back"), n: last(&r, "n"), m: last(&r, "m") })
+    let vals = more.iter().map(|v| last(&r, v)).collect();
+    Ok((
+        HoldsRun { forth: at("forth"), back: at("back"), n: last(&r, "n"), m: last(&r, "m") },
+        vals,
+    ))
 }
 
 /// A shape built on `config` (every block implicit for [`Config::IdaImplicit`]).
@@ -1530,4 +1546,290 @@ fn a_reset_that_lands_on_the_located_value_is_still_a_reset() {
     }
     assert!(tried >= 20, "only {tried} crossings located early");
     assert!(bad.is_empty(), "{} of {tried} wrong:\n{}", bad.len(), bad.join("\n"));
+}
+
+/// `when cond then var = pre(var) + 1`.
+fn count_when(cond: Expr, var: &str, label: &str) -> EquationDecl {
+    assign_when(cond, var, call(Builtin::Pre, vec![n(var)]) + c(1.0), label)
+}
+
+/// The crossing's own conditions are recognised by value (re-check 4's
+/// RC4-B1): review 3's slow shape (the crossing's event slows x by K, z' =
+/// a (1 − cs k)) beside a condition on the same line written another way,
+/// `2 x > 1` or `x > p` (p = 0.5): the slowing `when` on it (sibeq), a
+/// second back on it counting m2 (slowbp), or a passive `when` on it
+/// counting o (slowobs). In truth x reaches 0.5 at t1 and goes on past it,
+/// slower: forth once at t1, back and m2 never, o once. A crossing located
+/// a little early is held until x arrives, K times later. At 3a0e8b5 the
+/// crossing's own conditions were those written as the same relation or
+/// its negation: the other line's hold took the time limit of a hold the
+/// crossing did not make, expired long before x arrived, and fired back
+/// (then forth again at the arrival): re-check 4's sibeq, slowbp and
+/// slowobs, 720, 1 336 and 362 runs, every one right at 4d24528. Every
+/// condition that vanishes at the crossing's instant is the crossing's own.
+#[test]
+fn a_crossing_beside_its_line_written_another_way_fires_once() {
+    let mut bad = vec![];
+    let mut runs = 0;
+    for kind in ["sibeq", "slowbp", "slowobs"] {
+        for form in ["two", "par"] {
+            for config in [Config::Ida, Config::NoState, Config::Diffsol] {
+                for up in [true, false] {
+                    let state = config.state();
+                    let (fop, bop) =
+                        if up { (CmpOp::Gt, CmpOp::Lt) } else { (CmpOp::Lt, CmpOp::Gt) };
+                    let line = |op: CmpOp| {
+                        if form == "two" {
+                            cmp(op, c(2.0) * n("x"), c(1.0))
+                        } else {
+                            cmp(op, n("x"), n("p"))
+                        }
+                    };
+                    let phi = |_: &dyn Fn() -> Expr| {
+                        if state {
+                            c(0.0)
+                        } else {
+                            c(0.0) - n("k") * n("cs") * n("a") * (Expr::Time - n("tk"))
+                        }
+                    };
+                    let slowing = || vec![set("k", c(1.0)), set("tk", Expr::Time)];
+                    let (forth, more, extra) = match kind {
+                        "sibeq" => (
+                            vec![],
+                            vec![EquationDecl {
+                                eq: Equation::When { condition: line(fop), actions: slowing() },
+                                label: Some("slows".into()),
+                            }],
+                            "m2",
+                        ),
+                        "slowbp" => (slowing(), vec![count_when(line(bop), "m2", "back 2")], "m2"),
+                        _ => (slowing(), vec![count_when(line(fop), "o", "observer")], "o"),
+                    };
+                    let m = holds_shape(
+                        up,
+                        true,
+                        config,
+                        &phi,
+                        n("a") * (c(1.0) - n("cs") * n("k")),
+                        forth,
+                        vec![],
+                        more,
+                        &[("cs", "1", 0.0), ("p", "1", 0.5)],
+                        &[("k", "1"), ("tk", "s"), (extra, "1")],
+                    );
+                    let built = holds_build(&m, config);
+                    for a in [0.5, 2.3] {
+                        for big in [100.0, 1e4] {
+                            for rtol in HOLD_RTOLS {
+                                let t1 = 0.625 / a;
+                                let ps = [("a", a), ("cs", 1.0 - 1.0 / big)];
+                                runs += 1;
+                                let what = format!(
+                                    "{kind} {form} {config:?} up {up} a {a} K {big} rtol {rtol:e}"
+                                );
+                                match holds_run_more(&built, config, &ps, rtol, T_END, &[extra]) {
+                                    Ok((r, v)) => {
+                                        let want = if extra == "o" { 1.0 } else { 0.0 };
+                                        let right = at_times(&r.forth, &[(t1, loc(a, rtol))])
+                                            && r.back.is_empty()
+                                            && (r.n, r.m, v[0]) == (1.0, 0.0, want);
+                                        if !right {
+                                            bad.push(format!(
+                                                "{what}: forth {:?}, back {:?}, {extra} {}",
+                                                r.forth, r.back, v[0]
+                                            ));
+                                        }
+                                    }
+                                    Err(e) => bad.push(format!("{what}: {e}")),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{} of {runs} wrong:\n{}", bad.len(), bad.join("\n"));
+}
+
+/// A hold the crossing made ends within its time limit from the latest
+/// event (re-check 4's RC4-B2), where x then stops short of its side or
+/// tends to a level short of it:
+/// * slowstop: the crossing's own event slows x K times, and a time event
+///   at t2 = tf + K (t1 − tf) / 2 stops it, half-way to the run's own
+///   slowed arrival (tf where a first run, t2 never, located the crossing;
+///   early runs only). x stays short of 0.5 by g. The hold is timed again at
+///   t2 from that event's rates: x stopped, the rate before it, σ = a /
+///   (1.75 K), so back fires no later than t2 + min(8 |g|, W) / σ (W = 8
+///   bands). At 3a0e8b5 the hold kept the expiry it had from tf, up to
+///   seven times (t2 − tf) later (re-check 4: back 100 to 1 578 location
+///   tolerances after tf, 182 runs right at 4d24528).
+/// * asym: the crossing's own event makes z tend to zs + D at rate cc (zs
+///   := z there; D / 1.75 = 0.25 rtol): the run's x, located early by more
+///   than D, never arrives. Back fires no later than tf + W / ġ1, ġ1 = cc D
+///   / 1.75 the rate after the event (a firing moved by the time limit), and
+///   where x does arrive later, forth again within it. (On diffsol x settles
+///   within its own lag of 0.5 here: re-check 4's 140 runs wrong at every
+///   commit since 4d24528 alike; left out.)
+#[test]
+fn a_hold_its_crossing_made_ends_within_its_limit_from_the_latest_event() {
+    let mut bad = vec![];
+    let (mut runs, mut early) = (0, 0);
+    let w = |rtol: f64| 8.0 * 0.51 * rtol;
+    for config in [Config::Ida, Config::IdaImplicit, Config::NoState, Config::Diffsol] {
+        for up in [true, false] {
+            let state = config.state();
+            let phi = |_: &dyn Fn() -> Expr| {
+                if state {
+                    c(0.0)
+                } else {
+                    let slow = n("k") * n("cs") * n("a") * (Expr::Time - n("tk"));
+                    c(0.0) - (c(1.0) - n("k2")) * slow + n("k2") * (n("rf") - n("a") * Expr::Time)
+                }
+            };
+            let mut stop = vec![set("k2", c(1.0))];
+            if !state {
+                let slow = n("k") * n("cs") * n("a") * (Expr::Time - n("tk"));
+                stop.push(set("rf", n("a") * Expr::Time - slow));
+            }
+            let m = holds_shape(
+                up,
+                true,
+                config,
+                &phi,
+                n("a") * (c(1.0) - n("cs") * n("k")) * (c(1.0) - n("k2")),
+                vec![set("k", c(1.0)), set("tk", Expr::Time)],
+                vec![],
+                vec![EquationDecl {
+                    eq: Equation::When {
+                        condition: cmp(CmpOp::Ge, Expr::Time, n("t2")),
+                        actions: stop,
+                    },
+                    label: Some("stop".into()),
+                }],
+                &[("cs", "1", 0.0), ("t2", "s", 100.0)],
+                &[("k", "1"), ("tk", "s"), ("k2", "1"), ("rf", "1")],
+            );
+            let built = holds_build(&m, config);
+            for a in [0.5, 2.3] {
+                for big in [1e3, 1e4] {
+                    for rtol in HOLD_RTOLS {
+                        let t1 = 0.625 / a;
+                        let cs = 1.0 - 1.0 / big;
+                        let what =
+                            format!("slowstop {config:?} up {up} a {a} K {big} rtol {rtol:e}");
+                        let first =
+                            holds_run_more(&built, config, &[("a", a), ("cs", cs)], rtol, 6.0, &[])
+                                .unwrap_or_else(|e| panic!("{what}: {e}"));
+                        let Some(&tf) = first.0.forth.first() else { continue };
+                        if tf >= t1 {
+                            continue;
+                        }
+                        early += 1;
+                        runs += 1;
+                        let t2 = tf + 0.5 * big * (t1 - tf);
+                        let ps = [("a", a), ("cs", cs), ("t2", t2)];
+                        match holds_run_more(&built, config, &ps, rtol, 6.0, &["x"]) {
+                            Ok((r, x)) => {
+                                let g = (x[0] - 0.5).abs();
+                                let sigma = a / (1.75 * big);
+                                let limit = 1.01 * (8.0 * g).min(w(rtol)) / sigma;
+                                let within = match r.back.as_slice() {
+                                    [] => true,
+                                    [b] => *b >= t2 && b - t2 <= limit,
+                                    _ => false,
+                                };
+                                if !(at_times(&r.forth, &[(t1, loc(a, rtol))])
+                                    && r.n == 1.0
+                                    && within)
+                                {
+                                    bad.push(format!(
+                                        "{what}: forth {:?}, back {:?}: the limit from t2 {t2} is \
+                                         {limit:e} s (back {:e} s after t2)",
+                                        r.forth,
+                                        r.back,
+                                        r.back.first().map_or(0.0, |b| b - t2)
+                                    ));
+                                }
+                            }
+                            Err(e) => bad.push(format!("{what}: {e}")),
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(early >= 20, "only {early} slowstop crossings located early");
+    for config in [Config::Ida, Config::NoState] {
+        for up in [true, false] {
+            let state = config.state();
+            let phi = |_: &dyn Fn() -> Expr| {
+                if state {
+                    c(0.0)
+                } else {
+                    let tail = n("hd")
+                        * (c(1.0)
+                            - call(Builtin::Exp, vec![c(0.0) - n("cc") * (Expr::Time - n("tk"))]));
+                    n("k") * (n("a") * (n("tk") - Expr::Time) + tail)
+                }
+            };
+            let mut forth = vec![set("k", c(1.0)), set("tk", Expr::Time)];
+            if state {
+                forth.push(set("zs", n("z")));
+            }
+            let m = holds_shape(
+                up,
+                true,
+                config,
+                &phi,
+                n("a") * (c(1.0) - n("k")) + n("k") * n("cc") * (n("zs") + n("hd") - n("z")),
+                forth,
+                vec![],
+                vec![],
+                &[("cc", "1/s", 1.0), ("hd", "1", 0.0)],
+                &[("k", "1"), ("tk", "s"), ("zs", "1")],
+            );
+            let built = holds_build(&m, config);
+            for a in [0.5, 0.7, 7.0] {
+                for cc in [50.0, 500.0] {
+                    for rtol in [1e-4, 1e-6, 1e-7, 1e-8, 1e-10] {
+                        let t1 = 0.625 / a;
+                        let hd = 1.75 * 0.25 * rtol;
+                        runs += 1;
+                        let what = format!("asym {config:?} up {up} a {a} cc {cc} rtol {rtol:e}");
+                        match holds_run_more(
+                            &built,
+                            config,
+                            &[("a", a), ("cc", cc), ("hd", hd)],
+                            rtol,
+                            3.0,
+                            &[],
+                        ) {
+                            Ok((r, _)) => {
+                                let limit = 1.01 * w(rtol) * 1.75 / (cc * hd);
+                                let tf = r.forth.first().copied().unwrap_or(f64::NAN);
+                                let after = r.forth.iter().skip(1).chain(&r.back);
+                                let within = after.into_iter().all(|t| t - tf <= limit);
+                                // (forth once; or, located early, back at the
+                                // limit and forth again where x arrives)
+                                let counted = match (r.forth.len(), r.back.len()) {
+                                    (1, 0) => true,
+                                    (1, 1) | (2, 1) => tf < t1,
+                                    _ => false,
+                                };
+                                if !((tf - t1).abs() <= loc(a, rtol) && within && counted) {
+                                    bad.push(format!(
+                                        "{what}: forth {:?}, back {:?} (limit {limit:e} s after tf)",
+                                        r.forth, r.back
+                                    ));
+                                }
+                            }
+                            Err(e) => bad.push(format!("{what}: {e}")),
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{} of {runs} wrong:\n{}", bad.len(), bad.join("\n"));
 }

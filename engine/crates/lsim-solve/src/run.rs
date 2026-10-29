@@ -330,9 +330,6 @@ struct Loop<'a> {
     /// mode's nor a held read's edge ([`Loop::may_hold_root`] but for the
     /// time crossings, which can change)
     hold_roots: Vec<usize>,
-    /// per root function: the relation it is one side of (functions on one
-    /// relation, `x > 0.5` and `x < 0.5`, share it; [`relations`])
-    relation: Vec<usize>,
     /// where the integrator's last step started: the second point of the
     /// hold rule ([`Loop::second`])
     step_from: f64,
@@ -349,11 +346,13 @@ struct Loop<'a> {
     /// read them at: renewed from the step's end once that is final
     /// ([`Loop::renew_holds`])
     renew: Vec<(usize, f64)>,
-    /// the event being handled was caused by one relation's crossing alone
-    /// (`own_ok` from the run loop: a root, nothing scheduled, no expiry
-    /// cut; `own`: that relation, set by [`Loop::iterate`])
+    /// the event being handled may be a crossing's own (`own_ok` from the
+    /// run loop: a root, nothing scheduled, no expiry cut), and is (`own`,
+    /// set by [`Loop::iterate`]: no tick at its instant changed a value);
+    /// which functions are the crossing's own is read by value
+    /// ([`Loop::set_expiry`])
     own_ok: bool,
-    own: Option<usize>,
+    own: bool,
     /// the functions the last round of event iteration held on their side
     /// (the engagement loop's value before the states move applies them)
     ev_held: Vec<(usize, f64)>,
@@ -770,32 +769,6 @@ struct SecondPoint {
     g1: Vec<f64>,
 }
 
-/// Per function of `n` (the model's root functions, then the table
-/// guards), the relation it is a side of: the first function whose
-/// expression is its own or its negation (`when x > 0.5` and `when x <
-/// 0.5` both cross on `x - 0.5`). Without the expressions (`roots`
-/// `None`) every function is its own relation.
-fn relations(n: usize, roots: Option<&[lsim_ir::Expr]>) -> Vec<usize> {
-    use lsim_ir::Expr as E;
-    use lsim_ir::expr::BinaryOp as Bo;
-    let mut rel: Vec<usize> = (0..n).collect();
-    let Some(roots) = roots else { return rel };
-    let same = |a: &E, b: &E| {
-        a == b
-            || match (a, b) {
-                (E::Neg(x), y) | (y, E::Neg(x)) => **x == *y,
-                (E::Binary(Bo::Sub, p, q), E::Binary(Bo::Sub, r, s)) => p == s && q == r,
-                _ => false,
-            }
-    };
-    for c in 1..n.min(roots.len()) {
-        if let Some(b) = (0..c).find(|&b| rel[b] == b && same(&roots[b], &roots[c])) {
-            rel[c] = b;
-        }
-    }
-    rel
-}
-
 /// What [`mag_eval`] reads: the point, the slots of y, the discrete values
 /// and the inputs, the assignments (their magnitudes found once per point).
 struct MagCx<'c> {
@@ -1065,26 +1038,27 @@ impl Loop<'_> {
         if self.held || !was.is_empty() {
             self.set_expiry(integ, t, y, d, before, &was);
         }
-        self.own = None;
+        self.own = false;
     }
 
-    /// The time limit of the holds this event made (`was`: the functions
-    /// held before it, empty where none was): each expires at t + T. A hold standing from an
-    /// earlier event, carried here or made again, keeps the expiry it has;
-    /// a function no longer held has none.
+    /// The time limit of every hold standing after this event (`was`: the
+    /// functions held before it, empty where none was): each expires at t +
+    /// T, T from this event's rates, a hold made here or standing from an
+    /// earlier one alike; a function no longer held has none. (At the start
+    /// and where the integrator chooses its states again, `before` `None`, no
+    /// hold is made and a standing hold keeps its expiry.)
     ///
     /// T is eight times what the function needs, at its rate, to close its
     /// shortfall (|g1|, at least the resolution ρ its rule test had: an exact
     /// zero needs time to leave zero too), and never more than it needs to
     /// cross the hold's whole width W:
-    /// * a hold the crossing itself made (the event's one cause is its
-    ///   relation's crossing, [`Loop::own`]: its own `when`, a sibling on the
-    ///   same relation, the rounds and engagements they cause) takes the
-    ///   rate after the event, ġ1 = ∇g·ẏ1 at the consistent point after it
-    ///   ([`Loop::rates_after`]), where that moves it toward its side: T =
-    ///   min(8 max(|g1|, ρ), W)/|ġ1|. An event that slows the function slows
-    ///   its arrival, and the hold waits for it; what the hold can hide stays
-    ///   within W in the function's own units, and ends where it arrives;
+    /// * a hold on one of the crossing's own conditions ([`Loop::own`]: a
+    ///   crossing's event, and a function that vanishes at its instant within
+    ///   its hold's width, as the integrator had it there, whatever its
+    ///   expression) takes the rate after the event, ġ1 = ∇g·ẏ1 at the
+    ///   consistent point after it ([`Loop::rates_after`]), where that moves
+    ///   it toward its side: T = min(8 max(|g1|, ρ), W)/|ġ1|. An event that
+    ///   slows the function slows its arrival, and the hold waits for it;
     /// * every other hold, and one whose rate after the event is 0 or moves
     ///   away, takes the rate before it: σ, the consistent pre-event
     ///   function's change over the integrator's last step (where a solve
@@ -1092,8 +1066,11 @@ impl Loop<'_> {
     ///   W/max(|σ|, |ġ0(P)|)), ġ0(P) that function's rate at the event's
     ///   point (a secant that undersells it does not stretch the cap).
     ///
-    /// Never less than 64 ε max(|t|, 1) (the integrators cannot step 16 ε
-    /// |t|); that floor where no rate is known.
+    /// So a hold never outlasts W at x's speed after the latest event, and
+    /// what it hides stays within W of its function. Never less than 64 ε
+    /// max(|t|, 1) (the integrators cannot step 16 ε |t|): that floor where
+    /// no rate is known for a hold made here; a standing hold the event
+    /// gives no rate for keeps its expiry.
     fn set_expiry(
         &mut self,
         integ: &mut dyn Integrator,
@@ -1103,27 +1080,36 @@ impl Loop<'_> {
         before: Option<(&[f64], &[f64])>,
         was: &[bool],
     ) {
-        let mut fresh: Vec<usize> = vec![];
+        let mut timed: Vec<(usize, bool)> = vec![];
         for c in 0..self.hold.len() {
             if self.hold[c] > 0.0 && self.may_hold_root(c) {
-                if !(was.get(c).copied().unwrap_or(false) && self.expiry[c].is_finite()) {
-                    fresh.push(c);
+                let standing = was.get(c).copied().unwrap_or(false);
+                if !standing || before.is_some() {
+                    timed.push((c, standing));
                 }
             } else {
                 self.expiry[c] = f64::INFINITY;
             }
         }
-        if fresh.is_empty() {
+        if timed.is_empty() {
             return;
         }
-        let own: Vec<bool> =
-            fresh.iter().map(|&c| self.own.is_some_and(|r| self.relation[c] == r)).collect();
+        let keep = self.raw.clone();
+        // the crossing's own conditions: those that vanish at its instant,
+        // within their holds' widths (the location error's bound), as the
+        // integrator had them there
+        let own: Vec<bool> = match before {
+            Some((y0, d0)) if self.own => {
+                self.eval_raw(t, y0, d0);
+                timed.iter().map(|&(c, _)| self.raw[c].abs() <= self.hold[c]).collect()
+            }
+            _ => vec![false; timed.len()],
+        };
         let after = if own.iter().any(|o| *o) { self.rates_after(t, y, d) } else { None };
         let before_rates = before.and_then(|(y0, d0)| self.rates_before(integ, t, y0, d0));
-        let keep = self.raw.clone();
         self.eval_raw(t, y, d);
         let floor = 64.0 * f64::EPSILON * t.abs().max(1.0);
-        for (&c, own) in fresh.iter().zip(own) {
+        for (&(c, standing), own) in timed.iter().zip(own) {
             let (s, w, g1) = (self.sides[c], self.hold[c], self.raw[c]);
             let need = LIMIT_FACTOR * g1.abs().max(self.rho_of[c]);
             let arrive = after.as_ref().map(|r| r[c]).filter(|r| own && s * r > 0.0);
@@ -1134,6 +1120,7 @@ impl Loop<'_> {
                         sig[c].abs().max(if at_p[c].is_finite() { at_p[c].abs() } else { 0.0 });
                     (need / sig[c].abs()).min(w / cap)
                 }
+                _ if standing => continue,
                 _ => 0.0,
             };
             let lim = if lim.is_finite() { lim.max(floor) } else { floor };
@@ -2504,25 +2491,11 @@ impl Loop<'_> {
         }
         let merged = (at_event && !self.passed.is_empty()).then(|| self.with_passed(dirs));
         let dirs = merged.as_deref().or(dirs);
-        // the relation whose crossing alone caused this event, if one did
-        // (`own_ok`: a root, nothing scheduled due there, no expiry cut; and
-        // no tick at its instant changed a value): the holds it makes take
-        // the rate after the event for their time limits
-        // ([`Loop::set_expiry`])
-        self.own = None;
-        if at_event
-            && self.own_ok
-            && d.as_slice() == d_pre
-            && let Some(ds) = dirs
-        {
-            let mut rel =
-                ds.iter().enumerate().filter(|x| *x.1 != 0).map(|(c, _)| self.relation.get(c));
-            if let Some(Some(&first)) = rel.next()
-                && rel.all(|r| r == Some(&first))
-            {
-                self.own = Some(first);
-            }
-        }
+        // a crossing's own event (`own_ok`: a root, nothing scheduled due
+        // there, no expiry cut; and no tick at its instant changed a value):
+        // its conditions are those that vanish at its instant, whatever
+        // their expressions ([`Loop::set_expiry`])
+        self.own = at_event && self.own_ok && d.as_slice() == d_pre && dirs.is_some();
         // the conditions just before the event, and where the integrator
         // saw them
         self.eval_roots(t, y, d_pre, true);
@@ -3581,7 +3554,6 @@ fn run_watched<'a>(
             v
         },
         hold_roots: vec![],
-        relation: vec![],
         step_from: f64::NEG_INFINITY,
         fired_log: vec![],
         expiry: vec![f64::INFINITY; l.n_roots + model.table_guard_list().len()],
@@ -3589,7 +3561,7 @@ fn run_watched<'a>(
         rho_of: vec![0.0; l.n_roots + model.table_guard_list().len()],
         renew: vec![],
         own_ok: false,
-        own: None,
+        own: false,
         ev_held: vec![],
         rate_jac: None,
         seen_y: vec![],
@@ -3630,10 +3602,6 @@ fn run_watched<'a>(
     }
     lp.hold_roots =
         (0..l.n_roots).filter(|&c| lp.mode_of_root[c].is_none() && !lp.held_root[c]).collect();
-    lp.relation = relations(
-        lp.sides.len(),
-        info.mag.as_ref().filter(|_| lp.may_hold()).map(|m| m.roots.as_slice()),
-    );
     let p = &info.params;
     // (the run's own integrator until it chooses its states again)
     let integ: &mut dyn Integrator = &mut *integ0;

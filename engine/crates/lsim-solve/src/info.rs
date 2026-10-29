@@ -599,10 +599,8 @@ pub struct RunInfo {
     /// read and the option that holds it ([`crate::held::at_breakpoint`])
     pub state_reads: Vec<StateRead>,
     /// the expressions the hold rule reads (its rounding bound's running-
-    /// error magnitudes, and which root functions are sides of one
-    /// relation); `None` in [`RunInfo::bare`], where the rounding bound
-    /// keeps its terms in the iteration variables only and every root
-    /// function is a relation of its own
+    /// error magnitudes); `None` in [`RunInfo::bare`], where the rounding
+    /// bound keeps its terms in the iteration variables only
     pub mag: Option<Arc<MagInfo>>,
 }
 
