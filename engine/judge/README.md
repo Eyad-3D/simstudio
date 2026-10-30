@@ -417,13 +417,14 @@ order, after the limits above):
   W at t2, creeping after it by less than the gap until the lift), and an
   event while x is stopped times it again from x's rate there, its creep or
   an ulp of rounding, so that it lasts far past the lift. That event is a
-  fired `when` after the stop, within W over x's speed before it and before
-  the lift, or the stop itself where it is a state event and x creeps
+  fired `when` other than the stop's, after the stop as the run fired it,
+  within W over x's speed before it and before the lift, or the stop itself where it is a state event and x creeps
   toward its side (the rule reads it as the crossing's own, by value). The
   crossing's `when` fired at or before the stop, as the located truth's
   first firing; from the stop on the run fires a prefix of the located
-  truth's firings in their order, each at or after its instant, the rest
-  never (lost or late); never a firing the located truth does not have (no
+  truth's firings in their order, each at its instant or late (beyond
+  twice the stop's own limit W over x's speed, where the short limit would
+  have ended the hold), the rest never (lost); never a firing the located truth does not have (no
   double firing), no stop, the counters equal the firings.
 * **atevent**, re-check 5's RC5-B2 (a known limit of revision 4, for step
   3): on diffsol (the run's backend) the crossing reported at a time event's

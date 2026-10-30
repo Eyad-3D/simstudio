@@ -1325,13 +1325,13 @@ def slowed(r, rb=None, D=None, t2=None) -> dict:
     return out
 
 
-def stopped(t, gap, a, creep, lift) -> dict:
+def stopped(t, gap, a, creep, lift, label="k set") -> dict:
     """An event stops x short of its threshold, for the scorer (the truth's
-    `stop`; re-check 5's RC5-B1): at `t` x is `gap` short of 0.5 (in x),
-    having moved at a / 1.75 before it; after it x moves at `creep` (x's
-    rate, toward the crossing's side where positive) and stays short until
-    the event at `lift` moves it on."""
-    return {"t": t, "gap": gap, "speed": a / 1.75, "creep": creep, "lift": lift}
+    `stop`; re-check 5's RC5-B1): at `t` the `when` labelled `label` stops x
+    `gap` short of 0.5 (in x), having moved at a / 1.75 before it; after it
+    x moves at `creep` (x's rate, toward the crossing's side where positive)
+    and stays short until the event at `lift` moves it on."""
+    return {"t": t, "label": label, "gap": gap, "speed": a / 1.75, "creep": creep, "lift": lift}
 
 
 SIBS = {"two": "2 * x {op} 1", "par": "x {op} p", "sub": "x - 0.5 {op} 0", "flip": "0.5 {rop} x"}
@@ -1978,13 +1978,15 @@ def retimed(b, r, res) -> bool:
     `creep` after it until `lift`), and an event while x is stopped times
     it again from x's rate there, its creep or one ulp of rounding, so that
     it lasts far beyond the lift. That event is one of the run's fired
-    `when`s after the stop and within the stop's own limit, W over x's speed
-    before it (none moves x before the lift, by the truth), or the stop
-    itself where it is a state event (read as the crossing's own, by value)
-    and x creeps toward its side. The crossing's `when` fired at or before
-    the stop and as the located truth's first firing; from the stop on, the
+    `when`s (not the stop's own) after the stop as the run fired it and
+    within the stop's own limit, W over x's speed before it (none moves x
+    before the lift, by the truth), or the stop itself where it is a state
+    event (read as the crossing's own, by value) and x creeps toward its
+    side. The crossing's `when` fired at or before the run's stop and as the
+    located truth's first firing; from the stop on, the
     run fires a prefix of the located truth's firings in their order, each
-    at or after its instant (late) and the rest never (lost): never a firing
+    at its instant or late (beyond twice the stop's own limit, where the
+    short limit would have ended the hold), the rest never (lost): never a firing
     the located truth does not require, so never a double firing; no stop;
     the counters equal the firings."""
     st = r["truth"].get("stop")
@@ -1995,13 +1997,20 @@ def retimed(b, r, res) -> bool:
     if not 0 < st["gap"] <= W or abs(st["creep"]) * (st["lift"] - ts) >= st["gap"]:
         return False
     labels = b["labels"]
-    evs = [t for t, l in res.get("fired", []) if not any(l.endswith(x) for x in labels)]
-    later = any(ts < t <= ts + W / st["speed"] and t < st["lift"] for t in evs)
+    # the stop as the run fired it (a state event's within its location), and the events after it
+    tss = [t for t, l in res.get("fired", []) if l.endswith(st["label"])]
+    if not tss:
+        return False
+    evs = [t for t, l in res.get("fired", []) if not any(l.endswith(x) for x in labels + [st["label"]])]
+    later = [t for t in evs if tss[0] < t <= tss[0] + W / st["speed"] and t < st["lift"]]
     at_stop = st["creep"] > 0 and not any(abs(ts - te) <= EXACT for te in scheduled(b, r))
     if not (later or at_stop):
         return False
+    # beyond the stop's own limit W / x' (twice it: the short limit's cap is W over a secant a little below x',
+    # measured expiring at 1.00 of it): a late firing comes after it
+    tr = tss[0] + 2 * W / st["speed"]
     got = counted(b, res)
-    if not got or got[0][1] != labels[0] or got[0][0] > ts + EXACT:
+    if not got or got[0][1] != labels[0] or got[0][0] > tss[0] + EXACT:
         return False
     fin = res.get("final", {})
     cnt = dict(zip(["n", "m"], labels))
@@ -2012,7 +2021,8 @@ def retimed(b, r, res) -> bool:
         rest = sorted((q, tol, lab) for lab in labels for i, (q, tol) in enumerate(lt["req"].get(lab, []))
                       if (lab, i) != (labels[0], 0))
         tail = got[1:]
-        if len(tail) > len(rest) or any(lab != rl or t < q - tol for (t, lab), (q, tol, rl) in zip(tail, rest)):
+        if len(tail) > len(rest) or any(lab != rl or t < q - tol or (t > q + tol and t <= tr)
+                                        for (t, lab), (q, tol, rl) in zip(tail, rest)):
             continue
         if len(tail) == len(rest) and all(abs(t - q) <= tol for (t, _), (q, tol, _) in zip(tail, rest)):
             continue   # nothing lost or late: the located truth itself
