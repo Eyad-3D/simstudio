@@ -1213,6 +1213,7 @@ def rest(tier: str) -> list:
                                 e = a * d
                                 L = loc(rtol, a / 1.75)
                                 tr = truth({"forth": [[tb, EXACT]], "back": []}, {"n": [1, 0], "m": [0, 0]},
+                                           stop=stopped(t2, q * band(rtol), a, 0.0, tb),
                                            **({"after": slowed(0.0)} if kind == "bfreeze" else {}))
                                 ev = ev_tol("state" if trig == "w" else "time", rtol)
                                 tr["limits"] = [{"cls": "located", "req": {"forth": [[t1, L], [tb, EXACT]],
@@ -1320,6 +1321,15 @@ def slowed(r, rb=None, D=None, t2=None) -> dict:
         if v is not None:
             out[k] = v
     return out
+
+
+def stopped(t, gap, a, creep, lift) -> dict:
+    """An event stops x short of its threshold, for the scorer (the truth's
+    `stop`; re-check 5's RC5-B1): at `t` x is `gap` short of 0.5 (in x),
+    having moved at a / 1.75 before it; after it x moves at `creep` (x's
+    rate, toward the crossing's side where positive) and stays short until
+    the event at `lift` moves it on."""
+    return {"t": t, "gap": gap, "speed": a / 1.75, "creep": creep, "lift": lift}
 
 
 SIBS = {"two": "2 * x {op} 1", "par": "x {op} p", "sub": "x - 0.5 {op} 0", "flip": "0.5 {rop} x"}
@@ -1477,11 +1487,184 @@ def recheck4(tier: str) -> list:
     return out
 
 
+def recheck5(tier: str) -> list:
+    """Re-check 5's shapes (RC5-B1, RC5-B2; tmp/rc5/probe.py), each with its
+    hand-worked truth:
+      f2:  review 2's bfreeze / bfreezew (x stopped short of 0.5 at t2 = t1 -
+           d, d = q band / |x'|, by a time event or where a state w = t
+           passes t2; lifted at tb = t1 + 0.5 by R + 0.1), and a second event
+           at t3 = t2 + f L that changes nothing x reads (j := 1: a time
+           event, or a state w3 = t passing t3), f 1e-3, 0.03, 0.1. Truth: x
+           frozen short until tb: forth [tb] once, back never. Located (the
+           crossing located before t2, the mirror): forth tf, back t2, forth
+           tb;
+      f3:  f2 with a creep after the stop, R' = eps = +-1e-9 /s (x' = eps /
+           1.75), the second event also a tick at t3, q 0.35 .. 2; rtol 1e-4 ..
+           1e-8 only: x creeps by at most 1e-9 0.5 / 1.75 = 2.9e-10 before tb,
+           at most 0.16 of its shortfall (q 0.35 at rtol 1e-8; at rtol 1e-9, q
+           0.35 or 0.5, it would cross before tb). f2's truth;
+      tev: slow (forth slows x by K, K 100 and 1e4) beside an unrelated time
+           event at te = t1 + f L (j := 1), f -0.3 .. 0.01. Truth: forth [t1]
+           once, back never;
+      s2:  a later event slows x, the mirror: z' = a (1 - c k), c = 1 - 1/K,
+           k := 1 at time t2 or where w = t passes t2, t2 = t1 - d. Truth: x
+           short at t2 by q band, then slowed: forth once at t1' = t2 + K d
+           (at the slowed rate's tolerance), back never; where t1' is past the
+           run's end (3 s; a = 0.5, K 1e4, rtol 1e-4, q 1 and 2), no firing,
+           or forth once within that tolerance of t1' where it reaches back
+           before the end. Located: forth tf, back t2, forth t1' (where it
+           comes)."""
+    quick = tier == "quick"
+    out = []
+    # f2 and f3: x stopped short, then an event that changes nothing x reads
+    for fam_ in ("f2", "f3"):
+        creep = fam_ == "f3"
+        for frz in ("time", "w"):
+            for sec in (("time", "state", "tick") if creep else ("time", "state")):
+                for config in IMPL:
+                    implicit, z_state, _, _ = CONFIGS[config]
+                    for up in ((True,) if quick else (True, False)):
+                        sg = "+" if up else "-"
+                        rr = f"0.625 {sg} ((z - 0.625) + k2 * 0.1)" if z_state else \
+                            f"0.625 {sg} ((a * time - 0.625) - k * (a - eps) * (time - t2) + k2 * 0.1)"
+                        params = {"a": (1.0, "1/s"), "t2": (1.0, "s"), "t3": (1.0, "s"), "tb": (1.0, "s"),
+                                  "eps": (1e-30, "1/s"), "never": (1e3, "s")}
+                        decls = [f"Real x(start = {0.0 if up else 0.78})"] + \
+                            [DISC.format(v) for v in ("n", "m", "k", "k2", "j")]
+                        eqs = []
+                        if z_state:
+                            decls.append("Real z(start = 0, fixed = true)")
+                            eqs.append("der(z) = a * (1 - k) + k * eps")
+                        eqs.append(x_eq(implicit, rr))
+                        if frz == "w":
+                            decls.append('Real w(unit = "s", start = 0, fixed = true)')
+                            eqs.append("der(w) = 1")
+                        if sec == "state":
+                            decls.append('Real w3(unit = "s", start = 0, fixed = true)')
+                            eqs.append("der(w3) = 1")
+                        fop, bop = ops(up, True)
+                        whens = [("w > t2" if frz == "w" else "time >= t2", ["k = 1"], "k set"),
+                                 ("time >= tb", ["k2 = 1"], "k2 set"),
+                                 ({"state": "w3 > t3", "time": "time >= t3", "tick": "time >= never"}[sec], ["j = 1"],
+                                  "j set"),
+                                 (f"x {fop} 0.5", [count("n")], "forth"), (f"x {bop} 0.5", [count("m")], "back")]
+                        if quick:
+                            grid = ([0.5, 2.3], [0.35, 1.0], [0.03], [1e-5, 1e-8]) if creep else \
+                                ([2.3], [0.5], [1e-3, 0.1], QUICK_RTOLS)
+                        else:
+                            grid = (RATES5, [0.35, 0.5, 1.0, 2.0], [1e-3, 0.03, 0.1], RTOLS[:5]) if creep else \
+                                (RATES5, [0.5, 1.0, 2.0], [1e-3, 0.03, 0.1], RTOLS)
+                        runs = []
+                        for a in grid[0]:
+                            for q in grid[1]:
+                                for f in grid[2]:
+                                    for rtol in grid[3]:
+                                        t1 = 0.625 / a
+                                        L = loc(rtol, a / 1.75)
+                                        d = q * band(rtol) * 1.75 / a
+                                        t2 = t1 - d
+                                        t3 = t2 + f * L
+                                        tb = t1 + 0.5
+                                        ev = ev_tol("state" if frz == "w" else "time", rtol)
+                                        for eps in ([1e-9, -1e-9] if creep else [0.0]):
+                                            tr = truth({"forth": [[tb, EXACT]], "back": []}, {"n": [1, 0], "m": [0, 0]},
+                                                       after=slowed(0.0),
+                                                       stop=stopped(t2, q * band(rtol), a, eps / 1.75, tb))
+                                            tr["limits"] = [{"cls": "located",
+                                                             "req": {"forth": [[t1, L], [tb, EXACT]], "back": [[t2, ev]]},
+                                                             "final": {"n": [2, 0], "m": [1, 0]}}]
+                                            runs.append(run({"a": a, "t2": t2, "t3": t3, "tb": tb, "eps": eps}, rtol, tr,
+                                                            {"a": a, "q": q, "f": f, "eps": eps},
+                                                            ticks=[t3] if sec == "tick" else []))
+                        out.append(build(fam_, {"frz": frz, "sec": sec, "dir": "up" if up else "down"}, config,
+                                         mo(params, decls, eqs, whens), runs, ["forth", "back"], ["n", "m"],
+                                         tick_vars=["j"] if sec == "tick" else []))
+    # tev: slow beside an unrelated time event
+    for config in IMPL + ["cvode"]:
+        implicit, z_state, _, _ = CONFIGS[config]
+        for up in ((True,) if quick else (True, False)):
+            sg = "+" if up else "-"
+            dd = "(z - 0.625)" if z_state else "(a * time - 0.625 - k * c * a * (time - tk))"
+            params = {"a": (1.0, "1/s"), "c": (0.0, ""), "te": (1.0, "s")}
+            decls = [f"Real x(start = {0.0 if up else 0.78})"] + [DISC.format(v) for v in ("n", "m", "k", "j")] + \
+                ['discrete Real tk(unit = "s", start = 0, fixed = true)']
+            eqs = []
+            if z_state:
+                decls.append("Real z(start = 0, fixed = true)")
+                eqs.append("der(z) = a * (1 - c * k)")
+            eqs.append(x_eq(implicit, f"0.625 {sg} {dd}"))
+            fop, bop = ops(up, True)
+            whens = [("time >= te", ["j = 1"], "j set"),
+                     (f"x {fop} 0.5", [count("n"), "k = 1", "tk = time"], "forth"),
+                     (f"x {bop} 0.5", [count("m")], "back")]
+            runs = []
+            for a in ([1.0, 4.4] if quick else RATES5):
+                for K in (100.0, 1e4):
+                    for f in ([-0.03, -0.01, 0.0] if quick else [-0.3, -0.1, -0.03, -0.01, 0.0, 0.01]):
+                        for rtol in (QUICK_RTOLS if quick else RTOLS):
+                            t1 = 0.625 / a
+                            tr = truth({"forth": [[t1, loc(rtol, a / 1.75)]], "back": []}, {"n": [1, 0], "m": [0, 0]},
+                                       after=slowed(a / K))
+                            runs.append(run({"a": a, "c": 1.0 - 1.0 / K, "te": t1 + f * loc(rtol, a / 1.75)}, rtol,
+                                            tr, {"a": a, "K": K, "f": f}))
+            out.append(build("tev", {"dir": "up" if up else "down"}, config, mo(params, decls, eqs, whens),
+                             runs, ["forth", "back"], ["n", "m"], t_end=3.0))
+    # s2: a later event slows x (the mirror)
+    for trig in ("w", "time"):
+        for config in IMPL + ["cvode"]:
+            implicit, z_state, _, _ = CONFIGS[config]
+            for up in ((True,) if quick else (True, False)):
+                sg = "+" if up else "-"
+                dd = "(z - 0.625)" if z_state else "(a * time - 0.625 - k * c * a * (time - t2))"
+                params = {"a": (1.0, "1/s"), "c": (0.0, ""), "t2": (1.0, "s")}
+                decls = [f"Real x(start = {0.0 if up else 0.78})"] + [DISC.format(v) for v in ("n", "m", "k")]
+                eqs = []
+                if z_state:
+                    decls.append("Real z(start = 0, fixed = true)")
+                    eqs.append("der(z) = a * (1 - c * k)")
+                eqs.append(x_eq(implicit, f"0.625 {sg} {dd}"))
+                if trig == "w":
+                    decls.append('Real w(unit = "s", start = 0, fixed = true)')
+                    eqs.append("der(w) = 1")
+                fop, bop = ops(up, True)
+                whens = [("w > t2" if trig == "w" else "time >= t2", ["k = 1"], "k set"),
+                         (f"x {fop} 0.5", [count("n")], "forth"), (f"x {bop} 0.5", [count("m")], "back")]
+                runs = []
+                for a in ([4.4] if quick else RATES5):
+                    for q in ([0.5, 2.0] if quick else [0.5, 1.0, 2.0]):
+                        for K in (100.0, 1e4):
+                            for rtol in (QUICK_RTOLS if quick else RTOLS):
+                                t1 = 0.625 / a
+                                L = loc(rtol, a / 1.75)
+                                d = q * band(rtol) * 1.75 / a
+                                t2 = t1 - d
+                                t1p = t2 + K * d
+                                Ls = loc(rtol, a / K / 1.75)
+                                ev = ev_tol("state" if trig == "w" else "time", rtol)
+                                late = [{"req": {"forth": [[t1p, Ls]], "back": []}, "final": {"n": [1, 0], "m": [0, 0]}}]
+                                if t1p <= 3.0:
+                                    tr = truth({"forth": [[t1p, Ls]], "back": []}, {"n": [1, 0], "m": [0, 0]},
+                                               after=slowed(0.0))
+                                    lim = [([[t1, L], [t1p, Ls]], 2)]
+                                else:
+                                    # past the run's end: no firing, or one located within Ls before the end
+                                    tr = truth({"forth": [], "back": []}, {"n": [0, 0], "m": [0, 0]}, after=slowed(0.0),
+                                               either=late if t1p - Ls <= 3.0 else [])
+                                    lim = [([[t1, L]], 1)] + ([([[t1, L], [t1p, Ls]], 2)] if t1p - Ls <= 3.0 else [])
+                                tr["limits"] = [{"cls": "located", "req": {"forth": fl, "back": [[t2, ev]]},
+                                                 "final": {"n": [nf, 0], "m": [1, 0]}} for fl, nf in lim]
+                                runs.append(run({"a": a, "c": 1.0 - 1.0 / K, "t2": t2}, rtol, tr, {"a": a, "q": q, "K": K}))
+                out.append(build("s2", {"trig": trig, "dir": "up" if up else "down"}, config,
+                                 mo(params, decls, eqs, whens), runs, ["forth", "back"], ["n", "m"], t_end=3.0))
+    return out
+
+
+RATES5 = [0.5, 1.0, 2.3, 4.4, 7.0]   # re-check 5's rates
 
 FAMILIES = {"fam": fam, "own": own, "ramp": ramp, "peak": peak, "moved": moved, "stale": stale,
             "count": count_cases, "extra": extra, "coin": coin, "before": before, "rdmode": rdmode,
             "noisy": noisy, "noisyown": noisyown, "rest": rest, "mixedc": mixedc, "slow": slow,
-            "recheck4": recheck4}
+            "recheck4": recheck4, "recheck5": recheck5}
 
 
 def all_builds(tier: str) -> list:

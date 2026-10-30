@@ -267,8 +267,8 @@ text format, prepares and compiles each once and runs it at each of its
 parameter sets, tolerances and backends on threads.
 
 ```text
-python3 engine/judge/judge.py holds cases OUT --tier quick    # 504 models, 6 150 runs
-python3 engine/judge/judge.py holds cases OUT --tier full     # 1 868 models, 319 236 runs
+python3 engine/judge/judge.py holds cases OUT --tier quick    # 559 models, 6 930 runs
+python3 engine/judge/judge.py holds cases OUT --tier full     # 1 978 models, 366 516 runs
 python3 engine/judge/judge.py holds build CHECKOUT RUNNER     # cargo, CARGO_TARGET_DIR as set
 python3 engine/judge/judge.py holds run   RUNNER OUT RESULTS.jsonl [--threads 12]
 python3 engine/judge/judge.py holds score OUT LABEL=RESULTS.jsonl ... [--out FILE.md]
@@ -277,8 +277,8 @@ python3 engine/judge/judge.py holds selftest                  # the scorer on ma
 
 The full tier is every probe at the size that found its bug: the fix
 round's family probe whole (181 440 runs), recheck 3's own-move probe
-whole, and every shape the hold rule's three reviews and its fourth
-re-check made (round 4: the hold spec), with the smaller sets beside them. The quick tier keeps a few rates,
+whole, and every shape the hold rule's three reviews and its fourth and
+fifth re-checks made (round 4: the hold spec), with the smaller sets beside them. The quick tier keeps a few rates,
 delays and tolerances (1e-5, 1e-8, 1e-10) of each family on every backend.
 Each model runs on six configurations: `cvode` (x written explicitly, x =
 0.5 + (R − 0.625)/1.75: no iteration variable, nothing to hold, the
@@ -327,6 +327,9 @@ instant.
 | `slowmode` | a mode on the relation slows x: z' = if x > 0.5 then a / K else a (states only) | forth once at t1, back never | re-check 4 |
 | `asym` | the crossing's own `when` sets k and freezes zs := z; z then tends to zs + D at rate c (z' = c (zs + D − z); with no state R = a tk + D (1 − e^(−c (t − tk)))), D / 1.75 = q rtol, q 0.25, 0.4, 0.6, c 50 and 500 /s | forth once at t1, back never: x tends to 0.5 + q rtol | re-check 4 (RC4-B2) |
 | `slowfrz`, `slowstop` | slow (K 1e3, 1e4), and a time event at t2 that stops z: t2 = t1 + q rtol · 1.75 K / a (slowfrz: x frozen at 0.5 + q rtol); t2 = tf + K (t1 − tf) / 2, half-way to the run's own slowed arrival, tf where a first run (t2 never) located the crossing (`holds_tf.json`; early-located runs only: slowstop) | forth once at t1, back never: x frozen above 0.5 (slowstop: by (1/2 − 1/K) a (t1 − tf) / 1.75) | re-check 4 (RC4-B2) |
+| `f2`, `f3` | bfreeze and bfreezew (x stopped short of 0.5 by q band at t2 = t1 − d by a time event or where w = t passes t2, lifted at tb = t1 + 0.5), and an event at t3 = t2 + f L that changes nothing x reads (j := 1 at time t3, where a state w3 = t passes t3, or, f3, a sampled block's tick), f 1e-3, 0.03, 0.1; f2: q 0.5 … 2, rtol 1e-4 … 1e-10; f3: x creeps after the stop, R' = ±1e-9 /s, q 0.35 … 2, rtol 1e-4 … 1e-8 only (the creep moves x by at most 2.9e-10 before tb, at most 0.16 of its shortfall; at 1e-9 with q 0.35 or 0.5 it would cross before tb); five rates 0.5 … 7 | forth [tb], back never (x short until the lift; the second event changes nothing); located (the crossing located before t2): forth tf, back t2, forth tb | re-check 5 (RC5-B1) |
+| `tev` | slow (K 100, 1e4) beside an unrelated time event at te = t1 + f L (j := 1), f −0.3 … 0.01 | forth once at t1, back never | re-check 5 (RC5-B2) |
+| `s2` | a later event slows x: z' = a (1 − c k), k := 1 at time t2 or where w = t passes t2, t2 = t1 − d, d = q band / x' (q 0.5, 1, 2), K 100, 1e4 | forth once at t1' = t2 + K d (x short at t2 by q band, then slowed; at the slowed rate's tolerance), back never; where t1' is past the run's end (3 s: a = 0.5, K = 1e4, rtol 1e-4, q 1 and 2), nothing, or forth once within that tolerance before the end; located: forth tf, back t2, forth t1' | re-check 5 (RC5-B2) |
 
 A firing matches its time within these tolerances: a located crossing,
 10 rtol in x over |x'| (10 rtol · 1.75/a on the ramps) + 1e-12; a time
