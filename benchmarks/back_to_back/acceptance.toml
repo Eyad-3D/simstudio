@@ -32,6 +32,7 @@ NEW-FS-EVENT = "a Formula Student event case (stays refused: owner, 20 October)"
 NEW-FMU = "a project with an FMU part"
 NEW-BALANCE = "a hybrid's charge-balanced case (stays refused: owner, 20 October)"
 NEW-CELLS = "a battery built from cells (stays refused: owner, 20 October)"
+NEW-LIMITS = "a value outside its parameter's limits, which Data Checks refuse for a single run and a study's point can still hold (added 30 October: [[changes]])"
 NEW-MISSING = "the module lightsim_engine is not installed"
 NEW-BUILD = "today's model builder refused the model before the new engine saw it"
 NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow in the message)"
@@ -581,6 +582,33 @@ counterpart on the new path, which said success where today's warns. The matrix 
 Data Checks see, and compared statuses only, so a warning missing beside another (the Ambient at 70 °C beside the \
 climate table's) was counted by no line. No pass mark is loosened. Written before the next measured run \
 (baseline-9)."""
+
+[[changes]]
+date = "2026-10-30"
+line = "STRICT"
+change = """A code added to [codes]: NEW-LIMITS, the new path's refusal of a run that reads a value outside its \
+parameter's limits (each part's own value, the case's own over it; Data Checks' words), which then runs on today's \
+engine, or in strict mode fails with the code. FAULTS' parameter faults outside their limits (53 of the 128: zero \
+or negative where a value must be above 0, x100 past a maximum) are such runs; by the line's registered words a \
+refusal counts as not success."""
+reason = """The evidence part's fourth review found a study's point at -50 kPa or -300 °C (Data Checks refuse such a \
+single run, but check only a study's base project) run on the new engine as typed (a negative air density, a \
+negative drag) under today's words, which give today's clamped density, and at -300 °C without today's "Cycle not \
+followed" and its four rows not valid; a CG height of -0.3 m too (today's engine reads 0). Today's engine clamps \
+dozens of such values, each its own way; the new engine runs only what Data Checks let through. Written before \
+the next measured run (baseline-10)."""
+
+[[changes]]
+date = "2026-10-30"
+line = "FAULTS"
+change = """A fault's unsaid also holds a row today's run makes not valid and a check it fails that the new path's run, \
+where it ran, does not (the both-engines diff's own list of what a run flags, diff.flags); counted, not in the pass \
+mark. The case_values faults' words "which Data Checks do not see" read: which Data Checks check for a single run, \
+not for a study's point (a fault's record keeps their level, which is an error outside the limits)."""
+reason = """The same review found the -300 °C point counted as fine by every line: the same status, the same words \
+without their numbers, and the four rows today makes not valid compared by no line. The case values' words were \
+wrong: Data Checks do check a case's own values; a study's points are what they never see. No pass mark is \
+loosened. Written before the next measured run (baseline-10)."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)

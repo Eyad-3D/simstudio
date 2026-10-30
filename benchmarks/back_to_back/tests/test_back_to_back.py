@@ -1477,6 +1477,28 @@ def test_faults_lists_a_warning_today_gives_and_the_new_path_does_not(tmp_path, 
     assert f"- {missing}: 1" in md
 
 
+def test_faults_lists_a_row_today_flags_and_the_new_path_does_not(tmp_path, monkeypatch):
+    """FAULTS' unsaid holds what else today's run flags: a row it makes not
+    valid and a check it fails that the new path's run, with the same status
+    and the same words, does not (the fourth review: a study point at
+    -300 °C, today's four rows not valid, none on the new path, counted
+    nowhere); a row both flag is not listed."""
+    fid = "bev-car:case/el-ambient.temperature_C:negative"
+    monkeypatch.setattr(runs, "fault_ids", lambda: [fid])
+    msg = {"level": "warning", "text": "'Ambient' is at -300 °C"}
+    both = {"key": "range_km", "label": "Range", "unit": "km", "value": 1.0, "notValid": "the cycle was not followed"}
+    rows = [both, {**both, "key": "consumption_kwh_per_100km"},
+            {"key": "el-battery.peak_power_kw", "label": "Peak", "unit": "kW", "value": 30.0, "passed": False}]
+    _write(tmp_path, {"kind": "fault", "id": fid, "setting": "today-normal"}, checks=[],
+           result=_result(status="warning", messages=[msg], summary=rows))
+    _write(tmp_path, {"kind": "fault", "id": fid, "setting": "new"},
+           result=_result(status="warning", messages=[msg], summary=[both, {**rows[2], "passed": True}]))
+    got = report.faults(tmp_path)
+    assert got["violations"] == [] and got["unsaid"] == {fid: 2}
+    assert got["rows"][0]["unsaid"] == ["summary.notValid: consumption_kwh_per_100km",
+                                        "summary.passed: el-battery.peak_power_kw"]
+
+
 def test_a_note_of_what_the_verdict_does_not_judge_is_counted_by_its_code(tmp_path, monkeypatch):
     """The path's note that a record of the run is not judged (the second
     review of the evidence part: in no section, counted by no line) is

@@ -272,12 +272,12 @@ def faults(out: Path) -> dict:
         today, new = t["result"]["status"], v["result"]["status"]
         bare = new if code else _without_notes(v)
         notes = sorted({d["code"] for d in (v.get("engine") or {}).get("build_warnings", [])})
-        # today's warnings and errors, in their words without their numbers (B2B's
-        # pairing), that the new run does not give at their level, where it ran
-        said = diff.ROWS[("messages",)]
+        # what today's run flags (diff.flags: a warning or error in its words without
+        # their numbers, B2B's pairing; a row not valid; a check not passed) that the
+        # new run does not, where it ran (its status is the violation's and the flip's)
         unsaid = [] if code else sorted(
-            {said(m) for m in t["result"]["messages"] if m["level"] in ("warning", "error")}
-            - {said(m) for m in v["result"]["messages"]})
+            key if field == "messages" else f"{field}: {key}"
+            for field, key in set(diff.flags(t["result"])) - set(diff.flags(v["result"])) if field != "status")
         rows.append({"fault": fault, "checks": t["checks"], "today": today, "new": new, "refused": code,
                      "new_without_notes": bare, "engine_notes": notes, "unsaid": unsaid,
                      "notes": dict(note_counts(v["result"])),
@@ -791,8 +791,9 @@ def markdown(report: dict) -> str:
             "Hidden: " + (", ".join(f["hidden"]) or "none") + ".", "",
             "Flips (today's engine passes, the new path warns or fails; counted, not in the pass mark): "
             + (", ".join(f.get("flips", [])) or "none") + ".", "",
-            f"Unsaid (a warning or error of today's run, in its words without their numbers, the new path's "
-            f"run does not give; counted, not in the pass mark): {sum(f.get('unsaid', {}).values())} on "
+            f"Unsaid (a warning or error of today's run, in its words without their numbers, a row it makes not "
+            f"valid or a check it fails, that the new path's run does not give; counted, not in the pass "
+            f"mark): {sum(f.get('unsaid', {}).values())} on "
             f"{len(f.get('unsaid', {}))} faults" + "".join(
                 f"\n- {k}: {n}" for k, n in f.get("unsaid", {}).items())]
     m = L["META"]
