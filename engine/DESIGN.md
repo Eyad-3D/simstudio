@@ -2238,7 +2238,7 @@ round).**
   before the move applies every hold of the event). Where g0 cannot be
   solved, nothing is held.
 
-  *Every hold ends* (`Loop::set_expiry`). At every event, every hold
+  *Every hold has a time limit* (`Loop::set_expiry`). At every event, every hold
   standing after it, made there or carried from an earlier one, is timed
   from that event: it expires at t + T, T = min(8·max(|g1|, ρ), h)/rate,
   h its width. A hold on one of the crossing's own conditions takes the
@@ -2383,8 +2383,9 @@ round).**
   equation-text part yet (a step 2 item). On three rules such a user
   could write, the engine at 0beec7d counted right where the build with
   no holds counted firings that did not happen: a Formula Student power
-  counter at 70 kW (3 instead of 1), a BEV heater shed at 357 and 359 V
-  (48 of 50 runs), a latched current derate on the BEV's city cycle (4
+  counter at 70 kW (3 instead of 1), a BEV heater shed swept over ten
+  thresholds from 353.5 to 358 V at five tolerances (48 of 50 runs; 5 of
+  5 at 357/359 V), a latched current derate on the BEV's city cycle (4
   of 48 runs at the default tolerance). RC5-B1, RC5-B2, R3-B1 and RC4-B1
   were not produced on a car in about 5 000 runs across five builds.
   - *retimed* (RC5-B1). An event stops x just short of its threshold (a
@@ -2415,7 +2416,7 @@ round).**
     restarts from the consistent point and is not affected. Shapes tev
     and s2 (4 200 runs each): at head 5 runs that are right at 4d24528
     and without holds are off the truth, 3 inside the limit and 2
-    chatters of five firings outside every limit. 3a0e8b5 has the same 5 runs wrong
+    chatters of five firings outside every limit. 3a0e8b5 has the same 5 runs off the truth
     (since revision 3).
   - *A threshold set at a value the model pins* (not a hold's: every
     build stops, no holds included). On the Formula Student car (75 m
