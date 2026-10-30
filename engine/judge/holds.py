@@ -15,10 +15,12 @@ takes it out again: the same runner at every commit measured. README.md
 (*The holds suite*) has the shapes, their truth and the named limits:
 the round-4 review shapes (extra, coin, coinr, before, rdmode, noisy,
 noisy2, noisy3, noisy3r, noisyown, mixedc, bcoin, bcoinw, bfreeze,
-bfreezew, slow, slowsib, slowr) and re-check 4's (sibeq, slowbp, slowobs,
-slowmode, asym, slowfrz, slowstop) beside the probes before them; and the
-limits bounded, postlimit, located, moderead, shallowpeak and restartloss
-(the hold spec, 4.9 and 4.10) beside L1, noise, onestep and storm.
+bfreezew, slow, slowsib, slowr), re-check 4's (sibeq, slowbp, slowobs,
+slowmode, asym, slowfrz, slowstop) and re-check 5's (f2, f3, tev, s2)
+beside the probes before them; and the limits bounded, postlimit, located,
+moderead, shallowpeak and restartloss (the hold spec, 4.9 and 4.10) and
+re-check 5's known limits retimed and atevent beside L1, noise, onestep
+and storm.
 
 Every x crosses 0.5 where R crosses 0.625 (x^3 + x is increasing and
 0.5^3 + 0.5 = 0.625), with x' = R' / (3 x^2 + 1) = R' / 1.75 there. On
@@ -1956,6 +1958,106 @@ def postlimit(b, r, res) -> bool:
     return True
 
 
+def scheduled(b, r) -> list:
+    """The instants of the shape's time events: every `when time >= p`, p
+    from the run's parameters or the model's."""
+    default = dict(re.findall(r'parameter Real (\w+)(?:\(unit = "[^"]*"\))? = ([-+.\deE]+);', b["text"]))
+    return [r["params"][p] if p in r["params"] else float(default[p])
+            for p in re.findall(r"when time >= (\w+) then", b["text"]) if p in r["params"] or p in default]
+
+
+def counted(b, res) -> list:
+    """The run's firings of the counted `when`s, in order: (t, label)."""
+    return [(t, lab) for t, l in res.get("fired", []) for lab in b["labels"] if l.endswith(lab)]
+
+
+def retimed(b, r, res) -> bool:
+    """RC5-B1 (re-check 5; a known limit of revision 4, for step 3): a hold
+    the crossing made stands where an event stops x short of its threshold
+    within the hold's width (the truth's `stop`: x `gap` short, moving at
+    `creep` after it until `lift`), and an event while x is stopped times
+    it again from x's rate there, its creep or one ulp of rounding, so that
+    it lasts far beyond the lift. That event is one of the run's fired
+    `when`s after the stop and within the stop's own limit, W over x's speed
+    before it (none moves x before the lift, by the truth), or the stop
+    itself where it is a state event (read as the crossing's own, by value)
+    and x creeps toward its side. The crossing's `when` fired at or before
+    the stop and as the located truth's first firing; from the stop on, the
+    run fires a prefix of the located truth's firings in their order, each
+    at or after its instant (late) and the rest never (lost): never a firing
+    the located truth does not require, so never a double firing; no stop;
+    the counters equal the firings."""
+    st = r["truth"].get("stop")
+    if not st or not res or not res.get("ok"):
+        return False
+    W = 8 * band(r["rtol"])
+    ts = st["t"]
+    if not 0 < st["gap"] <= W or abs(st["creep"]) * (st["lift"] - ts) >= st["gap"]:
+        return False
+    labels = b["labels"]
+    evs = [t for t, l in res.get("fired", []) if not any(l.endswith(x) for x in labels)]
+    later = any(ts < t <= ts + W / st["speed"] and t < st["lift"] for t in evs)
+    at_stop = st["creep"] > 0 and not any(abs(ts - te) <= EXACT for te in scheduled(b, r))
+    if not (later or at_stop):
+        return False
+    got = counted(b, res)
+    if not got or got[0][1] != labels[0] or got[0][0] > ts + EXACT:
+        return False
+    fin = res.get("final", {})
+    cnt = dict(zip(["n", "m"], labels))
+    for lt in (x for x in r["truth"].get("limits", []) if x["cls"] == "located"):
+        f0 = lt["req"][labels[0]][0]
+        if abs(got[0][0] - f0[0]) > f0[1]:
+            continue
+        rest = sorted((q, tol, lab) for lab in labels for i, (q, tol) in enumerate(lt["req"].get(lab, []))
+                      if (lab, i) != (labels[0], 0))
+        tail = got[1:]
+        if len(tail) > len(rest) or any(lab != rl or t < q - tol for (t, lab), (q, tol, rl) in zip(tail, rest)):
+            continue
+        if len(tail) == len(rest) and all(abs(t - q) <= tol for (t, _), (q, tol, _) in zip(tail, rest)):
+            continue   # nothing lost or late: the located truth itself
+        fired = collections.Counter(lab for _, lab in got)
+        if all(fin.get(v) == fired[cnt[v]] if v in cnt else fin.get(v) is not None and abs(fin[v] - w) <= tol
+               for v, (w, tol) in lt["final"].items()):
+            return True
+    return False
+
+
+def atevent(b, r, res) -> bool:
+    """RC5-B2 (re-check 5; a known limit of revision 4, for step 3): on
+    diffsol (the run's backend), the crossing reported at a time event's
+    instant (`scheduled`) is not the crossing's own, so its hold takes the
+    short limit from the rate before, W / |x'| (x' = a / 1.75), expires
+    before x, slowed by an event, arrives, and fires back; diffsol never
+    reports the slowed re-crossing. The located truth from that instant tf
+    (`located_truth`, or the truth's own located reading) is forth at tf,
+    back at tf and forth again at the arrival ta within the run; the run
+    fires forth at tf, back after tf and no later than tf + W / |x'| and
+    before ta, and nothing after: the counters 1 and 1. Not a double firing,
+    a chatter, a stop or any other outcome."""
+    if r.get("backend") != "diffsol" or not res or not res.get("ok") or "a" not in r["params"]:
+        return False
+    labels = b["labels"]
+    got = counted(b, res)
+    if len(labels) < 2 or [lab for _, lab in got] != labels[:2]:
+        return False
+    (tf, _), (tk, _) = got
+    if not any(abs(tf - te) <= EXACT for te in scheduled(b, r)):
+        return False
+    lt = located_truth(b, r, res)
+    refs = ([lt] if lt else []) + [x for x in r["truth"].get("limits", []) if x["cls"] == "located"]
+    B0 = 8 * band(r["rtol"]) * 1.75 / r["params"]["a"]
+    for ref in refs:
+        f, bk = ref["req"].get(labels[0], []), ref["req"].get(labels[1], [])
+        if len(f) != 2 or len(bk) != 1 or abs(tf - f[0][0]) > f[0][1] or abs(tf - bk[0][0]) > bk[0][1]:
+            continue
+        ta = f[1][0]
+        if ta <= b["t_end"] and tf < tk <= tf + B0 + EXACT and tk < ta and \
+                res.get("final", {}).get("n") == 1 and res.get("final", {}).get("m") == 1:
+            return True
+    return False
+
+
 def shallow_peak(b, r, res) -> bool:
     """A missed shallow peak (the hold spec, 4.10; no hold involved): a peak
     whose height above the threshold, d / 1.75 in x, is within 100 rtol, and
@@ -2020,7 +2122,7 @@ def classify_run(b, r, res, cls_of_key) -> str:
     noise, onestep, located, storm), else, in order, located (the one
     located definition, its firings inside the truth's windows), moderead,
     shallowpeak, bounded (with a lone back moved by the time limit),
-    postlimit, restartloss, else wrong."""
+    postlimit, retimed, atevent, restartloss, else wrong."""
     c = classify(res, r["truth"], b["labels"], cls_of_key)
     if c != "wrong":
         return c
@@ -2035,6 +2137,10 @@ def classify_run(b, r, res, cls_of_key) -> str:
         return "bounded"
     if postlimit(b, r, res):
         return "postlimit"
+    if retimed(b, r, res):
+        return "retimed"
+    if atevent(b, r, res):
+        return "atevent"
     if restart_loss(b, r, res, cls_of_key):
         return "restartloss"
     return "wrong"
@@ -2112,9 +2218,9 @@ def score_one(builds, res: dict):
 
 
 CLASSES = ["right", "L1", "located", "moderead", "noise", "onestep", "storm", "shallowpeak", "restartloss",
-           "bounded", "postlimit", "wrong", "missing"]
-SHOWN = ["wrong", "bounded", "postlimit", "L1", "located", "moderead", "noise", "onestep", "storm", "shallowpeak",
-         "restartloss", "right"]
+           "bounded", "postlimit", "retimed", "atevent", "wrong", "missing"]
+SHOWN = ["wrong", "bounded", "postlimit", "retimed", "atevent", "L1", "located", "moderead", "noise", "onestep",
+         "storm", "shallowpeak", "restartloss", "right"]
 
 
 def sub(b) -> str:
@@ -2160,8 +2266,8 @@ def tally(builds, labelled: list, out_path: Path | None) -> str:
     table("By configuration", lambda b: b["config"], list(CONFIGS) + ["default"])
     table("By shape family", sub, subs)
     cfgs = list(CONFIGS) + ["default"]
-    abbr = {"bounded": "B", "postlimit": "A", "L1": "L1", "located": "Lo", "moderead": "M", "noise": "N", "onestep": "S1",
-            "storm": "St", "shallowpeak": "P", "restartloss": "R"}
+    abbr = {"bounded": "B", "postlimit": "A", "retimed": "Rt", "atevent": "Ae", "L1": "L1", "located": "Lo",
+            "moderead": "M", "noise": "N", "onestep": "S1", "storm": "St", "shallowpeak": "P", "restartloss": "R"}
     label0, res0, cls0, keyed0 = scored[0]
     runs = collections.Counter((sub(keyed0[kk][0]), keyed0[kk][0]["config"]) for kk in cls0)
     lines.append("\n## Runs, by shape family and configuration\n")
@@ -2175,7 +2281,8 @@ def tally(builds, labelled: list, out_path: Path | None) -> str:
             b = keyed[kk][0]
             per[(sub(b), b["config"])][v] += 1
         lines.append(f"\n### {label}: wrong, and named limits, by shape family and configuration\n")
-        lines.append("Each cell: wrong runs, then the named limits (B bounded, A postlimit, L1, Lo located, M mode read, "
+        lines.append("Each cell: wrong runs, then the named limits (B bounded, A postlimit, Rt retimed, Ae atevent, L1, "
+                     "Lo located, M mode read, "
                      "N noise, S1 onestep, St storm, P shallow peak, R restart loss); "
                      "· none; the rest of the cell's runs (table above) right.\n")
         lines.append("| shape family | " + " | ".join(cfgs) + " |")
@@ -2308,6 +2415,36 @@ def selftest() -> None:
     assert classify_run(md, rm, read0, lambda k: "wrong") == "moderead"
     twice0 = {"ok": True, "fired": [[0.62499, "forth"], [0.625001, "forth"]], "final": {"n": 2, "m": 0}}
     assert classify_run(md, rm, twice0, lambda k: "wrong") == "wrong"
+    # retimed (RC5-B1): after the stop at t2 and an unrelated event within its limit, back and the lift's forth
+    # lost, or back late; not a forth again without a back, nor without the later event
+    q5 = {b["id"]: b for b in recheck5("quick")}
+    fb = q5["f3/time-time-up/ida"]
+    fr = fb["runs"][0]
+    p5 = fr["params"]
+    L5 = loc(fr["rtol"], p5["a"] / 1.75)
+    early = [p5["t2"] - 0.01 * L5, "M.forth"]
+    evs = [[p5["t2"], "M.k set"], [p5["t3"], "M.j set"], [p5["tb"], "M.k2 set"]]
+    lost = {"ok": True, "fired": [early] + evs, "final": {"n": 1, "m": 0}}
+    assert classify_run(fb, fr, lost, lambda k: "wrong") == "retimed"
+    late = dict(lost, fired=[early] + evs + [[1.9, "M.back"]], final={"n": 1, "m": 1})
+    assert classify_run(fb, fr, late, lambda k: "wrong") == "retimed"
+    again = dict(lost, fired=[early] + evs + [[p5["tb"], "M.forth"]], final={"n": 2, "m": 0})
+    assert classify_run(fb, fr, again, lambda k: "wrong") == "wrong"
+    alone = dict(lost, fired=[early, evs[0], evs[2]])
+    assert classify_run(fb, fr, alone, lambda k: "wrong") == "wrong"
+    # atevent (RC5-B2): diffsol, forth at the time event, back within its short limit, never forth again;
+    # not a chatter, nor on IDA
+    ab = q5["tev/up/diffsol"]
+    ar = next(r for r in ab["runs"] if r["key"] == "K=100.0|a=4.4|f=-0.01|rtol=1e-05")
+    te, La = ar["params"]["te"], loc(1e-5, 4.4 / 1.75)
+    one = {"ok": True, "fired": [[te, "M.j set"], [te, "M.forth"], [te + 0.079 * La, "M.back"]],
+           "final": {"n": 1, "m": 1}}
+    assert classify_run(ab, ar, one, lambda k: "wrong") == "atevent"
+    chat = dict(one, fired=one["fired"] + [[te + 2 * La, "M.forth"], [te + 3 * La, "M.back"]], final={"n": 2, "m": 2})
+    assert classify_run(ab, ar, chat, lambda k: "wrong") == "wrong"
+    assert classify_run(ab, dict(ar, backend="sundials"), one, lambda k: "wrong") == "wrong"
+    far = dict(one, fired=one["fired"][:2] + [[te + 0.5 * La, "M.back"]])
+    assert classify_run(ab, ar, far, lambda k: "wrong") == "wrong"
     # the truth's own numbers: x^3 + x = 0.625 at 0.5, and the fam probe's back effect
     assert 0.5 ** 3 + 0.5 == 0.625
     b = fam_build(True, "time", "back", "pairs", "ida", [1.0], [1e-4], [1e-6])

@@ -411,6 +411,30 @@ order, after the limits above):
   stop at t2), every firing of that located truth no more than B after the
   crossing's window or the latest other event before it. Anything beyond
   it is wrong.
+* **retimed**, re-check 5's RC5-B1 (a known limit of revision 4, for step
+  3): a hold the crossing made stands where an event stops x short of its
+  threshold within the hold's width (the truth says so: x short by a gap ≤
+  W at t2, creeping after it by less than the gap until the lift), and an
+  event while x is stopped times it again from x's rate there, its creep or
+  an ulp of rounding, so that it lasts far past the lift. That event is a
+  fired `when` after the stop, within W over x's speed before it and before
+  the lift, or the stop itself where it is a state event and x creeps
+  toward its side (the rule reads it as the crossing's own, by value). The
+  crossing's `when` fired at or before the stop, as the located truth's
+  first firing; from the stop on the run fires a prefix of the located
+  truth's firings in their order, each at or after its instant, the rest
+  never (lost or late); never a firing the located truth does not have (no
+  double firing), no stop, the counters equal the firings.
+* **atevent**, re-check 5's RC5-B2 (a known limit of revision 4, for step
+  3): on diffsol (the run's backend) the crossing reported at a time event's
+  instant (a `when time >= p` of the model) is not the crossing's own, so
+  its hold takes the short limit W / |x'| from the rate before; it expires
+  before x, slowed by an event, arrives, and back fires; diffsol never
+  reports the slowed re-crossing. The located truth from that instant is
+  forth there, back there and forth again at the arrival within the run;
+  the run fires forth at the time event, back after it within W / |x'| and
+  before the arrival, and nothing after (counters 1 and 1). A chatter, a
+  double firing or a stop is not this limit.
 * **restartloss**, diffsol right after an event's restart (no hold
   involved; out of scope by the brief): the run is right, or inside L1,
   noise, located or bounded, but for one firing of a counted `when` lost

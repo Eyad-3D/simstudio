@@ -22,7 +22,8 @@
   outside), each channel's error relative to its largest value, the
   summaries beside the located controls and the other ways, and (where
   scipy is there) the cell-by-cell reference of the swinging gear against
-  its closed form.
+  its closed form;
+* the holds suite's scorer (`holds.py selftest`) on its made-up runs.
 """
 from __future__ import annotations
 
@@ -532,6 +533,12 @@ class KinkCases(unittest.TestCase):
         # the plain relation, as kink_gear and kink_osc write it
         with self.assertRaises(ValueError):
             judge.implicit_torques("model M\nend M;\n")
+
+
+class HoldsScorer(unittest.TestCase):
+    def test_the_holds_suites_scorer_classes_its_made_up_runs(self):
+        import holds  # the holds suite's own check (`judge.py holds selftest`)
+        holds.selftest()
 
 
 if __name__ == "__main__":
