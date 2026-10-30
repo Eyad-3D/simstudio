@@ -2414,8 +2414,8 @@ round).**
     re-crossing: forth is lost for good, or the run chatters. IDA
     restarts from the consistent point and is not affected. Shapes tev
     and s2 (4 200 runs each): at head 5 runs that are right at 4d24528
-    and without holds are wrong, 3 inside the limit and 2 chatters of
-    five firings outside every limit. 3a0e8b5 has the same 5 runs wrong
+    and without holds are off the truth, 3 inside the limit and 2
+    chatters of five firings outside every limit. 3a0e8b5 has the same 5 runs wrong
     (since revision 3).
   - *A threshold set at a value the model pins* (not a hold's: every
     build stops, no holds included). On the Formula Student car (75 m
