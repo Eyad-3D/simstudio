@@ -2197,8 +2197,11 @@ round).**
   solved, and holds a relation on its side by 1e-4 rtol of its operands'
   size (`relationhysteresis`). Here such a function is held on the side
   the integrator saw it on by one rule (round 4, *the hold rule*: the
-  hold spec of 29 October, revision 4, states it whole with every
-  measurement), and every hold ends.
+  hold spec, revision 5 of 30 October, states it whole with every
+  measurement and its known limits; the rule is revision 4's), and every
+  hold has a time limit (two known limits, below, are where that limit
+  does not do its job: too long after a stop, too short for a crossing
+  diffsol reports at a time event).
 
   *The rule* (`Loop::rule`, `Loop::held_by_rule`). At an event, a `when`
   condition's root function that the event's change leaves short of the
@@ -2260,17 +2263,28 @@ round).**
   is final (`Loop::renew_holds`). The release at every step's end and
   event's point releases an expired hold, a crossing back where it is
   short (`Loop::passed`). So a hold maps at most its width of its
-  function to its side, and never outlasts that width at x's speed after
-  the latest event (the speed before it, where that event stopped or
-  turned x): 0.41 of the location tolerance in the holds suite where no
-  event changes x's rate, K times that where the crossing's own event
-  slows x K times (a crossing so slowed waits K times as long, as the
-  truth does: x reached its threshold at the crossing and goes on past
-  it). A firing a hold moves comes no later than that after the latest
-  event, or the last expiry check that found it on its side. The other
-  way measured, no time limit for the crossing's own holds, lost firings
-  for good (26 holds-suite runs right at 4d24528 went wrong, 224 lost a
-  later firing) and is not taken.
+  function to its side, and never outlasts that width at x's rate at the
+  latest event that timed it: the speed after that event where it was
+  the crossing's own and x moves on toward its side, the speed before it
+  elsewhere (the event that stopped or turned x included). Where only
+  the crossing changes x's rate that is 0.41 of the location tolerance in
+  the holds suite, K times that where the crossing's own event slows x K
+  times (a crossing so slowed waits K times as long, as the truth does: x
+  reached its threshold at the crossing and goes on past it; on diffsol
+  not for a crossing it reports at a time event, which is not counted as
+  the crossing's own: the known limit *atevent*, below). A later event
+  times the hold again from its own rates, and where x has stopped it
+  has only its creep or rounding: the speed before that event is about
+  1e-9 per second, or one ulp of x over the step since the stop, so the
+  short limit the stop gave is replaced by one of 1e2 to 4e3 s (139.8 s in
+  re-check 5's rounding case, 1 837 and 3 859 s in its creep cases),
+  past the run's end. The hold then hides its function's back and the
+  next forth for good (the known limit *retimed*, below). Apart from
+  that, a firing a hold moves comes no later than the bound after the
+  latest event, or the last expiry check that found it on its side. The
+  other way measured, no time limit for the crossing's own holds, lost
+  firings for good too (26 holds-suite runs right at 4d24528 went wrong,
+  224 lost a later firing) and is not taken.
 
   *Where.* At every step's end and every event's point the release runs
   first: a function that reached its side is released; one back past
@@ -2310,9 +2324,14 @@ round).**
   loss (no hold involved; not applied where the shape's events slow or
   stop x, as its truth says), bounded (inside the location tolerance of
   a crossing an extra or a lost pair of firings; never a firing lost for
-  good), and postlimit (where an event slows x: the located truth with
+  good), postlimit (where an event slows x: the located truth with
   each firing at most the hold's width over x's speed after the latest
-  event later: what a hold's time limit can cost there).
+  event later: what a hold's time limit can cost there), and the two
+  known limits of re-check 5, retimed (a hold timed again after a stop,
+  from x's creep: back and the next forth fire late or never) and
+  atevent (diffsol only: a crossing reported at a time event beside a
+  `when` that slows x: forth, back before the slowed arrival, nothing
+  after).
 
   *How it came to this* (each round's check found a variant the round
   before had missed). The twelfth round (f0c13ce6) held a crossing
@@ -2341,38 +2360,134 @@ round).**
   kept where a later event stopped x (slowstop); the owner had both ways
   for the second measured (every hold timed again at every event, or no
   limit for the crossing's own holds) and took the one his rule found
-  clean. Every one of those shapes is in the holds suite now.
+  clean. Every one of those shapes is in the holds suite now. Re-check 5
+  of the code (0beec7d) found the rule clean on that suite but not on
+  two shapes it lacked: a stop followed by another event (RC5-B1) and a
+  crossing diffsol reports at a time event beside a `when` that slows x
+  (RC5-B2); and a sentence here on 84 diffsol runs that was true for 42
+  (RC5-B3, mended below). On 30 October the owner accepted the rule as
+  it stands and recorded the two holes and a storm at a pinned value as
+  known limits; step 3 of the roadmap closes the holes. Their shapes
+  (f2, f3, tev, s2) are in the suite now.
 
-  *Measured* (the holds suite's full tier, 317 490 counted runs, at
-  f3355cb's scorer; wrong / bounded / postlimit / the other limits /
-  right): this rule (8c06970) 1 429 / 635 / 282 / 7 422 / 307 722; the
-  rule before re-check 4 (3a0e8b5) 3 329 / 1 631 / 1 494 / 7 426 /
-  303 610; 4d24528 12 497 / 44 / 44 / 5 678 / 299 227; no holds 19 861
-  / 26 596 / 4 602 / 12 295 / 254 136; 0b66315, before the holds,
-  24 924 / 26 449 / 4 266 / 12 140 / 249 711 (postlimit is this rule's
-  bound; another build's runs in it are outside that build's own). Every
-  wrong run is wrong at 4d24528 too: a solver's or a restart's stop on
-  cancelling terms (1 338) or diffsol's (7), the same runs stopping at
-  4d24528, and 84 runs where diffsol's own x drifts below 0.5 (asym,
-  slowstop: back fires there at every build, no holds included). No run
-  right at 4d24528 is wrong: 247 go to noise, 49 to bounded (a freeze
+  *Known limits of the rule* (re-check 5; accepted by the owner on 30
+  October 2026; no engine code changed for them; the hold spec's section
+  4.15 has the shapes and every number). Their reach in real use is
+  small. Users run today's Python engine; the new one runs only with
+  `LIGHTSIM_ENGINE=new`, is not in the installer and has no users yet. A
+  hold is made only for a `when` on a solved value, and no library
+  component has one: the four example cars, which are the golden cases,
+  make no hold at all (12 cases, 0 holds made, counted at 0beec7d and at
+  4d24528). Only a `when`
+  written in equation text reaches holds, and the app offers no
+  equation-text part yet (a step 2 item). On three rules such a user
+  could write, the engine at 0beec7d counted right where the build with
+  no holds counted firings that did not happen: a Formula Student power
+  counter at 70 kW (3 instead of 1), a BEV heater shed at 357 and 359 V
+  (48 of 50 runs), a latched current derate on the BEV's city cycle (4
+  of 48 runs at the default tolerance). RC5-B1, RC5-B2, R3-B1 and RC4-B1
+  were not produced on a car in about 5 000 runs across five builds.
+  - *retimed* (RC5-B1). An event stops x just short of its threshold (a
+    time event, or a `when` on another state) while the hold the crossing
+    made stands, and gives it the short limit, as above. If another event
+    comes before x is released, the hold is timed again from that event's
+    rates, which are x's creep or rounding: the limit is 1e2 to 4e3 s,
+    and the back and the next forth that the truth fires at the release
+    never fire. Shapes f2 (rounding only, 10 080 runs) and f3 (a creep of
+    1e-9 per second, 28 800 runs): at head 534 runs (3 and 531), on
+    diffsol and the three IDA forms. All 534 are in the same limit at
+    4d24528 (1 302 runs there: its holds have no time limit at all), are
+    bounded or located at 3a0e8b5 (which kept a standing hold's expiry),
+    and with no holds 385 of them are wrong, 138 located, 11 bounded.
+    Against 3a0e8b5 it is the price of timing every hold again at every
+    event (the owner's variant A); against 4d24528 it is no worse. The nearest
+    real shape is a user `when` on a value the model pins beside an
+    unrelated event, as in a hybrid whose Script ticks every 10.7 ms:
+    estimated, not run.
+  - *atevent* (RC5-B2), diffsol only, which no user can pick and which
+    stops the cars at 67 s (BEV) and 0.2034 s (Formula Student).
+    A crossing diffsol reports at a time event is not counted as the
+    crossing's own (a time event is due there), so its hold takes the
+    short limit from the rate before it; where the crossing's own `when`
+    slows x, that limit ends before the slowed arrival, back fires, and
+    diffsol, whose own x stays past the line, never reports the
+    re-crossing: forth is lost for good, or the run chatters. IDA
+    restarts from the consistent point and is not affected. Shapes tev
+    and s2 (4 200 runs each): at head 5 runs that are right at 4d24528
+    and without holds are wrong, 3 inside the limit and 2 chatters of
+    five firings outside every limit. 3a0e8b5 has the same 5 runs wrong
+    (since revision 3).
+  - *A threshold set at a value the model pins* (not a hold's: every
+    build stops, no holds included). On the Formula Student car (75 m
+    acceleration) a user's `when u > level then hits = pre(hits) + 1`,
+    u the battery's terminal power (a solved value) and level 80 000 W,
+    exactly the Accumulator's Output Power Limit (80 kW, 0.5 s window,
+    enforced). The power reaches the limit at about 0.203 s and stays at
+    80.00000000033 kW; the condition flips on rounding, and the run stops
+    with an event storm ("101 events within 2.5e-2 s, from 'Watch'") at
+    0.706 s at 0beec7d, at 0.248 s with no holds, at 0.615 s at 0b66315
+    and at 1.949 s at 4d24528 and e4ada13. At rtol 1e-4 4d24528 counts
+    135 firings and 0beec7d 125 instead of stopping. At the other 80
+    levels from 40 to 80 kW (0.5 kW apart) 0beec7d counts right, and
+    above the limit every build counts 0, as it should.
+  Step 3 of the roadmap closes the first two and adds a warning when a
+  user's threshold equals a value the model pins, with the 80 kW case as
+  its test. docs/KNOWN-LIMITS.md describes today's engine; at the
+  switch-over (step 5) these go into it unless step 3 has closed them.
+
+  *Measured* (the holds suite's full tier, 364 770 counted runs of 366
+  516, at 070cfbc's scorer; wrong / bounded / postlimit / retimed /
+  atevent / the other limits / right): this rule (8c06970) 2 034 / 1 662
+  / 377 / 534 / 3 / 7 630 / 352 530; the rule before re-check 4 (3a0e8b5)
+  3 934 / 3 061 / 1 589 / 0 / 3 / 7 784 / 348 399; 4d24528 13 444 / 44 /
+  46 / 1 302 / 0 / 5 678 / 344 256; no holds 22 762 / 27 187 / 4 664 / 0
+  / 0 / 13 201 / 296 956 (postlimit is this rule's bound; another
+  build's runs in it are outside that build's own). The 366 516 runs are
+  round 4's 319 236 and re-check 5's four shapes, 47 280; the older
+  shapes' classes are unchanged at every build (this rule on their 317
+  490 counted: 1 429 / 635 / 282 / 7 422 / 307 722), and neither new
+  limit admits a run of an older shape. 0b66315, before the holds, was
+  not run on the new shapes: on the older 317 490 it has 24 924 / 26 449
+  / 4 266 / 12 140 / 249 711. Of this rule's 2 034 wrong runs, 1 429 are
+  the older shapes', wrong at 4d24528 too: a solver's or a restart's
+  stop on cancelling terms (1 338) or diffsol's (7), the same runs
+  stopping at 4d24528, and 84 runs where diffsol's own x drifts below 0.5
+  (asym 82, slowstop 2). All 84 are wrong at 4d24528 and none comes from
+  this rule's change (they fire as at 3a0e8b5, 64 of them as at
+  4d24528); 42 fire the same back with no holds (24 at every build, 18
+  where this rule then adds a forth when its time limit reads x as
+  solved), 30 are right with no holds and fire the late back at every
+  build that holds since 4d24528, and 12 fire no back, or another one,
+  with no holds. The other 605 are re-check 5's shapes: 568 diffsol runs
+  that never report a crossing after a restart (tev 216, s2 352: every
+  build, no holds included, out of scope), 34 other diffsol outcomes
+  wrong at every build (f3 12, tev 19, s2 3), and 3 that are not wrong
+  at 4d24528: two right there and with no holds, one inside 4d24528's
+  postlimit, RC5-B2's chatters, outside every limit. So not every wrong
+  run is wrong at 4d24528, and two runs right at 4d24528 are wrong. Of the
+  runs right at 4d24528, 247 go to noise, 173 to bounded (a freeze
   held and read at its expiry, frzf 12; a rounding bound wider than a
   move, noisyown 26; a solve that cannot meet its tolerance at d0, so
-  nothing held, noisy3r 11), 2 to restart loss (noisy3r on diffsol: not
-  held, back at the event, the re-crossing lost after the restart; right
-  at 4d24528 only by RC3-B2's skip) and 224 to postlimit (asym 40,
-  slowstop 184: the run's x, located early, settles or is stopped short
-  of 0.5, and the hold expires within its bound). The judge's 777 cases
-  (5 432 runs) and the golden comparison (11 347 values) are the same to
-  the bit. Instructions (cachegrind, fair scheduling, every build
-  counted on this machine): the hybrid's mixed cycle 82.697 G, its HWFET
-  233.128 G, the BEV's WLTC 18.492 G: against the rule before re-check 4
-  (7ad9a73's engine, 3a0e8b5) −0.009 %, −0.009 % and +0.004 %, against
-  36c8a0d8's 83.169, 237.715 and 19.066 G −0.57 %, −1.93 % and −3.01 %.
-  Where nothing is held, as on every golden model, the rule costs a flag
-  per step and per event. The holds suite's full tier takes 4.6 to 4.7 s
-  on 12 threads against 4d24528's 4.1 to 4.2 s (the rule's solves at its
-  tests).
+  nothing held, noisy3r 11; and in re-check 5's shapes s2 104, tev 20), 2
+  to restart loss (noisy3r on diffsol: not held, back at the event, the
+  re-crossing lost after the restart; right at 4d24528 only by RC3-B2's
+  skip), 312 to postlimit (asym 40, slowstop 184: the run's x, located
+  early, settles or is stopped short of 0.5, and the hold expires within
+  its bound; tev 88: diffsol reports the crossing at a time event, back
+  fires within the bound and forth again later), 3 to atevent and 4 to
+  located (s2 without a state). The judge's 777 cases (5 432 runs) and
+  the golden comparison (11 347 values) are the same to the bit.
+  Instructions (cachegrind, fair scheduling, every build counted on this
+  machine): the hybrid's mixed cycle 82.697 G, its HWFET 233.128 G, the
+  BEV's WLTC 18.492 G: against the rule before re-check 4 (7ad9a73's
+  engine, 3a0e8b5) −0.009 %, −0.009 % and +0.004 %, against 36c8a0d8's
+  83.169, 237.715 and 19.066 G −0.57 %, −1.93 % and −3.01 %. Where
+  nothing is held, as on every golden model, the rule costs a flag per
+  step and per event. The holds suite's full tier takes 4.6 to 4.7 s on
+  12 threads against 4d24528's 4.1 to 4.2 s (the rule's solves at its
+  tests; 319 236 runs); with re-check 5's shapes (366 516 runs) it takes
+  5.35 to 5.47 s in six of eight runs and 3.85 s in two, while another
+  lane ran one process on CPUs 12 and 13.
   The family probe of fix round 3 (181 440 runs, now the suite's `fam`
   family) was reported at 4d24528 as, on IDA's forms, L1 1 800, storms
   87 and noise 2, and on diffsol 50 runs wrong or within L1 beside
@@ -4001,7 +4116,8 @@ events name the modes that chatter.
   one an event put back across a hold from an earlier crossing, until
   the second recheck's fixes: the `count-held-back` cases; nor one whose
   crossing's own event put it back, or slowed it, until round 4's hold
-  rule: section 8.2 and the holds suite below), and a
+  rule, but for its known limits: section 8.2 and the holds suite
+  below), and a
   condition on a state alone is still missed where one step holds both
   its crossings (`count-explicit-pulse` at four tolerances of seven,
   `count-oscillator-peaks` at six; section 8.2, a known limit; on the
@@ -4011,16 +4127,23 @@ events name the modes that chatter.
   suite*): every probe the solver work's reviews ran on conditions on
   iteration variables, scored against hand-worked counts and times,
   never a commit's output, with the named limits of section 8.2 computed
-  by its scorer. `judge.py holds cases OUT --tier full` (1 868 models,
-  319 236 runs; `--tier quick`: 504, 6 150), `holds build CHECKOUT
+  by its scorer. `judge.py holds cases OUT --tier full` (1 978 models,
+  366 516 runs; `--tier quick`: 559, 6 930), `holds build CHECKOUT
   RUNNER` (the same runner at every commit), `holds run`, `holds score`.
-  Its full tier (317 490 counted runs; wrong / bounded / postlimit /
-  other limits / right): the hold rule 1 429 / 635 / 282 / 7 422 /
-  307 722, every wrong run wrong at 4d24528 too; the rule before
-  re-check 4 (3a0e8b5) 3 329 / 1 631 / 1 494 / 7 426 / 303 610; 4d24528
-  12 497 / 44 / 44 / 5 678 / 299 227; no holds 19 861 / 26 596 / 4 602 /
-  12 295 / 254 136; 0b66315 24 924 / 26 449 / 4 266 / 12 140 / 249 711.
-  The quick tier runs in a fifth of a second;
+  Its full tier (364 770 counted runs; wrong / bounded / postlimit /
+  retimed / atevent / other limits / right): the hold rule 2 034 / 1 662
+  / 377 / 534 / 3 / 7 630 / 352 530, of the wrong 1 429 from the older
+  shapes and wrong at 4d24528 too, 605 from re-check 5's (3 of them not
+  wrong at 4d24528: section 8.2, *Measured*); the rule before re-check 4
+  (3a0e8b5) 3 934 / 3 061 / 1 589 / 0 / 3 / 7 784 / 348 399; 4d24528
+  13 444 / 44 / 46 / 1 302 / 0 / 5 678 / 344 256; no holds 22 762 /
+  27 187 / 4 664 / 0 / 0 / 13 201 / 296 956 (0b66315, run on the older
+  317 490 only: 24 924 / 26 449 / 4 266 / 12 140 / 249 711). Retimed and
+  atevent are re-check 5's two known limits (section 8.2). The quick tier
+  (6 796 counted) runs in a fifth of a second; the judge's own tests, 28,
+  include one that runs the suite's selftest on made-up runs (the two new
+  limits and their refusals: a forth again without a back, no later event,
+  a chatter, the same run on IDA, a back beyond the limit);
   `lsim-solve/tests/implicit_conditions.rs` keeps a sample of every
   shape a review found (nine tests: six fail at 4d24528, one under
   revision 2's time limit, two at 3a0e8b5: the crossing's line written
