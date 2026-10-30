@@ -272,8 +272,14 @@ def faults(out: Path) -> dict:
         today, new = t["result"]["status"], v["result"]["status"]
         bare = new if code else _without_notes(v)
         notes = sorted({d["code"] for d in (v.get("engine") or {}).get("build_warnings", [])})
+        # today's warnings and errors, in their words without their numbers (B2B's
+        # pairing), that the new run does not give at their level, where it ran
+        said = diff.ROWS[("messages",)]
+        unsaid = [] if code else sorted(
+            {said(m) for m in t["result"]["messages"] if m["level"] in ("warning", "error")}
+            - {said(m) for m in v["result"]["messages"]})
         rows.append({"fault": fault, "checks": t["checks"], "today": today, "new": new, "refused": code,
-                     "new_without_notes": bare, "engine_notes": notes,
+                     "new_without_notes": bare, "engine_notes": notes, "unsaid": unsaid,
                      "notes": dict(note_counts(v["result"])),
                      "violation": today in ("failed", "warning") and new == "success",
                      "hidden": today in ("failed", "warning") and new == "warning" and bare == "success",
@@ -290,6 +296,7 @@ def faults(out: Path) -> dict:
     return {"state": state, "faults": len(rows), "measured": len(done),
             "today_fails_or_warns": len(flagged), "violations": viol, "hidden": hidden,
             "flips": [r["fault"] for r in done if r["flip"]],
+            "unsaid": {r["fault"]: len(r["unsaid"]) for r in done if r["unsaid"]},
             "refused": dict(Counter(r["refused"] for r in done if r["refused"])),
             "today": dict(Counter(r["today"] for r in done)), "new": dict(Counter(r["new"] for r in done)),
             "engine_notes": dict(Counter(c for r in done for c in r["engine_notes"])),
@@ -783,7 +790,11 @@ def markdown(report: dict) -> str:
             "Violations: " + (", ".join(f["violations"]) or "none") + ".", "",
             "Hidden: " + (", ".join(f["hidden"]) or "none") + ".", "",
             "Flips (today's engine passes, the new path warns or fails; counted, not in the pass mark): "
-            + (", ".join(f.get("flips", [])) or "none") + "."]
+            + (", ".join(f.get("flips", [])) or "none") + ".", "",
+            f"Unsaid (a warning or error of today's run, in its words without their numbers, the new path's "
+            f"run does not give; counted, not in the pass mark): {sum(f.get('unsaid', {}).values())} on "
+            f"{len(f.get('unsaid', {}))} faults" + "".join(
+                f"\n- {k}: {n}" for k, n in f.get("unsaid", {}).items())]
     m = L["META"]
     out += ["", "## META", "", f"{sum(r['same'] for r in m['rows'])} of {len(m['rows'])} the same at every setting; "
             f"something judged: {m['judged_something']}."]

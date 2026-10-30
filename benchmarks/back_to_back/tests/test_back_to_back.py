@@ -39,7 +39,7 @@ def test_the_acceptance_file_names_every_line_and_code():
     for item in acc["item"]:
         assert item["expect"] == "run" or item["expect"].removeprefix("refuse:") in acc["codes"]
     assert len(acc["item"]) == 26
-    assert len(runs.fault_ids()) == 160 + 27 * 4
+    assert len(runs.fault_ids()) == 160 + 27 * 4 + 5 * 4
     cases, faults = runs.meta_set()
     assert len(cases) == 5 and len(faults) == 4
     # (two of them with a checked battery limit, averaged over 0.5 s and over none)
@@ -1065,8 +1065,9 @@ def test_all_runs_every_part_the_baseline_ran():
     parts = parser().parse_args(["all", "OUT"]).parts
     # the baseline's jobs, the sine probe's two among them, and (since the evidence part) fast mode
     # on the BEVs' eight cycle items for E3, and (since the evidence part's review) the two items
-    # with a battery check, on both engines and at META's three settings
-    assert len(runs.specs(set(parts.split(",")))) == 631 + 8 + 2 * (3 + 3)
+    # with a battery check, on both engines and at META's three settings, and (since its third
+    # review) the 20 faults planted as a case's own values, on both engines
+    assert len(runs.specs(set(parts.split(",")))) == 631 + 8 + 2 * (3 + 3) + 2 * 5 * 4
 
 
 def test_a_record_another_code_made_is_run_again(tmp_path):
@@ -1426,6 +1427,54 @@ def test_faults_lists_a_model_only_the_new_path_flags(tmp_path, monkeypatch):
                                       "text": "Battery 'Accumulator' broke its Output Power Limit"}]))
     got = report.faults(tmp_path)
     assert got["flips"] == [flip] and got["violations"] == [] and got["hidden"] == []
+
+
+def test_a_case_value_fault_is_the_case_s_own_value():
+    """A case_values fault sets the case's own value, which Data Checks do
+    not see, and leaves the block's as it was; a block fault sets the
+    block's (the third review: the matrix planted block values only, so
+    today's run-time checks of a case's values were judged by no line)."""
+    project, case_id = runs.fault_project("bev-car:case/el-ambient.pressure_kPa:div100")
+    case = next(c for c in project["cases"] if c["id"] == case_id)
+    amb = runs._element(project, "el-ambient")
+    assert case["parameterOverrides"]["el-ambient"] == {"pressure_kPa": pytest.approx(1.01325)}
+    assert "pressure_kPa" not in amb.get("parameterOverrides", {})
+    project, case_id = runs.fault_project("fs-electric:case/el-vehicle.cg_height_m:x100")
+    case = next(c for c in project["cases"] if c["id"] == case_id)
+    assert case["parameterOverrides"]["el-vehicle"] == {"cg_height_m": pytest.approx(28.0)}
+    project, case_id = runs.fault_project("bev-car:el-vehicle.mass_kg:x100")
+    case = next(c for c in project["cases"] if c["id"] == case_id)
+    assert not case.get("parameterOverrides")
+    assert runs._element(project, "el-vehicle")["parameterOverrides"]["mass_kg"] > 1e4
+    assert sum(f.count(":case/") for f in runs.fault_ids()) == 5 * 4
+
+
+def test_faults_lists_a_warning_today_gives_and_the_new_path_does_not(tmp_path, monkeypatch):
+    """FAULTS lists each fault's unsaid: a warning or error of today's run,
+    in its words without their numbers, that the new path's run does not
+    give, where it ran: the Ambient's warning at 70 °C, missing beside the
+    climate table's, which keeps the status the same (the third review);
+    the same words at another number are said; a refused run says none."""
+    amb = {"level": "warning", "text": "'Ambient' is at 70 °C and 101.325 kPa at t = 0.00 s, outside the usual"}
+    table = {"level": "warning", "text": "Climate Control 'Climate Control' ran 30 °C past its table"}
+    other = {"level": "warning", "text": "Climate Control 'Climate Control' ran 31 °C past its table"}
+    missing, refused = "bev-car:case/el-ambient.temperature_C:x100", "bev-car:el-motor"
+    monkeypatch.setattr(runs, "fault_ids", lambda: [missing, refused])
+    for fid in (missing, refused):
+        _write(tmp_path, {"kind": "fault", "id": fid, "setting": "today-normal"}, checks=[],
+               result=_result(status="warning", messages=[amb, table]))
+    _write(tmp_path, {"kind": "fault", "id": missing, "setting": "new"},
+           result=_result(status="warning", messages=[other]))
+    _write(tmp_path, {"kind": "fault", "id": refused, "setting": "new"}, result=_result(
+        status="failed", messages=[{"level": "error", "text": "Not run [NEW-FAILED]: the new engine refused it"}]))
+    got = report.faults(tmp_path)
+    assert got["unsaid"] == {missing: 1} and got["violations"] == [] and got["flips"] == []
+    assert got["rows"][0]["unsaid"] == [diff.ROWS[("messages",)](amb)] and got["rows"][1]["unsaid"] == []
+    monkeypatch.setattr(runs, "items", lambda: [])
+    md = report.markdown({"lines": {**_lines(report.b2b(tmp_path)), "FAULTS": got},
+                          "made_by": [], "fingerprint": {"commit": "0" * 10, "dirty": False, "python": "",
+                                                         "lightsim_engine": "", "cpu": ""}})
+    assert f"- {missing}: 1" in md
 
 
 def test_a_note_of_what_the_verdict_does_not_judge_is_counted_by_its_code(tmp_path, monkeypatch):

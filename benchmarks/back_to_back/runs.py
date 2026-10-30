@@ -226,11 +226,15 @@ def _deletions(name: str):
 
 
 def fault_ids() -> list[str]:
-    """Every planted fault, in corpus order: '<example>:<deleted id>' and
-    '<example>:<element>.<parameter>:<variant>'."""
+    """Every planted fault, in corpus order: '<example>:<deleted id>',
+    '<example>:<element>.<parameter>:<variant>' (the block's value) and
+    '<example>:case/<element>.<parameter>:<variant>' (the case's own)."""
     out = [f"{name}:{fid}" for name in FAULT_EXAMPLES for fid, _ in _deletions(name)]
     for p in LINES["FAULTS"]["parameters"]:
         out += [f"{p}:{v}" for v in LINES["FAULTS"]["variants"]]
+    for p in LINES["FAULTS"]["case_values"]:
+        name, target = p.split(":")
+        out += [f"{name}:case/{target}:{v}" for v in LINES["FAULTS"]["variants"]]
     return out
 
 
@@ -244,13 +248,19 @@ def fault_project(fault: str) -> tuple[dict, str]:
     """(project JSON, case id) of a planted fault, on its example's first case."""
     name, rest = fault.split(":", 1)
     case_id = FAULT_EXAMPLES[name]
-    if rest.count(":") == 1:  # a parameter fault
+    if rest.count(":") == 1:  # a parameter fault: the block's value, or the case's own (case/)
         target, variant = rest.split(":")
-        el_id, key = target.split(".", 1)
+        on_case = target.startswith("case/")
+        el_id, key = target.removeprefix("case/").split(".", 1)
         project = example(name)
         el = _element(project, el_id)
         over = el.setdefault("parameterOverrides", {})
         value = float(over.get(key, _library_default(el["componentDefId"], key)))
+        if on_case:  # (the case's own value first, where it has one)
+            case = _case(project, case_id)
+            values = case["parameterOverrides"] = case.get("parameterOverrides") or {}
+            over = values.setdefault(el_id, {})
+            value = float(over.get(key, value))
         over[key] = {"zero": 0.0, "negative": -value, "x100": value * 100.0,
                      "div100": value / 100.0}[variant]
     else:

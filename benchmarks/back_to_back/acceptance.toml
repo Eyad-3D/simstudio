@@ -208,8 +208,11 @@ cases = """
 The 160 single deletions of backend/tests/test_broken_models.py (every element, wire and signal link of \
 bev-car, fs-electric and hybrid-car), plus parameter faults: on each of the parameters below, its value \
 (the part's own or the library default) set to 0, to its negative, to 100 times and to a hundredth of it \
-(108 faults). Each fault is run on its project's first case: bev-car's City Cycle, fs-electric's 75 m \
-acceleration, hybrid-car's EPA city cycle as a single run (chargeBalance false, so both engines judge it).
+(108 faults), and the same four variants of the parameters under case_values set as the case's own value \
+(its parameterOverrides), which Data Checks do not see and today's engine checks while it runs (20 faults, \
+'<example>:case/<element>.<parameter>:<variant>'). Each fault is run on its project's first case: bev-car's \
+City Cycle, fs-electric's 75 m acceleration, hybrid-car's EPA city cycle as a single run (chargeBalance false, \
+so both engines judge it).
 """
 parameters = [
   "bev-car:el-vehicle.mass_kg", "bev-car:el-vehicle.cd", "bev-car:el-vehicle.frontal_area_m2",
@@ -226,6 +229,11 @@ parameters = [
   "hybrid-car:el-fd.ratio", "hybrid-car:el-engine.engine_scale_pct",
 ]
 variants = ["zero", "negative", "x100", "div100"]
+case_values = [
+  "bev-car:el-ambient.pressure_kPa", "bev-car:el-ambient.temperature_C",
+  "fs-electric:el-vehicle.wheelbase_m", "fs-electric:el-vehicle.cg_height_m",
+  "fs-electric:el-vehicle.downforce_cza_m2",
+]
 measure = """
 Each fault's status on today's engine (default settings) and on the new path in strict mode, and its Data \
 Checks' worst level (engine-independent). A violation: today's run fails or warns and the new path's says \
@@ -233,7 +241,9 @@ success. A hidden violation: the new path's run says warning only because of pre
 about the run (the start-guess note of review finding 36: messages whose engine code is START-NOT-SOLVED, \
 INIT-UNDECIDED or INIT-START-IGNORED, and any message of the engine's own report that is not a warning of \
 the run), without which it would say success. A refusal of the new path (any NEW- code) counts as not \
-success. Mutation testing: mutmut 3 on backend/app/solver/verdict.py with the backend tests that import it \
+success. Beside them the report lists the flips (today's run passes, the new path's warns or fails) and each \
+fault's unsaid (a warning or error today's run gives, in its words without their numbers, that the new path's \
+run, where it ran, does not), counted, not in the pass mark. Mutation testing: mutmut 3 on backend/app/solver/verdict.py with the backend tests that import it \
 (test_verdict.py and the others the harness lists), resumable; every surviving mutant needs a written \
 reason in survivors.toml (equivalent, or what test would kill it and why none is wanted).
 """
@@ -556,6 +566,21 @@ that neither section lists."""
 reason = """The evidence part's second review found the path's note NEW-TABLE-NOT-JUDGED, which leaves a record of \
 the run out of the verdict, in no section and counted by no line: rule 8 wants every such skip coded and counted. \
 No pass mark is loosened."""
+
+[[changes]]
+date = "2026-10-30"
+line = "FAULTS"
+change = """Five parameters' four variants also planted as the case's own value (case_values: the Ambient's pressure \
+and temperature on bev-car, the Vehicle's Wheelbase, Centre of Gravity Height and Downforce Area on fs-electric; \
+20 faults, '<example>:case/<element>.<parameter>:<variant>'), and the report lists each fault's unsaid: a warning \
+or error of today's run, in its words without their numbers, that the new path's run, where it ran (not refused), \
+does not give; counted, not in the pass mark."""
+reason = """The evidence part's third review found today's run-time checks of a case's values (the Ambient's air \
+outside the usual, a Wheelbase of 0 with a CG height) and today's check that the car has driven by 60 s with no \
+counterpart on the new path, which said success where today's warns. The matrix planted block values only, which \
+Data Checks see, and compared statuses only, so a warning missing beside another (the Ambient at 70 °C beside the \
+climate table's) was counted by no line. No pass mark is loosened. Written before the next measured run \
+(baseline-9)."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
