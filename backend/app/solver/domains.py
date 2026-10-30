@@ -503,20 +503,21 @@ class RunContext:
             return 20.0
         return max(-273.0, float(self.params(self.amb_id).get("temperature_C", 20)))
 
-    def read_ambient(self, t: float) -> None:
+    def read_ambient(self, t: float, rho: float | None = None) -> None:
         """The air density the Vehicle's drag sees, from the Ambient (read
         every step: live edits, case values and sweeps apply), and a warning
         once when the air is outside the usual: Data Checks refuse air at or
-        below absolute zero or 0 kPa and warn outside the usual air, but see
-        only the block's own values, so a case value, sweep or live edit must
-        not crash and is warned about here (the new engine's path asks it
+        below absolute zero or 0 kPa and warn outside the usual air, but
+        never see a study's point, a sweep or a live edit, which must not
+        crash and is warned about here. ``rho``: the density another engine's
+        run used, said instead of today's (the new engine's path asks this
         once, at the run's start: its Ambient is the case's throughout)."""
         if not self.amb_id:
             return
         ap = self.params(self.amb_id)
         t_c = float(ap.get("temperature_C", 20))
         p_kpa = float(ap.get("pressure_kPa", 101.325))
-        self.rho = air_density(max(-273.0, t_c), max(0.0, p_kpa))
+        self.rho = air_density(max(-273.0, t_c), max(0.0, p_kpa)) if rho is None else rho
         if not (AMBIENT_C[0] <= t_c <= AMBIENT_C[1] and AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]):
             self.rt.warn_once(
                 f"ambient:{self.amb_id}",
@@ -674,6 +675,13 @@ class RunContext:
                             [w for w in wheels if w.axle == "Rear"])
         self.update_wheel_loads()
 
+    def load_shift(self) -> tuple[float, float]:
+        """The Vehicle's Centre of Gravity Height (never below 0) and its
+        Downforce Area: with neither, no load moves between its axles and
+        no wheel is checked for lifting off the road."""
+        vp = self.params(self.veh_id)
+        return max(0.0, float(vp.get("cg_height_m", 0))), float(vp.get("downforce_cza_m2", 0))
+
     def update_wheel_loads(self) -> None:
         """Each wheel's normal load for this solver step: its share of the
         weight normal to the road, plus, with a CG height or a downforce area
@@ -686,8 +694,7 @@ class RunContext:
         for w in self.wheels:
             w.n_load = w.load_share * self.veh_mass * GRAVITY * self.slope_cos
         vp = self.params(self.veh_id)
-        h = max(0.0, float(vp.get("cg_height_m", 0)))
-        cza = float(vp.get("downforce_cza_m2", 0))
+        h, cza = self.load_shift()
         if not (h or cza):
             return
         front, rear = self.axle_wheels

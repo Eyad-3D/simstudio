@@ -2,7 +2,9 @@
 
 ``LIGHTSIM_ENGINE=new`` makes ``simulate`` (core.py) try the new engine, the
 Rust module ``lightsim_engine``, for the cases it can run: a drive cycle or an
-acceleration test. Everything else, and any failure of the new engine, runs on
+acceleration test whose values keep to their parameters' limits (a study's
+point can hold one Data Checks never saw). Everything else, and any failure
+of the new engine, runs on
 today's engine, and the result's messages say which engine ran the case and,
 after a fall-back, why, with a stable reason code in brackets (``[NEW-LAP]``;
 CODES lists them, and benchmarks/back_to_back counts them). With
@@ -67,6 +69,7 @@ CODES = {
     "NEW-FMU": "a project with an FMU part",
     "NEW-BALANCE": "a hybrid's charge-balanced case",
     "NEW-CELLS": "a battery built from cells",
+    "NEW-LIMITS": "a value outside its parameter's limits (a study's point can hold one)",
     "NEW-MISSING": "the module lightsim_engine is not installed",
     "NEW-BUILD": "today's model builder refused the model",
     "NEW-FAILED": "the new engine refused or stopped (its own codes follow)",
@@ -171,6 +174,12 @@ def unsupported(project: Project, case_id: str, emit: Optional[EmitFn]) -> Optio
            and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
            for el in elements):
         return Refusal("NEW-CELLS", "it does not run a battery built from cells")
+    from ..validation import value_problems  # (validation imports this package)
+    if problems := value_problems(project, case_id):  # (a study's point: Data Checks never saw it)
+        return Refusal("NEW-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse a "
+                                     f"single run for; today's engine clamps many such values, a pressure "
+                                     f"or a CG height at 0, a mass at 1 kg, where the new engine would "
+                                     f"read them as typed)")
     try:
         import lightsim_engine  # noqa: F401
     except ImportError:
@@ -741,25 +750,28 @@ LIFT_N = 1e-6  # an axle load at most this carries nothing, N (a lifted axle's i
 
 def _runtime(ctx, plan: _Plan, run, t0: float) -> None:
     """Today's checks that a step of its run makes once it sees them
-    (RunContext: Data Checks see only a block's own values, so a case value
-    is caught there), asked of the run and said by today's own code into
-    the RunContext's messages: the Ambient's air outside the usual (at the
+    (RunContext: Data Checks never see a study's point, a sweep or a live
+    edit), asked of the run and said by today's own code into the
+    RunContext's messages: the Ambient's air outside the usual (at the
     run's start, as today's first step: the new engine reads the case's
-    Ambient throughout); an E-Motor with no live supply (its supply voltage
-    at 1 V or less at any point the integrator visited); the Vehicle's
-    wheels lifting off the road (an axle's load at 0 over every step; which
-    wheels at the first traced point that shows it, when at the Vehicle's
-    own axle-load event in that traced stretch; a lift shorter than the
-    trace's step at the first such event)."""
-    if ctx.veh_id:
-        ctx.read_ambient(t0)
+    Ambient throughout), with the air density the run's Vehicle used; an
+    E-Motor with no live supply (its supply voltage at 1 V or less at any
+    point the integrator visited); the Vehicle's wheels lifting off the
+    road, which today's engine checks only with a CG height or a Downforce
+    Area (an axle's load at 0 over every step; which wheels at the first
+    traced point that shows it, when at the Vehicle's own axle-load event in
+    that traced stretch; a lift shorter than the trace's step at the first
+    such event)."""
     integ = run.integrals
+    if ctx.veh_id:
+        rho = integ.get(f"{plan.inst.get(ctx.veh_id, ctx.veh_id)}.rho")
+        ctx.read_ambient(t0, float(rho["max"]) if rho else None)
     for el_id in ctx.motors:
         got = integ.get(f"{plan.inst.get(el_id, el_id)}.v")
         if got and got["min"] <= 1.0:
             ctx.no_supply(el_id)
     front, rear = ctx.axle_wheels
-    if not ctx.veh_id or not (front or rear):
+    if not ctx.veh_id or not (front or rear) or not any(ctx.load_shift()):
         return
     sides = (("Front", plan.loads["Front"]), ("Rear", plan.loads["Rear"])) if front and rear else (
         ("Both", plan.loads["Front" if front else "Rear"]),)  # one axle: all its wheels

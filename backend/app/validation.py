@@ -100,6 +100,25 @@ def _number_problem(pdef: ParameterDef, value) -> str | None:
     return f"{problem} — got {v:g}" if problem else None
 
 
+def value_problems(project: Project, case_id: str) -> list[str]:
+    """The numbers a run of case ``case_id`` reads (each part's own value,
+    the case's own over it) that break their parameters' limits, in Data
+    Checks' words: what a single run is refused for, and what a study's
+    point, whose values Data Checks never see, can still hold."""
+    defs = library_by_id()
+    case = next((c for c in project.cases if c.id == case_id), None)
+    over = case.parameterOverrides if case else {}
+    out = []
+    for system in project.systems:
+        for el in system.elements:
+            cdef = defs.get(el.componentDefId)
+            for pdef in cdef.parameters if cdef else ():
+                value = over.get(el.id, {}).get(pdef.key, el.parameterOverrides.get(pdef.key, pdef.default))
+                if pdef.type == "number" and (problem := _number_problem(pdef, value)):
+                    out.append(f"{_name(pdef)} of '{el.label}' {problem}")
+    return out
+
+
 def run_blockers(checks: Iterable, case_id: str | None) -> list:
     """The errors among ``checks`` that stop a run of case ``case_id``:
     those about the model, and those about that case only (an error about

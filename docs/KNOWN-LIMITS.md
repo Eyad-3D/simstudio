@@ -638,6 +638,18 @@ minimum or an average, for example from the CSV export, or put the
   Student car with a 0.5 m Centre of Gravity Height: at 0.01 s) where the
   new engine's, from the acceleration now, keeps a load on them (87 N).
   *Roadmap:* ENG-16.
+- **The new engine runs only values inside their limits.** A study's
+  point can hold a value that Data Checks would refuse for a single run (a
+  negative pressure, a CG height below 0, a wheel's load share of 0):
+  today's engine reads many such values clamped, so with
+  `LIGHTSIM_ENGINE=new` such a point runs on today's engine, and its
+  result says so with the code `NEW-LIMITS`. Inside the limits, today's
+  engine still puts a floor under some values that the new engine reads
+  as typed, among them the Ambient's temperature at -273 °C (its limit is
+  above -273.15 °C), a Vehicle's mass at 1 kg, a wheel's radius at 1 mm,
+  a battery's capacity at 1 Wh and its resistance at 1 µΩ. Only values
+  below such a floor run differently; the new engine's warning about the
+  air gives the density its own run used. *Roadmap:* ENG-16.
 - **Fuel energy is a heating value you set.** The fuel's energy is the
   fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by
   default; background knowledge, not checked against a source; a model

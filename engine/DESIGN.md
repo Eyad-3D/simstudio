@@ -3209,17 +3209,22 @@ against exact answers from `benchmarks/`.
   maximum power in today's words, as today's, which holds it to the
   hydrogen left; one empty from the start says the tank is empty); a
   battery reaching its minimum SOC is said at the run's event; a Script
-  output with no port is today's warning too. Today's checks of the values
-  a run uses, which Data Checks cannot make of a case value, are today's
-  code's own words: what its `RunContext` says while it is built (a
-  Wheelbase of 0 with a CG height, a CG height with every wheel on one
-  axle, wheels off the road at the start, a driveline over-constrained),
-  which the path's never-stepped `RunContext` says too, and what a step of
-  today's run says once it sees it, which the path asks of the run (the
-  Ambient's air outside the usual, at the run's start; wheels lifting off
-  the road, an axle's load at 0 in the integrals, which and when from the
-  trace at the Vehicle's own axle-load event; an E-Motor's supply at 1 V
-  or less at any point the integrator visited). The check that the car has
+  output with no port is today's warning too. A run that reads a value
+  outside its parameter's limits (a study's point: Data Checks check only
+  the study's base project) is not run (`NEW-LIMITS`, in Data Checks'
+  words): today's engine reads many such values clamped, the new engine
+  as typed. Today's checks of the values a run uses are today's code's
+  own words: what its `RunContext` says while it is built (a CG height
+  with every wheel on one axle, wheels off the road at the start, a
+  driveline over-constrained), which the path's never-stepped
+  `RunContext` says too, and what a step of today's run says once it
+  sees it, which the path asks of the run (the Ambient's air outside the
+  usual, at the run's start, with the air density the run's Vehicle
+  used; wheels lifting off the road, only with a CG height or a Downforce
+  Area as today's checks it, an axle's load at 0 in the integrals, which
+  and when from the trace at the Vehicle's own axle-load event; an
+  E-Motor's supply at 1 V or less at any point the integrator visited).
+  The check that the car has
   driven by 60 s (`verdict.not_driven`, which today's engine asks at the
   end of each output step) is asked at every traced point, so the path's
   verdict does not depend on the output step; an acceleration test with
@@ -3360,8 +3365,10 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
 * **The app.** With `LIGHTSIM_ENGINE=new` the backend
   (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
   cases on this module and everything else on today's engine (live runs,
-  FMU parts, Formula Student events, hybrid charge-balance cases and
-  batteries built from cells too); any failure of the new engine runs the
+  FMU parts, Formula Student events, hybrid charge-balance cases,
+  batteries built from cells and a study's point holding a value outside
+  its parameter's limits, which Data Checks refuse for a single run and
+  today's engine reads clamped, too); any failure of the new engine runs the
   case on today's engine with a warning. Every fall-back carries a reason
   code (`NEW-LAP`, `NEW-FAILED` with the engine's own codes, ...:
   `new_engine.CODES`), and with `LIGHTSIM_ENGINE_STRICT=1` nothing falls

@@ -12,6 +12,7 @@ import os
 
 import pytest
 
+from app import studies
 from app.schemas import ElementInstance
 from app.solver import new_engine, simulate
 from app.solver.network import ModelError
@@ -154,6 +155,8 @@ def test_every_refusal_has_its_code():
         "NEW-FMU": new_engine.unsupported(fmu, WLTC, None),
         "NEW-BALANCE": new_engine.unsupported(load_example("hybrid-car"), "case-udds", None),
         "NEW-CELLS": new_engine.unsupported(cells, WLTC, None),
+        "NEW-LIMITS": new_engine.unsupported(studies._point_project(
+            load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC, None),
     }
     assert {code: why.code for code, why in seen.items()} == {code: code for code in seen}
     assert all(why.why for why in seen.values())

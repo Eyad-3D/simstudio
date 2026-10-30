@@ -728,20 +728,18 @@ def _with_case_values(proj, case_id: str, over: dict):
     ({"el-ambient": {"pressure_kPa": 1.0}}, None),  # a bar value typed as kPa
     ({"el-ambient": {"pressure_kPa": 200.0}}, None),
     ({"el-ambient": {"temperature_C": 70.0}}, None),
-    ({"el-vehicle": {"wheelbase_m": 0.0, "cg_height_m": 0.5}}, None),
     ({"el-wheel-rl": {"axle": "Front"}, "el-wheel-rr": {"axle": "Front"},
       "el-vehicle": {"cg_height_m": 0.5}}, None),
     ({"el-vehicle": {"downforce_cza_m2": -20.0}}, "0:0; 40:130; 70:130"),  # the rear wheels lift
 ])
 def test_a_case_value_today_s_run_warns_on_is_warned_as_today(new, monkeypatch, over, profile):
-    """Today's checks that its run makes of the values it uses (Data
-    Checks see only a block's own values, so a case value is caught
-    there), judged by today's engine: the Ambient's air outside the usual,
-    a Wheelbase of 0 with a CG height, a CG height with every wheel on one
-    axle (said while today's RunContext is built), the rear wheels lifting
-    off the road at 38.84 s. Each gives today's warnings word for word and
-    today's status; before, the new path said success (or, at 70 °C, only
-    the climate table's warning)."""
+    """Today's checks that its run makes of the values it uses, inside their
+    limits (a Wheelbase of 0, outside them, is NEW-LIMITS': below), judged
+    by today's engine: the Ambient's air outside the usual, a CG height with
+    every wheel on one axle (said while today's RunContext is built), the
+    rear wheels lifting off the road at 38.84 s. Each gives today's
+    warnings word for word and today's status; before, the new path said
+    success (or, at 70 °C, only the climate table's warning)."""
     proj = _with_case_values(load_example("bev-car"), "case-city", over)
     if profile:
         next(e for e in proj.systems[0].elements if e.id == "el-task").parameterOverrides["profile"] = profile
@@ -750,6 +748,153 @@ def test_a_case_value_today_s_run_warns_on_is_warned_as_today(new, monkeypatch, 
     assert result.messages[0].text.startswith("Run on the new engine")
     assert sorted(_texts(result, "warning")) == sorted(_texts(today, "warning"))
     assert result.status == today.status == "warning"
+
+
+# a study's point whose case values break their parameters' limits, and what
+# today's run says of it
+_OUTSIDE = {
+    "pressure": ("bev-car", "case-city", {"el-ambient": {"pressure_kPa": -50.0}}, "air density of 0 kg/m³"),
+    "temperature": ("bev-car", "case-city", {"el-ambient": {"temperature_C": -300.0}},
+                    "air density of 2.35e+03 kg/m³"),
+    "wheel-share": ("bev-car", "case-city", {"el-wheel-rl": {"vehicle_load_share_pct": 0.0},
+                                             "el-wheel-rr": {"vehicle_load_share_pct": 0.0}}, None),
+    "wheelbase": ("bev-car", "case-city", {"el-vehicle": {"wheelbase_m": 0.0, "cg_height_m": 0.5}},
+                  "has a Wheelbase of 0 m"),
+    "cg-height": ("fs-electric", "case-accel-75m", {"el-vehicle": {"cg_height_m": -0.3}}, None),
+}
+
+
+@pytest.mark.parametrize("point", sorted(_OUTSIDE))
+def test_a_study_point_outside_its_limits_runs_on_today_s_engine(monkeypatch, point):
+    """A study's point whose case values break their parameters' limits
+    (Data Checks refuse such a single run, but check only a study's base
+    project): today's engine clamps many such values (the air at 0 kPa or
+    -273 °C, a CG height at 0), the new engine read them as typed, so the
+    new path ran other physics under today's words (at -50 kPa a negative
+    drag, with today's density of 0 in its warning; at -300 °C no "Cycle
+    not followed" and no row not valid). Run as a study runs it, the point
+    runs on today's engine with the code NEW-LIMITS and Data Checks' words:
+    today's status, warnings (today's density among them) and flags. In
+    strict mode it fails with the code."""
+    from app import studies
+    from app.schemas import SimResult
+    name, case_id, values, said = _OUTSIDE[point]
+    project = studies._point_project(load_example(name), case_id, values)
+    today = _today(project, case_id, monkeypatch)
+    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+    result = SimResult.model_validate_json(studies.run_point(project.model_dump_json(), case_id)[0])
+    first = result.messages[0]
+    assert first.level == "info" and "[NEW-LIMITS]" in first.text and " must be " in first.text, first.text
+    assert _verdict(result) == _verdict(today)
+    assert _texts(result, "warning") == _texts(today, "warning")
+    assert said is None or any(said in t for t in _texts(result, "warning"))
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    strict = simulate(project, case_id)
+    assert strict.status == "failed" and strict.messages[0].text.startswith("Not run [NEW-LIMITS]: ")
+
+
+def test_the_ambient_s_warning_gives_the_density_the_run_used(new, monkeypatch):
+    """At -273.1 °C, inside the Ambient's limits, today's engine reads -273 °C
+    (its floor) and the new engine the value as typed: the new path's
+    warning gives the density of its own run, the ideal gas's at 0.05 K
+    (7.06e+03 kg/m³), not today's at 0.15 K (2.35e+03 kg/m³, before)."""
+    from app.solver.runtime import air_density
+    proj = _with_case_values(load_example("bev-car"), "case-city", {"el-ambient": {"temperature_C": -273.1}})
+    next(c for c in proj.cases if c.id == "case-city").duration = 20.0
+
+    def density(result):
+        return [t.split("air density of ")[1].split(" kg/m³")[0]
+                for t in _texts(result, "warning") if t.startswith("'Ambient'")]
+    assert density(simulate(proj, "case-city")) == [f"{air_density(-273.1):.3g}"] == ["7.06e+03"]
+    assert density(_today(proj, "case-city", monkeypatch)) == [f"{air_density(-273.0):.3g}"]
+
+
+@pytest.mark.parametrize("share", [0.0, 1e-9])
+def test_an_axle_its_shares_leave_unloaded_does_not_lift(new, monkeypatch, share):
+    """The rear wheels' Vehicle Load Share at 0 % (a study's point, which
+    NEW-LIMITS now keeps from the path: run on the path itself here) or at
+    1e-9 % (inside the limits), with no CG height and no Downforce Area:
+    today's engine checks no lift without one of them, and the new engine's
+    axle carries 0 N without lifting (its condition: less than nothing), so
+    neither warns; before, the new path read the axle's load at 0 as a lift
+    at 0.00 s."""
+    proj = _with_case_values(load_example("bev-car"), "case-city", {
+        w: {"vehicle_load_share_pct": share} for w in ("el-wheel-rl", "el-wheel-rr")})
+    next(c for c in proj.cases if c.id == "case-city").duration = 60.0
+    today, result = _today(proj, "case-city", monkeypatch), new_engine.run_new(proj, "case-city")
+    assert today.status == result.status == "success", _texts(result, "warning")
+    assert not [t for t in _texts(result) + _texts(today) if "lift off the road" in t]
+
+
+def _lifts(result):
+    return [t for t in _texts(result, "warning") if "lift off the road" in t]
+
+
+def test_a_lift_from_the_start_is_said_at_the_start(new, monkeypatch):
+    """Wheels off the road from the run's first point. bev-car starting at
+    130 km/h, held there, with a Downforce Area of -20 m²: today's
+    RunContext says so as it is built (t = 0.00 s), and so does the path's,
+    in today's words. A start today's RunContext does not see, where only
+    the run's first traced point shows the lift (it comes before any
+    event): fs-electric with a negative mass, run on the path itself (a
+    study's point is NEW-LIMITS' now; today's engine reads 1 kg, lifts
+    nothing at the start and the rear wheels at 4.37 s), whose negative
+    weight leaves every wheel without load from the start, at t = 0.00 s."""
+    proj = _with_case_values(load_example("bev-car"), "case-city", {
+        "el-vehicle": {"initial_speed_kmh": 130.0, "downforce_cza_m2": -20.0}})
+    next(e for e in proj.systems[0].elements if e.id == "el-task").parameterOverrides["profile"] = "0:130; 40:130"
+    next(c for c in proj.cases if c.id == "case-city").duration = 20.0
+    lift = _lifts(simulate(proj, "case-city"))
+    assert lift == _lifts(_today(proj, "case-city", monkeypatch))
+    assert len(lift) == 1 and lift[0].startswith("The rear wheels ") and " at t = 0.00 s:" in lift[0]
+    proj = load_example("fs-electric")
+    vehicle = next(e for e in proj.systems[0].elements if e.id == "el-vehicle")
+    vehicle.parameterOverrides["mass_kg"] = -280.0
+    assert not [t for t in _lifts(_today(proj, "case-accel-75m", monkeypatch)) if " at t = 0.00 s:" in t]
+    lift = _lifts(new_engine.run_new(proj, "case-accel-75m"))
+    assert len(lift) == 1 and lift[0].startswith("All the wheels ") and " at t = 0.00 s:" in lift[0]
+
+
+def test_a_lift_between_traced_points_is_said_at_the_vehicle_s_event(new, monkeypatch):
+    """A lift no traced point shows (the run's trace thinned so that its axle
+    loads never read 0, as a lift shorter than the trace's step would leave
+    them): its time is the Vehicle's own first axle-load event, today's
+    38.84 s on the rear wheels of bev-car with a Downforce Area of -20 m²
+    (a time not from the trace: the run's start would say 0.00 s)."""
+    real, thinned = lightsim_engine.build, []
+
+    class Thinned:
+        def __init__(self, run):
+            self.run = run
+
+        def __getattr__(self, name):
+            return getattr(self.run, name)
+
+        @property
+        def trace(self):
+            tr = dict(self.run.trace)
+            for k in [k for k in tr if k.endswith((":sig_load_front", ":sig_load_rear"))]:
+                tr[k] = [x if x > new_engine.LIFT_N else 1.0 for x in map(float, tr[k])]
+                thinned.append(k)
+            return tr
+
+    class Built:
+        def __init__(self, m):
+            self.m = m
+
+        def __getattr__(self, name):
+            return getattr(self.m, name)
+
+        def simulate(self, **kw):
+            return Thinned(self.m.simulate(**kw))
+    monkeypatch.setattr(lightsim_engine, "build", lambda *a, **k: Built(real(*a, **k)))
+    proj = _with_case_values(load_example("bev-car"), "case-city", {"el-vehicle": {"downforce_cza_m2": -20.0}})
+    next(e for e in proj.systems[0].elements if e.id == "el-task").parameterOverrides["profile"] = (
+        "0:0; 40:130; 70:130")
+    next(c for c in proj.cases if c.id == "case-city").duration = 70.0
+    lift = _lifts(simulate(proj, "case-city"))
+    assert thinned and lift == _lifts(_today(proj, "case-city", monkeypatch))
+    assert len(lift) == 1 and lift[0].startswith("The rear wheels ") and " at t = 38.84 s:" in lift[0]
 
 
 def test_a_motor_with_no_live_supply_is_said_as_today(new, monkeypatch):
