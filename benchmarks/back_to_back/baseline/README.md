@@ -1,27 +1,94 @@
 # Step 2's baseline: where the new engine's path stands
 
-Measured on 29 October 2026 by one command, `python -m benchmarks.back_to_back
+Measured on 30 October 2026 by one command, `python -m benchmarks.back_to_back
 all OUT` (with `LSIM_SCRATCH`, `LSIM_JUDGE_CACHE` and, for the ENERGY line's
 E3, `LSIM_FAST_BIN`, fast mode's runner built from this tree:
 `cargo build --release -p lsim-project --example fast`), every run and probe
-at commit `923c2b9` with a clean tree: the eighth measurement, after the
-two fix rounds of step 2's evidence part (`aab11d9`, `f7889c0`, `5e5e885`;
-`7e8ea6c`, `923c2b9`). Every raw record and probe result carries that
-stamp (commit, the module's version and the SHA-256 of its compiled file,
-fast mode's runner's SHA-256, the files' SHA-256), and
+at commit `61779c8` with a clean tree: the ninth measurement, after the
+three fix rounds of step 2's evidence part (`aab11d9`, `f7889c0`, `5e5e885`;
+`7e8ea6c`, `923c2b9`; `d4a6215`, `61779c8`). Every raw record and probe
+result carries that stamp (commit, the module's version and the SHA-256 of
+its compiled file, fast mode's runner's SHA-256, the files' SHA-256), and
 [`report.md`](report.md), the harness's own report of this run, lists it.
 The lines, cases, measures and pass marks are those of
 [`../acceptance.toml`](../acceptance.toml), registered in `5c82fb0` before
-the first measured run (fifteen dated changes since, at its end; the last
-four written before this measurement). The raw results (651 runs) are
+the first measured run (sixteen dated changes since, at its end; the last
+one written before this measurement). The raw results (691 runs) are
 outside the repository, in the lane's cache
-(`judge-cache/step2/baseline-8`), each with its SHA-256 in `SHA256SUMS`.
+(`judge-cache/step2/baseline-9`), each with its SHA-256 in `SHA256SUMS`.
 
-Seven measurements came before: six of the path before the wiring (the
+Eight measurements came before: six of the path before the wiring (the
 app's code unchanged since `2b94af6`), the seventh (`cbf7f39`,
 `judge-cache/step2/baseline-7`) of the path wired to the run's evidence,
-before its fix rounds. The seventh is this one's reference below; the
+before its fix rounds, the eighth (`923c2b9`, `judge-cache/step2/baseline-8`)
+after the first two. The eighth is this one's reference below; the
 sections after it say how the earlier ones moved.
+
+## The ninth measurement: the evidence part's third fix round
+
+The evidence part's third review found two blocking defects and one
+other: the new path gave none of today's run-time checks of a case's
+values (the Ambient's air outside the usual, a Wheelbase of 0 with a CG
+height), nor today's check that the car has driven by 60 s, so it said
+success where today's warns; and two pieces of a guard had no test.
+`d4a6215` fixes them and the same class where the scan of today's
+run-time warnings found it (a CG height on one axle, wheels lifting off
+the road, a motor with no live supply, an acceleration test with no
+Vehicle); `61779c8` lets the judge see the class: FAULTS plants 20 faults
+as a case's own value (`case_values`) and lists each fault's *unsaid*,
+today's warnings the new path's run does not give (a dated change, before
+this measurement). Against the eighth measurement, line by line:
+
+* **B2B**: as before, to the difference: 22 of 26 items as expected, the
+  same 1 498 differences in the same fields and classes (0 a, 117 b, 529
+  c, 852 unclassified); no item's run says anything new (none of them sets
+  off a check the round added). Every ledger balances.
+* **STRICT**: 76 refusals (74): the two new case-value faults the new
+  engine refuses, fs-electric's Wheelbase at a hundredth and its CG height
+  100 times (`NEW-FAILED`, an event storm of the axle load where the front
+  wheels lift); the same four items refused that should run; nothing bad.
+* **SCHEMA**: 0 errors in 683 results (643; the 40 runs of the case-value
+  faults).
+* **FAULTS**: 288 faults (268). None hidden; the one violation and the one
+  flip of before. The 20 case-value faults: today's engine and the new
+  path give the same status on 18 (the Ambient at 0, minus, 100 times and
+  a hundredth of its pressure and at 2 000 °C, the Wheelbase at 0 and
+  minus: warning on both, in today's words; the other eleven success on
+  both), and the new engine refuses the two above, which today's warns
+  on ("the front wheels lift off the road at t = 0.01 s"). Before
+  `d4a6215` six of them were violations (the four pressures and the two
+  Wheelbases), which the matrix of before could not plant. Of the 268 of
+  before, 42 new-path runs moved, each in its words only, its status the
+  same: 40 that do not drive now say "No distance covered after 60 s"
+  as today's do (bev-car's 20 and the hybrid's 20; 39 fail on both
+  engines, bev-car with a negative mass fails on the new path and warns
+  on today's, as before); fs-electric with its Vehicle deleted now says the line was not
+  reached and gives today's acceleration rows (its battery's mean power
+  1.76 kW against today's 1.81 kW); bev-car and fs-electric with a
+  negative mass say all the wheels lift off the road at 0.00 s, which is
+  the new engine's own model (a negative weight carries nothing) where
+  today's clamps the mass to 1 kg. Unsaid: 3 warnings on 3 faults, each a
+  difference of the two models, not a missing check: the negative masses
+  (today's 1 kg car drives a little and says the cycle was not followed,
+  or that its rear wheels lift) and the Driver with no P gain (the
+  violation). New path: 146 success, 41 warning, 101 failed. Today's
+  engine's records are identical, field for field, to the eighth
+  measurement's (321 runs): the checks `d4a6215` shares with it moved
+  without changing it. mutmut: 1 126 mutants of `verdict.py` (1 097; its
+  two new functions), 344 survive (348), none with a written reason.
+* **META passes**, its nine as before; the two failing bev-car faults now
+  also say "No distance covered after 60 s", at every setting.
+* **ANALYTIC passes**, **ENERGY vacuous** (E1 14 pass, E2 as before, E3
+  met no limit), **SCRIPTS** 1 of 3, **FMU, TEXT, QUICK** and **STATUS**
+  (5 of 11): as before.
+* **STREAM**: as before; S2 on a shared machine, today's p95 0.17 s live
+  (0.18) and 0.37 s for the study (0.41).
+* **NOSKIP passes**: 160 tests (158: the harness's two new ones), none
+  skipped but the two Windows-only ones; with the module hidden 6 fail,
+  none skips.
+
+The machine, tools, module and fast mode's runner are the eighth
+measurement's; no engine crate changed.
 
 ## The eighth measurement: the evidence part's two fix rounds
 
@@ -199,23 +266,23 @@ jsonschema 4.26.0, mutmut 3.8.1. The stop latencies are an indication
 only, from a machine another lane shares (their pass marks are judged on
 Windows CI, `backend/tests/test_stop_latency.py`).
 
-## Where each line stands (the eighth measurement)
+## Where each line stands (the ninth measurement)
 
 | line | state | what was measured |
 |---|---|---|
 | B2B | fails | 22 of 26 items as expected: the two live cases (NEW-LIVE), the performance probe (NEW-CASE-KIND) and the FMU probe (NEW-FMU) are refused where they should run. Of 1 498 differences on the 14 items both engines ran: 0 class a, 117 b, 529 c, 852 unclassified. Every item's ledger balances. No note of what the verdict does not judge. |
-| STRICT | fails | only for the four items above. 74 refusals, every one with a listed code: NEW-FAILED 46, NEW-BUILD 16, NEW-BALANCE 3, NEW-LAP 2, NEW-LIVE 2, NEW-CASE-KIND, NEW-CELLS, NEW-FMU, NEW-FS-EVENT and NEW-MISSING one each; no NEW-ERROR, no process that died; no message with a code no section lists. |
-| SCHEMA | passes | 0 errors in 643 results. |
-| FAULTS | fails | Of the 268 planted faults today's engine fails or warns on 129; none is hidden by a note; one comes out "success" on the new path (bev-car's Driver with no P gain, which the new engine's Driver follows the cycle without: the two Drivers' laws differ); one flip (bev-car's E-Motor scaled 100 times: the new Driver asks more recuperation than the battery takes). mutmut: 1 097 mutants of verdict.py, 348 survive, none with a written reason yet. |
+| STRICT | fails | only for the four items above. 76 refusals, every one with a listed code: NEW-FAILED 48, NEW-BUILD 16, NEW-BALANCE 3, NEW-LAP 2, NEW-LIVE 2, NEW-CASE-KIND, NEW-CELLS, NEW-FMU, NEW-FS-EVENT and NEW-MISSING one each; no NEW-ERROR, no process that died; no message with a code no section lists. |
+| SCHEMA | passes | 0 errors in 683 results. |
+| FAULTS | fails | Of the 288 planted faults (20 of them a case's own value) today's engine fails or warns on 138; none is hidden by a note; one comes out "success" on the new path (bev-car's Driver with no P gain, which the new engine's Driver follows the cycle without: the two Drivers' laws differ); one flip (bev-car's E-Motor scaled 100 times: the new Driver asks more recuperation than the battery takes); 3 of today's warnings unsaid on the new path, each a difference of the two models (a negative mass, which today's clamps to 1 kg; the Driver with no P gain). mutmut: 1 126 mutants of verdict.py, 344 survive, none with a written reason yet. |
 | META | passes | the same verdict (status, notValid rows, passed flags) at every output step (0.1, 1, 5 times the case's) and at rtol 1e-8 for all 9 runs; 3 fail and 3 warn. |
 | ANALYTIC | passes | the verdict's time outside both bands within 2.7e-14 s of the exact answers on all five traces; the "cycle not followed" message labels its 1 %/2 s allowance LightSim's own. Both sources' copies are the pinned ones. |
 | ENERGY | vacuous | E1: the part energies' losses and stored energies against the engine's books within 5e-16 of the throughput, all 14 items. E2: the held sine's battery power RMS within 3e-16 of the closed form. E3 vacuous: fast mode's flags and the lanes' stretches at a limit the same on the 8 BEV cycle items, none of which meets a limit on either side. |
-| STREAM | fails | S1: live runs refused (today's engine streams all 601 points of both live cases, equal to its result). S2: the live run is refused, and the study's stops reach no running point on the new path (its points are done in about 1.3 s): not measured; today's p95 0.18 s live, 0.41 s for the study (a shared machine). S3: a replay gives the same SHA-256 on both engines, but RunSnapshot records no engine, version or solver options. |
+| STREAM | fails | S1: live runs refused (today's engine streams all 601 points of both live cases, equal to its result). S2: the live run is refused, and the study's stops reach no running point on the new path (its points are done in about 1.3 s): not measured; today's p95 0.17 s live, 0.37 s for the study (a shared machine). S3: a replay gives the same SHA-256 on both engines, but RunSnapshot records no engine, version or solver options. |
 | FMU | fails | refused (NEW-FMU): nothing to compare with fmusim or FMPy. |
 | TEXT | not available | the app reads no text components. |
 | QUICK | not available | a case has no quick-mode option. |
 | SCRIPTS | fails | one of three: on the new path today's worker serves every step of the hybrid's Script part in all three single runs; no decision record, no page for the owner. |
-| NOSKIP | passes here | with the module: 158 tests, none skipped but the two Windows-only stop-latency tests; with it hidden: 6 fail, none skips; CI's Windows engine job runs them with LIGHTSIM_REQUIRE_NEW_ENGINE=1 (to be confirmed on Windows CI after the merge). |
+| NOSKIP | passes here | with the module: 160 tests, none skipped but the two Windows-only stop-latency tests; with it hidden: 6 fail, none skips; CI's Windows engine job runs them with LIGHTSIM_REQUIRE_NEW_ENGINE=1 (to be confirmed on Windows CI after the merge). |
 | STATUS | fails | 5 of 11: the energy report, part energies, duty, limits and references; not yet the verdict (FAULTS has a violation), live streaming, study stop and progress, FMU parts, text components, quick mode. |
 
 ## Before the wiring: the six measurements
