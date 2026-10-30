@@ -675,6 +675,155 @@ def test_a_battery_check_the_run_kept_no_record_of_is_the_path_s_fault(new, monk
     assert first.startswith("Not run [NEW-ERROR]") and "the moving average of el-battery:sig_power" in first
 
 
+@pytest.mark.parametrize("gone, check", [
+    ("el-battery:sig_voltage", {"voltage_class_V": 600.0}),
+    ("el-battery:sig_power", {"output_power_limit_kW": 23.0, "power_limit_window_s": 0.5,
+                              "power_limit_enforced": False}),
+])
+def test_a_battery_check_on_a_channel_the_run_kept_no_record_of_is_the_path_s_fault(
+        new, monkeypatch, gone, check):
+    """A Voltage Class judged on a run whose integrals lack the battery's
+    voltage, an Output Power Limit on one whose integrals lack its power:
+    each fails with the path's code and names the missing record, not a
+    pass on no number at all."""
+    real = lightsim_engine.build
+
+    class Without:
+        def __init__(self, run):
+            self.run = run
+
+        def __getattr__(self, name):
+            return getattr(self.run, name)
+
+        @property
+        def integrals(self):
+            return {k: v for k, v in self.run.integrals.items() if k != gone}
+
+    class Built:
+        def __init__(self, m):
+            self.m = m
+
+        def __getattr__(self, name):
+            return getattr(self.m, name)
+
+        def simulate(self, **kw):
+            return Without(self.m.simulate(**kw))
+    monkeypatch.setattr(lightsim_engine, "build", lambda *a, **k: Built(real(*a, **k)))
+    result = simulate(_battery(load_example("bev-car"), **check), "case-city")
+    assert result.status == "failed"
+    first = result.messages[0].text
+    assert first.startswith("Not run [NEW-ERROR]") and f"no record of {gone}" in first
+
+
+def _with_case_values(proj, case_id: str, over: dict):
+    case = next(c for c in proj.cases if c.id == case_id)
+    values = dict(case.parameterOverrides or {})
+    for el_id, kv in over.items():
+        values[el_id] = {**values.get(el_id, {}), **kv}
+    case.parameterOverrides = values
+    return proj
+
+
+@pytest.mark.parametrize("over, profile", [
+    ({"el-ambient": {"pressure_kPa": 1.0}}, None),  # a bar value typed as kPa
+    ({"el-ambient": {"pressure_kPa": 200.0}}, None),
+    ({"el-ambient": {"temperature_C": 70.0}}, None),
+    ({"el-vehicle": {"wheelbase_m": 0.0, "cg_height_m": 0.5}}, None),
+    ({"el-wheel-rl": {"axle": "Front"}, "el-wheel-rr": {"axle": "Front"},
+      "el-vehicle": {"cg_height_m": 0.5}}, None),
+    ({"el-vehicle": {"downforce_cza_m2": -20.0}}, "0:0; 40:130; 70:130"),  # the rear wheels lift
+])
+def test_a_case_value_today_s_run_warns_on_is_warned_as_today(new, monkeypatch, over, profile):
+    """Today's checks that its run makes of the values it uses (Data
+    Checks see only a block's own values, so a case value is caught
+    there), judged by today's engine: the Ambient's air outside the usual,
+    a Wheelbase of 0 with a CG height, a CG height with every wheel on one
+    axle (said while today's RunContext is built), the rear wheels lifting
+    off the road at 38.84 s. Each gives today's warnings word for word and
+    today's status; before, the new path said success (or, at 70 °C, only
+    the climate table's warning)."""
+    proj = _with_case_values(load_example("bev-car"), "case-city", over)
+    if profile:
+        next(e for e in proj.systems[0].elements if e.id == "el-task").parameterOverrides["profile"] = profile
+        next(c for c in proj.cases if c.id == "case-city").duration = 70.0
+    today, result = _today(proj, "case-city", monkeypatch), simulate(proj, "case-city")
+    assert result.messages[0].text.startswith("Run on the new engine")
+    assert sorted(_texts(result, "warning")) == sorted(_texts(today, "warning"))
+    assert result.status == today.status == "warning"
+
+
+def test_a_motor_with_no_live_supply_is_said_as_today(new, monkeypatch):
+    """The BEV's E-Motor behind a DC-DC whose Output Voltage (a case value)
+    is 0.5 V: today's engine says the motor has no live supply; so does the
+    new path (before: not said)."""
+    from helpers import conn
+    proj = load_example("bev-car")
+    system = proj.systems[0]
+    system.elements += [el("dc", "controller.dcdc", "DC-DC"), el("mbus", "electric.node", "Motor Bus")]
+    system.connections = [c for c in system.connections if c.id != "c-4"]  # the motor off the HV bus
+    system.connections += [conn(90, "el-hvbus", "t3", "dc", "a_pos"), conn(91, "dc", "a_neg", "el-ground", "t3"),
+                           conn(92, "dc", "b_pos", "mbus", "t1"), conn(93, "mbus", "t2", "el-motor", "pos"),
+                           conn(94, "dc", "b_neg", "el-ground", "t4")]
+    _with_case_values(proj, "case-city", {"dc": {"output_voltage_V": 0.5}})
+    next(c for c in proj.cases if c.id == "case-city").duration = 70.0
+    msg = "E-Motor 'E-Motor' has no live electrical supply — it produces no torque."
+    today, result = _today(proj, "case-city", monkeypatch), simulate(proj, "case-city")
+    assert result.messages[0].text.startswith("Run on the new engine")
+    assert _texts(today, "warning").count(msg) == 1 == _texts(result, "warning").count(msg)
+    assert result.status == today.status == "failed"
+
+
+def test_an_acceleration_test_with_no_vehicle_is_judged_as_today(new, monkeypatch):
+    """fs-electric's 75 m acceleration with its Vehicle deleted (a FAULTS
+    fault whose warning today's run gives and the new path's did not, found
+    by the judge's unsaid list): nothing moves, so the verdict says the line
+    was not reached, as today's does; before, the new path had no trace to
+    judge and said only the model's warning."""
+    proj = _without(load_example("fs-electric"), "el-vehicle")
+    today, result = _today(proj, "case-accel-75m", monkeypatch), simulate(proj, "case-accel-75m")
+    assert result.messages[0].text.startswith("Run on the new engine")
+    assert sorted(_texts(result, "warning")) == sorted(_texts(today, "warning"))
+    assert any(t.startswith("Acceleration test: the vehicle did not reach the 75 m line")
+               for t in _texts(result, "warning"))
+    assert result.status == today.status == "warning"
+
+
+_NOT_DRIVEN = {  # a target that jumps to a high speed for about 1.6 s just before 60 s
+    "spike": "0:0; 58.9:0; 59:400; 60.5:400; 60.6:0; 70:0; 80:30; 200:30; 210:0; 300:0",
+    # ... whose first 100 m end at 60.2 s, inside an output step of 1 s
+    "spike2": "0:0; 58.9:0; 59:300; 60.6:300; 60.7:0; 70:0; 80:50; 250:50; 260:0; 300:0",
+    "plain": "0:0; 70:0; 80:30; 200:30; 210:0; 300:0",
+}
+
+
+@pytest.mark.parametrize("profile", sorted(_NOT_DRIVEN))
+def test_a_run_that_has_not_driven_by_60_s_is_said_as_today(new, monkeypatch, profile):
+    """Today's check of every run, live or not (verdict.not_driven, asked
+    at the end of each output step): after 60 s the cycle asked for more
+    than 100 m and the car drove less than 5 % of it. Judged by today's
+    engine at the case's output step of 1 s (spike: the same warning;
+    plain: none), and at 0.1 s for spike2, which today's engine says only
+    when it asks often enough: the new path asks at every traced point
+    (0.1 s), so its verdict does not depend on the output step. Before,
+    the new path never said it: a success where today's warns."""
+    proj = load_example("bev-car")
+    next(e for e in proj.systems[0].elements if e.id == "el-task").parameterOverrides["profile"] = (
+        _NOT_DRIVEN[profile])
+    case = next(c for c in proj.cases if c.id == "case-city")
+    case.duration = 300.0
+    said = [t for t in _texts(simulate(proj, "case-city"), "warning") if t.startswith("No distance")]
+    if profile == "spike2":
+        case.timeStep = 0.1
+    today = [t for t in _texts(_today(proj, "case-city", monkeypatch), "warning")
+             if t.startswith("No distance")]
+    assert said == today == {
+        "spike": ["No distance covered after 60 s although the drive cycle asks for 0.12 km so far — "
+                  "check that a motor or engine drives the wheels and gets a command."],
+        "spike2": ["No distance covered after 60 s although the drive cycle asks for 0.10 km so far — "
+                   "check that a motor or engine drives the wheels and gets a command."],
+        "plain": []}[profile]
+
+
 def test_a_script_output_with_no_port_warns_as_today(new, monkeypatch):
     """A Script that returns a key none of its output ports has: today's
     engine drops the value and says so, once; so does the new path's runner

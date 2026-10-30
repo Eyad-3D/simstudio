@@ -3209,10 +3209,28 @@ against exact answers from `benchmarks/`.
   maximum power in today's words, as today's, which holds it to the
   hydrogen left; one empty from the start says the tank is empty); a
   battery reaching its minimum SOC is said at the run's event; a Script
-  output with no port is today's warning too. A judged battery check the
-  run kept no record of (its power's moving average) fails the path with
-  `NEW-ERROR`, never passes at 0 kW. The harness counts the notes'
-  codes by code (its `[note_codes]`).
+  output with no port is today's warning too. Today's checks of the values
+  a run uses, which Data Checks cannot make of a case value, are today's
+  code's own words: what its `RunContext` says while it is built (a
+  Wheelbase of 0 with a CG height, a CG height with every wheel on one
+  axle, wheels off the road at the start, a driveline over-constrained),
+  which the path's never-stepped `RunContext` says too, and what a step of
+  today's run says once it sees it, which the path asks of the run (the
+  Ambient's air outside the usual, at the run's start; wheels lifting off
+  the road, an axle's load at 0 in the integrals, which and when from the
+  trace at the Vehicle's own axle-load event; an E-Motor's supply at 1 V
+  or less at any point the integrator visited). The check that the car has
+  driven by 60 s (`verdict.not_driven`, which today's engine asks at the
+  end of each output step) is asked at every traced point, so the path's
+  verdict does not depend on the output step; an acceleration test with
+  no Vehicle is judged as standing still, as today's trace of it has it.
+  Today's warnings about its
+  own fixed-step solver (a part too stiff for its smallest step, a
+  last-resort clamp on a bus) are not the new engine's and are not given;
+  the engine's books' own closure and drift are. A judged battery check
+  the run kept no record of (its power or voltage, or its power's moving
+  average) fails the path with `NEW-ERROR`, never passes on no number.
+  The harness counts the notes' codes by code (its `[note_codes]`).
   The engine's own warnings on its run reach the user; its preparation's
   notes about the start values (`START-ALIAS-CONFLICT`, `START-NOT-SOLVED`,
   `INIT-START-ASSUMED`, `INIT-UNDECIDED`, `INIT-START-IGNORED`: review

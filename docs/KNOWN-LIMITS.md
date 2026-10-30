@@ -629,7 +629,15 @@ minimum or an average, for example from the CSV export, or put the
   Its Driver can ask a motor for more recuperation than its supply
   takes, where today's never asks it: the run then says the charging was
   held back, or, on a fuel cell, which takes nothing back, that it cannot
-  take power back. *Roadmap:* ENG-16.
+  take power back. It asks whether the car has driven by 60 s at every
+  0.1 s of its run, today's engine at the end of each output step, so a
+  cycle whose first 100 m end inside an output step can warn on the new
+  engine where today's, at that step, does not. Today's load transfer
+  follows the acceleration one solver step behind, so at a standing start
+  near the limit it can lift the front wheels for a step (the Formula
+  Student car with a 0.5 m Centre of Gravity Height: at 0.01 s) where the
+  new engine's, from the acceleration now, keeps a load on them (87 N).
+  *Roadmap:* ENG-16.
 - **Fuel energy is a heating value you set.** The fuel's energy is the
   fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by
   default; background knowledge, not checked against a source; a model

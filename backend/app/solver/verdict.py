@@ -161,15 +161,13 @@ class CycleTrace:
         self.dist.append(self.ctx.distance)
 
     def live_problem(self) -> str | None:
-        """A problem worth telling the user while a live run goes (once)."""
-        if self.live_warned or not self.times or self.times[-1] < LIVE_AFTER_S:
+        """A problem worth telling the user while a run goes (once; asked
+        at the end of every output step of every run, live or not)."""
+        if self.live_warned or not self.times:
             return None
-        if self.cycle_m > 100.0 and self.ctx.distance < NOT_DRIVEN_SHARE * self.cycle_m:
-            self.live_warned = True
-            return (f"No distance covered after {self.times[-1]:.0f} s although the drive "
-                    f"cycle asks for {self.cycle_m / 1000.0:.2f} km so far — check that a motor "
-                    f"or engine drives the wheels and gets a command.")
-        return None
+        problem = not_driven(self.times[-1], self.cycle_m, self.ctx.distance)
+        self.live_warned = problem is not None
+        return problem
 
     def metrics(self) -> TraceMetrics | None:
         if self.by_distance:
@@ -180,6 +178,32 @@ class CycleTrace:
         """The samples, with the run's evidence ``ev``, for the verdict."""
         return Trace(ctx=ev, by_distance=bool(self.by_distance), times=self.times,
                      target=self.target, speed=self.speed, dist=self.dist)
+
+
+def not_driven(t: float, cycle_m: float, distance: float) -> str | None:
+    """The run's check while it goes, at ``t`` (from LIVE_AFTER_S on): the
+    drive cycle has asked for more than 100 m so far (``cycle_m``) and the
+    vehicle has driven less than NOT_DRIVEN_SHARE of it."""
+    if t < LIVE_AFTER_S or not (cycle_m > 100.0 and distance < NOT_DRIVEN_SHARE * cycle_m):
+        return None
+    return (f"No distance covered after {t:.0f} s although the drive cycle asks for "
+            f"{cycle_m / 1000.0:.2f} km so far — check that a motor or engine drives the "
+            f"wheels and gets a command.")
+
+
+def first_not_driven(trace: Trace) -> str | None:
+    """not_driven at each of a finished run's traced points, the target's
+    distance by the trapezoid rule over them as CycleTrace.sample adds it
+    up: the first problem (the new engine's path, whose run is over before
+    it is judged; today's engine asks at the end of each output step)."""
+    cycle_m = 0.0
+    for k, t in enumerate(trace.times):
+        if k:
+            cycle_m += 0.5 * (trace.target[k] + trace.target[k - 1]) / 3.6 * (t - trace.times[k - 1])
+        problem = not_driven(t, cycle_m, trace.dist[k])
+        if problem:
+            return problem
+    return None
 
 
 def _line(ts: list[float], vs: list[float], t: float, shift: float = 0.0) -> tuple[float, float]:

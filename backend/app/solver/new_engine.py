@@ -51,7 +51,7 @@ from .references import check_references, hand_checks
 from .reports import DUTY_QUANTITIES, RunRecorder, lane_state, make_reports
 from .runtime import SPEED_LIMIT_BAND, ControlFn, EmitFn, Runtime, usable_energy_left_wh
 from .sandbox import ScriptSandbox, ScriptSpec
-from .verdict import TRACE_STEP_S, Trace, judge, terminal_checks
+from .verdict import TRACE_STEP_S, Trace, first_not_driven, judge, terminal_checks
 
 ENV_VAR = "LIGHTSIM_ENGINE"
 STRICT_VAR = "LIGHTSIM_ENGINE_STRICT"
@@ -293,6 +293,9 @@ class _Plan:
         self.target = want(f"{self.src[0]}:{self.src[1]}") if self.src else None
         self.speed = want(f"{ctx.veh_id}:sig_speed") if ctx.veh_id else None
         self.dist = var(ctx.veh_id, "dist") if ctx.veh_id else None
+        # the Vehicle's axle loads: when its wheels lift off the road (_lift)
+        self.loads = {side: want(f"{ctx.veh_id}:sig_load_{side.lower()}") if ctx.veh_id else None
+                      for side in ("Front", "Rear")}
         drv = model.driver
         self.brake = want(f"{drv}:sig_brake_cmd") if drv else None
         self.traction = want(f"{drv}:sig_traction_cmd") if drv else None
@@ -449,6 +452,13 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     _over_speed(ctx, plan, run, messages)
     messages += [SimMessage(level="warning", text=t)
                  for t in _supply(ctx, plan, run) + list(script_warnings)]
+    # today's own checks of the values the run used, in its words: what the
+    # RunContext said while it was built (a Wheelbase of 0 with a CG
+    # height, a CG height on one axle, wheels off the road at the start, a
+    # driveline over-constrained) and what a step of today's says once it
+    # sees it, asked of the run (_runtime)
+    _runtime(ctx, plan, run, times[0] if times else 0.0)
+    messages += ctx.rt.messages
     books = run.energy or {}
     ev.flows = _flows(model, inst, books, integ, _port_flows(plan, run))
     ev.time_s = ev.duty_s = solved - (times[0] if times else 0.0)
@@ -480,6 +490,14 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
             # line, located to its root finding's precision (75.3000007 m at
             # rtol 1e-6, a hair short of 75.3 m at 1e-8), is where the run is
             trace.dist[-1] = max(trace.dist[-1], ctx.end_distance)
+    elif ctx.full_throttle and not ctx.veh_id and times:
+        # an acceleration test with no Vehicle: nothing moves, as today's
+        # trace of it has it (speed and distance 0), and the verdict says so
+        trace.times = list(times)
+        trace.target, trace.speed, trace.dist = ([0.0] * len(times) for _ in range(3))
+    problem = first_not_driven(trace)  # (today's asks it while its run goes)
+    if problem:
+        messages.append(SimMessage(level="warning", text=problem))
     series = {tuple(name.split(":", 1)): values for name, values in raw.items() if ":" in name}
     verdict = judge(trace, ev.distance, series, ctx.performance, solved, core.judged_uses(ev),
                     False, case)
@@ -716,6 +734,53 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
             f"Engine '{label}' was driven above its maximum speed ({n_max:,.0f} 1/min, the "
             f"full-load curve's last point) at t = {first:.2f} s; it is not fired above it. The "
             f"run summary says for how long and how far.")))
+
+
+LIFT_N = 1e-6  # an axle load at most this carries nothing, N (a lifted axle's is 0 to round-off)
+
+
+def _runtime(ctx, plan: _Plan, run, t0: float) -> None:
+    """Today's checks that a step of its run makes once it sees them
+    (RunContext: Data Checks see only a block's own values, so a case value
+    is caught there), asked of the run and said by today's own code into
+    the RunContext's messages: the Ambient's air outside the usual (at the
+    run's start, as today's first step: the new engine reads the case's
+    Ambient throughout); an E-Motor with no live supply (its supply voltage
+    at 1 V or less at any point the integrator visited); the Vehicle's
+    wheels lifting off the road (an axle's load at 0 over every step; which
+    wheels at the first traced point that shows it, when at the Vehicle's
+    own axle-load event in that traced stretch; a lift shorter than the
+    trace's step at the first such event)."""
+    if ctx.veh_id:
+        ctx.read_ambient(t0)
+    integ = run.integrals
+    for el_id in ctx.motors:
+        got = integ.get(f"{plan.inst.get(el_id, el_id)}.v")
+        if got and got["min"] <= 1.0:
+            ctx.no_supply(el_id)
+    front, rear = ctx.axle_wheels
+    if not ctx.veh_id or not (front or rear):
+        return
+    sides = (("Front", plan.loads["Front"]), ("Rear", plan.loads["Rear"])) if front and rear else (
+        ("Both", plan.loads["Front" if front else "Rear"]),)  # one axle: all its wheels
+    lifted = [(side, name) for side, name in sides
+              if name and name in integ and integ[name]["min"] <= LIFT_N]
+    if not lifted:
+        return
+    tr = run.trace or {}
+    times = [float(t) for t in tr.get("times", [])]
+    who = f"'{ctx.model.elements[ctx.veh_id].label}': "
+    axle_events = sorted(float(e["t"]) for e in run.events
+                         if e["label"].startswith(who) and "axle" in e["label"])
+    k = next((k for k in range(len(times))
+              if any(float(tr[name][k]) <= LIFT_N for _, name in lifted)), None)
+    if k is None:  # (lifted only between two traced points)
+        which = [side for side, _ in lifted]
+        t = axle_events[0] if axle_events else t0
+    else:
+        which = [side for side, name in lifted if float(tr[name][k]) <= LIFT_N]
+        t = times[0] if k == 0 else _at_event(axle_events, times[k - 1], times[k])
+    ctx.wheels_lift("Both" if len(which) > 1 else which[0], t)
 
 
 def _supply(ctx, plan: _Plan, run) -> list[str]:

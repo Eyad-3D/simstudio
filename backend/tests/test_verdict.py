@@ -147,6 +147,23 @@ def test_a_car_that_does_not_move_fails_and_says_so_early():
     assert next(ev["t"] for ev in streamed[first:] if ev["type"] == "step") == 60.0
 
 
+def test_the_check_that_the_car_drove_by_60_s_on_a_finished_trace():
+    """verdict.first_not_driven, the new engine's path's walk of its trace:
+    the target's distance by the trapezoid rule (0 to 14 km/h over 60 s:
+    117 m, not the 175 m or 58 m of either rectangle), from 60 s on, at the
+    first traced point that meets it, in today's words (not_driven, which
+    today's CycleTrace asks too)."""
+    from app.solver.verdict import Trace, first_not_driven, not_driven
+    trace = Trace(ctx=None, times=[0.0, 30.0, 60.0, 60.1], target=[0.0, 7.0, 14.0, 14.0],
+                  speed=[0.0] * 4, dist=[0.0, 0.0, 0.0, 0.0])
+    assert first_not_driven(trace) == not_driven(60.0, 116.67, 0.0) == (
+        "No distance covered after 60 s although the drive cycle asks for 0.12 km so far — check that "
+        "a motor or engine drives the wheels and gets a command.")
+    trace.dist = [0.0, 0.0, 5.9, 6.0]  # 5 % of 117 m driven: none
+    assert first_not_driven(trace) is None
+    assert not_driven(59.9, 500.0, 0.0) is None and not_driven(60.0, 100.0, 0.0) is None
+
+
 def test_an_empty_battery_flags_the_consumption():
     """The bundled BEV started just above its minimum SOC (10 % then, 4 %
     since the Cupra Born rework): before, it drove the whole cycle on energy
