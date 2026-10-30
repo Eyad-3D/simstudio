@@ -11,8 +11,16 @@
 //! The case: `{"text": "<file>", "model": "<name>", "t_end": s, "dt": s,
 //! "rtols": [..], "atol_factor": a, "record": ["<channel>", ..],
 //! "repeat": n, "options": {"energy_books": bool, "backend": "sundials" |
-//! "diffsol", "method": "auto" | "bdf" | "adams", "max_steps": n}}`, the
-//! text's path relative to the case file. Each run uses atol = a · rtol
+//! "diffsol", "method": "auto" | "bdf" | "adams", "max_steps": n,
+//! "table_cells": "auto" | "jumps" | "kinks" | "off", "table_release": bool,
+//! "force_implicit": bool}}`, the
+//! text's path relative to the case file (`table_cells`: which tables read
+//! at a state are held in their cells, `lsim_prep::hold::TableCells`; the
+//! engine's own, "auto", by default; `table_release`: false holds them through
+//! every crossing, `SolverOptions::held_release`; `force_implicit`: every
+//! block kept implicit, so the run is on IDAS, `PrepOptions::force_implicit`).
+//! Each run uses
+//! atol = a · rtol
 //! (times each variable's nominal value, as always) and is timed `repeat`
 //! times (the median is reported); a run that fails is reported with the
 //! engine's own message.
@@ -64,6 +72,9 @@ fn options(case: &Value, rtol: f64) -> SolverOptions {
     }
     if let Some(f) = o["state_switch"].as_f64() {
         opts.state_switch = f;
+    }
+    if let Some(b) = o["table_release"].as_bool() {
+        opts.held_release = b;
     }
     match o["backend"].as_str() {
         Some("diffsol") => opts.backend = Backend::Diffsol,
@@ -124,7 +135,15 @@ fn main() {
         write(json!({"stage": "parse", "error": format!("no model {name}")}));
         return;
     };
-    let prepared = match lsim_prep::prepare(&lib, &model, &Default::default()) {
+    let popts = lsim_prep::PrepOptions {
+        table_cells: match case["options"]["table_cells"].as_str() {
+            None => lsim_prep::hold::TableCells::default(),
+            Some(name) => lsim_prep::hold::TableCells::from_name(name)
+                .unwrap_or_else(|| panic!("unknown table_cells {name}")),
+        },
+        force_implicit: case["options"]["force_implicit"].as_bool().unwrap_or(false),
+    };
+    let prepared = match lsim_prep::prepare(&lib, &model, &popts) {
         Ok(p) => p,
         Err(d) => {
             let msgs: Vec<String> = d.iter().map(|x| format!("{x}")).collect();
@@ -146,7 +165,7 @@ fn main() {
     // dynamic state selection, unless the case asks for the states chosen
     // at the start only
     if case["options"]["dynamic_states"].as_bool() != Some(false) {
-        info.choices = lsim_project::model::choices(&lib, &model, &Default::default(), &info);
+        info.choices = lsim_project::model::choices(&lib, &model, &popts, &info);
     }
     let states: Vec<&str> =
         prepared.states.iter().map(|v| prepared.flat.var(*v).name.as_str()).collect();

@@ -705,7 +705,9 @@ impl<'a> Loop<'a> {
     /// of the crossings it located at `t1`, per root function; empty for a
     /// step that did not end at one), in a direction one of its root
     /// functions is watched in. Returns its time, and per root function the
-    /// direction (+1, -1; 0 for the others).
+    /// direction (+1, -1; 0 for the others). A condition one of whose root
+    /// functions is held is not looked at (its hold's release, a crossing
+    /// past it or its expiry decides it, [`Loop::release_holds`]).
     pub(super) fn scan_mixed(
         &mut self,
         integ: &mut dyn Integrator,
@@ -787,6 +789,12 @@ impl<'a> Loop<'a> {
         let mut jscratch: Vec<J2> = vec![];
         let mut fscratch: Vec<f64> = vec![];
         for j in 0..self.tf.mixed.len() {
+            // (a condition one of whose functions is held is not looked at:
+            // the release, a crossing past the hold or its expiry decides
+            // it, as for any held condition)
+            if self.tf.mixed[j].roots.iter().any(|&k| self.hold.get(k).is_some_and(|h| *h > 0.0)) {
+                continue;
+            }
             let base = Base {
                 params: &self.info.params,
                 vars: &self.vars,

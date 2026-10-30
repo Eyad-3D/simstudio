@@ -30,6 +30,7 @@ pub mod diffsol_backend;
 pub mod energy;
 #[cfg(feature = "sundials")]
 pub mod faer_ls;
+mod held;
 pub mod info;
 pub mod init;
 mod interval;
@@ -46,9 +47,9 @@ mod tape;
 pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
 pub use energy::{EnergyBooks, PartBooks};
 pub use info::{
-    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, ImpulseInfo, ImpulseLink,
-    InputChain, ModeInfo, RunInfo, SetReads, StateSetInfo, StoredRates, TimeCrossing, TimeFunction,
-    VarSource,
+    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, HeldAxisInfo, HeldEdgesInfo,
+    HeldInfo, ImpulseInfo, ImpulseLink, InputChain, ModeInfo, RunInfo, SetReads, StateRead,
+    StateSetInfo, StoredRates, TimeCrossing, TimeFunction, VarSource,
 };
 pub use recorder::Recorder;
 pub use run::run_loop;
@@ -140,6 +141,40 @@ pub enum SolveError {
     /// No integrator backend is compiled in.
     #[error("no integrator backend is built into this engine")]
     NoBackend,
+}
+
+impl SolveError {
+    /// The error with what the run said of itself before it (`notes`: the
+    /// table reads it released from their cells, DESIGN.md §8.2), so that
+    /// a run that fails after a release says so.
+    pub fn with_notes(self, notes: &[String]) -> SolveError {
+        if notes.is_empty() {
+            return self;
+        }
+        let said = format!(" (earlier in the run: {})", notes.join("; "));
+        match self {
+            SolveError::Integrator { t, message } => {
+                SolveError::Integrator { t, message: message + &said }
+            }
+            SolveError::Initialisation { t, message } => {
+                SolveError::Initialisation { t, message: message + &said }
+            }
+            SolveError::StateSelection { t, message, parts } => {
+                SolveError::StateSelection { t, message: message + &said, parts }
+            }
+            SolveError::EventStorm { t, message, parts } => {
+                SolveError::EventStorm { t, message: message + &said, parts }
+            }
+            SolveError::TableOutside { t, message } => {
+                SolveError::TableOutside { t, message: message + &said }
+            }
+            SolveError::Assert { t, message } => SolveError::Assert { t, message: message + &said },
+            SolveError::Block { block, t, message } => {
+                SolveError::Block { block, t, message: message + &said }
+            }
+            other => other,
+        }
+    }
 }
 
 /// Integration method.
@@ -278,6 +313,27 @@ pub struct SolverOptions {
     /// row. The same values either way, to the bit (DESIGN.md §9). On by
     /// default; off, each tick reads its inputs alone, interpreted
     pub tick_read_ahead: bool,
+    /// release a table read held in its cells (DESIGN.md §8.2, *Tables
+    /// read at a state*) where holding it costs more than it saves: at the
+    /// start where its jumps are within the tolerance (a 1-D read), and
+    /// during the run where its crossings come too often for the
+    /// integrator, which restarts at each, to leave the low orders of its
+    /// restarts (a 1-D or 2-D read). A released read is the table itself
+    /// from then on, stepped over. Only a group with a read that jumps (one
+    /// held only for comparison, `TableCells::Kinks`' reads that only kink,
+    /// is held through every crossing), and only while the run is on the
+    /// explicit form (CVODES):
+    /// the implicit form (IDAS, diffsol's DAE) cannot step over a read's
+    /// jump, and holds every held read through every crossing whatever
+    /// this says. On by default; off, a held read stays held through every
+    /// crossing (for comparison only)
+    pub held_release: bool,
+    /// the channels the run records, by their index among the model's
+    /// ([`RunInfo::var_names`]), in this order: the result holds these
+    /// alone (a long run on a fine grid that needs a few of them: every
+    /// channel of a model recorded every 0.1 s over a day does not fit in
+    /// memory). `None`: every channel. The run itself is the same
+    pub record: Option<Vec<usize>>,
 }
 
 /// [`SolverOptions::state_switch`]'s default.
@@ -307,6 +363,8 @@ impl Default for SolverOptions {
             books_kernels: true,
             tick_read_ahead: true,
             state_switch: STATE_SWITCH,
+            held_release: true,
+            record: None,
         }
     }
 }
@@ -527,6 +585,12 @@ pub trait Integrator {
             ),
         })
     }
+    /// [`Integrator::consistent_z`] at a point the run loop only looks at
+    /// (where an event's conditions stood before it): what the integrator
+    /// keeps of its last solve for its restart stays as it was.
+    fn consistent_z_aside(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        self.consistent_z(t, y, d)
+    }
     /// Work done so far.
     fn stats(&self) -> SolverStats;
     /// The energy integrals at `t` (inside the last step), when the backend
@@ -627,6 +691,9 @@ pub enum EventKind {
     /// set whose choice degraded (index into the `state_sets` of the model
     /// the run went on from)
     States(usize),
+    /// a table read held in its cell went on in another cell: its argument
+    /// crossed a breakpoint (index into [`RunInfo::held`])
+    Cell(usize),
 }
 
 /// An event that happened.
@@ -829,6 +896,24 @@ pub fn simulate(
     let mut d0 = vec![0.0; l.n_d];
     model.start(&info.params, &mut y0, &mut d0);
     let u = vec![0.0; l.n_u];
+    // the held table reads whose jumps are within the tolerance: the table
+    // itself from the start (crate::held). Not on the implicit form (IDAS,
+    // diffsol's DAE): it cannot step over a jump at all (DESIGN.md §8.2)
+    let mut released = vec![];
+    if opts.held_release && l.n_z == 0 {
+        for g in 0..held::groups(info) {
+            if held::continuous_to(model, info, g, opts.rtol, grid.t0)? {
+                held::release(info, g, &mut d0);
+                if let Some(h) = info.held.iter().find(|h| h.group == g) {
+                    released.push(format!(
+                        "the table '{}' read at a state is continuous at its points to the \
+                         tolerance: stepped over, not held in its cells",
+                        h.label
+                    ));
+                }
+            }
+        }
+    }
     let start = init::start(
         model,
         info,
@@ -862,8 +947,13 @@ pub fn simulate(
         }
         (r, _) => r,
     };
+    // (a run that fails after the start released a read says so)
+    let result = result.map_err(|e| e.with_notes(&released));
     result.map(|mut r| {
         r.report.notes.insert(0, format!("start: {}", start.what));
+        for (i, note) in released.into_iter().enumerate() {
+            r.report.notes.insert(1 + i, note);
+        }
         if let Some(why) = &start.undecided {
             r.report.warnings.insert(
                 0,

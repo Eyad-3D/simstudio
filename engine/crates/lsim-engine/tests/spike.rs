@@ -27,7 +27,10 @@ fn errors(run: &SimResult, exact: &Exact) -> [f64; 3] {
 
 fn build(force_implicit: bool) -> Model {
     Engine::standard()
-        .build(&battery_drive(&Params::default()), &BuildOptions { force_implicit, cache: None })
+        .build(
+            &battery_drive(&Params::default()),
+            &BuildOptions { force_implicit, cache: None, ..Default::default() },
+        )
         .unwrap_or_else(|d| panic!("the spike builds: {d:#?}"))
 }
 
@@ -179,7 +182,8 @@ fn the_cache_skips_preparation() {
     let _ = std::fs::remove_dir_all(&dir);
     let engine = Engine::standard();
     let top = battery_drive(&Params::default());
-    let opts = BuildOptions { force_implicit: false, cache: Some(dir.clone()) };
+    let opts =
+        BuildOptions { force_implicit: false, cache: Some(dir.clone()), ..Default::default() };
     let first = engine.build(&top, &opts).unwrap();
     let second = engine.build(&top, &opts).unwrap();
     assert!(!first.report.cache_hit && second.report.cache_hit);

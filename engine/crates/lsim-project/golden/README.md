@@ -869,3 +869,45 @@ them: between runs of one build the whole comparison's CPU time varies
 by up to 3.3 s on this shared machine, so the record calls the new build
 not slower, not faster.
 
+
+## Tables read at a state (23 and 24 October 2026)
+
+For one round (A3's first, 23 October) every table read at a value that
+moves with the states, where the read kinks or jumps at the table's
+points, was held in its cell during every step, each crossing of a
+point an event where the integrator restarts (DESIGN.md 8.2, *Tables
+read at a state*). Every map the cars read is a linear table of the
+battery's SOC or a motor's speed and torque, read for its value, so
+every case moved, by the tolerance (at most 1.8e-3 × band, but the
+hybrid's clutch losses at the band's floor by 0.2 and 0.02 of it; none
+across its band), their crossings events (the BEV's WLTC 122 → 2 879,
+the hybrid's UDDS 118 072 → 126 830), the BEV's city recuperation at
+1.0021 × band. Its review found the restarts far costlier than the
+kinks they remove where crossings are many; the next round held only
+the reads that jump (a slope that index reduction reads), and after the
+second review nothing was held by default. Since the third (24 October,
+rule v4) the default holds what rule v4 decided per form (`TableCells::
+Auto`), since the fifth every read that jumps on both forms (a linear
+table's slope, a clamped cubic's at its edges, a cubic's second
+derivative, a 2-D read's slopes; the cars run on the implicit form). The
+cars' maps are read for their values, which only kink, so nothing of
+theirs is held in any of these, and the comparison is the record above in
+every field but the run times, to the last digit (24 October:
+`results.json` and `results.md` as at e4ada13; 84.6 s user on the round
+that made the default stepped over; the third round's 85.5 and 85.5 s
+against 86.6 and 85.3 s for 1d41c7d7's, run back to back; the fourth's
+92.9 and 91.6 s against 91.0 and 93.1 s for ade9eaa7's, run back to back
+on a slower day; the fifth's 104.1 and 100.7 s against 106.9 and 101.8 s
+for 85ae86e8's, run back to back on a slower one still; the sixth's, whose
+releases weigh a 2-D read's crossings too, 96.6 and 95.8 s against 92.9
+and 97.1 s for 1d9e5fd1's).
+
+The books' closure had doubled on the city cycle while the maps were
+held (6.6e-10 → 1.3e-9) and fallen on the WLTC (2.8e-10 → 4.0e-11).
+Measured on every case at rtol 1e-4 … 1e-9, stepped over and held: the
+closure falls with the tolerance (the city cycle 2.4e-7, 5.5e-8,
+6.6e-10, 3.5e-11, 3.4e-12, 8.4e-13; slopes of its logarithm 0.9 … 1.4
+on the battery cars, 0.3 … 0.6 on the hybrid, which closes to about
+1e-12), so it is the integration's error, and the restarts moved it
+0.034 to 52 times either way at equal tolerance (geometric mean 1.05
+over 50 runs, larger in 27): it does not grow with them.

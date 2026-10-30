@@ -29,8 +29,13 @@
 //! digit of the slider-crank's quadrature), and the quadrature comes out
 //! closer to an independent reference (DESIGN.md 8.1); a patch for
 //! the zero case alone does not mend the engine's, whose states' errors
-//! are often round-off rather than zero. `build.rs` compiles them with the
-//! `cc` crate.
+//! are often round-off rather than zero. In the same function the patch
+//! passes over the quadratures' error at order k−2 where it cannot change
+//! the order (order k−1's is the larger already and either a decrease is
+//! to be decided there or none was): the order, the steps and every
+//! result the same to the bit, a sum and a norm over the quadratures
+//! saved at most steps (0.2 % of the hybrid car's instructions on its
+//! mixed cycle). `build.rs` compiles them with the `cc` crate.
 //! Nothing else is needed at build time: the configuration header is
 //! written by hand once (`sundials/include/sundials/sundials_config.h`,
 //! the same on every platform) and the bindings below are committed,

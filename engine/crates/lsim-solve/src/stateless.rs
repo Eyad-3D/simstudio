@@ -96,6 +96,9 @@ pub struct Stateless<'m> {
     atol: f64,
     max_step: f64,
     error_control: bool,
+    /// the run's length, |t_end − t0|: no step is shorter than its
+    /// resolution there ([`Stateless::step`])
+    span: f64,
     /// the last step's start and end
     t0: f64,
     t: f64,
@@ -123,8 +126,7 @@ pub struct Stateless<'m> {
     g: Vec<f64>,
     g_try: Vec<f64>,
     root_dirs: Vec<i32>,
-    zero_side: Vec<f64>,
-    zero_hold: Vec<f64>,
+    zero: crate::run::ZeroSides,
     root_mask: Vec<bool>,
     /// the energy integrand, and the integrals at the step's start, at its
     /// end and at the last point read inside it
@@ -164,6 +166,7 @@ impl<'m> Stateless<'m> {
             atol: opts.atol,
             max_step: opts.max_step,
             error_control: opts.energy_error_control,
+            span: (grid.t_end - t0).abs(),
             t0,
             t: t0,
             fresh: true,
@@ -182,8 +185,7 @@ impl<'m> Stateless<'m> {
                 .chain(std::iter::repeat(0))
                 .take(n_roots)
                 .collect(),
-            zero_side: vec![0.0; n_roots],
-            zero_hold: vec![0.0; n_roots],
+            zero: crate::run::ZeroSides::new(n_roots),
             root_mask: vec![false; n_roots],
             quad,
             q0: vec![0.0; n_q],
@@ -217,12 +219,7 @@ impl<'m> Stateless<'m> {
         if self.g_try.len() > nr {
             self.model.table_guards(&inp, &mut self.work, &mut self.g_try[nr..]);
         }
-        crate::run::apply_zero_sides(
-            &mut self.g_try,
-            &self.zero_side,
-            &self.zero_hold,
-            &self.root_mask,
-        );
+        self.zero.apply(&mut self.g_try);
     }
 
     /// The direction root function `i` crossed in from `a` to `b` (0: it
@@ -384,7 +381,11 @@ impl Integrator for Stateless<'_> {
                 let gap = (e1 - p1).abs().max((e7 - p7).abs());
                 !gap.is_finite() || gap <= self.rtol * size + self.atol
             });
-            let shortest = 16.0 * f64::EPSILON * t.abs().max(te.abs()).max(f64::MIN_POSITIVE);
+            // (the time's resolution, on the run's scale too: near t = 0 a
+            // channel no step resolves, a jump at the start or sqrt(time),
+            // halved down to 1e-322 s before)
+            let shortest =
+                16.0 * f64::EPSILON * t.abs().max(te.abs()).max(self.span).max(f64::MIN_POSITIVE);
             if resolved || te - t <= shortest {
                 break te;
             }
@@ -510,8 +511,7 @@ impl Integrator for Stateless<'_> {
     }
 
     fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
-        self.zero_side.copy_from_slice(sides);
-        self.zero_hold.copy_from_slice(holds);
+        self.zero.set(sides, holds);
         // (the signs at the step's end as the new sides map them)
         if !self.fresh {
             let t = self.t;
@@ -524,11 +524,12 @@ impl Integrator for Stateless<'_> {
         for (m, x) in self.root_mask.iter_mut().zip(mask) {
             *m = *x;
         }
+        self.zero.mask(&self.root_mask);
         true
     }
 
     fn method(&self) -> String {
-        "none (no state to integrate)".into()
+        "the channels resolved along time".into()
     }
 
     fn setup_notes(&self) -> Vec<String> {

@@ -34,9 +34,7 @@ use std::time::Instant;
 /// What the closures share with the integrator.
 struct Shared {
     d: RefCell<Vec<f64>>,
-    zero_side: RefCell<Vec<f64>>,
-    zero_hold: RefCell<Vec<f64>>,
-    root_mask: RefCell<Vec<bool>>,
+    zero: RefCell<crate::run::ZeroSides>,
     work: RefCell<Vec<f64>>,
     rhs: Cell<u64>,
     jvp: Cell<u64>,
@@ -51,6 +49,29 @@ const GAUSS: [(f64, f64); 3] = [
 
 fn to_vec(v: &NalgebraVec<f64>) -> Vec<f64> {
     (0..v.len()).map(|i| v.get_index(i)).collect()
+}
+
+/// The smallest magnitude a non-zero root function value has for diffsol.
+/// Its root finder (0.17.1, `root_finding`) tells a sign change by the
+/// product `g0 · g1 < 0`, which underflows to −0 when one value is tiny:
+/// a condition put on its side ([`crate::run::apply_zero_sides`], which
+/// gives it `±f64::MIN_POSITIVE`) against a value below about 10⁻¹⁶ (an
+/// edge function at the rounding level of its crossing). The bracket then
+/// loses the root and the secant divides by zero, and diffsol interpolates
+/// at an infinite time and panics (`InterpolationTimeAfterCurrentTime`).
+/// CVODE compares the signs instead. Two values of at least this size
+/// multiply to at least 10⁻³⁰⁰, a normal number; the sign, which is all
+/// root finding looks for, is kept.
+const ROOT_FLOOR: f64 = 1e-150;
+
+/// `g` with every non-zero value at least [`ROOT_FLOOR`] in magnitude, its
+/// sign kept (an exact zero stays zero: diffsol takes it as a root).
+fn floor_roots(g: &mut [f64]) {
+    for v in g.iter_mut() {
+        if *v != 0.0 && v.abs() < ROOT_FLOOR {
+            *v = ROOT_FLOOR.copysign(*v);
+        }
+    }
 }
 
 /// Runs the model with diffsol: see the module documentation.
@@ -90,9 +111,7 @@ pub fn simulate(
     )?;
     let shared = Shared {
         d: RefCell::new(d0),
-        zero_side: RefCell::new(vec![0.0; nr + ng]),
-        zero_hold: RefCell::new(vec![0.0; nr + ng]),
-        root_mask: RefCell::new(vec![]),
+        zero: RefCell::new(crate::run::ZeroSides::new(nr + ng)),
         work: RefCell::new(vec![0.0; l.n_work]),
         rhs: Cell::new(0),
         jvp: Cell::new(0),
@@ -124,12 +143,8 @@ pub fn simulate(
         if ng > 0 {
             model.table_guards(&inp, &mut work, &mut out[nr..]);
         }
-        crate::run::apply_zero_sides(
-            out,
-            &shared.zero_side.borrow(),
-            &shared.zero_hold.borrow(),
-            &shared.root_mask.borrow(),
-        );
+        shared.zero.borrow().apply(out);
+        floor_roots(out);
     };
     let builder = OdeBuilder::<NalgebraMat<f64>>::new()
         .t0(grid.t0)
@@ -315,12 +330,7 @@ where
             self.model.table_guards(&inp, &mut work, &mut g[nr..]);
         }
         drop(work);
-        crate::run::apply_zero_sides(
-            &mut g,
-            &self.shared.zero_side.borrow(),
-            &self.shared.zero_hold.borrow(),
-            &self.shared.root_mask.borrow(),
-        );
+        self.shared.zero.borrow().apply(&mut g);
         g
     }
 
@@ -460,7 +470,17 @@ where
             self.q_a = self.q_b.clone();
             self.t_a = t_state;
         }
-        let r = self.solver.step();
+        // (diffsol may panic inside a step, its own invariant broken: that
+        // is a named failure of the run, not a crash of the program)
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.solver.step()))
+            .map_err(|p| {
+                let what = p
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| p.downcast_ref::<&str>().copied())
+                    .unwrap_or("a panic");
+                self.fail("step failed inside diffsol", what)
+            })?;
         let reason = r.map_err(|e| self.fail("step", e))?;
         let t_n = self.solver.state().t;
         match reason {
@@ -594,12 +614,11 @@ where
     }
 
     fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
-        self.shared.zero_side.borrow_mut().copy_from_slice(sides);
-        self.shared.zero_hold.borrow_mut().copy_from_slice(holds);
+        self.shared.zero.borrow_mut().set(sides, holds);
     }
 
     fn set_root_mask(&mut self, mask: &[bool]) -> bool {
-        *self.shared.root_mask.borrow_mut() = mask.to_vec();
+        self.shared.zero.borrow_mut().mask(mask);
         true
     }
 
@@ -664,5 +683,28 @@ where
             self.n
         ));
         n
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// diffsol's root finder multiplies two values to tell a sign change:
+    /// against a condition held on its side (`f64::MIN_POSITIVE`) a value
+    /// of 1.1e-16 underflowed to −0, a crossing it then lost (and panicked
+    /// over). Floored, every non-zero product is a normal number of the
+    /// right sign.
+    #[test]
+    fn root_values_multiply_to_their_signs() {
+        let held = f64::MIN_POSITIVE;
+        assert_eq!(held * -1.1e-16, 0.0, "the product diffsol tests underflows");
+        let mut g = [held, -1.1e-16, 0.0, -0.0, 3.0, -f64::MIN_POSITIVE, 1e-200];
+        floor_roots(&mut g);
+        assert!(g[0] * g[1] < 0.0 && (g[0] * g[1]).is_normal());
+        assert_eq!(g[0], ROOT_FLOOR);
+        assert_eq!(g[1], -1.1e-16, "a value above the floor is kept");
+        assert_eq!((g[2], g[3]), (0.0, 0.0), "an exact zero stays a root");
+        assert_eq!((g[4], g[5], g[6]), (3.0, -ROOT_FLOOR, ROOT_FLOOR));
     }
 }

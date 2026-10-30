@@ -592,6 +592,54 @@ pub struct RunInfo {
     /// those it has degrade (dynamic state selection, [`crate::choice`]);
     /// `None`: the run stops there instead, naming the constraint
     pub choices: Option<crate::choice::Choices>,
+    /// the table reads held in their cells during every step
+    pub held: Vec<HeldInfo>,
+    /// every table read at an argument that moves with the states, held or
+    /// stepped over: a run that stops at one of their breakpoints names the
+    /// read and the option that holds it ([`crate::held::at_breakpoint`])
+    pub state_reads: Vec<StateRead>,
+    /// the expressions the hold rule reads (its rounding bound's running-
+    /// error magnitudes); `None` in [`RunInfo::bare`], where the rounding
+    /// bound keeps its terms in the iteration variables only
+    pub mag: Option<Arc<MagInfo>>,
+}
+
+/// What [`RunInfo::mag`] holds: the prepared model's expressions.
+#[derive(Clone, Debug, Default)]
+pub struct MagInfo {
+    /// the assignments, in order
+    pub assign: Vec<(Slot, Expr)>,
+    /// the residuals of the iteration variables, in order
+    pub resid: Vec<Expr>,
+    /// the root functions (the model's zero crossings)
+    pub roots: Vec<Expr>,
+    /// y's slots: the states, then the iteration variables
+    pub y_slots: Vec<Slot>,
+    /// the discrete variables, in order
+    pub d_vars: Vec<VarId>,
+    /// the inputs, in order
+    pub u_vars: Vec<VarId>,
+}
+
+/// A table read at an argument that moves with the states (DESIGN.md
+/// §8.2), held in its cells or stepped over.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StateRead {
+    /// the table
+    pub table: u32,
+    /// the derivative of it the model reads (`[0, 0]`: its value)
+    pub order: [u8; 2],
+    /// its arguments, of the model's variables (as its channels) and
+    /// parameters
+    pub args: Vec<Expr>,
+    /// the table's name
+    pub label: String,
+    /// per argument: the table's smoothness inside its data and at its
+    /// data's edges (`C^c`; `u32::MAX`: no breakpoint there,
+    /// [`lsim_ir::interp::AxisSmoothness`])
+    pub smooth: [(u32, u32); 2],
+    /// the held read it is ([`RunInfo::held`]), if it is held
+    pub held: Option<usize>,
 }
 
 /// A choice index reduction made among states ([`lsim_ir::StateSet`]), as
@@ -709,6 +757,73 @@ impl StateSetInfo {
             masked: self.masked.clone(),
         })
     }
+}
+
+/// A table read held in its cell during every step ([`lsim_ir::HeldRead`],
+/// DESIGN.md §8.2, *Tables read at a state*), as the run sets it
+/// ([`crate::held`]): at the start, and at every event where its argument
+/// left the cell (its zero crossing `a − lo` or `hi − a` fell below zero),
+/// the cell its argument lies in, the point of it the polynomial is written
+/// at, the cell's edges and the polynomials' coefficients, from the table
+/// the model interpolates.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeldInfo {
+    /// the table
+    pub table: u32,
+    /// the derivative of it the model reads (`[0, 0]`: its value)
+    pub order: [u8; 2],
+    /// the polynomials' degree along each argument
+    pub degree: [u8; 2],
+    /// per argument: where its cell is held
+    pub axes: Vec<HeldAxisInfo>,
+    /// the coefficients (indices into the discrete variables), as
+    /// [`lsim_ir::HeldRead::coef`]
+    pub coef: Vec<usize>,
+    /// where the cells' edges are: `None` at every breakpoint
+    /// ([`lsim_ir::HeldCells::Points`]), else at the data's edges only
+    pub edges: Option<HeldEdgesInfo>,
+    /// the table's name
+    pub label: String,
+    /// 1 once released, 0 while held (index into the discrete variables,
+    /// [`lsim_ir::HeldRead::released`])
+    pub released: usize,
+    /// its group: the reads of one table at the same arguments, held and
+    /// released together ([`lsim_ir::HeldRead::group`])
+    pub group: usize,
+    /// whether it jumps itself where it is held ([`lsim_ir::HeldRead::jumps`])
+    pub jumps: bool,
+}
+
+/// The discrete variables of a read held between its data's edges
+/// ([`lsim_ir::HeldEdges`]), as indices into the discrete variables.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HeldEdgesInfo {
+    /// where the table is read: from
+    pub from: usize,
+    /// to
+    pub to: usize,
+    /// what is added to it
+    pub offset: usize,
+    /// the point of the last data cell's polynomial
+    pub anchor_end: usize,
+}
+
+/// An argument of a [`HeldInfo`]: indices into the discrete variables and
+/// the zero crossings.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HeldAxisInfo {
+    /// the cell's number ([`lsim_ir::HeldAxis::cell`])
+    pub cell: usize,
+    /// the point of the cell the polynomial is written at
+    pub anchor: usize,
+    /// the cell's lower edge
+    pub lo: usize,
+    /// its upper edge
+    pub hi: usize,
+    /// the zero crossing `a − lo`
+    pub below: usize,
+    /// the zero crossing `hi − a`
+    pub above: usize,
 }
 
 /// A table read at a position that moves with time alone, `c · time + b`
@@ -901,6 +1016,9 @@ impl RunInfo {
             table_axes: vec![],
             state_sets: vec![],
             choices: None,
+            held: vec![],
+            state_reads: vec![],
+            mag: None,
         }
     }
 
@@ -925,6 +1043,15 @@ impl RunInfo {
                 Direction::Falling => -1,
                 Direction::Both => 0,
             };
+        }
+        // a held read's edges: positive inside its cell, watched as they
+        // fall (the argument leaves the cell)
+        for a in m.held.iter().flat_map(|h| &h.axes) {
+            for c in [a.below, a.above] {
+                if c < root_dirs.len() {
+                    root_dirs[c] = -1;
+                }
+            }
         }
         let labelled = |o: &lsim_ir::Origin| {
             let who = flat.instance_name(o.instance);
@@ -1074,6 +1201,74 @@ impl RunInfo {
             time_tables: time_tables(m),
             state_sets: m.state_sets.iter().map(StateSetInfo::new).collect(),
             choices: None,
+            held: m
+                .held
+                .iter()
+                .map(|h| {
+                    let at =
+                        |v: &VarId| *d_index.get(v).expect("a held read's variables are discrete");
+                    let (table, order) = match &h.read {
+                        Expr::Table { table, order, .. } => (*table, *order),
+                        _ => unreachable!("a held read is a table read"),
+                    };
+                    HeldInfo {
+                        table,
+                        order,
+                        degree: h.degree,
+                        axes: h
+                            .axes
+                            .iter()
+                            .map(|a| HeldAxisInfo {
+                                cell: at(&a.cell),
+                                anchor: at(&a.anchor),
+                                lo: at(&a.lo),
+                                hi: at(&a.hi),
+                                below: a.below,
+                                above: a.above,
+                            })
+                            .collect(),
+                        coef: h.coef.iter().map(at).collect(),
+                        edges: match &h.cells {
+                            lsim_ir::HeldCells::Points => None,
+                            lsim_ir::HeldCells::Edges(e) => Some(HeldEdgesInfo {
+                                from: at(&e.from),
+                                to: at(&e.to),
+                                offset: at(&e.offset),
+                                anchor_end: at(&e.anchor_end),
+                            }),
+                        },
+                        label: flat.tables[table as usize].name.clone(),
+                        released: at(&h.released),
+                        group: h.group as usize,
+                        jumps: h.jumps,
+                    }
+                })
+                .collect(),
+            state_reads: state_reads(m),
+            mag: Some(Arc::new(MagInfo {
+                assign: m.assignments.iter().map(|a| (a.target, a.expr.clone())).collect(),
+                resid: m.residuals.iter().map(|r| r.expr.clone()).collect(),
+                roots: m.zero_crossings.iter().map(|z| z.expr.clone()).collect(),
+                y_slots: m
+                    .states
+                    .iter()
+                    .map(|v| Slot::Var(*v))
+                    .chain(m.algebraics.iter().copied())
+                    .collect(),
+                d_vars: m.discretes.clone(),
+                u_vars: m.inputs.clone(),
+            })),
+        }
+    }
+
+    /// The breakpoints of table `k` along `axis`, as the run has them (the
+    /// model's own where they differ from the prepared ones:
+    /// [`RunInfo::with_model_tables`]).
+    pub fn table_points(&self, k: u32, axis: usize) -> &[f64] {
+        let k = k as usize;
+        match self.table_axes.get(k) {
+            Some(a) if !a[0].is_empty() => &a[axis.min(1)],
+            _ => self.table_breaks.get(k).map_or(&[], |b| b.as_slice()),
         }
     }
 
@@ -1364,11 +1559,16 @@ fn time_functions(
     let mut r = Resolver { assigned, alias, sources, memo: HashMap::new() };
     // (a pure function grown past this many nodes is not searched)
     const MAX_NODES: usize = 20_000;
+    // a held table read's cell edges are left to root finding: their
+    // argument moves with the states (two crossings inside one step, out
+    // of a cell and back, are the known limit of conditions on states)
+    let held: BTreeSet<usize> =
+        m.held.iter().flat_map(|h| &h.axes).flat_map(|a| [a.below, a.above]).collect();
     m.zero_crossings
         .iter()
         .enumerate()
         .map(|(k, z)| {
-            if crossings.get(k).is_some_and(|c| c.is_some()) {
+            if crossings.get(k).is_some_and(|c| c.is_some()) || held.contains(&k) {
                 return None;
             }
             let (time, _) = r.reads(&z.expr, 0);
@@ -2111,6 +2311,66 @@ fn part_name(flat: &lsim_ir::FlatSystem, id: lsim_ir::InstanceId) -> String {
 
 /// Evaluates flat-scope expressions from the channel values, with the
 /// model's tables as its compiled code interpolates them.
+/// The table reads of `m`'s equations at an argument that moves with the
+/// states: one that reads a variable other than a discrete one, or a
+/// derivative (a read along time alone is a time table, whose breakpoints
+/// the run stops at). A held read is told by its own read; the other reads
+/// its cell's function makes of the same table are left out.
+fn state_reads(m: &PreparedModel) -> Vec<StateRead> {
+    let discrete: std::collections::HashSet<VarId> = m.discretes.iter().copied().collect();
+    let mut out: Vec<StateRead> = vec![];
+    let moving = |a: &Expr| {
+        let mut any = false;
+        a.walk(&mut |e| match e {
+            Expr::Var(v) if !discrete.contains(v) => any = true,
+            Expr::Der(_) => any = true,
+            _ => {}
+        });
+        any
+    };
+    let mut visit = |e: &Expr| {
+        e.walk(&mut |node| {
+            let Expr::Table { table, args, order } = node else { return };
+            let Some(ft) = m.flat.tables.get(*table as usize) else { return };
+            if args.len() != ft.data.dims() || !args.iter().any(&moving) {
+                return;
+            }
+            let held = m.held.iter().position(|h| &h.read == node);
+            if held.is_none()
+                && m.held.iter().any(|h| {
+                    matches!(&h.read, Expr::Table { table: t, order: o, .. }
+                        if t == table && o == order)
+                })
+            {
+                return;
+            }
+            if out.iter().any(|r| r.table == *table && r.order == *order && &r.args == args) {
+                return;
+            }
+            let mut smooth = [(u32::MAX, u32::MAX); 2];
+            for (j, sj) in smooth.iter_mut().enumerate().take(args.len()) {
+                let a = lsim_ir::interp::data_smoothness(&ft.data, j);
+                *sj = (a.inside, a.edges);
+            }
+            out.push(StateRead {
+                table: *table,
+                order: *order,
+                args: args.clone(),
+                label: ft.name.clone(),
+                smooth,
+                held,
+            });
+        });
+    };
+    for a in &m.assignments {
+        visit(&a.expr);
+    }
+    for r in &m.residuals {
+        visit(&r.expr);
+    }
+    out
+}
+
 pub(crate) struct ChannelEnv<'a> {
     pub t: f64,
     pub vars: &'a [f64],

@@ -23,7 +23,10 @@ fn main() {
         let mut model = None;
         for _ in 0..20 {
             let m = engine
-                .build(&battery_drive(&p), &BuildOptions { force_implicit, cache: None })
+                .build(
+                    &battery_drive(&p),
+                    &BuildOptions { force_implicit, cache: None, ..Default::default() },
+                )
                 .expect("builds");
             best_prep = best_prep.min(m.report.prepare_seconds);
             best_jit = best_jit.min(m.report.compile_seconds);

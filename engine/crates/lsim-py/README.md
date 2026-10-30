@@ -25,13 +25,25 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
 
 ## What a call gives
 
-* `build(project_json, case_id, cache_dir=None, cycles_dir=None)` returns a
-  `Model`. With `cache_dir`, the prepared model is cached on disk (a second
-  build of the same car with the same values skips preparation; other
-  values are prepared again, since preparation chooses by them: set them
-  on the built model instead, `set_params` or `sweep`). `cycles_dir` is the folder of the bundled drive cycles
-  (`backend/app/cycles` of the repository is the default). The GIL is
-  released while it works.
+* `build(project_json, case_id, cache_dir=None, cycles_dir=None,
+  table_cells="auto")` returns a `Model`. `table_cells` says which table
+  reads at a state (a table read at a value that moves with the states,
+  not with time alone) are held in their cells, each crossing of a
+  breakpoint an event (`engine/DESIGN.md` §8.2): `"auto"`, the default,
+  every read that jumps, on either form (on the implicit form, on which
+  the example cars run, stepped over such a read stopped the judge's runs
+  at a breakpoint; on the explicit form it was up to thousands of
+  tolerances off; the cars' maps, read for their values, are held by none
+  but `"kinks"`); `"off"`, none (the integrator steps over every
+  breakpoint); `"jumps"`, the reads of one argument whose slope jumps;
+  `"kinks"`, also the reads that only kink (for comparison). Another word raises
+  `ValueError`; the option is part of the cache's key. With `cache_dir`,
+  the prepared model is cached on disk (a second build of the same car
+  with the same values skips preparation; other values are prepared
+  again, since preparation chooses by them: set them on the built model
+  instead, `set_params` or `sweep`). `cycles_dir` is the folder of the
+  bundled drive cycles (`backend/app/cycles` of the repository is the
+  default). The GIL is released while it works.
 * `model.report`: sizes, import/prepare/compile seconds, whether the cache
   was hit, the structure key, `warnings` (a list of diagnostics) and the
   case (id, name, duration, the sampled blocks).
@@ -114,14 +126,21 @@ pytest:
 python -m venv .venv
 .venv/bin/pip install maturin numpy pytest        # on Windows: .venv\Scripts\pip
 export CARGO_INCREMENTAL=0                        # as for every engine build
-.venv/bin/maturin develop --release -m engine/crates/lsim-py/Cargo.toml
-.venv/bin/python -m pytest engine/crates/lsim-py/tests/test_api.py
+cd engine                                         # where rustup finds rust-toolchain.toml
+../.venv/bin/maturin develop --release -m crates/lsim-py/Cargo.toml
+../.venv/bin/python -m pytest crates/lsim-py/tests/test_api.py
 ```
 
-`maturin develop` builds the module and installs it in the virtual
-environment (use `--release`: the debug build is slow). To make a wheel
-instead: `maturin build --release -m engine/crates/lsim-py/Cargo.toml --out wheels`
-and `pip install wheels/lightsim_engine-*.whl`.
+Build from `engine/`, as CI does: rustup takes the pinned release from
+`engine/rust-toolchain.toml` only below that folder, and a module built
+by another release (built from the repository's root with a newer
+default toolchain) is not bitwise the golden path, which the tests build
+with the pinned one (measured with 1.97.0: the cars' brake pedal at t = 0
+is +0 where the golden path gives −0, `max(−0, 0)`; the two tests that
+compare them fail). `maturin develop` builds the module and installs it
+in the virtual environment (use `--release`: the debug build is slow). To
+make a wheel instead: `maturin build --release -m crates/lsim-py/Cargo.toml
+--out wheels` and `pip install wheels/lightsim_engine-*.whl`.
 
 Without maturin: `cargo build --release -p lsim-py --features extension-module`
 and copy `engine/target/release/liblightsim_engine.so` to a folder on

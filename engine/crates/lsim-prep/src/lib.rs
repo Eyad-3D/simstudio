@@ -35,6 +35,7 @@ pub mod diagnose;
 pub mod external;
 pub mod flatten;
 pub mod graph;
+pub mod hold;
 pub mod index;
 pub mod init;
 pub mod inverse;
@@ -61,11 +62,17 @@ use lsim_ir::{ComponentDef, Diagnostic, InitSystem, InverseSpec, Library, Prepar
 pub struct PrepOptions {
     /// see [`CausalOptions::force_implicit`]
     pub force_implicit: bool,
+    /// see [`Settings::table_cells`]
+    pub table_cells: hold::TableCells,
 }
 
 impl PrepOptions {
     fn settings(&self) -> Settings {
-        Settings { force_implicit: self.force_implicit, ..Settings::default() }
+        Settings {
+            force_implicit: self.force_implicit,
+            table_cells: self.table_cells,
+            ..Settings::default()
+        }
     }
 }
 

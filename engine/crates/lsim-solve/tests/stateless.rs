@@ -329,3 +329,43 @@ fn a_model_with_no_state_runs_as_any_other() {
         assert!(e.relative_closure < 1e-9, "{}", e.relative_closure);
     }
 }
+
+/// A channel no step resolves at the start, a jump at t0 that no event
+/// marks (`y = if noEvent(time > 0) then 1 else 0`): the steps halve down
+/// to the time's resolution and grow again. That resolution is 16 ulps of
+/// the run's length too; before, at t = 0 it fell with the step itself,
+/// down to 1e-322 s (1 071 steps and 12 853 evaluations of the channels
+/// where the same jump at 0.5 s takes 51 steps).
+#[test]
+fn a_channel_no_step_resolves_at_the_start_halves_to_the_run_s_resolution() {
+    use lsim_ir::Expr;
+    for at in [0.0, 0.5] {
+        let m = ComponentDef {
+            name: "Test.JumpAtStart".into(),
+            params: vec![param("t_jump", "s", at, "where y jumps")],
+            vars: vec![lsim_ir::component::build::var("y", "1", "0, then 1")],
+            equations: vec![eq(
+                n("y"),
+                Expr::If(
+                    Box::new(Expr::NoEvent(Box::new(cmp(CmpOp::Gt, Expr::Time, n("t_jump"))))),
+                    Box::new(c(1.0)),
+                    Box::new(c(0.0)),
+                ),
+                "a jump no event marks",
+            )],
+            ..Default::default()
+        };
+        let built = common::build(&common::library(), &m, false);
+        let grid = OutputGrid { t0: 0.0, t_end: T_END, dt: 0.25 };
+        for rtol in [1e-4, 1e-8] {
+            let opts = SolverOptions { rtol, atol: 1e-2 * rtol, ..Default::default() };
+            let run = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs");
+            let y = run.channel("y").unwrap();
+            println!("jump at {at} s, rtol {rtol:e}: {} steps", run.stats.steps);
+            for (t, y) in run.times.iter().zip(y) {
+                assert_eq!(*y, if *t > at { 1.0 } else { 0.0 }, "y at {t}");
+            }
+            assert!(run.stats.steps < 150, "jump at {at} s: {} steps", run.stats.steps);
+        }
+    }
+}

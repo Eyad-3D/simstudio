@@ -166,6 +166,7 @@ pub fn build(
     case_id: &str,
     cache: Option<PathBuf>,
     cycles_dir: Option<PathBuf>,
+    table_cells: lsim_engine::TableCells,
 ) -> Result<Built, Failure> {
     guarded(|| {
         let t0 = Instant::now();
@@ -173,7 +174,7 @@ pub fn build(
         let import_seconds = t0.elapsed().as_secs_f64();
         let engine = Engine::new(rep.library());
         let model = engine
-            .build(&top, &BuildOptions { cache, ..Default::default() })
+            .build(&top, &BuildOptions { cache, table_cells, ..Default::default() })
             .map_err(Failure::Model)?;
         Ok(Built { model, rep, project, case_id: case_id.to_string(), import_seconds })
     })

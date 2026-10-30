@@ -6768,6 +6768,7 @@ static int IDAQuadTestError(IDAMem IDA_mem, sunrealtype ck, sunrealtype* err_k,
   sunrealtype terr_k, terr_km1, terr_km2;
   N_Vector tempv;
   sunbooleantype check_for_reduction = SUNFALSE;
+  sunbooleantype order_km2;
 
   /* Rename ypQ */
   tempv = IDA_mem->ida_ypQ;
@@ -6803,9 +6804,18 @@ static int IDAQuadTestError(IDAMem IDA_mem, sunrealtype ck, sunrealtype* err_k,
        that decision: on states exactly polynomial in time their errors at
        orders k and k-1 are both zero, `0 <= 0.5 * 0` decided a decrease at
        every order 2, and the quadratures' larger error at order 1 then set
-       the step (lsim-solve's tests/ida_order.rs). */
+       the step (lsim-solve's tests/ida_order.rs).
+       Where the error at order k-1 is the larger already, and either a
+       decrease is to be decided here or none was in IDATestError, the
+       error at order k-2 cannot change the order (a decrease asks both to
+       be at most order k's): it is not computed, a sum and a norm over the
+       quadratures saved at most steps. Nothing after this reads it or
+       tempv but the sensitivities' tests. */
+    order_km2 = IDA_mem->ida_kk > 2 &&
+                (IDA_mem->ida_sensi || !(terr_km1 > terr_k) ||
+                 !(check_for_reduction || IDA_mem->ida_knew == IDA_mem->ida_kk));
     terr_km2 = ZERO;
-    if (IDA_mem->ida_kk > 2)
+    if (order_km2)
     {
       /* Update error at order k-2 */
       N_VLinearSum(ONE, IDA_mem->ida_phiQ[IDA_mem->ida_kk - 1], ONE, tempv,

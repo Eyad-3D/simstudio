@@ -60,12 +60,9 @@ struct Problem {
     quad: Option<Integrand>,
     /// for each root function: the side an exact zero counts as (+1, -1;
     /// 0: none), so a function resting at zero after its event does not
-    /// fire again
-    zero_side: Vec<f64>,
-    /// per root function: its hold (`Integrator::set_root_sides`)
-    zero_hold: Vec<f64>,
-    /// root functions not watched (time events the run loop schedules)
-    root_mask: Vec<bool>,
+    /// fire again, and its hold (`Integrator::set_root_sides`); the root
+    /// functions not watched (time events the run loop schedules)
+    zero: crate::run::ZeroSides,
     /// table guards watched after the model's own root functions
     n_guards: usize,
 }
@@ -202,7 +199,7 @@ unsafe extern "C" fn cv_root(t: f64, y: N_Vector, g: *mut f64, ud: *mut c_void) 
         if pr.n_guards > 0 {
             m.table_guards(&inp, &mut pr.work, &mut g[nr..]);
         }
-        crate::run::apply_zero_sides(g, &pr.zero_side, &pr.zero_hold, &pr.root_mask);
+        pr.zero.apply(g);
     }
     0
 }
@@ -698,9 +695,7 @@ impl<'m> Sundials<'m> {
             jac,
             lin,
             quad,
-            zero_side: vec![0.0; layout.n_roots + model.table_guard_list().len()],
-            zero_hold: vec![0.0; layout.n_roots + model.table_guard_list().len()],
-            root_mask: vec![],
+            zero: crate::run::ZeroSides::new(layout.n_roots + model.table_guard_list().len()),
             n_guards: model.table_guard_list().len(),
         });
         // SAFETY: plain SUNDIALS set-up; every object is freed in `Drop`.
@@ -1227,21 +1222,30 @@ impl Integrator for Sundials<'_> {
                 self.switch_to_bdf(self.t_last, "the fixed-point iteration failed")?;
                 return self.step(t_stop);
             }
-            // the error test failing repeatedly (ten times, the step cut
-            // by four from the second on): what lies ahead is a kink the
-            // history (its order, its differences) cannot cross, such as a
-            // breakpoint of a table read along time that the run stops at
-            // without a restart, where an iteration variable that is a
-            // derivative (`der(fd.w_out)`, from index reduction) changes
-            // its slope after a long steady stretch. A fresh start from the
-            // last step's end, its rates from the model, crosses it
-            // (`tests/error_test.rs`). Once per point: a second failure
-            // there is the model's
-            let error_test = match self.kind {
-                Kind::Cvode => flag == CV_ERR_FAILURE,
-                Kind::Ida => flag == IDA_ERR_FAIL,
-            };
-            if error_test && !self.fresh && self.retried_at != Some(self.t_last) {
+            // IDA's error test failing repeatedly (ten times, IDAS's
+            // MXNEF, the step cut by four from the second on): what lies
+            // ahead is a kink the history (its order, its differences)
+            // cannot cross, such as a breakpoint of a table read along time
+            // that the run stops at without a restart, where an iteration
+            // variable that is a derivative (`der(fd.w_out)`, from index
+            // reduction) changes its slope after a long steady stretch. A
+            // fresh start from the last step's end, its rates from the
+            // model, crosses it (`tests/error_test.rs`). Once per point: a
+            // second failure there is the model's. Not CVODE's: from its
+            // fourth failure it lowers the order by one at each (CVODES'
+            // MXNEF1) and at order 1 reloads its history from the model,
+            // stopping at the seventh (MXNEF), so the reload comes only
+            // from order 3 or lower (an Adams step at order 12 meets the
+            // seventh failure at order 9), and an ODE's error at such a
+            // kink falls with the step;
+            // it crosses one after a smooth stretch at a high order (the
+            // same test) and reached its limit in none of 132 probe runs
+            // with kinks and jumps (Adams and BDF, rtol 1e-4 … 1e-12)
+            if self.kind == Kind::Ida
+                && flag == IDA_ERR_FAIL
+                && !self.fresh
+                && self.retried_at != Some(self.t_last)
+            {
                 self.retried_at = Some(self.t_last);
                 self.error_restarts += 1;
                 let y = self.y().to_vec();
@@ -1500,12 +1504,11 @@ impl Integrator for Sundials<'_> {
     }
 
     fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
-        self.prob.zero_side.copy_from_slice(sides);
-        self.prob.zero_hold.copy_from_slice(holds);
+        self.prob.zero.set(sides, holds);
     }
 
     fn set_root_mask(&mut self, mask: &[bool]) -> bool {
-        self.prob.root_mask = mask.to_vec();
+        self.prob.zero.mask(mask);
         true
     }
 
@@ -1649,6 +1652,13 @@ impl Integrator for Sundials<'_> {
         )?;
         self.z_solved = Some((t, y.to_vec(), d.to_vec()));
         Ok(())
+    }
+
+    fn consistent_z_aside(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        let kept = self.z_solved.take();
+        let r = self.consistent_z(t, y, d);
+        self.z_solved = kept;
+        r
     }
 
     fn stats(&self) -> SolverStats {

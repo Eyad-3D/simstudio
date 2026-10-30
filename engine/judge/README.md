@@ -97,13 +97,23 @@ angle.
 | `pendulum-level` | the x-y pendulum released exactly level, x = L and y = 0 to the bit (x and vx fixed): at the start y decides nothing, the rod's velocity constraint x·vx + y·vy = 0 leaves vy 0 / 0, and the release is a double root of x² + y² = L² in y; it was refused at preparation before dynamic state selection | the closed form, as above (the IFToMM pendulum is the same problem released on the other side, 6e-17 m below level) | mathematics |
 | `pendulums-k-θ…`, `pendulums-angle-k-θ…` | held out (added after dynamic state selection's rule was chosen on the single pendulums, and not used to choose it): k = 2, 5 and 6 x-y pendulums released at rest at the angles in the name, independent of each other in one model, so that index reduction's choice has a set per rod at each level and each rod's states degrade on its own (1.50 + 1.60, 1.50 + 1.80, 1.70 + 2.00, 1.50 … 1.58, 1.5 … 3.05 rad); and the same pendulums in their angles, the control | each rod's closed form, as above; the error is the worst rod's | mathematics |
 | `double-pendulum-1.20-1.60`, `double-angle-1.20-1.60` | held out, as above: a double pendulum in x and y (two unit masses on two 1 m rods, its rods' constraints one coupled set at each level), released at rest at 1.2 and 1.6 rad from the vertical, 5 s; and in its two angles, the control | its angles integrated by DOP853 at rtol = atol = 1e-13 (scipy; the classical Runge–Kutta at 1e-4 s steps, `lsim-solve/tests/state_choice.rs`, agrees to 1e-12 m) | mathematics |
-| `msl-planarfourbar` | `stateSelect` in a mechanism: the Modelica Standard Library's `Mechanics.MultiBody.Examples.Loops.PlanarFourbar` transcribed in the plane: four steel BodyBoxes, revolute1 marked `always` (as the example marks it), revolute2 and revolute3 `prefer` (the Revolute's default), the bodies' centres `avoid` (BodyBox's), a damper at revolute1, the cut joint's two loop equations, the joint forces unknown: index 3, a 13-row choice of states, 5 s. Pivoting alone takes the states the marks ask for here (revolute1's angle and speed) | revolute1's angle from the mechanism's one degree of freedom (the loop closed by Newton's method, DOP853 at 1e-13; 1e-12 and 1e-13 agree to 5e-11 rad; OpenModelica 1.27 on MSL 4.1.0's own model, checked once by hand, 7.1e-9 rad from it at rtol 1e-12, 2.1e-7 at 1e-10); MSL's reference result beside it (Dymola 2020x, DASSL at 1e-6: 7.1e-4 rad from it; OpenModelica at 1e-6, 5.6e-4) | Modelica Standard Library 4.1.0 (Modelica Association, BSD-3-Clause): `PlanarFourbar.mo` and `BodyBox.mo`, and the reference result `PlanarFourbar.csv` of its regression tests (`MAP-LIB_ReferenceResults` v4.1.0). The brief named `Fourbar1`; it is spatial (a universal, a spherical and a prismatic joint), and a transcription of its frames without the MultiBody library would judge the transcription more than the engine: `PlanarFourbar` has the same `stateSelect = always` and a cut joint's loop |
+| `msl-planarfourbar` | `stateSelect` in a mechanism: the Modelica Standard Library's `Mechanics.MultiBody.Examples.Loops.PlanarFourbar` transcribed in the plane: four steel BodyBoxes, revolute1 marked `always` (as the example marks it), revolute2 and revolute3 `prefer` (the Revolute's default), the bodies' centres `avoid` (BodyBox's), a damper at revolute1, the cut joint's two loop equations, the joint forces unknown: index 3, a 13-row choice of states, 5 s. Pivoting alone takes the states the marks ask for here (revolute1's angle and speed) | revolute1's angle from the mechanism's one degree of freedom (the loop closed by Newton's method, DOP853 at 1e-13; 1e-12 and 1e-13 agree to 5e-11 rad; OpenModelica 1.27 on MSL 4.1.0's own model, checked once by hand, 7.1e-9 rad from it at rtol 1e-12, 2.1e-7 at 1e-10); MSL's reference result beside it (Dymola 2020x, DASSL at 1e-6: 7.1e-4 rad from it; OpenModelica at 1e-6, 5.6e-4) | Modelica Standard Library 4.1.0 (Modelica Association, BSD-3-Clause): `PlanarFourbar.mo` and `BodyBox.mo`, and the reference result `PlanarFourbar.csv` of its regression tests (`MAP-LIB_ReferenceResults` at dac67829, the head of its `v4.1.0` branch, the commit the PID_Controller's reference is read at too). The brief named `Fourbar1`; it is spatial (a universal, a spherical and a prismatic joint), and a transcription of its frames without the MultiBody library would judge the transcription more than the engine: `PlanarFourbar` has the same `stateSelect = always` and a cut joint's loop |
 | `fmu-stair` | a model with no continuous state: a counter raised by a time event each second | `Stair_out.csv`, point for point; the events at whole seconds exactly | Reference FMUs v0.0.41 (Modelica Association, BSD-2-Clause), `Stair/model.c` |
 | `fmu-bouncingball` | state events and `reinit`: a ball that bounces until it rests | the bounces in closed form (each one's time and speed); `BouncingBall_out.csv` beside it, which fmusim wrote with forward Euler at 1 ms: its h is up to 2.4e-2 m off the exact bounces (median 3.4e-3 m), and it bounces 12 times against the exact 11 | Reference FMUs v0.0.41, `BouncingBall/model.c` |
+| `kink-spring-one`, `kink-spring-many`, `kink-spring-clamp`, `kink-gear-linear`, `kink-gear-cubic`, `kink-gear-clamp`, `kink-2d`, each beside `…-located` | a table read at a state, where the read kinks or jumps at the table's breakpoints (DESIGN.md §8.2, *Tables read at a state*): a unit mass on a spring whose force is a linear table of its position, crossing one breakpoint once, five of them 234 times in 100 s, or held at the data's edges (`clamp`) and leaving them 30 times; the gear of `lsim-prep`'s tests, its ratio a table of the load's speed (`w1 = r(w2) w2`, index reduction reads `r'`), linear (`r'` jumps: the solved acceleration jumps), a monotone cubic (`r''` jumps) and a cubic held at its edges with the torque reversed (`r'` jumps where the speed leaves the data and comes back); a mass driven by a table of two states, `x'' = T(x, y)` with `y'' = -y`, its cells' edges crossed 64 times in x and y. Each `-located` control is the same function written as `if` branches on the same breakpoints, every crossing a mode: held during a step and located by root finding, the integrator restarted there (Park and Barton's discontinuity locking done by the model); `report` puts each case beside it (error in rtol, their ratio, steps, error-test failures) | closed forms per piece, the crossings solved at 40 digits (mpmath): harmonic motion or a parabola per piece of the springs; for the gears the first integral `J1 r(w2) w2 + J2 ∫ dw / r = ∫ tau dt`, integrated per cell (in closed form, or by quadrature on a cubic's cells) and inverted; for the two-state table a forced oscillator per pair of cells, `y`'s crossings by `acos`, `x`'s found by sampling every 4 ms with each sample interval's extremum. Each reference checked against DOP853 at rtol 1e-13 restarted at its crossings when the cases are written (2e-14 … 2.3e-12) | mathematics |
+| `kink-dense-spring-41`, `kink-dense-spring-401`, `kink-dense-gear-41`, `kink-dense-gear-401`, `kink-pass-301`, `kink-pass-default`, each beside `…-held` | a table read at a state, run the engine's way beside held in its cells (the runner's option `table_cells`; the engine's way is stepped over for the springs and the passes, and held for the gears since rule v4, their stepped-over runs `…-over` below): the spring whose force, −x − 2x³, is a linear table of 41 or 401 points (its value kinks; `-held`, held as a read that jumps is, "kinks": 348 and 3 392 crossings in 20 s, each a restart); the gear whose ratio, 2 + w/40 + 0.25 sin(w/8), is a linear table of 41 or 401 points of the load's speed (`r'` jumps; `-held`, "jumps", with the releases); `v' = T(v)` from 0, once through a linear table of 301 points (290 crossings), and through the table as the text format writes one by default (a monotone cubic held at its edges, 41 points: C¹ between them, leaving the data at its last). `report` puts each case beside its other way (error in rtol, their ratio, steps, events) | as the other `kink-` cases; for `v' = T(v)` per piece `v = v∞ + (v₀ − v∞) e^{b t}` where T is affine, `t(v) = ∫ dv / T` by quadrature on a cubic's pieces, inverted (each checked against DOP853: 6.5e-16 … 1.7e-13) | mathematics |
+| `kink-gear-linear-held`, `kink-gear-clamp-held`; `kink-osc-41`, `kink-osc-101`, each beside `…-held`, `…-always` and `…-located`; `kink-edge-11` beside `…-held` and `…-located`; `kink-bead-41` beside `…-held` | where holding a read in its cells pays and where it loses (DESIGN.md §8.2): the two gears above held ("jumps"); the same gear with its load on a torsion spring and no torque, its speed swung back and forth from 28 rad/s through a linear ratio table, 2.5 + w/50 + 0.2 sin(w/4) at 41 or 101 points on [−30, 30] rad/s (1 127 and 2 847 crossings in 20 s; `-held` with the releases, `-always` held through every crossing, "table_release" off, `-located` the ratio as `if` branches of `w2 / wu`); the same from 15 rad/s through a monotone cubic of 11 points on [−10, 10] held at its edges (59 crossings of its edges); the A3 review's bead on a wire `y = r(x)`, `r` the default table of x²/2 at 41 points (index reduction reads `r''`; Steffen's cubic of a parabola is the parabola, its `r''` continuous to 1e-14 at its points), from x = 1.5 at rest for 10 s (204 crossings; `-held` "kinks", the same reads held as the default holds them, with the releases) | DOP853 at rtol 1e-13 cell by cell of the engine's own pieces, each crossing found by its event and the integration restarted there (no closed form); checked by the energy each conserves, ½ J1 w1² + ½ J2 w2² + ½ k φ² and ½ vx² (1 + r'²) + g r, to 1.7e-12 … 1.9e-11 | mathematics |
+| `kink-bead-sin-11`, `kink-bead-sin-41`, each beside `…-over` and `…-always` | a cubic's second derivative that really jumps, on the explicit form (CVODES), where the default holds it (rule v4, DESIGN.md §8.2; the A3 check 4): the bead on a wire `y = r(x)`, `r` the default table of x²/2 + sin(3x)/4 at 11 or 41 points on [−2, 2], `s` a table of its slope x + ¾ cos(3x) at the same points, from x = 1.5 at rest for 10 s (50 and 190 crossings); `-over` stepped over ("off"), `-always` held without the releases ("kinks", "table_release" off) | DOP853 at rtol 1e-13 cell by cell, as the bead above; `s` is not the cubic's own `r'`, so no energy is conserved: checked against Radau at rtol 1e-12 cell by cell instead (1.6e-11 and 9.8e-12) | mathematics |
+| `kink-gear-clamp-6`, `kink-gear-2d`, each beside `…-over`, `…-always` and `…-located` | a clamped cubic's slope at its edges and a 2-D read whose slopes jump, on the explicit form (CVODES), where the default holds them (rule v4, DESIGN.md §8.2; the A3 check 5's `k3-40-h8` and `k4-ws`): the gear from rest under 20 N·m, its ratio a monotone cubic of 2 + w/40 + 0.25 sin(w/8) at 6 points on [0, 40] rad/s held at its edges, which the load's speed leaves once (`r'` jumps to 0 there); and the gear whose ratio is a bilinear table of the load's speed (5 points every 20 rad/s) and of a state c = t marked `always` (`r(w2, c) = f(w2) + g(c)` on its grid, both slopes read by index reduction), 3 s; `-over` stepped over ("off"), `-always` held without the releases ("jumps" and "kinks", "table_release" off; the 2-D gear's crossings are few and far apart, so the run releases nothing and its default is its `-always`, to the bit) | the gear's first integral per cell, as the gears above (checked against DOP853: 1.4e-14); for the 2-D gear DOP853 at rtol 1e-13 per pair of cells, the speed's edges found by events and c's at their known times, checked by the energy the ideal gear passes on, ½ J1 w1² + ½ J2 w2² against the torque's work ∫ τ0 w1 dt integrated beside it (9.0e-15) | mathematics |
+| `kink-osc2d-41`, `kink-osc2d-101`, each beside `…-over` and `…-always` | a 2-D read crossed often, on the explicit form (CVODES; the A3 check 6's `k4osc`): the swings `kink-osc-41` and `kink-osc-101` with their ratio read as a 2-D table `r(w2, c)`, c = 0.05 t marked `always`, its values the same at c's points −1, 0.5 and 2 (`r(w2, c) = f(w2)` exactly; 1 127 and 2 847 crossings of w2's points in 20 s). The default holds the 2-D read and lets go of it where its crossings come too often: where the 1-D swings are let go of (41 points at 1e-4, 101 at 1e-4 and 1e-5), and at 41 points 1e-5 and 101 points 1e-6 only at t = 10 s, where c's one crossing of its point 0.5 adds a restart to a window just under the bar (9 crossings within 47 steps; the bar is 48); with c crossing none of its points they are held throughout at those two tolerances (640 and 1 610 rtol), and with c's point at 0.25 let go of at t = 5 s (428 and 685), so those two figures depend on where c's point lies; `-always` holds it through every crossing ("kinks", "table_release" off: the default at 1d9e5fd1, whose releases weighed 1-D reads only), `-over` steps over ("off") | the 1-D swings' references (DOP853 per cell, checked by the energy): the same solution | mathematics |
 | `count-implicit-a`, `count-implicit-nostate-a`, `count-explicit-pulse` | a `when` on a variable solved from an implicit equation (`x^3 + x = z`, z = a t, with and without the state), and on an explicit function of a state (`x = z - z^3/4`) above its threshold from 0.539 to 1.675 s, inside one of the integrator's steps: each must fire once, at its crossing | the exact crossing times (`x^3 + x = 0.625`; the root of `t^3 - 4 t + 2`); OpenModelica's counts beside them | none published: the exact answers (an independent check's probes of the solver work's first round) |
+| `count-pair-implicit-a`, `count-pair-implicit-nostate-a`, `count-peak-implicit-d`, `count-peak-implicit-nostate-d` | complementary conditions on one variable solved from an implicit equation: `when x > 0.5` (counts n), `when x < 0.5` (counts m) and `when x > 0.5 then on = 1; elsewhen x < 0.5 then on = 0`, on `x^3 + x = z` with z = a t, and on a peak (z = 0.625 + d - (t - 1)^2, with and without the states): at each crossing only its own direction's clauses fire, and the run ends with `on` as x is | the exact crossing times (0.625 / a; 1 ∓ √d) and the final `on` | none published: the exact answers (an independent review's probes of the solver work's second round) |
+| `count-moved-nudge-e`, `count-moved-nudge-nostate-1e-12`, `count-moved-land`, `count-moved-land-nostate`, `count-moved-land-rising`, `count-moved-other` | a condition on a variable solved from an implicit equation that an event's own discrete change moves across its threshold: k set at 1 s (by a time event; in `-other` where a state s = t passes 1) moves x across 0.5 by e/1.75 (`x^3 + x = 0.625 - e + 2 e k`, e = 1e-12, 1e-7) or from 0.41 onto 0.5 itself (`x^3 + x = 0.5 + 0.125 k`, `when x >= 0.5`), x then constant (in `-rising` rising on); the `when` must fire once, at 1 s | the exact crossing time, 1 s | none published: the exact answers (an independent recheck's probes of the solver work's third round) |
+| `count-held-back-a-d`, `count-held-back-nostate-a-d`, `count-held-back-other-a-1e-03` | a condition on a variable solved from an implicit equation, held from its crossing, that an event shortly after puts back across: `x^3 + x = z - k (z - 0.625 + e) + k2 (0.1 + e)` (z = a t, with and without the state, e = 1e-12): x rises over 0.5 at 0.625 / a, k set d = 1e-6 or 1e-4 s later by a time event (in `-other` 1e-3 s later, where a state s = t passes it) puts it back under by e/1.75, k2 lifts it over again 0.5 s after the rise; `when x > 0.5` must fire at the rise and at the lift, `when x < 0.5` at k | the exact times (0.625 / a and 0.5 s later; 0.625 / a + d) | none published: the exact answers (an independent recheck's probes of the solver work's fourth round) |
+| `kink-gear-linear-over`, `kink-dense-gear-41-over`, `kink-dense-gear-401-over`, `kink-osc-41-over`, `kink-osc-101-over`, `kink-gear-clamp-over`, `kink-edge-11-over`; `kink-gear-linear-imp`, `kink-dense-gear-41-imp`, `kink-osc-41-imp`, each beside `…-imp-held`, `…-imp-always`, `…-imp-located` and (the two gears) `…-imp-over` | the default holds every read that jumps (DESIGN.md §8.2, rule v4): `…-over` steps over the cases whose default now holds their read on the explicit form (a linear table's slope; a clamped cubic's at its edges), as the engine's default did before; `…-imp` are the gear, the dense gear and the swing with their torques written implicitly, `t2 + 1e-6 t2³/tu² = r t1 + 1e-6 (r t1)³/tu²` (the same solution, t2 an iteration variable: the implicit form, on IDAS, where the run releases nothing, so the default, `-held` and `-always` are one run); stepped over (`-imp-over`) the gears stop at a breakpoint: the gear at its first (w2 = 10 rad/s, t = 0.5088 s) at every tolerance, the dense gear at its first (w2 = 2 rad/s) at 1e-6 … 1e-10, its second at 1e-5 and its third at 1e-4 (the swing gives no answer within minutes: not run) | as the cases they are written from | mathematics |
 | `msl-pid-controller` | the library Driver as `LimPID`, in the Modelica Standard Library's `Blocks.Examples.PID_Controller`: a PI controller (k = 100, Ti = 0.1 s, yMax = 12 N·m, Ni = 0.1) makes a motor inertia follow a reference speed through a spring-damper to a load under 10 N·m; decelerating, it is held at its limit and its anti-windup decides how it comes off. The drive is written in the text format, the Driver's command times yMax its torque, started in the steady state the example asks for | the reference result Dymola 2020x computed for the library's regression tests (DASSL, tolerance 1e-6, a row every 0.8 ms) at its six comparison signals, each relative to its largest value; the instants the command reaches and leaves its limit against the reference's two state events there; OpenModelica's run of the original example beside it (`score --beside`) | Modelica Standard Library 4.1.0 and MAP-LIB_ReferenceResults (Modelica Association, BSD-3-Clause): `Modelica/Blocks/Examples/PID_Controller`, its `PID_Controller.csv`, `comparisonSignals.txt` and `creation.txt`, in the cache; the model is written here from the example's statement |
 | `driver.py` | the library Driver on a car at every mass on every driving cycle: whether each run ends, and whether its driven trace follows the cycle as a test-lab driver must | 40 CFR 1066.425(b): the speed within 2.0 mi/h of the schedule's highest and lowest points within 1.0 s, excursions of up to 2.0 s allowed, a shortfall at maximum available power (the accelerator fully down; 1066.415(e)(5)) not counted; a trace outside only where the car was too fast with the brake pedal fully down is told apart (the car's brakes, not the driver); the same cases on today's engine beside the new one | the US Code of Federal Regulations, title 40, §§ 1066.425 and 1066.415, the annual edition of 1 July 2024 (govinfo.gov, public domain), in the cache; the cars and cycles are the repository's own |
-| `sundials` | the engine's patched IDAS (`lsim-sundials-sys/sundials/lsim.patch`) on SUNDIALS' own examples with quadratures under error control, against upstream 7.1.1 (the release the engine vendors) and 7.9.0 | the examples' shipped `.out` files (LLNL's runs) and G computed independently: the slider-crank in its minimal coordinate at 34 digits, the Akzo Nobel problem by Radau IIA at rtol 1e-13 (its y1(180) is 9e-15 off the test set's reference) | SUNDIALS (LLNL, BSD-3-Clause): `examples/idas/serial/idasSlCrank_dns.c`, `idasAkzoNob_dns.c` |
+| `sundials` | the engine's patched IDAS (`lsim-sundials-sys/sundials/lsim.patch`) on SUNDIALS' own examples with quadratures under error control, against upstream 7.1.1 (the release the engine vendors) and 7.9.0, and the patch on 7.9.0 too (it applies there 160 lines down) | the examples' shipped `.out` files (LLNL's runs) and G computed independently: the slider-crank in its minimal coordinate at 34 digits, the Akzo Nobel problem by Radau IIA at rtol 1e-13 (its y1(180) is 9e-15 off the test set's reference) | SUNDIALS (LLNL, BSD-3-Clause): `examples/idas/serial/idasSlCrank_dns.c`, `idasAkzoNob_dns.c` |
 | `fast.py` | fast mode: each example project's drive-cycle case, and the battery electric cars on every bundled cycle, against its full dynamic run and against itself on the cycle changed at round-off level; EPA's reference cars against FASTSim | the full dynamic run of the same case (charge used within 1 %); FASTSim 3.1.0 given the same cars (the reference suite's inputs) | the example projects (the repository's); `backend/validation` (EPA's test data, public); FASTSim (U.S. National Laboratory of the Rockies, Apache-2.0): for checking only, never shipped, run in its own virtualenv |
 | `omc` | a second tool on the same models: OpenModelica with its dynamic state selection and with static dummy derivatives | the references above | OpenModelica (AGPL-3.0 or OSMC-PL): for checking only, never shipped or linked; the conda-forge build of `omc` with the runtime libraries it needs |
 
@@ -121,6 +131,57 @@ one of its equations (to 1e-14; one weight changed shows as 4.9).
 
 ## Measures
 
+* **kinks**: for the tables read at a state, the largest error of each
+  recorded channel over the grid relative to the channel's largest value
+  in the reference, the worst of them; right within 100 rtol, as the
+  closed-form cases. The decision the cases were written for (the solver
+  work's A3) compared each with its control, the error's slope over the
+  seven tolerances, its growth in rtol from the loose to the tight ones,
+  and its ratio to the control's: stepped over, the jumps read through
+  index reduction were up to 178 rtol off (`kink-gear-linear`, the
+  control within 3), their error per tolerance growing as it tightens;
+  many kinks of a value read were up to 23 times the control's error at
+  one tolerance (`kink-spring-many` at 1e-6; 61 in a sweep of release
+  points with the method held to Adams, 1 278 under `auto`, which ran the
+  two forms on different methods), 0.8 … 5.1 times as geometric means per
+  tolerance, but no more out of proportion to the tolerance than the
+  control (the slope and growth tests). The dense tables
+  (`kink-dense-…`, `kink-pass-…`) weigh the remedy against stepping
+  over: each crossing held is a restart of the integrator, which costs
+  about 0.1 to 4 rtol, so a value read of 41 to 401 points held is 7 to
+  1 270 times as far off as stepped over at rtol 1e-4 … 1e-6 (0.13 to 68
+  times at 1e-7 … 1e-10), while a jump read stepped over is 0.04 to 99
+  times as far off as held: better at rtol 1e-4 and 1e-5 (on 401 points
+  by up to 27 times, and at 1e-6), worse from 1e-6 or 1e-7 on, its error
+  growing 30-fold as the tolerance tightens where the held one's does
+  not. The swings and the bead weigh the jumps the same way: the gear
+  swung through 41 or 101 points held through every crossing is 517 and
+  1 238 rtol off at 1e-4 where stepped over it is 55 and 55 (the located
+  runs the held ones to the digits printed); the parabola bead held 131
+  … 737 at 1e-4 … 1e-10 where stepped over it is 10 … 187, while the
+  bead whose `r''` really jumps is 320 … 81 400 stepped over and 22 …
+  362 held (`kink-bead-sin-11`; at 41 points 2 420 … 104 000 against 130
+  … 1 720, 290 at 1e-4 where the run lets go of it); the clamped cubic
+  swung through its edges held 104 at 1e-4 and 267 at 1e-9 where stepped
+  over it is 34 and 61 (better at the other five tolerances), while the
+  sparse one the speed leaves once (`kink-gear-clamp-6`) is 865 rtol off
+  at 1e-10 stepped over and 4.07 held, and the 2-D gear (`kink-gear-2d`)
+  602 and 3 480 at 1e-5 and 1e-10 stepped over, 2.43 and 10.1 held; the
+  2-D swings (`kink-osc2d-41`, `-101`), held through every crossing, are
+  631 and 1 480 rtol off at 1e-4 where stepped over they are 66 and 48,
+  and the run lets go of them there as of the 1-D swings (47 and 31).
+  Stepped over, a linear table's slope is up to 178 rtol off on the gear
+  (`kink-gear-linear-over`; held 1.0 … 2.8) and, in the A3 checks' probes
+  where the speed turns just past a point or the states are chosen
+  again, thousands of times the held run's error; on the implicit form
+  every read that jumps stops the run (`kink-gear-linear-imp-over`,
+  `kink-dense-gear-41-imp-over`: at a breakpoint, every tolerance), where
+  held it is 0.92 … 4.95 rtol (`kink-gear-linear-imp`) and 3.1 … 11.7
+  (`kink-dense-gear-41-imp`), as located. So the default holds every
+  read that jumps, on both forms, on the explicit form with the releases
+  (which weigh a 1-D read's jumps at the start, and the crossings of a
+  1-D or 2-D read during the run), on the implicit form without them, and
+  steps over the reads that only kink (rule v4, DESIGN.md §8.2).
 * **error, scd**: for the test set's problems, the largest relative error
   at the end time over the components the test set counts, and
   scd = −log10 of it; mescd = −log10(max |error| / (atol/rtol + |reference|))
@@ -191,3 +252,196 @@ one of its equations (to 1e-14; one weight changed shows as 4.9).
 Every run either matches its reference or stops with the engine's own
 message, which the table quotes; a run that returns a wrong answer without
 a message is the worst result and is marked by its error.
+
+## The holds suite
+
+`holds.py` (`judge.py holds`) gathers every probe the solver work's reviews
+ran on conditions on iteration variables (a `when x > 0.5` with x solved
+from x³ + x = R, and the events that move R) and scores each run against
+the counts and times a hand calculation gives, never against a commit's
+output. Its runner, `holds_runner.rs`, is not part of the workspace:
+`build` copies it into a checkout's `lsim-project/examples`, builds it and
+takes it out again, so the same runner measures every commit (it uses only
+APIs that 36c8a0d8, step 1's base, has too). It reads the models in the
+text format, prepares and compiles each once and runs it at each of its
+parameter sets, tolerances and backends on threads.
+
+```text
+python3 engine/judge/judge.py holds cases OUT --tier quick    # 559 models, 6 930 runs
+python3 engine/judge/judge.py holds cases OUT --tier full     # 1 978 models, 366 516 runs
+python3 engine/judge/judge.py holds build CHECKOUT RUNNER     # cargo, CARGO_TARGET_DIR as set
+python3 engine/judge/judge.py holds run   RUNNER OUT RESULTS.jsonl [--threads 12]
+python3 engine/judge/judge.py holds score OUT LABEL=RESULTS.jsonl ... [--out FILE.md]
+python3 engine/judge/judge.py holds selftest                  # the scorer on made-up runs
+```
+
+The full tier is every probe at the size that found its bug: the fix
+round's family probe whole (181 440 runs), recheck 3's own-move probe
+whole, and every shape the hold rule's three reviews and its fourth and
+fifth re-checks made (round 4: the hold spec), with the smaller sets beside them. The quick tier keeps a few rates,
+delays and tolerances (1e-5, 1e-8, 1e-10) of each family on every backend.
+Each model runs on six configurations: `cvode` (x written explicitly, x =
+0.5 + (R − 0.625)/1.75: no iteration variable, nothing to hold, the
+control), `ida` (x³ + x = R, r a state z, z' = a), `ida-implicit` (the
+same, every block kept implicit), `diffsol`, `nostate-ida` (x³ + x = R
+with r = a t: no state) and `nostate-explicit` (the stateless backend); the
+judge's own count cases run as the judge runs them (`default`). rtol 1e-4 …
+1e-10, atol 1e-2 rtol, output every 0.1 s. `score` regenerates the truth
+from this file and tabulates the classes below by family, shape family and
+configuration, with the wrong runs by how they are wrong; several results
+files side by side compare builds.
+
+**Why each truth holds.** x³ + x is increasing and 0.5³ + 0.5 = 0.625, so
+x crosses 0.5 exactly where R crosses 0.625, with x' = R'/(3x² + 1) =
+R'/1.75 there; the explicit form crosses at the same instants with the
+same slope. With r = a t (or z, z' = a, z(0) = 0) and dd = r − 0.625, R =
+0.625 + s (dd + φ) (s = +1 rising, −1 falling) crosses at t1 = 0.625/a
+while φ = 0. `forth` is the crossing's own direction (`x > 0.5` rising,
+`x < 0.5` falling; `>=`, `<=` where not strict), `back` the opposite. A
+discrete value an event sets changes φ, so R and x jump at that instant (x
+by ΔR/1.75 to first order), and event iteration (Modelica's semantics)
+fires every `when` whose condition the jump turns true, at that same
+instant.
+
+| family | shape (parameters) | truth: firings (counters at the end) | from |
+|---|---|---|---|
+| `ramp` | R = r rising, 1.25 − r falling; a ∈ {0.3, 0.37, 0.5, 0.7, 0.81, 1, 1.29, 1.3, 1.7, 2.3, 3.1, 4.4, 6, 7}, T = 2/min(a, 1) + 1; forth alone (strict, not); with back (strict, not); with back and the switch `when forth then on = 1 elsewhen back then on = 0`; that and a mode y = if forth; forth beside y; w' = if forth then 1 else 0 alone; `two`: v³ + v = 2 r beside, `when v < 0.5` | forth once, at t1 = 0.625/a; back never; on = 0 before t1, 1 after; y(T) = 1; w(T) = T − t1; v crosses 0.5 at t1/2 upwards, so `when v < 0.5` never fires | review A's ramps and pair, recheck 1's probes P4–P7, ramps and modes, implicit_conditions.rs' first, mode, beside-a-mode and complementary tests |
+| `ramp` `fall2`, `osc` | R = 2 − r (a = 1); z = 0.5 sin 3t (z' = v, v' = −9 z), `when x > 0.3` | once, at 1.375/a; once, at asin(0.327/0.5)/3 = 0.2376 s (0.3³ + 0.3 = 0.327, x' = z'/1.27) | implicit_conditions.rs' falling and oscillation tests |
+| `peak` | R = 0.625 + d − (t − 1)² (or z'' = −2 from z(0) = d − 0.375, z'(0) = 2); d ∈ {1e-2, 1e-3, 1e-4}; forth alone, with back, with back and the switch | forth at 1 − √d, back at 1 + √d (x' = ±2√d/1.75 there); on = 1 between them, 0 after | review A's peaks, recheck 1's peaks, count-peak, the peaked complementary test |
+| `moved` | k set at 1 s by `time >= 1` or where a state s = t passes 1. `nudge`: R = 0.625 − e + 2 e k (+ z, z' = 0), e ∈ {1e-12, 1e-9, 1e-7, 1e-5}; `land`: R = 0.5 + (0.125 + e) k, `when x >= 0.5`, e ∈ {0, 1e-9, 1e-6}; `landrise`: the same + 0.1 a k (t − 1) (or + 0.1 z, z' = a k); `heldnext`: R = r + e k, k set at t1 itself, a ∈ {0.7, 1, 2.3, 4.4}; each also at e = 1.75 rtol | nudge: x from 0.5 − e/1.75 to 0.5 + e/1.75, then constant: once, at 1; land: x from 0.4115 (x³ + x = 0.5) to 0.5 + e/1.75 (exactly 0.5 at e = 0, where `>=` holds): once, at 1, and not again where x rises on; heldnext: x moved further on: once, at t1 | recheck 1's P1, P2 and P8, fix 2's held nudge, count-moved, the moved and held-next tests |
+| `stale` | R = r (1 − k) + (0.625 − e) k + 0.2 k2: k at t2 = t1 + δ (a time event, or a state s = t passing t2), k2 at 1.5 s; a ∈ {0.7, 1, 1.3, 2.3, 4.4}, δ ∈ {1e-6, 1e-4, 1e-2}, e ∈ {1e-12, 1.75 rtol} | forth at [t1, 1.5], back at [t2] (R(t2+) = 0.625 − e: x = 0.5 − e/1.75; R(1.5+) = 0.825 − e) | recheck 2's stale probe |
+| `fam` | k set at t2 = t1 + δ by a time event, a state s = t passing t2, or a sampled block's tick inside a step. `back`: φ = −k (dd + e) + k2 (0.1 + e), k2 at tb = t1 + 0.5; `rerise`: φ = −k j, j = a δ + e; `further`: φ = 0.1 k; `nothing`: φ = 0, q³ + q = 1 + k beside; `backfwd`: as back, with k3 (0.1 + e) set at t2b = t2 + 1e-6 by the same kind. Conditions: forth alone (strict, not), with back (strict, not), strict both with a mode y = if forth (and w' = y where the model has a state), the mode (and w) alone. a ∈ {0.7, 1, 2.3, 4.4}, δ ∈ {1e-6, 1e-4, 1e-2}, e ∈ {1e-12, 1.75 rtol}; rising and falling | back: forth at [t1, tb], back at [t2] (R(t2+) = 0.625 − s e, R(tb+) = 0.625 + 0.1 s); rerise: forth at [t1, t3 = t2 + e/a] (R climbs back from 0.625 − s e at a), back at [t2]; further, nothing: forth at [t1]; backfwd: forth at [t1, t2b], back at [t2]; w(2) is the time on the forth side, (t2 − t1) + (2 − the second forth) or 2 − t1 | fix round 3's family probe, whole; recheck 2's held-back cases, count-held-back, implicit_conditions.rs' hold-from-an-earlier-crossing, diffsol and past-its-hold tests |
+| `own` | the crossing's own event, E = 1.75 ex. `own`: the crossing's `when` sets k, φ = −k (dd + E) + k2 (0.1 + E); `sep`: k set by another `when` on the same condition; `thr`: the threshold moves to 0.5 + s k ex, φ = −k dd + 0.1 k2; `reinit`: forth reinits z to 0.625 − E and stops it (z' = a (1 − k)), φ = k2 (0.1 + E); `ownmode`: own beside y = if back. k2 at tb = t1 + 0.5; ex ∈ {5.7e-13, 0.5, 1, 1.5, 100} rtol; a ∈ {0.7, 1, 2.3, 4.4}; rising and falling; strict and not | forth at [t1, tb]; back at the same instant as forth's first firing (after k, x is back across by ex, so event iteration fires back there); R(tb+) = 0.625 + 0.1 s, past the threshold again. Not strict: x is exactly 0.5 at t1, so the back relation is true there already and may never turn: back at t1, or never (both right) | recheck 3's own-move probe, whole, and its judge-format cases |
+| `own` `kick`, `steps`, `saw` | R = r − 0.2 k, with the own `when` setting k, beside `when x < 0.5`; R = r − 0.6 n; forth reinits z to 0 (a = 1) | kick: forth at [0.625, 0.825], back at forth's first instant; steps: forth at 0.625, 1.225, 1.825; saw: forth at 0.625, 1.25, 1.875 | recheck 1's P3, implicit_conditions.rs' sends-back test |
+| `count` | the judge's count-implicit, count-pair, count-peak, count-moved and count-held-back cases, their texts as `crossings()` writes them | as their rows in the table above | `judge.py crossings()` |
+| `extra` | at the crossing itself, the crossing's own `when` (forth) sets k, E = 1.75 fx: `fwd` R = 0.625 + s (dd + k E); `small` own's reset at ex = 0.05 … 0.3 rtol; `frzf` a freeze and a forward move, rs := r at the event, R = 0.625 + s ((1 − k) dd + k (rs − 0.625 + E)); `frzb` the same backward, lifted at tb; fx, ex 5.7e-13 and 0.05 … 1 rtol; a ∈ {0.7, 1, 2.3, 4.4} | fwd, frzf: forth once (x at 0.5 + s fx after the event), back never; small, frzb: forth at [t1, tb], back at forth's first instant | the hold spec's extra shapes (round 4) |
+| `coin`, `coinr` | own's reset (coin) or reinit (coinr) with ex = q a (t1 − tf) / 1.75, tf where a first run (ex = 1 rtol) located the crossing (`holds_tf.json`, from the round-4 runs: the integration before the first event is the same at every commit measured), q = 1 (coin; ex = 1 rtol where located late) or 0.5 and 1 (coinr, early-located runs only), each beside its twin at ex = 1 rtol; nine rates | own's | the hold spec's review 1 (B2) and revision 1 |
+| `before` | a time event at t2 = t1 − d (d 1e-8 … 1e-5) resets R behind 0.5 by e (0.5 or 1 rtol in x), lifted at tb | forth [tb], back never | review 1 (S2) |
+| `rdmode` | y = if x > 0.5 then 1 else 0; forth sets k and `when k > 0.5 then m = y` (or forth sets m = y itself) | n = 1, m = 1 (the relation holds just after its event) | review 1 (S1) |
+| `noisy`, `noisy2`, `noisy3`, `noisy3r` | the event changes x only by the solve's rounding: x³ + x + B w = R + B c with w³ + w = c³ + c (k moves q³ + q = 1 + k only); x³ + x + B (u − v) = R with u³ + u = 1 + k, v = (1 + k)/(u² + 1) (u = v exactly); x³ + x + (B t + k c) − B t − k c = R, forth setting k (noisy3) or clearing it (noisy3r, C 1e3 … 1e6: the large term switched off) | forth once at t1, back never | review 1 (B1), review 2 (B2), review 3 (S1) |
+| `noisyown` | noisy2's cancelling terms beside own's reset by ex = 0.5 and 1 band; B 0 … 1e6 | own's | revision 2 (review 2's S2) |
+| `mixedc` | `x > 0.5 + c (t − t1)` (a mixed condition, checked along the dense output), c = 0.05/s | forth once at t1, back never | review 1 (B3) |
+| `bcoin`, `bcoinw`, `bfreeze`, `bfreezew` | at t2 = t1 − d, d = q band / x' (q 0.35 … 2), by a time event or where a state w = t passes t2 (`…w`), R is reset to its own value there (bcoin) or z stops (bfreeze): x stays short of 0.5 by q band until k2 at tb lifts it | forth [tb], back never | review 2 (R2-B1) |
+| `slow`, `slowsib`, `slowr` | the crossing's own event slows x by K (z' = a (1 − c k), c = 1 − 1/K; with no state R = a t − k c a (t − tk), tk := time at the event): forth sets k (slow), a sibling `when` on the same relation does (slowsib), or forth sets it and back clears it (slowr); K 10 … 1e4; nine rates; CVODE beside | forth once at t1, back never: x reaches 0.5 at t1 and goes on past it, slower | review 3 (R3-B1) |
+| `sibeq`, `slowbp`, `slowobs` | slow with a condition on the same line written another way: slowsib's slowing `when` on `2 x > 1`, `x > p` (p = 0.5), `x − 0.5 > 0` or `0.5 < x` (sibeq); back on `x < p` or `2 x < 1` (slowbp); a passive `when 2 x > 1` or `x > p` that counts o (slowobs, rising only) | forth once at t1, back never (o once) | re-check 4 (RC4-B1) |
+| `slowmode` | a mode on the relation slows x: z' = if x > 0.5 then a / K else a (states only) | forth once at t1, back never | re-check 4 |
+| `asym` | the crossing's own `when` sets k and freezes zs := z; z then tends to zs + D at rate c (z' = c (zs + D − z); with no state R = a tk + D (1 − e^(−c (t − tk)))), D / 1.75 = q rtol, q 0.25, 0.4, 0.6, c 50 and 500 /s | forth once at t1, back never: x tends to 0.5 + q rtol | re-check 4 (RC4-B2) |
+| `slowfrz`, `slowstop` | slow (K 1e3, 1e4), and a time event at t2 that stops z: t2 = t1 + q rtol · 1.75 K / a (slowfrz: x frozen at 0.5 + q rtol); t2 = tf + K (t1 − tf) / 2, half-way to the run's own slowed arrival, tf where a first run (t2 never) located the crossing (`holds_tf.json`; early-located runs only: slowstop) | forth once at t1, back never: x frozen above 0.5 (slowstop: by (1/2 − 1/K) a (t1 − tf) / 1.75) | re-check 4 (RC4-B2) |
+| `f2`, `f3` | bfreeze and bfreezew (x stopped short of 0.5 by q band at t2 = t1 − d by a time event or where w = t passes t2, lifted at tb = t1 + 0.5), and an event at t3 = t2 + f L that changes nothing x reads (j := 1 at time t3, where a state w3 = t passes t3, or, f3, a sampled block's tick), f 1e-3, 0.03, 0.1; f2: q 0.5 … 2, rtol 1e-4 … 1e-10; f3: x creeps after the stop, R' = ±1e-9 /s, q 0.35 … 2, rtol 1e-4 … 1e-8 only (the creep moves x by at most 2.9e-10 before tb, at most 0.16 of its shortfall; at 1e-9 with q 0.35 or 0.5 it would cross before tb); five rates 0.5 … 7 | forth [tb], back never (x short until the lift; the second event changes nothing); located (the crossing located before t2): forth tf, back t2, forth tb | re-check 5 (RC5-B1) |
+| `tev` | slow (K 100, 1e4) beside an unrelated time event at te = t1 + f L (j := 1), f −0.3 … 0.01 | forth once at t1, back never | re-check 5 (RC5-B2) |
+| `s2` | a later event slows x: z' = a (1 − c k), k := 1 at time t2 or where w = t passes t2, t2 = t1 − d, d = q band / x' (q 0.5, 1, 2), K 100, 1e4 | forth once at t1' = t2 + K d (x short at t2 by q band, then slowed; at the slowed rate's tolerance), back never; where t1' is past the run's end (3 s: a = 0.5, K = 1e4, rtol 1e-4, q 1 and 2), nothing, or forth once within that tolerance before the end; located: forth tf, back t2, forth t1' | re-check 5 (RC5-B2) |
+
+A firing matches its time within these tolerances: a located crossing,
+10 rtol in x over |x'| (10 rtol · 1.75/a on the ramps) + 1e-12; a time
+event or a tick, 1e-12; a state's own crossing (s = t passing t2), 10 rtol
++ 1e-12; t3 (rerise), its crossing's tolerance plus t2's. The counters must
+end as counted, w within 4 crossing tolerances + 20 rtol, and `on` must be
+right at every output point more than 1e-6 s from a crossing.
+
+**Classes.** A run is *right* when it is the truth. Otherwise it is one of
+the named limits where that limit's criterion holds, else *wrong*; a run
+that stops is wrong unless it is a storm as below.
+
+* **L1**, an event closer to a crossing than the crossing's location
+  tolerance: the event that undoes a crossing comes 0 < t2 − t1 < 10 rtol
+  / |x'| after it (fam back, rerise, backfwd; stale; count-held-back), and
+  the run is the truth without that pair (the crossing's firing and the
+  event's back firing): the integrator located the crossing after the
+  event, and then neither fires.
+* **noise**, the condition left within the solve's resolution of its
+  threshold: the event leaves |x − 0.5| ≤ (0.5 rtol + atol)/3, a third of
+  the tolerance on x (the integrators' Newton iterations stop there;
+  diffsol's x lags its equation by a tenth to a quarter of it), as e =
+  1e-12 does (x 5.7e-13 off) at every tolerance and the small nudges and
+  landings do at the loose ones. The run is the truth outside the stretch
+  x sits there (from the event to where the shape takes it away: tb, t3,
+  t2b, or the run's end), anything inside it; and its twin, the same run
+  with x moved by rtol (e = 1.75 rtol, three times the resolution), is
+  right or L1, so that an error which does not depend on the move's size
+  is not excused.
+* **onestep**, both crossings inside one step: the run fires neither
+  crossing of a peak (no firing, `on` never 1), all else right, and its
+  twin with a largest step of a quarter of the peak's width, which no step
+  can jump, is right. (The twins are not counted.)
+* **storm**, the event storm beside a mode on an iteration variable (there
+  before the holds): in a shape with a mode on the condition's relation, the
+  run stops with the engine's event storm at a time within the location
+  tolerance of one of the shape's crossings or events.
+
+The hold rule's own reading (the hold spec, 4.9 and 4.10; scored in this
+order, after the limits above):
+
+* **located**, the one located definition: the run equals the truth redone
+  with the crossing at the instant tf the run fired its own `when` (within
+  L of t1), each event's new values from the exact values just before it:
+  the extra shapes' fwd, frzf and frzb, before's mirror (the crossing
+  located before t2: forth at tf, back at t2, forth at tb) and bcoin's and
+  bfreeze's (the same, written into their truth); and in a shape whose
+  crossing's own event slows x (its truth's `after`: R's rate after the
+  event, and asym's headroom D or a stop at t2), the crossing located early
+  leaves x0(tf) short: back at tf, and forth again where x, at the rate
+  after the event, arrives (never, where it tends to a level short of 0.5
+  or a stop comes first). It counts only where every firing it moves lies
+  inside the truth's windows (below; review 3's S3), so a rate the event
+  changes cannot stretch it.
+* **moderead**, a mode and a `when` on one relation: the crossing located
+  early (tf < t1), and the run the truth in every firing and value but m,
+  the value a later round read from the mode, set from its relation
+  literally while the `when`'s hold holds (rdmode; the spec's open
+  question 2; re-check 4's RC4-S1).
+* **shallowpeak**, a missed shallow peak (no hold involved): a peak whose
+  height above the threshold, d / 1.75 in x, is within 100 rtol, the run
+  firing none of its crossings, every counter 0.
+* **bounded**, the time limit's bound: around t1 and every required
+  firing located within at least 1e-9 s, the window [tc − L, tc + L];
+  outside every window each counted `when` fires exactly as the truth
+  requires; inside each window an extra or a lost pair at most (forth's and
+  back's differences from the truth equal, so the relation ends the window
+  as the truth's does; with forth alone, one extra firing); the counters
+  equal the firings; no stop. A lone back moved by at most the hold's width
+  over x' (W / |x'|, W = 8 bands) from the located truth's (inside the
+  truth's windows) is bounded too (frzf: a held freeze read at the expiry).
+  A firing lost for good is not (review 3's S2).
+* **postlimit**, the time limit of a hold the crossing made (the hold
+  spec's revision 4): in a shape whose events slow x, the bound B = W /
+  |x'|, x' the truth's rate after the crossing's own event (where a later
+  event stops x, the rate before that event). The run is the located truth
+  with each firing up to B later than the latest event from its located
+  instant on (that instant, or one of the run's other events in between: a
+  stop at t2), every firing of that located truth no more than B after the
+  crossing's window or the latest other event before it. Anything beyond
+  it is wrong.
+* **retimed**, re-check 5's RC5-B1 (a known limit of revision 4, for step
+  3): a hold the crossing made stands where an event stops x short of its
+  threshold within the hold's width (the truth says so: x short by a gap ≤
+  W at t2, creeping after it by less than the gap until the lift), and an
+  event while x is stopped times it again from x's rate there, its creep or
+  an ulp of rounding, so that it lasts far past the lift. That event is a
+  fired `when` other than the stop's, after the stop as the run fired it,
+  within W over x's speed before it and before the lift, or the stop itself where it is a state event and x creeps
+  toward its side (the rule reads it as the crossing's own, by value). The
+  crossing's `when` fired at or before the stop, as the located truth's
+  first firing; from the stop on the run fires a prefix of the located
+  truth's firings in their order, each at its instant or late (beyond
+  twice the stop's own limit W over x's speed, where the short limit would
+  have ended the hold), the rest never (lost); never a firing the located truth does not have (no
+  double firing), no stop, the counters equal the firings.
+* **atevent**, re-check 5's RC5-B2 (a known limit of revision 4, for step
+  3): on diffsol (the run's backend) the crossing reported at a time event's
+  instant (a `when time >= p` of the model) is not the crossing's own, so
+  its hold takes the short limit W / |x'| from the rate before; it expires
+  before x, slowed by an event, arrives, and back fires; diffsol never
+  reports the slowed re-crossing. The located truth from that instant is
+  forth there, back there and forth again at the arrival within the run;
+  the run fires forth at the time event, back after it within W / |x'| and
+  before the arrival, and nothing after (counters 1 and 1). A chatter, a
+  double firing or a stop is not this limit.
+* **restartloss**, diffsol right after an event's restart (no hold
+  involved; out of scope by the brief): the run is right, or inside L1,
+  noise, located or bounded, but for one firing of a counted `when` lost
+  right after an event (an instant where the run fired, or the shape's
+  t2): with that firing put back just after the event, it is; never a
+  firing the truth ties to another's instant (event iteration's own) or a
+  scheduled one, and not in a shape whose events slow or stop x (its truth
+  says so: `after`; every slowed shape, bfreeze, bfreezew, extra's
+  freezes; re-check 4's RC4-S1), where a lost firing may be a late one.

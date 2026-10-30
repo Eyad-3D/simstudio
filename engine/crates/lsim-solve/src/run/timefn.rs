@@ -83,6 +83,10 @@ impl Reads {
 pub(super) struct TimeFns<'a> {
     /// per root function: searched ahead ([`TimeFunction::Pure`])
     searched: Vec<bool>,
+    /// the root functions searched ahead at the start, in order: the only
+    /// ones whose entries below (and the run loop's `t_star`) are ever
+    /// set, so a step looks at these alone
+    live: Vec<usize>,
     /// per root function: the direction of the change `t_star` holds
     pub(super) dir: Vec<i32>,
     /// per root function: where a search ran out (a stop; on from there)
@@ -118,6 +122,7 @@ impl TimeFns<'_> {
     pub(super) fn new(n: usize) -> Self {
         TimeFns {
             searched: vec![false; n],
+            live: vec![],
             dir: vec![0; n],
             clear: vec![f64::NAN; n],
             stale: vec![false; n],
@@ -141,14 +146,21 @@ impl TimeFns<'_> {
 
     /// Whether there is anything to search ahead.
     pub(super) fn any(&self) -> bool {
-        self.searched.iter().any(|x| *x)
+        self.live.iter().any(|&k| self.searched[k])
+    }
+
+    /// The root functions searched ahead at the start, in order (the run
+    /// loop's `t_star` is set only at these and the time crossings).
+    pub(super) fn live(&self) -> &[usize] {
+        &self.live
     }
 
     /// The next stop the time functions ask for after `t`: where a search
     /// ran out.
     pub(super) fn next_stop(&self, t: f64) -> f64 {
         let ahead = |x: f64| x > t && !same_instant(x, t);
-        self.clear.iter().copied().filter(|x| ahead(*x)).fold(f64::INFINITY, f64::min)
+        // (`clear` is set only where a function is searched)
+        self.live.iter().map(|&k| self.clear[k]).filter(|x| ahead(*x)).fold(f64::INFINITY, f64::min)
     }
 }
 
@@ -220,6 +232,7 @@ impl<'a> Loop<'a> {
                     if supported(g, &info.table_breaks, &self.tf.grids, &moves) {
                         mask[k] = true;
                         self.tf.searched[k] = true;
+                        self.tf.live.push(k);
                         self.tf.stale[k] = true;
                         self.tf.reads[k] = Reads::of(g);
                     } else {
@@ -293,12 +306,19 @@ impl<'a> Loop<'a> {
         t: f64,
         y: &[f64],
     ) -> Result<(), SolveError> {
+        // (a function is searched only from `live`, set together at the
+        // start: the run loop's `t_live` and the stops look there alone)
+        debug_assert!(
+            self.tf.searched.iter().enumerate().all(|(k, &s)| !s || self.tf.live.contains(&k)),
+            "a time function searched outside TimeFns::live"
+        );
         if !self.tf.any() {
             return Ok(());
         }
         let here = |x: f64| x == t || same_instant(x, t);
         let mut given_up = false;
-        for k in 0..self.tf.searched.len() {
+        for j in 0..self.tf.live.len() {
+            let k = self.tf.live[j];
             if !self.tf.searched[k] {
                 continue;
             }

@@ -596,7 +596,7 @@ fn example_projects(implicit: bool) -> Tally {
     let mut total = Tally::default();
     let explicit = cars::one_per_project(cars::cars(""));
     let cars = if implicit {
-        let opts = lsim_prep::PrepOptions { force_implicit: true };
+        let opts = lsim_prep::PrepOptions { force_implicit: true, ..Default::default() };
         cars::one_per_project(cars::cars_with("", &opts))
     } else {
         cars::one_per_project(cars::cars(""))

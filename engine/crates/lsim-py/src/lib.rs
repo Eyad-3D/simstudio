@@ -433,6 +433,7 @@ impl Run {
                     lsim_solve::EventKind::Block(_) => "block",
                     lsim_solve::EventKind::Time(_) => "time",
                     lsim_solve::EventKind::States(_) => "states",
+                    lsim_solve::EventKind::Cell(_) => "cell",
                 },
             )?;
             out.append(d)?;
@@ -745,17 +746,27 @@ fn changes_of(item: &Bound<'_, PyAny>) -> PyResult<Result<Vec<(String, f64)>, St
 /// Imports, prepares (through `cache_dir` when given) and compiles a case
 /// of a project (its JSON text). The GIL is released. `cycles_dir` is the
 /// folder of the bundled drive cycles (default: the repository's).
+/// `table_cells`: which table reads at a state are held in their cells
+/// (DESIGN.md §8.2): `"auto"` (the default: every read that jumps, on
+/// either form), `"off"`, `"jumps"` or `"kinks"`; another word raises
+/// `ValueError`.
 #[pyfunction]
-#[pyo3(signature = (project_json, case_id, cache_dir=None, cycles_dir=None))]
+#[pyo3(signature = (project_json, case_id, cache_dir=None, cycles_dir=None, table_cells="auto"))]
 fn build(
     py: Python<'_>,
     project_json: &str,
     case_id: &str,
     cache_dir: Option<PathBuf>,
     cycles_dir: Option<PathBuf>,
+    table_cells: &str,
 ) -> PyResult<Model> {
+    let cells = lsim_engine::TableCells::from_name(table_cells).ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "table_cells is \"auto\", \"off\", \"jumps\" or \"kinks\", not {table_cells:?}"
+        ))
+    })?;
     let built = py
-        .detach(|| core::build(project_json, case_id, cache_dir, cycles_dir))
+        .detach(|| core::build(project_json, case_id, cache_dir, cycles_dir, cells))
         .map_err(|f| to_err(py, f))?;
     let values = built.model.info.params.clone();
     Ok(Model {

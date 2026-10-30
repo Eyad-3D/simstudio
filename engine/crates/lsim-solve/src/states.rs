@@ -972,6 +972,9 @@ impl Watch {
     /// next stretch ([`Watch::resume`]): fails where the choice fails
     /// here, and gives the set whose states should be chosen again here
     /// (its factor past its switch threshold: [`Watch::switching`]).
+    /// `sampled`: the channels at this point, where the run loop has them
+    /// (sampled there after the event: the same values), else they are
+    /// evaluated here.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn begin(
         &mut self,
@@ -982,6 +985,7 @@ impl Watch {
         d: &[f64],
         u: &[f64],
         events: usize,
+        sampled: Option<&[f64]>,
     ) -> Result<Option<usize>, SolveError> {
         self.from_t = t;
         if events != self.from_events || self.from_d.len() != d.len() {
@@ -992,17 +996,39 @@ impl Watch {
         if !self.active() || (events == self.at_events && t == self.at_t) {
             return Ok(None);
         }
-        let l = *model.layout();
-        let mut vars = std::mem::take(&mut self.at_vars);
-        self.at_work.resize(l.n_work, 0.0);
-        vars.resize(l.n_vars, 0.0);
-        model.vars(&EvalInput { t, y, p: &info.params, d, u }, &mut self.at_work, &mut vars);
-        let checked = self.resume(info, model, t, &vars, d, events);
+        let mut own = std::mem::take(&mut self.at_vars);
+        let vars: &[f64] = match sampled {
+            Some(v) => {
+                // (the run loop's sample after the event, where nothing
+                // changed its channels since: checked against them here)
+                #[cfg(debug_assertions)]
+                {
+                    let l = *model.layout();
+                    let (mut work, mut fresh) = (vec![0.0; l.n_work], vec![0.0; l.n_vars]);
+                    model.vars(&EvalInput { t, y, p: &info.params, d, u }, &mut work, &mut fresh);
+                    let same =
+                        |a: &f64, b: &f64| a.to_bits() == b.to_bits() || a.is_nan() && b.is_nan();
+                    debug_assert!(
+                        fresh.len() == v.len() && fresh.iter().zip(v).all(|(a, b)| same(a, b)),
+                        "the channels sampled after the event are not those at the point (t = {t})"
+                    );
+                }
+                v
+            }
+            None => {
+                let l = *model.layout();
+                self.at_work.resize(l.n_work, 0.0);
+                own.resize(l.n_vars, 0.0);
+                model.vars(&EvalInput { t, y, p: &info.params, d, u }, &mut self.at_work, &mut own);
+                &own
+            }
+        };
+        let checked = self.resume(info, model, t, vars, d, events);
         let switch = match checked {
-            Ok(()) if self.may_switch() => self.wants_switch(info, model, t, &vars),
+            Ok(()) if self.may_switch() => self.wants_switch(info, model, t, vars),
             _ => None,
         };
-        self.at_vars = vars;
+        self.at_vars = own;
         checked.map(|()| switch)
     }
 

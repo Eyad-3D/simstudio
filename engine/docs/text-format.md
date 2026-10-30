@@ -593,9 +593,58 @@ second: about 0.899889 after 10 s.
   `x1`, one number in a row for each point of `x2`. Read it as `eff(w,
   tau)`.
 * Between the points a table is a monotone cubic curve by default: its
-  slope has no jumps, so the solver needs no events at the points, and it
+  slope has no jumps (its second derivative has, at the points), and it
   does not overshoot where the data rise or fall steadily. `interpolation =
-  linear` joins the points with straight lines instead.
+  linear` joins the points with straight lines instead (the slope jumps at
+  each point). Read along time, a table stops the run at each point. Read
+  at a value that moves with the model's states, what the solver does at
+  the points depends on the read (measured: `engine/DESIGN.md` §8.2,
+  *Tables read at a state*):
+  * Where the model reads a derivative of the table that jumps there (a
+    linear table differentiated by index reduction, as a gear whose ratio
+    is a table of a speed is; a cubic's second derivative; a clamped
+    table's slope where the value leaves its data; a table of two
+    arguments differentiated), stepping over the point is not
+    proportional to the tolerance on the explicit form (no algebraic loop
+    the solver iterates on: CVODES): 10 to 180 tolerances off on the
+    judge's gear, 2 000 to 14 000 at rtol 1e-10 where the speed turns just
+    past a point or the run chooses its states again, and up to 3 000 on a
+    table of 101 points swung back and forth, where the same read held in
+    its cell (each crossing of a point found and the integrator restarted
+    there) is 1 to 29 (on the swing too a thousand: each restart costs
+    about half a tolerance); on a bead on a wire whose cubic's second
+    derivative jumps at its points, up to 81 400 tolerances off stepped
+    over at 11 points and 104 000 at 41, 22 to 362 and 130 to 1 720 held;
+    on a gear whose ratio is a sparse clamped cubic that the speed leaves,
+    865 stepped over against 4 held at rtol 1e-10; on a gear whose ratio is
+    a table of two arguments, up to 3 480 against 10. On the implicit form
+    (a model with an algebraic loop the solver iterates on: IDAS) such a
+    read cannot be stepped over at all: the solver stops at the first point
+    ("made no progress") or gives no answer within minutes. So every read
+    that jumps is held by default, on both forms (on the explicit one the
+    run lets go of a read whose jumps are within the tolerance, of one
+    argument, or whose crossings come too often, of one argument or two;
+    on the implicit one it holds every read through every crossing), and a
+    change of states between the forms goes through. Holding costs where
+    the jump is small or the crossings many: held through every crossing,
+    the swing through a table of two arguments is 631 tolerances off at
+    rtol 1e-4 against 66 stepped over (the run lets go of it there: 47);
+    on a wire whose cubic is a parabola, whose second derivative does not
+    jump, 131 to 737 tolerances off against 10 to 187 stepped over; swung
+    back and forth across a clamped cubic's edges, 104 against 34 at rtol
+    1e-4 and 267 against 61 at 1e-9 (better at the other tolerances). A
+    run that stops at a point of a read it steps over (held off by the
+    option below) names the table, the read and the option that holds it.
+  * A read that only kinks (a linear table's value, a cubic's slope) is
+    stepped over on both forms: up to thousands of tolerances off on long
+    runs that cross a table's points many times; held, or written as `if`
+    branches on the points, it is better on some of the judge's cases and
+    worse on others.
+  The choice is the build option `table_cells` (`lsim_engine::BuildOptions`;
+  `table_cells=` of the Python `build`): `"auto"` (the default, as above),
+  `"off"` (every point stepped over), `"jumps"` (every read whose slope
+  jumps, on both forms), `"kinks"` (also the reads that only kink, for
+  comparison); the text format has no syntax for it.
 * `outside = {clamp}` (the default) holds the edge value beyond the data;
   `linear` extends the edge's slope; `error` stops the run. Give one rule
   for each axis, or one for all.

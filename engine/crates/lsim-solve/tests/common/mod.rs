@@ -24,8 +24,12 @@ pub struct Built {
 
 /// Prepares and compiles `top` against `lib`.
 pub fn build(lib: &Library, top: &ComponentDef, force_implicit: bool) -> Built {
-    let prepared = lsim_prep::prepare(lib, top, &lsim_prep::PrepOptions { force_implicit })
-        .unwrap_or_else(|d| panic!("{} prepares: {d:#?}", top.name));
+    let prepared = lsim_prep::prepare(
+        lib,
+        top,
+        &lsim_prep::PrepOptions { force_implicit, ..Default::default() },
+    )
+    .unwrap_or_else(|d| panic!("{} prepares: {d:#?}", top.name));
     let jit = lsim_codegen::compile(&prepared, &CodegenOptions::default()).expect("compiles");
     let info = RunInfo::from_prepared(&prepared);
     Built { prepared, jit, info }
