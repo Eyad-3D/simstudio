@@ -3315,7 +3315,15 @@ against exact answers from `benchmarks/`.
   engine applies a live edit at the output step at which it polled it,
   which nothing records: a replay of its run with live edits fails,
   saying so. A replay runs to the case's end: a stopped run's is the
-  whole run.
+  whole run. A stop's latency is the stopped run's result, made by the
+  path's code (the engine stops in 1 ms): its loops over every traced
+  point are NumPy's array operations, and the verdict proves with NumPy
+  which pieces of its band arithmetic add exactly nothing (its own
+  expressions; the plain loop without NumPy gives the same bits); a
+  study's worker leaves a point's peaks out before it sends the result,
+  which the server dropped (the twelfth measurement: p95 0.18 s after a
+  live run's stop, 0.55 s after a 16-point WLTC study's, on a shared Linux
+  machine).
 * **The app's path, both engines** (step 2's judge,
   `python -m benchmarks.back_to_back`): every example case and eight
   probes run through the app's own `simulate`, on today's engine at 10 ms

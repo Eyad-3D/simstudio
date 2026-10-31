@@ -1,29 +1,115 @@
 # Step 2's baseline: where the new engine's path stands
 
-Measured on 30 October 2026 by one command, `python -m benchmarks.back_to_back
+Measured on 31 October 2026 by one command, `python -m benchmarks.back_to_back
 all OUT` (with `LSIM_SCRATCH`, `LSIM_JUDGE_CACHE` and, for the ENERGY line's
 E3, `LSIM_FAST_BIN`, fast mode's runner built from this tree:
 `cargo build --release -p lsim-project --example fast`), every run and probe
-at commit `dc8eac2` with a clean tree: the tenth measurement, after the
-four fix rounds of step 2's evidence part (`aab11d9`, `f7889c0`, `5e5e885`;
-`7e8ea6c`, `923c2b9`; `d4a6215`, `61779c8`; `c8c83e3`, `dc8eac2`). Every
-raw record and probe result carries that stamp (commit, the module's
-version and the SHA-256 of its compiled file, fast mode's runner's SHA-256,
-the files' SHA-256), and [`report.md`](report.md), the harness's own report
-of this run, lists it. The lines, cases, measures and pass marks are those
-of [`../acceptance.toml`](../acceptance.toml), registered in `5c82fb0`
-before the first measured run (eighteen dated changes since, at its end;
-the last two written before this measurement). The raw results (691 runs)
-are outside the repository, in the lane's cache
-(`judge-cache/step2/baseline-10`), each with its SHA-256 in `SHA256SUMS`.
+at commit `3e8459e` with a clean tree: the twelfth measurement, after step
+2's item 4 (live runs, a study's Stop, progress and live edits through one
+control of the engine's run: `f8389aa`, `3e8459e`). Its stop-latency probe
+was measured again at `3bcd1a4`, after two fixes the measurement called for
+(below: `c0a52a1`, `3bcd1a4`, neither touching what the other records
+read). Every raw record and probe result carries its stamp (commit, the
+module's version and the SHA-256 of its compiled file, fast mode's
+runner's SHA-256, the files' SHA-256), and [`report.md`](report.md), the
+harness's own report, lists both. The lines, cases, measures and pass marks
+are those of [`../acceptance.toml`](../acceptance.toml), registered in
+`5c82fb0` before the first measured run (twenty-two dated changes since, at
+its end; three of them written before this measurement, the last one after
+it, naming it). The raw results (691 runs) are outside the repository, in
+the lane's cache (`judge-cache/step2/baseline-12`), each with its SHA-256 in
+`SHA256SUMS`.
 
-Nine measurements came before: six of the path before the wiring (the
-app's code unchanged since `2b94af6`), the seventh (`cbf7f39`,
-`judge-cache/step2/baseline-7`) of the path wired to the run's evidence,
-before its fix rounds, the eighth (`923c2b9`, `judge-cache/step2/baseline-8`)
-after the first two and the ninth (`61779c8`,
-`judge-cache/step2/baseline-9`) after the third. The ninth is this one's
+Eleven measurements came before: six of the path before the wiring (the
+app's code unchanged since `2b94af6`), four of the path wired to the run's
+evidence (`cbf7f39`, `923c2b9`, `61779c8`, `dc8eac2`: baseline-7 to -10)
+and the runs of the tenth measured again for the evidence part's fifth fix
+round (`70c276c`, baseline-11, the probes not run). The tenth is this one's
 reference below; the sections after it say how the earlier ones moved.
+
+## The twelfth measurement: live runs, a study's Stop, live edits
+
+Every run of the app is live (it streams), and a study's point and an
+assistant's run have a control, so the path refused them all
+(`NEW-LIVE`) and never ran in the app. `f8389aa` gives the engine's run one
+control (`SolverOptions::control`; `lightsim_engine.RunControl`): told the
+point reached and the output points at every step's end, it stops the run
+there (its last point there, the books closed there) and makes a
+parameter change as an event at the next output time, which a run given
+the change at the time it was taken makes again bit for bit. `3e8459e`
+wires the path to it: points out as today's step messages, at the case's
+pace, a cancel judged as today's judges a stopped run, a live edit of a
+runtime parameter an event at the next output time (a structural one on
+the next run, as today's says); the result says which engine ran it, its
+version, its solver options and the live edits it made, the RunSnapshot
+keeps them and `app.solver.replay` makes the run again from it. Three
+dated changes before this measurement: S3 replays through the app's replay
+from the snapshots' JSON, judges the three fields by their values and
+replays a live edit on the new path; `NEW-LIVE` leaves `[codes]`; the
+result's four new fields are compared as text, the engine, its version and
+its options classed c (`each-run-says-what-ran-it`, checked: each run
+names its own engine). Against the tenth measurement, line by line:
+
+* **B2B**: 24 of 26 items as expected (22): the two live cases run; the
+  performance probe (`NEW-CASE-KIND`) and the FMU probe (`NEW-FMU`) are
+  still refused where they should run. 1 817 differences on the 16 items
+  both engines ran: 0 a, 135 b, 645 c, 1 037 unclassified. The 14 items of
+  before give the same differences in the same fields and classes, and
+  three class c each besides (the engine, its version, its options: 42);
+  `bev-car/case-city-live` gives `bev-car/case-city`'s (12 b, 35 c, 53
+  unclassified), `hybrid-car/case-mixed-live` the mixed single run's (6 b,
+  39 c, 132 unclassified). Every ledger balances.
+* **STRICT**: 117 refusals (119), every one with a listed code, no
+  `NEW-LIVE`; it fails only for the two probes above.
+* **SCHEMA**: 0 errors in 683 results (the new fields in the regenerated
+  schema).
+* **FAULTS**: as before, to the record: 288 faults, today's engine flags
+  138, one violation (bev-car's Driver with no P gain), none hidden, no
+  flip, unsaid 5 on 1 fault. mutmut: 1 391 mutants (1 126), 965 killed, 412
+  survive (344), 14 without tests; the 265 more are the verdict's new
+  NumPy pass (below), and 68 of them survive; none of the 412 has a
+  written reason yet.
+* **META passes** (its nine as before), **ANALYTIC passes** (2.7e-14 s),
+  **ENERGY vacuous** (E1 16 pass, the live items among them; E2 as before;
+  E3 met no limit), **SCRIPTS** 1 of 3, **FMU, TEXT, QUICK**: as before.
+* **STREAM passes**. S1: both live cases stream all 601 points on the new
+  path, every one equal to the result bit for bit (as today's engine's).
+  S3: five replays give the same SHA-256 (both engines' two registered
+  runs, and the new path's live WLTC run with the drag coefficient edited
+  to 0.35, taken at 317.001 s); every snapshot names its engine, version
+  and solver options. S2, on a machine shared with the AI lane's tests and
+  agent bench (CPUs 0-11; this lane's on 12-23), at `3bcd1a4`: the new
+  path's live run p95 0.181 s (19 of 20 stops shown, the last one past the
+  engine's end), its study 0.545 s (20 of 20); today's 0.120 s and 0.642 s.
+  The marks, 0.25 s and 1.0 s, are judged on Windows CI
+  (`backend/tests/test_stop_latency.py`, no longer expected to fail).
+* **NOSKIP passes**: 162 tests, none skipped but the two Windows-only ones;
+  with the module hidden 6 fail, none skips.
+* **STATUS**: 7 of 11 (5): live streaming and study stop and progress
+  besides the five of before.
+
+S2 took two fixes after the measurement at `3e8459e`. Its study, the
+registered 16 points of bev-car's City Cycle, was "not measured" on the new
+path: a point is done there in about 0.1 s, so 11 of 20 random stops found
+no point running (the pool starting its workers, or between points); 9
+were shown, their p95 0.47 s (today's 20 of 20, 0.41 s). `c0a52a1` runs the
+study on the WLTC (a dated change naming this measurement; the roadmap
+asks for "a 16-point study", the mark and the rule unchanged), and then
+both engines missed the mark: 1.12 s on the new path (19 shown), 1.04 s on
+today's, because a stopped WLTC point's result (about 10 MB of JSON) was
+built, dumped, piped and read one after another, while the server kept
+only its recorded points. `3bcd1a4` leaves the peaks out in the worker
+(the stored run the same): the numbers above. Before them, measuring the
+live stop as it was built (p95 0.33 s, 0.25 s its mark) showed the time
+going to the stopped run's result (the engine stops in 1 ms): the
+verdict's band arithmetic, the ports' flows and the value conversions,
+pure-Python loops over every traced point. `3e8459e` holds them to NumPy
+where it is there: the verdict proves which pieces add exactly 0.0 in its
+own arithmetic (the same bits; a test holds it to the plain loop), and the
+path's own loops became array operations (0.31 → 0.16 s after a stop at
+1 500 s of the WLTC). The stop probe's records of the three are kept
+(`stop-city-3e8459e.json`, `stop-wltc-c0a52a1.json`, the report at
+`3e8459e`: `report-3e8459e.md`).
 
 ## After the tenth: the runs measured again for the fifth fix round
 
@@ -359,7 +445,26 @@ jsonschema 4.26.0, mutmut 3.8.1. The stop latencies are an indication
 only, from a machine another lane shares (their pass marks are judged on
 Windows CI, `backend/tests/test_stop_latency.py`).
 
-## Where each line stands (the tenth measurement)
+## Where each line stands (the twelfth measurement)
+
+| line | state | what was measured |
+|---|---|---|
+| B2B | fails | 24 of 26 items as expected: the performance probe (NEW-CASE-KIND) and the FMU probe (NEW-FMU) are refused where they should run. Of 1 817 differences on the 16 items both engines ran: 0 class a, 135 b, 645 c, 1 037 unclassified. Every item's ledger balances. No note of what the verdict does not judge. |
+| STRICT | fails | only for the two items above. 117 refusals, every one with a listed code: NEW-LIMITS 53, NEW-FAILED 38, NEW-BUILD 16, NEW-BALANCE 3, NEW-LAP 2, NEW-CASE-KIND, NEW-CELLS, NEW-FMU, NEW-FS-EVENT and NEW-MISSING one each; no NEW-ERROR, no process that died, no message with a code no section lists. |
+| SCHEMA | passes | 0 errors in 683 results. |
+| FAULTS | fails | as at the tenth: of 288 planted faults today's engine fails or warns on 138; 53 refused (NEW-LIMITS); none hidden; one "success" on the new path (bev-car's Driver with no P gain: the two Drivers' laws differ); no flip; unsaid 5 on that fault. mutmut: 1 391 mutants of verdict.py, 412 survive, none with a written reason yet. |
+| META | passes | the same verdict at every output step (0.1, 1, 5 times the case's) and at rtol 1e-8 for all 9 runs. |
+| ANALYTIC | passes | within 2.7e-14 s of the exact answers on all five traces; the 1 %/2 s allowance labelled LightSim's own. |
+| ENERGY | vacuous | E1 within 5e-16 of the throughput on all 16 items; E2 within 3e-16; E3 vacuous (no limit met on either side on the 8 BEV cycle items). |
+| STREAM | passes | S1: all 601 points of both live cases, equal to the result bit for bit. S2 (a shared machine; the marks are judged on Windows CI): live p95 0.181 s against 0.25 s, the WLTC study 0.545 s against 1.0 s (today's 0.120 s and 0.642 s). S3: five replays the same SHA-256, a live edit among them; every snapshot names its engine, version and solver options. |
+| FMU | fails | refused (NEW-FMU). |
+| TEXT | not available | the app reads no text components. |
+| QUICK | not available | a case has no quick-mode option. |
+| SCRIPTS | fails | one of three: on the new path today's worker serves every step of the hybrid's Script part; no decision record, no page for the owner. |
+| NOSKIP | passes here | 162 tests, none skipped but the two Windows-only stop-latency tests; with the module hidden 6 fail, none skips; CI's Windows engine job runs them (to be confirmed there after the merge). |
+| STATUS | fails | 7 of 11: the energy report, part energies, duty, limits, references, live streaming, study stop and progress; not yet the verdict (FAULTS has a violation), FMU parts, text components, quick mode. |
+
+## Where each line stood at the tenth measurement
 
 | line | state | what was measured |
 |---|---|---|
