@@ -108,10 +108,15 @@ def replay(snapshot: RunSnapshot) -> SimResult:
                                  snapshot.liveEdits)
     if snapshot.liveEdits:
         return SimResult(caseId=case.id, status="failed", channels=[], messages=[SimMessage(
-            level="error", text="This run was made on today's engine with live edits, which a "
-                                "replay cannot make again at the times they took effect: run the "
-                                "case again instead.")])
+            level="error", text=f"Not replayed [{REPLAY_TODAY_EDITS}]: this run was made on "
+                                f"today's engine with live edits, which a replay cannot make "
+                                f"again at the times they took effect: run the case again "
+                                f"instead.")])
     return simulate_today(project, case.id)
+
+
+# the code of a replay refused: a run of today's engine with live edits (replay)
+REPLAY_TODAY_EDITS = "REPLAY-TODAY-LIVE-EDITS"
 
 
 def simulate_today(

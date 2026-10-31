@@ -26,7 +26,9 @@ today's own code from the run's evidence (step 2's evidence part, 29
 October); its live runs, a study's Stop, a run's progress and live edits
 go through one control of the engine's run (step 2's item 4, 31 October:
 the stream the result's values to the bit, a live edit an event at the
-next output point, a replay from the run's snapshot bit for bit; still to
+next output point, one the path's checks after the run would read as at
+its start taken on the next run with a coded note, a replay from the
+run's snapshot bit for bit; still to
 wire there: FMU parts, text components, quick mode). The
 shared types in `lsim-ir` are unified (`engine/ir-unify`, DESIGN.md
 §5.8); every package builds on them.

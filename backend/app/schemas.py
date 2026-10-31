@@ -581,6 +581,9 @@ class LiveEdit(BaseModel):
     elementId: str
     key: str
     value: ScalarValue
+    # for an edit the run did not make (it takes effect on the next run):
+    # the result's note of it, which says why with its code; none for one made
+    note: Optional[str] = None
 
 
 class SimResult(BaseModel):
@@ -600,9 +603,10 @@ class SimResult(BaseModel):
     references: list[ReferenceCheck] = Field(default_factory=list)
     # what ran it: the engine ("today" or "new", LIGHTSIM_ENGINE), its
     # version and the solver options it ran with; and the live parameter
-    # edits it made, each at the simulated time the run had reached when it
-    # took it (absent on runs from before 0.4 and on runs that never
-    # started). A RunSnapshot keeps them, and a replay makes them again
+    # edits it took, each at the simulated time the run had reached when it
+    # took it, one it did not make with its note (absent on runs from before
+    # 0.4 and on runs that never started). A RunSnapshot keeps them, and a
+    # replay makes them again
     engine: Optional[str] = None
     engineVersion: Optional[str] = None
     solverOptions: Optional[dict[str, float]] = None

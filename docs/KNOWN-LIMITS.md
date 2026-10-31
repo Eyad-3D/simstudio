@@ -647,18 +647,33 @@ minimum or an average, for example from the CSV export, or put the
 - **Live runs on the new engine.** With `LIGHTSIM_ENGINE=new` a live
   run streams each point as the engine records it, and a live edit takes
   effect at the run's next output point, as an event there (today's
-  engine applies it from the output step its run had reached). An edit
-  the new engine builds another model for, such as a gear ratio, takes
-  effect on the next run, as a structural parameter's does on today's
-  engine, and so does a table sent to a run (the app sends none); that
-  note is in the run's log, not in its result. An
-  acceleration test runs twice on the new engine, the second time to the
-  moment it crosses the finish: its live view shows nothing of the first,
-  short run, and an edit made during the second takes effect on the next
-  run. Making a run again from its snapshot (the app's replay) gives the
-  same result on the new engine, live edits included; it runs the case to
-  its end, so a stopped run's replay is the whole run, and a run on
-  today's engine with live edits is not made again. *Roadmap:* ENG-16.
+  engine applies it from the output step its run had reached). The engine
+  runs up to two output points and the step it is taking ahead of the
+  view, so a Stop or an edit lands a few output points after the point the
+  view showed (on the BEV's city cycle, run as fast as it goes, 3.5 to
+  5.7 s after it; today's engine, at that point). Some edits today's
+  engine makes live take effect on the next run on the new engine: one it
+  builds another model for (a Differential's lock, a Driving Task's mode
+  or repeat, a Climate Control's heat source), and one the new engine's
+  checks after the run would read as it was at the start (the Ambient's
+  temperature or pressure, a battery's minimum SOC or charge power, an
+  E-Motor's maximum speed or its scales, a Vehicle's CG height or
+  Downforce Area), because today's engine checks those at each step with
+  the values then. Such an edit, and one too late for the run, is listed
+  in the run's live edits with its note, code `NEW-LIVE-NEXT-RUN`; so is a
+  structural parameter's, as on today's engine. A table sent to a live run
+  (the app sends none) takes effect on the next run too, noted in the
+  run's log only. A live run the new engine fails after it has started
+  fails with its code (`NEW-FAILED`) rather than running again on today's
+  engine. An
+  acceleration test runs twice on the new engine: first over the case's
+  whole duration, which the live view does not show, then again to the
+  moment it crosses the finish, which it shows; an edit made during the
+  second takes effect on the next run. Making a run again from its
+  snapshot (the app's replay) gives the same result on the new engine,
+  live edits included; it runs the case to its end, so a stopped run's
+  replay is the whole run, and a run on today's engine with live edits is
+  not made again (code `REPLAY-TODAY-LIVE-EDITS`). *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a
   negative pressure, a CG height below 0, a wheel's load share of 0):

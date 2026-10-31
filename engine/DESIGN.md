@@ -3292,30 +3292,48 @@ against exact answers from `benchmarks/`.
   output points on as today's `step` messages, the result's values bit for
   bit (the channels the result keeps, a value that is not a number a gap,
   as there), at the case's real-time pace (the engine waits on the
-  control's queue, 2 points then, 256 otherwise), and reads the run's
+  control's queue of 2 points, so it runs at most those and the step it
+  is taking ahead of the view: a Stop or an edit lands within a few output
+  points of what the view shows), and reads the run's
   control every 20 ms: a cancel stops the run where it is, judged as
   today's judges a stopped run (*cancelled*, today's words, its figures
-  per distance not valid at the time it stopped); a `set_param` is a live
+  per distance not valid at the time it stopped; an acceleration test
+  stopped short of its line has no time, speed or gap at the line); a
+  `set_param` is a live
   edit. A parameter the library marks structural takes effect on the next
   run, as today's says; for any other the project with the edits so far is
   built again (a build, no run: 15 ms for the BEV car) and its parameters
   compared with the run's: those that moved go to the run, an event at its
   next output time, and a model the engine builds otherwise for the value
-  (the vehicle's mass, a gear ratio: a structure of their own), or a value
-  it refuses, takes effect on the next run too, in the engine's words.
-  Those notes go to the live run's log, not into the result, which says
-  what the run did: the result names its engine, its version and its
+  (a Differential's lock, a Driving Task's mode: a structure of their
+  own), a value it refuses, or one that changes what the path's checks
+  after the run read of today's parts as at its start (`_checked`: the
+  Ambient's air, a battery's minimum SOC, charge power and checks, a
+  machine's maximum speed, a table's axes, the Vehicle's CG height and
+  Downforce Area, which today's engine checks at each step with the values
+  then), takes effect on the next run too. Each such edit, and one too late
+  for the run, is in the result's list with its note (`note`, code
+  `NEW-LIVE-NEXT-RUN`), which the result's messages and the live log give
+  once. The edits the run made are applied after it to today's parts with
+  today's own code, so the reports read them as today's RunContext has
+  them at its run's end (a hand calculation's drag coefficient). A live
+  run the new engine fails after it has shown a point or read a Stop or an
+  edit fails with its code (`NEW-FAILED`): today's engine would run it
+  again from t = 0 without them; one that showed and read nothing (a
+  study's point) still runs on today's engine, saying so. The result
+  names its engine, its version and its
   solver options (`engine`, `engineVersion`, `solverOptions`; today's
-  engine fills them too) and lists the live edits it made, each at the
+  engine fills them too) and lists the live edits it took, each at the
   time the engine took it (`liveEdits`); the app's RunSnapshot keeps them
   (`RunSnapshot.of`, the app's snapshot of a run), and `app.solver.replay`
   makes the run again from the snapshot on the engine that ran it, with
   its options and its live edits, the new engine taking each where the run
-  took it: the same result, bit for bit (the harness's STREAM S3). Today's
+  took it (one it did not make: its note again): the same result, bit for
+  bit (the harness's STREAM S3). Today's
   engine applies a live edit at the output step at which it polled it,
-  which nothing records: a replay of its run with live edits fails,
-  saying so. A replay runs to the case's end: a stopped run's is the
-  whole run. A stop's latency is the stopped run's result, made by the
+  which nothing records: a replay of its run with live edits fails with
+  the code `REPLAY-TODAY-LIVE-EDITS`. A replay runs to the case's end: a
+  stopped run's is the whole run. A stop's latency is the stopped run's result, made by the
   path's code (the engine stops in 1 ms): its loops over every traced
   point are NumPy's array operations, and the verdict proves with NumPy
   which pieces of its band arithmetic add exactly nothing (its own

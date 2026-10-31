@@ -38,11 +38,13 @@ NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow
 NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
 
 # Notes' codes. A note of the new engine's path saying that something of a
-# run it ran is not judged by the verdict carries one of these; B2B and
+# run it ran is not judged by the verdict, or that the run did not make a
+# live edit, carries one of these; B2B and
 # FAULTS count them by code, and STRICT fails on a [NEW-...] code in any
 # message that neither section lists (added 29 October: [[changes]]).
 [note_codes]
 NEW-TABLE-NOT-JUDGED = "a table the run read past its data that today's engine does not read as a part's data (a Driving Task's profile run past its end): a note, not judged"
+NEW-LIVE-NEXT-RUN = "a live edit the run did not make, which takes effect on the next run: one the new engine builds another model for, one its checks after the run read as at the start, a structural parameter, a table, or one too late for the run (added 31 October: [[changes]])"
 
 # ---------------------------------------------------------------------------
 # The items of the back-to-back diff: the 16 example cases, and probes that
@@ -650,6 +652,17 @@ shown, their p95 0.47 s); today's engine, whose points take seconds, showed all 
 16-point study", not its case; the WLTC's points take about 1.3 s on the new engine, long enough for a random \
 stop to find one running, and the live part of S2 runs the same case. Written after that measurement, which it \
 names; the stop probe is measured again with it."""
+
+[[changes]]
+date = "2026-10-31"
+line = "STRICT"
+change = """[note_codes] lists NEW-LIVE-NEXT-RUN, the code of the new engine's path's note on a live edit the run \
+did not make (it takes effect on the next run); the result lists such an edit with that note."""
+reason = """The checker of item 4 (f8389aa..d296cc3) found that an edit the path takes on the next run left \
+nothing in the result and carried no code, and that the path's checks after the run read edits of what today's \
+engine checks at each step as they were at the start: such an edit is now taken on the next run, with this code \
+(rule 8: no silent fall-back). STRICT fails on a [NEW-...] code no section lists, so the code is listed; no pass \
+mark moves. The harness runs no live edit but S3's, which the path makes."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)

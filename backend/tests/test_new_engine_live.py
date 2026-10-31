@@ -124,6 +124,22 @@ def test_a_stop_ends_the_run_where_it_is():
     assert result.energy is not None and result.limits is not None
 
 
+def test_a_stop_and_an_edit_land_near_the_point_the_view_shows():
+    """The engine runs at most LIVE_QUEUE output points ahead of the view
+    (and the step it is taking), so a Stop or a live edit given once the
+    view shows 200 s of the city cycle (1 s points, run as fast as it goes)
+    lands within 10 s of it (with room for 256 points an edit landed 279 s
+    later; today's engine makes it at its next step)."""
+    project = load_example("bev-car")
+    live = _Live(at=200.0, then=[{"type": "cancel"}])
+    stopped = simulate(project, "case-city", live.emit, live.control)
+    assert 200.0 <= stopped.channels[0].timeSeries[-1]["t"] < 210.0
+    live = _Live(at=200.0, then=[{"type": "set_param", "elementId": "el-vehicle", "key": "cd",
+                                  "value": 0.35}])
+    (made,) = simulate(project, "case-city", live.emit, live.control).liveEdits
+    assert 200.0 <= made.t < 210.0
+
+
 def test_a_study_point_stops_on_the_new_engine():
     """A study's Stop (the workers' cancel flag, polled through the run's
     control) stops a point that is running: it ends cancelled at t > 0."""
@@ -151,29 +167,234 @@ def test_a_live_edit_is_made_at_the_next_output_time_and_replayed_exactly():
     is an event at the run's next output time; the result lists it at the
     time the engine took it, and a replay of the run's snapshot makes it
     again there: the same result, bit for bit. A structural parameter's
-    edit takes effect on the next run, as today's says."""
+    edit takes effect on the next run, as today's says, and the result
+    lists it with its note, which a replay gives again."""
     project = load_example("bev-car")
     edit = {"type": "set_param", "elementId": "el-vehicle", "key": "cd", "value": 0.35}
     fixed = {"type": "set_param", "elementId": "el-final-drive", "key": "ratio", "value": 9.0}
     live = _Live(at=300.0, then=[edit, fixed])
     result = simulate(project, "case-wltc", live.emit, live.control)
-    (made,) = result.liveEdits
-    assert (made.elementId, made.key, made.value) == ("el-vehicle", "cd", 0.35)
+    made, deferred = result.liveEdits
+    assert (made.elementId, made.key, made.value, made.note) == ("el-vehicle", "cd", 0.35, None)
     assert 300.0 <= made.t < 1800.0
-    told = "'Final Drive.ratio' changed — structural parameters take effect on the next run."
+    told = ("'Final Drive.ratio' changed — structural parameters take effect on the next run "
+            "[NEW-LIVE-NEXT-RUN].")
+    assert (deferred.elementId, deferred.key, deferred.note) == ("el-final-drive", "ratio", told)
     assert {"type": "message", "level": "info", "text": told} in live.stream
-    assert told not in [m.text for m in result.messages]  # (the run's own words: a replay's)
+    assert [m.text for m in result.messages].count(told) == 1
     table = {"type": "set_param", "elementId": "el-climate", "key": "demand_table",
              "value": {"-20": 6.0, "40": 4.0}}
     later = _Live(at=10.0, then=[table])
-    told = "'Climate Control.demand_table' changed — a table takes effect on the next run on the new engine."
+    told = ("'Climate Control.demand_table' changed — a table takes effect on the next run on the "
+            "new engine [NEW-LIVE-NEXT-RUN].")
     tabled = simulate(project, "case-city", later.emit, later.control)
+    # (a live edit holds a scalar, and the app sends no table: its note is the live log's)
     assert tabled.liveEdits == [] and {"type": "message", "level": "info", "text": told} in later.stream
     plain = simulate(project, "case-wltc")
     assert plain.liveEdits == [] and _sha(plain) != _sha(result)
     again = replay(RunSnapshot.of(project, _case(project, "case-wltc"), result, VERSION))
     assert again.liveEdits == result.liveEdits
     assert _sha(again) == _sha(result)
+
+
+class _Timed(_Live):
+    """A live run's emit and control that gives each (t, message) once a
+    point at or after t has streamed."""
+
+    def __init__(self, timed):
+        super().__init__()
+        self.timed = list(timed)
+
+    def control(self):
+        with self.lock:
+            last = max((m["t"] for m in self.stream if m["type"] == "step"), default=-1.0)
+            out = [m for t, m in self.timed if t <= last]
+            self.timed = [(t, m) for t, m in self.timed if t > last]
+        return out
+
+
+def _set(el_id, key, value):
+    return {"type": "set_param", "elementId": el_id, "key": key, "value": value}
+
+
+def _replayed(project, case_id, result):
+    return replay(RunSnapshot.of(project, _case(project, case_id), result, VERSION))
+
+
+def _consumption(result):
+    return next(s.value for s in result.summary if s.key == "consumption_kwh_per_100km")
+
+
+def test_two_edits_of_one_parameter_are_both_made_live_and_replayed():
+    """The second edit of a parameter is made on top of the first (the
+    drag coefficient up at 200 s, back to its own at 400 s), live and in a
+    replay of the run, which is the same bit for bit."""
+    project = load_example("bev-car")
+    up, back = _set("el-vehicle", "cd", 0.35), _set("el-vehicle", "cd", 0.27)  # (0.27: its own)
+    one = _Timed([(200.0, up)])
+    first = simulate(project, "case-city", one.emit, one.control)
+    two = _Timed([(200.0, up), (400.0, back)])
+    both = simulate(project, "case-city", two.emit, two.control)
+    assert [(e.value, e.note) for e in both.liveEdits] == [(0.35, None), (0.27, None)]
+    assert 400.0 <= both.liveEdits[1].t < 600.0
+    plain = simulate(project, "case-city")
+    assert _consumption(plain) < _consumption(both) < _consumption(first)
+    again = _replayed(project, "case-city", both)
+    assert again.liveEdits == both.liveEdits and _sha(again) == _sha(both)
+
+
+def test_an_edit_the_new_engine_builds_another_model_for_is_for_the_next_run():
+    """A tunable edit the new engine runs another structure for (the
+    Differential's lock; today's engine makes it live) takes effect on the
+    next run: the result lists it with its coded note, and its replay gives
+    the same result."""
+    project = load_example("bev-car")
+    live = _Live(at=100.0, then=[_set("el-diff", "locked", True)])
+    result = simulate(project, "case-city", live.emit, live.control)
+    told = ("'Differential.locked' changed — the new engine builds another model for it: it takes "
+            "effect on the next run [NEW-LIVE-NEXT-RUN].")
+    assert [(e.key, e.value, e.note) for e in result.liveEdits] == [("locked", True, told)]
+    assert [m.text for m in result.messages].count(told) == 1
+    plain = simulate(project, "case-city")
+    assert [(s.key, s.value) for s in result.summary] == [(s.key, s.value) for s in plain.summary]
+    assert _sha(_replayed(project, "case-city", result)) == _sha(result)
+
+
+# what the path's checks after the run read (new_engine._checked): an edit of
+# each, which today's engine checks at each step with the values then
+CHECKED = [
+    ("bev-car", "case-city", "el-ambient", "temperature_C", 65),  # the air outside the usual
+    ("bev-car", "case-city", "el-ambient", "pressure_kPa", 121.59),
+    ("bev-car", "case-city", "el-motor", "max_speed_rpm", 1.0),  # a motor past its maximum speed
+    ("bev-car", "case-city", "el-battery", "min_soc_pct", 95),  # a battery at its minimum SOC
+    ("bev-car", "case-city", "el-battery", "max_charge_power_kW", 10),  # charging held back
+    ("bev-car", "case-city", "el-motor", "torque_scale_pct", 120),  # a table's axes
+    ("fs-electric", "case-accel-75m", "el-battery", "voltage_class_V", 480),  # its checks
+    ("fs-electric", "case-accel-75m", "el-vehicle", "cg_height_m", 0.4),  # a lift
+]
+CHECKS_NOTE = ("the new engine's checks after its run read it as it was at the run's start: it "
+               "takes effect on the next run [NEW-LIVE-NEXT-RUN].")
+
+
+@pytest.mark.parametrize("example,case_id,el_id,key,value", CHECKED)
+def test_each_value_the_checks_after_the_run_read_is_an_edit_for_the_next_run(
+        example, case_id, el_id, key, value):
+    import lightsim_engine
+
+    from app import cycles
+
+    project = load_example(example)
+    built = lightsim_engine.build(project.model_dump_json(), case_id, cycles_dir=str(cycles.DIR))
+    edits = new_engine._Edits(project, case_id, built)
+    with pytest.raises(new_engine._Later, match="checks after its run read it"):
+        edits.changes(el_id, key, value)
+    assert edits.changes("el-vehicle", "cd", 0.4)  # (one they do not read is made)
+
+
+@pytest.mark.parametrize("el_id,key,value", [c[2:] for c in CHECKED[:4]])
+def test_an_edit_the_checks_after_the_run_read_is_not_made(el_id, key, value):
+    """An edit today's engine flags at the step it sees it (the Ambient's
+    air, a motor's maximum speed, a battery's minimum SOC) would go unjudged
+    by the path's checks, which read the parts as at the run's start: it is
+    not made, the run is the run without it, the result lists it with its
+    coded note, and a replay gives the same result."""
+    project = load_example("bev-car")
+    live = _Live(at=200.0, then=[_set(el_id, key, value)])
+    result = simulate(project, "case-city", live.emit, live.control)
+    (taken,) = result.liveEdits
+    assert taken.note == f"'{taken.note.split(chr(39))[1]}' changed — {CHECKS_NOTE}"
+    assert taken.note in [m.text for m in result.messages]
+    plain = simulate(project, "case-city")
+    assert [(s.key, s.value, s.notValid) for s in result.summary] == [
+        (s.key, s.value, s.notValid) for s in plain.summary]
+    assert result.status == plain.status
+    assert _sha(_replayed(project, "case-city", result)) == _sha(result)
+
+
+def test_an_edit_too_late_for_the_run_is_listed_with_its_note():
+    """An edit given once the run has shown its last point is not made:
+    the result lists it with its coded note (the engine's words when the run
+    had ended, else too late), and a replay gives the same result. One the
+    engine was given and did not make came too late."""
+    project = load_example("bev-car")
+    _case(project, "case-city").duration = 20.0
+    live = _Live(at=20.0, then=[_set("el-vehicle", "cd", 0.35)])
+    result = simulate(project, "case-city", live.emit, live.control)
+    (late,) = result.liveEdits
+    assert late.note and late.note.startswith("'Vehicle.cd' changed") and late.note.endswith(
+        "[NEW-LIVE-NEXT-RUN].") and late.note in [m.text for m in result.messages]
+    assert _sha(_replayed(project, "case-city", result)) == _sha(result)
+    model = new_engine._context(project, "case-city").model
+    (e,) = new_engine._made([("el-vehicle", "cd", 0.35, 19.5, True, None)], [], model)
+    assert (e.t, e.note) == (19.5, "'Vehicle.cd' changed too late in the run to take effect: it "
+                                   "takes effect on the next run [NEW-LIVE-NEXT-RUN].")
+
+
+def _engine(monkeypatch, engine):
+    if engine == "new":
+        monkeypatch.setenv(new_engine.ENV_VAR, "new")
+        monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    else:
+        monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
+        monkeypatch.delenv(new_engine.STRICT_VAR, raising=False)
+
+
+def test_a_made_edit_is_read_as_edited_by_the_reports_as_today_s_are(monkeypatch):
+    """The reports read the parts as the run left them, as today's engine's
+    RunContext has them at its run's end: the hand calculation of the road
+    load with the drag coefficient as edited, within 1 % of today's with the
+    same edit (and 5 % above the run's own without it)."""
+    project = load_example("bev-car")
+    need = {}
+    for engine in ("new", "today"):
+        _engine(monkeypatch, engine)
+        live = _Live(at=200.0, then=[_set("el-vehicle", "cd", 0.35)])
+        result = simulate(project, "case-city", live.emit, live.control)
+        need[engine] = next(r.reference for r in result.references if "road load" in r.label)
+    plain = simulate(project, "case-city")  # (today's)
+    unedited = next(r.reference for r in plain.references if "road load" in r.label)
+    assert abs(need["new"] - need["today"]) <= 0.01 * need["today"]
+    assert need["new"] > 1.05 * unedited
+
+
+def test_a_stopped_acceleration_test_has_no_finish(monkeypatch):
+    """A Stop during an acceleration test's second run (the one the live
+    view shows) ends it where it is, short of the line: no time, speed or
+    gap at 75 m, and what it says judged as a stopped run, as on today's
+    engine."""
+    said = {}
+    for engine in ("new", "today"):
+        _engine(monkeypatch, engine)
+        live = _Live(at=1.0, then=[{"type": "cancel"}])
+        result = simulate(load_example("fs-electric"), "case-accel-75m", live.emit, live.control)
+        assert result.status == "cancelled", (engine, [m.text for m in result.messages])
+        said[engine] = ({s.key: (s.passed, s.notValid) for s in result.summary
+                         if s.key.startswith("accel")},
+                        sorted(m.level for m in result.messages if m.level != "info"))
+    assert said["new"] == said["today"] == ({}, [])
+
+
+def test_a_live_run_the_new_engine_fails_is_not_run_again_on_today_s(monkeypatch):
+    """In the app's mode (not strict), a live run the new engine fails after
+    it has streamed points, or read an edit, fails with its code: today's
+    engine would stream it again from t = 0 without what it read. A run
+    that showed and read nothing (a study's point) runs on today's, saying
+    so with the code."""
+    monkeypatch.delenv(new_engine.STRICT_VAR)
+    project = load_example("bev-car")  # (its battery's resistance x100: the run stops at ~321 s)
+    _case(project, "case-city").parameterOverrides.setdefault("el-battery", {})[
+        "internal_resistance_ohm"] = 8.0
+    for then in ([], [_set("el-vehicle", "cd", 0.3)]):
+        live = _Live(at=100.0, then=then)
+        result = simulate(project, "case-city", live.emit, live.control)
+        times = [m["t"] for m in live.steps()]
+        assert times == sorted(set(times)) and 300.0 < times[-1] < 600.0  # (never from 0 again)
+        assert result.status == "failed" and result.engine is None
+        (msg,) = result.messages
+        assert "[NEW-FAILED]" in msg.text and "RUN-INTEGRATOR" in msg.text, msg.text
+        assert "It is not run again on today's engine" in msg.text
+    quiet = simulate(project, "case-city", None, lambda: [])
+    assert quiet.engine == "today" and "[NEW-FAILED]" in quiet.messages[0].text
 
 
 def test_the_result_says_what_ran_it_and_the_snapshot_keeps_it(monkeypatch):
@@ -200,3 +421,4 @@ def test_the_result_says_what_ran_it_and_the_snapshot_keeps_it(monkeypatch):
                                                             key="cd", value=0.3)]})
     refused = replay(edited)
     assert refused.status == "failed" and "live edits" in refused.messages[0].text
+    assert refused.messages[0].text.startswith("Not replayed [REPLAY-TODAY-LIVE-EDITS]: ")

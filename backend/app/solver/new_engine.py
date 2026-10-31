@@ -9,11 +9,14 @@ its own with a ``lightsim_engine.RunControl`` (_Live): its output points
 streamed as today's "step" messages as the engine records them, the
 result's values bit for bit, at the case's pace; a cancel stops it where it
 is; a set_param is a live edit of a runtime parameter, an event at the
-run's next output time (a structural one takes effect on the next run, as
-today's says). The result says which engine ran it, its version, its solver
-options and the live edits it made (``replay`` makes them again). Everything else, and any failure
-of the new engine, runs on
-today's engine, and the result's messages say which engine ran the case and,
+run's next output time (a structural one, one the path's checks after the
+run read as at its start, takes effect on the next run, and the result's
+note of it says so with the code NEW-LIVE-NEXT-RUN). The result says which
+engine ran it, its version, its solver options and the live edits it took
+(``replay`` makes them again). Everything else, and any failure of the new
+engine, runs on today's engine (but a live run the new engine fails after
+it has shown a point or read a Stop or an edit: that run fails with its
+code), and the result's messages say which engine ran the case and,
 after a fall-back, why, with a stable reason code in brackets (``[NEW-LAP]``;
 CODES lists them, and benchmarks/back_to_back counts them). With
 ``LIGHTSIM_ENGINE_STRICT=1`` as well nothing falls back: a case the new
@@ -112,12 +115,33 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
     the case fails with the reason's code)."""
     why = unsupported(project, case_id)
     if why is None:
+        # what a live run showed (a point, a note) or read (a Stop, a live
+        # edit): one the new engine fails after that is not run again on
+        # today's engine, whose stream would start again at t = 0 without them
+        begun = []
+
+        def shown(msg: dict) -> None:
+            begun.append(msg)
+            emit(msg)
+
+        def read() -> list[dict]:
+            got = list(control())
+            begun.extend(got)
+            return got
         try:
-            return _ran(run_new(project, case_id, emit, control))
+            return _ran(run_new(project, case_id, emit and shown, control and read))
         except Exception as e:  # noqa: BLE001 — the new engine must never break a run
             why = failure(e)
             if strict():
                 return refused(case_id, why, str(e))
+            if begun:
+                return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
+                    level="error", text=f"The new engine could not finish this live run "
+                                        f"[{why.code}]: {why.why} ({e}). It is not run again on "
+                                        f"today's engine, which would start it again at t = 0 "
+                                        f"without the Stop or the live edits it was given: run "
+                                        f"the case again (with {ENV_VAR}=today for today's "
+                                        f"engine).")])
             result = today(project, case_id, emit, control)
             result.messages.insert(0, SimMessage(
                 level="warning", text=f"The new engine could not run this case [{why.code}] "
@@ -225,18 +249,17 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
     from . import core  # (core imports this module)
 
     case = next(c for c in project.cases if c.id == case_id)
-    overrides = getattr(case, "parameterOverrides", None) or {}
     # today's model gives what the engine's run lacks: the labels and units of
     # the channels, the Script blocks' code, ports and parameters, and, in a
     # RunContext built and never stepped, the parts as today's engine reads
     # them (each battery's capacity and checks, each motor's maximum speed,
     # each driveline's parts, each table's axes, each tank's start)
-    model = build_model(project, {}, overrides)
     try:
-        ctx = RunContext(project, model, Runtime(model, None), {}, overrides, workers=False)
+        ctx = _context(project, case_id)
     except ModelInitError as e:  # as today's engine says it
         return SimResult(caseId=case_id, status="failed", channels=[],
                          messages=[SimMessage(level="error", text=t) for t in e.messages])
+    model = ctx.model
     ctx.performance = case.kind != "cycle"
     ctx.full_throttle = case.kind == "acceleration"
     t_end = max(0.0, float(case.duration))
@@ -250,13 +273,16 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
               output_step=opts.get("outputStep"), trace=plan.names, trace_step=step,
               windows=plan.windows)
     # a replay's live edits, each as the engine's parameter changes, taken
-    # where the run took them
-    again = _Edits(project, case_id, built)
-    replayed = []  # (element, key, value, its time when the engine reads nothing of it)
+    # where the run took them (one it did not make: its note again)
+    again = _Edits(project, case_id, built) if edits else None
+    replayed = []  # as _Live.taken
     for e in edits:
+        if e.note:
+            replayed.append((e.elementId, e.key, e.value, e.t, False, e.note))
+            continue
         changes = again.changes(e.elementId, e.key, e.value)
         again.keep(e.elementId, e.key, e.value, changes)
-        replayed.append((e.elementId, e.key, e.value, None if changes else e.t))
+        replayed.append((e.elementId, e.key, e.value, e.t, bool(changes), None))
         if changes:
             kw.setdefault("edits", []).append((e.t, changes))
     live = _Live(project, case, model, built, emit, control) if emit or control else None
@@ -304,41 +330,54 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
                 return step_fn
             run = go(scripts={sp.el_id: runner(sp) for sp in specs}, native_scripts=False)
     stopped = run.report["stopped"] is not None
+    # the live edits it took (each where the engine took it), and the notes
+    # of those it did not make
+    taken = live.made(run.report["edits"]) if live else _made(replayed, run.report["edits"], model)
     result = _result(project, case, model, ctx, built, run, plan, lanes, laps_warning,
-                     list(dropped.values()), stopped)
-    # what ran it, and the live edits it made (each where the engine took it)
+                     list(dropped.values()), stopped, [e for e in taken if not e.note])
+    result.messages += _notes(taken)
+    # what ran it
     result.engine, result.engineVersion = "new", lightsim_engine.version()
     result.solverOptions = {"rtol": float(run.report["rtol"]), "atol": float(run.report["atol"]),
                             "outputStep": float(run.report["output_step"]), "traceStep": step}
-    if live:  # (its notes of edits not made went to the live run: no replay has them)
-        result.liveEdits = live.made(run.report["edits"])
-    else:
-        result.liveEdits = _made(replayed, run.report["edits"])[0]
+    result.liveEdits = taken
     _refresh_status(result)
     return result
 
 
-def _made(edits: list[tuple], report_edits: list) -> tuple[list[LiveEdit], list[tuple]]:
-    """The live edits a run made, each at the simulated time the run had
-    reached when it took it (the engine takes and makes its changes in
-    order: the report's are the first of those it was given), and those
-    that came too late. ``edits``: (element, key, value, its time, for one
-    the engine reads nothing of, or None)."""
+def _made(taken: list[tuple], report_edits: list, model) -> list[LiveEdit]:
+    """The live edits a run took, in order, each at the simulated time the
+    run had reached when it took it: one given to the engine at the time
+    the engine took it (the engine takes and makes its changes in order:
+    the report's are the first of those it was given; one it was given and
+    did not make came too late); one the run did not make with its note,
+    which says why. ``taken``: (element, key, value, the run's time, given
+    to the engine, its note or None)."""
     report = iter(report_edits)
-    made, late = [], []
-    for el_id, key, value, t in edits:
-        if t is None:
+    out = []
+    for el_id, key, value, t, given, note in taken:
+        if given:
             m = next(report, None)
             if m is None:
-                late.append((el_id, key))
-                continue
-            t = float(m["t"])
-        made.append(LiveEdit(t=t, elementId=el_id, key=key, value=value))
-    return made, late
+                note = (f"'{model.elements[el_id].label}.{key}' changed too late in the run to "
+                        f"take effect: it takes effect on the next run [{NEXT_RUN}].")
+            else:
+                t = float(m["t"])
+        out.append(LiveEdit(t=t, elementId=el_id, key=key, value=value, note=note))
+    return out
 
 
-LIVE_QUEUE = 256  # output points the engine may run ahead of a live run's reader
-PACED_QUEUE = 2  # ... of a paced one's: the engine held near the clock
+def _notes(edits: list[LiveEdit]) -> list[SimMessage]:
+    """The result's notes of the live edits a run did not make, each once:
+    a replay gives them again from its snapshot's list."""
+    told = dict.fromkeys(e.note for e in edits if e.note)
+    return [SimMessage(level="info", text=t) for t in told]
+
+
+# output points the engine may run ahead of a live run's reader: a Stop or
+# a live edit lands within a few output points of the point the view shows
+# (and a paced run's engine is held near the clock)
+LIVE_QUEUE = 2
 POLL_S = 0.02  # how often a live run's control is read, s
 
 
@@ -346,16 +385,45 @@ class _Later(Exception):
     """A live edit the run cannot take: it takes effect on the next run."""
 
 
+def _context(project: Project, case_id: str) -> RunContext:
+    """Today's model of a case's project, in a RunContext built and never
+    stepped: the parts as today's engine reads them (run_new)."""
+    case = next(c for c in project.cases if c.id == case_id)
+    overrides = getattr(case, "parameterOverrides", None) or {}
+    model = build_model(project, {}, overrides)
+    return RunContext(project, model, Runtime(model, None), {}, overrides, workers=False)
+
+
+def _checked(ctx: RunContext) -> str:
+    """What the path's checks after a run read of today's parts as they
+    were at the run's start, where today's engine checks them at each step
+    with the values then: the Ambient's air (_runtime), each battery's
+    minimum SOC, charge power, power cap and checks (_terminal, _supply),
+    each E-Motor's and Engine's maximum speed (_over_speed), each table's
+    axes (_tables), the Vehicle's CG height and Downforce Area (the lift). A
+    live edit that changes any of it takes effect on the next run (_Edits)."""
+    amb = ctx.params(ctx.amb_id) if ctx.amb_id else {}
+    return repr((amb.get("temperature_C"), amb.get("pressure_kPa"),
+                 ctx.load_shift() if ctx.veh_id else None,
+                 [(b.el_id, b.min_soc, b.max_charge_w, b.p_cap_w, b.check)
+                  for b in ctx.batteries.values()],
+                 [(el, m.speed_use.edge) for el, m in (*ctx.motors.items(), *ctx.engines.items())],
+                 sorted((str(k), m.ranges) for k, m in ctx.maps.items())))
+
+
 class _Edits:
     """Live edits as the new engine's parameter changes: the project with
     the edits so far built again (as cheap as a build: no run), its
     parameters against the run's. An edit the engine runs another
-    structure for (or does not build) is for the next run."""
+    structure for (or does not build), or one that changes what the path's
+    checks after the run read as at its start (_checked), is for the next
+    run."""
 
     def __init__(self, project: Project, case_id: str, built):
         self.project = project.model_copy(deep=True)  # with the edits kept so far
         self.case_id, self.built = case_id, built
         self.params = dict(built.params())  # the run's, as the edits leave them
+        self.checked = _checked(_context(self.project, case_id))
 
     def changes(self, el_id: str, key: str, value) -> dict:
         """The engine's parameter changes an edit makes on top of those
@@ -369,6 +437,7 @@ class _Edits:
         try:
             b = lightsim_engine.build(trial.model_dump_json(), self.case_id,
                                       cycles_dir=str(cycles.DIR))
+            checked = _checked(_context(trial, self.case_id))
         except Exception as e:  # noqa: BLE001 — the engine's refusal of the value
             raise _Later(f"the new engine takes it on the next run ({e})") from e
         new = b.params()
@@ -376,6 +445,9 @@ class _Edits:
                 or new.keys() != self.params.keys()):
             raise _Later("the new engine builds another model for it: it takes effect on the "
                          "next run")
+        if checked != self.checked:
+            raise _Later("the new engine's checks after its run read it as it was at the run's "
+                         "start: it takes effect on the next run")
         return {n: v for n, v in new.items()
                 if v != self.params[n] and not (math.isnan(v) and math.isnan(self.params[n]))}
 
@@ -402,13 +474,12 @@ class _Live:
 
         self.case, self.model, self.emit, self.control = case, model, emit, control
         self.pace = max(0.0, float(getattr(case, "realtimeFactor", 0.0) or 0.0))
-        room = PACED_QUEUE if self.pace > 0 else LIVE_QUEUE if emit else 0
-        self.rc = lightsim_engine.RunControl(queue=room)
+        self.rc = lightsim_engine.RunControl(queue=LIVE_QUEUE if emit else 0)
         self.edits = _Edits(project, case.id, built)
-        # the edits taken, in order: (element, key, value, the run's time
-        # for one the engine reads nothing of, or None: given to the engine)
-        self.sent: list[tuple[str, str, object, Optional[float]]] = []
-        self.noted: set[tuple[str, str]] = set()
+        # the edits taken, in order: (element, key, value, the run's time,
+        # given to the engine, the note of one the run does not make: _made)
+        self.taken: list[tuple[str, str, object, float, bool, Optional[str]]] = []
+        self.said: set[str] = set()
         ports = {(el_id, p.id) for el_id, cdef in model.cdef_of.items()
                  for p in [*cdef.ports, *(model.elements[el_id].dynamicPorts or [])]}
         self.ports = ports
@@ -476,6 +547,7 @@ class _Live:
         if el_id not in model.params_of:
             return  # (no such part: as today's, nothing)
         pdef = next((p for p in model.cdef_of[el_id].parameters if p.key == key), None)
+        t = self.rc.t
         try:
             if pdef is not None and pdef.variability == "fixed":
                 raise _Later("structural parameters take effect on the next run")
@@ -487,26 +559,29 @@ class _Live:
                     self.rc.set_params(changes)
                 except ValueError as e:  # the engine's words
                     raise _Later(f"the new engine takes it on the next run ({e})") from e
-            self.sent.append((el_id, key, value, None if changes else self.rc.t))
+            self.taken.append((el_id, key, value, t, bool(changes), None))
             self.edits.keep(el_id, key, value, changes)
         except _Later as e:
-            self._note(el_id, key, f"'{model.elements[el_id].label}.{key}' changed — {e}.")
+            note = f"'{model.elements[el_id].label}.{key}' changed — {e} [{NEXT_RUN}]."
+            if isinstance(value, (bool, int, float, str)):  # (a LiveEdit holds a scalar)
+                self.taken.append((el_id, key, value, t, False, note))
+            self._say(note)
 
-    def _note(self, el_id: str, key: str, text: str) -> None:
-        if (el_id, key) in self.noted:  # (once, as today's)
+    def _say(self, text: str) -> None:
+        if text in self.said:  # (once, as today's)
             return
-        self.noted.add((el_id, key))
+        self.said.add(text)
         if self.emit:
             self.emit({"type": "message", "level": "info", "text": text})
 
     def made(self, report_edits: list) -> list[LiveEdit]:
-        """The live edits the run made (_made), and a note of each that came
-        too late."""
-        made, late = _made(self.sent, report_edits)
-        for el_id, key in late:
-            self._note(el_id, f"{key}:late", f"'{self.model.elements[el_id].label}.{key}' changed "
-                                             f"too late in the run to take effect.")
-        return made
+        """The live edits the run took (_made), the note of one that came
+        too late said now."""
+        edits = _made(self.taken, report_edits, self.model)
+        for e in edits:
+            if e.note:
+                self._say(e.note)
+        return edits
 
 
 ACCEL_TRACE_STEP_S = 0.01  # the trace of a test that is not a cycle (today: every solver step)
@@ -604,10 +679,12 @@ def _finite(x) -> bool:
 
 def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
             laps_warning: Optional[str], script_warnings: tuple[str, ...] = (),
-            stopped: bool = False) -> SimResult:
+            stopped: bool = False, made: list[LiveEdit] = ()) -> SimResult:
     """Today's SimResult of the new engine's run: its evidence judged by the
     verdict and made into the reports by today's code (evidence.py); a run
-    stopped where it was (a cancel) judged as today's judges a stopped one."""
+    stopped where it was (a cancel) judged as today's judges a stopped one;
+    the parts read as edited by the live edits it ``made``, as today's
+    RunContext has them at its run's end."""
     from . import core
 
     case_id = case.id
@@ -638,6 +715,12 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
         level = "info" if start or d.get("severity") != "warning" else "warning"
         messages.append(SimMessage(level=level, text=f"{'Preparation note' if level == 'info' else 'Preparation'}"
                                                      f" [{d.get('code')}]: {d.get('message')}"))
+    # the live edits the run made, by today's own code: what the reports
+    # read of the parts at the end (a hand calculation's drag coefficient)
+    # as today's has it; what its checks read at each step none of them
+    # changes (_checked)
+    for e in made:
+        ctx.apply_set_param(e.elementId, e.key, e.value)
 
     # ---- the evidence ------------------------------------------------------
     ev = Evidence.of_context(ctx, energy_report=getattr(case, "energyReport", True))
@@ -743,7 +826,8 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
                         else [float(v) for v in tr[plan.target]])
         trace.speed = [float(v) for v in tr[plan.speed]]
         trace.dist = [float(v) for v in tr[plan.dist]]
-        if run.report["reran_to_finish"] and ctx.end_distance is not None and trace.dist:
+        if (run.report["reran_to_finish"] and not stopped and ctx.end_distance is not None
+                and trace.dist):
             # the engine ran again to its finish event and ended there: the
             # line, located to its root finding's precision (75.3000007 m at
             # rtol 1e-6, a hair short of 75.3 m at 1e-8), is where the run is
@@ -921,9 +1005,14 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
 NOT_JUDGED = "NEW-TABLE-NOT-JUDGED"
 
 # the codes of the path's notes on a run it ran: what of it the verdict does
-# not judge (benchmarks/back_to_back/acceptance.toml's [note_codes])
+# not judge, and the live edits it did not make
+# (benchmarks/back_to_back/acceptance.toml's [note_codes])
+NEXT_RUN = "NEW-LIVE-NEXT-RUN"  # the note's code for a live edit the run did not make
 NOTE_CODES = {NOT_JUDGED: "a table the run read past its data that today's engine does not read "
-                          "as a part's data: a note, not judged"}
+                          "as a part's data: a note, not judged",
+              NEXT_RUN: "a live edit the run did not make (one the new engine builds another "
+                        "model for, one its checks after the run read as at the start, a table, "
+                        "a structural parameter, or one too late): it takes effect on the next run"}
 
 
 def _at_event(ev_times: list[float], t0: float, t1: float) -> float:

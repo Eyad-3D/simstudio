@@ -706,7 +706,7 @@ FULL = {  # every field of every model filled in
                     "differencePct": -2.4, "tolerance": 5.0, "grade": "within", "source": "EPA",
                     "automatic": True, "bound": "two-sided", "note": "a note"}],
     "engine": "new", "engineVersion": "0.1.0", "solverOptions": {"rtol": 1e-6},
-    "liveEdits": [{"t": 2.0, "elementId": "el-v", "key": "cd", "value": 0.3}],
+    "liveEdits": [{"t": 2.0, "elementId": "el-v", "key": "cd", "value": 0.3, "note": "next run"}],
 }
 
 

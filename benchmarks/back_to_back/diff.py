@@ -299,7 +299,7 @@ FIELDS = {
                   "limits": "own", "references": "own", "engine": "text", "engineVersion": "text",
                   "solverOptions": "text", "liveEdits": "text"},
     # (each live edit within its list's text)
-    "LiveEdit": {"t": "text", "elementId": "text", "key": "text", "value": "text"},
+    "LiveEdit": {"t": "text", "elementId": "text", "key": "text", "value": "text", "note": "text"},
     "SimMessage": {"level": "own", "text": "own"},
     "Channel": {"elementId": "key", "portId": "key", "label": "text", "unit": "text",
                 "timeSeries": "own", "min": "own", "max": "own", "mean": "own"},
