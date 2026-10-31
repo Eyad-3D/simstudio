@@ -272,10 +272,15 @@ def _param_problem(project: ls.Project, case_id: str, p: dict) -> Optional[str]:
     return None
 
 
+def _ports(el: Any) -> list:
+    """The ports of a part: its type's and its own (a Script block's)."""
+    cdef = ls.library().get(el.componentDefId)
+    return list(cdef.ports if cdef else ()) + list(el.dynamicPorts)
+
+
 def _port_id(el: Any, name: str) -> Optional[str]:
     """The id of the port of ``el`` called ``name`` (its id, else its name)."""
-    cdef = ls.library().get(el.componentDefId)
-    ports = list(cdef.ports if cdef else ()) + list(el.dynamicPorts)
+    ports = _ports(el)
     port = (next((p for p in ports if p.id == name), None)
             or next((p for p in ports if p.name.lower() == name.lower()), None))
     return port.id if port else None
@@ -283,16 +288,19 @@ def _port_id(el: Any, name: str) -> Optional[str]:
 
 def _part_problems(project: ls.Project, r: dict) -> list[str]:
     """The part the brief asks for (``require``): one part of type
-    ``r['type']`` labelled ``r['label']``, and each port in ``r['ports']``
+    ``r['type']`` labelled ``r['label']``, each port in ``r['ports']``
     (``{port: "part:port"}``) linked on the data bus to that port of that
-    part (named by its label or id), as the brief says."""
+    part (named by its label or id), as the brief says, and no other input
+    port linked: the brief names them all, and a signal that reaches the
+    block another way (a Lookup Table feeding an extra port, say) leaves the
+    block returning an answer it did not work out."""
     els = [e for e in project.elements
            if e.componentDefId == r["type"] and e.label.strip().casefold() == r["label"].casefold()]
     if len(els) != 1:
         return [f"{len(els)} {r['type']} parts labelled '{r['label']}', the brief asks for one"]
     el = els[0]
-    links = {frozenset(((d.element1Id, d.port1Id), (d.element2Id, d.port2Id)))
-             for d in project.model.dataBusConnections}
+    wires = [((d.element1Id, d.port1Id), (d.element2Id, d.port2Id)) for d in project.model.dataBusConnections]
+    links = {frozenset(w) for w in wires}
     problems = []
     for name, peer in r.get("ports", {}).items():
         port = _port_id(el, name)
@@ -304,6 +312,11 @@ def _part_problems(project: ls.Project, r: dict) -> list[str]:
                 if part == e.id or part.casefold() == e.label.strip().casefold()]
         if not any(frozenset(((el.id, port), end)) in links for end in ends):
             problems.append(f"'{el.label}' port '{name}' is not linked to {peer}, as the brief says")
+    named = {_port_id(el, name) for name in r.get("ports", {})}
+    fed = {port for wire in wires for part, port in wire if part == el.id}
+    problems += [f"'{el.label}' input port '{p.name}' is linked, but the brief names only "
+                 f"{', '.join(r.get('ports', {}))}"
+                 for p in _ports(el) if p.direction == "input" and p.id in fed and p.id not in named]
     return problems
 
 

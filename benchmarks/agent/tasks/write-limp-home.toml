@@ -1,11 +1,11 @@
 id = "write-limp-home"
 kind = "write"
-version = 3
+version = 4
 title = "Write a limp-home mode for a nearly flat battery"
 statement = """
 car.json models our electric hatchback, here on a motorway run that starts
-with the battery nearly flat (13 % charge). The safety concept asks for a
-limp-home mode: below 15 % battery charge the car must not use more than 15 %
+with the battery low (16 % charge) and takes it below 15 % partway through.
+The safety concept asks for a limp-home mode: below 15 % battery charge the car must not use more than 15 %
 of the motor's available torque. Add a Script block labelled "Limp Home" that
 passes the driver's traction command on to the motor, but limited to 0.15
 (15 % of the available torque) while the battery's charge is below 15 %. Give
@@ -23,7 +23,7 @@ name = "Hatchback, safety concept"
 ops = [
   { op = "add_case", name = "Motorway (WLTC Extra High)", id = "case-motorway", copy_of = "case-wltc", duration = 323 },
   { op = "set", element = "Vehicle Task", param = "cycle", value = "wltc-3-extra-high", case = "case-motorway" },
-  { op = "set", element = "HV Battery Pack", param = "initial_soc_pct", value = 13, case = "case-motorway" },
+  { op = "set", element = "HV Battery Pack", param = "initial_soc_pct", value = 16, case = "case-motorway" },
 ]
 
 [reference]
@@ -63,6 +63,37 @@ def step(t, dt, inputs, state, params):
     cmd = inputs.get("cmd", 0.0)
     if inputs.get("soc", 100.0) < LIMP_BELOW_SOC:
         cmd = min(cmd, LIMP_CEILING)
+    return {"torque_cmd": cmd}
+""" }]
+
+# The condition dropped, two ways (the run starts above 15 % and ends below
+# it, so each shows): the ceiling from the start, ...
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Limp Home", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"torque_cmd": min(inputs.get("cmd", 0.0), 0.15)}
+""" }]
+
+# ... or never.
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Limp Home", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"torque_cmd": inputs.get("cmd", 0.0)}
+""" }]
+
+# The threshold at 14 % instead of 15 %: the ceiling comes late.
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Limp Home", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    cmd = inputs.get("cmd", 0.0)
+    if inputs.get("soc", 100.0) < 14.0:
+        cmd = min(cmd, 0.15)
     return {"torque_cmd": cmd}
 """ }]
 

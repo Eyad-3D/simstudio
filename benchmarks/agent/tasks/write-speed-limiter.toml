@@ -1,6 +1,6 @@
 id = "write-speed-limiter"
 kind = "write"
-version = 3
+version = 4
 title = "Write a speed limiter as a Script block"
 statement = """
 car.json models our electric hatchback. Fleet customers want a speed limiter.
@@ -81,6 +81,37 @@ def step(t, dt, inputs, state, params):
   { op = "add_port", element = "Scope", name = "x", direction = "input" },
   { op = "connect", from = "Speed Limiter:target", to = "Scope:x" },
 ]
+
+# A Lookup Table caps the target, and the Script is wired as the brief says but
+# returns what the table gives it on an extra input port "capped".
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Cap Table" },
+  { op = "set", element = "Cap Table", param = "table_1d", value = { "0" = 0.0, "100" = 100.0, "300" = 100.0 } },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Cap Table:sig_x_in" },
+  { op = "add", type = "signal.script", label = "Speed Limiter" },
+  { op = "set", element = "Speed Limiter", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"target": inputs.get("capped", 0.0)}
+""" },
+  { op = "add_port", element = "Speed Limiter", name = "demand", direction = "input" },
+  { op = "add_port", element = "Speed Limiter", name = "capped", direction = "input" },
+  { op = "add_port", element = "Speed Limiter", name = "target", direction = "output" },
+  { op = "disconnect", from = "Vehicle Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Speed Limiter:demand" },
+  { op = "connect", from = "Cap Table:sig_out", to = "Speed Limiter:capped" },
+  { op = "connect", from = "Speed Limiter:target", to = "Driver:sig_target_in" },
+]
+
+# The condition dropped: the Script passes the target on with no cap.
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Speed Limiter", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"target": inputs.get("demand", 0.0)}
+""" }]
 
 [check]
 file = "car.json"

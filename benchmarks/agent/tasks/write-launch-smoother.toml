@@ -1,6 +1,6 @@
 id = "write-launch-smoother"
 kind = "write"
-version = 3
+version = 4
 title = "Write a launch smoother that limits how fast the target speed may rise"
 statement = """
 car.json models our electric hatchback. Fleet customers want gentle starts.
@@ -54,6 +54,15 @@ def step(t, dt, inputs, state, params):
     target = last + max(-RISE_KMH_PER_S * dt, min(RISE_KMH_PER_S * dt, inputs.get("demand", 0.0) - last))
     state["target"] = target
     return {"target": target}
+""" }]
+
+# The condition dropped: the Script passes the target on with no limit on its rise.
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Launch Smoother", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"target": inputs.get("demand", 0.0)}
 """ }]
 
 # Written another way: only a target above the last one is held back.

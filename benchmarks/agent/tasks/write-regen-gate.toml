@@ -1,6 +1,6 @@
 id = "write-regen-gate"
 kind = "write"
-version = 3
+version = 4
 title = "Write a gate that stops regenerative braking at low speed"
 statement = """
 car.json models our electric hatchback. At crawling speed the motor's
@@ -59,6 +59,15 @@ def step(t, dt, inputs, state, params):
     if cmd < 0.0 and inputs.get("speed", 0.0) < NO_REGEN_BELOW_KMH:
         cmd = 0.0
     return {"torque_cmd": cmd}
+""" }]
+
+# The condition dropped: the Script passes the command on with no gate.
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Regen Gate", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"torque_cmd": inputs.get("cmd", 0.0)}
 """ }]
 
 [check]

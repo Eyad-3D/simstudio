@@ -135,6 +135,22 @@ _DISCONNECT = {"op": "disconnect", "from": "Vehicle Task:sig_demand", "to": "Dri
      [*_SHED, *_SHED_SCRIPT, {"op": "connect", "from": "Shed Table:sig_out", "to": "Power Consumer:sig_demand_in"},
       {"op": "connect", "from": "Aux Shedding:share", "to": "Power Consumer:sig_demand_in"}],
      "has 2 sources"),
+    # a Script block wired as the brief says, but a Lookup Table feeds an extra input port it returns
+    ("write-speed-limiter", "also_wrong:2", "input port 'capped' is linked, but the brief names only demand, target"),
+    ("write-aux-shed", "also_wrong:2", "input port 'x' is linked, but the brief names only soc, share"),
+    # the condition in the brief dropped (Script blocks wired as the brief says, doing less than it says): the
+    # case runs through each part of the condition, so each shows in a figure
+    ("write-speed-limiter", "also_wrong:3", "vehicle.body:sig_speed max ="),      # no cap
+    ("write-launch-smoother", "also_wrong:0", "distance_km ="),                   # no limit on the rise
+    ("write-regen-gate", "also_wrong:0", "consumption_kwh_per_100km ="),          # no gate
+    ("write-speed-zone", "also_wrong:0", "distance_km ="),                        # no upper bound (4.7 km on)
+    ("write-speed-zone", "also_wrong:1", "vehicle.body:sig_speed max ="),         # no lower bound (to 6.0 km)
+    ("write-speed-zone", "also_wrong:2", "distance_km ="),                        # no zone
+    ("write-limp-home", "also_wrong:0", "distance_km ="),                         # the ceiling from the start
+    ("write-limp-home", "also_wrong:1", "the run ended 'success', the reference's 'warning'"),  # never
+    ("write-limp-home", "also_wrong:2", "distance_km ="),                         # the threshold at 14 %
+    ("write-aux-shed", "also_wrong:3", "electric.constant_drive:sig_power max ="),  # a constant share
+    ("write-aux-shed", "also_wrong:4", "electric.constant_drive:sig_power mean ="),  # two levels, no line
     # City Cycle mended, and the faults put on a case the brief says not to touch
     ("repair-case-override", "also_wrong:0", "'Vehicle' mass_kg in case 'WLTC Class 3b' is 2400"),
     # ... or another setting of that case changed: its duration, which model_edit's set_case can reach
@@ -176,6 +192,31 @@ def test_a_write_task_wants_each_script_port_linked_where_the_brief_says(task):
             {"op": "connect", "from": f"{r['label']}:{port}", "to": "Scope:x"}])
         assert agent._part_problems(agent.ls.Project(moved), r) == [
             f"'{r['label']}' port '{port}' is not linked to {peer}, as the brief says"]
+
+
+@pytest.mark.parametrize("task", WRITE, ids=lambda t: t.id)
+def test_a_write_task_refuses_an_input_port_the_brief_does_not_name(task):
+    """The Script block gets an extra input port, fed from the same part as
+    its first input (a Lookup Table feeding it does the same): the block no
+    longer works its answer out from the signals the brief names, so the
+    checker refuses it. An extra port that nothing feeds is harmless."""
+    r = task.check["require"]
+    model = agent.solution(task, "reference")[0][task.check["file"]]
+    el = next(e for e in agent.ls.Project(model).elements if e.label == r["label"])
+    first = next(p.name for p in el.dynamicPorts if p.direction == "input")
+    free, _ = apply_operations(model, [{"op": "add_port", "element": r["label"], "name": "extra", "direction": "input"}])
+    assert agent._part_problems(agent.ls.Project(free), r) == []
+    fed, _ = apply_operations(free, [{"op": "connect", "from": r["ports"][first], "to": f"{r['label']}:extra"}])
+    assert agent._part_problems(agent.ls.Project(fed), r) == [
+        f"'{r['label']}' input port 'extra' is linked, but the brief names only {', '.join(r['ports'])}"]
+
+
+@pytest.mark.parametrize("task", WRITE, ids=lambda t: t.id)
+def test_a_write_task_has_a_script_that_drops_the_condition_in_its_brief(task):
+    """Each write task holds a wrong solution wired as the brief says whose
+    code does less than the brief says (the validator runs it: it must fail,
+    so the case has to run through every part of the condition)."""
+    assert any(w.get("base") == "reference" for w in task.also_wrong), task.id
 
 
 #: a changed value for every field of a case but its id and its parameter overrides

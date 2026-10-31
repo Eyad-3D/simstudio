@@ -527,20 +527,66 @@ def test_answer_1_names_only_a_setting_that_clears_the_hands_off_floor_itself():
     assert not why and {s.setting.name for s in specs} == {"sonnet-high", "opus-high"}
 
 
-def test_a_subset_with_no_held_out_task_cannot_say_a_setting_works():
-    """The pilot's three tasks (none held out), every setting solving all of
-    them on all three tries: 3/3 is not "below the 90%", and it is not a
-    hands-off claim either, since the held-out tasks are the check on tuning
-    to the visible ones."""
-    tasks = [t for t in ALL if t.id in ("repair-hatchback", "question-loaded-ev", "write-speed-limiter")]
-    assert not {t.id for t in tasks} & agent.heldout()
+def _held_out() -> list:
+    return [t for t in ALL if t.id in agent.heldout()]
+
+
+@pytest.mark.parametrize("ids", [
+    # the pilot's three tasks, none held out
+    ["repair-hatchback", "question-loaded-ev", "write-speed-limiter"],
+    # three tasks, one of them held out (it used to be enough to judge)
+    ["build-add-climate", "question-loaded-ev", "repair-hatchback"],
+    # every held-out task and none of the others
+    "heldout",
+], ids=["none held out", "one held out", "all held out, no visible task"])
+def test_a_subset_of_the_tasks_cannot_say_a_setting_works(ids):
+    """Every setting solves every task of the subset on all three tries: 3/3
+    is not "below the 90%", and it is no hands-off claim either, since the
+    shares are of all tasks and of the held-out ones. Only a run of every
+    task of the bench is judged."""
+    tasks = _held_out() if ids == "heldout" else [t for t in ALL if t.id in ids]
     text, data = compare.report(tries_of(tasks, {s: set() for s in COST}), [], tasks, list(compare.SETTINGS))
     a1, a2 = data["cheapestWorking"], data["handsOff"]
     assert (a1["works"], a1["judged"], a1["setting"]) == (False, False, "haiku-low")  # stage C still has its input
     assert a2["settings"] is None
-    assert ("1. The cheapest working setting: not known; the tasks run include no held-out task, and a "
-            "setting works only with pass^3 on 90% of the held-out ones too.") in text
+    assert (f"1. The cheapest working setting: not known; a --tasks subset of {len(tasks)} of {len(ALL)} tasks "
+            "was run, and a setting works only with pass^3 on 90% of all tasks and of the held-out ones.") in text
     assert "   The cheapest setting as good as the ceiling: Haiku 5.5, low, 0.0060 USD a try" in text
-    assert "2. Good enough for hands-off work: not known yet; it needs held-out tasks among the tasks run " \
-           "(this run has none)." in text
+    assert (f"2. Good enough for hands-off work: not known yet; it needs every task of the bench (this run has "
+            f"{len(tasks)} of {len(ALL)}, a --tasks subset).") in text
     assert "below the 90%" not in text and "No setting" not in text
+
+
+def test_a_setting_that_beats_a_ceiling_below_the_floor_is_named_working():
+    """The ceiling itself misses the hands-off floor (Opus high: 29/33, 9/11
+    held out) and a cheaper setting clears it (Sonnet high: 31/33, 10/11):
+    that setting works, so answer 1 names it and does not say that none does.
+    Haiku low (27/33) is as good as the ceiling on count and below the floor."""
+    held, visible = sorted(agent.heldout()), sorted(t.id for t in ALL if t.id not in agent.heldout())
+    rs = tries_of(ALL, {"opus-high": set(held[:2]) | set(visible[:2]), "sonnet-high": {held[0], visible[0]},
+                        "haiku-low": set(held[:3]) | set(visible[:3])})
+    text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    s = data["settings"]
+    assert (s["opus-high/mcp"]["pass3"]["all"], s["opus-high/mcp"]["pass3"]["heldout"]) == ([29, 33], [9, 11])
+    assert (s["sonnet-high/mcp"]["pass3"]["all"], s["sonnet-high/mcp"]["pass3"]["heldout"]) == ([31, 33], [10, 11])
+    assert s["haiku-low/mcp"]["pass3"]["all"] == [27, 33]
+    a1 = data["cheapestWorking"]
+    assert (a1["works"], a1["setting"], a1["belowHandsOff"]) == (True, "sonnet-high", ["haiku-low", "opus-high"])
+    assert data["handsOff"]["settings"] == ["sonnet-high"]
+    (line,) = [x for x in text.splitlines() if x.startswith("1.")]
+    assert line.startswith("1. The cheapest working setting: **Sonnet 5.5, high**, 0.0881 USD a try")
+    assert "so not working: Haiku 5.5, low, Opus 5.5, high." in text
+    assert "No setting" not in text
+
+
+def test_a_settings_subset_names_the_cheapest_of_those_it_ran():
+    """Sonnet medium and Opus high, the only two settings run, solve every
+    task: the cheapest working of them is Sonnet medium, and the line says
+    it is the cheapest of the two run, not of all eight."""
+    run_these = [s for s in compare.SETTINGS if s.name in ("sonnet-medium", "opus-high")]
+    text, data = compare.report(tries_of(ALL, {"sonnet-medium": set(), "opus-high": set()}), [], ALL, run_these)
+    assert data["cheapestWorking"]["setting"] == "sonnet-medium"
+    assert "1. The cheapest working setting of the 2 settings run (not all 8): **Sonnet 5.5, medium**" in text
+    text, _ = compare.report(tries_of(ALL, {"sonnet-medium": set(), "opus-high": set()}), [], ALL,
+                             list(compare.SETTINGS))
+    assert "1. The cheapest working setting: **Sonnet 5.5, medium**" in text

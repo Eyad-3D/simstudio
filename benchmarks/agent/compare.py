@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from . import KINDS, ROOT, Task, heldout, isolate, load_tasks
+from . import KINDS, ROOT, TASKS_DIR, Task, heldout, isolate, load_tasks
 from .run import CAP_ENV, SCORED, preflight, run_try
 
 
@@ -197,10 +197,15 @@ def _share(s: dict, group: str) -> float:
     return passed / of if of else 0.0
 
 
+def _bench_size() -> int:
+    return len(list(TASKS_DIR.glob("*.toml")))
+
+
 def _judged(s: dict) -> bool:
-    """Held-out tasks are among those run: without them (a ``--tasks``
-    subset) pass^3 cannot say a setting is good enough for hands-off work."""
-    return s["pass3"]["heldout"][1] > 0
+    """Every task of the bench was run: on a ``--tasks`` subset, even one
+    holding some held-out tasks, pass^3 cannot say a setting is good enough
+    for hands-off work (the shares are of all tasks and of the held-out ones)."""
+    return s["pass3"]["all"][1] == _bench_size()
 
 
 def _hands_off(s: dict) -> bool:
@@ -214,7 +219,8 @@ def cheapest_working(summary: dict, tasks: list[Task]) -> dict:
     comparison against the ceiling. ``works`` is False when none is: then no
     setting drives LightSim successfully, and ``setting`` is only the cheapest
     that is as good as the ceiling (which stage C still runs). ``judged`` is
-    False when the tasks run include no held-out one."""
+    False when the tasks run are a subset of the bench: nothing is then known
+    of whether a setting works."""
     ceiling = summary.get(f"{CEILING}/mcp")
     if not ceiling or not ceiling["pass3Complete"]:
         return {"setting": None, "why": "needs the ceiling's three tries on every task (stage B)"}
@@ -242,7 +248,8 @@ def hands_off(summary: dict, tasks: list[Task]) -> dict:
     if not done:
         return {"settings": None, "why": "needs three tries on every task (stage B)"}
     if not _judged(done[0]):
-        return {"settings": None, "why": "needs held-out tasks among the tasks run (this run has none)"}
+        return {"settings": None, "why": f"needs every task of the bench (this run has {len(tasks)} of "
+                                         f"{_bench_size()}, a --tasks subset)"}
     good = [s["setting"] for s in done if _hands_off(s)]
     best = max(done, key=lambda s: (_share(s, "all"), _share(s, "heldout")))
     target = summary.get(f"{TARGET}/mcp")
@@ -322,13 +329,17 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
             f"{WORKING_MARGIN} tasks below the ceiling's; candidates: "
             f"{', '.join(label[x] for x in a1['candidates'])}.)")
         if a1["works"]:
-            lines.append(f"1. The cheapest working setting: **{a1['label']}**, {detail}")
+            # (a --settings subset names the cheapest of those run, not of all eight)
+            scope = ("" if {s.name for s in SETTINGS} <= {s.name for s in settings}
+                     else f" of the {len(settings)} settings run (not all {len(SETTINGS)})")
+            lines.append(f"1. The cheapest working setting{scope}: **{a1['label']}**, {detail}")
             if a1["belowHandsOff"]:
                 lines.append(f"   Candidates below the {HANDS_OFF:.0%} hands-off floor (all tasks or held "
                              f"out), so not working: {', '.join(label[x] for x in a1['belowHandsOff'])}.")
         elif not a1["judged"]:
-            lines.append("1. The cheapest working setting: not known; the tasks run include no held-out task, "
-                         f"and a setting works only with pass^3 on {HANDS_OFF:.0%} of the held-out ones too.")
+            lines.append(f"1. The cheapest working setting: not known; a --tasks subset of {len(tasks)} of "
+                         f"{_bench_size()} tasks was run, and a setting works only with pass^3 on {HANDS_OFF:.0%} "
+                         f"of all tasks and of the held-out ones.")
             lines.append(f"   The cheapest setting as good as the ceiling: {a1['label']}, {detail}")
         else:
             lines.append(

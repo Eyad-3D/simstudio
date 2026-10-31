@@ -189,13 +189,16 @@ time; and the not-run tries retried. Then two answers the command works out:
    the floor is named as such, not called working. When none is good enough,
    as on today's tools, the answer is that no setting drives LightSim
    successfully yet, and the cheapest setting as good as the ceiling follows
-   on its own line (stage C still runs it).
+   on its own line (stage C still runs it). A `--settings` subset names the
+   cheapest of the settings it ran, and the line says so.
 2. **Good enough for hands-off work**: pass^3 on at least 90 % of all tasks
    and of the held-out tasks. When no setting is, the report says so: that
    gap is what step 6's later tool changes must close, with Sonnet 5.5 at
-   medium as the target. A `--tasks` subset with no held-out task cannot
-   answer 1 or 2, and the report says "not known" instead of judging on
-   the visible tasks alone.
+   medium as the target. A `--tasks` subset (anything short of all 33
+   tasks, even one holding held-out tasks) cannot answer 1 or 2: the report
+   says "not known" and how many tasks it ran, instead of judging a setting
+   on a few tasks. The cheapest setting as good as the ceiling stays on its
+   own line, for stage C.
 
 The smoke test (`run --smoke`) runs `question-loaded-ev` and the planted task
 once in each mode on Sonnet 5.5 at medium (`--model`, `--effort`): the
@@ -294,10 +297,12 @@ best = { case = "Acceleration 75 m", key = "accel_time_s", pick = "min" }
 - `require`: the part the brief asks for: one part of that type with that
   label, and each of its ports linked on the data bus to the port of the
   part that the brief names (`ports = { port = "part:port" }`, the part by
-  its label). A `write` task needs it: a Lookup Table, or a Script block
-  that is not fed and read where the brief says (its output going only to a
-  Monitor, say), does not do what the brief asks even when the figures come
-  out right.
+  its label). No other input port of the part may be linked: the brief
+  names them all. A `write` task needs it: a Lookup Table, or a Script
+  block that is not fed and read where the brief says (its output going
+  only to a Monitor, say), or one that returns what a Lookup Table gives it
+  on an extra input port, does not do what the brief asks even when the
+  figures come out right.
 - `figures`: the agent's run and the reference's must end the same way
   (success, warning…), and each figure must lie within `rtol` (relative) or
   `atol` (absolute) of the reference's.
@@ -324,7 +329,11 @@ Starting files are never stored: only operations on the bundled examples
 5. For a model task, pick a short case and the figures that show the task
    was done; make the bands wide enough for any right way of doing it and
    narrow enough to fail the wrong one. When there is more than one right
-   way to build it, add it as `[[also_right]]`.
+   way to build it, add it as `[[also_right]]`. For a `write` task the case
+   must run through every part of the condition the brief states (the
+   battery crossing the threshold, the car entering and leaving the zone):
+   add `[[also_wrong]]` entries with the same wiring whose code drops each
+   part (no upper bound, never, always) and see them fail.
 6. For an answer task, run the reference and put the figures in the key
    (the validator says what LightSim computes when they differ).
 7. `python -m benchmarks.agent validate <id>` until it says ok; then
