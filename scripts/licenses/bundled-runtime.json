@@ -52,6 +52,13 @@
       "files": ["liblzma.so*", "liblzma*.dylib"]
     },
     {
+      "name": "Zstandard (libzstd)",
+      "license": "BSD-3-Clause OR GPL-2.0-only",
+      "url": "https://github.com/facebook/zstd",
+      "copyright": "Copyright (c) Meta Platforms, Inc. and affiliates. All rights reserved.",
+      "files": ["libzstd.so*"]
+    },
+    {
       "name": "Expat",
       "license": "MIT",
       "url": "https://libexpat.github.io/",
