@@ -544,6 +544,7 @@ impl Run {
                     lsim_solve::EventKind::Block(_) => "block",
                     lsim_solve::EventKind::Time(_) => "time",
                     lsim_solve::EventKind::States(_) => "states",
+                    lsim_solve::EventKind::Params(_) => "params",
                 },
             )?;
             out.append(d)?;
@@ -552,12 +553,36 @@ impl Run {
     }
 
     /// What the run did: steps, events, backend, wall seconds, notes,
-    /// warnings, the integrator's error estimate and the energy closure.
+    /// warnings, the integrator's error estimate and the energy closure;
+    /// where a RunControl stopped it (`stopped`, s, or None) and the
+    /// parameter changes it made (`edits`: dicts with `t`, the point the
+    /// run had reached when it took the change, `at`, when it made it, and
+    /// `params`, each parameter that changed there by engine name, SI;
+    /// `simulate(edits=[(t, params), ...])` makes them again, bit for bit).
     #[getter]
     fn report<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let (o, r) = (&self.out, &self.out.result);
         let s = &r.report;
         let d = PyDict::new(py);
+        d.set_item("stopped", s.stopped)?;
+        let edits = PyList::empty(py);
+        let names = self.built.model.param_names();
+        let mut before: &[f64] = &o.params;
+        for (t, made, p) in &o.edits {
+            let x = PyDict::new(py);
+            x.set_item("t", *t)?;
+            x.set_item("at", *made)?;
+            let changed = PyDict::new(py);
+            for ((name, a), b) in names.iter().zip(before).zip(p) {
+                if a.to_bits() != b.to_bits() {
+                    changed.set_item(*name, *b)?;
+                }
+            }
+            x.set_item("params", changed)?;
+            edits.append(x)?;
+            before = p;
+        }
+        d.set_item("edits", edits)?;
         d.set_item("steps", r.stats.steps)?;
         d.set_item("events", r.events.len())?;
         d.set_item("backend", r.backend)?;
@@ -639,6 +664,124 @@ struct ParamState {
     values: Vec<f64>,
 }
 
+/// The run a RunControl serves: its model, and every parameter change set
+/// so far (the model's own `set_params` first).
+type Serving = (Arc<core::Built>, Vec<(String, f64)>);
+
+/// One run's control: stop it, take its output points as it records
+/// them, change its parameters while it goes (`model.simulate(control=c)`,
+/// one run each). Safe to call from any thread while the run goes in
+/// another: the run never waits for the interpreter's lock on it, and
+/// `points` lets go of the lock while it waits. The points go through a
+/// queue of at most `queue` points (0, the default: none are kept, for a
+/// stop and changes alone): while it is full the run waits for its reader
+/// (who paces the run so), unless the run was told to stop or the reader
+/// closed the control.
+#[pyclass(module = "lightsim_engine", frozen)]
+struct RunControl {
+    inner: Arc<core::Control>,
+    /// the run it serves, once given to one: its model, and every
+    /// parameter change set so far (the model's own `set_params` first)
+    serving: Mutex<Option<Serving>>,
+}
+
+#[pymethods]
+impl RunControl {
+    #[new]
+    #[pyo3(signature = (queue=0))]
+    fn new(queue: usize) -> RunControl {
+        RunControl { inner: Arc::new(core::Control::new(queue)), serving: Mutex::new(None) }
+    }
+
+    /// Stops the run where it is: it ends at the end of the step it takes,
+    /// with a last output point there (`run.report["stopped"]`).
+    fn cancel(&self) {
+        self.inner.cancel();
+    }
+
+    /// The reader goes: the run waits for no point any more.
+    fn close(&self) {
+        self.inner.close();
+    }
+
+    /// Whether the run was told to stop.
+    #[getter]
+    fn cancelled(&self) -> bool {
+        self.inner.cancelled()
+    }
+
+    /// Whether the run has ended (every point it gives is waiting in the
+    /// queue, or taken).
+    #[getter]
+    fn finished(&self) -> bool {
+        self.inner.finished()
+    }
+
+    /// The time the run reached, s (its progress: `t / t_end`).
+    #[getter]
+    fn t(&self) -> f64 {
+        self.inner.progress().0
+    }
+
+    /// The end of the run going, s.
+    #[getter]
+    fn t_end(&self) -> f64 {
+        self.inner.progress().1
+    }
+
+    /// The channels each point holds, in order: today's names
+    /// (`element:port`), the values in today's display units.
+    #[getter]
+    fn channels(&self) -> Vec<String> {
+        self.inner.channel_names()
+    }
+
+    /// The output points recorded since the last call, each `(t, values)`
+    /// (in `channels`' order; the result's values bit for bit): waits up
+    /// to `timeout` s for the first while the run goes, without the
+    /// interpreter's lock; an empty list when none came.
+    #[pyo3(signature = (timeout=0.1))]
+    fn points(&self, py: Python<'_>, timeout: f64) -> Vec<core::Point> {
+        let wait = std::time::Duration::from_secs_f64(timeout.clamp(0.0, 3600.0));
+        let inner = Arc::clone(&self.inner);
+        py.detach(move || inner.take(wait))
+    }
+
+    /// Changes parameters of the run going (engine names, SI values) from
+    /// its next output time on, an event there (`run.report["edits"]` says
+    /// when). Checked as `Model.set_params` checks them, on top of the
+    /// changes made before; a value bound to another parameter may be
+    /// given only as the others make it. All or none: a bad name or value
+    /// raises ValueError and changes nothing.
+    fn set_params(&self, py: Python<'_>, values: &Bound<'_, PyAny>) -> PyResult<()> {
+        let changes = changes_of(values)?.map_err(PyValueError::new_err)?;
+        let mut serving = self.serving.lock().unwrap_or_else(|e| e.into_inner());
+        let Some((built, set)) = serving.as_mut() else {
+            return Err(PyValueError::new_err(
+                "the control serves no run yet: give it to Model.simulate(control=...)",
+            ));
+        };
+        if self.inner.finished() {
+            return Err(PyValueError::new_err("the run has ended"));
+        }
+        let built = Arc::clone(built);
+        let mut next = set.clone();
+        let params = py
+            .detach(|| core::params_after(&built, &mut next, &changes))
+            .map_err(PyValueError::new_err)?;
+        self.inner
+            .give(lsim_solve::ParamEdit { from: 0.0, at: None, params })
+            .map_err(PyValueError::new_err)?;
+        *set = next;
+        Ok(())
+    }
+
+    fn __repr__(&self) -> String {
+        let (t, t_end) = self.inner.progress();
+        format!("<lightsim_engine.RunControl at t = {t} s of {t_end} s>")
+    }
+}
+
 /// A case built and ready to run.
 #[pyclass(module = "lightsim_engine", frozen)]
 struct Model {
@@ -659,7 +802,7 @@ fn run_options(
     t_end: Option<f64>,
     native_scripts: bool,
 ) -> RunOptions {
-    RunOptions { rtol, atol, output_step, t_end, native_scripts, trace: None, windows: vec![] }
+    RunOptions { rtol, atol, output_step, t_end, native_scripts, ..Default::default() }
 }
 
 #[pymethods]
@@ -771,7 +914,13 @@ impl Model {
     /// besides the output grid and without changing it (`run.trace`).
     /// `windows` maps names of the same kind to a span of time, s (0 or
     /// more), whose highest moving average to keep (`run.windows`).
-    #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true, trace=None, trace_step=0.1, windows=None))]
+    /// `control` (a RunControl, one run each) stops the run, takes its
+    /// output points as it records them and changes its parameters while it
+    /// goes, from another thread; `edits` are parameter changes at times of
+    /// their own, a list of `(t, {engine name: SI value})`, each on top of
+    /// the ones before and checked as `set_params` checks them (a run's
+    /// live changes made again: `run.report["edits"]` gives them).
+    #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true, trace=None, trace_step=0.1, windows=None, control=None, edits=None))]
     #[allow(clippy::too_many_arguments)]
     fn simulate(
         &self,
@@ -785,6 +934,8 @@ impl Model {
         trace: Option<Vec<String>>,
         trace_step: f64,
         windows: Option<BTreeMap<String, f64>>,
+        control: Option<Py<RunControl>>,
+        edits: Option<Vec<(f64, Bound<'_, PyAny>)>>,
     ) -> PyResult<Run> {
         let scripts = scripts_of(scripts)?;
         core::check_script_keys(&self.built, scripts.keys()).map_err(|f| to_err(py, f))?;
@@ -792,6 +943,30 @@ impl Model {
         let params = self.state().values.clone();
         let built = Arc::clone(&self.built);
         let mut opts = run_options(rtol, atol, output_step, t_end, native_scripts);
+        let mut set: Vec<(String, f64)> =
+            self.state().set.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        for (t, changes) in edits.unwrap_or_default() {
+            if !t.is_finite() {
+                return Err(PyValueError::new_err(format!(
+                    "edits: a time must be a number, not {t}"
+                )));
+            }
+            let changes = changes_of(&changes)?.map_err(PyValueError::new_err)?;
+            let p = core::params_after(&built, &mut set, &changes)
+                .map_err(|m| PyValueError::new_err(format!("edits at t = {t} s: {m}")))?;
+            opts.edits.push((t, p));
+        }
+        if let Some(c) = &control {
+            let c = c.get();
+            let mut serving = c.serving.lock().unwrap_or_else(|e| e.into_inner());
+            if serving.is_some() {
+                return Err(PyValueError::new_err(
+                    "this RunControl serves a run already: one each",
+                ));
+            }
+            *serving = Some((Arc::clone(&built), set));
+            opts.control = Some(Arc::clone(&c.inner));
+        }
         if let Some(names) = &trace {
             let channels = core::trace_channels(&built, names).map_err(|f| to_err(py, f))?;
             opts.trace = Some(lsim_solve::TraceSpec { step: trace_step, channels });
@@ -800,8 +975,11 @@ impl Model {
             windows.unwrap_or_default().into_iter().unzip();
         let channels = core::trace_channels(&built, &window_names).map_err(|f| to_err(py, f))?;
         opts.windows = channels.into_iter().zip(spans).collect();
-        let mut out =
-            py.detach(|| core::run(&built, &params, &opts, &factory)).map_err(|f| to_err(py, f))?;
+        let ran = py.detach(|| core::run(&built, &params, &opts, &factory));
+        if let Some(c) = &opts.control {
+            c.end(); // (however it ended: its reader stops waiting)
+        }
+        let mut out = ran.map_err(|f| to_err(py, f))?;
         out.trace_names = trace;
         out.window_names = window_names;
         Ok(Run::new(built, out))
@@ -971,6 +1149,7 @@ fn lightsim_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(spike, m)?)?;
     m.add_class::<Model>()?;
     m.add_class::<Run>()?;
+    m.add_class::<RunControl>()?;
     m.add("ModelError", m.py().get_type::<ModelError>())?;
     Ok(())
 }

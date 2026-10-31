@@ -2565,6 +2565,34 @@ residuals and what they solve for.
   then name a table today's would not (a test holds today's verdict on
   such a case, marked as expected to fail until the guard counts only the
   branch taken).
+* **A run's control** (step 2, `SolverOptions::control`, a `RunControl`):
+  one hook serves a run's progress, a live run's stream, a study's Stop
+  and a live edit. The run loop calls it on the run's thread at the end of
+  every step it takes (and once at its end): `reached` is told the point
+  reached and the output points recorded since, the values the result
+  holds; `stop` ends the run there, at the end of the step taken, with a
+  last output point at that time (the grid's times not reached dropped,
+  the books and the trace closed there too, `SolverReport::stopped`); and
+  `edits` gives parameter changes (`ParamEdit`: the whole vector), which
+  are events. A change is taken at the end of the first step at or after
+  its `from` (a live one: the next step) and made at the first output
+  time after that point (or at its own `at`): the integrator stops there,
+  takes the new values (`Integrator::set_params`), solves the iteration
+  variables again with them, settles the conditions and restarts, the
+  books booking the stored energy's change as at any event; the output
+  point there takes the new values and keeps the old ones as its left
+  limit; what else reads the parameters (the blocks' input tapes, the time
+  functions and crossings) is set up again at the next step, as after a
+  switch of the states. `SolverReport::edits` lists each change, when
+  taken, when made. Given again with `from` the time it was taken, a
+  change is taken at the same step's end and made at the same time, and
+  the run is the same bit for bit: every step before it is (a change
+  known from the start would not do: CVODE sizes its first step by the
+  next stop time, and the values after the change moved by an ulp in the
+  test that found it). The parameter sets a run's changes go on with are
+  kept for its length beside the models a switch of the states goes on
+  with, up to 1024 of each; past that a change is not made and the run
+  warns.
 
 **As built (work package 4).** The energy integrals are under the
 integrator's error control by default (`energy_error_control`): without
@@ -3295,7 +3323,8 @@ model.param_names()       # the engine's parameter names
 model.params()            # current values, SI
 model.set_params({"el_vehicle.cd": 0.30})                 # runtime, no rebuild
 run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
-                     native_scripts=True, trace=None, trace_step=0.1, windows=None)
+                     native_scripts=True, trace=None, trace_step=0.1, windows=None,
+                     control=None, edits=None)
 run.times                 # NumPy float64
 run.channels["el-battery:sig_soc"]   # today's names and display units, NumPy arrays
 run.engine_channels       # the engine's own names, SI
@@ -3303,6 +3332,8 @@ run.min, run.max, run.mean           # like channels, per output interval
 run.events, run.report, run.energy   # energy: the books, or None
 run.figures               # today's summary figures {key, label, value, unit}
 run.integrals, run.trace, run.windows, run.table_outside   # the evidence for the app's verdict and reports
+control = le.RunControl(queue=0)    # stop, points as they are recorded, live changes
+control.cancel(); control.points(timeout=0.1); control.set_params({...}); control.t
 runs = model.sweep([{...}, {...}], threads=4)   # Runs, or the exception for a failed set
 le.diagnose(project_json, case_id)    # structural and unit checks only
 le.ModelError             # .diagnostics: [{severity, code, message, parts, hint, detail}]
@@ -3364,6 +3395,33 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   (the energy books' parts' paths); `model.var_names()` the engine's
   variables and today's channels. What the app reads of them is section
   12.3's.
+* **A run's control** (step 2, item 4: one stop and progress callback for
+  a study's Stop, a run's progress and a live run). `simulate(control=c)`
+  runs with `c`, a `RunControl` (one run each), which other Python threads
+  use while the run goes: `c.cancel()` stops it where it is
+  (`run.report["stopped"]`, section 8.4); `c.t` and `c.t_end` are its
+  progress; `c.points(timeout)` gives the output points recorded since the
+  last call, each `(t, values)` in `c.channels`' order (today's channels,
+  display units), the result's values bit for bit, through a queue of at
+  most `queue` points that the run waits on while it is full (the reader
+  paces the run so; `queue=0`, the default, keeps none, for a stop
+  alone); `c.set_params({...})` changes parameters from the run's next
+  output time on, checked as `set_params` checks them on top of the
+  changes before (a value bound to another may be given only as its
+  binding makes it). The control's state is atomics, a mutex-guarded
+  queue and condition variables in Rust: the run never takes the
+  interpreter's lock for it (it goes on while another thread holds the
+  lock, a test shows), and `points` waits without the lock. A run told to
+  stop, or whose reader called `close()`, waits for no reader. `run.report
+  ["edits"]` lists the changes made (`t`, the point the run had reached
+  when it took the change; `at`, when it made it; the parameters that
+  changed), and `simulate(edits=[(t, {...}), ...])` makes them again: the
+  same run, bit for bit. An acceleration test, which runs again to the
+  moment it crosses the finish, tells its last run's points only (after
+  its first run, when that is the result), its second run making the
+  first's changes before the finish at their times and refusing others (a
+  change there would move the finish it runs to): `run.report["edits"]`
+  then lists the first run's.
 * **Output grid.** A grid (from `t_end` and `output_step`, the caller's or
   the case's own) of more than 10⁷ points, or whose results would take
   more than 4 GB (each point holds every recorded variable's value, min,
@@ -3401,9 +3459,8 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   A panic inside the engine becomes a `ModelError` coded `ENGINE-FAULT`;
   bad arguments are `ValueError` or `TypeError`.
 * **Not yet:** fast mode for project files (no `mode` argument, so nothing
-  silently runs something else), FMU parts, a progress callback, cancelling
-  a run, the one-click tighter run as its own call
-  (call `simulate` again with a smaller `rtol`).
+  silently runs something else), FMU parts, the one-click tighter run as
+  its own call (call `simulate` again with a smaller `rtol`).
 
 ## 14. Error messages
 

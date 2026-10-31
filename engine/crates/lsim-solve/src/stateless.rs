@@ -458,6 +458,14 @@ impl Integrator for Stateless<'_> {
         &mut self.d
     }
 
+    fn set_params(&mut self, p: &[f64]) -> bool {
+        if p.len() != self.p.len() {
+            return false;
+        }
+        self.p.copy_from_slice(p);
+        true
+    }
+
     fn restart(&mut self, t: f64, _y: &[f64]) -> Result<(), SolveError> {
         // the integrals at t become the start's
         let mut q = vec![0.0; self.q0.len()];

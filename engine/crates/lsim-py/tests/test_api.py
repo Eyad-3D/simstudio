@@ -666,3 +666,185 @@ def test_runs_from_several_python_threads(bev):
     for t in threads:
         t.join()
     assert len(results) == 3 and len(set(results)) == 1
+
+
+# ---- a run's control: stop, its points as it records them, live changes ----
+
+def _start(model, control, **kw):
+    """`model.simulate(control=control, **kw)` in a thread of its own; once
+    the run has started."""
+    out = {}
+
+    def work():
+        try:
+            out["run"] = model.simulate(control=control, **kw)
+        except BaseException as e:  # noqa: BLE001 — told by the test
+            out["error"] = e
+
+    th = threading.Thread(target=work)
+    th.start()
+    while not control.channels and th.is_alive():  # (set as the run starts)
+        time.sleep(0.001)
+    return th, out
+
+
+def _drive(model, control, during=None, **kw):
+    """The run with its points read as it goes; `during(control)` between
+    reads."""
+    th, out = _start(model, control, **kw)
+    points = []
+    while True:
+        got = control.points(0.05)
+        points += got
+        if during:
+            during(control)
+        if not th.is_alive() and not got:
+            break
+    th.join()
+    if "error" in out:
+        raise out["error"]
+    return out["run"], points
+
+
+def _bits(a) -> bytes:
+    return np.asarray(a, dtype=np.float64).tobytes()
+
+
+def test_a_control_streams_every_point_of_the_result(bev, bev_run):
+    """Every output point, as the run records it, through a queue the run
+    waits on when it is full (8 points here): the result's, bit for bit."""
+    c = le.RunControl(queue=8)
+    run, points = _drive(bev, c)
+    assert run.report["stopped"] is None and c.finished and not c.cancelled
+    assert _bits(run.times) == _bits(bev_run.times)  # (a control changes nothing)
+    assert all(_bits(v) == _bits(bev_run.channels[n]) for n, v in run.channels.items())
+    assert len(points) == len(run.times)
+    for k, (t, values) in enumerate(points):
+        assert t == run.times[k]
+        for name, v in zip(c.channels, values):
+            assert _bits([v]) == _bits(run.channels[name][k:k + 1]), (name, k)
+    assert set(c.channels) == set(run.channels)
+
+
+def test_a_control_stops_the_run_where_it_is(bev):
+    """A stop ends the run at the end of the step it takes: its points up
+    to there and a last one there, the books closed; a control with no
+    queue (the default) keeps no points and holds nothing up."""
+    c = le.RunControl()
+    th, out = _start(bev, c)
+    while c.t < 500 and th.is_alive():
+        time.sleep(0.001)
+    asked = time.perf_counter()
+    c.cancel()
+    th.join()
+    took = time.perf_counter() - asked
+    run = out["run"]
+    stopped = run.report["stopped"]
+    assert 500 <= stopped < 600 and run.times[-1] == stopped, stopped
+    assert run.times[-2] == np.floor(stopped) and len(run.times) < 1801
+    assert all(len(v) == len(run.times) for v in run.channels.values())
+    assert run.energy["relative_closure"] < 1e-8
+    assert c.points(0.0) == [] and c.cancelled
+    assert took < 0.5, took  # (stopped within a step; not the judged latency)
+
+
+def test_the_run_goes_on_while_python_holds_its_lock(bev):
+    """The engine never waits for the interpreter's lock while it runs: it
+    goes on while this thread keeps the lock (a switch interval of 10 s and
+    a busy loop)."""
+    c = le.RunControl()
+    th, _ = _start(bev, c)
+    while c.t <= 0 and th.is_alive():
+        time.sleep(0.001)
+    before = sys.getswitchinterval()
+    sys.setswitchinterval(10.0)
+    try:
+        t0, start = time.perf_counter(), c.t
+        while time.perf_counter() - t0 < 0.3:
+            pass
+        moved = c.t - start
+    finally:
+        sys.setswitchinterval(before)
+    th.join()
+    assert moved > 0 or c.t >= 1800
+
+
+def test_a_live_change_is_made_at_the_next_output_time_and_made_again_exactly(bev):
+    """A live change (`RunControl.set_params`) is taken at the run's next
+    step and made at the first output time after it, as an event; the run
+    given it again (`simulate(edits=...)`, the time it was taken) is the
+    same bit for bit. What `set_params` refuses: a structural parameter, a
+    bound one given otherwise than its binding makes it, a control that
+    serves no run, a control given to a second run."""
+    asked = {}
+
+    def change(c):
+        if not asked and c.t >= 300:
+            asked["at"] = c.t  # (before: the run goes on meanwhile)
+            c.set_params({CD: 0.35})
+
+    c = le.RunControl()
+    run, _ = _drive(bev, c, change)
+    (e,) = run.report["edits"]
+    assert e["params"] == {CD: 0.35}
+    assert asked["at"] <= e["t"] < e["at"] == np.floor(e["t"]) + 1.0  # (the case's 1 s grid)
+    k = list(run.times).index(e["at"])
+    assert any(ev["kind"] == "params" and ev["t"] == e["at"] for ev in run.events)
+    again = bev.simulate(edits=[(e["t"], e["params"])])
+    assert again.report["edits"] == run.report["edits"]
+    for name, v in run.channels.items():
+        assert _bits(v) == _bits(again.channels[name]), name
+    assert _bits(run.times[:k]) == _bits(bev.simulate().times[:k])
+
+    with pytest.raises(ValueError, match="serves no run"):
+        le.RunControl().set_params({CD: 0.3})
+    with pytest.raises(ValueError, match="one each"):
+        bev.simulate(control=c)
+    c = le.RunControl()
+    th, _ = _start(bev, c)
+    try:
+        with pytest.raises(ValueError, match="structure"):
+            c.set_params({MASS: 1500.0})
+        mu = "el_wheel_fl.mu"
+        with pytest.raises(ValueError, match="bound"):
+            c.set_params({mu + "0": 0.5})
+        c.set_params({mu: 0.9, mu + "0": 0.9})  # (as its binding makes it)
+    finally:
+        c.cancel()
+        th.join()
+
+
+def test_an_acceleration_test_streams_its_last_run_and_takes_no_change_in_it():
+    """An acceleration test runs again to the moment it crosses the finish:
+    a control is told the points of that last run only (the result's, bit
+    for bit), which takes the changes its first run made, at their times,
+    and no others. Its changes made again from the times its first run took
+    them give the same run."""
+    fs = le.build((BACKEND / "projects" / "fs-electric.json").read_text(encoding="utf-8"),
+                  "case-accel-75m")
+    refused = []
+
+    def late(c):
+        if not refused:
+            try:
+                c.set_params({"el_vehicle.cd": 1.0})
+            except ValueError as e:
+                refused.append(str(e))
+
+    c = le.RunControl(queue=4)
+    run, points = _drive(fs, c, late)
+    assert run.report["reran_to_finish"]
+    assert [p[0] for p in points] == list(run.times)
+    for k, (_, values) in enumerate(points):
+        for name, v in zip(c.channels, values):
+            assert _bits([v]) == _bits(run.channels[name][k:k + 1]), (name, k)
+    assert refused and "next run" in refused[0], refused
+
+    changed = fs.simulate(edits=[(0.5, {"el_vehicle.cd": 1.0})])
+    (e,) = changed.report["edits"]
+    assert changed.report["reran_to_finish"] and e["at"] == 0.51
+    assert changed.times[-1] != fs.simulate().times[-1]  # (another drag: another finish)
+    again = fs.simulate(edits=[(e["t"], e["params"])])
+    assert _bits(again.times) == _bits(changed.times)
+    for name, v in changed.channels.items():
+        assert _bits(v) == _bits(again.channels[name]), name

@@ -4495,3 +4495,179 @@ fn an_output_grid_too_large_for_memory_is_an_error() {
     }
     assert_eq!(OutputGrid { t0: 0.0, t_end: 5.0, dt: 0.5 }.times().expect("room").len(), 11);
 }
+
+// ---- a run's control: stop, its points as it records them, a change of
+// its parameters while it goes (SolverOptions::control) ------------------
+
+/// A run's control for the tests: stops once the run has reached
+/// `stop_at`, gives its changes once the run has reached `edit_after`,
+/// keeps every point it is told.
+#[derive(Debug)]
+struct Ctl {
+    stop_at: f64,
+    edit_after: f64,
+    edits: std::sync::Mutex<Vec<lsim_solve::ParamEdit>>,
+    reached: std::sync::Mutex<f64>,
+    #[allow(clippy::type_complexity)]
+    points: std::sync::Mutex<Vec<(f64, Vec<f64>)>>,
+}
+
+impl Ctl {
+    fn new(stop_at: f64, edit_after: f64, edits: Vec<lsim_solve::ParamEdit>) -> Arc<Ctl> {
+        Arc::new(Ctl {
+            stop_at,
+            edit_after,
+            edits: std::sync::Mutex::new(edits),
+            reached: std::sync::Mutex::new(0.0),
+            points: std::sync::Mutex::new(vec![]),
+        })
+    }
+}
+
+impl lsim_solve::RunControl for Ctl {
+    fn stop(&self) -> bool {
+        *self.reached.lock().unwrap() >= self.stop_at
+    }
+    fn reached(&self, t: f64, _t_end: f64, first: usize, times: &[f64], values: &[Vec<f64>]) {
+        *self.reached.lock().unwrap() = t;
+        let mut pts = self.points.lock().unwrap();
+        for (k, &tk) in times.iter().enumerate().skip(first) {
+            pts.push((tk, values.iter().map(|c| c[k]).collect()));
+        }
+    }
+    fn edits(&self) -> Vec<lsim_solve::ParamEdit> {
+        if *self.reached.lock().unwrap() >= self.edit_after {
+            std::mem::take(&mut *self.edits.lock().unwrap())
+        } else {
+            vec![]
+        }
+    }
+}
+
+/// x' = p (x(0) = 0); the channels x and p.
+fn ramp() -> (Hand, RunInfo) {
+    let model = Hand {
+        layout: layout(1, 0, 1, 0, 0, 0, 2),
+        f: Box::new(|i, out| out[0] = i.p[0]),
+        jvp: Box::new(|_, _, out| out[0] = 0.0),
+        roots: Box::new(|_, _| {}),
+        vars: Box::new(|i, out| {
+            out[0] = i.y[0];
+            out[1] = i.p[0];
+        }),
+        when: nothing_v(),
+        modes: None,
+        y0: vec![0.0],
+        d0: vec![],
+    };
+    let mut info = RunInfo::bare(1, 2, vec![1.0]);
+    info.var_sources = vec![VarSource::Y(0), VarSource::Computed];
+    (model, info)
+}
+
+/// A control that stops a run ends it where it is, at the end of the step
+/// it took: the output points up to there and a last one there, at its own
+/// time, the run's report saying where; the points the control was told,
+/// one by one as they were recorded, are the result's bit for bit.
+#[test]
+fn a_stopped_run_ends_where_it_is_with_every_point_told() {
+    let (model, info) = ramp();
+    let ctl = Ctl::new(0.35, f64::INFINITY, vec![]);
+    let opts = SolverOptions {
+        max_step: 0.01,
+        control: Some(ctl.clone() as Arc<dyn lsim_solve::RunControl>),
+        ..Default::default()
+    };
+    let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 };
+    let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+    let t_stop = run.report.stopped.expect("stopped");
+    assert!((0.35..0.36 + 1e-12).contains(&t_stop), "{t_stop}");
+    let n = run.times.len();
+    assert_eq!(&run.times[..n - 1], &grid.times().unwrap()[..4]);
+    assert_eq!(run.times[n - 1], t_stop);
+    assert!((run.values[0][n - 1] - t_stop).abs() < 1e-12, "x = t at the stop");
+    assert!(run.values.iter().all(|c| c.len() == n) && run.mean[0].len() == n);
+    let told = ctl.points.lock().unwrap().clone();
+    assert_eq!(told.len(), n);
+    for (k, (t, v)) in told.iter().enumerate() {
+        assert_eq!(t.to_bits(), run.times[k].to_bits());
+        for (c, x) in v.iter().enumerate() {
+            assert_eq!(x.to_bits(), run.values[c][k].to_bits(), "point {k}, channel {c}");
+        }
+    }
+    // a run nothing stops records its whole grid, and tells every point
+    let ctl = Ctl::new(f64::INFINITY, f64::INFINITY, vec![]);
+    let opts = SolverOptions {
+        control: Some(ctl.clone() as Arc<dyn lsim_solve::RunControl>),
+        ..Default::default()
+    };
+    let run = simulate(&model, &info, &opts, grid, &mut []).unwrap();
+    assert_eq!((run.report.stopped, run.times.len()), (None, 11));
+    assert_eq!(ctl.points.lock().unwrap().len(), 11);
+}
+
+/// A live change of the parameters (no time of its own) is made at the
+/// first output time after the point the run reached when it took it, as
+/// an event there: the output point takes the new values, its left limit
+/// the old ones, the report says when. The run given the same change at
+/// that time from the start is the same, bit for bit; and a change whose
+/// time the run has passed is not made.
+#[test]
+fn a_live_change_is_an_event_at_the_next_output_time_and_made_again_exactly() {
+    let (model, info) = ramp();
+    let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 };
+    let run_with = |ctl: Arc<Ctl>| {
+        let opts = SolverOptions {
+            max_step: 0.013,
+            control: Some(ctl as Arc<dyn lsim_solve::RunControl>),
+            ..Default::default()
+        };
+        simulate(&model, &info, &opts, grid, &mut []).unwrap()
+    };
+    let three = lsim_solve::ParamEdit { from: 0.0, at: None, params: vec![3.0] };
+    let live = run_with(Ctl::new(f64::INFINITY, 0.25, vec![three]));
+    assert_eq!(live.report.edits.len(), 1);
+    let (taken, made, _) = live.report.edits[0].clone();
+    assert!((0.25..0.3).contains(&taken), "taken at {taken}");
+    assert_eq!(live.report.edits, vec![(taken, live.times[3], vec![3.0])]);
+    let k = 3; // 0.3 s
+    assert_eq!(live.values[1][k - 1], 1.0);
+    assert_eq!(live.values[1][k], 3.0, "the output point at the change takes the new value");
+    assert_eq!(live.before(1, k), 1.0, "its left limit the old one");
+    assert!(live.events.iter().any(|e| e.kind == EventKind::Params(0) && e.t == live.times[3]));
+    // x = 0.3 + 3 (t - 0.3)
+    assert!((live.values[0][10] - 2.4).abs() < 1e-9, "{}", live.values[0][10]);
+
+    // the same change, given from the start to be taken where the live run
+    // took it
+    let again = lsim_solve::ParamEdit { from: taken, at: None, params: vec![3.0] };
+    let again = run_with(Ctl::new(f64::INFINITY, 0.0, vec![again]));
+    assert_eq!(again.report.edits, live.report.edits);
+    let bits = |r: &SimResult| -> Vec<u64> {
+        r.times
+            .iter()
+            .chain(r.values.iter().flatten())
+            .chain(r.mean.iter().flatten())
+            .chain(r.min.iter().flatten())
+            .chain(r.max.iter().flatten())
+            .map(|x| x.to_bits())
+            .collect()
+    };
+    assert_eq!(bits(&again), bits(&live));
+    let events = |r: &SimResult| -> Vec<(u64, String)> {
+        r.events.iter().map(|e| (e.t.to_bits(), e.label.clone())).collect()
+    };
+    assert_eq!(events(&again), events(&live));
+
+    // a change made at a time of its own: there, exactly
+    let at = lsim_solve::ParamEdit { from: 0.0, at: Some(made), params: vec![3.0] };
+    let run = run_with(Ctl::new(f64::INFINITY, 0.0, vec![at]));
+    assert_eq!(run.report.edits, vec![(0.0, made, vec![3.0])]);
+    assert_eq!((run.values[1][2], run.values[1][3]), (1.0, 3.0));
+
+    // a change at a time already passed is not made
+    let late = lsim_solve::ParamEdit { from: 0.0, at: Some(0.1), params: vec![3.0] };
+    let run = run_with(Ctl::new(f64::INFINITY, 0.5, vec![late]));
+    assert!(run.report.edits.is_empty());
+    assert_eq!(run.values[1][10], 1.0);
+}

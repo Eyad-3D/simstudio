@@ -75,6 +75,20 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
   did not hold). `model.report["instances"]` maps each element to its
   instance name (the energy books' parts' paths); `model.var_names()`
   lists the engine's variables and today's channels.
+* `RunControl(queue=0)`: one run's control (`model.simulate(control=c)`),
+  used from other threads while the run goes. `c.cancel()` stops the run
+  where it is (`run.report["stopped"]` says when; its last output point is
+  there); `c.t` and `c.t_end` are its progress; `c.points(timeout=0.1)`
+  gives the output points recorded since the last call, `(t, values)` in
+  `c.channels`' order, the result's values to the bit, through a queue of
+  `queue` points that the run waits on while it is full (0: none kept);
+  `c.set_params({...})` changes parameters from the run's next output time
+  on. The run never needs the interpreter's lock for any of it.
+  `run.report["edits"]` lists the changes made (`t` when taken, `at` when
+  made, `params`); `model.simulate(edits=[(t, params), ...])` makes them
+  again, the same run bit for bit. An acceleration test tells only its
+  last run's points (it runs again to the finish) and takes changes in
+  its first run only.
 * `model.sweep(sets, threads=4, ...)` runs each set (on top of what
   `set_params` set) in parallel. The list it returns has a `Run` for each
   set that ran and the exception object for each that failed, in order.

@@ -288,6 +288,56 @@ pub struct SolverOptions {
     /// visited, read at each ([`SimResult::windows`]; a battery's averaged
     /// power peak, independent of the output step); empty by default
     pub windows: Vec<(usize, f64)>,
+    /// what the run tells as it goes (the point it reached, its output
+    /// points as it records them) and what stops it or changes its
+    /// parameters while it runs ([`RunControl`]); `None`, the default:
+    /// nothing
+    pub control: Option<std::sync::Arc<dyn RunControl>>,
+}
+
+/// What a run tells as it goes, and what stops it or changes its
+/// parameters while it runs ([`SolverOptions::control`]: a run's
+/// progress, a live run's stream, a study's Stop and a live edit through
+/// the one hook). The run loop calls it on the run's own thread at the
+/// end of every step it takes (and once more at its end): each call must
+/// be quick, and may wait only where its caller chose to (a bounded queue
+/// its reader empties).
+pub trait RunControl: Send + Sync + std::fmt::Debug {
+    /// Whether the run is to stop where it is: it then ends there, at the
+    /// end of the step it has taken, with a last output point there and
+    /// what it recorded up to it ([`SolverReport::stopped`]).
+    fn stop(&self) -> bool;
+    /// The run has reached `t` of `t_end` and recorded the output points
+    /// at `times`, `values[c][k]` channel `c` at `times[k]` as the result
+    /// holds it; those from `first` on are new since the last call.
+    fn reached(&self, t: f64, t_end: f64, first: usize, times: &[f64], values: &[Vec<f64>]);
+    /// The parameter changes asked for since the last call, in order.
+    fn edits(&self) -> Vec<ParamEdit> {
+        vec![]
+    }
+}
+
+/// A change of a run's parameters while it goes ([`RunControl::edits`]),
+/// made as an event, where the run then goes on with `params`. The run
+/// takes it at the end of the first step it takes at or after `from` (the
+/// end of its next step, for a live edit: `from` 0), and makes it at the
+/// first output time after that point (a time of the grid), or at `at`
+/// when it has one. A run given the change with `from` the time a run took
+/// it ([`SolverReport::edits`]) takes it at the same point and makes it at
+/// the same time: every step before is the same, so the run is the same
+/// bit for bit (its stop times, the first step's size among them, move
+/// only once it holds the change). A change whose time the run has passed,
+/// or that comes after its end, is not made.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParamEdit {
+    /// taken at the first step's end at or after this time, s
+    pub from: f64,
+    /// made at this time, s; `None`: at the first output time after the
+    /// point it was taken at
+    pub at: Option<f64>,
+    /// the parameter values to go on with (the whole vector, as
+    /// [`RunInfo::params`])
+    pub params: Vec<f64>,
 }
 
 /// Channels to sample from the dense output every `step` s from the
@@ -329,6 +379,7 @@ impl Default for SolverOptions {
             state_switch: STATE_SWITCH,
             trace: None,
             windows: vec![],
+            control: None,
         }
     }
 }
@@ -520,6 +571,13 @@ pub trait Integrator {
     /// after the discrete variables changed. `t` may lie inside the last
     /// step (the rest of the step is dropped).
     fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError>;
+    /// Goes on with the parameter values `p` (the whole vector) from the
+    /// next restart on: a run's parameter change ([`ParamEdit`]), made at
+    /// an event, which restarts the integrator. False when the backend
+    /// cannot (the default): the run then stops there, saying so.
+    fn set_params(&mut self, _p: &[f64]) -> bool {
+        false
+    }
     /// Goes on from `t`, the end of the last step, keeping the integration
     /// history (no restart), after an event that changed discrete values
     /// so little that the next step's error test hardly sees it. False when
@@ -649,6 +707,9 @@ pub enum EventKind {
     /// set whose choice degraded (index into the `state_sets` of the model
     /// the run went on from)
     States(usize),
+    /// the parameters changed ([`ParamEdit`]; index into
+    /// [`SolverReport::edits`])
+    Params(usize),
 }
 
 /// An event that happened.
@@ -739,6 +800,12 @@ pub struct SolverReport {
     pub table_outside: Vec<TableOutside>,
     /// each warning `assert` that did not hold, the first time
     pub asserts: Vec<AssertHit>,
+    /// where a [`RunControl`] stopped the run, s (`None`: it ran to its
+    /// end)
+    pub stopped: Option<f64>,
+    /// each parameter change the run made ([`ParamEdit`]), in order: when it
+    /// took it, when it made it, and the values it went on with from there
+    pub edits: Vec<(f64, f64, Vec<f64>)>,
 }
 
 /// A table axis a run read outside its data ([`SolverReport::table_outside`]),

@@ -122,6 +122,9 @@ pub struct Traced {
 
 /// What a [`Recorder`] collected.
 pub struct Recorded {
+    /// the output times recorded: the grid's, or up to where the run
+    /// stopped and that time ([`Recorder::end_at`])
+    pub times: Vec<f64>,
     /// per channel, the value at each grid time
     pub values: Vec<Vec<f64>>,
     /// per channel, the lowest value over each interval
@@ -227,6 +230,36 @@ impl Recorder {
         }
     }
 
+    /// The next grid time still to record (not a trace's).
+    pub fn next_output_time(&self) -> Option<f64> {
+        self.times.get(self.next).copied()
+    }
+
+    /// The output points recorded so far: their times, and each channel's
+    /// values at them (`values[c][k]`).
+    pub fn so_far(&self) -> (&[f64], &[Vec<f64>]) {
+        (&self.times[..self.next], &self.values)
+    }
+
+    /// Ends the record at `t`, where the run stopped before the grid's
+    /// end: the grid times not reached are dropped and `t` is the last
+    /// output point, with the channels `v` (the trace's last point too).
+    /// False when the last point recorded is at `t` already.
+    pub fn end_at(&mut self, t: f64, v: &[f64]) -> bool {
+        self.times.truncate(self.next);
+        if let Some(tr) = self.trace.as_mut() {
+            tr.times.truncate(self.trace_next);
+            if tr.times.last() != Some(&t) {
+                tr.times.push(t);
+            }
+        }
+        if self.times.last() == Some(&t) {
+            return false;
+        }
+        self.times.push(t);
+        self.grid_point(t, v)
+    }
+
     /// The trace's point at `t`, when its next time is `t`.
     fn trace_point(&mut self, t: f64, v: &[f64]) {
         let Some(tr) = self.trace.as_mut() else { return };
@@ -327,6 +360,7 @@ impl Recorder {
             tr
         });
         Recorded {
+            times: self.times,
             values: self.values,
             min: self.min,
             max: self.max,

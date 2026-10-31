@@ -39,24 +39,16 @@ pub(super) struct RunModel {
     pub info: RunInfo,
 }
 
-/// The models a run switches to: each kept, in place, for the run's
+/// The models a run switches to (and the parameter sets a run's changes
+/// go on with, [`crate::ParamEdit`]): each kept, in place, for the run's
 /// length (the run loop's helpers borrow them as they borrow the first),
 /// in pieces of [`CHUNK`] added as needed, up to [`MAX_MODELS`].
-pub(super) struct Arena {
-    slots: Vec<OnceCell<RunModel>>,
-    more: OnceCell<Box<Arena>>,
+pub(super) struct Arena<T = RunModel> {
+    slots: Vec<OnceCell<T>>,
+    more: OnceCell<Box<Arena<T>>>,
 }
 
-impl Arena {
-    pub fn new() -> Arena {
-        Arena { slots: (0..CHUNK).map(|_| OnceCell::new()).collect(), more: OnceCell::new() }
-    }
-
-    /// The pieces, in order.
-    fn pieces(&self) -> impl Iterator<Item = &Arena> {
-        std::iter::successors(Some(self), |a| a.more.get().map(|b| &**b))
-    }
-
+impl Arena<RunModel> {
     /// The model kept for the choice `states`, if any.
     pub fn find(&self, states: &[String]) -> Option<&RunModel> {
         self.pieces()
@@ -64,16 +56,26 @@ impl Arena {
             .filter_map(|s| s.get())
             .find(|m| m.variant.states == states)
     }
+}
 
-    /// How many models it keeps.
+impl<T> Arena<T> {
+    pub fn new() -> Arena<T> {
+        Arena { slots: (0..CHUNK).map(|_| OnceCell::new()).collect(), more: OnceCell::new() }
+    }
+
+    /// The pieces, in order.
+    fn pieces(&self) -> impl Iterator<Item = &Arena<T>> {
+        std::iter::successors(Some(self), |a| a.more.get().map(|b| &**b))
+    }
+
+    /// How many it keeps.
     #[cfg(test)]
     pub fn len(&self) -> usize {
         self.pieces().flat_map(|a| a.slots.iter()).filter(|s| s.get().is_some()).count()
     }
 
-    /// Keeps `m`; `None` when the run has switched between
-    /// [`MAX_MODELS`] models already.
-    pub fn keep(&self, m: RunModel) -> Option<&RunModel> {
+    /// Keeps `m`; `None` when it keeps [`MAX_MODELS`] already.
+    pub fn keep(&self, m: T) -> Option<&T> {
         let mut piece = self;
         let mut before = 0;
         loop {
