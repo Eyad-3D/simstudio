@@ -39,7 +39,7 @@ python -m benchmarks.agent validate        # every task's solutions through its 
 python -m benchmarks.agent start build-city-ev /tmp/look   # a task's starting files, to look at them
 
 python -m benchmarks.agent.run --smoke --out ~/scratch/judge-cache/ai/bench-runs
-taskset -c 0-11 python -m benchmarks.agent.compare --out ~/scratch/judge-cache/ai/bench-runs --name oct
+taskset -c 0-11 python -m benchmarks.agent.compare --out ~/scratch/judge-cache/ai/bench-runs --name oct --jobs 8
 python -m benchmarks.agent.compare … --name try --stage A --tasks repair-hatchback --settings sonnet-medium
 python -m benchmarks.agent.compare … --report     # the report again, from the records
 cd backend && python -m pytest tests/test_agent_bench.py tests/test_agent_compare.py -q
@@ -69,9 +69,12 @@ leave it out.
 During a try nobody answers questions: not the agent's, and not LightSim's
 own (today `model_edit` asks the user before it saves, and `run_case`
 before it runs a project with Script blocks). What the agent does then is
-part of what the bench measures. Today's `lightsim` command has no command
-that saves an edited model, so in `cli` mode the tasks scored on a saved
-model fail until it has one.
+part of what the bench measures. Headless `claude -p` declines such a
+question at once ("The user did not confirm, so nothing was done."), so
+today every task scored on a saved model fails in `mcp` mode too, however
+right the agent's dry run was (the pilot of 31 October: all 16 repair and
+write tries, at every setting, the ceiling's included). Today's `lightsim` command has no command
+that saves an edited model, so in `cli` mode those tasks fail as well.
 
 **On the plan, with no cap.** A try runs on the Claude plan `claude` is
 signed in to. The runner removes from the agent's environment every
@@ -87,11 +90,13 @@ reaches it and gives each try what is left.
 **The cost** of each try is recorded twice: at Anthropic's API list price,
 worked out by the runner from the tokens of each request (each request on
 its own rate card: Haiku 5.5 costs five times as much on a prompt over
-100 000 tokens), and as the tool reports it (`total_cost_usd`). They differ:
-Claude Code 2.1.273 does not know the 5.5 models, prices them as Claude Opus
-5 (`costBasis: "unknown"`), and assumes a 200 000-token context and 32 000
-output tokens for them. The list prices are in `run.py` (`PRICES`); change
-them there when Anthropic does.
+100 000 tokens), and as the tool reports it (`total_cost_usd`, with its
+`costBasis`). The runner works its own out so that the figure does not hang
+on the tool's price list: Claude Code 2.1.273 did not know the 5.5 models,
+priced them as Claude Opus 5 (`costBasis: "unknown"`) and assumed a 200 000-token
+context for them; 2.1.316 knows them (`"list"`), and the two figures agree.
+The list prices are in `run.py` (`PRICES`), from Anthropic's pricing page;
+change them there when Anthropic does.
 
 ## The comparison
 
@@ -118,7 +123,12 @@ depends on them:
   setting and the ceiling.
 
 `--jobs` (3) runs tries side by side; run it under `taskset -c 0-11` on the
-shared PC, and every process it starts keeps to those CPUs. The tries go task
+shared PC, and every process it starts keeps to those CPUs. Measured on 31
+October: 3 tries at once peaked at 1.0 GB and 3 cores, 8 at once at 2.3 GB
+and 4.4 cores (about 0.3 GB and half a core a try, the checker included), so
+`--jobs 8` keeps well inside 12 CPUs and 6 GB, with room for tries that run
+more simulations once edits can be saved. More jobs reach the plan's usage
+limits sooner; a limit only pauses the comparison. The tries go task
 by task across all the settings, not setting by setting, so a comparison
 stopped halfway still compares the settings on the same tasks.
 

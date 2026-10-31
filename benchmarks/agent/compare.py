@@ -249,6 +249,7 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
         "totalCostUsd": round(total, 4), "notRunCostUsd": round(sum(r.get("costUsd", 0.0) for r in notruns
                                                                      if r.get("task") in ids), 4),
         "cliCostUsd": round(sum(r.get("cliCostUsd") or 0.0 for r in every), 4),
+        "cliCostBasis": sorted({b for r in every for b in r.get("cliCostBasis") or []}),
         "tokens": {k: sum((r.get("tokens") or {}).get(k, 0) for r in every)
                    for k in ("input", "output", "cacheRead", "cacheWrite")},
         "trySeconds": round(sum(r.get("seconds", 0.0) for r in every)),
@@ -268,9 +269,11 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
              f"billing: {', '.join(data['billing']) or '–'}; the models that answered: "
              f"{', '.join(data['modelsReported']) or '–'}.", "",
              f"Cost at API list price: **{total:.2f} USD** in all ({data['notRunCostUsd']:.2f} of it on "
-             f"not-run tries); the command-line tool's own figure is {data['cliCostUsd']:.2f} USD (it prices "
-             f"the 5.5 models it does not know as Claude Opus 5). Tokens: "
-             + ", ".join(f"{k} {v:,}" for k, v in data["tokens"].items())
+             f"not-run tries); the command-line tool's own figure is {data['cliCostUsd']:.2f} USD (its price "
+             f"basis: {', '.join(data['cliCostBasis']) or '–'}). Tokens: "
+             + ", ".join(f"{k} {data['tokens'][key]:,}" for k, key in (
+                 ("input", "input"), ("output", "output"), ("cache read", "cacheRead"),
+                 ("cache write", "cacheWrite")))
              + f". Time: {data['trySeconds'] / 3600:.1f} h of tries, {data['wallSeconds'] / 3600:.1f} h from "
              f"the first try's start to the last one's end."
              + (f" {data['costIncomplete']} tries have only part of their cost (killed, or a model with no "

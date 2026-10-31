@@ -34,8 +34,9 @@ refused the model, or the tool refused the effort or ran another model).
 
 Cost. Each try records ``total_cost_usd`` as the tool reports it, and the
 cost at Anthropic's API list price, worked out here from the tokens of each
-request: Claude Code 2.1.273 does not know the 5.5 models and prices them
-as Claude Opus 5 (``costBasis: "unknown"``).
+request, so it does not hang on the tool's own price list: Claude Code
+2.1.273 did not know the 5.5 models and priced them as Claude Opus 5
+(``costBasis: "unknown"``); 2.1.316 knows them (``"list"``).
 """
 from __future__ import annotations
 
@@ -87,12 +88,13 @@ TOOLS = {
 #: built-in tools denied as well as left out (--tools)
 DENY = ["Read", "Write", "Edit", "NotebookEdit", "Glob", "Grep", "WebFetch", "WebSearch", "Task"]
 
-#: USD per million tokens at Anthropic's API list price (October 2026): input,
-#: output, cache write (5 minutes), cache write (1 hour), cache read; Haiku 5.5
-#: has a second rate card for prompts over 100 000 tokens.
+#: USD per million tokens at Anthropic's API list price (platform.claude.com
+#: pricing page, 31 October 2026): input, output, cache write (5 minutes),
+#: cache write (1 hour), cache read; Haiku 5.5 has a second rate card for
+#: prompts over 100 000 tokens.
 PRICES = {
     "claude-opus-5-5": (4.0, 20.0, 5.0, 8.0, 0.20),
-    "claude-sonnet-5-5": (2.0, 10.0, 2.5, 4.0, 0.20),
+    "claude-sonnet-5-5": (2.0, 10.0, 2.5, 4.0, 0.10),
     "claude-haiku-5-5": (0.10, 0.50, 0.125, 0.20, 0.01),
     "claude-haiku-4-5": (1.0, 5.0, 1.25, 2.0, 0.10),  # Claude Code's own small calls
 }
@@ -190,7 +192,7 @@ def read_transcript(path: Path) -> dict:
             continue
         kind = ev.get("type")
         seen["lastRetry"] = kind == "system" and ev.get("subtype") == "api_retry"
-        message = ev.get("message") or {}
+        message = ev.get("message") if isinstance(ev.get("message"), dict) else {}  # a text on some events
         blocks = message.get("content") if isinstance(message.get("content"), list) else []
         if kind == "system" and ev.get("subtype") == "init":
             seen["init"] = ev
@@ -280,6 +282,10 @@ def tokens(seen: dict) -> dict:
 
 #: the ``error`` of Claude Code's assistant message for a failed request
 _LIMIT = ("rate_limit", "billing_error")
+#: what Claude Code's debug log says when it sends another effort than asked
+#: (the API refused it, or a cap lowered it): 2.1.316 writes "[effort] ...",
+#: 2.1.273 "... rejected output_config.effort ..."
+_EFFORT_CHANGED = re.compile(r"\[effort\][^\n]*|[^\n]*rejected output_config\.effort[^\n]*")
 _STOP = ("authentication_failed", "oauth_org_not_allowed", "account_on_hold", "verification_required")
 
 
@@ -299,8 +305,9 @@ def classify(seen: dict, debug: str, timed_out: bool, *, mode: str, auth: str,
     servers = {s.get("name"): s.get("status") for s in init.get("mcp_servers") or []}
     if mode == "mcp" and servers.get("lightsim") != "connected":
         return "not-run", f"runner: LightSim's MCP server did not connect ({servers})"
-    if "rejected output_config.effort" in debug:
-        return "unavailable", f"the tool dropped the effort for {model}: the API refused it"
+    changed = _EFFORT_CHANGED.search(debug)
+    if changed:
+        return "unavailable", f"the tool changed the effort: {changed.group().strip()[:200]}"
     if "model_not_found" in errors or res.get("api_error_status") == 404:
         return "unavailable", f"the plan refused the model: {str(res.get('result'))[:200]}"
     others = {m for m in seen["models"] if re.sub(r"-\d{8}$", "", m) != model} if model else set()

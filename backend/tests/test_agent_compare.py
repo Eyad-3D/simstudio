@@ -94,7 +94,7 @@ log["t1"] = time.time()
 open(os.environ["FAKE_LOG"], "a").write(json.dumps(log) + "\n")
 '''
 #: the list price of one ok try on Sonnet 5.5: 1000 in, 500 out, 20 000 cache read, 2000 written for 1 h
-SONNET_TRY = (1000 * 2 + 500 * 10 + 20000 * 0.2 + 2000 * 4) / 1e6
+SONNET_TRY = (1000 * 2 + 500 * 10 + 20000 * 0.1 + 2000 * 4) / 1e6
 QUESTIONS = ["question-loaded-ev", "question-winter-range", "compare-bev-gearing"]
 
 
@@ -245,8 +245,15 @@ def done(**extra):
     ([{**INIT, "mcp_servers": [{"name": "lightsim", "status": "failed"}]}, done()], "", False, True,
      "not-run:runner"),
     ([INIT, *api_failure("model_not_found", 404)], "", False, False, "unavailable"),
-    ([INIT, done()], "[effort] model claude-sonnet-5-5 rejected output_config.effort; latching", False, True,
-     "unavailable"),
+    ([INIT, done()], "[WARN] [effort] model claude-sonnet-5-5 rejected output_config.effort; latching", False,
+     True, "unavailable"),  # Claude Code 2.1.273
+    ([INIT, done()], "[WARN] [effort] the server refused effort for model claude-sonnet-5-5 (the "
+     "output_config.effort field). Sending the request again without either", False, True, "unavailable"),
+    ([INIT, done()], "[DEBUG] [effort] Effort 'xhigh' exceeds the cap for claude-sonnet-5-5 set by your settings "
+     "or organization; using 'high'.", False, True, "unavailable"),  # 2.1.316
+    # some events carry a text as their message (a permission denial in the shell)
+    ([INIT, {"type": "system", "subtype": "permission_denied", "message": "Permission to use Bash has been denied"},
+      done()], "", False, True, "solved"),
     ([INIT, {"type": "assistant", "message": {"model": "claude-opus-5", "content": []}}, done()], "", False, True,
      "unavailable"),
     ([INIT, {"type": "assistant", "message": {"model": "claude-sonnet-5-5-20261001", "content": []}}, done()],
