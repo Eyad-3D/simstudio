@@ -28,7 +28,6 @@ NEW-NOT-FOUND = "the case is not in the project"
 NEW-CASE-KIND = "a case kind the new engine's path does not run"
 NEW-LAP = "a lap case (stays on today's lap solver: owner, 20 October)"
 NEW-FS-EVENT = "a Formula Student event case (stays refused: owner, 20 October)"
-NEW-FMU = "a project with an FMU part"
 NEW-BALANCE = "a hybrid's charge-balanced case (stays refused: owner, 20 October)"
 NEW-CELLS = "a battery built from cells (stays refused: owner, 20 October)"
 NEW-LIMITS = "a value outside its parameter's limits, which Data Checks refuse for a single run and a study's point can still hold (added 30 October: [[changes]])"
@@ -36,6 +35,19 @@ NEW-MISSING = "the module lightsim_engine is not installed"
 NEW-BUILD = "today's model builder refused the model before the new engine saw it"
 NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow in the message)"
 NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
+NEW-TEXT = "a part whose equations come from a text file, in a case the new engine's path does not run: today's engine does not read text components, so the case fails with the code of the refusal and this one (added 31 October: [[changes]])"
+# quick mode (a case's mode "quick": the new engine's fast mode, step 2's item 5;
+# added 31 October: [[changes]]). A case quick mode does not run runs in full
+# instead, with its code in a warning, or in strict mode fails with it.
+QUICK-NOT-FOUND = "quick mode: the case is not in the project"
+QUICK-KIND = "quick mode: a case that drives no drive cycle (an acceleration or performance test, a lap, a Formula Student event)"
+QUICK-SAMPLED = "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control): fast mode reads no host for one"
+QUICK-CELLS = "quick mode: a battery built from cells"
+QUICK-LIMITS = "quick mode: a value outside its parameter's limits (a study's point can hold one)"
+QUICK-MISSING = "quick mode: the module lightsim_engine is not installed"
+QUICK-BUILD = "quick mode: today's model builder refused the model"
+QUICK-FAILED = "quick mode: the engine's fast mode refused or stopped (its own codes follow: FAST-NO-CYCLE, FAST-SAMPLED-CONTROL, ...)"
+QUICK-ERROR = "quick mode: an exception that is not the engine's own refusal (always a failure)"
 
 # Notes' codes. A note of the new engine's path saying that something of a
 # run it ran is not judged by the verdict, or that the run did not make a
@@ -664,6 +676,100 @@ engine checks at each step as they were at the start: such an edit is now taken 
 (rule 8: no silent fall-back). STRICT fails on a [NEW-...] code no section lists, so the code is listed; no pass \
 mark moves. The harness runs no live edit but S3's, which the path makes."""
 
+[[changes]]
+date = "2026-10-31"
+line = "FMU"
+change = """The line's cases, hosts and points, said in full. Cases: the Reference FMUs v0.0.41 (the release's \
+Reference-FMUs.zip, pinned below as [source.reference-fmus]) that have a co-simulation interface: 2.0/BouncingBall, \
+Dahlquist, Feedthrough, Resource, Stair, VanDerPol and 3.0/BouncingBall, Dahlquist, Feedthrough, Resource, Roberts, \
+Stair, StateSpace, VanDerPol (3.0/Clocks has scheduled execution only: not a case). Each in a one-block project: \
+the FMU block with every output variable LightSim can pin (a number, not an array) as an output pin and no input \
+pin (the inputs keep their start values on all three hosts), its Communication Step h; the case runs from 0 s to \
+the stop time T with the output step h. h and T are the FMU's default experiment's (stepSize, stopTime); where it \
+gives no stepSize (Feedthrough, Resource, StateSpace, Roberts) h = T / 500, fmusim's own default; Roberts, whose \
+default experiment runs to 1e8 s on a co-simulation solver of 1e-6 s steps, runs to T = 1 s; every case from 0 s \
+(Roberts' default start is 1e-5 s); T must be n h exactly in floating point. Hosts: LightSim's new engine's path \
+(app.solver.simulate, LIGHTSIM_ENGINE=new, strict); FMPy 0.3.32's simulate_fmu (fmi_type CoSimulation, start 0, \
+stop T, output_interval h, the pinned outputs); fmusim v0.7.0 (github.com/modelica/fmusim, BSD-2-Clause, its \
+release binary pinned below) `simulate --interface-type cs --start-time 0 --stop-time T --output-interval h \
+--output-file ... --output-variable ...`, its CSV read as written (Rust's shortest text that reads back to the same \
+number). Each pinned output at each communication point k h (k = 0 ... n) and the points' times: LightSim's \
+channel at its output time k h, FMPy's recorded row, fmusim's row. "Equal to the last digit": the same IEEE double \
+(a Float32 output: the same single, widened). A case with no output LightSim can pin (StateSpace: its only output \
+is an array) compares nothing and is listed as such, neither passed nor failed. Where it is measured: on Windows \
+CI (the FMUs' x86_64-windows / win64 code; backend/tests/test_new_engine_fmu.py in the engine-windows job, \
+with LIGHTSIM_REFERENCE_FMUS and LIGHTSIM_FMUSIM pointing at the pinned copies), and by the harness wherever \
+both are set; elsewhere the line is "not measured"."""
+reason = """Step 2's item 5 wires FMU parts into the new engine's path through today's FMPy worker; the registered \
+words left open which FMUs are co-simulation FMUs in v0.0.41, which outputs, step and stop time, what an input \
+reads and how the three hosts' numbers are read. The step and stop are the FMUs' own (fmusim's defaults where they \
+give none) so no number is chosen here; Roberts' default experiment cannot run in co-simulation (1e14 solver \
+steps). fmusim moved out of the Reference FMUs' repository (v0.0.41's release holds no fmusim): v0.7.0 is the \
+release of the same day as v0.0.41 (12 August 2026). On this machine (the owner's WSL, 31 October) the permission \
+system refused running the downloaded fmusim binary, so neither it nor the Reference FMUs' code is run here: the \
+line is judged on Windows CI, as the roadmap's Windows-only rule wants anyway. No pass mark moves. Written before \
+the line's first measured run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "STRICT"
+change = """NEW-FMU ("a project with an FMU part") leaves [codes]: the new engine's path runs FMU parts (step 2's \
+item 5), through today's FMPy worker; a message with that code now fails STRICT as one no section lists. \
+NEW-TEXT joins [codes]: a case with a part whose equations come from a text file that the new engine's path does \
+not run cannot fall back to today's engine, which does not read text components: it fails with the refusal's code \
+and NEW-TEXT. The QUICK-* codes join [codes] (the QUICK line's change below)."""
+reason = """The code named a refusal the path no longer makes (as NEW-LIVE before it); keeping it listed would let a \
+project with an FMU part refused with it pass STRICT's code check. A text component on today's engine would run \
+the built-in part in its place without a word: rule 8 wants that coded. Written before the part's first measured \
+run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "TEXT"
+change = """The line's cases and measure, said in full. A part reads its equations from a text file when its element \
+names one (ElementInstance.textFile: the file's path; the file holds one component in the text format, \
+engine/docs/text-format.md, with the ports and parameters of the part's own definition); the new engine's path \
+reads the file and builds the part from it in the place of the built-in definition, the part's values, ports and \
+everything else the app knows of it unchanged. Cases: every part of the four example projects whose definition the \
+engine's import makes from equations (every element but the sampled parts: a Script, an FMU, a Traction Control, \
+whose code runs outside the equations, and a sub-system's container, which has none), each written as a text \
+component in its place (lightsim_engine.part_text: the definition the import makes for it, printed in the text \
+format, in a file of its own), one part at a time, on each example's first case the new path runs (aero-bev \
+case-udds, bev-car case-city, fs-electric case-accel-75m, hybrid-car case-udds as a single run, chargeBalance \
+false), the new path in strict mode. Measure: the result's JSON (keys sorted) against the same case with the \
+built-in part; "exactly the same result": the same SHA-256."""
+reason = """The registered words did not say how a project names a text component nor which parts are the cases; \
+"each library part the text format can express that an example uses" is each part the import builds from \
+equations, which the text format expresses whole (lsim-lang's round trip of every definition the example \
+projects import). Written before the line's first measured run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "QUICK"
+change = """The line's cases, run option, figures and band, said in full. Run option: a case's mode, "full" (the \
+default) or "quick" (SimCase.mode; the case panel's Run mode), which app.solver.simulate runs on the new engine's \
+fast mode (DESIGN.md section 10: the cycle's speed prescribed, the Driver's pedal solved for, limits flagged, not \
+acted on) whatever LIGHTSIM_ENGINE says; a case quick mode does not run runs in full instead with a warning \
+carrying its QUICK-* code ([codes]), or with LIGHTSIM_ENGINE_STRICT=1 fails with it. Cases: every case of the \
+four example projects with mode "quick" (each runs or is refused with a listed code: the cycle cases of aero-bev \
+and bev-car run, the others are refused); and each one that runs against the same case in full on the new \
+engine's path (rtol 1e-6). Figures: quick mode's summary rows are the engine's own figures of the run \
+(lsim-project golden::figures_with, today's keys) that sum or integrate over the run (a battery's final SOC, its \
+energy delivered, recuperated and internal losses, the climate's energy used, the distance, the consumptions, \
+MPGe, the range, each phase's distance and consumption, the simulated duration); not the peaks, minima and times \
+at a limit, which follow the full run's driver (stated in the help). Band: every figure within 1 % of the full \
+run's same row, the final SOC judged as the charge used (its change from the start), on each case quick mode \
+flags nothing on (DESIGN.md section 10's band for the charge used, the outside judge's of 20 October); a case it \
+flags is listed with its flags, its figures not judged in the band. The limits stated: docs/help and \
+docs/KNOWN-LIMITS.md say what quick mode does not do (each refusal's code, the rows it leaves out, the flags), \
+checked by the docs tests."""
+reason = """The registered words did not name the run option, which figures quick mode gives nor the band: the band \
+is the one documented for fast mode (DESIGN.md section 10; engine/judge/fast.py), extended to each figure that is \
+a sum over the run, which fast mode's prescribed motion gives as the full run's within its driver's tracking; a \
+peak or a minimum is the full run's driver's own and is left out rather than put in a band of its own. Quick mode \
+runs whatever engine the flag picks for a full run, as the owner wants users to be able to use it (20 October); \
+its speed is not judged (the owner's decision 7). Written before the line's first measured run."""
+
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
 # at `file`.
@@ -678,3 +784,26 @@ name = "Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 6 (legislation.gov.uk's 
 url = "https://www.legislation.gov.uk/eur/2017/1151/annex/Sub/6"
 file = "wltp/eur-2017-1151-annex-Sub-6.html"
 sha256 = "1c465cf11633de49b8547dee633ac8dba846a4f8ef2cdd268104d2275e02d032"
+
+# the FMU line's (added 31 October: [[changes]]): the Reference FMUs and the
+# fmusim release of the same day
+[source.reference-fmus]
+name = "Reference FMUs v0.0.41 (Modelica Association, BSD-2-Clause)"
+url = "https://github.com/modelica/Reference-FMUs/releases/download/v0.0.41/Reference-FMUs.zip"
+file = "reference-fmus/Reference-FMUs-0.0.41.zip"
+sha256 = "62babca76b9c23a51c3096be4bb5930ff8b4388659056be3c0c4ef7a3aeb5403"
+line = "FMU"
+
+[source.fmusim-windows]
+name = "fmusim v0.7.0 for x86_64-windows (Modelica Association, BSD-2-Clause)"
+url = "https://github.com/modelica/fmusim/releases/download/v0.7.0/fmusim-x86_64-windows.zip"
+file = "fmusim-0.7.0/fmusim-x86_64-windows.zip"
+sha256 = "bcabfa115022805e66d2815666b5970d4f911f894e53f035502580ed7be000aa"
+line = "FMU"
+
+[source.fmusim-linux]
+name = "fmusim v0.7.0 for x86_64-linux (Modelica Association, BSD-2-Clause)"
+url = "https://github.com/modelica/fmusim/releases/download/v0.7.0/fmusim-x86_64-linux.zip"
+file = "fmusim-0.7.0/fmusim-x86_64-linux.zip"
+sha256 = "85d19b9b23ad54d8bbac30d4032ff08b7311e220cf07ffbf434234d63ca2beb9"
+line = "FMU"
