@@ -542,6 +542,9 @@ export interface LiveEdit {
   elementId: string;
   key: string;
   value: ScalarValue;
+  /** for an edit the run did not make (it takes effect on the next run):
+   *  the result's note of it, which says why, with its code */
+  note?: string | null;
 }
 
 /** What made a run (RES-09): enough to tell which model and settings

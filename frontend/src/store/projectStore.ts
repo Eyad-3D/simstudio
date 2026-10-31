@@ -2964,7 +2964,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const snap = run?.snapshot;
       if (!run || !snap) return;
       const when = new Date(run.startedAt).toLocaleString();
-      const edits = snap.liveEdits.length;
+      const edits = snap.liveEdits.filter((e) => !e.note).length; // (one not made: the next run's)
       get().openAsCopy(
         snap.project,
         `${snap.project.name} (run of ${when})`,

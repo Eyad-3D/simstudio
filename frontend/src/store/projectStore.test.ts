@@ -1632,6 +1632,20 @@ describe("run snapshots", () => {
     expect(messages().some((m) => m.startsWith("info: Opened the model of run 'Case 2'"))).toBe(true);
   });
 
+  it("a run's model opened says how many live edits the run made, not those it left for the next run", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    const run = store().runs[0];
+    const made = { t: 3, elementId: "el-shaft", key: "efficiency_pct", value: 90 };
+    const later = { ...made, key: "ratio", value: 3, note: "… on the next run [NEW-LIVE-NEXT-RUN]." };
+    useProjectStore.setState({
+      runs: [{ ...run, snapshot: { ...run.snapshot!, liveEdits: [made, later] } }],
+    });
+    store().openRunModel(run.id);
+    expect(messages().some((m) => m.includes("the 1 live edit(s) made during the run"))).toBe(true);
+  });
+
   it("a run stored before runs kept a snapshot cannot be opened as a model", async () => {
     folder("fixture").set("old", {
       id: "old",
