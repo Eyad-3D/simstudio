@@ -809,6 +809,37 @@ def test_the_ambient_s_warning_gives_the_density_the_run_used(new, monkeypatch):
     assert density(_today(proj, "case-city", monkeypatch)) == [f"{air_density(-273.0):.3g}"]
 
 
+def test_a_part_s_own_value_outside_its_limits_is_not_run(new):
+    """The value a run reads is the part's own, else the case's over it, and
+    both are checked. A part's own value outside its limits (how the
+    harness's faults plant them, straight into the project: a single run
+    from the app is refused by Data Checks before it gets here) is NEW-LIMITS
+    like a study's point; a case's value over it, inside the limits, is what
+    the run reads, so it runs; and a case's value outside the limits over a
+    part's own value inside them is refused. Before, the check read the
+    case's value or the library's default and never the part's own: the
+    Ambient at -50 kPa, typed on the part, ran on the new engine."""
+    from app.validation import value_problems
+    proj = load_example("bev-car")
+    next(e for e in proj.systems[0].elements if e.id == "el-ambient").parameterOverrides["pressure_kPa"] = -50.0
+    assert value_problems(proj, "case-city") == ["Pressure of 'Ambient' must be above 0 kPa — got -50"]
+    why = new_engine.unsupported(proj, "case-city", None)
+    assert why.code == "NEW-LIMITS" and why.why.startswith("Pressure of 'Ambient' must be above 0 kPa — got -50 (")
+    result = simulate(proj, "case-city")  # (strict)
+    assert result.status == "failed" and result.messages[0].text.startswith("Not run [NEW-LIMITS]: Pressure of ")
+    over = _with_case_values(copy.deepcopy(proj), "case-city", {"el-ambient": {"pressure_kPa": 101.325}})
+    assert value_problems(over, "case-city") == [] and new_engine.unsupported(over, "case-city", None) is None
+    good = _with_case_values(load_example("bev-car"), "case-city", {"el-ambient": {"pressure_kPa": -50.0}})
+    assert value_problems(good, "case-city") == value_problems(proj, "case-city")
+    # a case that is not there reads the parts' own values; a part of a kind
+    # the library does not know has no limits to break
+    assert value_problems(proj, "no-such-case") == value_problems(proj, "case-city")
+    odd = copy.deepcopy(proj)
+    odd.systems[0].elements.append(
+        ElementInstance(id="odd", componentDefId="no.such.part", label="Odd", position={"x": 0, "y": 0}))
+    assert value_problems(odd, "case-city") == value_problems(proj, "case-city")
+
+
 @pytest.mark.parametrize("share", [0.0, 1e-9])
 def test_an_axle_its_shares_leave_unloaded_does_not_lift(new, monkeypatch, share):
     """The rear wheels' Vehicle Load Share at 0 % (a study's point, which
@@ -895,6 +926,57 @@ def test_a_lift_between_traced_points_is_said_at_the_vehicle_s_event(new, monkey
     lift = _lifts(simulate(proj, "case-city"))
     assert thinned and lift == _lifts(_today(proj, "case-city", monkeypatch))
     assert len(lift) == 1 and lift[0].startswith("The rear wheels ") and " at t = 38.84 s:" in lift[0]
+
+
+def _light_rear(rear_pct: float, cg_m: float):
+    """bev-car whose rear wheels each carry rear_pct % of the Vehicle's weight
+    (the fronts the rest of 50 %) with a CG height of cg_m: a single run
+    that passes Data Checks, whose rear axle carries a few N at rest."""
+    proj = load_example("bev-car")
+    parts = {e.id: e for e in proj.systems[0].elements}
+    for w in ("el-wheel-rl", "el-wheel-rr"):
+        parts[w].parameterOverrides["vehicle_load_share_pct"] = rear_pct
+    for w in ("el-wheel-fl", "el-wheel-fr"):
+        parts[w].parameterOverrides["vehicle_load_share_pct"] = 50.0 - rear_pct
+    parts["el-vehicle"].parameterOverrides["cg_height_m"] = cg_m
+    next(c for c in proj.cases if c.id == "case-city").duration = 40.0
+    return proj
+
+
+def _lift_time(result) -> float:
+    [text] = _lifts(result)
+    return float(text.split(" at t = ")[1].split(" s")[0])
+
+
+@pytest.mark.parametrize("rear, cg_m", [(0.1, 0.5), (0.15, 1.0)])
+def test_the_start_s_settling_is_no_lift(new, monkeypatch, rear, cg_m):
+    """The new engine's Vehicle starts sliding at rest, with the acceleration
+    of its rolling resistance, and sticks within microseconds. Its first
+    traced point is the state before that, and its load transfer (m·a·h/L,
+    38 N at 0.5 m) moved off a rear axle that carries 38 N at rest, for no
+    time; the integrals' lowest value holds that point too. Today's engine
+    stands with a = 0 and says success; the path said the rear wheels lift
+    off the road at t = 0.00 s. Judged by today's engine, with Data Checks
+    clean."""
+    from app.validation import validate_project
+    proj = _light_rear(rear, cg_m)
+    assert not [c for c in validate_project(proj) if c.level in ("error", "warning")]
+    today, result = _today(proj, "case-city", monkeypatch), simulate(proj, "case-city")
+    assert today.status == result.status == "success", _texts(result, "warning")
+    assert not _lifts(today) and not _lifts(result)
+
+
+def test_a_lift_after_the_start_s_settling_is_said_when_it_happens(new, monkeypatch):
+    """With rear wheels that each carry 0.01 % the same start-up settling
+    reads 0.00 s, but the car does lift its rear axle later, when it
+    accelerates: today's engine says 30.75 s; the path says the run's event,
+    within one of today's 10 ms steps, not the start's 0.00 s."""
+    proj = _light_rear(0.01, 0.5)
+    today, result = _today(proj, "case-city", monkeypatch), simulate(proj, "case-city")
+    assert result.status == today.status == "warning"
+    assert _lifts(result)[0].startswith("The rear wheels ") and _lifts(today)[0].startswith("The rear wheels ")
+    assert _lift_time(today) == 30.75
+    assert abs(_lift_time(result) - _lift_time(today)) <= 0.0101
 
 
 def test_a_motor_with_no_live_supply_is_said_as_today(new, monkeypatch):

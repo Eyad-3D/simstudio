@@ -637,6 +637,12 @@ minimum or an average, for example from the CSV export, or put the
   near the limit it can lift the front wheels for a step (the Formula
   Student car with a 0.5 m Centre of Gravity Height: at 0.01 s) where the
   new engine's, from the acceleration now, keeps a load on them (87 N).
+  A lift is said from the second point of the 0.1 s trace (0.01 s in an
+  acceleration test) on, or at the Vehicle's own event after it, because
+  the run's first point is the state before the events of t = 0: the
+  Vehicle at rest slides and sticks again within microseconds, which
+  moves a few N of load off a very light axle for no time. A lift that
+  begins and ends inside the first step goes unsaid.
   *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a

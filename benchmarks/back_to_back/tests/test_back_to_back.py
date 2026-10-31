@@ -1449,6 +1449,27 @@ def test_a_case_value_fault_is_the_case_s_own_value():
     assert sum(f.count(":case/") for f in runs.fault_ids()) == 5 * 4
 
 
+def test_a_planted_value_outside_its_limits_is_one_the_new_path_checks():
+    """Most of FAULTS' refusals with NEW-LIMITS (47 of 53 at the tenth
+    measurement) are a block's own value outside its limits, planted
+    straight into the project where Data Checks never see it; the rest are
+    a case's own value. The check the path makes of the values a run reads
+    (validation.value_problems) must read both, and a fault inside the
+    limits none: the fourth re-check found that taking back the block's
+    value failed no test."""
+    from app.schemas import Project
+    from app.validation import value_problems
+
+    def problems(fault):
+        project, case_id = runs.fault_project(fault)
+        return value_problems(Project.model_validate(project), case_id)
+    assert problems("bev-car:el-ambient.pressure_kPa:zero") == ["Pressure of 'Ambient' must be above 0 kPa — got 0"]
+    assert problems("bev-car:case/el-ambient.pressure_kPa:zero") == problems("bev-car:el-ambient.pressure_kPa:zero")
+    [mass] = problems("bev-car:el-vehicle.mass_kg:negative")
+    assert mass.startswith("Vehicle Mass of 'Vehicle' must be above 0 kg — got -")
+    assert problems("bev-car:el-vehicle.mass_kg:div100") == []
+
+
 def test_faults_lists_a_warning_today_gives_and_the_new_path_does_not(tmp_path, monkeypatch):
     """FAULTS lists each fault's unsaid: a warning or error of today's run,
     in its words without their numbers, that the new path's run does not

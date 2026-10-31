@@ -2362,6 +2362,14 @@ round).**
   the channels the event changed (the channels as they stood before the
   first event of that instant changed anything), in order;
   `SimResult::before(c, k)` gives either side's value of any channel.
+  The run's first output time is the exception: its point (and the
+  trace's first point, and the first interval's extremes, which the
+  run's integrals hold) is the initial state, before the events of
+  t = 0 (the Vehicle at rest starts sliding, with the acceleration of
+  its rolling resistance, and sticks within microseconds, so a load
+  transfer that follows its acceleration is off by a few N for no
+  time). A known limit of the recorder: the readers of the evidence
+  allow for it (the app's lift check starts at the second traced point).
   The golden comparison compares today's engine, which records such a
   point before its step, with the left limit. (Work package 4's sixth
   round kept every channel at first: on the hybrid's UDDS, where a
@@ -3222,7 +3230,11 @@ against exact answers from `benchmarks/`.
   usual, at the run's start, with the air density the run's Vehicle
   used; wheels lifting off the road, only with a CG height or a Downforce
   Area as today's checks it, an axle's load at 0 in the integrals, which
-  and when from the trace at the Vehicle's own axle-load event; an
+  and when from the trace at the Vehicle's own axle-load event, from the
+  trace's second point on, or else at such an event after the first
+  traced stretch, because the first point and the integrals' lowest value
+  hold the state before the events of t = 0, in which a Vehicle at rest
+  moves a few N off a light axle for no time; an
   E-Motor's supply at 1 V or less at any point the integrator visited).
   The check that the car has
   driven by 60 s (`verdict.not_driven`, which today's engine asks at the

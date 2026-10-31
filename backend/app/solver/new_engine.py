@@ -761,7 +761,16 @@ def _runtime(ctx, plan: _Plan, run, t0: float) -> None:
     Area (an axle's load at 0 over every step; which wheels at the first
     traced point that shows it, when at the Vehicle's own axle-load event in
     that traced stretch; a lift shorter than the trace's step at the first
-    such event)."""
+    such event). The start's own settling is no lift: the run's first point
+    is the state before the events of t = 0, and the Vehicle at rest slides
+    and sticks again within microseconds (its load transfer then moves a
+    few N off a light axle for no time), which the integrals' lowest value
+    holds too. So the first traced point is not read: a lift is told from
+    the second on (one there from the start has no event after t0 in its
+    stretch, so it is said at the start), else at a Vehicle axle-load event
+    after the first traced stretch. A lift that begins and ends within the
+    first step (0.1 s; 0.01 s, today's step, in an acceleration test)
+    goes unsaid."""
     integ = run.integrals
     if ctx.veh_id:
         rho = integ.get(f"{plan.inst.get(ctx.veh_id, ctx.veh_id)}.rho")
@@ -781,17 +790,21 @@ def _runtime(ctx, plan: _Plan, run, t0: float) -> None:
         return
     tr = run.trace or {}
     times = [float(t) for t in tr.get("times", [])]
+    if len(times) < 2:  # (no stretch after the start)
+        return
     who = f"'{ctx.model.elements[ctx.veh_id].label}': "
     axle_events = sorted(float(e["t"]) for e in run.events
                          if e["label"].startswith(who) and "axle" in e["label"])
-    k = next((k for k in range(len(times))
+    k = next((k for k in range(1, len(times))
               if any(float(tr[name][k]) <= LIFT_N for _, name in lifted)), None)
-    if k is None:  # (lifted only between two traced points)
-        which = [side for side, _ in lifted]
-        t = axle_events[0] if axle_events else t0
+    if k is None:  # (lifted only between two traced points, after the first stretch)
+        late = [t for t in axle_events if t > times[1]]
+        if not late:
+            return
+        which, t = [side for side, _ in lifted], late[0]
     else:
         which = [side for side, name in lifted if float(tr[name][k]) <= LIFT_N]
-        t = times[0] if k == 0 else _at_event(axle_events, times[k - 1], times[k])
+        t = _at_event(axle_events, times[k - 1], times[k])
     ctx.wheels_lift("Both" if len(which) > 1 else which[0], t)
 
 
