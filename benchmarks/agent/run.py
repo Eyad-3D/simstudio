@@ -1,9 +1,10 @@
-"""The bench's runner: gives each task to Claude through the headless
-command-line tool (``claude -p``) and scores the attempt with the task's
-hidden checker. README.md in this folder says how to run it.
+"""One try of the bench: a task given to Claude through the headless
+command-line tool (``claude -p``) and scored by the task's hidden checker.
+``compare.py`` runs the comparison of models and effort levels with it;
+this module's own command is the runner's smoke test. README.md in this
+folder says how to run both.
 
-    LSIM_BENCH_CAP_USD=5 python -m benchmarks.agent.run --mode mcp --tries 3 --out DIR
-    LSIM_BENCH_CAP_USD=2 python -m benchmarks.agent.run --smoke --out DIR
+    python -m benchmarks.agent.run --smoke --out DIR
 
 Each try gets a fresh temporary folder outside the repository holding only
 the task's starting files, and one way to work:
@@ -16,14 +17,25 @@ the task's starting files, and one way to work:
 Every other tool is removed and denied, Claude Code's own settings, hooks,
 plugins and skills are not loaded (``--restricted``), and anything that
 would ask for permission is refused (``dontAsk``); permission checks are
-never skipped. ``--auth api`` runs the same with ``ANTHROPIC_API_KEY``.
+never skipped.
 
-The spending cap ``LSIM_BENCH_CAP_USD`` (USD at list price, summed from the
-cost each run reports) is required: the runner stops before the next try
-once it is reached, and gives each try only what is left of it
-(``--max-budget-usd``). Per try it records success, tool calls, tool
-errors, tokens, cost, time, the model and the transcript, in ``--out``
-(never inside the repository); per task, pass^k over k tries.
+Billing. A try runs on the Claude plan ``claude`` is signed in to: every
+variable that would make it bill an API account instead (``ANTHROPIC_*``,
+``CLAUDE_CODE_USE_*``, ``AWS_BEARER_TOKEN_BEDROCK``) is removed from its
+environment, and a try that still used a key is the runner's fault. There is
+no spending cap. ``auth="api"`` runs on ``ANTHROPIC_API_KEY`` instead, and
+only there a cap may be set (``LSIM_BENCH_CAP_USD``, ``--max-budget-usd``).
+
+Every try ends in one class: ``solved`` or ``failed`` (the checker's verdict
+on what the agent left; only these are scored), ``not-run`` (a plan usage
+limit, a rate limit, an overloaded or network error from the service, or the
+runner's own fault: retried, never scored) or ``unavailable`` (the plan
+refused the model, or the tool refused the effort or ran another model).
+
+Cost. Each try records ``total_cost_usd`` as the tool reports it, and the
+cost at Anthropic's API list price, worked out here from the tokens of each
+request: Claude Code 2.1.273 does not know the 5.5 models and prices them
+as Claude Opus 5 (``costBasis: "unknown"``).
 """
 from __future__ import annotations
 
@@ -31,12 +43,14 @@ import argparse
 import collections
 import json
 import os
+import re
 import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -55,7 +69,7 @@ from . import (
     write_files,
 )
 
-CAP_ENV = "LSIM_BENCH_CAP_USD"
+CAP_ENV = "LSIM_BENCH_CAP_USD"  # API mode only
 MODES = ("mcp", "cli")
 SMOKE_TASK = "question-loaded-ev"
 PLANTED = SMOKE_DIR / "planted-read-checker.toml"
@@ -73,10 +87,38 @@ TOOLS = {
 #: built-in tools denied as well as left out (--tools)
 DENY = ["Read", "Write", "Edit", "NotebookEdit", "Glob", "Grep", "WebFetch", "WebSearch", "Task"]
 
+#: USD per million tokens at Anthropic's API list price (October 2026): input,
+#: output, cache write (5 minutes), cache write (1 hour), cache read; Haiku 5.5
+#: has a second rate card for prompts over 100 000 tokens.
+PRICES = {
+    "claude-opus-5-5": (4.0, 20.0, 5.0, 8.0, 0.20),
+    "claude-sonnet-5-5": (2.0, 10.0, 2.5, 4.0, 0.20),
+    "claude-haiku-5-5": (0.10, 0.50, 0.125, 0.20, 0.01),
+    "claude-haiku-4-5": (1.0, 5.0, 1.25, 2.0, 0.10),  # Claude Code's own small calls
+}
+LONG_PROMPT = {"claude-haiku-5-5": (100_000, (0.50, 2.50, 0.625, 1.0, 0.05))}
 
-def claude_command(claude: str, mode: str, prompt: str, mcp_config: Path,
-                   model: Optional[str], budget: float, env: Optional[dict] = None) -> list[str]:
-    """The ``claude -p`` command line of one try."""
+#: the classes a try ends in; only the first two are scored
+SCORED = ("solved", "failed")
+_CHECK = threading.Lock()  # the checker runs LightSim in this process: one at a time
+
+
+def billing_env(env: dict, auth: str = "session") -> dict:
+    """The agent's environment without anything that would bill an API
+    account (or pick another provider, model or effort than the try's); with
+    ``auth="api"``, ``ANTHROPIC_API_KEY`` alone is put back."""
+    out = {k: v for k, v in env.items()
+           if not k.startswith(("ANTHROPIC_", "CLAUDE_CODE_USE_"))
+           and k not in ("AWS_BEARER_TOKEN_BEDROCK", "CLAUDE_CODE_EFFORT_LEVEL")}
+    if auth == "api":
+        out["ANTHROPIC_API_KEY"] = env["ANTHROPIC_API_KEY"]
+    return out
+
+
+def claude_command(claude: str, mode: str, prompt: str, mcp_config: Path, model: Optional[str],
+                   effort: Optional[str] = None, budget: Optional[float] = None,
+                   debug_file: Optional[Path] = None, env: Optional[dict] = None) -> list[str]:
+    """The ``claude -p`` command line of one try (``budget`` only in API mode)."""
     settings: dict = {"permissions": {"deny": DENY + (["Bash"] if mode == "mcp" else [])}}
     if mode == "mcp":
         tools = ["--tools", "ListMcpResourcesTool,ReadMcpResourceTool",
@@ -85,11 +127,14 @@ def claude_command(claude: str, mode: str, prompt: str, mcp_config: Path,
         tools = ["--tools", "Bash", "--allowedTools", "Bash(lightsim),Bash(lightsim *)"]
         settings["env"] = {"PATH": (env or os.environ).get("PATH", "")}  # the guarded lightsim first
     return [claude, "-p", prompt, "--output-format", "stream-json", "--verbose",
+            "--include-partial-messages",  # each request's tokens, for its list price
             "--restricted", "--strict-mcp-config", "--mcp-config", str(mcp_config), *tools,
             "--settings", json.dumps(settings),
             "--permission-mode", "dontAsk", "--permission-prompts", "none",
             "--disable-slash-commands", "--no-session-persistence",
-            "--max-budget-usd", f"{budget:.4f}", *(["--model", model] if model else [])]
+            *(["--model", model] if model else []), *(["--effort", effort] if effort else []),
+            *(["--debug-file", str(debug_file)] if debug_file else []),
+            *(["--max-budget-usd", f"{budget:.4f}"] if budget is not None else [])]
 
 
 def prepare(task: Task, mode: str, base: Path) -> tuple[Path, Path, dict]:
@@ -131,178 +176,209 @@ def prepare(task: Task, mode: str, base: Path) -> tuple[Path, Path, dict]:
 
 def read_transcript(path: Path) -> dict:
     """What a stream-json transcript says: the init and result events, the
-    tool calls in order, and how many tool results were errors."""
-    init, result, calls, errors = {}, {}, [], 0
+    tool calls in order, how many tool results were errors, the service
+    errors and retries Claude Code reported, the models that answered, a
+    plan limit's reset time, and each request's tokens (from its
+    ``message_start`` and ``message_delta`` stream events)."""
+    seen = {"init": {}, "result": {}, "calls": [], "errors": 0, "apiErrors": [], "models": set(),
+            "apiRetries": 0, "lastRetry": False, "limitReset": None, "requests": {}}
+    current = None
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             ev = json.loads(line)
         except ValueError:
             continue
-        content = (ev.get("message") or {}).get("content")
-        blocks = content if isinstance(content, list) else []
-        if ev.get("type") == "system" and ev.get("subtype") == "init":
-            init = ev
-        elif ev.get("type") == "assistant":
-            calls += [b.get("name", "") for b in blocks if b.get("type") == "tool_use"]
-        elif ev.get("type") == "user":
-            errors += sum(1 for b in blocks if b.get("type") == "tool_result" and b.get("is_error"))
-        elif ev.get("type") == "result":
-            result = ev
-    return {"init": init, "result": result, "calls": calls, "errors": errors}
+        kind = ev.get("type")
+        seen["lastRetry"] = kind == "system" and ev.get("subtype") == "api_retry"
+        message = ev.get("message") or {}
+        blocks = message.get("content") if isinstance(message.get("content"), list) else []
+        if kind == "system" and ev.get("subtype") == "init":
+            seen["init"] = ev
+        elif seen["lastRetry"]:
+            seen["apiRetries"] += 1
+        elif kind == "assistant":
+            seen["calls"] += [b.get("name", "") for b in blocks if b.get("type") == "tool_use"]
+            if ev.get("error"):
+                seen["apiErrors"].append(ev["error"])
+            if message.get("model") not in (None, "<synthetic>"):
+                seen["models"].add(message["model"])
+        elif kind == "user":
+            seen["errors"] += sum(1 for b in blocks if b.get("type") == "tool_result" and b.get("is_error"))
+        elif kind == "result":
+            seen["result"] = ev
+        elif kind == "rate_limit_event":
+            info = ev.get("rate_limit_info") or {}
+            if info.get("status") == "rejected":
+                seen["limitReset"] = info.get("resetsAt") or seen["limitReset"]
+        elif kind == "stream_event":
+            e = ev.get("event") or {}
+            if e.get("type") == "message_start":
+                m = e.get("message") or {}
+                current = m.get("id")
+                seen["requests"][current] = {"model": m.get("model"), **(m.get("usage") or {})}
+            elif e.get("type") == "message_delta" and current in seen["requests"]:
+                seen["requests"][current]["output_tokens"] = (e.get("usage") or {}).get("output_tokens", 0)
+    return seen
 
 
-class Runner:
-    def __init__(self, args: argparse.Namespace, cap: float) -> None:
-        self.args, self.cap, self.spent = args, cap, 0.0
-        self.stopped: Optional[str] = None
-        self.held = heldout()
-        stamp = time.strftime("%Y%m%d-%H%M%S")
-        self.out = Path(args.out).resolve() / f"{stamp}-{'smoke' if args.smoke else 'bench'}"
-        self.out.mkdir(parents=True, exist_ok=True)
-        self.rows: list[dict] = []
+def _price(model: str, prompt: int) -> Optional[tuple]:
+    model = re.sub(r"-\d{8}$", "", model or "")
+    long = LONG_PROMPT.get(model)
+    return long[1] if long and prompt > long[0] else PRICES.get(model)
 
-    def attempt(self, task: Task, mode: str, n: int, auth: str) -> Optional[dict]:
-        """One try, or None when the cap (or a failure of the tooling) stops the run."""
-        if self.stopped:
-            return None
-        left = self.cap - self.spent
-        if left <= 0:
-            self.stopped = f"the cap of {self.cap:g} USD was reached (spent {self.spent:.4f} USD)"
-            return None
-        name = f"{task.id}-{mode}-{auth}-{n}"
-        base = Path(tempfile.mkdtemp(prefix="lsim-bench-"))  # outside the repository
-        try:
-            work, mcp_config, env = prepare(task, mode, base)
-            if auth == "session":
-                env.pop("ANTHROPIC_API_KEY", None)
-            files = ", ".join(task.files)
-            prompt = PROMPT.format(tools=TOOLS[mode], work=work, files=files,
-                                   statement=task.statement.replace("{root}", str(ROOT)))
-            cmd = claude_command(self.args.claude, mode, prompt, mcp_config, self.args.model, left, env)
-            transcript = self.out / f"{name}.jsonl"
-            started = time.monotonic()
-            with open(transcript, "wb") as out, open(self.out / f"{name}.stderr", "wb") as err:
-                proc = subprocess.Popen(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL,
-                                        stdout=out, stderr=err, start_new_session=True)
-                try:
-                    proc.wait(timeout=self.args.timeout)
-                    timed_out = False
-                except subprocess.TimeoutExpired:
-                    os.killpg(proc.pid, signal.SIGKILL)  # the group of the claude we started
-                    proc.wait()
-                    timed_out = True
-            wall = time.monotonic() - started
-            seen = read_transcript(transcript)
-            text = str(seen["result"].get("result") or "")
-            verdict = check(task, work, text, transcript.read_text(encoding="utf-8", errors="replace"))
-            shutil.copytree(work, self.out / f"{name}-files")
-        finally:
-            shutil.rmtree(base, ignore_errors=True)
-        res, init = seen["result"], seen["init"]
-        usage = res.get("usage") or {}
-        # a try that never reported its cost (killed at the timeout) is counted at
-        # the most it was allowed to spend
-        cost = float(res.get("total_cost_usd") or 0.0) if res else left
-        self.spent += cost
-        row = {
-            "task": task.id, "version": task.version, "kind": task.kind,
-            "heldout": task.id in self.held, "mode": mode, "auth": auth, "try": n,
-            "model": init.get("model"),
-            "models": sorted(res.get("modelUsage") or {}), "success": verdict.success,
-            "reasons": verdict.reasons, "figures": verdict.figures,
-            "toolCalls": len(seen["calls"]), "tools": dict(collections.Counter(seen["calls"])),
-            "toolErrors": seen["errors"], "permissionDenials": len(res.get("permission_denials") or []),
-            "inputTokens": usage.get("input_tokens", 0), "outputTokens": usage.get("output_tokens", 0),
-            "cacheReadTokens": usage.get("cache_read_input_tokens", 0),
-            "cacheWriteTokens": usage.get("cache_creation_input_tokens", 0),
-            "costUsd": cost, "seconds": round(wall, 1), "turns": res.get("num_turns"),
-            "end": "timeout" if timed_out else res.get("subtype") or "no result",
-            "apiKeySource": init.get("apiKeySource"), "transcript": str(transcript),
-        }
-        problem = None if timed_out else self._tooling_problem(row, init, res, auth, mode)
-        if problem:
-            row["end"], self.stopped = "tooling error", problem
-        self.rows.append(row)
-        with open(self.out / "results.jsonl", "a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
-        print(f"{name}: {'pass' if row['success'] else 'fail'}, {row['toolCalls']} tool calls, "
-              f"{cost:.4f} USD, {wall:.0f} s" + (f" ({problem})" if problem else ""), flush=True)
-        return None if problem else row
 
-    @staticmethod
-    def _tooling_problem(row: dict, init: dict, res: dict, auth: str, mode: str) -> Optional[str]:
-        """Why this try says nothing about the agent (and the run stops)."""
-        if not res:
-            return "claude gave no result (see the .stderr file)"
-        if res.get("terminal_reason") == "api_error" or res.get("is_error") and not init:
-            return f"the Claude API failed: {str(res.get('result'))[:200]}"
-        if (row["apiKeySource"] in (None, "none")) != (auth == "session"):
-            return f"the run used the wrong account (apiKeySource {row['apiKeySource']!r})"
-        servers = {s.get("name"): s.get("status") for s in init.get("mcp_servers") or []}
-        if mode == "mcp" and servers.get("lightsim") != "connected":
-            return f"LightSim's MCP server did not connect ({servers})"
-        return None
+def list_cost(seen: dict) -> tuple[float, list[str]]:
+    """(USD at API list price, the models with no list price here). Each
+    streamed request is priced on its own rate card; what ``modelUsage`` has
+    beyond them (Claude Code's own small calls, or a try with no stream
+    events) at the base one; a model with no price here at the tool's own
+    ``costUSD``."""
+    def cost(p, inp, out, w5, w1, read):
+        return (inp * p[0] + out * p[1] + w5 * p[2] + w1 * p[3] + read * p[4]) / 1e6
 
-    def bench(self, tasks: list[Task], modes: list[str], tries: int, auth: str) -> None:
-        for task in tasks:
-            for mode in modes:
-                for n in range(1, tries + 1):
-                    self.attempt(task, mode, n, auth)
+    total, unknown = 0.0, []
+    streamed: dict = collections.defaultdict(lambda: [0, 0, 0, 0])
+    for r in seen["requests"].values():
+        read, write = r.get("cache_read_input_tokens", 0), r.get("cache_creation_input_tokens", 0)
+        p = _price(r["model"], r.get("input_tokens", 0) + read + write)
+        if p is None:
+            continue
+        split = r.get("cache_creation") or {}
+        w1 = split.get("ephemeral_1h_input_tokens", 0)
+        total += cost(p, r.get("input_tokens", 0), r.get("output_tokens", 0), write - w1, w1, read)
+        s = streamed[re.sub(r"-\d{8}$", "", r["model"])]
+        for i, n in enumerate((r.get("input_tokens", 0), r.get("output_tokens", 0), read, write)):
+            s[i] += n
+    usage = seen["result"].get("usage") or {}
+    split = usage.get("cache_creation") or {}
+    share_1h = split.get("ephemeral_1h_input_tokens", 0) / max(1, sum(split.values()) if split else 0)
+    for model, u in (seen["result"].get("modelUsage") or {}).items():
+        s = streamed[re.sub(r"-\d{8}$", "", model)]
+        rest = [max(0, u.get(k, 0) - s[i]) for i, k in enumerate(
+            ("inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"))]
+        p = _price(model, 0)
+        if p is None:
+            unknown.append(model)
+            total += float(u.get("costUSD") or 0.0)
+        elif any(rest):
+            total += cost(p, rest[0], rest[1], rest[3] * (1 - share_1h), rest[3] * share_1h, rest[2])
+    return total, unknown
 
-    def smoke(self) -> tuple[list[str], list[str]]:
-        """One task in each mode, the planted task in each mode, then a cap
-        that must stop a second try. Returns (problems, notes)."""
-        task, planted = next(t for t in load_tasks() if t.id == SMOKE_TASK), load_task(PLANTED)
-        problems, notes = [], []
-        for mode in MODES:
-            if self.attempt(task, mode, 1, "session") is None:
-                problems.append(f"{task.id} did not run in {mode} mode")
-        if os.environ.get("ANTHROPIC_API_KEY"):
-            if self.attempt(task, "mcp", 1, "api") is None:
-                problems.append(f"{task.id} did not run in API mode")
-        else:
-            notes.append("API mode not run: ANTHROPIC_API_KEY is not set")
-        for mode in MODES:
-            row = self.attempt(planted, mode, 1, "session")
-            if row is None or not row["success"]:
-                problems.append(f"the planted task {'did not run' if row is None else 'got the secret'} "
-                                f"in {mode} mode")
-        if self.stopped:
-            return problems + [f"stopped before the cap test: {self.stopped}"], notes
-        self.cap = self.spent + 0.001  # the next try may spend 0.001 USD: the one after must not start
-        first, second = self.attempt(task, "mcp", 2, "session"), self.attempt(task, "mcp", 3, "session")
-        if first is None or second is not None:
-            problems.append("the cap did not stop the run before the next try")
-        else:
-            notes.append(f"the cap stopped the run before the next try: {self.stopped}")
-        return problems, notes
 
-    def report(self, tries: int, notes: list[str]) -> str:
-        groups: dict[tuple, list[dict]] = collections.defaultdict(list)
-        for r in self.rows:
-            groups[r["task"], r["mode"], r["auth"]].append(r)
-        lines = ["| Task | Held out | Mode | Tries | Passed | pass^k | Tool calls | Tool errors | "
-                 "Tokens in/out | Cost, USD | Time, s |", "|" + "---|" * 11]
-        for (task, mode, auth), rs in groups.items():
-            k = len(rs)
-            pk = "–" if k < tries else ("1" if all(r["success"] for r in rs) else "0")
-            mean = lambda key: sum(r[key] for r in rs) / k  # noqa: E731
-            lines.append(f"| {task} | {'yes' if rs[0]['heldout'] else 'no'} | {mode}/{auth} | {k} | "
-                         f"{sum(r['success'] for r in rs)} | {pk} | {mean('toolCalls'):.1f} | "
-                         f"{mean('toolErrors'):.1f} | {mean('inputTokens') + mean('cacheReadTokens') + mean('cacheWriteTokens'):.0f}"
-                         f"/{mean('outputTokens'):.0f} | {mean('costUsd'):.4f} | {mean('seconds'):.0f} |")
-        models = sorted({m for r in self.rows for m in r["models"] or [r["model"]] if m})
-        summary = {"cap": self.cap, "spent": round(self.spent, 4), "stopped": self.stopped,
-                   "models": models, "tries": tries, "notes": notes,
-                   "passK": {f"{t}/{m}/{a}": (all(r["success"] for r in rs) if len(rs) == tries else None)
-                             for (t, m, a), rs in groups.items()}}
-        (self.out / "summary.json").write_text(json.dumps(summary, indent=1), encoding="utf-8")
-        text = "\n".join([f"# Agent bench run {self.out.name}", "",
-                          f"Models: {', '.join(models) or 'none'}. Spent {self.spent:.4f} of "
-                          f"{self.cap:g} USD." + (f" Stopped: {self.stopped}." if self.stopped else ""),
-                          "", *lines, "", *[f"- {n}" for n in notes]]) + "\n"
-        (self.out / "summary.md").write_text(text, encoding="utf-8")
-        return text
+def tokens(seen: dict) -> dict:
+    """The try's tokens over every model (``modelUsage``), else the result's
+    usage, else what the streamed requests showed (a try killed early)."""
+    keys = ("input", "output", "cacheRead", "cacheWrite")
+    mu = (seen["result"].get("modelUsage") or {}).values()
+    if mu:
+        return {k: sum(u.get(f, 0) for u in mu) for k, f in zip(keys, (
+            "inputTokens", "outputTokens", "cacheReadInputTokens", "cacheCreationInputTokens"))}
+    rows = [seen["result"].get("usage")] if seen["result"].get("usage") else seen["requests"].values()
+    return {k: sum(r.get(f, 0) for r in rows) for k, f in zip(keys, (
+        "input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))}
+
+
+#: the ``error`` of Claude Code's assistant message for a failed request
+_LIMIT = ("rate_limit", "billing_error")
+_STOP = ("authentication_failed", "oauth_org_not_allowed", "account_on_hold", "verification_required")
+
+
+def classify(seen: dict, debug: str, timed_out: bool, *, mode: str, auth: str,
+             model: Optional[str], passed: bool) -> tuple[str, str]:
+    """(class, why) of a try. ``why`` of a not-run try starts with its
+    kind: ``limit``, ``service``, ``runner`` or ``stop`` (the comparison
+    cannot go on: signed out, or billed to the wrong account). Everything
+    else the agent met, LightSim's errors and approval refusals included,
+    leaves a scored try: ``passed`` (the checker's verdict) decides."""
+    init, res = seen["init"], seen["result"]
+    errors = set(seen["apiErrors"])
+    if not init:
+        return "not-run", "runner: claude gave no init event (see the .stderr file)"
+    if (init.get("apiKeySource") in (None, "none")) != (auth == "session"):
+        return "not-run", f"stop: the try used the wrong account (apiKeySource {init.get('apiKeySource')!r})"
+    servers = {s.get("name"): s.get("status") for s in init.get("mcp_servers") or []}
+    if mode == "mcp" and servers.get("lightsim") != "connected":
+        return "not-run", f"runner: LightSim's MCP server did not connect ({servers})"
+    if "rejected output_config.effort" in debug:
+        return "unavailable", f"the tool dropped the effort for {model}: the API refused it"
+    if "model_not_found" in errors or res.get("api_error_status") == 404:
+        return "unavailable", f"the plan refused the model: {str(res.get('result'))[:200]}"
+    others = {m for m in seen["models"] if re.sub(r"-\d{8}$", "", m) != model} if model else set()
+    if others:
+        return "unavailable", f"{', '.join(sorted(others))} answered, not {model}"
+    failed_call = res.get("is_error") and res.get("terminal_reason") == "api_error" or not res and seen["lastRetry"]
+    if errors & set(_STOP) and failed_call:
+        return "not-run", f"stop: {str(res.get('result'))[:200]}"
+    if failed_call:
+        text = str(res.get("result") or "no result")[:200]
+        if errors & set(_LIMIT) or res.get("api_error_status") == 429 or seen["limitReset"]:
+            return "not-run", f"limit: {text}"
+        return "not-run", f"service: {text}"
+    if not res and not timed_out:
+        return "not-run", "runner: claude gave no result (see the .stderr file)"
+    if res.get("subtype") == "error_during_execution" and not timed_out:
+        return "not-run", f"runner: claude stopped with error_during_execution: {str(res.get('result'))[:200]}"
+    return ("solved" if passed else "failed"), ("timeout" if timed_out else res.get("terminal_reason") or "")
+
+
+def run_try(task: Task, mode: str, model: Optional[str], effort: Optional[str], out: Path, name: str, *,
+            claude: str, timeout: float, auth: str = "session", budget: Optional[float] = None) -> dict:
+    """Run one try and return its record (``out/name.*`` keeps the
+    transcript, stderr, debug log and the files as the agent left them)."""
+    base = Path(tempfile.mkdtemp(prefix="lsim-bench-"))  # outside the repository
+    transcript, debug = out / f"{name}.jsonl", out / f"{name}.debug.log"
+    try:
+        work, mcp_config, env = prepare(task, mode, base)
+        env = billing_env(env, auth)
+        prompt = PROMPT.format(tools=TOOLS[mode], work=work, files=", ".join(task.files),
+                               statement=task.statement.replace("{root}", str(ROOT)))
+        cmd = claude_command(claude, mode, prompt, mcp_config, model, effort, budget, debug, env)
+        started = time.monotonic()
+        with open(transcript, "wb") as so, open(out / f"{name}.stderr", "wb") as se:
+            proc = subprocess.Popen(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL,
+                                    stdout=so, stderr=se, start_new_session=True)
+            try:
+                proc.wait(timeout=timeout)
+                timed_out = False
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)  # the group of the claude we started
+                proc.wait()
+                timed_out = True
+        wall = time.monotonic() - started
+        seen = read_transcript(transcript)
+        debug_text = debug.read_text(encoding="utf-8", errors="replace") if debug.exists() else ""
+        cls, why = classify(seen, debug_text, timed_out, mode=mode, auth=auth, model=model, passed=False)
+        verdict = None
+        if cls in SCORED:  # the agent ran: the checker scores what it left
+            with _CHECK:
+                verdict = check(task, work, str(seen["result"].get("result") or ""),
+                                transcript.read_text(encoding="utf-8", errors="replace"))
+            cls = "solved" if verdict.success else "failed"
+        shutil.copytree(work, out / f"{name}-files")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+    res, init = seen["result"], seen["init"]
+    cost, unpriced = list_cost(seen)
+    if budget is not None and not res:
+        cost = budget  # API mode: a try that never reported its cost counts as all it was allowed
+    mu = res.get("modelUsage") or {}
+    return {
+        "task": task.id, "version": task.version, "kind": task.kind, "heldout": task.id in heldout(),
+        "mode": mode, "model": model, "effort": effort, "class": cls, "why": why,
+        "reasons": verdict.reasons if verdict else [], "figures": verdict.figures if verdict else {},
+        "reported": {"init": init.get("model"), "answered": sorted(seen["models"]), "result": sorted(mu)},
+        "billing": None if not init else "plan" if init.get("apiKeySource") in (None, "none")
+        else f"api ({init.get('apiKeySource')})",
+        "claudeCode": init.get("claude_code_version"),
+        "toolCalls": len(seen["calls"]), "tools": dict(collections.Counter(seen["calls"])),
+        "toolErrors": seen["errors"], "permissionDenials": len(res.get("permission_denials") or []),
+        "apiRetries": seen["apiRetries"], "tokens": tokens(seen),
+        "costUsd": round(cost, 6), "costComplete": bool(res) and not unpriced, "unpriced": unpriced,
+        "cliCostUsd": res.get("total_cost_usd"), "cliCostBasis": sorted({u.get("costBasis") for u in mu.values()} - {None}),
+        "seconds": round(wall, 1), "turns": res.get("num_turns"), "limitReset": seen["limitReset"],
+        "end": "timeout" if timed_out else res.get("terminal_reason") or res.get("subtype") or "no result",
+        "transcript": str(transcript), "finished": time.time(),
+    }
 
 
 def preflight(claude: str, auth: str) -> Optional[str]:
@@ -311,7 +387,7 @@ def preflight(claude: str, auth: str) -> Optional[str]:
         return None if os.environ.get("ANTHROPIC_API_KEY") else "--auth api needs ANTHROPIC_API_KEY"
     try:
         out = subprocess.run([claude, "auth", "status"], capture_output=True, text=True, timeout=60,
-                             env={k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"})
+                             env=billing_env(dict(os.environ)))
         if json.loads(out.stdout).get("loggedIn") is True:
             return None
     except (OSError, ValueError, subprocess.TimeoutExpired) as e:
@@ -319,53 +395,49 @@ def preflight(claude: str, auth: str) -> Optional[str]:
     return f"'{claude}' is not signed in to a Claude plan: run it once and use /login"
 
 
+def smoke(out: Path, claude: str, model: str, effort: str, timeout: float) -> list[str]:
+    """One task in each mode and the planted task in each mode, on the plan.
+    Returns the problems."""
+    task, planted = next(t for t in load_tasks() if t.id == SMOKE_TASK), load_task(PLANTED)
+    problems = []
+    for t in (task, planted):
+        for mode in MODES:
+            r = run_try(t, mode, model, effort, out, f"{t.id}.{mode}", claude=claude, timeout=timeout)
+            with open(out / "results.jsonl", "a", encoding="utf-8") as f:
+                f.write(json.dumps(r) + "\n")
+            print(f"{t.id} {mode}: {r['class']} ({r['why']}), {r['toolCalls']} tool calls, "
+                  f"{r['costUsd']:.4f} USD at list price, {r['seconds']:.0f} s", flush=True)
+            if r["class"] not in SCORED:
+                problems.append(f"{t.id} did not run in {mode} mode: {r['why']}")
+            elif t is planted and r["class"] != "solved":
+                problems.append(f"the planted task got the secret in {mode} mode")
+            elif r["billing"] != "plan":
+                problems.append(f"{t.id} in {mode} mode was billed as {r['billing']}")
+    return problems
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="python -m benchmarks.agent.run", description=__doc__.split("\n\n")[0])
-    p.add_argument("--mode", default="mcp,cli", help="mcp, cli or both (mcp,cli)")
-    p.add_argument("--tries", type=int, default=3, help="tries per task and mode (pass^k's k)")
-    p.add_argument("--tasks", help="task ids, comma-separated (default: all)")
-    p.add_argument("--set", choices=("all", "visible", "heldout"), default="all")
-    p.add_argument("--auth", choices=("session", "api"), default="session",
-                   help="session: the Claude plan claude is signed in to; api: ANTHROPIC_API_KEY")
-    p.add_argument("--model", help="the model (claude's default if not given; recorded either way)")
+    p.add_argument("--smoke", action="store_true", required=True, help="the runner's own smoke test")
+    p.add_argument("--model", default="claude-sonnet-5-5")
+    p.add_argument("--effort", default="medium")
     p.add_argument("--claude", default=shutil.which("claude") or "claude")
     p.add_argument("--out", default=str(Path(tempfile.gettempdir()) / "lightsim-bench-runs"),
                    help="where transcripts and results go (outside the repository)")
     p.add_argument("--timeout", type=float, default=1800, help="seconds per try")
-    p.add_argument("--smoke", action="store_true", help="the runner's own smoke test")
     args = p.parse_args(argv)
     isolate()
-    try:
-        cap = float(os.environ[CAP_ENV])
-        assert cap > 0
-    except (KeyError, ValueError, AssertionError):
-        print(f"Set {CAP_ENV} to the most this run may spend, in USD at list price.", file=sys.stderr)
-        return 2
     if Path(args.out).resolve().is_relative_to(ROOT):
         print("--out must be outside the repository: transcripts are never committed.", file=sys.stderr)
         return 2
-    problem = preflight(args.claude, args.auth)
+    problem = preflight(args.claude, "session")
     if problem:
         print(f"Not run: {problem}.", file=sys.stderr)
         return 2
-    runner = Runner(args, cap)
-    problems: list[str] = []
-    notes: list[str] = []
-    if args.smoke:
-        problems, notes = runner.smoke()
-    else:
-        tasks = load_tasks()
-        if args.tasks:
-            wanted = args.tasks.split(",")
-            tasks = [t for t in tasks if t.id in wanted]
-        if args.set != "all":
-            tasks = [t for t in tasks if (t.id in runner.held) == (args.set == "heldout")]
-        # ponytail: one try at a time, so the cap is checked before every one; a pool would
-        # need the cap checked per start and could overshoot by the tries in flight
-        runner.bench(tasks, [m for m in args.mode.split(",") if m in MODES], args.tries, args.auth)
-    if not args.smoke and runner.stopped and "cap" not in runner.stopped:
-        problems.append(f"stopped: {runner.stopped}")
-    print(runner.report(1 if args.smoke else args.tries, [f"Problem: {x}" for x in problems] + notes))
+    out = Path(args.out).resolve() / f"{time.strftime('%Y%m%d-%H%M%S')}-smoke"
+    out.mkdir(parents=True)
+    problems = smoke(out, args.claude, args.model, args.effort, args.timeout)
+    print("\n".join(f"Problem: {x}" for x in problems) or "Smoke test passed.")
     return 1 if problems else 0
 
 

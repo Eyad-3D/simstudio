@@ -38,18 +38,16 @@ headless `claude` command is signed in:
 python -m benchmarks.agent validate        # every task's solutions through its checker (about 8 minutes)
 python -m benchmarks.agent start build-city-ev /tmp/look   # a task's starting files, to look at them
 
-export LSIM_BENCH_CAP_USD=2                # required: the most the run may spend, USD at list price
 python -m benchmarks.agent.run --smoke --out ~/scratch/judge-cache/ai/bench-runs
-python -m benchmarks.agent.run --mode mcp,cli --tries 3 --out ~/scratch/judge-cache/ai/bench-runs
-python -m benchmarks.agent.run --tasks repair-hatchback --mode mcp --tries 1 --model sonnet --out …
-python -m benchmarks.agent.run --set visible …   # or heldout; the default is all
-python -m benchmarks.agent.run --auth api …      # by ANTHROPIC_API_KEY instead of the Claude plan
-cd backend && python -m pytest tests/test_agent_bench.py -q
+taskset -c 0-11 python -m benchmarks.agent.compare --out ~/scratch/judge-cache/ai/bench-runs --name oct
+python -m benchmarks.agent.compare … --name try --stage A --tasks repair-hatchback --settings sonnet-medium
+python -m benchmarks.agent.compare … --report     # the report again, from the records
+cd backend && python -m pytest tests/test_agent_bench.py tests/test_agent_compare.py -q
 ```
 
 Each try is one `claude -p --output-format stream-json --verbose` run in a
 fresh temporary folder outside the repository that holds only the task's
-starting files. `--mode` says which tools the agent gets:
+starting files. The mode says which tools the agent gets:
 
 - `mcp`: LightSim's MCP server from this checkout, over stdio, allowed to
   see that folder and the examples, is the agent's only tool (with the two
@@ -75,41 +73,115 @@ part of what the bench measures. Today's `lightsim` command has no command
 that saves an edited model, so in `cli` mode the tasks scored on a saved
 model fail until it has one.
 
-**The cap.** `LSIM_BENCH_CAP_USD` is required. The runner adds up the cost
-each try reports (`total_cost_usd`: USD at list price, also on a Claude
-plan), stops before the next try once the sum reaches the cap, and gives
-each try only what is left of it (`--max-budget-usd`). A try stopped at
-`--timeout` (30 minutes) reports no cost, so it counts as all that was
-left, and the run stops there. `--auth session` (the default) runs on the
-Claude plan `claude` is signed in to and keeps `ANTHROPIC_API_KEY` away
-from it; `--auth api` needs the key set. The run stops if a try used the
-other account.
+**On the plan, with no cap.** A try runs on the Claude plan `claude` is
+signed in to. The runner removes from the agent's environment every
+variable that would make it bill an API account instead (`ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, any other `ANTHROPIC_*`, the `CLAUDE_CODE_USE_*`
+provider switches, `AWS_BEARER_TOKEN_BEDROCK`) or pick another effort
+(`CLAUDE_CODE_EFFORT_LEVEL`), records which billing each try used, and
+stops if one used a key. Nothing is stopped or shortened for cost: there is
+no `--max-budget-usd`. Only `--auth api` (by `ANTHROPIC_API_KEY`) may have
+a cap, `LSIM_BENCH_CAP_USD`: the comparison then starts no try once the sum
+reaches it and gives each try what is left.
 
-**What it records**, in a new folder under `--out` (never inside the
-repository): `results.jsonl`, a line per try with success and the
-checker's reasons, tool calls (and which), tool errors, permission
-denials, tokens (input, output, cache read and written), cost, time,
-turns, how the run ended, the model, and the transcript's path; the
-transcript (`<task>-<mode>-<auth>-<try>.jsonl`, every message and tool
-call) and its stderr; the files as the agent left them
-(`…-files/`); and `summary.md` and `summary.json`: per task and mode the
-tries, passes, pass^k (1 when all k tries passed, – when the cap cut the
-tries short) and the means. Read the transcripts of failed tries for what
-went wrong.
+**The cost** of each try is recorded twice: at Anthropic's API list price,
+worked out by the runner from the tokens of each request (each request on
+its own rate card: Haiku 5.5 costs five times as much on a prompt over
+100 000 tokens), and as the tool reports it (`total_cost_usd`). They differ:
+Claude Code 2.1.273 does not know the 5.5 models, prices them as Claude Opus
+5 (`costBasis: "unknown"`), and assumes a 200 000-token context and 32 000
+output tokens for them. The list prices are in `run.py` (`PRICES`); change
+them there when Anthropic does.
 
-The smoke test (`--smoke`, with a cap of 2 USD) runs `question-loaded-ev`
-once in each mode (and by API when `ANTHROPIC_API_KEY` is set), the
-planted task once in each mode (it passes when the secret in its file
-never reaches the agent), then sets the cap just above what was spent and
-checks that it stops the run before the next try.
+## The comparison
+
+`python -m benchmarks.agent.compare` answers the owner's question: which is
+the cheapest model and effort level that drives LightSim successfully. A
+setting is a model and an effort level, passed as `--model <id> --effort
+<level>`. The eight settings, cheapest first:
+
+| Setting | Model | Effort |
+|---|---|---|
+| `haiku-low`, `haiku-medium`, `haiku-high` | Haiku 5.5 (`claude-haiku-5-5`) | low, medium, high |
+| `sonnet-low`, `sonnet-medium`, `sonnet-high`, `sonnet-xhigh` | Sonnet 5.5 (`claude-sonnet-5-5`) | low, medium, high, extra-high |
+| `opus-high` | Opus 5.5 (`claude-opus-5-5`) | high: the ceiling |
+
+The ceiling tells a task that is too hard or broken from a model that is too
+weak. One command runs three stages, so the three tries go where the answer
+depends on them:
+
+- **A**: every setting on every task once, through the MCP server.
+- **B**: two more tries (three in all) for the ceiling, for Sonnet 5.5 at
+  medium (the owner's expected answer) and for every setting that solved at
+  least the ceiling's count minus 5 in stage A.
+- **C**: the command line once on every task, for the cheapest working
+  setting and the ceiling.
+
+`--jobs` (3) runs tries side by side; run it under `taskset -c 0-11` on the
+shared PC, and every process it starts keeps to those CPUs. The tries go task
+by task across all the settings, not setting by setting, so a comparison
+stopped halfway still compares the settings on the same tasks.
+
+Every try ends in one class:
+
+- **solved** or **failed**: the checker's verdict on what the agent left.
+  LightSim errors the agent hit and gave up on, refusals by LightSim's own
+  approval prompts, a full context and a try stopped at `--timeout` (30
+  minutes) are failures: they are what today's tools do. Only these two are
+  scored.
+- **not run**: a plan usage limit, a rate limit, an overloaded or network
+  error from the service, or the runner's own fault. It is noted in
+  `notrun.jsonl`, never scored, and retried: after a limit, from the reset
+  time the stream gives, else after a back-off that doubles from 1 minute
+  up to 30; the report counts the retries per setting. The comparison stops
+  only when `claude` is signed out, a try used an API key, or the runner
+  failed three times on one try (ten times for service errors).
+- **unavailable**: the plan refused the model, the tool dropped the effort
+  (its debug log says the API refused it), or another model answered. The
+  setting is not run again, and the report says why. No setting ever runs
+  under another's name.
+
+Each try's record is written when it ends (`tries/<task>.<mode>.<setting>.<try>.json`),
+so the same command again skips the finished tries: a comparison stopped by
+a limit, a crash or a restart goes on where it stopped.
+
+**What it records**, in `--out/--name` (never inside the repository): per
+try, the class and why, the checker's reasons and figures, the model asked
+for and the models the run reported (its init and result events and every
+answer), the effort, the billing, the Claude Code version, tool calls (and
+which), tool errors, permission denials, Claude Code's own retries, tokens
+(input, output, cache read and written), both costs, time, turns and how it
+ended; under `runs/`, each attempt's transcript (with each request's
+tokens), stderr, Claude Code's debug log and the files as the agent left
+them.
+
+**The report** (`report.md` and `report.json`, written by the command) has,
+per setting and mode: solved once and pass^3 (where it ran), visible and
+held out apart and per kind; the mean cost of a try and the total, at list
+price; the cost per solved try; mean tokens, tool calls, tool errors and
+time; and the not-run tries retried. Then two answers the command works out:
+
+1. **The cheapest working setting**: the lowest mean cost per try among the
+   settings whose pass^3 count on all tasks is at most 2 below the
+   ceiling's, with the tasks the ceiling solves on all three tries that it
+   does not, and the reverse.
+2. **Good enough for hands-off work**: pass^3 on at least 90 % of all tasks
+   and of the held-out tasks. When no setting is, the report says so: that
+   gap is what step 6's later tool changes must close, with Sonnet 5.5 at
+   medium as the target.
+
+The smoke test (`run --smoke`) runs `question-loaded-ev` and the planted task
+once in each mode on Sonnet 5.5 at medium (`--model`, `--effort`): the
+planted task passes when the secret in its file never reaches the agent.
 
 ## The held-out set
 
 `heldout.txt` names a third of the tasks, a third of each kind. Tune tools,
 skills and their wording on the other tasks only, reading their transcripts
-as much as you like. For a held-out task read only its scores (`--set
-heldout`, or the held-out column of a summary), never its transcripts, so the
-tools are not fitted to it. The file is never copied to an agent's folder,
+as much as you like (read those of failed tries for what went wrong). For a
+held-out task read only its scores (the held-out columns of the report),
+never its transcripts or its records' reasons, so the tools are not fitted
+to it. The file is never copied to an agent's folder,
 and the agent cannot read the repository. When you add tasks, keep the list a
 third of them and of each kind (the validator and the tests check both).
 
