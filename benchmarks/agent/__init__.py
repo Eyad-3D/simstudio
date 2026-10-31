@@ -475,6 +475,7 @@ def validate(task: Task) -> list[str]:
         fields[i], fields[j] = fields[j], fields[i]
         if not _check_answer(task, "ANSWER: " + "; ".join(fields), {}):
             problems.append(f"answers {i + 1} and {j + 1} swapped pass: their bands overlap")
+    problems += brief_problems(task)
     wrongs = ["blank", "wrong"] + [f"also_wrong:{i}" for i in range(len(task.also_wrong))]
     whiches = ["reference", *wrongs] + [f"also_right:{i}" for i in range(len(task.also_right))]
     for which in whiches:
@@ -489,6 +490,25 @@ def validate(task: Task) -> list[str]:
             problems.append(f"the {which} solution {'fails' if must_pass else 'passes'}"
                             + (f": {'; '.join(verdict.reasons)}" if verdict.reasons else ""))
     return problems
+
+
+def brief_problems(task: Task) -> list[str]:
+    """A figure that carries ``brief = <number>`` states a number the brief
+    itself gives (a 3 kW load, a 100 km/h limit). The bands are around the
+    reference model's own run, so a brief that says something LightSim does
+    not do would pass unnoticed; the reference's figure must lie inside the
+    figure's band around the brief's number."""
+    stated = [f for f in task.check.get("figures", []) if "brief" in f]
+    if not stated:
+        return []
+    project, _, ref = reference_run(task)
+    out = []
+    for f in stated:
+        got = figure(project, ref, f)
+        if got is None or not close(got, f["brief"], f):
+            out.append(f"{_figure_name(f)}: the brief says {f['brief']:g}, the reference's run gives "
+                       f"{'nothing' if got is None else format(got, '.5g')} ({_band(f)})")
+    return out
 
 
 _RUNS: dict[tuple, tuple] = {}

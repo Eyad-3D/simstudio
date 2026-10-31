@@ -590,3 +590,51 @@ def test_a_settings_subset_names_the_cheapest_of_those_it_ran():
     text, _ = compare.report(tries_of(ALL, {"sonnet-medium": set(), "opus-high": set()}), [], ALL,
                              list(compare.SETTINGS))
     assert "1. The cheapest working setting: **Sonnet 5.5, medium**" in text
+
+
+def _run_only(*names: str) -> list:
+    return [s for s in compare.SETTINGS if s.name in names]
+
+
+def test_a_settings_subset_never_says_no_setting_about_settings_it_did_not_run():
+    """The records hold all 33 tasks and three tries: Opus high 29/33 (9/11
+    held out), Sonnet high 31/33 (10/11), Sonnet medium 28/33. Of the two
+    settings run, Sonnet medium and Opus high, none clears the hands-off
+    floor: the report says so of those two, not "no setting" (Sonnet high
+    works and was left out). Run with all eight, the same records name it."""
+    held, visible = sorted(agent.heldout()), sorted(t.id for t in ALL if t.id not in agent.heldout())
+    rs = tries_of(ALL, {"opus-high": set(held[:2]) | set(visible[:2]), "sonnet-high": {held[0], visible[0]},
+                        "sonnet-medium": set(held[:3]) | set(visible[:2])})
+    text, data = compare.report(rs, [], ALL, _run_only("sonnet-medium", "opus-high"))
+    assert data["settingsRun"] == ["sonnet-medium", "opus-high"]  # (report.json says which were run)
+    assert "No setting" not in text and "no setting" not in text
+    (one,) = [x for x in text.splitlines() if x.startswith("1.")]
+    (two,) = [x for x in text.splitlines() if x.startswith("2.")]
+    assert one.startswith("1. **None of the 2 settings run (not all 8) drives LightSim successfully today**: "
+                          "even the ceiling (Opus 5.5, high) has pass^3 on only 29/33")
+    assert two.startswith("2. **None of the 2 settings run (not all 8) is good enough for hands-off work**")
+    assert "   The cheapest setting as good as the ceiling of the 2 settings run (not all 8): Sonnet 5.5, medium," in text
+    text, _ = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    assert "settings run" not in text
+    assert "1. The cheapest working setting: **Sonnet 5.5, high**" in text
+    assert "2. Good enough for hands-off work (pass^3 on at least 90% of all tasks and of the held-out ones): " \
+           "Sonnet 5.5, high." in text
+
+
+def test_a_settings_subset_scopes_every_answer_line_that_names_or_denies_a_setting():
+    """The sibling lines of the "no setting" ones: the list of settings good
+    enough for hands-off work, the cheapest setting as good as the ceiling
+    under a task subset, and a single setting run."""
+    held, visible = sorted(agent.heldout()), sorted(t.id for t in ALL if t.id not in agent.heldout())
+    rs = tries_of(ALL, {"opus-high": set(held[:2]) | set(visible[:2]), "sonnet-high": {held[0], visible[0]}})
+    text, _ = compare.report(rs, [], ALL, _run_only("sonnet-high", "opus-high"))
+    assert ("2. Good enough for hands-off work (pass^3 on at least 90% of all tasks and of the held-out ones), "
+            "of the 2 settings run (not all 8): Sonnet 5.5, high.") in text
+    # a task subset as well: not known, and the cheapest as good as the ceiling is of the settings run
+    few = [t for t in ALL if t.id in ("repair-hatchback", "question-loaded-ev", "write-speed-limiter")]
+    text, _ = compare.report(tries_of(few, {"opus-high": set(), "sonnet-medium": set()}), [], few,
+                             _run_only("sonnet-medium", "opus-high"))
+    assert "   The cheapest setting as good as the ceiling of the 2 settings run (not all 8): Sonnet 5.5, medium," in text
+    # the ceiling alone
+    text, _ = compare.report(tries_of(ALL, {"opus-high": set(held[:2])}), [], ALL, _run_only("opus-high"))
+    assert "1. **None of the 1 setting run (not all 8) drives LightSim successfully today**" in text

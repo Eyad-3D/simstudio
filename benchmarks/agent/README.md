@@ -189,8 +189,7 @@ time; and the not-run tries retried. Then two answers the command works out:
    the floor is named as such, not called working. When none is good enough,
    as on today's tools, the answer is that no setting drives LightSim
    successfully yet, and the cheapest setting as good as the ceiling follows
-   on its own line (stage C still runs it). A `--settings` subset names the
-   cheapest of the settings it ran, and the line says so.
+   on its own line (stage C still runs it).
 2. **Good enough for hands-off work**: pass^3 on at least 90 % of all tasks
    and of the held-out tasks. When no setting is, the report says so: that
    gap is what step 6's later tool changes must close, with Sonnet 5.5 at
@@ -199,6 +198,12 @@ time; and the not-run tries retried. Then two answers the command works out:
    says "not known" and how many tasks it ran, instead of judging a setting
    on a few tasks. The cheapest setting as good as the ceiling stays on its
    own line, for stage C.
+
+A `--settings` subset (anything short of all eight settings) speaks only of
+the settings it ran, in both answers: "the cheapest working setting of the 2
+settings run (not all 8)", "None of the 2 settings run (not all 8) is good
+enough for hands-off work", and so on. It never says "no setting" about a
+setting that was not run.
 
 The smoke test (`run --smoke`) runs `question-loaded-ev` and the planted task
 once in each mode on Sonnet 5.5 at medium (`--model`, `--effort`): the
@@ -272,6 +277,7 @@ figures = [
   { key = "consumption_kwh_per_100km", rtol = 0.01 },     # a summary number by stable key
   { key = "*.final_soc_pct", atol = 0.1 },                # one part's, whatever its id
   { channel = "vehicle.body:sig_speed", stat = "max", atol = 1.5 },  # max, min, mean or end
+  { channel = "vehicle.body:sig_speed", stat = "max", atol = 1.5, brief = 100.0 },  # a number the brief states
 ]
 
 [[answer]]                         # for an answer task: one table per ;-separated field
@@ -305,7 +311,11 @@ best = { case = "Acceleration 75 m", key = "accel_time_s", pick = "min" }
   figures come out right.
 - `figures`: the agent's run and the reference's must end the same way
   (success, warning…), and each figure must lie within `rtol` (relative) or
-  `atol` (absolute) of the reference's.
+  `atol` (absolute) of the reference's. A figure with `brief = <number>`
+  is one the brief itself states (a 3 kW load, a 100 km/h limit). The
+  bands are around the reference's own run, so this is what holds the
+  reference to the brief: `validate` fails the task when the reference's
+  figure lies outside the band around that number.
 - `[[answer]]`: the key. `figure` says which number of which run it is, and
   the validator checks the key against LightSim (within 0.2 %); `best` lets
   it check a choice. The validator also swaps every two numbers of the key:
@@ -333,7 +343,11 @@ Starting files are never stored: only operations on the bundled examples
    must run through every part of the condition the brief states (the
    battery crossing the threshold, the car entering and leaving the zone):
    add `[[also_wrong]]` entries with the same wiring whose code drops each
-   part (no upper bound, never, always) and see them fail.
+   part (no upper bound, never, always) and see them fail. A brief says
+   nothing about LightSim that LightSim does not do (a share where a port
+   takes kW): tie a figure to each number the brief states (`brief =`) and
+   add the task's ports to `SAYS` in `tests/test_agent_bench.py`, which
+   checks the brief's words for each port against the library's unit group.
 6. For an answer task, run the reference and put the figures in the key
    (the validator says what LightSim computes when they differ).
 7. `python -m benchmarks.agent validate <id>` until it says ok; then

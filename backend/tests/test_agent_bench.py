@@ -99,12 +99,12 @@ _CAP = [{"op": "add", "type": "signal.lookup", "label": "Cap Table"},
         {"op": "set", "element": "Cap Table", "param": "table_1d", "value": {"0": 0.0, "100": 100.0, "300": 100.0}},
         {"op": "connect", "from": "Vehicle Task:sig_demand", "to": "Cap Table:sig_x_in"}]
 _PASS = 'def step(t, dt, inputs, state, params):\n    return {"target": inputs.get("demand", 0.0)}\n'
-#: a Lookup Table that sheds the load; a Script block that always returns 1.0
+#: a Lookup Table that sheds the load (kW); a Script block that always returns 3 kW
 _SHED = [{"op": "add", "type": "signal.lookup", "label": "Shed Table"},
-         {"op": "set", "element": "Shed Table", "param": "table_1d", "value": {"15": 0.2, "30": 1.0}},
+         {"op": "set", "element": "Shed Table", "param": "table_1d", "value": {"15": 0.6, "30": 3.0}},
          {"op": "connect", "from": "HV Battery Pack:sig_soc", "to": "Shed Table:sig_x_in"}]
-_ONE = 'def step(t, dt, inputs, state, params):\n    return {"share": 1.0}\n'
-_SHED_SCRIPT = _script("Aux Shedding", _ONE, ["soc"], ["share"]) + [
+_ONE = 'def step(t, dt, inputs, state, params):\n    return {"load_kw": 3.0}\n'
+_SHED_SCRIPT = _script("Aux Shedding", _ONE, ["soc"], ["load_kw"]) + [
     {"op": "connect", "from": "HV Battery Pack:sig_soc", "to": "Aux Shedding:soc"}]
 _DISCONNECT = {"op": "disconnect", "from": "Vehicle Task:sig_demand", "to": "Driver:sig_target_in"}
 
@@ -117,7 +117,7 @@ _DISCONNECT = {"op": "disconnect", "from": "Vehicle Task:sig_demand", "to": "Dri
     ("write-aux-shed", "also_wrong:0", "0 signal.script parts labelled 'Aux Shedding'"),
     # a Script block under the label, but a Lookup Table does the job: its output goes to a Monitor
     ("write-speed-limiter", "also_wrong:1", "'Speed Limiter' port 'target' is not linked to Driver:sig_target_in"),
-    ("write-aux-shed", "also_wrong:1", "'Aux Shedding' port 'share' is not linked to Power Consumer:sig_demand_in"),
+    ("write-aux-shed", "also_wrong:1", "'Aux Shedding' port 'load_kw' is not linked to Power Consumer:sig_demand_in"),
     # ... a pass-through Script block behind the Lookup Table: fed by the table, not by the Vehicle Task
     ("write-speed-limiter",
      [_DISCONNECT, *_CAP, *_script("Speed Limiter", _PASS, ["demand"], ["target"]),
@@ -133,11 +133,11 @@ _DISCONNECT = {"op": "disconnect", "from": "Vehicle Task:sig_demand", "to": "Dri
      "has 2 sources"),
     ("write-aux-shed",
      [*_SHED, *_SHED_SCRIPT, {"op": "connect", "from": "Shed Table:sig_out", "to": "Power Consumer:sig_demand_in"},
-      {"op": "connect", "from": "Aux Shedding:share", "to": "Power Consumer:sig_demand_in"}],
+      {"op": "connect", "from": "Aux Shedding:load_kw", "to": "Power Consumer:sig_demand_in"}],
      "has 2 sources"),
     # a Script block wired as the brief says, but a Lookup Table feeds an extra input port it returns
     ("write-speed-limiter", "also_wrong:2", "input port 'capped' is linked, but the brief names only demand, target"),
-    ("write-aux-shed", "also_wrong:2", "input port 'x' is linked, but the brief names only soc, share"),
+    ("write-aux-shed", "also_wrong:2", "input port 'x' is linked, but the brief names only soc, load_kw"),
     # the condition in the brief dropped (Script blocks wired as the brief says, doing less than it says): the
     # case runs through each part of the condition, so each shows in a figure
     ("write-speed-limiter", "also_wrong:3", "vehicle.body:sig_speed max ="),      # no cap
@@ -149,8 +149,10 @@ _DISCONNECT = {"op": "disconnect", "from": "Vehicle Task:sig_demand", "to": "Dri
     ("write-limp-home", "also_wrong:0", "distance_km ="),                         # the ceiling from the start
     ("write-limp-home", "also_wrong:1", "the run ended 'success', the reference's 'warning'"),  # never
     ("write-limp-home", "also_wrong:2", "distance_km ="),                         # the threshold at 14 %
-    ("write-aux-shed", "also_wrong:3", "electric.constant_drive:sig_power max ="),  # a constant share
+    ("write-aux-shed", "also_wrong:3", "electric.constant_drive:sig_power max ="),  # a constant load
     ("write-aux-shed", "also_wrong:4", "electric.constant_drive:sig_power mean ="),  # two levels, no line
+    # the share (0 to 1) sent to an input that takes kW: the load never passes 1 kW
+    ("write-aux-shed", "also_wrong:5", "electric.constant_drive:sig_power max = 1"),
     # City Cycle mended, and the faults put on a case the brief says not to touch
     ("repair-case-override", "also_wrong:0", "'Vehicle' mass_kg in case 'WLTC Class 3b' is 2400"),
     # ... or another setting of that case changed: its duration, which model_edit's set_case can reach
@@ -269,7 +271,7 @@ def test_a_key_whose_numbers_pass_swapped_is_refused():
     assert "answers 1 and 2 swapped pass: their bands overlap" in agent.validate(wide)
 
 
-@pytest.mark.parametrize("task_id", ["build-sedan-abc", "write-launch-smoother", "repair-case-override"])
+@pytest.mark.parametrize("task_id", ["build-sedan-abc", "write-launch-smoother", "write-aux-shed", "repair-case-override"])
 def test_a_reference_saved_through_the_edit_tool_passes_the_checker(task_id, tmp_path, monkeypatch):
     """What an agent that edits the right way leaves behind: the reference
     operations sent through LightSim's own ``model_edit`` tool, confirmed and
@@ -409,3 +411,82 @@ def test_the_smoke_test(fake_claude, tmp_path, monkeypatch):
 def test_no_transcripts_in_the_repository(fake_claude, tmp_path):
     assert run.main(["--smoke", "--claude", str(fake_claude), "--out", str(ROOT / "runs")]) == 2
     assert not (tmp_path / "calls.jsonl").exists() and not (ROOT / "runs").exists()
+
+
+# -- a brief must be true of LightSim ----------------------------------------------
+#: What each write brief says its Script's ports carry, by the part:port each is
+#: wired to: the library's unit group of that port, and the words the brief
+#: uses for it. The bands of a task are around the reference's own run, so
+#: nothing else ties the brief's words to LightSim.
+SAYS = {
+    "write-aux-shed": {"HV Battery Pack:sig_soc": ("Percent", "(the battery's state of charge, %)"),
+                       "Power Consumer:sig_demand_in": ("Power", "(the power the comfort load is to draw, kW)")},
+    "write-limp-home": {"HV Battery Pack:sig_soc": ("Percent", "(the battery's state of charge, %)"),
+                        "Driver:sig_traction_cmd": ("Fraction", "(the Driver's traction command)"),
+                        "E-Motor:sig_demand_in": ("Fraction", "(15 % of the available torque)")},
+    "write-regen-gate": {"Vehicle:sig_speed": ("Velocity", "below 10 km/h"),
+                         "Driver:sig_traction_cmd": ("Fraction", "a negative command (regeneration)"),
+                         "E-Motor:sig_demand_in": ("Fraction", "drives the E-Motor's demand input")},
+    "write-speed-limiter": {"Vehicle Task:sig_demand": ("Velocity", "never more than 100 km/h"),
+                            "Driver:sig_target_in": ("Velocity", "Driver's target speed input")},
+    "write-launch-smoother": {"Vehicle Task:sig_demand": ("Velocity", "no more than 2 km/h per second"),
+                              "Driver:sig_target_in": ("Velocity", "Driver's target speed input")},
+    "write-speed-zone": {"Vehicle Task:sig_demand": ("Velocity", "never more than 45 km/h"),
+                         "Vehicle:sig_distance": ("Distance", "between 4.7 km and 6.0 km"),
+                         "Driver:sig_target_in": ("Velocity", "Driver's target speed input")},
+}
+
+
+def test_every_write_brief_says_what_its_ports_carry():
+    assert set(SAYS) == {t.id for t in WRITE}, "a new write task needs an entry in SAYS"
+
+
+@pytest.mark.parametrize("task", WRITE, ids=lambda t: t.id)
+def test_a_write_brief_says_of_each_port_what_the_library_says(task):
+    """The brief's words for what a Script port carries (a power in kW, a
+    speed in km/h, a state of charge in %) agree with the library's unit group
+    of the port it is wired to. The aux-shed brief once called the Power
+    Consumer's demand input a share (0 to 1) where LightSim takes kW, and no
+    band caught it."""
+    says = SAYS[task.id]
+    peers = set(task.check["require"]["ports"].values())
+    assert set(says) == peers, f"{task.id}: SAYS names {sorted(says)}, the task wires {sorted(peers)}"
+    project = agent.ls.Project(agent.solution(task, "reference")[0][task.check["file"]])
+    brief = " ".join(task.statement.split())
+    for peer, (group, words) in says.items():
+        part, port = peer.rsplit(":", 1)
+        el = next(e for e in project.elements if e.label == part)
+        got = next(p.unitGroup for p in agent._ports(el) if p.id == port)
+        assert got == group, f"{task.id}: the brief says {peer} carries {group}, the library says {got}"
+        assert words in brief, f"{task.id}: {words!r} is not in the brief"
+
+
+def test_a_brief_that_says_a_share_where_lightsim_takes_kW_is_refused():
+    """The aux-shed reference as it was (a share, 0.2 to 1, into the demand
+    input) draws 1 kW at most: the brief's own 3 kW and 0.6 kW make the
+    validator refuse the task, where the bands around the reference's run
+    could not."""
+    task = next(t for t in TASKS if t.id == "write-aux-shed")
+    assert agent.brief_problems(task) == []
+    share = {"op": "set", "element": "Aux Shedding", "param": "code", "value": (
+        'def step(t, dt, inputs, state, params):\n'
+        '    soc = inputs.get("soc", 100.0)\n'
+        '    return {"load_kw": clamp(0.2 + 0.8 * (soc - 15.0) / 15.0, 0.2, 1.0)}\n')}
+    old = dataclasses.replace(task, id="write-aux-shed-as-a-share",
+                              reference={**task.reference, "ops": task.reference["ops"] + [share]})
+    assert agent.brief_problems(old) == [
+        "electric.constant_drive:sig_power max: the brief says 3, the reference's run gives 1 (±0.06)",
+        "electric.constant_drive:sig_power end: the brief says 0.6, the reference's run gives 0.2 (±0.06)"]
+
+
+@pytest.mark.parametrize("task", TASKS, ids=lambda t: t.id)
+def test_every_number_a_task_takes_from_its_brief_is_true_of_its_reference(task):
+    assert agent.brief_problems(task) == []
+
+
+def test_the_tasks_that_tie_a_figure_to_a_number_in_their_brief():
+    """Where a figure of the case is a number the brief gives (a load, a
+    limit), the task says so (``brief =``) and the validator holds the
+    reference to it."""
+    tied = {t.id: sorted(f["brief"] for f in t.check.get("figures", []) if "brief" in f) for t in TASKS}
+    assert {k: v for k, v in tied.items() if v} == {"write-aux-shed": [0.6, 3.0], "write-speed-limiter": [100.0]}

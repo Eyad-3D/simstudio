@@ -262,6 +262,17 @@ def _frac(pair: list) -> str:
     return f"{pair[0]}/{pair[1]}" if pair[1] else "–"
 
 
+def _ran(settings: list[Setting]) -> str:
+    """Which settings an answer speaks of: empty when all eight were run,
+    else "the 2 settings run (not all 8)". The answers say "no setting" and
+    name the cheapest only of the settings that were run, never of one that
+    was not."""
+    if {s.name for s in SETTINGS} <= {s.name for s in settings}:
+        return ""
+    n = len(settings)
+    return f"the {n} setting{'s' if n != 1 else ''} run (not all {len(SETTINGS)})"
+
+
 def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list[Setting],
            note: str = "", older: list[dict] = ()) -> tuple[str, dict]:
     """The report; ``older`` are the records of older task versions (their
@@ -277,6 +288,7 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
     held = heldout()
     data = {
         "tasks": len(tasks), "heldout": sum(t.id in held for t in tasks),
+        "settingsRun": [s.name for s in settings],
         "scoredTries": sum(r["class"] in SCORED for r in rs), "notRunTries": len(nr),
         "olderVersionTries": len(old), "olderVersionCostUsd": round(sum(r.get("costUsd", 0.0) for r in old), 4),
         "unavailable": unavailable(records),
@@ -317,6 +329,8 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
     if note:
         lines += [note, ""]
     lines += ["## The answers", ""]
+    ran = _ran(settings)
+    of = f" of {ran}" if ran else ""
     if a1["setting"] is None:
         lines.append(f"1. The cheapest working setting: not known yet; it {a1['why']}.")
     else:
@@ -329,10 +343,7 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
             f"{WORKING_MARGIN} tasks below the ceiling's; candidates: "
             f"{', '.join(label[x] for x in a1['candidates'])}.)")
         if a1["works"]:
-            # (a --settings subset names the cheapest of those run, not of all eight)
-            scope = ("" if {s.name for s in SETTINGS} <= {s.name for s in settings}
-                     else f" of the {len(settings)} settings run (not all {len(SETTINGS)})")
-            lines.append(f"1. The cheapest working setting{scope}: **{a1['label']}**, {detail}")
+            lines.append(f"1. The cheapest working setting{of}: **{a1['label']}**, {detail}")
             if a1["belowHandsOff"]:
                 lines.append(f"   Candidates below the {HANDS_OFF:.0%} hands-off floor (all tasks or held "
                              f"out), so not working: {', '.join(label[x] for x in a1['belowHandsOff'])}.")
@@ -340,23 +351,26 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
             lines.append(f"1. The cheapest working setting: not known; a --tasks subset of {len(tasks)} of "
                          f"{_bench_size()} tasks was run, and a setting works only with pass^3 on {HANDS_OFF:.0%} "
                          f"of all tasks and of the held-out ones.")
-            lines.append(f"   The cheapest setting as good as the ceiling: {a1['label']}, {detail}")
+            lines.append(f"   The cheapest setting as good as the ceiling{of}: {a1['label']}, {detail}")
         else:
             lines.append(
-                f"1. **No setting drives LightSim successfully today**: even the ceiling ({label[CEILING]}) "
+                f"1. **{f'None of {ran}' if ran else 'No setting'} drives LightSim successfully today**: "
+                f"even the ceiling ({label[CEILING]}) "
                 f"has pass^3 on only {_frac(a1['ceilingPass3'])} of all tasks and "
                 f"{_frac(a1['ceilingPass3Heldout'])} held out, below the {HANDS_OFF:.0%} that hands-off work "
                 f"needs, so being as good as the ceiling is not enough.")
-            lines.append(f"   The cheapest setting as good as the ceiling: {a1['label']}, {detail}")
+            lines.append(f"   The cheapest setting as good as the ceiling{of}: {a1['label']}, {detail}")
     if a2["settings"] is None:
         lines.append(f"2. Good enough for hands-off work: not known yet; it {a2['why']}.")
     elif a2["settings"]:
-        lines.append(f"2. Good enough for hands-off work (pass^3 on at least {HANDS_OFF:.0%} of all tasks "
-                     f"and of the held-out ones): {', '.join(label[x] for x in a2['settings'])}.")
+        lines.append(f"2. Good enough for hands-off work (pass^3 on at least {HANDS_OFF:.0%} of all "
+                     f"tasks and of the held-out ones){',' + of if of else ''}: "
+                     f"{', '.join(label[x] for x in a2['settings'])}.")
     else:
         b = a2["bestPass3"]
         lines.append(
-            f"2. **No setting is good enough for hands-off work**: that needs pass^3 on at least "
+            f"2. **{f'None of {ran}' if ran else 'No setting'} is good enough for hands-off work**: that "
+            f"needs pass^3 on at least "
             f"{HANDS_OFF:.0%} of all tasks and of the held-out ones, and the best, {label[a2['best']]}, has "
             f"{_frac(b['all'])} of all and {_frac(b['heldout'])} held out. That gap is what step 6's later "
             f"tool changes must close, with {label[TARGET]} as the target"

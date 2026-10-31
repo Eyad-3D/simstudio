@@ -120,5 +120,5 @@ require = { type = "signal.script", label = "Speed Limiter", ports = { demand = 
 figures = [
   { key = "distance_km", rtol = 0.01 },
   { key = "consumption_kwh_per_100km", rtol = 0.03 },
-  { channel = "vehicle.body:sig_speed", stat = "max", atol = 1.5 },
+  { channel = "vehicle.body:sig_speed", stat = "max", brief = 100.0, atol = 1.5 },
 ]
