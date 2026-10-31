@@ -636,6 +636,21 @@ reason = """A field of the result the diff does not say how to compare fails the
 which engine ran the run, which the two runs of an item give apart on purpose. No pass mark is loosened. \
 Written before the part's first measured run."""
 
+[[changes]]
+date = "2026-10-31"
+line = "STREAM"
+change = """S2's study is a 16-point study of bev-car/case-wltc (the vehicle's mass from 1200 to 2700 kg, as \
+before), not of bev-car/case-city. The pass mark (p95 at most 1.0 s on Windows CI) and the rule for a stop that \
+shows something (a point running ends cancelled; fewer than half the stops showing something is "not \
+measured") are unchanged."""
+reason = """The twelfth measurement (judge-cache/step2/baseline-12, at 3e8459e) ran the registered study: on the \
+new engine's path a City Cycle point is done in about 0.1 s, so 11 of the 20 random stops found no point \
+running (the pool still starting its workers, or between points) and the line was "not measured" (9 of 20 \
+shown, their p95 0.47 s); today's engine, whose points take seconds, showed all 20. The roadmap asks for "a \
+16-point study", not its case; the WLTC's points take about 1.3 s on the new engine, long enough for a random \
+stop to find one running, and the live part of S2 runs the same case. Written after that measurement, which it \
+names; the stop probe is measured again with it."""
+
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
 # at `file`.

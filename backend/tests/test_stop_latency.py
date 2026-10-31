@@ -1,8 +1,9 @@
 """Stop latency on the new engine's path, on Windows (step 2's STREAM line,
 benchmarks/back_to_back/acceptance.toml): the wall time from a stop asked
 at a random moment to the run returning, 20 stops each, on the battery
-electric car's WLTC as a live run and on a 16-point study of its City
-Cycle. Pass marks, registered before the measurement: p95 at most 0.25 s
+electric car's WLTC as a live run and on a 16-point study of its WLTC
+(not of its City Cycle, as registered: acceptance.toml's dated change of
+31 October). Pass marks, registered before the measurement: p95 at most 0.25 s
 for the live run and 1.0 s for the study; and at least half the stops must
 reach a running point and end it cancelled, or nothing was measured.
 

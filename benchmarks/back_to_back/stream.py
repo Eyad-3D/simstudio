@@ -104,8 +104,14 @@ def live_stops(engine: str, stops: int, seed: int = 2) -> dict:
     return out
 
 
+# the study's case (acceptance.toml's dated change of 2026-10-31: on the
+# new engine a City Cycle point is done in about 0.1 s, too short for a
+# random stop to find one running)
+STUDY_CASE = "case-wltc"
+
+
 def study_stops(engine: str, stops: int, seed: int = 3) -> dict:
-    """A 16-point study of bev-car/case-city (the vehicle's mass from 1200 to
+    """A 16-point study of bev-car/case-wltc (the vehicle's mass from 1200 to
     2700 kg), stopped at random moments; each stop's latency to the study's
     return, and whether a point that was running ends cancelled."""
     from app import studies
@@ -132,7 +138,7 @@ def study_stops(engine: str, stops: int, seed: int = 3) -> dict:
 
         task = asyncio.ensure_future(stopper()) if at is not None else None
         t0 = time.perf_counter()
-        await studies.run_study(project, "case-city", points, options, send, stop)
+        await studies.run_study(project, STUDY_CASE, points, options, send, stop)
         end = time.perf_counter()
         if task:
             task.cancel()
