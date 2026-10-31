@@ -1,6 +1,6 @@
 id = "write-speed-limiter"
 kind = "write"
-version = 1
+version = 2
 title = "Write a speed limiter as a Script block"
 statement = """
 car.json models our electric hatchback. Fleet customers want a speed limiter.
@@ -48,9 +48,21 @@ def step(t, dt, inputs, state, params):
     return {"target": min(inputs.get("demand", 0.0), 120.0)}
 """ }]
 
+# No Script block: a Lookup Table, under the asked label, caps the target.
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Speed Limiter" },
+  { op = "set", element = "Speed Limiter", param = "table_1d", value = { "0" = 0.0, "100" = 100.0, "300" = 100.0 } },
+  { op = "disconnect", from = "Vehicle Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Speed Limiter:sig_x_in" },
+  { op = "connect", from = "Speed Limiter:sig_out", to = "Driver:sig_target_in" },
+]
+
 [check]
 file = "car.json"
 case = "Motorway (WLTC Extra High)"
+require = { type = "signal.script", label = "Speed Limiter", ports = ["demand", "target"] }
 figures = [
   { key = "distance_km", rtol = 0.01 },
   { key = "consumption_kwh_per_100km", rtol = 0.03 },

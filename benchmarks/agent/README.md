@@ -22,11 +22,13 @@ runs it; today's engine has only Script blocks.
 
 The checker of a saved model loads it, runs its Data Checks (no errors, and
 no more warnings than the reference model has), checks the values the brief
-gives, runs the case the task names, and puts the figures the task names
-inside bands around the reference model's figures. It builds and runs the
-reference model itself, from the starting files and the reference solution.
-The checker of an answer reads the last `ANSWER:` line of the agent's reply
-and compares it with the key.
+gives, the part it asks for (a `write` task's Script block, by its label and
+ports) and, for a `repair` task, that nothing else was changed, runs the case
+the task names, and puts the figures the task names inside bands around the
+reference model's figures. It builds and runs the reference model itself,
+from the starting files and the reference solution. The checker of an answer
+reads the last `ANSWER:` line of the agent's reply and compares it with the
+key.
 
 ## Running it
 
@@ -73,19 +75,25 @@ part of what the bench measures. Headless `claude -p` declines such a
 question at once ("The user did not confirm, so nothing was done."), so
 today every task scored on a saved model fails in `mcp` mode too, however
 right the agent's dry run was (the pilot of 31 October: all 16 repair and
-write tries, at every setting, the ceiling's included). Today's `lightsim` command has no command
-that saves an edited model, so in `cli` mode those tasks fail as well.
+write tries, at every setting, the ceiling's included). So does
+`question-hybrid-load`: its P2 hybrid has Script blocks, so `run_case` asks
+before it runs it. That leaves 13 of the 33 tasks (4 of the 11 held out)
+that any setting can solve in `mcp` mode today. Today's `lightsim` command
+has no command that saves an edited model, so in `cli` mode the tasks scored
+on a saved model fail as well (the hybrid runs there).
 
 **On the plan, with no cap.** A try runs on the Claude plan `claude` is
-signed in to. The runner removes from the agent's environment every
+signed in to, and only there (the owner's decision of 30 October): there is
+no API-key mode. The runner removes from the agent's environment every
 variable that would make it bill an API account instead (`ANTHROPIC_API_KEY`,
 `ANTHROPIC_AUTH_TOKEN`, any other `ANTHROPIC_*`, the `CLAUDE_CODE_USE_*`
 provider switches, `AWS_BEARER_TOKEN_BEDROCK`) or pick another effort
 (`CLAUDE_CODE_EFFORT_LEVEL`), records which billing each try used, and
-stops if one used a key. Nothing is stopped or shortened for cost: there is
-no `--max-budget-usd`. Only `--auth api` (by `ANTHROPIC_API_KEY`) may have
-a cap, `LSIM_BENCH_CAP_USD`: the comparison then starts no try once the sum
-reaches it and gives each try what is left.
+stops if one used a key or a token. A key shows in the try's init event
+(`apiKeySource`); a token does not (it says `"none"`), so the runner also
+reads Claude Code's debug log, which then says "API-key auth precedence
+active". Nothing is stopped or shortened for cost: there is no
+`--max-budget-usd`, and `LSIM_BENCH_CAP_USD` is ignored.
 
 **The cost** of each try is recorded twice: at Anthropic's API list price,
 worked out by the runner from the tokens of each request (each request on
@@ -153,7 +161,9 @@ Every try ends in one class:
 
 Each try's record is written when it ends (`tries/<task>.<mode>.<setting>.<try>.json`),
 so the same command again skips the finished tries: a comparison stopped by
-a limit, a crash or a restart goes on where it stopped.
+a limit, a crash or a restart goes on where it stopped. A record of an older
+version of its task (the task changed since) is not reused: it moves to
+`tries/older/`, counts in the cost only, and the try runs again.
 
 **What it records**, in `--out/--name` (never inside the repository): per
 try, the class and why, the checker's reasons and figures, the model asked
@@ -174,7 +184,11 @@ time; and the not-run tries retried. Then two answers the command works out:
 1. **The cheapest working setting**: the lowest mean cost per try among the
    settings whose pass^3 count on all tasks is at most 2 below the
    ceiling's, with the tasks the ceiling solves on all three tries that it
-   does not, and the reverse.
+   does not, and the reverse. Being as good as the ceiling counts only when
+   the ceiling itself is good enough for hands-off work (below); when it is
+   not, as on today's tools, the answer is that no setting drives LightSim
+   successfully yet, and the cheapest setting as good as the ceiling follows
+   on its own line (stage C still runs it).
 2. **Good enough for hands-off work**: pass^3 on at least 90 % of all tasks
    and of the held-out tasks. When no setting is, the report says so: that
    gap is what step 6's later tool changes must close, with Sonnet 5.5 at
@@ -238,9 +252,15 @@ answer = "ANSWER: 14.05; 1.10"     # for an answer task: a wrong answer
 file = "car.json"
 ops = [ … ]
 
+[[also_wrong]]                     # optional: another wrong one, which must fail too
+file = "car.json"
+ops = [ … ]                        # (or answer = "…")
+
 [check]                            # for a task scored on a saved model
 file = "car.json"
 case = "City Cycle"
+unchanged = true                   # a repair: nothing the reference leaves alone may change
+require = { type = "signal.script", label = "Speed Limiter", ports = ["demand", "target"] }
 params = [ { type = "vehicle.body", key = "mass_kg", value = 1350, rtol = 0.002 } ]
 figures = [
   { key = "consumption_kwh_per_100km", rtol = 0.01 },     # a summary number by stable key
@@ -262,12 +282,22 @@ best = { case = "Acceleration 75 m", key = "accel_time_s", pick = "min" }
 - `params`: every part of that type must have the value (the case's own,
   else the part's, else the library default), within `rtol` or `atol`, or
   exactly for text.
+- `unchanged`: every parameter of every part, in every case, that the
+  reference leaves as it is in the starting file must keep its value (within
+  0.2 %): "change nothing else" and "do not touch the other cases". Parts
+  are matched by id, else by their label. Wires and links are not compared:
+  the figures show those.
+- `require`: the part the brief asks for: one part of that type with that
+  label, each of whose ports is linked. A `write` task needs it, or a Lookup
+  Table under the asked label would do.
 - `figures`: the agent's run and the reference's must end the same way
   (success, warning…), and each figure must lie within `rtol` (relative) or
   `atol` (absolute) of the reference's.
 - `[[answer]]`: the key. `figure` says which number of which run it is, and
   the validator checks the key against LightSim (within 0.2 %); `best` lets
-  it check a choice.
+  it check a choice. The validator also swaps every two numbers of the key:
+  the answer must then fail, so make the bands narrower than the gap
+  between them.
 
 Starting files are never stored: only operations on the bundled examples
 (`backend/projects/`) or on a blank project. A task file stays small.

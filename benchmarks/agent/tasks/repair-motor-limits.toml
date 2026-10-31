@@ -1,6 +1,6 @@
 id = "repair-motor-limits"
 kind = "repair"
-version = 1
+version = 2
 title = "Repair a hatchback model whose motor runs past its data"
 statement = """
 car.json models our compact electric hatchback. A colleague changed it, and
@@ -47,6 +47,7 @@ ops = [
 [check]
 file = "car.json"
 case = "City Cycle"
+unchanged = true
 params = [
   { type = "mech.final_drive", key = "ratio", value = 12.8, rtol = 0.002 },
   { type = "propulsion.wheel", key = "radius_m", value = 0.3488, rtol = 0.002 },

@@ -1,6 +1,6 @@
 id = "repair-case-override"
 kind = "repair"
-version = 1
+version = 2
 title = "Find the values hiding in one case of a hatchback model"
 statement = """
 car.json models our compact electric hatchback. Its base model is right, and
@@ -38,9 +38,20 @@ ops = [
 file = "car.json"
 ops = [{ op = "set", element = "Vehicle", param = "mass_kg", value = 1927, case = "City Cycle" }]
 
+# City Cycle right, but the faulty values put on the case "WLTC Class 3b",
+# which the brief says not to touch.
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 2400, case = "WLTC Class 3b" },
+  { op = "set", element = "Power Consumer", param = "power_kW", value = 6.0, case = "WLTC Class 3b" },
+]
+
 [check]
 file = "car.json"
 case = "City Cycle"
+unchanged = true
 params = [
   { type = "vehicle.body", key = "mass_kg", value = 1927, rtol = 0.002 },
   { type = "electric.constant_drive", key = "power_kW", value = 0.25, rtol = 0.002 },

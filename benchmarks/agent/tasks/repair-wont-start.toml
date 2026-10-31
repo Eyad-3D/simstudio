@@ -1,6 +1,6 @@
 id = "repair-wont-start"
 kind = "repair"
-version = 1
+version = 2
 title = "Find why a hatchback model does not move"
 statement = """
 car.json models our compact electric hatchback. Since a colleague last edited
@@ -43,6 +43,7 @@ ops = [{ op = "set", element = "HV Battery Pack", param = "min_soc_pct", value =
 [check]
 file = "car.json"
 case = "City Cycle"
+unchanged = true
 params = [
   { type = "mech.final_drive", key = "ratio", value = 12.8, rtol = 0.002 },
   { type = "battery.generic", key = "min_soc_pct", value = 4, rtol = 0.002 },

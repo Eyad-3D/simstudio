@@ -1,6 +1,6 @@
 id = "write-aux-shed"
 kind = "write"
-version = 1
+version = 2
 title = "Write a load-shedding rule for the cabin comfort load"
 statement = """
 car.json models our electric hatchback on a short city run that starts with
@@ -49,9 +49,20 @@ def step(t, dt, inputs, state, params):
     return {"share": clamp(0.5 + 0.5 * (soc - 15.0) / 15.0, 0.5, 1.0)}
 """ }]
 
+# No Script block: a Lookup Table, under the asked label, sheds the load.
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Aux Shedding" },
+  { op = "set", element = "Aux Shedding", param = "table_1d", value = { "15" = 0.2, "30" = 1.0 } },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Aux Shedding:sig_x_in" },
+  { op = "connect", from = "Aux Shedding:sig_out", to = "Power Consumer:sig_demand_in" },
+]
+
 [check]
 file = "car.json"
 case = "City Cycle"
+require = { type = "signal.script", label = "Aux Shedding", ports = ["soc", "share"] }
 figures = [
   { key = "distance_km", rtol = 0.005 },
   { key = "consumption_kwh_per_100km", rtol = 0.015 },

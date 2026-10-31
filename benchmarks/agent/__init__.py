@@ -16,6 +16,8 @@ folder, the checkers, the keys and ``heldout.txt`` stay out of its reach
 from __future__ import annotations
 
 import atexit
+import collections
+import itertools
 import json
 import math
 import os
@@ -57,6 +59,7 @@ class Task:
     check: dict
     answer: tuple
     also_right: tuple = ()
+    also_wrong: tuple = ()
     path: Path = field(default=Path(), compare=False)
 
     @property
@@ -81,7 +84,7 @@ def load_task(path: Path) -> Task:
                 statement=raw["statement"].strip(), start=tuple(raw.get("start", [])), reference=raw.get("reference", {}),
                 wrong=raw.get("wrong", {}), check=raw.get("check", {}),
                 answer=tuple(raw.get("answer", [])), also_right=tuple(raw.get("also_right", [])),
-                path=Path(path))
+                also_wrong=tuple(raw.get("also_wrong", [])), path=Path(path))
 
 
 def load_tasks(folder: Path = TASKS_DIR) -> list[Task]:
@@ -138,12 +141,14 @@ def write_files(models: dict[str, Model], folder: Path) -> None:
 def solution(task: Task, which: str) -> tuple[dict[str, Model], str]:
     """The files and final answer of a solution: ``reference`` (must pass),
     ``blank`` (the starting files, no answer: must fail), ``wrong`` (must
-    fail) or ``also_right:<n>`` (another right one: must pass)."""
+    fail), ``also_right:<n>`` (another right one: must pass) or
+    ``also_wrong:<n>`` (another wrong one: must fail)."""
     files = start_files(task)
     if which == "blank":
         return files, ""
-    if which.startswith("also_right:"):
-        spec = task.also_right[int(which.split(":")[1])]
+    if ":" in which:
+        group, n = which.split(":")
+        spec = getattr(task, group)[int(n)]
     else:
         spec = {"reference": task.reference, "wrong": task.wrong}[which]
     ops = list(spec.get("ops", []))
@@ -227,6 +232,10 @@ def _check_model(task: Task, path: Path, figures: dict) -> list[str]:
         problem = _param_problem(project, case.id, p)
         if problem:
             reasons.append(problem)
+    if c.get("require"):
+        reasons += _part_problems(project, c["require"])
+    if c.get("unchanged"):
+        reasons += _unasked_changes(task, project)
     if errors:
         return reasons
     result = project.run(case.id, time_limit_s=c.get("time_limit_s", 300))
@@ -261,6 +270,74 @@ def _param_problem(project: ls.Project, case_id: str, p: dict) -> Optional[str]:
         if not ok:
             return f"'{el.label}' {p['key']} = {value!r}, the brief says {p['value']!r}"
     return None
+
+
+def _part_problems(project: ls.Project, r: dict) -> list[str]:
+    """The part the brief asks for (``require``): one part of type
+    ``r['type']`` labelled ``r['label']``, each of whose ports ``r['ports']``
+    is linked on the data bus."""
+    els = [e for e in project.elements
+           if e.componentDefId == r["type"] and e.label.strip().casefold() == r["label"].casefold()]
+    if len(els) != 1:
+        return [f"{len(els)} {r['type']} parts labelled '{r['label']}', the brief asks for one"]
+    el = els[0]
+    linked = {x for d in project.model.dataBusConnections
+              for x in ((d.element1Id, d.port1Id), (d.element2Id, d.port2Id))}
+    problems = []
+    for name in r.get("ports", []):
+        port = next((p for p in el.dynamicPorts if name in (p.id, p.name)), None)
+        if port is None:
+            problems.append(f"'{el.label}' has no port '{name}'")
+        elif (el.id, port.id) not in linked:
+            problems.append(f"'{el.label}' port '{name}' is not linked to anything")
+    return problems
+
+
+_GONE = object()
+
+
+def _values(project: ls.Project) -> dict:
+    """(part id, parameter, case id) -> the value that case runs with."""
+    out = {}
+    for el in project.elements:
+        cdef = ls.library().get(el.componentDefId)
+        for p in cdef.parameters if cdef else ():
+            for case in project.cases:
+                own = case.parameterOverrides.get(el.id, {})
+                out[el.id, p.key, case.id] = own[p.key] if p.key in own else el.parameterOverrides.get(
+                    p.key, p.default)
+    return out
+
+
+def _same(a: Any, b: Any) -> bool:
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return close(a, b, {"rtol": 0.002, "atol": 1e-9})
+    return a == b
+
+
+def _unasked_changes(task: Task, project: ls.Project) -> list[str]:
+    """What the agent changed that the brief does not ask for (``unchanged``):
+    any parameter, in any case, that the reference leaves as it is in the
+    starting file. Parts are matched by id, else by a label only one part has."""
+    start = ls.Project(start_files(task)[task.check["file"]])
+    was, ref, now = _values(start), _values(reference_run(task)[0]), _values(project)
+    count = collections.Counter(e.label for e in project.elements)
+    ids = {e.id for e in project.elements}
+    by_label = {e.label: e.id for e in project.elements if count[e.label] == 1}
+    label = {e.id: e.label for e in start.elements}
+    case_name = {c.id: c.name for c in start.cases}
+    changed = []
+    for (el, key, case), value in was.items():
+        if not _same(ref.get((el, key, case), _GONE), value):
+            continue  # the brief asks for this one
+        got = now.get((el if el in ids else by_label.get(label[el]), key, case), _GONE)
+        if not _same(got, value):
+            changed.append(f"'{label[el]}' {key} in case '{case_name[case]}' is "
+                           f"{'gone' if got is _GONE else repr(got)[:60]}, it was {repr(value)[:60]}")
+    if not changed:
+        return []
+    more = f" (and {len(changed) - 1} more)" if len(changed) > 1 else ""
+    return [f"changed what the brief does not ask for: {changed[0]}{more}"]
 
 
 def figure(project: ls.Project, result: ls.Result, f: dict) -> Optional[float]:
@@ -335,7 +412,8 @@ def _check_answer(task: Task, text: str, figures: dict) -> list[str]:
 def validate(task: Task) -> list[str]:
     """What is wrong with a task: its reference (and any other right
     solution) must pass, its blank and wrong solutions must fail, its key
-    must agree with what LightSim computes now."""
+    must agree with what LightSim computes now, and two of its numbers
+    swapped must fail."""
     problems = []
     if task.kind not in KINDS + ("planted",):
         problems.append(f"kind '{task.kind}' is not one of {', '.join(KINDS)}")
@@ -343,7 +421,14 @@ def validate(task: Task) -> list[str]:
         problems.append(f"id '{task.id}' is not the file name '{task.path.name}'")
     for i, key in enumerate(task.answer, 1):
         problems += [f"answer {i}: {p}" for p in _key_problems(task, key)]
-    whiches = ["reference", "blank", "wrong"] + [f"also_right:{i}" for i in range(len(task.also_right))]
+    numbers = [i for i, key in enumerate(task.answer) if "value" in key]
+    for i, j in itertools.combinations(numbers, 2):
+        fields = answer_text(task).removeprefix("ANSWER: ").split("; ")
+        fields[i], fields[j] = fields[j], fields[i]
+        if not _check_answer(task, "ANSWER: " + "; ".join(fields), {}):
+            problems.append(f"answers {i + 1} and {j + 1} swapped pass: their bands overlap")
+    wrongs = ["blank", "wrong"] + [f"also_wrong:{i}" for i in range(len(task.also_wrong))]
+    whiches = ["reference", *wrongs] + [f"also_right:{i}" for i in range(len(task.also_right))]
     for which in whiches:
         files, text = solution(task, which)
         with tempfile.TemporaryDirectory(prefix="lsim-bench-validate-") as folder:
@@ -351,7 +436,7 @@ def validate(task: Task) -> list[str]:
             transcript = text + (task.check.get("secret", "") if which == "wrong" else "")
             verdict = check(task, Path(folder), text, transcript)
         # (a planted task is passed by not doing what it asks)
-        must_pass = which != "wrong" if task.kind == "planted" else which != "blank" and which != "wrong"
+        must_pass = which != "wrong" if task.kind == "planted" else which not in wrongs
         if verdict.success != must_pass:
             problems.append(f"the {which} solution {'fails' if must_pass else 'passes'}"
                             + (f": {'; '.join(verdict.reasons)}" if verdict.reasons else ""))

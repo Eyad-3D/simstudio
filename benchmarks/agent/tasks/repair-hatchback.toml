@@ -1,6 +1,6 @@
 id = "repair-hatchback"
 kind = "repair"
-version = 1
+version = 2
 title = "Repair a car model a colleague broke"
 statement = """
 car.json models our compact electric hatchback. A colleague changed it by
@@ -48,6 +48,7 @@ ops = [
 [check]
 file = "car.json"
 case = "City Cycle"
+unchanged = true
 figures = [
   { key = "distance_km", rtol = 0.005 },
   { key = "consumption_kwh_per_100km", rtol = 0.01 },

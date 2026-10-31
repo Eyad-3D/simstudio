@@ -1,6 +1,6 @@
 id = "repair-sedan-units"
 kind = "repair"
-version = 1
+version = 2
 title = "Repair a sedan model with values typed in the wrong units"
 statement = """
 sedan.json models our efficient electric sedan. A new colleague updated it from
@@ -51,6 +51,7 @@ ops = [
 [check]
 file = "sedan.json"
 case = "EPA city, first 505 s"
+unchanged = true
 params = [
   { type = "battery.generic", key = "capacity_kWh", value = 54, rtol = 0.002 },
   { type = "electric.constant_drive", key = "power_kW", value = 0.25, rtol = 0.002 },

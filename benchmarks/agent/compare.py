@@ -13,9 +13,11 @@ working setting and the ceiling. Tries go task by task across the settings,
 ``--jobs`` of them side by side.
 
 Each try's record is written when it ends (``tries/<id>.json``), and running
-the same comparison again skips the finished ones. A try stopped by a plan
-or rate limit, an overloaded or network error, or the runner's own fault is
-not scored: it is noted in ``notrun.jsonl`` and retried (after the limit's
+the same comparison again skips the finished ones (a record of an older
+version of its task moves to ``tries/older/``, counts in the cost only, and
+its try runs again). A try stopped by a plan or rate limit, an overloaded or
+network error, or the runner's own fault is not scored: it is noted in
+``notrun.jsonl`` and retried (after the limit's
 reset time, else a back-off of up to 30 minutes). A setting the plan or the
 tool refuses is recorded as unavailable and not run again. The report
 (``report.md`` and ``report.json``) and its two answers are worked out from
@@ -190,10 +192,22 @@ def summarize(records: dict, notruns: list[dict], tasks: list[Task], settings: l
     return out
 
 
+def _share(s: dict, group: str) -> float:
+    passed, of = s["pass3"][group]
+    return passed / of if of else 0.0
+
+
+def _hands_off(s: dict) -> bool:
+    return _share(s, "all") >= HANDS_OFF and _share(s, "heldout") >= HANDS_OFF
+
+
 def cheapest_working(summary: dict, tasks: list[Task]) -> dict:
     """Answer 1: the lowest mean cost per try among the settings whose pass^3
     count on all tasks is at most ``WORKING_MARGIN`` below the ceiling's, with
-    the paired comparison against the ceiling."""
+    the paired comparison against the ceiling. ``works`` is False when the
+    ceiling itself is not good enough for hands-off work: then no setting
+    drives LightSim successfully, and ``setting`` is only the cheapest that
+    is as good as the ceiling (which stage C still runs)."""
     ceiling = summary.get(f"{CEILING}/mcp")
     if not ceiling or not ceiling["pass3Complete"]:
         return {"setting": None, "why": "needs the ceiling's three tries on every task (stage B)"}
@@ -203,7 +217,8 @@ def cheapest_working(summary: dict, tasks: list[Task]) -> dict:
     best = min(ok, key=lambda s: s["meanCostUsd"])
     c, b = ceiling["pass3ByTask"], best["pass3ByTask"]
     return {"setting": best["setting"], "label": best["label"], "meanCostUsd": best["meanCostUsd"],
-            "pass3": best["pass3"]["all"], "ceilingPass3": ceiling["pass3"]["all"],
+            "works": _hands_off(ceiling), "pass3": best["pass3"]["all"],
+            "ceilingPass3": ceiling["pass3"]["all"], "ceilingPass3Heldout": ceiling["pass3"]["heldout"],
             "ceilingMeanCostUsd": ceiling["meanCostUsd"],
             "candidates": [s["setting"] for s in ok],
             "onlyCeilingSolves": sorted(t for t in c if c[t] and not b[t]),
@@ -216,13 +231,8 @@ def hands_off(summary: dict, tasks: list[Task]) -> dict:
     done = [s for s in summary.values() if s["mode"] == "mcp" and s["pass3Complete"]]
     if not done:
         return {"settings": None, "why": "needs three tries on every task (stage B)"}
-
-    def share(s, group):
-        passed, of = s["pass3"][group]
-        return passed / of if of else 0.0
-
-    good = [s["setting"] for s in done if share(s, "all") >= HANDS_OFF and share(s, "heldout") >= HANDS_OFF]
-    best = max(done, key=lambda s: (share(s, "all"), share(s, "heldout")))
+    good = [s["setting"] for s in done if _hands_off(s)]
+    best = max(done, key=lambda s: (_share(s, "all"), _share(s, "heldout")))
     target = summary.get(f"{TARGET}/mcp")
     return {"settings": good, "best": best["setting"], "bestPass3": best["pass3"],
             "target": target["pass3"] if target and target["pass3Complete"] else None}
@@ -234,20 +244,24 @@ def _frac(pair: list) -> str:
 
 
 def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list[Setting],
-           note: str = "") -> tuple[str, dict]:
+           note: str = "", older: list[dict] = ()) -> tuple[str, dict]:
+    """The report; ``older`` are the records of older task versions (their
+    tries were run again), counted in the cost only."""
     ids = {t.id for t in tasks}
     summary = summarize(records, notruns, tasks, settings)
     a1, a2 = cheapest_working(summary, tasks), hands_off(summary, tasks)
     rs = [r for r in records.values() if r["task"] in ids]
-    every = rs + [r for r in notruns if r.get("task") in ids]
+    old = [r for r in older if r["task"] in ids]
+    nr = [r for r in notruns if r.get("task") in ids]
+    every = rs + old + nr
     total = sum(r.get("costUsd", 0.0) for r in every)
     held = heldout()
     data = {
         "tasks": len(tasks), "heldout": sum(t.id in held for t in tasks),
-        "scoredTries": sum(r["class"] in SCORED for r in rs), "notRunTries": len(every) - len(rs),
+        "scoredTries": sum(r["class"] in SCORED for r in rs), "notRunTries": len(nr),
+        "olderVersionTries": len(old), "olderVersionCostUsd": round(sum(r.get("costUsd", 0.0) for r in old), 4),
         "unavailable": unavailable(records),
-        "totalCostUsd": round(total, 4), "notRunCostUsd": round(sum(r.get("costUsd", 0.0) for r in notruns
-                                                                     if r.get("task") in ids), 4),
+        "totalCostUsd": round(total, 4), "notRunCostUsd": round(sum(r.get("costUsd", 0.0) for r in nr), 4),
         "cliCostUsd": round(sum(r.get("cliCostUsd") or 0.0 for r in every), 4),
         "cliCostBasis": sorted({b for r in every for b in r.get("cliCostBasis") or []}),
         "tokens": {k: sum((r.get("tokens") or {}).get(k, 0) for r in every)
@@ -269,7 +283,10 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
              f"billing: {', '.join(data['billing']) or '–'}; the models that answered: "
              f"{', '.join(data['modelsReported']) or '–'}.", "",
              f"Cost at API list price: **{total:.2f} USD** in all ({data['notRunCostUsd']:.2f} of it on "
-             f"not-run tries); the command-line tool's own figure is {data['cliCostUsd']:.2f} USD (its price "
+             f"not-run tries"
+             + (f", {data['olderVersionCostUsd']:.2f} on {len(old)} tries of older task versions, run again"
+                if old else "")
+             + f"); the command-line tool's own figure is {data['cliCostUsd']:.2f} USD (its price "
              f"basis: {', '.join(data['cliCostBasis']) or '–'}). Tokens: "
              + ", ".join(f"{k} {data['tokens'][key]:,}" for k, key in (
                  ("input", "input"), ("output", "output"), ("cache read", "cacheRead"),
@@ -284,14 +301,23 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
     if a1["setting"] is None:
         lines.append(f"1. The cheapest working setting: not known yet; it {a1['why']}.")
     else:
-        lines.append(
-            f"1. The cheapest working setting: **{a1['label']}**, {a1['meanCostUsd']:.4f} USD a try at list "
-            f"price, pass^3 on {_frac(a1['pass3'])} tasks; the ceiling ({label[CEILING]}) has "
-            f"{_frac(a1['ceilingPass3'])} at {a1['ceilingMeanCostUsd']:.4f} USD. Tasks only the ceiling "
-            f"solves on all three tries: {', '.join(a1['onlyCeilingSolves']) or 'none'}; only "
-            f"{a1['label']}: {', '.join(a1['onlyItSolves']) or 'none'}. (Working: pass^3 at most "
+        detail = (
+            f"{a1['meanCostUsd']:.4f} USD a try at list price, pass^3 on {_frac(a1['pass3'])} tasks; the "
+            f"ceiling ({label[CEILING]}) has {_frac(a1['ceilingPass3'])} at {a1['ceilingMeanCostUsd']:.4f} "
+            f"USD. Tasks only the ceiling solves on all three tries: "
+            f"{', '.join(a1['onlyCeilingSolves']) or 'none'}; only {a1['label']}: "
+            f"{', '.join(a1['onlyItSolves']) or 'none'}. (As good as the ceiling: pass^3 at most "
             f"{WORKING_MARGIN} tasks below the ceiling's; candidates: "
             f"{', '.join(label[x] for x in a1['candidates'])}.)")
+        if a1["works"]:
+            lines.append(f"1. The cheapest working setting: **{a1['label']}**, {detail}")
+        else:
+            lines.append(
+                f"1. **No setting drives LightSim successfully today**: even the ceiling ({label[CEILING]}) "
+                f"has pass^3 on only {_frac(a1['ceilingPass3'])} of all tasks and "
+                f"{_frac(a1['ceilingPass3Heldout'])} held out, below the {HANDS_OFF:.0%} that hands-off work "
+                f"needs, so being as good as the ceiling is not enough.")
+            lines.append(f"   The cheapest setting as good as the ceiling: {a1['label']}, {detail}")
     if a2["settings"] is None:
         lines.append(f"2. Good enough for hands-off work: not known yet; it {a2['why']}.")
     elif a2["settings"]:
@@ -335,14 +361,23 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
 
 # -- running it ------------------------------------------------------------------------------
 class Comparison:
-    def __init__(self, folder: Path, args: argparse.Namespace, cap: Optional[float] = None) -> None:
-        self.dir, self.args, self.cap = folder, args, cap
+    def __init__(self, folder: Path, args: argparse.Namespace, tasks: list[Task]) -> None:
+        self.dir, self.args = folder, args
         (folder / "tries").mkdir(parents=True, exist_ok=True)
         (folder / "runs").mkdir(exist_ok=True)
-        self.records = {p.stem: json.loads(p.read_text(encoding="utf-8")) for p in (folder / "tries").glob("*.json")}
+        version, older = {t.id: t.version for t in tasks}, folder / "tries" / "older"
+        self.records = {}
+        self.older = [json.loads(p.read_text(encoding="utf-8")) for p in older.glob("*.json")]
+        for p in (folder / "tries").glob("*.json"):
+            r = json.loads(p.read_text(encoding="utf-8"))
+            if r.get("version") == version.get(r["task"], r.get("version")):
+                self.records[p.stem] = r
+            else:  # a record of an older version of its task: kept for its cost, its try run again
+                older.mkdir(exist_ok=True)
+                p.rename(older / f"{p.stem}.v{r.get('version')}.json")
+                self.older.append(r)
         log = folder / "notrun.jsonl"
         self.notruns = [json.loads(x) for x in log.read_text(encoding="utf-8").splitlines()] if log.exists() else []
-        self.spent = sum(r.get("costUsd", 0.0) for r in [*self.records.values(), *self.notruns])
         self.lock = threading.Lock()
         self.pause_until, self.backoffs = 0.0, 0
         self.stopped: Optional[str] = None
@@ -361,8 +396,6 @@ class Comparison:
                 out = unavailable(self.records)
                 while todo and todo[0].setting.name in out:
                     todo.popleft()
-                if self.cap is not None and self.spent >= self.cap and not self.stopped:
-                    self.stopped = f"the cap of {self.cap:g} USD was reached (spent {self.spent:.4f} USD)"
                 if self.stopped or not todo:
                     return None
                 wait = self.pause_until - time.time()
@@ -372,21 +405,20 @@ class Comparison:
 
     def _work(self, todo: collections.deque) -> None:
         while (spec := self._next(todo)) is not None:
+            version = spec.task.version
             with self.lock:
-                attempt = 1 + sum(n["id"] == spec.id for n in self.notruns)
-                budget = None if self.cap is None else self.cap - self.spent
-            base = {"id": spec.id, "task": spec.task.id, "mode": spec.mode, "setting": spec.setting.name,
-                    "try": spec.n, "attempt": attempt}
+                attempt = 1 + sum(n["id"] == spec.id and n.get("version") == version for n in self.notruns)
+            base = {"id": spec.id, "task": spec.task.id, "version": version, "mode": spec.mode,
+                    "setting": spec.setting.name, "try": spec.n, "attempt": attempt}
             try:
                 r = run_try(spec.task, spec.mode, spec.setting.model, spec.setting.effort, self.dir / "runs",
-                            f"{spec.id}.a{attempt}", claude=self.args.claude, timeout=self.args.timeout,
-                            auth=self.args.auth, budget=budget)
+                            f"{spec.id}.v{version}.a{attempt}", claude=self.args.claude,
+                            timeout=self.args.timeout)
             except Exception as e:  # noqa: BLE001 - the runner's fault: noted and retried
                 r = {"class": "not-run", "why": f"runner: {type(e).__name__}: {e}"[:300], "costUsd": 0.0,
                      "trace": traceback.format_exc()[-2000:], "finished": time.time()}
             r.update(base)
             with self.lock:
-                self.spent += r.get("costUsd", 0.0)
                 if r["class"] == "not-run":
                     self._not_run(spec, r, todo)
                 else:
@@ -405,7 +437,8 @@ class Comparison:
             f.write(json.dumps(r) + "\n")
         self.notruns.append(r)
         kind = r["why"].split(":", 1)[0]
-        same = sum(n["id"] == spec.id and n["why"].startswith(kind) for n in self.notruns)
+        same = sum(n["id"] == spec.id and n.get("version") == r["version"] and n["why"].startswith(kind)
+                   for n in self.notruns)
         if kind == "stop":
             self.stopped = r["why"]
         elif same >= GIVE_UP.get(kind, sys.maxsize):
@@ -435,35 +468,30 @@ def main(argv=None) -> int:
                                       + ", ".join(s.name for s in SETTINGS))
     p.add_argument("--jobs", type=int, default=3, help="tries side by side")
     p.add_argument("--timeout", type=float, default=1800, help="seconds per try")
-    p.add_argument("--auth", choices=("session", "api"), default="session",
-                   help="session: the Claude plan claude is signed in to (no cap); api: ANTHROPIC_API_KEY, "
-                        f"with an optional cap {CAP_ENV}")
-    p.add_argument("--claude", default=shutil.which("claude") or "claude")
+    p.add_argument("--claude", default=shutil.which("claude") or "claude",
+                   help="the headless command-line tool, signed in to the Claude plan (no API key, no cap)")
     p.add_argument("--report", action="store_true", help="only write the report from the records")
     args = p.parse_args(argv)
     isolate()
     if Path(args.out).resolve().is_relative_to(ROOT):
         print("--out must be outside the repository: transcripts are never committed.", file=sys.stderr)
         return 2
-    tasks = load_tasks()
+    every = load_tasks()
     wanted = args.tasks.split(",") if args.tasks else []
     named = args.settings.split(",") if args.settings else []
-    unknown = (set(wanted) - {t.id for t in tasks}) | (set(named) - {s.name for s in SETTINGS})
+    unknown = (set(wanted) - {t.id for t in every}) | (set(named) - {s.name for s in SETTINGS})
     if unknown:
         print(f"No such task or setting: {', '.join(sorted(unknown))}.", file=sys.stderr)
         return 2
-    tasks = [t for t in tasks if not wanted or t.id in wanted]
+    tasks = [t for t in every if not wanted or t.id in wanted]
     settings = [s for s in SETTINGS if not named or s.name in named]
-    cap = None
-    if args.auth == "api" and os.environ.get(CAP_ENV):
-        cap = float(os.environ[CAP_ENV])
-    elif os.environ.get(CAP_ENV):
-        print(f"{CAP_ENV} is ignored: a plan run has no cap (it applies to --auth api only).", file=sys.stderr)
+    if os.environ.get(CAP_ENV):
+        print(f"{CAP_ENV} is ignored: the bench runs on the plan, with no cap.", file=sys.stderr)
     folder = Path(args.out).resolve() / args.name
-    comp = Comparison(folder, args, cap)
+    comp = Comparison(folder, args, every)
     note = ""
     if not args.report:
-        problem = preflight(args.claude, args.auth)
+        problem = preflight(args.claude)
         if problem:
             print(f"Not run: {problem}.", file=sys.stderr)
             return 2
@@ -477,7 +505,7 @@ def main(argv=None) -> int:
             if comp.stopped:
                 note = f"Stopped in stage {stage}: {comp.stopped}. Run the same command again to go on."
                 break
-    text, data = report(comp.records, comp.notruns, tasks, settings, note)
+    text, data = report(comp.records, comp.notruns, tasks, settings, note, comp.older)
     (folder / "report.md").write_text(text, encoding="utf-8")
     (folder / "report.json").write_text(json.dumps(data, indent=1), encoding="utf-8")
     print(text)

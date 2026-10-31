@@ -171,31 +171,24 @@ def test_billing_env_keeps_only_what_the_try_needs():
            "ANTHROPIC_BASE_URL": "u", "ANTHROPIC_DEFAULT_SONNET_MODEL": "m", "CLAUDE_CODE_USE_VERTEX": "1",
            "AWS_BEARER_TOKEN_BEDROCK": "b", "CLAUDE_CODE_EFFORT_LEVEL": "max"}
     assert run.billing_env(env) == {"PATH": "/bin", "HOME": "/h"}
-    assert run.billing_env(env, "api") == {"PATH": "/bin", "HOME": "/h", "ANTHROPIC_API_KEY": "k"}
 
 
-@posix
-def test_api_mode_alone_may_have_a_cap(fake, tmp_path, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-a-key")  # read by the stand-in only
-    monkeypatch.setenv(run.CAP_ENV, "0.05")
-    out = tmp_path / "runs"
-    assert go(fake, out, "--auth", "api", "--tasks", ",".join(QUESTIONS + ["question-socket-mpge"]),
-              "--settings", "sonnet-medium", "--stage", "A") == 1  # stopped by the cap
-    found = calls(tmp_path)
-    assert len(found) == 3  # 3 x 0.019 USD passed 0.05: the fourth never started
-    assert [float(c["budget"]) for c in found] == pytest.approx([0.05, 0.05 - SONNET_TRY, 0.05 - 2 * SONNET_TRY],
-                                                               abs=1e-4)
-    assert all(c["keys"] == ["ANTHROPIC_API_KEY"] for c in found)
-    assert {r["billing"] for r in tries(out).values()} == {"api (ANTHROPIC_API_KEY)"}
+def test_there_is_no_api_key_mode(fake, tmp_path, monkeypatch):
+    """The owner's decision of 30 October: on the plan only, with no cap
+    (there used to be an ``--auth api`` that gave the agent the key)."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-a-key")
+    with pytest.raises(SystemExit):
+        go(fake, tmp_path / "runs", "--auth", "api", "--tasks", "question-loaded-ev", "--settings",
+           "sonnet-medium", "--stage", "A")
+    assert not calls(tmp_path)
 
 
 def test_the_try_never_skips_permission_checks(tmp_path):
     for mode in run.MODES:
         cmd = run.claude_command("claude", mode, "x", tmp_path / "m.json", "claude-sonnet-5-5", "medium")
         assert "dangerously" not in " ".join(cmd) and "bypassPermissions" not in " ".join(cmd)
-        assert "--max-budget-usd" not in cmd  # no cap unless one is set on purpose (API mode)
+        assert "--max-budget-usd" not in cmd  # no cap
         assert cmd[cmd.index("--effort") + 1] == "medium" and cmd[cmd.index("--model") + 1] == "claude-sonnet-5-5"
-    assert run.claude_command("claude", "mcp", "x", tmp_path, None, None, 1.5)[-2:] == ["--max-budget-usd", "1.5000"]
 
 
 # -- the failure classes ------------------------------------------------------------------
@@ -240,6 +233,10 @@ def done(**extra):
      "not-run:service"),  # killed while Claude Code waited to retry
     ([INIT, *api_failure("authentication_failed", None)], "", False, False, "not-run:stop"),
     ([{**INIT, "apiKeySource": "ANTHROPIC_API_KEY"}, done()], "", False, True, "not-run:stop"),
+    # a bearer token (ANTHROPIC_AUTH_TOKEN): the init event says "none", only the debug log tells
+    # (Claude Code 2.1.316 against a local stand-in for the API)
+    ([INIT, done()], "2026-10-31T14:23:12.381Z [DEBUG] [claudeai-mcp] Disabled: API-key auth precedence active",
+     False, True, "not-run:stop"),
     ([], "", False, False, "not-run:runner"),
     ([INIT], "", False, False, "not-run:runner"),
     ([{**INIT, "mcp_servers": [{"name": "lightsim", "status": "failed"}]}, done()], "", False, True,
@@ -260,7 +257,7 @@ def done(**extra):
      "", False, True, "solved"),
 ])
 def test_every_try_ends_in_one_class(tmp_path, events, debug, timed_out, passed, want):
-    cls, why = run.classify(seen_of(tmp_path, *events), debug, timed_out, mode="mcp", auth="session",
+    cls, why = run.classify(seen_of(tmp_path, *events), debug, timed_out, mode="mcp",
                             model="claude-sonnet-5-5", passed=passed)
     assert (f"{cls}:{why.split(':')[0]}" if cls == "not-run" else cls) == want, why
 
@@ -323,6 +320,23 @@ def test_a_stopped_comparison_goes_on_where_it_stopped(fake, tmp_path, monkeypat
     assert [(c["model"], c["effort"]) for c in again] == [("claude-haiku-5-5", "low"), ("claude-sonnet-5-5", "medium")]
     assert tries(out)["question-winter-range.mcp.haiku-low.1"]["attempt"] == 4
     assert go(fake, out, *args) == 0 and len(calls(tmp_path)) == before + 2  # all done: nothing runs
+
+
+@posix
+def test_a_record_of_an_older_task_version_is_run_again(fake, tmp_path):
+    out = tmp_path / "runs"
+    (out / "comparison" / "tries").mkdir(parents=True)
+    old = {**rec("question-loaded-ev", "sonnet-medium", solved=False, cost=0.05), "version": 0}
+    (out / "comparison" / "tries" / f"{old['id']}.json").write_text(json.dumps(old))
+    args = ["--tasks", "question-loaded-ev", "--settings", "sonnet-medium", "--stage", "A"]
+    assert go(fake, out, *args) == 0
+    assert len(calls(tmp_path)) == 1  # not reused: run again on the task as it is now
+    r = tries(out)[old["id"]]
+    assert (r["version"], r["class"]) == (TASKS["question-loaded-ev"].version, "solved")
+    data = json.loads((out / "comparison" / "report.json").read_text())
+    assert (data["scoredTries"], data["olderVersionTries"]) == (1, 1)
+    assert data["totalCostUsd"] == pytest.approx(0.05 + SONNET_TRY, abs=1e-4)  # both were paid for
+    assert go(fake, out, *args) == 0 and len(calls(tmp_path)) == 1  # and now it is done
 
 
 @posix
@@ -447,8 +461,28 @@ def test_hands_off_needs_nine_in_ten_on_all_tasks_and_on_the_held_out_ones():
     summary = compare.summarize(rs, [], ALL, list(compare.SETTINGS))
     assert summary["sonnet-medium/mcp"]["pass3"]["heldout"] == [9, 11]  # 31 of 33, but 82 % held out
     assert compare.hands_off(summary, ALL)["settings"] == ["opus-high"]
+    assert compare.cheapest_working(summary, ALL)["works"] is True  # the ceiling is good enough
+    assert "1. The cheapest working setting: **Sonnet 5.5, medium**" in compare.report(rs, [], ALL,
+                                                                                      list(compare.SETTINGS))[0]
     rs = records(*three("opus-high", misses_held, 31), *three("sonnet-medium", misses_held, 20))
     text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
     assert data["handsOff"]["settings"] == []
     assert "No setting is good enough for hands-off work" in text
     assert "with Sonnet 5.5, medium as the target (it has 20/33 and 0/11)" in text
+
+
+def test_answer_1_says_no_setting_works_while_the_ceiling_itself_falls_short():
+    """Records shaped like today's tools: no task scored on a saved model can
+    pass, so even the ceiling has pass^3 on only 13 of 33. Being as good as the
+    ceiling is then no answer to the owner's question; it used to be the
+    headline ("The cheapest working setting: **Haiku 5.5, low**")."""
+    rs = three_tries({"opus-high": 13, "sonnet-medium": 12, "haiku-low": 12},
+                     {"opus-high": 0.28, "sonnet-medium": 0.07, "haiku-low": 0.006})
+    text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    a1 = data["cheapestWorking"]
+    assert (a1["works"], a1["setting"], a1["ceilingPass3"]) == (False, "haiku-low", [13, 33])
+    (line,) = [x for x in text.splitlines() if x.startswith("1.")]
+    assert line.startswith("1. **No setting drives LightSim successfully today**: even the ceiling "
+                           "(Opus 5.5, high) has pass^3 on only 13/33 of all tasks")
+    assert "   The cheapest setting as good as the ceiling: Haiku 5.5, low, 0.0060 USD a try" in text
+    assert "2. **No setting is good enough for hands-off work**" in text

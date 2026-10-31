@@ -1,6 +1,6 @@
 id = "repair-fs-rules"
 kind = "repair"
-version = 1
+version = 2
 title = "Bring a Formula Student model back to the rules and the data sheet"
 statement = """
 car.json models our Formula Student car. Before the technical inspection it
@@ -55,6 +55,7 @@ ops = [
 [check]
 file = "car.json"
 case = "Autocross (flying lap)"
+unchanged = true
 params = [
   { type = "battery.generic", key = "output_power_limit_kW", value = 80, rtol = 0.002 },
   { type = "propulsion.wheel", key = "radius_m", value = 0.228, rtol = 0.002 },

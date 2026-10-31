@@ -10,6 +10,7 @@ and effort levels has its own tests (test_agent_compare.py).
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import subprocess
@@ -84,7 +85,30 @@ def test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions(
     assert agent.validate(task) == []
 
 
-@pytest.mark.parametrize("task_id", ["build-sedan-abc", "write-launch-smoother"])
+@pytest.mark.parametrize("task_id, text, reason", [
+    # the two figures swapped: they lie 2.5 % apart, and the bands were 3 %
+    ("question-fs-limits", "ANSWER: 39.074; 38.09", "answer 1: '39.074', the key 38.09"),
+    # no Script block: a Lookup Table under the asked label does the job
+    ("write-speed-limiter", None, "0 signal.script parts labelled 'Speed Limiter'"),
+    ("write-aux-shed", None, "0 signal.script parts labelled 'Aux Shedding'"),
+    # City Cycle mended, and the faults put on a case the brief says not to touch
+    ("repair-case-override", None, "'Vehicle' mass_kg in case 'WLTC Class 3b' is 2400"),
+])
+def test_the_checker_fails_what_the_brief_rules_out(task_id, text, reason, tmp_path):
+    task = next(t for t in TASKS if t.id == task_id)
+    files, said = (agent.start_files(task), text) if text else agent.solution(task, "also_wrong:0")
+    agent.write_files(files, tmp_path)
+    verdict = agent.check(task, tmp_path, said)
+    assert not verdict.success and any(reason in r for r in verdict.reasons), verdict.reasons
+
+
+def test_a_key_whose_numbers_pass_swapped_is_refused():
+    task = next(t for t in TASKS if t.id == "question-fs-limits")
+    wide = dataclasses.replace(task, answer=tuple({**key, "rtol": 0.03} for key in task.answer))
+    assert "answers 1 and 2 swapped pass: their bands overlap" in agent.validate(wide)
+
+
+@pytest.mark.parametrize("task_id", ["build-sedan-abc", "write-launch-smoother", "repair-case-override"])
 def test_a_reference_saved_through_the_edit_tool_passes_the_checker(task_id, tmp_path, monkeypatch):
     """What an agent that edits the right way leaves behind: the reference
     operations sent through LightSim's own ``model_edit`` tool, confirmed and

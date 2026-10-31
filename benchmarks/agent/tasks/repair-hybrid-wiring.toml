@@ -1,6 +1,6 @@
 id = "repair-hybrid-wiring"
 kind = "repair"
-version = 1
+version = 2
 title = "Reconnect the control unit of a hybrid model"
 statement = """
 hybrid.json models our P2 hybrid. After a colleague tidied the diagram, the
@@ -37,6 +37,7 @@ ops = [{ op = "connect", from = "Hybrid Control Unit:gear", to = "Gearbox:sig_ge
 [check]
 file = "hybrid.json"
 case = "Mixed Cycle"
+unchanged = true
 figures = [
   { key = "distance_km", rtol = 0.005 },
   { key = "fuel_consumption_l_per_100km", rtol = 0.02 },

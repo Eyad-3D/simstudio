@@ -19,12 +19,12 @@ plugins and skills are not loaded (``--restricted``), and anything that
 would ask for permission is refused (``dontAsk``); permission checks are
 never skipped.
 
-Billing. A try runs on the Claude plan ``claude`` is signed in to: every
-variable that would make it bill an API account instead (``ANTHROPIC_*``,
-``CLAUDE_CODE_USE_*``, ``AWS_BEARER_TOKEN_BEDROCK``) is removed from its
-environment, and a try that still used a key is the runner's fault. There is
-no spending cap. ``auth="api"`` runs on ``ANTHROPIC_API_KEY`` instead, and
-only there a cap may be set (``LSIM_BENCH_CAP_USD``, ``--max-budget-usd``).
+Billing. A try runs on the Claude plan ``claude`` is signed in to, and
+only there (the owner's decision of 30 October): every variable that would
+make it bill an API account instead (``ANTHROPIC_*``, ``CLAUDE_CODE_USE_*``,
+``AWS_BEARER_TOKEN_BEDROCK``) is removed from its environment, and a try
+that still used a key or a token (its init event, or its debug log) stops
+the comparison. There is no spending cap.
 
 Every try ends in one class: ``solved`` or ``failed`` (the checker's verdict
 on what the agent left; only these are scored), ``not-run`` (a plan usage
@@ -70,7 +70,7 @@ from . import (
     write_files,
 )
 
-CAP_ENV = "LSIM_BENCH_CAP_USD"  # API mode only
+CAP_ENV = "LSIM_BENCH_CAP_USD"  # ignored: the bench has no cap
 MODES = ("mcp", "cli")
 SMOKE_TASK = "question-loaded-ev"
 PLANTED = SMOKE_DIR / "planted-read-checker.toml"
@@ -105,22 +105,33 @@ SCORED = ("solved", "failed")
 _CHECK = threading.Lock()  # the checker runs LightSim in this process: one at a time
 
 
-def billing_env(env: dict, auth: str = "session") -> dict:
+def billing_env(env: dict) -> dict:
     """The agent's environment without anything that would bill an API
-    account (or pick another provider, model or effort than the try's); with
-    ``auth="api"``, ``ANTHROPIC_API_KEY`` alone is put back."""
-    out = {k: v for k, v in env.items()
-           if not k.startswith(("ANTHROPIC_", "CLAUDE_CODE_USE_"))
-           and k not in ("AWS_BEARER_TOKEN_BEDROCK", "CLAUDE_CODE_EFFORT_LEVEL")}
-    if auth == "api":
-        out["ANTHROPIC_API_KEY"] = env["ANTHROPIC_API_KEY"]
-    return out
+    account (or pick another provider, model or effort than the try's)."""
+    return {k: v for k, v in env.items()
+            if not k.startswith(("ANTHROPIC_", "CLAUDE_CODE_USE_"))
+            and k not in ("AWS_BEARER_TOKEN_BEDROCK", "CLAUDE_CODE_EFFORT_LEVEL")}
+
+
+#: what Claude Code's debug log says when an API key or token, not the
+#: signed-in plan, pays (its init event says ``apiKeySource: "none"`` for a token)
+_KEYED = "API-key auth precedence active"
+
+
+def billing(init: dict, debug: str) -> Optional[str]:
+    """How a try was billed: ``plan``, ``api (<source>)``, or None (no init)."""
+    if not init:
+        return None
+    source = init.get("apiKeySource")
+    if source not in (None, "none"):
+        return f"api ({source})"
+    return "api (a token: the debug log)" if _KEYED in debug else "plan"
 
 
 def claude_command(claude: str, mode: str, prompt: str, mcp_config: Path, model: Optional[str],
-                   effort: Optional[str] = None, budget: Optional[float] = None,
-                   debug_file: Optional[Path] = None, env: Optional[dict] = None) -> list[str]:
-    """The ``claude -p`` command line of one try (``budget`` only in API mode)."""
+                   effort: Optional[str] = None, debug_file: Optional[Path] = None,
+                   env: Optional[dict] = None) -> list[str]:
+    """The ``claude -p`` command line of one try."""
     settings: dict = {"permissions": {"deny": DENY + (["Bash"] if mode == "mcp" else [])}}
     if mode == "mcp":
         tools = ["--tools", "ListMcpResourcesTool,ReadMcpResourceTool",
@@ -135,8 +146,7 @@ def claude_command(claude: str, mode: str, prompt: str, mcp_config: Path, model:
             "--permission-mode", "dontAsk", "--permission-prompts", "none",
             "--disable-slash-commands", "--no-session-persistence",
             *(["--model", model] if model else []), *(["--effort", effort] if effort else []),
-            *(["--debug-file", str(debug_file)] if debug_file else []),
-            *(["--max-budget-usd", f"{budget:.4f}"] if budget is not None else [])]
+            *(["--debug-file", str(debug_file)] if debug_file else [])]
 
 
 def prepare(task: Task, mode: str, base: Path) -> tuple[Path, Path, dict]:
@@ -289,19 +299,20 @@ _EFFORT_CHANGED = re.compile(r"\[effort\][^\n]*|[^\n]*rejected output_config\.ef
 _STOP = ("authentication_failed", "oauth_org_not_allowed", "account_on_hold", "verification_required")
 
 
-def classify(seen: dict, debug: str, timed_out: bool, *, mode: str, auth: str,
+def classify(seen: dict, debug: str, timed_out: bool, *, mode: str,
              model: Optional[str], passed: bool) -> tuple[str, str]:
     """(class, why) of a try. ``why`` of a not-run try starts with its
     kind: ``limit``, ``service``, ``runner`` or ``stop`` (the comparison
-    cannot go on: signed out, or billed to the wrong account). Everything
-    else the agent met, LightSim's errors and approval refusals included,
-    leaves a scored try: ``passed`` (the checker's verdict) decides."""
+    cannot go on: signed out, or billed to an API account, not the plan).
+    Everything else the agent met, LightSim's errors and approval refusals
+    included, leaves a scored try: ``passed`` (the checker's verdict) decides."""
     init, res = seen["init"], seen["result"]
     errors = set(seen["apiErrors"])
     if not init:
         return "not-run", "runner: claude gave no init event (see the .stderr file)"
-    if (init.get("apiKeySource") in (None, "none")) != (auth == "session"):
-        return "not-run", f"stop: the try used the wrong account (apiKeySource {init.get('apiKeySource')!r})"
+    paid = billing(init, debug)
+    if paid != "plan":
+        return "not-run", f"stop: the try used the wrong account: {paid}, not the plan"
     servers = {s.get("name"): s.get("status") for s in init.get("mcp_servers") or []}
     if mode == "mcp" and servers.get("lightsim") != "connected":
         return "not-run", f"runner: LightSim's MCP server did not connect ({servers})"
@@ -329,17 +340,17 @@ def classify(seen: dict, debug: str, timed_out: bool, *, mode: str, auth: str,
 
 
 def run_try(task: Task, mode: str, model: Optional[str], effort: Optional[str], out: Path, name: str, *,
-            claude: str, timeout: float, auth: str = "session", budget: Optional[float] = None) -> dict:
+            claude: str, timeout: float) -> dict:
     """Run one try and return its record (``out/name.*`` keeps the
     transcript, stderr, debug log and the files as the agent left them)."""
     base = Path(tempfile.mkdtemp(prefix="lsim-bench-"))  # outside the repository
     transcript, debug = out / f"{name}.jsonl", out / f"{name}.debug.log"
     try:
         work, mcp_config, env = prepare(task, mode, base)
-        env = billing_env(env, auth)
+        env = billing_env(env)
         prompt = PROMPT.format(tools=TOOLS[mode], work=work, files=", ".join(task.files),
                                statement=task.statement.replace("{root}", str(ROOT)))
-        cmd = claude_command(claude, mode, prompt, mcp_config, model, effort, budget, debug, env)
+        cmd = claude_command(claude, mode, prompt, mcp_config, model, effort, debug, env)
         started = time.monotonic()
         with open(transcript, "wb") as so, open(out / f"{name}.stderr", "wb") as se:
             proc = subprocess.Popen(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL,
@@ -354,7 +365,7 @@ def run_try(task: Task, mode: str, model: Optional[str], effort: Optional[str], 
         wall = time.monotonic() - started
         seen = read_transcript(transcript)
         debug_text = debug.read_text(encoding="utf-8", errors="replace") if debug.exists() else ""
-        cls, why = classify(seen, debug_text, timed_out, mode=mode, auth=auth, model=model, passed=False)
+        cls, why = classify(seen, debug_text, timed_out, mode=mode, model=model, passed=False)
         verdict = None
         if cls in SCORED:  # the agent ran: the checker scores what it left
             with _CHECK:
@@ -366,16 +377,13 @@ def run_try(task: Task, mode: str, model: Optional[str], effort: Optional[str], 
         shutil.rmtree(base, ignore_errors=True)
     res, init = seen["result"], seen["init"]
     cost, unpriced = list_cost(seen)
-    if budget is not None and not res:
-        cost = budget  # API mode: a try that never reported its cost counts as all it was allowed
     mu = res.get("modelUsage") or {}
     return {
         "task": task.id, "version": task.version, "kind": task.kind, "heldout": task.id in heldout(),
         "mode": mode, "model": model, "effort": effort, "class": cls, "why": why,
         "reasons": verdict.reasons if verdict else [], "figures": verdict.figures if verdict else {},
         "reported": {"init": init.get("model"), "answered": sorted(seen["models"]), "result": sorted(mu)},
-        "billing": None if not init else "plan" if init.get("apiKeySource") in (None, "none")
-        else f"api ({init.get('apiKeySource')})",
+        "billing": billing(init, debug_text),
         "claudeCode": init.get("claude_code_version"),
         "toolCalls": len(seen["calls"]), "tools": dict(collections.Counter(seen["calls"])),
         "toolErrors": seen["errors"], "permissionDenials": len(res.get("permission_denials") or []),
@@ -388,10 +396,8 @@ def run_try(task: Task, mode: str, model: Optional[str], effort: Optional[str], 
     }
 
 
-def preflight(claude: str, auth: str) -> Optional[str]:
+def preflight(claude: str) -> Optional[str]:
     """Why no try can run, or None."""
-    if auth == "api":
-        return None if os.environ.get("ANTHROPIC_API_KEY") else "--auth api needs ANTHROPIC_API_KEY"
     try:
         out = subprocess.run([claude, "auth", "status"], capture_output=True, text=True, timeout=60,
                              env=billing_env(dict(os.environ)))
@@ -437,7 +443,7 @@ def main(argv=None) -> int:
     if Path(args.out).resolve().is_relative_to(ROOT):
         print("--out must be outside the repository: transcripts are never committed.", file=sys.stderr)
         return 2
-    problem = preflight(args.claude, "session")
+    problem = preflight(args.claude)
     if problem:
         print(f"Not run: {problem}.", file=sys.stderr)
         return 2

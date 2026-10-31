@@ -1,6 +1,6 @@
 id = "question-fs-limits"
 kind = "question"
-version = 1
+version = 2
 title = "What holds the car back on the autocross lap?"
 statement = """
 car.json models our Formula Student car with a lower accumulator power limit
@@ -27,12 +27,18 @@ ops = [
 [wrong]
 answer = "ANSWER: 22.0; 38.8"
 
+# The two figures lie 2.5 % apart, and the example's cornering-grip time
+# (38.83 s) 0.6 % from this car's: the bands are narrower than both, so the
+# figures swapped fail (the validator checks that) and so does the example's.
+[[also_wrong]]
+answer = "ANSWER: 38.09; 38.83"
+
 [[answer]]
 value = 38.09
-rtol = 0.03
+rtol = 0.005
 figure = { file = "car.json", case = "Autocross (flying lap)", key = "time_limited_by_power_cap_s" }
 
 [[answer]]
 value = 39.074
-rtol = 0.03
+rtol = 0.005
 figure = { file = "car.json", case = "Autocross (flying lap)", key = "time_limited_by_cornering_grip_s" }
