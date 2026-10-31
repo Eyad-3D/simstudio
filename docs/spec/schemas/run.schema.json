@@ -1285,7 +1285,7 @@
     },
     "RunSnapshot": {
       "additionalProperties": true,
-      "description": "What made a run (RES-09): the project and case exactly as they were\nrun (a sweep's value included), the app version, a fingerprint of the\nproject, and the live parameter edits made while it ran.",
+      "description": "What made a run (RES-09): the project and case exactly as they were\nrun (a sweep's value included), the app version, a fingerprint of the\nproject, the live parameter edits made while it ran, and the engine\nthat ran it, its version and its solver options (from the run's\nresult: :meth:`of`). ``app.solver.replay`` makes the run again from\nit.",
       "properties": {
         "project": {
           "$ref": "#/$defs/Project"
@@ -1323,6 +1323,45 @@
           },
           "title": "Liveedits",
           "type": "array"
+        },
+        "engine": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine"
+        },
+        "engineVersion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engineversion"
+        },
+        "solverOptions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Solveroptions"
         }
       },
       "required": [
@@ -1628,6 +1667,52 @@
             "$ref": "#/$defs/ReferenceCheck"
           },
           "title": "References",
+          "type": "array"
+        },
+        "engine": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engine"
+        },
+        "engineVersion": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Engineversion"
+        },
+        "solverOptions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Solveroptions"
+        },
+        "liveEdits": {
+          "items": {
+            "$ref": "#/$defs/LiveEdit"
+          },
+          "title": "Liveedits",
           "type": "array"
         }
       },

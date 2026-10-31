@@ -212,13 +212,12 @@ async def run_study(project: Project, case_id: str, points: list[StudyPointSpec]
                         sweepId=options.sweep_id or None, sweepParam=options.sweep_param,
                         sweepValue=pt.values[0] if len(pt.values) == 1 else None,
                         sweepUnit=options.sweep_unit, incomplete=incomplete,
-                        # (set, so the run store, which leaves out unset
-                        # fields, keeps the empty list the app reads)
                         # the model as it was and the case with the point's
                         # value, as a run from the app keeps them (the swept
-                        # value is the run's own, not a change to the model)
-                        snapshot=RunSnapshot(project=project, case=pcase, appVersion=VERSION,
-                                             liveEdits=[]))
+                        # value is the run's own, not a change to the model),
+                        # and what ran it (its live edits a list the run store
+                        # keeps, set: it leaves out unset fields)
+                        snapshot=RunSnapshot.of(project, pcase, result, VERSION))
                     try:
                         _, pruned = await asyncio.to_thread(run_store.save_run, project.id, run)
                     except ValueError:

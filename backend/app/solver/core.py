@@ -30,7 +30,8 @@ from typing import Callable, Iterator, Optional
 
 from .. import cycles
 from ..library import unit_groups
-from ..schemas import Channel, Project, SimMessage, SimResult, SummaryValue
+from ..schemas import Channel, LiveEdit, Project, RunSnapshot, SimMessage, SimResult, SummaryValue
+from ..version import VERSION
 from . import balance, fs_events, lapsim, new_engine
 from .battery import SOP_PULSES, sop
 from .domains import ModelInitError, RunContext, build_slaves
@@ -87,6 +88,30 @@ def simulate(
     if new_engine.wanted():
         return new_engine.simulate(project, case_id, emit, control, simulate_today)
     return simulate_today(project, case_id, emit, control)
+
+
+def replay(snapshot: RunSnapshot) -> SimResult:
+    """The run a RunSnapshot keeps, made again (RES-09): its project with
+    its case as it was run, on the engine that ran it (whatever
+    LIGHTSIM_ENGINE says now), with that engine's solver options and the
+    live edits the run made. The new engine takes each edit again where its
+    run took it, so the replay is the same result bit for bit (its
+    SHA-256); today's engine makes again a run without live edits only (it
+    applied them at the output step at which it polled them, which nothing
+    records)."""
+    case = snapshot.case
+    project = snapshot.project.model_copy(deep=True)
+    project.cases = ([case if c.id == case.id else c for c in project.cases]
+                     if any(c.id == case.id for c in project.cases) else [*project.cases, case])
+    if snapshot.engine == "new":
+        return new_engine.replay(project, case.id, snapshot.solverOptions or {},
+                                 snapshot.liveEdits)
+    if snapshot.liveEdits:
+        return SimResult(caseId=case.id, status="failed", channels=[], messages=[SimMessage(
+            level="error", text="This run was made on today's engine with live edits, which a "
+                                "replay cannot make again at the times they took effect: run the "
+                                "case again instead.")])
+    return simulate_today(project, case.id)
 
 
 def simulate_today(
@@ -245,9 +270,14 @@ def run_case(
         if lap is None:  # a lap case follows no target
             trace.sample(0.0)
 
+        live_edits: list[LiveEdit] = []  # the scalar live edits the run made, and when
+
         def apply_control_msg(msg: dict) -> None:
-            master.set_parameter(
-                var_name(str(msg.get("elementId")), str(msg.get("key"))), msg.get("value"))
+            el_id, key, value = str(msg.get("elementId")), str(msg.get("key")), msg.get("value")
+            applied = master.set_parameter(var_name(el_id, key), value) == "applied"
+            if applied and isinstance(value, (bool, int, float, str)):  # (the app sends no other)
+                live_edits.append(LiveEdit(t=max(solved, ctx.t), elementId=el_id, key=key,
+                                           value=value))
 
         # ---- main loop -----------------------------------------------------------
         # Point 0 is the initial state at t = 0; every later point is recorded at
@@ -665,6 +695,10 @@ def run_case(
             duty=duty,
             limits=limits,
             references=check_references(case.references, summary) + hand_checks(ev, channels),
+            engine="today",
+            engineVersion=VERSION,
+            solverOptions={"timeStep": dt_rec, "solverStep": dt, "outputEvery": output_every},
+            liveEdits=live_edits,
         )
     finally:
         ctx.close_sandboxes()

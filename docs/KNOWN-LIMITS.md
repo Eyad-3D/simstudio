@@ -644,6 +644,21 @@ minimum or an average, for example from the CSV export, or put the
   moves a few N of load off a very light axle for no time. A lift that
   begins and ends inside the first step goes unsaid.
   *Roadmap:* ENG-16.
+- **Live runs on the new engine.** With `LIGHTSIM_ENGINE=new` a live
+  run streams each point as the engine records it, and a live edit takes
+  effect at the run's next output point, as an event there (today's
+  engine applies it from the output step its run had reached). An edit
+  the new engine builds another model for, such as a gear ratio, takes
+  effect on the next run, as a structural parameter's does on today's
+  engine, and so does a table sent to a run (the app sends none); that
+  note is in the run's log, not in its result. An
+  acceleration test runs twice on the new engine, the second time to the
+  moment it crosses the finish: its live view shows nothing of the first,
+  short run, and an edit made during the second takes effect on the next
+  run. Making a run again from its snapshot (the app's replay) gives the
+  same result on the new engine, live edits included; it runs the case to
+  its end, so a stopped run's replay is the whole run, and a run on
+  today's engine with live edits is not made again. *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a
   negative pressure, a CG height below 0, a wheel's load share of 0):

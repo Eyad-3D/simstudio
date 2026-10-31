@@ -248,8 +248,9 @@ def band_outside(ts: list[float], tgt: list[float], spd: list[float],
     t0, t1 = ts[0], ts[-1]
     rng = _RangeMinMax(tgt)
     cuts = sorted({c for t in ts for c in (t - BAND_S, t, t + BAND_S) if t0 <= c <= t1})
-    for u0, u1 in zip(cuts, cuts[1:]):
-        if u1 <= u0:
+    zero = _zero_pieces(ts, tgt, spd, tols, cuts, rng)
+    for p, (u0, u1) in enumerate(zip(cuts, cuts[1:])):
+        if u1 <= u0 or (zero is not None and all(zero[p])):
             continue
         mid = 0.5 * (u0 + u1)
         a, b = mid - BAND_S, mid + BAND_S
@@ -261,11 +262,67 @@ def band_outside(ts: list[float], tgt: list[float], spd: list[float],
         lines.append((0.0, tgt[-1]) if b >= t1 else _line(ts, tgt, mid, BAND_S))
         sm, sc = _line(ts, spd, mid)
         for k, tol in enumerate(tols):
+            if zero is not None and zero[p][k]:
+                continue  # (it would add 0.0 to out[k]: the same bits)
             # below every candidate less tol, or above every one plus tol
             below = [(m - sm, c - tol - sc) for m, c in lines]
             above = [(sm - m, sc - c - tol) for m, c in lines]
             out[k] += _where(below, u0, u1) + _where(above, u0, u1)
     return out
+
+
+def _zero_pieces(ts: list[float], tgt: list[float], spd: list[float], tols: tuple[float, ...],
+                 cuts: list[float], rng: _RangeMinMax):
+    """For each piece of band_outside (between ``cuts``) and each tolerance,
+    whether band_outside's own arithmetic adds exactly 0.0 for it: its
+    _where is 0.0 for the speed below every candidate less the tolerance
+    and for it above every one plus it, where already the lowest and the
+    highest target sample inside the window, each a candidate, gives that
+    (the same expressions, so the same bits; most pieces of a run that
+    follows its cycle). Worked out for all pieces at once with NumPy, which
+    the new engine's module brings; None without it (each piece then
+    computed in full: the same result, slower)."""
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    t, g, s = (np.asarray(x, dtype=float) for x in (ts, tgt, spd))
+    u = np.asarray(cuts, dtype=float)
+    if len(u) < 2:
+        return None
+    u0, u1 = u[:-1], u[1:]
+    mid = 0.5 * (u0 + u1)
+    i, j = np.searchsorted(t, mid - BAND_S, "right"), np.searchsorted(t, mid + BAND_S, "left")
+    have = j > i  # (no sample inside: no such candidate)
+    # the lowest and highest sample inside, from the same sparse tables
+    lo, hi = np.full(len(mid), np.nan), np.full(len(mid), np.nan)
+    width = np.where(have, j - i, 1)
+    level = np.frexp(width.astype(float))[1] - 1  # floor(log2(width))
+    for lv in np.unique(level[have]):
+        at = have & (level == lv)
+        a, b = i[at], j[at] - (1 << int(lv))
+        lows, highs = np.asarray(rng.lo[lv]), np.asarray(rng.hi[lv])
+        lo[at] = np.where(lows[b] < lows[a], lows[b], lows[a])  # (as rng's min and max)
+        hi[at] = np.where(highs[b] > highs[a], highs[b], highs[a])
+    # the speed's line over the piece (_line at mid)
+    n = len(t)
+    k = np.clip(np.searchsorted(t, mid, "right") - 1, 0, n - 2)
+    dt = t[k + 1] - t[k]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sm = np.where(dt > 0, (s[k + 1] - s[k]) / np.where(dt > 0, dt, 1.0), 0.0)
+        sc = s[k] - sm * (t[k] - 0.0)
+
+        def nothing(m, c):
+            """_where of one candidate (m·t + c above 0) being 0.0 on [u0, u1]."""
+            bound = -c / np.where(m == 0.0, 1.0, m)
+            return np.where(m == 0.0, c <= 0.0, np.where(m > 0.0, bound >= u1, bound <= u0))
+
+        out = np.empty((len(mid), len(tols)), dtype=bool)
+        for q, tol in enumerate(tols):
+            below = nothing(0.0 - sm, lo - tol - sc)
+            above = nothing(sm - 0.0, sc - hi - tol)
+            out[:, q] = have & below & above
+    return out.tolist()
 
 
 def trace_metrics(ts: list[float], tgt: list[float], spd: list[float]) -> TraceMetrics | None:
@@ -305,11 +362,20 @@ class _RangeMinMax:
 
     def __init__(self, values: list[float]):
         self.lo, self.hi = [values], [values]
+        try:
+            import numpy as np
+        except ImportError:
+            np = None
         k = 1
         while 2 * k <= len(values):
             lo, hi = self.lo[-1], self.hi[-1]
-            self.lo.append([min(lo[i], lo[i + k]) for i in range(len(lo) - k)])
-            self.hi.append([max(hi[i], hi[i + k]) for i in range(len(hi) - k)])
+            if np is not None:  # (min and max as Python's: the first unless the second is beyond)
+                a, b = np.asarray(lo, dtype=float), np.asarray(hi, dtype=float)
+                self.lo.append(np.where(a[k:] < a[:-k], a[k:], a[:-k]).tolist())
+                self.hi.append(np.where(b[k:] > b[:-k], b[k:], b[:-k]).tolist())
+            else:
+                self.lo.append([min(lo[i], lo[i + k]) for i in range(len(lo) - k)])
+                self.hi.append([max(hi[i], hi[i + k]) for i in range(len(hi) - k)])
             k *= 2
 
     def __call__(self, a: int, b: int) -> tuple[float, float]:

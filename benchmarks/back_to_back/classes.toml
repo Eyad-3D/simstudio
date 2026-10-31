@@ -190,6 +190,20 @@ comparison's own figure, 1.0039 x, 1.0044 x converged): the gears' rule, the tri
 (lsim-project/golden/README.md, "the two figures"). Capped: a larger difference stays unclassified."""
 
 [[rule]]
+id = "each-run-says-what-ran-it"
+class = "c"
+date = "2026-10-31"
+field = ["engine", "engineVersion", "solverOptions"]
+what = ["text"]
+check = "ran_as_its_engine"
+reason = """What ran a run (step 2's item 4: the result's engine, its version and its solver options, which \
+the RunSnapshot keeps and a replay reads): each engine's own by design, "today" with the app's version and \
+its fixed step's settings, "new" with the module's version and its tolerances, so they differ on every item. \
+Checked: today's run says today's engine with a version and today's settings, every one a finite number, the \
+new run the new engine's; a run that names the other engine, no version or other settings stays \
+unclassified."""
+
+[[rule]]
 id = "acceleration-ends-at-the-line"
 class = "b"
 date = "2026-10-28"

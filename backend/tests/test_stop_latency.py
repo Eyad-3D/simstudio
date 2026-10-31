@@ -8,9 +8,9 @@ reach a running point and end it cancelled, or nothing was measured.
 
 Windows only (the only target, where stop latency counts): CI's Windows
 engine job runs it with the module built (LIGHTSIM_REQUIRE_NEW_ENGINE=1).
-Expected to fail until step 2's live part wires a stop into the new
-engine's run (strict xfail: a pass then fails the test until the marker
-goes)."""
+Step 2's live part wired the stop into the new engine's run (its
+RunControl); the numbers taken on Linux are an indication only
+(benchmarks/back_to_back/baseline/README.md)."""
 from __future__ import annotations
 
 import os
@@ -25,8 +25,6 @@ pytestmark = [
     pytest.mark.skipif(sys.platform != "win32", reason="stop latency is judged on Windows only"),
     pytest.mark.skipif(os.environ.get("LIGHTSIM_REQUIRE_NEW_ENGINE", "").strip() != "1",
                        reason="needs the module (CI's Windows engine job)"),
-    pytest.mark.xfail(reason="the new engine's path does not stop a run yet (step 2, STREAM S2)",
-                      strict=True),
 ]
 
 

@@ -296,7 +296,10 @@ def _rows(rows: list[dict] | None, key) -> dict[str, list[dict]]:
 FIELDS = {
     "SimResult": {"caseId": "text", "status": "text", "messages": "own", "channels": "own",
                   "summary": "own", "partEnergy": "own", "energy": "own", "duty": "own",
-                  "limits": "own", "references": "own"},
+                  "limits": "own", "references": "own", "engine": "text", "engineVersion": "text",
+                  "solverOptions": "text", "liveEdits": "text"},
+    # (each live edit within its list's text)
+    "LiveEdit": {"t": "text", "elementId": "text", "key": "text", "value": "text"},
     "SimMessage": {"level": "own", "text": "own"},
     "Channel": {"elementId": "key", "portId": "key", "label": "text", "unit": "text",
                 "timeSeries": "own", "min": "own", "max": "own", "mean": "own"},
@@ -883,4 +886,25 @@ def _matches(rule: dict, df: Diff, ctx: dict) -> bool:
         return lo - got[3] <= got[2] <= hi + got[3]
     if check == "status_from_notes":  # without its build notes the new run says today's status
         return ctx.get("status_without_notes") == df["today"]
+    if check == "ran_as_its_engine":  # each run says what ran it: its own engine's, not the other's
+        return _ran_as(df["field"], df["today"], "today") and _ran_as(df["field"], df["new"], "new")
     return True
+
+
+# what each engine's result says ran it (app/solver: core.run_case, new_engine.run_new)
+RAN = {"today": {"engine": "today", "solverOptions": {"timeStep", "solverStep", "outputEvery"}},
+       "new": {"engine": "new", "solverOptions": {"rtol", "atol", "outputStep", "traceStep"}}}
+
+
+def _ran_as(field: str, value, engine: str) -> bool:
+    """Whether ``value`` of the result's ``field`` is what a run of
+    ``engine`` says ran it: its name, a version, its solver options (every
+    one a finite number)."""
+    if field == "engine":
+        return value == RAN[engine]["engine"]
+    if field == "engineVersion":
+        return isinstance(value, str) and bool(value)
+    if field == "solverOptions":
+        return (isinstance(value, dict) and set(value) == RAN[engine]["solverOptions"]
+                and all(_finite(x) for x in value.values()))
+    return False

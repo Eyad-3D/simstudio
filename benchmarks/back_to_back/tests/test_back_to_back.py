@@ -705,6 +705,8 @@ FULL = {  # every field of every model filled in
     "references": [{"label": "Range", "value": 400.0, "reference": 410.0, "unit": "km", "difference": -10.0,
                     "differencePct": -2.4, "tolerance": 5.0, "grade": "within", "source": "EPA",
                     "automatic": True, "bound": "two-sided", "note": "a note"}],
+    "engine": "new", "engineVersion": "0.1.0", "solverOptions": {"rtol": 1e-6},
+    "liveEdits": [{"t": 2.0, "elementId": "el-v", "key": "cd", "value": 0.3}],
 }
 
 
@@ -739,6 +741,31 @@ def test_a_change_in_any_field_is_a_difference():
                         if isinstance(value, (int, float)) else value + "x")
         ds = diff.compare("x", FULL, FULL, new)
         assert ds and ds.ledger.totals()["balanced"], path
+
+
+def test_what_ran_each_run_is_classed_only_as_its_own_engine():
+    """The engine, its version and its solver options differ between the
+    engines by design: class c where each run says its own, unclassified
+    where one names the other engine, says no version, or other settings."""
+    import copy
+    today = copy.deepcopy(FULL) | {"engine": "today", "engineVersion": "0.2.0",
+                                   "solverOptions": {"timeStep": 1.0, "solverStep": 0.01, "outputEvery": 1}}
+    new = copy.deepcopy(FULL) | {"solverOptions": {"rtol": 1e-6, "atol": 1e-8, "outputStep": 1.0,
+                                                   "traceStep": 0.1}}
+
+    def classes(v):
+        ds = [d for d in diff.compare("x", today, today, v)
+              if d["field"] in ("engine", "engineVersion", "solverOptions")]
+        diff.classify(ds, {})
+        return {d["field"]: (d["cls"], d["rule"]) for d in ds}
+
+    rule = "each-run-says-what-ran-it"
+    assert classes(new) == {k: ("c", rule) for k in ("engine", "engineVersion", "solverOptions")}
+    assert classes(new | {"engine": "today"}) == {"engineVersion": ("c", rule), "solverOptions": ("c", rule)}
+    assert classes(new | {"engineVersion": ""})["engineVersion"] == ("unclassified", None)
+    assert classes(new | {"solverOptions": {"rtol": 1e-6}})["solverOptions"] == ("unclassified", None)
+    assert classes(new | {"solverOptions": dict(new["solverOptions"], rtol=float("nan"))}
+                   )["solverOptions"] == ("unclassified", None)
 
 
 def _ten() -> dict:

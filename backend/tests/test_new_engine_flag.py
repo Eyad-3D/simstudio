@@ -118,14 +118,10 @@ def test_a_lap_case_falls_back_with_a_message(monkeypatch):
 
 def test_a_hybrid_balanced_case_falls_back(monkeypatch):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    why = new_engine.unsupported(load_example("hybrid-car"), "case-mixed", None)
+    why = new_engine.unsupported(load_example("hybrid-car"), "case-mixed")
     assert why.code == "NEW-BALANCE" and "charge-balance" in why.why
 
 
-def test_a_live_run_falls_back(monkeypatch):
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    why = new_engine.unsupported(load_example("bev-car"), WLTC, lambda msg: None)
-    assert why.code == "NEW-LIVE" and "live" in why.why
 
 
 def _changed(name: str, case_id: str, **case):
@@ -145,18 +141,17 @@ def test_every_refusal_has_its_code():
     fmu.systems[0].elements.append(
         ElementInstance(id="fmu", componentDefId="signal.fmu", label="Lag", position={"x": 0, "y": 0}))
     seen = {
-        "NEW-NOT-FOUND": new_engine.unsupported(load_example("bev-car"), "no-such-case", None),
-        "NEW-LAP": new_engine.unsupported(load_example("fs-electric"), "case-autocross", None),
+        "NEW-NOT-FOUND": new_engine.unsupported(load_example("bev-car"), "no-such-case"),
+        "NEW-LAP": new_engine.unsupported(load_example("fs-electric"), "case-autocross"),
         "NEW-CASE-KIND": new_engine.unsupported(
-            _changed("bev-car", WLTC, kind="performance"), WLTC, None),
-        "NEW-LIVE": new_engine.unsupported(load_example("bev-car"), "case-city-live", None),
+            _changed("bev-car", WLTC, kind="performance"), WLTC),
         "NEW-FS-EVENT": new_engine.unsupported(
-            _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m", None),
-        "NEW-FMU": new_engine.unsupported(fmu, WLTC, None),
-        "NEW-BALANCE": new_engine.unsupported(load_example("hybrid-car"), "case-udds", None),
-        "NEW-CELLS": new_engine.unsupported(cells, WLTC, None),
+            _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
+        "NEW-FMU": new_engine.unsupported(fmu, WLTC),
+        "NEW-BALANCE": new_engine.unsupported(load_example("hybrid-car"), "case-udds"),
+        "NEW-CELLS": new_engine.unsupported(cells, WLTC),
         "NEW-LIMITS": new_engine.unsupported(studies._point_project(
-            load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC, None),
+            load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),
     }
     assert {code: why.code for code, why in seen.items()} == {code: code for code in seen}
     assert all(why.why for why in seen.values())
@@ -182,7 +177,7 @@ def test_strict_mode_runs_nothing_on_today_engine(monkeypatch):
 
 
 def test_strict_mode_does_not_fall_back_after_a_failure(monkeypatch):
-    def broken(project, case_id):
+    def broken(project, case_id, *live):
         raise KeyError("el-x")
 
     monkeypatch.setenv(new_engine.ENV_VAR, "new")

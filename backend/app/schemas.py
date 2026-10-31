@@ -572,6 +572,17 @@ class LimitReport(BaseModel):
     tEnd: float
 
 
+class LiveEdit(BaseModel):
+    """A scalar parameter change sent to the engine while a run was going."""
+
+    model_config = PERSISTED
+
+    t: float  # simulated time the run had reached when it was sent (or taken by the engine), s
+    elementId: str
+    key: str
+    value: ScalarValue
+
+
 class SimResult(BaseModel):
     caseId: str
     status: Literal["success", "failed", "warning", "cancelled"]
@@ -587,23 +598,24 @@ class SimResult(BaseModel):
     # the case's expected values and the automatic hand calculations, each
     # with its gap and grade (VAL-35)
     references: list[ReferenceCheck] = Field(default_factory=list)
-
-
-class LiveEdit(BaseModel):
-    """A scalar parameter change sent to the engine while a run was going."""
-
-    model_config = PERSISTED
-
-    t: float  # simulated time the run had reached when it was sent, s
-    elementId: str
-    key: str
-    value: ScalarValue
+    # what ran it: the engine ("today" or "new", LIGHTSIM_ENGINE), its
+    # version and the solver options it ran with; and the live parameter
+    # edits it made, each at the simulated time the run had reached when it
+    # took it (absent on runs from before 0.4 and on runs that never
+    # started). A RunSnapshot keeps them, and a replay makes them again
+    engine: Optional[str] = None
+    engineVersion: Optional[str] = None
+    solverOptions: Optional[dict[str, float]] = None
+    liveEdits: list[LiveEdit] = Field(default_factory=list)
 
 
 class RunSnapshot(BaseModel):
     """What made a run (RES-09): the project and case exactly as they were
     run (a sweep's value included), the app version, a fingerprint of the
-    project, and the live parameter edits made while it ran."""
+    project, the live parameter edits made while it ran, and the engine
+    that ran it, its version and its solver options (from the run's
+    result: :meth:`of`). ``app.solver.replay`` makes the run again from
+    it."""
 
     model_config = PERSISTED
 
@@ -613,6 +625,19 @@ class RunSnapshot(BaseModel):
     # SHA-256 of the project as canonical JSON (keys sorted), hex
     modelHash: Optional[str] = None
     liveEdits: list[LiveEdit] = Field(default_factory=list)
+    engine: Optional[str] = None
+    engineVersion: Optional[str] = None
+    solverOptions: Optional[dict[str, float]] = None
+
+    @classmethod
+    def of(cls, project: Project, case: SimCase, result: SimResult,
+           app_version: Optional[str] = None, model_hash: Optional[str] = None) -> RunSnapshot:
+        """The snapshot of ``result``, a run of ``case`` of ``project``:
+        the engine, its version, its solver options and its live edits as
+        the result says them."""
+        return cls(project=project, case=case, appVersion=app_version, modelHash=model_hash,
+                   liveEdits=list(result.liveEdits), engine=result.engine,
+                   engineVersion=result.engineVersion, solverOptions=result.solverOptions)
 
 
 class StoredRun(BaseModel):

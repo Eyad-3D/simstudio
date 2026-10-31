@@ -3284,6 +3284,38 @@ against exact answers from `benchmarks/`.
   driveline's spinning parts as one *Rotating parts* row), a battery's
   duty *Losses* are all its internal losses (today's: R0's alone), and a
   wheel's or a gear's flows each way come from a 0.1 s trace.
+* **Live runs, a study's Stop, live edits** (step 2's item 4; review
+  finding 19). The app's every run is live (it streams), and a study's
+  point and an assistant's run have a control: on the path such a run
+  runs the engine in a thread of its own with one `RunControl` (section
+  13), the one stop and progress hook, while the path's thread passes the
+  output points on as today's `step` messages, the result's values bit for
+  bit (the channels the result keeps, a value that is not a number a gap,
+  as there), at the case's real-time pace (the engine waits on the
+  control's queue, 2 points then, 256 otherwise), and reads the run's
+  control every 20 ms: a cancel stops the run where it is, judged as
+  today's judges a stopped run (*cancelled*, today's words, its figures
+  per distance not valid at the time it stopped); a `set_param` is a live
+  edit. A parameter the library marks structural takes effect on the next
+  run, as today's says; for any other the project with the edits so far is
+  built again (a build, no run: 15 ms for the BEV car) and its parameters
+  compared with the run's: those that moved go to the run, an event at its
+  next output time, and a model the engine builds otherwise for the value
+  (the vehicle's mass, a gear ratio: a structure of their own), or a value
+  it refuses, takes effect on the next run too, in the engine's words.
+  Those notes go to the live run's log, not into the result, which says
+  what the run did: the result names its engine, its version and its
+  solver options (`engine`, `engineVersion`, `solverOptions`; today's
+  engine fills them too) and lists the live edits it made, each at the
+  time the engine took it (`liveEdits`); the app's RunSnapshot keeps them
+  (`RunSnapshot.of`, the app's snapshot of a run), and `app.solver.replay`
+  makes the run again from the snapshot on the engine that ran it, with
+  its options and its live edits, the new engine taking each where the run
+  took it: the same result, bit for bit (the harness's STREAM S3). Today's
+  engine applies a live edit at the output step at which it polled it,
+  which nothing records: a replay of its run with live edits fails,
+  saying so. A replay runs to the case's end: a stopped run's is the
+  whole run.
 * **The app's path, both engines** (step 2's judge,
   `python -m benchmarks.back_to_back`): every example case and eight
   probes run through the app's own `simulate`, on today's engine at 10 ms
@@ -3434,8 +3466,9 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   again to the finish.
 * **The app.** With `LIGHTSIM_ENGINE=new` the backend
   (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
-  cases on this module and everything else on today's engine (live runs,
-  FMU parts, Formula Student events, hybrid charge-balance cases,
+  cases on this module, live ones too (section 12.3: streamed, stopped,
+  edited live), and everything else on today's engine (FMU parts,
+  Formula Student events, hybrid charge-balance cases,
   batteries built from cells and a study's point holding a value outside
   its parameter's limits, which Data Checks refuse for a single run and
   today's engine reads clamped, too); any failure of the new engine runs the

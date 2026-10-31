@@ -4,6 +4,13 @@ What changed in each version of LightSim's file formats and of its
 Python API. The rules for when a version changes are in the
 [specification](README.md#versions).
 
+## Next version
+
+| Format | Version | Change |
+|---|---|---|
+| Result (`SimResult`) | 1 | New optional fields: `engine`, `engineVersion` and `solverOptions` (what ran it) and `liveEdits` (the live edits it made, each at the simulated time the run had reached when it took it) |
+| Stored run | 1 | The snapshot's new optional fields: `engine`, `engineVersion` and `solverOptions`, from the result; its `liveEdits` from the result's own list when it has one |
+
 ## LightSim 0.3.0
 
 | Format | Version | Change |

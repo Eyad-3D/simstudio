@@ -434,7 +434,7 @@ class Tools:
             id=f"ai-{time.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}",
             caseId=case.id, caseName=case.name, startedAt=int(time.time() * 1000),
             status=result.status, result=result, incomplete=incomplete,
-            snapshot=RunSnapshot(project=project, case=case, appVersion=VERSION),
+            snapshot=RunSnapshot.of(project, case, result, VERSION),
         )
         self._store_ai_run(handle, run)
         return {

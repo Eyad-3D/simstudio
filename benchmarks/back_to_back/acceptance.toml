@@ -27,7 +27,6 @@ path = "app.solver.simulate"
 NEW-NOT-FOUND = "the case is not in the project"
 NEW-CASE-KIND = "a case kind the new engine's path does not run"
 NEW-LAP = "a lap case (stays on today's lap solver: owner, 20 October)"
-NEW-LIVE = "a live (streamed or paced) run"
 NEW-FS-EVENT = "a Formula Student event case (stays refused: owner, 20 October)"
 NEW-FMU = "a project with an FMU part"
 NEW-BALANCE = "a hybrid's charge-balanced case (stays refused: owner, 20 October)"
@@ -609,6 +608,33 @@ reason = """The same review found the -300 °C point counted as fine by every li
 without their numbers, and the four rows today makes not valid compared by no line. The case values' words were \
 wrong: Data Checks do check a case's own values; a study's points are what they never see. No pass mark is \
 loosened. Written before the next measured run (baseline-10)."""
+
+[[changes]]
+date = "2026-10-31"
+line = "STREAM"
+change = """S3 makes each run again through the app's own replay (app.solver.replay) from the snapshot the app keeps (RunSnapshot.of: the project, the case as run, and what the result says ran it), read back from its JSON, and judges the three fields from each snapshot's values, not from the fields' names. On the new engine's path it also replays a live run with a live edit (bev-car/case-wltc, the Vehicle's drag coefficient set to 0.35 once the run has streamed a point past 300 s); not on today's engine, which does not replay live edits (it applies one at the output step its polling saw it, which nothing records)."""
+reason = """Step 2's item 4 made a live edit a timed event and gave the snapshot the engine, its version and the solver options. The registered probe made the run again from the project alone and read the fields' names, so a snapshot that named the fields and held nothing, or a replay that dropped a live edit, would pass; a live edit is what the item's timed events are for. No pass mark is loosened. Written before the part's first measured run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "STRICT"
+change = """The code NEW-LIVE ("a live (streamed or paced) run") leaves [codes]: the new engine's path runs live \
+runs (step 2's item 4), and refuses none for being live; a message with that code now fails STRICT as one no \
+section lists."""
+reason = """The code named a refusal the path no longer makes. Keeping it listed would let a live run refused \
+with it pass STRICT's code check; leaving it out makes the line stricter. Written before the part's first \
+measured run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "B2B"
+change = """The result's four new fields (step 2's item 4: engine, engineVersion, solverOptions, liveEdits) are \
+compared as text, and the first three, which differ between the engines by design, are classed c by the rule \
+each-run-says-what-ran-it (classes.toml), checked: each run names its own engine, with a version and its own \
+engine's solver options."""
+reason = """A field of the result the diff does not say how to compare fails the harness's own test; these say \
+which engine ran the run, which the two runs of an item give apart on purpose. No pass mark is loosened. \
+Written before the part's first measured run."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)

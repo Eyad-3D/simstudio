@@ -121,8 +121,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     run = StoredRun(
         id=f"cli-{started}", caseId=case.id, caseName=case.name, startedAt=started,
         status=result.status, result=result,
-        snapshot=RunSnapshot(project=model, case=case, appVersion=VERSION,
-                             modelHash=model_hash(project)))
+        snapshot=RunSnapshot.of(model, case, result, VERSION, model_hash(project)))
     rt = results.table(run)
     fmt = args.format or (Path(args.out).suffix.lstrip(".").lower() if args.out else "mat")
     if fmt == "parquet":

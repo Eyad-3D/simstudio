@@ -189,40 +189,72 @@ def sha256_of(result) -> str:
                                      separators=(",", ":")).encode()).hexdigest()
 
 
+# S3's runs: the registered two, and on the new engine's path a live run
+# with a live edit (the Vehicle's drag coefficient once the run passes 300
+# s; acceptance.toml's dated change of 2026-10-31). Today's engine does not
+# replay live edits (it applies one at the output step its polling saw it,
+# which nothing records): its replay of such a run fails, saying so
+REPLAYED = ("bev-car/case-city", "fs-electric/case-accel-75m")
+LIVE_EDIT = ("bev-car/case-wltc", 300.0,
+             {"type": "set_param", "elementId": "el-vehicle", "key": "cd", "value": 0.35})
+
+
+def _live_edit():
+    """A live run's emit and control that gives LIVE_EDIT's edit once a
+    streamed point has passed its time."""
+    seen, sent = [], []
+
+    def emit(msg: dict) -> None:
+        if msg.get("type") == "step":
+            seen.append(msg["t"])
+
+    def control() -> list[dict]:
+        if not sent and seen and seen[-1] >= LIVE_EDIT[1]:
+            sent.append(True)
+            return [dict(LIVE_EDIT[2])]
+        return []
+    return emit, control
+
+
 def replay_probe(out: Path) -> None:
     """S3: a run, its RunSnapshot as the app keeps it (the project, the case
-    as run, the app's version, the model's fingerprint), and the run again
-    from the snapshot alone: the same SHA-256? And does the snapshot say
-    which engine ran it, its version and the solver options?"""
+    as run, the app's version, and what the result says ran it: the engine,
+    its version, its solver options, its live edits: RunSnapshot.of),
+    through its JSON, and the run made again from the snapshot alone by the
+    app's replay (whatever LIGHTSIM_ENGINE says then): the same SHA-256?
+    And does each snapshot say which engine ran it, its version and its
+    solver options (their values, not only the fields)?"""
     from app.schemas import Project, RunSnapshot
-    from app.solver import simulate
+    from app.solver import replay, simulate
     from app.version import VERSION
     path, now = out / "replay.json", runs.stamp()
     if _done_before(path, now):
         print("replay probe: done before, at this code")
         return
-    fields = set(RunSnapshot.model_fields)
-    res = {"stamp": now, "snapshot_fields": sorted(fields),
-           "records_engine": bool(fields & {"engine", "engineName"}),
-           "records_engine_version": bool(fields & {"engineVersion"}),
-           "records_solver_options": bool(fields & {"solverOptions", "solver"}),
-           "runs": []}
+    res = {"stamp": now, "snapshot_fields": sorted(RunSnapshot.model_fields), "runs": []}
     for engine in ENGINES:
-        with _Env(engine):
-            for case in ("bev-car/case-city", "fs-electric/case-accel-75m"):
-                name, case_id = case.split("/")
-                project = Project.model_validate(runs.example(name))
-                first = simulate(project, case_id)
-                pcase = next(c for c in project.cases if c.id == case_id)
-                snap = RunSnapshot.model_validate_json(RunSnapshot(
-                    project=project, case=pcase, appVersion=VERSION).model_dump_json())
-                again_project = snap.project.model_copy(deep=True)
-                again_project.cases = [c if c.id != snap.case.id else snap.case for c in again_project.cases]
-                again = simulate(again_project, snap.case.id)
-                res["runs"].append({"engine": engine, "case": case, "status": first.status,
-                                    "first": first.messages[0].text if first.messages else "",
-                                    "sha256": sha256_of(first), "replayed": sha256_of(again),
-                                    "same": sha256_of(first) == sha256_of(again)})
+        cases = [(c, None) for c in REPLAYED] + ([(LIVE_EDIT[0], LIVE_EDIT)] if engine == "new" else [])
+        for case, live in cases:
+            name, case_id = case.split("/")
+            project = Project.model_validate(runs.example(name))
+            with _Env(engine):
+                first = simulate(project, case_id, *(_live_edit() if live else ()))
+            pcase = next(c for c in project.cases if c.id == case_id)
+            snap = RunSnapshot.model_validate_json(
+                RunSnapshot.of(project, pcase, first, VERSION).model_dump_json())
+            again = replay(snap)
+            res["runs"].append({"engine": engine, "case": case + (" live edit" if live else ""),
+                                "status": first.status,
+                                "first": first.messages[0].text if first.messages else "",
+                                "snapshot": {"engine": snap.engine, "engineVersion": snap.engineVersion,
+                                             "solverOptions": snap.solverOptions,
+                                             "liveEdits": [e.model_dump() for e in snap.liveEdits]},
+                                "sha256": sha256_of(first), "replayed": sha256_of(again),
+                                "same": sha256_of(first) == sha256_of(again)})
+    snaps = [r["snapshot"] for r in res["runs"]]
+    res["records_engine"] = all(s["engine"] for s in snaps)
+    res["records_engine_version"] = all(s["engineVersion"] for s in snaps)
+    res["records_solver_options"] = all(s["solverOptions"] for s in snaps)
     path.write_text(json.dumps(res, indent=1), encoding="utf-8")
     print("replay probe: " + ", ".join(f"{r['engine']} {r['case']} {'same' if r['same'] else 'DIFFERENT'}"
                                        for r in res["runs"]), flush=True)

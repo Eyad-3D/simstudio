@@ -402,6 +402,49 @@
       "title": "LimitReport",
       "type": "object"
     },
+    "LiveEdit": {
+      "additionalProperties": true,
+      "description": "A scalar parameter change sent to the engine while a run was going.",
+      "properties": {
+        "t": {
+          "title": "T",
+          "type": "number"
+        },
+        "elementId": {
+          "title": "Elementid",
+          "type": "string"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "t",
+        "elementId",
+        "key",
+        "value"
+      ],
+      "title": "LiveEdit",
+      "type": "object"
+    },
     "PartEnergyFlow": {
       "description": "One part's energy over a run (MOD-10), in kWh, with the duty values\nof its throughput power in kW. For every part energyIn − energyOut −\nlosses − stored = 0; energyIn and energyOut are both ≥ 0 (what entered\nand what left it at any port), and energyInReverse is the part of\nenergyIn that came back from the road side (regeneration, a dragged\nengine).",
       "properties": {
@@ -775,6 +818,52 @@
         "$ref": "#/$defs/ReferenceCheck"
       },
       "title": "References",
+      "type": "array"
+    },
+    "engine": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Engine"
+    },
+    "engineVersion": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Engineversion"
+    },
+    "solverOptions": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Solveroptions"
+    },
+    "liveEdits": {
+      "items": {
+        "$ref": "#/$defs/LiveEdit"
+      },
+      "title": "Liveedits",
       "type": "array"
     }
   },

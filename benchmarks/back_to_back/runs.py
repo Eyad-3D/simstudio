@@ -326,7 +326,7 @@ def fallback_note(project, case_id: str, emit) -> str | None:
     code."""
     from app.schemas import SimResult
     from app.solver import new_engine
-    if new_engine.unsupported(project, case_id, emit) is None:
+    if new_engine.unsupported(project, case_id) is None:
         return None
     saved = os.environ.pop(new_engine.STRICT_VAR, None)
     try:

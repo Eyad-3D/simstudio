@@ -36,7 +36,7 @@ A stored run (`<run id>.json.gz` after unzipping) follows
 | `result` | [Result](#result), required | What the run gave |
 | `sweepId`, `sweepParam`, `sweepValue`, `sweepUnit` | optional | For a point of a parameter sweep: the sweep, the swept parameter, its value and unit |
 | `incomplete` | text, optional | Why the run is not a complete result (stopped, failed, connection lost) |
-| `snapshot` | optional | What made the run: `project` and `case` exactly as they ran (a sweep's value included), `appVersion`, `modelHash` (SHA-256 of the project as JSON with sorted keys) and `liveEdits` (`t`, `elementId`, `key`, `value` of each value changed while it ran). Runs stored before 0.3 have none |
+| `snapshot` | optional | What made the run: `project` and `case` exactly as they ran (a sweep's value included), `appVersion`, `modelHash` (SHA-256 of the project as JSON with sorted keys), `liveEdits` (`t`, `elementId`, `key`, `value` of each value changed while it ran: from the result's own list when it has one, `t` the simulated time the run had reached when it took the change), and `engine`, `engineVersion` and `solverOptions` as the result says them. A replay makes the run again from it (the new engine's to the bit, live edits and all). Runs stored before 0.3 have none |
 | `name`, `note` | text, optional | The run's name (by default what changed since the previous run of its case) and the user's note |
 
 ## Result
@@ -55,6 +55,9 @@ A result (`SimResult`, [`schemas/result.schema.json`](schemas/result.schema.json
 | `duty` | list of [Duty](#duty) | Each part's highest, lowest, mean and RMS power, torque and current |
 | `limits` | [Limits](#limits) or null | What held the car back at each moment |
 | `references` | list of [Reference check](#reference-check) | How far the run is from the case's expected values and the automatic hand calculations |
+| `engine`, `engineVersion` | text or null | The engine that ran it (`today` or `new`, as `LIGHTSIM_ENGINE` chose) and its version (the app's for today's engine, the `lightsim_engine` module's for the new one). Null on runs from before 0.4 and on runs that never started |
+| `solverOptions` | object of numbers or null | What the engine ran with: today's `timeStep`, `solverStep` and `outputEvery`; the new engine's `rtol`, `atol`, `outputStep` and `traceStep` (s) |
+| `liveEdits` | list of `{t, elementId, key, value}` | Each live parameter edit the run made, `t` the simulated time the run had reached when it took it (the new engine makes it at its next output point). An edit that took effect on the next run is not listed |
 
 ### Channel
 

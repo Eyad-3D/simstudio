@@ -1009,12 +1009,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     });
     activeRun = handle;
     liveLog = { runId, edits: [] };
-    // the snapshot as the run ends: its live edits and the model's fingerprint
-    const finalSnapshot = async (): Promise<Partial<SimRun>> => {
+    // the snapshot as the run ends: its live edits (the engine's own list
+    // when the result has one, each at the time the engine took it), the
+    // model's fingerprint, and what ran it (engine, version, solver options)
+    const finalSnapshot = async (result?: SimResult): Promise<Partial<SimRun>> => {
       if (!snapshot) return {};
-      const edits = liveLog?.runId === runId ? [...liveLog.edits] : [];
+      const edits = result?.liveEdits ?? (liveLog?.runId === runId ? [...liveLog.edits] : []);
       const modelHash = await fingerprint;
-      return { snapshot: { ...snapshot, liveEdits: edits, ...(modelHash ? { modelHash } : {}) } };
+      const ran = result?.engine
+        ? { engine: result.engine, engineVersion: result.engineVersion ?? null, solverOptions: result.solverOptions ?? null }
+        : {};
+      return { snapshot: { ...snapshot, liveEdits: edits, ...(modelHash ? { modelHash } : {}), ...ran } };
     };
     try {
       const result = await handle.done;
@@ -1025,7 +1030,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         result,
         status: result.status,
         ...(incomplete ? { incomplete } : {}),
-        ...(await finalSnapshot()),
+        ...(await finalSnapshot(result)),
       };
       set((s) => ({
         runs: s.runs.map((r) => (r.id === runId ? finished : r)),

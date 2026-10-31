@@ -524,11 +524,20 @@ export interface SimResult {
   /** the case's expected values and the hand calculations, graded (absent
    *  on runs from before 0.3) */
   references?: ReferenceCheck[];
+  /** what ran it: the engine ("today" or "new"), its version and the solver
+   *  options it ran with (absent on runs from before 0.4) */
+  engine?: string | null;
+  engineVersion?: string | null;
+  solverOptions?: Record<string, number> | null;
+  /** the live edits the run made, each at the simulated time the run had
+   *  reached when the engine took it (absent on runs from before 0.4) */
+  liveEdits?: LiveEdit[];
 }
 
 /** A scalar parameter change sent to the engine while a run was going. */
 export interface LiveEdit {
-  /** simulated time the run had reached when the edit was sent, s */
+  /** simulated time the run had reached when the edit was sent (or, from
+   *  the result, when the engine took it), s */
   t: number;
   elementId: string;
   key: string;
@@ -547,8 +556,14 @@ export interface RunSnapshot {
   /** SHA-256 of the project as canonical JSON, hex (absent where the
    *  browser offers no Web Crypto) */
   modelHash?: string;
-  /** scalar parameter edits made while it ran, in order */
+  /** scalar parameter edits made while it ran, in order: the engine's own
+   *  list, from the result, where it has one */
   liveEdits: LiveEdit[];
+  /** the engine that ran it, its version and its solver options, from the
+   *  result (absent on runs from before 0.4) */
+  engine?: string | null;
+  engineVersion?: string | null;
+  solverOptions?: Record<string, number> | null;
 }
 
 /** One recorded simulation run. Finished runs are stored on disk with their

@@ -342,3 +342,39 @@ def test_bundled_examples_follow_their_cycles():
         assert result.status != "failed", pid
         assert not any(m.text.startswith("Cycle not followed") for m in result.messages), pid
         assert _summary(result)["Distance driven"].value > 7.0
+
+
+def test_the_time_outside_the_band_is_the_same_with_and_without_numpy(monkeypatch):
+    """band_outside proves most pieces add nothing with NumPy where it is
+    there (the new engine's module brings it) before working out the rest
+    one by one: the same bits as working out every piece, on traces that
+    follow their target and leave the band, with a not-a-number and signed
+    zeros in them."""
+    import math
+    import random
+    import sys
+
+    from app.solver import verdict
+
+    rnd = random.Random(7)
+    traces = []
+    for n in (2, 3, 60, 700):
+        ts = [0.0]
+        for _ in range(n - 1):
+            ts.append(ts[-1] + rnd.choice((0.1, 0.1, 0.05, 0.3, 1e-9)))
+        tgt = [max(0.0, 50.0 + 30.0 * math.sin(t / 7.0) + rnd.uniform(-1, 1)) for t in ts]
+        spd = [g + (rnd.uniform(-6.0, 6.0) if rnd.random() < 0.1 else rnd.uniform(-0.5, 0.5)) for g in tgt]
+        traces.append((ts, tgt, spd))
+    ts, tgt, spd = (list(x) for x in traces[2])
+    tgt[10], spd[20], tgt[0], spd[1] = float("nan"), -0.0, -0.0, 0.0
+    traces.append((ts, tgt, spd))
+    tols = (verdict.WLTP_TOL_KMH, verdict.EPA_TOL_KMH)
+
+    def bits(rows):
+        return [[float.hex(x) for x in r] for r in rows]
+
+    fast = bits(verdict.band_outside(*tr, tols) for tr in traces)
+    assert any(x != "0x0.0p+0" for r in fast for x in r)  # (some time outside)
+    monkeypatch.setitem(sys.modules, "numpy", None)  # (import numpy fails)
+    assert verdict._zero_pieces(*traces[3], tols, [0.0, 1.0], verdict._RangeMinMax(traces[3][1])) is None
+    assert bits(verdict.band_outside(*tr, tols) for tr in traces) == fast

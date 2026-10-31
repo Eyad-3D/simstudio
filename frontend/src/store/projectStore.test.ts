@@ -1544,6 +1544,38 @@ describe("run snapshots", () => {
     expect(snap.project.systems[0].elements.find((e) => e.id === "el-shaft")?.parameterOverrides).toEqual({});
   });
 
+  it("the snapshot keeps what ran the run, and the engine's own list of its live edits", async () => {
+    await start();
+    let finish!: () => void;
+    const handle = { setParam: vi.fn(), cancel: vi.fn(), done: undefined as unknown as Promise<SimResult> };
+    api.validateProject.mockResolvedValue([]);
+    const taken = { t: 12.37, elementId: "el-shaft", key: "efficiency_pct", value: 90 };
+    api.runSimulationLive.mockImplementation((_project, caseId) => {
+      handle.done = new Promise((resolve) => {
+        finish = () =>
+          resolve({
+            caseId, status: "success", messages: [], channels: [], summary: [],
+            engine: "new", engineVersion: "0.1.0", solverOptions: { rtol: 1e-6, atol: 1e-8 },
+            liveEdits: [taken],
+          });
+      });
+      return handle;
+    });
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
+    useProjectStore.setState({ liveT: 12 });
+    store().setParameter("el-shaft", "efficiency_pct", 90);
+    store().setParameter("el-shaft", "ratio", 3); // (one the engine did not make)
+    finish();
+    await running;
+    const snap = store().runs[0].snapshot!;
+    expect(snap.liveEdits).toEqual([taken]); // the engine's times, not the app's guess
+    expect(snap.engine).toBe("new");
+    expect(snap.engineVersion).toBe("0.1.0");
+    expect(snap.solverOptions).toEqual({ rtol: 1e-6, atol: 1e-8 });
+    expect(api.storeRun.mock.calls[0][1].snapshot).toEqual(snap);
+  });
+
   it("a live edit outside its limits is kept in the model but not sent to the run", async () => {
     await start();
     const { handle, finish } = liveRun();
