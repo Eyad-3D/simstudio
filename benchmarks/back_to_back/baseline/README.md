@@ -25,6 +25,38 @@ after the first two and the ninth (`61779c8`,
 `judge-cache/step2/baseline-9`) after the third. The ninth is this one's
 reference below; the sections after it say how the earlier ones moved.
 
+## After the tenth: the runs measured again for the fifth fix round
+
+The fourth re-check found two non-blocking defects, both in the path.
+bev-car with the rear wheels at 0.1 % of the Vehicle's weight each (the
+fronts 49.9 %) and a CG height of 0.5 m passes Data Checks and succeeds on
+today's engine, and the path said the rear wheels lift off the road at
+t = 0.00 s (with 0.01 % each today lifts at 30.75 s and the path said
+0.00 s as well): the engine's first recorded point, which the trace and the
+integrals' lowest value hold, is the state before the events of t = 0, in
+which the Vehicle at rest still slides and moves a few N of load for no
+time. And `value_problems`, which keeps a run from the path when it reads a
+value outside its limits, had its branch for a part's own value (47 of
+FAULTS' 53 refusals) covered by no test. `70c276c` tells a lift from the
+trace's second point on, or at a Vehicle axle-load event after the first
+traced stretch (a lift that begins and ends within the first step goes
+unsaid; KNOWN-LIMITS and DESIGN say so), and tests the part's own value.
+
+The tenth measurement stands as the baseline. Its runs were measured again
+at `70c276c` on a clean tree, into `judge-cache/step2/baseline-11` (the 691
+runs of items, faults, META and ENERGY's fast mode; the stop-latency,
+replay, mutation and no-skip probes were not run again, since nothing this
+round changed can move them). Against the tenth, record by record, the
+whole result but the code's stamp and the run's wall time: the 315 `new`,
+315 `today-normal`, 26 `today-fine` and 27 META records are identical, and
+the 8 fast-mode records too but for the runner's own timing (`run_s`). No
+line moves. The reason is that the path can only lose a lift warning by the
+change, and no `new` record of the tenth measurement says a lift: the four
+that do are today's engine on four faults the path does not run (a Vehicle
+mass of 0 and -280 kg: `NEW-LIMITS`; a Wheelbase at a hundredth and a CG
+height ×100 as case values: the engine's `RUN-EVENT-STORM`). The
+comparison is lane-step2/fix10/raw1011.py.
+
 ## The tenth measurement: the evidence part's fourth fix round
 
 The evidence part's fourth review found one blocking defect and two
