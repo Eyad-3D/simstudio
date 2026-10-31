@@ -109,6 +109,8 @@ def test_a_reference_saved_through_the_edit_tool_passes_the_checker(task_id, tmp
     settings.write_text(json.dumps({"version": 1, "enabled": True, "examples": True,
                                     "folders": [str(work)]}), encoding="utf-8")
     monkeypatch.setenv("LIGHTSIM_AI_SETTINGS", str(settings))
+    # (an Engine points the projects folder at its own; monkeypatch puts it back)
+    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(home / "projects"))
     engine = Engine(user_folder=home / "projects", allowed_folders=(work,), include_examples=True)
     tools = Tools(engine, Policy(allow_edits=True), AuditLog(engine.user_folder))
     listing = tools.call("lightsim_list_projects", {}, CallContext())
