@@ -203,8 +203,9 @@ def test_the_mcp_server_the_agent_gets_will_not_open_the_hidden_files(tmp_path):
     replies = {r["id"]: r for r in map(json.loads, done.stdout.splitlines())}
     for i in (2, 3):  # not found, as for any file outside the allowed folder
         assert replies[i]["result"]["isError"] is True
-    assert PLANTED.check["secret"] not in done.stdout and "heldout" not in done.stdout.replace(
-        str(agent.HELDOUT_FILE), "")
+    # (the error names the path asked for, as JSON: on Windows its backslashes are doubled)
+    asked = json.dumps(str(agent.HELDOUT_FILE))[1:-1]
+    assert PLANTED.check["secret"] not in done.stdout and "heldout" not in done.stdout.replace(asked, "")
 
 
 def test_the_runner_never_skips_permission_checks(tmp_path):
