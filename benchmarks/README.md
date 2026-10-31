@@ -14,6 +14,9 @@ the equation-based Rust one being built in `engine/`.
 The targets are in [`targets.toml`](targets.toml); the first measurement of
 today's engine is in [`results/`](results/).
 
+What an AI agent achieves with LightSim's tools is measured by the agent
+test bench, in [`agent/`](agent/README.md).
+
 ## Running it
 
 From the repository root, with the backend's Python environment

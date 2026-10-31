@@ -1,0 +1,5 @@
+# The held-out tasks: a third of tasks/, one id per line. Tune LightSim's
+# tools and skills on the other tasks only; for these, read only their
+# scores (README.md, "The held-out set"). Never copied to an agent's folder.
+compare-fs-gearing
+question-peak-power

@@ -1,0 +1,55 @@
+id = "repair-hatchback"
+kind = "repair"
+version = 1
+title = "Repair a car model a colleague broke"
+statement = """
+car.json models our compact electric hatchback. A colleague changed it by
+mistake, and its results no longer match the car. Make the model match the
+data sheet below again and pass LightSim's Data Checks with no errors or
+warnings; change nothing else. Save it in car.json.
+
+Data sheet:
+- test mass 1,927 kg; drag coefficient 0.27; frontal area 2.31 m²;
+- four tyres, each of radius 0.3488 m with rolling resistance coefficient 0.011;
+- final drive 12.8:1, 98 % efficient;
+- battery 62 kWh usable, used down to 4 % charge;
+- a 0.25 kW always-on load on the high-voltage bus.
+"""
+
+# The Battery Electric Car example with three faults: two digits of the mass
+# swapped, one tyre's rolling resistance ten times too high, and the
+# always-on load cut off the bus.
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Compact hatchback"
+ops = [
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 1297 },
+  { op = "set", element = "Wheel RR", param = "rolling_resistance", value = 0.11 },
+  { op = "disconnect", from = "HV Bus:t2", to = "Power Consumer:pos" },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 1927 },
+  { op = "set", element = "Wheel RR", param = "rolling_resistance", value = 0.011 },
+  { op = "connect", from = "HV Bus:t2", to = "Power Consumer:pos" },
+]
+
+# Two faults fixed, the tyre missed.
+[wrong]
+file = "car.json"
+ops = [
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 1927 },
+  { op = "connect", from = "HV Bus:t2", to = "Power Consumer:pos" },
+]
+
+[check]
+file = "car.json"
+case = "City Cycle"
+figures = [
+  { key = "distance_km", rtol = 0.005 },
+  { key = "consumption_kwh_per_100km", rtol = 0.01 },
+  { key = "*.final_soc_pct", atol = 0.1 },
+]

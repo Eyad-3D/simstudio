@@ -1,0 +1,41 @@
+id = "compare-fs-gearing"
+kind = "compare"
+version = 1
+title = "Pick the quicker chain drive for a Formula Student car"
+statement = """
+Our Formula Student team must choose its chain drive. car-a.json is design A,
+geared short (5.6:1) for more push off the line; car-b.json is design B,
+geared long (3.4:1). Everything else is the same. Which design covers the
+75 m acceleration event (the case "Acceleration 75 m") in less time, and what
+is that time, in seconds?
+
+End your reply with one line in exactly this form:
+ANSWER: <A or B>; <time>
+"""
+
+[[start]]
+file = "car-a.json"
+from = "example:fs-electric"
+name = "FS car, design A"
+ops = [{ op = "set", element = "Chain Drive", param = "ratio", value = 5.6 }]
+
+[[start]]
+file = "car-b.json"
+from = "example:fs-electric"
+name = "FS car, design B"
+ops = [{ op = "set", element = "Chain Drive", param = "ratio", value = 3.4 }]
+
+# The short gearing looks quicker, but it reaches the motor's top speed
+# before 75 m.
+[wrong]
+answer = "ANSWER: A; 3.88"
+
+[[answer]]
+choice = "B"
+options = { A = "car-a.json", B = "car-b.json" }
+best = { case = "Acceleration 75 m", key = "accel_time_s", pick = "min" }
+
+[[answer]]
+value = 3.767
+atol = 0.02
+figure = { file = "car-b.json", case = "Acceleration 75 m", key = "accel_time_s" }
