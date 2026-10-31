@@ -3317,10 +3317,13 @@ against exact answers from `benchmarks/`.
   once. The edits the run made are applied after it to today's parts with
   today's own code, so the reports read them as today's RunContext has
   them at its run's end (a hand calculation's drag coefficient). A live
-  run the new engine fails after it has shown a point or read a Stop or an
-  edit fails with its code (`NEW-FAILED`): today's engine would run it
-  again from t = 0 without them; one that showed and read nothing (a
-  study's point) still runs on today's engine, saying so. The result
+  run the new engine fails after it has shown a point to a live view or
+  read a Stop or an edit fails with its reason code (`NEW-FAILED`, or
+  `NEW-ERROR` for a fault in the path): today's engine would run it again
+  from t = 0 without them; one that showed and read nothing (a study's
+  point, or the AI tools' run, whose emit is marked `progress_only`: its
+  points go to a progress bar only) still runs on today's engine, saying
+  so. The result
   names its engine, its version and its
   solver options (`engine`, `engineVersion`, `solverOptions`; today's
   engine fills them too) and lists the live edits it took, each at the

@@ -15,8 +15,8 @@ note of it says so with the code NEW-LIVE-NEXT-RUN). The result says which
 engine ran it, its version, its solver options and the live edits it took
 (``replay`` makes them again). Everything else, and any failure of the new
 engine, runs on today's engine (but a live run the new engine fails after
-it has shown a point or read a Stop or an edit: that run fails with its
-code), and the result's messages say which engine ran the case and,
+it has shown a point to a live view, not only to a progress bar, or read a
+Stop or an edit: that run fails with its code), and the result's messages say which engine ran the case and,
 after a fall-back, why, with a stable reason code in brackets (``[NEW-LAP]``;
 CODES lists them, and benchmarks/back_to_back counts them). With
 ``LIGHTSIM_ENGINE_STRICT=1`` as well nothing falls back: a case the new
@@ -115,33 +115,39 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
     the case fails with the reason's code)."""
     why = unsupported(project, case_id)
     if why is None:
-        # what a live run showed (a point, a note) or read (a Stop, a live
-        # edit): one the new engine fails after that is not run again on
-        # today's engine, whose stream would start again at t = 0 without them
-        begun = []
+        # what a live run did that today's engine, run instead from t = 0,
+        # would undo: "shown" (a point or a note to a live view: an emit not
+        # marked progress_only, as the AI tools' is, whose bar may start
+        # again), "cancel" (a Stop read), "set_param" (a live edit read). A run
+        # the new engine fails after any of them is not run again on today's.
+        did: set[str] = set()
 
         def shown(msg: dict) -> None:
-            begun.append(msg)
+            did.add("shown")
             emit(msg)
 
         def read() -> list[dict]:
             got = list(control())
-            begun.extend(got)
+            did.update(str(m.get("type")) for m in got)
             return got
+        view = emit is not None and not getattr(emit, "progress_only", False)
         try:
-            return _ran(run_new(project, case_id, emit and shown, control and read))
+            return _ran(run_new(project, case_id, shown if view else emit, control and read))
         except Exception as e:  # noqa: BLE001 — the new engine must never break a run
             why = failure(e)
             if strict():
                 return refused(case_id, why, str(e))
-            if begun:
+            if did:
+                lost = " and ".join(w for k, w in (("cancel", "the Stop"), ("set_param", "the live edits"))
+                                    if k in did)
                 return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
                     level="error", text=f"The new engine could not finish this live run "
                                         f"[{why.code}]: {why.why} ({e}). It is not run again on "
                                         f"today's engine, which would start it again at t = 0 "
-                                        f"without the Stop or the live edits it was given: run "
-                                        f"the case again (with {ENV_VAR}=today for today's "
-                                        f"engine).")])
+                                        + (f"without {lost} it was given" if lost else
+                                           "after the points it has shown")
+                                        + f": run the case again (with {ENV_VAR}=today for "
+                                          f"today's engine).")])
             result = today(project, case_id, emit, control)
             result.messages.insert(0, SimMessage(
                 level="warning", text=f"The new engine could not run this case [{why.code}] "

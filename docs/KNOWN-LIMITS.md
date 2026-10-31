@@ -657,15 +657,19 @@ minimum or an average, for example from the CSV export, or put the
   or repeat, a Climate Control's heat source), and one the new engine's
   checks after the run would read as it was at the start (the Ambient's
   temperature or pressure, a battery's minimum SOC or charge power, an
-  E-Motor's maximum speed or its scales, a Vehicle's CG height or
-  Downforce Area), because today's engine checks those at each step with
-  the values then. Such an edit, and one too late for the run, is listed
-  in the run's live edits with its note, code `NEW-LIVE-NEXT-RUN`; so is a
-  structural parameter's, as on today's engine. A table sent to a live run
-  (the app sends none) takes effect on the next run too, noted in the
-  run's log only. A live run the new engine fails after it has started
-  fails with its code (`NEW-FAILED`) rather than running again on today's
-  engine. An
+  E-Motor's maximum speed, a Vehicle's CG height or Downforce Area),
+  because today's engine checks those at each step with the values then.
+  Such an edit, and one too late for the run, is listed in the run's live
+  edits with its note, code `NEW-LIVE-NEXT-RUN`; so is a structural
+  parameter's (an E-Motor's torque, speed or voltage scale among them), as
+  on today's engine. A table sent to a live run (the app sends none) takes
+  effect on the next run too, noted in the run's log only. A live run the
+  new engine fails after it has shown a point or read a Stop or an edit
+  fails with its reason code (`NEW-FAILED` for the engine's own refusal,
+  `NEW-ERROR` for a fault in the path after the run) rather than running
+  again on today's engine; one nothing watches (a study's point, or the AI
+  tools' run, whose points go to a progress bar only) runs on today's
+  engine, saying so with the code. An
   acceleration test runs twice on the new engine: first over the case's
   whole duration, which the live view does not show, then again to the
   moment it crosses the finish, which it shows; an edit made during the

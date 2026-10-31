@@ -139,7 +139,8 @@ export function diffSnapshots(base: RunSnapshot, next: RunSnapshot, lib: Record<
       return {
         text:
           `Live edit in ${which} at t ≈ ${num(Math.round(le.t))} s: ${e?.label ?? le.elementId} · ` +
-          `${p?.label ?? le.key} = ${shown(le.value) ?? String(le.value)}${unitOf(p?.unit)}`,
+          `${p?.label ?? le.key} = ${shown(le.value) ?? String(le.value)}${unitOf(p?.unit)}` +
+          (le.note ? " (not made: on the next run)" : ""),
         elementId: le.elementId,
       };
     });

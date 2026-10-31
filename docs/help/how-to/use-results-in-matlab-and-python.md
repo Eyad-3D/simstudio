@@ -30,7 +30,9 @@ every channel of the run, not only the ticked ones.
   - `not_valid`, the figures the run's checks rule out, with why
     ([Run status](../../KNOWN-LIMITS.md));
   - `changed_parameters`, every parameter that differs from the library's
-    default, and `live_edits`, the values changed while the run went;
+    default, and `live_edits`, the values changed while the run went (one
+    with a `note` the run did not make: it takes effect on the next run,
+    and the note says why);
   - `run_card_json`, all of this as one JSON text.
 
 ## Read it in MATLAB

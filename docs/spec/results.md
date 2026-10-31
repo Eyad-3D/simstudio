@@ -279,7 +279,9 @@ The **MATLAB** button on the *Results* tab, `lightsim-backend run --out
 result.mat` and `lightsim-backend export` write a MAT-file in a second
 layout: one struct per part, holding `t` (s) and a column for each of its
 channels (NaN for a gap), and a struct `meta` with the units of every
-column, the run's details and the run card as JSON text. It is the layout
+column, the run's details and the run card as JSON text (its live edits
+each with the stored run's `note`: one with a note the run did not make).
+It is the layout
 `lightsim_run.m` reads. The variables are listed in
 [Use results in MATLAB and Python](../help/how-to/use-results-in-matlab-and-python.md).
 

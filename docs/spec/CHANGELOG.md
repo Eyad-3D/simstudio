@@ -11,6 +11,7 @@ Python API. The rules for when a version changes are in the
 | Result (`SimResult`) | 1 | New optional fields: `engine`, `engineVersion` and `solverOptions` (what ran it) and `liveEdits` (the live edits it made, each at the simulated time the run had reached when it took it) |
 | Stored run | 1 | The snapshot's new optional fields: `engine`, `engineVersion` and `solverOptions`, from the result; its `liveEdits` from the result's own list when it has one |
 | Result (`SimResult`) and stored run | 1 | A live edit's new optional field `note`: for an edit the run did not make (it takes effect on the next run), the result's note of it; the new engine's `liveEdits` list those edits too |
+| Run card (`lightsim-run-card`, and the MAT-file's `meta.live_edits`) | 1 | Each live edit's new field `note`, as in the stored run: why the run did not make it (null, in the MAT-file empty, for one it made) |
 
 ## LightSim 0.3.0
 

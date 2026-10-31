@@ -407,6 +407,9 @@ class Engine:
             if progress and event.get("type") == "step" and isinstance(event.get("pct"), (int, float)):
                 progress(float(event["pct"]))
 
+        # (no live view: a run the new engine fails may run again on today's,
+        # its progress starting again, as a study's point does: new_engine.simulate)
+        emit.progress_only = True
         return simulate(fast, case_id, emit, control)
 
     @staticmethod

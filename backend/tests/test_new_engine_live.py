@@ -10,6 +10,7 @@ Needs the compiled module ``lightsim_engine`` (as test_new_engine_flag.py:
 skipped without it, failing instead with LIGHTSIM_REQUIRE_NEW_ENGINE=1)."""
 from __future__ import annotations
 
+import gc
 import hashlib
 import json
 import threading
@@ -106,6 +107,19 @@ def test_a_paced_run_keeps_its_pace():
     result = simulate(project, "case-city-live", live.emit, live.control)
     assert time.monotonic() - t0 >= 0.45
     _streamed_is_the_result(live.steps(), result)
+
+
+def test_a_live_run_s_points_are_not_kept_on_the_way():
+    """The path keeps only whether a live run has shown a point, not the
+    points: a long run's stream, which the app's websocket sends on and
+    drops, is not held in memory until the run ends (no list holds one)."""
+    held = []
+
+    def emit(msg):  # (a few points looked at: gc.get_referrers scans every object)
+        if msg["type"] == "step" and msg["t"] % 100 == 0:
+            held.append(any(isinstance(r, list) for r in gc.get_referrers(msg)))
+    simulate(load_example("bev-car"), "case-city", emit, lambda: [])
+    assert held and not any(held)
 
 
 def test_a_stop_ends_the_run_where_it_is():
@@ -314,8 +328,9 @@ def test_an_edit_the_checks_after_the_run_read_is_not_made(el_id, key, value):
 def test_an_edit_too_late_for_the_run_is_listed_with_its_note():
     """An edit given once the run has shown its last point is not made:
     the result lists it with its coded note (the engine's words when the run
-    had ended, else too late), and a replay gives the same result. One the
-    engine was given and did not make came too late."""
+    had ended, else too late), the live log gives it once, and a replay
+    gives the same result. One the engine was given and did not make came
+    too late, which the live log gives once when the run ends (_Live.made)."""
     project = load_example("bev-car")
     _case(project, "case-city").duration = 20.0
     live = _Live(at=20.0, then=[_set("el-vehicle", "cd", 0.35)])
@@ -323,11 +338,22 @@ def test_an_edit_too_late_for_the_run_is_listed_with_its_note():
     (late,) = result.liveEdits
     assert late.note and late.note.startswith("'Vehicle.cd' changed") and late.note.endswith(
         "[NEW-LIVE-NEXT-RUN].") and late.note in [m.text for m in result.messages]
+    assert [m for m in live.stream if m["type"] == "message"] == [
+        {"type": "message", "level": "info", "text": late.note}]
     assert _sha(_replayed(project, "case-city", result)) == _sha(result)
     model = new_engine._context(project, "case-city").model
+    told = "'Vehicle.cd' changed too late in the run to take effect: it takes effect on the next run " \
+           "[NEW-LIVE-NEXT-RUN]."
     (e,) = new_engine._made([("el-vehicle", "cd", 0.35, 19.5, True, None)], [], model)
-    assert (e.t, e.note) == (19.5, "'Vehicle.cd' changed too late in the run to take effect: it "
-                                   "takes effect on the next run [NEW-LIVE-NEXT-RUN].")
+    assert (e.t, e.note) == (19.5, told)
+    # (whether the engine takes an edit given at its last step is a race: what made() says, alone)
+    run = new_engine._Live.__new__(new_engine._Live)
+    stream = []
+    run.model, run.emit, run.said = model, stream.append, set()
+    run.taken = [("el-vehicle", "cd", 0.35, 19.5, True, None)]
+    for _ in range(2):  # (said once)
+        assert [e.note for e in run.made([])] == [told]
+    assert stream == [{"type": "message", "level": "info", "text": told}]
 
 
 def _engine(monkeypatch, engine):
@@ -376,15 +402,20 @@ def test_a_stopped_acceleration_test_has_no_finish(monkeypatch):
 
 def test_a_live_run_the_new_engine_fails_is_not_run_again_on_today_s(monkeypatch):
     """In the app's mode (not strict), a live run the new engine fails after
-    it has streamed points, or read an edit, fails with its code: today's
-    engine would stream it again from t = 0 without what it read. A run
-    that showed and read nothing (a study's point) runs on today's, saying
-    so with the code."""
+    it has streamed points, or read an edit, fails with its code, saying
+    what today's engine, streaming it again from t = 0, would lose (never a
+    Stop or edits it was not given). A run that showed and read nothing (a
+    study's point), and the AI tools' run, whose points go to a progress
+    bar only (whether it has one or not), run on today's, saying so with
+    the code."""
+    from app.ai.engine import Engine
+
     monkeypatch.delenv(new_engine.STRICT_VAR)
     project = load_example("bev-car")  # (its battery's resistance x100: the run stops at ~321 s)
     _case(project, "case-city").parameterOverrides.setdefault("el-battery", {})[
         "internal_resistance_ohm"] = 8.0
-    for then in ([], [_set("el-vehicle", "cd", 0.3)]):
+    for then, lost in (([], "after the points it has shown"),
+                       ([_set("el-vehicle", "cd", 0.3)], "without the live edits it was given")):
         live = _Live(at=100.0, then=then)
         result = simulate(project, "case-city", live.emit, live.control)
         times = [m["t"] for m in live.steps()]
@@ -392,9 +423,15 @@ def test_a_live_run_the_new_engine_fails_is_not_run_again_on_today_s(monkeypatch
         assert result.status == "failed" and result.engine is None
         (msg,) = result.messages
         assert "[NEW-FAILED]" in msg.text and "RUN-INTEGRATOR" in msg.text, msg.text
-        assert "It is not run again on today's engine" in msg.text
+        assert f"It is not run again on today's engine, which would start it again at t = 0 {lost}:" \
+            in msg.text and "Stop" not in msg.text, msg.text
     quiet = simulate(project, "case-city", None, lambda: [])
     assert quiet.engine == "today" and "[NEW-FAILED]" in quiet.messages[0].text
+    for progress in (None, lambda pct: None):
+        ai = Engine.simulate(project, "case-city", max_seconds=120.0, cancel=threading.Event(),
+                             progress=progress)
+        assert ai.engine == "today" and ai.channels, [m.text for m in ai.messages]
+        assert ai.messages[0].text.startswith("The new engine could not run this case [NEW-FAILED]")
 
 
 def test_the_result_says_what_ran_it_and_the_snapshot_keeps_it(monkeypatch):
