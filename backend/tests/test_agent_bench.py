@@ -13,6 +13,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +28,7 @@ from benchmarks import agent  # noqa: E402
 from benchmarks.agent import run  # noqa: E402
 
 from app.ai.edits import apply_operations  # noqa: E402
+from app.library import unit_groups  # noqa: E402
 
 TASKS = agent.load_tasks()
 PLANTED = agent.load_task(run.PLANTED)
@@ -418,15 +420,34 @@ def test_no_transcripts_in_the_repository(fake_claude, tmp_path):
 #: wired to: the library's unit group of that port, and the words the brief
 #: uses for it. The bands of a task are around the reference's own run, so
 #: nothing else ties the brief's words to LightSim.
+#:
+#: The words must read as that unit group and no other (``_reads_as``): they
+#: carry one of the group's cues, a unit or a name of the quantity, and none of
+#: another group's. An author adding a task chooses the words of its entry;
+#: the check is that they say what the library says of the port.
+_NAMES = {"Power": ["power"], "Velocity": ["speed"], "Percent": ["state of charge"],
+          "Distance": ["distance", "km"],  # (a route is given in km, the port carries m)
+          "Fraction": ["share", "fraction", "0 to 1", "command", "torque"]}
+#: group -> its cues: the names above and the library's display unit (kW, km/h, %, m)
+CUES = {g: names + [u for u in [unit_groups()[g]] if u != "-"] for g, names in _NAMES.items()}
+
+
+def _reads_as(words: str) -> set[str]:
+    """The unit groups a brief's words read as: those with a cue among them."""
+    tokens = re.findall(r"[a-z0-9%/]+(?:[.'][a-z0-9%/]+)*", words.lower())
+    text = f" {' '.join(tokens)} "
+    return {g for g, cues in CUES.items() if any(f" {c.lower()} " in text for c in cues)}
+
+
 SAYS = {
     "write-aux-shed": {"HV Battery Pack:sig_soc": ("Percent", "(the battery's state of charge, %)"),
                        "Power Consumer:sig_demand_in": ("Power", "(the power the comfort load is to draw, kW)")},
     "write-limp-home": {"HV Battery Pack:sig_soc": ("Percent", "(the battery's state of charge, %)"),
                         "Driver:sig_traction_cmd": ("Fraction", "(the Driver's traction command)"),
-                        "E-Motor:sig_demand_in": ("Fraction", "(15 % of the available torque)")},
+                        "E-Motor:sig_demand_in": ("Fraction", "of the available torque")},
     "write-regen-gate": {"Vehicle:sig_speed": ("Velocity", "below 10 km/h"),
                          "Driver:sig_traction_cmd": ("Fraction", "a negative command (regeneration)"),
-                         "E-Motor:sig_demand_in": ("Fraction", "drives the E-Motor's demand input")},
+                         "E-Motor:sig_demand_in": ("Fraction", '"torque_cmd" that drives the E-Motor\'s demand input')},
     "write-speed-limiter": {"Vehicle Task:sig_demand": ("Velocity", "never more than 100 km/h"),
                             "Driver:sig_target_in": ("Velocity", "Driver's target speed input")},
     "write-launch-smoother": {"Vehicle Task:sig_demand": ("Velocity", "no more than 2 km/h per second"),
@@ -441,24 +462,71 @@ def test_every_write_brief_says_what_its_ports_carry():
     assert set(SAYS) == {t.id for t in WRITE}, "a new write task needs an entry in SAYS"
 
 
-@pytest.mark.parametrize("task", WRITE, ids=lambda t: t.id)
-def test_a_write_brief_says_of_each_port_what_the_library_says(task):
-    """The brief's words for what a Script port carries (a power in kW, a
-    speed in km/h, a state of charge in %) agree with the library's unit group
-    of the port it is wired to. The aux-shed brief once called the Power
-    Consumer's demand input a share (0 to 1) where LightSim takes kW, and no
-    band caught it."""
-    says = SAYS[task.id]
-    peers = set(task.check["require"]["ports"].values())
-    assert set(says) == peers, f"{task.id}: SAYS names {sorted(says)}, the task wires {sorted(peers)}"
+def _says_problems(task, says: dict, brief: str) -> list[str]:
+    """What is wrong with the SAYS entry of a task: a group that is not the
+    library's for the port, words that are not in the brief, and words that
+    read as another unit group (or none) than the port's."""
     project = agent.ls.Project(agent.solution(task, "reference")[0][task.check["file"]])
-    brief = " ".join(task.statement.split())
+    out = []
     for peer, (group, words) in says.items():
         part, port = peer.rsplit(":", 1)
         el = next(e for e in project.elements if e.label == part)
         got = next(p.unitGroup for p in agent._ports(el) if p.id == port)
-        assert got == group, f"{task.id}: the brief says {peer} carries {group}, the library says {got}"
-        assert words in brief, f"{task.id}: {words!r} is not in the brief"
+        if got != group:
+            out.append(f"{task.id}: the brief says {peer} carries {group}, the library says {got}")
+        if words not in brief:
+            out.append(f"{task.id}: {words!r} is not in the brief")
+        read = _reads_as(words)
+        if read != {group}:
+            out.append(f"{task.id}: {words!r} reads as {sorted(read) or 'no unit group'}, {peer} carries {group}")
+    return out
+
+
+@pytest.mark.parametrize("task", WRITE, ids=lambda t: t.id)
+def test_a_write_brief_says_of_each_port_what_the_library_says(task):
+    """The brief's words for what a Script port carries (a power in kW, a
+    speed in km/h, a state of charge in %) read as the library's unit group of
+    the port it is wired to, and as no other. The aux-shed brief once called
+    the Power Consumer's demand input a share (0 to 1) where LightSim takes
+    kW, and no band caught it."""
+    peers = set(task.check["require"]["ports"].values())
+    assert set(SAYS[task.id]) == peers, f"{task.id}: SAYS names {sorted(SAYS[task.id])}, the task wires {sorted(peers)}"
+    assert _says_problems(task, SAYS[task.id], " ".join(task.statement.split())) == []
+
+
+def test_the_aux_shed_brief_as_it_was_is_refused_with_its_own_words_in_says():
+    """The v4 brief called the demand input "(0 to 1, the share of its power
+    it takes)" where LightSim takes kW. With the library's group typed into
+    SAYS and these words copied from the brief, the two facts the test used
+    to check (the group, and the words being in the brief) both held."""
+    task = next(t for t in WRITE if t.id == "write-aux-shed")
+    peer = "Power Consumer:sig_demand_in"
+    brief = " ".join(task.statement.split())
+    now, was = SAYS[task.id][peer][1], "(0 to 1, the share of its power it takes)"
+    assert now in brief
+    problems = _says_problems(task, {**SAYS[task.id], peer: ("Power", was)}, brief.replace(now, was))
+    assert problems == [f"write-aux-shed: {was!r} reads as ['Fraction', 'Power'], {peer} carries Power"]
+
+
+@pytest.mark.parametrize("group, words", [
+    ("Power", "(the share of the comfort load)"),            # a share where the port takes kW
+    ("Power", "(0 to 1, the share of its power it takes)"),   # both: the aux-shed brief as it was
+    ("Fraction", "(the power the load is to draw, kW)"),      # kW where the port takes a fraction
+    ("Percent", "(the battery's state of charge, 0 to 1)"),   # a fraction where the port takes %
+    ("Percent", "(the battery's charge)"),                    # nothing that says what it carries
+    ("Velocity", "(the target speed, m)"),                    # metres for a speed
+    ("Velocity", "(the Driver's target input)"),
+    ("Distance", "(the distance driven, km/h)"),
+])
+def test_words_that_read_as_another_unit_group_or_none_are_refused(group, words):
+    assert _reads_as(words) != {group}
+
+
+def test_every_unit_group_a_brief_uses_has_cues():
+    """(A group with no cues could never be read as: its entry would always be refused.)
+    The cues include the library's display unit of the group."""
+    assert {g for says in SAYS.values() for g, _ in says.values()} <= set(CUES)
+    assert [CUES[g][-1] for g in ("Power", "Velocity", "Percent", "Distance")] == ["kW", "km/h", "%", "m"]
 
 
 def test_a_brief_that_says_a_share_where_lightsim_takes_kW_is_refused():

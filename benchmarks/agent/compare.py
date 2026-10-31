@@ -262,14 +262,14 @@ def _frac(pair: list) -> str:
     return f"{pair[0]}/{pair[1]}" if pair[1] else "–"
 
 
-def _ran(settings: list[Setting]) -> str:
+def _ran(run: list[Setting]) -> str:
     """Which settings an answer speaks of: empty when all eight were run,
     else "the 2 settings run (not all 8)". The answers say "no setting" and
     name the cheapest only of the settings that were run, never of one that
     was not."""
-    if {s.name for s in SETTINGS} <= {s.name for s in settings}:
+    if {s.name for s in SETTINGS} <= {s.name for s in run}:
         return ""
-    n = len(settings)
+    n = len(run)
     return f"the {n} setting{'s' if n != 1 else ''} run (not all {len(SETTINGS)})"
 
 
@@ -279,6 +279,9 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
     tries were run again), counted in the cost only."""
     ids = {t.id for t in tasks}
     summary = summarize(records, notruns, tasks, settings)
+    # The settings run are those with a scored try in the records, not those the command named: the
+    # folder of a --settings run, reported again with no --settings, is still a run of those settings.
+    run = [s for s in settings if any(v["setting"] == s.name and v["tries"] for v in summary.values())]
     a1, a2 = cheapest_working(summary, tasks), hands_off(summary, tasks)
     rs = [r for r in records.values() if r["task"] in ids]
     old = [r for r in older if r["task"] in ids]
@@ -288,7 +291,7 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
     held = heldout()
     data = {
         "tasks": len(tasks), "heldout": sum(t.id in held for t in tasks),
-        "settingsRun": [s.name for s in settings],
+        "settingsRun": [s.name for s in run],
         "scoredTries": sum(r["class"] in SCORED for r in rs), "notRunTries": len(nr),
         "olderVersionTries": len(old), "olderVersionCostUsd": round(sum(r.get("costUsd", 0.0) for r in old), 4),
         "unavailable": unavailable(records),
@@ -329,7 +332,7 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
     if note:
         lines += [note, ""]
     lines += ["## The answers", ""]
-    ran = _ran(settings)
+    ran = _ran(run)
     of = f" of {ran}" if ran else ""
     if a1["setting"] is None:
         lines.append(f"1. The cheapest working setting: not known yet; it {a1['why']}.")
@@ -533,6 +536,9 @@ def main(argv=None) -> int:
         print(f"{CAP_ENV} is ignored: the bench runs on the plan, with no cap.", file=sys.stderr)
     folder = Path(args.out).resolve() / args.name
     comp = Comparison(folder, args, every)
+    if args.report and not wanted:  # the tasks run are those the folder holds a record of, as for the settings
+        seen = {r["task"] for r in (*comp.records.values(), *comp.notruns, *comp.older)}
+        tasks = [t for t in every if t.id in seen] or tasks
     note = ""
     if not args.report:
         problem = preflight(args.claude)

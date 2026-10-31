@@ -408,6 +408,14 @@ def records(*rs) -> dict:
     return {r["id"]: r for r in rs}
 
 
+def filled(rs: dict, tasks: list = ALL) -> dict:
+    """The records of a run of all eight settings: three failing tries of every task for each
+    setting ``rs`` has no record of (a report speaks of the settings that have records)."""
+    have = {r["setting"] for r in rs.values()}
+    return {**rs, **records(*[rec(t.id, s, n, solved=False, cost=1.0)
+                              for s in NAMES if s not in have for t in tasks for n in (1, 2, 3)])}
+
+
 def stage_a_records(solved: dict[str, int]) -> list[dict]:
     """Stage A: setting -> how many tasks (the first ones) it solved."""
     return [rec(t.id, s, solved=i < solved.get(s, 0)) for s in NAMES for i, t in enumerate(ALL)]
@@ -463,13 +471,13 @@ def test_hands_off_needs_nine_in_ten_on_all_tasks_and_on_the_held_out_ones():
     assert compare.hands_off(summary, ALL)["settings"] == ["opus-high"]
     a1 = compare.cheapest_working(summary, ALL)
     assert (a1["works"], a1["setting"], a1["belowHandsOff"]) == (True, "opus-high", ["sonnet-medium"])
-    text = compare.report(rs, [], ALL, list(compare.SETTINGS))[0]
+    text = compare.report(filled(rs), [], ALL, list(compare.SETTINGS))[0]
     # (Sonnet 5.5 at medium used to be named here: as good as the ceiling on count, but 9/11 held out)
     assert "1. The cheapest working setting: **Opus 5.5, high**" in text
     assert "Candidates below the 90% hands-off floor (all tasks or held out), so not working: " \
            "Sonnet 5.5, medium." in text
     rs = records(*three("opus-high", misses_held, 31), *three("sonnet-medium", misses_held, 20))
-    text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    text, data = compare.report(filled(rs), [], ALL, list(compare.SETTINGS))
     assert data["handsOff"]["settings"] == []
     assert "No setting is good enough for hands-off work" in text
     assert "with Sonnet 5.5, medium as the target (it has 20/33 and 0/11)" in text
@@ -482,7 +490,7 @@ def test_answer_1_says_no_setting_works_while_the_ceiling_itself_falls_short():
     headline ("The cheapest working setting: **Haiku 5.5, low**")."""
     rs = three_tries({"opus-high": 13, "sonnet-medium": 12, "haiku-low": 12},
                      {"opus-high": 0.28, "sonnet-medium": 0.07, "haiku-low": 0.006})
-    text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    text, data = compare.report(filled(rs), [], ALL, list(compare.SETTINGS))
     a1 = data["cheapestWorking"]
     assert (a1["works"], a1["setting"], a1["ceilingPass3"]) == (False, "haiku-low", [13, 33])
     (line,) = [x for x in text.splitlines() if x.startswith("1.")]
@@ -509,7 +517,7 @@ def test_answer_1_names_only_a_setting_that_clears_the_hands_off_floor_itself():
     miss = {"haiku-low": set(sorted(agent.heldout())[:2]), "sonnet-medium": set(sorted(agent.heldout())[:2]),
             "opus-high": set()}
     rs = tries_of(ALL, miss)
-    text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    text, data = compare.report(filled(rs), [], ALL, list(compare.SETTINGS))
     a1 = data["cheapestWorking"]
     assert (a1["works"], a1["setting"], a1["belowHandsOff"]) == (True, "opus-high", ["haiku-low", "sonnet-medium"])
     assert "2. Good enough for hands-off work (pass^3 on at least 90% of all tasks and of the held-out ones): " \
@@ -519,7 +527,7 @@ def test_answer_1_names_only_a_setting_that_clears_the_hands_off_floor_itself():
     assert "so not working: Haiku 5.5, low, Sonnet 5.5, medium." in text
     # a cheaper setting that does clear the floor is the answer, and the one stage C runs
     rs = tries_of(ALL, {**miss, "sonnet-high": set()})
-    text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    text, data = compare.report(filled(rs), [], ALL, list(compare.SETTINGS))
     assert "1. The cheapest working setting: **Sonnet 5.5, high**" in text
     assert data["cheapestWorking"]["setting"] == "sonnet-high"
     specs, why = compare.plan("C", rs, ALL, [
@@ -545,7 +553,8 @@ def test_a_subset_of_the_tasks_cannot_say_a_setting_works(ids):
     shares are of all tasks and of the held-out ones. Only a run of every
     task of the bench is judged."""
     tasks = _held_out() if ids == "heldout" else [t for t in ALL if t.id in ids]
-    text, data = compare.report(tries_of(tasks, {s: set() for s in COST}), [], tasks, list(compare.SETTINGS))
+    text, data = compare.report(filled(tries_of(tasks, {s: set() for s in COST}), tasks), [], tasks,
+                                list(compare.SETTINGS))
     a1, a2 = data["cheapestWorking"], data["handsOff"]
     assert (a1["works"], a1["judged"], a1["setting"]) == (False, False, "haiku-low")  # stage C still has its input
     assert a2["settings"] is None
@@ -565,7 +574,7 @@ def test_a_setting_that_beats_a_ceiling_below_the_floor_is_named_working():
     held, visible = sorted(agent.heldout()), sorted(t.id for t in ALL if t.id not in agent.heldout())
     rs = tries_of(ALL, {"opus-high": set(held[:2]) | set(visible[:2]), "sonnet-high": {held[0], visible[0]},
                         "haiku-low": set(held[:3]) | set(visible[:3])})
-    text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    text, data = compare.report(filled(rs), [], ALL, list(compare.SETTINGS))
     s = data["settings"]
     assert (s["opus-high/mcp"]["pass3"]["all"], s["opus-high/mcp"]["pass3"]["heldout"]) == ([29, 33], [9, 11])
     assert (s["sonnet-high/mcp"]["pass3"]["all"], s["sonnet-high/mcp"]["pass3"]["heldout"]) == ([31, 33], [10, 11])
@@ -587,7 +596,12 @@ def test_a_settings_subset_names_the_cheapest_of_those_it_ran():
     text, data = compare.report(tries_of(ALL, {"sonnet-medium": set(), "opus-high": set()}), [], ALL, run_these)
     assert data["cheapestWorking"]["setting"] == "sonnet-medium"
     assert "1. The cheapest working setting of the 2 settings run (not all 8): **Sonnet 5.5, medium**" in text
+    # (the settings run are the ones the records are of, whichever the command named)
     text, _ = compare.report(tries_of(ALL, {"sonnet-medium": set(), "opus-high": set()}), [], ALL,
+                             list(compare.SETTINGS))
+    assert "1. The cheapest working setting of the 2 settings run (not all 8): **Sonnet 5.5, medium**" in text
+    # with a record of every setting (the other six fail) there is nothing to scope
+    text, _ = compare.report(filled(tries_of(ALL, {"sonnet-medium": set(), "opus-high": set()})), [], ALL,
                              list(compare.SETTINGS))
     assert "1. The cheapest working setting: **Sonnet 5.5, medium**" in text
 
@@ -614,7 +628,7 @@ def test_a_settings_subset_never_says_no_setting_about_settings_it_did_not_run()
                           "even the ceiling (Opus 5.5, high) has pass^3 on only 29/33")
     assert two.startswith("2. **None of the 2 settings run (not all 8) is good enough for hands-off work**")
     assert "   The cheapest setting as good as the ceiling of the 2 settings run (not all 8): Sonnet 5.5, medium," in text
-    text, _ = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    text, _ = compare.report(filled(rs), [], ALL, list(compare.SETTINGS))
     assert "settings run" not in text
     assert "1. The cheapest working setting: **Sonnet 5.5, high**" in text
     assert "2. Good enough for hands-off work (pass^3 on at least 90% of all tasks and of the held-out ones): " \
@@ -638,3 +652,92 @@ def test_a_settings_subset_scopes_every_answer_line_that_names_or_denies_a_setti
     # the ceiling alone
     text, _ = compare.report(tries_of(ALL, {"opus-high": set(held[:2])}), [], ALL, _run_only("opus-high"))
     assert "1. **None of the 1 setting run (not all 8) drives LightSim successfully today**" in text
+
+
+# -- the report again, from the records (--report) -----------------------------------------
+def _folder(out: Path, rs: dict, name: str = "oct") -> None:
+    """A comparison's folder as the runs leave it: one record per try."""
+    (out / name / "tries").mkdir(parents=True)
+    for key, r in rs.items():
+        (out / name / "tries" / f"{key}.json").write_text(
+            json.dumps({**r, "version": TASKS[r["task"]].version}), encoding="utf-8")
+
+
+def _again(fake: Path, out: Path, *args: str, name: str = "oct") -> tuple[str, dict]:
+    """``compare --report`` on a folder (README: "the report again, from the records")."""
+    assert compare.main(["--claude", str(fake), "--out", str(out), "--name", name, "--report", *args]) == 0
+    return (out / name / "report.md").read_text(encoding="utf-8"), json.loads(
+        (out / name / "report.json").read_text(encoding="utf-8"))
+
+
+@posix
+def test_the_report_again_takes_the_settings_run_from_the_records_not_from_the_command(fake, tmp_path):
+    """The folder of a ``--settings sonnet-medium,opus-high`` run holds records
+    of those two. ``--report`` with no ``--settings`` made all eight the
+    settings run, and said "No setting drives LightSim successfully" (or named
+    Sonnet medium the cheapest working) of settings that have no record."""
+    held, visible = sorted(agent.heldout()), sorted(t.id for t in ALL if t.id not in agent.heldout())
+    two = tries_of(ALL, {"opus-high": set(held[:2]) | set(visible[:2]), "sonnet-medium": set(held[:3]) | set(visible[:2])})
+    _folder(tmp_path, two)
+    text, data = _again(fake, tmp_path)
+    (one,) = [x for x in text.splitlines() if x.startswith("1.")]
+    (nope,) = [x for x in text.splitlines() if x.startswith("2.")]
+    assert one.startswith("1. **None of the 2 settings run (not all 8) drives LightSim successfully today**")
+    assert nope.startswith("2. **None of the 2 settings run (not all 8) is good enough for hands-off work**")
+    assert "No setting" not in text and "no setting" not in text
+    assert data["settingsRun"] == ["sonnet-medium", "opus-high"] and set(data["settings"]) == {
+        "sonnet-medium/mcp", "opus-high/mcp"}
+    # (the same lines whether or not --settings is given)
+    named = _again(fake, tmp_path, "--settings", "sonnet-medium,opus-high")[0]
+    assert named.split("## The answers")[1].split("\n## ")[0] == text.split("## The answers")[1].split("\n## ")[0]
+
+
+@posix
+def test_the_report_again_names_the_cheapest_of_the_settings_run_and_says_so(fake, tmp_path):
+    """Both settings solve every task: Sonnet medium is the cheapest working
+    of the two run, and without --settings it was named the cheapest working
+    setting, as if the three Haiku settings had been tested too."""
+    _folder(tmp_path, tries_of(ALL, {"sonnet-medium": set(), "opus-high": set()}))
+    text, _ = _again(fake, tmp_path)
+    assert "1. The cheapest working setting of the 2 settings run (not all 8): **Sonnet 5.5, medium**" in text
+    assert "2. Good enough for hands-off work (pass^3 on at least 90% of all tasks and of the held-out ones), " \
+           "of the 2 settings run (not all 8): Sonnet 5.5, medium, Opus 5.5, high." in text
+
+
+@posix
+def test_the_report_again_of_a_full_comparison_has_no_scope(fake, tmp_path):
+    """Stage A gives every one of the eight a record: nothing to scope."""
+    rs = records(*[rec(t.id, s, n, solved=True, cost=0.1 + i / 100) for i, s in enumerate(NAMES)
+                   for t in ALL for n in (1, 2, 3)])
+    _folder(tmp_path, rs)
+    text, data = _again(fake, tmp_path)
+    assert "settings run" not in text and data["settingsRun"] == NAMES
+    assert "1. The cheapest working setting: **Haiku 5.5, low**" in text
+
+
+@posix
+def test_the_report_again_of_a_tasks_subset_never_gives_a_verdict(fake, tmp_path):
+    """The sibling of the settings: the folder of a ``--tasks`` run, reported
+    with no ``--tasks``. The answers are "not known", never "no setting" or a
+    cheapest working setting, and the report counts the tasks that were run."""
+    few = [t for t in ALL if t.id in ("repair-hatchback", "question-loaded-ev", "write-speed-limiter")]
+    _folder(tmp_path, tries_of(few, {s: set() for s in COST}))
+    text, data = _again(fake, tmp_path)
+    assert "No setting" not in text and "None of" not in text and "**" not in text.split("## The answers")[1].split("\n## ")[0]
+    assert data["cheapestWorking"]["works"] is False and data["handsOff"]["settings"] is None
+    assert f"a --tasks subset of {len(few)} of {len(ALL)} tasks was run" in text
+    assert data["tasks"] == len(few) and f"{len(few)} tasks (" in text
+
+
+def test_a_setting_with_no_scored_try_is_not_one_of_the_settings_run():
+    """The plan refused Haiku low's model (unavailable) and Haiku medium has
+    only not-run tries: neither was tested, so the answers do not speak of
+    them. The report names the first under "Unavailable settings"."""
+    rs = {k: r for k, r in filled(tries_of(ALL, {"sonnet-medium": set(), "opus-high": set()})).items()
+          if r["setting"] not in ("haiku-low", "haiku-medium")}
+    rs.update(records({**rec(ALL[0].id, "haiku-low"), "class": "unavailable", "why": "the model is refused"}))
+    stuck = [{"id": "x", "task": ALL[0].id, "setting": "haiku-medium", "mode": "mcp", "costUsd": 0.0}]
+    text, data = compare.report(rs, stuck, ALL, list(compare.SETTINGS))
+    assert data["settingsRun"] == [n for n in NAMES if n not in ("haiku-low", "haiku-medium")]
+    assert "1. The cheapest working setting of the 6 settings run (not all 8): **Sonnet 5.5, medium**" in text
+    assert "Unavailable settings: Haiku 5.5, low: the model is refused." in text

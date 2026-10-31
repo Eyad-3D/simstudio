@@ -203,7 +203,12 @@ A `--settings` subset (anything short of all eight settings) speaks only of
 the settings it ran, in both answers: "the cheapest working setting of the 2
 settings run (not all 8)", "None of the 2 settings run (not all 8) is good
 enough for hands-off work", and so on. It never says "no setting" about a
-setting that was not run.
+setting that was not run. Which settings were run is read from the records
+(a setting with a scored try), not from the command, so `--report` on the
+folder of a `--settings` run gives the same lines with or without
+`--settings`. `--report` with no `--tasks` counts the tasks the folder holds
+records of in the same way, so the report of a `--tasks` run says it was a
+subset.
 
 The smoke test (`run --smoke`) runs `question-loaded-ev` and the planted task
 once in each mode on Sonnet 5.5 at medium (`--model`, `--effort`): the
@@ -346,8 +351,11 @@ Starting files are never stored: only operations on the bundled examples
    part (no upper bound, never, always) and see them fail. A brief says
    nothing about LightSim that LightSim does not do (a share where a port
    takes kW): tie a figure to each number the brief states (`brief =`) and
-   add the task's ports to `SAYS` in `tests/test_agent_bench.py`, which
-   checks the brief's words for each port against the library's unit group.
+   add the task's ports to `SAYS` in `tests/test_agent_bench.py`: for each
+   port the library's unit group and the brief's words for it, which must
+   read as that group (its unit, or a name of the quantity) and as no other.
+   Both ties are the author's to add; nothing finds a number or a unit in a
+   brief that has none.
 6. For an answer task, run the reference and put the figures in the key
    (the validator says what LightSim computes when they differ).
 7. `python -m benchmarks.agent validate <id>` until it says ok; then
