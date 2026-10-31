@@ -1,6 +1,6 @@
 id = "write-speed-limiter"
 kind = "write"
-version = 2
+version = 3
 title = "Write a speed limiter as a Script block"
 statement = """
 car.json models our electric hatchback. Fleet customers want a speed limiter.
@@ -59,10 +59,33 @@ ops = [
   { op = "connect", from = "Speed Limiter:sig_out", to = "Driver:sig_target_in" },
 ]
 
+# A Lookup Table caps the target. The Script under the asked label is only
+# for show: fed as the brief says, but its output goes to a Monitor.
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Speed Cap Table" },
+  { op = "set", element = "Speed Cap Table", param = "table_1d", value = { "0" = 0.0, "100" = 100.0, "300" = 100.0 } },
+  { op = "disconnect", from = "Vehicle Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Speed Cap Table:sig_x_in" },
+  { op = "connect", from = "Speed Cap Table:sig_out", to = "Driver:sig_target_in" },
+  { op = "add", type = "signal.script", label = "Speed Limiter" },
+  { op = "set", element = "Speed Limiter", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"target": min(inputs.get("demand", 0.0), 120.0)}
+""" },
+  { op = "add_port", element = "Speed Limiter", name = "demand", direction = "input" },
+  { op = "add_port", element = "Speed Limiter", name = "target", direction = "output" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Speed Limiter:demand" },
+  { op = "add", type = "signal.monitor", label = "Scope" },
+  { op = "add_port", element = "Scope", name = "x", direction = "input" },
+  { op = "connect", from = "Speed Limiter:target", to = "Scope:x" },
+]
+
 [check]
 file = "car.json"
 case = "Motorway (WLTC Extra High)"
-require = { type = "signal.script", label = "Speed Limiter", ports = ["demand", "target"] }
+require = { type = "signal.script", label = "Speed Limiter", ports = { demand = "Vehicle Task:sig_demand", target = "Driver:sig_target_in" } }
 figures = [
   { key = "distance_km", rtol = 0.01 },
   { key = "consumption_kwh_per_100km", rtol = 0.03 },

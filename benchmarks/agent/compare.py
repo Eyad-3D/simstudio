@@ -197,30 +197,40 @@ def _share(s: dict, group: str) -> float:
     return passed / of if of else 0.0
 
 
+def _judged(s: dict) -> bool:
+    """Held-out tasks are among those run: without them (a ``--tasks``
+    subset) pass^3 cannot say a setting is good enough for hands-off work."""
+    return s["pass3"]["heldout"][1] > 0
+
+
 def _hands_off(s: dict) -> bool:
-    return _share(s, "all") >= HANDS_OFF and _share(s, "heldout") >= HANDS_OFF
+    return _judged(s) and _share(s, "all") >= HANDS_OFF and _share(s, "heldout") >= HANDS_OFF
 
 
 def cheapest_working(summary: dict, tasks: list[Task]) -> dict:
-    """Answer 1: the lowest mean cost per try among the settings whose pass^3
-    count on all tasks is at most ``WORKING_MARGIN`` below the ceiling's, with
-    the paired comparison against the ceiling. ``works`` is False when the
-    ceiling itself is not good enough for hands-off work: then no setting
-    drives LightSim successfully, and ``setting`` is only the cheapest that
-    is as good as the ceiling (which stage C still runs)."""
+    """Answer 1: the lowest mean cost per try among the settings that are as
+    good as the ceiling (pass^3 on all tasks at most ``WORKING_MARGIN`` below
+    its count) and good enough for hands-off work themselves, with the paired
+    comparison against the ceiling. ``works`` is False when none is: then no
+    setting drives LightSim successfully, and ``setting`` is only the cheapest
+    that is as good as the ceiling (which stage C still runs). ``judged`` is
+    False when the tasks run include no held-out one."""
     ceiling = summary.get(f"{CEILING}/mcp")
     if not ceiling or not ceiling["pass3Complete"]:
         return {"setting": None, "why": "needs the ceiling's three tries on every task (stage B)"}
     floor = ceiling["pass3"]["all"][0] - WORKING_MARGIN
     ok = [s for s in summary.values() if s["mode"] == "mcp" and s["pass3Complete"]
           and s["pass3"]["all"][0] >= floor]
-    best = min(ok, key=lambda s: s["meanCostUsd"])
+    good = [s for s in ok if _hands_off(s)]
+    best = min(good or ok, key=lambda s: s["meanCostUsd"])
     c, b = ceiling["pass3ByTask"], best["pass3ByTask"]
     return {"setting": best["setting"], "label": best["label"], "meanCostUsd": best["meanCostUsd"],
-            "works": _hands_off(ceiling), "pass3": best["pass3"]["all"],
+            "works": bool(good), "judged": _judged(ceiling), "pass3": best["pass3"]["all"],
+            "pass3Heldout": best["pass3"]["heldout"],
             "ceilingPass3": ceiling["pass3"]["all"], "ceilingPass3Heldout": ceiling["pass3"]["heldout"],
             "ceilingMeanCostUsd": ceiling["meanCostUsd"],
             "candidates": [s["setting"] for s in ok],
+            "belowHandsOff": [s["setting"] for s in ok if s not in good],
             "onlyCeilingSolves": sorted(t for t in c if c[t] and not b[t]),
             "onlyItSolves": sorted(t for t in c if b[t] and not c[t])}
 
@@ -231,6 +241,8 @@ def hands_off(summary: dict, tasks: list[Task]) -> dict:
     done = [s for s in summary.values() if s["mode"] == "mcp" and s["pass3Complete"]]
     if not done:
         return {"settings": None, "why": "needs three tries on every task (stage B)"}
+    if not _judged(done[0]):
+        return {"settings": None, "why": "needs held-out tasks among the tasks run (this run has none)"}
     good = [s["setting"] for s in done if _hands_off(s)]
     best = max(done, key=lambda s: (_share(s, "all"), _share(s, "heldout")))
     target = summary.get(f"{TARGET}/mcp")
@@ -311,6 +323,13 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
             f"{', '.join(label[x] for x in a1['candidates'])}.)")
         if a1["works"]:
             lines.append(f"1. The cheapest working setting: **{a1['label']}**, {detail}")
+            if a1["belowHandsOff"]:
+                lines.append(f"   Candidates below the {HANDS_OFF:.0%} hands-off floor (all tasks or held "
+                             f"out), so not working: {', '.join(label[x] for x in a1['belowHandsOff'])}.")
+        elif not a1["judged"]:
+            lines.append("1. The cheapest working setting: not known; the tasks run include no held-out task, "
+                         f"and a setting works only with pass^3 on {HANDS_OFF:.0%} of the held-out ones too.")
+            lines.append(f"   The cheapest setting as good as the ceiling: {a1['label']}, {detail}")
         else:
             lines.append(
                 f"1. **No setting drives LightSim successfully today**: even the ceiling ({label[CEILING]}) "

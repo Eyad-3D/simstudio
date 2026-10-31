@@ -461,9 +461,13 @@ def test_hands_off_needs_nine_in_ten_on_all_tasks_and_on_the_held_out_ones():
     summary = compare.summarize(rs, [], ALL, list(compare.SETTINGS))
     assert summary["sonnet-medium/mcp"]["pass3"]["heldout"] == [9, 11]  # 31 of 33, but 82 % held out
     assert compare.hands_off(summary, ALL)["settings"] == ["opus-high"]
-    assert compare.cheapest_working(summary, ALL)["works"] is True  # the ceiling is good enough
-    assert "1. The cheapest working setting: **Sonnet 5.5, medium**" in compare.report(rs, [], ALL,
-                                                                                      list(compare.SETTINGS))[0]
+    a1 = compare.cheapest_working(summary, ALL)
+    assert (a1["works"], a1["setting"], a1["belowHandsOff"]) == (True, "opus-high", ["sonnet-medium"])
+    text = compare.report(rs, [], ALL, list(compare.SETTINGS))[0]
+    # (Sonnet 5.5 at medium used to be named here: as good as the ceiling on count, but 9/11 held out)
+    assert "1. The cheapest working setting: **Opus 5.5, high**" in text
+    assert "Candidates below the 90% hands-off floor (all tasks or held out), so not working: " \
+           "Sonnet 5.5, medium." in text
     rs = records(*three("opus-high", misses_held, 31), *three("sonnet-medium", misses_held, 20))
     text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
     assert data["handsOff"]["settings"] == []
@@ -486,3 +490,57 @@ def test_answer_1_says_no_setting_works_while_the_ceiling_itself_falls_short():
                            "(Opus 5.5, high) has pass^3 on only 13/33 of all tasks")
     assert "   The cheapest setting as good as the ceiling: Haiku 5.5, low, 0.0060 USD a try" in text
     assert "2. **No setting is good enough for hands-off work**" in text
+
+
+COST = {"opus-high": 0.28, "sonnet-high": 0.0881, "sonnet-medium": 0.07, "haiku-low": 0.006}
+
+
+def tries_of(tasks: list, misses: dict[str, set]) -> dict:
+    """Three tries of every task for each setting: setting -> the task ids it misses."""
+    return records(*[rec(t.id, s, n, solved=t.id not in missed, cost=COST[s])
+                     for s, missed in misses.items() for t in tasks for n in (1, 2, 3)])
+
+
+def test_answer_1_names_only_a_setting_that_clears_the_hands_off_floor_itself():
+    """The ceiling clears the floor (33/33, 11/11 held out). Haiku low and
+    Sonnet medium are as good on count (31/33) but miss two held-out tasks
+    (9/11, 82 %): answer 2 does not name them, and answer 1 used to ("The
+    cheapest working setting: **Haiku 5.5, low**")."""
+    miss = {"haiku-low": set(sorted(agent.heldout())[:2]), "sonnet-medium": set(sorted(agent.heldout())[:2]),
+            "opus-high": set()}
+    rs = tries_of(ALL, miss)
+    text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    a1 = data["cheapestWorking"]
+    assert (a1["works"], a1["setting"], a1["belowHandsOff"]) == (True, "opus-high", ["haiku-low", "sonnet-medium"])
+    assert "2. Good enough for hands-off work (pass^3 on at least 90% of all tasks and of the held-out ones): " \
+           "Opus 5.5, high." in text
+    (line,) = [x for x in text.splitlines() if x.startswith("1.")]
+    assert line.startswith("1. The cheapest working setting: **Opus 5.5, high**, 0.2800 USD a try")
+    assert "so not working: Haiku 5.5, low, Sonnet 5.5, medium." in text
+    # a cheaper setting that does clear the floor is the answer, and the one stage C runs
+    rs = tries_of(ALL, {**miss, "sonnet-high": set()})
+    text, data = compare.report(rs, [], ALL, list(compare.SETTINGS))
+    assert "1. The cheapest working setting: **Sonnet 5.5, high**" in text
+    assert data["cheapestWorking"]["setting"] == "sonnet-high"
+    specs, why = compare.plan("C", rs, ALL, [
+        s for s in compare.SETTINGS if s.name in ("haiku-low", "sonnet-medium", "sonnet-high", "opus-high")])
+    assert not why and {s.setting.name for s in specs} == {"sonnet-high", "opus-high"}
+
+
+def test_a_subset_with_no_held_out_task_cannot_say_a_setting_works():
+    """The pilot's three tasks (none held out), every setting solving all of
+    them on all three tries: 3/3 is not "below the 90%", and it is not a
+    hands-off claim either, since the held-out tasks are the check on tuning
+    to the visible ones."""
+    tasks = [t for t in ALL if t.id in ("repair-hatchback", "question-loaded-ev", "write-speed-limiter")]
+    assert not {t.id for t in tasks} & agent.heldout()
+    text, data = compare.report(tries_of(tasks, {s: set() for s in COST}), [], tasks, list(compare.SETTINGS))
+    a1, a2 = data["cheapestWorking"], data["handsOff"]
+    assert (a1["works"], a1["judged"], a1["setting"]) == (False, False, "haiku-low")  # stage C still has its input
+    assert a2["settings"] is None
+    assert ("1. The cheapest working setting: not known; the tasks run include no held-out task, and a "
+            "setting works only with pass^3 on 90% of the held-out ones too.") in text
+    assert "   The cheapest setting as good as the ceiling: Haiku 5.5, low, 0.0060 USD a try" in text
+    assert "2. Good enough for hands-off work: not known yet; it needs held-out tasks among the tasks run " \
+           "(this run has none)." in text
+    assert "below the 90%" not in text and "No setting" not in text

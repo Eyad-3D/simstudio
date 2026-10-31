@@ -1,6 +1,6 @@
 id = "repair-sedan-units"
 kind = "repair"
-version = 2
+version = 3
 title = "Repair a sedan model with values typed in the wrong units"
 statement = """
 sedan.json models our efficient electric sedan. A new colleague updated it from

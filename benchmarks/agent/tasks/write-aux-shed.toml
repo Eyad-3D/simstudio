@@ -1,6 +1,6 @@
 id = "write-aux-shed"
 kind = "write"
-version = 2
+version = 3
 title = "Write a load-shedding rule for the cabin comfort load"
 statement = """
 car.json models our electric hatchback on a short city run that starts with
@@ -59,10 +59,32 @@ ops = [
   { op = "connect", from = "Aux Shedding:sig_out", to = "Power Consumer:sig_demand_in" },
 ]
 
+# A Lookup Table sheds the load. The Script under the asked label is only for
+# show: fed as the brief says, but its output goes to a Monitor.
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Shed Table" },
+  { op = "set", element = "Shed Table", param = "table_1d", value = { "15" = 0.2, "30" = 1.0 } },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Shed Table:sig_x_in" },
+  { op = "connect", from = "Shed Table:sig_out", to = "Power Consumer:sig_demand_in" },
+  { op = "add", type = "signal.script", label = "Aux Shedding" },
+  { op = "set", element = "Aux Shedding", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"share": 1.0}
+""" },
+  { op = "add_port", element = "Aux Shedding", name = "soc", direction = "input" },
+  { op = "add_port", element = "Aux Shedding", name = "share", direction = "output" },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Aux Shedding:soc" },
+  { op = "add", type = "signal.monitor", label = "Scope" },
+  { op = "add_port", element = "Scope", name = "x", direction = "input" },
+  { op = "connect", from = "Aux Shedding:share", to = "Scope:x" },
+]
+
 [check]
 file = "car.json"
 case = "City Cycle"
-require = { type = "signal.script", label = "Aux Shedding", ports = ["soc", "share"] }
+require = { type = "signal.script", label = "Aux Shedding", ports = { soc = "HV Battery Pack:sig_soc", share = "Power Consumer:sig_demand_in" } }
 figures = [
   { key = "distance_km", rtol = 0.005 },
   { key = "consumption_kwh_per_100km", rtol = 0.015 },

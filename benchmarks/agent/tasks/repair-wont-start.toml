@@ -1,6 +1,6 @@
 id = "repair-wont-start"
 kind = "repair"
-version = 2
+version = 3
 title = "Find why a hatchback model does not move"
 statement = """
 car.json models our compact electric hatchback. Since a colleague last edited

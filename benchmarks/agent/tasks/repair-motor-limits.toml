@@ -1,6 +1,6 @@
 id = "repair-motor-limits"
 kind = "repair"
-version = 2
+version = 3
 title = "Repair a hatchback model whose motor runs past its data"
 statement = """
 car.json models our compact electric hatchback. A colleague changed it, and

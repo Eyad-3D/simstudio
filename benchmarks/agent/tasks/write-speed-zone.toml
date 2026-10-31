@@ -1,6 +1,6 @@
 id = "write-speed-zone"
 kind = "write"
-version = 2
+version = 3
 title = "Write a speed zone that depends on how far the car has driven"
 statement = """
 car.json models our electric hatchback on a delivery route. Between 3.2 km
@@ -66,7 +66,7 @@ def step(t, dt, inputs, state, params):
 [check]
 file = "car.json"
 case = "WLTC Low and Medium phases"
-require = { type = "signal.script", label = "Speed Zone", ports = ["demand", "distance", "target"] }
+require = { type = "signal.script", label = "Speed Zone", ports = { demand = "Vehicle Task:sig_demand", distance = "Vehicle:sig_distance", target = "Driver:sig_target_in" } }
 figures = [
   { key = "distance_km", rtol = 0.01 },
   { key = "consumption_kwh_per_100km", rtol = 0.015 },

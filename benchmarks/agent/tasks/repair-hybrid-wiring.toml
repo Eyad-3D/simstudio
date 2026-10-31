@@ -1,6 +1,6 @@
 id = "repair-hybrid-wiring"
 kind = "repair"
-version = 2
+version = 3
 title = "Reconnect the control unit of a hybrid model"
 statement = """
 hybrid.json models our P2 hybrid. After a colleague tidied the diagram, the

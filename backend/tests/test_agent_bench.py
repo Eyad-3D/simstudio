@@ -26,6 +26,8 @@ if str(ROOT) not in sys.path:  # the benchmarks package lives at the repository 
 from benchmarks import agent  # noqa: E402
 from benchmarks.agent import run  # noqa: E402
 
+from app.ai.edits import apply_operations  # noqa: E402
+
 TASKS = agent.load_tasks()
 PLANTED = agent.load_task(run.PLANTED)
 #: the runner runs claude on Linux (WSL on Windows): its lightsim is a shell script
@@ -85,21 +87,139 @@ def test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions(
     assert agent.validate(task) == []
 
 
-@pytest.mark.parametrize("task_id, text, reason", [
+def _script(label: str, code: str, inputs: list[str], outputs: list[str]) -> list[dict]:
+    return [{"op": "add", "type": "signal.script", "label": label},
+            {"op": "set", "element": label, "param": "code", "value": code},
+            *({"op": "add_port", "element": label, "name": n, "direction": "input"} for n in inputs),
+            *({"op": "add_port", "element": label, "name": n, "direction": "output"} for n in outputs)]
+
+
+#: a Lookup Table that caps the speed at 100 km/h, wired in series from the Vehicle Task
+_CAP = [{"op": "add", "type": "signal.lookup", "label": "Cap Table"},
+        {"op": "set", "element": "Cap Table", "param": "table_1d", "value": {"0": 0.0, "100": 100.0, "300": 100.0}},
+        {"op": "connect", "from": "Vehicle Task:sig_demand", "to": "Cap Table:sig_x_in"}]
+_PASS = 'def step(t, dt, inputs, state, params):\n    return {"target": inputs.get("demand", 0.0)}\n'
+#: a Lookup Table that sheds the load; a Script block that always returns 1.0
+_SHED = [{"op": "add", "type": "signal.lookup", "label": "Shed Table"},
+         {"op": "set", "element": "Shed Table", "param": "table_1d", "value": {"15": 0.2, "30": 1.0}},
+         {"op": "connect", "from": "HV Battery Pack:sig_soc", "to": "Shed Table:sig_x_in"}]
+_ONE = 'def step(t, dt, inputs, state, params):\n    return {"share": 1.0}\n'
+_SHED_SCRIPT = _script("Aux Shedding", _ONE, ["soc"], ["share"]) + [
+    {"op": "connect", "from": "HV Battery Pack:sig_soc", "to": "Aux Shedding:soc"}]
+_DISCONNECT = {"op": "disconnect", "from": "Vehicle Task:sig_demand", "to": "Driver:sig_target_in"}
+
+
+@pytest.mark.parametrize("task_id, attempt, reason", [
     # the two figures swapped: they lie 2.5 % apart, and the bands were 3 %
     ("question-fs-limits", "ANSWER: 39.074; 38.09", "answer 1: '39.074', the key 38.09"),
     # no Script block: a Lookup Table under the asked label does the job
-    ("write-speed-limiter", None, "0 signal.script parts labelled 'Speed Limiter'"),
-    ("write-aux-shed", None, "0 signal.script parts labelled 'Aux Shedding'"),
+    ("write-speed-limiter", "also_wrong:0", "0 signal.script parts labelled 'Speed Limiter'"),
+    ("write-aux-shed", "also_wrong:0", "0 signal.script parts labelled 'Aux Shedding'"),
+    # a Script block under the label, but a Lookup Table does the job: its output goes to a Monitor
+    ("write-speed-limiter", "also_wrong:1", "'Speed Limiter' port 'target' is not linked to Driver:sig_target_in"),
+    ("write-aux-shed", "also_wrong:1", "'Aux Shedding' port 'share' is not linked to Power Consumer:sig_demand_in"),
+    # ... a pass-through Script block behind the Lookup Table: fed by the table, not by the Vehicle Task
+    ("write-speed-limiter",
+     [_DISCONNECT, *_CAP, *_script("Speed Limiter", _PASS, ["demand"], ["target"]),
+      {"op": "connect", "from": "Cap Table:sig_out", "to": "Speed Limiter:demand"},
+      {"op": "connect", "from": "Speed Limiter:target", "to": "Driver:sig_target_in"}],
+     "'Speed Limiter' port 'demand' is not linked to Vehicle Task:sig_demand"),
+    # ... or wired as the brief says, with the Lookup Table driving the same input: the Data Checks refuse
+    ("write-speed-limiter",
+     [_DISCONNECT, *_CAP, *_script("Speed Limiter", _PASS, ["demand"], ["target"]),
+      {"op": "connect", "from": "Vehicle Task:sig_demand", "to": "Speed Limiter:demand"},
+      {"op": "connect", "from": "Speed Limiter:target", "to": "Driver:sig_target_in"},
+      {"op": "connect", "from": "Cap Table:sig_out", "to": "Driver:sig_target_in"}],
+     "has 2 sources"),
+    ("write-aux-shed",
+     [*_SHED, *_SHED_SCRIPT, {"op": "connect", "from": "Shed Table:sig_out", "to": "Power Consumer:sig_demand_in"},
+      {"op": "connect", "from": "Aux Shedding:share", "to": "Power Consumer:sig_demand_in"}],
+     "has 2 sources"),
     # City Cycle mended, and the faults put on a case the brief says not to touch
-    ("repair-case-override", None, "'Vehicle' mass_kg in case 'WLTC Class 3b' is 2400"),
+    ("repair-case-override", "also_wrong:0", "'Vehicle' mass_kg in case 'WLTC Class 3b' is 2400"),
+    # ... or another setting of that case changed: its duration, which model_edit's set_case can reach
+    ("repair-case-override", "also_wrong:1", "case 'WLTC Class 3b' duration is 60"),
 ])
-def test_the_checker_fails_what_the_brief_rules_out(task_id, text, reason, tmp_path):
+def test_the_checker_fails_what_the_brief_rules_out(task_id, attempt, reason, tmp_path):
+    """``attempt`` is one of the task's wrong solutions, an answer line, or
+    operations on the starting files."""
     task = next(t for t in TASKS if t.id == task_id)
-    files, said = (agent.start_files(task), text) if text else agent.solution(task, "also_wrong:0")
+    if isinstance(attempt, list):
+        files, said = agent.start_files(task), ""
+        files[task.check["file"]], _ = apply_operations(files[task.check["file"]], attempt)
+    elif attempt.startswith("ANSWER"):
+        files, said = agent.start_files(task), attempt
+    else:
+        files, said = agent.solution(task, attempt)
     agent.write_files(files, tmp_path)
     verdict = agent.check(task, tmp_path, said)
     assert not verdict.success and any(reason in r for r in verdict.reasons), verdict.reasons
+
+
+WRITE = [t for t in TASKS if t.kind == "write"]
+
+
+@pytest.mark.parametrize("task", WRITE, ids=lambda t: t.id)
+def test_a_write_task_wants_each_script_port_linked_where_the_brief_says(task):
+    """Every port the brief names is linked to the port of the part it names:
+    moved to a Monitor instead (a Script that is only for show), it fails, and
+    so does a port the task does not name a peer for."""
+    r = task.check["require"]
+    assert r["ports"] and all(isinstance(p, str) and ":" in p for p in r["ports"].values()), r
+    model = agent.solution(task, "reference")[0][task.check["file"]]
+    assert agent._part_problems(agent.ls.Project(model), r) == []
+    for port, peer in r["ports"].items():
+        moved, _ = apply_operations(model, [
+            {"op": "disconnect", "from": f"{r['label']}:{port}", "to": peer},
+            {"op": "add", "type": "signal.monitor", "label": "Scope"},
+            {"op": "add_port", "element": "Scope", "name": "x", "direction": "input"},
+            {"op": "connect", "from": f"{r['label']}:{port}", "to": "Scope:x"}])
+        assert agent._part_problems(agent.ls.Project(moved), r) == [
+            f"'{r['label']}' port '{port}' is not linked to {peer}, as the brief says"]
+
+
+#: a changed value for every field of a case but its id and its parameter overrides
+_CASE_CHANGES = {
+    "name": "WLTC, short", "duration": 60.0, "timeStep": 5.0, "outputEvery": 5, "realtimeFactor": 2.0,
+    "kind": "performance", "endDistance": 500.0, "endLaps": 2.0, "chargeBalance": True, "startLine": 1.0,
+    "referenceTime": 30.0, "energyReport": False, "fsEvent": "endurance", "referenceEnergy": 1.5,
+    "referenceEnergyTime": 20.0, "references": [{"kpi": "distance_km", "value": 23.2}],
+}
+
+
+def test_every_field_of_a_case_has_a_change_to_try():
+    from app.schemas import SimCase
+    assert set(_CASE_CHANGES) == set(SimCase.model_fields) - {"id", "parameterOverrides"}
+
+
+@pytest.mark.parametrize("field", sorted(_CASE_CHANGES))
+def test_a_repair_may_not_change_any_field_of_a_case_the_brief_leaves_alone(field):
+    """The reference plus one changed field of the case "WLTC Class 3b",
+    which the brief says not to touch (its figures do not show in City Cycle's)."""
+    from app.schemas import ReferenceValue
+    task = next(t for t in TASKS if t.id == "repair-case-override")
+    model = agent.solution(task, "reference")[0][task.check["file"]].model_copy(deep=True)
+    case = next(c for c in model.cases if c.name == "WLTC Class 3b")
+    value = _CASE_CHANGES[field]
+    setattr(case, field, [ReferenceValue(**v) for v in value] if field == "references" else value)
+    (problem,) = agent._unasked_changes(task, agent.ls.Project(model))
+    assert f"case 'WLTC Class 3b' {field} is" in problem, problem
+
+
+@pytest.mark.parametrize("change, said", [
+    ("remove", "part 'Ground' is gone"),         # a part with no parameters: no value to compare
+    ("retype", "part 'Vehicle Monitor' is 'electric.node'"),
+])
+def test_a_repair_may_not_remove_or_swap_a_part_the_brief_leaves_alone(change, said):
+    task = next(t for t in TASKS if t.id == "repair-hatchback")
+    model = agent.solution(task, "reference")[0][task.check["file"]].model_copy(deep=True)
+    if change == "remove":
+        model, _ = apply_operations(model, [{"op": "remove", "element": "Ground"}])
+    else:
+        next(e for s in model.systems for e in s.elements if e.label == "Vehicle Monitor"
+             ).componentDefId = "electric.node"
+    (problem,) = agent._unasked_changes(task, agent.ls.Project(model))
+    assert said in problem, problem
 
 
 def test_a_key_whose_numbers_pass_swapped_is_refused():

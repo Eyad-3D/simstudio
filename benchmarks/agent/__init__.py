@@ -272,24 +272,38 @@ def _param_problem(project: ls.Project, case_id: str, p: dict) -> Optional[str]:
     return None
 
 
+def _port_id(el: Any, name: str) -> Optional[str]:
+    """The id of the port of ``el`` called ``name`` (its id, else its name)."""
+    cdef = ls.library().get(el.componentDefId)
+    ports = list(cdef.ports if cdef else ()) + list(el.dynamicPorts)
+    port = (next((p for p in ports if p.id == name), None)
+            or next((p for p in ports if p.name.lower() == name.lower()), None))
+    return port.id if port else None
+
+
 def _part_problems(project: ls.Project, r: dict) -> list[str]:
     """The part the brief asks for (``require``): one part of type
-    ``r['type']`` labelled ``r['label']``, each of whose ports ``r['ports']``
-    is linked on the data bus."""
+    ``r['type']`` labelled ``r['label']``, and each port in ``r['ports']``
+    (``{port: "part:port"}``) linked on the data bus to that port of that
+    part (named by its label or id), as the brief says."""
     els = [e for e in project.elements
            if e.componentDefId == r["type"] and e.label.strip().casefold() == r["label"].casefold()]
     if len(els) != 1:
         return [f"{len(els)} {r['type']} parts labelled '{r['label']}', the brief asks for one"]
     el = els[0]
-    linked = {x for d in project.model.dataBusConnections
-              for x in ((d.element1Id, d.port1Id), (d.element2Id, d.port2Id))}
+    links = {frozenset(((d.element1Id, d.port1Id), (d.element2Id, d.port2Id)))
+             for d in project.model.dataBusConnections}
     problems = []
-    for name in r.get("ports", []):
-        port = next((p for p in el.dynamicPorts if name in (p.id, p.name)), None)
+    for name, peer in r.get("ports", {}).items():
+        port = _port_id(el, name)
         if port is None:
             problems.append(f"'{el.label}' has no port '{name}'")
-        elif (el.id, port.id) not in linked:
-            problems.append(f"'{el.label}' port '{name}' is not linked to anything")
+            continue
+        part, peer_port = peer.rsplit(":", 1)
+        ends = [(e.id, _port_id(e, peer_port)) for e in project.elements
+                if part == e.id or part.casefold() == e.label.strip().casefold()]
+        if not any(frozenset(((el.id, port), end)) in links for end in ends):
+            problems.append(f"'{el.label}' port '{name}' is not linked to {peer}, as the brief says")
     return problems
 
 
@@ -309,6 +323,16 @@ def _values(project: ls.Project) -> dict:
     return out
 
 
+def _kept(project: ls.Project) -> dict:
+    """What else a solution keeps: part id -> its type, and (case id, field)
+    -> the case's fields (name, kind, duration, time step, end distance...;
+    its parameter overrides are ``_values``')."""
+    out = {e.id: e.componentDefId for e in project.elements}
+    for case in project.cases:
+        out.update({(case.id, k): v for k, v in case.model_dump(exclude={"parameterOverrides"}).items()})
+    return out
+
+
 def _same(a: Any, b: Any) -> bool:
     if isinstance(a, (int, float)) and isinstance(b, (int, float)):
         return close(a, b, {"rtol": 0.002, "atol": 1e-9})
@@ -317,8 +341,9 @@ def _same(a: Any, b: Any) -> bool:
 
 def _unasked_changes(task: Task, project: ls.Project) -> list[str]:
     """What the agent changed that the brief does not ask for (``unchanged``):
-    any parameter, in any case, that the reference leaves as it is in the
-    starting file. Parts are matched by id, else by a label only one part has."""
+    any parameter, in any case, any field of any case, and any part's type,
+    that the reference leaves as it is in the starting file. Parts are matched
+    by id, else by a label only one part has."""
     start = ls.Project(start_files(task)[task.check["file"]])
     was, ref, now = _values(start), _values(reference_run(task)[0]), _values(project)
     count = collections.Counter(e.label for e in project.elements)
@@ -334,6 +359,16 @@ def _unasked_changes(task: Task, project: ls.Project) -> list[str]:
         if not _same(got, value):
             changed.append(f"'{label[el]}' {key} in case '{case_name[case]}' is "
                            f"{'gone' if got is _GONE else repr(got)[:60]}, it was {repr(value)[:60]}")
+    kept, ref_kept, now_kept = _kept(start), _kept(reference_run(task)[0]), _kept(project)
+    for what, value in kept.items():
+        if not _same(ref_kept.get(what, _GONE), value):
+            continue
+        part = what if isinstance(what, str) else None
+        got = now_kept.get(what if part is None or part in ids else by_label.get(label[part]), _GONE)
+        if not _same(got, value):
+            seen = "gone" if got is _GONE else repr(got)[:60]
+            changed.append(f"part '{label[part]}' is {seen}, it was {value}" if part else
+                           f"case '{case_name[what[0]]}' {what[1]} is {seen}, it was {repr(value)[:60]}")
     if not changed:
         return []
     more = f" (and {len(changed) - 1} more)" if len(changed) > 1 else ""

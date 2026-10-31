@@ -1,6 +1,6 @@
 id = "write-limp-home"
 kind = "write"
-version = 2
+version = 3
 title = "Write a limp-home mode for a nearly flat battery"
 statement = """
 car.json models our electric hatchback, here on a motorway run that starts
@@ -69,7 +69,7 @@ def step(t, dt, inputs, state, params):
 [check]
 file = "car.json"
 case = "Motorway (WLTC Extra High)"
-require = { type = "signal.script", label = "Limp Home", ports = ["cmd", "soc", "torque_cmd"] }
+require = { type = "signal.script", label = "Limp Home", ports = { cmd = "Driver:sig_traction_cmd", soc = "HV Battery Pack:sig_soc", torque_cmd = "E-Motor:sig_demand_in" } }
 figures = [
   { key = "distance_km", rtol = 0.01 },
   { key = "consumption_kwh_per_100km", rtol = 0.03 },

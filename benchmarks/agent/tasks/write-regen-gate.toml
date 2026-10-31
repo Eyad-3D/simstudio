@@ -1,6 +1,6 @@
 id = "write-regen-gate"
 kind = "write"
-version = 2
+version = 3
 title = "Write a gate that stops regenerative braking at low speed"
 statement = """
 car.json models our electric hatchback. At crawling speed the motor's
@@ -64,7 +64,7 @@ def step(t, dt, inputs, state, params):
 [check]
 file = "car.json"
 case = "Urban (WLTC Low+Medium)"
-require = { type = "signal.script", label = "Regen Gate", ports = ["cmd", "speed", "torque_cmd"] }
+require = { type = "signal.script", label = "Regen Gate", ports = { cmd = "Driver:sig_traction_cmd", speed = "Vehicle:sig_speed", torque_cmd = "E-Motor:sig_demand_in" } }
 figures = [
   { key = "distance_km", rtol = 0.005 },
   { key = "consumption_kwh_per_100km", rtol = 0.012 },

@@ -1,6 +1,6 @@
 id = "repair-hatchback"
 kind = "repair"
-version = 2
+version = 3
 title = "Repair a car model a colleague broke"
 statement = """
 car.json models our compact electric hatchback. A colleague changed it by

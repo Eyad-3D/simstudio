@@ -182,17 +182,20 @@ price; the cost per solved try; mean tokens, tool calls, tool errors and
 time; and the not-run tries retried. Then two answers the command works out:
 
 1. **The cheapest working setting**: the lowest mean cost per try among the
-   settings whose pass^3 count on all tasks is at most 2 below the
-   ceiling's, with the tasks the ceiling solves on all three tries that it
-   does not, and the reverse. Being as good as the ceiling counts only when
-   the ceiling itself is good enough for hands-off work (below); when it is
-   not, as on today's tools, the answer is that no setting drives LightSim
+   settings that are as good as the ceiling (pass^3 count on all tasks at
+   most 2 below the ceiling's) and good enough for hands-off work
+   themselves (answer 2's floor), with the tasks the ceiling solves on all
+   three tries that it does not, and the reverse. A cheaper candidate below
+   the floor is named as such, not called working. When none is good enough,
+   as on today's tools, the answer is that no setting drives LightSim
    successfully yet, and the cheapest setting as good as the ceiling follows
    on its own line (stage C still runs it).
 2. **Good enough for hands-off work**: pass^3 on at least 90 % of all tasks
    and of the held-out tasks. When no setting is, the report says so: that
    gap is what step 6's later tool changes must close, with Sonnet 5.5 at
-   medium as the target.
+   medium as the target. A `--tasks` subset with no held-out task cannot
+   answer 1 or 2, and the report says "not known" instead of judging on
+   the visible tasks alone.
 
 The smoke test (`run --smoke`) runs `question-loaded-ev` and the planted task
 once in each mode on Sonnet 5.5 at medium (`--model`, `--effort`): the
@@ -260,7 +263,7 @@ ops = [ … ]                        # (or answer = "…")
 file = "car.json"
 case = "City Cycle"
 unchanged = true                   # a repair: nothing the reference leaves alone may change
-require = { type = "signal.script", label = "Speed Limiter", ports = ["demand", "target"] }
+require = { type = "signal.script", label = "Speed Limiter", ports = { demand = "Vehicle Task:sig_demand", target = "Driver:sig_target_in" } }
 params = [ { type = "vehicle.body", key = "mass_kg", value = 1350, rtol = 0.002 } ]
 figures = [
   { key = "consumption_kwh_per_100km", rtol = 0.01 },     # a summary number by stable key
@@ -284,12 +287,17 @@ best = { case = "Acceleration 75 m", key = "accel_time_s", pick = "min" }
   exactly for text.
 - `unchanged`: every parameter of every part, in every case, that the
   reference leaves as it is in the starting file must keep its value (within
-  0.2 %): "change nothing else" and "do not touch the other cases". Parts
-  are matched by id, else by their label. Wires and links are not compared:
-  the figures show those.
+  0.2 %), and so must every field of every case (name, kind, duration, time
+  step, end distance and the rest) and every part's type: "change nothing
+  else" and "do not touch the other cases". Parts are matched by id, else by
+  their label. Wires and links are not compared: the figures show those.
 - `require`: the part the brief asks for: one part of that type with that
-  label, each of whose ports is linked. A `write` task needs it, or a Lookup
-  Table under the asked label would do.
+  label, and each of its ports linked on the data bus to the port of the
+  part that the brief names (`ports = { port = "part:port" }`, the part by
+  its label). A `write` task needs it: a Lookup Table, or a Script block
+  that is not fed and read where the brief says (its output going only to a
+  Monitor, say), does not do what the brief asks even when the figures come
+  out right.
 - `figures`: the agent's run and the reference's must end the same way
   (success, warning…), and each figure must lie within `rtol` (relative) or
   `atol` (absolute) of the reference's.

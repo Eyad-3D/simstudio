@@ -1,6 +1,6 @@
 id = "repair-case-override"
 kind = "repair"
-version = 2
+version = 3
 title = "Find the values hiding in one case of a hatchback model"
 statement = """
 car.json models our compact electric hatchback. Its base model is right, and
@@ -47,6 +47,13 @@ ops = [
   { op = "set", element = "Vehicle", param = "mass_kg", value = 2400, case = "WLTC Class 3b" },
   { op = "set", element = "Power Consumer", param = "power_kW", value = 6.0, case = "WLTC Class 3b" },
 ]
+
+# City Cycle right, but another setting of the case "WLTC Class 3b" changed:
+# it runs for 60 s now. City Cycle's figures do not show it.
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set_case", case = "WLTC Class 3b", duration = 60 }]
 
 [check]
 file = "car.json"

@@ -1,6 +1,6 @@
 id = "repair-fs-rules"
 kind = "repair"
-version = 2
+version = 3
 title = "Bring a Formula Student model back to the rules and the data sheet"
 statement = """
 car.json models our Formula Student car. Before the technical inspection it

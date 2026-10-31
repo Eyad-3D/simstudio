@@ -1,6 +1,6 @@
 id = "write-launch-smoother"
 kind = "write"
-version = 2
+version = 3
 title = "Write a launch smoother that limits how fast the target speed may rise"
 statement = """
 car.json models our electric hatchback. Fleet customers want gentle starts.
@@ -83,7 +83,7 @@ def step(t, dt, inputs, state, params):
 [check]
 file = "car.json"
 case = "Urban (WLTC Low+Medium)"
-require = { type = "signal.script", label = "Launch Smoother", ports = ["demand", "target"] }
+require = { type = "signal.script", label = "Launch Smoother", ports = { demand = "Vehicle Task:sig_demand", target = "Driver:sig_target_in" } }
 figures = [
   { key = "distance_km", rtol = 0.01 },
   { key = "*.energy_recuperated_kwh", rtol = 0.025 },
