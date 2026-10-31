@@ -35,7 +35,7 @@ From the repository root, with the backend's Python environment
 headless `claude` command is signed in:
 
 ```sh
-python -m benchmarks.agent validate        # every task's solutions through its checker (about 2 minutes)
+python -m benchmarks.agent validate        # every task's solutions through its checker (about 8 minutes)
 python -m benchmarks.agent start build-city-ev /tmp/look   # a task's starting files, to look at them
 
 export LSIM_BENCH_CAP_USD=2                # required: the most the run may spend, USD at list price

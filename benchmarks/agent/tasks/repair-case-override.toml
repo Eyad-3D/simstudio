@@ -5,8 +5,7 @@ title = "Find the values hiding in one case of a hatchback model"
 statement = """
 car.json models our compact electric hatchback. Its base model is right, and
 the case "WLTC Class 3b" gives the figures we measured. But the case "City
-Cycle" shows about two and a half times the consumption we measure on that
-cycle. Find out why and make the City Cycle run on the data sheet below;
+Cycle" shows more than twice the consumption we measure on that cycle. Find out why and make the City Cycle run on the data sheet below;
 change nothing else, and do not touch the other cases. Save it in car.json.
 The model must pass LightSim's Data Checks with no errors or warnings.
 
