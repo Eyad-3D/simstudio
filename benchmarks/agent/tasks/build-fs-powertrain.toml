@@ -1,0 +1,85 @@
+id = "build-fs-powertrain"
+kind = "build"
+version = 1
+title = "Add the powertrain to a Formula Student car"
+statement = """
+car.json is our Formula Student car without its powertrain: the chassis,
+tyres, brakes, driver, differential and the autocross track are in it, and
+the model does not run yet. Add the electric powertrain from this data sheet,
+and save the model in car.json:
+
+- accumulator: LightSim's standard battery part, 7.2 kWh, full (100 %) at the
+  start, with the rules' limit of 80 kW on the power it delivers (its Output
+  Power Limit);
+- one E-Motor (LightSim's standard E-Motor) with its torque scaled so that its
+  peak torque is 230 N·m (the library motor peaks at 345.6 N·m), and its speed
+  limited to 6,500 1/min;
+- a chain drive (a Final Drive part) of ratio 4.4:1, 97 % efficient, between
+  the motor and the differential;
+- the driver commands the motor's torque; the motor and the accumulator are
+  joined by the two high-voltage wires.
+
+Leave every other value at LightSim's library default. The model must pass
+LightSim's Data Checks with no errors or warnings. The case "Autocross
+(flying lap)" shows the result.
+"""
+
+# The Formula Student example without its accumulator, bus, motor and chain
+# drive (their wires and signals go with them).
+[[start]]
+file = "car.json"
+from = "example:fs-electric"
+name = "FS car without powertrain"
+ops = [
+  { op = "remove", element = "Accumulator" },
+  { op = "remove", element = "HV Bus" },
+  { op = "remove", element = "E-Motor" },
+  { op = "remove", element = "Chain Drive" },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "battery.generic", label = "Accumulator" },
+  { op = "add", type = "motor.emotor", label = "E-Motor" },
+  { op = "add", type = "mech.final_drive", label = "Chain Drive" },
+  { op = "connect", from = "Accumulator:pos", to = "E-Motor:pos" },
+  { op = "connect", from = "Accumulator:neg", to = "E-Motor:neg" },
+  { op = "connect", from = "E-Motor:shaft", to = "Chain Drive:flange_in" },
+  { op = "connect", from = "Chain Drive:flange_out", to = "Differential:flange_in" },
+  { op = "connect", from = "Driver:sig_traction_cmd", to = "E-Motor:sig_demand_in" },
+  { op = "set", element = "Accumulator", param = "capacity_kWh", value = 7.2 },
+  { op = "set", element = "Accumulator", param = "initial_soc_pct", value = 100 },
+  { op = "set", element = "Accumulator", param = "output_power_limit_kW", value = 80 },
+  { op = "set", element = "E-Motor", param = "torque_scale_pct", value = 66.5 },
+  { op = "set", element = "E-Motor", param = "max_speed_rpm", value = 6500 },
+  { op = "set", element = "Chain Drive", param = "ratio", value = 4.4 },
+  { op = "set", element = "Chain Drive", param = "efficiency_pct", value = 97 },
+]
+
+# The library motor as it is (345.6 N·m) and no power limit.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [
+  { op = "set", element = "E-Motor", param = "torque_scale_pct", value = 100 },
+  { op = "set", element = "Accumulator", param = "output_power_limit_kW", value = 0 },
+]
+
+[check]
+file = "car.json"
+case = "Autocross (flying lap)"
+params = [
+  { type = "battery.generic", key = "capacity_kWh", value = 7.2, rtol = 0.002 },
+  { type = "battery.generic", key = "initial_soc_pct", value = 100, rtol = 0.002 },
+  { type = "battery.generic", key = "output_power_limit_kW", value = 80, rtol = 0.002 },
+  { type = "motor.emotor", key = "torque_scale_pct", value = 66.5, rtol = 0.02 },
+  { type = "motor.emotor", key = "max_speed_rpm", value = 6500, rtol = 0.002 },
+  { type = "mech.final_drive", key = "ratio", value = 4.4, rtol = 0.002 },
+  { type = "mech.final_drive", key = "efficiency_pct", value = 97, rtol = 0.002 },
+]
+figures = [
+  { key = "lap_time_s", rtol = 0.01 },
+  { key = "energy_per_lap_kwh", rtol = 0.04 },
+  { key = "*.time_at_power_limit_s", rtol = 0.15, atol = 1.5 },
+]

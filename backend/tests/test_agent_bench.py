@@ -92,11 +92,54 @@ def test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions(
     assert agent.validate(task) == []
 
 
-def test_the_bench_has_every_kind_and_holds_out_a_third():
-    assert {t.kind for t in TASKS} == set(agent.KINDS)
-    held = agent.heldout()
-    assert held <= {t.id for t in TASKS}
-    assert abs(len(held) - len(TASKS) / 3) <= 1
+@pytest.mark.parametrize("task_id", ["build-sedan-abc", "write-launch-smoother"])
+def test_a_reference_saved_through_the_edit_tool_passes_the_checker(task_id, tmp_path, monkeypatch):
+    """What an agent that edits the right way leaves behind: the reference
+    operations sent through LightSim's own ``model_edit`` tool, confirmed and
+    saved to the agent's folder, score as the validator's files do."""
+    from app.ai.access import AuditLog, Policy
+    from app.ai.engine import Engine
+    from app.ai.tools import CallContext, ConfirmationNeeded, Tools
+
+    task = next(t for t in TASKS if t.id == task_id)
+    work, home = tmp_path / "work", tmp_path / "home"
+    agent.write_files(agent.start_files(task), work)
+    (home / "projects").mkdir(parents=True)
+    settings = home / "ai-access.json"
+    settings.write_text(json.dumps({"version": 1, "enabled": True, "examples": True,
+                                    "folders": [str(work)]}), encoding="utf-8")
+    monkeypatch.setenv("LIGHTSIM_AI_SETTINGS", str(settings))
+    engine = Engine(user_folder=home / "projects", allowed_folders=(work,), include_examples=True)
+    tools = Tools(engine, Policy(allow_edits=True), AuditLog(engine.user_folder))
+    listing = tools.call("lightsim_list_projects", {}, CallContext())
+    ref = next(p["project"] for p in listing["projects"] if p["project"].endswith(task.reference["file"]))
+    args = {"project": ref, "operations": list(task.reference["ops"]), "dry_run": False}
+    try:
+        answer = tools.call("model_edit", args, CallContext())
+    except ConfirmationNeeded as asked:
+        answer = tools.call("model_edit", args, CallContext(confirmed=asked.seal))
+    assert answer["applied"] and answer["checksAfter"]["error"] == answer["checksAfter"]["warning"] == 0
+    verdict = agent.check(task, work, "")
+    assert verdict.success, verdict.reasons
+
+
+def test_the_bench_has_33_tasks_six_of_each_kind_and_holds_out_a_third_of_each():
+    assert len(TASKS) >= 33
+    for kind in agent.KINDS:
+        assert sum(t.kind == kind for t in TASKS) >= 6, kind
+    assert agent.heldout_problems(TASKS, agent.heldout()) == []
+
+
+def test_a_held_out_list_must_spread_across_the_kinds():
+    """A third in all is not enough: tuning on a kind that has nothing held
+    out would go unchecked. (The count alone used to be all that was checked.)"""
+    by_kind = sorted(TASKS, key=lambda t: t.kind)
+    lopsided = {t.id for t in by_kind[:len(TASKS) // 3]}  # the first kinds, whole
+    assert abs(len(lopsided) - len(TASKS) / 3) <= 1  # the old test: fine
+    problems = agent.heldout_problems(TASKS, lopsided)
+    assert any("not about a third" in p for p in problems)
+    assert agent.heldout_problems(TASKS, agent.heldout() | {"no-such-task"}) == [
+        "held-out list: no task 'no-such-task'"]
 
 
 def test_the_starting_files_are_derived_not_stored():

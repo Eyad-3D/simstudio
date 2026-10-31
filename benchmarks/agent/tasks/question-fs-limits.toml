@@ -1,0 +1,38 @@
+id = "question-fs-limits"
+kind = "question"
+version = 1
+title = "What holds the car back on the autocross lap?"
+statement = """
+car.json models our Formula Student car with a lower accumulator power limit
+(60 kW instead of 80 kW) and a heavier chassis (295 kg). On its case
+"Autocross (flying lap)" LightSim reports how long, over the whole case, the
+car was held back by each limit. How long was it held back by the
+accumulator's power cap, in s, and how long by the tyres' cornering grip, in
+s?
+
+End your reply with one line in exactly this form, numbers only:
+ANSWER: <time held back by the power cap>; <time held back by cornering grip>
+"""
+
+[[start]]
+file = "car.json"
+from = "example:fs-electric"
+name = "FS car, 60 kW"
+ops = [
+  { op = "set", element = "Accumulator", param = "output_power_limit_kW", value = 60 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 295 },
+]
+
+# The example's own car.
+[wrong]
+answer = "ANSWER: 22.0; 38.8"
+
+[[answer]]
+value = 38.09
+rtol = 0.03
+figure = { file = "car.json", case = "Autocross (flying lap)", key = "time_limited_by_power_cap_s" }
+
+[[answer]]
+value = 39.074
+rtol = 0.03
+figure = { file = "car.json", case = "Autocross (flying lap)", key = "time_limited_by_cornering_grip_s" }

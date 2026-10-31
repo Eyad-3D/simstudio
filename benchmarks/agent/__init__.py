@@ -94,6 +94,19 @@ def heldout() -> set[str]:
     return {x.split("#")[0].strip() for x in lines if x.split("#")[0].strip()}
 
 
+def heldout_problems(tasks: list[Task], held: set[str]) -> list[str]:
+    """What is wrong with the held-out list: an id that names no task, and a
+    count that is not about a third of the tasks, in all and in each kind (so
+    that no kind is tuned on without a held-out check)."""
+    problems = [f"held-out list: no task '{x}'" for x in sorted(held - {t.id for t in tasks})]
+    groups = [("all", tasks)] + [(kind, [t for t in tasks if t.kind == kind]) for kind in KINDS]
+    for name, group in groups:
+        count = sum(t.id in held for t in group)
+        if abs(count - len(group) / 3) > 1 or (name != "all" and group and not 0 < count < len(group)):
+            problems.append(f"held-out list: {count} of {len(group)} {name} tasks, not about a third")
+    return problems
+
+
 # -- starting files and solutions ------------------------------------------------
 def derive(spec: dict) -> Model:
     """A starting file: a bundled example (``example:<id>``) or a blank

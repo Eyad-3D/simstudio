@@ -1,0 +1,54 @@
+id = "repair-wont-start"
+kind = "repair"
+version = 1
+title = "Find why a hatchback model does not move"
+statement = """
+car.json models our compact electric hatchback. Since a colleague last edited
+it, the case "City Cycle" does not run properly: the car does not move. Find
+what is wrong and make the model match the data sheet below. It must pass
+LightSim's Data Checks with no errors or warnings, and the case must run to
+the end. Change nothing else. Save it in car.json.
+
+Data sheet:
+- final drive 12.8:1 (motor turns 12.8 times for each turn of the wheels);
+- battery 62 kWh, used down to 4 % charge (that is, 96 % of it is usable);
+- everything else in the model is right.
+"""
+
+# The Battery Electric Car example with the final drive's ratio entered the
+# other way round, and the usable share of the battery entered as its minimum
+# charge.
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Compact hatchback"
+ops = [
+  { op = "set", element = "Final Drive", param = "ratio", value = 0.078 },
+  { op = "set", element = "HV Battery Pack", param = "min_soc_pct", value = 96 },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "set", element = "Final Drive", param = "ratio", value = 12.8 },
+  { op = "set", element = "HV Battery Pack", param = "min_soc_pct", value = 4 },
+]
+
+# The warning's cause fixed, the silent one not: the ratio is still upside
+# down and the car still does not move.
+[wrong]
+file = "car.json"
+ops = [{ op = "set", element = "HV Battery Pack", param = "min_soc_pct", value = 4 }]
+
+[check]
+file = "car.json"
+case = "City Cycle"
+params = [
+  { type = "mech.final_drive", key = "ratio", value = 12.8, rtol = 0.002 },
+  { type = "battery.generic", key = "min_soc_pct", value = 4, rtol = 0.002 },
+]
+figures = [
+  { key = "distance_km", rtol = 0.005 },
+  { key = "consumption_kwh_per_100km", rtol = 0.01 },
+  { key = "*.final_soc_pct", atol = 0.1 },
+]

@@ -1,0 +1,71 @@
+id = "write-regen-gate"
+kind = "write"
+version = 1
+title = "Write a gate that stops regenerative braking at low speed"
+statement = """
+car.json models our electric hatchback. At crawling speed the motor's
+regenerative torque makes the car judder, so the brake engineers want no
+regeneration below 10 km/h. Add a Script block labelled "Regen Gate" that
+passes the driver's traction command on to the motor, except that a negative
+command (regeneration) becomes zero while the vehicle's speed is below
+10 km/h. Give it two input ports, "cmd" (the Driver's traction command) and
+"speed" (the Vehicle's speed), and an output port "torque_cmd" that drives the
+E-Motor's demand input in place of the direct link. Save the model in
+car.json. It must pass LightSim's Data Checks with no errors or warnings. The
+case "Urban (WLTC Low+Medium)" shows the effect.
+"""
+
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Hatchback, brake tuning"
+ops = [
+  { op = "add_case", name = "Urban (WLTC Low+Medium)", id = "case-urban", copy_of = "case-wltc", duration = 589 },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.script", label = "Regen Gate" },
+  { op = "set", element = "Regen Gate", param = "code", value = """
+NO_REGEN_BELOW_KMH = 10.0
+
+
+def step(t, dt, inputs, state, params):
+    cmd = inputs.get("cmd", 0.0)
+    if cmd < 0.0 and inputs.get("speed", 0.0) < NO_REGEN_BELOW_KMH:
+        cmd = 0.0
+    return {"torque_cmd": cmd}
+""" },
+  { op = "add_port", element = "Regen Gate", name = "cmd", direction = "input" },
+  { op = "add_port", element = "Regen Gate", name = "speed", direction = "input" },
+  { op = "add_port", element = "Regen Gate", name = "torque_cmd", direction = "output" },
+  { op = "disconnect", from = "Driver:sig_traction_cmd", to = "E-Motor:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_traction_cmd", to = "Regen Gate:cmd" },
+  { op = "connect", from = "Vehicle:sig_speed", to = "Regen Gate:speed" },
+  { op = "connect", from = "Regen Gate:torque_cmd", to = "E-Motor:sig_demand_in" },
+]
+
+# The gate at 25 km/h: much of the braking energy is lost.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Regen Gate", param = "code", value = """
+NO_REGEN_BELOW_KMH = 25.0
+
+
+def step(t, dt, inputs, state, params):
+    cmd = inputs.get("cmd", 0.0)
+    if cmd < 0.0 and inputs.get("speed", 0.0) < NO_REGEN_BELOW_KMH:
+        cmd = 0.0
+    return {"torque_cmd": cmd}
+""" }]
+
+[check]
+file = "car.json"
+case = "Urban (WLTC Low+Medium)"
+figures = [
+  { key = "distance_km", rtol = 0.005 },
+  { key = "consumption_kwh_per_100km", rtol = 0.012 },
+  { key = "*.energy_recuperated_kwh", rtol = 0.04 },
+]

@@ -1,0 +1,47 @@
+id = "compare-battery-range"
+kind = "compare"
+version = 1
+title = "Pick the battery size for a longer range"
+statement = """
+We offer our hatchback with two battery sizes. car-a.json is design A, with a
+50 kWh battery (test mass 1,790 kg); car-b.json is design B, with a 75 kWh
+battery (test mass 2,010 kg). Everything else is the same. Which design has
+the longer range on the case "WLTC Class 3b" (LightSim's range figure), and
+what is that range, in km?
+
+End your reply with one line in exactly this form:
+ANSWER: <A or B>; <range>
+"""
+
+[[start]]
+file = "car-a.json"
+from = "example:bev-car"
+name = "Hatchback, 50 kWh"
+ops = [
+  { op = "set", element = "HV Battery Pack", param = "capacity_kWh", value = 50 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 1790 },
+]
+
+[[start]]
+file = "car-b.json"
+from = "example:bev-car"
+name = "Hatchback, 75 kWh"
+ops = [
+  { op = "set", element = "HV Battery Pack", param = "capacity_kWh", value = 75 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 2010 },
+]
+
+# The smaller, lighter car uses less energy per 100 km, but the bigger battery
+# takes it further.
+[wrong]
+answer = "ANSWER: A; 0"
+
+[[answer]]
+choice = "B"
+options = { A = "car-a.json", B = "car-b.json" }
+best = { case = "WLTC Class 3b", key = "range_km", pick = "max" }
+
+[[answer]]
+value = 504.14
+rtol = 0.01
+figure = { file = "car-b.json", case = "WLTC Class 3b", key = "range_km" }

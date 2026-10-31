@@ -1,0 +1,165 @@
+id = "build-hill-van"
+kind = "build"
+version = 1
+title = "Build an electric delivery van and put it on a hill"
+statement = """
+van.json holds an empty LightSim model with one case, "Hill route" (400 s).
+Build a battery electric delivery van in it from this data sheet, and save it
+in van.json:
+
+- test mass 2,850 kg (loaded); drag coefficient 0.36; frontal area 3.4 m²;
+- tyres: radius 0.34 m, rolling resistance coefficient 0.009;
+- one electric motor (LightSim's standard E-Motor, with the library's values)
+  drives the wheels through a single final drive of ratio 10.5:1;
+- battery: 68 kWh usable (the library's standard battery otherwise), at 95 %
+  charge when the drive starts;
+- an always-on load of 0.4 kW (telematics, fans), fed from the battery.
+
+The route of the case "Hill route": the driver follows a speed profile that
+accelerates to 50 km/h in 20 s and holds it until the case ends (time in s,
+speed in km/h: 0:0; 20:50; 400:50). The road is flat for the first 300 m,
+then rises to a constant 6 % grade by 400 m, holds 6 % until 1,400 m, falls
+back to flat by 1,500 m and stays flat after that (LightSim's Road Profile
+part, in distance mode; distance in m, grade in %).
+
+Leave every other value at LightSim's library default. The model must pass
+LightSim's Data Checks with no errors or warnings, and run.
+"""
+
+[[start]]
+file = "van.json"
+from = "blank"
+name = "Delivery van"
+ops = [{ op = "set_case", case = "case-1", name = "Hill route", duration = 400 }]
+
+[reference]
+file = "van.json"
+ops = [
+  { op = "add", type = "vehicle.body", label = "Vehicle" },
+  { op = "add", type = "signal.driving_task", label = "Driving Task" },
+  { op = "add", type = "signal.road_profile", label = "Road Profile" },
+  { op = "add", type = "driver.driver", label = "Driver" },
+  { op = "add", type = "battery.generic", label = "Battery" },
+  { op = "add", type = "motor.emotor", label = "E-Motor" },
+  { op = "add", type = "mech.final_drive", label = "Final Drive" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel" },
+  { op = "add", type = "electric.constant_drive", label = "Telematics" },
+  { op = "connect", from = "Battery:pos", to = "E-Motor:pos" },
+  { op = "connect", from = "Battery:neg", to = "E-Motor:neg" },
+  { op = "connect", from = "Battery:pos", to = "Telematics:pos" },
+  { op = "connect", from = "Battery:neg", to = "Telematics:neg" },
+  { op = "connect", from = "E-Motor:shaft", to = "Final Drive:flange_in" },
+  { op = "connect", from = "Final Drive:flange_out", to = "Wheel:shaft" },
+  { op = "connect", from = "Driving Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle:sig_speed", to = "Driver:sig_speed_in" },
+  { op = "connect", from = "Driver:sig_traction_cmd", to = "E-Motor:sig_demand_in" },
+  { op = "connect", from = "Vehicle:sig_distance", to = "Road Profile:sig_distance_in" },
+  { op = "connect", from = "Road Profile:sig_grade", to = "Vehicle:sig_grade_in" },
+  { op = "set", element = "Wheel", param = "vehicle_load_share_pct", value = 100 },
+  { op = "set", element = "Wheel", param = "radius_m", value = 0.34 },
+  { op = "set", element = "Wheel", param = "rolling_resistance", value = 0.009 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 2850 },
+  { op = "set", element = "Vehicle", param = "cd", value = 0.36 },
+  { op = "set", element = "Vehicle", param = "frontal_area_m2", value = 3.4 },
+  { op = "set", element = "Final Drive", param = "ratio", value = 10.5 },
+  { op = "set", element = "Battery", param = "capacity_kWh", value = 68 },
+  { op = "set", element = "Battery", param = "initial_soc_pct", value = 95 },
+  { op = "set", element = "Telematics", param = "power_kW", value = 0.4 },
+  { op = "set", element = "Driving Task", param = "profile", value = "0:0; 20:50; 400:50" },
+  { op = "set", element = "Road Profile", param = "profile", value = "0:0; 300:0; 400:6; 1400:6; 1500:0; 5000:0" },
+]
+
+# The van on the flat: no Road Profile.
+[wrong]
+file = "van.json"
+base = "reference"
+ops = [{ op = "remove", element = "Road Profile" }]
+
+# Built the other way: four wheels, brakes, a differential and nodes, all with
+# library values (a quarter of the weight on each wheel).
+[[also_right]]
+file = "van.json"
+ops = [
+  { op = "add", type = "vehicle.body", label = "Vehicle" },
+  { op = "add", type = "signal.driving_task", label = "Driving Task" },
+  { op = "add", type = "signal.road_profile", label = "Road Profile" },
+  { op = "add", type = "driver.driver", label = "Driver" },
+  { op = "add", type = "battery.generic", label = "Battery" },
+  { op = "add", type = "motor.emotor", label = "E-Motor" },
+  { op = "add", type = "mech.final_drive", label = "Final Drive" },
+  { op = "add", type = "mech.differential", label = "Differential" },
+  { op = "add", type = "mech.node", label = "Node FL" },
+  { op = "add", type = "mech.node", label = "Node FR" },
+  { op = "add", type = "electric.constant_drive", label = "Telematics" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel FL" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel FR" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel RL" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel RR" },
+  { op = "add", type = "mech.brake", label = "Brake FL" },
+  { op = "add", type = "mech.brake", label = "Brake FR" },
+  { op = "add", type = "mech.brake", label = "Brake RL" },
+  { op = "add", type = "mech.brake", label = "Brake RR" },
+  { op = "connect", from = "Battery:pos", to = "E-Motor:pos" },
+  { op = "connect", from = "Battery:neg", to = "E-Motor:neg" },
+  { op = "connect", from = "Battery:pos", to = "Telematics:pos" },
+  { op = "connect", from = "Battery:neg", to = "Telematics:neg" },
+  { op = "connect", from = "E-Motor:shaft", to = "Final Drive:flange_in" },
+  { op = "connect", from = "Final Drive:flange_out", to = "Differential:flange_in" },
+  { op = "connect", from = "Differential:flange_out_a", to = "Node FL:f1" },
+  { op = "connect", from = "Differential:flange_out_b", to = "Node FR:f1" },
+  { op = "connect", from = "Node FL:f2", to = "Brake FL:flange" },
+  { op = "connect", from = "Node FL:f3", to = "Wheel FL:shaft" },
+  { op = "connect", from = "Node FR:f2", to = "Brake FR:flange" },
+  { op = "connect", from = "Node FR:f3", to = "Wheel FR:shaft" },
+  { op = "connect", from = "Brake RL:flange", to = "Wheel RL:shaft" },
+  { op = "connect", from = "Brake RR:flange", to = "Wheel RR:shaft" },
+  { op = "connect", from = "Driving Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle:sig_speed", to = "Driver:sig_speed_in" },
+  { op = "connect", from = "Driver:sig_traction_cmd", to = "E-Motor:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FL:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FR:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake RL:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake RR:sig_demand_in" },
+  { op = "connect", from = "Vehicle:sig_distance", to = "Road Profile:sig_distance_in" },
+  { op = "connect", from = "Road Profile:sig_grade", to = "Vehicle:sig_grade_in" },
+  { op = "set", element = "Wheel RL", param = "axle", value = "Rear" },
+  { op = "set", element = "Wheel RR", param = "axle", value = "Rear" },
+  { op = "set", element = "Wheel FL", param = "radius_m", value = 0.34 },
+  { op = "set", element = "Wheel FR", param = "radius_m", value = 0.34 },
+  { op = "set", element = "Wheel RL", param = "radius_m", value = 0.34 },
+  { op = "set", element = "Wheel RR", param = "radius_m", value = 0.34 },
+  { op = "set", element = "Wheel FL", param = "rolling_resistance", value = 0.009 },
+  { op = "set", element = "Wheel FR", param = "rolling_resistance", value = 0.009 },
+  { op = "set", element = "Wheel RL", param = "rolling_resistance", value = 0.009 },
+  { op = "set", element = "Wheel RR", param = "rolling_resistance", value = 0.009 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 2850 },
+  { op = "set", element = "Vehicle", param = "cd", value = 0.36 },
+  { op = "set", element = "Vehicle", param = "frontal_area_m2", value = 3.4 },
+  { op = "set", element = "Final Drive", param = "ratio", value = 10.5 },
+  { op = "set", element = "Battery", param = "capacity_kWh", value = 68 },
+  { op = "set", element = "Battery", param = "initial_soc_pct", value = 95 },
+  { op = "set", element = "Telematics", param = "power_kW", value = 0.4 },
+  { op = "set", element = "Driving Task", param = "profile", value = "0:0; 20:50; 400:50" },
+  { op = "set", element = "Road Profile", param = "profile", value = "0:0; 300:0; 400:6; 1400:6; 1500:0; 5000:0" },
+]
+
+[check]
+file = "van.json"
+case = "Hill route"
+params = [
+  { type = "vehicle.body", key = "mass_kg", value = 2850, rtol = 0.002 },
+  { type = "vehicle.body", key = "cd", value = 0.36, rtol = 0.002 },
+  { type = "vehicle.body", key = "frontal_area_m2", value = 3.4, rtol = 0.002 },
+  { type = "propulsion.wheel", key = "radius_m", value = 0.34, rtol = 0.002 },
+  { type = "propulsion.wheel", key = "rolling_resistance", value = 0.009, rtol = 0.002 },
+  { type = "mech.final_drive", key = "ratio", value = 10.5, rtol = 0.002 },
+  { type = "battery.generic", key = "capacity_kWh", value = 68, rtol = 0.002 },
+  { type = "battery.generic", key = "initial_soc_pct", value = 95, rtol = 0.002 },
+  { type = "electric.constant_drive", key = "power_kW", value = 0.4, rtol = 0.002 },
+]
+figures = [
+  { key = "distance_km", rtol = 0.005 },
+  { key = "consumption_kwh_per_100km", rtol = 0.03 },
+  { key = "*.final_soc_pct", atol = 0.2 },
+  { channel = "motor.emotor:sig_torque", stat = "max", rtol = 0.05 },
+]

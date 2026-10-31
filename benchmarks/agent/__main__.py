@@ -8,7 +8,17 @@ import argparse
 import sys
 from pathlib import Path
 
-from . import SMOKE_DIR, TASKS_DIR, heldout, isolate, load_tasks, start_files, validate, write_files
+from . import (
+    SMOKE_DIR,
+    TASKS_DIR,
+    heldout,
+    heldout_problems,
+    isolate,
+    load_tasks,
+    start_files,
+    validate,
+    write_files,
+)
 
 
 def main(argv=None) -> int:
@@ -25,11 +35,7 @@ def main(argv=None) -> int:
     if args.command == "start":
         write_files(start_files(tasks[args.id]), Path(args.folder))
         return 0
-    bench = load_tasks(TASKS_DIR)
-    held = heldout()
-    problems = [f"held-out list: no task '{x}'" for x in sorted(held - {t.id for t in bench})]
-    if abs(len(held) - len(bench) / 3) > 1:
-        problems.append(f"held-out list: {len(held)} of {len(bench)} tasks, not a third")
+    problems = heldout_problems(load_tasks(TASKS_DIR), heldout())
     for task in [tasks[i] for i in args.ids] if args.ids else tasks.values():
         found = validate(task)
         print(f"{task.id:28} {'ok' if not found else 'FAIL'}")

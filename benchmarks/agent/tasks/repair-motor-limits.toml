@@ -1,0 +1,58 @@
+id = "repair-motor-limits"
+kind = "repair"
+version = 1
+title = "Repair a hatchback model whose motor runs past its data"
+statement = """
+car.json models our compact electric hatchback. A colleague changed it, and
+LightSim now warns that the motor is used outside its data. Make the model
+match the data sheet below again and pass LightSim's Data Checks with no
+errors or warnings; change nothing else. Save it in car.json.
+
+Data sheet:
+- the E-Motor's top speed is 16,000 1/min;
+- final drive 12.8:1;
+- four tyres, each of radius 0.3488 m;
+- everything else in the model is right.
+"""
+
+# The Battery Electric Car example with the motor's top speed past its map,
+# the final drive's ratio mistyped, and one tyre's radius typed in
+# centimetres. The first two are flagged by the Data Checks, the third not.
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Compact hatchback"
+ops = [
+  { op = "set", element = "E-Motor", param = "max_speed_rpm", value = 20000 },
+  { op = "set", element = "Final Drive", param = "ratio", value = 28 },
+  { op = "set", element = "Wheel FL", param = "radius_m", value = 34.88 },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "set", element = "E-Motor", param = "max_speed_rpm", value = 16000 },
+  { op = "set", element = "Final Drive", param = "ratio", value = 12.8 },
+  { op = "set", element = "Wheel FL", param = "radius_m", value = 0.3488 },
+]
+
+# What the warnings point at fixed; the tyre missed.
+[wrong]
+file = "car.json"
+ops = [
+  { op = "set", element = "E-Motor", param = "max_speed_rpm", value = 16000 },
+  { op = "set", element = "Final Drive", param = "ratio", value = 12.8 },
+]
+
+[check]
+file = "car.json"
+case = "City Cycle"
+params = [
+  { type = "mech.final_drive", key = "ratio", value = 12.8, rtol = 0.002 },
+  { type = "propulsion.wheel", key = "radius_m", value = 0.3488, rtol = 0.002 },
+]
+figures = [
+  { key = "distance_km", rtol = 0.002 },
+  { key = "consumption_kwh_per_100km", rtol = 0.01 },
+  { key = "*.final_soc_pct", atol = 0.1 },
+]

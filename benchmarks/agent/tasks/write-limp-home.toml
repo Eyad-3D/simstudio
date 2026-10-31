@@ -1,0 +1,77 @@
+id = "write-limp-home"
+kind = "write"
+version = 1
+title = "Write a limp-home mode for a nearly flat battery"
+statement = """
+car.json models our electric hatchback, here on a motorway run that starts
+with the battery nearly flat (13 % charge). The safety concept asks for a
+limp-home mode: below 15 % battery charge the car must not use more than 15 %
+of the motor's available torque. Add a Script block labelled "Limp Home" that
+passes the driver's traction command on to the motor, but limited to 0.15
+(15 % of the available torque) while the battery's charge is below 15 %. Give
+it two input ports, "cmd" (the Driver's traction command) and "soc" (the
+battery's state of charge, %), and an output port "torque_cmd" that drives the
+E-Motor's demand input in place of the direct link. Save the model in
+car.json. It must pass LightSim's Data Checks with no errors or warnings. The
+case "Motorway (WLTC Extra High)" shows the effect.
+"""
+
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Hatchback, safety concept"
+ops = [
+  { op = "add_case", name = "Motorway (WLTC Extra High)", id = "case-motorway", copy_of = "case-wltc", duration = 323 },
+  { op = "set", element = "Vehicle Task", param = "cycle", value = "wltc-3-extra-high", case = "case-motorway" },
+  { op = "set", element = "HV Battery Pack", param = "initial_soc_pct", value = 13, case = "case-motorway" },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.script", label = "Limp Home" },
+  { op = "set", element = "Limp Home", param = "code", value = """
+LIMP_BELOW_SOC = 15.0
+LIMP_CEILING = 0.15
+
+
+def step(t, dt, inputs, state, params):
+    cmd = inputs.get("cmd", 0.0)
+    if inputs.get("soc", 100.0) < LIMP_BELOW_SOC:
+        cmd = min(cmd, LIMP_CEILING)
+    return {"torque_cmd": cmd}
+""" },
+  { op = "add_port", element = "Limp Home", name = "cmd", direction = "input" },
+  { op = "add_port", element = "Limp Home", name = "soc", direction = "input" },
+  { op = "add_port", element = "Limp Home", name = "torque_cmd", direction = "output" },
+  { op = "disconnect", from = "Driver:sig_traction_cmd", to = "E-Motor:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_traction_cmd", to = "Limp Home:cmd" },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Limp Home:soc" },
+  { op = "connect", from = "Limp Home:torque_cmd", to = "E-Motor:sig_demand_in" },
+]
+
+# A ceiling of 0.5: too loose to matter on this run.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Limp Home", param = "code", value = """
+LIMP_BELOW_SOC = 15.0
+LIMP_CEILING = 0.5
+
+
+def step(t, dt, inputs, state, params):
+    cmd = inputs.get("cmd", 0.0)
+    if inputs.get("soc", 100.0) < LIMP_BELOW_SOC:
+        cmd = min(cmd, LIMP_CEILING)
+    return {"torque_cmd": cmd}
+""" }]
+
+[check]
+file = "car.json"
+case = "Motorway (WLTC Extra High)"
+figures = [
+  { key = "distance_km", rtol = 0.01 },
+  { key = "consumption_kwh_per_100km", rtol = 0.03 },
+  { channel = "vehicle.body:sig_speed", stat = "max", atol = 3.0 },
+  { channel = "vehicle.body:sig_speed", stat = "mean", atol = 2.0 },
+]

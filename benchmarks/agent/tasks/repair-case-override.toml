@@ -1,0 +1,53 @@
+id = "repair-case-override"
+kind = "repair"
+version = 1
+title = "Find the values hiding in one case of a hatchback model"
+statement = """
+car.json models our compact electric hatchback. Its base model is right, and
+the case "WLTC Class 3b" gives the figures we measured. But the case "City
+Cycle" shows about two and a half times the consumption we measure on that
+cycle. Find out why and make the City Cycle run on the data sheet below;
+change nothing else, and do not touch the other cases. Save it in car.json.
+The model must pass LightSim's Data Checks with no errors or warnings.
+
+Data sheet:
+- test mass 1,927 kg;
+- an always-on load of 0.25 kW on the high-voltage bus;
+- everything else is as in the base model.
+"""
+
+# The Battery Electric Car example with two values changed for the case
+# "City Cycle" only (a trailer test and a heating test, left in).
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Compact hatchback"
+ops = [
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 2400, case = "City Cycle" },
+  { op = "set", element = "Power Consumer", param = "power_kW", value = 6.0, case = "City Cycle" },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 1927, case = "City Cycle" },
+  { op = "set", element = "Power Consumer", param = "power_kW", value = 0.25, case = "City Cycle" },
+]
+
+# The mass put back, the load missed.
+[wrong]
+file = "car.json"
+ops = [{ op = "set", element = "Vehicle", param = "mass_kg", value = 1927, case = "City Cycle" }]
+
+[check]
+file = "car.json"
+case = "City Cycle"
+params = [
+  { type = "vehicle.body", key = "mass_kg", value = 1927, rtol = 0.002 },
+  { type = "electric.constant_drive", key = "power_kW", value = 0.25, rtol = 0.002 },
+]
+figures = [
+  { key = "distance_km", rtol = 0.002 },
+  { key = "consumption_kwh_per_100km", rtol = 0.01 },
+  { key = "*.final_soc_pct", atol = 0.1 },
+]

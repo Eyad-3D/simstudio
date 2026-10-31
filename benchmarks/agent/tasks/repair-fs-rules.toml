@@ -1,0 +1,66 @@
+id = "repair-fs-rules"
+kind = "repair"
+version = 1
+title = "Bring a Formula Student model back to the rules and the data sheet"
+statement = """
+car.json models our Formula Student car. Before the technical inspection it
+must match the rules and our data sheet, and a colleague's recent changes
+broke that. Find and fix what does not match, change nothing else, and make
+the model pass LightSim's Data Checks with no errors or warnings. Save it in
+car.json.
+
+Rules and data sheet:
+- the accumulator may deliver at most 80 kW (the rules' limit; the model's
+  Output Power Limit is that limit);
+- all four tyres have a radius of 0.228 m;
+- the driver's brake command applies all four friction brakes;
+- everything else in the model is right.
+
+The case "Autocross (flying lap)" shows the effect.
+"""
+
+# The Formula Student example with the power limit ten times too high, one
+# tyre's radius typed in centimetres, and the two front brakes cut off from
+# the driver.
+[[start]]
+file = "car.json"
+from = "example:fs-electric"
+name = "FS car"
+ops = [
+  { op = "set", element = "Accumulator", param = "output_power_limit_kW", value = 800 },
+  { op = "set", element = "Wheel RR", param = "radius_m", value = 22.8 },
+  { op = "disconnect", from = "Driver:sig_brake_cmd", to = "Brake FL:sig_demand_in" },
+  { op = "disconnect", from = "Driver:sig_brake_cmd", to = "Brake FR:sig_demand_in" },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "set", element = "Accumulator", param = "output_power_limit_kW", value = 80 },
+  { op = "set", element = "Wheel RR", param = "radius_m", value = 0.228 },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FL:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FR:sig_demand_in" },
+]
+
+# The brakes reconnected and the tyre fixed; the power limit, which the Data
+# Checks accept, missed.
+[wrong]
+file = "car.json"
+ops = [
+  { op = "set", element = "Wheel RR", param = "radius_m", value = 0.228 },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FL:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FR:sig_demand_in" },
+]
+
+[check]
+file = "car.json"
+case = "Autocross (flying lap)"
+params = [
+  { type = "battery.generic", key = "output_power_limit_kW", value = 80, rtol = 0.002 },
+  { type = "propulsion.wheel", key = "radius_m", value = 0.228, rtol = 0.002 },
+]
+figures = [
+  { key = "lap_time_s", rtol = 0.003 },
+  { key = "energy_per_lap_kwh", rtol = 0.02 },
+  { key = "*.time_at_power_limit_s", rtol = 0.05, atol = 0.5 },
+]

@@ -1,0 +1,59 @@
+id = "write-aux-shed"
+kind = "write"
+version = 1
+title = "Write a load-shedding rule for the cabin comfort load"
+statement = """
+car.json models our electric hatchback on a short city run that starts with
+a low battery (22 % charge). Its cabin comfort load is 3 kW. To save range the
+car must shed that load as the battery empties: the full load at 30 % charge
+or more, 20 % of it at 15 % charge or less, and in a straight line between
+the two. Add a Script block labelled "Aux Shedding" with one input port, "soc"
+(the battery's state of charge, %), and one output port, "share", which
+drives the Power Consumer's demand input (0 to 1, the share of its power it
+takes). Wire the battery's state of charge to "soc". Save the model in
+car.json. It must pass LightSim's Data Checks with no errors or warnings. The
+case "City Cycle" shows the effect.
+"""
+
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Hatchback, range extender test"
+ops = [
+  { op = "set", element = "Power Consumer", param = "power_kW", value = 3.0 },
+  { op = "set", element = "HV Battery Pack", param = "initial_soc_pct", value = 22 },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.script", label = "Aux Shedding" },
+  { op = "set", element = "Aux Shedding", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    soc = inputs.get("soc", 100.0)
+    return {"share": clamp(0.2 + 0.8 * (soc - 15.0) / 15.0, 0.2, 1.0)}
+""" },
+  { op = "add_port", element = "Aux Shedding", name = "soc", direction = "input" },
+  { op = "add_port", element = "Aux Shedding", name = "share", direction = "output" },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Aux Shedding:soc" },
+  { op = "connect", from = "Aux Shedding:share", to = "Power Consumer:sig_demand_in" },
+]
+
+# The load never goes below half.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Aux Shedding", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    soc = inputs.get("soc", 100.0)
+    return {"share": clamp(0.5 + 0.5 * (soc - 15.0) / 15.0, 0.5, 1.0)}
+""" }]
+
+[check]
+file = "car.json"
+case = "City Cycle"
+figures = [
+  { key = "distance_km", rtol = 0.005 },
+  { key = "consumption_kwh_per_100km", rtol = 0.015 },
+  { key = "*.final_soc_pct", atol = 0.1 },
+]

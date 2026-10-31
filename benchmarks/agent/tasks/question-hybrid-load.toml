@@ -1,0 +1,36 @@
+id = "question-hybrid-load"
+kind = "question"
+version = 1
+title = "Fuel use of a loaded hybrid"
+statement = """
+hybrid.json models our P2 hybrid with a roof box and cargo fitted: the test
+mass is 1,624 kg, and the 12 V loads (fans, lights) draw 0.9 kW. On its case
+"Mixed Cycle": what is its fuel consumption in l/100 km, and what is the
+battery's state of charge at the end of the drive, in %?
+
+End your reply with one line in exactly this form, numbers only:
+ANSWER: <fuel consumption>; <final charge>
+"""
+
+[[start]]
+file = "hybrid.json"
+from = "example:hybrid-car"
+name = "P2 hybrid with roof box"
+ops = [
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 1624 },
+  { op = "set", element = "12 V Loads", param = "power_kW", value = 0.9 },
+]
+
+# The example's own figures, unloaded.
+[wrong]
+answer = "ANSWER: 2.87; 51.91"
+
+[[answer]]
+value = 3.1138
+rtol = 0.02
+figure = { file = "hybrid.json", case = "Mixed Cycle", key = "fuel_consumption_l_per_100km" }
+
+[[answer]]
+value = 52.25
+atol = 0.5
+figure = { file = "hybrid.json", case = "Mixed Cycle", key = "*.final_soc_pct" }

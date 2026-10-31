@@ -1,0 +1,37 @@
+id = "question-fs-endurance"
+kind = "question"
+version = 1
+title = "Does the lighter, smaller accumulator last the endurance event?"
+statement = """
+car.json models our Formula Student car with a smaller accumulator (10 Ah
+instead of 14 Ah) and a lighter chassis (270 kg). The case "Endurance energy"
+runs the 23-lap endurance event at the 30 kW power cap. How far does the car
+get before the accumulator is empty, in km (the event is 22.5 km), and how
+much battery energy does the car use per lap, in kWh?
+
+End your reply with one line in exactly this form, numbers only:
+ANSWER: <distance>; <energy per lap>
+"""
+
+[[start]]
+file = "car.json"
+from = "example:fs-electric"
+name = "FS car, small accumulator"
+ops = [
+  { op = "set", element = "Accumulator", param = "capacity_Ah", value = 10 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 270 },
+]
+
+# The finished event of the example's own car.
+[wrong]
+answer = "ANSWER: 22.5; 0.2319"
+
+[[answer]]
+value = 20.557
+rtol = 0.01
+figure = { file = "car.json", case = "Endurance energy", key = "distance_km" }
+
+[[answer]]
+value = 0.22462
+rtol = 0.02
+figure = { file = "car.json", case = "Endurance energy", key = "energy_per_lap_kwh" }

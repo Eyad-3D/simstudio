@@ -1,0 +1,73 @@
+id = "write-speed-zone"
+kind = "write"
+version = 1
+title = "Write a speed zone that depends on how far the car has driven"
+statement = """
+car.json models our electric hatchback on a delivery route. Between 3.2 km
+and 7.2 km from the start the route runs through a built-up area with a speed
+limit of 45 km/h. Add a Script block labelled "Speed Zone" that passes the
+drive cycle's target speed on to the driver, but never more than 45 km/h while
+the distance driven is between 3.2 km and 7.2 km. Give it two input ports,
+"demand" (the Vehicle Task's target speed) and "distance" (the Vehicle's
+distance driven), and an output port "target" that drives the Driver's target
+speed input in place of the direct link. Save the model in car.json. It must
+pass LightSim's Data Checks with no errors or warnings. The case "WLTC Low and
+Medium phases" shows the effect.
+"""
+
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Hatchback, delivery route"
+ops = [
+  { op = "add_case", name = "WLTC Low and Medium phases", id = "case-wltc-lm", copy_of = "case-wltc", duration = 1022 },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.script", label = "Speed Zone" },
+  { op = "set", element = "Speed Zone", param = "code", value = """
+ZONE_START_M, ZONE_END_M = 3200.0, 7200.0
+ZONE_LIMIT_KMH = 45.0
+
+
+def step(t, dt, inputs, state, params):
+    target = inputs.get("demand", 0.0)
+    if ZONE_START_M <= inputs.get("distance", 0.0) < ZONE_END_M:
+        target = min(target, ZONE_LIMIT_KMH)
+    return {"target": target}
+""" },
+  { op = "add_port", element = "Speed Zone", name = "demand", direction = "input" },
+  { op = "add_port", element = "Speed Zone", name = "distance", direction = "input" },
+  { op = "add_port", element = "Speed Zone", name = "target", direction = "output" },
+  { op = "disconnect", from = "Vehicle Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Speed Zone:demand" },
+  { op = "connect", from = "Vehicle:sig_distance", to = "Speed Zone:distance" },
+  { op = "connect", from = "Speed Zone:target", to = "Driver:sig_target_in" },
+]
+
+# The zone written in km, but the Vehicle's distance is in m: it never applies.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Speed Zone", param = "code", value = """
+ZONE_START_M, ZONE_END_M = 3.2, 7.2
+ZONE_LIMIT_KMH = 45.0
+
+
+def step(t, dt, inputs, state, params):
+    target = inputs.get("demand", 0.0)
+    if ZONE_START_M <= inputs.get("distance", 0.0) < ZONE_END_M:
+        target = min(target, ZONE_LIMIT_KMH)
+    return {"target": target}
+""" }]
+
+[check]
+file = "car.json"
+case = "WLTC Low and Medium phases"
+figures = [
+  { key = "distance_km", rtol = 0.01 },
+  { key = "consumption_kwh_per_100km", rtol = 0.015 },
+  { channel = "vehicle.body:sig_speed", stat = "mean", atol = 1.0 },
+]

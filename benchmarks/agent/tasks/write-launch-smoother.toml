@@ -1,0 +1,90 @@
+id = "write-launch-smoother"
+kind = "write"
+version = 1
+title = "Write a launch smoother that limits how fast the target speed may rise"
+statement = """
+car.json models our electric hatchback. Fleet customers want gentle starts.
+Add a Script block labelled "Launch Smoother" that passes the drive cycle's
+target speed on to the driver, but lets it rise by no more than 2 km/h per
+second; a target that falls is passed on at once. Give it an input port
+"demand", fed by the Vehicle Task's target speed, and an output port "target"
+that drives the Driver's target speed input in place of the direct link. Save
+the model in car.json. It must pass LightSim's Data Checks with no errors or
+warnings. The case "Urban (WLTC Low+Medium)" shows the effect.
+"""
+
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Hatchback, fleet version"
+ops = [
+  { op = "add_case", name = "Urban (WLTC Low+Medium)", id = "case-urban", copy_of = "case-wltc", duration = 589 },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.script", label = "Launch Smoother" },
+  { op = "set", element = "Launch Smoother", param = "code", value = """
+RISE_KMH_PER_S = 2.0
+
+
+def step(t, dt, inputs, state, params):
+    target = min(inputs.get("demand", 0.0), state.get("target", 0.0) + RISE_KMH_PER_S * dt)
+    state["target"] = target
+    return {"target": target}
+""" },
+  { op = "add_port", element = "Launch Smoother", name = "demand", direction = "input" },
+  { op = "add_port", element = "Launch Smoother", name = "target", direction = "output" },
+  { op = "disconnect", from = "Vehicle Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Launch Smoother:demand" },
+  { op = "connect", from = "Launch Smoother:target", to = "Driver:sig_target_in" },
+]
+
+# The same limit on the way down as on the way up: braking is slowed too.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Launch Smoother", param = "code", value = """
+RISE_KMH_PER_S = 2.0
+
+
+def step(t, dt, inputs, state, params):
+    last = state.get("target", 0.0)
+    target = last + max(-RISE_KMH_PER_S * dt, min(RISE_KMH_PER_S * dt, inputs.get("demand", 0.0) - last))
+    state["target"] = target
+    return {"target": target}
+""" }]
+
+# Written another way: only a target above the last one is held back.
+[[also_right]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.script", label = "Launch Smoother" },
+  { op = "set", element = "Launch Smoother", param = "code", value = """
+MAX_RISE = 2.0  # km/h per s
+
+
+def step(t, dt, inputs, state, params):
+    want = inputs.get("demand", 0.0)
+    last = state.get("last", 0.0)
+    if want > last:
+        want = min(want, last + MAX_RISE * dt)
+    state["last"] = want
+    return {"target": want}
+""" },
+  { op = "add_port", element = "Launch Smoother", name = "demand", direction = "input" },
+  { op = "add_port", element = "Launch Smoother", name = "target", direction = "output" },
+  { op = "disconnect", from = "Vehicle Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Launch Smoother:demand" },
+  { op = "connect", from = "Launch Smoother:target", to = "Driver:sig_target_in" },
+]
+
+[check]
+file = "car.json"
+case = "Urban (WLTC Low+Medium)"
+figures = [
+  { key = "distance_km", rtol = 0.01 },
+  { key = "*.energy_recuperated_kwh", rtol = 0.025 },
+  { key = "*.final_soc_pct", atol = 0.1 },
+]

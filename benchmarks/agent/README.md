@@ -105,13 +105,25 @@ checks that it stops the run before the next try.
 
 ## The held-out set
 
-`heldout.txt` names a third of the tasks. Tune tools, skills and their
-wording on the other tasks only, reading their transcripts as much as you
-like. For a held-out task read only its scores (`--set heldout`, or the
-held-out column of a summary), never its transcripts, so the tools are not
-fitted to it. The file is never copied to an agent's folder, and the
-agent cannot read the repository. When you add tasks, keep the list a
-third of them (the validator and the tests check it), across the kinds.
+`heldout.txt` names a third of the tasks, a third of each kind. Tune tools,
+skills and their wording on the other tasks only, reading their transcripts
+as much as you like. For a held-out task read only its scores (`--set
+heldout`, or the held-out column of a summary), never its transcripts, so the
+tools are not fitted to it. The file is never copied to an agent's folder,
+and the agent cannot read the repository. When you add tasks, keep the list a
+third of them and of each kind (the validator and the tests check both).
+
+The bench has 33 tasks: at least six of each kind, 11 of them held out. They
+start from the four bundled examples (a compact hatchback, an efficient
+sedan, a Formula Student car, a P2 hybrid) or from a blank project, and set
+traps an engineer would meet: a value in the wrong unit (Wh for kWh, lbf for
+N, a fraction for a percent, centimetres for metres), a connection that is
+missing, a value that only one case overrides, a part used outside its data
+(a motor past its map, a heat pump below its working range), a design that
+wins on one figure and loses on another (the quicker lap that uses more
+energy, the longer range that costs more per 100 km, the lighter car that
+does not finish), and a Script that must read a signal in the unit LightSim
+keeps it in.
 
 ## A task file
 
@@ -197,4 +209,5 @@ Starting files are never stored: only operations on the bundled examples
    (the validator says what LightSim computes when they differ).
 7. `python -m benchmarks.agent validate <id>` until it says ok; then
    `cd backend && python -m pytest tests/test_agent_bench.py -q`.
-8. Keep `heldout.txt` a third of the tasks.
+8. Keep `heldout.txt` a third of the tasks and of each kind (`python -m
+   benchmarks.agent validate` says when it is not).

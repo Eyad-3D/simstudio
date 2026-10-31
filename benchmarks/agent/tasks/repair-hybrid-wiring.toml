@@ -1,0 +1,44 @@
+id = "repair-hybrid-wiring"
+kind = "repair"
+version = 1
+title = "Reconnect the control unit of a hybrid model"
+statement = """
+hybrid.json models our P2 hybrid. After a colleague tidied the diagram, the
+car burns far more fuel than it should and LightSim warns about its drivetrain.
+The model's parts, their values and the Hybrid Control Unit's code are right.
+Make the model run on what its control unit decides, and pass LightSim's Data
+Checks with no errors or warnings; change nothing else. Save it in
+hybrid.json.
+"""
+
+# The P2 Hybrid Car example with two of the control unit's outputs cut off:
+# the gear it selects and the clutch it commands.
+[[start]]
+file = "hybrid.json"
+from = "example:hybrid-car"
+name = "P2 hybrid"
+ops = [
+  { op = "disconnect", from = "Hybrid Control Unit:gear", to = "Gearbox:sig_gear_in" },
+  { op = "disconnect", from = "Hybrid Control Unit:clutch_cmd", to = "Clutch:sig_engage_in" },
+]
+
+[reference]
+file = "hybrid.json"
+ops = [
+  { op = "connect", from = "Hybrid Control Unit:gear", to = "Gearbox:sig_gear_in" },
+  { op = "connect", from = "Hybrid Control Unit:clutch_cmd", to = "Clutch:sig_engage_in" },
+]
+
+# The gear reconnected, the clutch missed.
+[wrong]
+file = "hybrid.json"
+ops = [{ op = "connect", from = "Hybrid Control Unit:gear", to = "Gearbox:sig_gear_in" }]
+
+[check]
+file = "hybrid.json"
+case = "Mixed Cycle"
+figures = [
+  { key = "distance_km", rtol = 0.005 },
+  { key = "fuel_consumption_l_per_100km", rtol = 0.02 },
+  { key = "*.final_soc_pct", atol = 1.0 },
+]

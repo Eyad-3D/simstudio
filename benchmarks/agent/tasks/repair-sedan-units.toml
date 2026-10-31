@@ -1,0 +1,64 @@
+id = "repair-sedan-units"
+kind = "repair"
+version = 1
+title = "Repair a sedan model with values typed in the wrong units"
+statement = """
+sedan.json models our efficient electric sedan. A new colleague updated it from
+a spreadsheet, and its results are nonsense. Make the model match the data
+sheet below again and pass LightSim's Data Checks with no errors or warnings;
+change nothing else. Save it in sedan.json.
+
+Data sheet:
+- battery 54 kWh usable, used down to 5 % charge;
+- an always-on load of 0.25 kW on the high-voltage bus;
+- the driver brakes with the motor as far as it can: regeneration share 98 %;
+- everything else in the model is right.
+
+The case "EPA city, first 505 s" shows the effect.
+"""
+
+# The Efficient Electric Sedan example with three values typed in the wrong
+# unit: the battery in Wh, the load in W, and the regeneration share as a
+# fraction.
+[[start]]
+file = "sedan.json"
+from = "example:aero-bev"
+name = "Efficient electric sedan"
+ops = [
+  { op = "add_case", name = "EPA city, first 505 s", id = "case-udds-505", copy_of = "case-udds", duration = 505 },
+  { op = "set", element = "HV Battery Pack", param = "capacity_kWh", value = 54000 },
+  { op = "set", element = "Power Consumer", param = "power_kW", value = 250 },
+  { op = "set", element = "Driver", param = "regen_weight_pct", value = 0.98 },
+]
+
+[reference]
+file = "sedan.json"
+ops = [
+  { op = "set", element = "HV Battery Pack", param = "capacity_kWh", value = 54 },
+  { op = "set", element = "Power Consumer", param = "power_kW", value = 0.25 },
+  { op = "set", element = "Driver", param = "regen_weight_pct", value = 98 },
+]
+
+# The two values Data Checks complain about fixed; the regeneration share, which
+# they accept, missed.
+[wrong]
+file = "sedan.json"
+ops = [
+  { op = "set", element = "HV Battery Pack", param = "capacity_kWh", value = 54 },
+  { op = "set", element = "Power Consumer", param = "power_kW", value = 0.25 },
+]
+
+[check]
+file = "sedan.json"
+case = "EPA city, first 505 s"
+params = [
+  { type = "battery.generic", key = "capacity_kWh", value = 54, rtol = 0.002 },
+  { type = "electric.constant_drive", key = "power_kW", value = 0.25, rtol = 0.002 },
+  { type = "driver.driver", key = "regen_weight_pct", value = 98, rtol = 0.002 },
+]
+figures = [
+  { key = "distance_km", rtol = 0.005 },
+  { key = "consumption_kwh_per_100km", rtol = 0.01 },
+  { key = "*.energy_recuperated_kwh", rtol = 0.03 },
+  { key = "*.final_soc_pct", atol = 0.1 },
+]
