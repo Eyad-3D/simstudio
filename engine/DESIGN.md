@@ -3243,11 +3243,15 @@ against exact answers from `benchmarks/`.
   for a table today's engine reads as a part's data; a record of another,
   a Driving Task's schedule, is a note with the code
   `NEW-TABLE-NOT-JUDGED`, not judged; a table today's engine reads only
-  in one branch of its part, `new_engine.BRANCH_READS`, is judged for the
-  share of the output points past its data where the part was in that
-  branch, its furthest point that branch's, and is that note when it
-  never was (an E-Motor is unpowered at a command of 0, which fast mode
-  runs with its inverter on); a record today's engine would not count, of
+  in one branch of its part, or at another point, `new_engine.BRANCH_READS`
+  (the fuel map only while fired, a drag table that reaches the maximum
+  speed at that speed above it), is judged for the share of the output
+  points past its data where today's read is past it too, its furthest
+  point today's, and is that note when there are none (an E-Motor is
+  unpowered at a command of 0, which fast mode runs with its inverter
+  on); the engine's records of one axis, one per place the part reads
+  it, are one (the longest time, the furthest point); a record today's
+  engine would not count, of
   an axis of one point or past its edge by float noise (`Map.bounds`), is
   left out; a record of an axis set to
   Error stops the path, `NEW-FAILED`, as the engine stops a run there). Today's warnings that a supply

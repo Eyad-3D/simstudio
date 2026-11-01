@@ -1275,18 +1275,25 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
     of a single point is a constant, and float noise at an edge is inside
     (Map.bounds). A record of an axis set to Error stops the run, as
     today's engine stops there (TableError: the engine stops a run
-    first)."""
+    first). The engine keeps a record for each place a part reads a table
+    (an Engine reads its fuel map at three torques): the records of one
+    axis are one of today's, said once (_merged)."""
+    groups: dict[tuple[str, str, int], list] = {}
     for rec in run.table_outside:
         el_id, key, axis = rec["part"], rec["table"].rsplit(".", 1)[-1], int(rec["axis"])
         if el_id is None:
             continue
-        uses = [u for u in ctx.map_use if u.el_id == el_id and u.table == key]
         m = ctx.maps.get((el_id, key))
         rng = m.ranges[axis] if m is not None and axis < len(m.ranges) else None
         shown = _to_today(rec, rng)
         if m is not None and axis < len(m.bounds) and (m.bounds[axis] is None or (
                 _finite(rec["furthest"]) and m.edge(axis, shown(float(rec["furthest"]))) is None)):
             continue
+        groups.setdefault((el_id, key, axis), []).append((rec, shown))
+    for (el_id, key, axis), got in groups.items():
+        rec, shown = _merged(got)
+        uses = [u for u in ctx.map_use if u.el_id == el_id and u.table == key]
+        m = ctx.maps.get((el_id, key))
         why, share, at = ("today's engine does not read it as a part's data", 0.0, None) if (
             axis >= len(uses)) else _branch_share(ctx, run, rec, el_id, key, axis, shown)
         if share <= 0.0:
@@ -1309,8 +1316,8 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
         use.t = float(rec["t_furthest"]) if _finite(rec["t_furthest"]) else float(rec["first"])
         first = float(rec["first"])
         if at is not None:
-            # only some of its time outside is in the branch today's engine
-            # reads it in: the furthest point and the first are that branch's
+            # today's engine reads it elsewhere (only in a branch, or at
+            # another point): the furthest point and the first are today's
             use.value, use.t, first = at
             use.edge = m.edge(axis, use.value)
         how = ("its edge slope is extended" if m is not None and axis < len(m.linear)
@@ -1320,6 +1327,28 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
             f"{name}: {use.axis} {use.value:.6g} {use.unit} is past the edge of its data "
             f"({use.edge:g} {use.unit}) from t = {first:.2f} s — {how} there. "
             f"The run summary says for how long and how far.")))
+
+
+def _merged(got: list) -> tuple[dict, Callable[[float], float]]:
+    """The records of one table axis, each with its value in today's unit
+    (_to_today), as one, as today's engine keeps one record of an axis:
+    the point furthest past the data with its edge and time, the earliest
+    first time, the longest time outside."""
+    # ponytail: the reads' stretches outside overlap by an unknown amount,
+    # so the longest is a floor of their union (BRANCH_READS' share then
+    # judges the rule's tables at the run's points)
+    if len(got) == 1:
+        return got[0]
+
+    def past(item) -> float:
+        rec, shown = item
+        x, e = rec["furthest"], rec["edge"]
+        return abs(shown(float(x)) - shown(float(e))) if _finite(x) and _finite(e) else -1.0
+
+    rec, shown = max(got, key=past)
+    firsts = [float(r["first"]) for r, _ in got if _finite(r["first"])]
+    return {**rec, "total": max(float(r["total"]) for r, _ in got),
+            "first": min(firsts) if firsts else rec["first"]}, shown
 
 
 def _to_today(rec, rng: Optional[tuple[float, float]]) -> Callable[[float], float]:
@@ -1354,57 +1383,112 @@ def _motor_powered(v: dict) -> bool:
     return v["on"] > 0.5 and abs(v["dem"]) > 1e-9
 
 
-# the tables today's engine reads only in one branch of its part, which the
-# engine's table guards watch in every branch (they read a table's argument
-# at every point): (component, table) -> (the branch, from the part's
-# variables at a point; the variable each axis reads there, None: judged)
+def _engine_drags(v: dict) -> bool:
+    """An Engine reading its drag table at a point, as today's engine: not
+    fired, or its idle governor braking."""
+    return v["fired_thr"] <= 0.5 and (v["fired_idle"] <= 0.5 or v["t_b2"] < 0.0)
+
+
+def _read(name: str) -> Callable[[dict], tuple[float, ...]]:
+    return lambda v: (v[name],)
+
+
+# the tables today's engine reads only in one branch of its part, or at
+# another point, which the engine's table guards watch at every point and
+# at each place the part reads them: (component, table) -> (where today
+# reads it; per axis None, judged as the engine has it, or (the values the
+# engine reads it at, from the part's variables at a point, in its unit;
+# today's: the value, or None outside the branch, from the variables and
+# the part's maximum speed when the table reaches it, else inf)). Past its
+# maximum speed a motor or engine counts as over speed, not as past a drag
+# table that reaches that speed: today reads that at the maximum speed.
 BRANCH_READS = {
     ("motor.emotor", "drag_torque"): (
-        "only while the motor is unpowered", lambda v: not _motor_powered(v), ("wa",)),
+        "only while the motor is unpowered, at no more than its maximum speed when the "
+        "table reaches it", ((_read("wa"), lambda v, top: None if _motor_powered(v)
+                              else min(v["wa"], top)),)),
+    # at its torque's magnitude (motor_torque); the engine reads it at the
+    # command's torque and the shaft's, and, with a supply window, at 0 and
+    # the allowed share
     ("motor.emotor", "power_loss"): (
-        "only while the motor is powered", _motor_powered, ("wa", None)),
+        "only while the motor is powered",
+        ((_read("wa"), lambda v, top: v["wa"] if _motor_powered(v) else None),
+         (lambda v: (abs(v["t_cmd"]), abs(v["T"]))
+          + ((0.0, abs(v["frac"] * v["t_cmd"])) if "frac" in v else ()),
+          lambda v, top: abs(v["T"]) if _motor_powered(v) else None))),
     ("motor.emotor", "full_load_torque"): (
-        "only while the motor is powered", _motor_powered, ("v", "wa")),
+        "only while the motor is powered",
+        ((_read("v"), lambda v, top: v["v"] if _motor_powered(v) else None),
+         (_read("wa"), lambda v, top: v["wa"] if _motor_powered(v) else None))),
     ("engine.combustion", "drag_torque"): (
-        "only while the engine is not fired or its idle governor brakes",
-        lambda v: v["fired_thr"] <= 0.5 and (v["fired_idle"] <= 0.5 or v["t_b2"] < 0.0), ("wa",)),
+        "only while the engine is not fired or its idle governor brakes, at no more than its "
+        "maximum speed when the table reaches it",
+        ((_read("wa"), lambda v, top: min(v["wa"], top) if _engine_drags(v) else None),)),
+    # fired with throttle at its torque; fired by the idle governor at its
+    # torque, or at 0 while it brakes (engine_torque)
+    ("engine.combustion", "fuel_map"): (
+        "only while the engine is fired",
+        ((_read("n_map"), lambda v, top: v["n_map"] if v["fired_thr"] > 0.5
+          or v["fired_idle"] > 0.5 else None),
+         (lambda v: (v["t_b1"], max(v["t_b2"], 0.0), 0.0),
+          lambda v, top: v["t_b1"] if v["fired_thr"] > 0.5
+          else max(v["t_b2"], 0.0) if v["fired_idle"] > 0.5 else None))),
+    # (consumer_demand_w: enabled, and asking for heat or cooling there)
+    ("electric.climate", "demand_table"): (
+        "only while the climate control is on and asks for heating or cooling",
+        ((_read("t_out_c"), lambda v, top: v["t_out_c"] if v["q"] != 0.0 else None),)),
 }
 
 
 def _branch_share(ctx, run, rec, el_id: str, key: str, axis: int, shown: Callable[[float], float]
                   ) -> tuple[str, float, Optional[tuple[float, float, float]]]:
     """The share of a table record's time outside its data that today's
-    engine would count, when it reads the table only in a branch
-    (BRANCH_READS): of the run's points where the axis was past the data
-    as today's engine has it (shown: the engine's value in today's unit;
-    Map.edge: float noise at an edge is inside), those where the branch was
-    taken; 1 for any other table, or when the run does not say. With why,
-    for a share of 0 (the record is then not judged), and for a share
-    below 1 the branch's own furthest point past the data (today's unit),
-    its time and the branch's first time past the data."""
+    engine would count, when it reads the table only in a branch, or at
+    another point (BRANCH_READS): of the run's points where the engine read
+    the axis past the data as today's engine has it (shown: the engine's
+    value in today's unit; Map.edge: float noise at an edge is inside),
+    those where today's read is past it too; 1 for any other table, or when
+    the run does not say. With why, for a share of 0 (the record is then
+    not judged), and, unless today's read is the engine's own at every
+    such point, today's furthest point past the data (today's unit), its
+    time and today's first time past the data."""
     # ponytail: the share at the run's output points scales the engine's
     # dense count; a stretch in the branch between two points is missed
     rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, key))
     m = ctx.maps.get((el_id, key))
-    if rule is None or m is None or axis >= len(rule[2]) or rule[2][axis] is None:
+    if rule is None or m is None or axis >= len(rule[1]) or rule[1][axis] is None:
         return "", 1.0, None
-    why, taken, args = rule
+    why, (engine, today) = rule[0], rule[1][axis]
+    part = ctx.motors.get(el_id) or ctx.engines.get(el_id)
+    cap, unit = (part.speed_use.edge if part is not None else math.inf), shown(1.0)
+    top = cap / unit if unit and m.ranges[axis] and m.ranges[axis][1] >= cap else math.inf
     prefix, ch = rec["table"].rsplit(".", 1)[0], run.engine_channels
+    out, read, same = [], [], True
     try:
         cols = {n[len(prefix) + 1:]: v for n, v in ch.items() if n.startswith(prefix + ".")}
-        xs = [shown(float(x)) for x in cols[args[axis]]]
-        out = [k for k, x in enumerate(xs) if m.edge(axis, x) is not None]
-        read = [k for k in out if taken({n: float(c[k]) for n, c in cols.items()})]
-        times = [float(t) for t in run.times]
+        points = min((len(c) for c in cols.values()), default=0)
+        times = [float(t) for t in run.times] if points else []
+        for k in range(points):
+            v = {n: float(c[k]) for n, c in cols.items()}
+            xs = engine(v)
+            if all(m.edge(axis, shown(x)) is None for x in xs):
+                continue
+            out.append(k)
+            x = today(v, top)
+            if x is not None and m.edge(axis, shown(x)) is not None:
+                read.append((k, shown(x)))
+                same = same and xs == (x,)
     except (KeyError, IndexError, TypeError, ValueError):
         return "", 1.0, None
     if not out:
         return "", 1.0, None  # (outside only between the points: the engine's count stands)
-    why = f"today's engine reads it {why}, which it never was while past the data"
-    if len(read) in (0, len(out)):
-        return why, 1.0 if read else 0.0, None
-    k = max(read, key=lambda k: abs(xs[k] - m.edge(axis, xs[k])))
-    return why, len(read) / len(out), (xs[k], times[k], times[read[0]])
+    why = f"today's engine reads it {why}: never past its data at those points"
+    if not read:
+        return why, 0.0, None
+    if len(read) == len(out) and same:
+        return why, 1.0, None
+    k, x = max(read, key=lambda r: abs(r[1] - m.edge(axis, r[1])))
+    return why, len(read) / len(out), (x, times[k], times[read[0][0]])
 
 
 # the codes of the path's notes on a run it ran: what of it the verdict does
@@ -1413,7 +1497,7 @@ def _branch_share(ctx, run, rec, el_id: str, key: str, axis: int, shown: Callabl
 NEXT_RUN = "NEW-LIVE-NEXT-RUN"  # the note's code for a live edit the run did not make
 NOTE_CODES = {NOT_JUDGED: "a table the run read past its data that today's engine does not read "
                           "there (not as a part's data, or only in a branch of its part the run "
-                          "did not take there): a note, not judged",
+                          "did not take there, or at another point): a note, not judged",
               NEXT_RUN: "a live edit the run did not make (one the new engine builds another "
                         "model for, one its checks after the run read as at the start, a table, "
                         "a structural parameter, or one too late): it takes effect on the next run"}

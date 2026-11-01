@@ -622,15 +622,20 @@ minimum or an average, for example from the CSV export, or put the
   back, or cut a consumer back, is read from the same trace, so a limit
   met for less than its step can go unsaid, and a battery management
   limit's note is not given. Its record of a table today's engine reads
-  only in one branch of the part (an E-Motor's drag table while it is
-  unpowered, its loss map's speed and its full-load curve while it is
-  powered, an engine's drag table while it is not fired or its idle
-  governor brakes) is judged for the share of the run's output points
-  past the data where the part was in that branch, and not at all, with
-  a note with the code `NEW-TABLE-NOT-JUDGED`, when it never was; a
-  short stretch in that branch between two output points is missed, and
-  a table read in a branch the list does not name (an engine's fuel
-  map, a loss map's torque axis) counts in both. A table axis set to
+  only in one branch of the part, or at another point (an E-Motor's drag
+  table while it is unpowered, its loss map and its full-load curve while
+  it is powered, an engine's drag table while it is not fired or its idle
+  governor brakes, its fuel map while it is fired, a Climate Control's
+  demand table while it asks for heat or cooling; a drag table that
+  reaches the machine's maximum speed is read at that speed above it,
+  which counts as over speed) is judged for the share of the run's
+  output points past the data where today's read is past it too, and
+  not at all, with a note with the code `NEW-TABLE-NOT-JUDGED`, when
+  there are none; a short stretch in that branch between two output
+  points is missed. Where the engine reads a table in several places
+  (an engine's fuel map at three torques) its time outside is the
+  longest of those reads', which can be less than all of them together.
+  A table axis set to
   Error stops the run wherever the engine reads it, in either branch: a
   run today's engine finishes then fails on the new engine, which says
   so (`NEW-FAILED`) and runs it on today's engine. The engine watches a

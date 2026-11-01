@@ -386,6 +386,8 @@ def test_sheets_of_different_ranges_are_refused_with_a_code(monkeypatch):
     assert result.engine == "today"
     first = result.messages[0].text
     assert "[NEW-FAILED]" in first and "do not all cover the same range" in first, first
+    # in the map's own numbers (before: the engine's padded range, -310 N·m)
+    assert "(50 to 310 on every sheet, 0 to 310 on some)" in first, first
 
 
 def test_a_cycle_run_past_its_end_is_not_judged_on_its_schedule(new, monkeypatch):
@@ -1258,9 +1260,18 @@ def test_a_record_of_an_error_axis_stops_the_new_path_as_today():
     assert new_engine.quick_failure(e.value).code == "QUICK-FAILED"
 
 
-def _share(ctx, run, rec, el_id: str, key: str):
-    return new_engine._branch_share(ctx, run, rec, el_id, key, 0,
-                                    new_engine._to_today(rec, ctx.maps[(el_id, key)].ranges[0]))
+def _share(ctx, run, rec, el_id: str, key: str, axis: int = 0):
+    return new_engine._branch_share(ctx, run, rec, el_id, key, axis,
+                                    new_engine._to_today(rec, ctx.maps[(el_id, key)].ranges[axis]))
+
+
+def _fast_motor(max_rpm: float = 20000.0) -> Project:
+    """The BEV with its E-Motor's Maximum Speed above its drag table's
+    last point (16000 1/min), so the table does not reach it."""
+    proj = load_example("bev-car")
+    motor = next(e for e in proj.systems[0].elements if e.id == "el-motor")
+    motor.parameterOverrides["max_speed_rpm"] = max_rpm
+    return proj
 
 
 @pytest.mark.parametrize("on, dem, share", [
@@ -1274,9 +1285,10 @@ def test_the_motors_drag_record_is_judged_where_it_is_unpowered(on, dem, share):
     today's unit) where the motor was unpowered (on <= 0.5, or a command of
     0): none, two of three, all. For a share below 1 the furthest point and
     the first are the unpowered points' (before: the engine's, a powered
-    point's)."""
+    point's). Its Maximum Speed is above the table's last point, so today
+    reads the table at the motor's own speed there."""
     from types import SimpleNamespace as NS
-    ctx = new_engine._context(load_example("bev-car"), "case-city")
+    ctx = new_engine._context(_fast_motor(), "case-city")
     run = NS(engine_channels={"el_motor.on": on, "el_motor.dem": dem,
                               "el_motor.wa": [100.0, 500.0, 600.0, 700.0]},
              times=[0.0, 1.0, 2.0, 3.0])
@@ -1294,7 +1306,7 @@ def test_float_noise_past_an_edge_is_not_the_branch_taken():
     not judged (before: one third of it judged, the furthest point a powered
     one's)."""
     from types import SimpleNamespace as NS
-    ctx = new_engine._context(load_example("bev-car"), "case-city")
+    ctx = new_engine._context(_fast_motor(), "case-city")
     run = NS(engine_channels={"el_motor.on": [0.0, 1.0, 1.0], "el_motor.dem": [0.0, 0.5, 0.5],
                               "el_motor.wa": [400.0 * (1 + 1e-12), 500.0, 600.0]},
              times=[0.0, 1.0, 2.0])
@@ -1348,11 +1360,207 @@ def test_the_engines_drag_record_is_judged_where_it_is_read(fired_thr, fired_idl
     from app.solver.maps import Map, MapUse
     drag = Map([(0.0, 1.0), (6000.0, 2.0)], "drag", ["clamp"],
                [MapUse("el-engine", "'Drag' table", "Speed", "1/min", 0.0)])
+    # (its maximum speed above the table's last point: read at its speed)
     ctx = NS(model=NS(cdef_of={"el-engine": NS(id="engine.combustion")}),
-             maps={("el-engine", "drag_torque"): drag})
+             maps={("el-engine", "drag_torque"): drag}, motors={},
+             engines={"el-engine": NS(speed_use=NS(edge=8000.0))})
     run = NS(engine_channels={"el_engine.wa": [700.0], "el_engine.fired_thr": [fired_thr],
                               "el_engine.fired_idle": [fired_idle], "el_engine.t_b2": [t_b2]},
              times=[1.0])
     _, got, _ = _share(ctx, run, _record("el_engine.drag_torque", 0, -600.0, 600.0),
                        "el-engine", "drag_torque")
     assert got == share
+
+
+def _hybrid_fuel_map(cut: str) -> Project:
+    """The hybrid, charge balance off, its Engine's fuel map cut (Clamp):
+    with no 0 N·m column ("torque"), or from 1000 1/min, its full-load
+    curve from 800 ("speed")."""
+    proj = load_example("hybrid-car")
+    next(c for c in proj.cases if c.id == "case-udds").chargeBalance = False
+    eng = next(e for s in proj.systems for e in s.elements if e.id == "el-engine")
+    fm = eng.parameterOverrides["fuel_map"]
+    eng.parameterOverrides["fuel_map"] = (
+        {k: {t: v for t, v in s.items() if float(t) >= 10.0} for k, s in fm.items()}
+        if cut == "torque" else {k: s for k, s in fm.items() if float(k) >= 1000.0})
+    eng.tableOutside = {"fuel_map": ["clamp", "clamp"]}
+    return proj
+
+
+@pytest.mark.parametrize("cut", ["torque", "speed"])
+def test_a_fuel_map_today_reads_only_while_fired_is_judged_as_today(new, monkeypatch, cut):
+    """The hybrid's fuel map, its data starting above where the engine reads
+    it while not fired (at 0 N·m; at 800 1/min, its full-load curve's first
+    speed): today's engine reads the map only while the engine is fired, so
+    its run succeeds, with 0.11 s (torque) and 5.6 s (speed) outside. The
+    new path's verdict is today's, and its time outside is today's to
+    within one output step (before: a warning, 1,369 s and 1,043 s past
+    the map, Fuel consumption and CO2 not valid)."""
+    proj = _hybrid_fuel_map(cut)
+    today = _today(proj, "case-udds", monkeypatch)
+    result = simulate(proj, "case-udds")
+    assert result.engine == "new"
+    assert _verdict(result) == _verdict(today) and result.status == "success", \
+        _texts(result, "warning")
+    key = f"el-engine.outside_fuel_map_{cut}_time_pct"
+    row = {s.key: s.value for s in result.summary}.get(key, 0.0)
+    old = {s.key: s.value for s in today.summary}[key]
+    step = result.channels[0].timeSeries[1]["t"] - result.channels[0].timeSeries[0]["t"]
+    assert abs(row - old) / 100.0 * 1369.0 <= step, (row, old)
+
+
+def test_a_drag_table_that_reaches_the_maximum_speed_is_not_left_above_it(new, monkeypatch):
+    """The BEV dragged past its E-Motor's Maximum Speed (8000 1/min), its
+    drag table cut so its last point is that speed: today's engine reads
+    the table there at the maximum speed, which counts as over speed, not
+    as past the table. The new path gives today's verdict and its warning,
+    with no rows of the drag table (before: 8.6 % past the table, its
+    warning in place of today's over-speed one)."""
+    proj = _dragged_past_its_maximum_speed()
+    motor = next(e for e in proj.systems[0].elements if e.id == "el-motor")
+    drag = motor.parameterOverrides["drag_torque"]
+    motor.parameterOverrides["drag_torque"] = {k: v for k, v in drag.items() if float(k) <= 8000}
+    motor.tableOutside = {"drag_torque": ["clamp"]}
+    today = _today(proj, "case-city", monkeypatch)
+    result = simulate(proj, "case-city")
+    assert _verdict(result) == _verdict(today)
+    assert not [s.key for s in result.summary if "outside_drag" in s.key]
+    past = [t for t in _texts(result, "warning") if " past its " in t]
+    assert past == [t for t in _texts(today, "warning") if " past its " in t], past
+    assert " past its maximum speed for 17 s of 200 s " in past[0]
+
+
+@pytest.mark.parametrize("max_rpm, share", [(8000.0, 0.0), (16000.0, 0.0), (20000.0, 1.0)])
+def test_a_drag_record_above_the_maximum_speed_is_over_speed(max_rpm, share):
+    """The E-Motor's drag record, unpowered past the table's last point
+    (16000 1/min): with its Maximum Speed at or below that point today's
+    engine reads the table at its maximum speed (not judged); above it, at
+    its own speed (judged). The Engine's drag table likewise, at its
+    full-load curve's last speed."""
+    from types import SimpleNamespace as NS
+    ctx = new_engine._context(_fast_motor(max_rpm), "case-city")
+    run = NS(engine_channels={"el_motor.on": [0.0, 0.0], "el_motor.dem": [0.0, 0.0],
+                              "el_motor.wa": [500.0, 600.0]}, times=[0.0, 1.0])
+    _, got, at = _share(ctx, run, _record("el_motor.drag_torque", 0, -400.0, 400.0),
+                        "el-motor", "drag_torque")
+    assert (got, at) == (share, None)
+    from app.solver.maps import Map, MapUse
+    drag = Map([(0.0, 1.0), (6000.0, 2.0)], "drag", ["clamp"],
+               [MapUse("el-engine", "'Drag' table", "Speed", "1/min", 0.0)])
+    ctx = NS(model=NS(cdef_of={"el-engine": NS(id="engine.combustion")}),
+             maps={("el-engine", "drag_torque"): drag}, motors={},
+             engines={"el-engine": NS(speed_use=NS(edge=max_rpm * 6000.0 / 16000.0))})
+    run = NS(engine_channels={"el_engine.wa": [700.0], "el_engine.fired_thr": [0.0],
+                              "el_engine.fired_idle": [0.0], "el_engine.t_b2": [0.0]},
+             times=[1.0])
+    _, got, _ = _share(ctx, run, _record("el_engine.drag_torque", 0, -600.0, 600.0),
+                       "el-engine", "drag_torque")
+    assert got == share
+
+
+_UNFIRED = {"el_engine.fired_thr": 0.0, "el_engine.fired_idle": 0.0, "el_engine.t_b1": 50.0,
+            "el_engine.t_b2": 20.0, "el_engine.n_map": 800 * math.pi / 30}
+
+
+@pytest.mark.parametrize("axis, over, share, at", [
+    (1, {}, 0.0, None),  # not fired: the engine reads 0 N·m, today not at all
+    (1, {"el_engine.fired_thr": 1.0}, 0.0, None),  # fired at 50 N·m: inside
+    (1, {"el_engine.fired_thr": 1.0, "el_engine.t_b1": 5.0}, 1.0, (5.0, 1.0, 1.0)),
+    (1, {"el_engine.fired_idle": 1.0, "el_engine.t_b2": -3.0}, 1.0, (0.0, 1.0, 1.0)),  # brakes
+    (1, {"el_engine.fired_idle": 1.0}, 0.0, None),  # the governor drives at 20 N·m
+    (0, {}, 0.0, None),  # not fired: at 800 1/min, past the map from 1000
+    (0, {"el_engine.fired_idle": 1.0}, 1.0, None),  # fired there: the engine's own read
+])
+def test_the_engines_fuel_map_record_is_judged_where_it_is_read(axis, over, share, at):
+    """The combustion engine's fuel map: today's engine reads it only while
+    fired, with throttle at its torque, by the idle governor at its torque
+    or at 0 N·m while it brakes; the engine reads it at all three torques
+    at every point. A record is judged for the share of the points past
+    the data where today's read is past it too, at today's point (before:
+    every record judged in full)."""
+    from types import SimpleNamespace as NS
+    ctx = new_engine._context(_hybrid_fuel_map("speed" if axis == 0 else "torque"), "case-udds")
+    run = NS(engine_channels={k: [x] for k, x in {**_UNFIRED, **over}.items()}, times=[1.0])
+    rec = (_record("el_engine.fuel_map", 1, 10.0, 150.0) if axis else
+           _record("el_engine.fuel_map", 0, 1000 * math.pi / 30, 6000 * math.pi / 30))
+    rec["edge"] = rec["lo"]
+    why, got, where = _share(ctx, run, rec, "el-engine", "fuel_map", axis)
+    assert (got, where) == (share, at) and "only while the engine is fired" in why
+
+
+@pytest.mark.parametrize("powered, share", [(True, 1.0), (False, 0.0)])
+def test_the_motors_loss_map_torque_record_is_judged_where_it_is_read(powered, share):
+    """The E-Motor's loss map from 10 N·m: today's engine reads it only while
+    the motor is powered, at its torque; the engine reads it at the
+    command's torque too, 0 at a command of 0 (before: judged in full
+    while unpowered)."""
+    from types import SimpleNamespace as NS
+    proj = load_example("bev-car")
+    motor = next(e for e in proj.systems[0].elements if e.id == "el-motor")
+    loss = motor.parameterOverrides["power_loss"]
+    motor.parameterOverrides["power_loss"] = {
+        k: {t: v for t, v in s.items() if float(t) >= 10.0} for k, s in loss.items()}
+    ctx = new_engine._context(proj, "case-city")
+    ch = ({"on": 1.0, "dem": 0.1, "t_cmd": 5.0, "T": 5.0} if powered else
+          {"on": 0.0, "dem": 0.0, "t_cmd": 0.0, "T": -0.3})
+    run = NS(engine_channels={f"el_motor.{k}": [x] for k, x in ch.items()}, times=[1.0])
+    rec = {**_record("el_motor.power_loss", 1, 10.0, 310.0), "edge": 10.0, "furthest": 0.0}
+    _, got, _ = _share(ctx, run, rec, "el-motor", "power_loss", 1)
+    assert got == share
+
+
+@pytest.mark.parametrize("q, share", [(0.0, 0.0), (1500.0, 1.0)])
+def test_the_climate_demand_record_is_judged_where_it_is_read(q, share):
+    """A Climate Control's demand table read past its data at -30 °C (its
+    data from -20 °C): today's engine reads it only while the control is on
+    and asks for heat or cooling there; the engine at every point (before:
+    judged in full while off)."""
+    from types import SimpleNamespace as NS
+    ctx = new_engine._context(load_example("bev-car"), "case-city")
+    run = NS(engine_channels={"el_climate.t_out_c": [-30.0], "el_climate.q": [q]}, times=[1.0])
+    rec = {**_record("el_climate.demand_table", 0, -20.0, 40.0), "edge": -20.0,
+           "furthest": -30.0}
+    _, got, _ = _share(ctx, run, rec, "el-climate", "demand_table")
+    assert got == share
+
+
+def test_the_records_of_one_axis_are_one_of_today_s():
+    """The engine keeps a record for each place a part reads a table; two
+    of the E-Motor's drag table are one of today's: the longest time
+    outside, the earliest first time, the furthest point, said once
+    (before: the last record's time and point, and a note for each)."""
+    from types import SimpleNamespace as NS
+    ctx = new_engine._context(load_example("bev-car"), "case-city")
+    hi = 16000.0 * math.pi / 30.0
+    a = {**_record("el_motor.drag_torque", 0, 0.0, hi), "part": "el-motor", "total": 30.0,
+         "first": 7.0, "furthest": 1.5 * hi, "t_furthest": 9.0}
+    b = {**a, "total": 10.0, "first": 3.0, "furthest": 1.25 * hi, "t_furthest": 4.0}
+    messages: list = []
+    new_engine._tables(ctx, NS(table_outside=[a, b], engine_channels={}, times=[]), messages)
+    use = next(u for u in ctx.map_use if u.el_id == "el-motor" and u.table == "drag_torque")
+    assert (use.outside_s, use.t) == (30.0, 9.0)
+    assert (use.value, use.edge) == (pytest.approx(24000.0), pytest.approx(16000.0))
+    assert len(messages) == 1 and "from t = 3.00 s" in messages[0].text, messages
+
+
+@pytest.mark.parametrize("quick", [False, True])
+def test_a_climate_table_read_where_it_asks_for_nothing_is_not_judged(new, monkeypatch, quick):
+    """The BEV's Climate Control demand table cut to 24 °C and up (0 kW
+    there), the city's Ambient below it: today's engine reads the table
+    only while it asks for heating or cooling, so its run succeeds. The new
+    path and quick mode give today's success, nothing not valid, and a
+    note with its code (before: a warning, 600 s past the table, the
+    consumptions not valid)."""
+    proj = load_example("bev-car")
+    clim = next(e for e in proj.systems[0].elements if e.id == "el-climate")
+    clim.parameterOverrides["demand_table"] = {
+        k: v for k, v in clim.parameterOverrides["demand_table"].items() if float(k) >= 24.0}
+    today = _today(proj, "case-city", monkeypatch)
+    assert today.status == "success"
+    if quick:
+        next(c for c in proj.cases if c.id == "case-city").mode = "quick"
+    result = simulate(proj, "case-city")
+    assert result.engine == "new"
+    assert result.status == "success" and not [s.key for s in result.summary if s.notValid]
+    notes = [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
+    assert len(notes) == 1 and notes[0].startswith("'Climate Control' demand_table:"), notes

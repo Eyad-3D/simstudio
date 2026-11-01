@@ -264,8 +264,15 @@ impl Table1 {
     }
 }
 
+/// The refusal of a 2-D table whose sheets' inner ranges differ.
+const UNEVEN: &str = "its sheets do not all cover the same range of its second axis";
+const WHY: &str = ": today's engine counts a read outside the narrowest as outside the data, \
+                   which the new engine does not watch; give every sheet the same first and last \
+                   point";
+
 impl Table2 {
-    /// From today's JSON `{outer: {inner: value}}`.
+    /// From today's JSON `{outer: {inner: value}}`. Sheets whose inner
+    /// ranges differ are refused ([`Table2::grid_data`]).
     pub fn from_json(v: &Value, outer: Outside, inner: Outside) -> Result<Table2, String> {
         let obj = v.as_object().ok_or("a 2-D table must be an {x: {y: value}} object")?;
         if obj.is_empty() {
@@ -278,11 +285,25 @@ impl Table2 {
             sheets.push((x, Table1::from_json(row, inner)?));
         }
         sheets.sort_by(|a, b| a.0.total_cmp(&b.0));
-        Ok(Table2 {
+        let t = Table2 {
             outer: sheets.iter().map(|s| s.0).collect(),
             sheets: sheets.into_iter().map(|s| s.1).collect(),
             outer_outside: outer,
-        })
+        };
+        // (checked here, on the data as given: grid_data sees them scaled
+        // to SI and padded, which a message should not show)
+        if let (Some((lo, hi)), Some((a, b))) = (t.inner_range(), t.inner_span())
+            && (lo, hi) != (a, b)
+        {
+            return Err(format!("{UNEVEN} ({lo} to {hi} on every sheet, {a} to {b} on some){WHY}"));
+        }
+        Ok(t)
+    }
+
+    /// The lowest and highest inner point of any sheet.
+    fn inner_span(&self) -> Option<(f64, f64)> {
+        let xs = self.sheets.iter().flat_map(|s| s.x.iter().copied());
+        xs.fold(None, |r, x| Some(r.map_or((x, x), |(a, b): (f64, f64)| (a.min(x), b.max(x)))))
     }
 
     /// Every outer abscissa × ko, inner × ki, value × kv.
@@ -371,15 +392,9 @@ impl Table2 {
                     inner.push(b + 1.0);
                     inner_outside = Outside::Clamp;
                 }
-                Some((lo, hi)) if (lo, hi) != (a, b) => {
-                    return Err(format!(
-                        "its sheets do not all cover the same range of its second axis \
-                         ({lo} to {hi} on every sheet, {a} to {b} on some): today's \
-                         engine counts a read outside the narrowest as outside the data, which \
-                         the new engine does not watch; give every sheet the same first and last \
-                         point"
-                    ));
-                }
+                // (from_json refused such data with its own numbers; these
+                // are scaled and padded, so none is shown)
+                Some((lo, hi)) if (lo, hi) != (a, b) => return Err(format!("{UNEVEN}{WHY}")),
                 Some(_) => {}
             }
         }
@@ -530,9 +545,26 @@ mod tests {
     fn sheets_of_different_inner_ranges_are_refused() {
         // today counts a read outside the narrowest: the grid's edge is the widest
         let json = serde_json::json!({"0": {"0": 1.0, "300": 2.0}, "100": {"50": 1.0, "300": 2.0}});
-        let t = Table2::from_json(&json, Outside::Clamp, Outside::Clamp).unwrap();
-        let e = t.grid_data(["rad/s", "N.m"]).unwrap_err();
-        assert!(e.contains("50 to 300 on every sheet, 0 to 300 on some"), "{e}");
+        let e = Table2::from_json(&json, Outside::Clamp, Outside::Clamp).unwrap_err();
+        assert!(e.contains("(50 to 300 on every sheet, 0 to 300 on some)"), "{e}");
+        // said in the data's own numbers, not scaled to SI and padded below
+        // 0 as the grid sees them (before: "-300 to 300", in rad/s)
+        let json =
+            serde_json::json!({"1000": {"0": 1.0, "300": 2.0}, "2000": {"10": 1.0, "300": 2.0}});
+        let e = Table2::from_json(&json, Outside::Clamp, Outside::Clamp).unwrap_err();
+        assert!(e.contains("(10 to 300 on every sheet, 0 to 300 on some)"), "{e}");
+        let even =
+            serde_json::json!({"1000": {"0": 1.0, "300": 2.0}, "2000": {"0": 1.0, "300": 2.0}});
+        let mut t = Table2::from_json(&even, Outside::Clamp, Outside::Clamp).unwrap();
+        t.sheets[1] = Table1::from_points(vec![(10.0, 1.0), (300.0, 2.0)], Outside::Clamp);
+        let e =
+            t.scaled(0.1, 2.0, 1.0).padded((None, None), (Some(0.0), None)).grid_data(["1", "1"]);
+        let e = e.unwrap_err();
+        assert!(
+            e.starts_with("its sheets do not all cover the same range of its second axis:"),
+            "{e}"
+        );
+        assert!(!e.contains("-600") && !e.contains("600 on"), "{e}");
         // a sheet of one point inside the others' range is no wider
         let json = serde_json::json!({"0": {"0": 1.0, "300": 2.0}, "100": {"50": 1.0}});
         assert!(

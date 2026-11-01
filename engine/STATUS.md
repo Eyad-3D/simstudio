@@ -37,8 +37,10 @@ a distance or a lap count runs in full: QUICK-END; a table axis set to
 Error read past its data stops fast mode as a full run, FAST-TABLE-ERROR,
 and the case runs in full with QUICK-FAILED) (step 2's item 5,
 1 November). A table today's engine reads only in one branch of its part
-(an E-Motor's drag table while unpowered) is judged on the path for the
-share of the run's points in that branch, and not at all when there are
+(an E-Motor's drag table while unpowered, an engine's fuel map while
+fired), or at another point (a drag table that reaches the maximum speed,
+at that speed above it), is judged on the path for the share of the run's
+points where today's read is past the data, and not at all when there are
 none. The engine watches a table at the edges of its own data (padded only
 past an end its argument never reaches), a table of one point is a
 constant and float noise at an edge is inside, as today's; a 2-D table
