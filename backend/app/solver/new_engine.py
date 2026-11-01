@@ -431,6 +431,8 @@ def failure(e: Exception) -> Refusal:
         return Refusal("NEW-BUILD", "today's model builder refused it")
     if isinstance(e, TextFileError):
         return Refusal("NEW-TEXT", str(e))
+    if isinstance(e, TableError):
+        return Refusal("NEW-FAILED", f"the new engine's run read a table past an Error axis ({e})")
     return Refusal("NEW-ERROR", f"{type(e).__name__} in the new engine's path")
 
 
@@ -1267,21 +1269,29 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
     mapped onto today's), each said once as today's engine says it. A
     record of a table today's engine does not read as a part's data (a
     Driving Task's schedule) is not judged: a note with its code says so
-    (NOT_JUDGED)."""
+    (NOT_JUDGED); so is one of a table today's engine reads only in a
+    branch of its part (BRANCH_READS) the run never took while outside
+    its data. A record of an axis set to Error stops the run, as today's
+    engine stops there (TableError: the engine stops a run first)."""
     for rec in run.table_outside:
         el_id, key, axis = rec["part"], rec["table"].rsplit(".", 1)[-1], int(rec["axis"])
         if el_id is None:
             continue
         uses = [u for u in ctx.map_use if u.el_id == el_id and u.table == key]
         m = ctx.maps.get((el_id, key))
-        if axis >= len(uses):
+        why, share = ("today's engine does not read it as a part's data", 0.0) if axis >= len(
+            uses) else _branch_share(ctx, run, rec, el_id, key, axis)
+        if share <= 0.0:
             messages.append(SimMessage(level="info", text=(
                 f"'{ctx.model.elements[el_id].label}' {key}: the new engine read it past its data "
                 f"on axis {axis + 1} for {float(rec['total']):g} s from t = "
                 f"{float(rec['first']):.2f} s (to {float(rec['furthest']):g} against its edge "
-                f"{float(rec['edge']):g}, in the engine's units); today's engine does not read "
-                f"it as a part's data, so the verdict does not judge it [{NOT_JUDGED}].")))
+                f"{float(rec['edge']):g}, in the engine's units); {why}, so the verdict does not "
+                f"judge it [{NOT_JUDGED}].")))
             continue
+        if m is not None and axis in m.error_axes:
+            raise TableError(f"{m.name}: read past its data at t = {float(rec['first']):.2f} s on "
+                             f"its {uses[axis].axis} axis, which is set to stop the run (Error)")
         use = uses[axis]
         lo, hi = rec["lo"], rec["hi"]
         rng = m.ranges[axis] if m is not None and axis < len(m.ranges) else None
@@ -1298,7 +1308,7 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
             return x * rng[0] / lo if _finite(lo) and lo != 0 else x
         edge = rec["edge"] if _finite(rec["edge"]) else (hi if _finite(hi) else math.nan)
         far = rec["furthest"] if _finite(rec["furthest"]) else edge
-        use.outside_s = float(rec["total"])
+        use.outside_s = float(rec["total"]) * share
         use.edge, use.value = shown(edge), shown(far)
         use.t = float(rec["t_furthest"]) if _finite(rec["t_furthest"]) else float(rec["first"])
         how = ("its edge slope is extended" if m is not None and axis < len(m.linear)
@@ -1313,12 +1323,62 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
 # the note's code for a table record the verdict does not judge (_tables)
 NOT_JUDGED = "NEW-TABLE-NOT-JUDGED"
 
+
+class TableError(Exception):
+    """A table record of an axis set to Error (_tables): the run it came
+    from read past data that stops today's run."""
+
+
+# the tables today's engine reads only in one branch of its part, which the
+# engine's table guards watch in every branch (they read a table's argument
+# at every point): (component, table) -> (the branch, from the part's
+# variables at a point; the variable each axis reads there, None: judged)
+BRANCH_READS = {
+    ("motor.emotor", "drag_torque"): (
+        "only while the motor is unpowered", lambda v: v["on"] <= 0.5, ("wa",)),
+    ("motor.emotor", "power_loss"): (
+        "only while the motor is powered", lambda v: v["on"] > 0.5, ("wa", None)),
+    ("motor.emotor", "full_load_torque"): (
+        "only while the motor is powered", lambda v: v["on"] > 0.5, ("v", "wa")),
+    ("engine.combustion", "drag_torque"): (
+        "only while the engine is not fired or its idle governor brakes",
+        lambda v: v["fired_thr"] <= 0.5 and (v["fired_idle"] <= 0.5 or v["t_b2"] < 0.0), ("wa",)),
+}
+
+
+def _branch_share(ctx, run, rec, el_id: str, key: str, axis: int) -> tuple[str, float]:
+    """The share of a table record's time outside its data that today's
+    engine would count, when it reads the table only in a branch
+    (BRANCH_READS): of the run's points where the axis was past the data
+    (lo, hi: the engine's units), those where the branch was taken; 1 for
+    any other table, or when the run does not say. With why, for a share
+    of 0 (the record is then not judged)."""
+    # ponytail: the share at the run's output points scales the engine's
+    # dense count; the furthest point stays the engine's, in either branch
+    rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, key))
+    if rule is None or axis >= len(rule[2]) or rule[2][axis] is None:
+        return "", 1.0
+    why, taken, args = rule
+    prefix, ch = rec["table"].rsplit(".", 1)[0], run.engine_channels
+    lo, hi = float(rec["lo"]), float(rec["hi"])
+    try:
+        cols = {n[len(prefix) + 1:]: v for n, v in ch.items() if n.startswith(prefix + ".")}
+        out = [k for k, x in enumerate(cols[args[axis]]) if not lo <= float(x) <= hi]
+        read = sum(1 for k in out if taken({n: float(c[k]) for n, c in cols.items()}))
+    except (KeyError, IndexError, TypeError, ValueError):
+        return "", 1.0
+    if not out:
+        return "", 1.0  # (outside only between the points: the engine's count stands)
+    return f"today's engine reads it {why}, which it never was while past the data", read / len(out)
+
+
 # the codes of the path's notes on a run it ran: what of it the verdict does
 # not judge, and the live edits it did not make
 # (benchmarks/back_to_back/acceptance.toml's [note_codes])
 NEXT_RUN = "NEW-LIVE-NEXT-RUN"  # the note's code for a live edit the run did not make
 NOTE_CODES = {NOT_JUDGED: "a table the run read past its data that today's engine does not read "
-                          "as a part's data: a note, not judged",
+                          "there (not as a part's data, or only in a branch of its part the run "
+                          "did not take there): a note, not judged",
               NEXT_RUN: "a live edit the run did not make (one the new engine builds another "
                         "model for, one its checks after the run read as at the start, a table, "
                         "a structural parameter, or one too late): it takes effect on the next run"}

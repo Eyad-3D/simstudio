@@ -3235,7 +3235,11 @@ against exact answers from `benchmarks/`.
   (`SolverReport::table_outside`, today's summary rows, note and verdict,
   for a table today's engine reads as a part's data; a record of another,
   a Driving Task's schedule, is a note with the code
-  `NEW-TABLE-NOT-JUDGED`, not judged). Today's warnings that a supply
+  `NEW-TABLE-NOT-JUDGED`, not judged; a table today's engine reads only
+  in one branch of its part, `new_engine.BRANCH_READS`, is judged for the
+  share of the output points past its data where the part was in that
+  branch, and is that note when it never was; a record of an axis set to
+  Error stops the path, `NEW-FAILED`, as the engine stops a run there). Today's warnings that a supply
   held the car back (a battery at its maximum-power point, full or at its
   Max Charge Power; a fuel cell at its maximum power or taking nothing
   back; a bus with no source; a consumer cut back) come from the trace
@@ -3478,8 +3482,9 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   points (each table read's argument evaluated at each step's end, a
   crossing placed on the line between two). Refusals are `ModelError`s:
   `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL` (the import's), `FAST-SAMPLED`
-  (any other sampled part: fast mode is given no host) and `FAST-RUN`
-  (the run stopped). The app's quick mode (below) runs on it.
+  (any other sampled part: fast mode is given no host),
+  `FAST-TABLE-ERROR` (a table axis set to Error read outside its data,
+  where a full run stops) and `FAST-RUN` (the run stopped). The app's quick mode (below) runs on it.
 * **The run's evidence** (step 2's evidence part): `simulate(...,
   trace=[names], trace_step=0.1)` samples channels (today's `element:port`,
   in their display units) or engine variables (SI) from the dense output

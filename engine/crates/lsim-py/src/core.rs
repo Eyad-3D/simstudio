@@ -726,8 +726,10 @@ pub struct FastOut {
 /// A case with no cycle to prescribe (an acceleration test, no Driver or
 /// Driving Task) fails `FAST-NO-CYCLE`, one whose pedal a sampled block
 /// reads `FAST-SAMPLED-CONTROL`, one with any other sampled block
-/// `FAST-SAMPLED` (fast mode is given no host for one), and a run that
-/// stops `FAST-RUN`, each in the engine's words.
+/// `FAST-SAMPLED` (fast mode is given no host for one), a run that reads
+/// a table axis set to Error outside its data `FAST-TABLE-ERROR` (a full
+/// run stops there), and a run that stops `FAST-RUN`, each in the engine's
+/// words.
 pub fn fast(
     project_json: &str,
     case_id: &str,
@@ -794,7 +796,7 @@ pub fn fast(
             wall_seconds,
             energy: None,
             report: lsim_solve::SolverReport {
-                table_outside: fast_table_outside(&model, &r),
+                table_outside: fast_table_outside(&model, &r)?,
                 ..Default::default()
             },
         };
@@ -828,11 +830,12 @@ pub fn fast(
 /// read's axis argument evaluated there against the axis's first and last
 /// point, the time between two points it was outside counted, a crossing
 /// placed on the line between them; the furthest outside is the furthest
-/// at a point.
+/// at a point. An axis set to Error read outside its data stops fast mode
+/// as it stops a full run: `FAST-TABLE-ERROR`, at the first such crossing.
 fn fast_table_outside(
     model: &lsim_engine::Model,
     r: &lsim_engine::lsim_fast::FastResult,
-) -> Vec<lsim_solve::TableOutside> {
+) -> Result<Vec<lsim_solve::TableOutside>, Failure> {
     use lsim_ir::flat::{ParamId, VarId};
     use lsim_ir::runtime::ModelFunctions;
     struct Point<'a> {
@@ -861,7 +864,7 @@ fn fast_table_outside(
     let info = &model.info;
     let guards = model.jit.table_guard_list();
     if guards.len() != info.table_args.len() {
-        return vec![];
+        return Ok(vec![]);
     }
     let (n_vars, n) = (info.var_names.len(), r.names.len());
     let rows: Vec<Vec<f64>> = (0..r.times.len())
@@ -876,6 +879,7 @@ fn fast_table_outside(
         })
         .collect();
     let mut out = vec![];
+    let mut stop: Option<(f64, String)> = None;
     for (g, (table, arg)) in guards.iter().zip(&info.table_args) {
         let k_t = g.table as usize;
         let points = match info.table_axes.get(k_t) {
@@ -925,9 +929,22 @@ fn fast_table_outside(
             continue;
         }
         let name = info.table_names.get(k_t).cloned().unwrap_or_default();
+        let which = if g.axis == 0 { "first" } else { "second" };
+        if g.outside == lsim_ir::table::Outside::Error {
+            if stop.as_ref().is_none_or(|(t, _)| first < *t) {
+                stop = Some((
+                    first,
+                    format!(
+                        "Fast mode stopped at t = {first:.6} s: the table '{name}' was read \
+                         outside its data on its {which} axis, which allows no values outside \
+                         (outside = Error): widen the table or keep the operating point inside it"
+                    ),
+                ));
+            }
+            continue;
+        }
         let warning = format!(
-            "the table '{name}' was read outside its data on its {} axis for {total:.6} s, first at t = {first:.6} s",
-            if g.axis == 0 { "first" } else { "second" }
+            "the table '{name}' was read outside its data on its {which} axis for {total:.6} s, first at t = {first:.6} s"
         );
         out.push(lsim_solve::TableOutside {
             table: name,
@@ -942,7 +959,10 @@ fn fast_table_outside(
             warning,
         });
     }
-    out
+    match stop {
+        Some((_, message)) => Err(model_error("FAST-TABLE-ERROR", message)),
+        None => Ok(out),
+    }
 }
 
 /// A run's sampled blocks' hosts.

@@ -1215,7 +1215,9 @@ fn part_text(py: Python<'_>, project_json: &str, case_id: &str, element: &str) -
 /// Refused with a ModelError: `FAST-NO-CYCLE` (no cycle to prescribe: an
 /// acceleration test, no Driver or Driving Task),
 /// `FAST-SAMPLED-CONTROL` (a sampled block reads the pedal), `FAST-SAMPLED` (any other sampled block: fast
-/// mode is given no host for one), `FAST-RUN` (the run stopped). `texts`
+/// mode is given no host for one), `FAST-TABLE-ERROR` (a table axis set to
+/// Error read outside its data: a full run stops there), `FAST-RUN` (the
+/// run stopped). `texts`
 /// as `build`'s. The GIL is released.
 #[pyfunction]
 #[pyo3(signature = (project_json, case_id, cycles_dir=None, step=None, texts=None))]

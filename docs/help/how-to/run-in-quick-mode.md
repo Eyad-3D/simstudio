@@ -50,7 +50,10 @@ come out up to 1.8 % and 1.4 % lower than the full run's (measured on
   It does make today's checks of what the run read: an Ambient outside the
   usual air, and a table read past its data (once a second, at its
   points) for longer than the run allows, which marks the consumptions,
-  MPGe and the range not valid as a full run does.
+  MPGe and the range not valid as a full run does. A table whose axis is
+  set to *Error* read past its data stops fast mode as it stops a full
+  run: the case runs in full instead (`QUICK-FAILED`, with
+  `FAST-TABLE-ERROR`), and fails there as today's run does.
 - **No checks of the motion.** The wheels lifting off the road, an
   E-Motor with no live supply and a supply limit holding a motor back are
   not told as a full run tells them; fast mode flags a limit instead (see
@@ -78,7 +81,7 @@ starts *Not run in quick mode* and gives a code:
 | `QUICK-LIMITS` | a value outside its parameter's limits (a study's point can hold one) |
 | `QUICK-MISSING` | the new engine is not installed |
 | `QUICK-BUILD` | the model could not be built, or a text component's file could not be read |
-| `QUICK-FAILED` | the new engine's fast mode refused the case or stopped; its own codes follow (`FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, …) |
+| `QUICK-FAILED` | the new engine's fast mode refused the case or stopped; its own codes follow (`FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, `FAST-TABLE-ERROR` for a table whose axis is set to Error read past its data, where a full run stops too, …) |
 | `QUICK-NOT-FOUND` | the case is not in the project |
 | `QUICK-ERROR` | a fault of LightSim's own: please report it |
 

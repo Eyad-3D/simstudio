@@ -145,8 +145,9 @@ Fast mode on a drive-cycle case: `run = le.fast(project_json, case_id)`
 gives a `Run` with today's channels and figures over the cycle at 1 s
 steps (`step=`), its flags in `run.report["fast"]["flags"]` and the tables
 it read past their data in `run.table_outside` (from its points); it refuses
-with `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, `FAST-SAMPLED` or
-`FAST-RUN`.
+with `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, `FAST-SAMPLED`,
+`FAST-TABLE-ERROR` (a table axis set to Error read outside its data, as a
+full run stops there) or `FAST-RUN`.
 
 `tests/test_api.py` builds such a function from the app's Script runner
 (`backend/app/solver/sandbox_worker.py`'s `_run_step`, as the app calls

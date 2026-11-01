@@ -621,11 +621,21 @@ minimum or an average, for example from the CSV export, or put the
   speed (0.01 s in an acceleration test); which supply limit held the car
   back, or cut a consumer back, is read from the same trace, so a limit
   met for less than its step can go unsaid, and a battery management
-  limit's note is not given. A table it reads past its data in a branch
-  of its equations the run does not take (the E-Motor's drag table while
-  the motor is powered) still counts as read past, so the run can warn
-  where today's does not; a Driving Task's profile run past its end is
-  not judged, and a note with the code `NEW-TABLE-NOT-JUDGED` says so.
+  limit's note is not given. Its record of a table today's engine reads
+  only in one branch of the part (an E-Motor's drag table while it is
+  unpowered, its loss map's speed and its full-load curve while it is
+  powered, an engine's drag table while it is not fired or its idle
+  governor brakes) is judged for the share of the run's output points
+  past the data where the part was in that branch, and not at all, with
+  a note with the code `NEW-TABLE-NOT-JUDGED`, when it never was; a
+  short stretch in that branch between two output points is missed, and
+  a table read in a branch the list does not name (an engine's fuel
+  map, a loss map's torque axis) counts in both. A table axis set to
+  Error stops the run wherever the engine reads it, in either branch: a
+  run today's engine finishes then fails on the new engine, which says
+  so (`NEW-FAILED`) and runs it on today's engine. A Driving Task's
+  profile run past its end is not judged, and a note with the code
+  `NEW-TABLE-NOT-JUDGED` says so.
   Its Driver can ask a motor for more recuperation than its supply
   takes, where today's never asks it: the run then says the charging was
   held back, or, on a fuel cell, which takes nothing back, that it cannot
@@ -687,7 +697,10 @@ minimum or an average, for example from the CSV export, or put the
   limit band or hand checks, and no live view (Stop, live edits and pacing
   do nothing). Of today's run-time checks it makes the Ambient's (air
   outside the usual) and the tables' (one read past its data, from its
-  points once a second, marks the consumptions not valid); the wheels
+  points once a second, marks the consumptions not valid; one whose axis
+  is set to Error stops fast mode, `FAST-TABLE-ERROR`, and the case runs
+  in full with `QUICK-FAILED`, even where only a branch the run does not
+  take reads it, as on the new engine's full run); the wheels
   lifting, an E-Motor with no live supply and the supply limits' warnings
   are not told. A limit the car would have met is flagged as a warning, not
   acted on, so the totals then take more than the car could give. On the

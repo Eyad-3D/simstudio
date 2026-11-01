@@ -187,3 +187,69 @@ def test_quick_mode_says_the_model_builders_warnings():
     q = simulate(project, CITY)
     assert q.engine == "new" and q.status == "warning"
     assert any(t.startswith("Only the first Ambient") for t in _said(q)), _said(q)
+
+
+def _cut(project, case_id: str, key: str, axis: int, last: float) -> None:
+    """The case's E-Motor table ``key`` cut to its points up to ``last`` on
+    ``axis`` (0: the outer, 1: a 2D table's inner)."""
+    case = next(c for c in project.cases if c.id == case_id)
+    motor = next(e for e in project.systems[0].elements if e.id == "el-motor")
+    table = motor.parameterOverrides[key]
+    cut = ({k: v for k, v in table.items() if float(k) <= last} if axis == 0
+           else {k: {x: y for x, y in v.items() if float(x) <= last} for k, v in table.items()})
+    case.parameterOverrides.setdefault("el-motor", {})[key] = cut
+
+
+@needs_engine
+@pytest.mark.parametrize("axis, last", [(0, 4000.0), (1, 50.0)], ids=["speed", "torque"])
+def test_a_table_axis_set_to_error_read_past_its_data_is_not_run_in_quick_mode(monkeypatch, axis, last):
+    """The BEV's E-Motor Power Loss map, both of whose axes are set to
+    Error, cut to 4000 1/min (its Speed axis) or to 50 N·m (its Torque
+    axis), on the WLTC: today's full run stops there and fails. Fast mode
+    stops there too (FAST-TABLE-ERROR): the case runs in full with
+    QUICK-FAILED and fails as today's does, in its words; strict mode fails
+    with the code (before: the whole cycle's totals as a warning, strict
+    too)."""
+    wltc = "case-wltc"
+    project = _quick("bev-car", wltc)
+    _cut(project, wltc, "power_loss", axis, last)
+    q = simulate(project, wltc)
+    first = q.messages[0].text
+    assert first.startswith("Not run in quick mode [QUICK-FAILED]") and "FAST-TABLE-ERROR" in first
+    next(c for c in project.cases if c.id == wltc).mode = "full"
+    today = simulate(project, wltc)
+    assert today.engine == "today" and today.status == "failed"
+    stop = [t for t in _said(today) if "set to stop the run (Error)" in t]
+    assert len(stop) == 1 and stop[0] in _said(q)
+    assert q.status == "failed"
+    assert {s.key: s.value for s in q.summary} == {s.key: s.value for s in today.summary}
+    next(c for c in project.cases if c.id == wltc).mode = "quick"
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    strict = simulate(project, wltc)
+    assert strict.status == "failed" and not strict.channels
+    assert "[QUICK-FAILED]" in strict.messages[0].text
+    assert "FAST-TABLE-ERROR" in strict.messages[0].text
+
+
+@needs_engine
+@pytest.mark.parametrize("case_id", [CITY, "case-wltc"])
+def test_a_table_today_reads_only_while_unpowered_is_not_judged_in_quick_mode(case_id):
+    """The BEV's E-Motor Drag Torque (unpowered) table cut to 4000 1/min:
+    today's engine reads it only while the motor is unpowered, which on
+    these cycles it never is that fast, and passes the run. Quick mode
+    gives today's verdict: no warning, no row not valid, the references
+    graded as today's; a note with NEW-TABLE-NOT-JUDGED says the record is
+    not judged and why (before: a warning, the consumptions not valid)."""
+    project = _quick("bev-car", case_id)
+    _cut(project, case_id, "drag_torque", 0, 4000.0)
+    q = simulate(project, case_id)
+    assert q.engine == "new"
+    next(c for c in project.cases if c.id == case_id).mode = "full"
+    today = simulate(project, case_id)
+    assert today.engine == "today" and today.status == "success"
+    assert q.status == "success", _said(q)
+    assert not [s.key for s in q.summary if s.notValid]
+    graded = {r.label: r.grade for r in today.references}
+    assert [r.grade for r in q.references] == [graded[r.label] for r in q.references]
+    notes = [m.text for m in q.messages if f"[{new_engine.NOT_JUDGED}]" in m.text]
+    assert len(notes) == 1 and "only while the motor is unpowered" in notes[0], notes

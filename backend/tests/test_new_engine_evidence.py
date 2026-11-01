@@ -278,18 +278,25 @@ def test_a_table_read_past_its_data_is_judged(new, monkeypatch):
     assert not [t for t in _texts(result) if "demand_table" in t], "the record told twice"
 
 
-@pytest.mark.xfail(strict=True, reason="the engine's table guards count a read in a branch the run "
-                                       "does not take (the E-Motor's drag table while it is powered)")
-def test_a_table_read_only_in_a_branch_not_taken_is_not_judged(new, monkeypatch):
-    """The BEV's E-Motor drag table cut at 6000 1/min on the WLTC: today's
-    engine reads it only while the motor is unpowered, below 6000 1/min, and
-    passes the run; the engine's guard counts the read while it is powered
-    too (548 s past it) and the verdict warns. Today's verdict is the
-    judge."""
+@pytest.mark.parametrize("case_id", ["case-city", "case-wltc"])
+def test_a_table_read_only_in_a_branch_not_taken_is_not_judged(new, monkeypatch, case_id):
+    """The BEV's E-Motor drag table cut at 6000 1/min (and at 4000 on the
+    city cycle): today's engine reads it only while the motor is
+    unpowered, below that speed, and passes the run; the engine's guard
+    counts the read while it is powered too (548 s past it on the WLTC),
+    which the verdict judged (before: a warning, the consumptions not
+    valid). Today's verdict is the judge; a note with its code says the
+    record is not judged."""
     proj = load_example("bev-car")
     motor = next(e for e in proj.systems[0].elements if e.id == "el-motor")
-    motor.parameterOverrides["drag_torque"] = {"0": 0.0, "3000": 0.7, "6000": 0.8}
-    assert _verdict(simulate(proj, "case-wltc")) == _verdict(_today(proj, "case-wltc", monkeypatch))
+    motor.parameterOverrides["drag_torque"] = (
+        {"0": 0.0, "3000": 0.7, "6000": 0.8} if case_id == "case-wltc"
+        else {"0": 0.0, "2000": 0.6, "4000": 0.7})
+    result = simulate(proj, case_id)
+    assert _verdict(result) == _verdict(_today(proj, case_id, monkeypatch))
+    assert result.status == "success", _texts(result, "warning")
+    notes = [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
+    assert len(notes) == 1 and notes[0].startswith("'E-Motor' drag_torque:"), notes
 
 
 def test_a_cycle_run_past_its_end_is_not_judged_on_its_schedule(new, monkeypatch):
@@ -1121,3 +1128,75 @@ def test_a_preparation_note_that_is_not_a_warning_is_a_note(new, monkeypatch):
     result = simulate(load_example("bev-car"), "case-city")
     assert "Preparation note [SOME-NOTE]: something worth knowing" in _texts(result, "info")
     assert result.status == "success", _texts(result, "warning")
+
+
+def test_a_table_read_in_its_branch_is_judged_for_that_share(new, monkeypatch):
+    """The BEV dragged past its E-Motor's Maximum Speed (its inverter off,
+    the motor unpowered) with its drag table cut at 4000 1/min: today's
+    engine reads the table there, so the record is judged, for the share
+    of the time outside its data the motor was unpowered (the engine counts
+    26 s, in both branches; today 17 s, the time above its maximum speed):
+    the verdict is today's."""
+    proj = _dragged_past_its_maximum_speed()
+    motor = next(e for e in proj.systems[0].elements if e.id == "el-motor")
+    drag = motor.parameterOverrides["drag_torque"]
+    motor.parameterOverrides["drag_torque"] = {k: v for k, v in drag.items() if float(k) <= 4000}
+    result = simulate(proj, "case-city")
+    assert _verdict(result) == _verdict(_today(proj, "case-city", monkeypatch))
+    said = [t for t in _texts(result, "warning") if "'Drag Torque (unpowered)' table" in t]
+    assert len(said) == 1 and " for 18 s of 200 s " in said[0], said
+    assert not [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
+
+
+def _record(table: str, axis: int, lo: float, hi: float) -> dict:
+    return {"part": None, "table": table, "axis": axis, "total": 10.0, "first": 5.0,
+            "furthest": hi + 1.0, "edge": hi, "t_furthest": 6.0, "lo": lo, "hi": hi}
+
+
+def test_a_record_of_an_error_axis_stops_the_new_path_as_today():
+    """A table record of an axis set to Error that reaches the verdict
+    (the engine stops a run there first: a guard of every path that gives
+    records, the full run's and fast mode's) stops the run: TableError,
+    NEW-FAILED (quick mode's QUICK-FAILED), never a warning. The BEV's
+    E-Motor Power Loss map, whose Speed axis is Error."""
+    from types import SimpleNamespace as NS
+    ctx = new_engine._context(load_example("bev-car"), "case-city")
+    rec = {**_record("el_motor.power_loss", 0, 0.0, 1675.5), "part": "el-motor"}
+    run = NS(table_outside=[rec], engine_channels={})
+    with pytest.raises(new_engine.TableError, match="set to stop the run") as e:
+        new_engine._tables(ctx, run, [])
+    assert new_engine.failure(e.value).code == "NEW-FAILED"
+    assert new_engine.quick_failure(e.value).code == "QUICK-FAILED"
+
+
+@pytest.mark.parametrize("on, share", [([1.0, 1.0, 1.0, 1.0], 0.0), ([1.0, 0.0, 0.0, 1.0], 2 / 3),
+                                       ([0.0, 0.0, 0.0, 0.0], 1.0)])
+def test_the_motors_drag_record_is_judged_where_it_is_unpowered(on, share):
+    """The E-Motor's drag table record, judged for the share of the run's
+    points past its data (the last three: wa past 400 rad/s) where the
+    motor was unpowered (on <= 0.5): none, two of three, all."""
+    from types import SimpleNamespace as NS
+    ctx = new_engine._context(load_example("bev-car"), "case-city")
+    run = NS(engine_channels={"el_motor.on": on, "el_motor.wa": [100.0, 500.0, 600.0, 700.0]})
+    why, got = new_engine._branch_share(ctx, run, _record("el_motor.drag_torque", 0, -400.0, 400.0),
+                                        "el-motor", "drag_torque", 0)
+    assert got == pytest.approx(share) and "only while the motor is unpowered" in why
+
+
+@pytest.mark.parametrize("fired_thr, fired_idle, t_b2, share", [
+    (1.0, 0.0, 0.0, 0.0),   # fired with throttle: its torque, not its drag
+    (0.0, 1.0, 5.0, 0.0),   # the idle governor drives
+    (0.0, 1.0, -5.0, 1.0),  # the idle governor brakes: its drag read
+    (0.0, 0.0, 0.0, 1.0),   # not fired: its drag
+])
+def test_the_engines_drag_record_is_judged_where_it_is_read(fired_thr, fired_idle, t_b2, share):
+    """The combustion engine's drag table: today's engine reads it only
+    while the engine is not fired or its idle governor brakes (a torque
+    below 0); a record is judged for that share of the points past it."""
+    from types import SimpleNamespace as NS
+    ctx = NS(model=NS(cdef_of={"el-engine": NS(id="engine.combustion")}))
+    run = NS(engine_channels={"el_engine.wa": [700.0], "el_engine.fired_thr": [fired_thr],
+                              "el_engine.fired_idle": [fired_idle], "el_engine.t_b2": [t_b2]})
+    _, got = new_engine._branch_share(ctx, run, _record("el_engine.drag_torque", 0, -600.0, 600.0),
+                                      "el-engine", "drag_torque", 0)
+    assert got == share

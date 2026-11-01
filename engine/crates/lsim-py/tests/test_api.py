@@ -992,6 +992,31 @@ def test_fast_mode_reports_the_tables_it_read_past_their_data(ambient_c):
     case["parameterOverrides"]["el-ambient"]["temperature_C"] = 20.0
     assert le.fast(json.dumps(p), "case-city").table_outside == []
 
+
+@pytest.mark.parametrize("axis", [0, 1])
+def test_fast_mode_stops_at_a_table_axis_set_to_error(axis):
+    """The BEV's E-Motor Power Loss map, both of whose axes are set to
+    Error, cut to 4000 1/min (its first axis) or 50 N.m (its second) on the
+    WLTC: a full run stops where the motor leaves the data; so does fast
+    mode, FAST-TABLE-ERROR naming the table and the axis (before: it ran the
+    whole cycle, its record a table read past its data). With the map whole
+    neither stops."""
+    p = json.loads(BEV)
+    motor = next(e for e in p["systems"][0]["elements"] if e["id"] == "el-motor")
+    loss = motor["parameterOverrides"]["power_loss"]
+    motor["parameterOverrides"]["power_loss"] = (
+        {k: v for k, v in loss.items() if float(k) <= 4000.0} if axis == 0
+        else {k: {x: y for x, y in v.items() if float(x) <= 50.0} for k, v in loss.items()})
+    j = json.dumps(p)
+    with pytest.raises(le.ModelError) as e:
+        le.fast(j, WLTC)
+    assert [d["code"] for d in e.value.diagnostics] == ["FAST-TABLE-ERROR"]
+    which = "first" if axis == 0 else "second"
+    assert f"the table 'el_motor.power_loss' was read outside its data on its {which} axis" in str(e.value)
+    with pytest.raises(le.ModelError, match="outside = Error"):
+        le.build(j, WLTC).simulate()
+    assert le.fast(BEV, WLTC).table_outside == []
+
 # ---- text components ---------------------------------------------------------
 
 def test_a_part_built_from_its_text_gives_the_same_run(bev_run):

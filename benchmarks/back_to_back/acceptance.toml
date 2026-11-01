@@ -57,7 +57,7 @@ QUICK-ERROR = "quick mode: an exception that is not the engine's own refusal (al
 # FAULTS count them by code, and STRICT fails on a [NEW-...] code in any
 # message that neither section lists (added 29 October: [[changes]]).
 [note_codes]
-NEW-TABLE-NOT-JUDGED = "a table the run read past its data that today's engine does not read as a part's data (a Driving Task's profile run past its end): a note, not judged"
+NEW-TABLE-NOT-JUDGED = "a table the run read past its data that today's engine does not read there (a Driving Task's profile run past its end; a part's table read only in a branch the run did not take there, widened 1 November: [[changes]]): a note, not judged"
 NEW-LIVE-NEXT-RUN = "a live edit the run did not make, which takes effect on the next run: one the new engine builds another model for, one its checks after the run read as at the start, a structural parameter, a table, or one too late for the run (added 31 October: [[changes]])"
 
 # ---------------------------------------------------------------------------
@@ -826,6 +826,20 @@ reason = """Found by the checker of item 5 (1 November): fast mode runs a cycle'
 read the case's end, so a case ending at 3,000 m gave the whole cycle's totals as a success with no code (rule \
 8, no silent fallback). No example case sets either, so no measured case or record moves; the QUICK and STRICT \
 lines' pass marks are unchanged."""
+
+[[changes]]
+date = "2026-11-01"
+line = "B2B"
+change = """[note_codes]: NEW-TABLE-NOT-JUDGED widened: the note also leaves unjudged a record of a table \
+today's engine reads only in one branch of its part (new_engine.BRANCH_READS: an E-Motor's drag table while it \
+is unpowered, its loss map's speed and full-load curve while powered, an engine's drag table while not fired or \
+braking at idle) when the run never was in that branch past the table's data; a record it was is judged for that \
+share of its points."""
+reason = """Found by the checker of item 5's refix (1 November): the engine's table guards read a table's \
+argument at every point, so the E-Motor's drag table cut at 4000 1/min warned and marked the consumptions not \
+valid, on the full path and in quick mode, where today's engine passes the run. No measured record holds a table \
+read past its data on the new path or in fast mode (baseline-13's raw records), so no case or record moves; no \
+pass mark moves."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
