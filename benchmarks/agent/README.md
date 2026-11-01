@@ -247,7 +247,7 @@ One TOML file per task in `tasks/`, named by its id:
 ```toml
 id = "repair-hatchback"            # = the file name
 kind = "repair"                    # build, repair, question, compare or write
-version = 1                        # raised whenever the task changes
+version = 1                        # raised whenever what the agent is told or given changes
 title = "Repair a car model a colleague broke"
 statement = """…"""                # all the agent is told, with the file names and the answer format
 
@@ -328,7 +328,19 @@ best = { case = "Acceleration 75 m", key = "accel_time_s", pick = "min" }
   the validator checks the key against LightSim (within 0.2 %); `best` lets
   it check a choice. The validator also swaps every two numbers of the key:
   the answer must then fail, so make the bands narrower than the gap
-  between them.
+  between them. When a question reads two ways and both are right, `also =
+  [{ value = … }]` gives the other reading's number, in the same band
+  unless it says its own. An answer passes when all its numbers fit one
+  reading, never a mix: the first `also` of every answer is the second
+  reading, and an answer without one keeps its key there. The validator
+  swaps the numbers of every reading, but does not check them against
+  LightSim, so add a test that works them out from the
+  run, and an `also_wrong` that mixes the readings (as for
+  `question-fs-endurance`). A change to the key alone leaves `version` as
+  it is: the agent saw the same task, so its tries need not be run again.
+  The runner keeps a record's verdict while its version holds, though, so
+  score such tries again by hand (`agent.check` on each record's `-files`
+  folder and final reply) into a copy of the run's folder, and report that.
 
 Starting files are never stored: only operations on the bundled examples
 (`backend/projects/`) or on a blank project. A task file stays small.

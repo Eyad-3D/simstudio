@@ -271,6 +271,37 @@ def test_a_key_whose_numbers_pass_swapped_is_refused():
     task = next(t for t in TASKS if t.id == "question-fs-limits")
     wide = dataclasses.replace(task, answer=tuple({**key, "rtol": 0.03} for key in task.answer))
     assert "answers 1 and 2 swapped pass: their bands overlap" in agent.validate(wide)
+    # every reading is swapped, not only the main one
+    close_pair = ({"value": 50.0, "rtol": 0.01}, {"value": 50.2, "rtol": 0.01})
+    other = dataclasses.replace(task, answer=tuple({**key, "also": [o]} for key, o in zip(task.answer, close_pair)))
+    assert "answers 1 and 2 swapped pass: their bands overlap (reading 2)" in agent.validate(other)
+
+
+def test_the_endurance_key_takes_both_readings_of_an_empty_accumulator():
+    """'Before the accumulator is empty' is the run's Distance driven or the
+    point where the charge reaches its minimum; the baseline's careful
+    agents gave the second and were failed for it. Both readings pass, each
+    as LightSim works it out; the event's finished distance still fails."""
+    task = next(t for t in TASKS if t.id == "question-fs-endurance")
+    for text in ("ANSWER: 20.56; 0.225", "ANSWER: 20.0; 0.229", "ANSWER: 20.05; 0.231", "ANSWER: 20.0; 0.225"):
+        assert agent._check_answer(task, text, {}) == [], text
+    assert agent._check_answer(task, "ANSWER: 22.5; 0.2319", {})
+    # one reading as a whole: the run's distance with an energy of the other reading fails
+    for text in ("ANSWER: 20.557; 0.2351", "ANSWER: 20.76; 0.2350", "ANSWER: 20.557; 0.2319"):
+        assert agent._check_answer(task, text, {}), text
+    project = agent.ls.Project(agent.start_files(task)["car.json"])
+    result = project.run("Endurance energy")
+    k = result.kpis
+    soc = result.channels["el-battery:sig_soc"].values
+    at_min = next(i for i, v in enumerate(soc) if v is not None and v <= 5.0 + 1e-6)
+    distance = result.channels["el-vehicle:sig_distance"].values[at_min] / 1000
+    net = k["el-battery.energy_delivered_kwh"] - k["el-battery.energy_recuperated_kwh"]
+    lap = k["distance_km"] / round(net / k["energy_per_lap_kwh"])  # the laps the run drove
+    distance_key, energy_key = (key["also"][0]["value"] for key in task.answer)
+    assert distance == pytest.approx(distance_key, rel=0.002)
+    assert net * lap / distance == pytest.approx(energy_key, rel=0.002)
+    third = [key["also"][1]["value"] for key in task.answer]
+    assert third == [distance_key, task.answer[1]["value"]]  # at empty, with the run's energy per lap
 
 
 @pytest.mark.parametrize("task_id", ["build-sedan-abc", "write-launch-smoother", "write-aux-shed", "repair-case-override"])

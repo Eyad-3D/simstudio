@@ -437,15 +437,33 @@ def parse_answer(text: str) -> Optional[list[str]]:
     return [x.strip() for x in lines[-1].split(";")] if lines else None
 
 
+def _readings(task: Task) -> list[list[dict]]:
+    """The keys of every right reading of the question: the main one, then
+    one for each ``also`` entry, the second taking each answer's ``also[0]``
+    (an answer without one keeps its own key). An answer is right when it
+    fits one reading as a whole."""
+    n = max((len(k.get("also", ())) for k in task.answer), default=0)
+    return [list(task.answer)] + [[{**k, **k["also"][r]} if r < len(k.get("also", ())) else k
+                                   for k in task.answer] for r in range(n)]
+
+
 def _check_answer(task: Task, text: str, figures: dict) -> list[str]:
     fields = parse_answer(text)
     if fields is None:
         return ["no 'ANSWER:' line"]
     if len(fields) != len(task.answer):
         return [f"the answer has {len(fields)} field(s), the task asks for {len(task.answer)}"]
-    reasons = []
-    for i, (got, key) in enumerate(zip(fields, task.answer), 1):
+    for i, got in enumerate(fields, 1):
         figures[f"answer{i}"] = got
+    readings = [_check_fields(fields, keys) for keys in _readings(task)]
+    if not all(readings):
+        return []
+    return readings[0] + [f"{r} (reading {n})" for n, reasons in enumerate(readings[1:], 2) for r in reasons]
+
+
+def _check_fields(fields: list[str], keys: list[dict]) -> list[str]:
+    reasons = []
+    for i, (got, key) in enumerate(zip(fields, keys), 1):
         if "choice" in key:
             if got.split()[:1] != [key["choice"]]:
                 reasons.append(f"answer {i}: '{got}', the key '{key['choice']}'")
@@ -470,11 +488,13 @@ def validate(task: Task) -> list[str]:
     for i, key in enumerate(task.answer, 1):
         problems += [f"answer {i}: {p}" for p in _key_problems(task, key)]
     numbers = [i for i, key in enumerate(task.answer) if "value" in key]
-    for i, j in itertools.combinations(numbers, 2):
-        fields = answer_text(task).removeprefix("ANSWER: ").split("; ")
-        fields[i], fields[j] = fields[j], fields[i]
-        if not _check_answer(task, "ANSWER: " + "; ".join(fields), {}):
-            problems.append(f"answers {i + 1} and {j + 1} swapped pass: their bands overlap")
+    for n, keys in enumerate(_readings(task), 1):
+        for i, j in itertools.combinations(numbers, 2):
+            fields = [str(k.get("choice", k.get("value"))) for k in keys]
+            fields[i], fields[j] = fields[j], fields[i]
+            if not _check_answer(task, "ANSWER: " + "; ".join(fields), {}):
+                problems.append(f"answers {i + 1} and {j + 1} swapped pass: their bands overlap"
+                                + (f" (reading {n})" if n > 1 else ""))
     problems += brief_problems(task)
     wrongs = ["blank", "wrong"] + [f"also_wrong:{i}" for i in range(len(task.also_wrong))]
     whiches = ["reference", *wrongs] + [f"also_right:{i}" for i in range(len(task.also_right))]

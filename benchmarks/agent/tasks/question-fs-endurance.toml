@@ -26,12 +26,36 @@ ops = [
 [wrong]
 answer = "ANSWER: 22.5; 0.2319"
 
+# The energy the accumulator delivered over the 21 laps, without what braking
+# put back: outside the band of both readings.
+[[also_wrong]]
+answer = "ANSWER: 20.557; 0.2741"
+
+# The distance of one reading with the energy of the other.
+[[also_wrong]]
+answer = "ANSWER: 20.557; 0.2351"
+
+# "Before the accumulator is empty" reads two ways, and both are right: the
+# run's Distance driven (21 laps), or where the charge reaches its 5 %
+# minimum (t = 1263 s), after which the car coasts on. The second reading's
+# distance is the vehicle's distance channel at that moment, 20.023 km. Its
+# energy per lap is either the run's own Energy per lap (as the first
+# reading) or the battery's net energy (delivered less recuperated,
+# 4.717 kWh) over the laps up to there, 0.2305 kWh; a test works the
+# figures out from the run. So there are three right answers, each taken as
+# a whole (also[0] and also[1] are the second and third): the run's
+# distance goes only with the run's energy per lap.
+# The run's own Energy per lap is that net energy over the 21 laps driven.
+# LightSim marks it not valid because the event did not finish, not because
+# the number is wrong for the question, so the key keeps it.
 [[answer]]
 value = 20.557
 rtol = 0.01
+also = [{ value = 20.023 }, { value = 20.023 }]
 figure = { file = "car.json", case = "Endurance energy", key = "distance_km" }
 
 [[answer]]
 value = 0.22462
 rtol = 0.02
+also = [{ value = 0.2305 }, { value = 0.22462 }]
 figure = { file = "car.json", case = "Endurance energy", key = "energy_per_lap_kwh" }
