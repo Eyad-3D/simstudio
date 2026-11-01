@@ -93,9 +93,9 @@ jobs:
           npm ci
           npm run build
 
-      # with the FMU pack (STD-01; the owner, 20 October 2026: its LGPL parts,
-      # NumPy's libquadmath and GNU libiconv inside lxml, ship as separate
-      # files, listed in the notices with their source)
+      # with the FMU pack (STD-01; the owner, 20 October 2026: its LGPL part
+      # here, GNU libiconv inside lxml's modules, ships in lxml's own files,
+      # listed in the notices with its source; the Windows NumPy holds none)
       - name: Freeze the backend
         working-directory: backend
         env:

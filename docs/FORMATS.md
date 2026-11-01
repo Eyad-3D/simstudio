@@ -82,9 +82,10 @@ LightSim is proprietary, so it ships only libraries under permissive
 licences (MIT, BSD, Apache 2.0 and the like; the full list is
 `scripts/licenses/allowed.txt`). FMPy, which runs FMUs, is one; ONNX
 Runtime, MCAP and mdflib are the kind the planned formats would use. An
-LGPL part may ship only unmodified, in files of its own that can be
+LGPL part may ship only unmodified, in its package's own files that can be
 replaced, listed in the notices with a link to its source: the FMU pack's
-NumPy (libquadmath) and lxml (GNU libiconv) are the only ones. Tools under
+lxml (GNU libiconv) and, on Linux only, NumPy (libquadmath) are the only
+ones. Tools under
 GPL or AGPL licences, and LGPL tools that would be built into LightSim's
 own programs (asammdf, OpenModelica, OMSimulator), are used only in
 LightSim's own tests, or when you install them yourself; they are never in

@@ -247,11 +247,16 @@ def load_policy() -> tuple[dict[str, str], dict, dict, list[str]]:
     return allowed, clarified, runtime, problems
 
 
-def check(components: list[Component], allowed: dict[str, str], clarified: dict) -> list[str]:
+def check(components: list[Component], allowed: dict[str, str], clarified: dict,
+          system: str = sys.platform) -> list[str]:
+    """The problems of ``components``' licences; ``system`` (sys.platform's
+    words) picks an entry's "platforms" words where its wheels differ."""
     problems = []
     for c in components:
         rule = clarified.get(c.name)
         if rule:
+            # a package whose wheels hold other parts on another platform
+            rule = {**rule, **rule.get("platforms", {}).get(system, {})}
             if rule["expect"] not in "\n".join(text for _, text in c.texts):
                 problems.append(f"{c.label}: its licence file no longer contains "
                                 f"\"{rule['expect']}\"; review its entry in clarifications.json")
@@ -621,9 +626,10 @@ def render(components: list[Component]) -> str:
     ]
     lgpl = [(c, p) for c in components for p in c.lgpl]
     if lgpl:
-        lines += ["Parts under the GNU Lesser General Public License (LGPL). Each is kept",
-                  "unmodified in files of its own, separate from LightSim's own programs,",
-                  "and can be replaced; its source is at the link given:", ""]
+        lines += ["Parts under the GNU Lesser General Public License (LGPL). Each is",
+                  "unmodified, inside the files of the package named, which are separate",
+                  "from LightSim's own programs and can be replaced; its source is at the",
+                  "link given:", ""]
         for c, p in lgpl:
             lines += [f"  {p['name']} — {p['license']}, inside {c.label}",
                       f"      Files: {p['files']}", f"      Source: {p['source']}"]

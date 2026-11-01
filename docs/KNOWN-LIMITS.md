@@ -696,7 +696,8 @@ minimum or an average, for example from the CSV export, or put the
   used within 0.2 %). A case it does not run runs in full with a warning
   and a code: `QUICK-KIND` (no drive cycle: an acceleration, performance,
   lap or Formula Student case), `QUICK-BALANCE` (a charge-balanced hybrid
-  case), `QUICK-END` (a case that ends at a Distance or a lap count), `QUICK-SAMPLED` (a Script, FMU or Traction Control part),
+  case), `QUICK-END` (a case that ends at a Distance or a lap count),
+  `QUICK-SAMPLED` (a Script, FMU or Traction Control part),
   `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
   `QUICK-FAILED` (fast mode's own refusal), `QUICK-NOT-FOUND`,
   `QUICK-ERROR`. See [Run a cycle in quick mode](help/how-to/run-in-quick-mode.md).
@@ -1088,10 +1089,12 @@ minimum or an average, for example from the CSV export, or put the
   (BSD-2-Clause) and its NumPy, lxml, attrs and lark; the desktop build
   freezes it into the engine (`LIGHTSIM_FREEZE_FMU_PACK=1`). A copy built
   from source without it runs every other model, and Data Checks say so.
-  NumPy and lxml carry LGPL-licensed parts (NumPy's libquadmath, and GNU
-  libiconv inside lxml): they ship unmodified in files of their own,
-  separate from LightSim's programs and replaceable, and
-  THIRD-PARTY-NOTICES.txt lists each with a link to its source. A copy of
+  lxml carries an LGPL-licensed part, GNU libiconv, linked into its
+  compiled modules; NumPy's Linux wheels carry another, libquadmath, which
+  its Windows wheels (the installer's) do not. Each ships unmodified inside
+  its package's own files, separate from LightSim's programs and
+  replaceable, and THIRD-PARTY-NOTICES.txt lists each with a link to its
+  source (the licence check reads each platform's wheels). A copy of
   that source beside the installer download comes with the first release.
   *Roadmap:* STD-01.
 - **FMUs run in a separate, locked-down process, but how locked-down
