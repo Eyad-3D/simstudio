@@ -181,13 +181,16 @@ id = "bev-city-recuperation"
 class = "b"
 date = "2026-10-28"
 field = ["summary.value"]
-item = ["bev-car/case-city", "bev-car/case-city-live"]
+item = ["bev-car/case-city", "bev-car/case-city-live", "probe/bev-fmu"]
 key = "^el-battery\\.energy_recuperated_kwh$"
 what = ["value"]
 max_x = 1.01
 reason = """The battery-electric car's recuperated energy on the city cycle, 1.0039 x band (the golden \
 comparison's own figure, 1.0039 x, 1.0044 x converged): the gears' rule, the triage's one cause \
-(lsim-project/golden/README.md, "the two figures"). Capped: a larger difference stays unclassified."""
+(lsim-project/golden/README.md, "the two figures"). Capped: a larger difference stays unclassified. \
+probe/bev-fmu (the same car and cycle with an FMU block whose output nothing reads) added on 1 November, \
+when the new path first ran it: today's runs of it give the city's figures to the bit, the new engine's \
+within 1e-9 kWh, and the same 1.0039 x."""
 
 [[rule]]
 id = "each-run-says-what-ran-it"

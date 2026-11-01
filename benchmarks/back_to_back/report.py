@@ -125,7 +125,9 @@ def b2b(out: Path) -> dict:
                "reference": _ok(rec["today-normal"]) and _ok(rec["today-fine"])}
         if got == "run" and row["reference"]:
             n, f = rec["today-normal"]["result"], rec["today-fine"]["result"]
-            project = item["id"] != "probe/bev-fmu" and runs.item_project(item, out / "user")
+            # (the FMU probe's project without its FMU's file: its wires and driveline are what
+            # the comparison reads, so its gear rows are judged by today's rule as its base's are)
+            project = runs.item_project(item, out / "user", build_fmu=False)
             ds = diff.compare(item["id"], n, f, new, wires(*project[:2]) if project else {})
             ctx = {"notes": {diff.masked(d["message"]) for d in (rec["new"].get("engine") or {})
                              .get("build_warnings", [])},
@@ -653,7 +655,8 @@ def stamps(out: Path) -> list[dict]:
     with the files it made (raw records, the probes' results, mutmut's),
     "none" for those made before records were stamped."""
     files = [p for _, p in sorted((str(p), p) for p in (out / "raw").glob("*/*.json"))]
-    files += [out / n for n in ("stop.json", "replay.json", "mutation.json", "noskip.json") if (out / n).exists()]
+    files += [out / n for n in ("stop.json", "replay.json", "mutation.json", "noskip.json", "fmu.json", "text.json",
+                                 "quick.json") if (out / n).exists()]
     seen: dict = {}
     for p in files:
         s = json.loads(p.read_text(encoding="utf-8")).get("stamp")

@@ -76,8 +76,10 @@ def items() -> list[dict]:
     return ACCEPTANCE["item"]
 
 
-def item_project(item: dict, scratch: Path) -> tuple[dict, str, dict]:
-    """(project JSON, case id, how to run it) of an item of the diff."""
+def item_project(item: dict, scratch: Path, build_fmu: bool = True) -> tuple[dict, str, dict]:
+    """(project JSON, case id, how to run it) of an item of the diff; the
+    FMU probe's FMU is built and kept only with ``build_fmu`` (the report
+    reads the project's wires and driveline, never the FMU's file)."""
     iid = item["id"]
     how: dict = {}
     base = item.get("base", iid)
@@ -97,7 +99,7 @@ def item_project(item: dict, scratch: Path) -> tuple[dict, str, dict]:
     elif iid == "probe/bev-cells":
         _element(project, "el-battery").setdefault("parameterOverrides", {})["pack_model"] = "Cells"
     elif iid == "probe/bev-fmu":
-        _add_test_fmu(project, scratch)
+        _add_test_fmu(project, scratch, build_fmu)
     elif iid == "probe/no-module":
         how["hide_module"] = True
     elif iid in CHECKED:  # (the META line's battery checks)
@@ -115,24 +117,28 @@ CHECKED = {
 }
 
 
-def _add_test_fmu(project: dict, scratch: Path) -> None:
+def _add_test_fmu(project: dict, scratch: Path, build: bool = True) -> None:
     """The backend's test FMU (a first-order lag, tests/fmu), fed by a
-    Constant, its output unwired; built and kept in the job's own folder."""
-    sys.path.insert(0, str(BACKEND / "tests"))
-    from app.fmu import store
-    from fmu.build import build as build_test_fmu  # the backend's own test FMU
+    Constant, its output unwired; built and kept in the job's own folder
+    (without ``build``, the block names no file)."""
+    files = {}
+    if build:
+        sys.path.insert(0, str(BACKEND / "tests"))
+        from app.fmu import store
+        from fmu.build import build as build_test_fmu  # the backend's own test FMU
 
-    (scratch / "fmu-build").mkdir(parents=True, exist_ok=True)
-    path = build_test_fmu(scratch / "fmu-build")
-    sha, kept = store.store_bytes(path.read_bytes())
-    store.allow(sha, path.name)
+        (scratch / "fmu-build").mkdir(parents=True, exist_ok=True)
+        path = build_test_fmu(scratch / "fmu-build")
+        sha, kept = store.store_bytes(path.read_bytes())
+        store.allow(sha, path.name)
+        files = {"fmu_path": str(kept), "fmu_sha256": sha, "fmu_name": path.name}
     system = project["systems"][0]
     sig = {"kind": "signal", "unitGroup": "No Unit"}
     system["elements"] += [
         {"id": "el-fmu-src", "componentDefId": "signal.constant", "label": "FMU input",
          "position": {"x": 0, "y": 0}, "parameterOverrides": {"value": 1.0}},
         {"id": "el-fmu", "componentDefId": "signal.fmu", "label": "Lag", "position": {"x": 0, "y": 0},
-         "parameterOverrides": {"fmu_path": str(kept), "fmu_sha256": sha, "fmu_name": path.name},
+         "parameterOverrides": files,
          "dynamicPorts": [{"id": "u", "name": "u", "direction": "input", **sig},
                           {"id": "y", "name": "y", "direction": "output", **sig}]},
     ]

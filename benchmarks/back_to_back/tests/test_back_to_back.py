@@ -1672,3 +1672,22 @@ def test_the_fmu_line_is_not_measured_without_the_reference_fmus(tmp_path):
     rec["cases"][0]["state"] = "fail"
     (tmp_path / "fmu.json").write_text(json.dumps(rec), encoding="utf-8")
     assert item5.fmu_line(tmp_path, b)["state"] == "fail"
+
+
+def test_the_report_reads_the_fmu_probes_project_without_building_its_fmu(tmp_path, monkeypatch):
+    """The report judges the FMU probe with its project (wires, driveline:
+    its gear rows by today's rule, as its base's), which it reads without
+    building the test FMU (no C compiler needed)."""
+    import sys
+    sys.path.insert(0, str(runs.BACKEND / "tests"))
+    from fmu import build as fmu_build
+
+    def build(target_dir):
+        raise AssertionError("the report built the test FMU")
+    monkeypatch.setattr(fmu_build, "build", build)
+    item = next(i for i in runs.items() if i["id"] == "probe/bev-fmu")
+    project, case_id, _ = runs.item_project(item, tmp_path, build_fmu=False)
+    fmu = next(e for e in project["systems"][0]["elements"] if e["componentDefId"] == "signal.fmu")
+    assert fmu["parameterOverrides"] == {} and case_id == "case-city"
+    assert any(c["element2Id"] == "el-fmu" for c in project["dataBusConnections"])
+    assert diff.gear_rebuild is not None and report.wires(project, case_id)
