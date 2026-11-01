@@ -131,3 +131,59 @@ def test_a_quick_run_replays_to_the_same_result():
     snap = RunSnapshot.of(project, case, q)
     again = core.replay(snap)
     assert again.solverOptions == q.solverOptions and _sha(again) == _sha(q)
+
+
+@needs_engine
+@pytest.mark.parametrize("end", [{"endDistance": 3000.0}, {"endLaps": 2.0},
+                                 {"startLine": 2000.0, "endDistance": 1000.0}])
+def test_a_case_that_ends_at_a_distance_or_laps_runs_in_full_with_quick_end(end):
+    """Fast mode runs the cycle's whole duration: a case that ends at a
+    Distance or a lap count runs in full with QUICK-END, as today's full run
+    of it (its rows and its own warnings), its status re-derived with the
+    code's warning (a full run of it that succeeds is a warning)."""
+    result = simulate(_quick("bev-car", CITY, **end), CITY)
+    assert result.messages[0].text.startswith("Not run in quick mode [QUICK-END]")
+    full = simulate(_quick("bev-car", CITY, mode="full", **end), CITY)
+    assert result.status == "warning" and full.status in ("success", "warning")
+    assert {s.key: s.value for s in result.summary} == {s.key: s.value for s in full.summary}
+    assert [m.text for m in result.messages[1:]] == [m.text for m in full.messages]
+
+
+def _said(result) -> list[str]:
+    return [m.text for m in result.messages
+            if m.level in ("warning", "error") and not m.text.startswith("Quick mode:")]
+
+
+@needs_engine
+@pytest.mark.parametrize("ambient", [{"temperature_C": 65.0}, {"temperature_C": -70.0},
+                                     {"pressure_kPa": 121.59}])
+def test_quick_mode_says_todays_checks_of_the_run(ambient):
+    """An Ambient outside the usual air, and the Climate Control's demand
+    table read past its data at that temperature: quick mode warns as
+    today's full run does, in its words, marks the same of its rows not
+    valid and grades the case's references as today's does."""
+    project = _quick("bev-car", CITY)
+    case = next(c for c in project.cases if c.id == CITY)
+    case.parameterOverrides.setdefault("el-ambient", {}).update(ambient)
+    q = simulate(project, CITY)
+    assert q.engine == "new"
+    case.mode = "full"
+    full = simulate(project, CITY)
+    assert _said(q) == _said(full) and _said(q) and q.status == full.status == "warning"
+    assert {s.key: s.notValid for s in q.summary} == {
+        s.key: s.notValid for s in full.summary if new_engine.QUICK_ROWS.match(s.key)}
+    assert case.references and [r.label for r in q.references] == [r.kpi for r in case.references]
+    graded = {r.label: (r.grade, r.note) for r in full.references}
+    assert [(r.grade, r.note) for r in q.references] == [graded[r.label] for r in q.references]
+
+
+@needs_engine
+def test_quick_mode_says_the_model_builders_warnings():
+    """A second Ambient: the model builder's warning, in today's words."""
+    from app.schemas import ElementInstance
+    project = _quick("bev-car", CITY)
+    project.systems[0].elements.append(ElementInstance(
+        id="amb2", componentDefId="boundary.ambient", label="Second Ambient", position={"x": 0, "y": 0}))
+    q = simulate(project, CITY)
+    assert q.engine == "new" and q.status == "warning"
+    assert any(t.startswith("Only the first Ambient") for t in _said(q)), _said(q)

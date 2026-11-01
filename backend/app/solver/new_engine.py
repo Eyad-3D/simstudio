@@ -50,6 +50,7 @@ import re
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Callable, NamedTuple, Optional
 
 from .. import cycles, script_trust
@@ -69,7 +70,15 @@ from .references import check_references, hand_checks
 from .reports import DUTY_QUANTITIES, RunRecorder, lane_state, make_reports
 from .runtime import SPEED_LIMIT_BAND, ControlFn, EmitFn, Runtime, usable_energy_left_wh
 from .sandbox import ScriptSandbox, ScriptSpec
-from .verdict import TRACE_STEP_S, Trace, first_not_driven, judge, terminal_checks
+from .verdict import (
+    TRACE_STEP_S,
+    Trace,
+    Verdict,
+    beyond_data,
+    first_not_driven,
+    judge,
+    terminal_checks,
+)
 
 ENV_VAR = "LIGHTSIM_ENGINE"
 STRICT_VAR = "LIGHTSIM_ENGINE_STRICT"
@@ -98,6 +107,7 @@ CODES = {
     "QUICK-LIMITS": "quick mode: a value outside its parameter's limits",
     "QUICK-MISSING": "quick mode: the module lightsim_engine is not installed",
     "QUICK-BALANCE": "quick mode: a hybrid's charge-balanced case",
+    "QUICK-END": "quick mode: a case that ends at a distance or a lap count",
     "QUICK-BUILD": "quick mode: today's model builder refused the model, or a text component's file "
                    "could not be read",
     "QUICK-FAILED": "quick mode: the engine's fast mode refused or stopped (its own codes follow)",
@@ -281,6 +291,9 @@ def quick_unsupported(project: Project, case_id: str) -> Optional[Refusal]:
                 {"acceleration": "an acceleration test", "performance": "a performance test"}.get(
                     case.kind, f"a {case.kind} case"))
         return Refusal("QUICK-KIND", f"it prescribes a drive cycle's speed, and {kind} drives none")
+    if (case.endDistance or 0) > 0 or (case.endLaps or 0) > 0:
+        return Refusal("QUICK-END", "it runs the cycle's whole duration, not to a case's Distance "
+                                    "or Laps (from its Start line)")
     elements = [el for s in project.systems for el in s.elements]
     if balance.applies(project, case):
         return Refusal("QUICK-BALANCE", "it does not charge-balance a hybrid's case (set Charge "
@@ -349,10 +362,11 @@ def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> S
 
     case = next(c for c in project.cases if c.id == case_id)
     try:
-        model = _context(project, case_id).model  # (today's labels and units)
+        ctx = _context(project, case_id)  # (today's labels, units and checks)
     except ModelInitError as e:  # as today's engine says it
         return SimResult(caseId=case_id, status="failed", channels=[],
                          messages=[SimMessage(level="error", text=t) for t in e.messages])
+    model = ctx.model
     run = lightsim_engine.fast(project.model_dump_json(), case_id, cycles_dir=str(cycles.DIR),
                                step=step, texts=read_texts(project))
     fast = run.report["fast"]
@@ -370,8 +384,24 @@ def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> S
             f"Quick mode: {f['label']} from t = {f['t_start']:.1f} s to {f['t_end']:.1f} s: the car "
             f"could not have followed the cycle there, so the totals take more than it could give; "
             f"run the case in full to see what it does.")))
+    # today's checks of the run that fast mode's motion leaves as they are,
+    # in today's words: what the RunContext said while it was built, the
+    # Ambient's air outside the usual (as the full path asks it, _runtime),
+    # the tables the run read past their data (fast mode's records at its
+    # points, _tables), judged as today's verdict judges them, which marks
+    # the consumptions not valid
+    ctx.read_ambient(times[0] if times else 0.0)
+    messages += ctx.rt.messages
+    _tables(ctx, run, messages)
+    beyond = beyond_data(core.judged_uses(ctx), times[-1] if times else 0.0,
+                         lambda el: f"{model.cdef_of[el].name} '{model.elements[el].label}'")
+    messages += [SimMessage(level="warning", text=text) for text, _ in beyond]
     summary = [SummaryValue(key=f["key"], label=f["label"], value=f["value"], unit=f["unit"])
                for f in run.figures if QUICK_ROWS.match(f["key"])]
+    if beyond:
+        fuel = sum(s.value for s in summary if s.key.endswith("fuel_used_kg"))
+        core.not_valid_last(_NO_BOOKS, Verdict(beyond_reason="; ".join(r for _, r in beyond)),
+                            summary, {}, set(), lab_base(summary, fuel <= 0 and not ctx.fuelcells))
     fill_keys(summary, project)
     result = SimResult(caseId=case_id, status=core.status_of(messages, False),
                        channels=_channels(model, run, times), summary=summary, messages=messages,
@@ -379,6 +409,11 @@ def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> S
     result.engine, result.engineVersion = "new", lightsim_engine.version()
     result.solverOptions = {"quickStep": float(fast["step"])}  # (quick mode, its step)
     return result
+
+
+# a run with no energy books: core.not_valid_last's check of their closure
+# says nothing (quick mode's)
+_NO_BOOKS = SimpleNamespace(throughput_wh=0.0, residual_wh=0.0)
 
 
 def failure(e: Exception) -> Refusal:

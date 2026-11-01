@@ -971,6 +971,27 @@ def test_fast_mode_refuses_what_it_cannot_run_with_its_codes():
         le.fast(BEV, WLTC, step=0.0)
 
 
+
+@pytest.mark.parametrize("ambient_c", [65.0, -70.0])
+def test_fast_mode_reports_the_tables_it_read_past_their_data(ambient_c):
+    """The BEV's city cycle with its Ambient past the Climate Control's
+    demand table (-20 to 40 C): fast mode's table_outside records, from its
+    points, give the full run's: the table, its axis, how long, from when,
+    how far and its edge. At 20 C it reads none."""
+    p = json.loads(BEV)
+    case = next(c for c in p["cases"] if c["id"] == "case-city")
+    keys = ("table", "part", "axis", "total", "first", "furthest", "edge", "lo", "hi")
+
+    def records(run):
+        return [{k: d[k] for k in keys} for d in run.table_outside]
+    case.setdefault("parameterOverrides", {}).setdefault("el-ambient", {})["temperature_C"] = ambient_c
+    j = json.dumps(p)
+    fast, full = records(le.fast(j, "case-city")), records(le.build(j, "case-city").simulate())
+    assert [d["table"] for d in fast] == ["el_climate.demand_table"]
+    assert fast == full
+    case["parameterOverrides"]["el-ambient"]["temperature_C"] = 20.0
+    assert le.fast(json.dumps(p), "case-city").table_outside == []
+
 # ---- text components ---------------------------------------------------------
 
 def test_a_part_built_from_its_text_gives_the_same_run(bev_run):

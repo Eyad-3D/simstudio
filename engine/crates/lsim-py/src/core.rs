@@ -793,7 +793,10 @@ pub fn fast(
             options: SolverOptions::default(),
             wall_seconds,
             energy: None,
-            report: Default::default(),
+            report: lsim_solve::SolverReport {
+                table_outside: fast_table_outside(&model, &r),
+                ..Default::default()
+            },
         };
         let params = model.info.params.clone();
         let flat = &model.prepared.flat;
@@ -817,6 +820,129 @@ pub fn fast(
         let built = Built { model, rep, project, case_id: case_id.to_string(), import_seconds };
         Ok((built, out))
     })
+}
+
+/// Each table axis fast mode's run read outside its data, as a full run
+/// reports it (`SolverReport::table_outside`, the same words), from the
+/// run's recorded points (every variable, at each step's end): each table
+/// read's axis argument evaluated there against the axis's first and last
+/// point, the time between two points it was outside counted, a crossing
+/// placed on the line between them; the furthest outside is the furthest
+/// at a point.
+fn fast_table_outside(
+    model: &lsim_engine::Model,
+    r: &lsim_engine::lsim_fast::FastResult,
+) -> Vec<lsim_solve::TableOutside> {
+    use lsim_ir::flat::{ParamId, VarId};
+    use lsim_ir::runtime::ModelFunctions;
+    struct Point<'a> {
+        t: f64,
+        vars: &'a [f64],
+        params: &'a [f64],
+        model: &'a dyn ModelFunctions,
+    }
+    impl lsim_ir::eval::Env for Point<'_> {
+        fn time(&self) -> f64 {
+            self.t
+        }
+        fn var(&self, v: VarId) -> f64 {
+            self.vars.get(v.0 as usize).copied().unwrap_or(f64::NAN)
+        }
+        fn der(&self, _: VarId) -> f64 {
+            f64::NAN
+        }
+        fn param(&self, p: ParamId) -> f64 {
+            self.params.get(p.0 as usize).copied().unwrap_or(f64::NAN)
+        }
+        fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+            lsim_ir::interval::table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
+        }
+    }
+    let info = &model.info;
+    let guards = model.jit.table_guard_list();
+    if guards.len() != info.table_args.len() {
+        return vec![];
+    }
+    let (n_vars, n) = (info.var_names.len(), r.names.len());
+    let rows: Vec<Vec<f64>> = (0..r.times.len())
+        .map(|k| {
+            let mut v = vec![f64::NAN; n_vars];
+            for (j, &i) in r.record.iter().enumerate() {
+                if let Some(x) = v.get_mut(i) {
+                    *x = r.values[k * n + j];
+                }
+            }
+            v
+        })
+        .collect();
+    let mut out = vec![];
+    for (g, (table, arg)) in guards.iter().zip(&info.table_args) {
+        let k_t = g.table as usize;
+        let points = match info.table_axes.get(k_t) {
+            Some(ax) if !ax[0].is_empty() => ax.get(g.axis as usize),
+            _ => info.table_breaks.get(k_t),
+        };
+        let (Some(&lo), Some(&hi)) =
+            (points.and_then(|p| p.first()), points.and_then(|p| p.last()))
+        else {
+            continue;
+        };
+        if *table != g.table {
+            continue;
+        }
+        let xs: Vec<f64> = rows
+            .iter()
+            .zip(&r.times)
+            .map(|(v, &t)| {
+                let at = Point { t, vars: v, params: &info.params, model: &model.jit };
+                lsim_ir::eval::eval(arg, &at)
+            })
+            .collect();
+        // how far outside (> 0) or inside (<= 0) the data
+        let past = |x: f64| (lo - x).max(x - hi);
+        let (mut total, mut first) = (0.0, f64::NAN);
+        let (mut far, mut furthest, mut t_furthest) = (0.0, f64::NAN, f64::NAN);
+        for (k, &x) in xs.iter().enumerate() {
+            if past(x) > far {
+                (far, furthest, t_furthest) = (past(x), x, r.times[k]);
+            }
+        }
+        if xs.first().is_some_and(|&x| past(x) > 0.0) {
+            first = r.times[0];
+        }
+        for k in 1..xs.len() {
+            let (a, b, dt) = (past(xs[k - 1]), past(xs[k]), r.times[k] - r.times[k - 1]);
+            if a.is_nan() || b.is_nan() || (a <= 0.0 && b <= 0.0) {
+                continue;
+            }
+            let share = if a > 0.0 && b > 0.0 { 1.0 } else { a.max(b) / (a - b).abs() };
+            total += share * dt;
+            if first.is_nan() {
+                first = if a > 0.0 { r.times[k - 1] } else { r.times[k] - share * dt };
+            }
+        }
+        if total <= 0.0 && first.is_nan() {
+            continue;
+        }
+        let name = info.table_names.get(k_t).cloned().unwrap_or_default();
+        let warning = format!(
+            "the table '{name}' was read outside its data on its {} axis for {total:.6} s, first at t = {first:.6} s",
+            if g.axis == 0 { "first" } else { "second" }
+        );
+        out.push(lsim_solve::TableOutside {
+            table: name,
+            axis: g.axis,
+            first,
+            total,
+            furthest,
+            edge: if furthest < lo { lo } else { hi },
+            t_furthest,
+            lo,
+            hi,
+            warning,
+        });
+    }
+    out
 }
 
 /// A run's sampled blocks' hosts.

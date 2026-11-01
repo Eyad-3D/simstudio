@@ -157,6 +157,7 @@ def test_every_refusal_has_its_code():
         "QUICK-KIND": new_engine.quick_unsupported(load_example("fs-electric"), "case-accel-75m"),
         "QUICK-BALANCE": new_engine.quick_unsupported(load_example("hybrid-car"), "case-udds"),
         "QUICK-SAMPLED": new_engine.quick_unsupported(single, "case-udds"),
+        "QUICK-END": new_engine.quick_unsupported(_changed("bev-car", WLTC, endLaps=2.0), WLTC),
         "QUICK-CELLS": new_engine.quick_unsupported(cells, WLTC),
         "QUICK-LIMITS": new_engine.quick_unsupported(studies._point_project(
             load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),

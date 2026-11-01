@@ -685,14 +685,18 @@ minimum or an average, for example from the CSV export, or put the
   consumptions, range, distance, each phase's), not the peaks, minima and
   times at a limit, no verdict on the speed trace, no energy report, duty,
   limit band or hand checks, and no live view (Stop, live edits and pacing
-  do nothing). A limit the car would have met is flagged as a warning, not
+  do nothing). Of today's run-time checks it makes the Ambient's (air
+  outside the usual) and the tables' (one read past its data, from its
+  points once a second, marks the consumptions not valid); the wheels
+  lifting, an E-Motor with no live supply and the supply limits' warnings
+  are not told. A limit the car would have met is flagged as a warning, not
   acted on, so the totals then take more than the car could give. On the
   example cars' nine cycle cases the energy recuperated and the internal
   losses come out up to 1.8 % and 1.4 % below the full run's (the charge
   used within 0.2 %). A case it does not run runs in full with a warning
   and a code: `QUICK-KIND` (no drive cycle: an acceleration, performance,
   lap or Formula Student case), `QUICK-BALANCE` (a charge-balanced hybrid
-  case), `QUICK-SAMPLED` (a Script, FMU or Traction Control part),
+  case), `QUICK-END` (a case that ends at a Distance or a lap count), `QUICK-SAMPLED` (a Script, FMU or Traction Control part),
   `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
   `QUICK-FAILED` (fast mode's own refusal), `QUICK-NOT-FOUND`,
   `QUICK-ERROR`. See [Run a cycle in quick mode](help/how-to/run-in-quick-mode.md).

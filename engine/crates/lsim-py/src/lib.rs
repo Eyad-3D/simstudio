@@ -1210,10 +1210,11 @@ fn part_text(py: Python<'_>, project_json: &str, case_id: &str, element: &str) -
 /// limits flagged, not acted on. A Run with today's channels and figures;
 /// `report["fast"]` holds the step, the work, the `flags` (each stretch the
 /// vehicle could not have followed: `t_start`, `t_end`, `label`, `part`,
-/// `upper`, `worst_excess`, `unit`) and the `events`. Refused with a
-/// ModelError: `FAST-NO-CYCLE` (no cycle to prescribe: an acceleration
-/// test, no Driver or Driving Task), `FAST-SAMPLED-CONTROL` (a sampled
-/// block reads the pedal), `FAST-SAMPLED` (any other sampled block: fast
+/// `upper`, `worst_excess`, `unit`) and the `events`; `table_outside` the
+/// table axes it read past their data, as a full run's, from its points.
+/// Refused with a ModelError: `FAST-NO-CYCLE` (no cycle to prescribe: an
+/// acceleration test, no Driver or Driving Task),
+/// `FAST-SAMPLED-CONTROL` (a sampled block reads the pedal), `FAST-SAMPLED` (any other sampled block: fast
 /// mode is given no host for one), `FAST-RUN` (the run stopped). `texts`
 /// as `build`'s. The GIL is released.
 #[pyfunction]

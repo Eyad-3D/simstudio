@@ -46,6 +46,7 @@ QUICK-CELLS = "quick mode: a battery built from cells"
 QUICK-LIMITS = "quick mode: a value outside its parameter's limits (a study's point can hold one)"
 QUICK-MISSING = "quick mode: the module lightsim_engine is not installed"
 QUICK-BALANCE = "quick mode: a hybrid's charge-balanced case (added 1 November: [[changes]])"
+QUICK-END = "quick mode: a case that ends at a distance or a lap count (its Distance or Laps, from its Start line): fast mode runs the cycle's whole duration (added 1 November, the checker's round: [[changes]])"
 QUICK-BUILD = "quick mode: today's model builder refused the model, or a text component's file could not be read (widened 1 November: [[changes]])"
 QUICK-FAILED = "quick mode: the engine's fast mode refused or stopped (its own codes follow: FAST-NO-CYCLE, FAST-SAMPLED-CONTROL, ...)"
 QUICK-ERROR = "quick mode: an exception that is not the engine's own refusal (always a failure)"
@@ -815,6 +816,16 @@ gives)."""
 reason = """The registered words left open how a run is told to be quick mode's, which full run is the band's \
 reference and how the help's statement of the limits is checked. Written before the line's first measured run \
 (the exploratory run of 1 November is said in the STRICT change of the same day)."""
+
+[[changes]]
+date = "2026-11-01"
+line = "STRICT"
+change = """QUICK-END joins [codes]: a cycle case with a Distance (endDistance) or Laps (endLaps) set, in quick \
+mode, runs in full instead with this code (strict: fails with it)."""
+reason = """Found by the checker of item 5 (1 November): fast mode runs a cycle's whole duration and never \
+read the case's end, so a case ending at 3,000 m gave the whole cycle's totals as a success with no code (rule \
+8, no silent fallback). No example case sets either, so no measured case or record moves; the QUICK and STRICT \
+lines' pass marks are unchanged."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)

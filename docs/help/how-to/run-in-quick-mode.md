@@ -36,7 +36,7 @@ Its channels are recorded once a second.
 
 On the example cars' nine drive-cycle cases the charge used is within
 0.2 % of the full run's, the energy delivered within 0.5 % and the
-consumptions within 0.2 %. The energy recuperated and the internal losses
+consumptions within 0.2 % (each phase's consumption within 0.31 %). The energy recuperated and the internal losses
 come out up to 1.8 % and 1.4 % lower than the full run's (measured on
 1 November 2026 by `python -m benchmarks.back_to_back`, its QUICK line).
 
@@ -46,8 +46,15 @@ come out up to 1.8 % and 1.4 % lower than the full run's (measured on
   motor's time limited by its supply and the like follow the full run's
   Driver, so quick mode leaves those rows out.
 - **No verdict on the speed trace.** The car drives the cycle exactly, so
-  there is nothing to judge: a quick run never says *Cycle not followed*
-  and marks no row as not valid.
+  there is nothing to judge: a quick run never says *Cycle not followed*.
+  It does make today's checks of what the run read: an Ambient outside the
+  usual air, and a table read past its data (once a second, at its
+  points) for longer than the run allows, which marks the consumptions,
+  MPGe and the range not valid as a full run does.
+- **No checks of the motion.** The wheels lifting off the road, an
+  E-Motor with no live supply and a supply limit holding a motor back are
+  not told as a full run tells them; fast mode flags a limit instead (see
+  below).
 - **No energy report, duty or limit band**, and no hand checks.
 - **No live view.** The result arrives when the run ends; Stop and live
   edits do nothing, and a paced case (*Pacing*) is not paced.
@@ -65,6 +72,7 @@ starts *Not run in quick mode* and gives a code:
 |---|---|
 | `QUICK-KIND` | the case drives no cycle: an acceleration or performance test, a lap, a Formula Student event |
 | `QUICK-BALANCE` | a hybrid's charge-balanced case (set *Charge balance* off to run it once) |
+| `QUICK-END` | the case ends at a *Distance* or after a number of *Laps*: quick mode runs the cycle's whole duration |
 | `QUICK-SAMPLED` | the model has a Script, FMU or Traction Control part, which fast mode does not run |
 | `QUICK-CELLS` | a battery built from cells |
 | `QUICK-LIMITS` | a value outside its parameter's limits (a study's point can hold one) |

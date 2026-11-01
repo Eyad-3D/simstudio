@@ -160,6 +160,43 @@ def test_a_misbehaving_fmu_fails_the_run_with_the_workers_words(test_fmu, mode, 
     assert not set(multiprocessing.active_children()) - before
 
 
+@needs_engine
+def test_an_fmu_fed_a_changing_signal_steps_as_fmpy_steps_it(test_fmu):
+    """Guard: the test FMU fed the BEV's speed on its city cycle (a changing
+    input, Communication Step 1 s) gives at each communication point what
+    FMPy's simulate_fmu gives for the speed the run recorded at those
+    points: each step taken with the inputs set at its start, as FMPy and
+    fmusim take it (the speed at its end would put the lag a step ahead)."""
+    import numpy as np
+    from fmpy import simulate_fmu
+
+    from app.storage import load_example
+
+    h = 1.0
+    proj = load_example("bev-car")
+    next(c for c in proj.cases if c.id == "case-city").duration = 60.0
+    ports = [sig_port("u", "input"), sig_port("y", "output"), sig_port("t_fmu", "output")]
+    proj.systems[0].elements.append(ElementInstance(
+        id="fmu", componentDefId="signal.fmu", label="Lag", position={"x": 0, "y": 0},
+        parameterOverrides=_import(test_fmu) | {"sample_time_s": h, "start:k": 1.0, "start:tau": 2.0},
+        dynamicPorts=ports))
+    proj.dataBusConnections.append(dbc(99, "el-vehicle", "sig_speed", "fmu", "u"))
+    result = simulate(proj, "case-city")
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    speed = dict(_series(result, "el-vehicle", "sig_speed"))
+    ours = dict(_series(result, "fmu", "y"))
+    ticks = sorted(t for t in ours if abs(t / h - round(t / h)) < 1e-9)
+    assert len(ticks) == 61 and len({speed[t] for t in ticks}) > 10  # (it changes)
+    signal = np.array([(t, speed[t]) for t in ticks], dtype=[("time", np.float64), ("u", np.float64)])
+    ref = simulate_fmu(str(test_fmu), fmi_type="CoSimulation", start_time=0.0, stop_time=ticks[-1],
+                       output_interval=h, input=signal, start_values={"k": 1.0, "tau": 2.0},
+                       output=["y"])
+    assert [float(row["time"]) for row in ref] == ticks
+    for row in ref:
+        t, want = float(row["time"]), float(row["y"])
+        assert abs(ours[t] - want) <= 1e-12 * max(1.0, abs(want)), (t, ours[t], want)
+
+
 def _with_fmu(project: Project, params: dict, h: float) -> Project:
     """An example with the test FMU added, fed by a Constant, its outputs
     unwired (as the harness's probe/bev-fmu)."""

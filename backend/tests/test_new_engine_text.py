@@ -102,6 +102,19 @@ def test_a_file_that_is_not_there_fails_the_run_with_new_text(tmp_path):
     assert "[NEW-TEXT]" in text and "could not be read" in text and "HV Battery Pack" in text
 
 
+
+@needs_engine
+def test_a_file_over_the_size_cap_fails_the_run_with_new_text(tmp_path):
+    """The part's own text, padded past 1 MB with comments (a text the
+    engine would read): refused unread, NEW-TEXT naming the cap."""
+    project = load_example("bev-car")
+    text = le.part_text(project.model_dump_json(), CITY, "el-battery") + "// padding\n" * 100_000
+    assert len(text.encode()) > new_engine.TEXT_LIMIT_BYTES
+    result = simulate(_with_text("bev-car", CITY, "el-battery", tmp_path / "big.mo", text), CITY)
+    assert result.status == "failed" and not result.channels
+    said = result.messages[0].text
+    assert "[NEW-TEXT]" in said and "is over 1000 kB" in said and "HV Battery Pack" in said, said
+
 @needs_engine
 def test_a_text_that_does_not_fit_its_part_fails_with_the_engines_code(tmp_path):
     proj = _with_text("bev-car", CITY, "el-battery", tmp_path / "bad.mo", "model Broken\nend Broken;\n")

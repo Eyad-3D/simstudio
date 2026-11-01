@@ -143,7 +143,8 @@ part from a text in its place (`TEXT-PARSE`, `TEXT-PORTS`, `TEXT-PARAMS`,
 
 Fast mode on a drive-cycle case: `run = le.fast(project_json, case_id)`
 gives a `Run` with today's channels and figures over the cycle at 1 s
-steps (`step=`), its flags in `run.report["fast"]["flags"]`; it refuses
+steps (`step=`), its flags in `run.report["fast"]["flags"]` and the tables
+it read past their data in `run.table_outside` (from its points); it refuses
 with `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, `FAST-SAMPLED` or
 `FAST-RUN`.
 

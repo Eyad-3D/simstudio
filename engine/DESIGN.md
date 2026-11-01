@@ -3473,7 +3473,10 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   runs it at `step` s (1 s) over the cycle and returns a `Run`: today's
   channels and figures (`figures_with` on the run's values), and
   `report["fast"]` with the step, the work, the `flags` (each stretch, its
-  part, side, worst excess) and the events. Refusals are `ModelError`s:
+  part, side, worst excess) and the events; `table_outside` lists each
+  table axis it read past its data, as a full run's records do, from its
+  points (each table read's argument evaluated at each step's end, a
+  crossing placed on the line between two). Refusals are `ModelError`s:
   `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL` (the import's), `FAST-SAMPLED`
   (any other sampled part: fast mode is given no host) and `FAST-RUN`
   (the run stopped). The app's quick mode (below) runs on it.
@@ -3563,9 +3566,12 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   bad arguments are `ValueError` or `TypeError`.
   A case in quick mode (its `mode` "quick") runs on `fast` whatever
   `LIGHTSIM_ENGINE` says (`new_engine.quick`): its channels, the figures
-  that sum or integrate over the run (`QUICK_ROWS`), each flag a warning;
-  a case it does not run runs in full with a warning carrying its
-  `QUICK-*` code (strict: fails with it). A project with a text component
+  that sum or integrate over the run (`QUICK_ROWS`), each flag a warning,
+  and today's checks of what the run read (the model builder's warnings,
+  the Ambient's air, the tables read past their data, judged as the verdict
+  judges them, which marks the consumptions not valid); a case it does not
+  run (one that ends at a distance or a lap count: `QUICK-END`) runs in
+  full with a warning carrying its `QUICK-*` code (strict: fails with it). A project with a text component
   runs on this module whatever the flag says (today's engine reads none);
   one the path does not run fails with its code and `NEW-TEXT`.
 * **Not yet:** the one-click tighter run as its own call (call `simulate`
