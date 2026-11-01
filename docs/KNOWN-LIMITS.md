@@ -678,6 +678,42 @@ minimum or an average, for example from the CSV export, or put the
   live edits included; it runs the case to its end, so a stopped run's
   replay is the whole run, and a run on today's engine with live edits is
   not made again (code `REPLAY-TODAY-LIVE-EDITS`). *Roadmap:* ENG-16.
+- **Quick mode gives a cycle's totals only.** A case in quick mode (*Run
+  mode*: *Quick*) runs on the new engine's fast mode: the cycle's speed is
+  prescribed and the Driver's pedal worked out back from it, every 1 s, so
+  it gives the summary rows that add up over the run (energies, SOC,
+  consumptions, range, distance, each phase's), not the peaks, minima and
+  times at a limit, no verdict on the speed trace, no energy report, duty,
+  limit band or hand checks, and no live view (Stop, live edits and pacing
+  do nothing). A limit the car would have met is flagged as a warning, not
+  acted on, so the totals then take more than the car could give. On the
+  example cars' nine cycle cases the energy recuperated and the internal
+  losses come out up to 1.8 % and 1.4 % below the full run's (the charge
+  used within 0.2 %). A case it does not run runs in full with a warning
+  and a code: `QUICK-KIND` (no drive cycle: an acceleration, performance,
+  lap or Formula Student case), `QUICK-BALANCE` (a charge-balanced hybrid
+  case), `QUICK-SAMPLED` (a Script, FMU or Traction Control part),
+  `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
+  `QUICK-FAILED` (fast mode's own refusal), `QUICK-NOT-FOUND`,
+  `QUICK-ERROR`. See [Run a cycle in quick mode](help/how-to/run-in-quick-mode.md).
+  *Roadmap:* ENG-16.
+- **Text components need the new engine and a project file edit.** A part
+  can read its equations from a text file (its `textFile`, see [Write a
+  part as text](help/how-to/write-a-part-as-text.md)); there is no editor
+  for it in the app, and the file is not kept inside the project. Today's
+  engine reads none, so such a case runs on the new engine; one the new
+  engine does not run (a lap case, a charge-balanced hybrid) fails with
+  its code and `NEW-TEXT` rather than running the built-in part. A
+  Script, FMU or Traction Control part, and a sub-system's container, have
+  no text component. *Roadmap:* ENG-16.
+- **FMUs on the new engine step at their own points.** With
+  `LIGHTSIM_ENGINE=new` an FMU is given its inputs at each multiple of its
+  Communication Step, steps to the next and is read there (as FMPy and
+  fmusim run it), where today's engine steps it to the end of the solver
+  step it is in: the two engines' FMU outputs can differ by up to one
+  solver step's change. On the new engine an FMU's start values and its
+  Communication Step changed during a run take effect on the next run
+  (code `NEW-LIVE-NEXT-RUN`). *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a
   negative pressure, a CG height below 0, a wheel's load share of 0):
@@ -1044,12 +1080,16 @@ minimum or an average, for example from the CSV export, or put the
   names it by its fingerprint. A path written in a project is never
   opened. On another computer, import the FMU again. *Roadmap:*
   STD-02.
-- **FMU support is an optional pack.** It needs FMPy (BSD-2-Clause) and its
-  NumPy, lxml, attrs and lark. The desktop installers do not include it
-  yet; without it, Data Checks say so and every other model runs. The
-  NumPy and lxml downloads carry LGPL-licensed parts (NumPy's libquadmath,
-  and GNU libiconv inside lxml), so the pack can go into the installers
-  only once the owner has decided how to ship those. *Roadmap:* STD-01.
+- **FMU support is a pack the installers carry.** It needs FMPy
+  (BSD-2-Clause) and its NumPy, lxml, attrs and lark; the desktop build
+  freezes it into the engine (`LIGHTSIM_FREEZE_FMU_PACK=1`). A copy built
+  from source without it runs every other model, and Data Checks say so.
+  NumPy and lxml carry LGPL-licensed parts (NumPy's libquadmath, and GNU
+  libiconv inside lxml): they ship unmodified in files of their own,
+  separate from LightSim's programs and replaceable, and
+  THIRD-PARTY-NOTICES.txt lists each with a link to its source. A copy of
+  that source beside the installer download comes with the first release.
+  *Roadmap:* STD-01.
 - **FMUs run in a separate, locked-down process, but how locked-down
   depends on your system.** An FMU is compiled code from another company or
   tool. LightSim runs it only after you allow it on your computer (once per

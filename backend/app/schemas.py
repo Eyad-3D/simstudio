@@ -151,6 +151,14 @@ class ElementInstance(BaseModel):
     size: Optional[dict[str, float]] = None
     isSubSystem: bool = False
     subSystemId: Optional[str] = None  # SystemNode this element drills into
+    # A text component (step 2 of the new engine): the path of a file holding
+    # one component in the engine's text format (engine/docs/text-format.md)
+    # with the ports and parameters of the part's own definition; the new
+    # engine builds the part from it in the place of the built-in definition
+    # (a path that is not absolute is read from the user's projects folder).
+    # Today's engine reads none: such a case runs on the new engine. None = the
+    # built-in definition
+    textFile: Optional[str] = None
 
 
 class Connection(BaseModel):
@@ -286,6 +294,13 @@ class SimCase(BaseModel):
     # expected values (VAL-35): a summary value's label, the number, its
     # tolerance and where it comes from; each run says how far it lands
     references: list[ReferenceValue] = Field(default_factory=list)
+    # "quick": the new engine's fast mode (a drive cycle's speed prescribed,
+    # the Driver's pedal worked out back from it, limits flagged rather than
+    # acted on): the totals of a cycle in a fraction of a full run's time,
+    # without the peaks, the speed trace's verdict or the reports
+    # (docs/help/how-to/run-in-quick-mode.md). A case it does not run runs in
+    # full instead, with a warning that says why. "full" = the full dynamic run
+    mode: Literal["full", "quick"] = "full"
 
 
 class StudyFactor(BaseModel):

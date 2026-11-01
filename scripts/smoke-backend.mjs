@@ -129,6 +129,29 @@ try {
   }
   console.log(`✓ scripted run: '${scripted.name}' ${sRun.status}, script worker ok`);
 
+  // The FMU pack (STD-01) is frozen in: Data Checks of an FMU block with no
+  // file ask for the file, not for the pack.
+  const fmuProject = {
+    ...project,
+    dataBusConnections: [],
+    systems: [{
+      id: "root", name: "Main", parentId: null, connections: [],
+      elements: [{ id: "el-fmu", componentDefId: "signal.fmu", label: "Smoke FMU",
+                   position: { x: 0, y: 0 }, parameterOverrides: {} }],
+    }],
+  };
+  const fmuChecks = await (await fetch(`${base}/api/validate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project: fmuProject }),
+  })).json();
+  const fmuTexts = fmuChecks.map((c) => c.text).join(" | ");
+  if (fmuTexts.includes("FMU support is not installed")) fail(`the FMU pack is not in the bundle: ${fmuTexts}`);
+  if (!fmuTexts.includes("'Smoke FMU': No FMU file chosen yet.")) {
+    fail(`Data Checks did not ask for the FMU block's file: ${fmuTexts}`);
+  }
+  console.log("✓ FMU pack: in the bundle");
+
   // The same executable is the command-line tool (AI-02): a run in its own
   // process, no server; exit 0 means a valid run.
   const outDir = mkdtempSync(join(tmpdir(), "lightsim-smoke-"));

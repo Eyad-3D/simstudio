@@ -108,6 +108,10 @@ export interface ElementInstance {
   size?: { width: number; height: number } | null;
   isSubSystem?: boolean;
   subSystemId?: string | null;
+  /** A text component: the path of a file holding the part as one component
+   *  in the new engine's text format, built in the place of its built-in
+   *  definition (a path that is not absolute: from the projects folder). */
+  textFile?: string | null;
   /** Where each parameter value comes from (CON-13), by parameter key. */
   parameterSources?: Record<string, ParameterSource>;
 }
@@ -191,6 +195,13 @@ export interface SimCase {
    * battery (and is not paced).
    */
   chargeBalance?: boolean | null;
+  /**
+   * "quick": the new engine's fast mode (the cycle's speed prescribed, the
+   * Driver's pedal worked out back from it, limits flagged, not acted on):
+   * a cycle's totals, without the peaks, the verdict or the reports. A case
+   * it does not run runs in full, saying why. Absent = "full".
+   */
+  mode?: "full" | "quick";
   /** Distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3: 0.30 m). */
   startLine?: number;
   /** A time to compare the acceleration test's time with, s; null = none. */

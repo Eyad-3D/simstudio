@@ -216,13 +216,37 @@ jobs:
       # of skipping them (the backend jobs, which do not build it, skip
       # them). The live runs' tests and the stop-latency tests' pass marks
       # (step 2's STREAM S2) are judged here.
+      # Step 2's FMU line (benchmarks/back_to_back/acceptance.toml): the
+      # Reference FMUs v0.0.41 on the new path against fmusim v0.7.0 run
+      # alone and FMPy 0.3.32, each download checked against the SHA-256
+      # the acceptance file pins
+      - name: The FMU pack, the Reference FMUs and fmusim
+        working-directory: backend
+        shell: bash
+        run: |
+          python -m pip install -r requirements-fmu.txt
+          python -m pip install --no-deps "fmpy==0.3.32"
+          get() {
+            curl -fsSL -o "$RUNNER_TEMP/$1" "$2"
+            echo "$3  $RUNNER_TEMP/$1" | sha256sum -c -
+            python -m zipfile -e "$RUNNER_TEMP/$1" "$RUNNER_TEMP/${1%.zip}"
+          }
+          get reference-fmus-0.0.41.zip \
+            https://github.com/modelica/Reference-FMUs/releases/download/v0.0.41/Reference-FMUs.zip \
+            62babca76b9c23a51c3096be4bb5930ff8b4388659056be3c0c4ef7a3aeb5403
+          get fmusim-0.7.0.zip \
+            https://github.com/modelica/fmusim/releases/download/v0.7.0/fmusim-x86_64-windows.zip \
+            bcabfa115022805e66d2815666b5970d4f911f894e53f035502580ed7be000aa
+          echo "LIGHTSIM_REFERENCE_FMUS=$RUNNER_TEMP/reference-fmus-0.0.41" >> "$GITHUB_ENV"
+          echo "LIGHTSIM_FMUSIM=$RUNNER_TEMP/fmusim-0.7.0/fmusim.exe" >> "$GITHUB_ENV"
+
       - name: The new engine in the app (backend tests)
         working-directory: backend
         env:
           LIGHTSIM_REQUIRE_NEW_ENGINE: "1"
         run: |
           python -m pip install -r requirements-dev.txt
-          python -m pytest tests/test_new_engine_flag.py tests/test_new_engine_live.py tests/test_stop_latency.py -v -rs
+          python -m pytest tests/test_new_engine_flag.py tests/test_new_engine_live.py tests/test_stop_latency.py tests/test_new_engine_fmu.py tests/test_new_engine_quick.py tests/test_new_engine_text.py -v -rs
 
       - name: The both-engines diff (its own tests)
         working-directory: .
@@ -471,10 +495,15 @@ jobs:
           npm ci --prefix desktop
 
       # What the engine ships is whatever PyInstaller collects, so freeze it
-      # the way the desktop build does and read the result.
+      # the way the desktop build does (the FMU pack in) and read the result.
       - name: Freeze the engine
         working-directory: backend
-        run: python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
+        env:
+          LIGHTSIM_FREEZE_FMU_PACK: "1"
+        run: |
+          python -m pip install -r requirements-fmu.txt
+          python -m pip install --no-deps "fmpy==0.3.32"
+          python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
 
       # Fails on any shipped component whose licence is unknown or not in
       # scripts/licenses/allowed.txt (GPL, AGPL, SSPL and EUPL never are).

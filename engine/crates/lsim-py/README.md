@@ -126,8 +126,26 @@ the run that only Python has) makes `simulate` raise a `ModelError` coded
 `RUN-SCRIPT` that names the part; give the part a function to run it on
 Python. With `native_scripts=False` a part without a function makes
 `simulate` raise a `ValueError` that names the part. `run.report["scripts"]`
-says what ran each part: `"python"` (your function) or `"native"`. FMU
-parts are not supported yet (`ModelError`).
+says what ran each part: `"python"` (your function) or `"native"`.
+
+An FMU part needs its host: `model.simulate(fmus={"el-fmu": f})`, where
+`f(t, h, inputs)` steps the FMU to `t` and returns a dict of its outputs
+there; it is called at the start and at every multiple of the part's
+Communication Step from 0 s (the engine loads no FMU's code; a part given
+none fails `RUN-FMU`).
+
+A part can be built from a component in the text format
+(`engine/docs/text-format.md`): `le.part_text(project_json, case_id,
+element_id)` prints the definition the import makes for it, and
+`le.build(project_json, case_id, texts={element_id: text})` builds the
+part from a text in its place (`TEXT-PARSE`, `TEXT-PORTS`, `TEXT-PARAMS`,
+`TEXT-NO-PART`, `TEXT-SAMPLED` when it does not fit).
+
+Fast mode on a drive-cycle case: `run = le.fast(project_json, case_id)`
+gives a `Run` with today's channels and figures over the cycle at 1 s
+steps (`step=`), its flags in `run.report["fast"]["flags"]`; it refuses
+with `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, `FAST-SAMPLED` or
+`FAST-RUN`.
 
 `tests/test_api.py` builds such a function from the app's Script runner
 (`backend/app/solver/sandbox_worker.py`'s `_run_step`, as the app calls

@@ -863,3 +863,37 @@ def test_what_the_formats_page_calls_planned_is_not_in_the_code():
     assert not [p for p, t in sources.items() if p.startswith("backend/app") and "import pyarrow" in t], (
         "the app writes Parquet, but the page says only the Python package does")
     assert "to_parquet" in sources["backend/lightsim/result.py"]
+
+
+# the words the quick mode page gives each kind of row quick mode keeps
+# (new_engine.QUICK_ROWS, each alternative of its pattern)
+QUICK_ROW_WORDS = {
+    "final_soc_pct": "final SOC", "energy_delivered_kwh": "energy delivered",
+    "energy_recuperated_kwh": "energy recuperated", "internal_losses_kwh": "internal losses",
+    "energy_used_kwh": "energy used", "fuel_used_kg": "fuel used", "distance_km": "distance driven",
+    "consumption_kwh_per_100km": "consumptions", "consumption_ac_kwh_per_100km": "at the socket",
+    "mpge_ac": "MPGe", "range_km": "range", "fuel_consumption_l_per_100km": "fuel consumption",
+    "fuel_consumption_corrected_l_per_100km": "fuel consumption", "co2_g_per_km": "CO₂ per km",
+    "battery_energy_change_pct_of_fuel": "energy change", "simulated_duration_s": "simulated duration",
+    r"phase\d+_(?:distance_km|consumption_kwh_per_100km|fuel_consumption_l_per_100km)":
+        "each phase's distance and consumption",
+}
+
+
+def test_the_quick_mode_pages_say_what_it_gives_and_every_code_it_refuses_with():
+    """Step 2's QUICK line: the help and Known issues state quick mode's
+    limits: every QUICK-* code of the path's, and each kind of row it
+    gives (a row added to quick mode without its words here fails)."""
+    from app.solver import new_engine
+
+    page, limits = _text("how-to/run-in-quick-mode.md"), _text("docs/KNOWN-LIMITS.md")
+    codes = [c for c in new_engine.CODES if c.startswith("QUICK-")]
+    assert len(codes) == 10
+    for code in codes:
+        assert f"`{code}`" in page, code
+        assert f"`{code}`" in limits, code
+    alternatives = re.findall(r"\(\?:([^()]*(?:\([^()]*\))?[^()]*)\)", new_engine.QUICK_ROWS.pattern)
+    kinds = {k for a in alternatives for k in re.split(r"\|(?![^(]*\))", a)} - {r"[^.]+\."}
+    assert kinds == set(QUICK_ROW_WORDS)
+    for kind, words in QUICK_ROW_WORDS.items():
+        assert words in page, (kind, words)

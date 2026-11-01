@@ -56,7 +56,7 @@ A result (`SimResult`, [`schemas/result.schema.json`](schemas/result.schema.json
 | `limits` | [Limits](#limits) or null | What held the car back at each moment |
 | `references` | list of [Reference check](#reference-check) | How far the run is from the case's expected values and the automatic hand calculations |
 | `engine`, `engineVersion` | text or null | The engine that ran it (`today` or `new`, as `LIGHTSIM_ENGINE` chose) and its version (the app's for today's engine, the `lightsim_engine` module's for the new one). Null on runs from before 0.4 and on runs that never started |
-| `solverOptions` | object of numbers or null | What the engine ran with: today's `timeStep`, `solverStep` and `outputEvery`; the new engine's `rtol`, `atol`, `outputStep` and `traceStep` (s) |
+| `solverOptions` | object of numbers or null | What the engine ran with: today's `timeStep`, `solverStep` and `outputEvery`; the new engine's `rtol`, `atol`, `outputStep` and `traceStep` (s); a quick-mode run's `quickStep` (s, fast mode's step) alone |
 | `liveEdits` | list of `{t, elementId, key, value, note}` | Each live parameter edit the run took, `t` the simulated time the run had reached when it took it (the new engine makes it at its next output point). An edit the run did not make, which takes effect on the next run, has a `note`: the result's message about it, which says why with its code (`NEW-LIVE-NEXT-RUN`); one it made has none. Today's engine lists only those it made |
 
 ### Channel

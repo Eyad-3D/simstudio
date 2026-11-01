@@ -33,6 +33,14 @@ Unicode-DFS-2016
 Unlicense
 Zlib
 
+# LGPL (the owner, 20 October 2026: allowed, kept as separate, replaceable
+# files and listed in the notices with a link to their source). Passes only
+# for a component whose clarifications.json entry lists its LGPL parts
+# ("lgpl": each part's name, licence, the files it is in and its source):
+# the script fails any other. Today: the FMU pack's NumPy (libquadmath) and
+# lxml (GNU libiconv), each its own package of separate files.
+LGPL-2.1-or-later
+
 # Exceptions that allow shipping inside a proprietary app
 Apache-2.0 WITH LLVM-exception
 # The PyInstaller bootloader that starts the frozen engine

@@ -43,10 +43,13 @@ are notes, never the run's warnings.
 from __future__ import annotations
 
 import bisect
+import contextlib
 import math
 import os
+import re
 import threading
 import time
+from pathlib import Path
 from typing import Callable, NamedTuple, Optional
 
 from .. import cycles, script_trust
@@ -54,7 +57,7 @@ from ..library import unit_groups
 from ..schemas import Channel, LiveEdit, Project, SimMessage, SimResult, SummaryValue
 from . import balance
 from .battery import CELLS
-from .domains import ModelInitError, RunContext
+from .domains import FMU_COMPONENT, ModelInitError, RunContext
 from .energy import BookFlow, energy_flows
 from .evidence import Evidence
 from .keys import fill_keys
@@ -78,7 +81,6 @@ CODES = {
     "NEW-CASE-KIND": "a case kind the new engine's path does not run",
     "NEW-LAP": "a lap case",
     "NEW-FS-EVENT": "a Formula Student event case",
-    "NEW-FMU": "a project with an FMU part",
     "NEW-BALANCE": "a hybrid's charge-balanced case",
     "NEW-CELLS": "a battery built from cells",
     "NEW-LIMITS": "a value outside its parameter's limits (a study's point can hold one)",
@@ -86,6 +88,20 @@ CODES = {
     "NEW-BUILD": "today's model builder refused the model",
     "NEW-FAILED": "the new engine refused or stopped (its own codes follow)",
     "NEW-ERROR": "an exception that is not the engine's own refusal",
+    "NEW-TEXT": "a part from a text file in a case the path does not run, or whose file it cannot read "
+                "(today's engine reads none)",
+    # quick mode's (a case's mode "quick": the new engine's fast mode)
+    "QUICK-NOT-FOUND": "quick mode: the case is not in the project",
+    "QUICK-KIND": "quick mode: a case that drives no drive cycle",
+    "QUICK-SAMPLED": "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control)",
+    "QUICK-CELLS": "quick mode: a battery built from cells",
+    "QUICK-LIMITS": "quick mode: a value outside its parameter's limits",
+    "QUICK-MISSING": "quick mode: the module lightsim_engine is not installed",
+    "QUICK-BALANCE": "quick mode: a hybrid's charge-balanced case",
+    "QUICK-BUILD": "quick mode: today's model builder refused the model, or a text component's file "
+                   "could not be read",
+    "QUICK-FAILED": "quick mode: the engine's fast mode refused or stopped (its own codes follow)",
+    "QUICK-ERROR": "quick mode: an exception that is not the engine's own refusal",
 }
 
 TodayFn = Callable[[Project, str, Optional[EmitFn], Optional[ControlFn]], SimResult]
@@ -132,9 +148,11 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
             return got
         view = emit is not None and not getattr(emit, "progress_only", False)
         try:
-            return _ran(run_new(project, case_id, shown if view else emit, control and read))
+            return _ran(run_new(project, case_id, shown if view else emit, control and read), project)
         except Exception as e:  # noqa: BLE001 — the new engine must never break a run
             why = failure(e)
+            if texts_of(project):  # (in either mode: today's engine reads none)
+                return no_text(case_id, why, project, str(e))
             if strict():
                 return refused(case_id, why, str(e))
             if did:
@@ -154,6 +172,8 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
                                       f"({e}); it ran on today's engine instead."))
             _refresh_status(result)
             return result
+    if texts_of(project):
+        return no_text(case_id, why, project)
     if strict():
         return refused(case_id, why)
     result = today(project, case_id, emit, control)
@@ -163,9 +183,64 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
     return result
 
 
-def _ran(result: SimResult) -> SimResult:
-    result.messages.insert(0, SimMessage(level="info", text=f"Run on the new engine ({ENV_VAR}=new)."))
+def _ran(result: SimResult, project: Optional[Project] = None) -> SimResult:
+    if not wanted() and project is not None and (texts := texts_of(project)):
+        label = next(iter(texts.values()))[0]
+        text = (f"Run on the new engine: today's engine reads no text components ({label!r} "
+                f"reads its equations from a file).")
+    else:
+        text = f"Run on the new engine ({ENV_VAR}=new)."
+    result.messages.insert(0, SimMessage(level="info", text=text))
     return result
+
+
+# ---- text components ----------------------------------------------------------
+
+TEXT_LIMIT_BYTES = 1_000_000  # a text component's file at most (one component is a few kB)
+
+
+class TextFileError(Exception):
+    """A text component's file that cannot be read (NEW-TEXT)."""
+
+
+def texts_of(project: Project) -> dict[str, tuple[str, str]]:
+    """The parts that read their equations from a text file: element id ->
+    (its label, the file's path as the project names it)."""
+    return {el.id: (el.label, el.textFile) for s in project.systems for el in s.elements
+            if getattr(el, "textFile", None)}
+
+
+def read_texts(project: Project) -> dict[str, str]:
+    """Each text component's text, read from its file (a path that is not
+    absolute from the user's projects folder). Raises TextFileError."""
+    from ..paths import projects_dir
+
+    out = {}
+    for el_id, (label, name) in texts_of(project).items():
+        path = Path(name).expanduser()
+        if not path.is_absolute():
+            path = projects_dir() / path
+        try:
+            if path.stat().st_size > TEXT_LIMIT_BYTES:
+                raise TextFileError(f"the text file of {label!r} ({path}) is over "
+                                    f"{TEXT_LIMIT_BYTES // 1000} kB")
+            out[el_id] = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as e:
+            raise TextFileError(f"the text file of {label!r} could not be read ({path}: "
+                                f"{getattr(e, 'strerror', None) or e})") from e
+    return out
+
+
+def no_text(case_id: str, why: Refusal, project: Project, detail: str = "") -> SimResult:
+    """A case with a text component the new engine's path did not run: it
+    cannot run on today's engine, which would run the built-in part in the
+    text's place without a word."""
+    label = next(iter(texts_of(project).values()))[0]
+    more = f" ({detail})" if detail else ""
+    codes = f"[{why.code}]" + (" [NEW-TEXT]" if why.code != "NEW-TEXT" else "")
+    return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
+        level="error", text=f"Not run {codes}: {why.why}{more}; {label!r} reads its "
+                            f"equations from a text file, which only the new engine reads.")])
 
 
 def replay(project: Project, case_id: str, options: dict, edits: list[LiveEdit]) -> SimResult:
@@ -174,9 +249,136 @@ def replay(project: Project, case_id: str, options: dict, edits: list[LiveEdit])
     result bit for bit. A run the engine cannot make again fails with the
     reason's code."""
     try:
-        return _ran(run_new(project, case_id, edits=edits, options=options))
+        if "quickStep" in options:  # (a quick run)
+            return run_quick(project, case_id, float(options["quickStep"]))
+        return _ran(run_new(project, case_id, edits=edits, options=options), project)
     except Exception as e:  # noqa: BLE001 — told as the reason's code
         return refused(case_id, failure(e), str(e))
+
+
+# ---- quick mode ----------------------------------------------------------------
+
+# the summary rows quick mode gives: the engine's figures that sum or
+# integrate over the run (its key, without a part's id), not the peaks,
+# minima and times at a limit, which follow the full run's driver
+QUICK_ROWS = re.compile(
+    r"^(?:[^.]+\.)?(?:final_soc_pct|energy_delivered_kwh|energy_recuperated_kwh|internal_losses_kwh"
+    r"|energy_used_kwh|fuel_used_kg)$"
+    r"|^(?:distance_km|consumption_kwh_per_100km|consumption_ac_kwh_per_100km|mpge_ac|range_km"
+    r"|fuel_consumption_l_per_100km|fuel_consumption_corrected_l_per_100km|co2_g_per_km"
+    r"|battery_energy_change_pct_of_fuel|simulated_duration_s"
+    r"|phase\d+_(?:distance_km|consumption_kwh_per_100km|fuel_consumption_l_per_100km))$")
+SAMPLED = ("signal.script", FMU_COMPONENT, "control.traction")
+
+
+def quick_unsupported(project: Project, case_id: str) -> Optional[Refusal]:
+    """Why quick mode does not run this case, or None when it does."""
+    case = next((c for c in project.cases if c.id == case_id), None)
+    if case is None:
+        return Refusal("QUICK-NOT-FOUND", "the case was not found")
+    if case.kind != "cycle" or case.fsEvent:
+        kind = (f"a Formula Student {case.fsEvent} event" if case.fsEvent else
+                {"acceleration": "an acceleration test", "performance": "a performance test"}.get(
+                    case.kind, f"a {case.kind} case"))
+        return Refusal("QUICK-KIND", f"it prescribes a drive cycle's speed, and {kind} drives none")
+    elements = [el for s in project.systems for el in s.elements]
+    if balance.applies(project, case):
+        return Refusal("QUICK-BALANCE", "it does not charge-balance a hybrid's case (set Charge "
+                                        "balance off to run it once)")
+    sampled = next((el for el in elements if el.componentDefId in SAMPLED), None)
+    if sampled is not None:
+        return Refusal("QUICK-SAMPLED", f"it runs no sampled part (a Script, an FMU, a Traction "
+                                        f"Control: {sampled.label!r})")
+    overrides = getattr(case, "parameterOverrides", None) or {}
+    if any(el.componentDefId == "battery.generic"
+           and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
+           for el in elements):
+        return Refusal("QUICK-CELLS", "it does not run a battery built from cells")
+    from ..validation import value_problems  # (validation imports this package)
+    if problems := value_problems(project, case_id):
+        return Refusal("QUICK-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse "
+                                       f"a single run for)")
+    try:
+        import lightsim_engine  # noqa: F401
+    except ImportError:
+        return Refusal("QUICK-MISSING", "the new engine is not installed")
+    return None
+
+
+def quick_failure(e: Exception) -> Refusal:
+    """The reason code of an exception out of ``run_quick``."""
+    why = failure(e)
+    code = {"NEW-FAILED": "QUICK-FAILED", "NEW-BUILD": "QUICK-BUILD", "NEW-TEXT": "QUICK-BUILD"}
+    return Refusal(code.get(why.code, "QUICK-ERROR"), why.why.replace("the new engine", "fast mode"))
+
+
+def quick(project: Project, case_id: str, emit: Optional[EmitFn], control: Optional[ControlFn],
+          full: TodayFn) -> SimResult:
+    """A case's quick mode (its mode "quick"), whatever LIGHTSIM_ENGINE
+    says: the new engine's fast mode (run_quick). A case it does not run
+    runs in ``full`` instead, with a warning carrying the reason's code (in
+    strict mode it fails with it)."""
+    why, detail = quick_unsupported(project, case_id), ""
+    if why is None:
+        try:
+            return run_quick(project, case_id)
+        except Exception as e:  # noqa: BLE001 — told as the reason's code
+            why, detail = quick_failure(e), str(e)
+    if strict():
+        return refused(case_id, why, detail)
+    result = full(project, case_id, emit, control)
+    more = f" ({detail})" if detail else ""
+    result.messages.insert(0, SimMessage(
+        level="warning", text=f"Not run in quick mode [{why.code}]: {why.why}{more}; it ran in full "
+                              f"instead."))
+    _refresh_status(result)
+    return result
+
+
+def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> SimResult:
+    """Quick mode's run of a case: the new engine's fast mode (DESIGN.md
+    section 10: the cycle's speed prescribed, the Driver's pedal worked out
+    back from it, limits flagged, not acted on), as today's SimResult: its
+    channels, the summary rows that sum or integrate over the run
+    (QUICK_ROWS), each flag a warning, and what ran it. No verdict on the
+    speed trace (it is the cycle's), no peaks, no reports. Raises when the
+    engine cannot build or run it."""
+    import lightsim_engine
+
+    from . import core  # (core imports this module)
+
+    case = next(c for c in project.cases if c.id == case_id)
+    try:
+        model = _context(project, case_id).model  # (today's labels and units)
+    except ModelInitError as e:  # as today's engine says it
+        return SimResult(caseId=case_id, status="failed", channels=[],
+                         messages=[SimMessage(level="error", text=t) for t in e.messages])
+    run = lightsim_engine.fast(project.model_dump_json(), case_id, cycles_dir=str(cycles.DIR),
+                               step=step, texts=read_texts(project))
+    fast = run.report["fast"]
+    times = [float(t) for t in run.times]
+    messages = [SimMessage(level="warning", text=w) for w in core.model_warnings(model)]
+    messages += [SimMessage(level="info", text=t)
+                 for t in core.case_notes(project, model, case, max(0.0, float(case.duration)))]
+    messages.insert(0, SimMessage(level="info", text=(
+        f"Quick mode: the new engine's fast mode, every {fast['step']:g} s: the cycle's speed is "
+        f"prescribed and the Driver's pedal worked out back from it, so the totals below come "
+        f"without the peaks, the speed trace's verdict or the reports; a limit the car would "
+        f"have met is flagged, not acted on.")))
+    for f in fast["flags"]:
+        messages.append(SimMessage(level="warning", text=(
+            f"Quick mode: {f['label']} from t = {f['t_start']:.1f} s to {f['t_end']:.1f} s: the car "
+            f"could not have followed the cycle there, so the totals take more than it could give; "
+            f"run the case in full to see what it does.")))
+    summary = [SummaryValue(key=f["key"], label=f["label"], value=f["value"], unit=f["unit"])
+               for f in run.figures if QUICK_ROWS.match(f["key"])]
+    fill_keys(summary, project)
+    result = SimResult(caseId=case_id, status=core.status_of(messages, False),
+                       channels=_channels(model, run, times), summary=summary, messages=messages,
+                       references=check_references(case.references, summary))
+    result.engine, result.engineVersion = "new", lightsim_engine.version()
+    result.solverOptions = {"quickStep": float(fast["step"])}  # (quick mode, its step)
+    return result
 
 
 def failure(e: Exception) -> Refusal:
@@ -192,6 +394,8 @@ def failure(e: Exception) -> Refusal:
         return Refusal("NEW-FAILED", f"the new engine refused it ({', '.join(codes) or 'no code'})")
     if isinstance(e, ModelError):
         return Refusal("NEW-BUILD", "today's model builder refused it")
+    if isinstance(e, TextFileError):
+        return Refusal("NEW-TEXT", str(e))
     return Refusal("NEW-ERROR", f"{type(e).__name__} in the new engine's path")
 
 
@@ -215,8 +419,6 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     if case.fsEvent:
         return Refusal("NEW-FS-EVENT", "it does not score Formula Student events")
     elements = [el for s in project.systems for el in s.elements]
-    if any(el.componentDefId == "signal.fmu" for el in elements):
-        return Refusal("NEW-FMU", "it does not run FMU parts yet")
     if balance.applies(project, case):
         return Refusal("NEW-BALANCE", "it does not charge-balance a hybrid's case")
     overrides = getattr(case, "parameterOverrides", None) or {}
@@ -271,7 +473,9 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
     t_end = max(0.0, float(case.duration))
     ctx.end_distance, laps_warning = core.end_distance(ctx, case, t_end)
     lanes = RunRecorder(ctx).lanes
-    built = lightsim_engine.build(project.model_dump_json(), case_id, cycles_dir=str(cycles.DIR))
+    texts = read_texts(project)
+    built = lightsim_engine.build(project.model_dump_json(), case_id, cycles_dir=str(cycles.DIR),
+                                  texts=texts)
     plan = _Plan(model, ctx, built, lanes)
     opts = options or {}
     step = float(opts.get("traceStep", ACCEL_TRACE_STEP_S if ctx.performance else TRACE_STEP_S))
@@ -280,7 +484,7 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
               windows=plan.windows)
     # a replay's live edits, each as the engine's parameter changes, taken
     # where the run took them (one it did not make: its note again)
-    again = _Edits(project, case_id, built) if edits else None
+    again = _Edits(project, case_id, built, texts) if edits else None
     replayed = []  # as _Live.taken
     for e in edits:
         if e.note:
@@ -291,7 +495,7 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
         replayed.append((e.elementId, e.key, e.value, e.t, bool(changes), None))
         if changes:
             kw.setdefault("edits", []).append((e.t, changes))
-    live = _Live(project, case, model, built, emit, control) if emit or control else None
+    live = _Live(project, case, model, built, emit, control, texts) if emit or control else None
 
     def go(**more):
         return live.drive(lambda **c: built.simulate(**kw, **more, **c)) if live else \
@@ -308,19 +512,20 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
         for el_id in model.signal_blocks if model.cdef_of[el_id].id == "signal.script"
     ]
     dropped: dict[tuple[str, str], str] = {}  # (Script, key): today's warning, once
-    if not specs:
-        run = go()
-    else:
-        # the same checks as today's engine: only approved code runs, and it
-        # runs in the locked-down worker process (script_trust.py, sandbox.py);
-        # the engine's own Script runner is not used from the app until the
-        # owner has decided it may replace the worker (native_scripts=False)
-        try:
-            script_trust.check([(sp.label, sp.code) for sp in specs])
-        except script_trust.ScriptsNotApproved as e:  # as today's engine says it
-            return SimResult(caseId=case_id, status="failed", channels=[],
-                             messages=[SimMessage(level="error", text=str(e))])
-        with ScriptSandbox(specs) as sandbox:
+    with contextlib.ExitStack() as workers:
+        hosts = {}
+        if specs:
+            # the same checks as today's engine: only approved code runs, and it
+            # runs in the locked-down worker process (script_trust.py, sandbox.py);
+            # the engine's own Script runner is not used from the app until the
+            # owner has decided it may replace the worker (native_scripts=False)
+            try:
+                script_trust.check([(sp.label, sp.code) for sp in specs])
+            except script_trust.ScriptsNotApproved as e:  # as today's engine says it
+                return SimResult(caseId=case_id, status="failed", channels=[],
+                                 messages=[SimMessage(level="error", text=str(e))])
+            sandbox = workers.enter_context(ScriptSandbox(specs))
+
             def runner(spec: ScriptSpec):
                 ports = {p.id for p in model.elements[spec.el_id].dynamicPorts or []
                          if p.direction == "output"}
@@ -334,7 +539,15 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
                                 f"output ports — value dropped."))
                     return outs
                 return step_fn
-            run = go(scripts={sp.el_id: runner(sp) for sp in specs}, native_scripts=False)
+            hosts.update(scripts={sp.el_id: runner(sp) for sp in specs}, native_scripts=False)
+        fmus = [el_id for el_id in model.signal_blocks if model.cdef_of[el_id].id == FMU_COMPONENT]
+        if fmus:
+            try:
+                hosts["fmus"] = {el_id: _fmu_host(model, el_id, workers) for el_id in fmus}
+            except ModelInitError as e:  # as today's engine says it
+                return SimResult(caseId=case_id, status="failed", channels=[],
+                                 messages=[SimMessage(level="error", text=t) for t in e.messages])
+        run = go(**hosts)
     stopped = run.report["stopped"] is not None
     # the live edits it took (each where the engine took it), and the notes
     # of those it did not make
@@ -400,6 +613,50 @@ def _context(project: Project, case_id: str) -> RunContext:
     return RunContext(project, model, Runtime(model, None), {}, overrides, workers=False)
 
 
+def _fmu_host(model, el_id: str, workers: contextlib.ExitStack) -> Callable:
+    """An FMU part's host for the engine (its `fmus`): today's locked-down
+    FMPy worker (fmu/sandbox.py, one process a part, closed with
+    ``workers``), stepped as an FMU host steps a co-simulation FMU (FMPy's
+    simulate_fmu and fmusim: the inputs set at a communication point, the
+    step to the next, the outputs read there). The engine calls it at the
+    start and at each multiple t of the part's Communication Step: it steps
+    the FMU from the last call's time to t with the inputs of the last call
+    (at the start it only sets them) and returns the outputs at t, which the
+    engine holds until the next call. A call before the last one's time is
+    a run from its start again (an acceleration test's second run, to its
+    finish): the FMU starts again too, in a new worker. Raises
+    ModelInitError with today's words when the FMU cannot be set up (today's
+    RunContext's)."""
+    from ..fmu import FmuError, FmuFileError  # (the FMU modules import this package's worker)
+    from ..fmu.block import spec_for
+    from ..fmu.sandbox import FmuSandbox
+
+    el = model.elements[el_id]
+    ports = list(el.dynamicPorts or [])
+    try:
+        spec = spec_for(el_id, el.label, model.params_of[el_id], ports)
+        box = [workers.enter_context(FmuSandbox(spec))]
+    except (FmuError, FmuFileError) as e:
+        raise ModelInitError([str(e)]) from e
+    except Exception as e:  # noqa: BLE001 — a plain message, as today's engine gives it
+        raise ModelInitError([f"FMU '{el.label}' could not be set up: {e}"]) from e
+    ins = [p.id for p in ports if p.direction == "input"]
+    outs = [p.id for p in ports if p.direction == "output"]
+    last: list[tuple[float, list[float]]] = []  # (the last call's time, its inputs)
+
+    def step(t: float, h: float, inputs: dict) -> dict:
+        u = [float(inputs.get(k) or 0.0) for k in ins]
+        if last and t < last[0][0]:  # the run again from its start: the FMU from its own
+            box[0].close()
+            box[0] = workers.enter_context(FmuSandbox(spec))
+            last.clear()
+        t0, u0 = last[0] if last else (t, u)
+        values = box[0].step(t0, t - t0, u0)
+        last[:] = [(t, u)]
+        return dict(zip(outs, values))
+    return step
+
+
 def _checked(ctx: RunContext) -> str:
     """What the path's checks after a run read of today's parts as they
     were at the run's start, where today's engine checks them at each step
@@ -425,9 +682,9 @@ class _Edits:
     checks after the run read as at its start (_checked), is for the next
     run."""
 
-    def __init__(self, project: Project, case_id: str, built):
+    def __init__(self, project: Project, case_id: str, built, texts: Optional[dict] = None):
         self.project = project.model_copy(deep=True)  # with the edits kept so far
-        self.case_id, self.built = case_id, built
+        self.case_id, self.built, self.texts = case_id, built, texts or {}
         self.params = dict(built.params())  # the run's, as the edits leave them
         self.checked = _checked(_context(self.project, case_id))
 
@@ -442,7 +699,7 @@ class _Edits:
         case.parameterOverrides.setdefault(el_id, {})[key] = value
         try:
             b = lightsim_engine.build(trial.model_dump_json(), self.case_id,
-                                      cycles_dir=str(cycles.DIR))
+                                      cycles_dir=str(cycles.DIR), texts=self.texts)
             checked = _checked(_context(trial, self.case_id))
         except Exception as e:  # noqa: BLE001 — the engine's refusal of the value
             raise _Later(f"the new engine takes it on the next run ({e})") from e
@@ -475,13 +732,13 @@ class _Live:
     edit of a runtime parameter (_Edits; a structural one, as the library
     or the new engine says, takes effect on the next run, as today's says)."""
 
-    def __init__(self, project: Project, case, model, built, emit, control):
+    def __init__(self, project: Project, case, model, built, emit, control, texts: dict):
         import lightsim_engine
 
         self.case, self.model, self.emit, self.control = case, model, emit, control
         self.pace = max(0.0, float(getattr(case, "realtimeFactor", 0.0) or 0.0))
         self.rc = lightsim_engine.RunControl(queue=LIVE_QUEUE if emit else 0)
-        self.edits = _Edits(project, case.id, built)
+        self.edits = _Edits(project, case.id, built, texts)
         # the edits taken, in order: (element, key, value, the run's time,
         # given to the engine, the note of one the run does not make: _made)
         self.taken: list[tuple[str, str, object, float, bool, Optional[str]]] = []
@@ -557,6 +814,10 @@ class _Live:
         try:
             if pdef is not None and pdef.variability == "fixed":
                 raise _Later("structural parameters take effect on the next run")
+            if model.cdef_of[el_id].id == FMU_COMPONENT:  # (its worker read them at its start)
+                raise _Later("FMU start values take effect on the next run" if key != "sample_time_s"
+                             else "an FMU's Communication Step takes effect on the next run on the "
+                                  "new engine")
             if not isinstance(value, (bool, int, float, str)):  # (the app sends no other)
                 raise _Later("a table takes effect on the next run on the new engine")
             changes = self.edits.changes(el_id, key, value)
@@ -851,30 +1112,7 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
                     stopped, case)
     messages += [SimMessage(level=level, text=text) for level, text in verdict.messages]
 
-    # ---- channels ------------------------------------------------------------
-    unit_map = unit_groups()
-    ports = {}
-    for el_id, cdef in model.cdef_of.items():
-        for p in list(cdef.ports) + list(model.elements[el_id].dynamicPorts or []):
-            ports[(el_id, p.id)] = p
-    channels: list[Channel] = []
-    # in today's order (core.py: by element, then port); the new engine
-    # records a few more channels than today's, which are kept
-    named = sorted((tuple(name.split(":", 1)), name) for name in raw if ":" in name)
-    for (el_id, port_id), name in named:
-        pdef = ports.get((el_id, port_id))
-        if pdef is None:
-            continue
-        channels.append(Channel(
-            elementId=el_id,
-            portId=port_id,
-            label=f"{model.elements[el_id].label} · {pdef.name}",
-            unit=unit_map.get(getattr(pdef, "unitGroup", None) or "No Unit", "-"),
-            timeSeries=[{"t": t, "value": v} for t, v in zip(times, _numbers(raw[name]))],
-            min=_numbers(run.min.get(name)),
-            max=_numbers(run.max.get(name)),
-            mean=_numbers(run.mean.get(name)),
-        ))
+    channels = _channels(model, run, times)
 
     # ---- the summary: the engine's figures, judged ---------------------------
     summary = [SummaryValue(key=f["key"], label=f["label"], value=f["value"], unit=f["unit"])
@@ -922,6 +1160,36 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
                      limits=limits,
                      references=check_references(case.references, summary)
                      + hand_checks(ev, channels))
+
+
+def _channels(model, run, times: list[float]) -> list[Channel]:
+    """The run's channels as today's: each of today's channels a port of
+    its part has, labelled and in its unit, in today's order (core.py: by
+    element, then port); the new engine records a few more channels than
+    today's, which are kept."""
+    raw = run.channels
+    unit_map = unit_groups()
+    ports = {}
+    for el_id, cdef in model.cdef_of.items():
+        for p in list(cdef.ports) + list(model.elements[el_id].dynamicPorts or []):
+            ports[(el_id, p.id)] = p
+    channels: list[Channel] = []
+    named = sorted((tuple(name.split(":", 1)), name) for name in raw if ":" in name)
+    for (el_id, port_id), name in named:
+        pdef = ports.get((el_id, port_id))
+        if pdef is None:
+            continue
+        channels.append(Channel(
+            elementId=el_id,
+            portId=port_id,
+            label=f"{model.elements[el_id].label} · {pdef.name}",
+            unit=unit_map.get(getattr(pdef, "unitGroup", None) or "No Unit", "-"),
+            timeSeries=[{"t": t, "value": v} for t, v in zip(times, _numbers(raw[name]))],
+            min=_numbers(run.min.get(name)),
+            max=_numbers(run.max.get(name)),
+            mean=_numbers(run.mean.get(name)),
+        ))
+    return channels
 
 
 def _terminal(chk, run, el_id: str, held_s: float) -> None:

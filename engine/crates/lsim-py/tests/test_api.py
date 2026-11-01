@@ -848,3 +848,182 @@ def test_an_acceleration_test_streams_its_last_run_and_takes_no_change_in_it():
     assert _bits(again.times) == _bits(changed.times)
     for name, v in changed.channels.items():
         assert _bits(v) == _bits(again.channels[name]), name
+
+
+# ---- FMU parts --------------------------------------------------------------
+
+def _fmu_project(h=0.1, wired=True, duration=1.0):
+    """A project of an FMU block (its file is never read here: the caller's
+    function is its host) and, when `wired`, a Constant 2.0 into its input;
+    its Communication Step `h`."""
+    sig = {"kind": "signal", "unitGroup": "No Unit"}
+    pos = {"x": 0, "y": 0}
+    fmu = {"id": "el-fmu", "componentDefId": "signal.fmu", "label": "Lag", "position": pos,
+           "parameterOverrides": {"fmu_path": "lag.fmu", "sample_time_s": h},
+           "dynamicPorts": [{"id": "fmu_u", "name": "u", "direction": "input", **sig},
+                            {"id": "fmu_y", "name": "y", "direction": "output", **sig}]}
+    elements = [fmu]
+    links = []
+    if wired:
+        elements.append({"id": "el-src", "componentDefId": "signal.constant", "label": "Source",
+                         "position": pos, "parameterOverrides": {"value": 2.0}})
+        links.append({"id": "db-1", "element1Id": "el-src", "port1Id": "sig_out",
+                      "element2Id": "el-fmu", "port2Id": "fmu_u"})
+    return json.dumps({"id": "fmu", "name": "FMU", "systems": [
+        {"id": "sys", "name": "Main", "elements": elements, "connections": []}],
+        "dataBusConnections": links,
+        "cases": [{"id": "case", "name": "Case", "duration": duration, "timeStep": h}]})
+
+
+def test_an_fmu_part_runs_the_callers_function_at_its_communication_points():
+    """An FMU part's host is the caller's function: called once at the
+    start and at every multiple k*h of its Communication Step from 0 s (the
+    times exactly k*h, as an FMU host's communication points), its inputs
+    read there, its outputs held until the next call and recorded at an
+    output time on a call as the call left them."""
+    h = 0.1
+    model = le.build(_fmu_project(h), "case")
+    (block,) = model.report["case"]["sampled_blocks"]
+    assert block["kind"] == "fmu" and block["id"] == "el-fmu" and block["period"] == h
+    calls = []
+
+    def lag(t, dt, inputs):
+        calls.append((t, dt, dict(inputs)))
+        return {"fmu_y": 10.0 * t + inputs["fmu_u"]}
+
+    run = model.simulate(fmus={"el-fmu": lag})
+    times = [c[0] for c in calls]
+    assert times[0] == 0.0  # the start
+    assert times[1:] == [k * h for k in range(len(times) - 1)], times
+    assert times[-1] == pytest.approx(1.0)
+    assert all(c[2] == {"fmu_u": 2.0} for c in calls), calls[:3]
+    assert _bits(run.times) == _bits([k * h for k in range(11)])
+    assert _bits(run.channels["el-fmu:fmu_y"]) == _bits([10.0 * k * h + 2.0 for k in range(11)])
+    # the label is a key too
+    again = le.build(_fmu_project(h), "case").simulate(fmus={"Lag": lag})
+    assert _bits(again.channels["el-fmu:fmu_y"]) == _bits(run.channels["el-fmu:fmu_y"])
+
+
+def test_an_fmu_part_without_a_function_or_with_a_wrong_key_is_refused():
+    """The engine loads no FMU's code: an FMU part given no function fails
+    the run with RUN-FMU naming the part, and a key of `fmus` that names no
+    FMU part (or an FMU part's key under `scripts`) is a ValueError."""
+    model = le.build(_fmu_project(), "case")
+    with pytest.raises(le.ModelError) as e:
+        model.simulate()
+    (d,) = e.value.diagnostics
+    assert d["code"] == "RUN-FMU" and d["parts"] == ["el-fmu"] and "fmus={'el-fmu': f}" in d["hint"]
+    with pytest.raises(ValueError, match="names no FMU part") as e:
+        model.simulate(fmus={"el-lag": lambda t, h, i: {}})
+    assert "'el-fmu' (Lag)" in str(e.value)
+    with pytest.raises(ValueError, match="no FMU parts"):
+        le.build(BEV, WLTC).simulate(t_end=5.0, fmus={"el-fmu": lambda t, h, i: {}})
+    with pytest.raises(TypeError, match="fmus"):
+        model.simulate(fmus=42)
+    with pytest.raises(ValueError, match="no Script parts"):
+        model.simulate(scripts={"el-fmu": lambda t, h, i: {}})
+
+
+# ---- fast mode ---------------------------------------------------------------
+
+def test_fast_mode_runs_a_drive_cycle_case_with_todays_channels_and_figures(bev_run):
+    """Fast mode on the BEV's WLTC: today's channels and figures, the
+    cycle's speed followed (prescribed, so the Vehicle's speed is the
+    cycle's at its samples), no flag, and its charge used within 1 % of the
+    full run's (DESIGN.md section 10's band)."""
+    run = le.fast(BEV, WLTC)
+    fast = run.report["fast"]
+    assert fast["step"] == 1.0 and fast["flags"] == [] and fast["steps"] > 1000
+    assert run.times[0] == 0.0 and run.times[-1] == pytest.approx(1800.0)
+    assert "el-battery:sig_soc" in run.channels and "el-vehicle:sig_speed" in run.channels
+    keys = [f["key"] for f in run.figures]
+    assert keys[:3] == [f["key"] for f in bev_run.figures][:3]
+
+    def used(r):
+        return 100.0 - figure(r, "el-battery.final_soc_pct")  # (the BEV starts full)
+    start = bev_run.channels["el-battery:sig_soc"][0]
+    assert run.channels["el-battery:sig_soc"][0] == start
+    full, quick = start - figure(bev_run, "el-battery.final_soc_pct"), start - figure(run, "el-battery.final_soc_pct")
+    assert abs(quick / full - 1.0) < 0.01, (quick, full)
+    assert figure(run, "distance_km") == pytest.approx(figure(bev_run, "distance_km"), rel=0.01)
+
+
+def test_fast_mode_refuses_what_it_cannot_run_with_its_codes():
+    """An acceleration test has no cycle (FAST-NO-CYCLE); the hybrid's
+    supervisory Script reads the pedal (FAST-SAMPLED-CONTROL); a sampled
+    part elsewhere has no host in fast mode (FAST-SAMPLED); a bad step is a
+    ValueError."""
+    fs = (BACKEND / "projects" / "fs-electric.json").read_text(encoding="utf-8")
+    with pytest.raises(le.ModelError) as e:
+        le.fast(fs, "case-accel-75m")
+    assert [d["code"] for d in e.value.diagnostics] == ["FAST-NO-CYCLE"]
+    with pytest.raises(le.ModelError) as e:
+        le.fast(HYBRID, "case-udds")
+    assert "FAST-SAMPLED-CONTROL" in [d["code"] for d in e.value.diagnostics]
+    p = json.loads(BEV)
+    p["systems"][0]["elements"].append(
+        {"id": "el-s", "componentDefId": "signal.script", "label": "Spare", "position": {"x": 0, "y": 0},
+         "parameterOverrides": {"code": "pass", "sample_time_s": 0.1}, "dynamicPorts": []})
+    with pytest.raises(le.ModelError) as e:
+        le.fast(json.dumps(p), WLTC)
+    assert [d["code"] for d in e.value.diagnostics] == ["FAST-SAMPLED"] and "Spare" in str(e.value)
+    with pytest.raises(ValueError, match="step"):
+        le.fast(BEV, WLTC, step=0.0)
+
+
+# ---- text components ---------------------------------------------------------
+
+def test_a_part_built_from_its_text_gives_the_same_run(bev_run):
+    """part_text prints the definition the import makes for a part; the
+    part built from that text (build(texts=...)) gives the same run, every
+    channel bit for bit."""
+    text = le.part_text(BEV, WLTC, "el-battery")
+    assert text.lstrip().startswith(("model", "block", "partial", "connector", "within", "//", "\""))
+    run = le.build(BEV, WLTC, texts={"el-battery": text}).simulate()
+    assert _bits(run.times) == _bits(bev_run.times)
+    for name, v in bev_run.channels.items():
+        assert _bits(run.channels[name]) == _bits(v), name
+
+
+def test_a_changed_text_changes_only_its_own_part():
+    """A text that changes the part's equations is that part's own: the
+    run reads it (the drag coefficient's term doubled moves the result),
+    and a definition another part shares is not touched."""
+    text = le.part_text(BEV, WLTC, "el-vehicle")
+    plain = le.build(BEV, WLTC).simulate(t_end=60.0)
+    changed_text = text.replace("max(cd, 0)", "2 * max(cd, 0)", 1)  # (twice the drag)
+    assert changed_text != text
+    changed = le.build(BEV, WLTC, texts={"el-vehicle": changed_text}).simulate(t_end=60.0)
+    assert _bits(changed.channels["el-battery:sig_soc"]) != _bits(plain.channels["el-battery:sig_soc"])
+    # the four wheels share one definition: one wheel's changed text (twice
+    # its rolling resistance) is not the four's
+    wheels = ["el-wheel-fl", "el-wheel-fr", "el-wheel-rl", "el-wheel-rr"]
+    wheel = le.part_text(BEV, WLTC, wheels[0])
+    assert all(le.part_text(BEV, WLTC, w) == wheel for w in wheels)
+    doubled = wheel.replace("f_rr = c_rr * N", "f_rr = 2 * c_rr * N", 1)
+    assert doubled != wheel
+
+    def soc(texts):
+        return _bits(le.build(BEV, WLTC, texts=texts).simulate(t_end=60.0).channels["el-battery:sig_soc"])
+    one, four = soc({wheels[0]: doubled}), soc({w: doubled for w in wheels})
+    assert len({one, four, _bits(plain.channels["el-battery:sig_soc"])}) == 3
+
+
+def test_a_text_that_does_not_fit_its_part_is_refused_with_its_code():
+    text = le.part_text(BEV, WLTC, "el-battery")
+    cases = {
+        "TEXT-PARSE": ("el-battery", "model Broken\n  Real x\nend Broken;"),
+        "TEXT-NO-PART": ("el-nothing", text),
+    }
+    for code, (el, t) in cases.items():
+        with pytest.raises(le.ModelError) as e:
+            le.build(BEV, WLTC, texts={el: t})
+        assert [d["code"] for d in e.value.diagnostics] == [code], (code, str(e.value))
+    # another part's text: its ports are not the battery's
+    other = le.part_text(BEV, WLTC, "el-vehicle")
+    with pytest.raises(le.ModelError) as e:
+        le.build(BEV, WLTC, texts={"el-battery": other})
+    assert [d["code"] for d in e.value.diagnostics] == ["TEXT-PORTS"]
+    with pytest.raises(le.ModelError) as e:
+        le.part_text(HYBRID, "case-udds", "el-hcu")
+    assert [d["code"] for d in e.value.diagnostics] == ["TEXT-SAMPLED"]

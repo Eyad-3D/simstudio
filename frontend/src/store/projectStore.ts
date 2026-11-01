@@ -539,6 +539,7 @@ export interface ProjectState {
       endDistance: number | null;
       endLaps: number | null;
       chargeBalance: boolean | null;
+      mode: "full" | "quick" | undefined;
       startLine: number;
       referenceTime: number | null;
       energyReport: boolean;

@@ -28,8 +28,11 @@ go through one control of the engine's run (step 2's item 4, 31 October:
 the stream the result's values to the bit, a live edit an event at the
 next output point, one the path's checks after the run would read as at
 its start taken on the next run with a coded note, a replay from the
-run's snapshot bit for bit; still to
-wire there: FMU parts, text components, quick mode). The
+run's snapshot bit for bit); FMU parts run on the path through today's
+FMPy worker, stepped at their communication points as FMPy and fmusim
+step them, text components are read from the file a part names, and a
+case in quick mode runs on fast mode, its totals only (step 2's item 5,
+1 November). The
 shared types in `lsim-ir` are unified (`engine/ir-unify`, DESIGN.md
 §5.8); every package builds on them.
 

@@ -3434,8 +3434,49 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   `native_scripts=False` a part without a function is a `ValueError`
   naming it. `run.report["scripts"]` says which ran each part
   (`"python"` or `"native"`). `script_host` in `lib.rs` is the single
-  place a Script block's host is chosen. FMU parts raise a `ModelError`
-  (not supported yet).
+  place a Script block's host is chosen.
+* **FMU parts** (step 2's item 5): the engine loads no FMU's code itself.
+  `simulate(fmus={part id or label: f})` gives an FMU part its host, a
+  Python function `f(t, h, inputs) -> dict`: the engine calls it once at
+  the start and at every multiple k·h of the part's period (its
+  Communication Step, else 10 ms) from 0 s, the tick times computed as
+  k·h (`offset` 0, not added up), and holds what it returns until the
+  next call. The app's (`new_engine._fmu_host`) runs the FMU in today's
+  locked-down FMPy worker (`app/fmu/sandbox.py`) and steps it as FMI's
+  own tools step a co-simulation FMU (FMPy's `simulate_fmu`, fmusim): at
+  each call it sets the inputs of the last call, steps from the last
+  call's time to this one (the worker's `doStep(t_k, t_{k+1} - t_k)`,
+  which for k ≥ 1 is FMPy's step size to the bit: both ends within a
+  factor of two) and returns the outputs there; a call before the last
+  one's time is the run from its start again (an acceleration test's
+  second run, to its finish), so the FMU starts again in a new worker.
+  An FMU part given no function fails `RUN-FMU` naming it; a key that
+  names no FMU part is a `ValueError`; `sweep` gives none (an FMU's state
+  is the run's own), so such a part fails there.
+* **Text components**: `build(..., texts={element id: text})` builds a
+  part from one component in the text format (§5.4) in the place of the
+  definition the import made for it (`core::with_texts`), every value,
+  port and link of the part unchanged; `part_text(project, case,
+  element)` prints that definition, which built as the part's text gives
+  the same model (the round trip of `lsim-project/tests/text_format.rs`).
+  The text must hold one component with the part's ports (the same names
+  and kinds: `TEXT-PORTS`) and every parameter its values set
+  (`TEXT-PARAMS`); one that does not read is `TEXT-PARSE` in the parser's
+  words; a sampled part (`TEXT-SAMPLED`) and a part the case's model does
+  not hold (`TEXT-NO-PART`) have none. A text equal to the definition
+  keeps its name; another, whose name is the library's, is renamed for
+  its part (`<name>_text_<element>`), so the other parts that use the
+  definition (the four wheels share one) keep it. The app reads the text
+  from the file the part's `textFile` names (`new_engine.read_texts`).
+* **Fast mode for project files**: `fast(project, case, step=None,
+  texts=None)` imports a drive-cycle case as its inverse model (§10),
+  runs it at `step` s (1 s) over the cycle and returns a `Run`: today's
+  channels and figures (`figures_with` on the run's values), and
+  `report["fast"]` with the step, the work, the `flags` (each stretch, its
+  part, side, worst excess) and the events. Refusals are `ModelError`s:
+  `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL` (the import's), `FAST-SAMPLED`
+  (any other sampled part: fast mode is given no host) and `FAST-RUN`
+  (the run stopped). The app's quick mode (below) runs on it.
 * **The run's evidence** (step 2's evidence part): `simulate(...,
   trace=[names], trace_step=0.1)` samples channels (today's `element:port`,
   in their display units) or engine variables (SI) from the dense output
@@ -3496,8 +3537,8 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
 * **The app.** With `LIGHTSIM_ENGINE=new` the backend
   (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
   cases on this module, live ones too (section 12.3: streamed, stopped,
-  edited live), and everything else on today's engine (FMU parts,
-  Formula Student events, hybrid charge-balance cases,
+  edited live), FMU parts and text components included, and everything
+  else on today's engine (Formula Student events, hybrid charge-balance cases,
   batteries built from cells and a study's point holding a value outside
   its parameter's limits, which Data Checks refuse for a single run and
   today's engine reads clamped, too); any failure of the new engine runs the
@@ -3520,9 +3561,15 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   `RUN-MEMORY`).
   A panic inside the engine becomes a `ModelError` coded `ENGINE-FAULT`;
   bad arguments are `ValueError` or `TypeError`.
-* **Not yet:** fast mode for project files (no `mode` argument, so nothing
-  silently runs something else), FMU parts, the one-click tighter run as
-  its own call (call `simulate` again with a smaller `rtol`).
+  A case in quick mode (its `mode` "quick") runs on `fast` whatever
+  `LIGHTSIM_ENGINE` says (`new_engine.quick`): its channels, the figures
+  that sum or integrate over the run (`QUICK_ROWS`), each flag a warning;
+  a case it does not run runs in full with a warning carrying its
+  `QUICK-*` code (strict: fails with it). A project with a text component
+  runs on this module whatever the flag says (today's engine reads none);
+  one the path does not run fails with its code and `NEW-TEXT`.
+* **Not yet:** the one-click tighter run as its own call (call `simulate`
+  again with a smaller `rtol`).
 
 ## 14. Error messages
 
@@ -4239,8 +4286,11 @@ contains no KLU and no GPL code.
 requires every third-party crate's SPDX expression to be satisfiable with
 MIT, MIT-0, Apache-2.0 (also WITH LLVM-exception), BSD-2/3-Clause, ISC,
 Zlib, 0BSD, BSL-1.0, CC0-1.0 or Unicode-3.0; GPL, LGPL, AGPL, EUPL and SSPL
-never pass. cargo-deny 0.20.2 (`deny.toml`, same policy) agrees: "bans ok,
-licenses ok". Stage 1 (historical) built with 113 third-party crates, all
+never pass: a crate is compiled into LightSim's own binary, and LGPL code
+may ship only as a separate, replaceable file (the owner, 20 October 2026;
+the app's notices allow it for the FMU pack's NumPy and lxml on those
+terms, `scripts/licenses/allowed.txt`). cargo-deny 0.20.2 (`deny.toml`,
+same policy) agrees: "bans ok, licenses ok". Stage 1 (historical) built with 113 third-party crates, all
 permissive: the main ones are Cranelift 0.134.4 and regalloc2 (Apache-2.0
 WITH LLVM-exception), sundials-sys 0.6.2 and the vendored SUNDIALS 7.1.1
 (BSD-3-Clause; no KLU, no GPL code), bindgen (BSD-3-Clause, build only),

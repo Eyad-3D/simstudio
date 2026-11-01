@@ -117,6 +117,9 @@ class Component:
     # Data rather than software: its texts are the NOTICE the source asks
     # to reproduce, and the licence itself is the standard text.
     data: bool = False
+    # Its LGPL parts (clarifications.json "lgpl"), set by check(): each a
+    # dict with the part's name, licence, files and source.
+    lgpl: list[dict] = field(default_factory=list)
 
     @property
     def label(self) -> str:
@@ -264,6 +267,14 @@ def check(components: list[Component], allowed: dict[str, str], clarified: dict)
             problems.append(f"{c.label} ({c.part.lower()}): {c.license} is not allowed "
                             "(scripts/licenses/allowed.txt)")
             continue
+        # an LGPL part ships only as a separate file, listed with its source
+        lgpl = (rule or {}).get("lgpl") or []
+        if any(t.startswith("LGPL-") for t in chosen):
+            if not lgpl or not all(p.get(k) for p in lgpl for k in ("name", "license", "files", "source")):
+                problems.append(f"{c.label} ({c.part.lower()}): an LGPL part needs its entry in "
+                                "clarifications.json (lgpl: its name, licence, files and source)")
+                continue
+            c.lgpl = lgpl
         c.terms = chosen
     return problems
 
@@ -608,6 +619,15 @@ def render(components: list[Component]) -> str:
         "Do not edit by hand.",
         "",
     ]
+    lgpl = [(c, p) for c in components for p in c.lgpl]
+    if lgpl:
+        lines += ["Parts under the GNU Lesser General Public License (LGPL). Each is kept",
+                  "unmodified in files of its own, separate from LightSim's own programs,",
+                  "and can be replaced; its source is at the link given:", ""]
+        for c, p in lgpl:
+            lines += [f"  {p['name']} — {p['license']}, inside {c.label}",
+                      f"      Files: {p['files']}", f"      Source: {p['source']}"]
+        lines.append("")
     for part in (UI, SHELL, ENGINE, DATA):
         members = [c for c in top if c.part == part]
         if not members:
@@ -622,6 +642,9 @@ def render(components: list[Component]) -> str:
     for c in components:
         if c.needs_standard_text:
             standard += [t for t in c.terms if t not in standard]
+        # (an LGPL part's licence goes with it in full, whatever texts its
+        # package ships)
+        standard += [p["license"] for p in c.lgpl if p["license"] not in standard]
 
     for c in top:
         lines += ["", RULE, c.label, f"Licence: {c.license}"]
@@ -630,6 +653,9 @@ def render(components: list[Component]) -> str:
         lines.append(f"Used in: {c.part.lower()}")
         if c.note:
             lines.append(c.note)
+        for p in c.lgpl:
+            lines.append(f"LGPL part: {p['name']} ({p['license']}), in {p['files']}; "
+                         f"source: {p['source']}")
         lines.append(THIN)
         for heading, text in c.texts:
             lines += ["", f"[{heading}]", "", text]

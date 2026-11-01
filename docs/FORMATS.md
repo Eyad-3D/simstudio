@@ -43,7 +43,7 @@ Last updated for version 0.3.0.
 
 | Format | What works | What is missing |
 |---|---|---|
-| FMU (`.fmu`): Co-Simulation FMUs of FMI 2.0 and 3.0, read; no FMU is written | The *FMU* block runs them with the rest of the model; CI runs the Modelica Association's Reference FMUs against FMPy's own results (`backend/tests/test_fmu.py::test_reference_fmu_matches_fmpy`) | The FMU pack (FMPy) is not in the installer yet, because it needs a licence decision ([Known issues](KNOWN-LIMITS.md)); Model Exchange FMUs do not run |
+| FMU (`.fmu`): Co-Simulation FMUs of FMI 2.0 and 3.0, read; no FMU is written | The *FMU* block runs them with the rest of the model; CI runs the Modelica Association's Reference FMUs against FMPy's own results (`backend/tests/test_fmu.py::test_reference_fmu_matches_fmpy`) | Model Exchange FMUs do not run ([Known issues](KNOWN-LIMITS.md)) |
 | A lap from a data logger or a lap simulator (CSV, read by *Import lap*, and by *Calibrate lap* with lateral acceleration), in the layouts Generic, GPS logger, MoTeC i2, AiM Race Studio, OpenLAP and TUM laptime-simulation | The Generic, MoTeC i2, OpenLAP and TUM layouts, read from files made up in those layouts (`backend/tests/test_laplog.py`; none from the tools themselves is bundled) | A test of the GPS logger and AiM Race Studio layouts; any file written by those tools: all the layouts are LightSim's reading of them, not checked against their files |
 | Paste a table from a spreadsheet | The table editor takes a pasted block of cells | A test of the paste |
 | The energy-flow chart as an SVG picture, the duty table as CSV, a study's table as CSV | The *Energy*, *Duty* and study views of the *Results* tab and the studies list in *Cases & Parameters* save them | A test that reads the files back |
@@ -80,9 +80,12 @@ export to hardware-in-the-loop (HIL) systems.
 
 LightSim is proprietary, so it ships only libraries under permissive
 licences (MIT, BSD, Apache 2.0 and the like; the full list is
-`scripts/licenses/allowed.txt`). FMPy, which runs FMUs, is one (the FMU pack
-is not in the installer yet, see above); ONNX Runtime, MCAP and mdflib are
-the kind the planned formats would use. Tools under GPL, LGPL or AGPL
-licences (asammdf, OpenModelica, OMSimulator) are used only in LightSim's
-own tests, or when you install them yourself; they are never in the
-installer.
+`scripts/licenses/allowed.txt`). FMPy, which runs FMUs, is one; ONNX
+Runtime, MCAP and mdflib are the kind the planned formats would use. An
+LGPL part may ship only unmodified, in files of its own that can be
+replaced, listed in the notices with a link to its source: the FMU pack's
+NumPy (libquadmath) and lxml (GNU libiconv) are the only ones. Tools under
+GPL or AGPL licences, and LGPL tools that would be built into LightSim's
+own programs (asammdf, OpenModelica, OMSimulator), are used only in
+LightSim's own tests, or when you install them yourself; they are never in
+the installer.

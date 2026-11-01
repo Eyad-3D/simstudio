@@ -15,7 +15,7 @@ use lsim_solve::{
     OutputGrid, ParamEdit, RunControl, SimResult, SolveError, SolverOptions, TraceSpec,
 };
 use serde_json::Value;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -147,22 +147,158 @@ fn parse_project(project_json: &str) -> Result<Value, Failure> {
         .map_err(|e| Failure::Value(format!("The project is not valid JSON: {e}.")))
 }
 
-/// Imports `case_id` of a project (its JSON text), without building it.
+/// Imports `case_id` of a project (its JSON text), without building it;
+/// each part of `texts` (element id → one component in the text format,
+/// engine/docs/text-format.md) built from its text ([`with_texts`]).
 pub fn import(
     project_json: &str,
     case_id: &str,
     cycles_dir: Option<PathBuf>,
+    texts: &BTreeMap<String, String>,
+    inverse: bool,
 ) -> Result<(Value, lsim_ir::ComponentDef, ImportReport), Failure> {
     let project = parse_project(project_json)?;
     let reg = standard_registry();
-    let (top, rep) = import_case(
-        &project,
-        Some(case_id),
-        &reg,
-        &ImportOptions { cycles_dir, ..Default::default() },
-    )
-    .map_err(Failure::Model)?;
+    let (mut top, mut rep) =
+        import_case(&project, Some(case_id), &reg, &ImportOptions { cycles_dir, inverse })
+            .map_err(Failure::Model)?;
+    with_texts(&mut top, &mut rep, texts)?;
     Ok((project, top, rep))
+}
+
+/// The definition the import makes for one part of a case (by its element
+/// id), printed in the text format: a text component the part can be
+/// built from in its place ([`with_texts`]) that gives the same model.
+pub fn part_text(project_json: &str, case_id: &str, element: &str) -> Result<String, Failure> {
+    guarded(|| {
+        let (_, top, rep) = import(project_json, case_id, None, &BTreeMap::new(), false)?;
+        let (_, def) = text_part(&top, &rep, element)?;
+        Ok(lsim_lang::to_text(&def))
+    })
+}
+
+/// The part of `element` and the definition the import made for it; a
+/// part with none (no such part, a sub-system's container) or whose code
+/// runs outside the equations (a sampled part) is refused.
+fn text_part(
+    top: &lsim_ir::ComponentDef,
+    rep: &ImportReport,
+    element: &str,
+) -> Result<(usize, lsim_ir::ComponentDef), Failure> {
+    let refuse = |code: &str, m: String| {
+        let mut d = Diagnostic::error(code, m);
+        d.parts = vec![element.to_string()];
+        Failure::Model(vec![d])
+    };
+    if let Some(s) = rep.sampled.iter().find(|s| s.element == element) {
+        return Err(refuse(
+            "TEXT-SAMPLED",
+            format!(
+                "'{}' is a sampled part (a Script, an FMU, a Traction Control): its code runs \
+                 outside the equations, so it has no text component.",
+                s.label
+            ),
+        ));
+    }
+    let at = rep
+        .instances
+        .get(element)
+        .and_then(|inst| top.components.iter().position(|s| s.name == *inst))
+        .ok_or_else(|| {
+            refuse(
+                "TEXT-NO-PART",
+                format!(
+                    "'{element}' is no part the case's model holds (a sub-system's container \
+                     has no equations of its own)."
+                ),
+            )
+        })?;
+    let name = &top.components[at].def;
+    let def = rep.library().components.get(name).cloned().ok_or_else(|| {
+        refuse("TEXT-NO-PART", format!("'{element}' has no definition ({name})."))
+    })?;
+    Ok((at, def))
+}
+
+/// Builds each part of `texts` (element id → its text component) from its
+/// text in the place of the definition the import made for it, every
+/// value, port and link of the part unchanged. The text holds one
+/// component with the ports of the part's own definition (the same names
+/// and kinds) and every parameter the part's values set (`TEXT-PORTS`,
+/// `TEXT-PARAMS`); one that does not read is `TEXT-PARSE`, the parser's
+/// words. A component other than the definition it replaces is the
+/// part's own (named for it when its name is taken, so no other part that
+/// uses that definition changes).
+pub fn with_texts(
+    top: &mut lsim_ir::ComponentDef,
+    rep: &mut ImportReport,
+    texts: &BTreeMap<String, String>,
+) -> Result<(), Failure> {
+    for (element, text) in texts {
+        let (at, old) = text_part(top, rep, element)?;
+        let label = top.components[at].label.clone().unwrap_or_else(|| element.clone());
+        let refuse = |code: &str, m: String| {
+            let mut d = Diagnostic::error(code, format!("The text component of '{label}': {m}"));
+            d.parts = vec![element.clone()];
+            Failure::Model(vec![d])
+        };
+        let lib = rep.library();
+        let mut defs = lsim_lang::parse_with(text, &lib).map_err(|e| {
+            refuse("TEXT-PARSE", lsim_lang::Report(&e).to_string().trim().to_string())
+        })?;
+        if defs.len() != 1 {
+            return Err(refuse(
+                "TEXT-PARSE",
+                format!("it holds {} components; give it one, the part's.", defs.len()),
+            ));
+        }
+        let mut def = defs.remove(0);
+        let ports = |d: &lsim_ir::ComponentDef| -> Vec<(String, lsim_ir::PortKind)> {
+            d.ports.iter().map(|p| (p.name.clone(), p.kind.clone())).collect()
+        };
+        if ports(&def) != ports(&old) {
+            let names = |d: &lsim_ir::ComponentDef| -> String {
+                d.ports.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")
+            };
+            return Err(refuse(
+                "TEXT-PORTS",
+                format!(
+                    "its ports ({}) are not the part's ({}), of the same kinds.",
+                    names(&def),
+                    names(&old)
+                ),
+            ));
+        }
+        let missing: Vec<&str> = top.components[at]
+            .modifiers
+            .iter()
+            .map(|m| m.param.as_str())
+            .filter(|p| !def.params.iter().any(|d| d.name == *p))
+            .collect();
+        if !missing.is_empty() {
+            return Err(refuse(
+                "TEXT-PARAMS",
+                format!(
+                    "it declares no parameter {}, which the part's values set.",
+                    missing.join(", ")
+                ),
+            ));
+        }
+        // (one equal to the definition it replaces keeps its name: the same
+        // model, built from the text)
+        if def != old && lib.components.contains_key(&def.name) {
+            def.name = format!("{}_text_{}", def.name, ident(element));
+        }
+        top.components[at].def = def.name.clone();
+        rep.defs.retain(|d| d.name != def.name);
+        rep.defs.push(def);
+    }
+    Ok(())
+}
+
+/// `s` with every character outside `[A-Za-z0-9_]` as `_`.
+fn ident(s: &str) -> String {
+    s.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect()
 }
 
 /// Imports, prepares (through the cache when `cache` is given) and compiles
@@ -172,10 +308,11 @@ pub fn build(
     case_id: &str,
     cache: Option<PathBuf>,
     cycles_dir: Option<PathBuf>,
+    texts: &BTreeMap<String, String>,
 ) -> Result<Built, Failure> {
     guarded(|| {
         let t0 = Instant::now();
-        let (project, top, rep) = import(project_json, case_id, cycles_dir)?;
+        let (project, top, rep) = import(project_json, case_id, cycles_dir, texts, false)?;
         let import_seconds = t0.elapsed().as_secs_f64();
         let engine = Engine::new(rep.library());
         let model = engine
@@ -564,6 +701,122 @@ pub struct RunOutput {
     /// run again to its finish: its first run's, made before the finish
     /// (`simulate(edits=...)` with the times taken makes them again)
     pub edits: Vec<(f64, f64, Vec<f64>)>,
+    /// a fast-mode run's own: its flags, events and report ([`fast`])
+    pub fast: Option<FastOut>,
+}
+
+/// What a fast-mode run says beyond its channels and figures.
+pub struct FastOut {
+    /// the stretches the vehicle could not have followed
+    pub flags: Vec<lsim_engine::lsim_fast::LimitFlag>,
+    /// its events
+    pub events: Vec<lsim_engine::lsim_fast::FastEvent>,
+    /// what it did
+    pub report: lsim_engine::lsim_fast::FastReport,
+    /// its step, s
+    pub step: f64,
+}
+
+/// Fast mode (DESIGN.md section 10) on a drive-cycle case of a project:
+/// the case imported as its inverse model (the vehicle's speed the cycle
+/// its Driver follows, the Driver's pedal solved for), run over the cycle
+/// at `step` s (the default 1 s), its limits flagged, not acted on. Its
+/// channels and figures are the full run's kind ([`RunOutput`]: today's
+/// names and units, `figures_with` on the run); `fast` holds the flags.
+/// A case with no cycle to prescribe (an acceleration test, no Driver or
+/// Driving Task) fails `FAST-NO-CYCLE`, one whose pedal a sampled block
+/// reads `FAST-SAMPLED-CONTROL`, one with any other sampled block
+/// `FAST-SAMPLED` (fast mode is given no host for one), and a run that
+/// stops `FAST-RUN`, each in the engine's words.
+pub fn fast(
+    project_json: &str,
+    case_id: &str,
+    cycles_dir: Option<PathBuf>,
+    texts: &BTreeMap<String, String>,
+    step: Option<f64>,
+) -> Result<(Built, RunOutput), Failure> {
+    use lsim_engine::lsim_fast::{FastOptions, Trace};
+    guarded(|| {
+        let t0 = Instant::now();
+        let (project, top, rep) = import(project_json, case_id, cycles_dir, texts, true)?;
+        let import_seconds = t0.elapsed().as_secs_f64();
+        let fail = |e: &dyn std::fmt::Display| model_error("FAST-RUN", e.to_string());
+        let Some(pr) = rep.inverse.clone() else {
+            return Err(model_error(
+                "FAST-NO-CYCLE",
+                "Fast mode found no cycle to prescribe.".into(),
+            ));
+        };
+        let trace = Trace::new(pr.t.clone(), pr.v.clone()).map_err(|e| fail(&e))?;
+        let model = Engine::new(rep.library())
+            .build_inverse(&top, &pr.spec, &BuildOptions::default())
+            .map_err(Failure::Model)?;
+        if let Some(b) = model.info.blocks.first() {
+            return Err(model_error(
+                "FAST-SAMPLED",
+                format!(
+                    "Fast mode runs no sampled block (a Script, an FMU or a Traction Control: \
+                     '{}'): run this case in full dynamic mode.",
+                    b.name
+                ),
+            ));
+        }
+        let step = step.unwrap_or(FastOptions::default().step);
+        if !(step.is_finite() && step > 0.0) {
+            return Err(Failure::Value(format!(
+                "step must be a positive number of seconds, not {step}"
+            )));
+        }
+        let t_end = rep.run.duration.min(trace.end());
+        let o = FastOptions { step, t_end: Some(t_end), ..Default::default() };
+        let started = Instant::now();
+        let r = model
+            .fast_with(&model.info.params, std::slice::from_ref(&trace), &o, None, &mut [])
+            .map_err(|e| fail(&e))?;
+        let wall_seconds = started.elapsed().as_secs_f64();
+        let columns = |table: &[f64]| (0..r.names.len()).map(|j| r.column(table, j)).collect();
+        let result = SimResult {
+            times: r.times.clone(),
+            names: r.names.clone(),
+            values: columns(&r.values),
+            min: columns(&r.min),
+            max: columns(&r.max),
+            mean: columns(&r.mean),
+            left_limits: vec![],
+            square_integral: vec![],
+            magnitude_integral: vec![],
+            trace: None,
+            windows: vec![],
+            events: vec![],
+            stats: Default::default(),
+            backend: "fast",
+            options: SolverOptions::default(),
+            wall_seconds,
+            energy: None,
+            report: Default::default(),
+        };
+        let params = model.info.params.clone();
+        let flat = &model.prepared.flat;
+        let param =
+            |name: &str| flat.find_param(name).and_then(|id| params.get(id.0 as usize).copied());
+        let figures = figures_with(&project, &rep, &param, &result);
+        let out = RunOutput {
+            result,
+            figures,
+            params: params.clone(),
+            wall_seconds,
+            reran: false,
+            t_end,
+            output_step: step,
+            scripts: vec![],
+            trace_names: None,
+            window_names: vec![],
+            edits: vec![],
+            fast: Some(FastOut { flags: r.flags, events: r.events, report: r.report, step }),
+        };
+        let built = Built { model, rep, project, case_id: case_id.to_string(), import_seconds };
+        Ok((built, out))
+    })
 }
 
 /// A run's sampled blocks' hosts.
@@ -588,13 +841,18 @@ pub type HostFactory<'a> = dyn Fn(&Built, bool) -> Result<Hosts, Failure> + Sync
 /// Makes the host of a Script block from its spec (`native` as above).
 pub type ScriptMaker<'a> = dyn Fn(&SampledSpec, bool) -> Result<ScriptHost, Failure> + 'a;
 
+/// Makes the host of an FMU part from its spec (the caller's: the engine
+/// loads no FMU's code itself).
+pub type FmuMaker<'a> = dyn Fn(&SampledSpec) -> Result<Box<dyn DiscreteBlock>, Failure> + 'a;
+
 /// The hosts of a model's sampled blocks, in `info.blocks` order: the
 /// Traction Control block is today's rule in Rust, a Script block is made
-/// by `script` (the one place a Script block's host is chosen), an FMU is
-/// not supported yet.
+/// by `script` (the one place a Script block's host is chosen), an FMU part
+/// by `fmu`.
 pub fn block_hosts(
     built: &Built,
     script: &ScriptMaker<'_>,
+    fmu: &FmuMaker<'_>,
     native: bool,
 ) -> Result<Hosts, Failure> {
     let mut out = Hosts { blocks: vec![], scripts: vec![], outside: vec![] };
@@ -610,15 +868,7 @@ pub fn block_hosts(
                 out.outside.extend(flag.map(|f| (spec.element.clone(), f)));
             }
             SampledKind::TractionControl => out.blocks.push(Box::new(TractionHost::new(spec))),
-            SampledKind::Fmu { .. } => {
-                return Err(model_error(
-                    "RUN-FMU",
-                    format!(
-                        "The FMU part '{}' cannot run yet: the engine does not run FMUs so far.",
-                        spec.label
-                    ),
-                ));
-            }
+            SampledKind::Fmu { .. } => out.blocks.push(fmu(spec)?),
         }
     }
     Ok(out)
@@ -742,6 +992,7 @@ pub fn run(
             trace_names: None,
             window_names: vec![],
             edits,
+            fast: None,
         })
     })
 }
@@ -893,27 +1144,33 @@ pub fn part_of<'a>(built: &'a Built, name: &str) -> Option<&'a str> {
 }
 
 /// The Script parts of the run (each block the run's loop drives that is a
-/// Script), in its order.
-pub fn script_parts(built: &Built) -> Vec<&SampledSpec> {
+/// Script), in its order; with `fmu` its FMU parts instead.
+pub fn script_parts(built: &Built, fmu: bool) -> Vec<&SampledSpec> {
     built
         .model
         .info
         .blocks
         .iter()
         .filter_map(|b| sampled_spec(&built.rep, &b.name))
-        .filter(|s| matches!(s.kind, SampledKind::Script { .. }))
+        .filter(|s| match s.kind {
+            SampledKind::Script { .. } => !fmu,
+            SampledKind::Fmu { .. } => fmu,
+            SampledKind::TractionControl => false,
+        })
         .collect()
 }
 
-/// Whether each of `keys` (of the caller's `scripts`) is the id or the
-/// label of a Script part, and no part is named by two of them (its id and
-/// its label): a function given for no part, or the second for a part,
-/// would be set aside unsaid.
+/// Whether each of `keys` (of the caller's `scripts`; with `fmu` of its
+/// `fmus`) is the id or the label of a Script part (an FMU part), and no
+/// part is named by two of them (its id and its label): a function given
+/// for no part, or the second for a part, would be set aside unsaid.
 pub fn check_script_keys<'a>(
     built: &Built,
     keys: impl Iterator<Item = &'a String>,
+    fmu: bool,
 ) -> Result<(), Failure> {
-    let parts = script_parts(built);
+    let (arg, kind) = if fmu { ("fmus", "FMU") } else { ("scripts", "Script") };
+    let parts = script_parts(built, fmu);
     let keys: Vec<&String> = keys.collect();
     let mut unknown: Vec<String> = keys
         .iter()
@@ -924,7 +1181,7 @@ pub fn check_script_keys<'a>(
         for p in &parts {
             if p.element != p.label && keys.contains(&&p.element) && keys.contains(&&p.label) {
                 return Err(Failure::Value(format!(
-                    "scripts: '{}' and '{}' name the Script part '{}' ({}) twice, by its id and \
+                    "{arg}: '{}' and '{}' name the {kind} part '{}' ({}) twice, by its id and \
                      by its label; give it one function, under one of them.",
                     p.element, p.label, p.element, p.label
                 )));
@@ -934,14 +1191,14 @@ pub fn check_script_keys<'a>(
     }
     unknown.sort();
     let there = if parts.is_empty() {
-        "the case has no Script parts".to_string()
+        format!("the case has no {kind} parts")
     } else {
         let parts: Vec<String> =
             parts.iter().map(|p| format!("'{}' ({})", p.element, p.label)).collect();
-        format!("its Script parts are {}", parts.join(", "))
+        format!("its {kind} parts are {}", parts.join(", "))
     };
     Err(Failure::Value(format!(
-        "scripts: {} names no Script part of the case (by its id or label); {there}.",
+        "{arg}: {} names no {kind} part of the case (by its id or label); {there}.",
         unknown.join(", ")
     )))
 }

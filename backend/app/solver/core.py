@@ -84,8 +84,24 @@ def simulate(
     """Run a case: once, or, for a hybrid's charge-balanced case, until its
     battery ends where it started (balance.py, ENG-33). Every summary row
     has a stable key (keys.py, AI-07). With LIGHTSIM_ENGINE=new the new engine
-    runs the cases it can (new_engine.py); the default is this engine."""
-    if new_engine.wanted():
+    runs the cases it can (new_engine.py); the default is this engine. A
+    case in quick mode (its mode "quick") runs on the new engine's fast mode
+    whatever the flag says, and a project with a text component on the new
+    engine (today's reads none)."""
+    case = next((c for c in project.cases if c.id == case_id), None)
+    if case is not None and case.mode == "quick":
+        return new_engine.quick(project, case_id, emit, control, simulate_full)
+    return simulate_full(project, case_id, emit, control)
+
+
+def simulate_full(
+    project: Project,
+    case_id: str,
+    emit: Optional[EmitFn] = None,
+    control: Optional[ControlFn] = None,
+) -> SimResult:
+    """A case's full dynamic run, on the engine the flag picks (simulate)."""
+    if new_engine.wanted() or new_engine.texts_of(project):
         return new_engine.simulate(project, case_id, emit, control, simulate_today)
     return simulate_today(project, case_id, emit, control)
 

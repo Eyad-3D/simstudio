@@ -116,17 +116,17 @@ fn to_err(py: Python<'_>, f: Failure) -> PyErr {
 /// The Python callables of a run's Script blocks, by part id or label.
 type Scripts = HashMap<String, Py<PyAny>>;
 
-fn scripts_of(scripts: Option<&Bound<'_, PyAny>>) -> PyResult<Scripts> {
+fn scripts_of(scripts: Option<&Bound<'_, PyAny>>, arg: &str) -> PyResult<Scripts> {
     let mut out = Scripts::new();
     let Some(scripts) = scripts.filter(|s| !s.is_none()) else { return Ok(out) };
     let dict = scripts.cast::<PyDict>().map_err(|_| {
-        PyTypeError::new_err("scripts must be a dict of part id (or label) → function")
+        PyTypeError::new_err(format!("{arg} must be a dict of part id (or label) → function"))
     })?;
     for (k, v) in dict.iter() {
         let key: String =
-            k.extract().map_err(|_| PyTypeError::new_err("scripts: keys must be text"))?;
+            k.extract().map_err(|_| PyTypeError::new_err(format!("{arg}: keys must be text")))?;
         if !v.is_callable() {
-            return Err(PyTypeError::new_err(format!("scripts['{key}'] is not callable")));
+            return Err(PyTypeError::new_err(format!("{arg}['{key}'] is not callable")));
         }
         out.insert(key, v.unbind());
     }
@@ -137,10 +137,14 @@ fn scripts_of(scripts: Option<&Bound<'_, PyAny>>) -> PyResult<Scripts> {
 /// every period (and once at the start), its inputs and outputs in today's
 /// display numbers (the importer's conversions see to that); outputs the
 /// callable does not return hold their last value. The block runs as today's
-/// does: a first call at the start, then every period.
+/// does: a first call at the start, then every period. An FMU part's host is
+/// the same with `kind` "FMU" and its ticks at every multiple of the period
+/// from the start (`offset` 0: the communication points k·h).
 struct PyScriptHost {
+    kind: &'static str,
     name: String,
     period: f64,
+    offset: f64,
     inputs: Vec<String>,
     outputs: Vec<String>,
     f: Py<PyAny>,
@@ -148,8 +152,9 @@ struct PyScriptHost {
 
 impl PyScriptHost {
     fn call(&mut self, t: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
+        let kind = self.kind;
         Python::attach(|py| {
-            let fail = |e: PyErr| format!("Script '{}' failed at t = {t} s: {e}", self.name);
+            let fail = |e: PyErr| format!("{kind} '{}' failed at t = {t} s: {e}", self.name);
             let ins = PyDict::new(py);
             for (k, v) in self.inputs.iter().zip(inputs) {
                 ins.set_item(k, *v).map_err(fail)?;
@@ -160,7 +165,7 @@ impl PyScriptHost {
             }
             let ret = ret.cast::<PyDict>().map_err(|_| {
                 format!(
-                    "Script '{}' must return a dict of output values (or None), got {} at t = {t} s.",
+                    "{kind} '{}' must return a dict of output values (or None), got {} at t = {t} s.",
                     self.name,
                     ret.get_type().name().map(|n| n.to_string()).unwrap_or_default()
                 )
@@ -169,7 +174,7 @@ impl PyScriptHost {
                 if let Some(v) = ret.get_item(k).map_err(fail)? {
                     *o = v.extract::<f64>().map_err(|_| {
                         format!(
-                            "Script '{}' output '{k}' is not a number at t = {t} s ({}).",
+                            "{kind} '{}' output '{k}' is not a number at t = {t} s ({}).",
                             self.name,
                             v.repr().map(|r| r.to_string()).unwrap_or_default()
                         )
@@ -190,7 +195,7 @@ impl DiscreteBlock for PyScriptHost {
     }
     // today runs a Script at t = 0 (the start) and then every period
     fn offset(&self) -> f64 {
-        self.period
+        self.offset
     }
     fn init(&mut self, t0: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
         self.call(t0, inputs, outputs)
@@ -242,8 +247,10 @@ fn script_host(
         )));
     };
     let host = PyScriptHost {
+        kind: "Script",
         name: spec.label.clone(),
         period: spec.period,
+        offset: spec.period,
         inputs: spec.inputs.clone(),
         outputs: spec.outputs.clone(),
         f: Python::attach(|py| f.clone_ref(py)),
@@ -251,10 +258,53 @@ fn script_host(
     Ok((Box::new(host), "python", None))
 }
 
+/// The host of an FMU part: the caller's Python function for it (`fmus`,
+/// by the part's id or label), called once at the start and at every
+/// multiple of its period (its Communication Step, else 10 ms) from 0 s,
+/// as `f(t, h, inputs)`: the function steps the FMU (the app: in today's
+/// locked-down FMPy worker) and returns its outputs at `t`. The engine loads
+/// no FMU's code itself, so a part given none is a plain error.
+fn fmu_host(spec: &SampledSpec, fmus: &Scripts) -> Result<Box<dyn DiscreteBlock>, Failure> {
+    let Some(f) = fmus.get(&spec.element).or_else(|| fmus.get(&spec.label)) else {
+        let mut d = Diagnostic::error(
+            "RUN-FMU",
+            format!(
+                "The FMU part '{}' (id '{}') needs a host: the engine does not load an FMU's code \
+                 itself.",
+                spec.label, spec.element
+            ),
+        )
+        .with_hint(format!(
+            "pass fmus={{'{}': f}} to simulate, f(t, h, inputs) stepping the FMU to t and \
+             returning a dict of its outputs",
+            spec.element
+        ));
+        d.parts = vec![spec.element.clone()];
+        return Err(Failure::Model(vec![d]));
+    };
+    Ok(Box::new(PyScriptHost {
+        kind: "FMU",
+        name: spec.label.clone(),
+        period: spec.period,
+        offset: 0.0,
+        inputs: spec.inputs.clone(),
+        outputs: spec.outputs.clone(),
+        f: Python::attach(|py| f.clone_ref(py)),
+    }))
+}
+
 fn host_factory(
     scripts: Scripts,
+    fmus: Scripts,
 ) -> impl Fn(&core::Built, bool) -> Result<core::Hosts, Failure> + Sync {
-    move |built, native| core::block_hosts(built, &|spec, n| script_host(spec, &scripts, n), native)
+    move |built, native| {
+        core::block_hosts(
+            built,
+            &|spec, n| script_host(spec, &scripts, n),
+            &|spec| fmu_host(spec, &fmus),
+            native,
+        )
+    }
 }
 
 // ---- results ---------------------------------------------------------------
@@ -619,6 +669,39 @@ impl Run {
         acc.set_item("worst_local_var", &s.error.worst_local_var)?;
         d.set_item("accuracy", acc)?;
         d.set_item("energy_closure", r.energy.as_ref().map(|e| e.relative_closure))?;
+        if let Some(f) = &o.fast {
+            // a fast-mode run's (`fast`): its step, work, flags and events
+            let x = PyDict::new(py);
+            x.set_item("step", f.step)?;
+            x.set_item("method", f.report.method)?;
+            x.set_item("steps", f.report.steps)?;
+            x.set_item("newton_restarts", f.report.newton_restarts)?;
+            x.set_item("step_redos", f.report.step_redos)?;
+            x.set_item("max_error", f.report.max_error)?;
+            x.set_item("max_error_at", f.report.max_error_at)?;
+            let flags = PyList::empty(py);
+            for g in &f.flags {
+                let y = float_dict(
+                    py,
+                    &[("t_start", g.t_start), ("t_end", g.t_end), ("worst_excess", g.worst_excess)],
+                )?;
+                y.set_item("label", &g.label)?;
+                y.set_item("part", &g.part)?;
+                y.set_item("upper", g.upper)?;
+                y.set_item("unit", &g.unit)?;
+                flags.append(y)?;
+            }
+            x.set_item("flags", flags)?;
+            let events = PyList::empty(py);
+            for e in &f.events {
+                let y = PyDict::new(py);
+                y.set_item("t", e.t)?;
+                y.set_item("label", &e.label)?;
+                events.append(y)?;
+            }
+            x.set_item("events", events)?;
+            d.set_item("fast", x)?;
+        }
         Ok(d)
     }
 
@@ -919,8 +1002,14 @@ impl Model {
     /// goes, from another thread; `edits` are parameter changes at times of
     /// their own, a list of `(t, {engine name: SI value})`, each on top of
     /// the ones before and checked as `set_params` checks them (a run's
-    /// live changes made again: `run.report["edits"]` gives them).
-    #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true, trace=None, trace_step=0.1, windows=None, control=None, edits=None))]
+    /// live changes made again: `run.report["edits"]` gives them). `fmus`
+    /// maps an FMU part's id (or label) to a function `f(t, h, inputs: dict)
+    /// -> dict`, called at the start and at every multiple of the part's
+    /// period from 0 s, which steps the FMU to `t` and returns its outputs
+    /// there (held until the next call); the engine loads no FMU's code, so
+    /// an FMU part given none fails the run (`RUN-FMU`), and a key that
+    /// names no FMU part is a ValueError.
+    #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true, trace=None, trace_step=0.1, windows=None, control=None, edits=None, fmus=None))]
     #[allow(clippy::too_many_arguments)]
     fn simulate(
         &self,
@@ -936,10 +1025,13 @@ impl Model {
         windows: Option<BTreeMap<String, f64>>,
         control: Option<Py<RunControl>>,
         edits: Option<Vec<(f64, Bound<'_, PyAny>)>>,
+        fmus: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Run> {
-        let scripts = scripts_of(scripts)?;
-        core::check_script_keys(&self.built, scripts.keys()).map_err(|f| to_err(py, f))?;
-        let factory = host_factory(scripts);
+        let scripts = scripts_of(scripts, "scripts")?;
+        core::check_script_keys(&self.built, scripts.keys(), false).map_err(|f| to_err(py, f))?;
+        let fmus = scripts_of(fmus, "fmus")?;
+        core::check_script_keys(&self.built, fmus.keys(), true).map_err(|f| to_err(py, f))?;
+        let factory = host_factory(scripts, fmus);
         let params = self.state().values.clone();
         let built = Arc::clone(&self.built);
         let mut opts = run_options(rtol, atol, output_step, t_end, native_scripts);
@@ -1014,9 +1106,11 @@ impl Model {
         for item in sets.try_iter()? {
             parsed.push(changes_of(&item?)?);
         }
-        let scripts = scripts_of(scripts)?;
-        core::check_script_keys(&self.built, scripts.keys()).map_err(|f| to_err(py, f))?;
-        let factory = host_factory(scripts);
+        let scripts = scripts_of(scripts, "scripts")?;
+        core::check_script_keys(&self.built, scripts.keys(), false).map_err(|f| to_err(py, f))?;
+        // (an FMU part's host keeps the FMU's state: a sweep's runs could not
+        // share one, so a sweep gives none and such a part fails RUN-FMU)
+        let factory = host_factory(scripts, Scripts::new());
         let current: Vec<(String, f64)> =
             self.state().set.iter().map(|(k, v)| (k.clone(), *v)).collect();
         let built = Arc::clone(&self.built);
@@ -1065,26 +1159,78 @@ fn changes_of(item: &Bound<'_, PyAny>) -> PyResult<Result<Vec<(String, f64)>, St
 
 // ---- functions -------------------------------------------------------------
 
+/// Text components (`texts`): element id → the part's component in the
+/// text format, built in the place of the definition the import makes for
+/// it (core::with_texts).
+fn texts_of(texts: Option<BTreeMap<String, String>>) -> BTreeMap<String, String> {
+    texts.unwrap_or_default()
+}
+
 /// Imports, prepares (through `cache_dir` when given) and compiles a case
 /// of a project (its JSON text). The GIL is released. `cycles_dir` is the
 /// folder of the bundled drive cycles (default: the repository's).
+/// `texts` maps a part's element id to a component in the text format
+/// (engine/docs/text-format.md) the part is built from in the place of the
+/// definition the import makes for it (`part_text` prints that one): the
+/// same ports, every parameter the part's values set; a ModelError
+/// `TEXT-PARSE`, `TEXT-PORTS`, `TEXT-PARAMS`, `TEXT-NO-PART` or
+/// `TEXT-SAMPLED` (a Script, an FMU, a Traction Control) otherwise.
 #[pyfunction]
-#[pyo3(signature = (project_json, case_id, cache_dir=None, cycles_dir=None))]
+#[pyo3(signature = (project_json, case_id, cache_dir=None, cycles_dir=None, texts=None))]
 fn build(
     py: Python<'_>,
     project_json: &str,
     case_id: &str,
     cache_dir: Option<PathBuf>,
     cycles_dir: Option<PathBuf>,
+    texts: Option<BTreeMap<String, String>>,
 ) -> PyResult<Model> {
+    let texts = texts_of(texts);
     let built = py
-        .detach(|| core::build(project_json, case_id, cache_dir, cycles_dir))
+        .detach(|| core::build(project_json, case_id, cache_dir, cycles_dir, &texts))
         .map_err(|f| to_err(py, f))?;
     let values = built.model.info.params.clone();
     Ok(Model {
         built: Arc::new(built),
         params: Mutex::new(ParamState { set: BTreeMap::new(), values }),
     })
+}
+
+/// The definition the import makes for one part of a case (by its element
+/// id), printed in the text format: a text component `build(texts=...)`
+/// builds the part from in its place, the same model.
+#[pyfunction]
+fn part_text(py: Python<'_>, project_json: &str, case_id: &str, element: &str) -> PyResult<String> {
+    py.detach(|| core::part_text(project_json, case_id, element)).map_err(|f| to_err(py, f))
+}
+
+/// Fast mode (DESIGN.md section 10) on a drive-cycle case of a project (its
+/// JSON text): the vehicle's speed prescribed from the cycle its Driver
+/// follows, the Driver's pedal solved for, every `step` s (default 1 s), the
+/// limits flagged, not acted on. A Run with today's channels and figures;
+/// `report["fast"]` holds the step, the work, the `flags` (each stretch the
+/// vehicle could not have followed: `t_start`, `t_end`, `label`, `part`,
+/// `upper`, `worst_excess`, `unit`) and the `events`. Refused with a
+/// ModelError: `FAST-NO-CYCLE` (no cycle to prescribe: an acceleration
+/// test, no Driver or Driving Task), `FAST-SAMPLED-CONTROL` (a sampled
+/// block reads the pedal), `FAST-SAMPLED` (any other sampled block: fast
+/// mode is given no host for one), `FAST-RUN` (the run stopped). `texts`
+/// as `build`'s. The GIL is released.
+#[pyfunction]
+#[pyo3(signature = (project_json, case_id, cycles_dir=None, step=None, texts=None))]
+fn fast(
+    py: Python<'_>,
+    project_json: &str,
+    case_id: &str,
+    cycles_dir: Option<PathBuf>,
+    step: Option<f64>,
+    texts: Option<BTreeMap<String, String>>,
+) -> PyResult<Run> {
+    let texts = texts_of(texts);
+    let (built, out) = py
+        .detach(|| core::fast(project_json, case_id, cycles_dir, &texts, step))
+        .map_err(|f| to_err(py, f))?;
+    Ok(Run::new(Arc::new(built), out))
 }
 
 /// Structural and unit checks of a case, without building it: a list of
@@ -1145,6 +1291,8 @@ fn lightsim_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.py().import("numpy")?;
     m.add_function(wrap_pyfunction!(build, m)?)?;
     m.add_function(wrap_pyfunction!(diagnose, m)?)?;
+    m.add_function(wrap_pyfunction!(fast, m)?)?;
+    m.add_function(wrap_pyfunction!(part_text, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(spike, m)?)?;
     m.add_class::<Model>()?;

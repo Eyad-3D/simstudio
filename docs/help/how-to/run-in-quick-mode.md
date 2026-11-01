@@ -1,0 +1,79 @@
+# Run a cycle in quick mode
+
+Quick mode answers "what would this cycle take?" in a fraction of a full
+run's time. It runs the new engine's fast mode: the cycle's speed is
+prescribed, so the car drives it exactly, and the Driver's pedal is worked
+out back from the motion. The parts' states (the battery's charge, its
+voltages, the temperatures) are stepped once a second. A limit the car
+would have met (a motor's torque at its speed, a battery's power) is
+flagged, not acted on.
+
+## Run a case in quick mode
+
+1. Open *Cases & Parameters* and pick a drive-cycle case.
+2. Set **Run mode** to **Quick**.
+3. Click **Run**. The result's first message says it ran in quick mode.
+
+Set **Run mode** back to **Full** for the full dynamic run. The choice is
+the case's own (its `mode` in the project file), so a study of the case
+runs each point in quick mode too.
+
+## What it gives
+
+Quick mode gives the totals of the run: the summary rows that add up over
+it.
+
+- each battery's final SOC, energy delivered, energy recuperated and
+  internal losses;
+- the Climate Control's energy used;
+- the distance driven and the simulated duration;
+- the consumptions (at the battery and at the socket), MPGe and the range;
+- each phase's distance and consumption;
+- an engine's fuel used, the fuel consumption, CO₂ per km and the battery's
+  energy change as a share of the fuel's.
+
+Its channels are recorded once a second.
+
+On the example cars' nine drive-cycle cases the charge used is within
+0.2 % of the full run's, the energy delivered within 0.5 % and the
+consumptions within 0.2 %. The energy recuperated and the internal losses
+come out up to 1.8 % and 1.4 % lower than the full run's (measured on
+1 November 2026 by `python -m benchmarks.back_to_back`, its QUICK line).
+
+## What it does not give
+
+- **No peaks, minima or times at a limit.** A battery's peak power, a
+  motor's time limited by its supply and the like follow the full run's
+  Driver, so quick mode leaves those rows out.
+- **No verdict on the speed trace.** The car drives the cycle exactly, so
+  there is nothing to judge: a quick run never says *Cycle not followed*
+  and marks no row as not valid.
+- **No energy report, duty or limit band**, and no hand checks.
+- **No live view.** The result arrives when the run ends; Stop and live
+  edits do nothing, and a paced case (*Pacing*) is not paced.
+- **A limit is flagged, not acted on.** Where the car could not have
+  followed the cycle, a warning says from when to when; the totals then
+  take more than the car could have given. Run the case in full to see what
+  it does.
+
+## When it runs in full instead
+
+A case quick mode does not run runs as a full run, with a warning that
+starts *Not run in quick mode* and gives a code:
+
+| Code | Why |
+|---|---|
+| `QUICK-KIND` | the case drives no cycle: an acceleration or performance test, a lap, a Formula Student event |
+| `QUICK-BALANCE` | a hybrid's charge-balanced case (set *Charge balance* off to run it once) |
+| `QUICK-SAMPLED` | the model has a Script, FMU or Traction Control part, which fast mode does not run |
+| `QUICK-CELLS` | a battery built from cells |
+| `QUICK-LIMITS` | a value outside its parameter's limits (a study's point can hold one) |
+| `QUICK-MISSING` | the new engine is not installed |
+| `QUICK-BUILD` | the model could not be built, or a text component's file could not be read |
+| `QUICK-FAILED` | the new engine's fast mode refused the case or stopped; its own codes follow (`FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, …) |
+| `QUICK-NOT-FOUND` | the case is not in the project |
+| `QUICK-ERROR` | a fault of LightSim's own: please report it |
+
+With `LIGHTSIM_ENGINE_STRICT=1` such a case fails with its code instead.
+
+[Known issues](../../KNOWN-LIMITS.md) lists what quick mode does not do.

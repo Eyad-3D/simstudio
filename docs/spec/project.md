@@ -130,6 +130,7 @@ from the library's defaults, in `parameterOverrides`.
 | `size` | `{width, height}` or null | Its size on the diagram; null for the default |
 | `isSubSystem` | true or false | true when the part opens a sub-system |
 | `subSystemId` | text or null | The system it opens |
+| `textFile` | text or null | A text component: the path (absolute, or from the projects folder) of a file holding the part as one component in the new engine's text format, with its ports and parameters; the new engine builds the part from it in the place of its built-in definition. Today's engine reads none, so such a case runs on the new engine. See [Write a part as text](../help/how-to/write-a-part-as-text.md) |
 
 ### Values
 
@@ -211,6 +212,7 @@ values for any parameter.
 | `endLaps` | number or null | End the run after this many passes through the profile of a Driving Task whose Profile Axis is Distance; `endDistance` wins when both are set |
 | `chargeBalance` | true, false or null | Run the cycle again from the charge it ended with until the battery's stored energy changes by less than 1 % of the fuel's energy (at most 5 runs). null: on for a cycle case of a hybrid (an engine, a battery and an E-Motor) that is not paced |
 | `energyReport` | true or false, default true | Build the run's energy report (where the sources' energy went) |
+| `mode` | `full` or `quick`, default `full` | `quick`: run a drive-cycle case on the new engine's fast mode, which gives its totals only. A case it does not run runs in full, saying why. See [Run a cycle in quick mode](../help/how-to/run-in-quick-mode.md) |
 | `fsEvent` | `acceleration`, `skidpad`, `autocross`, `endurance` or null | The Formula Student dynamic event the case stands for: the run then reports the event's time, an estimate of its points and the rule checks |
 | `referenceEnergy`, `referenceEnergyTime` | number or null | The most efficient team's endurance energy (kWh) and driving time (s; null: `referenceTime`), for the efficiency points |
 | `references` | list of [Expected value](#expected-value) | Values this case's runs are compared with |

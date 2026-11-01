@@ -140,6 +140,7 @@ def test_every_refusal_has_its_code():
     fmu = load_example("bev-car")
     fmu.systems[0].elements.append(
         ElementInstance(id="fmu", componentDefId="signal.fmu", label="Lag", position={"x": 0, "y": 0}))
+    single = _changed("hybrid-car", "case-udds", chargeBalance=False)
     seen = {
         "NEW-NOT-FOUND": new_engine.unsupported(load_example("bev-car"), "no-such-case"),
         "NEW-LAP": new_engine.unsupported(load_example("fs-electric"), "case-autocross"),
@@ -147,15 +148,26 @@ def test_every_refusal_has_its_code():
             _changed("bev-car", WLTC, kind="performance"), WLTC),
         "NEW-FS-EVENT": new_engine.unsupported(
             _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
-        "NEW-FMU": new_engine.unsupported(fmu, WLTC),
         "NEW-BALANCE": new_engine.unsupported(load_example("hybrid-car"), "case-udds"),
         "NEW-CELLS": new_engine.unsupported(cells, WLTC),
         "NEW-LIMITS": new_engine.unsupported(studies._point_project(
             load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),
+        # quick mode's (a case's mode "quick")
+        "QUICK-NOT-FOUND": new_engine.quick_unsupported(load_example("bev-car"), "no-such-case"),
+        "QUICK-KIND": new_engine.quick_unsupported(load_example("fs-electric"), "case-accel-75m"),
+        "QUICK-BALANCE": new_engine.quick_unsupported(load_example("hybrid-car"), "case-udds"),
+        "QUICK-SAMPLED": new_engine.quick_unsupported(single, "case-udds"),
+        "QUICK-CELLS": new_engine.quick_unsupported(cells, WLTC),
+        "QUICK-LIMITS": new_engine.quick_unsupported(studies._point_project(
+            load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),
     }
     assert {code: why.code for code, why in seen.items()} == {code: code for code in seen}
     assert all(why.why for why in seen.values())
-    assert set(seen) | {"NEW-MISSING", "NEW-BUILD", "NEW-FAILED", "NEW-ERROR"} == set(new_engine.CODES)
+    # an FMU part is no reason any more (step 2's item 5)
+    assert new_engine.unsupported(fmu, WLTC) is None or new_engine.unsupported(fmu, WLTC).code == "NEW-MISSING"
+    assert new_engine.quick_unsupported(fmu, WLTC).code == "QUICK-SAMPLED"
+    assert set(seen) | {"NEW-MISSING", "NEW-BUILD", "NEW-FAILED", "NEW-ERROR", "NEW-TEXT", "QUICK-MISSING",
+                        "QUICK-BUILD", "QUICK-FAILED", "QUICK-ERROR"} == set(new_engine.CODES)
 
 
 def test_a_failure_is_coded_by_who_refused():

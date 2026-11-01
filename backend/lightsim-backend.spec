@@ -54,13 +54,14 @@ hiddenimports += collect_submodules("app.ai") + collect_submodules("mcp_types")
 # websockets.cli) falls back when it is missing.
 excludes = ["tkinter", "matplotlib", "numpy.testing", "pytest", "readline"]
 
-# The FMU pack (STD-01, backend/requirements-fmu.txt) goes in only when the
-# build asks for it: LIGHTSIM_FREEZE_FMU_PACK=1. OWNER DECISION PENDING: the
-# NumPy and lxml wheels it needs carry LGPL code (NumPy's libquadmath, and
-# GNU libiconv linked into lxml), which scripts/licenses/allowed.txt does
-# not allow, so a build that takes the pack fails the licence check
-# (scripts/licenses/clarifications.json) until the owner decides
-# (docs/KNOWN-LIMITS.md). Without the switch the pack stays out even when it
+# The FMU pack (STD-01, backend/requirements-fmu.txt) goes in when the
+# build asks for it: LIGHTSIM_FREEZE_FMU_PACK=1, which the desktop build
+# sets. The NumPy and lxml wheels it needs carry LGPL code (NumPy's
+# libquadmath, and GNU libiconv linked into lxml): the owner allowed it on
+# 20 October 2026 as separate, replaceable files (this build is a folder of
+# files, never one executable), each listed in the notices with a link to
+# its source (scripts/licenses/clarifications.json, "lgpl"). Without the
+# switch the pack stays out even when it
 # is installed here (developers install it to run the tests): app/fmu and
 # the lightsim package import FMPy and pandas inside functions, which
 # PyInstaller would otherwise follow. With it, only what running an FMU
