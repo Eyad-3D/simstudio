@@ -108,6 +108,9 @@ change them there when Anthropic does.
 
 ## The comparison
 
+The run on today's tools, with its answers and what agents got wrong, is in
+`BASELINE.md`.
+
 `python -m benchmarks.agent.compare` answers the owner's question: which is
 the cheapest model and effort level that drives LightSim successfully. A
 setting is a model and an effort level, passed as `--model <id> --effort
