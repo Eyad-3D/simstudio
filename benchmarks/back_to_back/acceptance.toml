@@ -35,7 +35,7 @@ NEW-MISSING = "the module lightsim_engine is not installed"
 NEW-BUILD = "today's model builder refused the model before the new engine saw it"
 NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow in the message)"
 NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
-NEW-TEXT = "a part whose equations come from a text file, in a case the new engine's path does not run: today's engine does not read text components, so the case fails with the code of the refusal and this one (added 31 October: [[changes]])"
+NEW-TEXT = "a part whose equations come from a text file, in a case the new engine's path does not run, or whose file it cannot read: today's engine does not read text components, so the case fails with the code of the refusal and this one (added 31 October, widened 1 November: [[changes]])"
 # quick mode (a case's mode "quick": the new engine's fast mode, step 2's item 5;
 # added 31 October: [[changes]]). A case quick mode does not run runs in full
 # instead, with its code in a warning, or in strict mode fails with it.
@@ -45,7 +45,8 @@ QUICK-SAMPLED = "quick mode: a project with a sampled part (a Script, an FMU, a 
 QUICK-CELLS = "quick mode: a battery built from cells"
 QUICK-LIMITS = "quick mode: a value outside its parameter's limits (a study's point can hold one)"
 QUICK-MISSING = "quick mode: the module lightsim_engine is not installed"
-QUICK-BUILD = "quick mode: today's model builder refused the model"
+QUICK-BALANCE = "quick mode: a hybrid's charge-balanced case (added 1 November: [[changes]])"
+QUICK-BUILD = "quick mode: today's model builder refused the model, or a text component's file could not be read (widened 1 November: [[changes]])"
 QUICK-FAILED = "quick mode: the engine's fast mode refused or stopped (its own codes follow: FAST-NO-CYCLE, FAST-SAMPLED-CONTROL, ...)"
 QUICK-ERROR = "quick mode: an exception that is not the engine's own refusal (always a failure)"
 
@@ -769,6 +770,51 @@ a sum over the run, which fast mode's prescribed motion gives as the full run's 
 peak or a minimum is the full run's driver's own and is left out rather than put in a band of its own. Quick mode \
 runs whatever engine the flag picks for a full run, as the owner wants users to be able to use it (20 October); \
 its speed is not judged (the owner's decision 7). Written before the line's first measured run."""
+
+[[changes]]
+date = "2026-11-01"
+line = "STRICT"
+change = """QUICK-BALANCE joins [codes]: a hybrid's charge-balanced case in quick mode (balance.applies) runs in full \
+instead, with this code (strict: fails with it). NEW-TEXT also codes a text component's file the path cannot \
+read, and QUICK-BUILD the same in quick mode (a file read is part of building the model)."""
+reason = """Found while building quick mode (step 2's item 5): a charge-balanced case runs its cycle until the \
+battery ends where it started, and fast mode runs it once; running it once without a word would be a silent \
+change of what the case asks (rule 8). On the examples the hybrid's three balanced cases have a Script (the \
+Hybrid Control Unit) and would be refused QUICK-SAMPLED anyway; the code is what a hybrid without one gets, and \
+the path asks it first. An unreadable text file had no code (it would have been NEW-ERROR). Written before the \
+QUICK and TEXT lines' first measured run (their probes, item5.py); an exploratory run of quick mode against the \
+full runs on 1 November (lane-step2/item5/quick1.json) came before this change, and showed the energy recuperated \
+and the internal losses up to 1.75 % and 1.40 % from the full run's: no band, case or pass mark moves."""
+
+[[changes]]
+date = "2026-11-01"
+line = "TEXT"
+change = """How the line is measured and what is no case, said in full. The probe (`python -m benchmarks.back_to_back \
+text OUT`, item5.py) takes every element of each example's case, asks lightsim_engine.part_text for its text and \
+runs the case with that text in a file the element names (ElementInstance.textFile), LIGHTSIM_ENGINE=new and \
+strict; the result's JSON (keys sorted) is hashed as STREAM S3's is. An element part_text refuses is no case \
+only with TEXT-SAMPLED for a Script, an FMU or a Traction Control, and TEXT-NO-PART for a sub-system's \
+container; any other refusal fails the line."""
+reason = """The registered words named the parts and the measure but not how a part's text is made, nor which \
+refusal makes an element no case: written so that an element the text format should express and does not \
+cannot leave the line unsaid. Written before the line's first measured run."""
+
+[[changes]]
+date = "2026-11-01"
+line = "QUICK"
+change = """How the line is measured, said in full. The probe (`python -m benchmarks.back_to_back quick OUT`, \
+item5.py) runs every case of the four examples with mode "quick" (LIGHTSIM_ENGINE=new and strict): a case \
+refused passes when its first message carries a QUICK-* code of [codes]; one that runs must say so (its \
+solverOptions is fast mode's step alone, quickStep) and is run again in full on the new path (strict, its \
+default options: rtol 1e-6); each of its summary rows against the full run's row of the same key, the final \
+SOC as the charge used (the full run's start SOC less each final SOC); a row the full run lacks fails; a case \
+with a flag (a warning that starts "Quick mode: " other than the first message) is listed with its flags and \
+its rows not judged. The limits stated: the help page docs/help/how-to/run-in-quick-mode.md and \
+docs/KNOWN-LIMITS.md name every QUICK-* code (also backend/tests/test_docs.py, with each kind of row quick mode \
+gives)."""
+reason = """The registered words left open how a run is told to be quick mode's, which full run is the band's \
+reference and how the help's statement of the limits is checked. Written before the line's first measured run \
+(the exploratory run of 1 November is said in the STRICT change of the same day)."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)

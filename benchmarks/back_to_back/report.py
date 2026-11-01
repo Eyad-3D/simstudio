@@ -20,7 +20,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import diff, runs, traces
+from . import diff, item5, runs, traces
 
 CODE = re.compile(r"\[(NEW-[A-Z-]+)\]")
 NOTE_CODES = ("START-NOT-SOLVED", "INIT-UNDECIDED", "INIT-START-IGNORED")
@@ -500,27 +500,6 @@ def stream(out: Path) -> dict:
             "S3": {"state": s3_state, **(replay or {})}}
 
 
-def fmu(b: dict) -> dict:
-    row = next(r for r in b["items"] if r["id"] == "probe/bev-fmu")
-    return {"state": "fail", "probe": row["got"],
-            "why": f"the new path refuses a project with an FMU part ({row['got']}): nothing to compare with "
-                   f"fmusim or FMPy" if row["got"] != "run" else "the fmusim and FMPy comparison is not built yet"}
-
-
-def text_line() -> dict:
-    lib = json.loads((runs.BACKEND / "app" / "library" / "components.json").read_text(encoding="utf-8"))
-    has = any(c["id"].startswith("text.") or c.get("source") == "text" for c in lib["components"])
-    return {"state": "fail" if has else "not available",
-            "why": "the app's library has no part written as text, and the backend reads no text components"
-                   if not has else "to measure"}
-
-
-def quick() -> dict:
-    from app.schemas import SimCase
-    has = "mode" in SimCase.model_fields
-    return {"state": "fail" if has else "not available",
-            "why": "a case has no run option for quick mode (SimCase has no 'mode'), and the new path runs "
-                   "the full dynamic engine only" if not has else "to measure"}
 
 
 def worker_served(engine: dict | None) -> bool | None:
@@ -719,7 +698,8 @@ def write(out: Path) -> dict:
     b = b2b(out)
     lines = {"B2B": b, "STRICT": strict(out, b), "SCHEMA": schema(out), "FAULTS": faults(out),
              "META": meta(out), "ANALYTIC": analytic(out), "ENERGY": energy(out, b), "STREAM": stream(out),
-             "FMU": fmu(b), "TEXT": text_line(), "QUICK": quick(), "SCRIPTS": scripts(b, out),
+             "FMU": item5.fmu_line(out, b), "TEXT": item5.text_line(out), "QUICK": item5.quick_line(out),
+             "SCRIPTS": scripts(b, out),
              "NOSKIP": noskip(out)}
     lines["STATUS"] = status(b, lines)
     sums = [f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(out)}"

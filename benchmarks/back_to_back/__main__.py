@@ -6,6 +6,9 @@
     python -m benchmarks.back_to_back replay OUT              the replay probe (STREAM S3)
     python -m benchmarks.back_to_back mutation OUT [--max N]  mutmut on verdict.py (FAULTS), resumable
     python -m benchmarks.back_to_back noskip OUT              the new engine's tests with and without the module
+    python -m benchmarks.back_to_back fmu OUT                 the FMU line's probe (needs the Reference FMUs and fmusim)
+    python -m benchmarks.back_to_back text OUT                the TEXT line's probe
+    python -m benchmarks.back_to_back quick OUT               the QUICK line's probe
     python -m benchmarks.back_to_back fetch CACHE             the regulations' copies (ANALYTIC's sources)
     python -m benchmarks.back_to_back report OUT              OUT/report.json and OUT/report.md
     python -m benchmarks.back_to_back job SPEC PATH           one run (what `run` starts)
@@ -36,8 +39,8 @@ from pathlib import Path
 def parser() -> argparse.ArgumentParser:
     from .runs import PARTS
     ap = argparse.ArgumentParser(prog="python -m benchmarks.back_to_back")
-    ap.add_argument("command", choices=["all", "run", "stop", "replay", "mutation", "noskip", "fetch",
-                                        "report", "job"])
+    ap.add_argument("command", choices=["all", "run", "stop", "replay", "mutation", "noskip", "fmu", "text",
+                                        "quick", "fetch", "report", "job"])
     ap.add_argument("out")
     ap.add_argument("path", nargs="?")
     ap.add_argument("--parts", default=",".join(PARTS))
@@ -77,6 +80,10 @@ def main() -> None:
     if a.command in ("noskip", "all"):
         from . import report
         report.noskip_probe(out)
+    for probe in ("fmu", "text", "quick"):
+        if a.command in (probe, "all"):
+            from . import item5
+            getattr(item5, f"{probe}_probe")(out)
     if a.command in ("report", "all"):
         from . import report
         report.write(out)

@@ -1618,3 +1618,57 @@ def test_both_engines_run_the_acceleration_test_and_the_diff_classes_it(tmp_path
     schema = json.loads((runs.REPO / "docs" / "spec" / "schemas" / "result.schema.json").read_text())
     for r in rec:
         jsonschema.Draft202012Validator(schema).validate(r["result"])
+
+
+# ---- step 2's item 5 lines (item5.py) ----------------------------------------------------
+
+def test_the_text_line_passes_only_on_the_same_sha_and_coded_not_cases(tmp_path):
+    from benchmarks.back_to_back import item5
+    assert item5.text_line(tmp_path)["state"] == "not measured"
+    rec = {"stamp": {}, "cases": [{"case": "bev-car/case-city", "status": "success", "sha256": "a",
+                                   "parts": [{"part": "el-battery", "kind": "battery.generic", "status": "success",
+                                              "sha256": "a", "same": True, "first": ""}],
+                                   "not_cases": [{"part": "el-s", "kind": "signal.script",
+                                                  "codes": ["TEXT-SAMPLED"]}]}]}
+    (tmp_path / "text.json").write_text(json.dumps(rec), encoding="utf-8")
+    assert item5.text_line(tmp_path)["state"] == "pass"
+    rec["cases"][0]["parts"][0]["same"] = False
+    (tmp_path / "text.json").write_text(json.dumps(rec), encoding="utf-8")
+    assert item5.text_line(tmp_path)["different"] == ["bev-car/case-city:el-battery"]
+    rec["cases"][0]["parts"][0]["same"] = True
+    rec["cases"][0]["not_cases"].append({"part": "el-motor", "kind": "motor.emotor", "codes": ["TEXT-PARSE"]})
+    (tmp_path / "text.json").write_text(json.dumps(rec), encoding="utf-8")
+    assert item5.text_line(tmp_path)["state"] == "fail"  # (a part the text format must express)
+
+
+def test_the_quick_line_judges_the_band_and_lists_the_flagged(tmp_path):
+    from benchmarks.back_to_back import item5
+    assert item5.quick_line(tmp_path)["state"] == "not measured"
+    docs = {"codes": ["QUICK-KIND"], "missing_in_help": [], "missing_in_known_limits": []}
+    ran = {"case": "bev-car/case-city", "ran": True, "flags": [],
+           "rows": [{"key": "distance_km", "rel": 0.002, "state": "in"}]}
+    refused = {"case": "fs-electric/case-accel-75m", "refused": "QUICK-KIND", "listed": True}
+    rec = {"stamp": {}, "band": 0.01, "cases": [ran, refused], "docs": docs}
+    (tmp_path / "quick.json").write_text(json.dumps(rec), encoding="utf-8")
+    assert item5.quick_line(tmp_path)["state"] == "pass"
+    ran["rows"].append({"key": "el-battery.internal_losses_kwh", "rel": -0.0139, "state": "out"})
+    (tmp_path / "quick.json").write_text(json.dumps(rec), encoding="utf-8")
+    line = item5.quick_line(tmp_path)
+    assert line["state"] == "fail" and line["out_of_band"] == ["bev-car/case-city:el-battery.internal_losses_kwh -1.3900%"]
+    ran["rows"].pop()
+    refused["listed"] = False
+    (tmp_path / "quick.json").write_text(json.dumps(rec), encoding="utf-8")
+    assert item5.quick_line(tmp_path)["unlisted"] == ["fs-electric/case-accel-75m"]
+
+
+def test_the_fmu_line_is_not_measured_without_the_reference_fmus(tmp_path):
+    from benchmarks.back_to_back import item5
+    b = {"items": [{"id": "probe/bev-fmu", "got": "run"}]}
+    assert item5.fmu_line(tmp_path, b)["state"] == "not measured"
+    rec = {"stamp": {}, "cases": [{"fmu": "2.0/Dahlquist", "state": "pass", "differences": []},
+                                  {"fmu": "3.0/StateSpace", "state": "nothing to compare", "differences": []}]}
+    (tmp_path / "fmu.json").write_text(json.dumps(rec), encoding="utf-8")
+    assert item5.fmu_line(tmp_path, b)["state"] == "pass"
+    rec["cases"][0]["state"] = "fail"
+    (tmp_path / "fmu.json").write_text(json.dumps(rec), encoding="utf-8")
+    assert item5.fmu_line(tmp_path, b)["state"] == "fail"
