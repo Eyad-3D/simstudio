@@ -39,7 +39,10 @@ and the case runs in full with QUICK-FAILED) (step 2's item 5,
 1 November). A table today's engine reads only in one branch of its part
 (an E-Motor's drag table while unpowered) is judged on the path for the
 share of the run's points in that branch, and not at all when there are
-none. The
+none. The engine watches a table at the edges of its own data (padded only
+past an end its argument never reaches), a table of one point is a
+constant and float noise at an edge is inside, as today's; a 2-D table
+whose sheets cover different ranges is refused (BLOCK). The
 shared types in `lsim-ir` are unified (`engine/ir-unify`, DESIGN.md
 §5.8); every package builds on them.
 

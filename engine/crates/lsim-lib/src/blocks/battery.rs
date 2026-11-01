@@ -121,8 +121,12 @@ impl BatteryConfig {
     /// and the table's mean.
     pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
         Ok(vec![
-            // read at the SOC held to 0-1: padded past both ends
-            ("ocv_table".into(), ParamValue::Table(self.ocv.padded(true, true).data("1")?)),
+            // read at the SOC held to 0-1: padded past an end its data
+            // reach (one short of 0 or 100 % is watched there)
+            (
+                "ocv_table".into(),
+                ParamValue::Table(self.ocv.padded(Some(0.0), Some(1.0)).data("1")?),
+            ),
             ("ocv_mean".into(), ParamValue::Real(c(ocv_mean(&self.ocv)))),
         ])
     }
@@ -166,7 +170,7 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
     params.push(table_param(
         "ocv_table",
         "V",
-        defaults.ocv.padded(true, true).data("1").expect("the default OCV table"),
+        defaults.ocv.padded(Some(0.0), Some(1.0)).data("1").expect("the default OCV table"),
         "open-circuit voltage by SOC (0-1)",
     ));
     params.push(p("ocv_mean", "V", ocv_mean(&defaults.ocv), "the OCV table's mean over 0-100 %"));

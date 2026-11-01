@@ -115,24 +115,30 @@ impl MotorConfig {
     pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
         let last = self.full_load.inner_range().map(|r| r.1).unwrap_or(1e30);
         Ok(vec![
-            // speeds and torque magnitudes are never below 0: the maps are
-            // padded there, so the run loop's watch of their edges never
-            // rests on an edge at standstill
+            // speeds and torque magnitudes are never below 0: a map whose
+            // data start at 0 is padded there, so the run loop's watch of
+            // its edges never rests on an edge at standstill (one whose data
+            // start higher is watched there, as today's engine reads it)
             (
                 "full_load_torque".into(),
                 ParamValue::Table(
                     self.full_load
-                        .padded((false, false), (true, false))
+                        .padded((None, None), (Some(0.0), None))
                         .grid_data(["V", "rad/s"])?,
                 ),
             ),
             (
                 "power_loss".into(),
                 ParamValue::Table(
-                    self.loss.padded((true, false), (true, false)).grid_data(["rad/s", "N.m"])?,
+                    self.loss
+                        .padded((Some(0.0), None), (Some(0.0), None))
+                        .grid_data(["rad/s", "N.m"])?,
                 ),
             ),
-            ("drag_torque".into(), ParamValue::Table(self.drag.padded(true, false).data("rad/s")?)),
+            (
+                "drag_torque".into(),
+                ParamValue::Table(self.drag.padded(Some(0.0), None).data("rad/s")?),
+            ),
             ("kt".into(), ParamValue::Real(c(self.scales[0]))),
             ("kn".into(), ParamValue::Real(c(self.scales[1]))),
             ("w_fl_last".into(), ParamValue::Real(c(last))),

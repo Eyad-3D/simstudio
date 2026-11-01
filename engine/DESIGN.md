@@ -591,7 +591,14 @@ buffers, so one compiled model serves any number of simultaneous runs.
 `TableGuard { table, axis, outside }` names one watched table axis: its
 guard is `min(a - lo, hi - a)` of the axis argument, positive inside the
 data; an `Error` axis stops the run where its guard falls through zero,
-the others are booked as time spent outside.
+the others are booked as time spent outside. The library's tables
+(`lsim-lib/table.rs`) keep the guard's edges at the edges of today's
+data: a table is padded only past an end its argument never reaches (a
+speed magnitude's 0, an SOC held to 0-1), so it is watched where today's
+engine reads past it; a single point, a constant today never reads
+outside, is held (Clamp) and spread 1 either side; a 2-D table whose
+sheets' inner ranges differ is refused, as today counts a read outside
+the narrowest and the grid's edges are the widest.
 
 ### 5.8 Shared types: what each package must do
 
@@ -3238,7 +3245,11 @@ against exact answers from `benchmarks/`.
   `NEW-TABLE-NOT-JUDGED`, not judged; a table today's engine reads only
   in one branch of its part, `new_engine.BRANCH_READS`, is judged for the
   share of the output points past its data where the part was in that
-  branch, and is that note when it never was; a record of an axis set to
+  branch, its furthest point that branch's, and is that note when it
+  never was (an E-Motor is unpowered at a command of 0, which fast mode
+  runs with its inverter on); a record today's engine would not count, of
+  an axis of one point or past its edge by float noise (`Map.bounds`), is
+  left out; a record of an axis set to
   Error stops the path, `NEW-FAILED`, as the engine stops a run there). Today's warnings that a supply
   held the car back (a battery at its maximum-power point, full or at its
   Max Charge Power; a fuel cell at its maximum power or taking nothing

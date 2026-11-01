@@ -1271,16 +1271,24 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
     Driving Task's schedule) is not judged: a note with its code says so
     (NOT_JUDGED); so is one of a table today's engine reads only in a
     branch of its part (BRANCH_READS) the run never took while outside
-    its data. A record of an axis set to Error stops the run, as today's
-    engine stops there (TableError: the engine stops a run first)."""
+    its data. A record today's engine would not count is left out: an axis
+    of a single point is a constant, and float noise at an edge is inside
+    (Map.bounds). A record of an axis set to Error stops the run, as
+    today's engine stops there (TableError: the engine stops a run
+    first)."""
     for rec in run.table_outside:
         el_id, key, axis = rec["part"], rec["table"].rsplit(".", 1)[-1], int(rec["axis"])
         if el_id is None:
             continue
         uses = [u for u in ctx.map_use if u.el_id == el_id and u.table == key]
         m = ctx.maps.get((el_id, key))
-        why, share = ("today's engine does not read it as a part's data", 0.0) if axis >= len(
-            uses) else _branch_share(ctx, run, rec, el_id, key, axis)
+        rng = m.ranges[axis] if m is not None and axis < len(m.ranges) else None
+        shown = _to_today(rec, rng)
+        if m is not None and axis < len(m.bounds) and (m.bounds[axis] is None or (
+                _finite(rec["furthest"]) and m.edge(axis, shown(float(rec["furthest"]))) is None)):
+            continue
+        why, share, at = ("today's engine does not read it as a part's data", 0.0, None) if (
+            axis >= len(uses)) else _branch_share(ctx, run, rec, el_id, key, axis, shown)
         if share <= 0.0:
             messages.append(SimMessage(level="info", text=(
                 f"'{ctx.model.elements[el_id].label}' {key}: the new engine read it past its data "
@@ -1293,31 +1301,41 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
             raise TableError(f"{m.name}: read past its data at t = {float(rec['first']):.2f} s on "
                              f"its {uses[axis].axis} axis, which is set to stop the run (Error)")
         use = uses[axis]
-        lo, hi = rec["lo"], rec["hi"]
-        rng = m.ranges[axis] if m is not None and axis < len(m.ranges) else None
-
-        def shown(x: float, rng=rng, lo=lo, hi=hi) -> float:
-            # the engine's axis against today's in its unit: a scale, from
-            # the ends they share (the engine mirrors a table read at a
-            # speed's magnitude to the negative speeds: its last points
-            # still meet); a temperature axis the engine reads in °C too
-            if rng is None:
-                return x
-            if _finite(hi) and hi != 0:
-                return x * rng[1] / hi
-            return x * rng[0] / lo if _finite(lo) and lo != 0 else x
+        hi = rec["hi"]
         edge = rec["edge"] if _finite(rec["edge"]) else (hi if _finite(hi) else math.nan)
         far = rec["furthest"] if _finite(rec["furthest"]) else edge
         use.outside_s = float(rec["total"]) * share
         use.edge, use.value = shown(edge), shown(far)
         use.t = float(rec["t_furthest"]) if _finite(rec["t_furthest"]) else float(rec["first"])
+        first = float(rec["first"])
+        if at is not None:
+            # only some of its time outside is in the branch today's engine
+            # reads it in: the furthest point and the first are that branch's
+            use.value, use.t, first = at
+            use.edge = m.edge(axis, use.value)
         how = ("its edge slope is extended" if m is not None and axis < len(m.linear)
                and m.linear[axis] else "its edge value is held")
         name = m.name if m is not None else f"'{ctx.model.elements[el_id].label}' {key}"
         messages.append(SimMessage(level="info", text=(
             f"{name}: {use.axis} {use.value:.6g} {use.unit} is past the edge of its data "
-            f"({use.edge:g} {use.unit}) from t = {float(rec['first']):.2f} s — {how} there. "
+            f"({use.edge:g} {use.unit}) from t = {first:.2f} s — {how} there. "
             f"The run summary says for how long and how far.")))
+
+
+def _to_today(rec, rng: Optional[tuple[float, float]]) -> Callable[[float], float]:
+    """A value of a table record's axis, in the engine's unit, in today's
+    (rng: today's data range on that axis): a scale, from the edge the
+    record lies past (the engine pads a table only past an end its argument
+    never reaches, so that edge is a point of today's data too), else from
+    the ends they share; a temperature axis the engine reads in °C too."""
+    if rng is None:
+        return lambda x: x
+    lo, hi, edge = rec["lo"], rec["hi"], rec["edge"]
+    for e, r in ((edge, rng[0] if edge == lo else rng[1]), (hi, rng[1]), (lo, rng[0])):
+        if _finite(e) and e != 0:
+            k = r / e
+            return lambda x: x * k
+    return lambda x: x
 
 
 # the note's code for a table record the verdict does not judge (_tables)
@@ -1329,47 +1347,64 @@ class TableError(Exception):
     from read past data that stops today's run."""
 
 
+def _motor_powered(v: dict) -> bool:
+    """An E-Motor powered at a point, as today's engine has it: its inverter
+    on for a command other than 0 (fast mode keeps `on` at 1 while the
+    supply is live, so a command of 0, to round-off, is unpowered there)."""
+    return v["on"] > 0.5 and abs(v["dem"]) > 1e-9
+
+
 # the tables today's engine reads only in one branch of its part, which the
 # engine's table guards watch in every branch (they read a table's argument
 # at every point): (component, table) -> (the branch, from the part's
 # variables at a point; the variable each axis reads there, None: judged)
 BRANCH_READS = {
     ("motor.emotor", "drag_torque"): (
-        "only while the motor is unpowered", lambda v: v["on"] <= 0.5, ("wa",)),
+        "only while the motor is unpowered", lambda v: not _motor_powered(v), ("wa",)),
     ("motor.emotor", "power_loss"): (
-        "only while the motor is powered", lambda v: v["on"] > 0.5, ("wa", None)),
+        "only while the motor is powered", _motor_powered, ("wa", None)),
     ("motor.emotor", "full_load_torque"): (
-        "only while the motor is powered", lambda v: v["on"] > 0.5, ("v", "wa")),
+        "only while the motor is powered", _motor_powered, ("v", "wa")),
     ("engine.combustion", "drag_torque"): (
         "only while the engine is not fired or its idle governor brakes",
         lambda v: v["fired_thr"] <= 0.5 and (v["fired_idle"] <= 0.5 or v["t_b2"] < 0.0), ("wa",)),
 }
 
 
-def _branch_share(ctx, run, rec, el_id: str, key: str, axis: int) -> tuple[str, float]:
+def _branch_share(ctx, run, rec, el_id: str, key: str, axis: int, shown: Callable[[float], float]
+                  ) -> tuple[str, float, Optional[tuple[float, float, float]]]:
     """The share of a table record's time outside its data that today's
     engine would count, when it reads the table only in a branch
     (BRANCH_READS): of the run's points where the axis was past the data
-    (lo, hi: the engine's units), those where the branch was taken; 1 for
-    any other table, or when the run does not say. With why, for a share
-    of 0 (the record is then not judged)."""
+    as today's engine has it (shown: the engine's value in today's unit;
+    Map.edge: float noise at an edge is inside), those where the branch was
+    taken; 1 for any other table, or when the run does not say. With why,
+    for a share of 0 (the record is then not judged), and for a share
+    below 1 the branch's own furthest point past the data (today's unit),
+    its time and the branch's first time past the data."""
     # ponytail: the share at the run's output points scales the engine's
-    # dense count; the furthest point stays the engine's, in either branch
+    # dense count; a stretch in the branch between two points is missed
     rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, key))
-    if rule is None or axis >= len(rule[2]) or rule[2][axis] is None:
-        return "", 1.0
+    m = ctx.maps.get((el_id, key))
+    if rule is None or m is None or axis >= len(rule[2]) or rule[2][axis] is None:
+        return "", 1.0, None
     why, taken, args = rule
     prefix, ch = rec["table"].rsplit(".", 1)[0], run.engine_channels
-    lo, hi = float(rec["lo"]), float(rec["hi"])
     try:
         cols = {n[len(prefix) + 1:]: v for n, v in ch.items() if n.startswith(prefix + ".")}
-        out = [k for k, x in enumerate(cols[args[axis]]) if not lo <= float(x) <= hi]
-        read = sum(1 for k in out if taken({n: float(c[k]) for n, c in cols.items()}))
+        xs = [shown(float(x)) for x in cols[args[axis]]]
+        out = [k for k, x in enumerate(xs) if m.edge(axis, x) is not None]
+        read = [k for k in out if taken({n: float(c[k]) for n, c in cols.items()})]
+        times = [float(t) for t in run.times]
     except (KeyError, IndexError, TypeError, ValueError):
-        return "", 1.0
+        return "", 1.0, None
     if not out:
-        return "", 1.0  # (outside only between the points: the engine's count stands)
-    return f"today's engine reads it {why}, which it never was while past the data", read / len(out)
+        return "", 1.0, None  # (outside only between the points: the engine's count stands)
+    why = f"today's engine reads it {why}, which it never was while past the data"
+    if len(read) in (0, len(out)):
+        return why, 1.0 if read else 0.0, None
+    k = max(read, key=lambda k: abs(xs[k] - m.edge(axis, xs[k])))
+    return why, len(read) / len(out), (xs[k], times[k], times[read[0]])
 
 
 # the codes of the path's notes on a run it ran: what of it the verdict does

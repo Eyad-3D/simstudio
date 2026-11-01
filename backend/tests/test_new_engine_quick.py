@@ -253,3 +253,86 @@ def test_a_table_today_reads_only_while_unpowered_is_not_judged_in_quick_mode(ca
     assert [r.grade for r in q.references] == [graded[r.label] for r in q.references]
     notes = [m.text for m in q.messages if f"[{new_engine.NOT_JUDGED}]" in m.text]
     assert len(notes) == 1 and "only while the motor is unpowered" in notes[0], notes
+
+
+def _from(project, el_id: str, key: str, first: float, outside: str) -> None:
+    """The part's table ``key`` from its point ``first`` up (a 2-D table's
+    outer axis), every axis's outside-the-data setting ``outside``."""
+    from app.library import library_by_id
+    part = next(e for e in project.systems[0].elements if e.id == el_id)
+    data = part.parameterOverrides.get(key) or next(
+        p.default for p in library_by_id()[part.componentDefId].parameters if p.key == key)
+    part.parameterOverrides[key] = {k: v for k, v in data.items() if float(k) >= first}
+    two = isinstance(next(iter(data.values())), dict)
+    part.tableOutside = {**(part.tableOutside or {}), key: [outside] * (2 if two else 1)}
+
+
+def _full(project, case_id: str):
+    next(c for c in project.cases if c.id == case_id).mode = "full"
+    try:
+        return simulate(project, case_id)
+    finally:
+        next(c for c in project.cases if c.id == case_id).mode = "quick"
+
+
+@needs_engine
+@pytest.mark.parametrize("el_id, key, first", [
+    ("el-battery", "ocv_table", 90.0), ("el-motor", "power_loss", 1000.0)])
+def test_a_table_whose_data_start_above_where_it_is_read_stops_quick_mode_on_error(
+        monkeypatch, el_id, key, first):
+    """The BEV's OCV table for 90-100 % SOC (the city cycle starts at 90 %
+    and goes below), or its Power Loss map from 1000 1/min (the motor
+    stands at 0), set to Error: today's run fails at its start. Fast mode
+    stops too (FAST-TABLE-ERROR), so the case runs in full with
+    QUICK-FAILED and fails as today's does; strict mode fails with the code
+    (before: success over the whole cycle, strict too)."""
+    project = _quick("bev-car", CITY)
+    _from(project, el_id, key, first, "error")
+    q = simulate(project, CITY)
+    today = _full(project, CITY)
+    assert today.engine == "today" and today.status == "failed"
+    said = q.messages[0].text
+    assert said.startswith("Not run in quick mode [QUICK-FAILED]") and "FAST-TABLE-ERROR" in said
+    assert q.status == "failed" and [t for t in _said(today) if "(Error)" in t][0] in _said(q)
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    strict = simulate(project, CITY)
+    assert strict.status == "failed" and "[QUICK-FAILED]" in strict.messages[0].text
+
+
+@needs_engine
+@pytest.mark.parametrize("el_id, key, first", [
+    ("el-battery", "ocv_table", 90.0), ("el-motor", "drag_torque", 2000.0),
+    ("el-motor", "power_loss", 1000.0)])
+def test_a_table_whose_data_start_above_where_it_is_read_is_judged_in_quick_mode(el_id, key, first):
+    """The same tables, and the drag table from 2000 1/min, Clamp: today's
+    run warns and marks the consumptions not valid; so does quick mode,
+    the references graded as today's (before: success, nothing flagged; the
+    drag table then not judged either, as fast mode keeps the inverter on
+    at a command of 0, where today's motor is unpowered)."""
+    project = _quick("bev-car", CITY)
+    _from(project, el_id, key, first, "clamp")
+    q = simulate(project, CITY)
+    today = _full(project, CITY)
+    assert q.engine == "new" and today.status == q.status == "warning", _said(q)
+    rows = {s.key for s in q.summary}
+    assert sorted(s.key for s in q.summary if s.notValid) == sorted(
+        s.key for s in today.summary if s.notValid and s.key in rows)
+    assert [s.key for s in q.summary if s.notValid]
+    graded = {r.label: r.grade for r in today.references}
+    assert [r.grade for r in q.references] == [graded[r.label] for r in q.references]
+    assert not [m.text for m in q.messages if f"[{new_engine.NOT_JUDGED}]" in m.text]
+
+
+@needs_engine
+def test_a_table_of_one_point_is_a_constant_in_quick_mode():
+    """The E-Motor's drag torque as one point, {0: 0.3}, set to Error: a
+    constant, which today's engine never reads outside its data; quick mode
+    runs it, success, with no note on it (before: fast mode stopped at the
+    point's edge)."""
+    project = _quick("bev-car", CITY)
+    motor = next(e for e in project.systems[0].elements if e.id == "el-motor")
+    motor.parameterOverrides["drag_torque"] = {"0": 0.3}
+    motor.tableOutside = {**(motor.tableOutside or {}), "drag_torque": ["error"]}
+    q = simulate(project, CITY)
+    assert (q.engine, q.status) == ("new", "success"), _said(q)
+    assert not [m.text for m in q.messages if "drag_torque" in m.text or "Drag Torque" in m.text]

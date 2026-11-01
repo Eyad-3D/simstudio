@@ -1017,6 +1017,63 @@ def test_fast_mode_stops_at_a_table_axis_set_to_error(axis):
         le.build(j, WLTC).simulate()
     assert le.fast(BEV, WLTC).table_outside == []
 
+
+@pytest.mark.parametrize("part,table,keep,edge", [
+    ("el-motor", "power_loss", 1000.0, 1000.0 * np.pi / 30.0),
+    ("el-battery", "ocv_table", 89.5, 0.9)])
+def test_a_table_whose_data_stop_short_of_where_it_is_read_is_watched_there(part, table, keep, edge):
+    """The E-Motor's Power Loss map from 1000 1/min (the motor stands at 0
+    at the start), or the battery's OCV table for 90-100 % SOC (the city
+    cycle starts at 90 % and goes below), set to Error: a full run and fast
+    mode stop, as today's engine does, FAST-TABLE-ERROR in fast mode
+    (before: the engine padded the table past its first point, so neither
+    watched it there and both ran the whole cycle). With Clamp, fast mode
+    and the full run record the same table read past that first point."""
+    p = json.loads(BEV)
+    el = next(e for e in p["systems"][0]["elements"] if e["id"] == part)
+    lib = json.loads((BACKEND / "app" / "library" / "components.json").read_text(encoding="utf-8"))
+    kind = next(c for c in lib["components"] if c["id"] == el["componentDefId"])
+    data = el["parameterOverrides"].get(table) or next(
+        x["default"] for x in kind["parameters"] if x["key"] == table)
+    el["parameterOverrides"][table] = {k: v for k, v in data.items() if float(k) >= keep}
+    axes = 2 if table == "power_loss" else 1
+    for policy in ("error", "clamp"):
+        el["tableOutside"] = {table: [policy] * axes}
+        j = json.dumps(p)
+        if policy == "error":
+            with pytest.raises(le.ModelError) as e:
+                le.fast(j, "case-city")
+            assert [d["code"] for d in e.value.diagnostics] == ["FAST-TABLE-ERROR"]
+            with pytest.raises(le.ModelError, match="outside = Error"):
+                le.build(j, "case-city").simulate()
+            continue
+        fast = le.fast(j, "case-city").table_outside
+        full = le.build(j, "case-city").simulate().table_outside
+        # (one record per read of the table in the part's equations)
+        assert {(d["table"], d["axis"]) for d in fast} == {(f"{part.replace('-', '_')}.{table}", 0)}
+        assert all(d["edge"] == d["lo"] == pytest.approx(edge) and d["total"] > 0 for d in fast)
+        assert {(d["table"], d["axis"], d["edge"]) for d in full} == {
+            (d["table"], d["axis"], d["edge"]) for d in fast}
+
+
+def test_fast_mode_counts_float_noise_at_an_edge_as_inside():
+    """The BEV's Ambient at 40 °C + 1e-9, its climate demand table's last
+    point being 40 °C and its axis set to Error: today's engine counts a
+    point within 1e-9 of the larger end past an edge as inside, and runs
+    the case; so does fast mode, with no record (before: FAST-TABLE-ERROR
+    at t = 0)."""
+    p = json.loads(BEV)
+    els = {e["id"]: e for e in p["systems"][0]["elements"]}
+    case = next(c for c in p["cases"] if c["id"] == "case-city")
+    case.setdefault("parameterOverrides", {}).setdefault("el-ambient", {})["temperature_C"] = 40.0 + 1e-9
+    els["el-climate"]["tableOutside"] = {"demand_table": ["error"]}
+    assert le.fast(json.dumps(p), "case-city").table_outside == []
+    case["parameterOverrides"]["el-ambient"]["temperature_C"] = 40.001  # (past it: stops)
+    with pytest.raises(le.ModelError) as e:
+        le.fast(json.dumps(p), "case-city")
+    assert [d["code"] for d in e.value.diagnostics] == ["FAST-TABLE-ERROR"]
+
+
 # ---- text components ---------------------------------------------------------
 
 def test_a_part_built_from_its_text_gives_the_same_run(bev_run):

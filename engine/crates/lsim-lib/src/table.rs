@@ -167,35 +167,50 @@ impl Table1 {
         (self.x.first().copied().unwrap_or(0.0), self.x.last().copied().unwrap_or(0.0))
     }
 
-    /// The table with a constant extension past its first (`lo`) and last
-    /// (`hi`) point, as wide as its span: for an argument that cannot leave
-    /// the data on that side (a speed magnitude at 0, an SOC held to 0-1),
-    /// so the run loop's watch of the table's edge is never resting exactly
-    /// on it. The values the argument can take are unchanged.
-    pub fn padded(&self, lo: bool, hi: bool) -> Table1 {
-        let (Some(&x0), Some(&xn)) = (self.x.first(), self.x.last()) else { return self.clone() };
+    /// The table with a constant extension, as wide as its span, past its
+    /// first point when that point is at or below `lo` and past its last
+    /// when that is at or above `hi`: `lo` and `hi` are the least and
+    /// greatest values its argument takes (a speed magnitude's 0, an SOC
+    /// held to 0-1), so it never reads the extension, and the run loop's
+    /// watch of the table's edge is never resting exactly on it. An end the
+    /// argument can pass is not padded: a read past the data there is
+    /// watched (counted, or the run stopped on an Error axis) as today's
+    /// engine does. A single point is left as it is ([`Table1::data`]).
+    pub fn padded(&self, lo: Option<f64>, hi: Option<f64>) -> Table1 {
+        if self.x.len() < 2 {
+            return self.clone();
+        }
+        let (x0, xn) = (self.x[0], self.x[self.x.len() - 1]);
         let d = (xn - x0).abs().max(1.0);
         let mut t = self.clone();
-        if lo {
+        if lo.is_some_and(|b| x0 <= b) {
             t.x.insert(0, x0 - d);
             t.y.insert(0, self.y[0]);
         }
-        if hi {
+        if hi.is_some_and(|b| xn >= b) {
             t.x.push(xn + d);
-            t.y.push(*self.y.last().expect("a point"));
+            t.y.push(self.y[self.y.len() - 1]);
         }
         t
     }
 
     /// The table as runtime data: linear, today's outside rule, the axis
     /// in `x_unit`. The abscissae must increase strictly (take a profile's
-    /// steps out first with [`Table1::split_steps`]).
+    /// steps out first with [`Table1::split_steps`]). A single point is a
+    /// constant, which today's engine never reads outside its data: it is
+    /// held (Clamp) and spread 1 either side, so the run loop's watch of
+    /// its edge does not rest on it (the backend does not count what it
+    /// sees past them).
     pub fn data(&self, x_unit: &str) -> Result<TableData, String> {
+        let (x, y, outside) = match (self.x.as_slice(), self.y.as_slice()) {
+            ([x0], [y0]) => (vec![x0 - 1.0, *x0, x0 + 1.0], vec![*y0; 3], Outside::Clamp),
+            _ => (self.x.clone(), self.y.clone(), self.outside),
+        };
         let d = TableData {
             interpolation: Interpolation::Linear,
-            outside: [self.outside, Outside::Clamp],
+            outside: [outside, Outside::Clamp],
             axis_units: [x_unit.to_string(), String::new()],
-            ..TableData::new_1d(self.x.clone(), self.y.clone())
+            ..TableData::new_1d(x, y)
         };
         d.check()?;
         Ok(d)
@@ -304,20 +319,26 @@ impl Table2 {
     }
 
     /// The table padded (see [`Table1::padded`]) on its outer axis
-    /// (`outer`: low end, high end) and on every sheet's inner axis.
-    pub fn padded(&self, outer: (bool, bool), inner: (bool, bool)) -> Table2 {
+    /// (`outer`: the least and greatest values its argument takes) and on
+    /// every sheet's inner axis (`inner`, the same for its argument).
+    pub fn padded(
+        &self,
+        outer: (Option<f64>, Option<f64>),
+        inner: (Option<f64>, Option<f64>),
+    ) -> Table2 {
         let mut t = self.clone();
         for s in &mut t.sheets {
             *s = s.padded(inner.0, inner.1);
         }
-        if let (Some(&x0), Some(&xn)) = (self.outer.first(), self.outer.last()) {
+        if self.outer.len() > 1 {
+            let (x0, xn) = (self.outer[0], self.outer[self.outer.len() - 1]);
             let d = (xn - x0).abs().max(1.0);
-            if outer.0 {
+            if outer.0.is_some_and(|b| x0 <= b) {
                 t.outer.insert(0, x0 - d);
                 let s0 = t.sheets[0].clone();
                 t.sheets.insert(0, s0);
             }
-            if outer.1 {
+            if outer.1.is_some_and(|b| xn >= b) {
                 t.outer.push(xn + d);
                 let sn = t.sheets.last().expect("a sheet").clone();
                 t.sheets.push(sn);
@@ -330,22 +351,55 @@ impl Table2 {
     /// points × the union of the sheets' inner points, each sheet read
     /// there by its own interpolation and outside rule — exact for linear
     /// interpolation. `units`: the outer and inner axes' units.
+    ///
+    /// The run loop watches the grid's edges, so they are today's: a
+    /// single outer point, or sheets with no second point, are constants
+    /// along that axis, never outside their data today (held, Clamp, and
+    /// spread 1 either side, as [`Table1::data`] does); sheets whose inner
+    /// ranges differ are refused, as today's engine counts a read outside
+    /// the narrowest ([`Table2::inner_range`]) and the grid's edges are
+    /// the widest.
     pub fn grid_data(&self, units: [&str; 2]) -> Result<TableData, String> {
         let mut inner: Vec<f64> = self.sheets.iter().flat_map(|s| s.x.iter().copied()).collect();
         inner.sort_by(f64::total_cmp);
         inner.dedup();
-        let mut values = Vec::with_capacity(self.outer.len() * inner.len());
-        for s in &self.sheets {
+        let mut inner_outside = self.sheets.first().map(|s| s.outside).unwrap_or_default();
+        if let (Some(&a), Some(&b)) = (inner.first(), inner.last()) {
+            match self.inner_range() {
+                None => {
+                    inner.insert(0, a - 1.0);
+                    inner.push(b + 1.0);
+                    inner_outside = Outside::Clamp;
+                }
+                Some((lo, hi)) if (lo, hi) != (a, b) => {
+                    return Err(format!(
+                        "its sheets do not all cover the same range of its second axis \
+                         ({lo} to {hi} on every sheet, {a} to {b} on some): today's \
+                         engine counts a read outside the narrowest as outside the data, which \
+                         the new engine does not watch; give every sheet the same first and last \
+                         point"
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+        let (mut outer, mut sheets, mut outer_outside) =
+            (self.outer.clone(), self.sheets.iter().collect::<Vec<_>>(), self.outer_outside);
+        if let ([o], [s]) = (self.outer.as_slice(), self.sheets.as_slice()) {
+            (outer, sheets, outer_outside) =
+                (vec![o - 1.0, *o, o + 1.0], vec![s; 3], Outside::Clamp);
+        }
+        let mut values = Vec::with_capacity(outer.len() * inner.len());
+        for s in &sheets {
             for &xi in &inner {
                 values.push(s.eval(xi));
             }
         }
-        let inner_outside = self.sheets.first().map(|s| s.outside).unwrap_or_default();
         let d = TableData {
             interpolation: Interpolation::Linear,
-            outside: [self.outer_outside, inner_outside],
+            outside: [outer_outside, inner_outside],
             axis_units: [units[0].to_string(), units[1].to_string()],
-            ..TableData::new_2d(self.outer.clone(), inner, values)
+            ..TableData::new_2d(outer, inner, values)
         };
         d.check()?;
         Ok(d)
@@ -417,6 +471,76 @@ mod tests {
         assert_eq!(s.eval(10.0), 5.0);
         assert!(cont.data("s").is_ok());
         assert!(s.data("s").is_err(), "a step is not a runtime table");
+    }
+
+    #[test]
+    fn only_an_end_the_argument_cannot_pass_is_padded() {
+        // a speed magnitude (never below 0) on data from 0, and from 1000
+        let from0 = Table1::from_points(vec![(0.0, 1.0), (500.0, 2.0)], Outside::Error);
+        assert_eq!(from0.padded(Some(0.0), None).x, vec![-500.0, 0.0, 500.0]);
+        let from1000 = Table1::from_points(vec![(1000.0, 1.0), (5000.0, 2.0)], Outside::Error);
+        assert_eq!(from1000.padded(Some(0.0), None).x, vec![1000.0, 5000.0], "read below 1000");
+        // an SOC held to 0-1 on data for 90-100 %: only its top is padded
+        let ocv = Table1::from_points(vec![(0.9, 368.0), (1.0, 376.0)], Outside::Error);
+        let x = ocv.padded(Some(0.0), Some(1.0)).x;
+        assert_eq!((x.len(), x[0], x[1]), (3, 0.9, 1.0));
+        // a 2-D map's outer and inner axes alike
+        let sheet = |x0: f64| Table1::from_points(vec![(x0, 1.0), (300.0, 9.0)], Outside::Clamp);
+        let map = Table2 {
+            outer: vec![1000.0, 16000.0],
+            sheets: vec![sheet(0.0), sheet(0.0)],
+            outer_outside: Outside::Error,
+        };
+        let p = map.padded((Some(0.0), None), (Some(0.0), None));
+        assert_eq!(p.outer, vec![1000.0, 16000.0]);
+        assert_eq!(p.sheets[0].x, vec![-300.0, 0.0, 300.0]);
+        let d = p.grid_data(["rad/s", "N.m"]).unwrap();
+        assert_eq!((d.x[0], d.y[0], d.outside[0]), (1000.0, -300.0, Outside::Error));
+    }
+
+    #[test]
+    fn a_single_point_is_a_constant_never_outside() {
+        let t = Table1::from_points(vec![(0.0, 0.3)], Outside::Error);
+        let d = t.padded(Some(0.0), None).data("rad/s").unwrap();
+        assert_eq!(
+            (d.x, d.values, d.outside[0]),
+            (vec![-1.0, 0.0, 1.0], vec![0.3; 3], Outside::Clamp)
+        );
+        // a 2-D table with one sheet, and with sheets of one point each
+        let one = |x: f64, y: f64| Table1::from_points(vec![(x, y)], Outside::Error);
+        let t =
+            Table2 { outer: vec![5.0], sheets: vec![one(1.0, 2.0)], outer_outside: Outside::Error };
+        let d = t.grid_data(["1", "1"]).unwrap();
+        assert_eq!(
+            (d.x, d.y.clone(), d.outside),
+            (vec![4.0, 5.0, 6.0], vec![0.0, 1.0, 2.0], [Outside::Clamp; 2])
+        );
+        assert_eq!(d.values, vec![2.0; 9]);
+        let t = Table2 {
+            outer: vec![0.0, 10.0],
+            sheets: vec![one(1.0, 2.0), one(3.0, 4.0)],
+            outer_outside: Outside::Error,
+        };
+        let d = t.grid_data(["1", "1"]).unwrap();
+        assert_eq!((d.y, d.outside), (vec![0.0, 1.0, 3.0, 4.0], [Outside::Error, Outside::Clamp]));
+        assert_eq!(d.values, vec![2.0, 2.0, 2.0, 2.0, 4.0, 4.0, 4.0, 4.0]);
+    }
+
+    #[test]
+    fn sheets_of_different_inner_ranges_are_refused() {
+        // today counts a read outside the narrowest: the grid's edge is the widest
+        let json = serde_json::json!({"0": {"0": 1.0, "300": 2.0}, "100": {"50": 1.0, "300": 2.0}});
+        let t = Table2::from_json(&json, Outside::Clamp, Outside::Clamp).unwrap();
+        let e = t.grid_data(["rad/s", "N.m"]).unwrap_err();
+        assert!(e.contains("50 to 300 on every sheet, 0 to 300 on some"), "{e}");
+        // a sheet of one point inside the others' range is no wider
+        let json = serde_json::json!({"0": {"0": 1.0, "300": 2.0}, "100": {"50": 1.0}});
+        assert!(
+            Table2::from_json(&json, Outside::Clamp, Outside::Clamp)
+                .unwrap()
+                .grid_data(["1", "1"])
+                .is_ok()
+        );
     }
 
     #[test]

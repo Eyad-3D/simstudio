@@ -144,7 +144,8 @@ part from a text in its place (`TEXT-PARSE`, `TEXT-PORTS`, `TEXT-PARAMS`,
 Fast mode on a drive-cycle case: `run = le.fast(project_json, case_id)`
 gives a `Run` with today's channels and figures over the cycle at 1 s
 steps (`step=`), its flags in `run.report["fast"]["flags"]` and the tables
-it read past their data in `run.table_outside` (from its points); it refuses
+it read past their data in `run.table_outside` (from its points; a point
+within 1e-9 of the axis's larger end past an edge is inside); it refuses
 with `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, `FAST-SAMPLED`,
 `FAST-TABLE-ERROR` (a table axis set to Error read outside its data, as a
 full run stops there) or `FAST-RUN`.

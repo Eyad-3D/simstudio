@@ -830,7 +830,8 @@ pub fn fast(
 /// read's axis argument evaluated there against the axis's first and last
 /// point, the time between two points it was outside counted, a crossing
 /// placed on the line between them; the furthest outside is the furthest
-/// at a point. An axis set to Error read outside its data stops fast mode
+/// at a point. A point within 1e-9 of the axis's larger end past an edge is
+/// inside, as today's engine counts. An axis set to Error read outside its data stops fast mode
 /// as it stops a full run: `FAST-TABLE-ERROR`, at the first such crossing.
 fn fast_table_outside(
     model: &lsim_engine::Model,
@@ -902,8 +903,11 @@ fn fast_table_outside(
                 lsim_ir::eval::eval(arg, &at)
             })
             .collect();
-        // how far outside (> 0) or inside (<= 0) the data
-        let past = |x: f64| (lo - x).max(x - hi);
+        // how far outside (> 0) or inside (<= 0) the data: float noise at
+        // an edge is inside, as today's engine has it (1e-9 of the larger
+        // end)
+        let tol = 1e-9 * lo.abs().max(hi.abs());
+        let past = |x: f64| (lo - x).max(x - hi) - tol;
         let (mut total, mut first) = (0.0, f64::NAN);
         let (mut far, mut furthest, mut t_furthest) = (0.0, f64::NAN, f64::NAN);
         for (k, &x) in xs.iter().enumerate() {

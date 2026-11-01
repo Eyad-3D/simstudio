@@ -633,7 +633,19 @@ minimum or an average, for example from the CSV export, or put the
   map, a loss map's torque axis) counts in both. A table axis set to
   Error stops the run wherever the engine reads it, in either branch: a
   run today's engine finishes then fails on the new engine, which says
-  so (`NEW-FAILED`) and runs it on today's engine. A Driving Task's
+  so (`NEW-FAILED`) and runs it on today's engine. The engine watches a
+  table at the edges of its own data, as today's (it pads a table only
+  past an end its argument never reaches: a speed's 0, an SOC's 0 and
+  100 %); a table of one point is a constant, and a point past an edge
+  by float noise (1e-9 of the larger end) is inside, as today's. A full
+  run's watch of an axis set to Error has no such margin, though: a
+  motor held exactly at the last speed of such an axis can stop the new
+  engine's run, which then runs on today's engine (`NEW-FAILED`). A 2-D
+  table whose sheets do not all cover the same range of their second
+  axis is refused by the new engine's import (`BLOCK`: the path runs it
+  on today's engine with `NEW-FAILED`, quick mode in full with
+  `QUICK-FAILED`), as today's engine counts a read outside the narrowest
+  range and the engine's watch is at the widest. A Driving Task's
   profile run past its end is not judged, and a note with the code
   `NEW-TABLE-NOT-JUDGED` says so.
   Its Driver can ask a motor for more recuperation than its supply
