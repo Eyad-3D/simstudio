@@ -59,7 +59,11 @@ before the wiring, after its evidence part, after that part's four fix rounds an
 (live runs, a study's Stop, progress and live edits through the run's control: STREAM passes, the
 stream equal to the result bit for bit, the stop's p95 0.18 s live and 0.55 s for a 16-point WLTC
 study on a shared Linux machine, the marks of 0.25 s and 1.0 s to be judged on Windows CI, a replay
-from the run's snapshot the same SHA-256, a live edit included; STATUS 7 of 11) (the verdict, the
+from the run's snapshot the same SHA-256, a live edit included; STATUS 7 of 11), and after
+item 5 (FMU parts, text components, quick mode: TEXT passes, 92 parts written as text the built-in
+parts' results to the SHA-256; QUICK fails on the energy recuperated and the internal losses, up to
+1.75 % from the full run's on 6 of the 9 cycle cases it runs, every other row within the 1 % band;
+FMU not measured on Linux, judged on Windows CI; STATUS 8 of 11) (the verdict, the
 energy report, part energies, duty, limits and references from the run's
 evidence: lsim-py's integrals, trace from the dense output, table records,
 per-part books and events; ANALYTIC and META pass, ENERGY's E1 and E2

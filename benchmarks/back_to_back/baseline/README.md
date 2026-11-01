@@ -1,31 +1,92 @@
 # Step 2's baseline: where the new engine's path stands
 
-Measured on 31 October 2026 by one command, `python -m benchmarks.back_to_back
+Measured on 1 November 2026 by one command, `python -m benchmarks.back_to_back
 all OUT` (with `LSIM_SCRATCH`, `LSIM_JUDGE_CACHE` and, for the ENERGY line's
 E3, `LSIM_FAST_BIN`, fast mode's runner built from this tree:
 `cargo build --release -p lsim-project --example fast`), every run and probe
-at commit `3e8459e` with a clean tree: the twelfth measurement, after step
-2's item 4 (live runs, a study's Stop, progress and live edits through one
-control of the engine's run: `f8389aa`, `3e8459e`). Its stop-latency probe
-was measured again at `3bcd1a4`, after two fixes the measurement called for
-(below: `c0a52a1`, `3bcd1a4`, neither touching what the other records
-read). Every raw record and probe result carries its stamp (commit, the
-module's version and the SHA-256 of its compiled file, fast mode's
-runner's SHA-256, the files' SHA-256), and [`report.md`](report.md), the
-harness's own report, lists both. The lines, cases, measures and pass marks
-are those of [`../acceptance.toml`](../acceptance.toml), registered in
-`5c82fb0` before the first measured run (twenty-two dated changes since, at
-its end; three of them written before this measurement, the last one after
-it, naming it). The raw results (691 runs) are outside the repository, in
-the lane's cache (`judge-cache/step2/baseline-12`), each with its SHA-256 in
-`SHA256SUMS`.
+at commit `a6f63e5` with a clean tree: the thirteenth measurement, after step
+2's item 5 (FMU parts, text components, quick mode and the FMU pack:
+`6b67e12`; the lines' probes: `a6f63e5`). Its report was made again from
+the same records at `c8b17e0`, after a fix of the report the measurement
+called for (below). Every raw record and probe result carries its stamp
+(commit, the module's version and the SHA-256 of its compiled file, fast
+mode's runner's SHA-256, the files' SHA-256), and [`report.md`](report.md),
+the harness's own report, lists it. The lines, cases, measures and pass
+marks are those of [`../acceptance.toml`](../acceptance.toml), registered in
+`5c82fb0` before the first measured run (thirty dated changes since, at
+its end; the last seven, of item 5, written before this measurement). The raw results
+(691 runs and the probes) are outside the repository, in the lane's cache
+(`judge-cache/step2/baseline-13`), each with its SHA-256 in `SHA256SUMS`.
 
-Eleven measurements came before: six of the path before the wiring (the
+Twelve measurements came before: six of the path before the wiring (the
 app's code unchanged since `2b94af6`), four of the path wired to the run's
-evidence (`cbf7f39`, `923c2b9`, `61779c8`, `dc8eac2`: baseline-7 to -10)
-and the runs of the tenth measured again for the evidence part's fifth fix
-round (`70c276c`, baseline-11, the probes not run). The tenth is this one's
-reference below; the sections after it say how the earlier ones moved.
+evidence (`cbf7f39`, `923c2b9`, `61779c8`, `dc8eac2`: baseline-7 to -10),
+the runs of the tenth measured again for the evidence part's fifth fix
+round (`70c276c`, baseline-11) and the twelfth, after item 4 (`3e8459e`,
+baseline-12). The twelfth is this one's reference below.
+
+## The thirteenth measurement: FMU parts, text components, quick mode
+
+`6b67e12` runs FMU parts on the new path (today's FMPy worker, stepped at
+the communication points k·h as FMPy and fmusim step them), builds a part
+from a text file its element names (`textFile`) and runs a case in quick
+mode (its `mode` "quick") on the engine's fast mode; it also puts the FMU
+pack into the installer, its LGPL parts listed with their source.
+`a6f63e5` gives the FMU, TEXT and QUICK lines probes of their own
+(`item5.py`) and the acceptance file three dated changes before this
+measurement (`QUICK-BALANCE`; how TEXT and QUICK are measured). Against the
+twelfth, line by line:
+
+* **B2B**: 25 of 26 items as expected (24): the FMU probe runs; the
+  performance probe (`NEW-CASE-KIND`) is still refused where it should
+  run. 1 917 differences on the 17 items both engines ran: 0 a, 147 b,
+  680 c, 1 090 unclassified. The 16 items of before give the same
+  differences, difference for difference (none gone, none new); the FMU
+  probe gives `bev-car/case-city`'s (12 b, 35 c, 53 unclassified), its new
+  run's summary and part energies within 1e-9 kWh of the city's and
+  today's (10 ms) the city's to the bit. Every item's ledger balances. First made, the report left the
+  probe's gear rows unclassified (65): it read no project for the probe,
+  whose building compiles the test FMU; `c8b17e0` reads the probe's
+  project without building the FMU and names the probe in the city's
+  recuperation rule (b, 1.0039 x), and the report was made again from the
+  same records (`report-a6f63e5.md` in the cache keeps the first).
+* **STRICT**: fails only for the performance probe. 116 refusals, every
+  one with a listed code (`NEW-FMU` gone): NEW-LIMITS 53, NEW-FAILED 38,
+  NEW-BUILD 16, NEW-BALANCE 3, NEW-LAP 2, NEW-CASE-KIND, NEW-CELLS,
+  NEW-FS-EVENT and NEW-MISSING one each.
+* **SCHEMA, FAULTS, META, ANALYTIC, ENERGY, NOSKIP**: as at the twelfth
+  (683 results valid; the one FAULTS violation, the Driver with no P gain;
+  mutmut 1 391 / 412 survived, none with a written reason; NOSKIP 165
+  tests).
+* **STREAM**: passes as at the twelfth: S1 601/601 points equal; S2 on a
+  shared machine (the AI lane's agent bench ran on CPUs 0-11), live p95
+  0.157 s against 0.25 s, the WLTC study 0.727 s against 1.0 s (19 of 20
+  stops showing something; today's 0.135 s and 0.655 s); S3 five replays
+  the same SHA-256.
+* **FMU**: not measured. The line runs the Reference FMUs and fmusim, and
+  on this machine the permission system refused running the downloaded
+  binaries (31 October): `backend/tests/test_new_engine_fmu.py` measures
+  it on Windows CI, where the engine job fetches both (SHA-256 checked).
+  What ran here: LightSim's own test FMU (compiled from `backend/tests/fmu`)
+  on the new path equals FMPy's `simulate_fmu` at every communication
+  point to the bit (a guard, not the judge).
+* **TEXT**: passes. 92 parts of the four examples' cases (aero-bev UDDS
+  23, bev-car city 24, the Formula Student car's 75 m acceleration 19, the
+  hybrid's UDDS run once 26), each written as its text component in a file
+  of its own: every result's SHA-256 the built-in part's. No case: the
+  hybrid's Script (`TEXT-SAMPLED`).
+* **QUICK**: fails. Every case runs or is refused with a listed code: the
+  nine BEV cycle cases run (no flag on any), the Formula Student car's
+  three are `QUICK-KIND`, the hybrid's three balanced cases
+  `QUICK-BALANCE` and its live one `QUICK-SAMPLED`; the help and Known
+  issues name every code. Out of the 1 % band: the energy recuperated
+  (−1.19 … −1.75 % on the WLTC cases) and the internal losses (−1.07 …
+  −1.40 %, also the aero BEV's UDDS at −1.13 %), 11 rows on 6 cases; every
+  other row is inside it (the charge used −0.04 … −0.20 %, the
+  consumptions within 0.18 %, the distance within 0.002 %). The band is not
+  moved: the help says how far those two rows come out.
+* **STATUS**: 8 of 11 (text components added); not yet the verdict, FMU
+  parts (not measured here), quick mode.
 
 ## The twelfth measurement: live runs, a study's Stop, live edits
 
@@ -445,7 +506,26 @@ jsonschema 4.26.0, mutmut 3.8.1. The stop latencies are an indication
 only, from a machine another lane shares (their pass marks are judged on
 Windows CI, `backend/tests/test_stop_latency.py`).
 
-## Where each line stands (the twelfth measurement)
+## Where each line stands (the thirteenth measurement)
+
+| line | state | what was measured |
+|---|---|---|
+| B2B | fails | 25 of 26 items as expected: the performance probe (NEW-CASE-KIND) is refused where it should run. Of 1 917 differences on the 17 items both engines ran: 0 class a, 147 b, 680 c, 1 090 unclassified. Every item's ledger balances. |
+| STRICT | fails | only for the item above. 116 refusals, every one with a listed code; no NEW-ERROR, no process that died, no message with a code no section lists. |
+| SCHEMA | passes | 0 errors in 683 results. |
+| FAULTS | fails | as at the twelfth: one "success" on the new path where today's warns (bev-car's Driver with no P gain); mutmut's 412 survivors without a written reason. |
+| META | passes | as at the twelfth. |
+| ANALYTIC | passes | within 2.7e-14 s of the exact answers. |
+| ENERGY | vacuous | E1 within 5e-16 on all 17 items; E2 within 3e-16 of the exact RMS; E3 vacuous (no limit met). |
+| STREAM | passes | S1 and S3 as at the twelfth; S2 (a shared machine) live p95 0.157 s, study 0.727 s. |
+| FMU | not measured | the Reference FMUs and fmusim are not run on this machine (refused by its permission system); Windows CI measures it. |
+| TEXT | passes | 92 parts written as text: every result the built-in part's, to its SHA-256. |
+| QUICK | fails | every case runs or is refused with a code; 11 rows (the energy recuperated, the internal losses) on 6 of the 9 cases that run are outside the 1 % band, up to −1.75 %. |
+| SCRIPTS | fails | as at the twelfth: one of three. |
+| NOSKIP | passes here | 165 tests; with the module hidden 6 fail, none skips. |
+| STATUS | fails | 8 of 11: the energy report, part energies, duty, limits, references, live streaming, study stop and progress, text components; not yet the verdict, FMU parts, quick mode. |
+
+## Where each line stood at the twelfth measurement
 
 | line | state | what was measured |
 |---|---|---|
