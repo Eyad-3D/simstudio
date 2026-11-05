@@ -188,9 +188,172 @@ pub fn default_names() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
+/// A table read in a block's equations.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TableSite {
+    /// the block, by today's component id (`motor.emotor`)
+    pub component: &'static str,
+    /// its table parameter (`power_loss`)
+    pub table: String,
+    /// the abscissa each axis is read at, as the equations write it
+    /// (`wa`, `noEvent(abs(T))`)
+    pub at: Vec<String>,
+}
+
+/// Every table read in the blocks' equations (in an equation, a
+/// parameter's binding, a start value, the energy books), each once,
+/// sorted: the blocks in their default configuration, and those that read
+/// tables in every combination of the structural choices their
+/// configurations hold. The new path's judge of a table read past its data
+/// (`backend/app/solver/new_engine.py`, BRANCH_READS) holds a rule for each
+/// read; a configuration field that changes which tables a block reads, or
+/// where, is enumerated here.
+pub fn table_sites() -> Vec<TableSite> {
+    let names = default_names();
+    let mut defs: Vec<(&'static str, ComponentDef)> = defaults()
+        .into_iter()
+        .filter_map(|d| names.iter().find(|(_, n)| *n == d.name).map(|(id, _)| (*id, d)))
+        .collect();
+    // every combination of n choices
+    let all =
+        |n: u32| (0..1u32 << n).map(move |b| (0..n).map(|i| b >> i & 1 == 1).collect::<Vec<_>>());
+    for f in all(2) {
+        let cfg = motor::MotorConfig { windowed: f[0], inverse: f[1], ..Default::default() };
+        defs.push(("motor.emotor", motor::emotor(&cfg)));
+    }
+    for f in all(4) {
+        let cfg = engine::EngineConfig {
+            throttle_wired: f[0],
+            enable_wired: f[1],
+            tank: f[2],
+            behind_clutch: f[3],
+            ..Default::default()
+        };
+        defs.push(("engine.combustion", engine::engine(&cfg)));
+    }
+    for tank in [false, true] {
+        let cfg = engine::FuelCellConfig { tank, ..Default::default() };
+        defs.push(("fuelcell.stack", engine::fuel_cell(&cfg)));
+    }
+    for f in all(3) {
+        let cfg = electric::ClimateConfig {
+            heat_pump: f[0],
+            enable_wired: f[1],
+            served_input: f[2],
+            ..Default::default()
+        };
+        defs.push(("electric.climate", electric::climate(&cfg)));
+    }
+    let limits = std::iter::once(None).chain(all(5).map(|f| {
+        Some(battery::PackLimits { i_dis: f[0], i_ch: f[1], v_min: f[2], v_max: f[3], band: f[4] })
+    }));
+    for limits in limits {
+        for f in all(3) {
+            let cfg = battery::BatteryConfig {
+                rc: f[0],
+                limits,
+                limit_enforced: f[1],
+                inverse: f[2],
+                ..Default::default()
+            };
+            defs.push(("battery.generic", battery::battery(&cfg)));
+        }
+    }
+    let p = &catalog::param("signal.lookup", "table_2d").expect("table_2d")["default"];
+    let t2 = crate::table::Table2::from_json(p, Default::default(), Default::default());
+    let d2 = signals::LookupConfig::D2(t2.expect("the default 2D table"));
+    defs.push(("signal.lookup", signals::lookup(&d2)));
+    for f in all(2) {
+        let (distance, repeat) = (f[0], f[1]);
+        let task = signals::ProfileConfig { distance, repeat, ..signals::default_task() };
+        defs.push(("signal.driving_task", signals::driving_task(&task)));
+        let road = signals::ProfileConfig { distance, repeat, ..signals::default_road() };
+        defs.push(("signal.road_profile", signals::road_profile(&road)));
+    }
+    let mut out = std::collections::BTreeSet::new();
+    for (id, d) in &defs {
+        let id = *id;
+        for e in expressions(d) {
+            e.walk(&mut |x| {
+                if let Expr::Table { args, .. } = x
+                    && let Some((Expr::Name(table), at)) = args.split_first()
+                {
+                    let at = at.iter().map(ToString::to_string).collect();
+                    out.insert(TableSite { component: id, table: table.clone(), at });
+                }
+            });
+        }
+    }
+    out.into_iter().collect()
+}
+
+/// Every expression of a definition: its equations' and initial
+/// equations', its parameters' bindings, its variables' start values, its
+/// energy books, its impulses and engagements, its sub-components'
+/// modifiers.
+fn expressions(d: &ComponentDef) -> Vec<&Expr> {
+    use lsim_ir::{Equation, WhenAction};
+    fn real(v: &ParamValue) -> Option<&Expr> {
+        match v {
+            ParamValue::Real(e) => Some(e),
+            _ => None,
+        }
+    }
+    let mut v: Vec<&Expr> = vec![];
+    for e in d.equations.iter().chain(&d.initial_equations) {
+        match &e.eq {
+            Equation::Eq { lhs, rhs } => v.extend([lhs, rhs]),
+            Equation::When { condition, actions } => {
+                v.push(condition);
+                v.extend(actions.iter().map(|a| match a {
+                    WhenAction::Assign { value, .. } | WhenAction::Reinit { value, .. } => value,
+                }));
+            }
+            Equation::Assert { condition, .. } => v.push(condition),
+        }
+    }
+    v.extend(d.params.iter().filter_map(|p| real(&p.default)));
+    v.extend(d.vars.iter().filter_map(|x| x.start.as_ref()));
+    v.extend(d.energy.stored.iter().chain(&d.energy.loss));
+    v.extend(d.impulse.iter().flat_map(|i| [&i.keep, &i.active]));
+    v.extend(d.engagements.iter().map(|g| &g.changes));
+    v.extend(d.components.iter().flat_map(|s| s.modifiers.iter().filter_map(|m| real(&m.value))));
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_table_a_block_holds_is_read() {
+        // each table parameter of each block has a read the list holds
+        // (one read only in a configuration the list leaves out would be
+        // missed by the judge's rules), and the reads of a configuration
+        // that is not the default are there: the fuel cell's curve at its
+        // maximum current, a windowed motor's loss map at no torque, the
+        // 2D lookup's second input
+        let sites = table_sites();
+        let defs = defaults();
+        for (id, name) in default_names() {
+            let Some(d) = defs.iter().find(|d| d.name == name) else { continue };
+            for p in d.params.iter().filter(|p| p.default.table().is_some()) {
+                assert!(
+                    sites.iter().any(|s| s.component == id && s.table == p.name),
+                    "{id}.{}",
+                    p.name
+                );
+            }
+        }
+        let has = |component: &str, table: &str, at: &[&str]| {
+            sites.iter().any(|s| s.component == component && s.table == table && s.at == at)
+        };
+        assert!(has("fuelcell.stack", "polarization", &["I"]));
+        assert!(has("fuelcell.stack", "polarization", &["i_max"]));
+        assert!(has("motor.emotor", "power_loss", &["wa", "0 * unit_N_m"]));
+        assert!(has("signal.lookup", "table", &["sig_x_in", "sig_y_in"]));
+        assert!(sites.windows(2).all(|w| w[0] < w[1]), "sorted, each once");
+    }
 
     #[test]
     fn every_block_has_a_default_definition() {

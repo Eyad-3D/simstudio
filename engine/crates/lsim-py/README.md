@@ -71,10 +71,12 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
   line through every point visited, read at each, nothing before the
   start; 0 s gives the highest value), `table_outside`
   (each table axis read past its data: when it first left, for how long,
-  how far, its part) and `report["asserts"]` (each warning `assert` that
-  did not hold). `model.report["instances"]` maps each element to its
-  instance name (the energy books' parts' paths); `model.var_names()`
-  lists the engine's variables and today's channels.
+  how far, its part), `table_reads` (each read of a table in the model,
+  one per place a part reads it and per axis: its table, part and axis,
+  and the abscissa it read at each output point) and `report["asserts"]`
+  (each warning `assert` that did not hold). `model.report["instances"]`
+  maps each element to its instance name (the energy books' parts' paths);
+  `model.var_names()` lists the engine's variables and today's channels.
 * `RunControl(queue=0)`: one run's control (`model.simulate(control=c)`),
   used from other threads while the run goes. `c.cancel()` stops the run
   where it is (`run.report["stopped"]` says when; its last output point is
@@ -149,6 +151,12 @@ within 1e-9 of the axis's larger end past an edge is inside); it refuses
 with `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, `FAST-SAMPLED`,
 `FAST-TABLE-ERROR` (a table axis set to Error read outside its data, as a
 full run stops there) or `FAST-RUN`.
+
+`le.table_sites()` lists every table read in the library's blocks, in
+each configuration that changes which tables they read or where: the
+block's component id, the table, and the abscissa of each axis as its
+equations write it. The app's judge of a table read past its data holds a
+rule for each (`backend/app/solver/new_engine.py`'s `BRANCH_READS`).
 
 `tests/test_api.py` builds such a function from the app's Script runner
 (`backend/app/solver/sandbox_worker.py`'s `_run_step`, as the app calls

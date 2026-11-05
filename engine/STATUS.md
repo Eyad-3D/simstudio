@@ -36,12 +36,18 @@ of the Ambient and of the tables it read past their data (one that ends at
 a distance or a lap count runs in full: QUICK-END; a table axis set to
 Error read past its data stops fast mode as a full run, FAST-TABLE-ERROR,
 and the case runs in full with QUICK-FAILED) (step 2's item 5,
-1 November). A table today's engine reads only in one branch of its part
-(an E-Motor's drag table while unpowered, an engine's fuel map while
-fired), or at another point (a drag table that reaches the maximum speed,
-at that speed above it), is judged on the path for the share of the run's
+1 November). Every table read in the engine's part equations has a rule
+on the path of where today's engine books that table (5 November: the
+reads `lightsim_engine.table_sites` lists, in every configuration, a test
+holding the rules to them; the engine's reads at a run's points from the
+model itself, `run.table_reads`): a table it reads only in one branch of
+its part (an E-Motor's drag table while unpowered, an engine's fuel map
+while fired), or at another point (a Fuel Cell Stack's curve at its
+current, not at its Maximum Current; a drag table that reaches the maximum
+speed, at that speed above it), is judged for the share of the run's
 points where today's read is past the data, and not at all when there are
-none. The engine watches a table at the edges of its own data (padded only
+none; a Lookup's table is judged under today's name for it, its Table 1D
+or 2D. The engine watches a table at the edges of its own data (padded only
 past an end its argument never reaches), a table of one point is a
 constant and float noise at an edge is inside, as today's; a 2-D table
 whose sheets cover different ranges is refused (BLOCK). The

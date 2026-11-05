@@ -626,15 +626,22 @@ minimum or an average, for example from the CSV export, or put the
   table while it is unpowered, its loss map and its full-load curve while
   it is powered, an engine's drag table while it is not fired or its idle
   governor brakes, its fuel map while it is fired, a Climate Control's
-  demand table while it asks for heat or cooling; a drag table that
+  demand table while it asks for heat or cooling, a Fuel Cell Stack's
+  polarization curve at the current it gives, where the new engine also
+  reads it at its Maximum Current, its most power; a drag table that
   reaches the machine's maximum speed is read at that speed above it,
   which counts as over speed) is judged for the share of the run's
   output points past the data where today's read is past it too, and
   not at all, with a note with the code `NEW-TABLE-NOT-JUDGED`, when
   there are none; a short stretch in that branch between two output
-  points is missed. Where the engine reads a table in several places
-  (an engine's fuel map at three torques) its time outside is the
-  longest of those reads', which can be less than all of them together.
+  points is missed. Every table the new engine's parts read has a rule of
+  where today's engine reads it: one of these, where the new engine reads
+  it (a battery's OCV table, a Lookup's), or nowhere past its data (an
+  engine's full-load curve, read between its own first and last speed); a
+  test holds the rules to the engine's reads. Where the engine reads a
+  table in several places (an engine's fuel map at three torques) its
+  time outside is the longest of those reads', which can be less than all
+  of them together.
   A table axis set to
   Error stops the run wherever the engine reads it, in either branch: a
   run today's engine finishes then fails on the new engine, which says
@@ -650,9 +657,9 @@ minimum or an average, for example from the CSV export, or put the
   axis is refused by the new engine's import (`BLOCK`: the path runs it
   on today's engine with `NEW-FAILED`, quick mode in full with
   `QUICK-FAILED`), as today's engine counts a read outside the narrowest
-  range and the engine's watch is at the widest. A Driving Task's
-  profile run past its end is not judged, and a note with the code
-  `NEW-TABLE-NOT-JUDGED` says so.
+  range and the engine's watch is at the widest. A Driving Task's or a
+  Road Profile's profile run past its end is not judged, and a note with
+  the code `NEW-TABLE-NOT-JUDGED` says so.
   Its Driver can ask a motor for more recuperation than its supply
   takes, where today's never asks it: the run then says the charging was
   held back, or, on a fuel cell, which takes nothing back, that it cannot

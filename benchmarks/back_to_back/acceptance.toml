@@ -57,7 +57,7 @@ QUICK-ERROR = "quick mode: an exception that is not the engine's own refusal (al
 # FAULTS count them by code, and STRICT fails on a [NEW-...] code in any
 # message that neither section lists (added 29 October: [[changes]]).
 [note_codes]
-NEW-TABLE-NOT-JUDGED = "a table the run read past its data that today's engine does not read there (a Driving Task's profile run past its end; a part's table read only in a branch the run did not take there, or at another point, widened 1 November: [[changes]]): a note, not judged"
+NEW-TABLE-NOT-JUDGED = "a table the run read past its data that today's engine does not read there (a Driving Task's or Road Profile's profile run past its end; a part's table read only in a branch the run did not take there, or at another point, widened 1 November; every table the engine's parts read has its rule, 5 November: [[changes]]): a note, not judged"
 NEW-LIVE-NEXT-RUN = "a live edit the run did not make, which takes effect on the next run: one the new engine builds another model for, one its checks after the run read as at the start, a structural parameter, a table, or one too late for the run (added 31 October: [[changes]])"
 
 # ---------------------------------------------------------------------------
@@ -855,6 +855,23 @@ edges, so a hybrid fuel map with no 0 N·m column warned for the whole UDDS wher
 table ending at the maximum speed gave a drag-table warning in place of today's over-speed one. No measured \
 record holds a table read past its data on the new path or in fast mode (baseline-13's raw records), so no case \
 or record moves; no pass mark moves."""
+
+[[changes]]
+date = "2026-11-05"
+line = "B2B"
+change = """[note_codes]: NEW-TABLE-NOT-JUDGED: new_engine.BRANCH_READS holds a rule for every table read in the \
+engine's part equations (lightsim_engine.table_sites, in every configuration; a test holds the two equal), and \
+the engine's reads at the run's points come from the model itself (run.table_reads): a Fuel Cell Stack's \
+curve, which the engine also reads at its Maximum Current, is judged at the current it gives; an engine's \
+full-load curve and a Road Profile's profile are never judged (today's engine books no read of them); a \
+Lookup's table is judged under today's name for it (its Table 1D or 2D: its summary rows and note, no verdict, \
+as today's), where before it was this note."""
+reason = """Found by the checker of fix round 14 (1 November): a stack's curve cut short of its Maximum Current \
+warned for the whole city cycle and marked Consumption not valid where today's run succeeds, the fourth table \
+judged where today's engine books no read; the owner asked on 5 November to close the class by construction. \
+No measured record holds a table read past its data on the new path or in fast mode (baseline-13's raw records; \
+the example cases' runs and their records are the same with the new module), so no case or record moves; no \
+pass mark moves."""
 
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)

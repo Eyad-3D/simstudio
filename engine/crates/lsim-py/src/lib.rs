@@ -15,6 +15,8 @@
 //! run.times, run.channels["el-battery:sig_soc"]             # NumPy arrays, today's names
 //! run.min / run.max / run.mean / run.events / run.report / run.energy / run.figures
 //! run.integrals / run.trace / run.windows / run.table_outside  # the evidence for the verdict
+//! run.table_reads                                           # each table read's abscissa
+//! le.table_sites()                                          # every table read in the blocks
 //! runs = model.sweep([{…}, {…}], threads=4)                 # parallel, GIL released
 //! le.diagnose(project_json, case_id)                        # structural and unit checks
 //! ```
@@ -573,6 +575,26 @@ impl Run {
             d.set_item("part", core::part_of(&self.built, &t.table))?;
             d.set_item("axis", t.axis)?;
             d.set_item("warning", &t.warning)?;
+            out.append(d)?;
+        }
+        Ok(out)
+    }
+
+    /// Each table read of the run's model, one for each place a part reads
+    /// a table (an Engine reads its fuel map at three torques) and each
+    /// axis of it: dicts with `table`, `part` (the element id, or None),
+    /// `axis` (0 or 1) and `values`, the abscissa it read that axis at at
+    /// each of `times` (a NumPy array, in the unit `table_outside` gives
+    /// that axis in; NaN where the run did not record what it needs).
+    #[getter]
+    fn table_reads<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyList>> {
+        let out = PyList::empty(py);
+        for (table, axis, values) in core::table_reads(&self.built, &self.out) {
+            let d = PyDict::new(py);
+            d.set_item("part", core::part_of(&self.built, &table))?;
+            d.set_item("values", copy(py, &values, || format!("the reads of {table}"))?)?;
+            d.set_item("table", table)?;
+            d.set_item("axis", axis)?;
             out.append(d)?;
         }
         Ok(out)
@@ -1252,6 +1274,23 @@ fn diagnose<'py>(
     diag_list(py, &ds)
 }
 
+/// Every table read in the library's blocks, in each configuration that
+/// changes which tables they read or where (`lsim_lib::blocks::table_sites`):
+/// dicts with `component` (today's component id), `table` and `at`, the
+/// abscissa of each axis as the block's equations write it (a list).
+#[pyfunction]
+fn table_sites(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
+    let out = PyList::empty(py);
+    for s in lsim_lib::blocks::table_sites() {
+        let d = PyDict::new(py);
+        d.set_item("component", s.component)?;
+        d.set_item("table", s.table)?;
+        d.set_item("at", s.at)?;
+        out.append(d)?;
+    }
+    Ok(out)
+}
+
 /// The engine's version.
 #[pyfunction]
 fn version() -> &'static str {
@@ -1296,6 +1335,7 @@ fn lightsim_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(diagnose, m)?)?;
     m.add_function(wrap_pyfunction!(fast, m)?)?;
     m.add_function(wrap_pyfunction!(part_text, m)?)?;
+    m.add_function(wrap_pyfunction!(table_sites, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(spike, m)?)?;
     m.add_class::<Model>()?;

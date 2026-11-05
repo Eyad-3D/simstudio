@@ -1053,6 +1053,7 @@ dependencies = [
  "lsim-engine",
  "lsim-ir",
  "lsim-lang",
+ "lsim-lib",
  "lsim-project",
  "lsim-script",
  "lsim-solve",

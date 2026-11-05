@@ -3242,12 +3242,21 @@ against exact answers from `benchmarks/`.
   (`SolverReport::table_outside`, today's summary rows, note and verdict,
   for a table today's engine reads as a part's data; a record of another,
   a Driving Task's schedule, is a note with the code
-  `NEW-TABLE-NOT-JUDGED`, not judged; a table today's engine reads only
-  in one branch of its part, or at another point, `new_engine.BRANCH_READS`
-  (the fuel map only while fired, a drag table that reaches the maximum
-  speed at that speed above it), is judged for the share of the output
-  points past its data where today's read is past it too, its furthest
-  point today's, and is that note when there are none (an E-Motor is
+  `NEW-TABLE-NOT-JUDGED`, not judged; `new_engine.BRANCH_READS` says
+  where today's engine books each table the engine's parts read (every
+  read `lsim_lib::blocks::table_sites` lists, in every configuration, a
+  test holding the two equal; a table it names otherwise under its own
+  name, a Lookup's Table 1D or 2D): where the engine reads it (the
+  battery's OCV table, a Lookup's), only in one branch of its part (the
+  fuel map only while fired), at another point (a Fuel Cell Stack's curve
+  at its current, which the engine reads at its Maximum Current too; a
+  drag table that reaches the maximum speed at that speed above it), or
+  never (an engine's full-load curve, read between its own first and last
+  speed); a record is judged for the share of the output points where the
+  engine read past its data, at any of its reads (`run.table_reads`, each
+  read's abscissa there, from the model itself), that today's read is past
+  it too, its furthest point today's, and is that note when there are
+  none (an E-Motor is
   unpowered at a command of 0, which fast mode runs with its inverter
   on); the engine's records of one axis, one per place the part reads
   it, are one (the longest time, the furthest point); a record today's
@@ -3412,6 +3421,8 @@ run.min, run.max, run.mean           # like channels, per output interval
 run.events, run.report, run.energy   # energy: the books, or None
 run.figures               # today's summary figures {key, label, value, unit}
 run.integrals, run.trace, run.windows, run.table_outside   # the evidence for the app's verdict and reports
+run.table_reads           # each table read's abscissa at the output points
+le.table_sites()          # every table read in the library's blocks, in every configuration
 control = le.RunControl(queue=0)    # stop, points as they are recorded, live changes
 control.cancel(); control.points(timeout=0.1); control.set_params({...}); control.t
 runs = model.sweep([{...}, {...}], threads=4)   # Runs, or the exception for a failed set
@@ -3514,7 +3525,14 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   each table axis read past its data (table, part, axis, first, total,
   t_furthest, and in the unit the engine reads the axis in, SI but for the
   climate demand's outside temperature in °C, furthest, edge, lo, hi, with
-  its warning's words);
+  its warning's words); `run.table_reads` each read of a table in the
+  model, one per place a part reads it and per axis (table, part, axis,
+  and its abscissa at each output point, in that unit, evaluated on the
+  point's variables: a full run's and fast mode's alike); `le.table_sites()`
+  every table read in the library's blocks (`lsim_lib::blocks::table_sites`,
+  in every configuration that changes which tables a block reads or where:
+  its component id, the table, each axis's abscissa as its equations write
+  it);
   `run.report["asserts"]` each warning assert that did not hold (`t`,
   `message`); `model.report["instances"]` each element's instance name
   (the energy books' parts' paths); `model.var_names()` the engine's

@@ -1253,7 +1253,7 @@ def test_a_record_of_an_error_axis_stops_the_new_path_as_today():
     from types import SimpleNamespace as NS
     ctx = new_engine._context(load_example("bev-car"), "case-city")
     rec = {**_record("el_motor.power_loss", 0, 0.0, 1675.5), "part": "el-motor"}
-    run = NS(table_outside=[rec], engine_channels={})
+    run = NS(table_outside=[rec], engine_channels={}, table_reads=[], times=[])
     with pytest.raises(new_engine.TableError, match="set to stop the run") as e:
         new_engine._tables(ctx, run, [])
     assert new_engine.failure(e.value).code == "NEW-FAILED"
@@ -1263,6 +1263,12 @@ def test_a_record_of_an_error_axis_stops_the_new_path_as_today():
 def _share(ctx, run, rec, el_id: str, key: str, axis: int = 0):
     return new_engine._branch_share(ctx, run, rec, el_id, key, axis,
                                     new_engine._to_today(rec, ctx.maps[(el_id, key)].ranges[axis]))
+
+
+def _reads(table: str, axis: int, *values: list) -> list[dict]:
+    """A run's table_reads: the engine's reads of one table axis (each a
+    read's abscissa at the run's points)."""
+    return [{"table": table, "axis": axis, "values": v} for v in values]
 
 
 def _fast_motor(max_rpm: float = 20000.0) -> Project:
@@ -1289,9 +1295,9 @@ def test_the_motors_drag_record_is_judged_where_it_is_unpowered(on, dem, share):
     reads the table at the motor's own speed there."""
     from types import SimpleNamespace as NS
     ctx = new_engine._context(_fast_motor(), "case-city")
-    run = NS(engine_channels={"el_motor.on": on, "el_motor.dem": dem,
-                              "el_motor.wa": [100.0, 500.0, 600.0, 700.0]},
-             times=[0.0, 1.0, 2.0, 3.0])
+    wa = [100.0, 500.0, 600.0, 700.0]
+    run = NS(engine_channels={"el_motor.on": on, "el_motor.dem": dem, "el_motor.wa": wa},
+             table_reads=_reads("el_motor.drag_torque", 0, wa), times=[0.0, 1.0, 2.0, 3.0])
     why, got, at = _share(ctx, run, _record("el_motor.drag_torque", 0, -400.0, 400.0),
                           "el-motor", "drag_torque")
     assert got == pytest.approx(share) and "only while the motor is unpowered" in why
@@ -1307,9 +1313,10 @@ def test_float_noise_past_an_edge_is_not_the_branch_taken():
     one's)."""
     from types import SimpleNamespace as NS
     ctx = new_engine._context(_fast_motor(), "case-city")
+    wa = [400.0 * (1 + 1e-12), 500.0, 600.0]
     run = NS(engine_channels={"el_motor.on": [0.0, 1.0, 1.0], "el_motor.dem": [0.0, 0.5, 0.5],
-                              "el_motor.wa": [400.0 * (1 + 1e-12), 500.0, 600.0]},
-             times=[0.0, 1.0, 2.0])
+                              "el_motor.wa": wa},
+             table_reads=_reads("el_motor.drag_torque", 0, wa), times=[0.0, 1.0, 2.0])
     _, got, at = _share(ctx, run, _record("el_motor.drag_torque", 0, -400.0, 400.0),
                         "el-motor", "drag_torque")
     assert (got, at) == (0.0, None)
@@ -1328,20 +1335,23 @@ def test_a_record_today_would_not_count_is_left_out():
     noise = {**_record("el_motor.drag_torque", 0, -hi, hi), "part": "el-motor",
              "furthest": hi * (1 + 1e-12)}
     messages: list = []
-    new_engine._tables(ctx, NS(table_outside=[noise], engine_channels={}, times=[]), messages)
+
+    def run(rec):
+        return NS(table_outside=[rec], engine_channels={}, table_reads=[], times=[])
+    new_engine._tables(ctx, run(noise), messages)
     use = next(u for u in ctx.map_use if u.el_id == "el-motor" and u.table == "drag_torque")
     assert (messages, use.outside_s) == ([], 0.0)
     motor = next(e for e in proj.systems[0].elements if e.id == "el-motor")
     motor.parameterOverrides["drag_torque"] = {"0": 0.3}
     ctx = new_engine._context(proj, "case-city")
     one = {**_record("el_motor.drag_torque", 0, -1.0, 1.0), "part": "el-motor", "furthest": 86.0}
-    new_engine._tables(ctx, NS(table_outside=[one], engine_channels={}, times=[]), messages)
+    new_engine._tables(ctx, run(one), messages)
     use = next(u for u in ctx.map_use if u.el_id == "el-motor" and u.table == "drag_torque")
     assert (messages, use.outside_s) == ([], 0.0)
     # (a record well past the edge is judged: the guard of the rule)
     far = {**noise, "furthest": 2 * hi}
     ctx = new_engine._context(load_example("bev-car"), "case-city")
-    new_engine._tables(ctx, NS(table_outside=[far], engine_channels={}, times=[]), messages)
+    new_engine._tables(ctx, run(far), messages)
     assert len(messages) == 1 and "32000 1/min is past the edge of its data (16000" in messages[0].text
 
 
@@ -1366,7 +1376,7 @@ def test_the_engines_drag_record_is_judged_where_it_is_read(fired_thr, fired_idl
              engines={"el-engine": NS(speed_use=NS(edge=8000.0))})
     run = NS(engine_channels={"el_engine.wa": [700.0], "el_engine.fired_thr": [fired_thr],
                               "el_engine.fired_idle": [fired_idle], "el_engine.t_b2": [t_b2]},
-             times=[1.0])
+             table_reads=_reads("el_engine.drag_torque", 0, [700.0]), times=[1.0])
     _, got, _ = _share(ctx, run, _record("el_engine.drag_torque", 0, -600.0, 600.0),
                        "el-engine", "drag_torque")
     assert got == share
@@ -1440,7 +1450,8 @@ def test_a_drag_record_above_the_maximum_speed_is_over_speed(max_rpm, share):
     from types import SimpleNamespace as NS
     ctx = new_engine._context(_fast_motor(max_rpm), "case-city")
     run = NS(engine_channels={"el_motor.on": [0.0, 0.0], "el_motor.dem": [0.0, 0.0],
-                              "el_motor.wa": [500.0, 600.0]}, times=[0.0, 1.0])
+                              "el_motor.wa": [500.0, 600.0]},
+             table_reads=_reads("el_motor.drag_torque", 0, [500.0, 600.0]), times=[0.0, 1.0])
     _, got, at = _share(ctx, run, _record("el_motor.drag_torque", 0, -400.0, 400.0),
                         "el-motor", "drag_torque")
     assert (got, at) == (share, None)
@@ -1452,7 +1463,7 @@ def test_a_drag_record_above_the_maximum_speed_is_over_speed(max_rpm, share):
              engines={"el-engine": NS(speed_use=NS(edge=max_rpm * 6000.0 / 16000.0))})
     run = NS(engine_channels={"el_engine.wa": [700.0], "el_engine.fired_thr": [0.0],
                               "el_engine.fired_idle": [0.0], "el_engine.t_b2": [0.0]},
-             times=[1.0])
+             table_reads=_reads("el_engine.drag_torque", 0, [700.0]), times=[1.0])
     _, got, _ = _share(ctx, run, _record("el_engine.drag_torque", 0, -600.0, 600.0),
                        "el-engine", "drag_torque")
     assert got == share
@@ -1480,7 +1491,10 @@ def test_the_engines_fuel_map_record_is_judged_where_it_is_read(axis, over, shar
     every record judged in full)."""
     from types import SimpleNamespace as NS
     ctx = new_engine._context(_hybrid_fuel_map("speed" if axis == 0 else "torque"), "case-udds")
-    run = NS(engine_channels={k: [x] for k, x in {**_UNFIRED, **over}.items()}, times=[1.0])
+    v = {k[len("el_engine."):]: x for k, x in {**_UNFIRED, **over}.items()}
+    xs = ([v["n_map"]] * 3 if axis == 0 else [v["t_b1"], max(v["t_b2"], 0.0), 0.0])
+    run = NS(engine_channels={k: [x] for k, x in {**_UNFIRED, **over}.items()},
+             table_reads=_reads("el_engine.fuel_map", axis, *([x] for x in xs)), times=[1.0])
     rec = (_record("el_engine.fuel_map", 1, 10.0, 150.0) if axis else
            _record("el_engine.fuel_map", 0, 1000 * math.pi / 30, 6000 * math.pi / 30))
     rec["edge"] = rec["lo"]
@@ -1503,7 +1517,9 @@ def test_the_motors_loss_map_torque_record_is_judged_where_it_is_read(powered, s
     ctx = new_engine._context(proj, "case-city")
     ch = ({"on": 1.0, "dem": 0.1, "t_cmd": 5.0, "T": 5.0} if powered else
           {"on": 0.0, "dem": 0.0, "t_cmd": 0.0, "T": -0.3})
-    run = NS(engine_channels={f"el_motor.{k}": [x] for k, x in ch.items()}, times=[1.0])
+    run = NS(engine_channels={f"el_motor.{k}": [x] for k, x in ch.items()},
+             table_reads=_reads("el_motor.power_loss", 1, [abs(ch["t_cmd"])], [abs(ch["T"])]),
+             times=[1.0])
     rec = {**_record("el_motor.power_loss", 1, 10.0, 310.0), "edge": 10.0, "furthest": 0.0}
     _, got, _ = _share(ctx, run, rec, "el-motor", "power_loss", 1)
     assert got == share
@@ -1517,7 +1533,8 @@ def test_the_climate_demand_record_is_judged_where_it_is_read(q, share):
     judged in full while off)."""
     from types import SimpleNamespace as NS
     ctx = new_engine._context(load_example("bev-car"), "case-city")
-    run = NS(engine_channels={"el_climate.t_out_c": [-30.0], "el_climate.q": [q]}, times=[1.0])
+    run = NS(engine_channels={"el_climate.t_out_c": [-30.0], "el_climate.q": [q]},
+             table_reads=_reads("el_climate.demand_table", 0, [-30.0]), times=[1.0])
     rec = {**_record("el_climate.demand_table", 0, -20.0, 40.0), "edge": -20.0,
            "furthest": -30.0}
     _, got, _ = _share(ctx, run, rec, "el-climate", "demand_table")
@@ -1536,7 +1553,8 @@ def test_the_records_of_one_axis_are_one_of_today_s():
          "first": 7.0, "furthest": 1.5 * hi, "t_furthest": 9.0}
     b = {**a, "total": 10.0, "first": 3.0, "furthest": 1.25 * hi, "t_furthest": 4.0}
     messages: list = []
-    new_engine._tables(ctx, NS(table_outside=[a, b], engine_channels={}, times=[]), messages)
+    new_engine._tables(ctx, NS(table_outside=[a, b], engine_channels={}, table_reads=[], times=[]),
+                       messages)
     use = next(u for u in ctx.map_use if u.el_id == "el-motor" and u.table == "drag_torque")
     assert (use.outside_s, use.t) == (30.0, 9.0)
     assert (use.value, use.edge) == (pytest.approx(24000.0), pytest.approx(16000.0))
@@ -1564,3 +1582,188 @@ def test_a_climate_table_read_where_it_asks_for_nothing_is_not_judged(new, monke
     assert result.status == "success" and not [s.key for s in result.summary if s.notValid]
     notes = [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
     assert len(notes) == 1 and notes[0].startswith("'Climate Control' demand_table:"), notes
+
+
+def test_every_table_read_of_the_engine_has_a_rule():
+    """Every table read in the engine's part equations, in every
+    configuration (lightsim_engine.table_sites: each read, with the abscissa
+    it reads each axis at), has a rule of where today's engine books that
+    table (new_engine.BRANCH_READS): at its own point or in a branch, where
+    the new engine reads it (SAME), or not at all (NEVER: not judged); and
+    each rule names exactly the engine's reads. A table or a read the
+    engine gains fails here until its rule says where today reads it
+    (before: a table with no rule was judged at every read of the engine,
+    a Fuel Cell Stack's curve at its Maximum Current among them)."""
+    engine: dict = {}
+    for s in lightsim_engine.table_sites():
+        for axis, at in enumerate(s["at"]):
+            engine.setdefault((s["component"], s["table"]), {}).setdefault(axis, set()).add(at)
+    rules = {k: {i: set(reads) for i, (reads, _) in enumerate(r.axes)}
+             for k, r in new_engine.BRANCH_READS.items()}
+    assert rules == engine
+    for k, r in new_engine.BRANCH_READS.items():
+        for reads, today in r.axes:
+            assert today in (new_engine.SAME, new_engine.NEVER) or callable(today), k
+            assert today != new_engine.SAME or len(reads) == 1, k  # (the engine's one read)
+
+
+def _fuel_cell_bev(cut: float, load_kw: float, outside: str = "clamp") -> Project:
+    """The BEV with a fuel-cell circuit of its own, a Power Consumer of
+    load_kw on it, the stack's polarization curve cut to cut A under its
+    Maximum Current of 400 A, the city case cut to 120 s."""
+    from helpers import conn
+    proj = load_example("bev-car")
+    system = proj.systems[0]
+    curve = {"0": 396.0, "50": 369.8, "100": 349.2, "150": 332.4, "200": 317.4, "250": 302.4,
+             "300": 287.4, "350": 270.6, "400": 250.0}
+    fc = el("fc", "fuelcell.stack", "Fuel Cell", max_current_A=400.0,
+            polarization={k: v for k, v in curve.items() if float(k) <= cut})
+    fc.tableOutside = {"polarization": [outside]}
+    system.elements += [fc, el("h2", "fuel.h2_tank", "H2 Tank"),
+                        el("fcbus", "electric.node", "FC Bus"),
+                        el("load", "electric.constant_drive", "Load", power_kW=load_kw),
+                        el("gnd2", "boundary.ground", "Ground 2")]
+    system.connections += [conn(90, "fc", "pos", "fcbus", "t1"),
+                           conn(91, "load", "pos", "fcbus", "t2"),
+                           conn(92, "fc", "neg", "gnd2", "t1"),
+                           conn(93, "load", "neg", "gnd2", "t2")]
+    next(c for c in proj.cases if c.id == "case-city").duration = 120.0
+    return proj
+
+
+@pytest.mark.parametrize("current, share", [([50.0, 50.0], 0.0), ([50.0, 350.0], 0.5)])
+def test_the_fuel_cells_curve_record_is_judged_at_its_current(current, share):
+    """A Fuel Cell Stack's polarization curve to 300 A under a Maximum
+    Current of 400 A: the engine reads it at the current and at the
+    Maximum Current (its most power), past the data at every point; today's
+    engine books it at the current only. A record is judged for the share
+    of the points where the current is past the data, at its furthest point
+    (before: judged in full at 400 A)."""
+    from types import SimpleNamespace as NS
+    ctx = new_engine._context(_fuel_cell_bev(300.0, 5.0), "case-city")
+    run = NS(engine_channels={"fc.I": current},
+             table_reads=_reads("fc.polarization", 0, current, [400.0, 400.0]),
+             times=[0.0, 1.0])
+    rec = {**_record("fc.polarization", 0, 0.0, 300.0), "furthest": 400.0}
+    why, got, at = _share(ctx, run, rec, "fc", "polarization")
+    assert got == share and "at the current it gives" in why
+    assert at == (None if share == 0.0 else (350.0, 1.0, 1.0))
+
+
+@pytest.mark.parametrize("quick", [False, True])
+def test_a_fuel_cells_curve_short_of_its_maximum_current_is_judged_at_its_current(
+        new, monkeypatch, quick):
+    """The BEV with a fuel-cell circuit of its own (5 kW on it), the
+    stack's curve cut to 300 A under its Maximum Current of 400 A (Clamp):
+    today's engine reads the curve at the current it gives (17 A), never
+    past its data, so its run succeeds. The new path and quick mode give
+    today's success, nothing not valid, no rows of the curve and a note
+    with its code (before: a warning, 100 A past the curve for the whole
+    run, Consumption not valid: the engine's read at its Maximum Current,
+    which today does not book, was judged)."""
+    proj = _fuel_cell_bev(300.0, 5.0)
+    today = _today(proj, "case-city", monkeypatch)
+    assert today.status == "success"
+    assert not [s.key for s in today.summary if "outside_" in s.key]
+    if quick:
+        next(c for c in proj.cases if c.id == "case-city").mode = "quick"
+    result = simulate(proj, "case-city")
+    assert result.engine == "new"
+    assert result.status == "success", _texts(result, "warning")
+    assert not [s.key for s in result.summary if s.notValid or "outside_" in s.key]
+    notes = [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
+    assert len(notes) == 1 and "at the current it gives" in notes[0], notes
+
+
+@pytest.mark.parametrize("quick", [False, True])
+def test_a_fuel_cells_current_past_its_curve_is_judged_as_today(new, monkeypatch, quick):
+    """The same fuel cell with 100 kW on it: the current it gives (348 A)
+    is past the curve's 300 A all run long. Today's engine books it there;
+    the new path and quick mode judge it as today: today's warning, the
+    whole run past the curve at today's furthest current (not the Maximum
+    Current, 400 A, the engine's other read), Consumption not valid; the
+    full run's rows are today's (quick mode keeps none of them)."""
+    proj = _fuel_cell_bev(300.0, 100.0)
+    today = _today(proj, "case-city", monkeypatch)
+    if quick:
+        next(c for c in proj.cases if c.id == "case-city").mode = "quick"
+    result = simulate(proj, "case-city")
+    assert result.engine == "new"
+
+    def said(r):  # (when it got furthest: a point of the engine's or a step of today's)
+        return [t.split(" at t = ")[0] for t in _texts(r, "warning") if "'Polarization Curve'" in t]
+    assert said(result) == said(today) == [
+        "Fuel Cell Stack 'Fuel Cell' ran 48 A past its 'Polarization Curve' table for 120 s of "
+        "120 s (Current up to 348 A"], said(result)
+    key = "consumption_kwh_per_100km"
+    old = {s.key: s for s in today.summary}
+    rows = {s.key: s for s in result.summary}
+    assert rows[key].notValid and rows[key].notValid == old[key].notValid
+    assert result.status == today.status == "warning"
+    stem = "fc.outside_polarization_current"
+    if not quick:
+        assert rows[f"{stem}_time_pct"].value == pytest.approx(old[f"{stem}_time_pct"].value)
+        assert rows[f"{stem}_furthest"].value == pytest.approx(old[f"{stem}_furthest"].value,
+                                                               abs=0.01)
+
+
+def _lookup_bev(mode: str) -> Project:
+    """The BEV with a Lookup block in Mode mode read at 2.5 (a Constant on
+    each input), past its default table's data (0 to 1) all run long."""
+    proj = load_example("bev-car")
+    proj.systems[0].elements += [el("c", "signal.constant", "Input", value=2.5),
+                                 el("lk", "signal.lookup", "Lookup", mode=mode)]
+    proj.dataBusConnections += [dbc(80, "c", "sig_out", "lk", "sig_x_in")]
+    if mode == "2D":
+        proj.dataBusConnections += [dbc(81, "c", "sig_out", "lk", "sig_y_in")]
+    next(c for c in proj.cases if c.id == "case-city").duration = 60.0
+    return proj
+
+
+@pytest.mark.parametrize("mode, quick", [("1D", False), ("2D", False), ("1D", True)])
+def test_a_lookup_read_past_its_table_gives_today_s_rows(new, monkeypatch, mode, quick):
+    """A Lookup block read past its table: today's engine books it at its
+    inputs (its Table 1D, or its Table 2D in the Mode 2D) and gives its
+    summary rows and note, but its verdict leaves it out (a controller's own
+    schedule). The new path gives today's rows, its note and its success;
+    quick mode its note and its success (it keeps no such rows). Before,
+    the engine's table 'table' was not today's name for it, so the record
+    was said not judged, with no rows."""
+    proj = _lookup_bev(mode)
+    today = _today(proj, "case-city", monkeypatch)
+    if quick:
+        next(c for c in proj.cases if c.id == "case-city").mode = "quick"
+    result = simulate(proj, "case-city")
+    assert result.engine == "new"
+
+    def rows(r):
+        return {s.key: s.value for s in r.summary if s.key.startswith("lk.outside_")}
+    table = "table_2d" if mode == "2D" else "table_1d"
+    assert rows(today) and all(k.startswith(f"lk.outside_{table}_") for k in rows(today))
+    assert rows(result) == ({} if quick else pytest.approx(rows(today)))
+
+    def said(r):
+        return [t.split(" at t = ")[0].split(" from t = ")[0] for t in _texts(r, "info")
+                if t.startswith("Lookup Table 'Lookup'")]
+    assert said(result) == said(today) and said(today), said(result)
+    assert result.status == today.status == "success"
+    assert not [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
+
+
+def test_a_table_today_books_no_read_of_is_not_judged():
+    """A record of a table today's engine books no read of (NEVER in
+    BRANCH_READS): the hybrid Engine's full-load curve, which both engines
+    read at a speed held to its own first and last speed. Were the engine
+    to keep one, it is a note with its code, not a row (before: no rule,
+    judged in full)."""
+    from types import SimpleNamespace as NS
+    ctx = new_engine._context(load_example("hybrid-car"), "case-udds")
+    hi = 6000 * math.pi / 30
+    rec = {**_record("el_engine.full_load_torque", 0, 800 * math.pi / 30, hi), "part": "el-engine"}
+    messages: list = []
+    new_engine._tables(ctx, NS(table_outside=[rec], engine_channels={}, table_reads=[], times=[]),
+                       messages)
+    use = next(u for u in ctx.map_use if u.el_id == "el-engine" and u.table == "full_load_torque")
+    assert use.outside_s == 0.0
+    assert len(messages) == 1 and f"[{new_engine.NOT_JUDGED}]" in messages[0].text
+    assert "only between its own first and last speed" in messages[0].text

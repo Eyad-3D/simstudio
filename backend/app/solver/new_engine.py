@@ -1269,20 +1269,25 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
     mapped onto today's), each said once as today's engine says it. A
     record of a table today's engine does not read as a part's data (a
     Driving Task's schedule) is not judged: a note with its code says so
-    (NOT_JUDGED); so is one of a table today's engine reads only in a
-    branch of its part (BRANCH_READS) the run never took while outside
-    its data. A record today's engine would not count is left out: an axis
-    of a single point is a constant, and float noise at an edge is inside
+    (NOT_JUDGED); so is one of a table today's engine books no read of, or
+    reads only in a branch of its part or at another point (BRANCH_READS,
+    which holds every table the engine reads), where today's read never
+    left its data. A record today's engine would not count is left out: an
+    axis of a single point is a constant, and float noise at an edge is inside
     (Map.bounds). A record of an axis set to Error stops the run, as
     today's engine stops there (TableError: the engine stops a run
     first). The engine keeps a record for each place a part reads a table
     (an Engine reads its fuel map at three torques): the records of one
-    axis are one of today's, said once (_merged)."""
+    axis are one of today's, said once (_merged). A table today's engine
+    names otherwise is judged under its name (a Lookup's Table 1D or 2D)."""
     groups: dict[tuple[str, str, int], list] = {}
     for rec in run.table_outside:
         el_id, key, axis = rec["part"], rec["table"].rsplit(".", 1)[-1], int(rec["axis"])
         if el_id is None:
             continue
+        rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, key))
+        if rule is not None and rule.key is not None:
+            key = rule.key(ctx.params(el_id))
         m = ctx.maps.get((el_id, key))
         rng = m.ranges[axis] if m is not None and axis < len(m.ranges) else None
         shown = _to_today(rec, rng)
@@ -1389,100 +1394,133 @@ def _engine_drags(v: dict) -> bool:
     return v["fired_thr"] <= 0.5 and (v["fired_idle"] <= 0.5 or v["t_b2"] < 0.0)
 
 
-def _read(name: str) -> Callable[[dict], tuple[float, ...]]:
-    return lambda v: (v[name],)
+class Reads(NamedTuple):
+    """Where today's engine books a table the new engine reads
+    (BRANCH_READS)."""
+    where: str  # where today's engine reads it, in words
+    axes: tuple  # per axis: (the new engine's reads of it, today's read)
+    key: Optional[Callable[[dict], str]] = None  # today's name for it, from the part's values
 
 
-# the tables today's engine reads only in one branch of its part, or at
-# another point, which the engine's table guards watch at every point and
-# at each place the part reads them: (component, table) -> (where today
-# reads it; per axis None, judged as the engine has it, or (the values the
-# engine reads it at, from the part's variables at a point, in its unit;
-# today's: the value, or None outside the branch, from the variables and
-# the part's maximum speed when the table reaches it, else inf)). Past its
-# maximum speed a motor or engine counts as over speed, not as past a drag
-# table that reaches that speed: today reads that at the maximum speed.
+SAME = "same"  # today's engine reads the axis where the new one does, at every point
+NEVER = "never"  # today's engine books no read of the table
+
+
+# where today's engine books each table the new engine reads: every table
+# read in the engine's part equations, in every configuration
+# (lightsim_engine.table_sites; the tests hold this list to it):
+# (component, table) -> Reads: where today reads it, in words; per axis the
+# abscissae the new engine reads it at, as the part's equations write them
+# (the run gives the values at its points of each read it watches, from the
+# model itself: run.table_reads; one at a constant, 0 N·m, it does not), and
+# today's read: SAME, the new engine's one read, at every point (judged as
+# the engine has it); NEVER, no read (not judged); or (the part's variables
+# at a point, its maximum speed when the table reaches it, else inf) -> the
+# value today reads it at there, in the engine's unit, or None outside the
+# branch it reads it in. Past its maximum speed a motor or engine counts as
+# over speed, not as past a drag table that reaches that speed: today reads
+# that at the maximum speed.
 BRANCH_READS = {
-    ("motor.emotor", "drag_torque"): (
-        "only while the motor is unpowered, at no more than its maximum speed when the "
-        "table reaches it", ((_read("wa"), lambda v, top: None if _motor_powered(v)
-                              else min(v["wa"], top)),)),
+    ("battery.generic", "ocv_table"): Reads(
+        "at its state of charge, held to 0-100 %", ((("soc_c",), SAME),)),
+    ("motor.emotor", "full_load_torque"): Reads(
+        "only while the motor is powered",
+        ((("v",), lambda v, top: v["v"] if _motor_powered(v) else None),
+         (("wa",), lambda v, top: v["wa"] if _motor_powered(v) else None))),
     # at its torque's magnitude (motor_torque); the engine reads it at the
     # command's torque and the shaft's, and, with a supply window, at 0 and
     # the allowed share
-    ("motor.emotor", "power_loss"): (
+    ("motor.emotor", "power_loss"): Reads(
         "only while the motor is powered",
-        ((_read("wa"), lambda v, top: v["wa"] if _motor_powered(v) else None),
-         (lambda v: (abs(v["t_cmd"]), abs(v["T"]))
-          + ((0.0, abs(v["frac"] * v["t_cmd"])) if "frac" in v else ()),
+        ((("wa",), lambda v, top: v["wa"] if _motor_powered(v) else None),
+         (("noEvent(abs(t_cmd))", "noEvent(abs(T))", "0 * unit_N_m", "noEvent(abs(frac * t_cmd))"),
           lambda v, top: abs(v["T"]) if _motor_powered(v) else None))),
-    ("motor.emotor", "full_load_torque"): (
-        "only while the motor is powered",
-        ((_read("v"), lambda v, top: v["v"] if _motor_powered(v) else None),
-         (_read("wa"), lambda v, top: v["wa"] if _motor_powered(v) else None))),
-    ("engine.combustion", "drag_torque"): (
+    ("motor.emotor", "drag_torque"): Reads(
+        "only while the motor is unpowered, at no more than its maximum speed when the table "
+        "reaches it", ((("wa",), lambda v, top: None if _motor_powered(v) else min(v["wa"], top)),)),
+    # (read at a speed held to its own first and last speed, so never past
+    # its data in either engine)
+    ("engine.combustion", "full_load_torque"): Reads(
+        "only between its own first and last speed, and books no read of it", ((("n_map",), NEVER),)),
+    ("engine.combustion", "drag_torque"): Reads(
         "only while the engine is not fired or its idle governor brakes, at no more than its "
         "maximum speed when the table reaches it",
-        ((_read("wa"), lambda v, top: min(v["wa"], top) if _engine_drags(v) else None),)),
+        ((("wa",), lambda v, top: min(v["wa"], top) if _engine_drags(v) else None),)),
     # fired with throttle at its torque; fired by the idle governor at its
     # torque, or at 0 while it brakes (engine_torque)
-    ("engine.combustion", "fuel_map"): (
+    ("engine.combustion", "fuel_map"): Reads(
         "only while the engine is fired",
-        ((_read("n_map"), lambda v, top: v["n_map"] if v["fired_thr"] > 0.5
+        ((("n_map",), lambda v, top: v["n_map"] if v["fired_thr"] > 0.5
           or v["fired_idle"] > 0.5 else None),
-         (lambda v: (v["t_b1"], max(v["t_b2"], 0.0), 0.0),
+         (("t_b1", "max(t_b2, 0 * unit_N_m)", "0 * unit_N_m"),
           lambda v, top: v["t_b1"] if v["fired_thr"] > 0.5
           else max(v["t_b2"], 0.0) if v["fired_idle"] > 0.5 else None))),
+    # at the current it gives (the bus's bisection); its read at its Maximum
+    # Current, the most power it gives (the bus manager's window), is unbooked
+    ("fuelcell.stack", "polarization"): Reads(
+        "at the current it gives, not at its Maximum Current",
+        ((("I", "i_max"), lambda v, top: v["I"]),)),
     # (consumer_demand_w: enabled, and asking for heat or cooling there)
-    ("electric.climate", "demand_table"): (
+    ("electric.climate", "demand_table"): Reads(
         "only while the climate control is on and asks for heating or cooling",
-        ((_read("t_out_c"), lambda v, top: v["t_out_c"] if v["q"] != 0.0 else None),)),
+        ((("t_out_c",), lambda v, top: v["t_out_c"] if v["q"] != 0.0 else None),)),
+    # its Table 1D, or its Table 2D in the Mode 2D (the verdict leaves it to
+    # its summary rows: a controller's own schedule, core.judged_uses)
+    ("signal.lookup", "table"): Reads(
+        "at its inputs", ((("sig_x_in",), SAME), (("sig_y_in",), SAME)),
+        key=lambda p: "table_2d" if str(p.get("mode", "1D")) == "2D" else "table_1d"),
+    ("signal.driving_task", "profile"): Reads(
+        "as the speeds it asks for, not as a part's data", ((("x",), NEVER),)),
+    ("signal.road_profile", "profile"): Reads(
+        "as the road's grade, not as a part's data", ((("x",), NEVER),)),
 }
 
 
 def _branch_share(ctx, run, rec, el_id: str, key: str, axis: int, shown: Callable[[float], float]
                   ) -> tuple[str, float, Optional[tuple[float, float, float]]]:
     """The share of a table record's time outside its data that today's
-    engine would count, when it reads the table only in a branch, or at
-    another point (BRANCH_READS): of the run's points where the engine read
-    the axis past the data as today's engine has it (shown: the engine's
-    value in today's unit; Map.edge: float noise at an edge is inside),
-    those where today's read is past it too; 1 for any other table, or when
-    the run does not say. With why, for a share of 0 (the record is then
-    not judged), and, unless today's read is the engine's own at every
-    such point, today's furthest point past the data (today's unit), its
-    time and today's first time past the data."""
+    engine would count, by where it books the table (BRANCH_READS; key:
+    today's name for it): of the run's points where the new engine read the
+    axis past the data (at any of its reads: run.table_reads, from the
+    model itself; shown: in today's unit; Map.edge: float noise at an edge
+    is inside), those where today's read is past it too; 1 where today
+    reads it as the new engine does, or the run does not say; 0 where
+    today books no read of it. With why, for a share of 0 (the record is
+    then not judged), and, unless every read of the new engine is today's
+    at every such point, today's furthest point past the data (today's
+    unit), its time and today's first time past the data."""
     # ponytail: the share at the run's output points scales the engine's
     # dense count; a stretch in the branch between two points is missed
-    rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, key))
+    rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, rec["table"].rsplit(".", 1)[-1]))
     m = ctx.maps.get((el_id, key))
-    if rule is None or m is None or axis >= len(rule[1]) or rule[1][axis] is None:
+    if rule is None or m is None or axis >= len(rule.axes) or rule.axes[axis][1] is SAME:
         return "", 1.0, None
-    why, (engine, today) = rule[0], rule[1][axis]
+    today, why = rule.axes[axis][1], f"today's engine reads it {rule.where}"
+    if today is NEVER:
+        return why, 0.0, None
     part = ctx.motors.get(el_id) or ctx.engines.get(el_id)
     cap, unit = (part.speed_use.edge if part is not None else math.inf), shown(1.0)
     top = cap / unit if unit and m.ranges[axis] and m.ranges[axis][1] >= cap else math.inf
     prefix, ch = rec["table"].rsplit(".", 1)[0], run.engine_channels
+    reads = [r["values"] for r in run.table_reads if r["table"] == rec["table"] and r["axis"] == axis]
     out, read, same = [], [], True
     try:
         cols = {n[len(prefix) + 1:]: v for n, v in ch.items() if n.startswith(prefix + ".")}
-        points = min((len(c) for c in cols.values()), default=0)
-        times = [float(t) for t in run.times] if points else []
-        for k in range(points):
-            v = {n: float(c[k]) for n, c in cols.items()}
-            xs = engine(v)
+        times = [float(t) for t in run.times]
+        for k in range(len(times) if reads else 0):
+            xs = tuple(float(r[k]) for r in reads)
             if all(m.edge(axis, shown(x)) is None for x in xs):
                 continue
             out.append(k)
-            x = today(v, top)
+            x = today({n: float(c[k]) for n, c in cols.items()}, top)
             if x is not None and m.edge(axis, shown(x)) is not None:
                 read.append((k, shown(x)))
-                same = same and xs == (x,)
+                same = same and all(e == x for e in xs)
     except (KeyError, IndexError, TypeError, ValueError):
         return "", 1.0, None
     if not out:
         return "", 1.0, None  # (outside only between the points: the engine's count stands)
-    why = f"today's engine reads it {why}: never past its data at those points"
+    why = f"{why}: never past its data at those points"
     if not read:
         return why, 0.0, None
     if len(read) == len(out) and same:

@@ -1130,3 +1130,39 @@ def test_a_text_that_does_not_fit_its_part_is_refused_with_its_code():
     with pytest.raises(le.ModelError) as e:
         le.part_text(HYBRID, "case-udds", "el-hcu")
     assert [d["code"] for d in e.value.diagnostics] == ["TEXT-SAMPLED"]
+
+
+def test_table_sites_lists_every_table_read_of_the_blocks():
+    """le.table_sites() lists every table read in the library's blocks, in
+    every configuration, once each: its component id, its table and the
+    abscissa of each axis as the block's equations write it. A Fuel Cell
+    Stack reads its curve at its current and at its Maximum Current (its
+    most power), an E-Motor with a supply window its loss map at no torque
+    too, a Lookup in the Mode 2D its table at both its inputs."""
+    sites = le.table_sites()
+    got = {(s["component"], s["table"], tuple(s["at"])) for s in sites}
+    assert len(got) == len(sites)
+    assert {("fuelcell.stack", "polarization", ("I",)),
+            ("fuelcell.stack", "polarization", ("i_max",)),
+            ("motor.emotor", "power_loss", ("wa", "0 * unit_N_m")),
+            ("signal.lookup", "table", ("sig_x_in", "sig_y_in"))} <= got
+
+
+@pytest.mark.parametrize("fast", [False, True])
+def test_a_runs_table_reads_are_each_reads_abscissa(bev_run, fast):
+    """run.table_reads gives each read of a table in the model, one per
+    place a part reads it and per axis, with the abscissa it read at each
+    output point, from the model itself: the BEV's E-Motor reads its drag
+    table at its speed's magnitude and its loss map on both axes, its
+    battery its OCV table at its SOC held to 0-1. Fast mode's alike."""
+    run = le.fast(BEV, WLTC) if fast else bev_run
+    reads = run.table_reads
+    assert reads and all(r["values"].shape == run.times.shape for r in reads)
+    ch = run.engine_channels
+    drag = [r for r in reads if r["table"] == "el_motor.drag_torque"]
+    assert [(r["part"], r["axis"]) for r in drag] == [("el-motor", 0)]
+    np.testing.assert_array_equal(drag[0]["values"], ch["el_motor.wa"])
+    ocv = [r for r in reads if r["table"] == "el_battery.ocv_table"]
+    np.testing.assert_array_equal(ocv[0]["values"], ch["el_battery.soc_c"])
+    assert {r["axis"] for r in reads if r["table"] == "el_motor.power_loss"} == {0, 1}
+    assert not any(np.isnan(r["values"]).any() for r in reads)

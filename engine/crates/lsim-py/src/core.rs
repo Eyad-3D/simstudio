@@ -15,7 +15,7 @@ use lsim_solve::{
     OutputGrid, ParamEdit, RunControl, SimResult, SolveError, SolverOptions, TraceSpec,
 };
 use serde_json::Value;
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -824,6 +824,34 @@ pub fn fast(
     })
 }
 
+/// A recorded point of a run, for evaluating an expression of the model
+/// there (a table read's argument): its time, every variable (NaN where
+/// not recorded) and the parameters.
+struct Recorded<'a> {
+    t: f64,
+    vars: &'a [f64],
+    params: &'a [f64],
+    model: &'a dyn lsim_ir::runtime::ModelFunctions,
+}
+
+impl lsim_ir::eval::Env for Recorded<'_> {
+    fn time(&self) -> f64 {
+        self.t
+    }
+    fn var(&self, v: lsim_ir::flat::VarId) -> f64 {
+        self.vars.get(v.0 as usize).copied().unwrap_or(f64::NAN)
+    }
+    fn der(&self, _: lsim_ir::flat::VarId) -> f64 {
+        f64::NAN
+    }
+    fn param(&self, p: lsim_ir::flat::ParamId) -> f64 {
+        self.params.get(p.0 as usize).copied().unwrap_or(f64::NAN)
+    }
+    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+        lsim_ir::interval::table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
+    }
+}
+
 /// Each table axis fast mode's run read outside its data, as a full run
 /// reports it (`SolverReport::table_outside`, the same words), from the
 /// run's recorded points (every variable, at each step's end): each table
@@ -837,31 +865,7 @@ fn fast_table_outside(
     model: &lsim_engine::Model,
     r: &lsim_engine::lsim_fast::FastResult,
 ) -> Result<Vec<lsim_solve::TableOutside>, Failure> {
-    use lsim_ir::flat::{ParamId, VarId};
     use lsim_ir::runtime::ModelFunctions;
-    struct Point<'a> {
-        t: f64,
-        vars: &'a [f64],
-        params: &'a [f64],
-        model: &'a dyn ModelFunctions,
-    }
-    impl lsim_ir::eval::Env for Point<'_> {
-        fn time(&self) -> f64 {
-            self.t
-        }
-        fn var(&self, v: VarId) -> f64 {
-            self.vars.get(v.0 as usize).copied().unwrap_or(f64::NAN)
-        }
-        fn der(&self, _: VarId) -> f64 {
-            f64::NAN
-        }
-        fn param(&self, p: ParamId) -> f64 {
-            self.params.get(p.0 as usize).copied().unwrap_or(f64::NAN)
-        }
-        fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
-            lsim_ir::interval::table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
-        }
-    }
     let info = &model.info;
     let guards = model.jit.table_guard_list();
     if guards.len() != info.table_args.len() {
@@ -899,7 +903,7 @@ fn fast_table_outside(
             .iter()
             .zip(&r.times)
             .map(|(v, &t)| {
-                let at = Point { t, vars: v, params: &info.params, model: &model.jit };
+                let at = Recorded { t, vars: v, params: &info.params, model: &model.jit };
                 lsim_ir::eval::eval(arg, &at)
             })
             .collect();
@@ -967,6 +971,48 @@ fn fast_table_outside(
         Some((_, message)) => Err(model_error("FAST-TABLE-ERROR", message)),
         None => Ok(out),
     }
+}
+
+/// Each table read of a run's model, in the order of its guards (one for
+/// each place a part reads a table and each axis of it): the table's name,
+/// the axis, and the abscissa it read that axis at at each output point
+/// (its argument evaluated on the point's variables and the run's
+/// parameters; NaN for a variable the run did not record), in the unit
+/// `SolverReport::table_outside` gives that axis in. A full run's and fast
+/// mode's alike.
+pub fn table_reads(built: &Built, out: &RunOutput) -> Vec<(String, u8, Vec<f64>)> {
+    use lsim_ir::runtime::ModelFunctions;
+    let (info, r) = (&built.model.info, &out.result);
+    let guards = built.model.jit.table_guard_list();
+    if guards.len() != info.table_args.len() {
+        return vec![];
+    }
+    let index: HashMap<&str, usize> =
+        info.var_names.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+    let cols: Vec<(usize, &Vec<f64>)> = r
+        .names
+        .iter()
+        .zip(&r.values)
+        .filter_map(|(n, v)| index.get(n.as_str()).map(|&i| (i, v)))
+        .collect();
+    let mut reads: Vec<(String, u8, Vec<f64>)> = guards
+        .iter()
+        .map(|g| {
+            let name = info.table_names.get(g.table as usize).cloned().unwrap_or_default();
+            (name, g.axis, Vec::with_capacity(r.times.len()))
+        })
+        .collect();
+    let mut vars = vec![f64::NAN; info.var_names.len()];
+    for (k, &t) in r.times.iter().enumerate() {
+        for &(i, v) in &cols {
+            vars[i] = v.get(k).copied().unwrap_or(f64::NAN);
+        }
+        let at = Recorded { t, vars: &vars, params: &out.params, model: &built.model.jit };
+        for (read, (_, arg)) in reads.iter_mut().zip(&info.table_args) {
+            read.2.push(lsim_ir::eval::eval(arg, &at));
+        }
+    }
+    reads
 }
 
 /// A run's sampled blocks' hosts.
