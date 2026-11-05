@@ -119,6 +119,13 @@ owner's decision, 1 November 2026). What an AI app can do once access is on:
   straight away, and is recoverable (an example saved as a new project, the
   previous version kept as a backup).
 
+A plain `lightsim run` is for people and keeps today's behaviour (it asks
+about script code it does not know). An agent runner can hold `lightsim run`
+to the same OS sandbox as the MCP server — no network, project-only files,
+and a script it wrote running with no approval — by setting the environment
+variable `LIGHTSIM_STRICT_SANDBOX=1`; the run is then refused where that
+sandbox cannot be set up, rather than run less safely.
+
 Python code that goes through `AgentSession` sees the same folders, the
 same `"noAi"` mark and the same time cap, and runs a project with Script
 blocks only if you trusted the project with `lightsim ai trust`.

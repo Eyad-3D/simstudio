@@ -749,6 +749,15 @@ def worker_main(sock, mem_bytes: int = DEFAULT_MEM_BYTES) -> None:
                 payload = json.loads(body[1:].decode("utf-8"))
                 scripting.TIME_LIMIT_S = float(payload.get("time_limit",
                                                             scripting.TIME_LIMIT_S))
+                if payload.get("strict") and not confined:
+                    # A strict agent run must be OS-confined. The worker learns
+                    # it is not (e.g. Landlock present but restrict_self failed)
+                    # only here, so reply at once and compile or run none of the
+                    # project's code in the unconfined worker; the engine then
+                    # refuses the run (PLT-35, never a weaker fall-back).
+                    conn.send(MSG_INIT + json.dumps(
+                        {"errors": [], "confined": confined}).encode("utf-8"))
+                    continue
                 trusted = bool(payload.get("trusted", False))
                 errors = []
                 scripts = []

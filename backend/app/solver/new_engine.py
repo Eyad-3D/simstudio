@@ -25,7 +25,7 @@ from . import balance
 from .keys import fill_keys
 from .network import build_model
 from .runtime import ControlFn, EmitFn
-from .sandbox import ScriptSandbox, ScriptSpec
+from .sandbox import STRICT, ScriptSandbox, ScriptSpec
 
 ENV_VAR = "LIGHTSIM_ENGINE"
 KINDS = ("cycle", "acceleration")  # the case kinds the new engine runs
@@ -108,12 +108,16 @@ def run_new(project: Project, case_id: str) -> SimResult:
     if not specs:
         run = built.simulate()
     else:
-        # the same checks as today's engine: only approved code runs, and it
-        # runs in the locked-down worker process (script_trust.py, sandbox.py);
-        # the engine's own Script runner is not used from the app until the
-        # owner has decided it may replace the worker (native_scripts=False)
-        script_trust.check([(sp.label, sp.code) for sp in specs])
-        with ScriptSandbox(specs) as sandbox:
+        # The Script blocks run in the locked-down worker process, like today's
+        # engine (sandbox.py). A strict agent run (STRICT set by app/ai) must be
+        # OS-confined — ScriptSandbox refuses when it is not — and skips the
+        # per-user approval, the sandbox being the safety. A person's run leaves
+        # STRICT False and keeps script_trust. native_scripts=False until the
+        # owner has decided the engine's own Script runner may replace it.
+        strict = STRICT.get()
+        if not strict:
+            script_trust.check([(sp.label, sp.code) for sp in specs])
+        with ScriptSandbox(specs, strict=strict) as sandbox:
             def runner(spec: ScriptSpec):
                 def step(t, dt, inputs):
                     return sandbox.run(spec.el_id, spec.label, t, dt, dict(inputs), spec.params)

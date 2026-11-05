@@ -145,6 +145,76 @@ def test_an_agent_script_that_tries_to_escape_fails_and_the_run_says_so(attempt,
     assert needle in text, text
 
 
+# -- confinement is settled before any of the project's code runs ------------
+# The worker learns whether it is confined only after harden(); a strict run
+# must send the scripts/FMU only to a confined worker, so none of the
+# project's code runs in a worker that could not confine (e.g. Landlock
+# present but restrict_self failed). These drive the worker directly, with
+# harden() stubbed, so no Landlock/rlimits touch the test process.
+
+
+def _drive_worker(target, args, init_body, monkeypatch, confined):
+    import json as _json
+    import socket as _socket
+    import threading
+
+    monkeypatch.setattr(sw, "harden", lambda *a, **k: ("test", confined))
+    parent, child = _socket.socketpair()
+    th = threading.Thread(target=target, args=(child, *args), daemon=True)
+    th.start()
+    try:
+        conn = sw.Conn(parent)
+        conn.send(init_body)
+        reply = _json.loads(conn.recv()[1:].decode("utf-8"))
+        conn.send(sw.MSG_QUIT)
+    finally:
+        parent.close()
+        th.join(timeout=5)
+    return reply
+
+
+def test_a_strict_script_worker_runs_no_code_before_it_knows_it_is_confined(tmp_path, monkeypatch):
+    import json as _json
+
+    sentinel = tmp_path / "ran.txt"
+    code = (f"open({str(sentinel)!r}, 'w').write('ran')\n\n"
+            "def step(t, dt, inputs, state, params):\n    return {}\n")
+    payload = {"time_limit": 2.0, "trusted": True, "strict": True,
+               "scripts": [{"label": "P", "code": code, "input_keys": [], "params": {}}]}
+    init = sw.MSG_INIT + _json.dumps(payload).encode("utf-8")
+    reply = _drive_worker(sw.worker_main, (), init, monkeypatch, confined=False)
+    assert reply["confined"] is False and reply["errors"] == []
+    assert not sentinel.exists(), "no top-level script code ran in the unconfined strict worker"
+
+
+def test_a_strict_script_worker_runs_code_once_it_is_confined(tmp_path, monkeypatch):
+    import json as _json
+
+    sentinel = tmp_path / "ran.txt"
+    code = (f"open({str(sentinel)!r}, 'w').write('ran')\n\n"
+            "def step(t, dt, inputs, state, params):\n    return {}\n")
+    payload = {"time_limit": 2.0, "trusted": True, "strict": True,
+               "scripts": [{"label": "P", "code": code, "input_keys": [], "params": {}}]}
+    init = sw.MSG_INIT + _json.dumps(payload).encode("utf-8")
+    reply = _drive_worker(sw.worker_main, (), init, monkeypatch, confined=True)
+    assert reply["confined"] is True
+    assert sentinel.read_text(encoding="utf-8") == "ran", "code runs once the worker is confined"
+
+
+def test_a_strict_fmu_worker_loads_nothing_before_it_knows_it_is_confined(monkeypatch):
+    import json as _json
+
+    from app.fmu import worker as fw
+
+    spec = {"label": "X", "strict": True, "unzipDir": "/nonexistent",
+            "libraryPath": "/nonexistent/x.so", "fmiVersion": "2.0", "guid": "g",
+            "modelIdentifier": "X", "inputs": [], "outputs": [], "starts": []}
+    init = fw.MSG_INIT + _json.dumps(spec).encode("utf-8")
+    reply = _drive_worker(fw.worker_main, (fw.DEFAULT_MEM_BYTES, []), init, monkeypatch, confined=False)
+    # a load attempt on the bogus FMU would set error; None proves none happened
+    assert reply["confined"] is False and reply["error"] is None
+
+
 # -- the example cars' scripts give the same results under the strict sandbox -
 
 

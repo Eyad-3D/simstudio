@@ -287,8 +287,11 @@ OLD_CLAIMS = [
     "rules every ai tool works under",
     "the trusted script projects",
 ]
-#: the confirmation the connection no longer asks for, and the old --trust-scripts
-#: gate the sandbox replaced; and claims stronger than the code
+#: the confirmation the connection no longer asks for; and claims stronger
+#: than the code. (--trust-scripts is no longer forbidden as a bare token: the
+#: server now accepts and ignores it for an old connection config — app/ai/
+#: cli.py names it in that back-compat note — so only the old instruction to
+#: ADD it is forbidden, below.)
 OVERSTATED = [
     # the MCP connection's removed confirmation claims (the Python AgentSession
     # still confirms, so a generic "needs confirmation" is not forbidden)
@@ -302,7 +305,9 @@ OVERSTATED = [
     "does not show the code",
     "cannot ask you is refused",
     "does not check whether the app can ask",
-    "--trust-scripts",
+    "add --trust-scripts",
+    "add `--trust-scripts`",
+    "pass --trust-scripts",
     "input_required",
     "elicitation",
     "asks you each time",

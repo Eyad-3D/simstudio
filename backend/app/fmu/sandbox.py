@@ -76,6 +76,7 @@ class FmuSandbox:
 
         payload = {
             "label": spec.label,
+            "strict": strict,  # the worker loads no FMU unconfined under this
             "unzipDir": spec.unzip_dir,
             "libraryPath": spec.library_path,
             "fmiVersion": spec.fmi_version,

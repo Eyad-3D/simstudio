@@ -41,6 +41,13 @@ def _serve(args: argparse.Namespace) -> int:
         include_examples=not args.no_examples,
     )
     policy = Policy(allow_edits=not args.read_only, max_run_seconds=args.max_run_seconds)
+    if getattr(args, "trust_scripts", False):
+        # Removed with the hands-off change (the owner, 1 Nov 2026): the server
+        # no longer reads a trust list. Accept and ignore the old flag so a
+        # connection set up with it still starts; its config can drop it.
+        print("Note: --trust-scripts is no longer needed and is ignored "
+              "(the connection now runs scripts in the OS sandbox). You can remove it.",
+              file=sys.stderr)
     print(f"LightSim MCP server: projects in {engine.user_folder}"
           + (f", also {', '.join(map(str, engine.allowed_folders))}" if engine.allowed_folders else ""),
           file=sys.stderr)
@@ -112,6 +119,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--read-only", action="store_true", help="refuse every edit")
     parser.add_argument("--max-run-seconds", type=float, default=300.0,
                         help="stop an assistant's run after this long (default 300)")
+    # removed with the hands-off change; accepted and ignored so an old
+    # connection config still starts the server (a note on stderr says to drop it)
+    parser.add_argument("--trust-scripts", action="store_true", help=argparse.SUPPRESS)
     sub = parser.add_subparsers(dest="command")
     for name, helptext in (("install", "add LightSim to an AI app"),
                            ("uninstall", "remove LightSim from an AI app")):

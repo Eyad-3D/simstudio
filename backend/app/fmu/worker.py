@@ -233,6 +233,13 @@ def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
                     conn.send(pack_values(MSG_STEP_OK, out))
             elif kind == MSG_INIT:
                 spec = json.loads(body[1:].decode("utf-8"))
+                if spec.get("strict") and not confined:
+                    # strict agent run, worker not OS-confined: load nothing and
+                    # reply at once, so the FMU's native code never runs
+                    # unconfined; the engine refuses the run (PLT-35).
+                    conn.send(MSG_INIT + json.dumps(
+                        {"error": None, "confined": confined}).encode("utf-8"))
+                    continue
                 err = None
                 try:
                     inst = _Instance(spec)

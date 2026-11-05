@@ -152,6 +152,7 @@ class ScriptSandbox:
         payload = {
             "time_limit": self._time_limit,
             "trusted": trusted,
+            "strict": self._strict,  # the worker runs no code unconfined under this
             "scripts": [
                 {"label": s.label, "code": s.code,
                  "input_keys": s.input_keys, "params": s.params}

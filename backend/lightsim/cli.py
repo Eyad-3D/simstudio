@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional, Sequence
@@ -103,22 +104,40 @@ def _result_text(result, written: list[str]) -> str:
 # -- commands -------------------------------------------------------------------
 def cmd_run(args) -> int:
     from . import Project
+    from ._engine import engine
 
     project = Project.load(args.project)
     cases = [c.id for c in project.cases] if args.all_cases else [project.case(args.case).id]
     _apply_sets(project, args.set or [], cases)
     if len(cases) > 1 and any("{case}" not in o for o in args.out or []):
         raise UsageError("With --all-cases, put {case} in each --out file name.")
-    code, payload, texts = EXIT_OK, [], []
-    for case_id in cases:
-        result = project.run(case_id, check=not args.no_check, time_limit_s=args.time_limit)
-        written = _write_outputs(result, args.out or [])
-        rc = _run_exit(result)
-        code = max(code, rc)
-        payload.append({**result.to_dict(channels=False), "exitCode": rc, "wrote": written})
-        texts.append(_result_text(result, written))
+    # An agent runner holds the run to the strict OS sandbox (no network,
+    # project-only files, and a script it wrote runs with no per-user approval,
+    # as the MCP server's runs do) with LIGHTSIM_STRICT_SANDBOX=1; the run is
+    # refused where that sandbox cannot be set up. A person's run leaves it
+    # unset and keeps today's behaviour (script approval, best-effort isolation).
+    sandbox = engine("solver.sandbox") if _strict_run() else None
+    token = sandbox.STRICT.set(True) if sandbox is not None else None
+    try:
+        code, payload, texts = EXIT_OK, [], []
+        for case_id in cases:
+            result = project.run(case_id, check=not args.no_check, time_limit_s=args.time_limit)
+            written = _write_outputs(result, args.out or [])
+            rc = _run_exit(result)
+            code = max(code, rc)
+            payload.append({**result.to_dict(channels=False), "exitCode": rc, "wrote": written})
+            texts.append(_result_text(result, written))
+    finally:
+        if sandbox is not None:
+            sandbox.STRICT.reset(token)
     _out(args, payload[0] if len(payload) == 1 else payload, "\n\n".join(texts))
     return code
+
+
+def _strict_run() -> bool:
+    """Whether an agent runner asked for the strict OS sandbox (the MCP
+    server's rules) for ``lightsim run``, with LIGHTSIM_STRICT_SANDBOX."""
+    return os.environ.get("LIGHTSIM_STRICT_SANDBOX", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def _apply_sets(project, assignments: Sequence[str], cases: Sequence[str]) -> None:

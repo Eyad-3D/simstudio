@@ -4,6 +4,7 @@ not valid, 3 usage or file error). Also run on Windows in CI."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -15,9 +16,20 @@ import lightsim as ls
 BACKEND = Path(__file__).parent.parent
 
 
-def cli(*args: str, cwd: Path = BACKEND) -> subprocess.CompletedProcess:
+def cli(*args: str, cwd: Path = BACKEND, env: dict | None = None,
+        unset: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
+    full = None
+    if env or unset:
+        full = {**os.environ, **(env or {})}
+        for key in unset:
+            full.pop(key, None)
     return subprocess.run([sys.executable, "-m", "lightsim", *args], cwd=cwd,
-                          capture_output=True, text=True, encoding="utf-8", timeout=600)
+                          capture_output=True, text=True, encoding="utf-8", timeout=600, env=full)
+
+
+def _landlock() -> bool:
+    from app.solver import sandbox_worker as sw
+    return sys.platform.startswith("linux") and sw.landlock_abi() >= 0
 
 
 @pytest.mark.parametrize("example,case", [("bev-car", "City Cycle"),
@@ -90,6 +102,34 @@ def test_edit_in_place_keeps_every_version_so_the_original_survives(tmp_path):
     backups = tmp_path / "car.json-backups"
     masses = {ls.load(b).get("Vehicle.mass_kg") for b in backups.glob("*.json")}
     assert {1927, 1500, 1600} <= masses, f"the original 1927 and each step are recoverable: {masses}"
+
+
+@pytest.mark.skipif(not _landlock(), reason="needs the strict Linux sandbox (Landlock)")
+def test_run_is_held_to_the_strict_sandbox_by_an_agent_marker(tmp_path):
+    # LIGHTSIM_STRICT_SANDBOX=1 holds `lightsim run` to the MCP server's rules:
+    # the OS sandbox, and a script nobody approved runs with no Run-scripts
+    # step. Without it, lightsim run keeps today's behaviour (script approval).
+    raw = json.loads((BACKEND / "projects" / "hybrid-car.json").read_text(encoding="utf-8"))
+    raw["cases"] = [{**raw["cases"][0], "duration": 2, "realtimeFactor": 0}]
+    scr = next(e for s in raw["systems"] for e in s["elements"]
+               if e["componentDefId"] == "signal.script")
+    scr["parameterOverrides"]["code"] = scr["parameterOverrides"].get("code", "") + "\n# nobody approved this\n"
+    proj = tmp_path / "car.json"
+    proj.write_text(json.dumps(raw), encoding="utf-8")
+    data = tmp_path / "d"
+    data.mkdir()
+    (data / ".script-trust-migrated").write_text("done", encoding="utf-8")  # no project scan
+    env = {"LIGHTSIM_DATA_DIR": str(data), "LIGHTSIM_PROJECTS_DIR": str(tmp_path / "p")}
+    off = ("LIGHTSIM_SCRIPT_TRUST",)  # let script_trust be active (prompt), as an install has it
+
+    # without the marker, the unapproved script stops the run (today's behaviour)
+    r = cli("run", str(proj), "--case", "case-udds", env=env, unset=off)
+    assert r.returncode == 2 and "has not been approved" in r.stdout
+    # with the marker, the run is strict: it skips the approval and sandboxes
+    r2 = cli("run", str(proj), "--case", "case-udds",
+             env={**env, "LIGHTSIM_STRICT_SANDBOX": "1"}, unset=off)
+    assert r2.returncode == 0, r2.stderr
+    assert "success" in r2.stdout
 
 
 def test_edit_an_example_needs_an_out_file():
