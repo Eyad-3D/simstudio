@@ -541,6 +541,26 @@ def test_fmu_cannot_read_write_connect_or_start_a_process(test_fmu):
 
 @needs_fmpy
 @needs_cc
+@pytest.mark.skipif(sys.platform != "win32", reason="the AppContainer sandbox is Windows-only")
+def test_fmu_is_confined_in_the_windows_appcontainer(test_fmu):
+    # (b)/(c) on Windows: an FMU that tries to write a file, open a TCP
+    # connection and start a process is blocked by the AppContainer (its
+    # read target /etc/hostname is absent on Windows; a user-file read is
+    # proven blocked by the Script test). Runs in the Backend-on-Windows job.
+    from app.solver import win_sandbox
+    if not win_sandbox.appcontainer_available():
+        pytest.skip("this machine cannot set up the AppContainer")
+    params = _import(test_fmu) | {"start:mode": 3}
+    spec = spec_for("fmu", "Lag", params, [SimpleNamespace(name="escaped", direction="output")])
+    with FmuSandbox(spec, strict=True) as sb:
+        sb.step(0.0, 0.5, [])
+        escaped = sb.step(0.5, 0.5, [])[0]
+    assert escaped == 0, (f"the FMU escaped (bit sum {escaped:g}: 1 read a file, 2 wrote a file, "
+                          "4 opened a TCP connection, 8 started a process)")
+
+
+@needs_fmpy
+@needs_cc
 def test_a_strict_fmu_run_is_refused_when_the_sandbox_is_unavailable(test_fmu, monkeypatch):
     # (b): on a platform where the OS sandbox cannot be set up (here, a
     # simulated one), an agent's FMU run is refused with the stable code —

@@ -199,15 +199,19 @@ def _describe_error(e: BaseException) -> str:
     return text[:500]
 
 
-def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
-    """Entry point of an FMU worker process (spawned by the engine)."""
-    import json
-
-    # Everything Python will need is imported while the filesystem is open.
+def _import_fmpy() -> None:
+    # Everything Python will need, imported while the filesystem is still open.
     import fmpy  # noqa: F401
     import fmpy.fmi2  # noqa: F401
     import fmpy.fmi3  # noqa: F401
 
+
+def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
+    """Entry point of the socket FMU worker (spawned by the engine over a
+    ``socketpair``). The Windows AppContainer worker runs :func:`serve` over an
+    inherited pipe instead (``win_sandbox.child_main``); both run identical
+    logic."""
+    _import_fmpy()
     summary, confined = _sw.harden(sock.fileno(), mem_bytes,
                                    read_paths=[*read_paths, *_SYSTEM_READ_PATHS],
                                    drop_modules=False)
@@ -216,8 +220,21 @@ def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
         sys.stderr.flush()
     except Exception:  # noqa: BLE001
         pass
+    try:
+        serve(_sw.Conn(sock), confined)
+    finally:
+        try:
+            sock.close()
+        except Exception:  # noqa: BLE001
+            pass
 
-    conn = _sw.Conn(sock)
+
+def serve(conn, confined: bool) -> None:
+    """Load/step/quit an FMU over ``conn`` until it closes. ``confined`` is
+    what :func:`harden` reported; a strict run whose worker is not confined
+    loads no FMU (the engine refuses it)."""
+    import json
+
     inst: _Instance | None = None
     try:
         while True:
@@ -254,7 +271,3 @@ def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
     finally:
         if inst is not None:
             inst.close()
-        try:
-            sock.close()
-        except Exception:  # noqa: BLE001
-            pass

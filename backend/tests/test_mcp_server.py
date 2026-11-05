@@ -391,18 +391,27 @@ def test_edits_off_with_read_only(folder):
 
 
 def test_script_projects_run_in_the_sandbox_or_are_refused(folder):
-    # hands-off: no question. Where the strict OS sandbox can be set up the
-    # project runs in it; where it cannot (Windows until the AppContainer
-    # lands) it is refused with the stable code rather than run less safely
-    # (never a weaker fall-back).
+    # hands-off: no question. Where the strict OS sandbox can be set up (Linux
+    # with Landlock, or the Windows AppContainer) the project runs in it; where
+    # it cannot it is refused with the stable code rather than run less safely
+    # (never a weaker fall-back). A short case, so the run is quick on the
+    # Windows AppContainer pipe too.
+    proj = _hybrid_copy(folder, "sb.json")
     server = make_server(folder)
-    ran = tool(server, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
+    ran = tool(server, "run_case", {"project": str(proj), "case": "case-udds"})
     if STRICT_OK:
         assert "resultType" not in ran or ran["resultType"] == "complete"
-        assert not ran["isError"] and ran["structuredContent"]["status"] == "success"
+        assert not ran["isError"] and ran["structuredContent"]["status"] == "success", ran
     else:
         assert ran["isError"] and "sandbox_unavailable" in ran["content"][0]["text"]
-    # a Policy that names Windows is refused wherever the test runs
+
+
+def test_a_script_project_is_refused_when_the_sandbox_is_unavailable(folder, monkeypatch):
+    # where the strict sandbox cannot be set up, a Script/FMU run is refused
+    # with the stable code (forced here, so the refusal is tested on any
+    # platform; on Windows this is the real state until the AppContainer works)
+    from app.solver import win_sandbox
+    monkeypatch.setattr(win_sandbox, "appcontainer_available", lambda: False)
     win = make_server(folder, platform="win32")
     refused = tool(win, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
     assert refused["isError"] and "sandbox_unavailable" in refused["content"][0]["text"]
@@ -483,8 +492,9 @@ def test_every_script_run_is_sandboxed_and_the_trust_list_is_not_read(folder, mo
         ran = tool(server, "run_case", args)
         assert "resultType" not in ran or ran["resultType"] == "complete", project.name
         assert ran["isError"] is False and ran["structuredContent"]["status"] == "success", ran
-    example = tool(server, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
-    assert example["isError"] is False and example["structuredContent"]["status"] == "success"
+    # (the example's own scripts also run without the list; the two short
+    # copies above already prove it, and the full example case is slow on the
+    # Windows AppContainer pipe, so it is not repeated here)
 
 
 def test_a_project_without_scripts_runs_on_any_handshake(folder):
@@ -591,11 +601,13 @@ def test_each_tool_call_goes_into_the_local_audit_log(folder):
     assert len(lines) == 2
 
 
-def test_what_the_audit_log_leaves_out(folder):
+def test_what_the_audit_log_leaves_out(folder, monkeypatch):
     # What the help says about .ai/audit.jsonl (AI-01): a call that reaches a
     # tool is a line, done or not (a run, a refusal). A run sent as a task that
     # is refused before it starts, and a call LightSim cannot read (a tool it
     # does not have, arguments that are not an object), are not lines.
+    from app.solver import win_sandbox
+    monkeypatch.setattr(win_sandbox, "appcontainer_available", lambda: False)  # a deterministic refusal below
     server = make_server(folder)
     log = folder / ".ai" / "audit.jsonl"
 

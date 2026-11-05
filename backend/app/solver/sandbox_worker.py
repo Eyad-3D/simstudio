@@ -705,29 +705,49 @@ def _run_step(scripting, script: _Script, t: float, dt: float,
     return result
 
 
-def worker_main(sock, mem_bytes: int = DEFAULT_MEM_BYTES) -> None:
-    """Entry point of the sandbox worker process (spawned by the engine)."""
-    import json
-
-    sock_fd = sock.fileno()
-    # Busy-waiting between requests keeps this process on a core for the whole
-    # run: about 20 % faster for a scripted run going flat out, for a second
-    # busy core (a paced run sleeps between recorded steps, so it spins little).
-    # On a machine with fewer than 4 cores that core is needed by the engine and
-    # the app's window, so there the worker blocks instead.
-    spin = (os.cpu_count() or 1) >= 4
-    summary, confined = harden(sock_fd, mem_bytes)
+def _log_summary(summary: str) -> None:
     try:
         sys.stderr.write(f"[sandbox] {summary}\n")
         sys.stderr.flush()
     except Exception:  # noqa: BLE001
         pass
 
+
+def worker_main(sock, mem_bytes: int = DEFAULT_MEM_BYTES) -> None:
+    """Entry point of the socket sandbox worker (spawned by the engine over a
+    ``socketpair`` — Linux, macOS, and a person's run on Windows). The Windows
+    AppContainer worker (``win_sandbox.child_main``) runs :func:`serve` over an
+    inherited pipe instead, because a capability-less AppContainer cannot use
+    the loopback TCP socketpair; both transports run identical logic."""
+    # Busy-waiting between requests keeps this process on a core for the whole
+    # run: about 20 % faster for a scripted run going flat out, for a second
+    # busy core (a paced run sleeps between recorded steps, so it spins little).
+    # On a machine with fewer than 4 cores that core is needed by the engine and
+    # the app's window, so there the worker blocks instead.
+    spin = (os.cpu_count() or 1) >= 4
+    summary, confined = harden(sock.fileno(), mem_bytes)
+    _log_summary(summary)
+    try:
+        serve(Conn(sock, spin=spin), confined)
+    finally:
+        try:
+            sock.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def serve(conn, confined: bool) -> None:
+    """Handle init/step/param/quit frames over ``conn`` until it closes.
+    ``conn`` is a :class:`Conn` over whatever transport the caller chose (a
+    socket, or a pipe on the Windows AppContainer path). ``confined`` is what
+    :func:`harden` reported; a strict run whose worker is not confined runs no
+    project code (the engine refuses it)."""
+    import json
+
     # Imported after hardening: everything it needs (ast, dis, math, …) is
     # loaded here, so nothing has to be opened from disk once Landlock is on.
     from . import scripting
 
-    conn = Conn(sock, spin=spin)
     scripts: list[_Script] = []
     try:
         while True:
@@ -772,8 +792,40 @@ def worker_main(sock, mem_bytes: int = DEFAULT_MEM_BYTES) -> None:
                 scripts[payload["idx"]].params = payload["params"]
     except (EOFError, ConnectionError, BrokenPipeError):
         return
-    finally:
-        try:
-            sock.close()
-        except Exception:  # noqa: BLE001
-            pass
+
+
+class PipeEnd:
+    """A minimal socket-like object over two OS file descriptors (a read pipe
+    and a write pipe), enough for :class:`Conn` (``recv``/``sendall``) on the
+    Windows AppContainer path, where the loopback socketpair is not available.
+    Blocking only; :class:`Conn` is built with ``spin=False`` over it, and the
+    engine's watchdog enforces the time limit by killing the worker."""
+
+    __slots__ = ("_r", "_w")
+
+    def __init__(self, read_fd: int, write_fd: int):
+        self._r, self._w = read_fd, write_fd
+
+    def recv(self, n: int) -> bytes:
+        return os.read(self._r, n)
+
+    def sendall(self, data: bytes) -> None:
+        mv = memoryview(data)
+        while mv:
+            mv = mv[os.write(self._w, mv):]
+
+    def setblocking(self, flag: bool) -> None:  # Conn's spin path only; unused
+        pass
+
+    def settimeout(self, t) -> None:
+        pass
+
+    def fileno(self) -> int:
+        return self._r
+
+    def close(self) -> None:
+        for fd in (self._r, self._w):
+            try:
+                os.close(fd)
+            except OSError:
+                pass

@@ -55,9 +55,17 @@ def why_no_strict_sandbox(platform: Optional[str] = None) -> Optional[str]:
     tail = (f"The run is refused rather than run less safely [{SANDBOX_UNAVAILABLE}]. "
             "Run the project in the LightSim app instead.")
     if platform == "win32":
+        # The Windows sandbox is a low-privilege AppContainer (win_sandbox.py).
+        # It is allowed only when a runtime probe confirms a confined worker can
+        # really be launched here (so the claim is never made falsely); on any
+        # other machine (including when the real platform is not Windows) the
+        # probe cannot run and the run is refused.
+        from . import win_sandbox
+        if win_sandbox.appcontainer_available():
+            return None
         return ("An AI agent can run a project's Script blocks or FMUs only inside the Windows "
                 "sandbox — a low-privilege AppContainer with no network and access to the "
-                f"project's folder only — which is not available in this build yet. {tail}")
+                f"project's folder only — which could not be set up on this computer. {tail}")
     if platform.startswith("linux") and _w.landlock_abi() < 0:
         return ("An AI agent can run a project's Script blocks or FMUs only inside the sandbox "
                 "(no network, no file access outside the project), which needs Landlock "
@@ -103,35 +111,58 @@ class ScriptSandbox:
         # per-call timeout syscall.
         self._deadline: float | None = None
 
-        ctx = multiprocessing.get_context("spawn")
-        # The platform's default pair: Unix-domain on Linux, a loopback TCP pair
-        # on Windows (whose Python has no AF_UNIX).
-        parent, child = socket.socketpair()
-        self._sock = parent
-        self._conn = _w.Conn(parent)
         self._step_timeout = self._time_limit + _KILL_MARGIN_S
-        self._proc = ctx.Process(
-            target=_w.worker_main, args=(child, mem_bytes),
-            name="lightsim-script-sandbox", daemon=True)
-        self._proc.start()
-        child.close()  # the worker holds the only other end now
-        # Windows: the engine holds the worker's job object (memory cap, and
-        # the worker dies when the engine does). Set before any script runs.
-        self._job = None
-        if sys.platform == "win32":
+        # A strict agent run on Windows runs the worker inside an AppContainer
+        # (no network, file access only to the folders its SID is granted),
+        # over an inherited pipe, since an LPAC cannot use the loopback TCP
+        # socketpair. The run is refused when that cannot be set up. Every other
+        # run uses the spawn + socketpair worker.
+        self._ac = None
+        if strict and sys.platform == "win32":
+            from . import win_sandbox
             try:
-                self._job, note = _w.windows_job(self._proc.sentinel, mem_bytes)
-            except Exception as e:  # noqa: BLE001 — best effort, never fatal
-                note = f"windows job: not applied ({e})"
-            if self._job is None:
-                log.warning("script sandbox: %s", note)
+                self._ac = win_sandbox.launch("script", mem_bytes)
+            except win_sandbox.SandboxSetupError as e:
+                raise ScriptError(
+                    "This project's Script blocks cannot be run OS-confined (no network, no file "
+                    f"access outside the project) on this computer [{SANDBOX_UNAVAILABLE}], so the "
+                    f"run is refused rather than run less safely ({e}).") from e
+            self._sock = self._ac
+            self._conn = self._ac.conn
+            self._proc = self._ac.proc
+            self._job = self._ac.job
+        else:
+            ctx = multiprocessing.get_context("spawn")
+            # The platform's default pair: Unix-domain on Linux, a loopback TCP
+            # pair on Windows (whose Python has no AF_UNIX).
+            parent, child = socket.socketpair()
+            self._sock = parent
+            self._conn = _w.Conn(parent)
+            self._proc = ctx.Process(
+                target=_w.worker_main, args=(child, mem_bytes),
+                name="lightsim-script-sandbox", daemon=True)
+            self._proc.start()
+            child.close()  # the worker holds the only other end now
+            # Windows: the engine holds the worker's job object (memory cap, and
+            # the worker dies when the engine does). Set before any script runs.
+            self._job = None
+            if sys.platform == "win32":
+                try:
+                    self._job, note = _w.windows_job(self._proc.sentinel, mem_bytes)
+                except Exception as e:  # noqa: BLE001 — best effort, never fatal
+                    note = f"windows job: not applied ({e})"
+                if self._job is None:
+                    log.warning("script sandbox: %s", note)
 
-        self._init(trusted)  # uses a socket timeout; the loop below does not
+        self._init(trusted)  # uses a socket timeout (or a timer on the pipe)
 
         # Fast per-step path: busy-wait briefly before blocking (see Conn), and
         # let the watchdog enforce the time limit instead of a per-read timeout.
-        parent.settimeout(None)
-        self._conn._spin = True
+        # The AppContainer pipe reads block, so there the watchdog is the only
+        # time limit (no spin).
+        if self._ac is None:
+            self._sock.settimeout(None)
+            self._conn._spin = True
         self._watch_stop = threading.Event()
         self._watch = threading.Thread(
             target=self._watchdog, name="lightsim-sandbox-watchdog", daemon=True)
@@ -160,9 +191,16 @@ class ScriptSandbox:
             ],
         }
         # Top-level code runs during init; give it the time limit per script
-        # (plus a floor) before deciding the worker is wedged.
-        self._sock.settimeout(max(5.0, len(self._specs)
-                                  * (self._time_limit + _KILL_MARGIN_S)))
+        # (plus a floor) before deciding the worker is wedged. The socket path
+        # uses a socket timeout; the AppContainer pipe blocks, so a timer kills
+        # the worker, which ends the read.
+        init_timeout = max(5.0, len(self._specs) * (self._time_limit + _KILL_MARGIN_S))
+        timer = None
+        if self._ac is None:
+            self._sock.settimeout(init_timeout)
+        else:
+            timer = threading.Timer(init_timeout, self._kill)
+            timer.start()
         try:
             self._conn.send(_w.MSG_INIT + json.dumps(payload).encode("utf-8"))
             body = self._conn.recv()
@@ -172,7 +210,13 @@ class ScriptSandbox:
                 f"Script top-level code did not finish within {self._time_limit:g} s.") from None
         except (EOFError, OSError) as e:
             self._kill()
-            raise ScriptError(f"Script sandbox stopped during start-up: {e}") from e
+            detail = ""
+            if self._ac is not None and self._ac.stderr_text():
+                detail = f" ({self._ac.stderr_text().strip()[:200]})"
+            raise ScriptError(f"Script sandbox stopped during start-up: {e}{detail}") from e
+        finally:
+            if timer is not None:
+                timer.cancel()
         reply = json.loads(body[1:].decode("utf-8"))
         if self._strict and not reply.get("confined"):
             # a strict agent run must be OS-confined; never fall back silently

@@ -4,12 +4,15 @@ When an agent runs a project, its Script blocks and FMUs must run OS-confined
 — no network, file access to the project only — and the run is refused, with
 a stable code, when that confinement cannot be set up: never a silent
 fall-back to the weaker worker. A person's run in the app keeps today's
-behaviour. The Windows AppContainer and its own tests run in the "Backend on
-Windows" CI job; here we prove the Linux path, the gate and the refusal.
+behaviour. The Linux path, the gate and the refusal are proven here on any
+platform; the Windows AppContainer tests at the end run in the "Backend on
+Windows" CI job.
 """
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 
 import pytest
 from helpers import bev_axle, sig_port
@@ -47,10 +50,18 @@ STEP = "def step(t, dt, inputs, state, params):\n    return {'cmd_out': 0.0}\n"
 # -- the gate: when the strict sandbox cannot be set up ------------------------
 
 
-def test_why_no_strict_sandbox_refuses_windows_with_the_stable_code():
+def test_why_no_strict_sandbox_refuses_win32_when_the_appcontainer_is_unavailable(monkeypatch):
+    from app.solver import win_sandbox
+    monkeypatch.setattr(win_sandbox, "appcontainer_available", lambda: False)
     msg = why_no_strict_sandbox("win32")
     assert msg and SANDBOX_UNAVAILABLE in msg
     assert "AppContainer" in msg
+
+
+def test_why_no_strict_sandbox_allows_win32_when_the_appcontainer_is_available(monkeypatch):
+    from app.solver import win_sandbox
+    monkeypatch.setattr(win_sandbox, "appcontainer_available", lambda: True)
+    assert why_no_strict_sandbox("win32") is None
 
 
 def test_why_no_strict_sandbox_refuses_linux_without_landlock(monkeypatch):
@@ -264,3 +275,52 @@ def test_the_hybrid_example_runs_the_same_under_the_strict_sandbox():
     assert a and a.keys() == b.keys()
     for key in a:
         assert b[key] == pytest.approx(a[key], rel=1e-9, abs=1e-9), key
+
+
+# -- the Windows AppContainer (step 6 (b)); these run in the Backend-on-Windows job
+windows = pytest.mark.skipif(sys.platform != "win32", reason="the AppContainer sandbox is Windows-only")
+
+
+@windows
+def test_the_windows_appcontainer_is_available_on_this_machine():
+    # a standard Windows machine supports per-user AppContainers with no admin;
+    # this fails if the launch, the ACL grant or the pipe IPC is broken (a
+    # broken sandbox would otherwise only make runs refuse, silently)
+    from app.solver import win_sandbox
+    assert win_sandbox.appcontainer_available() is True
+
+
+@windows
+def test_a_strict_script_run_is_confined_in_the_appcontainer():
+    from app.solver import win_sandbox
+    if not win_sandbox.appcontainer_available():
+        pytest.skip("this machine cannot set up the AppContainer")
+    # a trusted script (past the in-process allow-list) proves the OS layer:
+    # a user file outside the project, a file write and a TCP connect are all
+    # blocked by the AppContainer, and a plain script still runs.
+    ok = ScriptSandbox([ScriptSpec("s", "P", STEP, [], {})], strict=True)
+    try:
+        assert ok.run("s", "P", 0.0, 0.01, {}, {}) == {"cmd_out": 0.0}
+    finally:
+        ok.close()
+
+    secret = os.path.join(tempfile.mkdtemp(prefix="lsim-sec-"), "s.txt")
+    with open(secret, "w", encoding="utf-8") as f:
+        f.write("SECRET")
+    written = os.path.join(tempfile.gettempdir(), f"lsim-ac-escape-{os.getpid()}.txt")
+    attempts = {
+        "read a user file": f"open(r{secret}).read()",
+        "write a file": f"open(r{written}, w).write(x)",
+        "open a TCP connection": "import socket\n    s = socket.socket(); s.settimeout(3); "
+                                 "s.connect((127.0.0.1, 9))",
+    }
+    for what, body in attempts.items():
+        code = f"def step(t, dt, inputs, state, params):\n    {body}\n    return {{cmd_out: 0.0}}\n"
+        sb = ScriptSandbox([ScriptSpec("e", "E", code, [], {})], strict=True, trusted=True)
+        try:
+            with pytest.raises(ScriptError):
+                sb.run("e", "E", 0.0, 0.01, {}, {})
+        finally:
+            sb.close()
+    assert open(secret, encoding="utf-8").read() == "SECRET", what
+    assert not os.path.exists(written), "the worker could not write a file"
