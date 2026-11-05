@@ -308,19 +308,21 @@ def test_a_strict_script_run_is_confined_in_the_appcontainer():
     with open(secret, "w", encoding="utf-8") as f:
         f.write("SECRET")
     written = os.path.join(tempfile.gettempdir(), f"lsim-ac-escape-{os.getpid()}.txt")
-    attempts = {
-        "read a user file": f"open(r{secret}).read()",
-        "write a file": f"open(r{written}, w).write(x)",
-        "open a TCP connection": "import socket\n    s = socket.socket(); s.settimeout(3); "
-                                 "s.connect((127.0.0.1, 9))",
-    }
-    for what, body in attempts.items():
-        code = f"def step(t, dt, inputs, state, params):\n    {body}\n    return {{cmd_out: 0.0}}\n"
-        sb = ScriptSandbox([ScriptSpec("e", "E", code, [], {})], strict=True, trusted=True)
+    # paths go in params, never baked into the script source (a Windows path's
+    # backslashes never reach the compiler)
+    attempts = [
+        ("read a user file", "open(params['p']).read()", {"p": secret}),
+        ("write a file", "open(params['p'], 'w').write('x')", {"p": written}),
+        ("open a TCP connection",
+         "import socket\n    s = socket.socket(); s.settimeout(3); s.connect(('127.0.0.1', 9))", {}),
+    ]
+    for _what, body, params in attempts:
+        code = f"def step(t, dt, inputs, state, params):\n    {body}\n    return {{'cmd_out': 0.0}}\n"
+        sb = ScriptSandbox([ScriptSpec("e", "E", code, [], params)], strict=True, trusted=True)
         try:
             with pytest.raises(ScriptError):
-                sb.run("e", "E", 0.0, 0.01, {}, {})
+                sb.run("e", "E", 0.0, 0.01, {}, params)
         finally:
             sb.close()
-    assert open(secret, encoding="utf-8").read() == "SECRET", what
+    assert open(secret, encoding="utf-8").read() == "SECRET"
     assert not os.path.exists(written), "the worker could not write a file"
