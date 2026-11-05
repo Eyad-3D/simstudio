@@ -25,7 +25,7 @@ from typing import Optional, Sequence
 EXIT_OK, EXIT_CHECKS, EXIT_NOT_VALID, EXIT_USAGE = 0, 1, 2, 3
 
 #: the subcommands, for the engine's entry point to tell them from its own options
-COMMANDS = ("run", "check", "export", "show", "params", "parts", "examples", "schema",
+COMMANDS = ("run", "check", "edit", "export", "show", "params", "parts", "examples", "schema",
             "notebook", "ai", "version")
 
 
@@ -168,6 +168,69 @@ def cmd_check(args) -> int:
     _out(args, {"project": project.name, "errors": errors, "warnings": warnings,
                 "checks": [c.to_dict() for c in checks], "exitCode": code}, "\n".join(lines))
     return code
+
+
+def cmd_edit(args) -> int:
+    """Apply operations to a project and save it (AI-02). The same operations
+    as the AI plug's ``model_edit`` tool, so an edit works the same from the
+    command line as over MCP. The previous version is kept beside the file so
+    the edit can be undone."""
+    from . import Project
+    from ._engine import engine
+
+    edits = engine("ai.edits")
+    project = Project.load(args.project)
+    ops: list = []
+    for assignment in args.set or []:
+        ref, sep, value = assignment.partition("=")
+        if not sep:
+            raise UsageError(f"--set '{assignment}': write Part.parameter=value.")
+        element, _, param = ref.strip().rpartition(".")
+        if not element or not param:
+            raise UsageError(f"--set '{assignment}': write Part.parameter=value.")
+        ops.append({"op": "set", "element": element, "param": param, "value": _typed(value.strip())})
+    for one in args.op or []:
+        try:
+            ops.append(json.loads(one))
+        except ValueError as e:
+            raise UsageError(f"--op is one JSON operation object: {e}") from None
+    if args.ops:
+        try:
+            batch = json.loads(args.ops)
+        except ValueError as e:
+            raise UsageError(f"--ops is a JSON array of operations: {e}") from None
+        if not isinstance(batch, list):
+            raise UsageError("--ops is a JSON array of operations.")
+        ops += batch
+    if not ops:
+        raise UsageError("Give at least one change: --set, --op or --ops.")
+    try:
+        edited, changes = edits.apply_operations(project.model, ops)
+    except edits.EditError as e:
+        raise UsageError(str(e)) from None
+    project.model = edited
+    target = Path(args.out) if args.out else project.path
+    if target is None:
+        raise UsageError("This project is an example: give --out, a file to save the edit to.")
+    backup = None
+    if target.exists():  # keep the version we are about to replace, so the edit is recoverable
+        backup = target.with_name(target.name + ".bak")
+        backup.write_bytes(target.read_bytes())
+    project.save(target)
+    checks = project.check()
+    errors = sum(c.level == "error" for c in checks)
+    where = (f"the previous version is kept at {backup}" if backup
+             else "the original project is unchanged" if args.out else None)
+    lines = [f"Saved {target} ({len(changes)} change{'s' if len(changes) != 1 else ''})"]
+    lines += [f"  {c}" for c in changes]
+    if where:
+        lines.append(f"  ({where})")
+    lines += [f"  {c.level}: {c.text}" + (f" How to fix: {c.fix}" if c.fix else "")
+              for c in checks if c.level != "info"]
+    _out(args, {"saved": str(target), "changes": changes, "backup": str(backup) if backup else None,
+                "recoverable": where, "errors": errors,
+                "checks": [c.to_dict() for c in checks]}, "\n".join(lines))
+    return EXIT_OK
 
 
 def cmd_export(args) -> int:
@@ -338,6 +401,18 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument("--strict", action="store_true", help="warnings fail too (exit 1)")
     c.add_argument("--verbose", "-v", action="store_true", help="list info findings too")
     c.set_defaults(func=cmd_check)
+
+    ed = add("edit", "Change a project and save it (the same operations as the AI plug).")
+    ed.add_argument("project", help="project file, or an example id (needs --out)")
+    ed.add_argument("--set", action="append", metavar="PART.KEY=VALUE",
+                    help="set a parameter, e.g. 'Vehicle.mass_kg=1900 kg' (repeatable)")
+    ed.add_argument("--op", action="append", metavar="JSON",
+                    help="one operation as JSON, e.g. '{\"op\":\"add\",\"type\":\"mech.brake\","
+                         "\"label\":\"Brake\"}' (repeatable)")
+    ed.add_argument("--ops", metavar="JSON", help="a JSON array of operations")
+    ed.add_argument("--out", "-o", help="save to this file (default: the project file in place; "
+                                        "the previous version is kept beside it as <file>.bak)")
+    ed.set_defaults(func=cmd_edit)
 
     e = add("export", "Write a stored run (.json.gz from the app, or .json) as CSV, MAT, JSON "
                       "or Parquet.")

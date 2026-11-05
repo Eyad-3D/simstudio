@@ -40,6 +40,57 @@ def test_text_output_lists_the_summary():
     assert "Consumption" in r.stdout
 
 
+def _bev_copy(path: Path) -> Path:
+    path.write_text((BACKEND / "projects" / "bev-car.json").read_text(encoding="utf-8"),
+                    encoding="utf-8")
+    return path
+
+
+def test_edit_saves_a_set_and_an_add_to_a_new_file(tmp_path):
+    # (e): the command-line tool can save an edit — today it had no save, so
+    # every edit task failed in command-line mode. The operations are the AI
+    # plug's model_edit operations.
+    src = _bev_copy(tmp_path / "car.json")
+    out = tmp_path / "edited.json"
+    r = cli("edit", str(src), "--set", "Vehicle.mass_kg=2100 kg",
+            "--op", '{"op": "add", "type": "mech.brake", "label": "Brake FL"}',
+            "--out", str(out), "--json")
+    assert r.returncode == 0, r.stderr
+    data = json.loads(r.stdout)
+    assert data["saved"] == str(out) and len(data["changes"]) == 2
+    assert data["recoverable"] == "the original project is unchanged"
+    saved = ls.load(out)
+    vehicle = next(e for e in saved.elements if e.label == "Vehicle")
+    assert vehicle.parameterOverrides["mass_kg"] == 2100
+    assert any(e.label == "Brake FL" for e in saved.elements)
+    assert ls.load(src).get("Vehicle.mass_kg") == 1927, "the source file is untouched"
+
+
+def test_edit_in_place_keeps_the_previous_version_as_a_backup(tmp_path):
+    # (f): until the live undo lands, a save is recoverable, and says which
+    src = _bev_copy(tmp_path / "car.json")
+    original = src.read_text(encoding="utf-8")
+    r = cli("edit", str(src), "--set", "Vehicle.mass_kg=1800")
+    assert r.returncode == 0, r.stderr
+    assert "the previous version is kept at" in r.stdout and "car.json.bak" in r.stdout
+    assert (tmp_path / "car.json.bak").read_text(encoding="utf-8") == original
+    assert ls.load(src).get("Vehicle.mass_kg") == 1800
+
+
+def test_edit_an_example_needs_an_out_file():
+    r = cli("edit", "bev-car", "--set", "Vehicle.mass_kg=1800")
+    assert r.returncode == 3 and "give --out" in r.stderr
+
+
+def test_edit_reports_a_bad_operation_and_saves_nothing(tmp_path):
+    src = _bev_copy(tmp_path / "car.json")
+    before = src.read_text(encoding="utf-8")
+    r = cli("edit", str(src), "--op", '{"op": "set", "element": "Vehicle", "param": "nope", "value": 1}')
+    assert r.returncode == 3 and "nope" in r.stderr
+    assert src.read_text(encoding="utf-8") == before, "nothing saved"
+    assert not (tmp_path / "car.json.bak").exists(), "and no backup"
+
+
 def test_exit_1_when_the_data_checks_fail(tmp_path):
     p = ls.load("bev-car")
     p.remove("E-Motor")

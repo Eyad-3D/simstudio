@@ -30,6 +30,7 @@ The examples below write `lightsim`; use whichever of these you have
 |---|---|
 | `lightsim run PROJECT [--case NAME]` | Runs a case (the first if none is named) and prints its summary |
 | `lightsim check PROJECT` | Runs the Data Checks (the *Problems* list). `--strict` fails on warnings too |
+| `lightsim edit PROJECT [--set P.K=V] [--op JSON] [--ops JSON] [-o FILE]` | Applies changes (the AI plug's `model_edit` operations) and saves. In place it keeps the previous version as `<file>.bak` |
 | `lightsim export RUN -o FILE` | Writes a stored run (`.json.gz` from the app's runs folder, or `.json`) as CSV, MAT, JSON or Parquet |
 | `lightsim show PROJECT` | Lists the project's cases and parts, with their ids |
 | `lightsim params PROJECT [--part LABEL]` | Lists the parameter values, as `Part.key = value unit` |
