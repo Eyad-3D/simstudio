@@ -58,9 +58,10 @@ and report what is not allowed: run `run_checks` after every change.
 - Signal units are not checked: a Battery's `sig_soc` is in % (0-100).
 - Keep switching decisions steady: minimum on/off times and hysteresis
   stop a decision from flickering every step.
-- Running a project with Script blocks over MCP runs them in an OS sandbox
-  (no network, file access to the project only). The connection does not ask
-  the user to confirm a run. Where that sandbox cannot be set up — today, on
+- Running a project with Script blocks over MCP runs them in an OS sandbox:
+  file access to the project's folder only, and no network (Script code
+  cannot open a connection — it has only `math` and the basic functions
+  above). The connection does not ask the user to confirm a run. Where that sandbox cannot be set up — today, on
   Windows — the run is refused with the code `sandbox_unavailable` rather
   than run less safely. The `lightsim ai trust` list plays no part (only
   `AgentSession` reads it).

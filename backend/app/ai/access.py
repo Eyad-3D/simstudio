@@ -5,9 +5,11 @@ intent, built for AI-03).
   action (the owner's decision, 1 November 2026). Reading, checking,
   comparing, saving an edit and running a project all go through without a
   question. Safety comes from the design instead (step 6): an agent's Script
-  blocks and FMUs run only in an OS sandbox (no network, file access to the
-  project's folder only), and the run is refused when that sandbox cannot be
-  set up (:meth:`Policy.strict_sandbox_refusal`) rather than run less safely.
+  blocks and FMUs run only in an OS sandbox (file access to the project's
+  folder only, and no network a Script can open — an FMU's native code is
+  held off by the OS; docs/KNOWN-LIMITS.md has the per-platform detail), and
+  the run is refused when that sandbox cannot be set up
+  (:meth:`Policy.strict_sandbox_refusal`) rather than run less safely.
   Every edit it saves is recoverable from the project's backups (a new
   project for an example). The tool annotations it publishes are only hints
   to the AI app.

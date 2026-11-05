@@ -240,3 +240,13 @@ AI apps works hands-off: it never asks you to confirm. It runs a project's
 Script blocks and FMUs in an OS sandbox, or refuses the run when that
 sandbox cannot be set up, and an edit it saves is recoverable from the
 project's backups. See [AI access](command-line.md#ai-access).
+
+The hands-off, sandbox-by-design rules are for the two agent doors this
+change covers: the MCP server, and `lightsim run` with
+`LIGHTSIM_STRICT_SANDBOX=1`. `AgentSession`, the Python-library door, is
+**not** hands-off yet: it still raises `ConfirmationRequired` before it
+saves or runs, and it runs a project's Script blocks only when the project
+is on the trust list (`lightsim ai trust`). The owner has not yet decided
+this door, so it keeps today's confirmation and trust list until then; use
+the MCP server or `lightsim run` for an agent that must not wait on a
+person.

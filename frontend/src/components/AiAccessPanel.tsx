@@ -188,8 +188,9 @@ export function AiAccessPanel() {
         <li>Saving an edit: saved straight away. An example is saved as a new project, and the previous version is kept
           as a backup, so the change can be undone.</li>
         <li>
-          Running a project with Script blocks (Python code) or FMUs: it runs in an OS sandbox with no network and
-          access to the project's folder only. If that sandbox cannot be set up — today, on Windows, where the
+          Running a project with Script blocks (Python code) or FMUs: it runs in an OS sandbox with access to the
+          project's folder only, and no network — a Script can open none, and an FMU's native code is held off by the
+          OS (Known issues has the per-platform detail). If that sandbox cannot be set up — today, on Windows, where the
           AppContainer is not built yet — the run is refused with the code <code>sandbox_unavailable</code> rather than
           run less safely. A brand-new script an assistant writes runs in that sandbox straight away, with no{" "}
           <b>Run scripts</b> approval — the sandbox is the safety. (A run you start yourself in LightSim still asks you

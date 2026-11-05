@@ -142,7 +142,33 @@ def test_an_agent_script_that_tries_to_escape_fails_and_the_run_says_so(attempt,
         STRICT.reset(token)
     assert result.status == "failed"
     text = " ".join(m.text for m in result.messages).lower()
-    assert needle in text, text
+    # where the strict sandbox is available (Linux with Landlock, or Windows
+    # once the AppContainer lands) the script runs and the attempt is rejected;
+    # where it is not, the run is refused before the script runs. Either way it
+    # fails and the message says why — this keeps the test true on the
+    # Backend-on-Windows job too.
+    if why_no_strict_sandbox() is None:
+        assert needle in text, text
+    else:
+        assert SANDBOX_UNAVAILABLE in text, text
+
+
+@landlock
+def test_a_strict_sandbox_blocks_a_file_open_at_the_os_layer():
+    # The escape tests above go through the checked compile, so the in-process
+    # allow-list already rejects open/import — they do not prove the OS layer.
+    # trusted=True bypasses that allow-list, so Landlock is the only thing that
+    # can stop the open; a strict sandbox must still block it (reaching the OS
+    # layer, as the check asked).
+    code = ("def step(t, dt, inputs, state, params):\n"
+            "    open('/etc/hostname').read()\n"
+            "    return {'cmd_out': 0.0}\n")
+    sb = ScriptSandbox([ScriptSpec("s", "Probe", code, [], {})], strict=True, trusted=True)
+    try:
+        with pytest.raises(ScriptError):
+            sb.run("s", "Probe", 0.0, 0.01, {}, {})
+    finally:
+        sb.close()
 
 
 # -- confinement is settled before any of the project's code runs ------------

@@ -112,7 +112,9 @@ it("says what the connection for AI apps does today", async () => {
   expect(text).toContain(
     "Saving an edit: saved straight away. An example is saved as a new project, and the previous version is kept as a backup, so the change can be undone.",
   );
-  expect(text).toContain("it runs in an OS sandbox with no network and access to the project's folder only");
+  expect(text).toContain(
+    "it runs in an OS sandbox with access to the project's folder only, and no network — a Script can open none, and an FMU's native code is held off by the OS",
+  );
   expect(text).toContain("the run is refused with the code sandbox_unavailable rather than run less safely");
   expect(text).toContain(
     "A brand-new script an assistant writes runs in that sandbox straight away, with no Run scripts approval",

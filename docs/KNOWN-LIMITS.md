@@ -1113,10 +1113,14 @@ minimum or an average, for example from the CSV export, or put the
   The connection for AI apps (the MCP server) never asks you to confirm (the
   owner's decision, 1 November 2026): it reads, checks, runs a project and
   saves an edit with no question. Safety is by design instead. It runs a
-  project with Script blocks or FMUs in an OS sandbox (no network, file
-  access to the project's folder only), and when that sandbox cannot be set
-  up (today, on Windows, where the AppContainer is not built yet) the run is
-  refused with the code `sandbox_unavailable` rather than run less safely.
+  project with Script blocks or FMUs in an OS sandbox — file access to the
+  project's folder only, and the network held off as the *Scripts* and *FMU*
+  entries above set out (a Script can open no connection at all; an FMU's
+  native code is stopped by the OS, which on Linux blocks TCP from kernel 6.7
+  on but not UDP or local sockets, so attach only FMUs you trust) — and when
+  that sandbox cannot be set up (today, on Windows, where the AppContainer is
+  not built yet) the run is refused with the code `sandbox_unavailable`
+  rather than run less safely.
   An edit it saves is recoverable (the previous version kept as a backup, an
   example saved as a new project), until a live one-click undo lands later.
   It does not read the trust list (`lightsim ai trust`): only Python code

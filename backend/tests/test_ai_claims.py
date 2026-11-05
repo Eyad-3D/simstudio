@@ -172,7 +172,8 @@ MUST_SAY = {
         "AI access is off: every tool call from an AI tool is refused, though a connected AI app " + STILL + ".",
         "An AI agent works hands-off: the connection never asks you to confirm.",
         "saved straight away. An example is saved as a new project, and the previous version is kept as a backup",
-        "it runs in an OS sandbox with no network and access to the project's folder only",
+        "it runs in an OS sandbox with access to the project's folder only, and no network — a Script "
+        "can open none, and an FMU's native code is held off by the OS",
         "the run is refused with the code <code>sandbox_unavailable</code> rather than run less safely",
         "A brand-new script an assistant writes runs in that sandbox straight away, with no <b>Run scripts</b> approval",
         "A run you start yourself in LightSim still asks you to approve new script code",
@@ -183,7 +184,8 @@ MUST_SAY = {
         "AI agent works hands-off: the connection never asks you to confirm",
         "and run a project, with no question to you",
         "an edit is saved straight away, and is recoverable",
-        "runs in an OS sandbox with no network and access to the project's folder only",
+        "runs in an OS sandbox: access to the project's folder only, and no network — a Script can "
+        "open none, and an FMU's native code is held off by the OS",
         "the run is refused with the code `sandbox_unavailable` rather than run less safely",
         "A brand-new Script block the assistant writes runs in that sandbox straight away, with no **Run scripts** approval",
         "A run you start yourself in LightSim still asks you to approve new script code",
@@ -213,12 +215,19 @@ MUST_SAY = {
         "`AgentSession`",
         "It reads the settings when you create it, so a change takes effect in the next session.",
         "The connection for AI apps works hands-off: it never asks you to confirm",
+        # (9) AgentSession is the one agent door not yet hands-off; the page says so and why
+        "`AgentSession`, the Python-library door, is **not** hands-off yet: it still raises "
+        "`ConfirmationRequired` before it saves or runs",
+        "The owner has not yet decided this door, so it keeps today's confirmation and trust list",
     ],
     KNOWN_LIMITS: [
         "**AI apps work hands-off; the trust list is not used.**",
         "The connection for AI apps (the MCP server) never asks you to confirm",
-        "runs a project with Script blocks or FMUs in an OS sandbox (no network, file access to "
-        "the project's folder only)",
+        "runs a project with Script blocks or FMUs in an OS sandbox — file access to the "
+        "project's folder only, and the network held off as the *Scripts* and *FMU* entries above "
+        "set out",
+        "an FMU's native code is stopped by the OS, which on Linux blocks TCP from kernel 6.7 on "
+        "but not UDP or local sockets, so attach only FMUs you trust",
         "the run is refused with the code `sandbox_unavailable` rather than run less safely",
         "edit it saves is recoverable (the previous version kept as a backup, an example saved "
         "as a new project)",

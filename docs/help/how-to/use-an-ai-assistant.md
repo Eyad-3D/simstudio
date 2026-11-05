@@ -70,11 +70,13 @@ refuse every change.
   version of a project as a backup, as for every save. For a file in a
   folder you allowed, the backups are kept beside it, in a folder named
   after it (`car.json-backups`, which git ignores).
-- A project with Script blocks (Python code) or FMUs runs in an OS sandbox
-  with no network and access to the project's folder only. When that sandbox
-  cannot be set up — today, on Windows, where the AppContainer is not built
-  yet — the run is refused with the code `sandbox_unavailable` rather than
-  run less safely.
+- A project with Script blocks (Python code) or FMUs runs in an OS sandbox:
+  access to the project's folder only, and no network — a Script can open
+  none, and an FMU's native code is held off by the OS (see
+  [Known issues](../../KNOWN-LIMITS.md) for what that covers on each
+  platform). When that sandbox cannot be set up — today, on Windows, where
+  the AppContainer is not built yet — the run is refused with the code
+  `sandbox_unavailable` rather than run less safely.
 - A brand-new Script block the assistant writes runs in that sandbox
   straight away, with no **Run scripts** approval — the sandbox is the
   safety, not an approval. (A run you start yourself in LightSim still asks
