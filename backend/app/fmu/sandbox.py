@@ -51,8 +51,9 @@ class FmuSpec:
 class FmuSandbox:
     def __init__(self, spec: FmuSpec, *, t0: float = 0.0,
                  step_limit: float = STEP_LIMIT_S, init_limit: float = INIT_LIMIT_S,
-                 mem_bytes: int = _w.DEFAULT_MEM_BYTES):
+                 mem_bytes: int = _w.DEFAULT_MEM_BYTES, strict: bool = False):
         self.spec = spec
+        self._strict = strict
         self._dead = False
         self._step_limit = step_limit
         self._job = None
@@ -98,7 +99,14 @@ class FmuSandbox:
             self._kill()
             raise FmuError(f"FMU '{spec.label}' crashed while loading (its process "
                            f"stopped).") from None
-        err = json.loads(body[1:].decode("utf-8")).get("error")
+        reply = json.loads(body[1:].decode("utf-8"))
+        if self._strict and not reply.get("confined"):
+            self._kill()
+            raise FmuError(
+                f"FMU '{spec.label}' cannot be run OS-confined (no network, no file access "
+                f"outside the FMU and the project) on this computer [{_sw.SANDBOX_UNAVAILABLE}], "
+                "so the run is refused rather than run less safely.")
+        err = reply.get("error")
         if err:
             self._kill()
             raise FmuError(f"FMU '{spec.label}' could not start: {err}")

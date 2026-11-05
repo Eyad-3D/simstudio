@@ -18,6 +18,7 @@ them never starts a worker.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import multiprocessing
@@ -26,10 +27,42 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
+from typing import Optional
 
 from . import sandbox_worker as _w
 from . import scripting
 from .scripting import ScriptError
+
+#: The stable code an agent's run reports when the OS sandbox for its Script
+#: blocks or FMUs cannot be set up (defined in sandbox_worker, the module the
+#: FMU side also imports, so there is one source of truth).
+SANDBOX_UNAVAILABLE = _w.SANDBOX_UNAVAILABLE
+
+#: Set True for an agent's run (app/ai): its Script and FMU blocks must run
+#: OS-confined (no network, no file access outside the project), and the run
+#: is refused when that confinement cannot be set up. A person's run in the
+#: app leaves it False and keeps today's best-effort isolation. A ContextVar,
+#: so it is per-run and needs no new parameter through the solver.
+STRICT = contextvars.ContextVar("lightsim_strict_sandbox", default=False)
+
+
+def why_no_strict_sandbox(platform: Optional[str] = None) -> Optional[str]:
+    """None when the strict agent sandbox (file-confined, no network) can be
+    set up on this platform, otherwise a plain message ending with the stable
+    code, for the refused run to report. ``platform`` overrides the real one
+    (the tests, and the AI policy's simulated platform)."""
+    platform = platform or sys.platform
+    tail = (f"The run is refused rather than run less safely [{SANDBOX_UNAVAILABLE}]. "
+            "Run the project in the LightSim app instead.")
+    if platform == "win32":
+        return ("An AI agent can run a project's Script blocks or FMUs only inside the Windows "
+                "sandbox — a low-privilege AppContainer with no network and access to the "
+                f"project's folder only — which is not available in this build yet. {tail}")
+    if platform.startswith("linux") and _w.landlock_abi() < 0:
+        return ("An AI agent can run a project's Script blocks or FMUs only inside the sandbox "
+                "(no network, no file access outside the project), which needs Landlock "
+                f"(Linux 5.13 or newer); this kernel does not offer it. {tail}")
+    return None
 
 
 @dataclass
@@ -54,8 +87,10 @@ class ScriptSandbox:
     """A worker process running a run's Script blocks under OS-level isolation."""
 
     def __init__(self, specs: list[ScriptSpec], *, time_limit: float | None = None,
-                 trusted: bool = False, mem_bytes: int = _w.DEFAULT_MEM_BYTES):
+                 trusted: bool = False, mem_bytes: int = _w.DEFAULT_MEM_BYTES,
+                 strict: bool = False):
         self._specs = specs
+        self._strict = strict
         self._time_limit = scripting.TIME_LIMIT_S if time_limit is None else time_limit
         self._idx = {s.el_id: i for i, s in enumerate(specs)}
         self._input_keys = [s.input_keys for s in specs]
@@ -137,7 +172,15 @@ class ScriptSandbox:
         except (EOFError, OSError) as e:
             self._kill()
             raise ScriptError(f"Script sandbox stopped during start-up: {e}") from e
-        errors = json.loads(body[1:].decode("utf-8"))["errors"]
+        reply = json.loads(body[1:].decode("utf-8"))
+        if self._strict and not reply.get("confined"):
+            # a strict agent run must be OS-confined; never fall back silently
+            self._kill()
+            raise ScriptError(
+                "This project's Script blocks cannot be run OS-confined (no network, no file "
+                f"access outside the project) on this computer [{SANDBOX_UNAVAILABLE}], so the "
+                "run is refused rather than run less safely.")
+        errors = reply["errors"]
         for err in errors:
             if err:
                 # A bad script fails the build (as RunContext did before). __init__

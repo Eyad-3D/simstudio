@@ -75,6 +75,11 @@ MSG_QUIT = b"Q"
 MSG_STEP_OK = b"R"
 MSG_STEP_ERR = b"E"
 
+#: The stable code a strict (agent) run reports when the OS sandbox for its
+#: Script blocks or FMUs cannot be set up, so it is refused rather than run
+#: less safely (benchmarks/agent and docs/KNOWN-LIMITS.md name it).
+SANDBOX_UNAVAILABLE = "sandbox_unavailable"
+
 _LEN = struct.Struct(">I")
 _STEP_HEAD = struct.Struct(">Hdd")  # script index, t, dt
 _U16 = struct.Struct(">H")
@@ -266,8 +271,26 @@ _NET_BIND_TCP = 1 << 0
 _NET_CONNECT_TCP = 1 << 1
 
 
-def _apply_landlock(note, read_paths=()) -> str:
-    """Best effort. Returns a short description of what was enforced.
+def landlock_abi() -> int:
+    """The kernel's Landlock ABI (>=1 if usable, <0 if the kernel is too old).
+    Used to decide, before a run, whether the strict agent sandbox can be set
+    up on Linux (the engine refuses the run rather than fall back)."""
+    import ctypes
+
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.syscall.restype = ctypes.c_long
+        return libc.syscall(_SYS_landlock_create_ruleset, None, ctypes.c_size_t(0),
+                            ctypes.c_uint32(_LANDLOCK_CREATE_RULESET_VERSION))
+    except Exception:  # noqa: BLE001
+        return -1
+
+
+def _apply_landlock(note, read_paths=()) -> tuple[bool, str]:
+    """Best effort. Returns (confined, a short description of what was
+    enforced). ``confined`` is True only when the filesystem lock was
+    actually installed (restrict_self succeeded), so the engine can refuse a
+    strict agent run that would otherwise fall back to no confinement.
 
     ``read_paths`` are folders (or files) the process may still read, and
     load code from, after the lock: an FMU worker needs its unpacked FMU and
@@ -281,7 +304,7 @@ def _apply_landlock(note, read_paths=()) -> str:
     abi = libc.syscall(_SYS_landlock_create_ruleset, None, ctypes.c_size_t(0),
                        ctypes.c_uint32(_LANDLOCK_CREATE_RULESET_VERSION))
     if abi < 0:
-        return "landlock: unavailable (kernel too old); relying on rlimits"
+        return False, "landlock: unavailable (kernel too old); relying on rlimits"
 
     handled_fs = 0
     for ver, bits in _FS_RIGHTS_BY_ABI.items():
@@ -298,7 +321,7 @@ def _apply_landlock(note, read_paths=()) -> str:
     ruleset_fd = libc.syscall(_SYS_landlock_create_ruleset, buf,
                               ctypes.c_size_t(len(attr)), ctypes.c_uint32(0))
     if ruleset_fd < 0:
-        return f"landlock: create_ruleset failed (errno {ctypes.get_errno()})"
+        return False, f"landlock: create_ruleset failed (errno {ctypes.get_errno()})"
 
     # Only the read-only rules below are added, so every other handled access
     # is denied.
@@ -307,15 +330,15 @@ def _apply_landlock(note, read_paths=()) -> str:
         allowed_read += _add_read_rule(libc, ruleset_fd, p)
     if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
         os.close(ruleset_fd)
-        return "landlock: PR_SET_NO_NEW_PRIVS failed"
+        return False, "landlock: PR_SET_NO_NEW_PRIVS failed"
     rc = libc.syscall(_SYS_landlock_restrict_self, ctypes.c_int(ruleset_fd),
                       ctypes.c_uint32(0))
     os.close(ruleset_fd)
     if rc != 0:
-        return f"landlock: restrict_self failed (errno {ctypes.get_errno()})"
+        return False, f"landlock: restrict_self failed (errno {ctypes.get_errno()})"
     net = "no TCP" if abi >= 4 else "TCP not covered (ABI<4)"
     fs = f"read-only access to {allowed_read} paths" if read_paths else "no filesystem access"
-    return f"landlock ABI {abi}: {fs}, {net}"
+    return True, f"landlock ABI {abi}: {fs}, {net}"
 
 
 _SYS_landlock_add_rule = 445
@@ -507,9 +530,13 @@ def close_windows_job(job) -> None:
     k32.CloseHandle(job)
 
 
-def harden(sock_fd: int, mem_bytes: int, *, read_paths=(), drop_modules: bool = True) -> str:
-    """Drop privileges before any user code runs. Returns a one-line summary of
-    what was enforced (the engine logs it for the record).
+def harden(sock_fd: int, mem_bytes: int, *, read_paths=(), drop_modules: bool = True
+           ) -> tuple[str, bool]:
+    """Drop privileges before any user code runs. Returns (a one-line summary
+    of what was enforced, whether the process is OS-confined — file access cut
+    off and, where the kernel allows, no network). The engine logs the summary
+    and, for a strict agent run, refuses the run when ``confined`` is False
+    rather than run the code less safely.
 
     ``read_paths`` stay readable under Landlock (the FMU worker's unpacked FMU
     and system libraries; empty for Script blocks: no filesystem at all).
@@ -519,7 +546,10 @@ def harden(sock_fd: int, mem_bytes: int, *, read_paths=(), drop_modules: bool = 
     notes = []
     if sys.platform == "win32":
         # The memory cap and kill-with-the-engine come from the job object the
-        # engine put this process in (windows_job); the rest is done here.
+        # engine put this process in (windows_job); the rest is done here. File
+        # reading and the network are not blocked without an AppContainer (the
+        # engine creates one for a strict agent run, PLT-35), so confined is
+        # True here only when this process is already inside one.
         os.environ.clear()  # no secrets from the engine's environment
         try:
             note = _windows_low_integrity()
@@ -527,8 +557,9 @@ def harden(sock_fd: int, mem_bytes: int, *, read_paths=(), drop_modules: bool = 
             note = f"low integrity: not applied ({e})"
         if drop_modules:
             _drop_modules()
+        confined = _in_appcontainer()
         return ("windows: environment cleared" + (", modules dropped" if drop_modules else "")
-                + f"; {note}")
+                + f"; {note}" + ("; in AppContainer" if confined else ""), confined)
 
     # POSIX
     _close_inherited_fds(keep={0, 1, 2, sock_fd})
@@ -549,20 +580,57 @@ def harden(sock_fd: int, mem_bytes: int, *, read_paths=(), drop_modules: bool = 
 
     os.environ.clear()  # no secrets from the engine's environment
 
+    confined = False
     if sys.platform.startswith("linux"):
         try:
-            notes.append(_apply_landlock(notes, read_paths))
+            confined, note = _apply_landlock(notes, read_paths)
+            notes.append(note)
         except Exception as e:  # noqa: BLE001
             notes.append(f"landlock: not applied ({e})")
     elif sys.platform == "darwin":
         try:
-            notes.append(_apply_mac_sandbox())
+            note = _apply_mac_sandbox()
+            confined = note.startswith("mac sandbox: no file")
+            notes.append(note)
         except Exception as e:  # noqa: BLE001
             notes.append(f"mac sandbox: not applied ({e})")
 
     if drop_modules:
         _drop_modules()
-    return "; ".join(notes)
+    return "; ".join(notes), confined
+
+
+def _in_appcontainer() -> bool:
+    """True when this Windows process is running inside an AppContainer (its
+    token has TokenIsAppContainer set). False off Windows or on any error."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        adv = ctypes.WinDLL("advapi32", use_last_error=True)
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        TOKEN_QUERY = 0x0008
+        TokenIsAppContainer = 29
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        adv.OpenProcessToken.argtypes = (wintypes.HANDLE, wintypes.DWORD,
+                                         ctypes.POINTER(wintypes.HANDLE))
+        token = wintypes.HANDLE()
+        if not adv.OpenProcessToken(k32.GetCurrentProcess(), TOKEN_QUERY, ctypes.byref(token)):
+            return False
+        try:
+            value = wintypes.DWORD(0)
+            size = wintypes.DWORD(0)
+            adv.GetTokenInformation.argtypes = (wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p,
+                                                wintypes.DWORD, ctypes.POINTER(wintypes.DWORD))
+            ok = adv.GetTokenInformation(token, TokenIsAppContainer, ctypes.byref(value),
+                                         ctypes.sizeof(value), ctypes.byref(size))
+            return bool(ok) and value.value != 0
+        finally:
+            k32.CloseHandle(token)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def _drop_modules() -> None:
@@ -648,7 +716,7 @@ def worker_main(sock, mem_bytes: int = DEFAULT_MEM_BYTES) -> None:
     # On a machine with fewer than 4 cores that core is needed by the engine and
     # the app's window, so there the worker blocks instead.
     spin = (os.cpu_count() or 1) >= 4
-    summary = harden(sock_fd, mem_bytes)
+    summary, confined = harden(sock_fd, mem_bytes)
     try:
         sys.stderr.write(f"[sandbox] {summary}\n")
         sys.stderr.flush()
@@ -688,7 +756,8 @@ def worker_main(sock, mem_bytes: int = DEFAULT_MEM_BYTES) -> None:
                     script, err = _compile(scripting, spec, trusted)
                     errors.append(err)
                     scripts.append(script)  # None on error; init reply stops the run
-                conn.send(MSG_INIT + json.dumps({"errors": errors}).encode("utf-8"))
+                conn.send(MSG_INIT + json.dumps(
+                    {"errors": errors, "confined": confined}).encode("utf-8"))
             elif kind == MSG_PARAM:
                 payload = json.loads(body[1:].decode("utf-8"))
                 scripts[payload["idx"]].params = payload["params"]

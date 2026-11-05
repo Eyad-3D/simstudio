@@ -208,9 +208,9 @@ def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
     import fmpy.fmi2  # noqa: F401
     import fmpy.fmi3  # noqa: F401
 
-    summary = _sw.harden(sock.fileno(), mem_bytes,
-                         read_paths=[*read_paths, *_SYSTEM_READ_PATHS],
-                         drop_modules=False)
+    summary, confined = _sw.harden(sock.fileno(), mem_bytes,
+                                   read_paths=[*read_paths, *_SYSTEM_READ_PATHS],
+                                   drop_modules=False)
     try:
         sys.stderr.write(f"[fmu sandbox] {summary}\n")
         sys.stderr.flush()
@@ -238,7 +238,8 @@ def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
                     inst = _Instance(spec)
                 except Exception as e:  # noqa: BLE001
                     err = _describe_error(e)
-                conn.send(MSG_INIT + json.dumps({"error": err}).encode("utf-8"))
+                conn.send(MSG_INIT + json.dumps(
+                    {"error": err, "confined": confined}).encode("utf-8"))
             elif kind == MSG_QUIT:
                 return
     except (EOFError, ConnectionError, BrokenPipeError):

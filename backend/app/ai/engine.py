@@ -388,6 +388,7 @@ class Engine:
         balanced or not as in the app, so its figures are the app's."""
         from ..solver import simulate
         from ..solver.balance import unpaced
+        from ..solver.sandbox import STRICT
 
         errors = run_blockers(validate_project(project), case_id)
         if errors:
@@ -407,7 +408,14 @@ class Engine:
             if progress and event.get("type") == "step" and isinstance(event.get("pct"), (int, float)):
                 progress(float(event["pct"]))
 
-        return simulate(fast, case_id, emit, control)
+        # An agent's run is strict: Script blocks and FMUs must run OS-confined
+        # (no network, file access to the project only), and the run is refused
+        # when that cannot be set up — never a silent fall-back (PLT-35).
+        token = STRICT.set(True)
+        try:
+            return simulate(fast, case_id, emit, control)
+        finally:
+            STRICT.reset(token)
 
     @staticmethod
     def stored_runs(handle: ProjectHandle) -> list[dict]:

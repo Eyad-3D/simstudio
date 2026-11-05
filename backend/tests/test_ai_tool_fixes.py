@@ -21,12 +21,12 @@ from pathlib import Path
 import pytest
 from conftest import allow_ai
 
+from app.ai import skillpack
 from app.ai.access import AuditLog, Policy
 from app.ai.edits import EditError, apply_operations
 from app.ai.engine import Engine
 from app.ai.mcp_server import INSTRUCTIONS, McpServer
 from app.ai.tools import TOOL_NAMES, TOOLS
-from app.ai import skillpack
 from app.storage import load_example
 
 BACKEND = Path(__file__).resolve().parent.parent

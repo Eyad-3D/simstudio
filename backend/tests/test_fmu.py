@@ -10,6 +10,7 @@ unpacked release (CI downloads it).
 from __future__ import annotations
 
 import io
+import json
 import math
 import multiprocessing
 import os
@@ -523,15 +524,47 @@ def _landlock_available() -> bool:
 
 @needs_fmpy
 @needs_cc
-@pytest.mark.skipif(not _landlock_available(), reason="file confinement needs Landlock")
-def test_fmu_cannot_read_or_write_files_outside_itself(test_fmu):
+@pytest.mark.skipif(not _landlock_available(), reason="file/network confinement needs Landlock")
+def test_fmu_cannot_read_write_connect_or_start_a_process(test_fmu):
+    # (c): an FMU that tries to read a file outside itself, write a file, open
+    # a TCP connection and start a process is blocked on every count. The
+    # escape output is a bit sum: 1 read, 2 wrote, 4 connected, 8 ran a process.
     params = _import(test_fmu) | {"start:mode": 3}
     spec = spec_for("fmu", "Lag", params, [SimpleNamespace(name="escaped", direction="output")])
-    with FmuSandbox(spec) as sb:
+    with FmuSandbox(spec, strict=True) as sb:
         sb.step(0.0, 0.5, [])
         escaped = sb.step(0.5, 0.5, [])[0]
-    assert escaped == 0, "the FMU read /etc/hostname (1) or wrote a file (2)"
+    assert escaped == 0, (f"the FMU escaped (bit sum {escaped:g}: 1 read a file, 2 wrote a file, "
+                          "4 opened a TCP connection, 8 started a process)")
     assert not (Path(spec.unzip_dir) / "binaries" / "linux64" / "lightsim-fmu-escape.txt").exists()
+
+
+@needs_fmpy
+@needs_cc
+def test_a_strict_fmu_run_is_refused_when_the_sandbox_is_unavailable(test_fmu, monkeypatch):
+    # (b): on a platform where the OS sandbox cannot be set up (here, a
+    # simulated one), an agent's FMU run is refused with the stable code —
+    # never a silent fall-back to the weaker worker.
+    import app.fmu.sandbox as fmu_sandbox
+    from app.solver import sandbox_worker as sw
+
+    monkeypatch.setattr(sw, "landlock_abi", lambda: 1)  # Landlock present…
+    # …but the worker reports it could not confine (e.g. restrict_self failed)
+    real_recv = fmu_sandbox._sw.Conn.recv
+
+    def not_confined(self):
+        body = real_recv(self)
+        if body[:1] == fmu_sandbox._w.MSG_INIT:
+            payload = json.loads(body[1:].decode("utf-8"))
+            payload["confined"] = False
+            return fmu_sandbox._w.MSG_INIT + json.dumps(payload).encode("utf-8")
+        return body
+
+    monkeypatch.setattr(fmu_sandbox._sw.Conn, "recv", not_confined)
+    params = _import(test_fmu)
+    spec = spec_for("fmu", "Lag", params, [SimpleNamespace(name="y", direction="output")])
+    with pytest.raises(FmuError, match="sandbox_unavailable"):
+        FmuSandbox(spec, strict=True)
 
 
 @needs_fmpy

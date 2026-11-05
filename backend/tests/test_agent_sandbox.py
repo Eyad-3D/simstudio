@@ -1,0 +1,170 @@
+"""The strict sandbox for an AI agent's run (step 6, item 1(b)/(c)).
+
+When an agent runs a project, its Script blocks and FMUs must run OS-confined
+— no network, file access to the project only — and the run is refused, with
+a stable code, when that confinement cannot be set up: never a silent
+fall-back to the weaker worker. A person's run in the app keeps today's
+behaviour. The Windows AppContainer and its own tests run in the "Backend on
+Windows" CI job; here we prove the Linux path, the gate and the refusal.
+"""
+from __future__ import annotations
+
+import sys
+
+import pytest
+from helpers import bev_axle, sig_port
+
+from app.schemas import ElementInstance
+from app.solver import ScriptError, simulate
+from app.solver import sandbox as sandbox_mod
+from app.solver import sandbox_worker as sw
+from app.solver.sandbox import (
+    SANDBOX_UNAVAILABLE,
+    STRICT,
+    ScriptSandbox,
+    ScriptSpec,
+    why_no_strict_sandbox,
+)
+
+landlock = pytest.mark.skipif(
+    not sys.platform.startswith("linux") or sw.landlock_abi() < 0,
+    reason="the strict Linux sandbox needs Landlock (Linux >= 5.13)")
+
+
+def _scripted(code: str):
+    proj = bev_axle()
+    proj.systems[0].elements.append(ElementInstance(
+        id="scr", componentDefId="signal.script", label="Probe",
+        position={"x": 0, "y": 0}, parameterOverrides={"code": code},
+        dynamicPorts=[sig_port("cmd_in", "input"), sig_port("cmd_out", "output")],
+    ))
+    return proj
+
+
+STEP = "def step(t, dt, inputs, state, params):\n    return {'cmd_out': 0.0}\n"
+
+
+# -- the gate: when the strict sandbox cannot be set up ------------------------
+
+
+def test_why_no_strict_sandbox_refuses_windows_with_the_stable_code():
+    msg = why_no_strict_sandbox("win32")
+    assert msg and SANDBOX_UNAVAILABLE in msg
+    assert "AppContainer" in msg
+
+
+def test_why_no_strict_sandbox_refuses_linux_without_landlock(monkeypatch):
+    monkeypatch.setattr(sw, "landlock_abi", lambda: -1)
+    msg = why_no_strict_sandbox("linux")
+    assert msg and SANDBOX_UNAVAILABLE in msg and "Landlock" in msg
+
+
+@landlock
+def test_why_no_strict_sandbox_allows_this_linux():
+    assert why_no_strict_sandbox() is None
+
+
+def test_an_agent_script_run_is_refused_when_the_sandbox_is_unavailable(monkeypatch):
+    # the agent path (STRICT) on a platform where the sandbox cannot be set up
+    from app.solver import domains
+    monkeypatch.setattr(domains, "why_no_strict_sandbox",
+                        lambda *a: f"no sandbox here [{SANDBOX_UNAVAILABLE}]")
+    token = STRICT.set(True)
+    try:
+        result = simulate(_scripted(STEP), "case")
+    finally:
+        STRICT.reset(token)
+    assert result.status == "failed"
+    assert SANDBOX_UNAVAILABLE in " ".join(m.text for m in result.messages)
+
+
+def test_an_app_run_is_not_refused_when_strict_is_off(monkeypatch):
+    # a person's run (STRICT unset) keeps today's behaviour even where the
+    # strict sandbox would be unavailable
+    from app.solver import domains
+    monkeypatch.setattr(domains, "why_no_strict_sandbox",
+                        lambda *a: f"no sandbox here [{SANDBOX_UNAVAILABLE}]")
+    result = simulate(_scripted(STEP), "case")
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+
+
+# -- confinement is confirmed, not assumed ------------------------------------
+
+
+@landlock
+def test_a_strict_sandbox_builds_and_confines_on_this_linux():
+    sb = ScriptSandbox([ScriptSpec("s", "Probe", STEP, [], {})], strict=True)
+    try:
+        assert sb.run("s", "Probe", 0.0, 0.01, {}, {}) == {"cmd_out": 0.0}
+    finally:
+        sb.close()
+
+
+def test_a_strict_sandbox_refuses_when_the_worker_cannot_confine(monkeypatch):
+    # belt-and-suspenders: the gate passed but the worker reports it could not
+    # confine (e.g. restrict_self failed) — refuse, do not run less safely
+    import json
+
+    real_recv = sandbox_mod._w.Conn.recv
+
+    def not_confined(self):
+        body = real_recv(self)
+        if body[:1] == sandbox_mod._w.MSG_INIT:
+            payload = json.loads(body[1:].decode("utf-8"))
+            payload["confined"] = False
+            return sandbox_mod._w.MSG_INIT + json.dumps(payload).encode("utf-8")
+        return body
+
+    monkeypatch.setattr(sandbox_mod._w.Conn, "recv", not_confined)
+    with pytest.raises(ScriptError, match=SANDBOX_UNAVAILABLE):
+        ScriptSandbox([ScriptSpec("s", "Probe", STEP, [], {})], strict=True)
+
+
+# -- a script that tries to escape is blocked, and the run says so ------------
+# The in-process layer (test_script_safety) rejects open/socket/import at
+# compile; the OS layer (test_script_sandbox, trusted=True) blocks them even
+# when that is bypassed. Here: through the agent run, the attempt fails and
+# the run reports it.
+
+
+@pytest.mark.parametrize("attempt,needle", [
+    ("open('/etc/hostname')", "open"),
+    ("open('escape.txt', 'w')", "open"),
+    ("__import__('socket')", "import"),
+    ("__import__('subprocess')", "import"),
+])
+def test_an_agent_script_that_tries_to_escape_fails_and_the_run_says_so(attempt, needle):
+    code = f"def step(t, dt, inputs, state, params):\n    {attempt}\n    return {{}}\n"
+    token = STRICT.set(True)
+    try:
+        result = simulate(_scripted(code), "case")
+    finally:
+        STRICT.reset(token)
+    assert result.status == "failed"
+    text = " ".join(m.text for m in result.messages).lower()
+    assert needle in text, text
+
+
+# -- the example cars' scripts give the same results under the strict sandbox -
+
+
+@landlock
+def test_the_hybrid_example_runs_the_same_under_the_strict_sandbox():
+    from app.storage import load_example
+
+    hybrid = load_example("hybrid-car")
+    case = next(c for c in hybrid.cases if "UDDS" in c.name or c.id == "case-udds")
+    short = hybrid.model_copy(update={"cases": [c.model_copy(update={"duration": 5.0})
+                                                for c in hybrid.cases]})
+    plain = simulate(short, case.id)
+    token = STRICT.set(True)
+    try:
+        strict = simulate(short, case.id)
+    finally:
+        STRICT.reset(token)
+    assert strict.status == plain.status
+    a = {s.key: s.value for s in plain.summary if s.key}
+    b = {s.key: s.value for s in strict.summary if s.key}
+    assert a and a.keys() == b.keys()
+    for key in a:
+        assert b[key] == pytest.approx(a[key], rel=1e-9, abs=1e-9), key
