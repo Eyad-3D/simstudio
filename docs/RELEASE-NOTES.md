@@ -980,14 +980,14 @@ sections.
   4.0 for the formats only, awaits the owner's confirmation. The engine's
   API reference at `/docs` no longer loads anything from the internet.
   (AI-07)
-- AI access rules for the coming AI assistant connection: off by default;
-  only projects in folders you allow, and not marked `"noAi"`; changes
-  need your confirmation; a project with Script blocks asks you before an
-  AI app runs it (Python code that uses `AgentSession` also needs the
+- AI access rules for the AI assistant connection: off by default; only
+  projects in folders you allow, and not marked `"noAi"`; it works
+  hands-off: it never asks you to confirm, running a project with Script
+  blocks or FMUs in an OS sandbox or refusing the run where that sandbox
+  cannot be set up (Python code that uses `AgentSession` also needs the
   project on the trust list, `lightsim ai trust`; the connection for AI
-  apps does not read that list), but an AI app that sends your answer
-  again repeats the run without a new question; runs stop after 300 s; the
-  calls are logged on your computer. Set with `lightsim ai …`. (AI-01)
+  apps does not read that list); runs stop after 300 s; the calls are
+  logged on your computer. Set with `lightsim ai …`. (AI-01)
 - *What LightSim reads and writes* (Help → *Reference*) lists the file
   formats that work today, each with the test that checks it, those
   planned and those built only on request. (STD-34)
@@ -1006,17 +1006,16 @@ sections.
   Data Checks, run a case, query a run's channels (minimum, maximum, mean,
   end value and a thinned series of at most 500 points), compare two runs,
   explain a message and edit a model. Answers stay under 20 KB. It follows
-  the MCP revision of 28 July 2026 (stateless, long runs as Tasks,
-  confirmations as `input_required`) and still answers apps that use the
-  older handshake. Saving an edit (the version it replaces is kept as a
-  backup, beside a file in an allowed folder in `<file>-backups`) and
-  running a project with Script blocks ask you first, in the AI app (on
-  Windows, Script projects do not run unless you allowed it when
-  connecting); LightSim cannot tell who answered, and an answer the AI app
-  sends again is not asked about again (see *Known issues*); a project
-  file with `"noAI": true` stays hidden; an assistant's run stops after 5
-  minutes; its tool calls go into a local log, `.ai/audit.jsonl` in the
-  projects folder (*Known issues* lists the calls it leaves out). (AI-03)
+  the MCP revision of 28 July 2026 (stateless, long runs as Tasks) and
+  still answers apps that use the older handshake. It works hands-off: it
+  never asks you to confirm. An edit is saved straight away and is
+  recoverable (the version it replaces is kept as a backup, beside a file
+  in an allowed folder in `<file>-backups`); a project with Script blocks
+  or FMUs runs in an OS sandbox, or the run is refused where that sandbox
+  cannot be set up (today, on Windows). A project file with `"noAI": true`
+  stays hidden; an assistant's run stops after 5 minutes; its tool calls go
+  into a local log, `.ai/audit.jsonl` in the projects folder (*Known
+  issues* lists the calls it leaves out). (AI-03)
 - **A skill pack for AI assistants**: nine short guides in the open Agent
   Skills format (build a BEV, build a P2 hybrid, wiring rules, units and
   parameters, Script blocks, verifying a model, *not valid* flags, what

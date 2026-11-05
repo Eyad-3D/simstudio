@@ -1,39 +1,33 @@
-"""What an AI assistant may do without asking, and the local record of what
-it did (AI-01's intent, built for AI-03).
+"""What an AI assistant may do, and the local record of what it did (AI-01's
+intent, built for AI-03).
 
-- Reading a model, its checks and its results needs no confirmation.
-- Saving an edit, and running a project that contains Script blocks (code
-  the user or someone else wrote), each need the user's confirmation in the
-  AI app: the MCP server asks through the app (an ``input_required`` result
-  on the 2026-07-28 protocol, an elicitation request on older ones). On the
-  older protocols an app that cannot ask is refused; on 2026-07-28 the
-  server does not check whether the app can ask. LightSim checks the
-  answer's seal itself, which ties it to exactly one action (see
-  :meth:`Policy.seal`), but cannot tell who answered, and a seal is not
-  single-use: an app that sends it again repeats a run, or saves another
-  copy of an edited example or new project (docs/KNOWN-LIMITS.md). The tool
-  annotations it publishes are only hints to the AI app.
-- On Windows the Script sandbox is much weaker, so an assistant never runs a
-  project with Script blocks there unless the user started the connection
-  with ``--trust-scripts`` (one switch for the whole connection), and then
-  a run still asks. The per-project trust list that ``lightsim ai trust``
-  keeps (``lightsim/ai_access.py``) is **not** read here: only
-  ``AgentSession`` reads it. The engine's own approval of Script code
-  (``app/script_trust.py``) applies to every run, as in the app.
+- An agent works hands-off: the MCP server never asks the user to confirm an
+  action (the owner's decision, 1 November 2026). Reading, checking,
+  comparing, saving an edit and running a project all go through without a
+  question. Safety comes from the design instead (step 6): an agent's Script
+  blocks and FMUs run only in an OS sandbox (no network, file access to the
+  project's folder only), and the run is refused when that sandbox cannot be
+  set up (:meth:`Policy.strict_sandbox_refusal`) rather than run less safely.
+  Every edit it saves is recoverable from the project's backups (a new
+  project for an example). The tool annotations it publishes are only hints
+  to the AI app.
+- The per-project trust list that ``lightsim ai trust`` keeps
+  (``lightsim/ai_access.py``) is **not** read here: only ``AgentSession``
+  reads it. The engine's own approval of Script code
+  (``app/script_trust.py``) still applies to every run, as in the app, so an
+  agent runs the examples' scripts and any the user approved, but not a
+  brand-new script until it is approved in the app.
 - Each tool call that reaches :class:`~app.ai.tools.Tools` goes into a local
   audit log, JSON lines in ``.ai/audit.jsonl`` next to the user's projects,
-  done or not. A call that brings back the user's no, a run sent as a task
-  that is asked about or refused before it starts, and a call the server
-  cannot read (an unknown tool, arguments that are not an object) stop in
-  the MCP server first and are not logged. It is never uploaded.
+  done or not. A run sent as a task that is refused before it starts, and a
+  call the server cannot read (an unknown tool, arguments that are not an
+  object) stop in the MCP server first and are not logged. It is never
+  uploaded.
 """
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import os
-import secrets
 import sys
 import threading
 import time
@@ -49,30 +43,21 @@ AUDIT_MAX_BYTES = 5 * 1024 * 1024
 class Policy:
     """The rules one server process applies, set when the AI app starts it."""
 
-    def __init__(self, *, allow_edits: bool = True, trust_scripts: bool = False,
+    def __init__(self, *, allow_edits: bool = True,
                  max_run_seconds: float = DEFAULT_MAX_RUN_SECONDS,
                  platform: str = sys.platform) -> None:
         self.allow_edits = allow_edits
-        self.trust_scripts = trust_scripts
         self.max_run_seconds = max_run_seconds
         self.platform = platform
-        self._key = secrets.token_bytes(32)
 
-    def script_run_refusal(self) -> Optional[str]:
-        """Why a project with Script blocks may not run at all, or None."""
-        if self.platform == "win32" and not self.trust_scripts:
-            return ("This project has Script blocks (Python code). On Windows LightSim's script "
-                    "sandbox is weak, so an AI assistant may not run such a project unless you "
-                    "start the connection with --trust-scripts. Run it in the LightSim app "
-                    "instead, or ask the user.")
-        return None
+    def strict_sandbox_refusal(self) -> Optional[str]:
+        """Why an agent may not run a project with Script blocks or FMUs on
+        this platform — the OS sandbox cannot be set up, so the run is refused
+        rather than run less safely — or None when it can. The message ends
+        with the stable code ``sandbox_unavailable``."""
+        from ..solver.sandbox import why_no_strict_sandbox
 
-    def seal(self, purpose: str, payload: dict) -> str:
-        """A fingerprint tying a confirmation to exactly one action: the
-        user confirms *this* edit or *this* run, and an answer cannot be
-        reused for another."""
-        body = json.dumps({"p": purpose, **payload}, sort_keys=True, default=str).encode()
-        return hmac.new(self._key, body, hashlib.sha256).hexdigest()
+        return why_no_strict_sandbox(self.platform)
 
 
 class AuditLog:

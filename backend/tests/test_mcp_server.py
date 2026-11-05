@@ -228,39 +228,21 @@ def test_project_files_flagged_no_ai_and_files_outside_allowed_folders_are_invis
         assert answer["isError"], ref
 
 
-def test_edits_are_dry_runs_and_saving_needs_a_confirmation(folder):
+def test_edits_are_dry_runs_and_saving_is_direct(folder):
+    # hands-off (the owner, 1 Nov): a dry run saves nothing; dry_run false
+    # saves straight away, with no question. An example is saved as a new
+    # project and the answer says how the change can be recovered.
     server = make_server(folder)
     ops = [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": "2100 kg"}]
     dry = tool(server, "model_edit", {"project": "example:bev-car", "operations": ops})
     assert dry["structuredContent"]["applied"] is False
+    assert "resultType" not in dry or dry["resultType"] == "complete"
     assert not folder.exists() or not list(folder.glob("*.json"))
 
-    ask = tool(server, "model_edit", {"project": "example:bev-car", "operations": ops, "dry_run": False})
-    assert ask["resultType"] == "input_required"
-    request = ask["inputRequests"]["confirm"]
-    assert request["method"] == "elicitation/create" and "Vehicle Mass 2,100 kg" in request["params"]["message"]
-    assert not list(folder.glob("*.json")), "nothing is saved before the user says yes"
-
-    declined = tool(server, "model_edit", {"project": "example:bev-car", "operations": ops, "dry_run": False},
-                    inputResponses={"confirm": {"action": "decline"}}, requestState=ask["requestState"])
-    assert declined["isError"] and not list(folder.glob("*.json"))
-
-    forged = tool(server, "model_edit", {"project": "example:bev-car", "operations": ops, "dry_run": False},
-                  inputResponses={"confirm": {"action": "accept", "content": {"confirm": True}}},
-                  requestState="0" * 64)
-    assert forged["resultType"] == "input_required", "a made-up state is not a confirmation"
-
-    other = [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 900}]
-    swapped = tool(server, "model_edit", {"project": "example:bev-car", "operations": other, "dry_run": False},
-                   inputResponses={"confirm": {"action": "accept", "content": {"confirm": True}}},
-                   requestState=ask["requestState"])
-    assert swapped["resultType"] == "input_required", "a yes to one edit does not cover another"
-
-    done = tool(server, "model_edit", {"project": "example:bev-car", "operations": ops, "dry_run": False},
-                inputResponses={"confirm": {"action": "accept", "content": {"confirm": True}}},
-                requestState=ask["requestState"])
+    done = tool(server, "model_edit", {"project": "example:bev-car", "operations": ops, "dry_run": False})
     saved = done["structuredContent"]
     assert saved["applied"] is True and saved["project"] != "example:bev-car"
+    assert "new project" in saved["note"], "it says the edit was saved as a new project (recoverable)"
     project = json.loads((folder / f"{saved['project']}.json").read_text(encoding="utf-8"))
     vehicle = next(e for s in project["systems"] for e in s["elements"] if e["label"] == "Vehicle")
     assert vehicle["parameterOverrides"]["mass_kg"] == 2100
@@ -277,17 +259,11 @@ def test_an_edit_with_a_bad_operation_changes_nothing(folder):
     assert "Operation 2" in text and "kg" in text and "Nothing was changed" in text
 
 
-CONFIRM = {"confirm": {"action": "accept", "content": {"confirm": True}}}
-
-
-def _confirmed_edit(server, project: str, ops: list) -> tuple[dict, str]:
-    """model_edit with dry_run false, answered yes: (its answer, the question asked)."""
-    ask = tool(server, "model_edit", {"project": project, "operations": ops, "dry_run": False})
-    assert ask["resultType"] == "input_required", ask
-    question = ask["inputRequests"]["confirm"]["params"]["message"]
-    done = tool(server, "model_edit", {"project": project, "operations": ops, "dry_run": False},
-                inputResponses=CONFIRM, requestState=ask["requestState"])
-    return done, question
+def _saved_edit(server, project: str, ops: list) -> dict:
+    """model_edit with dry_run false: saved straight away (hands-off)."""
+    done = tool(server, "model_edit", {"project": project, "operations": ops, "dry_run": False})
+    assert not done.get("isError"), done
+    return done["structuredContent"]
 
 
 def _project_file(path: Path, name: str) -> Path:
@@ -303,19 +279,18 @@ def test_an_edit_of_a_file_in_an_allowed_folder_keeps_the_old_version_beside_it(
     server = McpServer(Engine(user_folder=folder, allowed_folders=(car.parent,)), Policy(),
                        AuditLog(folder))
     ref = str(car.resolve())
-    done, question = _confirmed_edit(
-        server, ref, [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 2100}])
-    assert done["structuredContent"]["applied"] is True
-    assert '"car.json-backups" beside the file' in question
+    done = _saved_edit(server, ref, [{"op": "set", "element": "Vehicle", "param": "mass_kg",
+                                      "value": 2100}])
+    assert done["applied"] is True
+    assert '"car.json-backups" beside the file' in done["note"], "the answer says where the backup is"
     backups = car.parent / "car.json-backups"
     kept = sorted(backups.glob("*.json"))
-    assert [k.read_bytes() for k in kept] == [original], "the replaced version is kept"
+    assert [k.read_bytes() for k in kept] == [original], "the replaced version is kept (recoverable)"
     assert (backups / ".gitignore").is_file(), "and kept out of git"
     assert car.read_bytes() != original
 
     edited = car.read_bytes()
-    _confirmed_edit(server, ref, [{"op": "set", "element": "Vehicle", "param": "mass_kg",
-                                   "value": 2200}])
+    _saved_edit(server, ref, [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 2200}])
     kept = sorted(backups.glob("*.json"))
     assert [k.read_bytes() for k in kept] == [original, edited], "each edit adds one"
     listed = [p["project"] for p in tool(server, "lightsim_list_projects", {})
@@ -407,29 +382,22 @@ def test_edits_off_with_read_only(folder):
     assert answer["isError"] and "read-only" in answer["content"][0]["text"]
 
 
-def test_script_projects_run_only_after_a_yes(folder):
+def test_script_projects_run_in_the_sandbox_or_are_refused(folder):
+    # hands-off: no question. On Linux the project runs in the OS sandbox; on
+    # Windows, where the AppContainer is not built yet, it is refused with the
+    # stable code rather than run less safely (never a weaker fall-back).
     server = make_server(folder, platform="linux")
-    ask = tool(server, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
-    assert ask["resultType"] == "input_required"
-    assert "Script blocks" in ask["inputRequests"]["confirm"]["params"]["message"]
+    ran = tool(server, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
+    assert "resultType" not in ran or ran["resultType"] == "complete"
+    assert not ran["isError"] and ran["structuredContent"]["status"] == "success"
     win = make_server(folder, platform="win32")
     refused = tool(win, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
-    assert refused["isError"] and "--trust-scripts" in refused["content"][0]["text"]
-    trusted = make_server(folder, platform="win32", trust_scripts=True)
-    assert tool(trusted, "run_case", {"project": "example:hybrid-car",
-                                      "case": "case-udds"})["resultType"] == "input_required"
+    assert refused["isError"] and "sandbox_unavailable" in refused["content"][0]["text"]
 
 
-# -- what the connection asks you, and what it does not read -----------------
-# The AI access page and the help say this (AI-01); tests/test_ai_claims.py
-# holds their words against the same facts.
-
-
-def _yes(ask: dict) -> dict:
-    """What an AI app sends back once the user said yes: the question's own
-    state and an accepted form. LightSim checks the state, not who sent it."""
-    return {"requestState": ask["requestState"],
-            "inputResponses": {"confirm": {"action": "accept", "content": {"confirm": True}}}}
+# -- hands-off: no question, and what the server does not read ----------------
+# The AI access page and the help say this (AI-01, step 6); tests/
+# test_ai_claims.py holds their words against the same facts.
 
 
 def _hybrid_copy(where: Path, name: str, *, changed_code: bool = False) -> Path:
@@ -468,7 +436,7 @@ def test_reading_asks_the_user_nothing(folder):
         assert answer["isError"] is False, (name, answer)
 
 
-def test_every_script_run_asks_and_the_trust_list_is_not_read(folder, monkeypatch):
+def test_every_script_run_is_sandboxed_and_the_trust_list_is_not_read(folder, monkeypatch):
     import lightsim as ls
     from lightsim import ai_access
 
@@ -496,64 +464,18 @@ def test_every_script_run_asks_and_the_trust_list_is_not_read(folder, monkeypatc
     monkeypatch.setattr(ai_access.Policy, "require_run", boom)
 
     server = make_server(folder, platform="linux")
-    for project in (on_list, off_list):  # on the list or not, the run is the same
+    for project in (on_list, off_list):  # on the trust list or not, the run is the same
         args = {"project": str(project), "case": "case-udds"}
-        ask = tool(server, "run_case", args)
-        assert ask["resultType"] == "input_required", project.name
-        ran = tool(server, "run_case", args, **_yes(ask))
+        ran = tool(server, "run_case", args)
+        assert "resultType" not in ran or ran["resultType"] == "complete", project.name
         assert ran["isError"] is False and ran["structuredContent"]["status"] == "success", ran
-        again = tool(server, "run_case", args)  # a new call without a yes asks again
-        assert again["resultType"] == "input_required", project.name
     example = tool(server, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
-    assert example["resultType"] == "input_required", "the examples' scripts ask too"
+    assert example["isError"] is False and example["structuredContent"]["status"] == "success"
 
 
-def test_a_yes_sent_again_repeats_a_run_or_saves_another_copy_without_a_new_question(folder):
-    # On the 2026-07-28 protocol the answer's state is the server's seal of
-    # exactly that action, not a one-time token (the page, the help, the
-    # skill pack and Known issues say so). The seal of a run, of an edit of
-    # an example and of a new project stays good; the seal of an edit of a
-    # saved project holds its revision, which the save changed.
-    path = _hybrid_copy(folder, "again.json")
-    server = make_server(folder, platform="linux")
-    args = {"project": str(path), "case": "case-udds"}
-    ask = tool(server, "run_case", args)
-    question = ask["inputRequests"]["confirm"]["params"]
-    shown = question["message"] + question["requestedSchema"]["properties"]["confirm"]["description"]
-    assert "once" not in shown, "the question must not promise a yes counts once"
-    first = tool(server, "run_case", args, **_yes(ask))
-    again = tool(server, "run_case", args, **_yes(ask))
-    assert first["structuredContent"]["status"] == again["structuredContent"]["status"] == "success"
-    assert first["structuredContent"]["run"] != again["structuredContent"]["run"]
-    other = _hybrid_copy(folder, "other.json")
-    swapped = tool(server, "run_case", {"project": str(other), "case": "case-udds"}, **_yes(ask))
-    assert swapped["resultType"] == "input_required", "a yes to one run does not cover another"
-
-    edit = {"project": "example:bev-car", "dry_run": False,
-            "operations": [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 2100}]}
-    ask = tool(server, "model_edit", edit)
-    one = tool(server, "model_edit", edit, **_yes(ask))["structuredContent"]
-    two = tool(server, "model_edit", edit, **_yes(ask))["structuredContent"]
-    assert one["applied"] and two["applied"] and one["project"] != two["project"]
-
-    new = {"project": "new:Probe car", "dry_run": False,
-           "operations": [{"op": "add", "type": "vehicle.body", "label": "Body"}]}
-    ask = tool(server, "model_edit", new)
-    made = [tool(server, "model_edit", new, **_yes(ask))["structuredContent"] for _ in range(2)]
-    assert made[0]["applied"] and made[1]["applied"]
-    assert made[0]["project"] != made[1]["project"], "the same yes saved a second new project"
-
-    saved = {"project": one["project"], "dry_run": False,
-             "operations": [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1800}]}
-    ask = tool(server, "model_edit", saved)
-    assert tool(server, "model_edit", saved, **_yes(ask))["structuredContent"]["applied"]
-    assert tool(server, "model_edit", saved, **_yes(ask))["resultType"] == "input_required"
-
-
-def test_whether_an_app_can_ask_is_checked_only_on_the_older_handshake(folder):
-    # What the page and the help say about an AI app that cannot ask you.
-    # Older handshake without elicitation: what needs a yes is refused (the
-    # tests below), but a project without Script blocks needs none and runs.
+def test_a_project_without_scripts_runs_on_any_handshake(folder):
+    # hands-off: no elicitation, no confirmation on any protocol. A project
+    # without Script blocks just runs, older handshake or newer.
     old = make_server(folder)
     old.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "x", "version": "1"}}})
@@ -562,30 +484,29 @@ def test_whether_an_app_can_ask_is_checked_only_on_the_older_handshake(folder):
     assert reply["result"]["isError"] is False
     assert reply["result"]["structuredContent"]["status"] == "success"
 
-    # 2026-07-28: an app that says it cannot ask (no elicitation) still gets
-    # the question, and the answer it sends back itself saves the edit
+
+def test_an_edit_saves_on_any_handshake_with_no_question(folder):
+    # every handshake saves straight away, with no elicitation; an app that
+    # declares no capabilities is treated the same
     server = make_server(folder)
     mute = {"_meta": {"io.modelcontextprotocol/clientCapabilities": {}}}
     edit = {"project": "example:bev-car", "dry_run": False,
             "operations": [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1777}]}
-    ask = tool(server, "model_edit", edit, **mute)
-    assert ask["resultType"] == "input_required"
-    saved = tool(server, "model_edit", edit, **mute, **_yes(ask))
+    saved = tool(server, "model_edit", edit, **mute)
+    assert "resultType" not in saved or saved["resultType"] == "complete"
     assert saved["isError"] is False and saved["structuredContent"]["applied"] is True
 
-
-def test_an_app_that_cannot_ask_gets_a_refusal_for_a_script_run(folder):
-    # linux: on Windows a Script project without --trust-scripts is refused
-    # before the question would be asked (tested on its own above)
-    server = make_server(folder, platform="linux")
-    server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+    old = make_server(folder)
+    old.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "x", "version": "1"}}})
-    reply = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
-        "name": "run_case", "arguments": {"project": "example:hybrid-car", "case": "case-udds"}}})
-    assert reply["result"]["isError"] and "cannot ask" in reply["result"]["content"][0]["text"]
+    reply = old.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+        "name": "model_edit", "arguments": edit}})
+    assert reply["result"]["isError"] is False and reply["result"]["structuredContent"]["applied"] is True
 
 
-def test_script_code_nobody_approved_fails_the_run_even_after_a_yes(folder, tmp_path, monkeypatch):
+def test_script_code_nobody_approved_fails_the_run(folder, tmp_path, monkeypatch):
+    # the engine's own script-code approval (app/script_trust.py) still applies
+    # to an agent's run, as in the app: a brand-new script fails until approved
     from app import script_trust
 
     own = tmp_path / "userdata"  # this user's own LightSim folder, where approvals are kept
@@ -601,34 +522,18 @@ def test_script_code_nobody_approved_fails_the_run_even_after_a_yes(folder, tmp_
         server = make_server(folder, platform="linux")
         args = {"project": str(path), "case": "case-udds"}
 
-        ask = tool(server, "run_case", args)
-        message = ask["inputRequests"]["confirm"]["params"]["message"]
-        assert "P2 Hybrid Car" in message and "EPA city (UDDS)" in message
-        assert "changed by someone else" not in message, "the question does not show the code"
-
-        refused = tool(server, "run_case", args, **_yes(ask))
+        refused = tool(server, "run_case", args)  # no question, runs in the sandbox, but…
         result = refused["structuredContent"]
         assert result["status"] == "failed"
         assert "has not been approved to run" in json.dumps(result["messages"])
+        assert "changed by someone else" not in json.dumps(result), "the reply does not show the code"
 
         code = next(s["code"] for s in script_trust.project_scripts(json.loads(path.read_text("utf-8"))))
         script_trust.approve([code])  # the user chose Run scripts in the app
-        again = tool(server, "run_case", args)
-        ran = tool(server, "run_case", args, **_yes(again))
+        ran = tool(server, "run_case", args)  # now it runs in the sandbox, no question
         assert ran["structuredContent"]["status"] == "success", ran
     finally:
         script_trust._reset_for_tests()
-
-
-def test_older_apps_without_elicitation_are_refused_confirmations(folder):
-    server = make_server(folder)
-    server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "x", "version": "1"}}})
-    ops = [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 1500}]
-    reply = server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
-        "name": "model_edit", "arguments": {"project": "example:bev-car", "operations": ops, "dry_run": False}}})
-    assert reply["result"]["isError"]
-    assert "cannot ask" in reply["result"]["content"][0]["text"]
 
 
 def test_long_runs_are_tasks_with_a_duration_cap(folder):
@@ -672,10 +577,9 @@ def test_each_tool_call_goes_into_the_local_audit_log(folder):
 
 def test_what_the_audit_log_leaves_out(folder):
     # What the help says about .ai/audit.jsonl (AI-01): a call that reaches a
-    # tool is a line, done or not (a question asked, a refusal); a call that
-    # brings back the user's no, a run sent as a task that is asked about or
-    # refused before it starts, and a call LightSim cannot read (a tool it
-    # does not have, arguments that are not an object) are not lines.
+    # tool is a line, done or not (a run, a refusal). A run sent as a task that
+    # is refused before it starts, and a call LightSim cannot read (a tool it
+    # does not have, arguments that are not an object), are not lines.
     path = _hybrid_copy(folder, "logged.json")
     server = make_server(folder, platform="linux")
     args = {"project": str(path), "case": "case-udds"}
@@ -684,19 +588,12 @@ def test_what_the_audit_log_leaves_out(folder):
     def lines() -> int:
         return len(log.read_text(encoding="utf-8").splitlines()) if log.exists() else 0
 
-    ask = tool(server, "run_case", args)
-    assert ask["resultType"] == "input_required"
-    assert lines() == 1 and last_audit_entry(folder)["ok"] is False, "a question is a line, not done"
-    no = tool(server, "run_case", args, requestState=ask["requestState"],
-              inputResponses={"confirm": {"action": "decline"}})
-    assert no["isError"] and "did not confirm" in no["content"][0]["text"]
-    assert lines() == 1, "the user's no is not a line"
+    ran = tool(server, "run_case", args)  # a run reaches the tool: one line, done
+    assert not ran["isError"] and lines() == 1 and last_audit_entry(folder)["ok"] is True
 
     as_task = {"_meta": {"io.modelcontextprotocol/tasks": {"ttl": 60000}}}
-    asked = tool(server, "run_case", args, **as_task)
-    assert asked["resultType"] == "input_required" and lines() == 1, "a task run asked about first"
     hidden = tool(server, "run_case", {"project": "../../etc/passwd", "case": "x"}, **as_task)
-    assert hidden["isError"] and lines() == 1, "a task run refused before it starts"
+    assert hidden["isError"] and lines() == 1, "a task run refused before it starts: not a line"
     reply = server.handle({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {
         "name": "no_such_tool", "arguments": {}, "_meta": META}})
     assert "error" in reply and lines() == 1, "a tool LightSim does not have"
@@ -705,8 +602,8 @@ def test_what_the_audit_log_leaves_out(folder):
     assert "error" in reply and lines() == 1, "arguments that are not an object: a call it cannot read"
 
     win = make_server(folder, platform="win32")
-    refused = tool(win, "run_case", args)
-    assert refused["isError"] and "--trust-scripts" in refused["content"][0]["text"]
+    refused = tool(win, "run_case", args)  # refused before the sandbox exists: a line
+    assert refused["isError"] and "sandbox_unavailable" in refused["content"][0]["text"]
     assert lines() == 2 and last_audit_entry(folder)["ok"] is False, "a refusal is a line"
 
 
@@ -725,40 +622,34 @@ def test_project_text_is_quoted_as_data(folder):
 # -- the real server over stdio, driven by the official SDK client -------------
 
 
-def _sdk_session(folder: Path, mode: str, answers: list[str]):
-    import mcp_types as types
+def _sdk_session(folder: Path, mode: str):
     from mcp import Client
     from mcp.client.stdio import StdioServerParameters
-
-    async def elicit(ctx, params):
-        answers.append(params.message)
-        return types.ElicitResult(action="accept", content={"confirm": True})
 
     params = StdioServerParameters(
         command=sys.executable, args=[str(BACKEND / "run_backend.py"), "mcp"], cwd=str(BACKEND),
         env={**os.environ, "LIGHTSIM_PROJECTS_DIR": str(folder)})
-    return Client(params, mode=mode, elicitation_callback=elicit)
+    return Client(params, mode=mode)
 
 
 @pytest.mark.parametrize("mode,version", [("auto", MODERN), ("legacy", "2025-11-25")])
 def test_official_sdk_client_over_stdio(folder, mode, version):
     pytest.importorskip("mcp")
-    answers: list[str] = []
 
     async def session():
-        async with _sdk_session(folder, mode, answers) as client:
+        async with _sdk_session(folder, mode) as client:
             assert client.protocol_version == version
             names = [t.name for t in (await client.list_tools()).tools]
             assert names == [t["name"] for t in TOOLS]
             overview = await client.call_tool("lightsim_overview", {"project": "example:fs-electric"})
             assert not overview.is_error and "Formula Student" in overview.content[0].text
+            # hands-off: dry_run false saves straight away, no elicitation
             ops = [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 280}]
             saved = await client.call_tool("model_edit", {"project": "example:fs-electric",
                                                           "operations": ops, "dry_run": False})
             assert not saved.is_error and saved.structured_content["applied"] is True
 
     asyncio.run(session())
-    assert len(answers) == 1 and "Vehicle Mass 280 kg" in answers[0]
 
 
 def test_the_server_writes_nothing_but_protocol_to_stdout(folder):

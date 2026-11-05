@@ -1109,34 +1109,28 @@ minimum or an average, for example from the CSV export, or put the
   repository, as the desktop engine's `lightsim-backend run …`, or as a
   wheel you build with `scripts/build-wheel.py`; it is not on PyPI yet.
   *Roadmap:* AI-02, AI-07.
-- **AI apps pass on LightSim's questions; the trust list is not used.**
-  The connection for AI apps (the MCP server) does not read the trust list
-  (`lightsim ai trust`), and its questions before an edit or a run of a
-  project with Script blocks go through the AI app, which can answer for
-  you or send your answer again. It asks you before it saves an edit and
-  before it runs a project with Script blocks, but LightSim cannot tell
-  who answered a question, because the AI app shows it and sends the
-  answer back. An app that sends your answer again repeats a run, or saves
-  another copy of an edited example or new project, without asking you (an
-  edit of a saved project asks again). An AI app on MCP's older handshake
-  that cannot ask you is refused anything that needs your yes. On MCP's 28
-  July 2026 revision LightSim does not check whether the app can ask, so
-  an app that answers for you can save edits and run Script projects. On
-  Windows the connection runs such a project only if it was started with
-  `--trust-scripts` (for the whole connection, not per project), and then
-  it still asks. Only Python code that goes through
-  `lightsim.ai_access.AgentSession` reads the trust list, and
+- **AI apps work hands-off; the trust list is not used.**
+  The connection for AI apps (the MCP server) never asks you to confirm (the
+  owner's decision, 1 November 2026): it reads, checks, runs a project and
+  saves an edit with no question. Safety is by design instead. It runs a
+  project with Script blocks or FMUs in an OS sandbox (no network, file
+  access to the project's folder only), and when that sandbox cannot be set
+  up (today, on Windows, where the AppContainer is not built yet) the run is
+  refused with the code `sandbox_unavailable` rather than run less safely.
+  An edit it saves is recoverable (the previous version kept as a backup, an
+  example saved as a new project), until a live one-click undo lands later.
+  It does not read the trust list (`lightsim ai trust`): only Python code
+  that goes through `lightsim.ai_access.AgentSession` reads it, and
   `lightsim run` and the `lightsim` package read no AI access setting at
-  all. The question for a run names the project and the case, not the
-  script's code. LightSim's check of script code (the scripts entry above)
-  applies to an AI app's run as to yours: code you have not approved in
-  the app, such as a script the assistant wrote, makes the run fail until
-  you choose **Run scripts** there. `lightsim ai log` lists only the calls
-  made through `AgentSession`; an AI app's calls are in `.ai/audit.jsonl`
-  in your projects folder, and the *AI access* tab shows both. That log
-  leaves out a call that brings back your no, a run sent as a task that
-  LightSim asks about or refuses before it starts, and a call LightSim
-  cannot read, such as one of a tool it does not have. *Roadmap:* AI-01.
+  all. LightSim's check of script code (the scripts entry above) still
+  applies to an AI app's run as to yours: code you have not approved in the
+  app, such as a brand-new script the assistant wrote, makes the run fail
+  until you choose **Run scripts** there. `lightsim ai log` lists only the
+  calls made through `AgentSession`; an AI app's calls are in
+  `.ai/audit.jsonl` in your projects folder, and the *AI access* tab shows
+  both. That log leaves out a run sent as a task that LightSim refuses
+  before it starts, and a call LightSim cannot read, such as one of a tool
+  it does not have. *Roadmap:* AI-01.
 - **A few AI access settings are on the command line only.** *Connect AI →
   AI access* turns AI access on and off, removes allowed folders (and adds
   one with the desktop app's folder dialog), shows or hides the examples,
@@ -1213,9 +1207,9 @@ minimum or an average, for example from the CSV export, or put the
   implements it; its Tasks support (long runs) uses the task shapes of the
   2025-11-25 revision, because the Tasks extension's own messages were not
   available to check against, so an AI app may run cases without a task
-  and wait for them. Whether a project with Script blocks may run on
-  Windows is set for the whole connection (`--trust-scripts`), not per
-  project (see the entry on questions and the trust list above); the
+  and wait for them. A project with Script blocks or FMUs runs in an OS
+  sandbox, or the run is refused where that sandbox is not built yet (see
+  the hands-off entry above); the
   folders an assistant may see are set by Connect AI (the
   projects folder) or on the command line (`lightsim ai allow`), not in
   LightSim's settings; and one project is hidden by `"noAi": true` in its

@@ -373,6 +373,10 @@ class Engine:
         return any(e.componentDefId == SCRIPT_COMPONENT for s in project.systems for e in s.elements)
 
     @staticmethod
+    def has_fmus(project: Project) -> bool:
+        return any(e.componentDefId == "signal.fmu" for s in project.systems for e in s.elements)
+
+    @staticmethod
     def simulate(
         project: Project,
         case_id: str,

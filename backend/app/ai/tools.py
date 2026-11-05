@@ -7,10 +7,12 @@ edit a model. Each answer is a small JSON object (with the same JSON as
 text, for AI apps that ignore structured output), kept under
 :data:`MAX_ANSWER_BYTES`; anything cut says so.
 
-The protocol (JSON-RPC, versions, confirmations, tasks) lives in
-:mod:`app.ai.mcp_server`; this module knows nothing about it. A tool that
-needs the user's confirmation raises :class:`ConfirmationNeeded`, and the
-server calls it again with the confirmation once the user agreed.
+The protocol (JSON-RPC, versions, tasks) lives in :mod:`app.ai.mcp_server`;
+this module knows nothing about it. An agent works hands-off: no tool asks
+the user to confirm (the owner's decision, 1 November 2026). A run of a
+project with Script blocks or FMUs is refused, with a stable code, when the
+OS sandbox for them cannot be set up (:meth:`Policy.strict_sandbox_refusal`),
+never run less safely.
 """
 from __future__ import annotations
 
@@ -47,16 +49,7 @@ class ToolError(Exception):
 
 
 @dataclass
-class ConfirmationNeeded(Exception):
-    """The action needs the user's yes; ``seal`` names exactly this action."""
-
-    message: str
-    seal: str
-
-
-@dataclass
 class CallContext:
-    confirmed: Optional[str] = None  # the seal the user confirmed
     cancel: threading.Event = field(default_factory=threading.Event)
     progress: Optional[Callable[[float], None]] = None
     client: str = ""
@@ -191,11 +184,13 @@ TOOLS: list[dict] = [
         "title": "Run a case",
         "description": "Simulate one case of a model (Data Checks first) and return its status, "
                        "key results (with 'not valid' notes) and messages. Runs take seconds to "
-                       "a few minutes; AI apps that support MCP Tasks get a task to poll. A project "
-                       "with Script blocks runs only after the user says yes to LightSim's question "
-                       "(send that yes once: sent again it repeats the run without asking the user), "
-                       "and only with Script code the user has approved in LightSim (a script you "
-                       "wrote or changed fails with 'has not been approved'). The run is kept for "
+                       "a few minutes; AI apps that support MCP Tasks get a task to poll. You are "
+                       "not asked to confirm. A project with Script blocks or FMUs runs in an OS "
+                       "sandbox (no network, file access to the project only); if that sandbox "
+                       "cannot be set up (today, on Windows) the run is refused with the code "
+                       "'sandbox_unavailable' rather than run less safely. Script code still runs "
+                       "only if the user approved it in LightSim: a brand-new script you wrote "
+                       "fails with 'has not been approved' until they do. The run is kept for "
                        "results_query and compare_runs; it does not change the project.",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
@@ -274,9 +269,10 @@ TOOLS: list[dict] = [
                        "{\"op\": \"set\", \"element\": \"Vehicle\", \"param\": \"mass_kg\", "
                        "\"value\": 1900}. By default a "
                        "dry run: returns what would change and the Data Checks afterwards, saving "
-                       "nothing. With dry_run false the user must confirm, then it is saved (an "
-                       "example is saved as a new project; for an example or a 'new:' project a yes "
-                       "sent again saves another copy; the app keeps backups of every save).",
+                       "nothing. With dry_run false it is saved straight away (you are not asked "
+                       "to confirm): an example or a 'new:' project is saved as a new project, and "
+                       "the app keeps the previous version as a backup, so the change can be "
+                       "undone.",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
             "operations": {"type": "array", "minItems": 1, "maxItems": 200,
@@ -347,8 +343,7 @@ class Tools:
     # -- dispatch ---------------------------------------------------------
 
     def call(self, name: str, args: dict, ctx: CallContext) -> dict:
-        """The tool's answer (JSON-ready); raises ToolError, NotFound or
-        ConfirmationNeeded."""
+        """The tool's answer (JSON-ready); raises ToolError or NotFound."""
         fn = getattr(self, "t_" + name, None)
         if name not in TOOL_NAMES or fn is None:
             raise ToolError(f"No tool '{name}'.")
@@ -510,21 +505,14 @@ class Tools:
 
     def check_run_allowed(self, handle: ProjectHandle, project: Project, case: Any,
                           ctx: CallContext) -> None:
-        """Raise ToolError if the case may not run, or ConfirmationNeeded
-        until the user confirmed running a project with Script blocks."""
-        if not self.engine.has_scripts(project):
-            return
-        refusal = self.policy.script_run_refusal()
-        if refusal:
-            raise ToolError(refusal)
-        seal = self.policy.seal("run", {"project": handle.ref,
-                                        "model": project.model_dump_json(), "case": case.id})
-        if ctx.confirmed != seal:
-            raise ConfirmationNeeded(
-                f"Your AI assistant wants to run the case \"{case.name}\" of the LightSim project "
-                f"\"{project.name}\". The project contains Script blocks: Python code that runs "
-                "on your computer in LightSim's sandbox. Run it only if you trust where the "
-                "project came from.", seal)
+        """Raise ToolError when a project with Script blocks or FMUs may not
+        run because its OS sandbox cannot be set up on this platform (so the
+        run is refused rather than run less safely). A hands-off agent is
+        never asked to confirm."""
+        if self.engine.has_scripts(project) or self.engine.has_fmus(project):
+            refusal = self.policy.strict_sandbox_refusal()
+            if refusal:
+                raise ToolError(refusal)
 
     def find_case(self, project: Project, want: str) -> Any:
         case = next((c for c in project.cases if c.id == want), None) or \
@@ -631,38 +619,31 @@ class Tools:
             "checks": [describe_check(c) for c in after if c.level in ("error", "warning")],
         }
         if dry_run:
-            answer["next"] = "Call again with dry_run false to save; the user will be asked."
+            answer["next"] = "Call again with dry_run false to save."
             return answer
         if not self.policy.allow_edits:
             raise ToolError("Edits are switched off for this connection (--read-only).")
-        seal = self.policy.seal("edit", {"project": handle.ref, "revision": revision,
-                                         "model": edited.model_dump_json()})
-        if ctx.confirmed != seal:
-            target = ("a new project" + (" (the example stays as it is)" if handle.kind == "example" else "")
-                      if handle.read_only
-                      else f"the project \"{project.name}\"")
-            listed = "\n".join(f"- {c}" for c in changes[:15])
-            more = f"\n- … and {len(changes) - 15} more" if len(changes) > 15 else ""
-            if handle.kind == "folder":
-                kept = (" LightSim keeps the previous version as a backup, in the folder "
-                        f"\"{handle.backups.name}\" beside the file.")
-            elif handle.kind == "user":
-                kept = " LightSim keeps the previous version as a backup."
-            else:
-                kept = ""
-            raise ConfirmationNeeded(
-                f"Your AI assistant wants to save these changes to {target} in LightSim:\n"
-                f"{listed}{more}\nData Checks after the change: "
-                f"{answer['checksAfter']['error']} errors, {answer['checksAfter']['warning']} "
-                f"warnings.{kept}", seal)
         try:
             ref, new_revision = self.engine.save(handle, edited, revision)
         except storage.ConflictError:
             raise ToolError("The project changed on disk since it was read (perhaps in the app). "
                             "Read it again and repeat the edit.") from None
         answer.update({"applied": True, "project": ref, "revision": new_revision})
-        answer["note"] = ("If the project is open in the LightSim app, reopen it there to see "
-                          "the change.")
+        # Until an agent's change is a live, one-click undo step (step 6,
+        # later), say how this save can be recovered: a kept previous version,
+        # or a new project an example's edit is saved as.
+        if handle.kind == "example":
+            recover = (f"The example is unchanged; your edit was saved as a new project "
+                       f"\"{ref}\". ")
+        elif handle.kind == "new":
+            recover = f"Saved as a new project \"{ref}\". "
+        elif handle.kind == "folder":
+            recover = ("The previous version is kept as a backup in the folder "
+                       f"\"{handle.backups.name}\" beside the file. ")
+        else:
+            recover = "LightSim kept the previous version as a backup. "
+        answer["note"] = (recover + "If the project is open in the LightSim app, reopen it "
+                          "there to see the change.")
         return answer
 
     # -- runs ---------------------------------------------------------------

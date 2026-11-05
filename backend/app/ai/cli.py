@@ -1,6 +1,6 @@
 """``lightsim-backend mcp ...``: the AI connection's commands (AI-03, AI-29).
 
-    lightsim-backend mcp [--allow-folder DIR]... [--read-only] [--trust-scripts]
+    lightsim-backend mcp [--allow-folder DIR]... [--read-only]
         Serve MCP over stdin/stdout. AI apps start this; you do not.
     lightsim-backend mcp install --client claude|claude-code|vscode|copilot|codex|gemini|cursor
         Add LightSim to that AI app's MCP settings (a backup of the file is kept).
@@ -40,8 +40,7 @@ def _serve(args: argparse.Namespace) -> int:
         allowed_folders=tuple(Path(f) for f in args.allow_folder),
         include_examples=not args.no_examples,
     )
-    policy = Policy(allow_edits=not args.read_only, trust_scripts=args.trust_scripts,
-                    max_run_seconds=args.max_run_seconds)
+    policy = Policy(allow_edits=not args.read_only, max_run_seconds=args.max_run_seconds)
     print(f"LightSim MCP server: projects in {engine.user_folder}"
           + (f", also {', '.join(map(str, engine.allowed_folders))}" if engine.allowed_folders else ""),
           file=sys.stderr)
@@ -111,9 +110,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--projects-dir", help=argparse.SUPPRESS)
     parser.add_argument("--no-examples", action="store_true", help="hide the shipped examples")
     parser.add_argument("--read-only", action="store_true", help="refuse every edit")
-    parser.add_argument("--trust-scripts", action="store_true",
-                        help="let the assistant run projects with Script blocks on Windows "
-                             "(LightSim still asks you before it runs one)")
     parser.add_argument("--max-run-seconds", type=float, default=300.0,
                         help="stop an assistant's run after this long (default 300)")
     sub = parser.add_subparsers(dest="command")

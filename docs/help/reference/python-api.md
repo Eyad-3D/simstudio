@@ -235,8 +235,8 @@ you want kept to the rules you set with `lightsim ai` goes through
 `lightsim.ai_access.AgentSession` instead. It reads the settings when you
 create it, so a change takes effect in the next session. The LightSim MCP
 server for AI assistants reads the same settings (all but the trust list)
-before every tool call, and does not use `AgentSession`: it asks you in the
-AI app before it saves an edit or runs a project with Script blocks, and
-an AI app that sends your answer again repeats a run, or saves another
-copy of an edited example or new project, without asking you. See
-[AI access](command-line.md#ai-access).
+before every tool call, and does not use `AgentSession`. The connection for
+AI apps works hands-off: it never asks you to confirm. It runs a project's
+Script blocks and FMUs in an OS sandbox, or refuses the run when that
+sandbox cannot be set up, and an edit it saves is recoverable from the
+project's backups. See [AI access](command-line.md#ai-access).

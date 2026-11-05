@@ -311,7 +311,7 @@ def test_a_reference_saved_through_the_edit_tool_passes_the_checker(task_id, tmp
     saved to the agent's folder, score as the validator's files do."""
     from app.ai.access import AuditLog, Policy
     from app.ai.engine import Engine
-    from app.ai.tools import CallContext, ConfirmationNeeded, Tools
+    from app.ai.tools import CallContext, Tools
 
     task = next(t for t in TASKS if t.id == task_id)
     work, home = tmp_path / "work", tmp_path / "home"
@@ -328,10 +328,7 @@ def test_a_reference_saved_through_the_edit_tool_passes_the_checker(task_id, tmp
     listing = tools.call("lightsim_list_projects", {}, CallContext())
     ref = next(p["project"] for p in listing["projects"] if p["project"].endswith(task.reference["file"]))
     args = {"project": ref, "operations": list(task.reference["ops"]), "dry_run": False}
-    try:
-        answer = tools.call("model_edit", args, CallContext())
-    except ConfirmationNeeded as asked:
-        answer = tools.call("model_edit", args, CallContext(confirmed=asked.seal))
+    answer = tools.call("model_edit", args, CallContext())  # hands-off: saved straight away
     assert answer["applied"] and answer["checksAfter"]["error"] == answer["checksAfter"]["warning"] == 0
     verdict = agent.check(task, work, "")
     assert verdict.success, verdict.reasons

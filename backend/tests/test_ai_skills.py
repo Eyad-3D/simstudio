@@ -13,7 +13,7 @@ from conftest import allow_ai
 from app.ai import skillpack
 from app.ai.access import AuditLog, Policy
 from app.ai.engine import Engine
-from app.ai.tools import TOOLS, CallContext, ConfirmationNeeded, Tools
+from app.ai.tools import TOOLS, CallContext, Tools
 from app.library import load_library
 
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -75,9 +75,7 @@ def test_the_bev_recipe_builds_a_car_that_drives(tmp_path, monkeypatch):
     args = {"project": "new:My EV", "operations": ops, "dry_run": False}
     dry = tools.call("model_edit", {**args, "dry_run": True}, CallContext())
     assert dry["checksAfter"]["error"] == 0 and dry["checksAfter"]["warning"] == 0
-    with pytest.raises(ConfirmationNeeded) as need:
-        tools.call("model_edit", args, CallContext())
-    saved = tools.call("model_edit", args, CallContext(confirmed=need.value.seal))
+    saved = tools.call("model_edit", args, CallContext())  # hands-off: saved straight away
     run = tools.call("run_case", {"project": saved["project"], "case": "Case 1"}, CallContext())
     rows = {r["key"]: r["value"] for r in run["summary"]}
     assert run["status"] == "success"
