@@ -73,6 +73,59 @@ _RUN_ARG = {"type": "string", "description": "A run id from run_case or lightsim
 
 _OBJ = {"type": "object"}
 
+#: The operations model_edit takes, as a JSON Schema the AI app shows the
+#: model: each is an object with an "op" key naming the kind, and the fields
+#: that kind needs. ``apply_operations`` in edits.py is the matching code.
+_OP_SCHEMAS: list[dict] = [
+    {"title": "set", "type": "object", "required": ["op", "element", "param", "value"],
+     "properties": {
+         "op": {"const": "set"},
+         "element": {"type": "string", "description": "the part's id or exact label"},
+         "param": {"type": "string", "description": "the parameter's key (element_read lists the keys)"},
+         "value": {"description": "a number in the parameter's own unit (a text such as \"150 kW\" "
+                   "must name that unit), text, true/false, or a table as {x: value}"},
+         "case": {"type": "string", "description": "set it for this case only (its id or name)"}}},
+    {"title": "add", "type": "object", "required": ["op", "type"],
+     "properties": {
+         "op": {"const": "add"},
+         "type": {"type": "string", "description": "a library part id such as motor.emotor "
+                  "(lightsim://components lists them)"},
+         "label": {"type": "string", "description": "the new part's label"},
+         "id": {"type": "string"}, "system": {"type": "string"}}},
+    {"title": "remove", "type": "object", "required": ["op", "element"],
+     "properties": {"op": {"const": "remove"},
+                    "element": {"type": "string", "description": "its id or exact label "
+                                "(its wires and signals go with it)"}}},
+    {"title": "connect", "type": "object", "required": ["op", "from", "to"],
+     "properties": {"op": {"const": "connect"},
+                    "from": {"type": "string", "description": "element:port"},
+                    "to": {"type": "string", "description": "element:port (two signal ports make a "
+                           "data-bus signal, anything else a wire)"}}},
+    {"title": "disconnect", "type": "object", "required": ["op", "from", "to"],
+     "properties": {"op": {"const": "disconnect"},
+                    "from": {"type": "string", "description": "element:port"},
+                    "to": {"type": "string", "description": "element:port"}}},
+    {"title": "add_port", "type": "object", "required": ["op", "element", "name", "direction"],
+     "properties": {"op": {"const": "add_port"},
+                    "element": {"type": "string", "description": "a Script or Monitor part"},
+                    "name": {"type": "string", "description": "the signal port's name"},
+                    "direction": {"enum": ["input", "output"]}}},
+    {"title": "add_case", "type": "object", "required": ["op", "name"],
+     "properties": {"op": {"const": "add_case"}, "name": {"type": "string"}, "id": {"type": "string"},
+                    "copy_of": {"type": "string", "description": "copy this case's values (its id or name)"},
+                    "kind": {"enum": ["cycle", "performance", "acceleration", "lap"]},
+                    "duration": {"type": "number", "description": "seconds"},
+                    "timeStep": {"type": "number", "description": "seconds"}}},
+    {"title": "set_case", "type": "object", "required": ["op", "case"],
+     "properties": {"op": {"const": "set_case"},
+                    "case": {"type": "string", "description": "the case's id or name"},
+                    "name": {"type": "string"},
+                    "kind": {"enum": ["cycle", "performance", "acceleration", "lap"]},
+                    "duration": {"type": "number", "description": "seconds"},
+                    "timeStep": {"type": "number", "description": "seconds"},
+                    "endDistance": {"type": "number", "description": "metres"}}},
+]
+
 TOOLS: list[dict] = [
     {
         "name": "lightsim_list_projects",
@@ -181,7 +234,10 @@ TOOLS: list[dict] = [
         "name": "compare_runs",
         "title": "Compare two runs",
         "description": "What differs between the models and cases two runs were made with, and "
-                       "how each key result changed (with 'not valid' notes).",
+                       "how each key result changed (with 'not valid' notes). Both runs must be of "
+                       "the one project named here; it cannot compare runs of two different "
+                       "projects. To compare two designs, make them two cases of one project (or "
+                       "two model_edit variants) and run each, then compare those two run ids.",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
             "run_a": {"type": "string", "description": "The baseline run id."},
@@ -209,18 +265,23 @@ TOOLS: list[dict] = [
     {
         "name": "model_edit",
         "title": "Edit a model",
-        "description": "Change a model with a batch of operations, all or nothing: set (element, "
-                       "param, value[, case]), add (type, label), remove (element), connect and "
-                       "disconnect (from/to as 'element:port'), add_port (a Script's signal "
-                       "port), add_case and set_case. By default a "
+        "description": "Change a model with a batch of operations, applied all or nothing. Each "
+                       "operation is an object with an \"op\" key naming the kind, and that kind's "
+                       "fields (the operations schema lists them): \"set\" (element, param, value, "
+                       "optional case), \"add\" (type, label), \"remove\" (element), \"connect\" and "
+                       "\"disconnect\" (from, to as 'element:port'), \"add_port\" (a Script's signal "
+                       "port), \"add_case\" and \"set_case\". For example "
+                       "{\"op\": \"set\", \"element\": \"Vehicle\", \"param\": \"mass_kg\", "
+                       "\"value\": 1900}. By default a "
                        "dry run: returns what would change and the Data Checks afterwards, saving "
                        "nothing. With dry_run false the user must confirm, then it is saved (an "
                        "example is saved as a new project; for an example or a 'new:' project a yes "
                        "sent again saves another copy; the app keeps backups of every save).",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
-            "operations": {"type": "array", "items": {"type": "object"}, "minItems": 1,
-                           "maxItems": 200},
+            "operations": {"type": "array", "minItems": 1, "maxItems": 200,
+                           "description": "the operations, in order; each has an \"op\" key",
+                           "items": {"type": "object", "required": ["op"], "oneOf": _OP_SCHEMAS}},
             "dry_run": {"type": "boolean", "default": True},
         }, "required": ["project", "operations"], "additionalProperties": False},
         "outputSchema": {"type": "object", "properties": {
@@ -443,7 +504,8 @@ class Tools:
             "summary": R.summary_rows(result.summary),
             "messages": _messages(result),
             "channels": len(result.channels),
-            "next": "results_query reads its channels; compare_runs compares it with another run.",
+            "next": "results_query reads its channels; compare_runs compares it with another run "
+                    "of this project.",
         }
 
     def check_run_allowed(self, handle: ProjectHandle, project: Project, case: Any,
@@ -500,8 +562,8 @@ class Tools:
 
     def t_compare_runs(self, args: dict, ctx: CallContext) -> dict:
         handle, _, _ = self._load(args)
-        a = self._get_run(handle, str(args.get("run_a") or ""))
-        b = self._get_run(handle, str(args.get("run_b") or ""))
+        a = self._compare_run(handle, args.get("run_a"))
+        b = self._compare_run(handle, args.get("run_b"))
         snap = lambda r: (r.snapshot.project, r.snapshot.case) if r.snapshot else None  # noqa: E731
         return {
             "runA": {"run": a.id, "case": a.caseName, "status": a.status},
@@ -509,6 +571,19 @@ class Tools:
             "modelDifferences": R.model_differences(snap(a), snap(b)),
             "results": R.kpi_changes(a.result.summary, b.result.summary),
         }
+
+    def _compare_run(self, handle: ProjectHandle, run_id: Any) -> StoredRun:
+        """A run of this project for compare_runs, with a plain message when
+        the id is of another project (the agent ran two project files and
+        tried to compare their runs)."""
+        try:
+            return self._get_run(handle, str(run_id or ""))
+        except ToolError as e:
+            raise ToolError(
+                f"{e} compare_runs compares two runs of this one project; it cannot compare runs "
+                "of two different project files. To compare two designs, make them two cases of "
+                "one project (or two model_edit variants) and run each, then compare those two "
+                "run ids.") from None
 
     def t_explain_message(self, args: dict, ctx: CallContext) -> dict:
         text = str(args.get("text") or "").strip()

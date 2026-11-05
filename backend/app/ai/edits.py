@@ -165,15 +165,26 @@ def apply_operations(project: Project, operations: list[dict]) -> tuple[Project,
     for i, op in enumerate(operations, 1):
         try:
             if not isinstance(op, dict):
-                raise EditError("An operation is an object with an 'op'.")
+                raise EditError("an operation is an object with an \"op\" key, not "
+                                f"{type(op).__name__}.")
             changes.append(_apply(m, op))
         except EditError as e:
-            raise EditError(f"Operation {i} ({op.get('op') if isinstance(op, dict) else op}): {e}") from None
+            label = op.get("op") if isinstance(op, dict) and op.get("op") is not None else "no op"
+            raise EditError(f"Operation {i} ({label}): {e}") from None
     return m.p, changes
+
+
+_OP_KINDS = ("set", "add", "remove", "connect", "disconnect", "add_port", "add_case", "set_case")
 
 
 def _apply(m: _Model, op: dict) -> str:
     kind = op.get("op")
+    if kind is None:
+        keys = ", ".join(repr(k) for k in op) or "no keys"
+        raise EditError(
+            f"this operation has no \"op\" key (its keys: {keys}). Every operation needs an "
+            f"\"op\" naming the kind: {', '.join(_OP_KINDS)}. For example "
+            "{\"op\": \"set\", \"element\": \"Vehicle\", \"param\": \"mass_kg\", \"value\": 1900}.")
     if kind == "set":
         _, el = m.element(op.get("element"))
         key = str(op.get("param") or "")
@@ -268,7 +279,7 @@ def _apply(m: _Model, op: dict) -> str:
         if not changed:
             raise EditError(f"Nothing to change: give any of {', '.join(_CASE_FIELDS)}.")
         return f'Case "{case.name}": ' + ", ".join(changed)
-    raise EditError("Unknown 'op': use set, add, remove, connect, disconnect, add_port, add_case or set_case.")
+    raise EditError(f"unknown op {kind!r}: use one of {', '.join(_OP_KINDS)}.")
 
 
 def _set_case_fields(case: SimCase, op: dict) -> list[str]:
