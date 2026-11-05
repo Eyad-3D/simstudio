@@ -26,6 +26,7 @@ Elements are named by id or by their exact label.
 """
 from __future__ import annotations
 
+import difflib
 import re
 from typing import Any, Optional
 
@@ -58,6 +59,33 @@ def _norm_unit(u: str) -> str:
     return u.replace("·", "").replace("*", "").replace(" ", "").replace("²", "^2").lower()
 
 
+def no_part_message(project: Project, name: Any, lib: Optional[dict] = None) -> str:
+    """Why no part matches ``name``, with the parts listed as
+    ``id ("label", type)``, the closest to ``name`` first, and a word when
+    ``name`` is really a case or a library part type — the two things agents
+    most often pass by mistake (BASELINE item 5: the old message named no
+    part at all, which agents recovered from least)."""
+    name = str(name or "")
+    parts = [(e.id, e.label, e.componentDefId) for s in project.systems for e in s.elements]
+
+    def closeness(part: tuple[str, str, str]) -> float:
+        e_id, label, _ = part
+        return max(difflib.SequenceMatcher(None, name.lower(), c.lower()).ratio()
+                   for c in (e_id, label or e_id))
+
+    parts.sort(key=closeness, reverse=True)
+    listed = ", ".join(f'{e_id} ("{label}", {type_id})' for e_id, label, type_id in parts[:12])
+    if len(parts) > 12:
+        listed += f", … ({len(parts) - 12} more)"
+    hint = ""
+    if any(name in (c.id, c.name) for c in project.cases):
+        hint = f" '{name}' is a case, not a part."
+    elif lib is not None and name in lib:
+        hint = f" '{name}' is a part type, not a part in this model (model_edit's add adds one)."
+    return (f"No part '{name}' in this project.{hint} Name a part by its id or exact label; "
+            f"parts (closest first): {listed}.")
+
+
 class _Model:
     def __init__(self, project: Project) -> None:
         self.p = project
@@ -71,7 +99,7 @@ class _Model:
         hits = [(s, e) for s, e in self.elements() if e.id == name]
         hits = hits or [(s, e) for s, e in self.elements() if e.label == name]
         if not hits:
-            raise EditError(f"No part '{name}' (name a part by its id or exact label).")
+            raise EditError(no_part_message(self.p, name, self.lib))
         if len(hits) > 1:
             raise EditError(f"Several parts are labelled '{name}': name it by id "
                             f"({', '.join(e.id for _, e in hits)}).")

@@ -212,22 +212,35 @@ def cmd_edit(args) -> int:
     target = Path(args.out) if args.out else project.path
     if target is None:
         raise UsageError("This project is an example: give --out, a file to save the edit to.")
-    backup = None
-    if target.exists():  # keep the version we are about to replace, so the edit is recoverable
-        backup = target.with_name(target.name + ".bak")
-        backup.write_bytes(target.read_bytes())
+    storage = engine("storage")
+    backups = None
+    if target.exists():
+        # Keep the version we are about to replace in <file>-backups, the
+        # newest storage.KEEP_BACKUPS, as the AI plug's model_edit does — not a
+        # single <file>.bak, which a second in-place edit would overwrite,
+        # losing the original. So an agent that saves several times while it
+        # works can still get back any recent version.
+        loc = storage.Location(
+            id=target.stem, file=target,
+            runs=target.with_name(target.name + "-runs"),
+            backups=target.with_name(target.name + "-backups"),
+            resources=target.with_name(target.name + "-resources"),
+            external=True)
+        storage._keep_backup(loc, target, target.read_bytes())
+        backups = loc.backups
     project.save(target)
     checks = project.check()
     errors = sum(c.level == "error" for c in checks)
-    where = (f"the previous version is kept at {backup}" if backup
-             else "the original project is unchanged" if args.out else None)
+    where = (f"the previous versions are kept in {backups} (the newest {storage.KEEP_BACKUPS})"
+             if backups else "the original project is unchanged" if args.out else None)
     lines = [f"Saved {target} ({len(changes)} change{'s' if len(changes) != 1 else ''})"]
     lines += [f"  {c}" for c in changes]
     if where:
         lines.append(f"  ({where})")
     lines += [f"  {c.level}: {c.text}" + (f" How to fix: {c.fix}" if c.fix else "")
               for c in checks if c.level != "info"]
-    _out(args, {"saved": str(target), "changes": changes, "backup": str(backup) if backup else None,
+    _out(args, {"saved": str(target), "changes": changes,
+                "backups": str(backups) if backups else None,
                 "recoverable": where, "errors": errors,
                 "checks": [c.to_dict() for c in checks]}, "\n".join(lines))
     return EXIT_OK
@@ -411,7 +424,7 @@ def parser() -> argparse.ArgumentParser:
                          "\"label\":\"Brake\"}' (repeatable)")
     ed.add_argument("--ops", metavar="JSON", help="a JSON array of operations")
     ed.add_argument("--out", "-o", help="save to this file (default: the project file in place; "
-                                        "the previous version is kept beside it as <file>.bak)")
+                                        "the previous versions are kept beside it in <file>-backups)")
     ed.set_defaults(func=cmd_edit)
 
     e = add("export", "Write a stored run (.json.gz from the app, or .json) as CSV, MAT, JSON "

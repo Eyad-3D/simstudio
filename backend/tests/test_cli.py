@@ -72,9 +72,24 @@ def test_edit_in_place_keeps_the_previous_version_as_a_backup(tmp_path):
     original = src.read_text(encoding="utf-8")
     r = cli("edit", str(src), "--set", "Vehicle.mass_kg=1800")
     assert r.returncode == 0, r.stderr
-    assert "the previous version is kept at" in r.stdout and "car.json.bak" in r.stdout
-    assert (tmp_path / "car.json.bak").read_text(encoding="utf-8") == original
+    assert "the previous versions are kept in" in r.stdout and "car.json-backups" in r.stdout
+    kept = list((tmp_path / "car.json-backups").glob("*.json"))
+    assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == original
     assert ls.load(src).get("Vehicle.mass_kg") == 1800
+
+
+def test_edit_in_place_keeps_every_version_so_the_original_survives(tmp_path):
+    # the check's defect (f): a single <file>.bak lost the original after a
+    # second in-place edit. The <file>-backups folder keeps each version, so
+    # an agent that saves several times while it works can still recover any.
+    src = _bev_copy(tmp_path / "car.json")
+    assert ls.load(src).get("Vehicle.mass_kg") == 1927  # the original
+    for mass in (1500, 1600, 1700):
+        assert cli("edit", str(src), "--set", f"Vehicle.mass_kg={mass}").returncode == 0
+    assert ls.load(src).get("Vehicle.mass_kg") == 1700
+    backups = tmp_path / "car.json-backups"
+    masses = {ls.load(b).get("Vehicle.mass_kg") for b in backups.glob("*.json")}
+    assert {1927, 1500, 1600} <= masses, f"the original 1927 and each step are recoverable: {masses}"
 
 
 def test_edit_an_example_needs_an_out_file():
@@ -88,7 +103,7 @@ def test_edit_reports_a_bad_operation_and_saves_nothing(tmp_path):
     r = cli("edit", str(src), "--op", '{"op": "set", "element": "Vehicle", "param": "nope", "value": 1}')
     assert r.returncode == 3 and "nope" in r.stderr
     assert src.read_text(encoding="utf-8") == before, "nothing saved"
-    assert not (tmp_path / "car.json.bak").exists(), "and no backup"
+    assert not (tmp_path / "car.json-backups").exists(), "and no backup"
 
 
 def test_exit_1_when_the_data_checks_fail(tmp_path):

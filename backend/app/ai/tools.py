@@ -31,7 +31,7 @@ from ..schemas import Project, RunSnapshot, SimResult, StoredRun
 from ..version import VERSION
 from . import results as R
 from .access import AuditLog, Policy
-from .edits import EditError, apply_operations, check_counts, describe_check
+from .edits import EditError, apply_operations, check_counts, describe_check, no_part_message
 from .engine import Engine, NotFound, ProjectHandle
 from .overview import KNOWN_LIMITS_URL, model_overview, quote, run_for_overview
 from .skillpack import known_limit_sections
@@ -403,7 +403,7 @@ class Tools:
         found = [(s, e) for s in project.systems for e in s.elements if e.id == name] or \
             [(s, e) for s in project.systems for e in s.elements if e.label == name]
         if not found:
-            raise ToolError(f"No part '{name}' in this project: lightsim_overview lists them.")
+            raise ToolError(no_part_message(project, name, self.engine.library()))
         system, el = found[0]
         lib = self.engine.library()
         cdef = lib.get(el.componentDefId)

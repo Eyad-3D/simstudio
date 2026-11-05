@@ -85,6 +85,45 @@ def test_an_operation_with_an_unknown_op_names_the_op():
         apply_operations(bev, [{"op": "frobnicate", "element": "Vehicle"}])
 
 
+# -- a 'no part' error names the parts, closest first (BASELINE item 5) ----------
+
+
+def test_no_part_error_lists_the_parts_by_id_and_label_and_type():
+    # the item agents recovered from least: "No part 'Battery'" named no part.
+    # The real part is el-battery, "HV Battery Pack" (battery.generic).
+    bev = load_example("bev-car")
+    with pytest.raises(EditError) as e:
+        apply_operations(bev, [{"op": "set", "element": "Battery", "param": "capacity_kwh", "value": 50}])
+    text = str(e.value)
+    assert 'el-battery ("HV Battery Pack", battery.generic)' in text
+    # el-battery is the closest to "Battery", so it is listed first
+    listed = text.split("closest first):", 1)[1].strip()
+    assert listed.startswith('el-battery ("HV Battery Pack", battery.generic)'), listed
+
+
+def test_no_part_error_says_when_the_name_is_a_case_or_a_part_type():
+    bev = load_example("bev-car")
+    with pytest.raises(EditError, match=r"'case-city' is a case, not a part"):
+        apply_operations(bev, [{"op": "set", "element": "case-city", "param": "x", "value": 1}])
+    with pytest.raises(EditError, match=r"'battery.generic' is a part type, not a part"):
+        apply_operations(bev, [{"op": "set", "element": "battery.generic", "param": "x", "value": 1}])
+
+
+def test_element_read_no_part_names_the_parts(tmp_path, monkeypatch):
+    # the same help over the MCP server's element_read, by a label that is not
+    # a part (BASELINE: element_read 'Battery' named no part)
+    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path / "projects"))
+    allow_ai(tmp_path / "projects")
+    server = _server(tmp_path / "projects")
+    answer = _call(server, "element_read", {"project": "example:bev-car", "element": "Battery"})
+    assert answer["isError"]
+    text = answer["content"][0]["text"]
+    assert 'el-battery ("HV Battery Pack", battery.generic)' in text
+    # a type id passed as a part is named as such
+    typed = _call(server, "element_read", {"project": "example:bev-car", "element": "battery.generic"})
+    assert typed["isError"] and "is a part type, not a part" in typed["content"][0]["text"]
+
+
 def test_a_non_object_operation_says_what_an_operation_is():
     bev = load_example("bev-car")
     with pytest.raises(EditError, match=r"an operation is an object with an \"op\" key"):
