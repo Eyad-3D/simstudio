@@ -540,23 +540,27 @@ def test_fmu_cannot_read_write_connect_or_start_a_process(test_fmu):
 
 
 @needs_fmpy
-@needs_cc
 @pytest.mark.skipif(sys.platform != "win32", reason="the AppContainer sandbox is Windows-only")
-def test_fmu_is_confined_in_the_windows_appcontainer(test_fmu):
-    # (b)/(c) on Windows: an FMU that tries to write a file, open a TCP
-    # connection and start a process is blocked by the AppContainer (its
-    # read target /etc/hostname is absent on Windows; a user-file read is
-    # proven blocked by the Script test). Runs in the Backend-on-Windows job.
+def test_an_fmu_worker_runs_confined_in_the_windows_appcontainer():
+    # (b)/(c) on Windows. There is no Windows build of the test FMU
+    # (build.compiler() is None on Windows), so the FMU's native-code escape is
+    # proven on Linux; here we prove the FMU worker runs inside the
+    # AppContainer on Windows — FMPy loads in the container and the worker
+    # reports itself confined, failing only to load the (bogus) FMU. It is the
+    # same AppContainer that confines the Script worker (test_agent_sandbox).
+    # Runs in the Backend-on-Windows job (no C compiler needed).
+    from app.fmu.sandbox import FmuSpec
     from app.solver import win_sandbox
     if not win_sandbox.appcontainer_available():
         pytest.skip("this machine cannot set up the AppContainer")
-    params = _import(test_fmu) | {"start:mode": 3}
-    spec = spec_for("fmu", "Lag", params, [SimpleNamespace(name="escaped", direction="output")])
-    with FmuSandbox(spec, strict=True) as sb:
-        sb.step(0.0, 0.5, [])
-        escaped = sb.step(0.5, 0.5, [])[0]
-    assert escaped == 0, (f"the FMU escaped (bit sum {escaped:g}: 1 read a file, 2 wrote a file, "
-                          "4 opened a TCP connection, 8 started a process)")
+    spec = FmuSpec(el_id="x", label="X", unzip_dir=r"C:\lightsim-no-such-fmu",
+                   library_path=r"C:\lightsim-no-such-fmu\x.dll", fmi_version="2.0",
+                   guid="g", model_identifier="X")
+    # "could not start" means the worker reached init confined (FMPy loaded) and
+    # only the FMU failed to load — not "crashed while loading" (FMPy/the worker
+    # died) and not "sandbox_unavailable" (it was not confined).
+    with pytest.raises(FmuError, match="could not start"):
+        FmuSandbox(spec, strict=True)
 
 
 @needs_fmpy
