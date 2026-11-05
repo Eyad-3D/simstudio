@@ -56,7 +56,8 @@ def test_every_name_the_skills_use_exists():
     tools = {t["name"] for t in TOOLS}
     words = {"add_port", "add_case", "set_case", "dry_run", "t_from", "t_to", "full_tables",
              "hide_values", "motor_rpm", "engine_rpm", "motor_cmd", "engine_on", "clutch_cmd",
-             "references/components.md", "references/known-limits.md", "wltc-3b"}
+             "references/components.md", "references/known-limits.md", "wltc-3b",
+             "sandbox_unavailable"}  # the stable code a strict run reports (app/solver/sandbox.py)
     for path in SKILL_FILES:
         for token in re.findall(r"`([^`\s]+)`", path.read_text(encoding="utf-8")):
             if re.fullmatch(r"[a-z]+\.[a-z0-9_]+", token):
