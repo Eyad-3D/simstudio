@@ -756,6 +756,11 @@ minimum or an average, for example from the CSV export, or put the
   solver step's change. On the new engine an FMU's start values and its
   Communication Step changed during a run take effect on the next run
   (code `NEW-LIVE-NEXT-RUN`). *Roadmap:* ENG-16.
+- **A PID or Lookup block's Sample Time is not kept by the new engine.**
+  With `LIGHTSIM_ENGINE=new`, and in quick mode, a PID or Lookup block
+  with a Sample Time runs at every step, where today's engine holds its
+  output between samples: its output, and what it drives, can differ
+  between two samples, and no code says so yet. *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a
   negative pressure, a CG height below 0, a wheel's load share of 0):
