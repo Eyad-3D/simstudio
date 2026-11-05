@@ -14,9 +14,11 @@ intent, built for AI-03).
 - The per-project trust list that ``lightsim ai trust`` keeps
   (``lightsim/ai_access.py``) is **not** read here: only ``AgentSession``
   reads it. The engine's own approval of Script code
-  (``app/script_trust.py``) still applies to every run, as in the app, so an
-  agent runs the examples' scripts and any the user approved, but not a
-  brand-new script until it is approved in the app.
+  (``app/script_trust.py``) is **not** applied to an agent's run either: a
+  strict run is made safe by the OS sandbox, so a brand-new script the agent
+  writes runs in the sandbox without the app's **Run scripts** approval (the
+  owner's hands-off decision). That approval still guards a run a person
+  starts in the app (``STRICT`` off).
 - Each tool call that reaches :class:`~app.ai.tools.Tools` goes into a local
   audit log, JSON lines in ``.ai/audit.jsonl`` next to the user's projects,
   done or not. A run sent as a task that is refused before it starts, and a

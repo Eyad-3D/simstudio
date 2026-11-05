@@ -114,8 +114,10 @@ it("says what the connection for AI apps does today", async () => {
   );
   expect(text).toContain("it runs in an OS sandbox with no network and access to the project's folder only");
   expect(text).toContain("the run is refused with the code sandbox_unavailable rather than run less safely");
-  expect(text).toContain("a brand-new script an assistant wrote fails until you approve it");
-  expect(text).toContain("LightSim also refuses Script code you have not approved there (Run scripts)");
+  expect(text).toContain(
+    "A brand-new script an assistant writes runs in that sandbox straight away, with no Run scripts approval",
+  );
+  expect(text).toContain("A run you start yourself in LightSim still asks you to approve new script code");
   expect(text).toContain("Only Python code that uses lightsim.ai_access.AgentSession reads it");
   expect(text).toContain("The connection for AI apps does not read this list.");
   // the claims it used to make, and the confirmation it no longer asks for

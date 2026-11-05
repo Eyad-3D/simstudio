@@ -64,10 +64,8 @@ and report what is not allowed: run `run_checks` after every change.
   Windows — the run is refused with the code `sandbox_unavailable` rather
   than run less safely. The `lightsim ai trust` list plays no part (only
   `AgentSession` reads it).
-- Code the user has not approved in LightSim does not run: the run ends
-  *failed* with "has not been approved to run". The examples' code and code
-  the user typed in the app count as approved; a script you write or change
-  with `model_edit` does not. After you save one,
-  tell the user to open the project in LightSim and choose **Run scripts**,
-  then run the case.
+- A script you write or change with `model_edit` runs in that sandbox
+  straight away: the connection for AI apps asks nobody to approve it (the
+  sandbox is the safety). Save it with `model_edit` (`dry_run: false`), then
+  run the case with `run_case`.
 - Help page: *Script API* in LightSim's Help.

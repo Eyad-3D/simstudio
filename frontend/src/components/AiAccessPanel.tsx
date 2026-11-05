@@ -191,8 +191,9 @@ export function AiAccessPanel() {
           Running a project with Script blocks (Python code) or FMUs: it runs in an OS sandbox with no network and
           access to the project's folder only. If that sandbox cannot be set up — today, on Windows, where the
           AppContainer is not built yet — the run is refused with the code <code>sandbox_unavailable</code> rather than
-          run less safely. As in the app, LightSim also refuses Script code you have not approved there (<b>Run
-          scripts</b>), so a brand-new script an assistant wrote fails until you approve it.
+          run less safely. A brand-new script an assistant writes runs in that sandbox straight away, with no{" "}
+          <b>Run scripts</b> approval — the sandbox is the safety. (A run you start yourself in LightSim still asks you
+          to approve new script code.)
         </li>
       </ul>
 

@@ -188,10 +188,10 @@ TOOLS: list[dict] = [
                        "not asked to confirm. A project with Script blocks or FMUs runs in an OS "
                        "sandbox (no network, file access to the project only); if that sandbox "
                        "cannot be set up (today, on Windows) the run is refused with the code "
-                       "'sandbox_unavailable' rather than run less safely. Script code still runs "
-                       "only if the user approved it in LightSim: a brand-new script you wrote "
-                       "fails with 'has not been approved' until they do. The run is kept for "
-                       "results_query and compare_runs; it does not change the project.",
+                       "'sandbox_unavailable' rather than run less safely. A brand-new Script "
+                       "block you write runs in that sandbox straight away: you are not asked to "
+                       "get it approved. The run is kept for results_query and compare_runs; it "
+                       "does not change the project.",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
             "case": {"type": "string", "description": "The case's id or name."},

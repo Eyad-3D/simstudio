@@ -112,8 +112,9 @@ owner's decision, 1 November 2026). What an AI app can do once access is on:
   project's folder only. When that sandbox cannot be set up — today, on
   Windows (see [Known issues](../../KNOWN-LIMITS.md)) — the run is refused
   with the code `sandbox_unavailable` rather than run less safely. The trust
-  list above plays no part. LightSim's check of script code applies as in
-  the app: code you have not approved there makes the run fail.
+  list above plays no part, and a brand-new script the assistant writes runs
+  in the sandbox without the app's **Run scripts** approval — the sandbox is
+  the safety.
 - **Change** a project: with model_edit's dry run off the edit is saved
   straight away, and is recoverable (an example saved as a new project, the
   previous version kept as a backup).

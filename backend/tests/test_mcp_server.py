@@ -23,8 +23,16 @@ from app.ai.access import AuditLog, Policy, last_audit_entry
 from app.ai.engine import Engine
 from app.ai.mcp_server import McpServer
 from app.ai.tools import TOOLS
+from app.solver.sandbox import why_no_strict_sandbox
 
 BACKEND = Path(__file__).resolve().parent.parent
+
+#: True when the strict (agent) OS sandbox can really be set up on this
+#: machine: Linux with Landlock, or Windows once the AppContainer lands. A
+#: Script/FMU agent run succeeds where this holds and is refused with
+#: sandbox_unavailable where it does not (never a weaker fall-back), so the
+#: Script/FMU run tests assert the outcome this machine can actually give.
+STRICT_OK = why_no_strict_sandbox() is None
 MODERN = "2026-07-28"
 META = {"io.modelcontextprotocol/protocolVersion": MODERN,
         "io.modelcontextprotocol/clientCapabilities": {
@@ -383,13 +391,18 @@ def test_edits_off_with_read_only(folder):
 
 
 def test_script_projects_run_in_the_sandbox_or_are_refused(folder):
-    # hands-off: no question. On Linux the project runs in the OS sandbox; on
-    # Windows, where the AppContainer is not built yet, it is refused with the
-    # stable code rather than run less safely (never a weaker fall-back).
-    server = make_server(folder, platform="linux")
+    # hands-off: no question. Where the strict OS sandbox can be set up the
+    # project runs in it; where it cannot (Windows until the AppContainer
+    # lands) it is refused with the stable code rather than run less safely
+    # (never a weaker fall-back).
+    server = make_server(folder)
     ran = tool(server, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
-    assert "resultType" not in ran or ran["resultType"] == "complete"
-    assert not ran["isError"] and ran["structuredContent"]["status"] == "success"
+    if STRICT_OK:
+        assert "resultType" not in ran or ran["resultType"] == "complete"
+        assert not ran["isError"] and ran["structuredContent"]["status"] == "success"
+    else:
+        assert ran["isError"] and "sandbox_unavailable" in ran["content"][0]["text"]
+    # a Policy that names Windows is refused wherever the test runs
     win = make_server(folder, platform="win32")
     refused = tool(win, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
     assert refused["isError"] and "sandbox_unavailable" in refused["content"][0]["text"]
@@ -436,6 +449,7 @@ def test_reading_asks_the_user_nothing(folder):
         assert answer["isError"] is False, (name, answer)
 
 
+@pytest.mark.skipif(not STRICT_OK, reason="needs the strict OS sandbox (Linux Landlock, or the Windows AppContainer)")
 def test_every_script_run_is_sandboxed_and_the_trust_list_is_not_read(folder, monkeypatch):
     import lightsim as ls
     from lightsim import ai_access
@@ -463,7 +477,7 @@ def test_every_script_run_is_sandboxed_and_the_trust_list_is_not_read(folder, mo
     monkeypatch.setattr(ai_access.Policy, "trusted_scripts", boom)
     monkeypatch.setattr(ai_access.Policy, "require_run", boom)
 
-    server = make_server(folder, platform="linux")
+    server = make_server(folder)
     for project in (on_list, off_list):  # on the trust list or not, the run is the same
         args = {"project": str(project), "case": "case-udds"}
         ran = tool(server, "run_case", args)
@@ -504,9 +518,12 @@ def test_an_edit_saves_on_any_handshake_with_no_question(folder):
     assert reply["result"]["isError"] is False and reply["result"]["structuredContent"]["applied"] is True
 
 
-def test_script_code_nobody_approved_fails_the_run(folder, tmp_path, monkeypatch):
-    # the engine's own script-code approval (app/script_trust.py) still applies
-    # to an agent's run, as in the app: a brand-new script fails until approved
+def test_an_agents_new_script_runs_without_approval(folder, tmp_path, monkeypatch):
+    # hands-off (the owner, 1 Nov 2026): the engine's own script-code approval
+    # (app/script_trust.py) is for a run a person starts in the app. An agent's
+    # run is made safe by the sandbox, so a brand-new script nobody approved
+    # runs in the sandbox with no "Run scripts" step — or is refused with the
+    # stable code where the sandbox cannot be set up, never run less safely.
     from app import script_trust
 
     own = tmp_path / "userdata"  # this user's own LightSim folder, where approvals are kept
@@ -519,19 +536,18 @@ def test_script_code_nobody_approved_fails_the_run(folder, tmp_path, monkeypatch
         shared = tmp_path / "shared"
         path = _hybrid_copy(shared, "from-someone.json", changed_code=True)
         allow_ai(folder, shared)
-        server = make_server(folder, platform="linux")
+        server = make_server(folder)
         args = {"project": str(path), "case": "case-udds"}
 
-        refused = tool(server, "run_case", args)  # no question, runs in the sandbox, but…
-        result = refused["structuredContent"]
-        assert result["status"] == "failed"
-        assert "has not been approved to run" in json.dumps(result["messages"])
-        assert "changed by someone else" not in json.dumps(result), "the reply does not show the code"
-
-        code = next(s["code"] for s in script_trust.project_scripts(json.loads(path.read_text("utf-8"))))
-        script_trust.approve([code])  # the user chose Run scripts in the app
-        ran = tool(server, "run_case", args)  # now it runs in the sandbox, no question
-        assert ran["structuredContent"]["status"] == "success", ran
+        # the code was approved by nobody and is not on any trust list
+        assert not script_trust.is_approved(
+            next(s["code"] for s in script_trust.project_scripts(json.loads(path.read_text("utf-8")))))
+        ran = tool(server, "run_case", args)
+        if STRICT_OK:
+            assert not ran["isError"] and ran["structuredContent"]["status"] == "success", ran
+            assert "changed by someone else" not in json.dumps(ran), "the reply does not show the code"
+        else:
+            assert ran["isError"] and "sandbox_unavailable" in ran["content"][0]["text"]
     finally:
         script_trust._reset_for_tests()
 
@@ -580,15 +596,15 @@ def test_what_the_audit_log_leaves_out(folder):
     # tool is a line, done or not (a run, a refusal). A run sent as a task that
     # is refused before it starts, and a call LightSim cannot read (a tool it
     # does not have, arguments that are not an object), are not lines.
-    path = _hybrid_copy(folder, "logged.json")
-    server = make_server(folder, platform="linux")
-    args = {"project": str(path), "case": "case-udds"}
+    server = make_server(folder)
     log = folder / ".ai" / "audit.jsonl"
 
     def lines() -> int:
         return len(log.read_text(encoding="utf-8").splitlines()) if log.exists() else 0
 
-    ran = tool(server, "run_case", args)  # a run reaches the tool: one line, done
+    # a scriptless project runs on any platform, so the "one line, done" part
+    # does not depend on whether the strict sandbox can be set up here
+    ran = tool(server, "run_case", {"project": "example:bev-car", "case": "case-city"})
     assert not ran["isError"] and lines() == 1 and last_audit_entry(folder)["ok"] is True
 
     as_task = {"_meta": {"io.modelcontextprotocol/tasks": {"ttl": 60000}}}
@@ -598,11 +614,12 @@ def test_what_the_audit_log_leaves_out(folder):
         "name": "no_such_tool", "arguments": {}, "_meta": META}})
     assert "error" in reply and lines() == 1, "a tool LightSim does not have"
     reply = server.handle({"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {
-        "name": "run_case", "arguments": [str(path)], "_meta": META}})
+        "name": "run_case", "arguments": ["x"], "_meta": META}})
     assert "error" in reply and lines() == 1, "arguments that are not an object: a call it cannot read"
 
+    # a Script run refused before the sandbox exists (Windows) is a line (ok False)
     win = make_server(folder, platform="win32")
-    refused = tool(win, "run_case", args)  # refused before the sandbox exists: a line
+    refused = tool(win, "run_case", {"project": "example:hybrid-car", "case": "case-udds"})
     assert refused["isError"] and "sandbox_unavailable" in refused["content"][0]["text"]
     assert lines() == 2 and last_audit_entry(folder)["ok"] is False, "a refusal is a line"
 

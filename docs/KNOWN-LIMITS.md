@@ -1122,10 +1122,11 @@ minimum or an average, for example from the CSV export, or put the
   It does not read the trust list (`lightsim ai trust`): only Python code
   that goes through `lightsim.ai_access.AgentSession` reads it, and
   `lightsim run` and the `lightsim` package read no AI access setting at
-  all. LightSim's check of script code (the scripts entry above) still
-  applies to an AI app's run as to yours: code you have not approved in the
-  app, such as a brand-new script the assistant wrote, makes the run fail
-  until you choose **Run scripts** there. `lightsim ai log` lists only the
+  all. LightSim's check of script code (the scripts entry above) is for a
+  run you start in the app; an AI app's run is made safe by the sandbox
+  instead, so a brand-new script the assistant writes runs without the
+  **Run scripts** approval (still only in the sandbox, or the run is
+  refused). `lightsim ai log` lists only the
   calls made through `AgentSession`; an AI app's calls are in
   `.ai/audit.jsonl` in your projects folder, and the *AI access* tab shows
   both. That log leaves out a run sent as a task that LightSim refuses

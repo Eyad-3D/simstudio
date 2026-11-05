@@ -17,9 +17,10 @@ decision of 1 November 2026: an agent works hands-off):
   Python code that goes through ``lightsim.ai_access.AgentSession`` does,
   and the plain ``lightsim`` package and ``lightsim run`` read no AI access
   setting at all;
-- LightSim's own approval of Script code (app/script_trust.py) still applies
-  to an AI app's run, so a brand-new script the assistant wrote fails the
-  run until the user approves it in the app;
+- LightSim's own approval of Script code (app/script_trust.py) does NOT
+  apply to an AI app's run: the sandbox is the safety, so a brand-new script
+  the assistant writes runs in the sandbox without the **Run scripts**
+  approval (that approval still guards a run a person starts in the app);
 - the AI apps' audit log has a line for each call that reaches a tool, but
   not for a run sent as a task that is refused before it starts, or a call
   LightSim cannot read (a tool it does not have, arguments that are not an
@@ -34,7 +35,7 @@ The behaviour is held in test_mcp_server.py (``test_reading_asks_the_user_
 nothing``, ``test_edits_are_dry_runs_and_saving_is_direct``,
 ``test_script_projects_run_in_the_sandbox_or_are_refused``,
 ``test_every_script_run_is_sandboxed_and_the_trust_list_is_not_read``,
-``test_script_code_nobody_approved_fails_the_run``,
+``test_an_agents_new_script_runs_without_approval``,
 ``test_what_the_audit_log_leaves_out``,
 ``test_every_tool_call_is_refused_while_ai_access_is_off``) and in
 test_agent_sandbox.py (the strict sandbox and the refusal). This file holds
@@ -125,7 +126,8 @@ def test_the_run_case_tool_tells_an_agent_what_it_will_meet():
     description = next(t for t in TOOLS if t["name"] == "run_case")["description"]
     assert "not asked to confirm" in description
     assert "OS sandbox" in description and "sandbox_unavailable" in description
-    assert "has not been approved" in description
+    assert "you are not asked to get it approved" in description
+    assert "has not been approved" not in description  # the hands-off change
     edit = next(t for t in TOOLS if t["name"] == "model_edit")["description"]
     assert "saved straight away (you are not asked to confirm)" in edit
     assert "backup" in edit and "undone" in edit
@@ -150,8 +152,8 @@ REFUSED = "the run is refused with the code `sandbox_unavailable` rather than ru
 #: an edit is saved and recoverable
 SAVED = "an edit is saved straight away"
 RECOVER = "the previous version is kept as a backup"
-#: the engine still refuses unapproved script code
-APPROVAL = "code you have not approved there makes the run fail"
+#: a brand-new script an agent writes runs in the sandbox, no approval asked
+NO_APPROVAL = "runs in that sandbox straight away, with no **Run scripts** approval"
 #: when the settings are read (the page, the help)
 FRESH = "before every tool call"
 STARTS = "reads them when it starts a session"
@@ -172,8 +174,8 @@ MUST_SAY = {
         "saved straight away. An example is saved as a new project, and the previous version is kept as a backup",
         "it runs in an OS sandbox with no network and access to the project's folder only",
         "the run is refused with the code <code>sandbox_unavailable</code> rather than run less safely",
-        "a brand-new script an assistant wrote fails until you approve it",
-        "refuses Script code you have not approved there",
+        "A brand-new script an assistant writes runs in that sandbox straight away, with no <b>Run scripts</b> approval",
+        "A run you start yourself in LightSim still asks you to approve new script code",
         "Only Python code that uses <code>lightsim.ai_access.AgentSession</code> reads it",
         "The connection for AI apps does not read this list.",
     ],
@@ -183,8 +185,8 @@ MUST_SAY = {
         "an edit is saved straight away, and is recoverable",
         "runs in an OS sandbox with no network and access to the project's folder only",
         "the run is refused with the code `sandbox_unavailable` rather than run less safely",
-        "Code that is not code you approved in LightSim makes the run fail",
-        "brand-new script the assistant wrote fails until you approve it",
+        "A brand-new Script block the assistant writes runs in that sandbox straight away, with no **Run scripts** approval",
+        "A run you start yourself in LightSim still asks you to approve new script code",
         UNLOGGED, UNREAD,
         "An AI app you connected reads them " + FRESH + ", and Python code that goes through "
         "`lightsim.ai_access.AgentSession` " + STARTS + ".",
@@ -202,7 +204,7 @@ MUST_SAY = {
         "An agent works hands-off: the connection never asks you to confirm",
         "runs a project with Script blocks or FMUs in an OS sandbox",
         "refused with the code `sandbox_unavailable`",
-        "code you have not approved there makes the run fail",
+        "a brand-new script the assistant writes runs in the sandbox without the app's **Run scripts** approval",
         "The last calls made through `AgentSession`",
     ],
     PYTHON_API: [
@@ -221,7 +223,7 @@ MUST_SAY = {
         "edit it saves is recoverable (the previous version kept as a backup, an example saved "
         "as a new project)",
         "`lightsim run` and the `lightsim` package read no AI access setting at all",
-        "makes the run fail until you choose **Run scripts** there",
+        "a brand-new script the assistant writes runs without the **Run scripts** approval",
         "`lightsim ai log` lists only the calls made through `AgentSession`",
         "That log leaves out " + UNLOGGED + ", and " + UNREAD + ".",
     ],
@@ -247,8 +249,8 @@ MUST_SAY = {
     ],
     SKILL: [
         "The `lightsim ai trust` list plays no part",
-        "the run ends *failed* with \"has not been approved to run\"",
-        "tell the user to open the project in LightSim and choose **Run scripts**",
+        "A script you write or change with `model_edit` runs in that sandbox straight away",
+        "the connection for AI apps asks nobody to approve it",
         "The connection does not ask the user to confirm a run.",
     ],
     SKILL_LIMITS: [  # only the first sentence of the entry reaches the skill pack

@@ -307,13 +307,20 @@ class RunContext:
                 params=dict(self.params(el_id)),
             ))
         if script_specs:
-            if strict and (why := why_no_strict_sandbox()):
-                raise ModelInitError([why])
-            # Only code this user has approved runs (app/script_trust.py).
-            try:
-                script_trust.check([(sp.label, sp.code) for sp in script_specs])
-            except script_trust.ScriptsNotApproved as e:
-                raise ModelInitError([str(e)])
+            if strict:
+                # A strict agent run is made safe by the OS sandbox, not by a
+                # per-user approval: the run is refused when the sandbox cannot
+                # be set up, so the agent never waits on a person (the owner's
+                # hands-off decision, 1 November 2026). script_trust is for a
+                # person's run in the app, which leaves STRICT False.
+                if why := why_no_strict_sandbox():
+                    raise ModelInitError([why])
+            else:
+                # Only code this user has approved runs (app/script_trust.py).
+                try:
+                    script_trust.check([(sp.label, sp.code) for sp in script_specs])
+                except script_trust.ScriptsNotApproved as e:
+                    raise ModelInitError([str(e)])
             try:
                 self.sandbox = ScriptSandbox(script_specs, strict=strict)
             except ScriptError as e:

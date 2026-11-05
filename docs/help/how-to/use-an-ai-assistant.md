@@ -75,13 +75,12 @@ refuse every change.
   cannot be set up — today, on Windows, where the AppContainer is not built
   yet — the run is refused with the code `sandbox_unavailable` rather than
   run less safely.
-- LightSim's check of script code applies to an assistant's run as to yours.
-  Code that is not code you approved in LightSim makes the run fail and
-  say so. Approved code is the code of the examples, code you typed into a
-  Script block, and code you approved with **Run scripts**
-  ([how](open-a-project-with-scripts.md)). A brand-new script the assistant
-  wrote fails until you approve it: open the project in LightSim and choose
-  **Run scripts**.
+- A brand-new Script block the assistant writes runs in that sandbox
+  straight away, with no **Run scripts** approval — the sandbox is the
+  safety, not an approval. (A run you start yourself in LightSim still asks
+  you to approve new script code the first time, see
+  [Open a project with scripts](open-a-project-with-scripts.md); that guards
+  your own runs, not an assistant's.)
 - A run started by an assistant stops after 5 minutes, or sooner if you
   set a shorter cap under **AI access**. Its runs are kept apart from yours
   (the newest 20 per project).
@@ -119,9 +118,9 @@ reads them when it starts a session. Other Python code (`import lightsim`,
 - **Trusted projects (Python package only)**: a project you trusted with
   `lightsim ai trust <file>`. Only Python code that uses `AgentSession`
   reads this list, to decide which projects' Script blocks it may run. The
-  connection for AI apps does not read it: an assistant runs the examples'
-  scripts and any you approved with **Run scripts**, in the sandbox,
-  whether a project is on the list or not. **Untrust** takes the project off
+  connection for AI apps does not read it: an assistant runs any project's
+  Script blocks in the sandbox, whether a project is on the list or not and
+  whether or not the code has been approved. **Untrust** takes the project off
   the list; a project whose scripts changed since is marked, as its trust no
   longer holds. Trust can only be given on the command line.
 - **Stop an AI tool's run after** a number of seconds (5 minutes unless you
