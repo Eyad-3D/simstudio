@@ -326,3 +326,82 @@ def test_a_strict_script_run_is_confined_in_the_appcontainer():
             sb.close()
     assert open(secret, encoding="utf-8").read() == "SECRET"
     assert not os.path.exists(written), "the worker could not write a file"
+
+
+#: one strict run in a process of its own: exit 0 when its worker started confined
+_ONE_STRICT_RUN = (
+    "from app.solver.sandbox import ScriptSandbox, ScriptSpec\n"
+    f"sb = ScriptSandbox([ScriptSpec('s', 'P', {STEP!r}, [], {{}})], strict=True)\n"
+    "assert sb.run('s', 'P', 0.0, 0.01, {}, {}) == {'cmd_out': 0.0}\n"
+    "sb.close()\n")
+
+
+@windows
+def test_several_strict_runs_at_once_all_start_in_their_appcontainers():
+    # The MCP server runs tool calls on several threads, and an agent may start
+    # several `lightsim run` at once. icacls reads, changes and writes back each
+    # file's ACL, so set-ups at once used to lose each other's grants on the
+    # shared runtime: of three runs at once one started, the others' workers
+    # died with STATUS_ACCESS_DENIED. One named mutex now holds every set-up and
+    # tear-down, across threads and processes.
+    import subprocess
+    import threading
+    from pathlib import Path
+
+    from app.solver import win_sandbox
+    if not win_sandbox.appcontainer_available():
+        pytest.skip("this machine cannot set up the AppContainer")
+    errors: list[str] = []
+
+    def one() -> None:
+        try:
+            sb = ScriptSandbox([ScriptSpec("s", "P", STEP, [], {})], strict=True)
+            try:
+                assert sb.run("s", "P", 0.0, 0.01, {}, {}) == {"cmd_out": 0.0}
+            finally:
+                sb.close()
+        except Exception as e:  # noqa: BLE001 — every failure is reported below
+            errors.append(repr(e))
+
+    threads = [threading.Thread(target=one) for _ in range(3)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=600)
+    assert not errors, errors
+    backend = Path(__file__).resolve().parents[1]
+    procs = [subprocess.Popen([sys.executable, "-c", _ONE_STRICT_RUN], cwd=backend,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+             for _ in range(2)]
+    outs = [p.communicate(timeout=600) for p in procs]
+    assert [p.returncode for p in procs] == [0, 0], outs
+
+
+def test_the_frozen_engine_starts_the_appcontainer_worker_it_is_given(monkeypatch):
+    # In the frozen (PyInstaller) engine the worker is the engine executable
+    # again. A frozen engine has no `python -c`: given `-I -c ...` its server
+    # stops on an unknown option (exit 2), so every agent Script/FMU run of the
+    # installed app was refused. The worker's command line there is the engine
+    # with WORKER_ARG, which the frozen entry hands to child_main first.
+    import runpy
+    from pathlib import Path
+
+    from app.solver import win_sandbox
+    entry = str(Path(__file__).resolve().parents[1] / "run_backend.py")
+    exe = r"C:\LightSim\resources\backend\lightsim-backend.exe"
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", exe)
+    argv = win_sandbox.worker_argv("fmu", 123)
+    assert argv[:2] == [exe, win_sandbox.WORKER_ARG] and "-c" not in argv
+    started: list[list[str]] = []
+    monkeypatch.setattr(win_sandbox, "child_main", lambda a: started.append(a) or 0)
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as done:
+        runpy.run_path(entry, run_name="__main__")
+    assert done.value.code == 0 and started == [["fmu", "123"]]
+
+    # what the frozen engine did with the source worker's command line
+    monkeypatch.setattr(sys, "argv", [exe, "-I", "-c", "pass", "script", "123"])
+    with pytest.raises(SystemExit) as old:
+        runpy.run_path(entry, run_name="__main__")
+    assert old.value.code == 2 and started == [["fmu", "123"]]

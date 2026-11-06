@@ -102,6 +102,9 @@ log = logging.getLogger(__name__)
 # worker. Covers scheduling jitter and the round trip; well under the test
 # budgets.
 _KILL_MARGIN_S = 0.5
+# What an AppContainer worker (Windows, a strict run) may add to that wait for
+# its own start-up: a fresh interpreter inside the container.
+_AC_START_S = 30.0
 
 
 class ScriptSandbox:
@@ -212,7 +215,9 @@ class ScriptSandbox:
         if self._ac is None:
             self._sock.settimeout(init_timeout)
         else:
-            timer = threading.Timer(init_timeout, self._kill)
+            # the container's Python starts within this wait too, and takes
+            # seconds more while other runs' ACL grants keep the disk busy
+            timer = threading.Timer(init_timeout + _AC_START_S, self._kill)
             timer.start()
         try:
             self._conn.send(_w.MSG_INIT + json.dumps(payload).encode("utf-8"))

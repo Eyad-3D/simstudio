@@ -22,9 +22,22 @@ capabilities, ``PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES`` and
 (removed, and the profile deleted, when the worker closes). The job object
 (``sandbox_worker.windows_job``) still caps memory and kills the worker with
 the engine.
+
+Runs at once. ``icacls`` reads each file's ACL, changes it and writes it back,
+so two grants or removals at once on the shared runtime lose each other's
+entries, and a worker then dies at start-up with STATUS_ACCESS_DENIED (three
+runs at once on Windows 11: one of three started). Every ACL change and every
+launch therefore holds one named mutex, shared by every LightSim process of
+the user's session (:func:`_serialised`): the MCP server runs tool calls on
+several threads, and an agent may start several ``lightsim run`` at once.
+
+In the frozen (PyInstaller) engine the worker is the engine executable again,
+started with :data:`WORKER_ARG` (``run_backend.py`` hands it to
+:func:`child_main`), since a frozen engine has no ``python -c``.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -35,6 +48,17 @@ from typing import Optional
 from . import sandbox_worker as _sw
 
 _WIN = sys.platform == "win32"
+
+#: The first argument that starts the frozen engine as an AppContainer worker
+#: (run_backend.py) instead of the server or the command-line tool.
+WORKER_ARG = "--lightsim-appcontainer-worker"
+
+#: What the source worker runs with ``python -I -c``: set the sys.path it was
+#: given (base64, then the separator), then serve.
+_BOOT = ("import sys,base64;"
+         "sys.path[:0]=base64.b64decode(sys.argv[3]).decode().split(sys.argv[4]);"
+         "from app.solver.win_sandbox import child_main;"
+         "child_main(sys.argv[1:3])")
 
 if _WIN:
     import ctypes
@@ -59,6 +83,10 @@ if _WIN:
     FILE_FLAG_DELETE_ON_CLOSE = 0x04000000
     INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
     STILL_ACTIVE = 259
+    WAIT_OBJECT_0 = 0x0
+    WAIT_ABANDONED = 0x80
+    _k32.CreateMutexW.restype = wintypes.HANDLE
+    _k32.CreateMutexW.argtypes = (ctypes.c_void_p, wintypes.BOOL, wintypes.LPCWSTR)
 
     class SECURITY_CAPABILITIES(ctypes.Structure):
         _fields_ = [("AppContainerSid", ctypes.c_void_p), ("Capabilities", ctypes.c_void_p),
@@ -122,6 +150,34 @@ def _delete_profile(name: str) -> None:
         pass
 
 
+#: Held around every ACL change and launch, by every LightSim process of this
+#: user's session (see the module's "Runs at once").
+_SETUP_MUTEX = "Local\\LightSim-AppContainer-Setup"
+_SETUP_WAIT_MS = 10 * 60 * 1000
+
+
+@contextlib.contextmanager
+def _serialised():
+    """Hold the set-up mutex (threads and processes alike). A mutex whose last
+    owner died is handed on (WAIT_ABANDONED), so a crashed run cannot block
+    the next. ponytail: one lock for every set-up and tear-down, so runs queue
+    for each other's ``icacls``; granting the runtime once per process would
+    end the queue (and the seconds each grant takes)."""
+    h = _k32.CreateMutexW(None, False, _SETUP_MUTEX)
+    if not h:
+        raise SandboxSetupError(f"CreateMutexW failed ({ctypes.get_last_error()})")
+    try:
+        got = _k32.WaitForSingleObject(wintypes.HANDLE(h), _SETUP_WAIT_MS)
+        if got not in (WAIT_OBJECT_0, WAIT_ABANDONED):
+            raise SandboxSetupError("another run's sandbox set-up did not finish within 10 minutes")
+        try:
+            yield
+        finally:
+            _k32.ReleaseMutex(wintypes.HANDLE(h))
+    finally:
+        _k32.CloseHandle(wintypes.HANDLE(h))
+
+
 def _icacls(path: str, args: list[str]) -> bool:
     try:
         r = subprocess.run(["icacls", path, *args], capture_output=True, text=True,
@@ -183,6 +239,17 @@ def _child_syspath(kind: str) -> str:
     import base64
     paths = [_backend_dir(), *( _site_dirs() if kind == "fmu" else [])]
     return base64.b64encode(os.pathsep.join(paths).encode("utf-8")).decode("ascii")
+
+
+def worker_argv(kind: str, mem_bytes: int) -> list[str]:
+    """The worker's command line. From source: the base interpreter with
+    ``-I -c`` and the child's sys.path. In the frozen engine: the engine
+    executable with :data:`WORKER_ARG`, which ``run_backend.py`` hands to
+    :func:`child_main` before anything else (a frozen engine has no ``-c``:
+    it would take ``-I`` for one of the server's options and stop)."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable, WORKER_ARG, kind, str(mem_bytes)]
+    return [_base_python(), "-I", "-c", _BOOT, kind, str(mem_bytes), _child_syspath(kind), os.pathsep]
 
 
 class _Proc:
@@ -252,8 +319,12 @@ class AppContainerWorker:
         except Exception:  # noqa: BLE001
             pass
         self.proc.close_handle()
-        for path in self._granted:
-            _revoke(path, self._sid_str)
+        try:
+            with _serialised():
+                for path in self._granted:
+                    _revoke(path, self._sid_str)
+        except SandboxSetupError:
+            pass  # an entry left for a deleted profile's SID grants nobody anything
         _delete_profile(self._profile)
         try:
             os.unlink(self._stderr_path)
@@ -306,6 +377,11 @@ def launch(kind: str, mem_bytes: int, project_dirs: tuple[str, ...] = ()) -> App
     :class:`SandboxSetupError` on any failure, so the caller refuses the run."""
     if not _WIN:
         raise SandboxSetupError("the AppContainer sandbox is Windows-only")
+    with _serialised():
+        return _launch(kind, mem_bytes, project_dirs)
+
+
+def _launch(kind: str, mem_bytes: int, project_dirs: tuple[str, ...]) -> AppContainerWorker:
     profile = f"lightsim-agent-{os.getpid()}-{_token()}"
     sid, sid_str = _create_profile(profile)
     granted: list[str] = []
@@ -345,13 +421,7 @@ def launch(kind: str, mem_bytes: int, project_dirs: tuple[str, ...] = ()) -> App
         si.StartupInfo.hStdError = stderr_h
         si.lpAttributeList = attr
         pi = PROCESS_INFORMATION()
-        boot = ("import sys,base64;"
-                "sys.path[:0]=base64.b64decode(sys.argv[3]).decode().split(sys.argv[4]);"
-                "from app.solver.win_sandbox import child_main;"
-                "child_main()")
-        cmd = ctypes.create_unicode_buffer(
-            f'"{_base_python()}" -I -c "{boot}" {kind} {mem_bytes} '
-            f'{_child_syspath(kind)} "{os.pathsep}"')
+        cmd = ctypes.create_unicode_buffer(subprocess.list2cmdline(worker_argv(kind, mem_bytes)))
         ok = _k32.CreateProcessW(None, cmd, None, None, True,
                                  EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW,
                                  None, None, ctypes.byref(si), ctypes.byref(pi))
@@ -379,12 +449,12 @@ def launch(kind: str, mem_bytes: int, project_dirs: tuple[str, ...] = ()) -> App
         raise
 
 
-def child_main() -> None:
-    """Entry point of the worker inside the AppContainer. Its stdin and stdout
-    are the inherited pipe ends; it hardens, then serves over them exactly as
-    the socket worker does."""
-    kind = sys.argv[1]
-    mem_bytes = int(sys.argv[2])
+def child_main(argv: list[str]) -> int:
+    """Entry point of the worker inside the AppContainer; ``argv`` is
+    ``[kind, mem_bytes]``. Its stdin and stdout are the inherited pipe ends; it
+    hardens, then serves over them exactly as the socket worker does."""
+    kind = argv[0]
+    mem_bytes = int(argv[1])
     read_fd = sys.stdin.fileno()
     write_fd = sys.stdout.fileno()
     try:
@@ -403,6 +473,7 @@ def child_main() -> None:
         summary, confined = _sw.harden(-1, mem_bytes)
         _sw._log_summary(summary)
         _sw.serve(conn, confined)
+    return 0
 
 
 _PROBE: Optional[bool] = None
