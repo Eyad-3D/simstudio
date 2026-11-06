@@ -43,7 +43,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import files
+from . import files, history
 from .fileio import SAFE_ID, safe_id, write_atomic
 from .migrations import CURRENT_VERSION, NewerFileError, file_version, migrate
 from .paths import EXAMPLES_DIR, projects_dir
@@ -391,7 +391,8 @@ def newer_file(project_id: str) -> NewerFileError | None:
 
 
 def save_project(
-    project: Project, expected_revision: str | None = None, create_only: bool = False
+    project: Project, expected_revision: str | None = None, create_only: bool = False,
+    meta: dict | None = None,
 ) -> str:
     """Save atomically and return the new revision.
 
@@ -399,38 +400,111 @@ def save_project(
     ("*" = any, the file must just exist); `create_only` refuses to replace an
     existing file. Either raises ConflictError when the file on disk does not
     match. With neither, the save overwrites unconditionally. A file on disk
-    from a newer LightSim is never replaced (NewerFileError).
+    from a newer LightSim is never replaced (NewerFileError). `meta` says who
+    saved and why, for the project's history (:mod:`app.history`).
     """
-    loc = location(project.id)
-    path = loc.file
     project.schemaVersion = CURRENT_VERSION
     project.savedWith = VERSION
     data = project.model_dump_json(indent=2).encode("utf-8")
-    with _save_lock:
-        path.parent.mkdir(parents=True, exist_ok=True)
+    return write_file(location(project.id), data, expected_revision, create_only, meta)
+
+
+@contextlib.contextmanager
+def project_lock(loc: Location):
+    """Hold the project's save lock: one save at a time in this process, and
+    an OS lock on ``.lock`` in its backups folder, so the app and an AI
+    agent's process (the MCP server, the command line) cannot interleave a
+    revision check and a write either. The OS frees the lock when a process
+    dies, so a crash leaves none behind."""
+    folder = loc.make_dir(loc.backups)
+    with _save_lock, open(folder / ".lock", "a+b") as f:
+        if os.name == "nt":
+            import msvcrt
+
+            deadline = time.monotonic() + 30
+            while True:
+                try:
+                    f.seek(0)
+                    msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(0.02)
+            try:
+                yield
+            finally:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(f, fcntl.LOCK_EX)
+            yield  # closing the file frees it
+
+
+def write_file(loc: Location, data: bytes, expected_revision: str | None = None,
+               create_only: bool = False, meta: dict | None = None) -> str:
+    """Replace the project file at ``loc`` with ``data`` the safe way every
+    save goes: under :func:`project_lock`, checking the revision (see
+    :func:`save_project`), keeping the version it replaces in the backups,
+    and adding a line to the project's history. Returns the new revision."""
+    path = loc.file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with project_lock(loc):
         current = path.read_bytes() if path.exists() else None
         if create_only and current is not None:
-            raise ConflictError(f"A project with id '{project.id}' already exists on disk.")
+            raise ConflictError(f"A project with id '{loc.id}' already exists on disk.")
         if expected_revision is not None:
             if current is None:
                 raise ConflictError(
-                    f"Project '{project.id}' was deleted on disk after it was loaded.")
+                    f"Project '{loc.id}' was deleted on disk after it was loaded.")
             if expected_revision != "*" and revision_of(current) != expected_revision:
                 raise ConflictError(
-                    f"Project '{project.id}' changed on disk after it was loaded "
+                    f"Project '{loc.id}' changed on disk after it was loaded "
                     f"(another window or program saved it).")
         if current is not None:
             version, saved_with = _format_of(current)
             if version > CURRENT_VERSION:
                 raise NewerFileError(version, saved_with)
-            if version < CURRENT_VERSION:
+            if version < _format_of(data)[0]:  # this save upgrades the file
                 _keep_pre_migration(loc, version, current)
             if not loc.external:
                 write_atomic(path.with_name(path.name + ".bak"), current)
             if current != data:
                 _keep_backup(loc, path, current)
         write_atomic(path, data)
+        if current != data:
+            with contextlib.suppress(OSError):  # the save stands without its line
+                history.record(loc.backups, current, data, revision_of, meta)
     return revision_of(data)
+
+
+def location_of_file(path: Path) -> Location:
+    """Where the app keeps the backups and history of the project file at
+    ``path``: as the project of the projects folder it is, as the .lightsim
+    file the app knows it as, or beside it (``<file>-backups``), so an AI
+    agent's save of a file lands in the same history the open window reads."""
+    real = Path(path).resolve()
+    with contextlib.suppress(OSError, ValueError):
+        known = next((f.id for f in files.recent() if f.path.resolve() == real), None)
+        if known is not None:
+            return location(known)
+    # a project of a projects folder (the app's, or the desktop app's when a
+    # command line names its file): <id>.json with its backups in .backups/<id>
+    folder, pid = real.parent, real.stem
+    with contextlib.suppress(OSError):
+        if real.suffix == ".json" and SAFE_ID.fullmatch(pid) and (
+                (folder / _BACKUPS / pid).is_dir() or folder == user_dir().resolve()):
+            return Location(id=pid, file=real, runs=folder / "runs" / pid,
+                            backups=folder / _BACKUPS / pid, resources=folder / "resources" / pid)
+    return Location(
+        id=real.stem, file=real,
+        runs=real.with_name(real.name + "-runs"),
+        backups=real.with_name(real.name + "-backups"),
+        resources=real.with_name(real.name + "-resources"),
+        external=True,
+    )
 
 
 def _keep_pre_migration(loc: Location, version: int, previous: bytes) -> None:
@@ -516,3 +590,82 @@ def delete_project(project_id: str) -> bool:
         loc.file.unlink()
         return True
     return False
+
+
+# -- the project's history (app.history) ------------------------------------
+
+def project_history(project_id: str, limit: int = 50) -> list[dict]:
+    """The newest ``limit`` saves of the project, newest first, without
+    their diffs: who saved, why, what changed, and whether it was undone."""
+    lines = history.entries(location(project_id).backups)
+    gone = history.undone(lines)
+    return [history.summary(e) | {"undone": e["id"] in gone} for e in reversed(lines[-limit:])]
+
+
+def rebase(project_id: str, revision: str, ours: dict) -> dict:
+    """Lay the saves made since ``revision`` (by an AI agent, the command
+    line or another window) over ``ours``, the window's copy with its unsaved
+    changes. Returns the merged project, the file's revision now, the saves
+    laid over it and the values both sides changed (the save wins there).
+    Raises ConflictError when the history does not lead from ``revision`` to
+    the file on disk (it was changed by something else, such as a git pull)."""
+    loc = location(project_id)
+    try:
+        now = revision_of(loc.file.read_bytes())
+    except FileNotFoundError:
+        raise ConflictError(f"Project '{project_id}' was deleted on disk.") from None
+    steps = [] if now == revision else history.chain(history.entries(loc.backups), revision, now)
+    if steps is None:
+        raise ConflictError(f"Project '{project_id}' was changed on disk by something other "
+                            "than LightSim (its history does not say how).")
+    doc = Project.model_validate(ours).model_dump(mode="json")
+    clashes: list[dict] = []
+    for step in steps:
+        clashes += history.apply(doc, step["diff"])
+    project = read_project(doc).project
+    return {"project": project.model_dump(mode="json"), "revision": now,
+            "entries": [history.summary(e) for e in steps],
+            "conflicts": [history.describe(c) for c in clashes]}
+
+
+def undo(project_id: str, entry: str | None = None, session: str | None = None) -> dict:
+    """Undo one save of the history (``entry``), or every save of an agent's
+    ``session`` not undone yet, newest first, by reverting what each one
+    changed. Values changed again since are left as they are and listed in
+    ``conflicts``. The undo is itself a save, with its own history line, so
+    it can be undone too. Raises LookupError when there is nothing to undo."""
+    loc = location(project_id)
+    for attempt in range(3):
+        data = loc.file.read_bytes()
+        lines = history.entries(loc.backups)
+        gone = history.undone(lines)
+        picked = [e for e in lines if e["id"] not in gone and (
+            e["id"] == entry if entry else
+            bool(session) and e.get("session") == session and e.get("by") == "agent")]
+        picked = [e for e in picked if isinstance(e.get("diff"), list)]
+        if not picked:
+            raise LookupError("Nothing to undo: that change was undone already, or it made "
+                              "the project (a new project is not unmade).")
+        doc = json.loads(data)
+        clashes: list[dict] = []
+        for e in reversed(picked):
+            clashes += history.apply(doc, e["diff"], revert=True)
+        if doc == json.loads(data):  # every value was changed again since
+            return {"revision": revision_of(data), "undid": [],
+                    "conflicts": [history.describe(c) for c in clashes]}
+        project = read_project(doc).project
+        project.id = loc.id
+        who = picked[-1].get("client") or "an agent"
+        meta = {"by": "app", "tool": "undo", "undoes": [e["id"] for e in picked],
+                "reason": f"Undo {len(picked)} change(s) by {who}" if session
+                else f"Undo: {picked[0].get('reason') or 'a change by ' + who}",
+                "changes": [f"Undone: {c}" for e in picked for c in e.get("changes") or []]}
+        try:
+            revision = save_project(project, revision_of(data), meta=meta)
+        except ConflictError:
+            if attempt == 2:
+                raise
+            continue
+        return {"revision": revision, "undid": meta["undoes"],
+                "conflicts": [history.describe(c) for c in clashes]}
+    raise AssertionError("the loop returns or raises")

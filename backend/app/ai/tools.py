@@ -53,6 +53,7 @@ class CallContext:
     cancel: threading.Event = field(default_factory=threading.Event)
     progress: Optional[Callable[[float], None]] = None
     client: str = ""
+    session: str = ""
 
 
 def _project_arg(desc: str = "The project, as lightsim_list_projects names it "
@@ -275,15 +276,19 @@ TOOLS: list[dict] = [
                        "\"value\": 1900}. By default a "
                        "dry run: returns what would change and the Data Checks afterwards, saving "
                        "nothing. With dry_run false it is saved straight away (you are not asked "
-                       "to confirm): an example or a 'new:' project is saved as a new project, and "
-                       "the app keeps the previous version as a backup, so the change can be "
-                       "undone.",
+                       "to confirm): an example or a 'new:' project is saved as a new project. "
+                       "Each save is one step in the project's history, with a backup of the "
+                       "previous version and your reason: the open LightSim window shows it at "
+                       "once, and the user can undo it, or your whole session, with one click.",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
             "operations": {"type": "array", "minItems": 1, "maxItems": 200,
                            "description": "the operations, in order; each has an \"op\" key",
                            "items": {"type": "object", "required": ["op"], "oneOf": _OP_SCHEMAS}},
             "dry_run": {"type": "boolean", "default": True},
+            "reason": {"type": "string", "maxLength": 500,
+                       "description": "why you make this change, in one line (kept with the "
+                                      "change in the project's history, which the user reads)"},
         }, "required": ["project", "operations"], "additionalProperties": False},
         "outputSchema": {"type": "object", "properties": {
             "applied": {"type": "boolean"}, "changes": {"type": "array"},
@@ -610,13 +615,31 @@ class Tools:
         }
 
     def t_model_edit(self, args: dict, ctx: CallContext) -> dict:
-        handle, project, revision = self._load(args)
         dry_run = args.get("dry_run", True) is not False
-        before = self.engine.checks(project)
-        try:
-            edited, changes = apply_operations(project, args.get("operations"))
-        except EditError as e:
-            raise ToolError(f"{e} Nothing was changed.") from None
+        if not dry_run and not self.policy.allow_edits:
+            raise ToolError("Edits are switched off for this connection (--read-only).")
+        meta = {"by": "agent", "tool": "model_edit", "client": ctx.client or None,
+                "session": ctx.session or None, "reason": args.get("reason")}
+        # the project is read, edited and saved; a save from the app (or
+        # another agent) in between is not overwritten: the operations are
+        # applied again to the newer file, as they would be by hand
+        for attempt in range(3):
+            handle, project, revision = self._load(args)
+            before = self.engine.checks(project)
+            try:
+                edited, changes = apply_operations(project, args.get("operations"))
+            except EditError as e:
+                raise ToolError(f"{e} Nothing was changed.") from None
+            if dry_run:
+                break
+            try:
+                ref, new_revision = self.engine.save(handle, edited, revision,
+                                                     {**meta, "changes": changes})
+                break
+            except storage.ConflictError:
+                if attempt == 2:
+                    raise ToolError("The project kept changing on disk while it was being "
+                                    "saved. Read it again and repeat the edit.") from None
         after = self.engine.checks(edited)
         answer: dict = {
             "applied": False, "dryRun": dry_run, "changes": changes,
@@ -626,29 +649,21 @@ class Tools:
         if dry_run:
             answer["next"] = "Call again with dry_run false to save."
             return answer
-        if not self.policy.allow_edits:
-            raise ToolError("Edits are switched off for this connection (--read-only).")
-        try:
-            ref, new_revision = self.engine.save(handle, edited, revision)
-        except storage.ConflictError:
-            raise ToolError("The project changed on disk since it was read (perhaps in the app). "
-                            "Read it again and repeat the edit.") from None
         answer.update({"applied": True, "project": ref, "revision": new_revision})
-        # Until an agent's change is a live, one-click undo step (step 6,
-        # later), say how this save can be recovered: a kept previous version,
-        # or a new project an example's edit is saved as.
         if handle.kind == "example":
-            recover = (f"The example is unchanged; your edit was saved as a new project "
-                       f"\"{ref}\". ")
+            where = (f"The example is unchanged; your edit was saved as a new project "
+                     f"\"{ref}\". ")
         elif handle.kind == "new":
-            recover = f"Saved as a new project \"{ref}\". "
-        elif handle.kind == "folder":
-            recover = ("The previous version is kept as a backup in the folder "
-                       f"\"{handle.backups.name}\" beside the file. ")
+            where = f"Saved as a new project \"{ref}\". "
         else:
-            recover = "LightSim kept the previous version as a backup. "
-        answer["note"] = (recover + "If the project is open in the LightSim app, reopen it "
-                          "there to see the change.")
+            kept = (f"in the folder \"{handle.backups.name}\" beside the file"
+                    if handle.kind == "folder" else "by LightSim")
+            where = ("Saved as one step in the project's history, with the previous version "
+                     f"kept as a backup {kept}: the open LightSim window shows the change, and "
+                     "the user can undo it there with one click. ")
+        if not meta["reason"]:
+            where += "Give a reason with each save: the user reads it in the history."
+        answer["note"] = where.strip()
         return answer
 
     # -- runs ---------------------------------------------------------------

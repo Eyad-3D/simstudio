@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Optional, Sequence
@@ -183,8 +184,9 @@ def cmd_check(args) -> int:
 def cmd_edit(args) -> int:
     """Apply operations to a project and save it (AI-02). The same operations
     as the AI plug's ``model_edit`` tool, so an edit works the same from the
-    command line as over MCP. The previous version is kept beside the file so
-    the edit can be undone."""
+    command line as over MCP. The save is one step in the project's history
+    (with the reason, client and session), with the previous version kept
+    as a backup, so the open app shows the edit and can undo it."""
     from . import Project
     from ._engine import engine
 
@@ -214,46 +216,69 @@ def cmd_edit(args) -> int:
         ops += batch
     if not ops:
         raise UsageError("Give at least one change: --set, --op or --ops.")
-    try:
-        edited, changes = edits.apply_operations(project.model, ops)
-    except edits.EditError as e:
-        raise UsageError(str(e)) from None
-    project.model = edited
     target = Path(args.out) if args.out else project.path
     if target is None:
         raise UsageError("This project is an example: give --out, a file to save the edit to.")
     storage = engine("storage")
-    backups = None
-    if target.exists():
-        # Keep the version we are about to replace in <file>-backups, the
-        # newest storage.KEEP_BACKUPS, as the AI plug's model_edit does — not a
-        # single <file>.bak, which a second in-place edit would overwrite,
-        # losing the original. So an agent that saves several times while it
-        # works can still get back any recent version.
-        loc = storage.Location(
-            id=target.stem, file=target,
-            runs=target.with_name(target.name + "-runs"),
-            backups=target.with_name(target.name + "-backups"),
-            resources=target.with_name(target.name + "-resources"),
-            external=True)
-        storage._keep_backup(loc, target, target.read_bytes())
-        backups = loc.backups
-    project.save(target)
+    loc = storage.location_of_file(target)
+    meta = {"by": "agent", "tool": "lightsim edit", "reason": args.reason,
+            "client": args.client or os.environ.get("LIGHTSIM_CLIENT")
+            or os.environ.get("AI_AGENT") or "command line",
+            "session": args.session or os.environ.get("LIGHTSIM_SESSION")
+            or os.environ.get("CLAUDE_CODE_SESSION_ID") or f"shell-{os.getppid()}"}
+    # Saved the way the app saves: the version it replaces kept in the
+    # backups (the newest storage.KEEP_BACKUPS) and one line in the
+    # project's history, which the open window reads to show the change and
+    # undo it. A save from the app between the read and the write is not
+    # overwritten: the operations are applied again to the newer file.
+    in_place = project.path is not None and target == project.path
+    for attempt in range(3):
+        revision = None
+        if in_place:
+            project, revision = _load_unchanged(target, storage)
+        try:
+            edited, changes = edits.apply_operations(project.model, ops)
+        except edits.EditError as e:
+            raise UsageError(str(e)) from None
+        project.model = edited
+        data = edited.model_dump_json(indent=2).encode("utf-8")
+        try:
+            storage.write_file(loc, data, revision, meta={**meta, "changes": changes})
+            break
+        except storage.ConflictError:
+            if attempt == 2:
+                raise UsageError(f"{target} kept changing while it was being saved; "
+                                 "nothing was saved. Try again.") from None
+    project.path = target
     checks = project.check()
     errors = sum(c.level == "error" for c in checks)
-    where = (f"the previous versions are kept in {backups} (the newest {storage.KEEP_BACKUPS})"
-             if backups else "the original project is unchanged" if args.out else None)
+    backups = loc.backups
+    where = (f"one step in the project's history ({backups / 'history.jsonl'}), which the open "
+             f"app shows and undoes in one click; the previous versions are kept in {backups} "
+             f"(the newest {storage.KEEP_BACKUPS})")
+    if args.out and not in_place:
+        where += "; the original project is unchanged"
     lines = [f"Saved {target} ({len(changes)} change{'s' if len(changes) != 1 else ''})"]
     lines += [f"  {c}" for c in changes]
-    if where:
-        lines.append(f"  ({where})")
+    lines.append(f"  ({where})")
     lines += [f"  {c.level}: {c.text}" + (f" How to fix: {c.fix}" if c.fix else "")
               for c in checks if c.level != "info"]
-    _out(args, {"saved": str(target), "changes": changes,
-                "backups": str(backups) if backups else None,
+    _out(args, {"saved": str(target), "changes": changes, "backups": str(backups),
+                "history": str(backups / "history.jsonl"), "session": meta["session"],
                 "recoverable": where, "errors": errors,
                 "checks": [c.to_dict() for c in checks]}, "\n".join(lines))
     return EXIT_OK
+
+
+def _load_unchanged(path: Path, storage):
+    """The project at ``path`` and the revision of the bytes it was read from."""
+    from . import Project
+
+    while True:
+        revision = storage.revision_of(path.read_bytes())
+        project = Project.load(path)
+        if storage.revision_of(path.read_bytes()) == revision:
+            return project, revision
 
 
 def cmd_export(args) -> int:
@@ -435,6 +460,13 @@ def parser() -> argparse.ArgumentParser:
     ed.add_argument("--ops", metavar="JSON", help="a JSON array of operations")
     ed.add_argument("--out", "-o", help="save to this file (default: the project file in place; "
                                         "the previous versions are kept beside it in <file>-backups)")
+    ed.add_argument("--reason", help="why, in one line: kept with the change in the project's "
+                                     "history, which the open app shows")
+    ed.add_argument("--client", help="who is editing (default: LIGHTSIM_CLIENT, AI_AGENT or "
+                                     "'command line')")
+    ed.add_argument("--session", help="group edits into one session that the app undoes in one "
+                                      "click (default: LIGHTSIM_SESSION, CLAUDE_CODE_SESSION_ID, "
+                                      "else this shell)")
     ed.set_defaults(func=cmd_edit)
 
     e = add("export", "Write a stored run (.json.gz from the app, or .json) as CSV, MAT, JSON "

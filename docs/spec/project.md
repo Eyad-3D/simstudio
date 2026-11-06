@@ -247,3 +247,43 @@ after their runs leave the run history. Its schema is
 In version 1 a study's columns are keyed by the summary rows' **labels**,
 not their [keys](results.md#summary-keys). A later version will key them by
 key; readers should take a column's unit from `kpis`.
+
+## Project history
+
+Every save of a project file adds one line to `history.jsonl` in the
+projects
+
+## Project history
+
+Every save of a project file adds one line to `history.jsonl` in the
+project's backups folder: `.backups/<project id>/` in the projects folder,
+or `<name>.lightsim-backups/` (`<name>.json-backups/` for a `.json` file)
+beside a file elsewhere. The backups folder also keeps the versions the
+saves replaced, and git ignores it. A line is one JSON object; its schema
+is [`schemas/history.schema.json`](schemas/history.schema.json). The app
+reads the history to show an AI agent's edits in the open window as they
+happen, and to undo one of them, or a whole agent session, in one click.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | text, required | The line's id |
+| `t` | whole number, ms since 1970, required | When the file was saved |
+| `by` | `app` or `agent`, required | `app`: the LightSim window. `agent`: an AI agent through the MCP tool `model_edit`, or the `lightsim edit` command |
+| `tool` | text, required | `save` (the app), `model_edit`, `lightsim edit` or `undo` |
+| `client` | text or null | The AI app, as it names itself (`claude-code`), or the command line's `AI_AGENT` |
+| `session` | text or null | The agent's session: one connection of an AI app, or the command line's `LIGHTSIM_SESSION` |
+| `reason` | text or null | Why, in the agent's words (`model_edit`'s `reason`, `lightsim edit --reason`) |
+| `changes` | list of text | What changed, in words |
+| `from` | text or null | The revision of the file before the save (`GET /api/projects/{id}` gives it); null for a new file |
+| `to` | text, required | The revision of the file after it |
+| `diff` | list of changes or null | The change itself; null for a new file, or one that could not be read |
+| `undoes` | list of text | For an undo, the ids of the lines it undid |
+
+A change in `diff` has a `path` to the value: the keys of objects, and
+`{"id": …}` for an item of a list whose items all have an `id` (parts,
+wires, signal links, cases), so a change still applies after other
+changes moved items around. `old` is the value before (left out when the
+value was added), `new` the value after (left out when it was removed),
+and `at` the place a new list item took. Undoing a line puts back the
+`old` values; a value that was changed again since stays as it is, and
+the app says which.

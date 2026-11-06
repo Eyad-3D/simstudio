@@ -1,0 +1,175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lightsim:schema:history:1",
+  "title": "LightSim project history (one line of history.jsonl in a project's backups folder)",
+  "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md. Licence: a draft waiting for the owner's decision, see docs/spec/README.md.",
+  "$defs": {
+    "Change": {
+      "description": "One value that changed. ``old`` is left out when the value was added,\n``new`` when it was removed; ``at`` is the place a new list item took.",
+      "properties": {
+        "path": {
+          "description": "keys of objects, and {\"id\": ...} for an item of a list of objects with ids",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ]
+          },
+          "title": "Path",
+          "type": "array"
+        },
+        "old": {
+          "default": null,
+          "title": "Old"
+        },
+        "new": {
+          "default": null,
+          "title": "New"
+        },
+        "at": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "At"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "Change",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "t": {
+      "description": "when, in milliseconds since 1 January 1970, UTC",
+      "title": "T",
+      "type": "integer"
+    },
+    "by": {
+      "enum": [
+        "app",
+        "agent"
+      ],
+      "title": "By",
+      "type": "string"
+    },
+    "tool": {
+      "description": "save (the app), model_edit (MCP), lightsim edit (command line), undo, restore",
+      "title": "Tool",
+      "type": "string"
+    },
+    "client": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "the AI app, as it names itself",
+      "title": "Client"
+    },
+    "session": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "the agent's session: one MCP connection, or the command line's LIGHTSIM_SESSION",
+      "title": "Session"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "why, in the agent's words",
+      "title": "Reason"
+    },
+    "changes": {
+      "description": "what changed, in words",
+      "items": {
+        "type": "string"
+      },
+      "title": "Changes",
+      "type": "array"
+    },
+    "from": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "the file's revision before (None: a new file)",
+      "title": "From"
+    },
+    "to": {
+      "description": "the file's revision after",
+      "title": "To",
+      "type": "string"
+    },
+    "diff": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/Change"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "None: not known (a new file, or one that could not be read)",
+      "title": "Diff"
+    },
+    "undoes": {
+      "description": "ids of the entries it undid",
+      "items": {
+        "type": "string"
+      },
+      "title": "Undoes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "t",
+    "by",
+    "tool",
+    "to"
+  ],
+  "type": "object"
+}

@@ -70,7 +70,7 @@ def test_edit_saves_a_set_and_an_add_to_a_new_file(tmp_path):
     assert r.returncode == 0, r.stderr
     data = json.loads(r.stdout)
     assert data["saved"] == str(out) and len(data["changes"]) == 2
-    assert data["recoverable"] == "the original project is unchanged"
+    assert data["recoverable"].endswith("the original project is unchanged")
     saved = ls.load(out)
     vehicle = next(e for e in saved.elements if e.label == "Vehicle")
     assert vehicle.parameterOverrides["mass_kg"] == 2100
@@ -79,13 +79,15 @@ def test_edit_saves_a_set_and_an_add_to_a_new_file(tmp_path):
 
 
 def test_edit_in_place_keeps_the_previous_version_as_a_backup(tmp_path):
-    # (f): until the live undo lands, a save is recoverable, and says which
+    # (f): a save is recoverable, and says which: one step in the project's
+    # history, with the version it replaced kept as a backup (step 6)
     src = _bev_copy(tmp_path / "car.json")
     original = src.read_text(encoding="utf-8")
     r = cli("edit", str(src), "--set", "Vehicle.mass_kg=1800")
     assert r.returncode == 0, r.stderr
     assert "the previous versions are kept in" in r.stdout and "car.json-backups" in r.stdout
-    kept = list((tmp_path / "car.json-backups").glob("*.json"))
+    assert "project's history" in r.stdout
+    kept = [f for f in (tmp_path / "car.json-backups").glob("*.json") if f.stem[0].isdigit()]
     assert len(kept) == 1 and kept[0].read_text(encoding="utf-8") == original
     assert ls.load(src).get("Vehicle.mass_kg") == 1800
 

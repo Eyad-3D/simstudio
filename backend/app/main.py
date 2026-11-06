@@ -14,6 +14,11 @@ Endpoints:
                                409 too over a file from a newer LightSim)
   DELETE /api/projects/{id}    delete a project (and its stored runs)
   GET  /api/projects/{id}/revision     the revision of its file on disk now
+  GET  /api/projects/{id}/history      its saves, newest first: by the app or an
+                                       AI agent, why, what changed (app.history)
+  POST /api/projects/{id}/rebase       lay the saves since a revision over the
+                                       window's unsaved copy
+  POST /api/projects/{id}/undo         undo one save, or an agent's whole session
   POST /api/projects/upgrade   a project file's JSON in the current format
   GET  /api/files              .lightsim files opened or saved (Recent files)
   POST /api/files/open         remember a .lightsim file the user picked (shell only)
@@ -567,6 +572,59 @@ def remove_project(project_id: str) -> dict:
     run_store.clear_all(project_id)
     shutil.rmtree(storage.location(project_id).resources, ignore_errors=True)
     return {"deleted": project_id}
+
+
+@app.get("/api/projects/{project_id}/history", responses=_errors(e400="Invalid project id"))
+def get_history(project_id: str, limit: int = 50) -> list[dict]:
+    """The project's newest saves, newest first: by the app or an AI agent
+    (its client and session), with its reason, what changed and whether it
+    was undone (app.history)."""
+    try:
+        return storage.project_history(project_id, max(1, min(limit, 500)))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/projects/{project_id}/rebase",
+          responses=_errors(e400="Not a project", e409="Changed on disk by something else"))
+def rebase_project(project_id: str, body: dict) -> dict:
+    """Lay the saves made since `revision` over `project`, the window's copy
+    with its unsaved changes: how the window shows an AI agent's edit as it
+    happens and saves without overwriting it."""
+    revision, ours = body.get("revision"), body.get("project")
+    if not isinstance(revision, str) or not isinstance(ours, dict):
+        raise HTTPException(status_code=400, detail="Give revision and project")
+    for key in BOOKKEEPING:
+        ours.pop(key, None)
+    try:
+        return storage.rebase(project_id, revision, ours)
+    except storage.ConflictError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/projects/{project_id}/undo",
+          responses=_errors(e400="Give entry or session", e404="Nothing to undo",
+                            e409="The file changed while undoing, or is from a newer LightSim"))
+def undo_change(project_id: str, body: dict) -> dict:
+    """Undo one save of the project's history (`entry`), or every change of
+    an agent's `session`, as a new save; values changed again since are left
+    as they are (`conflicts`)."""
+    entry, session = body.get("entry"), body.get("session")
+    if not isinstance(entry, str) and not isinstance(session, str):
+        raise HTTPException(status_code=400, detail="Give entry or session")
+    try:
+        return storage.undo(project_id, entry if isinstance(entry, str) else None,
+                            session if isinstance(session, str) else None)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Project '{project_id}' not found")
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except (storage.ConflictError, NewerFileError) as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/projects/{project_id}/backups")

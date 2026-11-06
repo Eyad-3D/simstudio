@@ -23,6 +23,7 @@ FORMAT_VERSIONS = {
     "library": 1,
     "data-checks": 1,
     "lightsim-result": 1,
+    "history": 1,
 }
 
 #: What each schema says about its licence. docs/spec/README.md holds the
@@ -39,6 +40,7 @@ _TITLES = {
     "library": "LightSim component library (GET /api/library 'components' entries)",
     "data-checks": "LightSim Data Check findings (POST /api/validate)",
     "lightsim-result": "LightSim result export (lightsim run --out result.json)",
+    "history": "LightSim project history (one line of history.jsonl in a project's backups folder)",
 }
 
 
@@ -93,6 +95,7 @@ def json_schemas() -> dict[str, dict]:
         "library": TypeAdapter(list[s.ComponentDef]).json_schema(),
         "data-checks": TypeAdapter(list[s.DataCheck]).json_schema(),
         "lightsim-result": _lightsim_result_schema(),
+        "history": engine("history").HistoryEntry.model_json_schema(by_alias=True),
     }
     out = {}
     for name, schema in raw.items():

@@ -122,6 +122,9 @@ class McpServer:
         self.legacy_version: Optional[str] = None  # set by an initialize handshake
         self.legacy_caps: dict = {}
         self.client_name = ""
+        # one connection of an AI app is one agent session: the project's
+        # history groups its edits under this id, so one click undoes them all
+        self.session = secrets.token_hex(6)
         self.tasks: dict[str, _Task] = {}
         self._out: Optional[IO[str]] = None
         self._write_lock = threading.Lock()
@@ -321,7 +324,7 @@ class McpServer:
         if name not in {t["name"] for t in TOOLS}:
             raise RpcError(INVALID_PARAMS, f"Unknown tool: {name}")
         modern = version in MODERN_PROTOCOL_VERSIONS
-        ctx = CallContext(cancel=cancel, client=self.client_name)
+        ctx = CallContext(cancel=cancel, client=self.client_name, session=self.session)
 
         token = ((params.get("_meta") or {}).get("progressToken")) if not modern else None
         if token is not None:
@@ -361,7 +364,7 @@ class McpServer:
         ttl = meta.get("ttl") if isinstance(meta, dict) and isinstance(meta.get("ttl"), int) else None
         task = _Task(ttl)
         self.tasks[task.id] = task
-        run_ctx = CallContext(cancel=task.cancel, client=ctx.client,
+        run_ctx = CallContext(cancel=task.cancel, client=ctx.client, session=ctx.session,
                               progress=lambda pct: setattr(task, "progress", pct))
 
         def work() -> None:

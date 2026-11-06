@@ -68,7 +68,8 @@ def _fields(schema: dict) -> set[str]:
 
 
 @pytest.mark.parametrize("schema,pages", [("project", ["project.md"]),
-                                          ("run", ["results.md", "project.md"])])
+                                          ("run", ["results.md", "project.md"]),
+                                          ("history", ["project.md"])])
 def test_every_field_is_described(schema, pages):
     text = "".join((SPEC / page).read_text(encoding="utf-8") for page in pages)
     missing = sorted(f for f in _fields(json_schemas()[schema]) if f"`{f}`" not in text)

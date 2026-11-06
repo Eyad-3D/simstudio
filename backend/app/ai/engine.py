@@ -77,12 +77,12 @@ class ProjectHandle:
 
     @property
     def backups(self) -> Optional[Path]:
-        """Where a save keeps the version it replaces: beside a file in an
-        allowed folder (as for a .lightsim file the app saves), or the
-        projects folder's backups. None for an example or a new project,
-        which an edit saves as a new project."""
+        """Where a save keeps the version it replaces (and the project's
+        history): beside a file in an allowed folder (as for a .lightsim file
+        the app saves), or the projects folder's backups. None for an example
+        or a new project, which an edit saves as a new project."""
         if self.kind == "folder":
-            return _file_location(self.path).backups
+            return storage.location_of_file(self.path).backups
         if self.kind == "user":
             return storage.location(self.ref).backups
         return None
@@ -327,7 +327,8 @@ class Engine:
             raise NotFound(f"Project '{ref}' could not be read: {e}") from None
         return handle, project, None if handle.read_only else storage.revision_of(data)
 
-    def save(self, handle: ProjectHandle, project: Project, expected: Optional[str]) -> tuple[str, str]:
+    def save(self, handle: ProjectHandle, project: Project, expected: Optional[str],
+             meta: Optional[dict] = None) -> tuple[str, str]:
         """Save an edited project; returns (its reference, new revision).
 
         An example is never written: the edit is saved as a new project of
@@ -335,28 +336,24 @@ class Engine:
         an allowed folder is replaced the same safe way the app saves, and
         the version it replaces is kept in ``<file>-backups`` beside it (the
         newest :data:`storage.KEEP_BACKUPS`), as for a .lightsim file the
-        app saves.
+        app saves. Every save adds a line, with ``meta`` (who and why), to
+        the project's history (:mod:`app.history`), which the open window
+        reads to show the change and undo it.
         """
         if handle.kind == "example":
             project = project.model_copy(update={"id": _free_id(project.id + "-ai"),
                                                  "name": f"{project.name} (AI edit)"})
-            return project.id, storage.save_project(project, None, create_only=True)
+            return project.id, storage.save_project(project, None, create_only=True, meta=meta)
         if handle.kind == "new":
             project = project.model_copy(update={"id": _free_id(project.name.lower())})
-            return project.id, storage.save_project(project, None, create_only=True)
+            return project.id, storage.save_project(project, None, create_only=True, meta=meta)
         if handle.kind == "user":
             if project.id != handle.project_id:
                 project = project.model_copy(update={"id": handle.project_id})
-            return handle.ref, storage.save_project(project, expected)
+            return handle.ref, storage.save_project(project, expected, meta=meta)
         data = json.dumps(project.model_dump(mode="json"), indent=2).encode("utf-8")
-        with storage._save_lock:  # the check, the backup and the write in one go
-            current = handle.path.read_bytes()
-            if expected and storage.revision_of(current) != expected:
-                raise storage.ConflictError("The file changed since it was read.")
-            if current != data:
-                storage._keep_backup(_file_location(handle.path), handle.path, current)
-            storage._write_atomic(handle.path, data)
-        return handle.ref, storage.revision_of(data)
+        loc = storage.location_of_file(handle.path)
+        return handle.ref, storage.write_file(loc, data, expected or "*", meta=meta)
 
     # -- library, checks and runs ----------------------------------------
 
@@ -461,18 +458,6 @@ def _file_key(path: Path) -> str:
     its full path (A/car.json and B/car.json are two projects)."""
     digest = hashlib.sha256(os.path.normcase(str(path)).encode("utf-8")).hexdigest()[:12]
     return f"{_slug(path.stem)[:60]}-{digest}"
-
-
-def _file_location(path: Path) -> storage.Location:
-    """Where the app would keep a project file's runs and backups had the
-    user opened it as a .lightsim file: beside it (app.files)."""
-    return storage.Location(
-        id=_file_key(path), file=path,
-        runs=path.with_name(path.name + "-runs"),
-        backups=path.with_name(path.name + "-backups"),
-        resources=path.with_name(path.name + "-resources"),
-        external=True,
-    )
 
 
 def _app_id_of(path: Path) -> Optional[str]:

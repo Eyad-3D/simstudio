@@ -31,6 +31,10 @@ machine-readable description is at `/openapi.json`.
 | `PUT /api/projects/{id}` | Save a project. `If-Match: "<revision>"` refuses (409) if the file changed since; `If-None-Match: *` refuses to replace one |
 | `DELETE /api/projects/{id}` | Delete a project and its runs |
 | `GET /api/projects/{id}/backups`, `…/backups/{backup}` | Earlier versions kept by saves, newest first / one of them |
+| `GET /api/projects/{id}/revision` | The revision of the file on disk now (null: none) |
+| `GET /api/projects/{id}/history` | The newest saves (`?limit=`, default 50), newest first: the [history](project.md#project-history) lines without their `diff`, each with `undoable` (it has a diff), `undone` and `size` (how many values it changed) |
+| `POST /api/projects/{id}/rebase` | Body `{revision, project}`: lays the saves made since `revision` over `project` (a window's copy with unsaved changes) and returns `project`, `revision` (the file's now), the `entries` laid over it and the `conflicts`, values both changed (the save's value is taken). 409 when the history does not lead from `revision` to the file (it was changed outside LightSim) |
+| `POST /api/projects/{id}/undo` | Body `{entry}` (a history line's id) or `{session}` (every change of that agent session not undone yet): reverts them as a new save. Returns `revision`, `undid` (the ids) and `conflicts` (values changed again since, left as they are). 404 when there is nothing to undo |
 | `GET /api/projects/{id}/runs` | The stored runs (the [index](results.md#the-runs-folder) entries), newest first |
 | `GET/PUT/DELETE /api/projects/{id}/runs/{run}` | One [stored run](results.md#stored-run) (sent gzip-encoded when the client accepts it) |
 | `DELETE /api/projects/{id}/runs` | Delete all of a project's runs |
