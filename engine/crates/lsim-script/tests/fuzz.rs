@@ -79,9 +79,12 @@ fn lit_f(x: f64) -> String {
 }
 
 fn lit(r: &mut Rng) -> String {
-    match r.below(3) {
-        0 => INTS[r.below(INTS.len())].into(),
-        1 => lit_f(SPECIAL[r.below(SPECIAL.len())]),
+    match r.below(7) {
+        0 | 1 => INTS[r.below(INTS.len())].into(),
+        2 | 3 => lit_f(SPECIAL[r.below(SPECIAL.len())]),
+        // a large float with a fraction: often exactly halfway between its
+        // two shortest readings
+        4 => lit_f(((r.range(1e14, 9e15)) * 8.0).round() / 8.0),
         _ => lit_f((r.range(-50.0, 50.0) * 8.0).round() / 8.0),
     }
 }
@@ -209,6 +212,25 @@ fn num(r: &mut Rng, s: &Scope, d: usize) -> String {
             )
         }
         33 => format!("len([{}, {}])", num(r, s, d), num(r, s, d)),
+        // containers compared, built and read
+        34 => {
+            let cmp = ["<", "<=", "==", "!="][r.below(4)];
+            let (a, b, c, e) = (num(r, s, d), num(r, s, d), num(r, s, d), num(r, s, d));
+            if r.below(2) == 0 {
+                format!("(({a}, {b}) {cmp} ({c}, {e}))")
+            } else {
+                format!("([{a}, {b}] {cmp} [{c}, {e}])")
+            }
+        }
+        35 => format!("dict([(1, 2.5), ({}, 3.0)], p={})[1]", num(r, s, d), num(r, s, d)),
+        36 if !s.dicts.is_empty() => {
+            let d = pick(r, &s.dicts);
+            format!("(list({d}.values()) or [0.0])[{}]", index(r).clamp(-1, 0))
+        }
+        37 => {
+            let (k, v) = (num(r, s, d), num(r, s, d));
+            format!("{{{k}: {v}, 1: 2.5, 1.0: -1}}.get({}, 0.25)", num(r, s, d))
+        }
         _ => cond(r, s, d),
     }
 }
