@@ -475,18 +475,43 @@ def test_no_transcripts_in_the_repository(fake_claude, tmp_path):
 #: carry one of the group's cues, a unit or a name of the quantity, and none of
 #: another group's. An author adding a task chooses the words of its entry;
 #: the check is that they say what the library says of the port.
-_NAMES = {"Power": ["power"], "Velocity": ["speed"], "Percent": ["state of charge"],
-          "Distance": ["distance", "km"],  # (a route is given in km, the port carries m)
-          "Fraction": ["share", "fraction", "0 to 1", "command", "torque"]}
-#: group -> its cues: the names above and the library's display unit (kW, km/h, %, m)
-CUES = {g: names + [u for u in [unit_groups()[g]] if u != "-"] for g, names in _NAMES.items()}
+#: group -> (names of the quantity, lower case; the library's unit, case matters:
+#: "A" is a current, "a" is a word). Every group of the library has a row, so a
+#: quantity named with another group's unit reads as that group too.
+_COLUMNS = {
+    "Power": (["power"], ["kW"]),
+    "Voltage": (["voltage"], ["V"]),
+    "Current": (["current"], ["A"]),
+    "Velocity": (["speed"], ["km/h"]),
+    "Temperature": (["temperature"], ["degC"]),
+    "Torque": (["torque in"], ["N.m"]),
+    "Rotational Speed": (["rotational speed", "motor speed"], ["1/min"]),
+    "Force": (["force"], ["N"]),
+    "Distance": (["distance", "km"], ["m"]),  # (a route is given in km, the port carries m)
+    "Mass": (["mass"], ["kg"]),
+    "Mass Flow": (["mass flow"], ["kg/h"]),
+    "Percent": (["state of charge"], ["%"]),
+    "Acceleration": (["acceleration"], ["g"]),
+    "Curvature": (["curvature"], ["1/m"]),
+    "Fraction": (["share", "fraction", "0 to 1", "command", "of the available", "torque_cmd"], []),
+    "No Unit": ([], []),
+    # not a library group: other units of the same quantities. A port takes the library's
+    # unit only, so a W for a kW input, m/s for a km/h one, kWh for a charge or Nm for a
+    # fraction is wrong.
+    "Another unit": ([], ["W", "MW", "hp", "kV", "mA", "m/s", "mph", "kph", "degF", "Nm", "N-m",
+                          "rpm", "rad/s", "kN", "kg/s", "m/s2", "kWh", "Wh", "J", "kJ", "MJ"]),
+}
+CUES = {g: names + units for g, (names, units) in _COLUMNS.items()}
 
 
 def _reads_as(words: str) -> set[str]:
-    """The unit groups a brief's words read as: those with a cue among them."""
-    tokens = re.findall(r"[a-z0-9%/]+(?:[.'][a-z0-9%/]+)*", words.lower())
-    text = f" {' '.join(tokens)} "
-    return {g for g, cues in CUES.items() if any(f" {c.lower()} " in text for c in cues)}
+    """The unit groups a brief's words read as: those with a name of the quantity
+    or a unit among them."""
+    text = words.replace("\u00b7", ".").replace("\u00b0C", "degC").replace("\u00b0F", "degF")
+    tokens = re.findall(r"[A-Za-z0-9%/^_-]+(?:[.'][A-Za-z0-9%/^_-]+)*", text)
+    spaced = f" {' '.join(t.lower() for t in tokens)} "
+    return {g for g, (names, units) in _COLUMNS.items()
+            if any(f" {n} " in spaced for n in names) or any(u in tokens for u in units)}
 
 
 SAYS = {
@@ -567,16 +592,32 @@ def test_the_aux_shed_brief_as_it_was_is_refused_with_its_own_words_in_says():
     ("Velocity", "(the target speed, m)"),                    # metres for a speed
     ("Velocity", "(the Driver's target input)"),
     ("Distance", "(the distance driven, km/h)"),
+    ("Power", "(the power the load is to draw, W)"),         # W where the port takes kW
+    ("Fraction", "(the motor torque in Nm)"),                # a torque where the port takes a fraction
+    ("Percent", "(the battery's state of charge, kWh)"),     # an energy for a charge
+    ("Velocity", "(the target speed, m/s)"),                 # m/s and mph for km/h
+    ("Velocity", "(the target speed, mph)"),
+    ("Mass", "(the mass, N)"),                               # groups the old cues did not know
+    ("Voltage", "(the pack voltage, A)"),
+    ("Temperature", "(the cell temperature, degF)"),
 ])
 def test_words_that_read_as_another_unit_group_or_none_are_refused(group, words):
     assert _reads_as(words) != {group}
 
 
-def test_every_unit_group_a_brief_uses_has_cues():
-    """(A group with no cues could never be read as: its entry would always be refused.)
-    The cues include the library's display unit of the group."""
+def test_every_unit_group_of_the_library_has_cues_with_its_unit():
+    """(A group with no cues could never be read as: its entry would always be
+    refused.) All 16 groups of the library have a row, with the library's display
+    unit of the group among its cues, so a quantity given in another group's unit
+    reads as that group too."""
+    groups = unit_groups()
+    assert set(groups) <= set(CUES), sorted(set(groups) - set(CUES))
     assert {g for says in SAYS.values() for g, _ in says.values()} <= set(CUES)
-    assert [CUES[g][-1] for g in ("Power", "Velocity", "Percent", "Distance")] == ["kW", "km/h", "%", "m"]
+    for g, unit in groups.items():
+        if unit != "-":
+            assert unit.replace("·", ".").replace("°", "deg") in CUES[g], g
+    assert _reads_as("(the power, kW)") == {"Power"}
+    assert _reads_as("(the pack voltage, A)") == {"Voltage", "Current"}
 
 
 def test_a_brief_that_says_a_share_where_lightsim_takes_kW_is_refused():
