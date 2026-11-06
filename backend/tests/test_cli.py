@@ -104,11 +104,9 @@ def test_edit_in_place_keeps_every_version_so_the_original_survives(tmp_path):
     assert {1927, 1500, 1600} <= masses, f"the original 1927 and each step are recoverable: {masses}"
 
 
-@pytest.mark.skipif(not _landlock(), reason="needs the strict Linux sandbox (Landlock)")
-def test_run_is_held_to_the_strict_sandbox_by_an_agent_marker(tmp_path):
-    # LIGHTSIM_STRICT_SANDBOX=1 holds `lightsim run` to the MCP server's rules:
-    # the OS sandbox, and a script nobody approved runs with no Run-scripts
-    # step. Without it, lightsim run keeps today's behaviour (script approval).
+def _hybrid_with_a_new_script(tmp_path: Path) -> Path:
+    """The hybrid example cut to a 2 s case, its Script block changed by a
+    comment, so its code is code nobody approved (as a script an agent wrote)."""
     raw = json.loads((BACKEND / "projects" / "hybrid-car.json").read_text(encoding="utf-8"))
     raw["cases"] = [{**raw["cases"][0], "duration": 2, "realtimeFactor": 0}]
     scr = next(e for s in raw["systems"] for e in s["elements"]
@@ -116,20 +114,59 @@ def test_run_is_held_to_the_strict_sandbox_by_an_agent_marker(tmp_path):
     scr["parameterOverrides"]["code"] = scr["parameterOverrides"].get("code", "") + "\n# nobody approved this\n"
     proj = tmp_path / "car.json"
     proj.write_text(json.dumps(raw), encoding="utf-8")
+    return proj
+
+
+def test_both_command_lines_hold_every_run_to_the_strict_sandbox(tmp_path, monkeypatch, capsys):
+    # The command-line tool cannot tell an agent from a person, and an agent
+    # must never wait on a person's approval, so `lightsim run` and the
+    # engine's `lightsim-backend run` follow the MCP server's rules: a sandbox
+    # that cannot be set up refuses the run (sandbox_unavailable), never a
+    # weaker run. LIGHTSIM_STRICT_SANDBOX=0 gives a person the app's rules.
+    import app.solver.domains as domains
+    from app.dataio.cli import main as engine_main
+    from lightsim.cli import main
+
+    monkeypatch.setattr(domains, "why_no_strict_sandbox",
+                        lambda platform=None: "No sandbox on this test computer [sandbox_unavailable].")
+    monkeypatch.delenv("LIGHTSIM_STRICT_SANDBOX", raising=False)
+    proj = _hybrid_with_a_new_script(tmp_path)
+    assert main(["run", str(proj), "--case", "case-udds"]) == 2
+    assert "sandbox_unavailable" in capsys.readouterr().out
+    assert engine_main(["run", str(proj), "--case", "case-udds", "--json",
+                        "--out", str(tmp_path / "r.csv")]) == 2
+    assert "sandbox_unavailable" in capsys.readouterr().out
+    monkeypatch.setenv("LIGHTSIM_STRICT_SANDBOX", "0")  # a person's opt-out: the app's rules
+    assert main(["run", str(proj), "--case", "case-udds"]) == 0, capsys.readouterr().out
+    assert engine_main(["run", str(proj), "--case", "case-udds", "--json",
+                        "--out", str(tmp_path / "r.csv")]) == 0
+
+
+@pytest.mark.skipif(not _landlock(), reason="needs the strict Linux sandbox (Landlock)")
+def test_a_new_script_runs_from_the_command_line_with_no_approval(tmp_path):
+    # Hands-off: a script nobody approved runs in the OS sandbox with no Run-
+    # scripts step, with LightSim's script check on as an install has it, from
+    # both command lines. LIGHTSIM_STRICT_SANDBOX=0 brings the app's rules
+    # back: the script must be approved in the app first.
+    proj = _hybrid_with_a_new_script(tmp_path)
     data = tmp_path / "d"
     data.mkdir()
     (data / ".script-trust-migrated").write_text("done", encoding="utf-8")  # no project scan
     env = {"LIGHTSIM_DATA_DIR": str(data), "LIGHTSIM_PROJECTS_DIR": str(tmp_path / "p")}
-    off = ("LIGHTSIM_SCRIPT_TRUST",)  # let script_trust be active (prompt), as an install has it
+    off = ("LIGHTSIM_SCRIPT_TRUST", "LIGHTSIM_STRICT_SANDBOX")  # script_trust active, as installed
+    full = {**{k: v for k, v in os.environ.items() if k not in off}, **env}
 
-    # without the marker, the unapproved script stops the run (today's behaviour)
-    r = cli("run", str(proj), "--case", "case-udds", env=env, unset=off)
-    assert r.returncode == 2 and "has not been approved" in r.stdout
-    # with the marker, the run is strict: it skips the approval and sandboxes
-    r2 = cli("run", str(proj), "--case", "case-udds",
-             env={**env, "LIGHTSIM_STRICT_SANDBOX": "1"}, unset=off)
-    assert r2.returncode == 0, r2.stderr
-    assert "success" in r2.stdout
+    for command in (["-m", "lightsim", "run", str(proj)],
+                    [str(BACKEND / "run_backend.py"), "run", str(proj), "--json",
+                     "--out", str(tmp_path / "r.csv")]):
+        r = subprocess.run([sys.executable, *command, "--case", "case-udds"], cwd=BACKEND, env=full,
+                           capture_output=True, text=True, encoding="utf-8", timeout=600)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert "success" in r.stdout and "has not been approved" not in r.stdout
+        r0 = subprocess.run([sys.executable, *command, "--case", "case-udds"], cwd=BACKEND,
+                            env={**full, "LIGHTSIM_STRICT_SANDBOX": "0"},
+                            capture_output=True, text=True, encoding="utf-8", timeout=600)
+        assert r0.returncode == 2 and "has not been approved" in r0.stdout, r0.stdout + r0.stderr
 
 
 def test_edit_an_example_needs_an_out_file():

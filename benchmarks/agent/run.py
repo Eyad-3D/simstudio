@@ -170,7 +170,9 @@ def prepare(task: Task, mode: str, base: Path) -> tuple[Path, Path, dict]:
     mcp_config = home / "mcp.json"
     mcp_config.write_text(json.dumps({"mcpServers": servers}), encoding="utf-8")
     # none of the checker's own settings (isolate) reach the agent's tools:
-    # they run as the app would, with its approval of Script code
+    # they run as an outside agent's would, hands-off (the MCP server and the
+    # lightsim command both hold Script blocks and FMUs to the strict sandbox
+    # with no approval; nothing here has to ask for it)
     env = {k: v for k, v in os.environ.items() if not k.startswith("LIGHTSIM_")}
     if mode == "cli":
         (home / "bin").mkdir()

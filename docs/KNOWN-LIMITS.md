@@ -1126,7 +1126,11 @@ minimum or an average, for example from the CSV export, or put the
   It does not read the trust list (`lightsim ai trust`): only Python code
   that goes through `lightsim.ai_access.AgentSession` reads it, and
   `lightsim run` and the `lightsim` package read no AI access setting at
-  all. LightSim's check of script code (the scripts entry above) is for a
+  all. The command-line tool (`lightsim run`, `lightsim-backend run`) is
+  hands-off too: it cannot tell an agent from a person, so every run of it
+  holds Script blocks and FMUs to the same sandbox with no approval, or is
+  refused; `LIGHTSIM_STRICT_SANDBOX=0` gives a person the app's rules
+  instead. LightSim's check of script code (the scripts entry above) is for a
   run you start in the app; an AI app's run is made safe by the sandbox
   instead, so a brand-new script the assistant writes runs without the
   **Run scripts** approval (still only in the sandbox, or the run is

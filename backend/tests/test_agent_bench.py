@@ -29,6 +29,7 @@ from benchmarks.agent import run  # noqa: E402
 
 from app.ai.edits import apply_operations  # noqa: E402
 from app.library import unit_groups  # noqa: E402
+from app.solver.sandbox import why_no_strict_sandbox  # noqa: E402
 
 TASKS = agent.load_tasks()
 PLANTED = agent.load_task(run.PLANTED)
@@ -396,6 +397,27 @@ def test_the_cli_agents_lightsim_refuses_every_path_outside_its_folder(tmp_path)
         done = call(*args)
         assert done.returncode == 3 and "refused" in done.stderr, args
     assert not (tmp_path / "x.csv").exists()
+
+
+@posix
+@pytest.mark.skipif(why_no_strict_sandbox() is not None, reason="needs the strict OS sandbox")
+def test_a_cli_agent_runs_the_script_it_wrote_with_no_approval(tmp_path):
+    """The command-line tool is hands-off, as the MCP server is: an agent in
+    cli mode saves the Script block it wrote and runs it, and meets no
+    approval. The try's lightsim keeps nothing of the runner's environment
+    (env -i), so the tool itself must be hands-off, not a variable set here."""
+    task = next(t for t in TASKS if t.id == "write-speed-limiter")
+    work, _, env = run.prepare(task, "cli", tmp_path)
+    lightsim = str(tmp_path / "home" / "bin" / "lightsim")
+
+    def call(*args):
+        return subprocess.run([lightsim, *args], cwd=work, env=env, capture_output=True, text=True,
+                              timeout=600)
+
+    assert call("edit", "car.json", "--ops", json.dumps(task.reference["ops"])).returncode == 0
+    done = call("run", "car.json", "--case", "case-motorway")
+    assert "has not been approved" not in done.stdout + done.stderr
+    assert done.returncode == 0 and "success" in done.stdout, done.stdout + done.stderr
 
 
 def test_the_mcp_server_the_agent_gets_will_not_open_the_hidden_files(tmp_path):

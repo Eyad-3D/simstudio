@@ -30,7 +30,7 @@ The examples below write `lightsim`; use whichever of these you have
 |---|---|
 | `lightsim run PROJECT [--case NAME]` | Runs a case (the first if none is named) and prints its summary |
 | `lightsim check PROJECT` | Runs the Data Checks (the *Problems* list). `--strict` fails on warnings too |
-| `lightsim edit PROJECT [--set P.K=V] [--op JSON] [--ops JSON] [-o FILE]` | Applies changes (the AI plug's `model_edit` operations) and saves. In place it keeps the previous version as `<file>.bak` |
+| `lightsim edit PROJECT [--set P.K=V] [--op JSON] [--ops JSON] [-o FILE]` | Applies changes (the AI plug's `model_edit` operations) and saves. In place it keeps each version it replaces in `<file>-backups` (the newest 20), so any recent one can be restored |
 | `lightsim export RUN -o FILE` | Writes a stored run (`.json.gz` from the app's runs folder, or `.json`) as CSV, MAT, JSON or Parquet |
 | `lightsim show PROJECT` | Lists the project's cases and parts, with their ids |
 | `lightsim params PROJECT [--part LABEL]` | Lists the parameter values, as `Part.key = value unit` |
@@ -58,6 +58,18 @@ text, and `-h` for its options.
 
 The files' contents are described in
 [Runs and results](../../spec/results.md#exports).
+
+**Script blocks and FMUs.** `run`, and the engine program's own `run`,
+work hands-off, as the connection for AI apps does
+([AI access](#ai-access)): a project's Script blocks and FMUs run in an
+OS sandbox, with access to the project's folder only and no network, and
+a script nobody approved runs there with no **Run scripts** approval.
+Where that sandbox cannot be set up, the run is refused with the code
+`sandbox_unavailable`. The tool cannot tell an AI agent from a person,
+and an agent must never wait on a person, so this holds for every run.
+To run with the app's rules instead (only scripts you approved in the
+app, the app's isolation), set the environment variable
+`LIGHTSIM_STRICT_SANDBOX=0`.
 
 ## Exit codes
 
@@ -121,12 +133,13 @@ owner's decision, 1 November 2026). What an AI app can do once access is on:
   straight away, and is recoverable (an example saved as a new project, the
   previous version kept as a backup).
 
-A plain `lightsim run` is for people and keeps today's behaviour (it asks
-about script code it does not know). An agent runner can hold `lightsim run`
-to the same OS sandbox as the MCP server — no network, project-only files,
-and a script it wrote running with no approval — by setting the environment
-variable `LIGHTSIM_STRICT_SANDBOX=1`; the run is then refused where that
-sandbox cannot be set up, rather than run less safely.
+The command-line tool is hands-off as well: `lightsim run`, and the
+engine program's `lightsim-backend run`, hold every run to the same OS
+sandbox, with no **Run scripts** approval, or refuse the run where that
+sandbox cannot be set up (they cannot tell an agent from a person; see
+*Script blocks and FMUs* above). `LIGHTSIM_STRICT_SANDBOX=0` gives a
+person the app's rules instead; an agent gains nothing by it, since a
+script must then be approved in the app.
 
 Python code that goes through `AgentSession` sees the same folders, the
 same `"noAi"` mark and the same time cap, and runs a project with Script

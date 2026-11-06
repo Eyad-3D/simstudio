@@ -242,8 +242,11 @@ sandbox cannot be set up, and an edit it saves is recoverable from the
 project's backups. See [AI access](command-line.md#ai-access).
 
 The hands-off, sandbox-by-design rules are for the two agent doors this
-change covers: the MCP server, and `lightsim run` with
-`LIGHTSIM_STRICT_SANDBOX=1`. `AgentSession`, the Python-library door, is
+change covers: the MCP server, and the command-line tool (`lightsim run`,
+and the engine program's `lightsim-backend run`), which holds every run to
+them. A run from Python (`project.run()`) keeps the app's rules: a script
+you have not approved in the app does not run. `AgentSession`, the
+Python-library door, is
 **not** hands-off yet: it still raises `ConfirmationRequired` before it
 saves or runs, and it runs a project's Script blocks only when the project
 is on the trust list (`lightsim ai trust`). The owner has not yet decided

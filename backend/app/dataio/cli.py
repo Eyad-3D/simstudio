@@ -103,6 +103,7 @@ def _print(obj: Any, as_json: bool, text: str) -> None:
 
 def cmd_run(args: argparse.Namespace) -> int:
     from ..solver import simulate
+    from ..solver.sandbox import STRICT, command_line_strict
     from ..validation import run_blockers, validate_project
     from . import results
 
@@ -116,7 +117,14 @@ def cmd_run(args: argparse.Namespace) -> int:
             f"  - {c.text}" for c in errors))
         return CHECKS_FAILED
     started = int(time.time() * 1000)
-    result = simulate(project, case.id)
+    # Hands-off, as `lightsim run`: Script blocks and FMUs run in the strict
+    # OS sandbox with no per-user approval, or the run is refused where that
+    # sandbox cannot be set up; LIGHTSIM_STRICT_SANDBOX=0 gives the app's rules.
+    token = STRICT.set(command_line_strict())
+    try:
+        result = simulate(project, case.id)
+    finally:
+        STRICT.reset(token)
     model = project.model_copy(update={"studies": []})
     run = StoredRun(
         id=f"cli-{started}", caseId=case.id, caseName=case.name, startedAt=started,

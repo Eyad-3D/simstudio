@@ -22,6 +22,7 @@ import contextvars
 import json
 import logging
 import multiprocessing
+import os
 import socket
 import sys
 import threading
@@ -44,6 +45,18 @@ SANDBOX_UNAVAILABLE = _w.SANDBOX_UNAVAILABLE
 #: app leaves it False and keeps today's best-effort isolation. A ContextVar,
 #: so it is per-run and needs no new parameter through the solver.
 STRICT = contextvars.ContextVar("lightsim_strict_sandbox", default=False)
+
+
+def command_line_strict() -> bool:
+    """Whether a run of the command-line tool (``lightsim run``, and the
+    desktop engine's ``lightsim-backend run``) is strict. It is, unless
+    ``LIGHTSIM_STRICT_SANDBOX`` is 0, false, no or off: the tool cannot tell an
+    agent from a person, and an agent must never wait on a person's approval
+    (the owner's hands-off decision, 1 November 2026), so its runs follow the
+    MCP server's rules. The variable set to 0 gives a person the app's rules
+    (script approval, best-effort isolation); an agent gains nothing by it but
+    the approval it cannot give."""
+    return os.environ.get("LIGHTSIM_STRICT_SANDBOX", "").strip().lower() not in ("0", "false", "no", "off")
 
 
 def why_no_strict_sandbox(platform: Optional[str] = None) -> Optional[str]:

@@ -17,6 +17,11 @@ decision of 1 November 2026: an agent works hands-off):
   Python code that goes through ``lightsim.ai_access.AgentSession`` does,
   and the plain ``lightsim`` package and ``lightsim run`` read no AI access
   setting at all;
+- the command-line tool (``lightsim run``, ``lightsim-backend run``) is
+  hands-off for every run, since it cannot tell an agent from a person:
+  Script blocks and FMUs in the same sandbox with no approval, or refused;
+  ``LIGHTSIM_STRICT_SANDBOX=0`` gives a person the app's rules (held in
+  test_cli.py and test_agent_bench.py);
 - LightSim's own approval of Script code (app/script_trust.py) does NOT
   apply to an AI app's run: the sandbox is the safety, so a brand-new script
   the assistant writes runs in the sandbox without the **Run scripts**
@@ -208,6 +213,13 @@ MUST_SAY = {
         "refused with the code `sandbox_unavailable`",
         "a brand-new script the assistant writes runs in the sandbox without the app's **Run scripts** approval",
         "The last calls made through `AgentSession`",
+        # the command-line tool is hands-off for every run (it cannot tell who runs it)
+        "The tool cannot tell an AI agent from a person, and an agent must never wait on a person, "
+        "so this holds for every run.",
+        "set the environment variable `LIGHTSIM_STRICT_SANDBOX=0`",
+        "The command-line tool is hands-off as well: `lightsim run`, and the engine program's "
+        "`lightsim-backend run`, hold every run to the same OS sandbox, with no **Run scripts** approval",
+        "In place it keeps each version it replaces in `<file>-backups`",
     ],
     PYTHON_API: [
         "the `lightsim` package does not read the AI access settings",
@@ -219,6 +231,9 @@ MUST_SAY = {
         "`AgentSession`, the Python-library door, is **not** hands-off yet: it still raises "
         "`ConfirmationRequired` before it saves or runs",
         "The owner has not yet decided this door, so it keeps today's confirmation and trust list",
+        "the command-line tool (`lightsim run`, and the engine program's `lightsim-backend run`), "
+        "which holds every run to them",
+        "A run from Python (`project.run()`) keeps the app's rules",
     ],
     KNOWN_LIMITS: [
         "**AI apps work hands-off; the trust list is not used.**",
@@ -232,6 +247,10 @@ MUST_SAY = {
         "edit it saves is recoverable (the previous version kept as a backup, an example saved "
         "as a new project)",
         "`lightsim run` and the `lightsim` package read no AI access setting at all",
+        "The command-line tool (`lightsim run`, `lightsim-backend run`) is hands-off too: it cannot "
+        "tell an agent from a person, so every run of it holds Script blocks and FMUs to the same "
+        "sandbox with no approval, or is refused; `LIGHTSIM_STRICT_SANDBOX=0` gives a person the "
+        "app's rules instead.",
         "a brand-new script the assistant writes runs without the **Run scripts** approval",
         "`lightsim ai log` lists only the calls made through `AgentSession`",
         "That log leaves out " + UNLOGGED + ", and " + UNREAD + ".",
@@ -327,6 +346,11 @@ OVERSTATED = [
     "every tool call an ai app makes, allowed or refused",
     "every call from an ai tool is refused",
     "get nothing from lightsim",
+    # the command line's old rules: a plain run asked about new script code, and
+    # only an agent runner's LIGHTSIM_STRICT_SANDBOX=1 made it hands-off
+    "is for people and keeps today's behaviour",
+    "asks about script code it does not know",
+    "lightsim_strict_sandbox=1",
 ]
 #: a mention of the trust command must say, near it, who reads the list
 WHO_READS = ("AgentSession", "does not read", "is not read", "plays no part", "not used")
