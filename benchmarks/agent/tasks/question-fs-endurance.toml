@@ -57,7 +57,9 @@ figure = { file = "car.json", case = "Endurance energy", key = "distance_km" }
 # The brief names no precision, so the band takes the energy to two decimals:
 # 0.22 is 2.06 % off 0.22462 (the comparison of 6 November failed five tries
 # with the 2 % band it had then). 2.5 % still fails the mixed readings below
-# (0.2319 is 3.2 % off, 0.231 2.8 %).
+# (0.2319 is 3.2 % off, 0.231 2.8 %). The price: 20.56 with 0.23 (the other
+# energy to two decimals) is 2.4 % off and passes, since two decimals cannot
+# tell the readings' energies apart; a brief that names the precision would.
 [[answer]]
 value = 0.22462
 rtol = 0.025
