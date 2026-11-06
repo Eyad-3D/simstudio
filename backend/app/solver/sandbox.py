@@ -33,6 +33,7 @@ from typing import Optional
 from . import sandbox_worker as _w
 from . import scripting
 from .scripting import ScriptError
+from .win_sandbox import START_S as _AC_START_S
 
 #: The stable code an agent's run reports when the OS sandbox for its Script
 #: blocks or FMUs cannot be set up (defined in sandbox_worker, the module the
@@ -105,8 +106,8 @@ log = logging.getLogger(__name__)
 # budgets.
 _KILL_MARGIN_S = 0.5
 # What an AppContainer worker (Windows, a strict run) may add to that wait for
-# its own start-up: a fresh interpreter inside the container.
-_AC_START_S = 30.0
+# its own start-up (_AC_START_S, imported above): a fresh interpreter inside
+# the container.
 
 
 class ScriptSandbox:

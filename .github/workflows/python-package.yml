@@ -38,6 +38,11 @@ jobs:
           "$PY" -m pip install dist-wheel/*.whl
           cd "$RUNNER_TEMP"
           "$PY" -m lightsim run bev-car --case "City Cycle"
+          # Script blocks: every command-line run holds them to the strict OS
+          # sandbox (an AppContainer on Windows, Landlock on Linux), whose worker
+          # must start from the installed wheel (the engine is lightsim._app, and
+          # pydantic is in this venv, not in the base interpreter)
+          "$PY" -m lightsim run hybrid-car --case case-udds
           "$PY" -c "import lightsim as ls; r = ls.run('hybrid-car'); assert r.ok, r.status"
 
       - uses: actions/upload-artifact@v7

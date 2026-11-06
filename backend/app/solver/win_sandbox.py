@@ -36,7 +36,10 @@ several threads, and an agent may start several ``lightsim run`` at once.
 
 In the frozen (PyInstaller) engine the worker is the engine executable again,
 started with :data:`WORKER_ARG` (``run_backend.py`` hands it to
-:func:`child_main`), since a frozen engine has no ``python -c``.
+:func:`child_main`), since a frozen engine has no ``python -c``. The wheel
+(scripts/build-wheel.py) ships the engine as ``lightsim._app``, not ``app``:
+the worker imports the engine by its folder's name (:data:`_ENGINE`) from
+the folder that holds it, so it works from source and from the wheel alike.
 """
 from __future__ import annotations
 
@@ -45,6 +48,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -56,11 +60,23 @@ _WIN = sys.platform == "win32"
 #: (run_backend.py) instead of the server or the command-line tool.
 WORKER_ARG = "--lightsim-appcontainer-worker"
 
+#: What a worker inside the container may take to start, past what its first
+#: reply is given: a fresh interpreter, slower while other runs' ACL grants keep
+#: the disk busy. A run waits this much longer (app/solver/sandbox.py), and so
+#: does the probe (:func:`appcontainer_available`).
+START_S = 30.0
+
+#: The engine package's folder: ``app`` from source, ``_app`` inside the
+#: wheel's ``lightsim`` package. The worker imports the engine as this
+#: folder's name from the folder that holds it, so it needs neither the name
+#: ``app`` nor the wheel's ``lightsim`` package (and its pydantic).
+_ENGINE = Path(__file__).resolve().parents[1]
+
 #: What the source worker runs with ``python -I -c``: set the sys.path it was
 #: given (base64, then the separator), then serve.
 _BOOT = ("import sys,base64;"
          "sys.path[:0]=base64.b64decode(sys.argv[3]).decode().split(sys.argv[4]);"
-         "from app.solver.win_sandbox import child_main;"
+         f"from {_ENGINE.name}.solver.win_sandbox import child_main;"
          "child_main(sys.argv[1:3])")
 
 if _WIN:
@@ -212,8 +228,9 @@ def _base_python() -> str:
 
 
 def _backend_dir() -> str:
-    """The folder that holds the ``app`` package (so the child can import it)."""
-    return str(Path(__file__).resolve().parents[2])
+    """The folder that holds the engine package (so the child can import it):
+    ``backend`` from source, the wheel's ``lightsim`` folder when installed."""
+    return str(_ENGINE.parent)
 
 
 def _site_dirs() -> list[str]:
@@ -221,31 +238,34 @@ def _site_dirs() -> list[str]:
                                           or "dist-packages" in p.lower())]
 
 
-def _runtime_dirs(kind: str) -> list[str]:
+def _runtime_dirs() -> list[str]:
     """Folders the worker's Python must read and load code from after the
-    container is on. A Script needs only the interpreter and the backend
-    package; an FMU also needs the site-packages that hold FMPy and NumPy. A
-    frozen build ships its runtime inside the app folder (reachable by app
-    packages already), so only that folder is granted."""
+    container is on: the interpreter, the engine package, and the
+    site-packages that hold what the engine imports — pydantic (the engine's
+    ``solver`` package imports it, so a Script worker needs it too: from a
+    venv or the wheel it is not in the base interpreter's folder) and, for an
+    FMU, FMPy and NumPy. A folder inside another is left out: the outer
+    folder's entry reaches it. A frozen build ships its runtime inside the
+    app folder (reachable by app packages already), so only that folder is
+    granted."""
     if getattr(sys, "frozen", False):
         dirs = {str(Path(sys.executable).resolve().parent)}
         base = getattr(sys, "_MEIPASS", None)
         if base:
             dirs.add(str(Path(base).resolve()))
         return sorted(dirs)
-    dirs = {str(Path(sys.base_prefix).resolve()), _backend_dir()}
-    if kind == "fmu":
-        dirs.add(str(Path(sys.prefix).resolve()))
-        dirs.update(str(Path(p).resolve()) for p in _site_dirs())
-    return sorted(dirs)
+    dirs = {Path(sys.base_prefix).resolve(), Path(_backend_dir()), Path(sys.prefix).resolve(),
+            *(Path(p).resolve() for p in _site_dirs())}
+    return sorted(str(d) for d in dirs if not any(d != o and d.is_relative_to(o) for o in dirs))
 
 
-def _child_syspath(kind: str) -> str:
-    """The sys.path the child sets before importing, base64-encoded so it
+def _child_syspath() -> str:
+    """The sys.path the child sets before importing (the engine's folder, then
+    the site-packages: see :func:`_runtime_dirs`), base64-encoded so it
     crosses the command line with no quoting trouble (paths with spaces,
     backslashes)."""
     import base64
-    paths = [_backend_dir(), *( _site_dirs() if kind == "fmu" else [])]
+    paths = [_backend_dir(), *_site_dirs()]
     return base64.b64encode(os.pathsep.join(paths).encode("utf-8")).decode("ascii")
 
 
@@ -257,7 +277,7 @@ def worker_argv(kind: str, mem_bytes: int) -> list[str]:
     it would take ``-I`` for one of the server's options and stop)."""
     if getattr(sys, "frozen", False):
         return [sys.executable, WORKER_ARG, kind, str(mem_bytes)]
-    return [_base_python(), "-I", "-c", _BOOT, kind, str(mem_bytes), _child_syspath(kind), os.pathsep]
+    return [_base_python(), "-I", "-c", _BOOT, kind, str(mem_bytes), _child_syspath(), os.pathsep]
 
 
 class _Proc:
@@ -396,7 +416,7 @@ def _launch(kind: str, mem_bytes: int, project_dirs: tuple[str, ...]) -> AppCont
     worker_in = worker_out = stderr_h = None
     attr_buf = None
     try:
-        for d in [*_runtime_dirs(kind), *project_dirs]:
+        for d in [*_runtime_dirs(), *project_dirs]:
             if d and os.path.isdir(d) and _grant(d, sid_str):
                 granted.append(d)
         worker_in, engine_write_fd = _pipe(worker_end_is_read=True)    # engine -> worker
@@ -484,38 +504,57 @@ def child_main(argv: list[str]) -> int:
     return 0
 
 
-_PROBE: Optional[bool] = None
+#: The probe's answer once it said yes (kept for the process), the lock a
+#: probe runs under, and how many probes have finished.
+_PROBE_OK = False
+_PROBE_LOCK = threading.Lock()
+_PROBES_DONE = 0
 
 
 def appcontainer_available() -> bool:
     """True when a confined AppContainer worker can really be launched here —
     the profile, the ACL grants and the launch all work, and the worker reports
-    itself confined. Run once and cached, so the strict gate
-    (:func:`why_no_strict_sandbox`) can trust it. Any failure returns False, so
-    the run is refused rather than run unconfined."""
-    global _PROBE
-    if _PROBE is not None:
-        return _PROBE
-    _PROBE = False
+    itself confined — so the strict gate (:func:`why_no_strict_sandbox`) can
+    trust it. Any failure returns False, so the run is refused rather than run
+    unconfined. The probe takes seconds: callers who come while it runs (an
+    MCP server's first runs at once) wait for its answer and share it. A yes is
+    kept; a no is not, so a later caller probes again."""
+    global _PROBE_OK, _PROBES_DONE
+    if _PROBE_OK:
+        return True
+    seen = _PROBES_DONE
+    with _PROBE_LOCK:
+        if _PROBE_OK:
+            return True
+        if _PROBES_DONE != seen:
+            return False  # the probe this caller waited for said no
+        try:
+            _PROBE_OK = _probe()
+        finally:
+            _PROBES_DONE += 1
+        return _PROBE_OK
+
+
+def _probe() -> bool:
     if not _WIN:
-        return _PROBE
+        return False
     worker = None
     try:
         import json
         worker = launch("script", _sw.DEFAULT_MEM_BYTES)
         payload = {"time_limit": 2.0, "trusted": False, "strict": True, "scripts": []}
         worker.conn.send(_sw.MSG_INIT + json.dumps(payload).encode("utf-8"))
-        # a short watchdog: kill the worker if the reply does not come
-        import threading
-        timer = threading.Timer(20.0, worker.proc.kill)
+        # kill the worker if the reply does not come within what a run with
+        # no scripts waits for its first reply (app/solver/sandbox.py)
+        timer = threading.Timer(5.0 + START_S, worker.proc.kill)
         timer.start()
         try:
             reply = json.loads(worker.conn.recv()[1:].decode("utf-8"))
         finally:
             timer.cancel()
-        _PROBE = bool(reply.get("confined"))
+        return bool(reply.get("confined"))
     except Exception:  # noqa: BLE001
-        _PROBE = False
+        return False
     finally:
         if worker is not None:
             try:
@@ -524,4 +563,3 @@ def appcontainer_available() -> bool:
                 pass
             worker.proc.kill()
             worker.close()
-    return _PROBE
