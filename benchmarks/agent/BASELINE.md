@@ -759,3 +759,110 @@ comparison, only after it.
   fence refuses (`dc8231f`), and with it Haiku 5.5 at low solved 31 of 33
   once: the next comparison runs with that prompt, so its Haiku row
   measures Haiku, not the fence.
+
+# After the live part: the edit tasks again
+
+Step 6, item 4 (an agent's change shows in the open window and is one undo
+step, with a line in the project's history) changes how every save is
+written: under a lock the app and an agent share, with a history line beside
+the file, a reason the tool takes, and a re-apply when someone else saved in
+between. This run asks whether agents still succeed with it.
+
+- **Date:** 6 November 2026.
+- **LightSim:** commit `6c6d27d` (branch `work/ai`): the history and the
+  shared lock (`b777661`) and the window's side (`6c6d27d`), with the
+  command-line prompt that names the fence (`dc8231f`). Also in
+  `/home/eyada/scratch/lane-ai/live/bench.commit`.
+- **Run:** the 19 build, repair and write tasks (6 of them held out), 3 tries
+  each, in MCP and command-line mode, at the cheapest working setting
+  above (Haiku 5.5, low) and at the owner's expectation (Sonnet 5.5,
+  medium): 228 tries. The bench's own `Comparison` (its records, checker,
+  not-run retries and report) with these specs, which its stages do not make
+  (they give the command line one try a task). Script
+  `/home/eyada/scratch/lane-ai/live/edit_rerun.py`. Claude Code 2.1.316,
+  signed in to the owner's plan, no API key, no budget limit.
+- **Not run:** three command-line tries (1 at Haiku low, 2 at Sonnet medium)
+  gave no result and were run again; they are not scored, and their cost is
+  in the total.
+- **One scoring fault, mine, and its tries scored again:** the script had no
+  `__main__` guard (the same fault as "After the check"), so the checker
+  could not run a model with a Script block: the sandbox's worker imports the
+  script again. It hit one task, `repair-hybrid-wiring`, whose 12 tries were
+  all scored failed, the reference's run failing too. The agents' own runs
+  were not touched. Every try was scored again from the files it left by a
+  script with the guard (`rescore.py`, output `rescore.out`), into
+  `/home/eyada/scratch/judge-cache/ai/bench-runs/after-live-rescored`: the 12
+  go from failed to solved, none the other way. The figures below are the
+  re-scored ones.
+- **Records:** `/home/eyada/scratch/judge-cache/ai/bench-runs/after-live`
+  (`report.md`, `report.json`, `tries/`, each try's transcript and files under
+  `runs/`). Models that answered: `claude-haiku-5-5`, `claude-sonnet-5-5`, and
+  only these; every try billed to the plan.
+
+## The answer: agents still succeed
+
+| Setting, mode | pass^3 (all / visible / held out) | Solved once | Mean cost a try, USD | Total, USD |
+|---|---|---|---|---|
+| Haiku 5.5, low, MCP | 19/19 / 13/13 / 6/6 | 19/19 | 0.0086 | 0.49 |
+| Sonnet 5.5, medium, MCP | 19/19 / 13/13 / 6/6 | 19/19 | 0.1136 | 6.48 |
+| Haiku 5.5, low, command line | 18/19 / 12/13 / 6/6 | 19/19 | 0.0161 | 0.92 |
+| Sonnet 5.5, medium, command line | 17/19 / 12/13 / 5/6 | 18/19 | 0.1490 | 8.49 |
+
+In MCP mode both settings pass every try of every edit task, as they did
+after the safety part. On the command line, which had only one try a task
+before, Haiku 5.5 at low passes 18 of 19 on all three tries and Sonnet 5.5
+at medium 17 of 19. Haiku 5.5 at low stays the cheapest setting that
+works, at 0.0086 USD a try in MCP mode, 13 times less than Sonnet 5.5 at
+medium.
+
+The four failed tries, none of them a save that did not go through:
+
+- `build-sedan-abc.cli.sonnet-medium.1` and `.2` set the wheel radius to
+  0.34435 m for a brief that gives a rolling radius of 13.15 in (0.334 m):
+  they divided it by the Wheel's 0.97 rolling radius factor and said they
+  could not confirm from the part descriptions what the field means. The
+  same miss as Opus after the safety part. `lightsim parts propulsion.wheel`
+  shows `radius_m [m] Wheel Radius` and, with `--json`, key, label, unit and
+  type: not the description ("The tyre's rolling radius ...") that the MCP
+  tools give. A LightSim gap: item 6 below.
+- `write-limp-home.cli.haiku-low.2` labelled its Script block "Limit Home",
+  where the brief asks for "Limp Home".
+- One held-out try at Sonnet 5.5, medium, on the command line (held out:
+  only its score is used).
+
+## What the agents left in the history
+
+Every try's project has its history (`<file>-backups/history.jsonl`), one
+line per save. Counted over the files of the 57 scored tries a setting and
+mode, and the not-run tries' (script
+`/home/eyada/scratch/lane-ai/live/history_stats.py`, output
+`history_stats.out`):
+
+| Mode, setting | Agent saves | With a reason | Client recorded |
+|---|---|---|---|
+| MCP, Haiku 5.5 low | 62 | 62 | `claude-code` (all) |
+| MCP, Sonnet 5.5 medium | 66 | 66 | `claude-code` (all) |
+| Command line, Haiku 5.5 low | 327 | 133 | `command line` 308, set with `--client` 19 |
+| Command line, Sonnet 5.5 medium | 234 | 42 | `command line` (all) |
+
+Every MCP save has its reason (`model_edit` asks for one) and a diff an undo
+can use. On the command line `--reason` may be left out, and most saves
+leave it out; 100 and 43 of the saves wrote a new file (a copy to try
+something on), which has no earlier version, so no diff.
+
+## What it cost
+
+**16.49 USD at API list price** for the 228 scored tries and the 3 not run
+(0.11 USD of it on those); the command-line tool's own figure is 16.49 USD.
+Haiku 5.5 at low 1.41 USD, Sonnet 5.5 at medium 14.97 USD. Tokens: input
+6,558, output 1,031,376, cache read 64,485,348, cache write 5,582,873. Time:
+5.0 h of tries, 1.0 h from the first try's start to the last one's end.
+
+## Tool defect for the later parts
+
+6. `lightsim parts <type>` lists a part's parameters with key, unit and
+   label only. The description, which the MCP tools give and which says what
+   a value means (the Wheel's `radius_m` is the rolling radius), is not
+   printed, in text or in `--json`. Two Sonnet tries here and one Opus try
+   after the safety part guessed at it on the command line and set the wrong
+   radius.
