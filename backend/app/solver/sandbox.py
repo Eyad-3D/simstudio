@@ -78,11 +78,11 @@ def why_no_strict_sandbox(platform: Optional[str] = None) -> Optional[str]:
         from . import win_sandbox
         if win_sandbox.appcontainer_available():
             return None
-        return (f"{who} can run a project's Script blocks or FMUs only inside the Windows "
+        return (f"{who} runs a project's Script blocks or FMUs only inside the Windows "
                 "sandbox — an AppContainer with no network and no access to your files — "
                 f"which could not be set up on this computer. {tail}")
     if platform.startswith("linux") and _w.landlock_abi() < 0:
-        return (f"{who} can run a project's Script blocks or FMUs only inside the sandbox "
+        return (f"{who} runs a project's Script blocks or FMUs only inside the sandbox "
                 "(no network, no file access outside the project), which needs Landlock "
                 f"(Linux 5.13 or newer); this kernel does not offer it. {tail}")
     return None

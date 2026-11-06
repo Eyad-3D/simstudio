@@ -197,6 +197,7 @@ def _drive_worker(target, args, init_body, monkeypatch, confined):
 
     monkeypatch.setattr(sw, "harden", lambda *a, **k: ("test", confined))
     parent, child = _socket.socketpair()
+    parent.settimeout(60)  # a worker that dies without a reply fails the test, not hangs it
     th = threading.Thread(target=target, args=(child, *args), daemon=True)
     th.start()
     try:
@@ -242,6 +243,10 @@ def test_a_strict_fmu_worker_loads_nothing_before_it_knows_it_is_confined(monkey
     import json as _json
 
     from app.fmu import worker as fw
+
+    # the worker imports FMPy first; without the FMU pack it would stop before
+    # its reply (and this test used to wait for that reply forever)
+    pytest.importorskip("fmpy")
 
     spec = {"label": "X", "strict": True, "unzipDir": "/nonexistent",
             "libraryPath": "/nonexistent/x.so", "fmiVersion": "2.0", "guid": "g",

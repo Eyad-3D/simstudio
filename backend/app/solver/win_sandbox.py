@@ -164,8 +164,8 @@ def _serialised():
     """Hold the set-up mutex (threads and processes alike). A mutex whose last
     owner died is handed on (WAIT_ABANDONED), so a crashed run cannot block
     the next. ponytail: one lock for every set-up and tear-down, so runs queue
-    for each other's ``icacls``; granting the runtime once per process would
-    end the queue (and the seconds each grant takes)."""
+    for each other's ``icacls`` (about a second each on Windows 11); granting
+    the runtime once per process would end the queue."""
     h = _k32.CreateMutexW(None, False, _SETUP_MUTEX)
     if not h:
         raise SandboxSetupError(f"CreateMutexW failed ({ctypes.get_last_error()})")
@@ -191,11 +191,16 @@ def _icacls(path: str, args: list[str]) -> bool:
 
 
 def _grant(path: str, sid_str: str) -> bool:
-    return _icacls(path, ["/grant", f"*{sid_str}:(OI)(CI)(RX)", "/T", "/C", "/Q"])
+    """Read access to ``path`` and all inside it, as one inheritable entry on
+    the folder, which Windows passes on to every file and folder under it (no
+    ``/T``: setting the entry on each file as well took five times as long,
+    3.9 s against 0.7 s for Python's 9285-file Lib folder)."""
+    return _icacls(path, ["/grant", f"*{sid_str}:(OI)(CI)(RX)", "/C", "/Q"])
 
 
 def _revoke(path: str, sid_str: str) -> None:
-    _icacls(path, ["/remove:g", f"*{sid_str}", "/T", "/C", "/Q"])
+    """Take :func:`_grant`'s entry away; the inherited copies go with it."""
+    _icacls(path, ["/remove:g", f"*{sid_str}", "/C", "/Q"])
 
 
 def _base_python() -> str:

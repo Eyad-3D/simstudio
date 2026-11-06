@@ -1122,9 +1122,9 @@ minimum or an average, for example from the CSV export, or put the
   its worker reads only what LightSim grants it (the runtime it needs, an
   FMU's own folder) and what Windows lets every app container read (Windows'
   own folders and Program Files), and writes nothing. Setting one up and
-  clearing it away takes some seconds each (LightSim grants the container
-  read access to the runtime's files, then takes it back), and runs at once
-  set theirs up one after another. When that sandbox
+  clearing it away takes a second or two each (LightSim grants the
+  container read access to the runtime's files, then takes it back), and
+  runs at once set theirs up one after another. When that sandbox
   cannot be set up (Linux older than 5.13, or a Windows computer that cannot
   make the AppContainer) the run is refused with the code
   `sandbox_unavailable` rather than run less safely.
