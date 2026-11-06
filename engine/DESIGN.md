@@ -3265,11 +3265,14 @@ against exact answers from `benchmarks/`.
   at its current, which the engine reads at its Maximum Current too; a
   drag table that reaches the maximum speed at that speed above it), or
   never (an engine's full-load curve, read between its own first and last
-  speed); a record is judged for the share of the output points where the
+  speed); a record is judged for the time today's read is past the data
+  on the run's trace (the rule's variables, `Reads.uses`, traced at 0.1 s,
+  0.01 s in an acceleration test, each point to the next), its furthest
+  point and first time today's, and is that note when there is none; in
+  fast mode, which has no trace, for the share of its points where the
   engine read past its data, at any of its reads (`run.table_reads`, each
   read's abscissa there, from the model itself), that today's read is past
-  it too, its furthest point today's, and is that note when there are
-  none (an E-Motor is
+  it too (an E-Motor is
   unpowered at a command of 0, which fast mode runs with its inverter
   on); the engine's records of one axis, one per place the part reads
   it, are one (the longest time, the furthest point); a record today's
@@ -3629,8 +3632,11 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   and today's checks of what the run read (the model builder's warnings,
   the Ambient's air, the tables read past their data, judged as the verdict
   judges them, which marks the consumptions not valid); a case it does not
-  run (one that ends at a distance or a lap count: `QUICK-END`) runs in
-  full with a warning carrying its `QUICK-*` code (strict: fails with it). A project with a text component
+  run (one that ends at a distance or a lap count: `QUICK-END`; one whose
+  time past a table's data, at its points once a second, lies within two
+  of its steps a stretch of what the run allows: `QUICK-TABLE-TIME`,
+  `new_engine._decided`) runs in full with a warning carrying its
+  `QUICK-*` code (strict: fails with it). A project with a text component
   runs on this module whatever the flag says (today's engine reads none);
   one the path does not run fails with its code and `NEW-TEXT`.
 * **Not yet:** the one-click tighter run as its own call (call `simulate`

@@ -1227,7 +1227,8 @@ def test_a_table_read_in_its_branch_is_judged_for_that_share(new, monkeypatch):
     engine reads the table there, so the record is judged, for the share
     of the time outside its data the motor was unpowered (the engine counts
     26 s, in both branches; today 17 s, the time above its maximum speed):
-    the verdict is today's."""
+    the verdict is today's, and so is its time, counted on the run's trace
+    (before: 18 s, the share of its output points)."""
     proj = _dragged_past_its_maximum_speed()
     motor = next(e for e in proj.systems[0].elements if e.id == "el-motor")
     drag = motor.parameterOverrides["drag_torque"]
@@ -1235,7 +1236,7 @@ def test_a_table_read_in_its_branch_is_judged_for_that_share(new, monkeypatch):
     result = simulate(proj, "case-city")
     assert _verdict(result) == _verdict(_today(proj, "case-city", monkeypatch))
     said = [t for t in _texts(result, "warning") if "'Drag Torque (unpowered)' table" in t]
-    assert len(said) == 1 and " for 18 s of 200 s " in said[0], said
+    assert len(said) == 1 and " for 17 s of 200 s " in said[0], said
     assert not [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
 
 
@@ -1371,7 +1372,8 @@ def test_the_engines_drag_record_is_judged_where_it_is_read(fired_thr, fired_idl
     drag = Map([(0.0, 1.0), (6000.0, 2.0)], "drag", ["clamp"],
                [MapUse("el-engine", "'Drag' table", "Speed", "1/min", 0.0)])
     # (its maximum speed above the table's last point: read at its speed)
-    ctx = NS(model=NS(cdef_of={"el-engine": NS(id="engine.combustion")}),
+    ctx = NS(model=NS(cdef_of={"el-engine": NS(id="engine.combustion")},
+                      drivelines=[NS(element_group=["el-engine"])]),
              maps={("el-engine", "drag_torque"): drag}, motors={},
              engines={"el-engine": NS(speed_use=NS(edge=8000.0))})
     run = NS(engine_channels={"el_engine.wa": [700.0], "el_engine.fired_thr": [fired_thr],
@@ -1458,7 +1460,8 @@ def test_a_drag_record_above_the_maximum_speed_is_over_speed(max_rpm, share):
     from app.solver.maps import Map, MapUse
     drag = Map([(0.0, 1.0), (6000.0, 2.0)], "drag", ["clamp"],
                [MapUse("el-engine", "'Drag' table", "Speed", "1/min", 0.0)])
-    ctx = NS(model=NS(cdef_of={"el-engine": NS(id="engine.combustion")}),
+    ctx = NS(model=NS(cdef_of={"el-engine": NS(id="engine.combustion")},
+                      drivelines=[NS(element_group=["el-engine"])]),
              maps={("el-engine", "drag_torque"): drag}, motors={},
              engines={"el-engine": NS(speed_use=NS(edge=max_rpm * 6000.0 / 16000.0))})
     run = NS(engine_channels={"el_engine.wa": [700.0], "el_engine.fired_thr": [0.0],
@@ -1925,3 +1928,58 @@ def test_a_sample_time_within_today_s_solver_step_runs_on_the_new_engine(new):
     result = simulate(_sampled("lookup", 0.005), "case-city")
     assert result.engine == "new", _texts(result)
     assert new_engine.held_block(_sampled("pid", 0.01), _sampled("pid", 0.01).cases[0]) is None
+
+
+def test_each_table_rule_reads_only_the_variables_it_traces():
+    """Each rule of where today's engine reads a table (BRANCH_READS) is
+    counted on the run's trace of the variables it names (uses): it must
+    read no other."""
+    for k, r in new_engine.BRANCH_READS.items():
+        for _, today in r.axes:
+            if callable(today):
+                assert r.uses, k
+                today(dict.fromkeys(r.uses, 1.0), math.inf)  # (a KeyError: a variable not traced)
+
+
+def test_a_motor_table_read_only_while_powered_is_counted_on_the_trace(new, monkeypatch):
+    """The aerodynamic BEV's HWFET with its E-Motor's full-load curve from
+    1000 1/min (Clamp): today's engine reads it below its data while the
+    motor is powered, 9.8 s of the 765 s, over the run's 1 % (7.65 s), so
+    its run warns and Consumption is not valid. The new path counts today's
+    read on its 0.1 s trace (8.8 s) and warns as today's (before: the share
+    of its 1 s output points, 7.4 s, under the 1 %: a success)."""
+    proj = load_example("aero-bev")
+    mot = next(e for e in proj.systems[0].elements if e.id == "el-motor")
+    flt = mot.parameterOverrides["full_load_torque"]
+    mot.parameterOverrides["full_load_torque"] = {
+        v: {n: t for n, t in row.items() if float(n) >= 1000.0} for v, row in flt.items()}
+    mot.tableOutside = {"full_load_torque": ["clamp", "clamp"]}
+    today = _today(proj, "case-hwfet", monkeypatch)
+    result = simulate(proj, "case-hwfet")
+    assert result.engine == "new"
+    assert result.status == today.status == "warning", _texts(result, "warning")
+    key = "el-motor.outside_full_load_torque_speed_time_pct"
+    got, old = ({s.key: s.value for s in r.summary} for r in (result, today))
+    assert got[key] > 1.0 and old[key] > 1.0
+    assert got[key] == pytest.approx(old[key], abs=0.2)
+
+
+def test_a_table_time_quick_mode_cannot_tell_from_the_allowance_runs_in_full(new, monkeypatch):
+    """The same HWFET in quick mode: at fast mode's points once a second
+    the motor is below the curve's data in its powered branch for 7.3 s,
+    in two stretches, against the 7.65 s the run allows, where today's
+    count (9.8 s) is over it. Quick mode cannot tell, so the case runs in
+    full (QUICK-TABLE-TIME) and warns as today's (before: a success)."""
+    proj = load_example("aero-bev")
+    mot = next(e for e in proj.systems[0].elements if e.id == "el-motor")
+    flt = mot.parameterOverrides["full_load_torque"]
+    mot.parameterOverrides["full_load_torque"] = {
+        v: {n: t for n, t in row.items() if float(n) >= 1000.0} for v, row in flt.items()}
+    mot.tableOutside = {"full_load_torque": ["clamp", "clamp"]}
+    next(c for c in proj.cases if c.id == "case-hwfet").mode = "quick"
+    strict = simulate(proj, "case-hwfet")
+    assert _texts(strict)[0].startswith("Not run [QUICK-TABLE-TIME]"), _texts(strict)
+    monkeypatch.delenv(new_engine.STRICT_VAR)
+    result = simulate(proj, "case-hwfet")
+    assert "[QUICK-TABLE-TIME]" in _texts(result)[0] and result.status == "warning"
+    assert result.solverOptions.get("quickStep") is None  # (the full run)

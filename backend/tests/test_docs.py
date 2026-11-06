@@ -888,7 +888,7 @@ def test_the_quick_mode_pages_say_what_it_gives_and_every_code_it_refuses_with()
 
     page, limits = _text("how-to/run-in-quick-mode.md"), _text("docs/KNOWN-LIMITS.md")
     codes = [c for c in new_engine.CODES if c.startswith("QUICK-")]
-    assert len(codes) == 11
+    assert len(codes) == 12
     for code in codes:
         assert f"`{code}`" in page, code
         assert f"`{code}`" in limits, code

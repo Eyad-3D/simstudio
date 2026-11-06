@@ -50,6 +50,7 @@ QUICK-BALANCE = "quick mode: a hybrid's charge-balanced case (added 1 November: 
 QUICK-END = "quick mode: a case that ends at a distance or a lap count (its Distance or Laps, from its Start line): fast mode runs the cycle's whole duration (added 1 November, the checker's round: [[changes]])"
 QUICK-BUILD = "quick mode: today's model builder refused the model, or a text component's file could not be read (widened 1 November: [[changes]])"
 QUICK-FAILED = "quick mode: the engine's fast mode refused or stopped (its own codes follow: FAST-NO-CYCLE, FAST-SAMPLED-CONTROL, ...)"
+QUICK-TABLE-TIME = "quick mode: a table read past its data for a time that fast mode's points once a second cannot tell from what the run allows, within two of its steps a stretch past the data, where today's count could fall on either side (added 6 November, the sweep: [[changes]])"
 QUICK-ERROR = "quick mode: an exception that is not the engine's own refusal (always a failure)"
 
 # Notes' codes. A note of the new engine's path saying that something of a
@@ -926,6 +927,18 @@ notes a battery's or stack's on no bus (new_engine.BRANCH_READS' left_out)."""
 reason = """Found by the sweep's before-run: an Engine placed on the FS car and connected to nothing, its fuel map cut, \
 warned and made the acceleration's rows not valid on the new path, where today's run judged nothing of it. No \
 item of the diff has such a part, so no record or pass mark moves."""
+
+[[changes]]
+date = "2026-11-06"
+line = "B2B"
+change = """[codes]: QUICK-TABLE-TIME added. A table record judged in fast mode whose time past the data, counted at \
+its points once a second, lies within two steps a stretch of what the run allows is not judged there: the case \
+runs in full with the code. On the full path a table today's engine reads in one branch of its part is counted \
+on the run's 0.1 s trace (0.01 s in an acceleration test) instead of as a share of its output points."""
+reason = """Found by the sweep's before-run: the aerodynamic BEV's HWFET with the E-Motor's curve from 1000 1/min, \
+past it 9.8 s on today's run (over the 7.65 s allowed), 7.4 s on the new path (the share of its 1 s points; \
+8.8 s on its trace) and 7.3 s in quick mode: both gave success where today's warns. No item of the diff holds \
+a table record, so no record or pass mark moves."""
 
 # ---------------------------------------------------------------------------
 # The mismatch sweep (the owner, 6 November; added 6 November: [[changes]]).

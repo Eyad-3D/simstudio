@@ -87,6 +87,7 @@ starts *Not run in quick mode* and gives a code:
 | `QUICK-MISSING` | the new engine is not installed |
 | `QUICK-BUILD` | the model could not be built, or a text component's file could not be read |
 | `QUICK-FAILED` | the new engine's fast mode refused the case or stopped; its own codes follow (`FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, `FAST-TABLE-ERROR` for a table whose axis is set to Error read past its data, where a full run stops too, …) |
+| `QUICK-TABLE-TIME` | a table was read past its data for a time too near what the run allows to judge at quick mode's points once a second: a full run counts it every solver step |
 | `QUICK-NOT-FOUND` | the case is not in the project |
 | `QUICK-ERROR` | a fault of LightSim's own: please report it |
 

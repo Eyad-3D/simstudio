@@ -44,9 +44,16 @@ model itself, `run.table_reads`): a table it reads only in one branch of
 its part (an E-Motor's drag table while unpowered, an engine's fuel map
 while fired), or at another point (a Fuel Cell Stack's curve at its
 current, not at its Maximum Current; a drag table that reaches the maximum
-speed, at that speed above it), is judged for the share of the run's
-points where today's read is past the data, and not at all when there are
-none; a Lookup's table is judged under today's name for it, its Table 1D
+speed, at that speed above it), is judged for the time today's read is
+past the data on the run's 0.1 s trace (in quick mode the share of its
+points once a second; a time there too near what the run allows to tell
+runs in full, QUICK-TABLE-TIME), and not at all when there is none, nor
+for a part today's engine leaves out (a battery or stack on no bus, a
+motor or engine in no driveline); a PID or Lookup block with a Sample
+Time longer than today's solver step runs on today's engine (NEW-SAMPLED,
+QUICK-SAMPLED), and a run whose supply held an E-Motor back stops where
+its loss map's torque axis on Error does not reach 0 N·m, as today's (the
+mismatch sweep, 6 November: benchmarks/back_to_back/sweep.py); a Lookup's table is judged under today's name for it, its Table 1D
 or 2D. The engine watches a table at the edges of its own data (padded only
 past an end its argument never reaches), a table of one point is a
 constant and float noise at an edge is inside, as today's; a 2-D table

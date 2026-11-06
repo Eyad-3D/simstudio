@@ -630,11 +630,11 @@ minimum or an average, for example from the CSV export, or put the
   polarization curve at the current it gives, where the new engine also
   reads it at its Maximum Current, its most power; a drag table that
   reaches the machine's maximum speed is read at that speed above it,
-  which counts as over speed) is judged for the share of the run's
-  output points past the data where today's read is past it too, and
-  not at all, with a note with the code `NEW-TABLE-NOT-JUDGED`, when
-  there are none; a short stretch in that branch between two output
-  points is missed. Every table the new engine's parts read has a rule of
+  which counts as over speed) is judged for the time today's read is
+  past the data on the run's 0.1 s trace (0.01 s in an acceleration test;
+  in quick mode the share of its points once a second), and not at all,
+  with a note with the code `NEW-TABLE-NOT-JUDGED`, when there is none; a
+  stretch in that branch shorter than the trace's step can be missed. Every table the new engine's parts read has a rule of
   where today's engine reads it: one of these, where the new engine reads
   it (a battery's OCV table, a Lookup's), or nowhere past its data (an
   engine's full-load curve, read between its own first and last speed); a
@@ -746,7 +746,10 @@ minimum or an average, for example from the CSV export, or put the
   `QUICK-SAMPLED` (a Script, FMU or Traction Control part, or a PID or
   Lookup block with a Sample Time longer than today's solver step),
   `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
-  `QUICK-FAILED` (fast mode's own refusal), `QUICK-NOT-FOUND`,
+  `QUICK-FAILED` (fast mode's own refusal), `QUICK-TABLE-TIME` (a
+  table read past its data for a time within two of its steps a stretch
+  of what the run allows, too near to judge at its points),
+  `QUICK-NOT-FOUND`,
   `QUICK-ERROR`. See [Run a cycle in quick mode](help/how-to/run-in-quick-mode.md).
   *Roadmap:* ENG-16.
 - **Text components need the new engine and a project file edit.** A part
