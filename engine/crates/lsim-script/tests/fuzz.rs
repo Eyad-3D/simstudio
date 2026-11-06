@@ -536,7 +536,7 @@ struct Tally {
 fn shape(m: &str) -> String {
     let m = m
         .strip_prefix("Script '")
-        .and_then(|m| m.split_once("' ").or_else(|| m.split_once("':")))
+        .and_then(|m| m.split_once("': ").or_else(|| m.split_once("' ")))
         .map_or(m, |(_, b)| b);
     let m = m.split_once(" s: ").map_or(m, |(_, b)| b);
     m.chars().map(|c| if c.is_ascii_digit() { '#' } else { c }).take(90).collect()

@@ -50,7 +50,12 @@ none; a Lookup's table is judged under today's name for it, its Table 1D
 or 2D. The engine watches a table at the edges of its own data (padded only
 past an end its argument never reaches), a table of one point is a
 constant and float noise at an edge is inside, as today's; a 2-D table
-whose sheets cover different ranges is refused (BLOCK). The
+whose sheets cover different ranges is refused (BLOCK). Script blocks run
+on the path in today's worker; the choice of their runner is brought to the
+owner as evidence, with no switch (`docs/SCRIPT-RUNNER-DECISION.md`,
+6 November: the threat model, 5.4 million random scripts on the native runner
+and CPython 3.11 with no divergence left, the unsafe code the runner pulls
+in, the Windows worker's gap and what step 6's AppContainer changes). The
 shared types in `lsim-ir` are unified (`engine/ir-unify`, DESIGN.md
 §5.8); every package builds on them.
 

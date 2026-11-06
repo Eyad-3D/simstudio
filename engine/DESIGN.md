@@ -2841,11 +2841,21 @@ save most of those 10 ms in every run, sequential or not (a change to
   random expressions over signed zeros, subnormals, the largest floats,
   infinities and NaN): 35 681 calls bitwise equal, 2725 failing on both
   with the same message, 121 random calls handed back to Python, none
-  different; its edge cases add 129 errors scripts meet, each failing
+  different; its edge cases add 133 errors scripts meet, each failing
   with CPython's message or left to Python, and 22 scripts CPython
   refuses to compile, each refused here too; `tests/app_runner.rs` checks
   the cases the reviews found and the limits; and the hybrid's four cases give bitwise the same results
-  on both runners (`lsim-project/examples/script_parity`).
+  on both runners (`lsim-project/examples/script_parity`). Differential
+  fuzzing (`tests/fuzz.rs`: random whole scripts, each called 12 times on
+  both runners, Python held to the worker's 2 s) ran 5 375 500 scripts,
+  54 915 038 calls, in 24 hours (6 November 2026), with no divergence;
+  shorter runs before them found one
+  divergence, now fixed: a float exactly halfway between its two shortest
+  readings was quoted in a message with the upper one, where CPython takes
+  the one whose last digit is even (`value::float_repr`). It is part of the
+  Script decision record (`docs/SCRIPT-RUNNER-DECISION.md`), with the
+  threat model, the count of unsafe code the runner pulls in and the
+  Windows worker's gap.
   A Hybrid Control Unit call costs 6.5–7.1 µs natively (release build,
   `lsim-script/examples/hcu_speed`, on a 4-core VM where the runner
   before the limits took 7.3–7.9 µs) against about 25 µs in-process in
@@ -3592,7 +3602,7 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   default is today's engine. There the Script blocks run in today's
   locked-down worker (each part is given a function that calls it, and
   `native_scripts=False`) until the owner decides the native runner may
-  replace it.
+  replace it (the evidence for that choice: `docs/SCRIPT-RUNNER-DECISION.md`).
 * **Errors.** A project that cannot be imported or prepared, or a run that
   fails, raises `ModelError` (a `ValueError`) with the diagnostics (code,
   message, parts, hint, detail) so the app can highlight the parts; a
