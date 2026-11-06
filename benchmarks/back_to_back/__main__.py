@@ -9,6 +9,7 @@
     python -m benchmarks.back_to_back fmu OUT                 the FMU line's probe (needs the Reference FMUs and fmusim)
     python -m benchmarks.back_to_back text OUT                the TEXT line's probe
     python -m benchmarks.back_to_back quick OUT               the QUICK line's probe
+    python -m benchmarks.back_to_back sweep OUT [--only TEXT] the mismatch sweep ([sweep], sweep.py), resumable
     python -m benchmarks.back_to_back fetch CACHE             the regulations' copies (ANALYTIC's sources)
     python -m benchmarks.back_to_back report OUT              OUT/report.json and OUT/report.md
     python -m benchmarks.back_to_back job SPEC PATH           one run (what `run` starts)
@@ -40,13 +41,14 @@ def parser() -> argparse.ArgumentParser:
     from .runs import PARTS
     ap = argparse.ArgumentParser(prog="python -m benchmarks.back_to_back")
     ap.add_argument("command", choices=["all", "run", "stop", "replay", "mutation", "noskip", "fmu", "text",
-                                        "quick", "fetch", "report", "job"])
+                                        "quick", "sweep", "fetch", "report", "job"])
     ap.add_argument("out")
     ap.add_argument("path", nargs="?")
     ap.add_argument("--parts", default=",".join(PARTS))
     ap.add_argument("--workers", type=int, default=max(1, min(8, (os.cpu_count() or 2) // 2)))
     ap.add_argument("--stops", type=int, default=20)
     ap.add_argument("--max", type=int, default=None)
+    ap.add_argument("--only", default="")
     return ap
 
 
@@ -58,6 +60,10 @@ def main() -> None:
         return
     out = Path(a.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
+    if a.command == "sweep":
+        from . import sweep
+        sweep.sweep(out, a.workers, a.only)
+        return
     if a.command == "fetch":
         from . import report
         sys.exit(report.fetch(out))

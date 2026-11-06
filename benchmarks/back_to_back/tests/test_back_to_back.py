@@ -1691,3 +1691,74 @@ def test_the_report_reads_the_fmu_probes_project_without_building_its_fmu(tmp_pa
     assert fmu["parameterOverrides"] == {} and case_id == "case-city"
     assert any(c["element2Id"] == "el-fmu" for c in project["dataBusConnections"])
     assert diff.gear_rebuild is not None and report.wires(project, case_id)
+
+
+# ---- the mismatch sweep ([sweep], sweep.py) -------------------------------------
+
+@needs_engine
+def test_the_sweep_cuts_every_table_the_engine_reads_and_places_every_part_alone():
+    """Every table the new engine reads (lightsim_engine.table_sites) of a
+    part on a car or placed alone is cut at both ends of each axis on Error,
+    Clamp and Linear; every library component but a subsystem is placed on
+    nothing on each fault base; every fault builds a project the app reads."""
+    from app.schemas import Project
+
+    from benchmarks.back_to_back import sweep
+
+    ids = sweep.faults()
+    assert len(ids) == len(set(ids))
+    for site in lightsim_engine.table_sites():
+        if site["component"] in ("signal.driving_task", "signal.road_profile"):
+            assert any(f.startswith("profile:") for f in ids)
+            continue
+        keys = ["table_1d", "table_2d"] if site["table"] == "table" else [site["table"]]
+        for key in keys:
+            for end in sweep.ENDS:
+                for p in sweep.POLICIES:
+                    assert any(f":{site['component']}#{key}:0:{end}:" in f and f.endswith(f":{p}")
+                               for f in ids), (site, key, end, p)
+    for base in sweep.ALONE_BASES:
+        assert {f.split(":")[2] for f in ids if f.startswith(f"alone:{base}:") and "#" not in f} == \
+            set(sweep.library()) - {"container.system"}
+    assert {f.split(":")[1] for f in ids if f.startswith("none:")} == set(sweep.bases())
+    assert len(sweep.bases()) == 16
+    for fid in ids:
+        raw, case_id = sweep.fault_project(fid)
+        Project.model_validate(raw)
+
+
+def test_the_sweep_cuts_a_table_at_one_end_of_one_axis():
+    from benchmarks.back_to_back import sweep
+    t2 = {"0": {"0": 1, "10": 2, "20": 3}, "1000": {"0": 4, "10": 5, "20": 6}}
+    assert sweep.cut(t2, 1, "lo", "edge") == {"0": {"10": 2, "20": 3}, "1000": {"10": 5, "20": 6}}
+    assert sweep.cut(t2, 0, "hi", "edge") is None  # (one point left)
+    t1 = {str(k): k for k in range(0, 101, 10)}
+    assert list(sweep.cut(t1, 0, "hi", "half")) == ["0", "10", "20", "30", "40", "50"]
+    assert list(sweep.cut(t1, 0, "lo", "edge"))[0] == "10"
+
+
+def test_the_sweep_compares_as_its_section_says():
+    from benchmarks.back_to_back import sweep
+
+    def run(status="success", warnings=(), nv=(), rows=("a", "b"), codes=()):
+        return {"status": status, "refused": None, "codes": list(codes), "warnings": list(warnings),
+                "notValid": list(nv), "rows": list(rows)}
+    today = run(warnings=["X ran 3 % past its 'T' table for 12 s."])
+    assert sweep.compare("table:x", "new", today, run(warnings=["X ran 4 % past its 'T' table for 9 s."])) == \
+        {"diffs": []}
+    assert sweep.compare("table:x", "new", today, {"refused": "NEW-FAILED"}) == {"handed": "NEW-FAILED"}
+    assert sweep.compare("table:x", "new", today, {"refused": "NEW-ERROR"})["diffs"]
+    assert sweep.compare("table:x", "new", today, {"refused": "NEW-NOPE"})["diffs"]
+    got = sweep.compare("table:x", "new", run(status="failed"), run())["diffs"]
+    assert got == ["verdict: today failed, new success (a better verdict than today's)"]
+    assert sweep.compare("table:x", "new", today, run(warnings=today["warnings"], nv=["a"]))["diffs"]
+    assert sweep.compare("table:x", "new", today, run(warnings=today["warnings"], codes=["NEW-X"]))["diffs"]
+    # quick mode: only its own rows; its flags stand in for the speed trace's warning
+    trace = run(status="warning", warnings=["The speed trace was outside the WLTP band for 30 s."], nv=["c"])
+    flag = run(status="warning", warnings=["Quick mode: a limit from t = 1.0 s to 2.0 s: ..."])
+    assert sweep.compare("table:x", "quick", trace, flag) == {"diffs": []}
+    assert sweep.compare("table:x", "quick", trace, run(status="warning"))["diffs"]
+    held = [[0.0, 0.0], [1.0, 0.0], [2.0, 10.0]]
+    assert sweep.compare("sampled:x", "new", run() | {"output": held}, run() | {"output": held}) == {"diffs": []}
+    assert sweep.compare("sampled:x", "new", run() | {"output": held},
+                         run() | {"output": [[0.0, 0.0], [1.0, 5.0], [2.0, 10.0]]})["diffs"]

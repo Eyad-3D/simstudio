@@ -873,6 +873,53 @@ No measured record holds a table read past its data on the new path or in fast m
 the example cases' runs and their records are the same with the new module), so no case or record moves; no \
 pass mark moves."""
 
+[[changes]]
+date = "2026-11-06"
+line = "SWEEP"
+change = """[sweep] added: the mismatch sweep, faults built on purpose and run on both engines at once \
+(benchmarks/back_to_back/sweep.py), with what it builds, what it compares and its pass mark, before its first \
+measured run."""
+reason = """The owner's approval of 6 November: five fix rounds of the FMU part each found one or two new cases where \
+the new path or quick mode and today's engine disagree about a table read or a part today's engine leaves out; \
+the sweep finds them all at once. No line, item, code or pass mark above moves."""
+
+# ---------------------------------------------------------------------------
+# The mismatch sweep (the owner, 6 November; added 6 November: [[changes]]).
+# `python -m benchmarks.back_to_back sweep OUT` builds every fault, runs each
+# on both engines and writes OUT/sweep.json and OUT/sweep.md.
+# ---------------------------------------------------------------------------
+[sweep]
+what = """No project gets a different verdict on the new path or in quick mode than on today's engine, and never \
+a success where today's engine fails or warns: a case either path cannot match is handed to today's engine \
+with its code."""
+cases = """The judge's 16 cases (the items above that are not probes; a hybrid's case as a single run, as FAULTS \
+runs it; a live case at LIVE_PACE). On each: every table of every part the new engine reads \
+(lightsim_engine.table_sites, new_engine.BRANCH_READS; a part's own table, else the library's default) cut \
+short at each end of each axis, by its outermost point and to its inner half, with that axis's out-of-range \
+setting on Error, on Clamp and on Linear (the other axes as the part has them); a Driving Task's profile \
+it runs, and a Road Profile added on the Vehicle's grade, cut to each half; the case as it is. On the judge's \
+three fault bases (bev-car/case-city, fs-electric/case-accel-75m, hybrid-car/case-udds): one part of every \
+library component but a subsystem, connected to nothing, with its defaults and with each table the engine \
+reads of it cut as above (a Lookup in the mode of the table cut, its tables of five points an axis); a PID, a 1D Lookup and a 2D Lookup fed the Vehicle's speed (and distance), with a \
+Sample Time of half the case's time step, one step, three steps and 5 s."""
+measure = """Each fault runs through app.solver.simulate three times: today's engine (no flag), the new path in \
+strict mode (LIGHTSIM_ENGINE=new, LIGHTSIM_ENGINE_STRICT=1) and quick mode in strict mode (the case's mode \
+"quick"). A strict run refused with a code of [codes] (not NEW-ERROR nor QUICK-ERROR) is handed back: counted \
+by code, not compared. Any other is compared with today's run; a mismatch is any of: the status (the verdict) \
+differs; a [NEW-/QUICK-/FAST-] code in a warning or an error (a note's code of [note_codes] is not one); and, \
+when neither run failed, a warning that only one run gives, its numbers masked as diff.masked masks them (but \
+the path's and quick mode's messages about themselves, which start "Run on the new engine" or "Quick mode: "; \
+in quick mode today's speed trace warning, the one naming the WLTP band, pairs with quick mode's flags: one \
+without the other is a mismatch); a row marked not valid on one run only (in quick mode, of the rows it \
+gives); for a PID's or Lookup's fault, its output at the times both runs give further than 2 % of its range \
+on today's run from today's. An exception out of a run, or a fault that cannot be built, is a mismatch."""
+pass_mark = """0 mismatches over every fault, after the fixes: each one the sweep finds before them is fixed or \
+its run handed back with a listed code. The three cases the FMU part's last re-check left open (a battery or \
+fuel cell on no bus with its table cut; FS 75 m acceleration with the loss map from 23 N·m on Error; a PID or \
+Lookup with a Sample Time) are among the mismatches the sweep finds before the fixes."""
+judge = """Today's engine: its verdict, warnings and rows for the same project and case, through the same \
+function. The sweep's own tests (tests/test_back_to_back.py) are guards."""
+
 # The sources a line reads, each with where it comes from and its SHA-256:
 # kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
 # at `file`.
