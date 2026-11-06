@@ -439,7 +439,7 @@ const REFUSED: [&str; 20] = [
 /// Errors scripts meet (the reviews' cases among them): the native
 /// runner must fail with CPython 3.11's message or leave the call to
 /// Python. A line of its own is a statement, else an expression returned.
-const MESSAGES: [&str; 129] = [
+const MESSAGES: [&str; 133] = [
     "'a' + 1",
     "[1] + 1",
     "(1,) + 1",
@@ -516,6 +516,12 @@ const MESSAGES: [&str; 129] = [
     "[1].index(abs)",
     "[1].index(f)",
     "[1].index('a')",
+    // a float exactly halfway between its two shortest readings: Python
+    // takes the one with the even last digit (found by tests/fuzz.rs)
+    "[1].index(186323534390030.125)",
+    "[1].index(1337252251690571.25)",
+    "[1].index(-219887394582804.125)",
+    "[1].index(2141112618710889.75)",
     "{}['a']",
     "{}[(1, 'a', None, 1.5, -0.0)]",
     "{}['\u{e9}\u{2013}\u{4e00}']",
