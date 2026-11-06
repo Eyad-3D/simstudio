@@ -1762,3 +1762,9 @@ def test_the_sweep_compares_as_its_section_says():
     assert sweep.compare("sampled:x", "new", run() | {"output": held}, run() | {"output": held}) == {"diffs": []}
     assert sweep.compare("sampled:x", "new", run() | {"output": held},
                          run() | {"output": [[0.0, 0.0], [1.0, 5.0], [2.0, 10.0]]})["diffs"]
+    # the first point, which today's engine records before its first step (classes.toml's rule)
+    first = [[0.0, 0.0], [1.0, 9.8], [2.0, 9.5]]
+    assert sweep.compare("sampled:x", "new", run() | {"output": first},
+                         run() | {"output": [[0.0, 9.0], [1.0, 9.8], [2.0, 9.5]]}) == {"diffs": []}
+    assert sweep.compare("sampled:x", "new", run() | {"output": first},
+                         run() | {"output": [[0.0, 20.0], [1.0, 9.8], [2.0, 9.5]]})["diffs"]

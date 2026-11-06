@@ -451,7 +451,9 @@ def compare(fid: str, setting: str, today: dict | None, other: dict) -> dict:
 
 def _outputs(today, other) -> str | None:
     """A sampled block's outputs at the times both runs give: within
-    OUTPUT_BAND of their range on today's run."""
+    OUTPUT_BAND of their range on today's run; the first, which today's
+    engine records before its first step, while the blocks still read 0,
+    within that band of today's first two values."""
     if not today or not other:
         return f"outputs: today {'none' if not today else len(today)}, other {'none' if not other else len(other)}"
     t = {round(x, 6): v for x, v in today if v is not None and math.isfinite(v)}
@@ -461,6 +463,10 @@ def _outputs(today, other) -> str | None:
         return "outputs: no common times"
     vals = [t[x] for x in common]
     band = OUTPUT_BAND * max(max(vals) - min(vals), 1e-9) + 1e-9
+    if len(common) > 1:  # the first point as the judge has it (classes.toml: today-first-point-before-its-step)
+        a, b = t[common[0]], t[common[1]]
+        if min(a, b) - band <= o[common[0]] <= max(a, b) + band:
+            common = common[1:]
     worst = max(common, key=lambda x: abs(t[x] - o[x]))
     if abs(t[worst] - o[worst]) > band:
         return (f"outputs between samples: at t = {worst:g} s today {t[worst]:.6g}, other {o[worst]:.6g} "

@@ -906,6 +906,17 @@ as the app runs it; before, it ran as its case without the view, the same runs a
 reason = """So that the sweep reaches the path's live run (new_engine._Live) too. No measured run of the sweep had \
 finished: the first three were stopped for faults of the harness (b118358, ba93d20) and their records removed."""
 
+[[changes]]
+date = "2026-11-06"
+line = "SWEEP"
+change = """[sweep] measure: a sampled block's first output point is held to the judge's own rule for a channel's \
+first point (classes.toml, today-first-point-before-its-step, 28 October): within the band of today's first \
+two values, not of today's first value alone."""
+reason = """The before-run found a PID with a Sample Time within today's solver step on the FS car's acceleration \
+at 0 at t = 0 on today's run (recorded before its first step, while its inputs read 0) and 0.1 on the new \
+engine's (kp times its error there), every later point within the band: the difference the judge already \
+classes as today's first point before its step, which the sweep had not taken over. No other comparison moves."""
+
 # ---------------------------------------------------------------------------
 # The mismatch sweep (the owner, 6 November; added 6 November: [[changes]]).
 # `python -m benchmarks.back_to_back sweep OUT` builds every fault, runs each
@@ -935,7 +946,9 @@ the path's and quick mode's messages about themselves, which start "Run on the n
 in quick mode today's speed trace warning, the one naming the WLTP band, pairs with quick mode's flags: one \
 without the other is a mismatch); a row marked not valid on one run only (in quick mode, of the rows it \
 gives); for a PID's or Lookup's fault, its output at the times both runs give further than 2 % of its range \
-on today's run from today's. An exception out of a run, or a fault that cannot be built, is a mismatch."""
+on today's run from today's (its first point, which today's engine records before its first step, within that \
+of today's first two values, as classes.toml's rule today-first-point-before-its-step has it: changed \
+6 November, [[changes]]). An exception out of a run, or a fault that cannot be built, is a mismatch."""
 pass_mark = """0 mismatches over every fault, after the fixes: each one the sweep finds before them is fixed or \
 its run handed back with a listed code. The three cases the FMU part's last re-check left open (a battery or \
 fuel cell on no bus with its table cut; FS 75 m acceleration with the loss map from 23 N·m on Error; a PID or \
