@@ -1462,16 +1462,24 @@ class Reads(NamedTuple):
     where: str  # where today's engine reads it, in words
     axes: tuple  # per axis: (the new engine's reads of it, today's read)
     key: Optional[Callable[[dict], str]] = None  # today's name for it, from the part's values
-    # whether today's engine reads it of this part at all (today's model,
-    # the part's id); None: of every part
-    booked: Optional[Callable[[object, str], bool]] = None
+    # why today's engine leaves this part out, so reads none of its tables
+    # (from today's model and the part's id), or None where it runs it
+    left_out: Optional[Callable[[object, str], Optional[str]]] = None
 
 
-def _bus_source(kind: str) -> Callable[[object, str], bool]:
+def _on_no_bus(kind: str) -> Callable[[object, str], Optional[str]]:
     """A battery or a fuel cell stack today's engine runs: the source of
     one of its buses (its bus loop reads the part's table only there; it
     leaves out one on no bus, as Data Checks say)."""
-    return lambda model, el_id: any(getattr(bus, kind) == el_id for bus in model.buses)
+    return lambda model, el_id: (None if any(getattr(bus, kind) == el_id for bus in model.buses)
+                                 else "it is connected to no bus")
+
+
+def _in_no_driveline(model, el_id: str) -> Optional[str]:
+    """An E-Motor or an Engine today's engine runs: one in one of its
+    drivelines (it leaves out one whose shaft is connected to nothing, as
+    Data Checks say)."""
+    return None if any(el_id in dl.element_group for dl in model.drivelines) else "it is in no driveline"
 
 
 SAME = "same"  # today's engine reads the axis where the new one does, at every point
@@ -1494,12 +1502,13 @@ NEVER = "never"  # today's engine books no read of the table
 # that at the maximum speed.
 BRANCH_READS = {
     ("battery.generic", "ocv_table"): Reads(
-        "at its state of charge, held to 0-100 %, of a battery that feeds a bus", ((("soc_c",), SAME),),
-        booked=_bus_source("battery")),
+        "at its state of charge, held to 0-100 %", ((("soc_c",), SAME),),
+        left_out=_on_no_bus("battery")),
     ("motor.emotor", "full_load_torque"): Reads(
         "only while the motor is powered",
         ((("v",), lambda v, top: v["v"] if _motor_powered(v) else None),
-         (("wa",), lambda v, top: v["wa"] if _motor_powered(v) else None))),
+         (("wa",), lambda v, top: v["wa"] if _motor_powered(v) else None)),
+        left_out=_in_no_driveline),
     # at its torque's magnitude (motor_torque); the engine reads it at the
     # command's torque and the shaft's, and, with a supply window, at 0 and
     # the allowed share
@@ -1507,10 +1516,12 @@ BRANCH_READS = {
         "only while the motor is powered",
         ((("wa",), lambda v, top: v["wa"] if _motor_powered(v) else None),
          (("noEvent(abs(t_cmd))", "noEvent(abs(T))", "0 * unit_N_m", "noEvent(abs(frac * t_cmd))"),
-          lambda v, top: abs(v["T"]) if _motor_powered(v) else None))),
+          lambda v, top: abs(v["T"]) if _motor_powered(v) else None)),
+        left_out=_in_no_driveline),
     ("motor.emotor", "drag_torque"): Reads(
         "only while the motor is unpowered, at no more than its maximum speed when the table "
-        "reaches it", ((("wa",), lambda v, top: None if _motor_powered(v) else min(v["wa"], top)),)),
+        "reaches it", ((("wa",), lambda v, top: None if _motor_powered(v) else min(v["wa"], top)),),
+        left_out=_in_no_driveline),
     # (read at a speed held to its own first and last speed, so never past
     # its data in either engine)
     ("engine.combustion", "full_load_torque"): Reads(
@@ -1518,7 +1529,8 @@ BRANCH_READS = {
     ("engine.combustion", "drag_torque"): Reads(
         "only while the engine is not fired or its idle governor brakes, at no more than its "
         "maximum speed when the table reaches it",
-        ((("wa",), lambda v, top: min(v["wa"], top) if _engine_drags(v) else None),)),
+        ((("wa",), lambda v, top: min(v["wa"], top) if _engine_drags(v) else None),),
+        left_out=_in_no_driveline),
     # fired with throttle at its torque; fired by the idle governor at its
     # torque, or at 0 while it brakes (engine_torque)
     ("engine.combustion", "fuel_map"): Reads(
@@ -1527,12 +1539,13 @@ BRANCH_READS = {
           or v["fired_idle"] > 0.5 else None),
          (("t_b1", "max(t_b2, 0 * unit_N_m)", "0 * unit_N_m"),
           lambda v, top: v["t_b1"] if v["fired_thr"] > 0.5
-          else max(v["t_b2"], 0.0) if v["fired_idle"] > 0.5 else None))),
+          else max(v["t_b2"], 0.0) if v["fired_idle"] > 0.5 else None)),
+        left_out=_in_no_driveline),
     # at the current it gives (the bus's bisection); its read at its Maximum
     # Current, the most power it gives (the bus manager's window), is unbooked
     ("fuelcell.stack", "polarization"): Reads(
-        "at the current it gives, not at its Maximum Current, of a stack that feeds a bus",
-        ((("I", "i_max"), lambda v, top: v["I"]),), booked=_bus_source("fuelcell")),
+        "at the current it gives, not at its Maximum Current",
+        ((("I", "i_max"), lambda v, top: v["I"]),), left_out=_on_no_bus("fuelcell")),
     # (consumer_demand_w: enabled, and asking for heat or cooling there)
     ("electric.climate", "demand_table"): Reads(
         "only while the climate control is on and asks for heating or cooling",
@@ -1566,9 +1579,8 @@ def _branch_share(ctx, run, rec, el_id: str, key: str, axis: int, shown: Callabl
     # dense count; a stretch in the branch between two points is missed
     rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, rec["table"].rsplit(".", 1)[-1]))
     m = ctx.maps.get((el_id, key))
-    if rule is not None and rule.booked is not None and not rule.booked(ctx.model, el_id):
-        return (f"today's engine reads it {rule.where}, and leaves this part out: it is connected "
-                f"to no bus"), 0.0, None
+    if rule is not None and rule.left_out is not None and (gone := rule.left_out(ctx.model, el_id)):
+        return f"today's engine leaves this part out ({gone})", 0.0, None
     if rule is None or m is None or axis >= len(rule.axes) or rule.axes[axis][1] is SAME:
         return "", 1.0, None
     today, why = rule.axes[axis][1], f"today's engine reads it {rule.where}"

@@ -636,15 +636,15 @@ minimum or an average, for example from the CSV export, or put the
   there are none; a short stretch in that branch between two output
   points is missed. Every table the new engine's parts read has a rule of
   where today's engine reads it: one of these, where the new engine reads
-  it (a battery's OCV table, a Lookup's; a battery's OCV table and a Fuel
-  Cell Stack's curve only for a part that feeds a bus: one connected to no
-  bus, which today's engine leaves out, gets the note with the code
-  `NEW-TABLE-NOT-JUDGED`), or nowhere past its data (an
+  it (a battery's OCV table, a Lookup's), or nowhere past its data (an
   engine's full-load curve, read between its own first and last speed); a
   test holds the rules to the engine's reads. Where the engine reads a
   table in several places (an engine's fuel map at three torques) its
   time outside is the longest of those reads', which can be less than all
-  of them together.
+  of them together. A part today's engine leaves out, because nothing is
+  connected to it (a battery or Fuel Cell Stack on no bus, an E-Motor or
+  Engine whose shaft drives nothing), has its tables noted, not judged,
+  with the code `NEW-TABLE-NOT-JUDGED`.
   A table axis set to
   Error stops the run wherever the engine reads it, in either branch: a
   run today's engine finishes then fails on the new engine, which says

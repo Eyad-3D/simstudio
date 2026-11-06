@@ -1811,6 +1811,30 @@ def test_a_battery_or_stack_on_no_bus_is_not_judged(new, monkeypatch, kind, quic
     assert len(notes) == 1 and "connected to no bus" in notes[0], notes
 
 
+def test_an_engine_whose_shaft_drives_nothing_is_not_judged(new, monkeypatch):
+    """The FS car's 75 m acceleration with a Combustion Engine placed and
+    connected to nothing, its fuel map cut to its higher torques (Clamp):
+    today's engine leaves it out (it is in none of its drivelines), so its
+    run judges no table of it. The new path gives today's status, no row of
+    the engine's tables and a note with its code (before: a warning that
+    its fuel map was run past, and the acceleration's rows not valid)."""
+    proj = load_example("fs-electric")
+    lib = next(p for p in load_example("hybrid-car").systems[0].elements if p.id == "el-engine")
+    fuel = lib.parameterOverrides["fuel_map"]
+    cut = {n: {t: v for t, v in row.items() if float(t) >= 60.0} for n, row in fuel.items()}
+    spare = el("x", "engine.combustion", "Spare Engine", fuel_map=cut)
+    spare.tableOutside = {"fuel_map": ["clamp", "clamp"]}
+    proj.systems[0].elements.append(spare)
+    today = _today(proj, "case-accel-75m", monkeypatch)
+    result = simulate(proj, "case-accel-75m")
+    assert result.engine == "new"
+    assert result.status == today.status, _texts(result, "warning")
+    for r in (today, result):
+        assert not [s.key for s in r.summary if s.key.startswith("x.outside_") or s.notValid]
+    notes = [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
+    assert any("in no driveline" in t for t in notes), notes
+
+
 def _accel_loss_map_from(cut: float, outside: str) -> Project:
     """The FS car's 75 m acceleration with its E-Motor's loss map cut to
     torques of at least cut N·m, both axes on outside: its battery's 80 kW

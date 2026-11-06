@@ -3257,10 +3257,10 @@ against exact answers from `benchmarks/`.
   read `lsim_lib::blocks::table_sites` lists, in every configuration, a
   test holding the two equal; a table it names otherwise under its own
   name, a Lookup's Table 1D or 2D): where the engine reads it (the
-  battery's OCV table, a Lookup's; a battery's OCV table and a stack's
-  curve only of a part that is the source of one of today's buses,
-  `Reads.booked`: one connected to no bus, which today's engine leaves
-  out, is that note), only in one branch of its part (the
+  battery's OCV table, a Lookup's; none of a part today's engine leaves
+  out, `Reads.left_out`: a battery or stack that is the source of none of
+  today's buses, an E-Motor or Engine in none of its drivelines, whose
+  record is that note), only in one branch of its part (the
   fuel map only while fired), at another point (a Fuel Cell Stack's curve
   at its current, which the engine reads at its Maximum Current too; a
   drag table that reaches the maximum speed at that speed above it), or

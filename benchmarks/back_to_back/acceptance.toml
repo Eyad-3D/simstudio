@@ -917,6 +917,16 @@ at 0 at t = 0 on today's run (recorded before its first step, while its inputs r
 engine's (kp times its error there), every later point within the band: the difference the judge already \
 classes as today's first point before its step, which the sweep had not taken over. No other comparison moves."""
 
+[[changes]]
+date = "2026-11-06"
+line = "B2B"
+change = """[note_codes]: NEW-TABLE-NOT-JUDGED also notes a record of an E-Motor's or a Combustion Engine's table when \
+the part is in none of today's drivelines (its shaft drives nothing), which today's engine leaves out, as it \
+notes a battery's or stack's on no bus (new_engine.BRANCH_READS' left_out)."""
+reason = """Found by the sweep's before-run: an Engine placed on the FS car and connected to nothing, its fuel map cut, \
+warned and made the acceleration's rows not valid on the new path, where today's run judged nothing of it. No \
+item of the diff has such a part, so no record or pass mark moves."""
+
 # ---------------------------------------------------------------------------
 # The mismatch sweep (the owner, 6 November; added 6 November: [[changes]]).
 # `python -m benchmarks.back_to_back sweep OUT` builds every fault, runs each
