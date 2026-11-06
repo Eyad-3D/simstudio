@@ -288,8 +288,19 @@ def test_the_endurance_key_takes_both_readings_of_an_empty_accumulator():
         assert agent._check_answer(task, text, {}) == [], text
     assert agent._check_answer(task, "ANSWER: 22.5; 0.2319", {})
     # one reading as a whole: the run's distance with an energy of the other reading fails
-    for text in ("ANSWER: 20.557; 0.2351", "ANSWER: 20.76; 0.2350", "ANSWER: 20.557; 0.2319"):
+    for text in ("ANSWER: 20.557; 0.2351", "ANSWER: 20.76; 0.2350", "ANSWER: 20.557; 0.2319",
+                 "ANSWER: 20.56; 0.231", "ANSWER: 20.56; 0.234"):
         assert agent._check_answer(task, text, {}), text
+
+
+def test_the_endurance_energy_to_two_decimals_passes():
+    """The brief names no precision, and the run's energy per lap, 0.2246 kWh,
+    is 0.22 to two decimals: 2.06 % off the key. The comparison of 6 November
+    failed five tries for it under a 2 % band, while 0.23 for the other
+    reading's 0.2305 passed."""
+    task = next(t for t in TASKS if t.id == "question-fs-endurance")
+    for text in ("ANSWER: 20.56; 0.22", "ANSWER: 20.0; 0.22", "ANSWER: 20.0; 0.23"):
+        assert agent._check_answer(task, text, {}) == [], text
     project = agent.ls.Project(agent.start_files(task)["car.json"])
     result = project.run("Endurance energy")
     k = result.kpis
@@ -460,6 +471,17 @@ def test_the_smoke_test(fake_claude, tmp_path, monkeypatch):
     assert run.main(["--smoke", "--claude", str(fake_claude), "--out", str(tmp_path / "leak")]) == 1
 
 
+def test_the_command_line_prompt_says_what_the_fence_refuses():
+    """The runner allows only ``Bash(lightsim *)``, so a command that adds echo,
+    head or a loop to a lightsim call is refused as a whole. The prompt did not
+    say so: 42 of the 44 visible command-line tries of 6 November met the
+    refusal, and Haiku mostly stopped there and asked for the shell."""
+    said = run.TOOLS["cli"]
+    for word in ("echo", "head", "grep", "python", "a loop", ";", "&&", "|", "refused as a whole",
+                 "one `lightsim` call at a time"):
+        assert word in said, word
+
+
 def test_no_transcripts_in_the_repository(fake_claude, tmp_path):
     assert run.main(["--smoke", "--claude", str(fake_claude), "--out", str(ROOT / "runs")]) == 2
     assert not (tmp_path / "calls.jsonl").exists() and not (ROOT / "runs").exists()
@@ -479,27 +501,36 @@ def test_no_transcripts_in_the_repository(fake_claude, tmp_path):
 #: "A" is a current, "a" is a word). Every group of the library has a row, so a
 #: quantity named with another group's unit reads as that group too.
 _COLUMNS = {
-    "Power": (["power"], ["kW"]),
-    "Voltage": (["voltage"], ["V"]),
-    "Current": (["current"], ["A"]),
-    "Velocity": (["speed"], ["km/h"]),
-    "Temperature": (["temperature"], ["degC"]),
+    "Power": (["power", "kilowatt", "kilowatts"], ["kW"]),
+    "Voltage": (["voltage", "volt", "volts"], ["V"]),
+    "Current": (["current", "amp", "amps", "ampere", "amperes"], ["A"]),
+    "Velocity": (["speed", "kilometres per hour", "kilometers per hour"], ["km/h"]),
+    "Temperature": (["temperature", "celsius"], ["degC"]),
     "Torque": (["torque in"], ["N.m"]),
     "Rotational Speed": (["rotational speed", "motor speed"], ["1/min"]),
-    "Force": (["force"], ["N"]),
+    "Force": (["force", "newton", "newtons"], ["N"]),
     "Distance": (["distance", "km"], ["m"]),  # (a route is given in km, the port carries m)
-    "Mass": (["mass"], ["kg"]),
+    "Mass": (["mass", "kilogram", "kilograms"], ["kg"]),
     "Mass Flow": (["mass flow"], ["kg/h"]),
     "Percent": (["state of charge"], ["%"]),
     "Acceleration": (["acceleration"], ["g"]),
     "Curvature": (["curvature"], ["1/m"]),
     "Fraction": (["share", "fraction", "0 to 1", "command", "of the available", "torque_cmd"], []),
     "No Unit": ([], []),
-    # not a library group: other units of the same quantities. A port takes the library's
-    # unit only, so a W for a kW input, m/s for a km/h one, kWh for a charge or Nm for a
-    # fraction is wrong.
-    "Another unit": ([], ["W", "MW", "hp", "kV", "mA", "m/s", "mph", "kph", "degF", "Nm", "N-m",
-                          "rpm", "rad/s", "kN", "kg/s", "m/s2", "kWh", "Wh", "J", "kJ", "MJ"]),
+    # not a library group: other units of the same quantities, as symbols and in words
+    # (the library's own units in words are cues of their groups above). A port takes the
+    # library's unit only, so a W for a kW input, m/s or knots for a km/h one, kWh for a
+    # charge or Nm for a fraction is wrong. It is a list: a unit missing from it and from
+    # the rows above is not caught.
+    "Another unit": (["watt", "watts", "megawatt", "megawatts", "horsepower", "kilovolt", "kilovolts",
+                      "millivolt", "millivolts", "milliamp", "milliamps", "metres per second",
+                      "meters per second", "miles per hour", "knot", "knots", "kelvin", "fahrenheit",
+                      "mile", "miles", "foot", "feet", "inch", "inches", "pound", "pounds", "joule",
+                      "joules", "kilowatt-hour", "kilowatt-hours", "kilowatt hour", "kilowatt hours"],
+                     ["W", "MW", "hp", "bhp", "PS", "kV", "mV", "mA", "Ah", "mAh", "m/s", "km/s", "mph",
+                      "kph", "kn", "kt", "degF", "K", "Nm", "N-m", "lb-ft", "ft-lb", "rpm", "rad/s",
+                      "kN", "lbf", "kg/s", "m/s2", "kWh", "Wh", "J", "kJ", "MJ", "mi", "ft", "yd",
+                      "cm", "mm", "lb", "lbs", "oz"]),
 }
 CUES = {g: names + units for g, (names, units) in _COLUMNS.items()}
 
@@ -600,6 +631,16 @@ def test_the_aux_shed_brief_as_it_was_is_refused_with_its_own_words_in_says():
     ("Mass", "(the mass, N)"),                               # groups the old cues did not know
     ("Voltage", "(the pack voltage, A)"),
     ("Temperature", "(the cell temperature, degF)"),
+    # units in words and imperial ones (the check of 6 November found these taken)
+    ("Power", "(the power the load is to draw, in watts)"),
+    ("Fraction", "(the share of the load, in kilowatts)"),
+    ("Distance", "(the distance driven, mi)"),
+    ("Distance", "(the distance driven, ft)"),
+    ("Temperature", "(the cell temperature, K)"),
+    ("Mass", "(the mass, lb)"),
+    ("Voltage", "(the pack voltage, mV)"),
+    ("Velocity", "(the target speed, in metres per second)"),
+    ("Velocity", "(the target speed, in knots)"),
 ])
 def test_words_that_read_as_another_unit_group_or_none_are_refused(group, words):
     assert _reads_as(words) != {group}

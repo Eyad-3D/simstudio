@@ -54,8 +54,12 @@ rtol = 0.01
 also = [{ value = 20.023 }, { value = 20.023 }]
 figure = { file = "car.json", case = "Endurance energy", key = "distance_km" }
 
+# The brief names no precision, so the band takes the energy to two decimals:
+# 0.22 is 2.06 % off 0.22462 (the comparison of 6 November failed five tries
+# with the 2 % band it had then). 2.5 % still fails the mixed readings below
+# (0.2319 is 3.2 % off, 0.231 2.8 %).
 [[answer]]
 value = 0.22462
-rtol = 0.02
+rtol = 0.025
 also = [{ value = 0.2305 }, { value = 0.22462 }]
 figure = { file = "car.json", case = "Endurance energy", key = "energy_per_lap_kwh" }

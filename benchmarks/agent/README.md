@@ -56,6 +56,10 @@ starting files. The mode says which tools the agent gets:
   tools that read the server's resources, where its skills are).
 - `cli`: the shell, allowed only the `lightsim` command, and that command
   refuses any path outside the folder and the `ai` command (`guard.py`).
+  A command with another program in it (`echo`, `head`, a loop), even
+  joined to a `lightsim` call, is refused as a whole, and the prompt says
+  so. The comparison of 6 November ran without that line, and most of
+  Haiku's command-line tries stopped at the first refusal.
 
 Either way every other tool is left out and denied, Claude Code reads none
 of the user's settings files, so none of their hooks, plugins or skills,
@@ -368,8 +372,10 @@ Starting files are never stored: only operations on the bundled examples
    add the task's ports to `SAYS` in `tests/test_agent_bench.py`: for each
    port the library's unit group and the brief's words for it, which must
    read as that group (its unit, or a name of the quantity) and as no other
-   of the library's 16 groups: the unit is the library's own, so a W for a kW
-   port or a kWh for a charge is refused.
+   of the library's 16 groups: the unit is the library's own, so a W (or
+   watts) for a kW port, knots for a km/h one or a kWh for a charge is
+   refused. The other units are a list in the test, so a unit missing from
+   it is not caught: add it when a brief uses it.
    Both ties are the author's to add; nothing finds a number or a unit in a
    brief that has none.
 6. For an answer task, run the reference and put the figures in the key

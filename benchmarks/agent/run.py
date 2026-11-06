@@ -83,7 +83,10 @@ TOOLS = {
     "mcp": "Your only tools are LightSim's, from its MCP server \"lightsim\"; its skills are "
            "resources of that server.",
     "cli": "Your only tool is the shell, and in it only the `lightsim` command (`lightsim --help` "
-           "says what it does). Name files relative to your folder.",
+           "says what it does). Name files relative to your folder. A command with any other "
+           "program in it (echo, head, grep, python, cd, a loop), even joined to a `lightsim` call "
+           "with ;, && or |, is refused as a whole: run one `lightsim` call at a time and read its "
+           "output and exit code as they come back.",
 }
 #: built-in tools denied as well as left out (--tools)
 DENY = ["Read", "Write", "Edit", "NotebookEdit", "Glob", "Grep", "WebFetch", "WebSearch", "Task"]
