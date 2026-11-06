@@ -36,6 +36,7 @@ import os
 import re
 import sys
 import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import lru_cache
 from pathlib import Path
 
@@ -506,11 +507,14 @@ def sweep(out: Path, workers: int, only: str = "") -> dict:
     # the slow ones first (the hybrid, the long cycles), so the pool ends together
     todo.sort(key=lambda f: ("hybrid" not in f, "wltc" not in f and "udds" not in f))
     t0 = time.monotonic()
-    with mp.get_context("spawn").Pool(workers, initializer=_init, initargs=(str(out),),
-                                      maxtasksperchild=20) as pool:
-        for k, fid in enumerate(pool.imap_unordered(_work, [(f, str(out), now) for f in todo]), 1):
+    # (not multiprocessing.Pool: its workers are daemons, which may not start
+    # the Script blocks' worker process)
+    with ProcessPoolExecutor(workers, mp_context=mp.get_context("spawn"), initializer=_init,
+                             initargs=(str(out),), max_tasks_per_child=20) as pool:
+        jobs = [pool.submit(_work, (f, str(out), now)) for f in todo]
+        for k, job in enumerate(as_completed(jobs), 1):
             if k % 25 == 0 or k == len(todo):
-                print(f"{k}/{len(todo)} ({time.monotonic() - t0:.0f} s) {fid}", flush=True)
+                print(f"{k}/{len(todo)} ({time.monotonic() - t0:.0f} s) {job.result()}", flush=True)
     return summarise(out, ids)
 
 
