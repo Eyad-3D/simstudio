@@ -381,7 +381,7 @@ def run_fault(fid: str) -> dict:
             next(c for c in project.cases if c.id == case_id).mode = "quick"
         t0 = time.perf_counter()
         try:
-            got[setting] = digest(simulate(project, case_id, _shown if live else None), block)
+            got[setting] = digest(simulate(project, case_id, _view if live else None), block)
         except Exception as e:  # noqa: BLE001 — told as the run's result
             got[setting] = {"raised": f"{type(e).__name__}: {e}"[:600]}
         got[setting]["wall_s"] = round(time.perf_counter() - t0, 2)
@@ -390,7 +390,7 @@ def run_fault(fid: str) -> dict:
     return got
 
 
-def _shown(msg: dict) -> None:
+def _view(msg: dict) -> None:
     """A live run's view: it takes each point and shows nothing."""
 
 
