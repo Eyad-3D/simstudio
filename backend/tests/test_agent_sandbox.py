@@ -405,3 +405,34 @@ def test_the_frozen_engine_starts_the_appcontainer_worker_it_is_given(monkeypatc
     with pytest.raises(SystemExit) as old:
         runpy.run_path(entry, run_name="__main__")
     assert old.value.code == 2 and started == [["fmu", "123"]]
+
+
+#: a frozen engine to check (the "Backend on Windows" CI job freezes one)
+FROZEN = os.environ.get("LIGHTSIM_FROZEN_ENGINE")
+
+
+@pytest.mark.skipif(not FROZEN, reason="set LIGHTSIM_FROZEN_ENGINE to a frozen engine to check")
+def test_the_frozen_engine_runs_a_new_script_in_its_sandbox(tmp_path):
+    # The installed app's engine is frozen, and its strict worker is the engine
+    # itself (above). A script nobody approved runs through its command line
+    # only in the strict sandbox (with LIGHTSIM_STRICT_SANDBOX=0 it is refused
+    # as not approved), so a success here is a worker that started confined.
+    import json
+    import subprocess
+    from pathlib import Path
+
+    backend = Path(__file__).resolve().parents[1]
+    raw = json.loads((backend / "projects" / "hybrid-car.json").read_text(encoding="utf-8"))
+    raw["cases"] = [{**raw["cases"][0], "duration": 5, "realtimeFactor": 0}]
+    for el in (e for s in raw["systems"] for e in s["elements"] if e["componentDefId"] == "signal.script"):
+        el["parameterOverrides"]["code"] = el["parameterOverrides"].get("code", "") + "\n# approved by nobody\n"
+    proj = tmp_path / "car.json"
+    proj.write_text(json.dumps(raw), encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if k != "LIGHTSIM_STRICT_SANDBOX"}
+    env.update(LIGHTSIM_DATA_DIR=str(tmp_path / "d"), LIGHTSIM_PROJECTS_DIR=str(tmp_path / "p"))
+    command = [str(Path(FROZEN).resolve()), "run", str(proj), "--json", "--out", str(tmp_path / "r.mat")]
+    done = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8", timeout=900)
+    assert done.returncode == 0 and json.loads(done.stdout)["status"] == "success", done.stdout + done.stderr
+    person = subprocess.run(command, env={**env, "LIGHTSIM_STRICT_SANDBOX": "0"}, capture_output=True,
+                            text=True, encoding="utf-8", timeout=900)
+    assert person.returncode == 2 and "has not been approved" in person.stdout, person.stdout + person.stderr

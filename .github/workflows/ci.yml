@@ -124,6 +124,21 @@ jobs:
         working-directory: backend
         run: python -m pytest tests/ -q
 
+      # The installed app's engine is frozen (PyInstaller), and an agent's
+      # Script or FMU worker is then the engine executable again, inside an
+      # AppContainer (app/solver/win_sandbox.py). The tests above run from
+      # source and cannot see that: freeze the engine and run a script nobody
+      # approved through its command line, which allows it only in that sandbox.
+      - name: The frozen engine's sandbox
+        working-directory: backend
+        shell: bash
+        env:
+          LIGHTSIM_FROZEN_ENGINE: dist/lightsim-backend/lightsim-backend.exe
+        run: |
+          python -m pip install -r requirements-build.txt
+          python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
+          python -m pytest tests/test_agent_sandbox.py -q -k frozen_engine_runs
+
   # The new engine (engine/, Rust) on Windows, the only target: SUNDIALS
   # built with MSVC by the cc crate, the generated code called through the
   # Windows calling convention, and every test of the workspace

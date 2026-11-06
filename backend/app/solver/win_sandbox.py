@@ -1,11 +1,14 @@
 """Windows AppContainer worker launch for a strict agent run (step 6 (b), PLT-35).
 
-When an AI agent runs a project on Windows, its Script and FMU workers run
-inside a low-privilege AppContainer (LPAC) with **no capabilities**: no
-network, and file access only to the folders whose ACL grants the container's
-SID (the read-only runtime the worker's Python needs, and — for an FMU — its
-unpacked folder). Nothing else of the user's is reachable, and nothing is
-writable.
+When an AI agent runs a project on Windows (or the command-line tool does),
+its Script and FMU workers run inside an AppContainer with **no
+capabilities**: no network, and file access only to the folders whose ACL
+grants the container's SID (the read-only runtime the worker's Python needs,
+and — for an FMU — its unpacked folder) and to what Windows lets every app
+container read (its own folders and Program Files). Nothing of the user's is
+reachable, and nothing is writable. Not the stricter low-privilege form
+(LPAC): with no capabilities an LPAC cannot even start Python (tried on
+Windows 11: the worker died at once with STATUS_ACCESS_DENIED).
 
 A capability-less AppContainer cannot use the loopback TCP socketpair that
 Windows ``multiprocessing``/``socket`` use, so the engine<->worker channel is

@@ -65,22 +65,24 @@ def why_no_strict_sandbox(platform: Optional[str] = None) -> Optional[str]:
     code, for the refused run to report. ``platform`` overrides the real one
     (the tests, and the AI policy's simulated platform)."""
     platform = platform or sys.platform
+    who = "A run by an AI agent, or from the command line,"
     tail = (f"The run is refused rather than run less safely [{SANDBOX_UNAVAILABLE}]. "
-            "Run the project in the LightSim app instead.")
+            "Run the project in the LightSim app instead (from the command line, "
+            "LIGHTSIM_STRICT_SANDBOX=0 runs it under the app's rules).")
     if platform == "win32":
-        # The Windows sandbox is a low-privilege AppContainer (win_sandbox.py).
-        # It is allowed only when a runtime probe confirms a confined worker can
-        # really be launched here (so the claim is never made falsely); on any
-        # other machine (including when the real platform is not Windows) the
-        # probe cannot run and the run is refused.
+        # The Windows sandbox is an AppContainer with no capabilities
+        # (win_sandbox.py). It is allowed only when a runtime probe confirms a
+        # confined worker can really be launched here (so the claim is never
+        # made falsely); on any other machine (including when the real
+        # platform is not Windows) the probe cannot run and the run is refused.
         from . import win_sandbox
         if win_sandbox.appcontainer_available():
             return None
-        return ("An AI agent can run a project's Script blocks or FMUs only inside the Windows "
-                "sandbox — a low-privilege AppContainer with no network and access to the "
-                f"project's folder only — which could not be set up on this computer. {tail}")
+        return (f"{who} can run a project's Script blocks or FMUs only inside the Windows "
+                "sandbox — an AppContainer with no network and no access to your files — "
+                f"which could not be set up on this computer. {tail}")
     if platform.startswith("linux") and _w.landlock_abi() < 0:
-        return ("An AI agent can run a project's Script blocks or FMUs only inside the sandbox "
+        return (f"{who} can run a project's Script blocks or FMUs only inside the sandbox "
                 "(no network, no file access outside the project), which needs Landlock "
                 f"(Linux 5.13 or newer); this kernel does not offer it. {tail}")
     return None
@@ -128,11 +130,11 @@ class ScriptSandbox:
         self._deadline: float | None = None
 
         self._step_timeout = self._time_limit + _KILL_MARGIN_S
-        # A strict agent run on Windows runs the worker inside an AppContainer
-        # (no network, file access only to the folders its SID is granted),
-        # over an inherited pipe, since an LPAC cannot use the loopback TCP
-        # socketpair. The run is refused when that cannot be set up. Every other
-        # run uses the spawn + socketpair worker.
+        # A strict run on Windows runs the worker inside an AppContainer (no
+        # network, file access only to the folders its SID is granted), over an
+        # inherited pipe, since a capability-less AppContainer cannot use the
+        # loopback TCP socketpair. The run is refused when that cannot be set
+        # up. Every other run uses the spawn + socketpair worker.
         self._ac = None
         if strict and sys.platform == "win32":
             from . import win_sandbox
