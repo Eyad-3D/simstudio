@@ -279,3 +279,25 @@ def test_live_param_edit_reaches_the_worker():
         assert sb.run("s", "P", 0.01, 0.01, {}, {"gain": 5.0}) == {"y": 5.0}
     finally:
         sb.close()
+
+
+def test_tcp_socketpair_ignores_a_program_that_connects_first():
+    """Python 3.11.9 (the Windows build) pairs the first connection it sees;
+    ours must pair only the socket it made itself (CVE-2024-3219)."""
+    import socket
+
+    from app.solver.sandbox_worker import checked_socketpair
+    intruders = []
+
+    def race(addr):
+        intruders.append(socket.create_connection(addr))
+
+    a, b = checked_socketpair(tcp=True, _after_listen=race)
+    try:
+        a.sendall(b"hi")
+        assert b.recv(2) == b"hi"
+        intruders[0].settimeout(2)  # the intruder was dropped, not paired
+        assert intruders[0].recv(1) == b""
+    finally:
+        for s in (a, b, *intruders):
+            s.close()
