@@ -1767,3 +1767,137 @@ def test_a_table_today_books_no_read_of_is_not_judged():
     assert use.outside_s == 0.0
     assert len(messages) == 1 and f"[{new_engine.NOT_JUDGED}]" in messages[0].text
     assert "only between its own first and last speed" in messages[0].text
+
+
+# ---- found by the mismatch sweep (benchmarks/back_to_back/sweep.py) ---------------
+
+def _with_a_part_on_no_bus(kind: str) -> Project:
+    """The BEV with one more part connected to nothing, the city case cut
+    to 120 s: a battery with its OCV table to 50 % (its SOC 80 %), or a fuel
+    cell stack with its curve from 50 A (Clamp)."""
+    proj = load_example("bev-car")
+    if kind == "battery":
+        part = el("x", "battery.generic", "Spare Battery", initial_soc_pct=80.0,
+                  ocv_table={"0": 300, "10": 330, "50": 360})
+    else:
+        part = el("x", "fuelcell.stack", "Spare Fuel Cell",
+                  polarization={"50": 369.8, "100": 349.2, "200": 317.4, "300": 287.4, "400": 250.0})
+        part.tableOutside = {"polarization": ["clamp"]}
+    proj.systems[0].elements.append(part)
+    next(c for c in proj.cases if c.id == "case-city").duration = 120.0
+    return proj
+
+
+@pytest.mark.parametrize("kind", ["battery", "fuelcell"])
+@pytest.mark.parametrize("quick", [False, True])
+def test_a_battery_or_stack_on_no_bus_is_not_judged(new, monkeypatch, kind, quick):
+    """A battery or fuel cell stack connected to nothing: today's engine
+    leaves it out (its bus loop reads the OCV table or the curve only of a
+    bus's source), so its run gives no row of that table and Consumption is
+    graded. The new path and quick mode give today's status, no such rows,
+    Consumption graded and one note with its code (before: a warning, the
+    part's table run past for the whole run, Consumption not valid)."""
+    proj = _with_a_part_on_no_bus(kind)
+    today = _today(proj, "case-city", monkeypatch)
+    if quick:
+        next(c for c in proj.cases if c.id == "case-city").mode = "quick"
+    result = simulate(proj, "case-city")
+    assert result.engine == "new"
+    assert result.status == today.status, _texts(result, "warning")
+    for r in (today, result):
+        assert not [s.key for s in r.summary if s.key.startswith("x.outside_")]
+        assert not [s.key for s in r.summary if s.notValid and "consumption" in s.key]
+    notes = [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
+    assert len(notes) == 1 and "connected to no bus" in notes[0], notes
+
+
+def _accel_loss_map_from(cut: float, outside: str) -> Project:
+    """The FS car's 75 m acceleration with its E-Motor's loss map cut to
+    torques of at least cut N·m, both axes on outside: its battery's 80 kW
+    Output Power Limit holds the motor back."""
+    proj = load_example("fs-electric")
+    mot = next(e for s in proj.systems for e in s.elements if e.id == "el-motor")
+    loss = mot.parameterOverrides["power_loss"]
+    mot.parameterOverrides["power_loss"] = {n: {t: v for t, v in row.items() if float(t) >= cut}
+                                           for n, row in loss.items()}
+    mot.tableOutside = {"power_loss": [outside, outside]}
+    return proj
+
+
+def test_a_motor_its_supply_holds_back_reads_its_loss_map_at_0_as_today(new, monkeypatch):
+    """Its loss map from 23 N·m on Error: today's run stops where the
+    battery's power limit first holds the motor back (its search for the
+    share of the command that fits reads the map at 0 N·m). The new path
+    stops too (NEW-FAILED), so the case runs on today's engine and fails as
+    today's (before: the new engine's read at 0 N·m, a constant, was not
+    watched, and its run succeeded with no code)."""
+    proj = _accel_loss_map_from(20.0, "error")
+    today = _today(proj, "case-accel-75m", monkeypatch)
+    assert today.status == "failed" and any("Torque 0 N·m is outside its data" in t for t in _texts(today))
+    strict = simulate(proj, "case-accel-75m")
+    assert _texts(strict)[0].startswith("Not run [NEW-FAILED]"), _texts(strict)
+    monkeypatch.delenv(new_engine.STRICT_VAR)
+    result = simulate(proj, "case-accel-75m")
+    assert result.status == "failed" and result.engine != "new"
+    assert "[NEW-FAILED]" in _texts(result)[0]
+
+
+def test_a_motor_its_supply_holds_back_runs_its_clamped_loss_map_as_before(new, monkeypatch):
+    """The same loss map from 23 N·m on Clamp: both engines finish."""
+    proj = _accel_loss_map_from(20.0, "clamp")
+    assert _today(proj, "case-accel-75m", monkeypatch).status == "success"
+    result = simulate(proj, "case-accel-75m")
+    assert result.engine == "new" and result.status == "success", _texts(result)
+
+
+def _sampled(block: str, sample: float) -> Project:
+    """The BEV with a PID or a Lookup fed its speed, with a Sample Time of
+    sample s, the city case cut to 60 s."""
+    proj = load_example("bev-car")
+    system = proj.systems[0]
+    if block == "lookup":
+        system.elements.append(el("blk", "signal.lookup", "Lookup", sample_time_s=sample,
+                                  table_1d={"0": 0, "100": 100}))
+        proj.dataBusConnections.append(dbc(80, "el-vehicle", "sig_speed", "blk", "sig_x_in"))
+    else:
+        system.elements += [el("sp", "signal.constant", "Setpoint", value=0.0),
+                            el("blk", "control.pid", "PID", sample_time_s=sample, kp=0.01, ki=0.0,
+                               kd=0.0, out_min=-10.0, out_max=10.0)]
+        proj.dataBusConnections += [dbc(80, "sp", "sig_out", "blk", "sig_setpoint_in"),
+                                    dbc(81, "el-vehicle", "sig_speed", "blk", "sig_feedback_in")]
+    next(c for c in proj.cases if c.id == "case-city").duration = 60.0
+    return proj
+
+
+def _out(result) -> dict:
+    ch = next(c for c in result.channels if c.elementId == "blk" and c.portId == "sig_out")
+    return {round(p["t"], 6): p["value"] for p in ch.timeSeries}
+
+
+@pytest.mark.parametrize("block", ["lookup", "pid"])
+@pytest.mark.parametrize("quick", [False, True])
+def test_a_pid_or_lookup_with_a_sample_time_runs_on_today_s_engine(new, monkeypatch, block, quick):
+    """A PID or Lookup with a Sample Time of 5 s: today's engine holds its
+    output between samples; the new engine would run it at every step. The
+    new path refuses it (NEW-SAMPLED), quick mode too (QUICK-SAMPLED), so it
+    runs on today's engine with today's outputs (before: the new engine's
+    outputs, which differ between samples, and no code)."""
+    proj = _sampled(block, 5.0)
+    today = _today(proj, "case-city", monkeypatch)
+    code = "QUICK-SAMPLED" if quick else "NEW-SAMPLED"
+    if quick:
+        next(c for c in proj.cases if c.id == "case-city").mode = "quick"
+    strict = simulate(proj, "case-city")
+    assert _texts(strict)[0].startswith(f"Not run [{code}]"), _texts(strict)
+    monkeypatch.delenv(new_engine.STRICT_VAR)
+    result = simulate(proj, "case-city")
+    assert result.engine != "new" and f"[{code}]" in _texts(result)[0]
+    assert _out(result) == _out(today)
+
+
+def test_a_sample_time_within_today_s_solver_step_runs_on_the_new_engine(new):
+    """A Sample Time no longer than today's solver step (10 ms): today's
+    engine runs the block at every step, so the new path runs the case."""
+    result = simulate(_sampled("lookup", 0.005), "case-city")
+    assert result.engine == "new", _texts(result)
+    assert new_engine.held_block(_sampled("pid", 0.01), _sampled("pid", 0.01).cases[0]) is None

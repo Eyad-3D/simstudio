@@ -36,12 +36,13 @@ NEW-BUILD = "today's model builder refused the model before the new engine saw i
 NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow in the message)"
 NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
 NEW-TEXT = "a part whose equations come from a text file, in a case the new engine's path does not run, or whose file it cannot read: today's engine does not read text components, so the case fails with the code of the refusal and this one (added 31 October, widened 1 November: [[changes]])"
+NEW-SAMPLED = "a PID or Lookup block with a Sample Time longer than today's solver step: today's engine runs it only at multiples of its Sample Time and holds its output in between, the new engine runs it at every step (added 6 November, the sweep: [[changes]])"
 # quick mode (a case's mode "quick": the new engine's fast mode, step 2's item 5;
 # added 31 October: [[changes]]). A case quick mode does not run runs in full
 # instead, with its code in a warning, or in strict mode fails with it.
 QUICK-NOT-FOUND = "quick mode: the case is not in the project"
 QUICK-KIND = "quick mode: a case that drives no drive cycle (an acceleration or performance test, a lap, a Formula Student event)"
-QUICK-SAMPLED = "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control): fast mode reads no host for one"
+QUICK-SAMPLED = "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control): fast mode reads no host for one; or a PID or Lookup block with a Sample Time longer than today's solver step, whose output today's engine holds between samples (widened 6 November, the sweep: [[changes]])"
 QUICK-CELLS = "quick mode: a battery built from cells"
 QUICK-LIMITS = "quick mode: a value outside its parameter's limits (a study's point can hold one)"
 QUICK-MISSING = "quick mode: the module lightsim_engine is not installed"
@@ -882,6 +883,20 @@ measured run."""
 reason = """The owner's approval of 6 November: five fix rounds of the FMU part each found one or two new cases where \
 the new path or quick mode and today's engine disagree about a table read or a part today's engine leaves out; \
 the sweep finds them all at once. No line, item, code or pass mark above moves."""
+
+[[changes]]
+date = "2026-11-06"
+line = "STRICT"
+change = """[codes]: NEW-SAMPLED added, QUICK-SAMPLED widened: a PID or Lookup block with a Sample Time longer than \
+today's solver step is refused by the new path and by quick mode (in strict mode it fails with the code, else it \
+runs on today's engine, which holds the block's output between samples). [note_codes]: NEW-TABLE-NOT-JUDGED also \
+notes a battery's OCV table or a fuel cell stack's curve read past its data on a part connected to no bus, which \
+today's engine leaves out. A run whose E-Motor its supply held back stops (NEW-FAILED, QUICK-FAILED) when the \
+motor's loss map has its torque axis on Error and its data does not reach 0 N·m, as today's run stops there."""
+reason = """Found by the mismatch sweep's before-run ([sweep]) and, before it, the FMU part's last re-check of \
+5 November: on each, today's engine gave another verdict or other outputs and no code said so. No item of the \
+diff has a PID or Lookup block, a part on no bus or a loss map short of 0 N·m, so no item, record or pass mark \
+moves."""
 
 # ---------------------------------------------------------------------------
 # The mismatch sweep (the owner, 6 November; added 6 November: [[changes]]).

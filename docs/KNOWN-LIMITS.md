@@ -636,7 +636,10 @@ minimum or an average, for example from the CSV export, or put the
   there are none; a short stretch in that branch between two output
   points is missed. Every table the new engine's parts read has a rule of
   where today's engine reads it: one of these, where the new engine reads
-  it (a battery's OCV table, a Lookup's), or nowhere past its data (an
+  it (a battery's OCV table, a Lookup's; a battery's OCV table and a Fuel
+  Cell Stack's curve only for a part that feeds a bus: one connected to no
+  bus, which today's engine leaves out, gets the note with the code
+  `NEW-TABLE-NOT-JUDGED`), or nowhere past its data (an
   engine's full-load curve, read between its own first and last speed); a
   test holds the rules to the engine's reads. Where the engine reads a
   table in several places (an engine's fuel map at three torques) its
@@ -645,7 +648,13 @@ minimum or an average, for example from the CSV export, or put the
   A table axis set to
   Error stops the run wherever the engine reads it, in either branch: a
   run today's engine finishes then fails on the new engine, which says
-  so (`NEW-FAILED`) and runs it on today's engine. The engine watches a
+  so (`NEW-FAILED`) and runs it on today's engine. Today's engine reads an
+  E-Motor's loss map at 0 N·m wherever its supply holds it back (an
+  acceleration test cut by its battery's Output Power Limit); with that
+  map's torque axis on Error and its data starting above 0 N·m, a new
+  engine's run in which the supply held a motor back stops too
+  (`NEW-FAILED`, quick mode `QUICK-FAILED`) and the case runs on today's
+  engine, which stops there. The engine watches a
   table at the edges of its own data, as today's (it pads a table only
   past an end its argument never reaches: a speed's 0, an SOC's 0 and
   100 %); a table of one point is a constant, and a point past an edge
@@ -734,7 +743,8 @@ minimum or an average, for example from the CSV export, or put the
   and a code: `QUICK-KIND` (no drive cycle: an acceleration, performance,
   lap or Formula Student case), `QUICK-BALANCE` (a charge-balanced hybrid
   case), `QUICK-END` (a case that ends at a Distance or a lap count),
-  `QUICK-SAMPLED` (a Script, FMU or Traction Control part),
+  `QUICK-SAMPLED` (a Script, FMU or Traction Control part, or a PID or
+  Lookup block with a Sample Time longer than today's solver step),
   `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
   `QUICK-FAILED` (fast mode's own refusal), `QUICK-NOT-FOUND`,
   `QUICK-ERROR`. See [Run a cycle in quick mode](help/how-to/run-in-quick-mode.md).
@@ -756,11 +766,13 @@ minimum or an average, for example from the CSV export, or put the
   solver step's change. On the new engine an FMU's start values and its
   Communication Step changed during a run take effect on the next run
   (code `NEW-LIVE-NEXT-RUN`). *Roadmap:* ENG-16.
-- **A PID or Lookup block's Sample Time is not kept by the new engine.**
-  With `LIGHTSIM_ENGINE=new`, and in quick mode, a PID or Lookup block
-  with a Sample Time runs at every step, where today's engine holds its
-  output between samples: its output, and what it drives, can differ
-  between two samples, and no code says so yet. *Roadmap:* ENG-16.
+- **A PID or Lookup block with a Sample Time runs on today's engine.**
+  Today's engine runs a PID or Lookup block whose Sample Time is longer
+  than its solver step (10 ms, less for a stiff model) only at multiples
+  of it and holds its output in between; the new engine and quick mode
+  would run it at every step. So with `LIGHTSIM_ENGINE=new` such a case
+  runs on today's engine, saying so with the code `NEW-SAMPLED`, and in
+  quick mode it runs in full with `QUICK-SAMPLED`. *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a
   negative pressure, a CG height below 0, a wheel's load share of 0):

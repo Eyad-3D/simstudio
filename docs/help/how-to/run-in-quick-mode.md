@@ -53,7 +53,11 @@ come out up to 1.8 % and 1.4 % lower than the full run's (measured on
   MPGe and the range not valid as a full run does. A table whose axis is
   set to *Error* read past its data stops fast mode as it stops a full
   run: the case runs in full instead (`QUICK-FAILED`, with
-  `FAST-TABLE-ERROR`), and fails there as today's run does.
+  `FAST-TABLE-ERROR`), and fails there as today's run does. So does an
+  E-Motor's loss map whose *Torque* axis is set to *Error* and starts
+  above 0 N·m, when the supply holds the motor back: a full run reads it
+  at 0 N·m there (`QUICK-FAILED`). The table of a battery or fuel cell
+  connected to nothing is not judged, as a full run leaves the part out.
 - **No checks of the motion.** The wheels lifting off the road, an
   E-Motor with no live supply and a supply limit holding a motor back are
   not told as a full run tells them; fast mode flags a limit instead (see
@@ -76,7 +80,7 @@ starts *Not run in quick mode* and gives a code:
 | `QUICK-KIND` | the case drives no cycle: an acceleration or performance test, a lap, a Formula Student event |
 | `QUICK-BALANCE` | a hybrid's charge-balanced case (set *Charge balance* off to run it once) |
 | `QUICK-END` | the case ends at a *Distance* or after a number of *Laps*: quick mode runs the cycle's whole duration |
-| `QUICK-SAMPLED` | the model has a Script, FMU or Traction Control part, which fast mode does not run |
+| `QUICK-SAMPLED` | the model has a Script, FMU or Traction Control part, which fast mode does not run, or a PID or Lookup block with a *Sample Time* longer than a full run's solver step (10 ms), whose output a full run holds between samples |
 | `QUICK-CELLS` | a battery built from cells |
 | `QUICK-LIMITS` | a value outside its parameter's limits (a study's point can hold one) |
 | `QUICK-MISSING` | the new engine is not installed |

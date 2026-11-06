@@ -99,10 +99,13 @@ CODES = {
     "NEW-ERROR": "an exception that is not the engine's own refusal",
     "NEW-TEXT": "a part from a text file in a case the path does not run, or whose file it cannot read "
                 "(today's engine reads none)",
+    "NEW-SAMPLED": "a PID or Lookup block with a Sample Time longer than today's solver step (today's "
+                   "engine holds its output between samples; the new engine runs it at every step)",
     # quick mode's (a case's mode "quick": the new engine's fast mode)
     "QUICK-NOT-FOUND": "quick mode: the case is not in the project",
     "QUICK-KIND": "quick mode: a case that drives no drive cycle",
-    "QUICK-SAMPLED": "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control)",
+    "QUICK-SAMPLED": "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control, a "
+                     "PID or Lookup with a Sample Time longer than today's solver step)",
     "QUICK-CELLS": "quick mode: a battery built from cells",
     "QUICK-LIMITS": "quick mode: a value outside its parameter's limits",
     "QUICK-MISSING": "quick mode: the module lightsim_engine is not installed",
@@ -302,6 +305,8 @@ def quick_unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     if sampled is not None:
         return Refusal("QUICK-SAMPLED", f"it runs no sampled part (a Script, an FMU, a Traction "
                                         f"Control: {sampled.label!r})")
+    if (held := held_block(project, case)) is not None:
+        return Refusal("QUICK-SAMPLED", f"it runs every block at every step, and {held}")
     overrides = getattr(case, "parameterOverrides", None) or {}
     if any(el.componentDefId == "battery.generic"
            and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
@@ -316,6 +321,35 @@ def quick_unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     except ImportError:
         return Refusal("QUICK-MISSING", "the new engine is not installed")
     return None
+
+
+HELD = ("control.pid", "signal.lookup")  # the blocks today's engine samples that the new engine runs
+
+
+def held_block(project: Project, case) -> Optional[str]:
+    """A PID or Lookup block whose Sample Time is longer than today's solver
+    step, in words, or None: today's engine runs it only at multiples of its
+    Sample Time and holds its output in between (domains.ControlSlave), the
+    new engine and its fast mode run it at every step."""
+    from . import core  # (core imports this module; its solver step, as today's run takes it)
+    from .stability import solver_step
+
+    overrides = getattr(case, "parameterOverrides", None) or {}
+    timed = [(el, float({**el.parameterOverrides, **overrides.get(el.id, {})}.get("sample_time_s") or 0))
+             for s in project.systems for el in s.elements if el.componentDefId in HELD]
+    timed = [(el, ts) for el, ts in timed if ts > 0]
+    if not timed:
+        return None
+    try:
+        choice = solver_step(build_model(project, {}, overrides), core.MAX_SUBSTEP)
+    except ModelError:
+        return None  # (the path says it: NEW-BUILD)
+    step = choice.step if choice else core.MAX_SUBSTEP
+    el, ts = max(timed, key=lambda x: x[1])
+    if ts <= step:
+        return None
+    return (f"today's engine holds the output of {el.label!r} between its samples (its Sample Time "
+            f"{ts:g} s, today's solver step {step * 1000:g} ms)")
 
 
 def quick_failure(e: Exception) -> Refusal:
@@ -463,6 +497,8 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
            and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
            for el in elements):
         return Refusal("NEW-CELLS", "it does not run a battery built from cells")
+    if (held := held_block(project, case)) is not None:
+        return Refusal("NEW-SAMPLED", f"it runs every block at every step, and {held}")
     from ..validation import value_problems  # (validation imports this package)
     if problems := value_problems(project, case_id):  # (a study's point: Data Checks never saw it)
         return Refusal("NEW-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse a "
@@ -1332,6 +1368,32 @@ def _tables(ctx, run, messages: list[SimMessage]) -> None:
             f"{name}: {use.axis} {use.value:.6g} {use.unit} is past the edge of its data "
             f"({use.edge:g} {use.unit}) from t = {first:.2f} s — {how} there. "
             f"The run summary says for how long and how far.")))
+    _held_at_zero(ctx, run)
+
+
+def _held_at_zero(ctx, run) -> None:
+    """Today's engine reads an E-Motor's loss map at 0 N·m whenever its
+    supply holds it back (its search for the largest share of the command
+    that fits starts there); the new engine reads it there at every point
+    of a motor with a supply window, a read at a constant its records do
+    not watch. On a torque axis set to Error whose data does not reach
+    0 N·m, a run in which the supply held a motor back (its time limited,
+    t_limited, above 0) stops, as today's run stops there (TableError)."""
+    for el_id in ctx.motors:
+        m = ctx.maps.get((el_id, "power_loss"))
+        if m is None or 1 not in m.error_axes or m.edge(1, 0.0) is None:
+            continue
+        held = run.engine_channels.get(f"{_ident(el_id)}.t_limited")
+        if held is not None and len(held) and float(held[-1]) > 0.0:
+            raise TableError(f"{m.name}: read at 0 N·m, outside its data, where its supply first held it "
+                             f"back ({float(held[-1]):.3g} s held in all), on its torque axis, which is "
+                             f"set to stop the run (Error)")
+
+
+def _ident(el_id: str) -> str:
+    """A part's id as the engine names its instance (lsim-project's ident)."""
+    s = re.sub(r"[^A-Za-z0-9]", "_", el_id)
+    return "_" + s if not s or s[0].isdigit() else s
 
 
 def _merged(got: list) -> tuple[dict, Callable[[float], float]]:
@@ -1400,6 +1462,16 @@ class Reads(NamedTuple):
     where: str  # where today's engine reads it, in words
     axes: tuple  # per axis: (the new engine's reads of it, today's read)
     key: Optional[Callable[[dict], str]] = None  # today's name for it, from the part's values
+    # whether today's engine reads it of this part at all (today's model,
+    # the part's id); None: of every part
+    booked: Optional[Callable[[object, str], bool]] = None
+
+
+def _bus_source(kind: str) -> Callable[[object, str], bool]:
+    """A battery or a fuel cell stack today's engine runs: the source of
+    one of its buses (its bus loop reads the part's table only there; it
+    leaves out one on no bus, as Data Checks say)."""
+    return lambda model, el_id: any(getattr(bus, kind) == el_id for bus in model.buses)
 
 
 SAME = "same"  # today's engine reads the axis where the new one does, at every point
@@ -1422,7 +1494,8 @@ NEVER = "never"  # today's engine books no read of the table
 # that at the maximum speed.
 BRANCH_READS = {
     ("battery.generic", "ocv_table"): Reads(
-        "at its state of charge, held to 0-100 %", ((("soc_c",), SAME),)),
+        "at its state of charge, held to 0-100 %, of a battery that feeds a bus", ((("soc_c",), SAME),),
+        booked=_bus_source("battery")),
     ("motor.emotor", "full_load_torque"): Reads(
         "only while the motor is powered",
         ((("v",), lambda v, top: v["v"] if _motor_powered(v) else None),
@@ -1458,8 +1531,8 @@ BRANCH_READS = {
     # at the current it gives (the bus's bisection); its read at its Maximum
     # Current, the most power it gives (the bus manager's window), is unbooked
     ("fuelcell.stack", "polarization"): Reads(
-        "at the current it gives, not at its Maximum Current",
-        ((("I", "i_max"), lambda v, top: v["I"]),)),
+        "at the current it gives, not at its Maximum Current, of a stack that feeds a bus",
+        ((("I", "i_max"), lambda v, top: v["I"]),), booked=_bus_source("fuelcell")),
     # (consumer_demand_w: enabled, and asking for heat or cooling there)
     ("electric.climate", "demand_table"): Reads(
         "only while the climate control is on and asks for heating or cooling",
@@ -1493,6 +1566,9 @@ def _branch_share(ctx, run, rec, el_id: str, key: str, axis: int, shown: Callabl
     # dense count; a stretch in the branch between two points is missed
     rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, rec["table"].rsplit(".", 1)[-1]))
     m = ctx.maps.get((el_id, key))
+    if rule is not None and rule.booked is not None and not rule.booked(ctx.model, el_id):
+        return (f"today's engine reads it {rule.where}, and leaves this part out: it is connected "
+                f"to no bus"), 0.0, None
     if rule is None or m is None or axis >= len(rule.axes) or rule.axes[axis][1] is SAME:
         return "", 1.0, None
     today, why = rule.axes[axis][1], f"today's engine reads it {rule.where}"

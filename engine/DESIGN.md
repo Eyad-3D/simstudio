@@ -3257,7 +3257,10 @@ against exact answers from `benchmarks/`.
   read `lsim_lib::blocks::table_sites` lists, in every configuration, a
   test holding the two equal; a table it names otherwise under its own
   name, a Lookup's Table 1D or 2D): where the engine reads it (the
-  battery's OCV table, a Lookup's), only in one branch of its part (the
+  battery's OCV table, a Lookup's; a battery's OCV table and a stack's
+  curve only of a part that is the source of one of today's buses,
+  `Reads.booked`: one connected to no bus, which today's engine leaves
+  out, is that note), only in one branch of its part (the
   fuel map only while fired), at another point (a Fuel Cell Stack's curve
   at its current, which the engine reads at its Maximum Current too; a
   drag table that reaches the maximum speed at that speed above it), or
@@ -3273,7 +3276,12 @@ against exact answers from `benchmarks/`.
   engine would not count, of
   an axis of one point or past its edge by float noise (`Map.bounds`), is
   left out; a record of an axis set to
-  Error stops the path, `NEW-FAILED`, as the engine stops a run there). Today's warnings that a supply
+  Error stops the path, `NEW-FAILED`, as the engine stops a run there;
+  so does a run whose supply held an E-Motor back, its time limited above
+  0, when its loss map's torque axis is on Error and its data does not
+  reach 0 N·m: today's search for the share of the command that fits
+  reads the map there, and the engine's read of it at 0 N·m, a constant,
+  has no record, `new_engine._held_at_zero`). Today's warnings that a supply
   held the car back (a battery at its maximum-power point, full or at its
   Max Charge Power; a fuel cell at its maximum power or taking nothing
   back; a bus with no source; a consumer cut back) come from the trace
@@ -3287,7 +3295,10 @@ against exact answers from `benchmarks/`.
   outside its parameter's limits (a study's point: Data Checks check only
   the study's base project) is not run (`NEW-LIMITS`, in Data Checks'
   words): today's engine reads many such values clamped, the new engine
-  as typed. Today's checks of the values a run uses are today's code's
+  as typed. Nor is one with a PID or Lookup block whose Sample Time is
+  longer than today's solver step (`NEW-SAMPLED`; quick mode
+  `QUICK-SAMPLED`, `new_engine.held_block`): today's engine holds its
+  output between samples, the engine runs it at every step. Today's checks of the values a run uses are today's code's
   own words: what its `RunContext` says while it is built (a CG height
   with every wheel on one axle, wheels off the road at the start, a
   driveline over-constrained), which the path's never-stepped

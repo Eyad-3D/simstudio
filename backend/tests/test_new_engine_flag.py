@@ -141,6 +141,10 @@ def test_every_refusal_has_its_code():
     fmu.systems[0].elements.append(
         ElementInstance(id="fmu", componentDefId="signal.fmu", label="Lag", position={"x": 0, "y": 0}))
     single = _changed("hybrid-car", "case-udds", chargeBalance=False)
+    sampled = load_example("bev-car")
+    sampled.systems[0].elements.append(ElementInstance(
+        id="pid", componentDefId="control.pid", label="PID", position={"x": 0, "y": 0},
+        parameterOverrides={"sample_time_s": 0.5}))
     seen = {
         "NEW-NOT-FOUND": new_engine.unsupported(load_example("bev-car"), "no-such-case"),
         "NEW-LAP": new_engine.unsupported(load_example("fs-electric"), "case-autocross"),
@@ -150,6 +154,7 @@ def test_every_refusal_has_its_code():
             _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
         "NEW-BALANCE": new_engine.unsupported(load_example("hybrid-car"), "case-udds"),
         "NEW-CELLS": new_engine.unsupported(cells, WLTC),
+        "NEW-SAMPLED": new_engine.unsupported(sampled, WLTC),
         "NEW-LIMITS": new_engine.unsupported(studies._point_project(
             load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),
         # quick mode's (a case's mode "quick")
@@ -167,6 +172,7 @@ def test_every_refusal_has_its_code():
     # an FMU part is no reason any more (step 2's item 5)
     assert new_engine.unsupported(fmu, WLTC) is None or new_engine.unsupported(fmu, WLTC).code == "NEW-MISSING"
     assert new_engine.quick_unsupported(fmu, WLTC).code == "QUICK-SAMPLED"
+    assert new_engine.quick_unsupported(sampled, WLTC).code == "QUICK-SAMPLED"
     assert set(seen) | {"NEW-MISSING", "NEW-BUILD", "NEW-FAILED", "NEW-ERROR", "NEW-TEXT", "QUICK-MISSING",
                         "QUICK-BUILD", "QUICK-FAILED", "QUICK-ERROR"} == set(new_engine.CODES)
 
