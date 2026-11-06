@@ -229,10 +229,12 @@ def _apply(m: _Model, op: dict) -> str:
         if cdef is None or type_id == "container.system":
             raise EditError(f"No library part '{type_id}' (lightsim://components lists them).")
         system_id = op.get("system")
-        system = next((s for s in m.p.systems if s.id == system_id), None) if system_id else \
+        system = next((s for s in m.p.systems if system_id in (s.id, s.name)), None) if system_id else \
             next((s for s in m.p.systems if s.parentId is None), m.p.systems[0])
         if system is None:
-            raise EditError(f"No system '{system_id}'.")
+            listed = ", ".join(f'{s.id} ("{s.name}")' for s in m.p.systems)
+            raise EditError(f"No system '{system_id}' (the systems: {listed}). Leave 'system' out "
+                            "to add the part to the main system.")
         label = str(op.get("label") or cdef.name)
         el_id = m.free_id(str(op.get("id") or "el-" + label.lower()))
         x = max((e.position.get("x", 0) for e in system.elements), default=0) + 160

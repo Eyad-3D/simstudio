@@ -84,7 +84,9 @@ _OP_SCHEMAS: list[dict] = [
          "type": {"type": "string", "description": "a library part id such as motor.emotor "
                   "(lightsim://components lists them)"},
          "label": {"type": "string", "description": "the new part's label"},
-         "id": {"type": "string"}, "system": {"type": "string"}}},
+         "id": {"type": "string"},
+         "system": {"type": "string", "description": "the system to put it in, by its id or name; "
+                    "leave it out for the main system"}}},
     {"title": "remove", "type": "object", "required": ["op", "element"],
      "properties": {"op": {"const": "remove"},
                     "element": {"type": "string", "description": "its id or exact label "

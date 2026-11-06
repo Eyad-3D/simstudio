@@ -124,6 +124,23 @@ def test_element_read_no_part_names_the_parts(tmp_path, monkeypatch):
     assert typed["isError"] and "is a part type, not a part" in typed["content"][0]["text"]
 
 
+def test_add_takes_a_system_by_id_or_name_and_an_unknown_one_lists_the_systems():
+    # after-safety comparison (BASELINE.md, item 1): the schema gave add a bare
+    # "system" key, Haiku filled it with the car's name, and the error named no
+    # system (28 tries). The schema says what it is; the name is taken too.
+    system = _tool("model_edit")["inputSchema"]["properties"]["operations"]["items"]["oneOf"][1]
+    assert "main system" in system["properties"]["system"]["description"]
+    bev = load_example("bev-car")
+    for name in ("Battery Electric Car", "sys-root"):
+        edited, _ = apply_operations(bev, [{"op": "add", "type": "mech.brake", "label": "Brake FL",
+                                            "system": name}])
+        assert any(e.label == "Brake FL" for e in edited.systems[0].elements)
+    with pytest.raises(EditError) as e:
+        apply_operations(bev, [{"op": "add", "type": "mech.brake", "system": "Chassis"}])
+    assert 'sys-root ("Battery Electric Car")' in str(e.value)
+    assert "Leave 'system' out" in str(e.value)
+
+
 def test_a_non_object_operation_says_what_an_operation_is():
     bev = load_example("bev-car")
     with pytest.raises(EditError, match=r"an operation is an object with an \"op\" key"):
