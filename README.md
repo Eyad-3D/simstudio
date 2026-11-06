@@ -377,8 +377,10 @@ case, Formula Student event cases, live runs in the app, and any case when
 the module is not installed. If the new engine fails on a case, the case
 runs on today's engine and the result carries a warning with the new
 engine's own message. The first message of every result says which engine
-ran the case and, after a fall-back, why. Script blocks keep today's checks
-(approved code only, run in the locked-down worker). The new engine's
+ran the case and, after a fall-back, why. Script blocks keep today's rules:
+approved code only in a run started in the app, the strict OS sandbox with
+no approval for the command-line tool and AI apps, and the locked-down
+worker either way. The new engine's
 results do not have the energy report, part energies, duty, limits or
 references yet.
 

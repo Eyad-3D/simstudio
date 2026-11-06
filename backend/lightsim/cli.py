@@ -111,7 +111,7 @@ def cmd_run(args) -> int:
     if len(cases) > 1 and any("{case}" not in o for o in args.out or []):
         raise UsageError("With --all-cases, put {case} in each --out file name.")
     # Hands-off, as the MCP server's runs: Script blocks and FMUs run in the
-    # strict OS sandbox (no network, project-only files) with no per-user
+    # strict OS sandbox (project-only files, network held off) with no per-user
     # approval, and the run is refused where that sandbox cannot be set up.
     # LIGHTSIM_STRICT_SANDBOX=0 gives a person the app's rules instead.
     sandbox = engine("solver.sandbox")

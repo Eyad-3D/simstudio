@@ -41,7 +41,8 @@ from .win_sandbox import START_S as _AC_START_S
 SANDBOX_UNAVAILABLE = _w.SANDBOX_UNAVAILABLE
 
 #: Set True for an agent's run (app/ai): its Script and FMU blocks must run
-#: OS-confined (no network, no file access outside the project), and the run
+#: OS-confined (no file access outside the project, the network held off as
+#: docs/KNOWN-LIMITS.md sets out per platform), and the run
 #: is refused when that confinement cannot be set up. A person's run in the
 #: app leaves it False and keeps today's best-effort isolation. A ContextVar,
 #: so it is per-run and needs no new parameter through the solver.
@@ -61,7 +62,7 @@ def command_line_strict() -> bool:
 
 
 def why_no_strict_sandbox(platform: Optional[str] = None) -> Optional[str]:
-    """None when the strict agent sandbox (file-confined, no network) can be
+    """None when the strict agent sandbox (file-confined, network held off) can be
     set up on this platform, otherwise a plain message ending with the stable
     code, for the refused run to report. ``platform`` overrides the real one
     (the tests, and the AI policy's simulated platform)."""
@@ -84,7 +85,7 @@ def why_no_strict_sandbox(platform: Optional[str] = None) -> Optional[str]:
                 f"which could not be set up on this computer. {tail}")
     if platform.startswith("linux") and _w.landlock_abi() < 0:
         return (f"{who} runs a project's Script blocks or FMUs only inside the sandbox "
-                "(no network, no file access outside the project), which needs Landlock "
+                "(no file access outside the project, the network held off), which needs Landlock "
                 f"(Linux 5.13 or newer); this kernel does not offer it. {tail}")
     return None
 

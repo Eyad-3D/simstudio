@@ -76,6 +76,9 @@ underscores, attributes that start with one. Data Checks compile the code
   cannot start programs or write to your files (on Linux 5.13 or newer,
   Windows and macOS). How much else is blocked depends on your system: see
   [Known issues](../../KNOWN-LIMITS.md).
-- Scripts that came with a project from another computer run only after
-  you approve them: see
+- Scripts that came with a project from another computer run in the app
+  only after you approve them: see
   [Open a project that has scripts from someone else](../how-to/open-a-project-with-scripts.md).
+  The command-line tool (`lightsim run`) and AI apps ask for no approval:
+  they run every script in the OS sandbox, or refuse the run where that
+  sandbox cannot be set up (see [Command line](command-line.md)).

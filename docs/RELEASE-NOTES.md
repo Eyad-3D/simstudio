@@ -1036,7 +1036,9 @@ sections.
   importing a project whose Script blocks hold code you have not approved
   on this computer shows that code with **Run scripts** and **Open without
   running scripts**, and **Run** asks again; the engine itself refuses to
-  run such code, for every kind of run. Code you type, the examples' code
+  run such code in a run started in the app or from Python (the
+  command-line tool and AI apps hold it to the OS sandbox instead, with no
+  approval, as the entries above say). Code you type, the examples' code
   and the scripts of the projects you had already saved count as approved;
   approvals are kept in your own LightSim folder, not the projects folder,
   and an approval holds for that exact code

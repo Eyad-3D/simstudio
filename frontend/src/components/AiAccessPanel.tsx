@@ -15,8 +15,8 @@ const message = (e: unknown) => String((e as Error).message ?? e).replace(/^Erro
  *  still serves its skill pack and part library. An agent works hands-off
  *  (the owner's decision, 1 November 2026): the connection never asks the
  *  user to confirm. Safety is by design instead — a project with Script
- *  blocks or FMUs runs in an OS sandbox (no network, file access to the
- *  project only; an AppContainer on Windows), and the run is refused when
+ *  blocks or FMUs runs in an OS sandbox (file access to the project only,
+ *  the network held off; an AppContainer on Windows), and the run is refused when
  *  that sandbox cannot be set up rather than run less safely; every edit it saves is
  *  recoverable from the project's backups. It does not read the trust list
  *  shown here, which only Python code that uses

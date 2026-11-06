@@ -413,7 +413,7 @@ class Engine:
                 progress(float(event["pct"]))
 
         # An agent's run is strict: Script blocks and FMUs must run OS-confined
-        # (no network, file access to the project only), and the run is refused
+        # (file access to the project only, the network held off), and the run is refused
         # when that cannot be set up — never a silent fall-back (PLT-35).
         token = STRICT.set(True)
         try:

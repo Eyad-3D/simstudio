@@ -62,8 +62,11 @@ The files' contents are described in
 **Script blocks and FMUs.** `run`, and the engine program's own `run`,
 work hands-off, as the connection for AI apps does
 ([AI access](#ai-access)): a project's Script blocks and FMUs run in an
-OS sandbox, with access to the project's folder only and no network, and
-a script nobody approved runs there with no **Run scripts** approval.
+OS sandbox, with access to the project's folder only and the network held
+off — a Script can open no connection, and an FMU's native code is held
+off by the OS ([Known issues](../../KNOWN-LIMITS.md) has the per-platform
+detail) — and a script nobody approved runs there with no **Run scripts**
+approval.
 Where that sandbox cannot be set up, the run is refused with the code
 `sandbox_unavailable`. The tool cannot tell an AI agent from a person,
 and an agent must never wait on a person, so this holds for every run.

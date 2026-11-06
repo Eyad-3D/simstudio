@@ -77,8 +77,8 @@ class FmuSandbox:
                 self._ac = win_sandbox.launch("fmu", mem_bytes, project_dirs=(spec.unzip_dir,))
             except win_sandbox.SandboxSetupError as e:
                 raise FmuError(
-                    f"FMU '{spec.label}' cannot be run OS-confined (no network, no file access "
-                    f"outside the FMU and the project) on this computer "
+                    f"FMU '{spec.label}' cannot be run OS-confined (file access only to the FMU and "
+                    f"the project, the network held off) on this computer "
                     f"[{_sw.SANDBOX_UNAVAILABLE}], so the run is refused rather than run less "
                     f"safely ({e}).") from e
             self._sock = self._ac
@@ -148,8 +148,8 @@ class FmuSandbox:
         if self._strict and not reply.get("confined"):
             self._kill()
             raise FmuError(
-                f"FMU '{spec.label}' cannot be run OS-confined (no network, no file access "
-                f"outside the FMU and the project) on this computer [{_sw.SANDBOX_UNAVAILABLE}], "
+                f"FMU '{spec.label}' cannot be run OS-confined (file access only to the FMU and "
+                f"the project, the network held off) on this computer [{_sw.SANDBOX_UNAVAILABLE}], "
                 "so the run is refused rather than run less safely.")
         err = reply.get("error")
         if err:

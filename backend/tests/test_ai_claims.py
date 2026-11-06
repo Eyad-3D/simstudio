@@ -7,10 +7,12 @@ decision of 1 November 2026: an agent works hands-off):
 
 - it reads, checks, compares, runs a project and saves an edit, all without
   a question — the connection never asks the user to confirm;
-- a project with Script blocks or FMUs runs in an OS sandbox (no network,
-  file access to the project's folder only; an AppContainer on Windows);
-  when that sandbox cannot be set up the run is refused with the stable code
-  ``sandbox_unavailable`` rather than run less safely;
+- a project with Script blocks or FMUs runs in an OS sandbox (file access to
+  the project's folder only; a Script can open no network connection, and an
+  FMU's native code is held off by the OS, which on Linux leaves UDP open, as
+  Known issues says; an AppContainer on Windows); when that sandbox cannot be
+  set up the run is refused with the stable code ``sandbox_unavailable``
+  rather than run less safely;
 - an edit is saved straight away and is recoverable: the previous version is
   kept as a backup, and an example's edit is saved as a new project;
 - it does NOT read the trust list that ``lightsim ai trust`` keeps: only
@@ -25,7 +27,8 @@ decision of 1 November 2026: an agent works hands-off):
 - LightSim's own approval of Script code (app/script_trust.py) does NOT
   apply to an AI app's run: the sandbox is the safety, so a brand-new script
   the assistant writes runs in the sandbox without the **Run scripts**
-  approval (that approval still guards a run a person starts in the app);
+  approval (that approval still guards a run a person starts in the app, so
+  the pages about it say "in the app": the command-line tool asks nothing);
 - the AI apps' audit log has a line for each call that reaches a tool, but
   not for a run sent as a task that is refused before it starts, or a call
   LightSim cannot read (a tool it does not have, arguments that are not an
@@ -83,6 +86,8 @@ CONNECT = "frontend/src/components/AiConnectDialog.tsx"
 SKILL = "backend/app/ai/skills/lightsim-write-a-script-block/SKILL.md"
 SKILL_LIMITS = "backend/app/ai/skills/lightsim-what-it-cannot-do/references/known-limits.md"
 BENCH = "benchmarks/agent/README.md"
+SCRIPT_API = "docs/help/reference/script-api.md"
+OPEN_SCRIPTS = "docs/help/how-to/open-a-project-with-scripts.md"
 #: the record of the bench's baseline, measured before the hands-off change:
 #: it tells what the old tools did, so it keeps their words
 RECORDS = {"benchmarks/agent/BASELINE.md"}
@@ -229,6 +234,23 @@ MUST_SAY = {
         "The command-line tool is hands-off as well: `lightsim run`, and the engine program's "
         "`lightsim-backend run`, hold every run to the same OS sandbox, with no **Run scripts** approval",
         "In place it keeps each version it replaces in `<file>-backups`",
+        # the command line's own paragraph: no network for a Script, the OS for
+        # an FMU, and where the per-platform detail is (Linux lets UDP out)
+        "with access to the project's folder only and the network held off — a Script can open no "
+        "connection, and an FMU's native code is held off by the OS ([Known issues](../../KNOWN-LIMITS.md) "
+        "has the per-platform detail)",
+    ],
+    # the approval of scripts from elsewhere is the app's; the command line asks nothing
+    SCRIPT_API: [
+        "Scripts that came with a project from another computer run in the app only after you approve them",
+        "The command-line tool (`lightsim run`) and AI apps ask for no approval: they run every script "
+        "in the OS sandbox, or refuse the run where that sandbox cannot be set up",
+    ],
+    OPEN_SCRIPTS: [
+        "so the LightSim app shows it to you and asks before it runs",
+        "The command-line tool (`lightsim run`) and AI apps do not ask: they run a project's scripts in "
+        "an OS sandbox, with access to the project's folder only, or refuse the run where that sandbox "
+        "cannot be set up",
     ],
     PYTHON_API: [
         "the `lightsim` package does not read the AI access settings",
@@ -269,16 +291,23 @@ MUST_SAY = {
         "FMUs in an OS sandbox or refusing the run when that sandbox cannot be set up",
         "it does not read the `lightsim ai trust` list",
         "the trust list that only Python code using `AgentSession` reads",
+        "Script blocks keep today's rules: approved code only in a run started in the app, the strict "
+        "OS sandbox with no approval for the command-line tool and AI apps",
     ],
     RELEASE_NOTES: [
         "the connection for AI apps does not read that list",
         "it works hands-off: it never asks you to confirm",
+        "the engine itself refuses to run such code in a run started in the app or from Python (the "
+        "command-line tool and AI apps hold it to the OS sandbox instead, with no approval",
         "its tool calls go into a local log, `.ai/audit.jsonl` in the projects folder (*Known issues* "
         "lists the calls it leaves out)",
     ],
     DEPLOY: [
         "`off`: AI apps get none of your projects from LightSim. Every tool call from a connected "
         "assistant is refused (it " + STILL + ")",
+        # scriptTrust is the app's prompt
+        "This is for runs started in the app: the command-line tool and AI apps ask nothing, and run "
+        "scripts only in the OS sandbox",
     ],
     CONNECT: [
         "It works hands-off: it does not ask you to confirm.",
@@ -392,6 +421,23 @@ OVERSTATED = [
     "low-privilege appcontainer",
     "has no command that saves",
     "previous version as `<file>.bak`",
+    # scripts from elsewhere wait for an approval only in the app: the
+    # command-line tool and AI apps run them in the sandbox, asking nothing
+    "from another computer run only after you approve them",
+    "so lightsim shows it to you and asks before it runs",
+    "refuses to run such code, for every kind of run",
+    "script blocks keep today's checks (approved code only",
+    # "no network" flat, for a sandbox that holds FMUs too: on Linux an FMU's
+    # native code can still send UDP (Known issues), so each place says a
+    # Script opens no connection and the OS holds an FMU off
+    "with access to the project's folder only and no network",
+    "fmus runs in an os sandbox (no network",
+    "(no network, no file access outside the project), which needs landlock",
+    "fmu '{spec.label}' cannot be run os-confined (no network",
+    "must run os-confined (no network, file access to the project only)",
+    "os-confined (no network, no file access outside the project), and the run",
+    "strict os sandbox (no network, project-only files)",
+    "strict agent sandbox (file-confined, no network)",
 ]
 #: a mention of the trust command must say, near it, who reads the list
 WHO_READS = ("AgentSession", "does not read", "is not read", "plays no part", "not used")
