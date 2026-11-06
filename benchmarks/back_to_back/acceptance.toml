@@ -898,6 +898,14 @@ reason = """Found by the mismatch sweep's before-run ([sweep]) and, before it, t
 diff has a PID or Lookup block, a part on no bus or a loss map short of 0 N·m, so no item, record or pass mark \
 moves."""
 
+[[changes]]
+date = "2026-11-06"
+line = "SWEEP"
+change = """[sweep]: a live case (bev-car/case-city-live, hybrid-car/case-mixed-live) runs live, its points to a view, \
+as the app runs it; before, it ran as its case without the view, the same runs as its base case's."""
+reason = """So that the sweep reaches the path's live run (new_engine._Live) too. No measured run of the sweep had \
+finished: the first three were stopped for faults of the harness (b118358, ba93d20) and their records removed."""
+
 # ---------------------------------------------------------------------------
 # The mismatch sweep (the owner, 6 November; added 6 November: [[changes]]).
 # `python -m benchmarks.back_to_back sweep OUT` builds every fault, runs each
@@ -908,7 +916,7 @@ what = """No project gets a different verdict on the new path or in quick mode t
 a success where today's engine fails or warns: a case either path cannot match is handed to today's engine \
 with its code."""
 cases = """The judge's 16 cases (the items above that are not probes; a hybrid's case as a single run, as FAULTS \
-runs it; a live case at LIVE_PACE). On each: every table of every part the new engine reads \
+runs it; a live case run live, its points to a view, at LIVE_PACE). On each: every table of every part the new engine reads \
 (lightsim_engine.table_sites, new_engine.BRANCH_READS; a part's own table, else the library's default) cut \
 short at each end of each axis, by its outermost point and to its inner half, with that axis's out-of-range \
 setting on Error, on Clamp and on Linear (the other axes as the part has them); a Driving Task's profile \

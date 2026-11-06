@@ -68,7 +68,8 @@ def bases() -> list[str]:
 
 def base_project(base: str) -> tuple[dict, str]:
     """A base case's project as the judge runs it: a live case paced as the
-    judge paces it, a hybrid's case as a single run (as the judge's faults)."""
+    judge paces it (and run live: run_fault), a hybrid's case as a single
+    run (as the judge's faults)."""
     name, case_id = base.split("/")
     project = runs.example(name)
     case = runs._case(project, case_id)
@@ -365,6 +366,8 @@ def run_fault(fid: str) -> dict:
 
     raw, case_id = fault_project(fid)
     block = SPARE if fid.startswith("sampled:") else None
+    # a live case runs live, as the app runs it: its points to a view
+    live = (runs._case(raw, case_id).get("realtimeFactor") or 0) > 0
     got: dict = {}
     for setting in SETTINGS:
         if setting == "today" and all(got[s].get("refused") or got[s].get("raised") for s in ("new", "quick")):
@@ -378,13 +381,17 @@ def run_fault(fid: str) -> dict:
             next(c for c in project.cases if c.id == case_id).mode = "quick"
         t0 = time.perf_counter()
         try:
-            got[setting] = digest(simulate(project, case_id), block)
+            got[setting] = digest(simulate(project, case_id, _shown if live else None), block)
         except Exception as e:  # noqa: BLE001 — told as the run's result
             got[setting] = {"raised": f"{type(e).__name__}: {e}"[:600]}
         got[setting]["wall_s"] = round(time.perf_counter() - t0, 2)
     for k in ("LIGHTSIM_ENGINE", "LIGHTSIM_ENGINE_STRICT"):
         os.environ.pop(k, None)
     return got
+
+
+def _shown(msg: dict) -> None:
+    """A live run's view: it takes each point and shows nothing."""
 
 
 # ---- comparing ------------------------------------------------------------------
