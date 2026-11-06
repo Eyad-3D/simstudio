@@ -332,3 +332,339 @@ the flag is about the unfinished event, not about that number.
 - Run the comparison again once the saves work: the cost per try and the order
   of the settings will change, because the agents will then verify what they
   saved.
+
+
+---
+
+# After the safety part: the same comparison, saves go through
+
+Step 6, item 0 again, now that an agent's saves and runs no longer wait on a
+person. The text above is the before and is left as it was; this part is the
+after.
+
+- **Date:** 6 November 2026.
+- **LightSim:** commit `067accd` (branch `work/ai`; the baseline's was
+  `b228609`). It is the safety part (saves and runs that wait on nobody, the
+  command-line tool that saves, the tool problems of the baseline fixed) plus
+  the fix of the bench's SAYS check (it now knows all 16 unit groups and
+  takes only the library's unit for a quantity). No tool was changed for the
+  run. The commit is also in
+  `/home/eyada/scratch/judge-cache/ai/bench-runs/after-safety.commit`.
+- **Run:** `python -m benchmarks.agent.compare --name after-safety --jobs 8`,
+  the baseline's command: all stages, all eight settings, all 33 tasks.
+  Before it, a trial in the same folder (so its tries are kept, not run
+  twice): `--stage A` on five visible tasks, one of each kind
+  (`question-loaded-ev`, `compare-battery-range`, `build-city-ev`,
+  `repair-hatchback`, `write-speed-limiter`), 40 tries in MCP mode at all
+  eight settings, and the same five tasks in command-line mode at the
+  ceiling (`--stage all --settings opus-high`, because stage C waits for the
+  cheapest working setting). All 45 tries were solved, so there was no STOP.
+  Claude Code 2.1.316, signed in to the owner's plan, no API key.
+- **Plan limit:** the plan's five-hour limit stopped the run once. Four
+  command-line tries (3 at the ceiling, 1 at Haiku low) were marked not run
+  and were run again after the reset at 13:20 UTC. They are not scored as
+  failures; their cost (0.91 USD) is in the total below.
+- **Records:** `/home/eyada/scratch/judge-cache/ai/bench-runs/after-safety`
+  (`report.md`, `report.json`, `tries/`, each try's transcript under `runs/`)
+  and my reading of the tries in
+  `/home/eyada/scratch/judge-cache/ai/after-safety-analysis`.
+- **Held-out tasks:** as before, only their scores and costs are used. Every
+  mistake below is counted on the 22 visible tasks, and every line quoted is
+  from a visible task.
+- **Models that answered:** `claude-haiku-5-5`, `claude-sonnet-5-5`,
+  `claude-opus-5-5`, and only these. Every try was billed to the plan.
+
+## The two answers
+
+**1. The cheapest working setting: Haiku 5.5 at low effort.** It passes all
+three tries on 32 of 33 tasks (21 of 22 visible, 11 of 11 held out) at
+**0.0063 USD a try**, 0.0064 USD a solve. The ceiling (Opus 5.5, high) passes
+33 of 33 at 0.2524 USD a try: 40 times as much. The one task Haiku low
+misses is `question-fs-endurance`, in one try of three: it answered 0.22 kWh
+for the key 0.22462, which is 2.06 % off a band of 2 % (the same rounding
+misses a try of Haiku at medium and at high and of Sonnet 5.5 at high; see
+"What agents still get wrong"). The report's rule ("as good as the ceiling"
+means at most two tasks below it) admits every other setting too.
+**Sonnet 5.5 at medium effort, the owner's expectation, was tested and
+works: 33 of 33 tasks on all three tries at 0.0825 USD a try**, 13 times
+Haiku low's price. Sonnet 5.5 at low is 33 of 33 as well, at 0.0753 USD. So
+Haiku low is the cheapest and misses one task; if every task must pass on
+every try, the cheapest is Sonnet 5.5 at low effort. Both statements are for
+the MCP server.
+
+**2. Is any setting good enough for hands-off work? In MCP mode, yes: all
+eight are.** The bar is pass^3 on at least 90 % of all tasks and of the
+held-out ones. Every setting has 97 % or more of all tasks (32 or 33 of 33)
+and 11 of 11 held out. Before, none had more than 13 of 33. In
+command-line mode (once on each task, so no pass^3) only the ceiling was
+shown to work: Opus 5.5 at high solved 31 of 33 (20 of 22 visible, 11 of 11
+held out). Haiku 5.5 at low solved 4 of 33, but that measures the bench, not
+Haiku: every one of its 29 failed tries had a command refused by the bench's
+own fence (below), so what Haiku can do in command-line mode with a shell
+that is not fenced is not known. The limits of the claim: three tries a task,
+33 tasks, briefs that say plainly what to build, and an agent that is given
+the tools and skills.
+
+## Do the saves and runs go through now (the trial's question)
+
+Yes. In MCP mode all 456 tries on the 19 build, repair and write tasks made
+a save, none was declined, and none failed; 397 of them (87 %) then ran the
+case on the saved file. In command-line mode Opus saved with `lightsim edit`
+and solved 18 of the 19 build, repair and write tasks (the miss is a wrong
+wheel radius, below). No try at any setting was stopped by an approval, a
+sandbox that could not be set up, or a tool that could not be reached. The
+baseline's 312 refused tries are 0.
+
+## Before and after, per setting
+
+MCP server, three tries on each of the 33 tasks. "Before" is the re-scored
+baseline above. Held-out tasks are counted in "all".
+
+| Setting | pass^3 before (all / visible / held out) | pass^3 after (all / visible / held out) | Mean cost a try before, USD | Mean cost a try after, USD | Tool errors a try before / after |
+|---|---|---|---|---|---|
+| Haiku 5.5, low | 13 / 9 / 4 | 32 / 21 / 11 | 0.0059 | 0.0063 | 1.0 / 0.3 |
+| Haiku 5.5, medium | 12 / 8 / 4 | 32 / 21 / 11 | 0.0067 | 0.0072 | 1.0 / 0.2 |
+| Haiku 5.5, high | 13 / 9 / 4 | 32 / 21 / 11 | 0.0077 | 0.0089 | 0.9 / 0.2 |
+| Sonnet 5.5, low | 13 / 9 / 4 | 33 / 22 / 11 | 0.0787 | 0.0753 | 1.2 / 0.2 |
+| Sonnet 5.5, medium | 13 / 9 / 4 | 33 / 22 / 11 | 0.0886 | 0.0825 | 1.1 / 0.1 |
+| Sonnet 5.5, high | 13 / 9 / 4 | 32 / 21 / 11 | 0.1104 | 0.1129 | 0.7 / 0.1 |
+| Sonnet 5.5, extra-high | 12 / 9 / 3 | 33 / 22 / 11 | 0.1633 | 0.1646 | 0.9 / 0.1 |
+| Opus 5.5, high (ceiling) | 13 / 9 / 4 | 33 / 22 / 11 | 0.2472 | 0.2524 | 0.8 / 0.0 |
+
+By kind, pass^3: every setting scores 6 of 6 builds, 7 of 7 repairs and 6 of
+6 writes (before: 0 of each). Questions: Haiku 5.5 at low, medium and high
+and Sonnet 5.5 at high score 7 of 8 (the endurance question), the others 8 of
+8. Comparisons: 6 of 6 everywhere. Solved once: 33 of 33 everywhere except
+Haiku 5.5 at medium and at high, 32 of 33 (the same task).
+
+Command line, once on each task (the baseline's figures are for the same two
+settings):
+
+| Setting | Solved before (all / visible / held out) | Solved after (all / visible / held out) | Mean cost a try before, USD | Mean cost a try after, USD |
+|---|---|---|---|---|
+| Haiku 5.5, low | 2 / 0 / 2 | 4 / 3 / 1 | 0.0034 | 0.0039 |
+| Opus 5.5, high | 13 / 9 / 4 | 31 / 20 / 11 | 0.1836 | 0.3054 |
+
+The ceiling's command-line tries cost more: they now save and check the model
+they built (17.1 tool calls a try, from 12.2).
+
+## The settings table (from the command's report)
+
+Mean tokens in / out / cache read / cache write are per try. Costs are at API
+list price.
+
+| Setting | Solved once (all / visible / held out) | pass^3 (all / visible / held out) | Mean cost a try, USD | Total, USD | Per solve, USD | Mean tokens in / out / cache read / cache write | Tool calls | Tool errors | Time, s |
+|---|---|---|---|---|---|---|---|---|---|
+| Haiku 5.5, low | 33/33 / 22/22 / 11/11 | 32/33 / 21/22 / 11/11 | 0.0063 | 0.63 | 0.0064 | 14 / 2,991 / 120,462 / 18,202 | 10.3 | 0.3 | 28 |
+| Haiku 5.5, medium | 32/33 / 21/22 / 11/11 | 32/33 / 21/22 / 11/11 | 0.0072 | 0.72 | 0.0073 | 15 / 3,544 / 133,680 / 20,646 | 11.1 | 0.2 | 32 |
+| Haiku 5.5, high | 32/33 / 21/22 / 11/11 | 32/33 / 21/22 / 11/11 | 0.0089 | 0.88 | 0.0090 | 16 / 4,895 / 164,565 / 24,043 | 12.4 | 0.2 | 39 |
+| Sonnet 5.5, low | 33/33 / 22/22 / 11/11 | 33/33 / 22/22 / 11/11 | 0.0753 | 7.46 | 0.0753 | 11 / 1,369 / 72,773 / 13,584 | 6.5 | 0.2 | 33 |
+| Sonnet 5.5, medium | 33/33 / 22/22 / 11/11 | 33/33 / 22/22 / 11/11 | 0.0825 | 8.17 | 0.0825 | 11 / 1,462 / 76,055 / 15,060 | 6.9 | 0.1 | 35 |
+| Sonnet 5.5, high | 33/33 / 22/22 / 11/11 | 32/33 / 21/22 / 11/11 | 0.1129 | 11.18 | 0.1152 | 13 / 2,017 / 102,257 / 20,624 | 9.0 | 0.1 | 40 |
+| Sonnet 5.5, extra-high | 33/33 / 22/22 / 11/11 | 33/33 / 22/22 / 11/11 | 0.1646 | 16.29 | 0.1646 | 15 / 3,577 / 155,153 / 28,317 | 12.2 | 0.1 | 57 |
+| Opus 5.5, high | 33/33 / 22/22 / 11/11 | 33/33 / 22/22 / 11/11 | 0.2524 | 24.99 | 0.2524 | 16 / 2,948 / 140,715 / 20,654 | 10.6 | 0.0 | 50 |
+
+Command line (stage C: Haiku 5.5 at low is the cheapest setting as good as
+the ceiling in MCP mode, so it and the ceiling were run once on each task):
+
+| Setting | Solved once (all / visible / held out) | Mean cost a try, USD | Total, USD | Per solve, USD | Mean tokens in / out / cache read / cache write | Tool calls | Tool errors | Time, s |
+|---|---|---|---|---|---|---|---|---|
+| Haiku 5.5, low | 4/33 / 3/22 / 1/11 | 0.0039 | 0.13 | 0.0325 | 14 / 2,435 / 90,044 / 9,074 | 6.5 | 1.9 | 25 |
+| Opus 5.5, high | 31/33 / 20/22 / 11/11 | 0.3054 | 10.08 | 0.3251 | 32 / 4,699 / 254,390 / 20,055 | 17.1 | 4.1 | 106 |
+
+## What it cost
+
+- **The whole comparison: 81.43 USD at API list price**, on the plan (nothing
+  was billed to an API account): 80.52 USD for the 858 scored tries (70.31
+  USD for the 792 MCP tries, 10.21 USD for the 66 command-line ones) plus 0.91
+  USD for the 4 tries the plan limit stopped. The command-line tool's own
+  `total_cost_usd` adds up to the same 81.43 USD (price basis: list). The
+  baseline was 77.66 USD. The trial's 45 tries are inside these figures.
+- **Tokens:** input 12,694, output 2,507,575, cache read 107,822,818, cache
+  write 16,980,729.
+- **Time:** 9.9 hours of tries; 4.9 hours from the first try's start to the
+  last one's end, with the plan's limit reached once (the tries it cut were
+  run again after the reset at 13:20 UTC).
+- **What one try costs, per setting** (mean at list price, MCP, 33 tasks).
+  An edit task (build, repair, write) costs two to three times a question or
+  a comparison.
+
+| Setting | All tasks | Build, repair, write | Question, compare | Baseline, all tasks |
+|---|---|---|---|---|
+| Haiku 5.5, low | 0.0063 | 0.0085 | 0.0034 | 0.0059 |
+| Haiku 5.5, medium | 0.0072 | 0.0099 | 0.0037 | 0.0067 |
+| Haiku 5.5, high | 0.0089 | 0.0119 | 0.0048 | 0.0077 |
+| Sonnet 5.5, low | 0.0753 | 0.1050 | 0.0350 | 0.0787 |
+| Sonnet 5.5, medium | 0.0825 | 0.1129 | 0.0412 | 0.0886 |
+| Sonnet 5.5, high | 0.1129 | 0.1470 | 0.0667 | 0.1104 |
+| Sonnet 5.5, extra-high | 0.1646 | 0.1987 | 0.1183 | 0.1633 |
+| Opus 5.5, high | 0.2524 | 0.3122 | 0.1713 | 0.2472 |
+
+The cost of a try barely moved (the baseline's edit tries had already spent
+their calls before the refused save), but a try now ends in a solve, so the
+cost per solve fell from 0.0149 to 0.0064 USD (Haiku low) and from 0.6275 to
+0.2524 USD (Opus). More effort again cost more and bought nothing: Sonnet 5.5
+at extra-high costs twice medium for the same 33 of 33.
+
+## What agents still get wrong
+
+On the 22 visible tasks only: 528 MCP tries and 44 command-line ones. Ranked
+by the number of MCP tries each mistake touched. There were 62 tool errors in
+59 of the 528 MCP tries (the baseline: 313 failed tries and many more
+errors). The 5 tries that failed are all the same slip (item 8); every other
+mistake below was recovered in the same try unless the table says it was not.
+Mistakes in fewer than three tries are left out: a relative project path
+(`car.json`), whose error is the bare word `car.json`, in two tries (Haiku
+low and medium, `repair-case-override`), and one `model_edit` call whose JSON
+did not parse (Sonnet medium).
+
+| # | Mistake | Tries (calls) | Recovered | Setting |
+|---|---|---|---|---|
+| 1 | `add` with a `system` that does not exist | 28 (28) | 28 | Haiku 25 (low 9, medium 8, high 8), Sonnet extra-high 2, high 1 |
+| 2 | A part read or edited by a name that is not a part | 10 (10) | 5 | Haiku 5 (medium 2, high 2, low 1), Sonnet 5 (extra-high 2, high 2, medium 1); none at Sonnet low or Opus |
+| 3 | A tool called by the wrong name | 5 (6) | 5 | Haiku 3 (medium 2, high 1), Sonnet low 3 |
+| 4 | A parameter named by a guess | 5 (5) | 5 | Sonnet low 2, Opus 2, Sonnet high 1 |
+| 5 | A part type guessed | 4 (4) | 4 | Sonnet low 3, medium 1 (all on `build-add-brakes`) |
+| 6 | `compare_runs` on runs of two files | 3 (3) | 0 through that tool | Haiku high, Sonnet medium, Sonnet extra-high, 1 each |
+| 7 | A port guessed | 3 (3) | 3 | Sonnet low 2, medium 1 |
+| 8 | A figure rounded to two digits fails its band | 5 failed tries | no | Haiku low, medium, high 1 each, Sonnet high 2 |
+
+Against the baseline's list: the missing `op` key (40 tries) is gone (0); the
+refused save (312) is gone; `compare_runs` on two files went from 19 tries to
+3; a tool called by the wrong name from 17 tries (22 calls) to 5 (6); a part
+read by name from 16 tries (6 recovered of 17 calls) to 10 (5 recovered of
+10); a parameter by a guess from 8 tries to 5. Item 1 is new: the
+baseline's agents never reached the `system` key because their saves were
+refused first.
+
+**1. `add` with a `system` that does not exist (28 tries, all recovered).**
+The `add` operation takes an optional `system`, which has to be a system's id.
+Haiku fills it with a name (the car's), and the reply lists nothing to choose
+from. The agent drops the key and the call goes through, so it costs one
+call a try.
+- `build-add-brakes.mcp.haiku-high.1`: `model_edit` with `"op": "add",
+  "type": "mech.brake", "label": "Brake FL", "system": "Battery Electric Car"`
+  returns "Operation 1 (add): No system 'Battery Electric Car'. Nothing was
+  changed."
+
+**2. A part read or edited by a name that is not a part (10 tries; 5
+recovered).** The error now lists the parts (closest first) and says whether
+the name is a case or a part type, which the baseline's error did not. What
+is left is mostly a part the agent is about to add (`Brake`), so the list
+cannot help, and a resource address given as a part.
+- `build-add-brakes.mcp.haiku-medium.2`: `element_read` with element `Brake`
+  returns "No part 'Brake' in this project. Name a part by its id or exact
+  label; parts (closest first): el-battery ("HV Battery Pack",
+  battery.generic), el-driver ("Driver", driver.driver) ..."
+- `build-city-ev.mcp.haiku-high.2`: `element_read` with element
+  `lightsim://components`.
+
+**3. A tool called by the wrong name (5 tries, 6 calls).** Down from 22 calls
+in 17 tries. Two kinds: a bare name (`element_read`, twice in one Sonnet low
+try) and the resource tools of Claude Code, which have no prefix, called with
+the server's prefix (`mcp__lightsim__ReadMcpResourceTool`: Haiku 3, Sonnet
+low 1).
+- `build-fs-powertrain.mcp.sonnet-low.3`: "Error: No such tool available:
+  element_read".
+- `build-fs-powertrain.mcp.sonnet-low.1`: "Error: No such tool available:
+  mcp__lightsim__ReadMcpResourceTool".
+
+**4. A parameter named by a guess (5 tries, recovered).** The reply lists the
+real keys. `repair-wont-start.mcp.opus-high.1`: "A HV Battery Pack has no
+parameter 'soc_min_pct' (its parameters: pack_model, capacity_kWh,
+capacity_Ah ..." and `repair-case-override.mcp.sonnet-low.3`: `power_kw` for
+`power_kW`.
+
+**5. A part type guessed (4 tries, recovered).** `build-add-brakes.mcp.sonnet-low.2`
+adds `brake.brake` and `build-add-brakes.mcp.sonnet-low.3` adds `brake`: "No
+library part 'brake' (lightsim://components lists them). Nothing was
+changed."
+
+**6. `compare_runs` on runs of two files (3 tries; not recovered through that
+tool).** The message now says the tool compares two runs of one project; the
+agents compared the two summaries by hand and solved the task anyway.
+`compare-bev-gearing.mcp.haiku-high.2`: `compare_runs` with project
+`sedan-a.json` and the run of the other file returns "No run
+'ai-20261106-092151-84cd39' of this project (recent runs:
+ai-20261106-092151-b3247d). compare_runs compares two runs of this one
+project; it cannot compare runs of two different project files."
+
+**7. A port guessed (3 tries, recovered).** `build-fs-powertrain.mcp.sonnet-low.2`:
+"Operation 14 (connect): 'Driver' has no port 'sig_traction' (its ports:
+sig_target_in, sig_speed_in, sig_traction_cmd, ...). Nothing was changed."
+
+**8. A figure rounded to two digits fails its band (5 failed tries, all on
+`question-fs-endurance`; not a tool fault).** It is the only task any MCP try
+failed. Four tries gave 0.22 kWh for the key 0.22462 (2.06 % off a band of
+2 %): Haiku low (try 2), medium (try 1), high (try 1) and Sonnet high (try
+3). Sonnet high's try 2 gave 0.234, which fits neither reading of the
+question together with its distance of 20.56 km. The band is the task's; it
+was not changed in the middle of a comparison.
+- `question-fs-endurance.mcp.haiku-low.2`: `ANSWER: 20.0; 0.22`.
+
+**Command-line mode** (44 visible tries):
+- **The bench's own fence.** The runner allows the agent only the `lightsim`
+  command, and any command with another command in it (`echo`, `head`, a
+  `for` loop, `python3`, `grep`, `cd`) is refused. That hit 42 of the 44
+  tries, 61 times (Haiku low 31 in 21 tries, Opus 30 in 21 tries), and the
+  runner's guard refused a path outside the folder or the `ai` command in 14
+  more calls (Opus 11, Haiku 3). Both are the bench's, not LightSim's, and
+  are counted apart. **Every one of Haiku's 29 failed command-line tries (19
+  visible) had a refused command**, and it stopped there: it answered
+  "unavailable" or "unresolved", or asked the user to allow the command.
+  `compare-fs-aero.cli.haiku-low.1` ends `ANSWER: unavailable; not determined
+  (autocross runs were not permitted)`. Opus works around the fence. Haiku's
+  score in this mode is a measure of the fence.
+- **LightSim's own: `lightsim edit` does not say which keys an operation
+  takes.** Its help gives one example. `connect` takes `from` and `to`,
+  `add_port` takes `element`, `name` and `direction`, and none of it is in the
+  command's help. Opus found the keys by sending each operation with only
+  its name and reading the error: 13 of the 26 tries that used `lightsim
+  edit` did (11 Opus, 2 Haiku), and 3 sent `{"op":"help"}`. For example
+  `build-add-brakes.cli.opus-high.1` sends `--op '{"op":"connect"}'` and gets
+  "lightsim: Operation 2 (connect): Name a port as 'element:port', not ''."
+  (exit 3, nothing changed). An agent on the MCP server finds the list in the
+  tool's schema. This is the one LightSim fault in command-line mode that the
+  run shows: about one extra call per operation.
+- **The answers Opus got wrong (2 tries, its own mistakes).**
+  `build-sedan-abc.cli.opus-high.1` set the wheel radius to 0.34434 m, the
+  brief says 0.334. `question-fs-endurance.cli.opus-high.1` answered
+  `20.56; 0.231`, an energy 2.8 % off the key with the distance of the other
+  reading.
+- **A time series.** `question-peak-current.cli.opus-high.1` took 26 tool
+  calls (19 of them runs) and 0.50 USD to find a peak current and a pack
+  voltage, and answered `177.9; 353.4` for the keys 177.69 and 353.47.
+
+### The mistakes by setting, in short
+
+| Setting | Most typical mistakes |
+|---|---|
+| Haiku 5.5 (all efforts) | An unknown `system` on `add` (25 of 28 tries), a part read by a name that is not one (5 tries), the endurance figure rounded. In command-line mode it stops at the first refused command. By far the cheapest. |
+| Sonnet 5.5, low and medium | Guessed part types and ports and bare tool names, mostly at low. Low is 33 of 33 at 0.0753 USD a try. |
+| Sonnet 5.5, high and extra-high | One or two unknown systems and parts read by name each; the endurance rounding at high. Costs 1.4 to 2 times medium for the same score. |
+| Opus 5.5, high | A parameter named by a guess (2 tries) and nothing else; 0.25 USD a try. In command-line mode, the fence (30 refusals) and edit keys learned by trying. |
+
+## What this means for the later parts of step 6
+
+- The baseline's large item is closed: saves go through at every setting in
+  MCP mode and, for the ceiling, in command-line mode. The settings are no
+  longer told apart by the tools, only by price and by one slip over a rounded
+  figure. The target the baseline set, Sonnet 5.5 at medium, passes every
+  task on every try; Haiku 5.5 at low does the same on all but one at a
+  thirteenth of the price.
+- Tool defects the run shows, written down for the later parts (no tool was
+  changed in this part):
+  1. `add` with an unknown `system`: the error should list the systems (ids
+     and names), and a system's name could be accepted (28 tries).
+  2. `element_read` and `model_edit` on a name that is not a part: say so
+     when it is a part the task is about to add (10 tries, half not
+     recovered).
+  3. `lightsim edit` help: list the operations and the keys each takes, as
+     the MCP schema does (13 tries probed for them).
+  4. A relative project path in an MCP tool: the error is the bare path
+     (`car.json`), two tries.
+- This bench no longer separates the settings: every one solves almost
+  everything. A comparison that tells them apart needs tasks that Haiku 5.5 at
+  low does not already solve, and the command-line mode needs a fence that
+  lets an agent use a shell, or Haiku's score there stays a measure of the
+  fence.
