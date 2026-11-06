@@ -187,6 +187,8 @@ MUST_SAY = {
         "the run is refused with the code <code>sandbox_unavailable</code> rather than run less safely",
         "A brand-new script an assistant writes runs in that sandbox straight away, with no <b>Run scripts</b> approval",
         "A run you start yourself in LightSim still asks you to approve new script code",
+        "The command-line tool (<code>lightsim run</code>) runs every project the same way, with no approval: "
+        "it cannot tell an agent from a person.",
         "Only Python code that uses <code>lightsim.ai_access.AgentSession</code> reads it",
         "The connection for AI apps does not read this list.",
     ],
@@ -199,6 +201,8 @@ MUST_SAY = {
         "the run is refused with the code `sandbox_unavailable` rather than run less safely",
         "A brand-new Script block the assistant writes runs in that sandbox straight away, with no **Run scripts** approval",
         "A run you start yourself in LightSim still asks you to approve new script code",
+        "The command-line tool (`lightsim run`) runs every project the same way, with no approval: it "
+        "cannot tell an agent from a person",
         UNLOGGED, UNREAD,
         "An AI app you connected reads them " + FRESH + ", and Python code that goes through "
         "`lightsim.ai_access.AgentSession` " + STARTS + ".",

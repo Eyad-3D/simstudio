@@ -84,6 +84,9 @@ refuse every change.
   you to approve new script code the first time, see
   [Open a project with scripts](open-a-project-with-scripts.md); that guards
   your own runs, not an assistant's.)
+- The command-line tool (`lightsim run`) runs every project the same way,
+  with no approval: it cannot tell an agent from a person
+  ([Command-line tool](../reference/command-line.md#ai-access)).
 - A run started by an assistant stops after 5 minutes, or sooner if you
   set a shorter cap under **AI access**. Its runs are kept apart from yours
   (the newest 20 per project).

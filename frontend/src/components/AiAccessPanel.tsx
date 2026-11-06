@@ -197,6 +197,10 @@ export function AiAccessPanel() {
           <b>Run scripts</b> approval — the sandbox is the safety. (A run you start yourself in LightSim still asks you
           to approve new script code.)
         </li>
+        <li>
+          The command-line tool (<code>lightsim run</code>) runs every project the same way, with no approval: it cannot
+          tell an agent from a person.
+        </li>
       </ul>
 
       <div className={heading}>Trusted projects (Python package only)</div>
