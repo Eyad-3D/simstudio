@@ -13,6 +13,7 @@
     python -m benchmarks.back_to_back fetch CACHE             the regulations' copies (ANALYTIC's sources)
     python -m benchmarks.back_to_back report OUT              OUT/report.json and OUT/report.md
     python -m benchmarks.back_to_back job SPEC PATH           one run (what `run` starts)
+    python -m benchmarks.back_to_back sweep-job OUT FAULT     one fault of the sweep (what `sweep` starts)
 
 Run from the repository root with the backend's Python and the module
 lightsim_engine installed (engine/crates/lsim-py). OUT is a folder outside
@@ -41,7 +42,7 @@ def parser() -> argparse.ArgumentParser:
     from .runs import PARTS
     ap = argparse.ArgumentParser(prog="python -m benchmarks.back_to_back")
     ap.add_argument("command", choices=["all", "run", "stop", "replay", "mutation", "noskip", "fmu", "text",
-                                        "quick", "sweep", "fetch", "report", "job"])
+                                        "quick", "sweep", "sweep-job", "fetch", "report", "job"])
     ap.add_argument("out")
     ap.add_argument("path", nargs="?")
     ap.add_argument("--parts", default=",".join(PARTS))
@@ -63,6 +64,10 @@ def main() -> None:
     if a.command == "sweep":
         from . import sweep
         sweep.sweep(out, a.workers, a.only)
+        return
+    if a.command == "sweep-job":  # (path is the fault here)
+        from . import sweep
+        sweep.job(a.path, out)
         return
     if a.command == "fetch":
         from . import report

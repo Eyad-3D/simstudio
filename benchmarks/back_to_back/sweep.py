@@ -34,9 +34,10 @@ import json
 import math
 import os
 import re
+import subprocess
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 
@@ -466,36 +467,37 @@ def _file(out: Path, fid: str) -> Path:
     return out / "raw" / (re.sub(r"[^A-Za-z0-9_.-]", "~", fid) + ".json")
 
 
-def _work(args: tuple[str, str, dict]) -> str:
-    fid, out, now = args
-    path = _file(Path(out), fid)
+TIMEOUT_S = 900.0  # a fault's three runs at most (the hybrid's take about a minute)
+
+
+def job(fid: str, out: Path) -> None:
+    """One fault's runs, in a process of its own (`sweep-job`): its record."""
+    import warnings
+    warnings.filterwarnings("ignore")
     t0 = time.perf_counter()
     try:
         got = run_fault(fid)
     except Exception as e:  # noqa: BLE001 — the fault itself could not be built
         got = {"built": f"{type(e).__name__}: {e}"[:600]}
-    rec = {"fault": fid, "stamp": now, "wall_s": round(time.perf_counter() - t0, 2), "runs": got}
+    _write(out, fid, {"fault": fid, "stamp": runs.stamp(), "wall_s": round(time.perf_counter() - t0, 2),
+                      "runs": got})
+
+
+def _write(out: Path, fid: str, rec: dict) -> None:
+    path = _file(out, fid)
     tmp = path.with_suffix(".part")
     tmp.write_text(json.dumps(rec), encoding="utf-8")
     tmp.replace(path)
-    return fid
-
-
-def _init(out: str) -> None:
-    import warnings
-    warnings.filterwarnings("ignore")
-    user = Path(out) / "user"
-    os.environ.update(LIGHTSIM_DATA_DIR=str(user), LIGHTSIM_PROJECTS_DIR=str(user / "projects"),
-                      PYTHONHASHSEED="0")
-    sys.path.insert(0, str(runs.BACKEND))
 
 
 def sweep(out: Path, workers: int, only: str = "") -> dict:
     """Runs every fault (faults(); ``only``: those whose id holds it) not
-    run before at this code, then writes the summary (summarise())."""
-    import multiprocessing as mp
+    run before at this code, each in a process of its own (a run that hangs
+    is stopped at TIMEOUT_S and recorded so), then writes the summary
+    (summarise())."""
     out.mkdir(parents=True, exist_ok=True)
     (out / "raw").mkdir(exist_ok=True)
+    (out / "logs").mkdir(exist_ok=True)
     now = runs.stamp()
     ids = [f for f in faults() if only in f]
 
@@ -506,15 +508,29 @@ def sweep(out: Path, workers: int, only: str = "") -> dict:
     print(f"{len(ids)} faults, {len(ids) - len(todo)} done before at this code, {len(todo)} to run", flush=True)
     # the slow ones first (the hybrid, the long cycles), so the pool ends together
     todo.sort(key=lambda f: ("hybrid" not in f, "wltc" not in f and "udds" not in f))
-    t0 = time.monotonic()
-    # (not multiprocessing.Pool: its workers are daemons, which may not start
-    # the Script blocks' worker process)
-    with ProcessPoolExecutor(workers, mp_context=mp.get_context("spawn"), initializer=_init,
-                             initargs=(str(out),), max_tasks_per_child=20) as pool:
-        jobs = [pool.submit(_work, (f, str(out), now)) for f in todo]
-        for k, job in enumerate(as_completed(jobs), 1):
-            if k % 25 == 0 or k == len(todo):
-                print(f"{k}/{len(todo)} ({time.monotonic() - t0:.0f} s) {job.result()}", flush=True)
+    user = out / "user"
+    env = {k: v for k, v in os.environ.items() if k not in ("LIGHTSIM_ENGINE", "LIGHTSIM_ENGINE_STRICT")}
+    env.update(LIGHTSIM_DATA_DIR=str(user), LIGHTSIM_PROJECTS_DIR=str(user / "projects"), PYTHONHASHSEED="0")
+    t0, count = time.monotonic(), [0]
+
+    def one(fid: str) -> None:
+        log = out / "logs" / (_file(out, fid).stem + ".log")
+        started = time.monotonic()
+        with open(log, "w", encoding="utf-8") as f:
+            try:
+                code = subprocess.run([sys.executable, "-m", "benchmarks.back_to_back", "sweep-job", str(out), fid],
+                                      cwd=runs.REPO, env=env, stdout=f, stderr=subprocess.STDOUT,
+                                      timeout=TIMEOUT_S).returncode
+            except subprocess.TimeoutExpired:
+                code = "timeout"
+        if code != 0:  # (no record of this run, or a stale one: say why, as its result)
+            _write(out, fid, {"fault": fid, "stamp": now, "wall_s": round(time.monotonic() - started, 2),
+                              "runs": {"built": f"its process ended with {code} (log: {log.name})"}})
+        count[0] += 1
+        if count[0] % 25 == 0 or count[0] == len(todo):
+            print(f"{count[0]}/{len(todo)} ({time.monotonic() - t0:.0f} s) {fid}", flush=True)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(one, todo))
     return summarise(out, ids)
 
 
