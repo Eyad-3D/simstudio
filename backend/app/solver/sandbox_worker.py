@@ -634,6 +634,9 @@ def _run_step(scripting, script: _Script, t: float, dt: float,
             raise scripting.ScriptError(
                 f"Script '{script.label}' output '{key}' is not numeric "
                 f"({value!r}).") from None
+        except OverflowError:  # an integer past the largest float
+            raise scripting.ScriptError(
+                f"Script '{script.label}' output '{key}' is too large to be a number.") from None
     return result
 
 

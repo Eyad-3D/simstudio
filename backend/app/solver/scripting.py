@@ -339,4 +339,6 @@ def run_script(
             result[str(key)] = float(value)
         except (TypeError, ValueError):
             raise ScriptError(f"Script '{label}' output '{key}' is not numeric ({value!r}).")
+        except OverflowError:  # an integer past the largest float
+            raise ScriptError(f"Script '{label}' output '{key}' is too large to be a number.") from None
     return result
