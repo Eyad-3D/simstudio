@@ -1011,8 +1011,9 @@ sections.
   never asks you to confirm. An edit is saved straight away and is
   recoverable (the version it replaces is kept as a backup, beside a file
   in an allowed folder in `<file>-backups`); a project with Script blocks
-  or FMUs runs in an OS sandbox, or the run is refused where that sandbox
-  cannot be set up (today, on Windows). A project file with `"noAI": true`
+  or FMUs runs in an OS sandbox (an AppContainer on Windows), or the run is
+  refused where that sandbox cannot be set up. The command-line tool's
+  `run` follows the same rules for every run. A project file with `"noAI": true`
   stays hidden; an assistant's run stops after 5 minutes; its tool calls go
   into a local log, `.ai/audit.jsonl` in the projects folder (*Known
   issues* lists the calls it leaves out). (AI-03)

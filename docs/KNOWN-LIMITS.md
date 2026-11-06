@@ -1117,10 +1117,17 @@ minimum or an average, for example from the CSV export, or put the
   project's folder only, and the network held off as the *Scripts* and *FMU*
   entries above set out (a Script can open no connection at all; an FMU's
   native code is stopped by the OS, which on Linux blocks TCP from kernel 6.7
-  on but not UDP or local sockets, so attach only FMUs you trust) — and when
-  that sandbox cannot be set up (today, on Windows, where the AppContainer is
-  not built yet) the run is refused with the code `sandbox_unavailable`
-  rather than run less safely.
+  on but not UDP or local sockets, so attach only FMUs you trust). On
+  Windows the sandbox is an AppContainer with no capabilities, so no network:
+  its worker reads only what LightSim grants it (the runtime it needs, an
+  FMU's own folder) and what Windows lets every app container read (Windows'
+  own folders and Program Files), and writes nothing. Setting one up and
+  clearing it away takes some seconds each (LightSim grants the container
+  read access to the runtime's files, then takes it back), and runs at once
+  set theirs up one after another. When that sandbox
+  cannot be set up (Linux older than 5.13, or a Windows computer that cannot
+  make the AppContainer) the run is refused with the code
+  `sandbox_unavailable` rather than run less safely.
   An edit it saves is recoverable (the previous version kept as a backup, an
   example saved as a new project), until a live one-click undo lands later.
   It does not read the trust list (`lightsim ai trust`): only Python code
@@ -1147,9 +1154,10 @@ minimum or an average, for example from the CSV export, or put the
   latest calls. Putting a project on the trust list
   (`lightsim ai trust <file>`, the list only `AgentSession` reads) and
   hiding one project from AI tools (`lightsim ai block <file>`) are done
-  on the command line. On Windows, a run of a project with Script blocks
-  opens a private connection on 127.0.0.1 between the engine and its
-  script process for a moment; on Linux it uses no network at all.
+  on the command line. On Windows, a run you start in the app of a project
+  with Script blocks opens a private connection on 127.0.0.1 between the
+  engine and its script process for a moment (an AI agent's run talks to
+  its AppContainer over a pipe instead); on Linux it uses no network at all.
   *Roadmap:* AI-01.
 - **Unsigned installers, until the owner buys a certificate.** The build
   can sign every Windows file, but only once the owner has a code-signing
@@ -1217,7 +1225,7 @@ minimum or an average, for example from the CSV export, or put the
   2025-11-25 revision, because the Tasks extension's own messages were not
   available to check against, so an AI app may run cases without a task
   and wait for them. A project with Script blocks or FMUs runs in an OS
-  sandbox, or the run is refused where that sandbox is not built yet (see
+  sandbox, or the run is refused where that sandbox cannot be set up (see
   the hands-off entry above); the
   folders an assistant may see are set by Connect AI (the
   projects folder) or on the command line (`lightsim ai allow`), not in

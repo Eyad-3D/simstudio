@@ -123,8 +123,9 @@ owner's decision, 1 November 2026). What an AI app can do once access is on:
   blocks or FMUs in an OS sandbox: access to the project's folder only, and
   no network — a Script can open none, and an FMU's native code is held off
   by the OS ([Known issues](../../KNOWN-LIMITS.md) has the per-platform
-  detail). When that sandbox cannot be set up — today, on
-  Windows (see [Known issues](../../KNOWN-LIMITS.md)) — the run is refused
+  detail; on Windows the sandbox is an AppContainer). When that sandbox
+  cannot be set up — on Linux older than 5.13, or on a Windows computer
+  that cannot make the AppContainer — the run is refused
   with the code `sandbox_unavailable` rather than run less safely. The trust
   list above plays no part, and a brand-new script the assistant writes runs
   in the sandbox without the app's **Run scripts** approval — the sandbox is

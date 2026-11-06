@@ -36,9 +36,11 @@ def manifest(version: str) -> dict:
         "description": "Open, check and run LightSim vehicle simulation models from your AI assistant.",
         "long_description": (
             "Lets your AI assistant list your LightSim projects, outline a model, run its Data "
-            "Checks and simulations, and read back the key results. It runs the LightSim installed "
-            "on this computer, with no network connection, and asks you before it saves a change "
-            "or runs a project that contains Script blocks. " + VALIDATION_NOTE
+            "Checks and simulations, read back the key results and save its edits. It runs the "
+            "LightSim installed on this computer, with no network connection, and works hands-off: "
+            "it never asks you to confirm. Instead it runs a project's Script blocks and FMUs in an "
+            "OS sandbox, or refuses the run when that sandbox cannot be set up, and an edit it "
+            "saves is recoverable from the project's backups. " + VALIDATION_NOTE
         ),
         "author": {"name": "Eyad Abualkhair", "url": "https://github.com/Eyad-3D/simstudio"},
         "homepage": "https://github.com/Eyad-3D/simstudio",

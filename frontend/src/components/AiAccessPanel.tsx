@@ -16,8 +16,8 @@ const message = (e: unknown) => String((e as Error).message ?? e).replace(/^Erro
  *  (the owner's decision, 1 November 2026): the connection never asks the
  *  user to confirm. Safety is by design instead — a project with Script
  *  blocks or FMUs runs in an OS sandbox (no network, file access to the
- *  project only), and the run is refused when that sandbox cannot be set up
- *  (today, on Windows) rather than run less safely; every edit it saves is
+ *  project only; an AppContainer on Windows), and the run is refused when
+ *  that sandbox cannot be set up rather than run less safely; every edit it saves is
  *  recoverable from the project's backups. It does not read the trust list
  *  shown here, which only Python code that uses
  *  `lightsim.ai_access.AgentSession` reads. Folders and trust can only be
@@ -190,9 +190,10 @@ export function AiAccessPanel() {
         <li>
           Running a project with Script blocks (Python code) or FMUs: it runs in an OS sandbox with access to the
           project's folder only, and no network — a Script can open none, and an FMU's native code is held off by the
-          OS (Known issues has the per-platform detail). If that sandbox cannot be set up — today, on Windows, where the
-          AppContainer is not built yet — the run is refused with the code <code>sandbox_unavailable</code> rather than
-          run less safely. A brand-new script an assistant writes runs in that sandbox straight away, with no{" "}
+          OS (Known issues has the per-platform detail; on Windows the sandbox is an AppContainer). If that sandbox
+          cannot be set up — on Linux older than 5.13, or on a Windows computer that cannot make the AppContainer — the
+          run is refused with the code <code>sandbox_unavailable</code> rather than run less safely. A brand-new script an
+          assistant writes runs in that sandbox straight away, with no{" "}
           <b>Run scripts</b> approval — the sandbox is the safety. (A run you start yourself in LightSim still asks you
           to approve new script code.)
         </li>

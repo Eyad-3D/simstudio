@@ -8,8 +8,8 @@ decision of 1 November 2026: an agent works hands-off):
 - it reads, checks, compares, runs a project and saves an edit, all without
   a question — the connection never asks the user to confirm;
 - a project with Script blocks or FMUs runs in an OS sandbox (no network,
-  file access to the project's folder only); when that sandbox cannot be set
-  up (today, on Windows) the run is refused with the stable code
+  file access to the project's folder only; an AppContainer on Windows);
+  when that sandbox cannot be set up the run is refused with the stable code
   ``sandbox_unavailable`` rather than run less safely;
 - an edit is saved straight away and is recoverable: the previous version is
   kept as a backup, and an example's edit is saved as a new project;
@@ -53,6 +53,7 @@ When the behaviour changes, change these tests with the page and the help.
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -81,6 +82,10 @@ DEPLOY = "docs/help/how-to/deploy-for-it.md"
 CONNECT = "frontend/src/components/AiConnectDialog.tsx"
 SKILL = "backend/app/ai/skills/lightsim-write-a-script-block/SKILL.md"
 SKILL_LIMITS = "backend/app/ai/skills/lightsim-what-it-cannot-do/references/known-limits.md"
+BENCH = "benchmarks/agent/README.md"
+#: the record of the bench's baseline, measured before the hands-off change:
+#: it tells what the old tools did, so it keeps their words
+RECORDS = {"benchmarks/agent/BASELINE.md"}
 
 
 # -- the Python side, as the page and the help describe it -----------------------
@@ -285,7 +290,31 @@ MUST_SAY = {
         "**AI apps work hands-off; the trust list is not used.**",
         "The connection for AI apps (the MCP server) never asks you to confirm",
     ],
+    BENCH: [  # what an agent meets in a try, after the hands-off change
+        "During a try nobody answers questions, and LightSim asks none: it works hands-off",
+        "`lightsim edit` saves in `cli` mode the same way",
+        "the MCP server and the `lightsim` command run a project's Script blocks and FMUs in an OS "
+        "sandbox with no approval",
+        "An agent that still stops to ask its user has chosen to",
+    ],
 }
+
+
+def test_the_mcp_bundle_tells_an_ai_app_what_the_connection_does():
+    # The .mcpb bundle's manifest is what an AI app shows when it installs
+    # LightSim's connection; it used to say the connection asks before it saves
+    # or runs a project with Script blocks.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("build_mcpb", ROOT / "scripts" / "mcp" / "build-mcpb.py")
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+    long = builder.manifest("0.0.0")["long_description"]
+    assert "works hands-off: it never asks you to confirm" in long
+    assert ("runs a project's Script blocks and FMUs in an OS sandbox, or refuses the run when that "
+            "sandbox cannot be set up") in long
+    assert "recoverable from the project's backups" in long
+    assert not [c for c in OVERSTATED if c in long.lower()]
 
 
 @pytest.mark.parametrize("rel", MUST_SAY)
@@ -351,23 +380,42 @@ OVERSTATED = [
     "is for people and keeps today's behaviour",
     "asks about script code it does not know",
     "lightsim_strict_sandbox=1",
+    # the Windows sandbox is built (an AppContainer with no capabilities, not
+    # the stricter LPAC), and lightsim edit saves, keeping every version
+    "today, on windows",
+    "where the appcontainer is not built yet",
+    "where that sandbox is not built yet",
+    "low-privilege appcontainer",
+    "has no command that saves",
+    "previous version as `<file>.bak`",
 ]
 #: a mention of the trust command must say, near it, who reads the list
 WHO_READS = ("AgentSession", "does not read", "is not read", "plays no part", "not used")
 
 
-def _places():
-    """Every file that could repeat the claim: the docs, the help, the README,
-    the page and the engine's and the package's own words (not the tests)."""
-    roots = [ROOT / "docs", ROOT / "backend" / "app", ROOT / "backend" / "lightsim",
-             ROOT / "frontend" / "src", ROOT / "frontend" / "e2e", ROOT / "desktop" / "src"]
-    files = [ROOT / "README.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md"]
-    for root in roots:
-        for pattern in ("*.md", "*.py", "*.ts", "*.tsx", "*.js"):
-            files += [f for f in root.rglob(pattern)
-                      if "node_modules" not in f.parts and ".test." not in f.name
-                      and f.name != "test_ai_claims.py"]
-    return sorted({f for f in files if f.is_file()})
+#: folders the scan does not enter: tests (they quote the old claims to forbid
+#: them), installed packages, build output and caches
+_NOT_SCANNED = {"tests", "node_modules", "dist", "build", "target", "__pycache__", "venv"}
+_TEXT = (".md", ".py", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".toml", ".yml", ".yaml", ".html")
+
+
+@functools.lru_cache(maxsize=1)
+def _places() -> tuple[Path, ...]:
+    """Every text file of the repository that could repeat a claim, wherever
+    it is: the docs, the help, the page, the engine's and the package's words,
+    the scripts, the bench, the workflows. A list of folders missed the MCP
+    bundle's manifest (scripts/) and the bench's README. Left out: the tests,
+    unit tests beside the code (``*.test.*``), what is installed or built, and
+    the records of the past (RECORDS)."""
+    found = []
+    for folder, subs, names in os.walk(ROOT):
+        subs[:] = [s for s in subs if s not in _NOT_SCANNED and (s == ".github" or not s.startswith("."))]
+        for name in names:
+            f = Path(folder) / name
+            if (f.suffix in _TEXT and ".test." not in name
+                    and f.relative_to(ROOT).as_posix() not in RECORDS):
+                found.append(f)
+    return tuple(sorted(found))
 
 
 #: a comment marker at the start of a line (``//``, ``#``, ``/**``, `` * ``)
@@ -391,7 +439,11 @@ def test_the_places_to_check_are_found():
     assert _flat("/** Trust:\n *  only here */") == "Trust: only here */"
     assert {"AiAccessPanel.tsx", "AiConnectDialog.tsx", "use-an-ai-assistant.md", "command-line.md",
             "deploy-for-it.md", "KNOWN-LIMITS.md", "README.md", "ai_access.py", "mcp_server.py",
-            "ai01-access.spec.ts", "SKILL.md", "known-limits.md", "tools.py", "policy.js"} <= names
+            "ai01-access.spec.ts", "SKILL.md", "known-limits.md", "tools.py", "policy.js",
+            "build-mcpb.py", "run.py", "guard.py", "ci.yml", "write-speed-limiter.toml"} <= names
+    rel = {f.relative_to(ROOT).as_posix() for f in _places()}
+    assert BENCH in rel and "scripts/mcp/build-mcpb.py" in rel
+    assert not RECORDS & rel and not any(r.startswith("backend/tests/") for r in rel)
 
 
 def test_no_place_repeats_the_old_claim():

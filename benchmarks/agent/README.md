@@ -68,19 +68,18 @@ this with a planted task that asks for them (`smoke/`). Keep no
 `~/.claude/CLAUDE.md` on the bench machine: these switches do not say they
 leave it out.
 
-During a try nobody answers questions: not the agent's, and not LightSim's
-own (today `model_edit` asks the user before it saves, and `run_case`
-before it runs a project with Script blocks). What the agent does then is
-part of what the bench measures. Headless `claude -p` declines such a
-question at once ("The user did not confirm, so nothing was done."), so
-today every task scored on a saved model fails in `mcp` mode too, however
-right the agent's dry run was (the pilot of 31 October: all 16 repair and
-write tries, at every setting, the ceiling's included). So does
-`question-hybrid-load`: its P2 hybrid has Script blocks, so `run_case` asks
-before it runs it. That leaves 13 of the 33 tasks (4 of the 11 held out)
-that any setting can solve in `mcp` mode today. Today's `lightsim` command
-has no command that saves an edited model, so in `cli` mode the tasks scored
-on a saved model fail as well (the hybrid runs there).
+During a try nobody answers questions, and LightSim asks none: it works
+hands-off (step 6, the owner's decision of 1 November 2026). `model_edit`
+with its dry run off saves straight away, keeping the version it replaces
+as a backup, and `lightsim edit` saves in `cli` mode the same way; the MCP
+server and the `lightsim` command run a project's Script blocks and FMUs in
+an OS sandbox with no approval, or refuse the run with the code
+`sandbox_unavailable` where that sandbox cannot be set up. An agent that
+still stops to ask its user has chosen to, and the checker scores what it
+left. The baseline (BASELINE.md) was measured before this change, when
+`model_edit` and `run_case` asked first and headless `claude -p` declined
+at once ("The user did not confirm, so nothing was done."): there every
+task scored on a saved model failed, whatever the setting.
 
 **On the plan, with no cap.** A try runs on the Claude plan `claude` is
 signed in to, and only there (the owner's decision of 30 October): there is

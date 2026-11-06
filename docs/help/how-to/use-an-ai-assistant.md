@@ -74,8 +74,9 @@ refuse every change.
   access to the project's folder only, and no network — a Script can open
   none, and an FMU's native code is held off by the OS (see
   [Known issues](../../KNOWN-LIMITS.md) for what that covers on each
-  platform). When that sandbox cannot be set up — today, on Windows, where
-  the AppContainer is not built yet — the run is refused with the code
+  platform; on Windows the sandbox is an AppContainer). When that sandbox
+  cannot be set up — on Linux older than 5.13, or on a Windows computer
+  that cannot make the AppContainer — the run is refused with the code
   `sandbox_unavailable` rather than run less safely.
 - A brand-new Script block the assistant writes runs in that sandbox
   straight away, with no **Run scripts** approval — the sandbox is the
