@@ -16,10 +16,16 @@ stdin: one JSON document, a list of cases:
 stdout: one JSON document, per case either {"compile_error": str} (the
   script, or the app's reading of its parameters, refused) or
   {"results": [{"ok": [[name, bits], ...]} | {"err": str}]}
+
+LSIM_PARITY_CALL_LIMIT (seconds; unset or empty: none): the process stops,
+writing "Timeout (" and where it was to stderr, when a script's start or one
+call takes longer, as the engine stops the app's worker (which has no clock of
+its own) past its time limit.
 """
 import faulthandler
 import importlib
 import json
+import os
 import struct
 import sys
 import threading
@@ -33,6 +39,21 @@ def f64(bits):
 
 def bits(x):
     return struct.unpack("<Q", struct.pack("<d", x))[0]
+
+
+CALL_LIMIT = float(os.environ.get("LSIM_PARITY_CALL_LIMIT") or 0)
+
+
+def timed(fn, *args):
+    """fn(*args), the process stopped past CALL_LIMIT (faulthandler's own
+    thread: it stops even an operation that never gives up the interpreter)."""
+    if CALL_LIMIT:
+        faulthandler.dump_traceback_later(CALL_LIMIT, exit=True)
+    try:
+        return fn(*args)
+    finally:
+        if CALL_LIMIT:
+            faulthandler.cancel_dump_traceback_later()
 
 
 def main():
@@ -68,7 +89,7 @@ def main():
         spec = {"label": case["label"], "code": case["code"], "input_keys": names,
                 "params": params}
         try:
-            script, err = worker._compile(scripting, spec, False)
+            script, err = timed(worker._compile, scripting, spec, False)
         except (RecursionError, MemoryError) as e:
             script, err = None, str(e)
         if script is None:
@@ -79,7 +100,7 @@ def main():
             values = [float(f64(b) or 0.0) for _, b in call["inputs"]]
             inputs = dict(zip(script.input_keys, values))
             try:
-                res = worker._run_step(scripting, script, f64(call["t"]), f64(call["dt"]), inputs)
+                res = timed(worker._run_step, scripting, script, f64(call["t"]), f64(call["dt"]), inputs)
                 results.append({"ok": [[k, bits(v)] for k, v in res.items()]})
             except scripting.ScriptError as e:
                 results.append({"err": str(e)})

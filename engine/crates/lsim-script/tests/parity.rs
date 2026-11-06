@@ -17,117 +17,12 @@
 //! (`LSIM_PYTHON`, else `python3` or `python` on the PATH), as
 //! engine/check.sh does.
 
+mod common;
+
+use common::*;
 use lsim_script::{Runner, ScriptError};
-use serde_json::{Value, json};
-use std::io::Write;
+use serde_json::Value;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
-
-fn repo() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../..")
-}
-
-fn python() -> String {
-    if let Ok(p) = std::env::var("LSIM_PYTHON") {
-        return p;
-    }
-    for p in ["python3", "python"] {
-        if Command::new(p).arg("--version").output().is_ok_and(|o| o.status.success()) {
-            return p.into();
-        }
-    }
-    panic!(
-        "the parity test needs Python 3.11 or newer with the backend's requirements: set \
-         LSIM_PYTHON or put python3 on the PATH"
-    );
-}
-
-/// A deterministic random source (xorshift64*).
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 >> 12;
-        self.0 ^= self.0 << 25;
-        self.0 ^= self.0 >> 27;
-        self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
-    }
-    fn unit(&mut self) -> f64 {
-        (self.next() >> 11) as f64 / (1u64 << 53) as f64
-    }
-    fn below(&mut self, n: usize) -> usize {
-        (self.next() % n as u64) as usize
-    }
-    fn range(&mut self, lo: f64, hi: f64) -> f64 {
-        lo + (hi - lo) * self.unit()
-    }
-}
-
-struct Call {
-    t: f64,
-    dt: f64,
-    inputs: Vec<(String, f64)>,
-}
-
-struct Case {
-    label: String,
-    code: String,
-    /// the parameters as JSON text: Python reads them in their own order,
-    /// the native runner as the importer hands them over (sorted)
-    params_text: String,
-    calls: Vec<Call>,
-    /// whether a call may leave the subset (random scripts may)
-    may_leave: bool,
-}
-
-fn bits(x: f64) -> u64 {
-    x.to_bits()
-}
-
-/// Every case's results on Python.
-fn on_python(cases: &[Case]) -> Vec<Value> {
-    let doc: Vec<Value> = cases
-        .iter()
-        .map(|c| {
-            json!({
-                "code": c.code,
-                "label": c.label,
-                "params_text": c.params_text,
-                "calls": c.calls.iter().map(|k| json!({
-                    "t": bits(k.t),
-                    "dt": bits(k.dt),
-                    "inputs": k.inputs.iter().map(|(n, v)| json!([n, bits(*v)])).collect::<Vec<_>>(),
-                })).collect::<Vec<_>>(),
-            })
-        })
-        .collect();
-    let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    // `-X utf8`: what scripts print is written as UTF-8 on every platform
-    let mut child = Command::new(python())
-        .args(["-X", "utf8"])
-        .arg(here.join("tests/parity.py"))
-        .arg(repo().join("backend/app/solver"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("Python starts");
-    let text = serde_json::to_string(&doc).expect("JSON");
-    let mut stdin = child.stdin.take().expect("stdin");
-    let writer = std::thread::spawn(move || stdin.write_all(text.as_bytes()));
-    let out = child.wait_with_output().expect("Python finishes");
-    let written = writer.join().expect("the writer");
-    // Python's own words first: a Python that stops early (without the
-    // backend's packages, say) also breaks the pipe the cases go through
-    assert!(
-        out.status.success(),
-        "the Python side failed ({}): {}",
-        out.status,
-        String::from_utf8_lossy(&out.stderr)
-    );
-    written.expect("written");
-    serde_json::from_slice::<Vec<Value>>(&out.stdout).expect("Python's results")
-}
 
 #[derive(Default, Debug)]
 struct Tally {
@@ -271,35 +166,6 @@ fn hcu_drive(seed: u64, n: usize, cumulative_t: bool) -> Vec<Call> {
         t += 0.01;
     }
     calls
-}
-
-const SPECIAL: [f64; 22] = [
-    0.0,
-    -0.0,
-    1.0,
-    -1.0,
-    0.5,
-    2.5,
-    -3.5,
-    0.1,
-    0.3,
-    3.0,
-    7.0,
-    -7.0,
-    123.456,
-    1e-300,
-    5e-324,
-    1e300,
-    1.797_693_134_862_315_7e308,
-    -1e16,
-    9_007_199_254_740_993.0,
-    f64::INFINITY,
-    f64::NEG_INFINITY,
-    f64::NAN,
-];
-
-fn special(r: &mut Rng) -> f64 {
-    if r.below(3) == 0 { r.range(-1000.0, 1000.0) } else { SPECIAL[r.below(SPECIAL.len())] }
 }
 
 fn special_calls(r: &mut Rng, names: &[&str], n: usize) -> Vec<Call> {
