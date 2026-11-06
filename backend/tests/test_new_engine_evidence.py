@@ -1983,3 +1983,38 @@ def test_a_table_time_quick_mode_cannot_tell_from_the_allowance_runs_in_full(new
     result = simulate(proj, "case-hwfet")
     assert "[QUICK-TABLE-TIME]" in _texts(result)[0] and result.status == "warning"
     assert result.solverOptions.get("quickStep") is None  # (the full run)
+
+
+def _hybrid_loss_to_50(outside: str) -> Project:
+    """The hybrid, charge balance off (as the judge runs its faults), its
+    E-Motor's loss map cut to torques up to 50 N·m, that axis on ``outside``."""
+    proj = load_example("hybrid-car")
+    next(c for c in proj.cases if c.id == "case-udds").chargeBalance = False
+    mot = next(e for s in proj.systems for e in s.elements if e.id == "el-motor")
+    pl = mot.parameterOverrides["power_loss"]
+    mot.parameterOverrides["power_loss"] = {
+        w: {t: v for t, v in row.items() if float(t) <= 50.0} for w, row in pl.items()}
+    mot.tableOutside = {"power_loss": ["clamp", outside]}
+    return proj
+
+
+def test_a_table_read_a_tick_moves_past_its_data_is_booked_there(new, monkeypatch):
+    """The hybrid's UDDS with its E-Motor's loss map cut to 50 N·m: its
+    control unit (a Script) sets the motor's torque at its ticks, up to
+    136 N·m, so the read leaves the data at a tick, where the integrator
+    does not watch it. Clamp: today's engine warns, 262 s past the data;
+    the new path books the read at the tick and warns as today's. Error:
+    today's run stops at 20.24 s; the new path's stops there too
+    (NEW-FAILED, strict). Before: no record, a success both times (the
+    mismatch sweep)."""
+    proj = _hybrid_loss_to_50("clamp")
+    today = _today(proj, "case-udds", monkeypatch)
+    result = simulate(proj, "case-udds")
+    assert result.engine == "new"
+    assert result.status == today.status == "warning", _texts(result, "warning")
+    key = "el-motor.outside_power_loss_torque_time_pct"
+    got, old = ({s.key: s.value for s in r.summary} for r in (result, today))
+    assert got[key] == pytest.approx(old[key], abs=0.2), (got[key], old[key])
+    result = simulate(_hybrid_loss_to_50("error"), "case-udds")
+    assert result.status == "failed" and _texts(result)[0].startswith("Not run [NEW-FAILED]"), _texts(result)
+    assert "t = 20.2" in _texts(result)[0]

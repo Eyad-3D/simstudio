@@ -55,7 +55,10 @@ QUICK-SAMPLED), and a run whose supply held an E-Motor back stops where
 its loss map's torque axis on Error does not reach 0 N·m, as today's (the
 mismatch sweep, 6 November: benchmarks/back_to_back/sweep.py); a Lookup's table is judged under today's name for it, its Table 1D
 or 2D. The engine watches a table at the edges of its own data (padded only
-past an end its argument never reaches), a table of one point is a
+past an end its argument never reaches), and at each event too, so a
+read an event moves past the data at once (a hybrid's control unit
+setting its E-Motor's torque at a tick) is booked or stops the run as
+today's; a table of one point is a
 constant and float noise at an edge is inside, as today's; a 2-D table
 whose sheets cover different ranges is refused (BLOCK). Script blocks run
 on the path in today's worker; the choice of their runner is brought to the

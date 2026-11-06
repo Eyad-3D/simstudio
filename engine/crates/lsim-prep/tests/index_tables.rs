@@ -1144,3 +1144,79 @@ fn a_table_read_past_its_data_is_told_in_numbers() {
     .expect("runs");
     assert!((early.windows[0].peak - 0.5).abs() < 1e-8, "{:?}", early.windows);
 }
+
+/// A table read at a value an event moves past its data at once (as a
+/// sampled controller moves its output at a tick; here a `when` at 1.5 s
+/// moves it from 0.5 to 2, the data 0 to 1): the integrator, which watches
+/// the table between events, never sees its guard cross, so the event
+/// itself books the read (Clamp: outside from 1.5 s to the end, 2 past it)
+/// or stops the run (Error), as a crossing does (the mismatch sweep: a
+/// hybrid whose control unit moved its E-Motor past its loss map at a
+/// tick was neither counted nor stopped).
+#[test]
+fn a_table_read_an_event_moves_past_its_data_is_booked_at_the_event() {
+    use lsim_ir::component::build::discrete;
+    use lsim_ir::expr::{CmpOp, cmp};
+    use lsim_ir::{Equation, EquationDecl, WhenAction};
+    let jump = |outside: Outside| ComponentDef {
+        name: "Test.Jump".into(),
+        params: vec![table_param(
+            "profile",
+            "1",
+            data_1d(&[0.0, 1.0], &[0.0, 1.0], Interpolation::Linear, outside, "1"),
+        )],
+        vars: vec![
+            discrete("level", "1", 0.5, "where it reads its profile"),
+            var("v", "1", "its profile there"),
+            state("q", "s", 0.0, "its integral"),
+        ],
+        equations: vec![
+            EquationDecl {
+                eq: Equation::When {
+                    condition: cmp(CmpOp::Ge, Expr::Time, c(1.5)),
+                    actions: vec![WhenAction::Assign { var: "level".into(), value: c(2.0) }],
+                },
+                label: Some("it jumps".into()),
+            },
+            eq(n("v"), lsim_ir::expr::table("profile", vec![n("level")]), "its profile"),
+            eq(der("q"), n("v"), "its integral"),
+        ],
+        ..Default::default()
+    };
+    let top = ComponentDef {
+        name: "Test.JumpTop".into(),
+        components: vec![sub("k", "Test.Jump", &[])],
+        ..Default::default()
+    };
+    for outside in [Outside::Clamp, Outside::Error] {
+        let mut l = lib();
+        l.add(jump(outside));
+        let (m, _) = prepare_with_report(&l, &top, None, &Settings::default())
+            .unwrap_or_else(|d| panic!("{d:#?}"));
+        let jit = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
+        let info = lsim_solve::RunInfo::from_prepared(&m);
+        use lsim_ir::runtime::ModelFunctions;
+        assert!(!jit.table_guard_list().is_empty(), "the read is watched");
+        let opts = lsim_solve::SolverOptions { rtol: 1e-8, atol: 1e-8, ..Default::default() };
+        let grid = lsim_solve::OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.5 };
+        let run = lsim_solve::simulate(&jit, &info, &opts, grid, &mut []);
+        match outside {
+            Outside::Error => match run {
+                Err(lsim_solve::SolveError::TableOutside { t, .. }) => {
+                    assert!((t - 1.5).abs() < 1e-9, "{t}")
+                }
+                other => panic!(
+                    "the run did not stop at the jump: {:?}",
+                    other.map(|r| r.report.table_outside)
+                ),
+            },
+            _ => {
+                let out = run.expect("runs").report.table_outside;
+                assert_eq!(out.len(), 1, "{out:?}");
+                let o = &out[0];
+                assert!((o.first - 1.5).abs() < 1e-9 && (o.total - 1.5).abs() < 1e-9, "{o:?}");
+                assert!((o.furthest - 2.0).abs() < 1e-12 && o.edge == 1.0, "{o:?}");
+            }
+        }
+    }
+}

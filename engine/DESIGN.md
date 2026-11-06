@@ -591,7 +591,11 @@ buffers, so one compiled model serves any number of simultaneous runs.
 `TableGuard { table, axis, outside }` names one watched table axis: its
 guard is `min(a - lo, hi - a)` of the axis argument, positive inside the
 data; an `Error` axis stops the run where its guard falls through zero,
-the others are booked as time spent outside. The library's tables
+the others are booked as time spent outside. A guard is watched between
+events by the integrator and, after each event, at the event itself
+(`Loop::sync_guards`): an event that moves a read's argument past the
+data at once (a sampled block's tick, a `when`) is booked, or stops the
+run on an `Error` axis, there. The library's tables
 (`lsim-lib/table.rs`) keep the guard's edges at the edges of today's
 data: a table is padded only past an end its argument never reaches (a
 speed magnitude's 0, an SOC held to 0-1), so it is watched where today's

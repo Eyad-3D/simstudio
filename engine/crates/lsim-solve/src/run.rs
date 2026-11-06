@@ -1056,6 +1056,31 @@ impl Loop<'_> {
         Ok(())
     }
 
+    /// After an event at `t`, the guards just evaluated
+    /// ([`Loop::update_sides`]): each table guard whose side the event moved
+    /// it to, where no crossing in `dirs` booked it, left (an `Error` axis
+    /// stops the run) or back inside. An event moves a read's argument at
+    /// once (a sampled block's tick, a `when`), and the integrator, which
+    /// watches the guards between events, never sees it cross.
+    fn sync_guards(&mut self, t: f64, dirs: Option<&[i32]>) -> Result<(), SolveError> {
+        let nr = self.model.layout().n_roots;
+        let guards = self.model.table_guard_list();
+        for (k, g) in guards.iter().enumerate() {
+            if dirs.and_then(|ds| ds.get(nr + k)).is_some_and(|&r| r != 0) {
+                continue;
+            }
+            let a = self.raw.get(nr + k).copied().unwrap_or(0.0);
+            if a < 0.0 && self.outside_since[k].is_none() {
+                self.leave_table(k, t, g)?;
+            } else if a > 0.0
+                && let Some(t0) = self.outside_since[k].take()
+            {
+                self.outside_total[k].0 += t - t0;
+            }
+        }
+        Ok(())
+    }
+
     fn leave_table(
         &mut self,
         k: usize,
@@ -2382,6 +2407,7 @@ fn run_watched<'a>(
                 *c = fresh;
             }
             lp.update_sides(t, &y, &d, None, None);
+            lp.sync_guards(t, None)?;
             lp.push_sides(&mut *ni);
             // the switch, an event: the stored energy's change
             // (the iteration variables solved again) booked
@@ -3030,6 +3056,7 @@ fn run_watched<'a>(
                     }
                     let at = y_at.as_deref().map(|y0| (y0, d_pre.as_slice()));
                     lp.update_sides(tk, &yk, &d, None, at);
+                    lp.sync_guards(tk, None)?;
                     lp.push_sides(integ);
                     if imp.is_none()
                         && tk == t_new
@@ -3196,6 +3223,7 @@ fn run_watched<'a>(
                     }
                     let at = y_at.as_deref().map(|y0| (y0, d_pre.as_slice()));
                     lp.update_sides(t, &y, &d, None, at);
+                    lp.sync_guards(t, None)?;
                     lp.push_sides(integ);
                     integ.restart(t, &y)?;
                     y.copy_from_slice(integ.y());
@@ -3390,6 +3418,7 @@ fn run_watched<'a>(
             }
             let at = y_at.as_deref().map(|y0| (y0, d_pre.as_slice()));
             lp.update_sides(t, &y, &d, dirs, at);
+            lp.sync_guards(t, dirs)?;
             lp.push_sides(integ);
             // (a step ended at a pulse the run loop found: the integrator,
             // past it, restarts here even when nothing changed; so it does
