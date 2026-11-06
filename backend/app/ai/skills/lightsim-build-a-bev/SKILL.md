@@ -43,8 +43,9 @@ Seven parts, four wires, three signals. With the LightSim MCP tools, one
 ```
 
 Run it as a dry run first (the default), show the user the changes and the
-Data Checks, then save with `dry_run: false`, which saves at once (no one is
-asked to confirm) and can be recovered from the backups. Its
+Data Checks, then save with `dry_run: false` and a `reason`, which saves at
+once (no one is asked to confirm): the save is one step in the project's
+history, which the user sees in the open app and can undo in one click. Its
 *Case 1* (600 s of the default town profile) ends *success*: 7.292 km at
 about 9.2 kWh/100 km, with the library's default values.
 

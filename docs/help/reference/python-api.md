@@ -239,7 +239,8 @@ before every tool call, and does not use `AgentSession`. The connection for
 AI apps works hands-off: it never asks you to confirm. It runs a project's
 Script blocks and FMUs in an OS sandbox, or refuses the run when that
 sandbox cannot be set up, and an edit it saves is recoverable from the
-project's backups. See [AI access](command-line.md#ai-access).
+project's backups and is one step in the project's history, which the open
+app shows and undoes in one click. See [AI access](command-line.md#ai-access).
 
 The hands-off, sandbox-by-design rules are for the two agent doors this
 change covers: the MCP server, and the command-line tool (`lightsim run`,

@@ -30,7 +30,7 @@ The examples below write `lightsim`; use whichever of these you have
 |---|---|
 | `lightsim run PROJECT [--case NAME]` | Runs a case (the first if none is named) and prints its summary |
 | `lightsim check PROJECT` | Runs the Data Checks (the *Problems* list). `--strict` fails on warnings too |
-| `lightsim edit PROJECT [--set P.K=V] [--op JSON] [--ops JSON] [-o FILE]` | Applies changes (the AI plug's `model_edit` operations) and saves. In place it keeps each version it replaces in `<file>-backups` (the newest 20), so any recent one can be restored |
+| `lightsim edit PROJECT [--set P.K=V] [--op JSON] [--ops JSON] [-o FILE] [--reason TEXT] [--session ID] [--client NAME]` | Applies changes (the AI plug's `model_edit` operations) and saves. In place it keeps each version it replaces in `<file>-backups` (the newest 20), so any recent one can be restored. The save is one step in the project's history, with `--reason`: the open LightSim window shows it at once, and one click undoes it or the whole session. A session is `--session`, else `LIGHTSIM_SESSION`, else Claude Code's session, else the shell the command runs in; `--client` (else `LIGHTSIM_CLIENT`, else `AI_AGENT`) names who edits. A save from the app between the read and the write is not overwritten: the changes are applied again to the newer file |
 | `lightsim export RUN -o FILE` | Writes a stored run (`.json.gz` from the app's runs folder, or `.json`) as CSV, MAT, JSON or Parquet |
 | `lightsim show PROJECT` | Lists the project's cases and parts, with their ids |
 | `lightsim params PROJECT [--part LABEL]` | Lists the parameter values, as `Part.key = value unit` |
@@ -135,7 +135,10 @@ owner's decision, 1 November 2026). What an AI app can do once access is on:
   the safety.
 - **Change** a project: with model_edit's dry run off the edit is saved
   straight away, and is recoverable (an example saved as a new project, the
-  previous version kept as a backup).
+  previous version kept as a backup). Each edit it saves to a project is
+  one step in the project's history, with the `reason` it gives: the open
+  LightSim window shows it at once, and one click undoes it or the agent's
+  whole session (one connection of the AI app).
 
 The command-line tool is hands-off as well: `lightsim run`, and the
 engine program's `lightsim-backend run`, hold every run to the same OS

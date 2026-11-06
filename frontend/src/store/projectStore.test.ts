@@ -40,6 +40,9 @@ vi.mock("../api", () => ({
   importBundle: vi.fn(),
   exportBundle: vi.fn(),
   fetchRevision: vi.fn(),
+  rebaseProject: vi.fn(),
+  undoChange: vi.fn(),
+  fetchHistory: vi.fn(),
   listFiles: vi.fn(),
   forgetFile: vi.fn(),
   uploadAttachment: vi.fn(),
@@ -241,6 +244,9 @@ beforeEach(async () => {
   ]);
   api.fetchDemoProject.mockResolvedValue({ project: fixture(), offline: false });
   api.saveProject.mockResolvedValue({ saved: "fixture" });
+  // by default a change on disk is one the history cannot explain (a git pull)
+  api.rebaseProject.mockRejectedValue(Object.assign(new Error("409 changed outside"), { status: 409 }));
+  api.fetchHistory.mockResolvedValue([]);
 
   disk = new Map();
   engineRunsStudies();
@@ -2333,5 +2339,125 @@ describe("the end of a run or sweep (UX-21, STU-16, STU-17)", () => {
     expect(store().finishNotice).toMatchObject({ level: "error", text: "Sweep failed: see Messages.", show: "messages" });
     expect(store().sweepProgress).toBeNull();
     expect(store().running).toBe(false);
+  });
+});
+
+describe("an AI agent's edits in the open window (step 6)", () => {
+  const agentEntry = {
+    id: "h1",
+    t: 1,
+    by: "agent" as const,
+    tool: "model_edit",
+    client: "claude-code",
+    session: "s1",
+    reason: "heavier pack",
+    changes: ['"Pack": Mass 300 kg'],
+    to: "r2",
+  };
+  const conflict409 = () => Object.assign(new Error("409 changed"), { status: 409 });
+
+  async function openSaved(): Promise<void> {
+    await store().init();
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    await store().openProject("fixture");
+  }
+
+  /** The window's copy with the agent's change laid over it, as the engine returns it. */
+  function merged(label: string): Project {
+    const p = structuredClone(store().project!);
+    p.systems[0].elements.find((e) => e.id === "el-bat")!.label = label;
+    p.name = "Renamed by the agent";
+    return p;
+  }
+
+  it("an agent's save shows at once, over the window's unsaved change, with no dialog", async () => {
+    await openSaved();
+    store().renameElement("el-bat", "Mine");
+    const before = store().project!;
+    api.fetchRevision.mockResolvedValue("r2");
+    api.rebaseProject.mockResolvedValueOnce({ project: merged("Mine"), revision: "r2", entries: [agentEntry], conflicts: [] });
+    await store().checkDisk();
+    expect(api.rebaseProject).toHaveBeenCalledWith(before, "r1");
+    expect(useUIStore.getState().dialog).toBeNull();
+    expect(store()).toMatchObject({ revision: "r2", dirty: true });
+    expect(store().project!.name).toBe("Renamed by the agent");
+    expect(store().project!.systems[0].elements.find((e) => e.id === "el-bat")!.label).toBe("Mine");
+    expect(store().past[store().past.length - 1]).toBe(before); // one undo step in the window
+    expect(store().agentChange).toMatchObject({ projectId: "fixture", entry: { id: "h1" }, sessionCount: 1 });
+    expect(messages()).toContain("info: AI change by claude-code: heavier pack");
+  });
+
+  it("a save refused because an agent saved first lays that save over the copy and saves again", async () => {
+    await openSaved();
+    store().renameElement("el-bat", "Mine");
+    api.saveProject.mockRejectedValueOnce(conflict409()).mockResolvedValueOnce({ saved: "fixture", revision: "r3" });
+    api.rebaseProject.mockResolvedValueOnce({ project: merged("Mine"), revision: "r2", entries: [agentEntry], conflicts: [] });
+    await store().saveRemote();
+    expect(useUIStore.getState().dialog).toBeNull();
+    expect(api.saveProject).toHaveBeenCalledTimes(2);
+    const [second, base] = api.saveProject.mock.calls[1];
+    expect(base).toBe("r2");
+    expect(second.name).toBe("Renamed by the agent"); // the agent's change is kept
+    expect(second.systems[0].elements.find((e) => e.id === "el-bat")!.label).toBe("Mine"); // and so is mine
+    expect(store()).toMatchObject({ revision: "r3", dirty: false });
+  });
+
+  it("a value both changed is shown as the file has it and not saved over unasked", async () => {
+    await openSaved();
+    store().renameElement("el-bat", "Mine");
+    api.saveProject.mockRejectedValueOnce(conflict409());
+    api.rebaseProject.mockResolvedValueOnce({
+      project: merged("Agent's"),
+      revision: "r2",
+      entries: [agentEntry],
+      conflicts: ["systems/sys-root/elements/el-bat/label"],
+    });
+    await store().saveRemote();
+    expect(api.saveProject).toHaveBeenCalledTimes(1);
+    expect(store()).toMatchObject({ revision: "r2", dirty: true });
+    expect(messages().some((m) => m.startsWith("warning: 1 value(s) you had changed"))).toBe(true);
+    store().undo(); // brings the window's own value back
+    expect(store().project!.systems[0].elements.find((e) => e.id === "el-bat")!.label).toBe("Mine");
+  });
+
+  it("a project an agent changed while it was not open offers the same undo when opened", async () => {
+    await store().init();
+    api.fetchHistory.mockResolvedValueOnce([
+      { ...agentEntry, id: "h3", to: "r1" },
+      { ...agentEntry, id: "h2", to: "r0" },
+      { ...agentEntry, id: "h0", session: "older", to: "r-1" },
+    ]);
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    await store().openProject("fixture");
+    await vi.waitFor(() => expect(store().agentChange).not.toBeNull());
+    expect(store().agentChange).toMatchObject({ entry: { id: "h3" }, sessionCount: 2 });
+    // one the window saved over, or undone, is not offered
+    api.fetchHistory.mockResolvedValueOnce([{ ...agentEntry, id: "h4", to: "r1", undone: true }]);
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    useProjectStore.setState({ agentChange: null });
+    await store().openProject("fixture");
+    await settled();
+    expect(store().agentChange).toBeNull();
+  });
+
+  it("one click undoes the agent's change, or its whole session, in the file", async () => {
+    await openSaved();
+    api.fetchRevision.mockResolvedValue("r2");
+    api.rebaseProject.mockResolvedValueOnce({ project: merged("Pack"), revision: "r2", entries: [agentEntry], conflicts: [] });
+    await store().checkDisk();
+    api.undoChange.mockResolvedValue({ revision: "r3", undid: ["h1"], conflicts: [] });
+    api.fetchRevision.mockResolvedValue("r3");
+    api.rebaseProject.mockResolvedValueOnce({
+      project: fixture(),
+      revision: "r3",
+      entries: [{ ...agentEntry, id: "h2", by: "app", tool: "undo", reason: "Undo: heavier pack", to: "r3" }],
+      conflicts: [],
+    });
+    await store().undoAgentChange("session");
+    expect(api.undoChange).toHaveBeenCalledWith("fixture", { session: "s1" });
+    expect(store().agentChange).toBeNull();
+    expect(store()).toMatchObject({ revision: "r3", dirty: false });
+    expect(store().project!.name).toBe("Fixture");
+    expect(messages()).toContain("info: Undone in the file: 1 change(s) by claude-code.");
   });
 });

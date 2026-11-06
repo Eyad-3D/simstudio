@@ -135,13 +135,15 @@ export default function App() {
     };
   }, []);
 
-  // a project file changed on disk (a git pull, another window) offers a
-  // reload: look every few seconds while the window is in front (PLT-33)
+  // a project file changed on disk: an AI agent's edit (or another window's
+  // save) shows at once, laid over this window's unsaved changes (step 6); a
+  // change LightSim did not make (a git pull) offers a reload (PLT-33). Look
+  // every second while the window is in front
   useEffect(() => {
     const check = () => {
       if (document.visibilityState === "visible") void useProjectStore.getState().checkDisk();
     };
-    const timer = setInterval(check, 4000);
+    const timer = setInterval(check, 1000);
     window.addEventListener("focus", check);
     return () => {
       clearInterval(timer);

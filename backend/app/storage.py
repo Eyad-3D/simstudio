@@ -29,7 +29,11 @@ a copy: a restore never writes the project file). Each file version has a
 *revision* (a hash of its bytes); a save can name the revision it was based
 on and is refused with :class:`ConflictError` if the file changed since, so
 two windows (or another program, or a git pull) never silently overwrite
-each other.
+each other. Every save takes the project's lock (:func:`project_lock`: a
+thread lock and an OS file lock, so an AI agent's process and the app
+cannot interleave) and adds a line to the project's history
+(:mod:`app.history`), which the window reads to show an agent's edits as
+they happen (:func:`rebase`) and to undo them (:func:`undo`).
 """
 from __future__ import annotations
 

@@ -106,7 +106,7 @@ export function AiConnectDialog() {
                 read the results. It starts LightSim itself and talks to it directly, with no network connection. It
                 works hands-off: it does not ask you to confirm. It runs a project's Script blocks and FMUs in a
                 sandbox, or refuses the run when that sandbox cannot be set up, and an edit it saves is recoverable:
-                see <b>AI access</b>.
+                the open window shows it at once, and one click undoes it. See <b>AI access</b>.
               </p>
               {state?.warning && <p className="text-amber-600">{state.warning}</p>}
               {state?.managed && (

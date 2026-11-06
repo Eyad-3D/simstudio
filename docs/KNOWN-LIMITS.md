@@ -1131,7 +1131,19 @@ minimum or an average, for example from the CSV export, or put the
   make the AppContainer) the run is refused with the code
   `sandbox_unavailable` rather than run less safely.
   An edit it saves is recoverable (the previous version kept as a backup, an
-  example saved as a new project), until a live one-click undo lands later.
+  example saved as a new project). Each edit it saves to a project, and each
+  `lightsim edit`, is one step in the project's history: the open LightSim
+  window shows it at once, and one click undoes it or the agent's whole
+  session. The window finds out within a second (it looks at the file every
+  second while it is in front), not at the same instant. An undo reverts
+  what that edit changed and leaves a value changed again since as it is;
+  where you and an agent changed the same value before you saved, the
+  window takes the agent's value and says so (Undo, Ctrl+Z, brings yours
+  back). A change made to the file by anything else (a text editor, a git
+  pull, an agent writing the file directly) is not in the history: the
+  window offers to reload it, as before. Python code that saves through
+  `AgentSession` or `Project.save()` writes the file directly, with no
+  history line.
   It does not read the trust list (`lightsim ai trust`): only Python code
   that goes through `lightsim.ai_access.AgentSession` reads it, and
   `lightsim run` and the `lightsim` package read no AI access setting at

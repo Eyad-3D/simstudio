@@ -70,6 +70,19 @@ refuse every change.
   version of a project as a backup, as for every save. For a file in a
   folder you allowed, the backups are kept beside it, in a folder named
   after it (`car.json-backups`, which git ignores).
+- Each edit it saves to a project is one step in the project's history,
+  with the reason the assistant gives, which AI app made it and in which
+  session: the open LightSim window shows it at once, and one click undoes
+  it or the agent's whole session. The edit appears over any changes you
+  have not saved yet, and your next Save keeps both: neither overwrites the
+  other. Where you and the assistant changed the same value, the window
+  shows the assistant's value and says so; **Undo** (Ctrl+Z) brings yours
+  back. The notice at the bottom left names the AI app and its reason,
+  with **Undo** (this change) and **Undo session** (every change of that
+  connection). An undo leaves a value that was changed again since as it
+  is, and says which. A project the assistant changed while it was not open
+  offers the same notice when you open it. The history is the file
+  `history.jsonl` in the project's backups folder.
 - A project with Script blocks (Python code) or FMUs runs in an OS sandbox:
   access to the project's folder only, and no network — a Script can open
   none, and an FMU's native code is held off by the OS (see

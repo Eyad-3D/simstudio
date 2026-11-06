@@ -14,7 +14,11 @@ decision of 1 November 2026: an agent works hands-off):
   set up the run is refused with the stable code ``sandbox_unavailable``
   rather than run less safely;
 - an edit is saved straight away and is recoverable: the previous version is
-  kept as a backup, and an example's edit is saved as a new project;
+  kept as a backup, and an example's edit is saved as a new project; each
+  edit saved to a project (and each ``lightsim edit``) is one step in the
+  project's history, which the open window shows at once and undoes, or the
+  agent's whole session, in one click (held in test_history.py and the
+  browser test e2e/ai04-live.spec.ts);
 - it does NOT read the trust list that ``lightsim ai trust`` keeps: only
   Python code that goes through ``lightsim.ai_access.AgentSession`` does,
   and the plain ``lightsim`` package and ``lightsim run`` read no AI access
@@ -145,7 +149,9 @@ def test_the_run_case_tool_tells_an_agent_what_it_will_meet():
     assert "has not been approved" not in description  # the hands-off change
     edit = next(t for t in TOOLS if t["name"] == "model_edit")["description"]
     assert "saved straight away (you are not asked to confirm)" in edit
-    assert "backup" in edit and "undone" in edit
+    assert "backup" in edit and "undo it" in edit
+    assert "one step in the project's history" in edit and "with one click" in edit
+    assert "reason" in next(t for t in TOOLS if t["name"] == "model_edit")["inputSchema"]["properties"]
 
 
 # -- the words -------------------------------------------------------------------
@@ -167,6 +173,8 @@ REFUSED = "the run is refused with the code `sandbox_unavailable` rather than ru
 #: an edit is saved and recoverable
 SAVED = "an edit is saved straight away"
 RECOVER = "the previous version is kept as a backup"
+#: an edit is one step of the project's history, live in the window, undone in one click
+LIVE = "the open LightSim window shows it at once, and one click undoes it or the agent's whole session"
 #: a brand-new script an agent writes runs in the sandbox, no approval asked
 NO_APPROVAL = "runs in that sandbox straight away, with no **Run scripts** approval"
 #: when the settings are read (the page, the help)
@@ -187,6 +195,7 @@ MUST_SAY = {
         "AI access is off: every tool call from an AI tool is refused, though a connected AI app " + STILL + ".",
         "An AI agent works hands-off: the connection never asks you to confirm.",
         "saved straight away. An example is saved as a new project, and the previous version is kept as a backup",
+        "Each edit saved to a project is one step in the project's history, with the AI app's reason: " + LIVE,
         "it runs in an OS sandbox with access to the project's folder only, and no network — a Script "
         "can open none, and an FMU's native code is held off by the OS",
         "the run is refused with the code <code>sandbox_unavailable</code> rather than run less safely",
@@ -201,6 +210,9 @@ MUST_SAY = {
         "AI agent works hands-off: the connection never asks you to confirm",
         "and run a project, with no question to you",
         "an edit is saved straight away, and is recoverable",
+        "Each edit it saves to a project is one step in the project's history, with the reason the "
+        "assistant gives, which AI app made it and in which session: " + LIVE,
+        "your next Save keeps both: neither overwrites the other",
         "runs in an OS sandbox: access to the project's folder only, and no network — a Script can "
         "open none, and an FMU's native code is held off by the OS",
         "the run is refused with the code `sandbox_unavailable` rather than run less safely",
@@ -234,6 +246,11 @@ MUST_SAY = {
         "The command-line tool is hands-off as well: `lightsim run`, and the engine program's "
         "`lightsim-backend run`, hold every run to the same OS sandbox, with no **Run scripts** approval",
         "In place it keeps each version it replaces in `<file>-backups`",
+        "The save is one step in the project's history, with `--reason`: the open LightSim window shows "
+        "it at once, and one click undoes it or the whole session",
+        "Each edit it saves to a project is one step in the project's history, with the `reason` it "
+        "gives: the open LightSim window shows it at once, and one click undoes it or the agent's whole "
+        "session",
         # the command line's own paragraph: no network for a Script, the OS for
         # an FMU, and where the per-platform detail is (Linux lets UDP out)
         "with access to the project's folder only and the network held off — a Script can open no "
@@ -277,6 +294,10 @@ MUST_SAY = {
         "the run is refused with the code `sandbox_unavailable` rather than run less safely",
         "edit it saves is recoverable (the previous version kept as a backup, an example saved "
         "as a new project)",
+        "Each edit it saves to a project, and each `lightsim edit`, is one step in the project's "
+        "history: " + LIVE,
+        "A change made to the file by anything else (a text editor, a git pull, an agent writing the "
+        "file directly) is not in the history",
         "`lightsim run` and the `lightsim` package read no AI access setting at all",
         "The command-line tool (`lightsim run`, `lightsim-backend run`) is hands-off too: it cannot "
         "tell an agent from a person, so every run of it holds Script blocks and FMUs to the same "
@@ -290,6 +311,8 @@ MUST_SAY = {
         "it works hands-off (it never asks you to confirm), running a project's Script blocks and "
         "FMUs in an OS sandbox or refusing the run when that sandbox cannot be set up",
         "it does not read the `lightsim ai trust` list",
+        "each edit it saves (and each `lightsim edit`) is one step in the project's history, with its "
+        "reason: the open window shows it at once, and one click undoes it or the agent's whole session",
         "the trust list that only Python code using `AgentSession` reads",
         "Script blocks keep today's rules: approved code only in a run started in the app, the strict "
         "OS sandbox with no approval for the command-line tool and AI apps",
@@ -347,6 +370,7 @@ def test_the_mcp_bundle_tells_an_ai_app_what_the_connection_does():
     assert ("runs a project's Script blocks and FMUs in an OS sandbox, or refuses the run when that "
             "sandbox cannot be set up") in long
     assert "recoverable from the project's backups" in long
+    assert "one step in the project's history that the open app shows and undoes in one click" in long
     assert not [c for c in OVERSTATED if c in long.lower()]
 
 
@@ -438,6 +462,10 @@ OVERSTATED = [
     "os-confined (no network, no file access outside the project), and the run",
     "strict os sandbox (no network, project-only files)",
     "strict agent sandbox (file-confined, no network)",
+    # an agent's edit is live in the window and undone in one click (step 6)
+    "until a live one-click undo lands",
+    "reopen it there to see the change",
+    "until an agent's change is a live",
 ]
 #: a mention of the trust command must say, near it, who reads the list
 WHO_READS = ("AgentSession", "does not read", "is not read", "plays no part", "not used")

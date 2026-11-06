@@ -40,7 +40,8 @@ def manifest(version: str) -> dict:
             "LightSim installed on this computer, with no network connection, and works hands-off: "
             "it never asks you to confirm. Instead it runs a project's Script blocks and FMUs in an "
             "OS sandbox, or refuses the run when that sandbox cannot be set up, and an edit it "
-            "saves is recoverable from the project's backups. " + VALIDATION_NOTE
+            "saves is recoverable from the project's backups, one step in the project's history "
+            "that the open app shows and undoes in one click. " + VALIDATION_NOTE
         ),
         "author": {"name": "Eyad Abualkhair", "url": "https://github.com/Eyad-3D/simstudio"},
         "homepage": "https://github.com/Eyad-3D/simstudio",

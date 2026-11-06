@@ -18,7 +18,8 @@ const message = (e: unknown) => String((e as Error).message ?? e).replace(/^Erro
  *  blocks or FMUs runs in an OS sandbox (file access to the project only,
  *  the network held off; an AppContainer on Windows), and the run is refused when
  *  that sandbox cannot be set up rather than run less safely; every edit it saves is
- *  recoverable from the project's backups. It does not read the trust list
+ *  recoverable from the project's backups, and is one step in the project's
+ *  history that the open window shows and undoes in one click. It does not read the trust list
  *  shown here, which only Python code that uses
  *  `lightsim.ai_access.AgentSession` reads. Folders and trust can only be
  *  taken away here: a folder is added in the desktop app's folder dialog, a
@@ -186,7 +187,9 @@ export function AiAccessPanel() {
       </p>
       <ul aria-label="What the connection does" className="list-disc pl-5">
         <li>Saving an edit: saved straight away. An example is saved as a new project, and the previous version is kept
-          as a backup, so the change can be undone.</li>
+          as a backup, so the change can be undone. Each edit saved to a project is one step in the project's history,
+          with the AI app's reason: the open LightSim window shows it at once, and one click undoes it or the agent's
+          whole session.</li>
         <li>
           Running a project with Script blocks (Python code) or FMUs: it runs in an OS sandbox with access to the
           project's folder only, and no network — a Script can open none, and an FMU's native code is held off by the

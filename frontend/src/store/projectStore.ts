@@ -228,6 +228,16 @@ export interface FinishNotice {
 }
 let noticeSeq = 0;
 
+/** An AI agent's change to the open project's file, for its notice. */
+export interface AgentChange {
+  projectId: string;
+  entry: api.HistoryEntry;
+  /** the agent session's changes this window has seen and not undone */
+  sessionCount: number;
+}
+// agent changes seen per session, for "Undo session (n)"
+const sessionChanges = new Map<string, number>();
+
 /** The notice a sweep or study ends with (UX-21): finished, stopped (a
  *  point stopped or not run) or failed, and how many points are complete. */
 function studyNotice(
@@ -428,6 +438,13 @@ export interface ProjectState {
    *  or when the next one starts. */
   finishNotice: FinishNotice | null;
   dismissFinishNotice: () => void;
+  /** The latest change an AI agent saved to the open project's file, which
+   *  the window has laid over its copy (step 6); shown with one-click undo. */
+  agentChange: AgentChange | null;
+  /** Undo, in the file, the agent's latest change or every change of its
+   *  session; the window then shows the file as it is. */
+  undoAgentChange: (what: "change" | "session") => Promise<void>;
+  dismissAgentChange: () => void;
 
   // lifecycle
   init: () => Promise<void>;
@@ -508,8 +525,9 @@ export interface ProjectState {
   openFile: () => Promise<void>;
   /** Take a file off Recent files (the file itself stays). */
   forgetFile: (id: string) => Promise<void>;
-  /** Notice the open project's file changing on disk (a git pull, another
-   *  window) and offer to reload it; the app calls this every few seconds. */
+  /** Notice the open project's file changing on disk: a save LightSim made
+   *  (an AI agent's edit, another window) is laid over the open copy; any
+   *  other change (a git pull) offers a reload. The app calls this every second. */
   checkDisk: () => Promise<void>;
   exportProject: () => Promise<void>;
   /** Open a project file's JSON as a new, unsaved project (upgraded by the
@@ -650,6 +668,77 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         ? { past: [...past.slice(-(HISTORY_LIMIT - 1)), project], future: [] }
         : {}),
     });
+  }
+
+  /** Lay the saves made to the open project's file since this copy's
+   *  revision (an AI agent's edit, the command line, another window) over
+   *  the copy, keeping its unsaved changes, as one undo step (step 6).
+   *  "unknown": the history does not say how the file changed (a git pull),
+   *  "busy": the copy changed while asking (try again). */
+  async function pullSaves(): Promise<"merged" | "conflicts" | "unknown" | "busy"> {
+    const { project, revision, log } = get();
+    if (!project || !revision) return "unknown";
+    let res: api.Rebased;
+    try {
+      res = await api.rebaseProject(project, revision);
+    } catch (e) {
+      if ((e as { status?: number }).status === 409) return "unknown";
+      throw e;
+    }
+    const now = get();
+    if (now.project !== project || now.revision !== revision) return "busy";
+    const agents = res.entries.filter((e) => e.by === "agent");
+    // code an agent wrote is not the user's own: a run asks about it first
+    if (agents.length) trustedProject = null;
+    for (const e of agents) if (e.session) sessionChanges.set(e.session, (sessionChanges.get(e.session) ?? 0) + 1);
+    const last = agents[agents.length - 1];
+    lastEdit = null;
+    set({
+      project: fromDisk(res.project).project,
+      revision: res.revision,
+      past: [...now.past.slice(-(HISTORY_LIMIT - 1)), project],
+      future: [],
+      ...(last
+        ? {
+            agentChange: {
+              projectId: project.id,
+              entry: last,
+              sessionCount: last.session ? (sessionChanges.get(last.session) ?? 1) : 1,
+            },
+          }
+        : {}),
+    });
+    offeredRevision = null;
+    for (const e of res.entries) {
+      const who =
+        e.by === "agent" ? `AI change by ${e.client || "an agent"}` : e.tool === "undo" ? "Undone" : "Saved elsewhere";
+      log("info", `${who}: ${e.reason || e.changes.slice(0, 3).join("; ") || "the project file changed"}`);
+    }
+    if (res.conflicts.length)
+      log(
+        "warning",
+        `${res.conflicts.length} value(s) you had changed were changed in the file too; the window shows the ` +
+          `file's value (Undo brings yours back): ${res.conflicts.slice(0, 5).join(", ")}`,
+      );
+    return res.conflicts.length ? "conflicts" : "merged";
+  }
+
+  /** A project opened after an AI agent changed it (the app was closed, or
+   *  showed another project) offers the same one-click undo: the newest save,
+   *  when an agent made it and it is not undone. */
+  async function showLastAgentChange(projectId: string, revision: string | null): Promise<void> {
+    let entries: (api.HistoryEntry & { undone?: boolean })[];
+    try {
+      entries = await api.fetchHistory(projectId);
+    } catch {
+      return; // no history to read: nothing to offer
+    }
+    const last = entries[0];
+    if (!last || last.by !== "agent" || last.undone || last.to !== revision) return;
+    if (get().project?.id !== projectId || get().revision !== revision) return;
+    const count = entries.filter((e) => e.by === "agent" && !e.undone && e.session && e.session === last.session).length;
+    if (last.session) sessionChanges.set(last.session, count);
+    set({ agentChange: { projectId, entry: last, sessionCount: Math.max(1, count) } });
   }
 
   function rootSystemOf(project: Project): SystemNode {
@@ -1113,6 +1202,31 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     sweepProgress: null,
     finishNotice: null,
     dismissFinishNotice: () => set({ finishNotice: null }),
+    agentChange: null,
+    dismissAgentChange: () => set({ agentChange: null }),
+
+    undoAgentChange: async (what) => {
+      const { agentChange: change, project, log } = get();
+      if (!change || !project || change.projectId !== project.id) return;
+      const session = what === "session" ? change.entry.session : null;
+      try {
+        const res = await api.undoChange(project.id, session ? { session } : { entry: change.entry.id });
+        set({ agentChange: null });
+        if (session) sessionChanges.delete(session);
+        else if (change.entry.session) sessionChanges.set(change.entry.session, Math.max(0, change.sessionCount - 1));
+        log(
+          res.undid.length ? "info" : "warning",
+          res.undid.length
+            ? `Undone in the file: ${res.undid.length} change(s) by ${change.entry.client || "the AI agent"}.`
+            : "Nothing was undone: every value it changed was changed again since.",
+        );
+        if (res.conflicts.length)
+          log("warning", `Left as they are (changed again since): ${res.conflicts.slice(0, 5).join(", ")}.`);
+        await get().checkDisk();
+      } catch (e) {
+        log("error", `Could not undo the AI change: ${(e as Error).message}`);
+      }
+    },
 
     init: async () => {
       const [lib, appVersion, cycles] = await Promise.all([
@@ -1723,6 +1837,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           );
         void loadRunHistory(project.id);
         void get().reviewScripts("open");
+        void showLastAgentChange(project.id, revision);
       } catch (e) {
         get().log("error", `Failed to open project: ${(e as Error).message}`);
       }
@@ -1841,7 +1956,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     },
 
     saveRemote: () => {
-      const save = async () => {
+      const save = async (attempt = 0): Promise<void> => {
         const { project, revision, exampleId, log, readOnly, filePath } = get();
         if (!project) return;
         if (readOnly) {
@@ -1866,7 +1981,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             log("error", `Save failed: ${(e as Error).message}. Use Export to download the project file instead.`);
             return;
           }
-          // the file on disk is not the version this copy started from
+          // the file on disk is not the version this copy started from: an AI
+          // agent's (or another window's) save is laid over this copy, and the
+          // save goes again, so neither overwrites the other (step 6)
+          if (revision !== null && attempt < 3) {
+            const pulled = await pullSaves().catch(() => "unknown" as const);
+            if (pulled === "merged" || pulled === "busy") return save(attempt + 1);
+            if (pulled === "conflicts") {
+              log("warning", "Not saved yet: check the values the file changed too, then Save again.");
+              return;
+            }
+          }
           const why =
             revision === null
               ? `A project with the id '${project.id}' already exists on disk.`
@@ -1897,7 +2022,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           }
         }
       };
-      const next = saveQueue.then(save);
+      const next = saveQueue.then(() => save());
       saveQueue = next;
       return next;
     },
@@ -1979,6 +2104,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         const now = get();
         if (now.project?.id !== project.id || now.revision !== revision) return; // saved or reopened meanwhile
         if (onDisk === revision || onDisk === offeredRevision) return;
+        if (onDisk !== null) {
+          // a save LightSim made (an AI agent's edit, the command line, another
+          // window) shows at once, over this copy's own unsaved changes
+          const pulled = await pullSaves();
+          if (pulled !== "unknown") return;
+        }
         offeredRevision = onDisk;
         if (onDisk === null) {
           now.log("warning", `The file of '${project.name}' was deleted or moved on disk; Save writes it again.`);
