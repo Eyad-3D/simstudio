@@ -561,3 +561,24 @@ def test_a_rebase_in_a_read_only_folder_with_backups_still_says_conflict(folder)
     finally:
         for n in nodes:
             n.chmod(modes[n] & 0o777)
+
+
+def test_a_rebase_on_a_read_only_file_system_still_says_conflict(folder, monkeypatch):
+    """A read-only mount fails the lock file with EROFS (a plain OSError, not
+    PermissionError): a git pull must still say conflict."""
+    import contextlib
+    import errno
+
+    project = _bev()
+    rev = storage.save_project(project)
+    path = storage.project_path("car")
+    path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+
+    @contextlib.contextmanager
+    def read_only(loc):
+        raise OSError(errno.EROFS, "Read-only file system", ".lock")
+        yield
+
+    monkeypatch.setattr(storage, "project_lock", read_only)
+    with pytest.raises(storage.ConflictError):
+        storage.rebase("car", rev, project.model_dump(mode="json"))

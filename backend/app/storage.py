@@ -624,13 +624,13 @@ def rebase(project_id: str, revision: str, ours: dict) -> dict:
 
     # under the lock: a save replaces the file before it adds its history
     # line, so read between the two the file would look changed by something else.
-    # No backups folder, or one the lock file cannot be opened in (a read-only
+    # No backups folder, or one the lock file cannot be opened in (a read-only or read-only-mounted
     # project folder): LightSim cannot save there, so there is no save to wait
     # for, and a git pull must still say conflict, not fail.
     try:
         with project_lock(loc) if loc.backups.is_dir() else contextlib.nullcontext():
             now, lines = read()
-    except PermissionError:
+    except OSError:
         now, lines = read()
     steps = [] if now == revision else history.chain(lines, revision, now)
     if steps is None:
