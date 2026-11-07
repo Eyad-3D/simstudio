@@ -101,9 +101,13 @@ CODES = {
                 "(today's engine reads none)",
     "NEW-SAMPLED": "a PID or Lookup block with a Sample Time longer than today's solver step (today's "
                    "engine holds its output between samples; the new engine runs it at every step)",
-    "NEW-LIVE-ERROR-AXIS": "a live run that the new engine would stop at a table read past its data (an "
-                           "axis set to Error) that today's engine reads only in one branch of its part "
-                           "(a live run that has shown points cannot start again on today's engine)",
+    "NEW-LIVE-ERROR-AXIS": "a live run of a project with a table that today's engine reads only in one "
+                           "branch of its part, with an axis set to Error whose data does not cover every "
+                           "value the new engine reads it at (a live run that has shown points cannot "
+                           "start again on today's engine)",
+    "NEW-LIVE-PID": "a live run of a project with a PID block the new engine runs at every step, which "
+                    "can stop it at its limit (RUN-EVENT-STORM) where today's engine finishes (a live "
+                    "run that has shown points cannot start again on today's engine)",
     # quick mode's (a case's mode "quick": the new engine's fast mode)
     "QUICK-NOT-FOUND": "quick mode: the case is not in the project",
     "QUICK-KIND": "quick mode: a case that drives no drive cycle",
@@ -204,30 +208,60 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
 
 
 def live_error_axis(project: Project, case_id: str) -> Optional[Refusal]:
-    """A live run's refusal where the new engine would stop it at a table
-    that today's engine reads only in one branch of its part (BRANCH_READS)
-    and whose axis stops the run outside its data (Error): the new engine
-    stops at its first read past the data, today's only when its own read
-    is, and a live run that has shown points is not run again on today's
-    engine. A project with such a table is first run on the new engine
-    without a view (its points are the live run's, bit for bit); if that
-    stops at a table, the live run goes to today's engine, before any point is shown."""
+    """A live run's refusal, decided before the run (nothing is run first,
+    so a Stop is read from the start): a table that today's engine reads
+    only in one branch of its part (BRANCH_READS) with an axis set to Error
+    whose data does not cover every value the new engine reads it at, which
+    it reads in every branch (_covers): the new engine would stop at its
+    first read past the data, today's only when its own read is, and a live
+    run that has shown points is not run again on today's engine. Or a PID
+    block the new engine runs at every step (one with a longer Sample Time
+    is refused before, NEW-SAMPLED): at its limit for a long stretch it can
+    stop the new engine (RUN-EVENT-STORM) where today's engine finishes."""
+    pid = next((el for s in project.systems for el in s.elements if el.componentDefId == "control.pid"), None)
+    if pid is not None:
+        return Refusal("NEW-LIVE-PID", f"the PID block {pid.label!r}, which the new engine runs at "
+                                       f"every step, can stop it at its limit (RUN-EVENT-STORM)")
     try:
         ctx = _context(project, case_id)
     except Exception:  # noqa: BLE001 — the run says it (NEW-BUILD)
         return None
     for (el_id, key), m in ctx.maps.items():
         rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, key))
-        if rule is not None and any(a < len(rule.axes) and rule.axes[a][1] is not SAME for a in m.error_axes):
-            break
-    else:
-        return None
-    try:
-        run_new(project, case_id)
-    except Exception as e:  # noqa: BLE001 — a stop at a table; any other stop the live run reports
-        if "RUN-TABLE" in failure(e).why or isinstance(e, TableError):
-            return Refusal("NEW-LIVE-ERROR-AXIS", f"the new engine, run first without a view, stopped: {e}")
+        for a in m.error_axes:
+            if rule is not None and a < len(rule.axes) and rule.axes[a][1] not in (SAME, NEVER) \
+                    and not _covers(ctx, el_id, key, a):
+                lo, hi = m.ranges[a] or (0.0, 0.0)
+                return Refusal("NEW-LIVE-ERROR-AXIS", (
+                    f"{m.name}: its {m.uses[a].axis} axis is set to Error and its data ({lo:g} to "
+                    f"{hi:g} {m.uses[a].unit}) does not cover every value the new engine reads it at "
+                    f"(today's engine reads it {rule.where})"))
     return None
+
+
+def _covers(ctx, el_id: str, key: str, axis: int) -> bool:
+    """Whether a table's axis covers every value the new engine reads it
+    at, in every branch of its part: an E-Motor's full-load torque and loss
+    map from 0 to its maximum speed (above it the inverter is off: see
+    KNOWN-LIMITS for a motor driven above it), its loss map from 0 to the
+    most torque it gives or takes (its full-load torque, as a generator
+    times its Q4 share, or its drag torque; with no axis of those two set
+    to Linear, which reads past their values); an Engine's fuel map between
+    its full-load curve's first and last speed (it is read at its speed held
+    there) and from 0 to its most full-load torque. Any other: False."""
+    m = ctx.maps[(el_id, key)]
+    mc, ec = ctx.motors.get(el_id), ctx.engines.get(el_id)
+    if mc is not None and (key, axis) in (("full_load_torque", 1), ("power_loss", 0)):
+        lo, hi = 0.0, mc.max_rpm
+    elif mc is not None and (key, axis) == ("power_loss", 1) and not any(mc.full_load.linear + mc.drag.linear):
+        fl = max(v for _, row in mc.full_load.pts for _, v in row) if len(mc.full_load.policy) == 2 \
+            else max(v for _, v in mc.full_load.pts)
+        lo, hi = 0.0, max(abs(fl) * max(1.0, abs(mc.q4_scale)), max(abs(v) for _, v in mc.drag.pts))
+    elif ec is not None and key == "fuel_map" and ec.full_load.ranges[0] is not None:
+        lo, hi = ec.full_load.ranges[0] if axis == 0 else (0.0, max(v for _, v in ec.full_load.pts))
+    else:
+        return False
+    return m.edge(axis, lo) is None and m.edge(axis, hi) is None
 
 
 def _ran(result: SimResult, project: Optional[Project] = None) -> SimResult:

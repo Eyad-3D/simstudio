@@ -788,19 +788,33 @@ minimum or an average, for example from the CSV export, or put the
   (`RUN-EVENT-STORM`, at the anti-windup) and quick mode with
   `QUICK-FAILED` (`FAST-RUN`), where today's engine succeeds. Without
   `LIGHTSIM_ENGINE_STRICT` the run goes on today's engine with that
-  warning; a live run with a view fails, as every live run the new engine
-  cannot finish does (a live run is not run twice). *Roadmap:* ENG-16.
+  warning. A live run that has shown points is not run again on today's
+  engine, so a run with a view (every run the app starts) of a project with
+  such a PID goes to today's engine before it starts, with the code
+  `NEW-LIVE-PID`, whether or not its PID would reach its limit.
+  *Roadmap:* ENG-16.
 - **A live run can go to today's engine for a table set to Error.** An
   E-Motor's or Engine's table is read by today's engine only in one branch
   of the part (an E-Motor's drag table only while it is unpowered); the new
-  engine stops a run at its first read past a table's data when the axis is
-  set to Error, so it can stop a run that today's engine finishes. A run
-  with no view is then run again on today's engine, but a live run that has
-  shown points is not. So a live run of a project with such a table first
-  runs on the new engine without a view; if that stops, the live run goes to
-  today's engine before any point is shown, with the code
-  `NEW-LIVE-ERROR-AXIS`. A live edit that later moves the run past the data
-  still fails it. *Roadmap:* ENG-16.
+  engine reads it in every branch and stops a run at its first read past
+  the data when the axis is set to Error, so it can stop a run that today's
+  engine finishes. A run with no view is then run again on today's engine,
+  but a live run that has shown points is not. So a run with a view (every
+  run the app starts) is decided before it starts, without running it: it
+  goes to today's engine, with the code `NEW-LIVE-ERROR-AXIS`, when such an
+  axis set to Error does not cover every value the new engine can read it
+  at. Covered are an E-Motor's full-load torque and loss map from 0 to its
+  maximum speed, its loss map from 0 to the most torque it gives or takes
+  (with no axis of its full-load or drag table set to Linear), and an
+  Engine's fuel map over its full-load curve's speeds and from 0 to its most
+  torque; any other such axis is not, even where the case would never reach
+  past its data (the example cars' tables are covered). A motor driven
+  above its maximum speed by something else (a downhill grade, an engine
+  or another motor on its shaft) is still read past a table that ends at
+  that speed: such a live run fails there (`NEW-FAILED`) where today's
+  engine only notes the over speed; run it with `LIGHTSIM_ENGINE=today`. A
+  live edit that later moves the run past the data also fails it.
+  *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a
   negative pressure, a CG height below 0, a wheel's load share of 0):

@@ -467,11 +467,15 @@ def test_a_live_edit_of_a_sample_time_over_the_solver_step_is_for_the_next_run(b
     from a Sample Time edit on; the new engine runs it at every step, so
     the edit is not made live: the result lists it with NEW-LIVE-NEXT-RUN
     (the next run is NEW-SAMPLED, on today's engine). One within the step is
-    taken as made."""
+    taken as made. (A live run with a PID runs on today's engine, from
+    7 November: NEW-LIVE-PID.)"""
     from test_new_engine_evidence import _sampled
     project = _sampled(block, 0.0)
     live = _Live(at=20.0, then=[_set("blk", "sample_time_s", 5.0)])
     result = simulate(project, "case-city", live.emit, live.control)
+    if block == "pid":
+        assert result.messages[0].text.startswith("Not run [NEW-LIVE-PID]"), result.messages[0].text
+        return
     assert result.engine == "new" and result.status == "success"
     (edit,) = result.liveEdits
     assert (edit.key, edit.value) == ("sample_time_s", 5.0)
@@ -481,17 +485,22 @@ def test_a_live_edit_of_a_sample_time_over_the_solver_step_is_for_the_next_run(b
     assert taken.note is None
 
 
-def _branch_table(policy):
-    """The sweep's fault: the BEV's city case with its E-Motor's drag table
-    cut at the high end of its speed axis, outside = ``policy``; run live."""
+def _fault(fid):
+    """A fault of the sweep (benchmarks/back_to_back/sweep.py), with no pace."""
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
     from benchmarks.back_to_back import sweep
-    raw, case_id = sweep.fault_project(f"table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:{policy}")
+    raw, case_id = sweep.fault_project(fid)
     next(c for c in raw["cases"] if c["id"] == case_id)["realtimeFactor"] = 0  # (no pace)
     from app.schemas import Project
     return Project.model_validate(raw), case_id
+
+
+def _branch_table(policy):
+    """The sweep's fault: the BEV's city case with its E-Motor's drag table
+    cut at the high end of its speed axis, outside = ``policy``; run live."""
+    return _fault(f"table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:{policy}")
 
 
 def test_a_live_run_with_an_error_axis_one_branch_reads_runs_on_today_s_engine(monkeypatch):
@@ -518,3 +527,87 @@ def test_a_live_run_with_an_error_axis_one_branch_reads_runs_on_today_s_engine(m
     assert simulate(clamp, case_id, _Live().emit, _Live().control).engine == "new"
     monkeypatch.setenv(new_engine.STRICT_VAR, "1")
     assert not simulate(project, case_id).messages[0].text.startswith("Not run [NEW-LIVE-ERROR-AXIS]")
+
+
+def test_a_viewed_run_of_an_example_runs_once_and_reads_a_stop_from_its_start(monkeypatch):
+    """The example BEV's E-Motor has axes set to Error on its full-load
+    torque and its loss map, whose data cover every speed and torque the new
+    engine reads them at (new_engine._covers): a run with a view, as every
+    run the app starts, is decided before it runs and runs once, and a Stop
+    sent 0.1 s into it ends it within the live run's mark (STREAM S2: p95 at
+    most 0.25 s, on Windows CI in tests/test_stop_latency.py). Before: the
+    case first ran in full with no view and read no Stop (the Stop returned
+    1.4 s later on WLTC)."""
+    monkeypatch.delenv(new_engine.STRICT_VAR)
+    project = load_example("bev-car")
+    _case(project, "case-wltc").realtimeFactor = 0
+    real, calls = new_engine.run_new, []
+
+    def spy(project, case_id, emit=None, control=None, *a, **k):
+        calls.append(emit is not None)
+        return real(project, case_id, emit, control, *a, **k)
+    monkeypatch.setattr(new_engine, "run_new", spy)
+    asked = []
+    timer = threading.Timer(0.1, lambda: asked.append(time.perf_counter()))
+    timer.start()
+    result = simulate(project, "case-wltc", lambda m: None, lambda: [{"type": "cancel"}] if asked else [])
+    waited = time.perf_counter() - asked[0]
+    timer.cancel()
+    assert result.engine == "new" and result.status == "cancelled", [m.text for m in result.messages]
+    assert calls == [True]
+    assert waited <= 0.25, waited
+
+
+def test_no_example_is_refused_a_viewed_run_for_its_error_axes():
+    """Every case of every example runs a viewed run on the new engine as
+    far as its tables go (the hybrid's are refused before, NEW-BALANCE, but
+    its live case): its Error axes cover what its parts reach."""
+    for name in ("bev-car", "aero-bev", "fs-electric", "hybrid-car"):
+        project = load_example(name)
+        for c in project.cases:
+            assert new_engine.live_error_axis(project, c.id) is None, (name, c.id)
+
+
+@pytest.mark.parametrize("fid", [
+    "table:bev-car/case-city-live:el-motor.full_load_torque:1:lo:edge:error",
+    "table:bev-car/case-city-live:el-motor.power_loss:0:hi:edge:error",
+    "table:bev-car/case-city-live:el-motor.power_loss:1:hi:edge:error",
+    "table:bev-car/case-city-live:el-motor.power_loss:1:lo:edge:error",
+    "table:bev-car/case-city-live:el-motor.full_load_torque:0:hi:edge:error",  # (its voltage)
+    "table:bev-car/case-city-live:el-motor.drag_torque:0:hi:edge:linear",  # (the loss map's torque: Error)
+    "table:hybrid-car/case-mixed-live:el-engine.fuel_map:0:hi:edge:error",
+    "table:hybrid-car/case-mixed-live:el-engine.fuel_map:1:hi:edge:error",
+])
+def test_an_error_axis_short_of_what_its_part_reaches_is_refused_before_the_run(fid):
+    """An E-Motor's full-load torque or loss map cut short of 0 or of its
+    maximum speed, its loss map short of its most torque (or past it, a
+    drag table read Linear), any axis _covers does not decide (the voltage),
+    an Engine's fuel map short of its full-load curve: refused, with no run.
+    The same tables cut on Clamp are not."""
+    project, case_id = _fault(fid)
+    why = new_engine.live_error_axis(project, case_id)
+    assert why is not None and why.code == "NEW-LIVE-ERROR-AXIS", why
+    project, case_id = _fault(fid.rsplit(":", 1)[0] + ":clamp")
+    assert new_engine.live_error_axis(project, case_id) is None
+
+
+def test_a_live_run_with_a_pid_the_new_engine_runs_at_every_step_runs_on_today_s_engine(monkeypatch):
+    """A PID with a Sample Time of 0 at its limit stops the new engine 309 s
+    into the city case (RUN-EVENT-STORM) where today's engine finishes, and
+    a live run that has shown points is not run again on today's engine.
+    So a live run of a project with a PID the new engine runs at every step
+    goes to today's engine before it runs, NEW-LIVE-PID (before: it failed
+    after 310 points, NEW-FAILED). A run with no view is not refused for it."""
+    project, case_id = _fault("sampled:bev-car/case-city-live:pid:0")
+    shown = _Live()
+    refused = simulate(project, case_id, shown.emit, shown.control)
+    assert refused.messages[0].text.startswith("Not run [NEW-LIVE-PID]"), refused.messages[0].text
+    assert not shown.stream
+    monkeypatch.delenv(new_engine.STRICT_VAR)
+    live = _Live()
+    result = simulate(project, case_id, live.emit, live.control)
+    assert result.engine == "today" and result.status == "success", [m.text for m in result.messages]
+    assert "[NEW-LIVE-PID]" in result.messages[0].text
+    assert live.steps()
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    assert "[NEW-LIVE-PID]" not in simulate(project, case_id).messages[0].text

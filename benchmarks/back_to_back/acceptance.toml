@@ -36,7 +36,8 @@ NEW-BUILD = "today's model builder refused the model before the new engine saw i
 NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow in the message)"
 NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
 NEW-TEXT = "a part whose equations come from a text file, in a case the new engine's path does not run, or whose file it cannot read: today's engine does not read text components, so the case fails with the code of the refusal and this one (added 31 October, widened 1 November: [[changes]])"
-NEW-LIVE-ERROR-AXIS = "a live run the new engine would stop at a table read past its data (an axis set to Error) that today's engine reads only in one branch of its part: the project goes to today's engine before any point is shown, a live run that has shown points cannot start again (added 7 November, the sweep: [[changes]])"
+NEW-LIVE-ERROR-AXIS = "a run with a view (a live run) of a project with a table that today's engine reads only in one branch of its part, with an axis set to Error whose data does not cover every value the new engine reads it at: it goes to today's engine before it starts, as a live run that has shown points cannot start again (added 7 November, the sweep; decided before the run from 7 November, re-check 2: [[changes]])"
+NEW-LIVE-PID = "a run with a view (a live run) of a project with a PID block the new engine runs at every step, which can stop it at its limit (RUN-EVENT-STORM) where today's engine finishes: it goes to today's engine before it starts (added 7 November, re-check 2 of the sweep: [[changes]])"
 NEW-SAMPLED = "a PID or Lookup block with a Sample Time longer than today's solver step: today's engine runs it only at multiples of its Sample Time and holds its output in between, the new engine runs it at every step (added 6 November, the sweep: [[changes]])"
 # quick mode (a case's mode "quick": the new engine's fast mode, step 2's item 5;
 # added 31 October: [[changes]]). A case quick mode does not run runs in full
@@ -956,7 +957,8 @@ runs it; a live case run live, its points to a view, at LIVE_PACE). On each: eve
 short at each end of each axis, by its outermost point and to its inner half, with that axis's out-of-range \
 setting on Error, on Clamp and on Linear (the other axes as the part has them); a Driving Task's profile \
 it runs, and a Road Profile added on the Vehicle's grade, cut to each half; the case as it is. On the judge's \
-three fault bases (bev-car/case-city, fs-electric/case-accel-75m, hybrid-car/case-udds): one part of every \
+three fault bases (bev-car/case-city, fs-electric/case-accel-75m, hybrid-car/case-udds) and on the live \
+cases (bev-car/case-city-live, hybrid-car/case-mixed-live; added 7 November, [[changes]]): one part of every \
 library component but a subsystem, connected to nothing, with its defaults and with each table the engine \
 reads of it cut as above (a Lookup in the mode of the table cut, its tables of five points an axis); a PID, a 1D Lookup and a 2D Lookup fed the Vehicle's speed (and distance), with a \
 Sample Time of 0, 5 ms, 15 ms (today's solver step is 10 ms), half the case's time step, one step, \
@@ -1043,3 +1045,16 @@ reason = """The second independent check of 7 November: in the app a live run th
 on today's engine, but the sweep's strict run counts it as handed back (NEW-FAILED) and skipped today's run; \
 the BEV's live city case with its E-Motor's drag table cut at the top of its speed axis and set to Error fails \
 at 24 s in the app where today's succeeds. No pass mark moves."""
+
+[[changes]]
+date = "2026-11-07"
+line = "SWEEP"
+change = """[sweep] cases: the alone and sampled faults (a part of every library component on nothing; a PID, a \
+1D and a 2D Lookup, seven Sample Times) are also built on the two live cases. [codes]: NEW-LIVE-ERROR-AXIS is decided before the run, and \
+NEW-LIVE-PID is added."""
+reason = """The third independent check of 7 November: the new path ran a project with an axis set to Error \
+once in full before a run with a view (every example BEV's, every run the app starts), reading no Stop (the \
+STREAM S2 probe failed here: p95 0.675 s), and it handed back only a stop at a table, so a live run of the BEV's \
+city case with a PID at its limit failed at 309 s where today's succeeds; the sweep had no sampled fault on a \
+live case, so its live compare never met a PID, nor any part alone (the same hole: a strict hand-back on a \
+fault base hides a live run that fails). No pass mark moves."""

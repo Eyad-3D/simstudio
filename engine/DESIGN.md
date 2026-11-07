@@ -3305,7 +3305,16 @@ against exact answers from `benchmarks/`.
   as typed. Nor is one with a PID or Lookup block whose Sample Time is
   longer than today's solver step (`NEW-SAMPLED`; quick mode
   `QUICK-SAMPLED`, `new_engine.held_block`): today's engine holds its
-  output between samples, the engine runs it at every step. Today's checks of the values a run uses are today's code's
+  output between samples, the engine runs it at every step. A run with
+  a view, which cannot start again on today's engine once it has shown a
+  point, goes there before it starts, decided without running it
+  (`new_engine.live_error_axis`), where the engine could stop it and
+  today's would not: a table today's engine reads in one branch of its
+  part with an axis on Error whose data does not cover what the part
+  reaches (`NEW-LIVE-ERROR-AXIS`; `_covers`: an E-Motor's maps over its
+  speeds and torques, an Engine's fuel map over its full-load curve), or a
+  PID the engine runs at every step, which can storm at its limit
+  (`NEW-LIVE-PID`). Today's checks of the values a run uses are today's code's
   own words: what its `RunContext` says while it is built (a CG height
   with every wheel on one axle, wheels off the road at the start, a
   driveline over-constrained), which the path's never-stepped

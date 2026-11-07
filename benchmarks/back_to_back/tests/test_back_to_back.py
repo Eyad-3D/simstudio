@@ -1717,9 +1717,14 @@ def test_the_sweep_cuts_every_table_the_engine_reads_and_places_every_part_alone
                 for p in sweep.POLICIES:
                     assert any(f":{site['component']}#{key}:0:{end}:" in f and f.endswith(f":{p}")
                                for f in ids), (site, key, end, p)
-    for base in sweep.ALONE_BASES:
+    # a part alone, a PID and the Lookups sampled on each fault base and each
+    # live case (a live run the new engine fails is not run again: the live compare)
+    assert sweep.live_bases() == [b for b in sweep.bases() if b.endswith("-live")] != []
+    for base in (*sweep.ALONE_BASES, *sweep.live_bases()):
         assert {f.split(":")[2] for f in ids if f.startswith(f"alone:{base}:") and "#" not in f} == \
-            set(sweep.library()) - {"container.system"}
+            set(sweep.library()) - {"container.system"}, base
+        assert {f.split(":", 2)[2] for f in ids if f.startswith(f"sampled:{base}:")} == \
+            {f"{b}:{ts}" for b in ("pid", "lookup1d", "lookup2d") for ts in sweep.SAMPLE_TIMES}, base
     assert {f.split(":")[1] for f in ids if f.startswith("none:")} == set(sweep.bases())
     assert len(sweep.bases()) == 16
     for fid in ids:

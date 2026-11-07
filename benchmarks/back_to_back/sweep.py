@@ -10,6 +10,10 @@ The faults, from the four example cars and the judge's 16 cases
   with that axis's out-of-range setting on each of Error, Clamp and Linear;
   a Driving Task's or Road Profile's profile (no setting) cut short at each
   end;
+On each of the judge's three fault bases and each live case (live_bases,
+added 7 November: a live run the new engine fails is not run again, so only
+a live case's own run shows it):
+
 - alone: one part of every library component placed on the car and left
   connected to nothing (no bus, no shaft, no signal), with its defaults, and
   each table the engine reads of it cut as above;
@@ -208,7 +212,7 @@ def faults() -> list[str]:
             if _profiles_of(el) and _profile_runs(project, case_id, el):
                 out += [f"profile:{base}:{el['id']}:{end}" for end in ENDS]
         out += [f"profile:{base}:{SPARE}:{end}" for end in ENDS]  # a Road Profile on the grade
-    for base in ALONE_BASES:
+    for base in (*ALONE_BASES, *live_bases()):  # (a live run the new engine fails is not run again)
         for cdef_id in library():
             if cdef_id == "container.system":  # (a subsystem's box, not a part)
                 continue
@@ -227,6 +231,11 @@ def faults() -> list[str]:
         for block in ("pid", "lookup1d", "lookup2d"):
             out += [f"sampled:{base}:{block}:{ts}" for ts in SAMPLE_TIMES]
     return out
+
+
+def live_bases() -> list[str]:
+    """The judge's live cases (run live, as the app runs them: run_fault)."""
+    return [b for b in bases() if (runs._case(*base_project(b)).get("realtimeFactor") or 0) > 0]
 
 
 def _profile_runs(project: dict, case_id: str, el: dict) -> bool:
