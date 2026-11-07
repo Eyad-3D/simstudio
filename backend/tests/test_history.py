@@ -515,3 +515,49 @@ def test_a_rebase_of_a_git_pull_in_a_read_only_folder_still_says_conflict(folder
     finally:
         for f in folders:
             f.chmod(0o700)
+
+
+def test_undoing_one_save_that_removed_two_keys_keeps_their_order(folder):
+    old = {"a": 1, "b": 2, "c": 3, "d": 4}
+    doc = {"a": 1, "d": 4}
+    history.apply(doc, history.diff(old, doc), revert=True)
+    assert list(doc) == ["a", "b", "c", "d"]
+
+
+def test_one_edit_removing_two_overridden_parts_undoes_to_the_same_bytes(folder):
+    project = _bev()
+    project.cases[0].parameterOverrides = {"el-brake-rl": {"a": 1}, "el-brake-fr": {"a": 2},
+                                           "el-x": {"a": 3}}
+    storage.save_project(project)
+    path = storage.project_path("car")
+    before = path.read_bytes()
+    server = McpServer(Engine(user_folder=folder), Policy(), AuditLog(folder))
+    _edit(server, [{"op": "remove", "element": "el-brake-rl"},
+                   {"op": "remove", "element": "el-brake-fr"}], reason="drop both")
+    entry = next(e for e in history.entries(storage.location("car").backups) if e["by"] == "agent")
+    storage.undo("car", entry=entry["id"])
+    assert path.read_bytes() == before
+
+
+def test_a_rebase_in_a_read_only_folder_with_backups_still_says_conflict(folder):
+    """LightSim saved here before (backups and .lock exist); then the folder
+    became read-only and a git pull changed the file: 409, not PermissionError."""
+    import os
+
+    if os.name == "nt" or os.geteuid() == 0:
+        pytest.skip("needs a folder the user cannot write to")
+    project = _bev()
+    rev = storage.save_project(project)
+    path = storage.project_path("car")
+    path.write_text(path.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    backups = storage.location("car").backups
+    nodes = [*backups.rglob("*"), backups, path, path.parent]
+    modes = {n: n.stat().st_mode for n in nodes}
+    for n in nodes:
+        n.chmod(0o500 if n.is_dir() else 0o400)
+    try:
+        with pytest.raises(storage.ConflictError):
+            storage.rebase("car", rev, project.model_dump(mode="json"))
+    finally:
+        for n in nodes:
+            n.chmod(modes[n] & 0o777)

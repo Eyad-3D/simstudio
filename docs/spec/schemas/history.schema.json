@@ -5,7 +5,7 @@
   "description": "Format version 1. Generated from LightSim's data models; the specification is docs/spec/README.md. Licence: a draft waiting for the owner's decision, see docs/spec/README.md.",
   "$defs": {
     "Change": {
-      "description": "One value that changed. ``old`` is left out when the value was added,\n``new`` when it was removed; ``at`` is the place a list item took when it\nwas added, or had when it was removed (an undo puts it back there).",
+      "description": "One value that changed. ``old`` is left out when the value was added,\n``new`` when it was removed; ``at`` is the place a list item took when it\nwas added, or that a list item or an object's key had when it was removed\n(an undo puts it back there).",
       "properties": {
         "path": {
           "description": "keys of objects, and {\"id\": ...} for an item of a list of objects with ids",

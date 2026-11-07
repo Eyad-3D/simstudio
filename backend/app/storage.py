@@ -615,16 +615,23 @@ def rebase(project_id: str, revision: str, ours: dict) -> dict:
     Raises ConflictError when the history does not lead from ``revision`` to
     the file on disk (it was changed by something else, such as a git pull)."""
     loc = location(project_id)
-    # under the lock: a save replaces the file before it adds its history
-    # line, so read between the two the file would look changed by something else
-    # (no backups folder: no history to chain, and no folder to lock in that a
-    # read-only project folder would refuse to make: a git pull, say)
-    with project_lock(loc) if loc.backups.is_dir() else contextlib.nullcontext():
+    def read() -> tuple:
         try:
             now = revision_of(loc.file.read_bytes())
         except FileNotFoundError:
             raise ConflictError(f"Project '{project_id}' was deleted on disk.") from None
-        lines = [] if now == revision else history.entries(loc.backups)
+        return now, ([] if now == revision else history.entries(loc.backups))
+
+    # under the lock: a save replaces the file before it adds its history
+    # line, so read between the two the file would look changed by something else.
+    # No backups folder, or one the lock file cannot be opened in (a read-only
+    # project folder): LightSim cannot save there, so there is no save to wait
+    # for, and a git pull must still say conflict, not fail.
+    try:
+        with project_lock(loc) if loc.backups.is_dir() else contextlib.nullcontext():
+            now, lines = read()
+    except PermissionError:
+        now, lines = read()
     steps = [] if now == revision else history.chain(lines, revision, now)
     if steps is None:
         raise ConflictError(f"Project '{project_id}' was changed on disk by something other "

@@ -43,7 +43,8 @@ PathStep = Union[str, dict]
 class Change(BaseModel):
     """One value that changed. ``old`` is left out when the value was added,
     ``new`` when it was removed; ``at`` is the place a list item took when it
-    was added, or had when it was removed (an undo puts it back there)."""
+    was added, or that a list item or an object's key had when it was removed
+    (an undo puts it back there)."""
 
     path: list[PathStep] = Field(description="keys of objects, and {\"id\": ...} for an item of "
                                              "a list of objects with ids")
@@ -105,12 +106,14 @@ def diff(old: Any, new: Any, path: Optional[list] = None) -> list[dict]:
     if old == new:
         return []
     if isinstance(old, dict) and isinstance(new, dict):
-        out: list[dict] = []
         place = {k: n for n, k in enumerate(old)}
+        # removed keys last first, each with its place among the keys, so an
+        # undo (which reverts in reverse order) puts them back in the old order
+        out = [_change([*path, k], old=old[k], at=place[k]) for k in reversed(list(old)) if k not in new]
         for k in [*old, *(k for k in new if k not in old)]:
-            if k not in new:  # at: its place among the keys, so an undo keeps the order
-                out.append(_change([*path, k], old=old[k], at=place[k]))
-            elif k not in old:
+            if k not in new:
+                continue
+            if k not in old:
                 out.append(_change([*path, k], new=new[k]))
             else:
                 out += diff(old[k], new[k], [*path, k])
