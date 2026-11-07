@@ -775,7 +775,20 @@ minimum or an average, for example from the CSV export, or put the
   of it and holds its output in between; the new engine and quick mode
   would run it at every step. So with `LIGHTSIM_ENGINE=new` such a case
   runs on today's engine, saying so with the code `NEW-SAMPLED`, and in
-  quick mode it runs in full with `QUICK-SAMPLED`. *Roadmap:* ENG-16.
+  quick mode it runs in full with `QUICK-SAMPLED`. A live edit that sets
+  such a Sample Time during a run on the new engine is not made: the result
+  lists it with `NEW-LIVE-NEXT-RUN`, and the next run goes to today's
+  engine. *Roadmap:* ENG-16.
+- **A PID at its limit can stop the new engine and quick mode.** A PID
+  block with no Sample Time (or one within today's solver step) whose
+  output sits at its limit for a long stretch of a driving cycle (the BEV
+  and aero car on their city, WLTC and UDDS cycles, with a setpoint far
+  from the speed) makes the new engine stop with `NEW-FAILED`
+  (`RUN-EVENT-STORM`, at the anti-windup) and quick mode with
+  `QUICK-FAILED` (`FAST-RUN`), where today's engine succeeds. Without
+  `LIGHTSIM_ENGINE_STRICT` the run goes on today's engine with that
+  warning; a live run with a view fails, as every live run the new engine
+  cannot finish does (a live run is not run twice). *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a
   negative pressure, a CG height below 0, a wheel's load share of 0):

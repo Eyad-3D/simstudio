@@ -48,7 +48,9 @@ POLICIES = ("error", "clamp", "linear")
 DEPTHS = ("edge", "half")
 ENDS = ("lo", "hi")
 ALONE_BASES = tuple(f"{n}/{c}" for n, c in runs.FAULT_EXAMPLES.items())  # the judge's fault bases
-SAMPLE_TIMES = ("half-step", "step", "3-steps", "5s")
+# (the case's output step is 1 s on a cycle, over today's 10 ms solver step: "0", "5ms" and
+# "15ms" are at and around that step, so the blocks the new path runs are compared on every base)
+SAMPLE_TIMES = ("0", "5ms", "15ms", "half-step", "step", "3-steps", "5s")
 SPARE = "x-spare"  # the id of a fault's added part
 CODE = re.compile(r"\[((?:NEW|QUICK|FAST)-[A-Z0-9-]+)\]")
 REFUSED = re.compile(r"Not run \[([A-Z0-9-]+)\]")
@@ -300,7 +302,7 @@ def fault_project(fid: str) -> tuple[dict, str]:
     if kind == "sampled":
         block, ts = rest
         dt = float(case.get("timeStep") or 1.0)
-        sample = {"half-step": dt / 2, "step": dt, "3-steps": 3 * dt, "5s": 5.0}[ts]
+        sample = {"0": 0.0, "5ms": 0.005, "15ms": 0.015, "half-step": dt / 2, "step": dt, "3-steps": 3 * dt, "5s": 5.0}[ts]
         veh = next(e["id"] for e in _elements(project) if e["componentDefId"] == "vehicle.body")
         wires = [(veh, "sig_speed", SPARE, "sig_x_in")]
         if block == "pid":

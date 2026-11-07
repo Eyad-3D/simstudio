@@ -459,3 +459,23 @@ def test_the_result_says_what_ran_it_and_the_snapshot_keeps_it(monkeypatch):
     refused = replay(edited)
     assert refused.status == "failed" and "live edits" in refused.messages[0].text
     assert refused.messages[0].text.startswith("Not replayed [REPLAY-TODAY-LIVE-EDITS]: ")
+
+
+@pytest.mark.parametrize("block", ["lookup", "pid"])
+def test_a_live_edit_of_a_sample_time_over_the_solver_step_is_for_the_next_run(block):
+    """Today's engine holds a PID or Lookup block's output between samples
+    from a Sample Time edit on; the new engine runs it at every step, so
+    the edit is not made live: the result lists it with NEW-LIVE-NEXT-RUN
+    (the next run is NEW-SAMPLED, on today's engine). One within the step is
+    taken as made."""
+    from test_new_engine_evidence import _sampled
+    project = _sampled(block, 0.0)
+    live = _Live(at=20.0, then=[_set("blk", "sample_time_s", 5.0)])
+    result = simulate(project, "case-city", live.emit, live.control)
+    assert result.engine == "new" and result.status == "success"
+    (edit,) = result.liveEdits
+    assert (edit.key, edit.value) == ("sample_time_s", 5.0)
+    assert edit.note and "[NEW-LIVE-NEXT-RUN]" in edit.note and "holds the output" in edit.note
+    small = _Live(at=20.0, then=[_set("blk", "sample_time_s", 0.005)])
+    (taken,) = simulate(project, "case-city", small.emit, small.control).liveEdits
+    assert taken.note is None

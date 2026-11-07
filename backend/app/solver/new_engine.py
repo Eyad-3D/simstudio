@@ -919,6 +919,13 @@ class _Live:
                                   "new engine")
             if not isinstance(value, (bool, int, float, str)):  # (the app sends no other)
                 raise _Later("a table takes effect on the next run on the new engine")
+            if key == "sample_time_s" and model.cdef_of[el_id].id in HELD and isinstance(value, (int, float)):
+                trial = self.edits.project.model_copy(deep=True)
+                case = next(c for c in trial.cases if c.id == self.edits.case_id)
+                case.parameterOverrides.setdefault(el_id, {})[key] = value
+                held = held_block(trial, case)
+                if held:  # (the next run starts on today's engine for it: NEW-SAMPLED)
+                    raise _Later(f"{held}: it takes effect on the next run, which runs on today's engine")
             changes = self.edits.changes(el_id, key, value)
             if changes:
                 try:

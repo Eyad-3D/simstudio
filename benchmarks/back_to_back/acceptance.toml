@@ -1016,3 +1016,13 @@ url = "https://github.com/modelica/fmusim/releases/download/v0.7.0/fmusim-x86_64
 file = "fmusim-0.7.0/fmusim-x86_64-linux.zip"
 sha256 = "85d19b9b23ad54d8bbac30d4032ff08b7311e220cf07ffbf434234d63ca2beb9"
 line = "FMU"
+
+[[changes]]
+date = "2026-11-07"
+line = "SWEEP"
+change = """[sweep] faults: the sampled blocks also get a Sample Time of 0, 5 ms and 15 ms (today's solver step is \
+10 ms), besides half, one and three of the case's output steps and 5 s: 36 sampled faults become 63."""
+reason = """The independent check of 7 November: on a cycle the output step is 1 s, so every Sample Time of the \
+sweep was over today's solver step and held (NEW-SAMPLED), and no PID the new path runs was compared on a \
+cycle; such a PID at its limit stops the new engine and quick mode where today's succeeds (KNOWN-LIMITS). \
+No pass mark moves."""
