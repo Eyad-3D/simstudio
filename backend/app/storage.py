@@ -478,6 +478,8 @@ def write_file(loc: Location, data: bytes, expected_revision: str | None = None,
                 write_atomic(path.with_name(path.name + ".bak"), current)
             if current != data:
                 _keep_backup(loc, path, current)
+                if (meta or {}).get("by") == "agent" and (meta or {}).get("session"):
+                    _keep_session_start(loc, str(meta["session"]), current)
         write_atomic(path, data)
         if current != data:
             with contextlib.suppress(OSError):  # the save stands without its line
@@ -518,6 +520,23 @@ def _keep_pre_migration(loc: Location, version: int, previous: bytes) -> None:
     keep = loc.make_dir(loc.backups) / f"pre-migration-v{version}.json"
     if not keep.exists():
         write_atomic(keep, previous)
+
+
+def _keep_session_start(loc: Location, session: str, previous: bytes) -> None:
+    """Keep the file as it was before an AI agent session's first save, apart
+    from the KEEP_BACKUPS that rotate out, so a session that saves many times
+    can still be put back to the exact bytes it started from
+    (``pre-session-<hash of the session>.json``). The starts of the newest
+    KEEP_BACKUPS sessions are kept. Call with _save_lock held."""
+    folder = loc.make_dir(loc.backups)
+    keep = folder / f"pre-session-{hashlib.sha256(session.encode()).hexdigest()[:16]}.json"
+    if keep.exists():
+        return
+    write_atomic(keep, previous)
+    starts = sorted(folder.glob("pre-session-*.json"), key=lambda f: f.stat().st_mtime_ns)
+    for old in starts[: max(0, len(starts) - KEEP_BACKUPS)]:
+        with contextlib.suppress(OSError):
+            old.unlink()
 
 
 def _backup_files(folder: Path) -> list[Path]:

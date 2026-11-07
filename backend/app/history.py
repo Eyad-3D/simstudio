@@ -252,11 +252,13 @@ def record(backups: Path, before: Optional[bytes], after: bytes, revision_of,
 
 
 def entries(backups: Path) -> list[dict]:
-    """Every line of the history, oldest first (unreadable lines left out)."""
-    try:
-        text = path_in(backups).read_text(encoding="utf-8")
-    except OSError:
-        return []
+    """Every line of the history, oldest first, the one started afresh past
+    HISTORY_MAX_BYTES (``history.jsonl.1``) included (unreadable lines left out)."""
+    path = path_in(backups)
+    text = ""
+    for one in (path.with_suffix(".jsonl.1"), path):
+        with contextlib.suppress(OSError):
+            text += one.read_text(encoding="utf-8")
     out = []
     for line in text.splitlines():
         with contextlib.suppress(ValueError):

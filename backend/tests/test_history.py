@@ -582,3 +582,26 @@ def test_a_rebase_on_a_read_only_file_system_still_says_conflict(folder, monkeyp
     monkeypatch.setattr(storage, "project_lock", read_only)
     with pytest.raises(storage.ConflictError):
         storage.rebase("car", rev, project.model_dump(mode="json"))
+
+
+def test_a_long_agent_session_still_undoes_to_the_exact_original(folder, monkeypatch):
+    # the attack check's defect 2: one session's first save, past the size at
+    # which history.jsonl starts afresh, then more saves than the backups keep:
+    # entries() lost the first line, and no backup held the original bytes
+    monkeypatch.setattr(history, "HISTORY_MAX_BYTES", 20_000)
+    project = _bev()
+    storage.save_project(project)
+    car = storage.project_path("car")
+    original = car.read_bytes()
+    meta = {"by": "agent", "tool": "model_edit", "client": "t", "session": "long"}
+    project.name = "X" * 25_000
+    storage.save_project(project, meta=meta)
+    for n in range(storage.KEEP_BACKUPS + 1):
+        project.systems[0].elements[0].label = f"p{n}"
+        storage.save_project(project, meta=meta)
+    backups = storage.location("car").backups
+    assert (backups / "history.jsonl.1").exists()
+    assert sum(e.get("session") == "long" for e in history.entries(backups)) == storage.KEEP_BACKUPS + 2
+    storage.undo("car", session="long")
+    assert json.loads(car.read_bytes()) == json.loads(original)
+    assert [f.read_bytes() for f in backups.glob("pre-session-*.json")] == [original]

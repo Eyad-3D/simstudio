@@ -263,6 +263,11 @@ saves replaced, and git ignores it. A line is one JSON object; its schema
 is [`schemas/history.schema.json`](schemas/history.schema.json). The app
 reads the history to show an AI agent's edits in the open window as they
 happen, and to undo one of them, or a whole agent session, in one click.
+Past 4 MB the file is started afresh, the old one kept as
+`history.jsonl.1`; both are read. The version a file had before an AI agent
+session's first save is also kept, as `pre-session-<hash of the session>.json`
+(for the newest 20 sessions), so a session that saved more often than the
+20 backups go back can still be put back to the exact earlier file.
 
 | Field | Type | Meaning |
 |---|---|---|
