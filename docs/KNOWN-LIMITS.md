@@ -821,7 +821,10 @@ minimum or an average, for example from the CSV export, or put the
   step that lets a machine carry past by a step, does not notice (a
   downhill cycle run of the example BEV with its Final Drive ratio x3,
   and the hybrid with its ratio x3); it finishes there with the over-speed
-  warning, so run such a project with `LIGHTSIM_ENGINE=today`. A live edit
+  warning, so run such a project with `LIGHTSIM_ENGINE=today`. The
+  hybrid on the highway cycle at that ratio and grade also gets the
+  battery's "charging exceeds max charge power" warning, which today's
+  engine does not give. A live edit
   that later moves the run past the data does fail it.
   *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
