@@ -1727,6 +1727,8 @@ def test_the_sweep_cuts_every_table_the_engine_reads_and_places_every_part_alone
             {f"{b}:{ts}" for b in ("pid", "lookup1d", "lookup2d") for ts in sweep.SAMPLE_TIMES}, base
     assert {f.split(":")[1] for f in ids if f.startswith("none:")} == set(sweep.bases())
     assert len(sweep.bases()) == 16
+    # a machine driven past its maximum speed: every final drive x3, alone and on a downhill grade, on every case
+    assert {f for f in ids if f.startswith("overspeed:")} ==         {f"overspeed:{b}:{h}" for b in sweep.bases() for h in sweep.OVERSPEED} != set()
     for fid in ids:
         raw, case_id = sweep.fault_project(fid)
         Project.model_validate(raw)
@@ -1776,10 +1778,14 @@ def test_the_sweep_compares_as_its_section_says():
 
 
 def test_the_sweep_counts_a_live_run_the_new_path_fails_as_a_mismatch(tmp_path):
-    """A live case is also run as the app runs it (not strict, with a view);
-    a live run the new engine fails is not run again on today's, so where
-    today's does not fail it is a mismatch, though its strict run is a
-    hand-back (NEW-FAILED). A record lacking that live run is one too."""
+    """Every fault is also run as the app runs a case (not strict, with a
+    view; every run the app starts has one), on a live case or not: that run
+    is compared with today's like a strict one, so where today's does not
+    fail a failed one is a mismatch, though its strict run is a hand-back
+    (NEW-FAILED); one the app runs again on today's engine (NEW-LIVE-RESTART,
+    or a refusal said in its first message) is a hand-back with that code,
+    and one on today's engine with no code is a mismatch. A record lacking
+    the live run is a mismatch on any case."""
     import json
 
     from benchmarks.back_to_back import sweep
@@ -1789,11 +1795,22 @@ def test_the_sweep_counts_a_live_run_the_new_path_fails_as_a_mismatch(tmp_path):
     assert sweep.compare("table:x", "live", ok, ok) == {"diffs": []}
     assert sweep.compare("table:x", "live", ok | {"status": "failed"}, live_failed) == {"diffs": []}
     (d,) = sweep.compare("table:x", "live", ok, live_failed)["diffs"]
-    assert "could not finish this live run" in d
-    fid = "table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:error"
-    (tmp_path / "raw").mkdir()
-    sweep._file(tmp_path, fid).write_text(json.dumps({"fault": fid, "stamp": "s", "runs": {
-        "new": {"refused": "NEW-FAILED"}, "quick": {"refused": "QUICK-FAILED"}, "today": ok}}), encoding="utf-8")
-    res = sweep.summarise(tmp_path, [fid])
-    assert [(m["setting"], m["diffs"]) for m in res["mismatches"]] == [
-        ("live", ["no live run in its record (a live case is also run live)"])]
+    assert d.startswith("verdict: today success, live failed")
+    assert sweep.compare("table:x", "live", ok, ok | {"warnings": ["w"]})["diffs"]  # (not only its verdict)
+    restarted = ok | {"engine": "today", "first": "The new engine stopped this run after it had shown "
+                                                  "points [NEW-FAILED] (x); it ran again from t = 0 on "
+                                                  "today's engine [NEW-LIVE-RESTART]."}
+    assert sweep.compare("table:x", "live", ok, restarted) == {"handed": "NEW-LIVE-RESTART"}
+    said = ok | {"engine": "today", "first": "Run on today's engine, not the new one (LIGHTSIM_ENGINE=new) "
+                                             "[NEW-SAMPLED]: x."}
+    assert sweep.compare("table:x", "live", ok, said) == {"handed": "NEW-SAMPLED"}
+    (d,) = sweep.compare("table:x", "live", ok, ok | {"engine": "today", "first": "nothing said"})["diffs"]
+    assert "no listed code" in d
+    for fid in ("table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:error",
+                "table:bev-car/case-city:el-motor.drag_torque:0:hi:half:error"):
+        (tmp_path / "raw").mkdir(exist_ok=True)
+        sweep._file(tmp_path, fid).write_text(json.dumps({"fault": fid, "stamp": "s", "runs": {
+            "new": {"refused": "NEW-FAILED"}, "quick": {"refused": "QUICK-FAILED"}, "today": ok}}), encoding="utf-8")
+        res = sweep.summarise(tmp_path, [fid])
+        assert [(m["setting"], m["diffs"]) for m in res["mismatches"]] == [
+            ("live", ["no live run in its record"])], fid

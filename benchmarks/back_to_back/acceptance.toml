@@ -37,6 +37,7 @@ NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow
 NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
 NEW-TEXT = "a part whose equations come from a text file, in a case the new engine's path does not run, or whose file it cannot read: today's engine does not read text components, so the case fails with the code of the refusal and this one (added 31 October, widened 1 November: [[changes]])"
 NEW-LIVE-ERROR-AXIS = "a run with a view (a live run) of a project with a table that today's engine reads only in one branch of its part, with an axis set to Error whose data does not cover every value the new engine reads it at: it goes to today's engine before it starts, as a live run that has shown points cannot start again (added 7 November, the sweep; decided before the run from 7 November, re-check 2: [[changes]])"
+NEW-LIVE-RESTART = "a run with a view that the new engine stopped after it had shown points, with no Stop and no live edit read: it starts again at t = 0 on today's engine (the view is told to drop its points), a note, so today's verdict stands (added 7 November, fix round 5: [[changes]])"
 NEW-LIVE-PID = "a run with a view (a live run) of a project with a PID block the new engine runs at every step, which can stop it at its limit (RUN-EVENT-STORM) where today's engine finishes: it goes to today's engine before it starts (added 7 November, re-check 2 of the sweep: [[changes]])"
 NEW-SAMPLED = "a PID or Lookup block with a Sample Time longer than today's solver step: today's engine runs it only at multiples of its Sample Time and holds its output in between, the new engine runs it at every step (added 6 November, the sweep: [[changes]])"
 # quick mode (a case's mode "quick": the new engine's fast mode, step 2's item 5;
@@ -963,7 +964,7 @@ library component but a subsystem, connected to nothing, with its defaults and w
 reads of it cut as above (a Lookup in the mode of the table cut, its tables of five points an axis); a PID, a 1D Lookup and a 2D Lookup fed the Vehicle's speed (and distance), with a \
 Sample Time of 0, 5 ms, 15 ms (today's solver step is 10 ms), half the case's time step, one step, \
 three steps and 5 s (the first three added 7 November, [[changes]]). On every one of the 16 cases: every Final Drive ratio times 3 (the motor reaches its maximum speed at a third of the car's), alone and on a constant 6 % downhill grade (a motor driven past its maximum speed; added 7 November, [[changes]])."""
-measure = """Each fault runs through app.solver.simulate three times: today's engine (no flag), the new path in \
+measure = """Each fault runs through app.solver.simulate four times: today's engine (no flag), the new path in \
 strict mode (LIGHTSIM_ENGINE=new, LIGHTSIM_ENGINE_STRICT=1) and quick mode in strict mode (the case's mode \
 "quick"). A strict run refused with a code of [codes] (not NEW-ERROR nor QUICK-ERROR) is handed back: counted \
 by code, not compared. Any other is compared with today's run; a mismatch is any of: the status (the verdict) \
@@ -975,9 +976,10 @@ without the other is a mismatch); a row marked not valid on one run only (in qui
 gives); for a PID's or Lookup's fault, its output at the times both runs give further than 2 % of its range \
 on today's run from today's (its first point, which today's engine records before its first step, within that \
 of today's first two values, as classes.toml's rule today-first-point-before-its-step has it: changed \
-6 November, [[changes]]). A live case is run a fourth time as the app runs it, the new path not strict and with \
-a view: one the new engine fails (a live run it fails is not run again on today's engine) where today's run does \
-not fail is a mismatch, whatever its strict run said (added 7 November, [[changes]]). An exception out of a run, \
+6 November, [[changes]]). Every fault is also run a fourth time as the app runs a case (every run the app \
+starts has a view, a live case or not), the new path not strict and with a view, and compared with today's run \
+like a strict one; one the app runs again on today's engine (NEW-LIVE-RESTART, or a refusal said in its first \
+message) is handed back with that code (added 7 November, [[changes]]; for live cases only, then). An exception out of a run, \
 or a fault that cannot be built, is a mismatch."""
 pass_mark = """0 mismatches over every fault, after the fixes: each one the sweep finds before them is fixed or \
 its run handed back with a listed code. The three cases the FMU part's last re-check left open (a battery or \
@@ -1064,3 +1066,9 @@ date = "2026-11-07"
 line = "SWEEP"
 change = """[sweep] cases: an over-speed fault on all 16 cases (every Final Drive ratio times 3, alone and on a 6 % downhill grade)."""
 reason = """The fourth independent check of 7 November: a motor driven past its maximum speed (the example BEV with its Final Drive x3 on a downhill grade) failed every run with a view on the new path (RUN-TABLE, the full-load and loss maps read past their data on Error, above the maximum speed where the inverter is off) where today's engine only warns; the sweep built no such fault. The motor now reads the maps at its speed held to the maximum. No pass mark moves."""
+
+[[changes]]
+date = "2026-11-07"
+line = "SWEEP"
+change = """[sweep] measure: every fault, not only a live case's, is run as the app runs it (not strict, with a view) and compared with today's like a strict run; one run again on today's engine is handed back with its code. [codes]: NEW-LIVE-RESTART is added."""
+reason = """The fifth independent check of 7 November: 13 of the over-speed faults failed in the app (a run the new engine stops after showing points was not run again) where today's engine warns or succeeds, and the sweep counted 10 of them as strict hand-backs, because its app-style run was made only on live cases, though every run the app starts has a view (the generator did not find the BEV WLTC downhill case). A run the new engine stops after points, with no Stop or edit read, now starts again on today's engine, the view told. No pass mark moves."""

@@ -1505,6 +1505,36 @@ describe("run snapshots", () => {
     return { handle, finish: () => finish() };
   }
 
+  it("a restart from the engine drops the points shown so far, and the new ones follow from t = 0", async () => {
+    await start();
+    let callbacks!: Parameters<typeof api.runSimulationLive>[2];
+    let finish!: () => void;
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId, cb) => {
+      callbacks = cb;
+      return {
+        setParam: vi.fn(),
+        cancel: vi.fn(),
+        done: new Promise((resolve) => {
+          finish = () => resolve({ caseId, status: "success", messages: [], channels: [], summary: [] });
+        }),
+      };
+    });
+    const step = (t: number) => callbacks!.onStep!({ t, pct: 0, values: { "el-const:sig_out": t } });
+    const series = () => store().runs[0].result.channels.map((c) => c.timeSeries.map((p) => p.t));
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalledTimes(1));
+    step(0);
+    step(1);
+    await vi.waitFor(() => expect(series()).toEqual([[0, 1]]));
+    callbacks!.onRestart!();
+    expect(series()).toEqual([]);
+    step(0);
+    await vi.waitFor(() => expect(series()).toEqual([[0]]));
+    finish();
+    await running;
+  });
+
   it("a run carries the model, case settings, app version and fingerprint it was made with", async () => {
     await start();
     engineFinishesRuns();

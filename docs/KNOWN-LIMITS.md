@@ -707,12 +707,15 @@ minimum or an average, for example from the CSV export, or put the
   parameter's (an E-Motor's torque, speed or voltage scale among them), as
   on today's engine. A table sent to a live run (the app sends none) takes
   effect on the next run too, noted in the run's log only. A live run the
-  new engine fails after it has shown a point or read a Stop or an edit
-  fails with its reason code (`NEW-FAILED` for the engine's own refusal,
-  `NEW-ERROR` for a fault in the path after the run) rather than running
-  again on today's engine; one nothing watches (a study's point, or the AI
-  tools' run, whose points go to a progress bar only) runs on today's
-  engine, saying so with the code. An
+  new engine fails after it has read a Stop or an edit fails with its
+  reason code (`NEW-FAILED` for the engine's own refusal, `NEW-ERROR` for a
+  fault in the path after the run) rather than running again on today's
+  engine, which would not have them; one that has only shown points starts
+  again at t = 0 on today's engine, the view told to drop its points, and
+  says so in a note with the code `NEW-LIVE-RESTART` (the verdict is
+  today's); one nothing watches (a study's point, or the AI tools' run,
+  whose points go to a progress bar only) runs on today's engine, saying
+  so with the code. An
   acceleration test runs twice on the new engine: first over the case's
   whole duration, which the live view does not show, then again to the
   moment it crosses the finish, which it shows; an edit made during the
@@ -788,8 +791,7 @@ minimum or an average, for example from the CSV export, or put the
   (`RUN-EVENT-STORM`, at the anti-windup) and quick mode with
   `QUICK-FAILED` (`FAST-RUN`), where today's engine succeeds. Without
   `LIGHTSIM_ENGINE_STRICT` the run goes on today's engine with that
-  warning. A live run that has shown points is not run again on today's
-  engine, so a run with a view (every run the app starts) of a project with
+  warning. A run with a view (every run the app starts) of a project with
   such a PID goes to today's engine before it starts, with the code
   `NEW-LIVE-PID`, whether or not its PID would reach its limit.
   *Roadmap:* ENG-16.
@@ -819,12 +821,17 @@ minimum or an average, for example from the CSV export, or put the
   maximum speed, the brake works below it and not above, and the speed
   switches about the limit without end, which today's engine, with a fixed
   step that lets a machine carry past by a step, does not notice (a
-  downhill cycle run of the example BEV with its Final Drive ratio x3,
-  and the hybrid with its ratio x3); it finishes there with the over-speed
-  warning, so run such a project with `LIGHTSIM_ENGINE=today`. The
-  hybrid on the highway cycle at that ratio and grade also gets the
-  battery's "charging exceeds max charge power" warning, which today's
-  engine does not give. A live edit
+  downhill cycle run of the example BEV or aero car with its Final Drive
+  ratio x3; the hybrid with its ratio x3 on any grade, where today's
+  engine succeeds and the new engine's Engine switches between fired and
+  not fired a few seconds in). Such a run in the app, which has a view, is
+  run again from t = 0 on today's engine (`NEW-LIVE-RESTART`, a note) and
+  gives today's verdict, at the cost of the first run's time; a Stop read
+  before the storm makes it fail instead, as the run cannot start again
+  without it. With `LIGHTSIM_ENGINE_STRICT=1` it fails. The hybrid on the
+  highway cycle at that ratio and grade also gets the battery's "charging
+  exceeds max charge power" warning, which today's engine does not give
+  (a verdict that differs where the new engine runs it to its end). A live edit
   that later moves the run past the data does fail it.
   *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's

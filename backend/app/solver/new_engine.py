@@ -14,9 +14,10 @@ run read as at its start, takes effect on the next run, and the result's
 note of it says so with the code NEW-LIVE-NEXT-RUN). The result says which
 engine ran it, its version, its solver options and the live edits it took
 (``replay`` makes them again). Everything else, and any failure of the new
-engine, runs on today's engine (but a live run the new engine fails after
-it has shown a point to a live view, not only to a progress bar, or read a
-Stop or an edit: that run fails with its code), and the result's messages say which engine ran the case and,
+engine, runs on today's engine (a live run the new engine fails after it
+has shown a point to a live view starts again at t = 0, the view told
+"restart", NEW-LIVE-RESTART; one that has read a Stop or an edit fails with
+its code, as today's engine would start without them), and the result's messages say which engine ran the case and,
 after a fall-back, why, with a stable reason code in brackets (``[NEW-LAP]``;
 CODES lists them, and benchmarks/back_to_back counts them). With
 ``LIGHTSIM_ENGINE_STRICT=1`` as well nothing falls back: a case the new
@@ -108,6 +109,9 @@ CODES = {
     "NEW-LIVE-PID": "a live run of a project with a PID block the new engine runs at every step, which "
                     "can stop it at its limit (RUN-EVENT-STORM) where today's engine finishes (a live "
                     "run that has shown points cannot start again on today's engine)",
+    "NEW-LIVE-RESTART": "a run with a view that the new engine stopped after it had shown points, with no "
+                        "Stop or live edit read: it starts again at t = 0 on today's engine, and the "
+                        "view is told to drop the points it has",
     # quick mode's (a case's mode "quick": the new engine's fast mode)
     "QUICK-NOT-FOUND": "quick mode: the case is not in the project",
     "QUICK-KIND": "quick mode: a case that drives no drive cycle",
@@ -160,7 +164,8 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
         # would undo: "shown" (a point or a note to a live view: an emit not
         # marked progress_only, as the AI tools' is, whose bar may start
         # again), "cancel" (a Stop read), "set_param" (a live edit read). A run
-        # the new engine fails after any of them is not run again on today's.
+        # the new engine fails after a Stop or an edit is not run again on
+        # today's; one that only showed points is, from t = 0 (the view told).
         did: set[str] = set()
 
         def shown(msg: dict) -> None:
@@ -179,6 +184,14 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
                 return no_text(case_id, why, project, str(e))
             if strict():
                 return refused(case_id, why, str(e))
+            if did == {"shown"}:  # (no Stop, no edit to lose: start again on today's, telling the view)
+                emit({"type": "restart"})
+                result = today(project, case_id, emit, control)
+                result.messages.insert(0, SimMessage(  # (a note, as a warning would change today's verdict)
+                    level="info", text=f"The new engine stopped this run after it had shown points "
+                                       f"[{why.code}] ({e}); it ran again from t = 0 on today's "
+                                       f"engine [NEW-LIVE-RESTART]."))
+                return result
             if did:
                 lost = " and ".join(w for k, w in (("cancel", "the Stop"), ("set_param", "the live edits"))
                                     if k in did)

@@ -1006,6 +1006,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         buffer.push(ev);
         if (!flushTimer) flushTimer = setTimeout(flush, LIVE_FLUSH_MS);
       },
+      onRestart: () => {
+        buffer = [];
+        chanByKey.clear();
+        partial.channels.length = 0;
+        set((s) => ({
+          runs: s.runs.map((r) => (r.id === runId ? { ...r, result: { ...partial, channels: [] } } : r)),
+          liveValues: {},
+          liveT: 0,
+          livePct: 0,
+        }));
+      },
       onMessage: (m) => log(m.level, m.text),
     });
     activeRun = handle;

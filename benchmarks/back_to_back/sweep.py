@@ -11,8 +11,8 @@ The faults, from the four example cars and the judge's 16 cases
   a Driving Task's or Road Profile's profile (no setting) cut short at each
   end;
 On each of the judge's three fault bases and each live case (live_bases,
-added 7 November: a live run the new engine fails is not run again, so only
-a live case's own run shows it):
+added 7 November: a live run the new engine fails after a Stop or an edit
+is not run again):
 
 - alone: one part of every library component placed on the car and left
   connected to nothing (no bus, no shaft, no signal), with its defaults, and
@@ -22,9 +22,10 @@ a live case's own run shows it):
   and three of the case's output steps, and 5 s (the first three added
   7 November).
 
-Each fault runs three times (a live case a fourth: the new path not strict,
-with a view, as the app runs it; compare() counts a live run it fails where
-today's does not) through the app's own app.solver.simulate:
+Each fault runs four times (every run the app starts has a view): the new
+path not strict, with a view, as the app runs it, is compared with today's
+like the strict runs (a run it stopped after points, which the app starts
+again on today's engine, NEW-LIVE-RESTART, is a hand-back), through the app's own app.solver.simulate:
 today's engine (no flag), the new path in strict mode (LIGHTSIM_ENGINE=new,
 LIGHTSIM_ENGINE_STRICT=1) and quick mode in strict mode (the case's mode
 "quick"). A strict run refused with a listed code is a run handed back to
@@ -216,7 +217,7 @@ def faults() -> list[str]:
             if _profiles_of(el) and _profile_runs(project, case_id, el):
                 out += [f"profile:{base}:{el['id']}:{end}" for end in ENDS]
         out += [f"profile:{base}:{SPARE}:{end}" for end in ENDS]  # a Road Profile on the grade
-    for base in (*ALONE_BASES, *live_bases()):  # (a live run the new engine fails is not run again)
+    for base in (*ALONE_BASES, *live_bases()):
         for cdef_id in library():
             if cdef_id == "container.system":  # (a subsystem's box, not a part)
                 continue
@@ -369,7 +370,7 @@ def _put_cut(project: dict, case_id: str, el: dict, key: str, axis: int, end: st
 
 # ---- one fault on both engines ---------------------------------------------------
 
-SETTINGS = ("new", "quick", "live", "today")  # ("live": a live case as the app runs it, see run_fault)
+SETTINGS = ("new", "quick", "live", "today")  # ("live": any case as the app runs it, see run_fault)
 
 
 def digest(result, block: str | None = None) -> dict:
@@ -395,11 +396,10 @@ def digest(result, block: str | None = None) -> dict:
 
 
 def run_fault(fid: str) -> dict:
-    """The fault's runs (SETTINGS), each digested; today's is not run when
-    neither strict run ran and no live run is made (nothing to compare it
-    with). A live case is run a third time as the app runs it: the new path
-    not strict, with a view (a live run the new engine fails is not run
-    again on today's engine, so a strict run's hand-back would hide it)."""
+    """The fault's runs (SETTINGS), each digested. Every fault is also run
+    as the app runs a case (the "live" run: the new path not strict, with a
+    view, which a strict run's hand-back would hide), so today's is always
+    run to compare with. A live case's other runs have a view too."""
     from app.schemas import Project
     from app.solver import simulate
 
@@ -409,11 +409,6 @@ def run_fault(fid: str) -> dict:
     live = (runs._case(raw, case_id).get("realtimeFactor") or 0) > 0
     got: dict = {}
     for setting in SETTINGS:
-        if setting == "live" and not live:
-            continue
-        if setting == "today" and "live" not in got and all(
-                got[s].get("refused") or got[s].get("raised") for s in ("new", "quick")):
-            continue
         for k in ("LIGHTSIM_ENGINE", "LIGHTSIM_ENGINE_STRICT"):
             os.environ.pop(k, None)
         if setting != "today":
@@ -425,7 +420,7 @@ def run_fault(fid: str) -> dict:
             next(c for c in project.cases if c.id == case_id).mode = "quick"
         t0 = time.perf_counter()
         try:
-            got[setting] = digest(simulate(project, case_id, _view if live else None), block)
+            got[setting] = digest(simulate(project, case_id, _view if live or setting == "live" else None), block)
         except Exception as e:  # noqa: BLE001 — told as the run's result
             got[setting] = {"raised": f"{type(e).__name__}: {e}"[:600]}
         got[setting]["wall_s"] = round(time.perf_counter() - t0, 2)
@@ -460,10 +455,12 @@ def compare(fid: str, setting: str, today: dict | None, other: dict) -> dict:
         return {"diffs": [f"refused with {code}, not a listed hand-back"]} if bad else {"handed": code}
     if today is None or "raised" in today:
         return {"diffs": [f"today's run: {today and today.get('raised')}"]}
-    if setting == "live":  # (the app's live run: only its verdict, see run_fault)
-        if other["status"] == "failed" and today["status"] != "failed":
-            return {"diffs": [f"live run: failed on the new path ({other['first'][:300]}), today's {today['status']}"]}
-        return {"diffs": []}
+    if setting == "live" and other.get("engine") == "today":  # (the app's run, on today's engine: said why)
+        found = CODE.search(other["first"])
+        code = "NEW-LIVE-RESTART" if "[NEW-LIVE-RESTART]" in other["first"] else found and found[1]
+        if code not in new_engine.CODES or code.endswith("-ERROR"):
+            return {"diffs": [f"live run on today's engine with no listed code: {other['first'][:200]!r}"]}
+        return {"handed": code}
     diffs = []
     if other["status"] != today["status"]:
         worse = LEVEL[other["status"]] < LEVEL[today["status"]]
@@ -528,7 +525,7 @@ def _file(out: Path, fid: str) -> Path:
     return out / "raw" / (re.sub(r"[^A-Za-z0-9_.-]", "~", fid) + ".json")
 
 
-TIMEOUT_S = 900.0  # a fault's three runs at most (the hybrid's take about a minute)
+TIMEOUT_S = 900.0  # a fault's four runs at most (the hybrid's take about a minute)
 
 
 def job(fid: str, out: Path) -> None:
@@ -613,9 +610,7 @@ def summarise(out: Path, ids: list[str] | None = None) -> dict:
         got = rec["runs"]
         for setting in ("new", "quick", "live"):
             if setting not in got:
-                if setting != "live" or base.split("/")[1].endswith("-live"):
-                    res["mismatches"].append({"fault": fid, "setting": setting, "diffs": [
-                        f"no {setting} run in its record" + (" (a live case is also run live)" if setting == "live" else "")]})
+                res["mismatches"].append({"fault": fid, "setting": setting, "diffs": [f"no {setting} run in its record"]})
                 continue
             res["runs"] += 1
             c = compare(fid, setting, got.get("today"), got[setting])

@@ -55,7 +55,7 @@ QUICK-SAMPLED), a run with a view (it cannot start again on today's
 engine once it has shown points) goes there before it starts where it
 could stop where today's does not: such a table with an axis on Error
 short of what its part reaches (NEW-LIVE-ERROR-AXIS, decided without a
-run), a PID the engine runs at every step (NEW-LIVE-PID), and a run whose supply held an E-Motor back stops where
+run), a PID the engine runs at every step (NEW-LIVE-PID), a run it stops after points with no Stop or edit read starts again on today's engine, the view told (NEW-LIVE-RESTART), and a run whose supply held an E-Motor back stops where
 its loss map's torque axis on Error does not reach 0 N·m, as today's (the
 mismatch sweep, 6 November: benchmarks/back_to_back/sweep.py); a Lookup's table is judged under today's name for it, its Table 1D
 or 2D. The engine watches a table at the edges of its own data (padded only
