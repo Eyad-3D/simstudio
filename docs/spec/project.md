@@ -284,6 +284,8 @@ A change in `diff` has a `path` to the value: the keys of objects, and
 wires, signal links, cases), so a change still applies after other
 changes moved items around. `old` is the value before (left out when the
 value was added), `new` the value after (left out when it was removed),
-and `at` the place a new list item took. Undoing a line puts back the
-`old` values; a value that was changed again since stays as it is, and
-the app says which.
+and `at` the place a list item took when it was added, or had when it
+was removed. Undoing a line puts back the `old` values; a value that was
+changed again since stays as it is, and the app says which. A line is
+undone while an undo that names it in `undoes` is not undone itself:
+undoing an undo brings back what it undid.

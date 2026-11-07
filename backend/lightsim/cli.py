@@ -221,11 +221,11 @@ def cmd_edit(args) -> int:
         raise UsageError("This project is an example: give --out, a file to save the edit to.")
     storage = engine("storage")
     loc = storage.location_of_file(target)
-    meta = {"by": "agent", "tool": "lightsim edit", "reason": args.reason,
-            "client": args.client or os.environ.get("LIGHTSIM_CLIENT")
-            or os.environ.get("AI_AGENT") or "command line",
+    client = (args.client or os.environ.get("LIGHTSIM_CLIENT")
+              or os.environ.get("AI_AGENT") or "command line")
+    meta = {"by": "agent", "tool": "lightsim edit", "reason": args.reason, "client": client,
             "session": args.session or os.environ.get("LIGHTSIM_SESSION")
-            or os.environ.get("CLAUDE_CODE_SESSION_ID") or f"shell-{os.getppid()}"}
+            or os.environ.get("CLAUDE_CODE_SESSION_ID") or _go_on_session(loc, client)}
     # Saved the way the app saves: the version it replaces kept in the
     # backups (the newest storage.KEEP_BACKUPS) and one line in the
     # project's history, which the open window reads to show the change and
@@ -268,6 +268,33 @@ def cmd_edit(args) -> int:
                 "recoverable": where, "errors": errors,
                 "checks": [c.to_dict() for c in checks]}, "\n".join(lines))
     return EXIT_OK
+
+
+#: Saves by ``lightsim edit`` this close together, with no other save between,
+#: are one session when none is named.
+SESSION_GAP_MS = 15 * 60 * 1000
+
+
+def _go_on_session(loc, client: str) -> str:
+    """The session of an edit that names none. An agent's shell tool starts
+    a new shell for each call, so the shell says nothing: go on with the
+    session of the project's newest save when that is this client's
+    ``lightsim edit`` with no session named, made less than SESSION_GAP_MS
+    ago; else start one."""
+    import time
+    import uuid
+
+    from ._engine import engine
+
+    lines = engine("history").entries(loc.backups)
+    last = lines[-1] if lines else {}
+    # ponytail: two agents with the same client editing one file within the
+    # gap share a session; they can name their own with LIGHTSIM_SESSION
+    if (last.get("tool") == "lightsim edit" and last.get("client") == client
+            and str(last.get("session") or "").startswith("cli-")
+            and time.time() * 1000 - (last.get("t") or 0) < SESSION_GAP_MS):
+        return last["session"]
+    return f"cli-{uuid.uuid4().hex[:12]}"
 
 
 def _load_unchanged(path: Path, storage):
@@ -466,7 +493,8 @@ def parser() -> argparse.ArgumentParser:
                                      "'command line')")
     ed.add_argument("--session", help="group edits into one session that the app undoes in one "
                                       "click (default: LIGHTSIM_SESSION, CLAUDE_CODE_SESSION_ID, "
-                                      "else this shell)")
+                                      "else the session of the file's last lightsim edit if "
+                                      "it named none and was under 15 minutes ago)")
     ed.set_defaults(func=cmd_edit)
 
     e = add("export", "Write a stored run (.json.gz from the app, or .json) as CSV, MAT, JSON "

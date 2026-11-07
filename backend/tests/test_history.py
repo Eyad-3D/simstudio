@@ -220,6 +220,50 @@ def test_a_command_line_edit_of_a_file_keeps_its_history_beside_it(tmp_path):
     assert len(lines) == 1 and lines[0]["session"] == "mine" and lines[0]["diff"]
 
 
+def test_command_line_edits_from_separate_shells_are_one_session(folder):
+    """An agent's shell tool starts a new shell for each call and names no
+    session: its edits of a file still undo in one click."""
+    storage.save_project(_bev())
+    car = storage.project_path("car")
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("LIGHTSIM_SESSION", "CLAUDE_CODE_SESSION_ID", "LIGHTSIM_PROJECTS_DIR")}
+    for value in (2050, 2060):
+        edit = [sys.executable, "-m", "lightsim", "edit", str(car),
+                "--set", f"Vehicle.mass_kg={value}", "--reason", "r"]
+        shell = f"import subprocess, sys; sys.exit(subprocess.call({edit!r}))"  # a new shell per call
+        out = subprocess.run([sys.executable, "-c", shell],
+                             cwd=BACKEND, env=env, capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0 and "Saved" in out.stdout, out.stderr
+    lines = [e for e in history.entries(storage.location("car").backups) if e["by"] == "agent"]
+    assert len(lines) == 2 and lines[0]["session"] == lines[1]["session"]
+    assert len(storage.undo("car", session=lines[-1]["session"])["undid"]) == 2
+    assert _mass(json.loads(car.read_bytes())) == 1927
+
+
+def test_a_command_line_edit_keeps_an_app_save_made_while_it_worked(folder, monkeypatch):
+    from app.ai import edits
+    from lightsim import cli
+
+    storage.save_project(_bev())
+    car = storage.project_path("car")
+    real = edits.apply_operations
+    raced = []
+
+    def apply_then_the_app_saves(model, ops):
+        out = real(model, ops)
+        if not raced:
+            raced.append(1)
+            window = storage.load_project("car")
+            window.name = "Renamed in the window"
+            storage.save_project(window, storage.current_revision("car"))
+        return out
+
+    monkeypatch.setattr(edits, "apply_operations", apply_then_the_app_saves)
+    assert cli.main(["edit", str(car), "--set", "Vehicle.mass_kg=2050", "--reason", "r"]) == 0
+    doc = json.loads(car.read_bytes())
+    assert doc["name"] == "Renamed in the window" and _mass(doc) == 2050
+
+
 # -- the window: rebase, history, undo ---------------------------------------------
 
 
@@ -325,6 +369,71 @@ def test_undo_leaves_a_value_changed_again_since(folder):
     assert _mass(doc) == 1800, "the window's later value stays"
     assert _vehicle(doc)["parameterOverrides"].get("cd") != 0.3, "the rest is undone"
     assert any(c.endswith("mass_kg") for c in done["conflicts"])
+
+
+def test_undoing_a_remove_restores_the_exact_file(folder):
+    """A removed part, its wires and its bus links come back where they were."""
+    storage.save_project(_bev())
+    path = storage.project_path("car")
+    before = json.loads(path.read_bytes())
+    server = McpServer(Engine(user_folder=folder), Policy(), AuditLog(folder))
+    _edit(server, [{"op": "remove", "element": "el-brake-rl"}], reason="drop it")
+    entry = next(e for e in history.entries(storage.location("car").backups) if e["by"] == "agent")
+    removed = [c for c in entry["diff"] if "new" not in c]
+    assert len({str(c["path"][:-1]) for c in removed}) >= 3, "a part, its wires and its bus links"
+    storage.undo("car", entry=entry["id"])
+    assert json.loads(path.read_bytes()) == before
+
+
+def test_undoing_an_undo_puts_the_change_back_in_force(folder):
+    storage.save_project(_bev())
+    server = McpServer(Engine(user_folder=folder), Policy(), AuditLog(folder))
+    _edit(server, [_set("Vehicle", "mass_kg", 2100)], reason="heavier")
+    agent = next(e for e in storage.project_history("car") if e["by"] == "agent")
+    storage.undo("car", entry=agent["id"])
+    storage.undo("car", entry=storage.project_history("car")[0]["id"])  # undo the undo
+    assert _mass(json.loads(storage.project_path("car").read_bytes())) == 2100
+    listed = {e["id"]: e for e in storage.project_history("car")}
+    assert listed[agent["id"]]["undone"] is False, "the agent's change is in force again"
+    storage.undo("car", session=agent["session"])  # and can be undone again
+    assert _mass(json.loads(storage.project_path("car").read_bytes())) == 1927
+
+
+def test_the_window_never_takes_an_agent_save_for_an_outside_change(folder):
+    """A save replaces the file before it adds its history line: a rebase
+    reading between the two must not refuse (the window would offer a reload)."""
+    import threading
+
+    project = _bev()
+    project.description = ""
+    storage.save_project(project)
+    stop = threading.Event()
+
+    def agent():
+        i = 0
+        while not stop.is_set():
+            loaded = storage.load_project_file("car")
+            loaded.project.description += f"{i};"
+            try:
+                storage.save_project(loaded.project, loaded.revision, meta={"by": "agent"})
+            except storage.ConflictError:
+                pass
+            i += 1
+
+    t = threading.Thread(target=agent)
+    t.start()
+    refused = []
+    try:
+        for _ in range(300):
+            loaded = storage.load_project_file("car")
+            try:
+                storage.rebase("car", loaded.revision, loaded.project.model_dump(mode="json"))
+            except storage.ConflictError as e:
+                refused.append(str(e))
+    finally:
+        stop.set()
+        t.join()
+    assert not refused, refused[:1]
 
 
 # -- the app and an agent's process at the same time --------------------------------

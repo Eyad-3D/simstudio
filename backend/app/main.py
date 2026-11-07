@@ -451,8 +451,9 @@ def get_project(project_id: str, response: Response) -> dict:
 @app.get("/api/projects/{project_id}/revision", responses=_errors(e400="Invalid project id"))
 def get_revision(project_id: str) -> dict:
     """The revision of the project's file on disk now (None: there is none).
-    The UI asks every few seconds, to offer a reload when the file changed
-    outside the app (a git pull, another window)."""
+    The window asks every second: a save LightSim made (another window, an
+    AI agent, lightsim edit) it lays over its copy (see /rebase); a change
+    from outside (a git pull, an editor) it offers to reload."""
     try:
         return {"revision": storage.current_revision(project_id)}
     except ValueError as e:

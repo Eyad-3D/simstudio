@@ -1143,7 +1143,12 @@ minimum or an average, for example from the CSV export, or put the
   pull, an agent writing the file directly) is not in the history: the
   window offers to reload it, as before. Python code that saves through
   `AgentSession` or `Project.save()` writes the file directly, with no
-  history line.
+  history line. A `lightsim edit` that names no session (`--session`,
+  `LIGHTSIM_SESSION` or Claude Code's own) goes on with the session of the
+  file's last `lightsim edit` when that one named none either and was less
+  than 15 minutes ago with no other save between, so two agents editing
+  one file that way at once share a session (Undo session undoes both):
+  give each its own `LIGHTSIM_SESSION`.
   It does not read the trust list (`lightsim ai trust`): only Python code
   that goes through `lightsim.ai_access.AgentSession` reads it, and
   `lightsim run` and the `lightsim` package read no AI access setting at

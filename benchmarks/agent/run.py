@@ -183,7 +183,9 @@ def prepare(task: Task, mode: str, base: Path) -> tuple[Path, Path, dict]:
         assign = " ".join(f"{k}={shlex.quote(v)}" for k, v in engine_env.items() if k != "PYTHONPATH")
         wrapper.write_text(
             "#!/bin/sh\n"
+            # Claude Code's session id passes, so the edits of a try are one session
             f"exec /usr/bin/env -i PATH=/usr/bin:/bin HOME={shlex.quote(str(home))} {assign} "
+            "CLAUDE_CODE_SESSION_ID=\"${CLAUDE_CODE_SESSION_ID:-}\" "
             f"{shlex.quote(sys.executable)} -I {shlex.quote(str(DIR / 'guard.py'))} "
             f"{shlex.quote(str(work))} \"$@\"\n", encoding="utf-8")
         wrapper.chmod(0o755)

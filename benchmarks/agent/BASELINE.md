@@ -801,12 +801,18 @@ between. This run asks whether agents still succeed with it.
 
 ## The answer: agents still succeed
 
-| Setting, mode | pass^3 (all / visible / held out) | Solved once | Mean cost a try, USD | Total, USD |
-|---|---|---|---|---|
-| Haiku 5.5, low, MCP | 19/19 / 13/13 / 6/6 | 19/19 | 0.0086 | 0.49 |
-| Sonnet 5.5, medium, MCP | 19/19 / 13/13 / 6/6 | 19/19 | 0.1136 | 6.48 |
-| Haiku 5.5, low, command line | 18/19 / 12/13 / 6/6 | 19/19 | 0.0161 | 0.92 |
-| Sonnet 5.5, medium, command line | 17/19 / 12/13 / 5/6 | 18/19 | 0.1490 | 8.49 |
+| Setting, mode | pass^3 (all / visible / held out) | Solved on the first try | Solved in some try | Mean cost a try, USD | Total, USD |
+|---|---|---|---|---|---|
+| Haiku 5.5, low, MCP | 19/19 / 13/13 / 6/6 | 19/19 | 19/19 | 0.0086 | 0.49 |
+| Sonnet 5.5, medium, MCP | 19/19 / 13/13 / 6/6 | 19/19 | 19/19 | 0.1136 | 6.48 |
+| Haiku 5.5, low, command line | 18/19 / 12/13 / 6/6 | 19/19 | 19/19 | 0.0161 | 0.92 |
+| Sonnet 5.5, medium, command line | 17/19 / 12/13 / 5/6 | 18/19 | 19/19 | 0.1490 | 8.49 |
+
+(This table first had one column, "Solved once", with the first try's
+figure: 18/19 for Sonnet 5.5, medium, on the command line. Every task was
+solved in at least one of its three tries; `build-sedan-abc` failed its
+first two and passed the third. The report script now names that column
+"Solved on the first try".)
 
 In MCP mode both settings pass every try of every edit task, as they did
 after the safety part. On the command line, which had only one try a task

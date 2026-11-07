@@ -483,6 +483,14 @@ def test_hands_off_needs_nine_in_ten_on_all_tasks_and_on_the_held_out_ones():
     assert "with Sonnet 5.5, medium as the target (it has 20/33 and 0/11)" in text
 
 
+def test_the_report_names_its_first_try_column_for_what_it_counts():
+    """It counts try 1 only: a task failed first and solved on try 2 is not in it."""
+    rs = records(*[rec(t.id, "sonnet-medium", n, solved=n > 1) for t in ALL for n in (1, 2, 3)])
+    assert compare.summarize(rs, [], ALL, list(compare.SETTINGS))["sonnet-medium/mcp"]["once"]["all"]         == [0, 33]
+    text = compare.report(filled(rs), [], ALL, list(compare.SETTINGS))[0]
+    assert "Solved on the first try (all / visible / held out)" in text and "Solved once" not in text
+
+
 def test_answer_1_says_no_setting_works_while_the_ceiling_itself_falls_short():
     """Records shaped like today's tools: no task scored on a saved model can
     pass, so even the ceiling has pass^3 on only 13 of 33. Being as good as the

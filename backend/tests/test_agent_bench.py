@@ -431,6 +431,21 @@ def test_a_cli_agent_runs_the_script_it_wrote_with_no_approval(tmp_path):
     assert done.returncode == 0 and "success" in done.stdout, done.stdout + done.stderr
 
 
+@posix
+def test_a_cli_agent_edits_are_in_its_claude_code_session(tmp_path):
+    """The try's lightsim keeps Claude Code's session id through env -i, so
+    the history groups a try's edits the way it would outside the bench."""
+    task = next(t for t in TASKS if t.id == "write-speed-limiter")
+    work, _, env = run.prepare(task, "cli", tmp_path)
+    done = subprocess.run([str(tmp_path / "home" / "bin" / "lightsim"), "edit", "car.json", "--ops",
+                           json.dumps(task.reference["ops"])], cwd=work,
+                          env={**env, "CLAUDE_CODE_SESSION_ID": "try-7"}, capture_output=True,
+                          text=True, timeout=600)
+    assert done.returncode == 0, done.stderr
+    lines = (work / "car.json-backups" / "history.jsonl").read_text(encoding="utf-8").splitlines()
+    assert json.loads(lines[-1])["session"] == "try-7"
+
+
 def test_the_mcp_server_the_agent_gets_will_not_open_the_hidden_files(tmp_path):
     _, mcp_config, env = run.prepare(PLANTED, "mcp", tmp_path)
     server = json.loads(mcp_config.read_text())["mcpServers"]["lightsim"]

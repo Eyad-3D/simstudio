@@ -725,7 +725,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
   /** A project opened after an AI agent changed it (the app was closed, or
    *  showed another project) offers the same one-click undo: the newest save,
-   *  when an agent made it and it is not undone. */
+   *  when an agent made it, it is not undone, and it can be (a save that made
+   *  the project, such as an agent's edit of an example, cannot). */
   async function showLastAgentChange(projectId: string, revision: string | null): Promise<void> {
     let entries: (api.HistoryEntry & { undone?: boolean })[];
     try {
@@ -733,10 +734,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     } catch {
       return; // no history to read: nothing to offer
     }
+    const open = (e: api.HistoryEntry & { undone?: boolean }) => e.by === "agent" && !e.undone && e.undoable !== false;
     const last = entries[0];
-    if (!last || last.by !== "agent" || last.undone || last.to !== revision) return;
+    if (!last || !open(last) || last.to !== revision) return;
     if (get().project?.id !== projectId || get().revision !== revision) return;
-    const count = entries.filter((e) => e.by === "agent" && !e.undone && e.session && e.session === last.session).length;
+    const count = entries.filter((e) => open(e) && e.session && e.session === last.session).length;
     if (last.session) sessionChanges.set(last.session, count);
     set({ agentChange: { projectId, entry: last, sessionCount: Math.max(1, count) } });
   }

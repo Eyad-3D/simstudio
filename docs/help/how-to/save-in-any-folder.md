@@ -45,10 +45,13 @@ shows only the changes you made to the model.
 
 ## When the file changes on disk
 
-LightSim looks at the open file every few seconds. If it changed (a
-`git pull`, or a save from another window), LightSim asks whether to
-reload it. With unsaved changes of your own, *Keep my changes* keeps them;
-**Save** then asks before it replaces the version on disk.
+LightSim looks at the open file every second. A save LightSim made
+(another window, an AI agent, `lightsim edit`) shows at once, laid over
+any unsaved changes of your own, and one **Undo** takes it back. If
+something else changed the file (a `git pull`, another editor), LightSim
+asks whether to reload it. With unsaved changes of your own, *Keep my
+changes* keeps them; **Save** then asks before it replaces the version on
+disk.
 
 ## Attach files to a project
 

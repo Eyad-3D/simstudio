@@ -2440,6 +2440,24 @@ describe("an AI agent's edits in the open window (step 6)", () => {
     expect(store().agentChange).toBeNull();
   });
 
+  it("a project an agent made (an edit of an example) offers no undo the engine would refuse", async () => {
+    await store().init();
+    api.fetchHistory.mockResolvedValueOnce([{ ...agentEntry, id: "h9", to: "r1", from: null, undoable: false, undone: false }]);
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    await store().openProject("fixture");
+    await settled();
+    expect(store().agentChange).toBeNull();
+    // a later change of the same session is offered, counting only what can be undone
+    api.fetchHistory.mockResolvedValueOnce([
+      { ...agentEntry, id: "h10", to: "r1", undoable: true },
+      { ...agentEntry, id: "h9", to: "r0", from: null, undoable: false },
+    ]);
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    await store().openProject("fixture");
+    await vi.waitFor(() => expect(store().agentChange).not.toBeNull());
+    expect(store().agentChange).toMatchObject({ entry: { id: "h10" }, sessionCount: 1 });
+  });
+
   it("one click undoes the agent's change, or its whole session, in the file", async () => {
     await openSaved();
     api.fetchRevision.mockResolvedValue("r2");

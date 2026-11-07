@@ -42,7 +42,8 @@ PathStep = Union[str, dict]
 
 class Change(BaseModel):
     """One value that changed. ``old`` is left out when the value was added,
-    ``new`` when it was removed; ``at`` is the place a new list item took."""
+    ``new`` when it was removed; ``at`` is the place a list item took when it
+    was added, or had when it was removed (an undo puts it back there)."""
 
     path: list[PathStep] = Field(description="keys of objects, and {\"id\": ...} for an item of "
                                              "a list of objects with ids")
@@ -116,7 +117,10 @@ def diff(old: Any, new: Any, path: Optional[list] = None) -> list[dict]:
     if _by_id(old) and _by_id(new):
         before = {v["id"]: v for v in old}
         after = {v["id"]: v for v in new}
-        out = [_change([*path, {"id": i}], old=v) for i, v in before.items() if i not in after]
+        # removed items last first, each with the place it had, so an undo
+        # (which reverts in reverse order) puts them back where they were
+        out = [_change([*path, {"id": v["id"]}], old=v, at=n)
+               for n, v in reversed(list(enumerate(old))) if v["id"] not in after]
         for i, v in before.items():
             if i in after:
                 out += diff(v, after[i], [*path, {"id": i}])
@@ -272,7 +276,14 @@ def chain(lines: list[dict], start: str, end: str) -> Optional[list[dict]]:
 
 
 def undone(lines: list[dict]) -> set[str]:
-    return {i for e in lines for i in (e.get("undoes") or [])}
+    """The ids of the entries undone and not brought back. Newest first, an
+    undo counts only while it is not undone itself: undoing an undo puts
+    the changes it undid back in force."""
+    gone: set[str] = set()
+    for e in reversed(lines):
+        if e["id"] not in gone:
+            gone.update(e.get("undoes") or [])
+    return gone
 
 
 def summary(entry: dict) -> dict:

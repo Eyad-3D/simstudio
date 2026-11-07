@@ -248,6 +248,8 @@ export interface HistoryEntry {
   from?: string | null;
   to: string;
   undoes?: string[];
+  /** false: the save has no diff (it made the project), so it cannot be undone */
+  undoable?: boolean;
 }
 
 export interface Rebased {

@@ -365,8 +365,9 @@ def load_project(project_id: str) -> Project:
 
 def current_revision(project_id: str) -> str | None:
     """The revision of the project's file as it is on disk now (None: no file).
-    The UI asks every few seconds to notice a change made outside the app
-    (a git pull, a second window)."""
+    The window asks every second: a save LightSim made (another window, an
+    AI agent, ``lightsim edit``) it lays over its copy (:func:`rebase`); a
+    change from outside (a git pull, an editor) it offers to reload."""
     try:
         return revision_of(location(project_id).file.read_bytes())
     except FileNotFoundError:
@@ -614,11 +615,15 @@ def rebase(project_id: str, revision: str, ours: dict) -> dict:
     Raises ConflictError when the history does not lead from ``revision`` to
     the file on disk (it was changed by something else, such as a git pull)."""
     loc = location(project_id)
-    try:
-        now = revision_of(loc.file.read_bytes())
-    except FileNotFoundError:
-        raise ConflictError(f"Project '{project_id}' was deleted on disk.") from None
-    steps = [] if now == revision else history.chain(history.entries(loc.backups), revision, now)
+    # under the lock: a save replaces the file before it adds its history
+    # line, so read between the two the file would look changed by something else
+    with project_lock(loc):
+        try:
+            now = revision_of(loc.file.read_bytes())
+        except FileNotFoundError:
+            raise ConflictError(f"Project '{project_id}' was deleted on disk.") from None
+        lines = [] if now == revision else history.entries(loc.backups)
+    steps = [] if now == revision else history.chain(lines, revision, now)
     if steps is None:
         raise ConflictError(f"Project '{project_id}' was changed on disk by something other "
                             "than LightSim (its history does not say how).")
@@ -640,8 +645,9 @@ def undo(project_id: str, entry: str | None = None, session: str | None = None) 
     it can be undone too. Raises LookupError when there is nothing to undo."""
     loc = location(project_id)
     for attempt in range(3):
-        data = loc.file.read_bytes()
-        lines = history.entries(loc.backups)
+        with project_lock(loc):  # the file and its history as one save left them
+            data = loc.file.read_bytes()
+            lines = history.entries(loc.backups)
         gone = history.undone(lines)
         picked = [e for e in lines if e["id"] not in gone and (
             e["id"] == entry if entry else

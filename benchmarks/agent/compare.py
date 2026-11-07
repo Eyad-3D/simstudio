@@ -156,8 +156,8 @@ def _split(by_task: dict[str, bool], tasks: list[Task]) -> dict:
 
 
 def summarize(records: dict, notruns: list[dict], tasks: list[Task], settings: list[Setting]) -> dict:
-    """Per setting and mode (``"<setting>/<mode>"``): solved once, pass^3,
-    cost, tokens, tool calls and errors, time and not-run retries."""
+    """Per setting and mode (``"<setting>/<mode>"``): solved on the first try
+    (``once``), pass^3, cost, tokens, tool calls and errors, time and not-run retries."""
     ids, out = {t.id for t in tasks}, {}
     for s in settings:
         for mode in ("mcp", "cli"):
@@ -382,9 +382,10 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
     if data["unavailable"]:
         lines += ["", "Unavailable settings: " + "; ".join(f"{label.get(k, k)}: {v}"
                                                           for k, v in data["unavailable"].items()) + "."]
-    head = ("| Setting | Solved once (all / visible / held out) | pass^3 (all / visible / held out) | "
-            "Mean cost a try, USD | Total, USD | Per solve, USD | Mean tokens in / out / cache read / "
-            "cache write | Tool calls | Tool errors | Time, s | Not-run retried |")
+    head = ("| Setting | Solved on the first try (all / visible / held out) | "
+            "pass^3 (all / visible / held out) | Mean cost a try, USD | Total, USD | Per solve, USD | "
+            "Mean tokens in / out / cache read / cache write | Tool calls | Tool errors | Time, s | "
+            "Not-run retried |")
     for mode, title in (("mcp", "MCP server"), ("cli", "Command line (stage C)")):
         rows = [s for s in summary.values() if s["mode"] == mode]
         if not rows:
@@ -398,7 +399,7 @@ def report(records: dict, notruns: list[dict], tasks: list[Task], settings: list
                 f"{s['meanCostUsd']:.4f} | {s['totalCostUsd']:.2f} | {'–' if per is None else f'{per:.4f}'} | "
                 f"{t['input']:,} / {t['output']:,} / {t['cacheRead']:,} / {t['cacheWrite']:,} | "
                 f"{s['meanToolCalls']} | {s['meanToolErrors']} | {s['meanSeconds']} | {s['notRunRetries']} |")
-        lines += ["", f"Per kind, solved once; pass^3 ({title}):", "",
+        lines += ["", f"Per kind, solved on the first try; pass^3 ({title}):", "",
                   "| Setting | " + " | ".join(KINDS) + " |", "|" + "---|" * (len(KINDS) + 1)]
         for s in rows:
             lines.append(f"| {s['label']} | " + " | ".join(
