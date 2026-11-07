@@ -106,9 +106,10 @@ def diff(old: Any, new: Any, path: Optional[list] = None) -> list[dict]:
         return []
     if isinstance(old, dict) and isinstance(new, dict):
         out: list[dict] = []
+        place = {k: n for n, k in enumerate(old)}
         for k in [*old, *(k for k in new if k not in old)]:
-            if k not in new:
-                out.append(_change([*path, k], old=old[k]))
+            if k not in new:  # at: its place among the keys, so an undo keeps the order
+                out.append(_change([*path, k], old=old[k], at=place[k]))
             elif k not in old:
                 out.append(_change([*path, k], new=new[k]))
             else:
@@ -171,6 +172,11 @@ def _put(doc: Any, path: list, value: Any, at: Optional[int]) -> bool:
         return False
     if value is _MISSING:
         parent.pop(last, None)
+    elif at is not None and last not in parent:  # a removed key goes back to its place
+        items = list(parent.items())
+        items.insert(min(at, len(items)), (last, value))
+        parent.clear()
+        parent.update(items)
     else:
         parent[last] = value
     return True

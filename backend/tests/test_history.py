@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import multiprocessing
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -473,3 +474,44 @@ def test_two_processes_saving_at_once_lose_nothing(folder):
         assert all(f"{k}{i};" in text for i in range(15)), (k, text)
     lines = history.entries(storage.location("car").backups)
     assert len(lines) == 46 and history.chain(lines, lines[1]["from"], lines[-1]["to"])
+
+
+def test_undoing_a_remove_keeps_the_order_of_a_cases_overrides(folder):
+    """A case overriding the removed part: the file after the undo is the
+    same bytes, not only the same JSON (the dict keys keep their places)."""
+    project = _bev()
+    case = project.cases[0]
+    case.parameterOverrides = {"el-brake-rl": {"a": 1}, "el-brake-fr": {"a": 2}, "el-x": {"a": 3}}
+    storage.save_project(project)
+    path = storage.project_path("car")
+    before = path.read_bytes()
+    server = McpServer(Engine(user_folder=folder), Policy(), AuditLog(folder))
+    _edit(server, [{"op": "remove", "element": "el-brake-rl"}], reason="drop it")
+    entry = next(e for e in history.entries(storage.location("car").backups) if e["by"] == "agent")
+    storage.undo("car", entry=entry["id"])
+    assert path.read_bytes() == before
+
+
+def test_a_rebase_of_a_git_pull_in_a_read_only_folder_still_says_conflict(folder):
+    """No backups folder, and none can be made: the window must get the 409
+    (the reload offer), not a PermissionError."""
+    import os
+
+    if os.name == "nt" or os.geteuid() == 0:
+        pytest.skip("needs a folder the user cannot write to")
+    project = _bev()
+    rev = storage.save_project(project)
+    backups = storage.location("car").backups
+    shutil.rmtree(backups)
+    path = storage.project_path("car")
+    path.write_text(path.read_text(encoding="utf-8").replace("\"name\"", "\"name\"", 1) + "\n",
+                    encoding="utf-8")
+    folders = {path.parent, backups.parent}
+    for f in folders:
+        f.chmod(0o500)
+    try:
+        with pytest.raises(storage.ConflictError):
+            storage.rebase("car", rev, project.model_dump(mode="json"))
+    finally:
+        for f in folders:
+            f.chmod(0o700)

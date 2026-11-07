@@ -617,7 +617,9 @@ def rebase(project_id: str, revision: str, ours: dict) -> dict:
     loc = location(project_id)
     # under the lock: a save replaces the file before it adds its history
     # line, so read between the two the file would look changed by something else
-    with project_lock(loc):
+    # (no backups folder: no history to chain, and no folder to lock in that a
+    # read-only project folder would refuse to make: a git pull, say)
+    with project_lock(loc) if loc.backups.is_dir() else contextlib.nullcontext():
         try:
             now = revision_of(loc.file.read_bytes())
         except FileNotFoundError:

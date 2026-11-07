@@ -1997,7 +1997,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           const why =
             revision === null
               ? `A project with the id '${project.id}' already exists on disk.`
-              : `'${project.name}' was changed on disk after you opened it (saved from another window or by another program).`;
+              : `'${project.name}' was changed on disk after you opened it (for example by a git pull or another program).`;
           log("warning", `Not saved yet: ${why}`);
           const overwrite = await confirmDialog({
             title: revision === null ? "Project already on disk" : "Project changed on disk",
@@ -2120,7 +2120,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         const reload = await confirmDialog({
           title: "Project changed on disk",
           message:
-            `'${project.name}' was changed on disk (for example by a git pull, or saved from another window). ` +
+            `'${project.name}' was changed on disk (for example by a git pull or another program). ` +
             (now.dirty
               ? "Reload it to see that version: your unsaved changes here would be lost. Keep editing to save yours over it later (Save asks first)."
               : "Reload it to see that version?"),

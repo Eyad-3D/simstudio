@@ -182,7 +182,7 @@ tokens), stderr, Claude Code's debug log and the files as the agent left
 them.
 
 **The report** (`report.md` and `report.json`, written by the command) has,
-per setting and mode: solved once and pass^3 (where it ran), visible and
+per setting and mode: solved on the first try and pass^3 (where it ran), visible and
 held out apart and per kind; the mean cost of a try and the total, at list
 price; the cost per solved try; mean tokens, tool calls, tool errors and
 time; and the not-run tries retried. Then two answers the command works out:
