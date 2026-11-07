@@ -62,6 +62,8 @@ def _write_outputs(result, outs: Sequence[str]) -> list[str]:
     for out in outs:
         path = Path(out.replace("{case}", _safe(result.case_name or result.case_id)))
         suffix = path.suffix.lower()
+        if suffix in (".csv", ".mat", ".json", ".parquet"):
+            _keep_what_it_replaces(path)
         if suffix == ".csv":
             result.to_csv(path)
         elif suffix == ".mat":
@@ -77,6 +79,31 @@ def _write_outputs(result, outs: Sequence[str]) -> list[str]:
             raise UsageError(f"--out '{out}': give a .csv, .mat, .json or .parquet file.")
         written.append(str(path))
     return written
+
+
+def _keep_what_it_replaces(path: Path) -> None:
+    """Before an --out file replaces one that is there: a LightSim project
+    is never replaced (results over the model are a slip, or an instruction
+    planted in a file an agent read); any other file is kept as it was in
+    its backups (``<file>-backups``, the newest storage.KEEP_BACKUPS), so an
+    agent's --out can be undone to the exact earlier file."""
+    from ._engine import engine
+
+    if not path.is_file():
+        return
+    storage = engine("storage")
+    old = path.read_bytes()
+    try:
+        storage.read_project(old)
+    except storage.NewerFileError:
+        pass  # a project of a newer LightSim
+    except Exception:  # not a project: any other error reading it as one
+        loc = storage.location_of_file(path)
+        with storage.project_lock(loc):
+            storage._keep_backup(loc, path, old)
+        return
+    raise UsageError(f"'{path}' is a LightSim project; --out does not replace it. "
+                     "Give another file name.")
 
 
 def _safe(name: str) -> str:
@@ -401,6 +428,8 @@ def cmd_schema(args) -> int:
     from .spec import json_schemas, write_schemas
 
     if args.out:
+        for name in json_schemas():
+            _keep_what_it_replaces(Path(args.out) / f"{name}.schema.json")
         paths = write_schemas(args.out)
         _out(args, [str(p) for p in paths], "\n".join(f"wrote {p}" for p in paths))
         return EXIT_OK
@@ -423,6 +452,7 @@ def cmd_notebook(args) -> int:
     out = Path(args.out or f"{_safe(project.name)}.ipynb")
     if out.exists() and not args.force:
         raise UsageError(f"'{out}' exists; add --force to replace it.")
+    _keep_what_it_replaces(out)
     out.write_text(json.dumps(notebook(str(args.project), case.name), indent=1), encoding="utf-8")
     _out(args, {"wrote": str(out)}, f"wrote {out}")
     return EXIT_OK

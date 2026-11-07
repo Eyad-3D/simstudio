@@ -45,6 +45,11 @@ The examples below write `lightsim`; use whichever of these you have
 `fs-electric`). Every command takes `--json` to print JSON instead of
 text, and `-h` for its options.
 
+A file that `run`, `export`, `schema` or `notebook --force` writes over is
+kept as it was in `<file>-backups` beside it (the newest 20), so it can be
+put back. They never write over a LightSim project: the command stops with
+exit code 3 (use `edit` to change a project).
+
 `run` also takes:
 
 | Option | Does |

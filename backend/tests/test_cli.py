@@ -272,3 +272,22 @@ def test_the_engine_entry_point_takes_the_same_commands():
                        capture_output=True, text=True, timeout=120)
     assert r.returncode == 0, r.stderr
     assert "bev-car" in r.stdout
+
+
+def test_out_never_replaces_a_project_and_keeps_any_other_file_it_replaces(tmp_path):
+    # the attack check's defect 1: `run car.json --out car.json` (or notebook
+    # --force) put results over the model, with no backup and no history line,
+    # so an agent fooled into it left a change nobody could undo
+    car = _bev_copy(tmp_path / "car.json")
+    model = car.read_bytes()
+    env = {"PYTHONPATH": str(BACKEND)}
+    for argv in (["run", "car.json", "--out", "car.json"],
+                 ["notebook", "car.json", "--force", "--out", "car.json"]):
+        r = cli(*argv, cwd=tmp_path, env=env)
+        assert r.returncode == 3 and "is a LightSim project" in r.stderr, (argv, r.stdout, r.stderr)
+        assert car.read_bytes() == model, argv
+    data = tmp_path / "data.csv"
+    data.write_bytes(b"t,v\n0,1\n")
+    assert cli("run", "car.json", "--out", "data.csv", cwd=tmp_path, env=env).returncode == 0
+    kept = [f.read_bytes() for f in (tmp_path / "data.csv-backups").glob("*.json")]
+    assert kept == [b"t,v\n0,1\n"] and data.read_bytes() != kept[0]
