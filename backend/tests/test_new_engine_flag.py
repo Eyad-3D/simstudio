@@ -174,7 +174,8 @@ def test_every_refusal_has_its_code():
     assert new_engine.quick_unsupported(fmu, WLTC).code == "QUICK-SAMPLED"
     assert new_engine.quick_unsupported(sampled, WLTC).code == "QUICK-SAMPLED"
     assert set(seen) | {"NEW-MISSING", "NEW-BUILD", "NEW-FAILED", "NEW-ERROR", "NEW-TEXT", "QUICK-MISSING",
-                        "QUICK-BUILD", "QUICK-FAILED", "QUICK-TABLE-TIME", "QUICK-ERROR"} == set(new_engine.CODES)
+                        "QUICK-BUILD", "QUICK-FAILED", "QUICK-TABLE-TIME", "QUICK-ERROR",
+                                "NEW-LIVE-ERROR-AXIS"} == set(new_engine.CODES)
 
 
 def test_a_failure_is_coded_by_who_refused():

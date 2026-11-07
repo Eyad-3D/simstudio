@@ -479,3 +479,42 @@ def test_a_live_edit_of_a_sample_time_over_the_solver_step_is_for_the_next_run(b
     small = _Live(at=20.0, then=[_set("blk", "sample_time_s", 0.005)])
     (taken,) = simulate(project, "case-city", small.emit, small.control).liveEdits
     assert taken.note is None
+
+
+def _branch_table(policy):
+    """The sweep's fault: the BEV's city case with its E-Motor's drag table
+    cut at the high end of its speed axis, outside = ``policy``; run live."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from benchmarks.back_to_back import sweep
+    raw, case_id = sweep.fault_project(f"table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:{policy}")
+    next(c for c in raw["cases"] if c["id"] == case_id)["realtimeFactor"] = 0  # (no pace)
+    from app.schemas import Project
+    return Project.model_validate(raw), case_id
+
+
+def test_a_live_run_with_an_error_axis_one_branch_reads_runs_on_today_s_engine(monkeypatch):
+    """The E-Motor's drag table is read by today's engine only while the
+    motor is unpowered, so with its axis set to Error today's run succeeds;
+    the new engine stops at its first read past the data (24 s into the city
+    case), and a live run that has shown points is not run again on today's
+    engine. So a live run of it goes to today's engine up front, with
+    NEW-LIVE-ERROR-AXIS (before: failed, NEW-FAILED, after 24 s). With
+    Clamp it stays on the new engine, and a run with no view is not
+    refused."""
+    project, case_id = _branch_table("error")
+    shown = _Live()
+    refused = simulate(project, case_id, shown.emit, shown.control)
+    assert refused.messages[0].text.startswith("Not run [NEW-LIVE-ERROR-AXIS]"), refused.messages[0].text
+    assert not shown.stream
+    monkeypatch.delenv(new_engine.STRICT_VAR)
+    live = _Live()
+    result = simulate(project, case_id, live.emit, live.control)
+    assert result.engine == "today" and result.status == "success", [m.text for m in result.messages]
+    assert "[NEW-LIVE-ERROR-AXIS]" in result.messages[0].text
+    assert not [m for m in result.messages if m.level in ("warning", "error")]
+    clamp, _ = _branch_table("clamp")
+    assert simulate(clamp, case_id, _Live().emit, _Live().control).engine == "new"
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    assert not simulate(project, case_id).messages[0].text.startswith("Not run [NEW-LIVE-ERROR-AXIS]")

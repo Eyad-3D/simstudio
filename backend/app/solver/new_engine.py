@@ -101,6 +101,9 @@ CODES = {
                 "(today's engine reads none)",
     "NEW-SAMPLED": "a PID or Lookup block with a Sample Time longer than today's solver step (today's "
                    "engine holds its output between samples; the new engine runs it at every step)",
+    "NEW-LIVE-ERROR-AXIS": "a live run that the new engine would stop at a table read past its data (an "
+                           "axis set to Error) that today's engine reads only in one branch of its part "
+                           "(a live run that has shown points cannot start again on today's engine)",
     # quick mode's (a case's mode "quick": the new engine's fast mode)
     "QUICK-NOT-FOUND": "quick mode: the case is not in the project",
     "QUICK-KIND": "quick mode: a case that drives no drive cycle",
@@ -145,6 +148,9 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
     engine, with a message saying which ran it (in strict mode not at all:
     the case fails with the reason's code)."""
     why = unsupported(project, case_id)
+    view = emit is not None and not getattr(emit, "progress_only", False)
+    if why is None and view:
+        why = live_error_axis(project, case_id)
     if why is None:
         # what a live run did that today's engine, run instead from t = 0,
         # would undo: "shown" (a point or a note to a live view: an emit not
@@ -161,7 +167,6 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
             got = list(control())
             did.update(str(m.get("type")) for m in got)
             return got
-        view = emit is not None and not getattr(emit, "progress_only", False)
         try:
             return _ran(run_new(project, case_id, shown if view else emit, control and read), project)
         except Exception as e:  # noqa: BLE001 — the new engine must never break a run
@@ -196,6 +201,33 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
         level="info", text=f"Run on today's engine, not the new one ({ENV_VAR}=new) "
                            f"[{why.code}]: {why.why}."))
     return result
+
+
+def live_error_axis(project: Project, case_id: str) -> Optional[Refusal]:
+    """A live run's refusal where the new engine would stop it at a table
+    that today's engine reads only in one branch of its part (BRANCH_READS)
+    and whose axis stops the run outside its data (Error): the new engine
+    stops at its first read past the data, today's only when its own read
+    is, and a live run that has shown points is not run again on today's
+    engine. A project with such a table is first run on the new engine
+    without a view (its points are the live run's, bit for bit); if that
+    stops at a table, the live run goes to today's engine, before any point is shown."""
+    try:
+        ctx = _context(project, case_id)
+    except Exception:  # noqa: BLE001 — the run says it (NEW-BUILD)
+        return None
+    for (el_id, key), m in ctx.maps.items():
+        rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, key))
+        if rule is not None and any(a < len(rule.axes) and rule.axes[a][1] is not SAME for a in m.error_axes):
+            break
+    else:
+        return None
+    try:
+        run_new(project, case_id)
+    except Exception as e:  # noqa: BLE001 — a stop at a table; any other stop the live run reports
+        if "RUN-TABLE" in failure(e).why or isinstance(e, TableError):
+            return Refusal("NEW-LIVE-ERROR-AXIS", f"the new engine, run first without a view, stopped: {e}")
+    return None
 
 
 def _ran(result: SimResult, project: Optional[Project] = None) -> SimResult:

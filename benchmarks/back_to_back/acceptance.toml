@@ -36,6 +36,7 @@ NEW-BUILD = "today's model builder refused the model before the new engine saw i
 NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow in the message)"
 NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
 NEW-TEXT = "a part whose equations come from a text file, in a case the new engine's path does not run, or whose file it cannot read: today's engine does not read text components, so the case fails with the code of the refusal and this one (added 31 October, widened 1 November: [[changes]])"
+NEW-LIVE-ERROR-AXIS = "a live run the new engine would stop at a table read past its data (an axis set to Error) that today's engine reads only in one branch of its part: the project goes to today's engine before any point is shown, a live run that has shown points cannot start again (added 7 November, the sweep: [[changes]])"
 NEW-SAMPLED = "a PID or Lookup block with a Sample Time longer than today's solver step: today's engine runs it only at multiples of its Sample Time and holds its output in between, the new engine runs it at every step (added 6 November, the sweep: [[changes]])"
 # quick mode (a case's mode "quick": the new engine's fast mode, step 2's item 5;
 # added 31 October: [[changes]]). A case quick mode does not run runs in full
@@ -958,7 +959,8 @@ it runs, and a Road Profile added on the Vehicle's grade, cut to each half; the 
 three fault bases (bev-car/case-city, fs-electric/case-accel-75m, hybrid-car/case-udds): one part of every \
 library component but a subsystem, connected to nothing, with its defaults and with each table the engine \
 reads of it cut as above (a Lookup in the mode of the table cut, its tables of five points an axis); a PID, a 1D Lookup and a 2D Lookup fed the Vehicle's speed (and distance), with a \
-Sample Time of half the case's time step, one step, three steps and 5 s."""
+Sample Time of 0, 5 ms, 15 ms (today's solver step is 10 ms), half the case's time step, one step, \
+three steps and 5 s (the first three added 7 November, [[changes]])."""
 measure = """Each fault runs through app.solver.simulate three times: today's engine (no flag), the new path in \
 strict mode (LIGHTSIM_ENGINE=new, LIGHTSIM_ENGINE_STRICT=1) and quick mode in strict mode (the case's mode \
 "quick"). A strict run refused with a code of [codes] (not NEW-ERROR nor QUICK-ERROR) is handed back: counted \
@@ -971,7 +973,10 @@ without the other is a mismatch); a row marked not valid on one run only (in qui
 gives); for a PID's or Lookup's fault, its output at the times both runs give further than 2 % of its range \
 on today's run from today's (its first point, which today's engine records before its first step, within that \
 of today's first two values, as classes.toml's rule today-first-point-before-its-step has it: changed \
-6 November, [[changes]]). An exception out of a run, or a fault that cannot be built, is a mismatch."""
+6 November, [[changes]]). A live case is run a fourth time as the app runs it, the new path not strict and with \
+a view: one the new engine fails (a live run it fails is not run again on today's engine) where today's run does \
+not fail is a mismatch, whatever its strict run said (added 7 November, [[changes]]). An exception out of a run, \
+or a fault that cannot be built, is a mismatch."""
 pass_mark = """0 mismatches over every fault, after the fixes: each one the sweep finds before them is fixed or \
 its run handed back with a listed code. The three cases the FMU part's last re-check left open (a battery or \
 fuel cell on no bus with its table cut; FS 75 m acceleration with the loss map from 23 N·m on Error; a PID or \
@@ -1026,3 +1031,15 @@ reason = """The independent check of 7 November: on a cycle the output step is 1
 sweep was over today's solver step and held (NEW-SAMPLED), and no PID the new path runs was compared on a \
 cycle; such a PID at its limit stops the new engine and quick mode where today's succeeds (KNOWN-LIMITS). \
 No pass mark moves."""
+
+[[changes]]
+date = "2026-11-07"
+line = "SWEEP"
+change = """[sweep] measure: a live case is run a fourth time as the app runs it (the new path not strict, with a view); \
+a live run the new engine fails where today's does not fail is a mismatch. [codes] lists NEW-LIVE-ERROR-AXIS, \
+the code of a live run sent to today's engine before it starts. The [sweep] cases text lists the seven Sample \
+Times the change of the same day added."""
+reason = """The second independent check of 7 November: in the app a live run the new engine fails is not run again \
+on today's engine, but the sweep's strict run counts it as handed back (NEW-FAILED) and skipped today's run; \
+the BEV's live city case with its E-Motor's drag table cut at the top of its speed axis and set to Error fails \
+at 24 s in the app where today's succeeds. No pass mark moves."""

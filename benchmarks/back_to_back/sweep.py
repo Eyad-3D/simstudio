@@ -14,9 +14,13 @@ The faults, from the four example cars and the judge's 16 cases
   connected to nothing (no bus, no shaft, no signal), with its defaults, and
   each table the engine reads of it cut as above;
 - sampled: a PID, a 1D Lookup and a 2D Lookup fed the car's speed, with a
-  Sample Time below, at and above the case's time step, and of 5 s.
+  Sample Time of 0, 5 ms and 15 ms (today's solver step is 10 ms), half, one
+  and three of the case's output steps, and 5 s (the first three added
+  7 November).
 
-Each fault runs three times through the app's own app.solver.simulate:
+Each fault runs three times (a live case a fourth: the new path not strict,
+with a view, as the app runs it; compare() counts a live run it fails where
+today's does not) through the app's own app.solver.simulate:
 today's engine (no flag), the new path in strict mode (LIGHTSIM_ENGINE=new,
 LIGHTSIM_ENGINE_STRICT=1) and quick mode in strict mode (the case's mode
 "quick"). A strict run refused with a listed code is a run handed back to
@@ -335,7 +339,7 @@ def _put_cut(project: dict, case_id: str, el: dict, key: str, axis: int, end: st
 
 # ---- one fault on both engines ---------------------------------------------------
 
-SETTINGS = ("new", "quick", "today")
+SETTINGS = ("new", "quick", "live", "today")  # ("live": a live case as the app runs it, see run_fault)
 
 
 def digest(result, block: str | None = None) -> dict:
@@ -361,8 +365,11 @@ def digest(result, block: str | None = None) -> dict:
 
 
 def run_fault(fid: str) -> dict:
-    """The fault's three runs (SETTINGS), each digested; today's is not run
-    when neither strict run ran (nothing to compare it with)."""
+    """The fault's runs (SETTINGS), each digested; today's is not run when
+    neither strict run ran and no live run is made (nothing to compare it
+    with). A live case is run a third time as the app runs it: the new path
+    not strict, with a view (a live run the new engine fails is not run
+    again on today's engine, so a strict run's hand-back would hide it)."""
     from app.schemas import Project
     from app.solver import simulate
 
@@ -372,12 +379,17 @@ def run_fault(fid: str) -> dict:
     live = (runs._case(raw, case_id).get("realtimeFactor") or 0) > 0
     got: dict = {}
     for setting in SETTINGS:
-        if setting == "today" and all(got[s].get("refused") or got[s].get("raised") for s in ("new", "quick")):
+        if setting == "live" and not live:
+            continue
+        if setting == "today" and "live" not in got and all(
+                got[s].get("refused") or got[s].get("raised") for s in ("new", "quick")):
             continue
         for k in ("LIGHTSIM_ENGINE", "LIGHTSIM_ENGINE_STRICT"):
             os.environ.pop(k, None)
         if setting != "today":
-            os.environ.update(LIGHTSIM_ENGINE="new", LIGHTSIM_ENGINE_STRICT="1")
+            os.environ.update(LIGHTSIM_ENGINE="new")
+            if setting != "live":
+                os.environ.update(LIGHTSIM_ENGINE_STRICT="1")
         project = Project.model_validate(json.loads(json.dumps(raw)))
         if setting == "quick":
             next(c for c in project.cases if c.id == case_id).mode = "quick"
@@ -418,6 +430,10 @@ def compare(fid: str, setting: str, today: dict | None, other: dict) -> dict:
         return {"diffs": [f"refused with {code}, not a listed hand-back"]} if bad else {"handed": code}
     if today is None or "raised" in today:
         return {"diffs": [f"today's run: {today and today.get('raised')}"]}
+    if setting == "live":  # (the app's live run: only its verdict, see run_fault)
+        if other["status"] == "failed" and today["status"] != "failed":
+            return {"diffs": [f"live run: failed on the new path ({other['first'][:300]}), today's {today['status']}"]}
+        return {"diffs": []}
     diffs = []
     if other["status"] != today["status"]:
         worse = LEVEL[other["status"]] < LEVEL[today["status"]]
@@ -555,7 +571,7 @@ def summarise(out: Path, ids: list[str] | None = None) -> dict:
     res = {"faults": len(ids), "by_kind": {}, "runs": 0, "handed": {}, "mismatches": [], "missing": []}
     for fid in ids:
         p = _file(out, fid)
-        kind = fid.split(":")[0]
+        kind, base = fid.split(":")[:2]
         res["by_kind"][kind] = res["by_kind"].get(kind, 0) + 1
         if not p.exists():
             res["missing"].append(fid)
@@ -565,7 +581,12 @@ def summarise(out: Path, ids: list[str] | None = None) -> dict:
             res["mismatches"].append({"fault": fid, "setting": "-", "diffs": [f"not built: {rec['runs']['built']}"]})
             continue
         got = rec["runs"]
-        for setting in ("new", "quick"):
+        for setting in ("new", "quick", "live"):
+            if setting not in got:
+                if setting != "live" or base.split("/")[1].endswith("-live"):
+                    res["mismatches"].append({"fault": fid, "setting": setting, "diffs": [
+                        f"no {setting} run in its record" + (" (a live case is also run live)" if setting == "live" else "")]})
+                continue
             res["runs"] += 1
             c = compare(fid, setting, got.get("today"), got[setting])
             if "handed" in c:

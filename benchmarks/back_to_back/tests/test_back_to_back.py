@@ -1768,3 +1768,27 @@ def test_the_sweep_compares_as_its_section_says():
                          run() | {"output": [[0.0, 9.0], [1.0, 9.8], [2.0, 9.5]]}) == {"diffs": []}
     assert sweep.compare("sampled:x", "new", run() | {"output": first},
                          run() | {"output": [[0.0, 20.0], [1.0, 9.8], [2.0, 9.5]]})["diffs"]
+
+
+def test_the_sweep_counts_a_live_run_the_new_path_fails_as_a_mismatch(tmp_path):
+    """A live case is also run as the app runs it (not strict, with a view);
+    a live run the new engine fails is not run again on today's, so where
+    today's does not fail it is a mismatch, though its strict run is a
+    hand-back (NEW-FAILED). A record lacking that live run is one too."""
+    import json
+
+    from benchmarks.back_to_back import sweep
+
+    ok = {"status": "success", "refused": None, "codes": [], "warnings": [], "notValid": [], "rows": [], "first": ""}
+    live_failed = ok | {"status": "failed", "first": "The new engine could not finish this live run [NEW-FAILED]"}
+    assert sweep.compare("table:x", "live", ok, ok) == {"diffs": []}
+    assert sweep.compare("table:x", "live", ok | {"status": "failed"}, live_failed) == {"diffs": []}
+    (d,) = sweep.compare("table:x", "live", ok, live_failed)["diffs"]
+    assert "could not finish this live run" in d
+    fid = "table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:error"
+    (tmp_path / "raw").mkdir()
+    sweep._file(tmp_path, fid).write_text(json.dumps({"fault": fid, "stamp": "s", "runs": {
+        "new": {"refused": "NEW-FAILED"}, "quick": {"refused": "QUICK-FAILED"}, "today": ok}}), encoding="utf-8")
+    res = sweep.summarise(tmp_path, [fid])
+    assert [(m["setting"], m["diffs"]) for m in res["mismatches"]] == [
+        ("live", ["no live run in its record (a live case is also run live)"])]
