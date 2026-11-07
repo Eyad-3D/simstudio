@@ -292,14 +292,15 @@ def test_an_edit_of_a_file_in_an_allowed_folder_keeps_the_old_version_beside_it(
     assert done["applied"] is True
     assert '"car.json-backups" beside the file' in done["note"], "the answer says where the backup is"
     backups = car.parent / "car.json-backups"
-    kept = sorted(backups.glob("*.json"))
+    kept = sorted(f for f in backups.glob("*.json") if f.stem[0].isdigit())
     assert [k.read_bytes() for k in kept] == [original], "the replaced version is kept (recoverable)"
+    assert [f.read_bytes() for f in backups.glob("pre-session-*.json")] == [original], "and the session start"
     assert (backups / ".gitignore").is_file(), "and kept out of git"
     assert car.read_bytes() != original
 
     edited = car.read_bytes()
     _saved_edit(server, ref, [{"op": "set", "element": "Vehicle", "param": "mass_kg", "value": 2200}])
-    kept = sorted(backups.glob("*.json"))
+    kept = sorted(f for f in backups.glob("*.json") if f.stem[0].isdigit())
     assert [k.read_bytes() for k in kept] == [original, edited], "each edit adds one"
     listed = [p["project"] for p in tool(server, "lightsim_list_projects", {})
               ["structuredContent"]["projects"]]
