@@ -979,7 +979,7 @@ of today's first two values, as classes.toml's rule today-first-point-before-its
 6 November, [[changes]]). Every fault is also run a fourth time as the app runs a case (every run the app \
 starts has a view, a live case or not), the new path not strict and with a view, and compared with today's run \
 like a strict one; one the app runs again on today's engine (NEW-LIVE-RESTART, or a refusal said in its first \
-message) is handed back with that code (added 7 November, [[changes]]; for live cases only, then). An exception out of a run, \
+message) is handed back with that code, its verdict being today's (a note of a restart or a refusal must not change it; the warning of a case the new engine could not run is on purpose and may) (added 7 November, [[changes]]; for live cases only, then). An exception out of a run, \
 or a fault that cannot be built, is a mismatch."""
 pass_mark = """0 mismatches over every fault, after the fixes: each one the sweep finds before them is fixed or \
 its run handed back with a listed code. The three cases the FMU part's last re-check left open (a battery or \

@@ -1797,15 +1797,25 @@ def test_the_sweep_counts_a_live_run_the_new_path_fails_as_a_mismatch(tmp_path):
     (d,) = sweep.compare("table:x", "live", ok, live_failed)["diffs"]
     assert d.startswith("verdict: today success, live failed")
     assert sweep.compare("table:x", "live", ok, ok | {"warnings": ["w"]})["diffs"]  # (not only its verdict)
-    restarted = ok | {"engine": "today", "first": "The new engine stopped this run after it had shown "
+    restarted = ok | {"first": "The new engine stopped this run after it had shown "
                                                   "points [NEW-FAILED] (x); it ran again from t = 0 on "
                                                   "today's engine [NEW-LIVE-RESTART]."}
     assert sweep.compare("table:x", "live", ok, restarted) == {"handed": "NEW-LIVE-RESTART"}
-    said = ok | {"engine": "today", "first": "Run on today's engine, not the new one (LIGHTSIM_ENGINE=new) "
+    long = restarted | {"first": restarted["first"].replace("(x)", "(" + "x" * 500 + ")")[:600]}  # (the digest's cut)
+    assert "[NEW-LIVE-RESTART]" not in long["first"]
+    assert sweep.compare("table:x", "live", ok, long) == {"handed": "NEW-LIVE-RESTART"}
+    said = ok | {"first": "Run on today's engine, not the new one (LIGHTSIM_ENGINE=new) "
                                              "[NEW-SAMPLED]: x."}
     assert sweep.compare("table:x", "live", ok, said) == {"handed": "NEW-SAMPLED"}
-    (d,) = sweep.compare("table:x", "live", ok, ok | {"engine": "today", "first": "nothing said"})["diffs"]
+    unsaid = ok | {"first": "The new engine could not run this case (x); it ran on today's engine instead."}
+    (d,) = sweep.compare("table:x", "live", ok, unsaid)["diffs"]
     assert "no listed code" in d
+    (d,) = sweep.compare("table:x", "live", ok, restarted | {"status": "warning"})["diffs"]  # (a note, not a warning)
+    assert d.startswith("verdict: today success, live warning")
+    (d,) = sweep.compare("table:x", "live", ok, said | {"status": "failed"})["diffs"]
+    assert d.startswith("verdict: today success, live failed")
+    coded = unsaid | {"first": "The new engine could not run this case [NEW-BUILD] (x); it ran on today's engine instead."}
+    assert sweep.compare("table:x", "live", ok, coded | {"status": "warning"}) == {"handed": "NEW-BUILD"}  # (its warning)
     for fid in ("table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:error",
                 "table:bev-car/case-city:el-motor.drag_torque:0:hi:half:error"):
         (tmp_path / "raw").mkdir(exist_ok=True)

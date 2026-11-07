@@ -64,6 +64,8 @@ SAMPLE_TIMES = ("0", "5ms", "15ms", "half-step", "step", "3-steps", "5s")
 # motor reaches its maximum at a third of the car's speed), alone or on a constant 6 % downhill grade
 OVERSPEED = {"gear": 0.0, "down": -6.0}
 SPARE = "x-spare"  # the id of a fault's added part
+AGAIN = ("The new engine could not run this case", "The new engine stopped this run",
+         "Run on today's engine, not the new one")  # (the app's run on today's engine starts so)
 CODE = re.compile(r"\[((?:NEW|QUICK|FAST)-[A-Z0-9-]+)\]")
 REFUSED = re.compile(r"Not run \[([A-Z0-9-]+)\]")
 FLAG = "Quick mode: "  # the start of quick mode's own messages
@@ -455,11 +457,16 @@ def compare(fid: str, setting: str, today: dict | None, other: dict) -> dict:
         return {"diffs": [f"refused with {code}, not a listed hand-back"]} if bad else {"handed": code}
     if today is None or "raised" in today:
         return {"diffs": [f"today's run: {today and today.get('raised')}"]}
-    if setting == "live" and other.get("engine") == "today":  # (the app's run, on today's engine: said why)
+    if setting == "live" and other["first"].startswith(AGAIN):  # (the app's run, on today's engine: said why)
         found = CODE.search(other["first"])
-        code = "NEW-LIVE-RESTART" if "[NEW-LIVE-RESTART]" in other["first"] else found and found[1]
+        # (the restart's note names the engine's own code first and its own at the end, past the digest's cut)
+        code = "NEW-LIVE-RESTART" if other["first"].startswith(AGAIN[1]) else found and found[1]
         if code not in new_engine.CODES or code.endswith("-ERROR"):
             return {"diffs": [f"live run on today's engine with no listed code: {other['first'][:200]!r}"]}
+        # (the note of a refusal or a restart must not change today's verdict; the warning of a case the
+        # new engine could not run is on purpose, DESIGN.md 12.3, and may make a success a warning one)
+        if other["status"] != today["status"] and not other["first"].startswith(AGAIN[0]):
+            return {"diffs": [f"verdict: today {today['status']}, live {other['status']} (run again on today's engine)"]}
         return {"handed": code}
     diffs = []
     if other["status"] != today["status"]:
