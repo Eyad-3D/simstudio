@@ -246,9 +246,13 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         v.nominal = Some(1.0);
     }
     let uc2 = uc;
-    let t_fl_expr = lsim_ir::expr::table("full_load_torque", vec![n("v"), n("wa")]);
-    let loss_at = |torque: Expr| lsim_ir::expr::table("power_loss", vec![n("wa"), torque]);
     let wmax = n("w_max");
+    // the maps are read at the speed held to the maximum speed: above it the
+    // inverter is off and their values are not used, so a table that ends
+    // there is never read past its data (and a stop on its axis is not hit)
+    let w_map = noev(min(n("wa"), wmax.clone()));
+    let t_fl_expr = lsim_ir::expr::table("full_load_torque", vec![n("v"), w_map.clone()]);
+    let loss_at = |torque: Expr| lsim_ir::expr::table("power_loss", vec![w_map.clone(), torque]);
     let band = c(SPEED_LIMIT_BAND);
     // the continuous switches (equal on both sides of their boundary) need
     // no event: their relations are under noEvent

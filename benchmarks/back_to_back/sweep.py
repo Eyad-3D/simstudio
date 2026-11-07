@@ -59,6 +59,9 @@ ALONE_BASES = tuple(f"{n}/{c}" for n, c in runs.FAULT_EXAMPLES.items())  # the j
 # (the case's output step is 1 s on a cycle, over today's 10 ms solver step: "0", "5ms" and
 # "15ms" are at and around that step, so the blocks the new path runs are compared on every base)
 SAMPLE_TIMES = ("0", "5ms", "15ms", "half-step", "step", "3-steps", "5s")
+# a motor driven past its maximum speed (added 7 November): every final drive's ratio times 3 (the
+# motor reaches its maximum at a third of the car's speed), alone or on a constant 6 % downhill grade
+OVERSPEED = {"gear": 0.0, "down": -6.0}
 SPARE = "x-spare"  # the id of a fault's added part
 CODE = re.compile(r"\[((?:NEW|QUICK|FAST)-[A-Z0-9-]+)\]")
 REFUSED = re.compile(r"Not run \[([A-Z0-9-]+)\]")
@@ -197,7 +200,8 @@ def faults() -> list[str]:
     profile:<base>:<el>:<end>                     a Driving Task's or Road Profile's profile
     alone:<base>:<component>                      a part on nothing, its defaults
     alone:<base>:<component>#<key>:<axis>:<end>:<depth>:<policy>
-    sampled:<base>:<block>:<sample time>"""
+    sampled:<base>:<block>:<sample time>
+    overspeed:<base>:<gear|down>                  every final drive x3, alone or on a 6 % downhill grade"""
     out = []
     for base in bases():
         out.append(f"none:{base}")
@@ -230,6 +234,7 @@ def faults() -> list[str]:
                                         for p in POLICIES]
         for block in ("pid", "lookup1d", "lookup2d"):
             out += [f"sampled:{base}:{block}:{ts}" for ts in SAMPLE_TIMES]
+    out += [f"overspeed:{base}:{how}" for base in bases() for how in OVERSPEED]
     return out
 
 
@@ -311,6 +316,22 @@ def fault_project(fid: str) -> tuple[dict, str]:
         if key:
             axis, end, depth, policy = rest[1:]
             _put_cut(project, case_id, el, key, int(axis), end, depth, policy)
+        return project, case_id
+    if kind == "overspeed":
+        for e in _elements(project):
+            if e["componentDefId"] == "mech.final_drive":
+                over = e.setdefault("parameterOverrides", {})
+                over["ratio"] = 3 * float(over.get("ratio") or _pdef("mech.final_drive", "ratio")["default"])
+                ((case.get("parameterOverrides") or {}).get(e["id"]) or {}).pop("ratio", None)
+        grade = OVERSPEED[rest[0]]
+        if grade:
+            system["elements"].append(_spare("signal.road_profile", profile=f"0:{grade:g}; 1000000:{grade:g}"))
+            veh = next(e["id"] for e in _elements(project) if e["componentDefId"] == "vehicle.body")
+            project["dataBusConnections"] += [
+                {"id": "db-x1", "element1Id": veh, "port1Id": "sig_distance",
+                 "element2Id": SPARE, "port2Id": "sig_distance_in"},
+                {"id": "db-x2", "element1Id": SPARE, "port1Id": "sig_grade",
+                 "element2Id": veh, "port2Id": "sig_grade_in"}]
         return project, case_id
     if kind == "sampled":
         block, ts = rest

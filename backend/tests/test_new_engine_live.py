@@ -591,6 +591,41 @@ def test_an_error_axis_short_of_what_its_part_reaches_is_refused_before_the_run(
     assert new_engine.live_error_axis(project, case_id) is None
 
 
+def test_a_generator_torque_share_over_100_percent_reads_the_loss_map_past_its_full_load_peak():
+    """The example's loss map ends at its full-load peak (310 N.m), which
+    covers a generator at 100 %; at 200 % the motor brakes with twice that,
+    so the same axis on Error is refused (the Q4 share in _covers)."""
+    project = load_example("bev-car")
+    assert new_engine.live_error_axis(project, "case-city-live") is None
+    motor = next(e for s in project.systems for e in s.elements if e.id == "el-motor")
+    motor.parameterOverrides["q4_torque_scale_pct"] = 200
+    why = new_engine.live_error_axis(project, "case-city-live")
+    assert why is not None and why.code == "NEW-LIVE-ERROR-AXIS", why
+
+
+def test_an_engine_full_load_axis_on_error_is_not_refused():
+    """An Engine reads its full-load curve only between its own first and
+    last speed (NEVER: no read past its data in either engine), so cutting
+    it short with the axis on Error is not a reason to hand the run back."""
+    project, case_id = _fault("table:hybrid-car/case-mixed-live:el-engine.full_load_torque:0:lo:edge:error")
+    assert new_engine.live_error_axis(project, case_id) is None
+
+
+@pytest.mark.parametrize("fid", ["overspeed:bev-car/case-city-live:down", "overspeed:bev-car/case-city:down"])
+def test_a_motor_driven_past_its_maximum_speed_is_not_stopped_by_a_table_that_ends_there(fid):
+    """The example BEV with its Final Drive ratio x3 on a 6 % downhill grade
+    drives the motor past its 16,000 1/min: today's engine warns (over
+    speed); the new engine read the full-load and loss maps there too, past
+    their data (axes on Error), and stopped (NEW-FAILED, RUN-TABLE) after
+    showing points. It now reads them at the speed held to the maximum
+    (above it the inverter is off), so it warns the same, with a view."""
+    project, case_id = _fault(fid)
+    assert new_engine.live_error_axis(project, case_id) is None
+    result = simulate(project, case_id, lambda m: None, lambda: [])
+    assert result.engine == "new" and result.status == "warning", (result.status, [m.text for m in result.messages])
+    assert any("maximum speed" in m.text for m in result.messages)
+
+
 def test_a_live_run_with_a_pid_the_new_engine_runs_at_every_step_runs_on_today_s_engine(monkeypatch):
     """A PID with a Sample Time of 0 at its limit stops the new engine 309 s
     into the city case (RUN-EVENT-STORM) where today's engine finishes, and

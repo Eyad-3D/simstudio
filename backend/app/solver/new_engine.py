@@ -1605,6 +1605,7 @@ def _in_no_driveline(model, el_id: str) -> Optional[str]:
     return None if any(el_id in dl.element_group for dl in model.drivelines) else "it is in no driveline"
 
 
+_W_MAP = "noEvent(min(wa, w_max))"  # the speed an E-Motor's full-load and loss maps are read at
 _MOTOR_VARS = ("on", "dem", "v", "wa", "T")  # what an E-Motor's rules read (_motor_powered)
 _ENGINE_VARS = ("wa", "n_map", "fired_thr", "fired_idle", "t_b1", "t_b2")  # an Engine's
 
@@ -1633,14 +1634,14 @@ BRANCH_READS = {
     ("motor.emotor", "full_load_torque"): Reads(
         "only while the motor is powered",
         ((("v",), lambda v, top: v["v"] if _motor_powered(v) else None),
-         (("wa",), lambda v, top: v["wa"] if _motor_powered(v) else None)),
+         ((_W_MAP,), lambda v, top: v["wa"] if _motor_powered(v) else None)),
         left_out=_in_no_driveline, uses=_MOTOR_VARS),
     # at its torque's magnitude (motor_torque); the engine reads it at the
     # command's torque and the shaft's, and, with a supply window, at 0 and
     # the allowed share
     ("motor.emotor", "power_loss"): Reads(
         "only while the motor is powered",
-        ((("wa",), lambda v, top: v["wa"] if _motor_powered(v) else None),
+        (((_W_MAP,), lambda v, top: v["wa"] if _motor_powered(v) else None),
          (("noEvent(abs(t_cmd))", "noEvent(abs(T))", "0 * unit_N_m", "noEvent(abs(frac * t_cmd))"),
           lambda v, top: abs(v["T"]) if _motor_powered(v) else None)),
         left_out=_in_no_driveline, uses=_MOTOR_VARS),

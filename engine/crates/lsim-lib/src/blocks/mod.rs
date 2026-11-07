@@ -350,7 +350,7 @@ mod tests {
         };
         assert!(has("fuelcell.stack", "polarization", &["I"]));
         assert!(has("fuelcell.stack", "polarization", &["i_max"]));
-        assert!(has("motor.emotor", "power_loss", &["wa", "0 * unit_N_m"]));
+        assert!(has("motor.emotor", "power_loss", &["noEvent(min(wa, w_max))", "0 * unit_N_m"]));
         assert!(has("signal.lookup", "table", &["sig_x_in", "sig_y_in"]));
         assert!(sites.windows(2).all(|w| w[0] < w[1]), "sorted, each once");
     }

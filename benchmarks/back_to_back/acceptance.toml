@@ -962,7 +962,7 @@ cases (bev-car/case-city-live, hybrid-car/case-mixed-live; added 7 November, [[c
 library component but a subsystem, connected to nothing, with its defaults and with each table the engine \
 reads of it cut as above (a Lookup in the mode of the table cut, its tables of five points an axis); a PID, a 1D Lookup and a 2D Lookup fed the Vehicle's speed (and distance), with a \
 Sample Time of 0, 5 ms, 15 ms (today's solver step is 10 ms), half the case's time step, one step, \
-three steps and 5 s (the first three added 7 November, [[changes]])."""
+three steps and 5 s (the first three added 7 November, [[changes]]). On every one of the 16 cases: every Final Drive ratio times 3 (the motor reaches its maximum speed at a third of the car's), alone and on a constant 6 % downhill grade (a motor driven past its maximum speed; added 7 November, [[changes]])."""
 measure = """Each fault runs through app.solver.simulate three times: today's engine (no flag), the new path in \
 strict mode (LIGHTSIM_ENGINE=new, LIGHTSIM_ENGINE_STRICT=1) and quick mode in strict mode (the case's mode \
 "quick"). A strict run refused with a code of [codes] (not NEW-ERROR nor QUICK-ERROR) is handed back: counted \
@@ -1058,3 +1058,9 @@ STREAM S2 probe failed here: p95 0.675 s), and it handed back only a stop at a t
 city case with a PID at its limit failed at 309 s where today's succeeds; the sweep had no sampled fault on a \
 live case, so its live compare never met a PID, nor any part alone (the same hole: a strict hand-back on a \
 fault base hides a live run that fails). No pass mark moves."""
+
+[[changes]]
+date = "2026-11-07"
+line = "SWEEP"
+change = """[sweep] cases: an over-speed fault on all 16 cases (every Final Drive ratio times 3, alone and on a 6 % downhill grade)."""
+reason = """The fourth independent check of 7 November: a motor driven past its maximum speed (the example BEV with its Final Drive x3 on a downhill grade) failed every run with a view on the new path (RUN-TABLE, the full-load and loss maps read past their data on Error, above the maximum speed where the inverter is off) where today's engine only warns; the sweep built no such fault. The motor now reads the maps at its speed held to the maximum. No pass mark moves."""

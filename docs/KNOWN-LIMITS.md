@@ -810,10 +810,19 @@ minimum or an average, for example from the CSV export, or put the
   torque; any other such axis is not, even where the case would never reach
   past its data (the example cars' tables are covered). A motor driven
   above its maximum speed by something else (a downhill grade, an engine
-  or another motor on its shaft) is still read past a table that ends at
-  that speed: such a live run fails there (`NEW-FAILED`) where today's
-  engine only notes the over speed; run it with `LIGHTSIM_ENGINE=today`. A
-  live edit that later moves the run past the data also fails it.
+  or another motor on its shaft) is not a case of it: the new engine
+  reads the motor's full-load and loss maps at its speed held to the
+  maximum (above it the inverter is off and they are not used), as today's
+  engine does, so it does not stop at the table. It can still stop at the
+  limit itself (`NEW-FAILED`, `RUN-EVENT-STORM`): where the driver brakes
+  and gravity or another source drives the motor (or an engine) up to its
+  maximum speed, the brake works below it and not above, and the speed
+  switches about the limit without end, which today's engine, with a fixed
+  step that lets a machine carry past by a step, does not notice (a
+  downhill cycle run of the example BEV with its Final Drive ratio x3,
+  and the hybrid with its ratio x3); it finishes there with the over-speed
+  warning, so run such a project with `LIGHTSIM_ENGINE=today`. A live edit
+  that later moves the run past the data does fail it.
   *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a
