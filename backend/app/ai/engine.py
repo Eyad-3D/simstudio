@@ -208,12 +208,14 @@ class Engine:
     def _may_open(self, path: Path, policy) -> bool:
         """True when the project file at ``path``, after following links, is
         in a folder the assistant may see. A link in an allowed folder to a
-        file elsewhere is neither listed nor opened."""
+        file elsewhere is neither listed nor opened, nor is a file LightSim
+        keeps for a project (a backup: an edit of it would change the
+        history the app undoes by)."""
         try:
             real = path.resolve()
         except (OSError, RuntimeError):
             return False
-        return (real.suffix in (".json", ".lightsim")
+        return (real.suffix in (".json", ".lightsim") and not storage.kept_by_lightsim(real)
                 and (any(real.parent == f for f in self.allowed_folders) or policy._in_folders(real)))
 
     def list_projects(self) -> list[dict]:

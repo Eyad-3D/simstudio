@@ -1148,7 +1148,14 @@ minimum or an average, for example from the CSV export, or put the
   file's last `lightsim edit` when that one named none either and was less
   than 15 minutes ago with no other save between, so two agents editing
   one file that way at once share a session (Undo session undoes both):
-  give each its own `LIGHTSIM_SESSION`.
+  give each its own `LIGHTSIM_SESSION`. The history keeps its newest two
+  files of about 4 MB; a session whose first lines it has dropped is undone
+  from the copy of the file kept before the session's first save, together
+  with any save of yours made between those lines; if the file was changed
+  by something else since, the undo says so and names the copy. A file that
+  `lightsim run --out` (or `export`, `schema`, `notebook`) writes over with
+  no session named keeps its version from the start of each day, beside the
+  newest 20.
   It does not read the trust list (`lightsim ai trust`): only Python code
   that goes through `lightsim.ai_access.AgentSession` reads it, and
   `lightsim run` and the `lightsim` package read no AI access setting at

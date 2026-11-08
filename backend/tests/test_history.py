@@ -605,3 +605,44 @@ def test_a_long_agent_session_still_undoes_to_the_exact_original(folder, monkeyp
     storage.undo("car", session="long")
     assert json.loads(car.read_bytes()) == json.loads(original)
     assert [f.read_bytes() for f in backups.glob("pre-session-*.json")] == [original]
+
+def _session_past_two_rotations(monkeypatch):
+    """One agent session of three saves whose first line the history has
+    started afresh past twice: (the file, its original bytes)."""
+    monkeypatch.setattr(history, "HISTORY_MAX_BYTES", 20_000)
+    project = _bev()
+    storage.save_project(project)
+    car = storage.project_path("car")
+    original = car.read_bytes()
+    meta = {"by": "agent", "tool": "model_edit", "client": "t", "session": "s"}
+    project.description = "X" * 25_000
+    storage.save_project(project, meta=meta)
+    project.name = "Y" * 25_000
+    storage.save_project(project, meta=meta)
+    project.systems[0].elements[0].label = "p"
+    storage.save_project(project, meta=meta)
+    backups = storage.location("car").backups
+    assert sum(e.get("session") == "s" for e in history.entries(backups)) == 2, "the first is gone"
+    return car, original
+
+
+def test_a_session_undo_past_two_history_rotations_still_gives_the_original(folder, monkeypatch):
+    # the attack re-check's R1: the undo reverted the two saves still in the
+    # history, said it was done, and left the first save's change in place
+    car, original = _session_past_two_rotations(monkeypatch)
+    out = storage.undo("car", session="s")
+    assert json.loads(car.read_bytes()) == json.loads(original) and out["conflicts"] == []
+    assert len(out["undid"]) == 2
+
+
+def test_a_session_undo_that_cannot_reach_the_start_says_where_the_start_is(folder, monkeypatch):
+    # the same, with the file changed by something else since (no history
+    # line leads to it): the undo cannot work out the lost saves, and says so
+    car, original = _session_past_two_rotations(monkeypatch)
+    doc = json.loads(car.read_bytes())
+    doc["systems"][0]["elements"][0]["label"] = "by hand"
+    car.write_text(json.dumps(doc), encoding="utf-8")
+    out = storage.undo("car", session="s")
+    start = next(storage.location("car").backups.glob("pre-session-*.json"))
+    assert start.read_bytes() == original
+    assert any("no longer in the project's history" in c and str(start) in c for c in out["conflicts"])

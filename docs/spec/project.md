@@ -264,10 +264,15 @@ is [`schemas/history.schema.json`](schemas/history.schema.json). The app
 reads the history to show an AI agent's edits in the open window as they
 happen, and to undo one of them, or a whole agent session, in one click.
 Past 4 MB the file is started afresh, the old one kept as
-`history.jsonl.1`; both are read. The version a file had before an AI agent
-session's first save is also kept, as `pre-session-<hash of the session>.json`
-(for the newest 20 sessions), so a session that saved more often than the
-20 backups go back can still be put back to the exact earlier file.
+`history.jsonl.1`; both are read (an older one is dropped). The version a
+file had before an AI agent session's first save is also kept, as
+`pre-session-<hash of the session>.json` (for the newest 20 sessions), so a
+session that saved more often than the 20 backups go back can still be put
+back to the exact earlier file. When a session's first lines have been
+dropped, undoing the session undoes them from that copy (with any other
+save made between them); when no line leads from it to the file as it is
+(the file was changed by something else), the undo says so and names the
+copy. An AI agent cannot open or write a file in a backups folder.
 
 | Field | Type | Meaning |
 |---|---|---|

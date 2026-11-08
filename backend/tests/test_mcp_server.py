@@ -754,3 +754,23 @@ def test_connecting_an_ai_app_turns_access_on_for_the_projects_folder(tmp_path, 
     grant_folder(tmp_path / "projects")
     policy = AccessPolicy.load()
     assert policy.enabled and str((tmp_path / "projects").resolve()) in policy.folders
+
+def test_a_backup_beside_a_file_cannot_be_opened_or_edited(folder, tmp_path):
+    # the attack re-check's R3, over MCP: in a folder the user allowed (sub-
+    # folders too), an edit of car.json-backups/<id>.json changed a backup
+    # the app restores from
+    car = _project_file(tmp_path / "shared" / "car.json", "Team car")
+    allow_ai(folder, car.parent)
+    server = make_server(folder)
+    _saved_edit(server, str(car.resolve()), [{"op": "set", "element": "Vehicle", "param": "mass_kg",
+                                              "value": 2100}])
+    backups = car.parent / "car.json-backups"
+    backup = next(f for f in backups.glob("*.json") if f.stem[0].isdigit())
+    kept = backup.read_bytes()
+    for name, args in (("lightsim_overview", {}),
+                       ("model_edit", {"operations": [{"op": "set", "element": "Vehicle",
+                                                       "param": "mass_kg", "value": 1}],
+                                       "dry_run": False})):
+        answer = tool(server, name, {"project": str(backup.resolve()), **args})
+        assert answer["isError"], (name, answer)
+    assert backup.read_bytes() == kept

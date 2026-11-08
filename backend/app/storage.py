@@ -487,6 +487,26 @@ def write_file(loc: Location, data: bytes, expected_revision: str | None = None,
     return revision_of(data)
 
 
+def kept_by_lightsim(path: Path) -> bool:
+    """True when ``path`` is in a folder LightSim keeps for a project, which
+    only LightSim writes: a file's backups and history, runs or resources
+    (``<file>-backups``, ``-runs``, ``-resources``), a projects folder's
+    (``.backups``, ``runs``, ``resources``) or the AI log (``.ai``). An agent's
+    write there could wipe the history it is undone by, or plant a backup."""
+    real = Path(path).resolve()
+    for folder in real.parents:
+        name = folder.name
+        if name in (_BACKUPS, ".ai"):
+            return True
+        if name in ("runs", "resources") and (
+                (folder.parent / _BACKUPS).is_dir() or folder.parent == user_dir().resolve()):
+            return True
+        for suffix in ("-backups", "-runs", "-resources"):
+            if name.endswith(suffix) and folder.with_name(name[: -len(suffix)]).is_file():
+                return True
+    return False
+
+
 def location_of_file(path: Path) -> Location:
     """Where the app keeps the backups and history of the project file at
     ``path``: as the project of the projects folder it is, as the .lightsim
@@ -522,6 +542,11 @@ def _keep_pre_migration(loc: Location, version: int, previous: bytes) -> None:
         write_atomic(keep, previous)
 
 
+def _session_start(loc: Location, session: str) -> Path:
+    """Where the file as it was before an agent session's first save is kept."""
+    return loc.backups / f"pre-session-{hashlib.sha256(session.encode()).hexdigest()[:16]}.json"
+
+
 def _keep_session_start(loc: Location, session: str, previous: bytes) -> None:
     """Keep the file as it was before an AI agent session's first save, apart
     from the KEEP_BACKUPS that rotate out, so a session that saves many times
@@ -529,7 +554,7 @@ def _keep_session_start(loc: Location, session: str, previous: bytes) -> None:
     (``pre-session-<hash of the session>.json``). The starts of the newest
     KEEP_BACKUPS sessions are kept. Call with _save_lock held."""
     folder = loc.make_dir(loc.backups)
-    keep = folder / f"pre-session-{hashlib.sha256(session.encode()).hexdigest()[:16]}.json"
+    keep = _session_start(loc, session)
     if keep.exists():
         return
     write_atomic(keep, previous)
@@ -684,17 +709,34 @@ def undo(project_id: str, entry: str | None = None, session: str | None = None) 
         if not picked:
             raise LookupError("Nothing to undo: that change was undone already, or it made "
                               "the project (a new project is not unmade).")
+        notes: list[str] = []
+        ours = [e for e in lines if e.get("session") == session and e.get("by") == "agent"]
+        start = _session_start(loc, session) if session else None
+        if start is not None and start.is_file() and ours and \
+                ours[0].get("from") != revision_of(start.read_bytes()):
+            # the session's first saves are out of the history (it started
+            # afresh twice since): undo them from the copy of its start
+            then = json.loads(data)
+            steps = history.chain(lines, ours[0].get("from"), revision_of(data))
+            for step in reversed(steps or []):
+                history.apply(then, step["diff"], revert=True)
+            if steps is None:
+                notes.append("The first saves of this session are no longer in the project's "
+                             f"history; the project as it was before the session is kept in {start}.")
+            else:
+                picked.insert(0, {"id": None, "diff": history.diff(
+                    json.loads(start.read_bytes()), then)})
         doc = json.loads(data)
         clashes: list[dict] = []
         for e in reversed(picked):
             clashes += history.apply(doc, e["diff"], revert=True)
         if doc == json.loads(data):  # every value was changed again since
             return {"revision": revision_of(data), "undid": [],
-                    "conflicts": [history.describe(c) for c in clashes]}
+                    "conflicts": [history.describe(c) for c in clashes] + notes}
         project = read_project(doc).project
         project.id = loc.id
         who = picked[-1].get("client") or "an agent"
-        meta = {"by": "app", "tool": "undo", "undoes": [e["id"] for e in picked],
+        meta = {"by": "app", "tool": "undo", "undoes": [e["id"] for e in picked if e["id"]],
                 "reason": f"Undo {len(picked)} change(s) by {who}" if session
                 else f"Undo: {picked[0].get('reason') or 'a change by ' + who}",
                 "changes": [f"Undone: {c}" for e in picked for c in e.get("changes") or []]}
@@ -705,5 +747,5 @@ def undo(project_id: str, entry: str | None = None, session: str | None = None) 
                 raise
             continue
         return {"revision": revision, "undid": meta["undoes"],
-                "conflicts": [history.describe(c) for c in clashes]}
+                "conflicts": [history.describe(c) for c in clashes] + notes}
     raise AssertionError("the loop returns or raises")

@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Optional, Sequence
 
@@ -84,14 +85,18 @@ def _write_outputs(result, outs: Sequence[str]) -> list[str]:
 def _keep_what_it_replaces(path: Path) -> None:
     """Before an --out file replaces one that is there: a LightSim project
     is never replaced (results over the model are a slip, or an instruction
-    planted in a file an agent read); any other file is kept as it was in
-    its backups (``<file>-backups``, the newest storage.KEEP_BACKUPS), so an
-    agent's --out can be undone to the exact earlier file."""
+    planted in a file an agent read), nor is a file in a folder LightSim
+    keeps for a project (its backups and history: see
+    storage.kept_by_lightsim); any other file is kept as it was in its
+    backups (``<file>-backups``, the newest storage.KEEP_BACKUPS, and the
+    file as it was before the session's first --out over it), so an agent's
+    --out can be undone to the exact earlier file."""
     from ._engine import engine
 
+    storage = engine("storage")
+    _not_kept_by_lightsim(path, storage)
     if not path.is_file():
         return
-    storage = engine("storage")
     old = path.read_bytes()
     try:
         storage.read_project(old)
@@ -99,11 +104,22 @@ def _keep_what_it_replaces(path: Path) -> None:
         pass  # a project of a newer LightSim
     except Exception:  # not a project: any other error reading it as one
         loc = storage.location_of_file(path)
+        # ponytail: with no session named, one day's --outs are one session
+        session = (os.environ.get("LIGHTSIM_SESSION") or os.environ.get("CLAUDE_CODE_SESSION_ID")
+                   or "out-" + time.strftime("%Y-%m-%d"))
         with storage.project_lock(loc):
             storage._keep_backup(loc, path, old)
+            storage._keep_session_start(loc, session, old)
         return
     raise UsageError(f"'{path}' is a LightSim project; --out does not replace it. "
                      "Give another file name.")
+
+
+def _not_kept_by_lightsim(path: Path, storage) -> None:
+    if storage.kept_by_lightsim(path):
+        raise UsageError(f"'{path}' is in a folder LightSim keeps for a project (its backups, "
+                         "history or runs); LightSim does not write there for you. "
+                         "Give another file name.")
 
 
 def _safe(name: str) -> str:
@@ -247,6 +263,7 @@ def cmd_edit(args) -> int:
     if target is None:
         raise UsageError("This project is an example: give --out, a file to save the edit to.")
     storage = engine("storage")
+    _not_kept_by_lightsim(target, storage)
     loc = storage.location_of_file(target)
     client = (args.client or os.environ.get("LIGHTSIM_CLIENT")
               or os.environ.get("AI_AGENT") or "command line")
@@ -308,7 +325,6 @@ def _go_on_session(loc, client: str) -> str:
     session of the project's newest save when that is this client's
     ``lightsim edit`` with no session named, made less than SESSION_GAP_MS
     ago; else start one."""
-    import time
     import uuid
 
     from ._engine import engine

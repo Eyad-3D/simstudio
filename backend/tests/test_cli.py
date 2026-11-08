@@ -289,5 +289,45 @@ def test_out_never_replaces_a_project_and_keeps_any_other_file_it_replaces(tmp_p
     data = tmp_path / "data.csv"
     data.write_bytes(b"t,v\n0,1\n")
     assert cli("run", "car.json", "--out", "data.csv", cwd=tmp_path, env=env).returncode == 0
-    kept = [f.read_bytes() for f in (tmp_path / "data.csv-backups").glob("*.json")]
+    backups = tmp_path / "data.csv-backups"
+    kept = [f.read_bytes() for f in backups.glob("*.json") if f.stem[0].isdigit()]
     assert kept == [b"t,v\n0,1\n"] and data.read_bytes() != kept[0]
+    assert [f.read_bytes() for f in backups.glob("pre-session-*.json")] == kept, "and the session start"
+
+def test_out_over_one_file_many_times_still_keeps_the_original(tmp_path, monkeypatch):
+    # the attack re-check's R2: a sweep of 21 or more --out writes over one
+    # file pushed its first version out of the 20 backups
+    from lightsim import cli as lcli
+    monkeypatch.delenv("LIGHTSIM_SESSION", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+    table = tmp_path / "table.csv"
+    table.write_bytes(b"handed,table\n1,2\n")
+    for n in range(25):
+        lcli._keep_what_it_replaces(table)
+        table.write_bytes(f"step,{n}\n".encode())
+    kept = [f.read_bytes() for f in (tmp_path / "table.csv-backups").glob("*.json")]
+    assert b"handed,table\n1,2\n" in kept
+
+
+def test_out_and_edit_never_write_in_a_folder_lightsim_keeps(tmp_path):
+    # the attack re-check's R3: `notebook --force --out car.json-backups/
+    # history.jsonl` wiped the agent's undo log; the same hole in run/export/
+    # schema --out, in edit --out, and in an edit of a backup itself
+    _bev_copy(tmp_path / "car.json")
+    env = {"PYTHONPATH": str(BACKEND)}
+    assert cli("edit", "car.json", "--set", "Vehicle.mass_kg=1999", cwd=tmp_path, env=env).returncode == 0
+    assert cli("run", "car.json", "--out", "r.json", cwd=tmp_path, env=env).returncode == 0
+    backups = tmp_path / "car.json-backups"
+    before = {f: f.read_bytes() for f in backups.rglob("*") if f.is_file()}
+    backup = next(f for f in backups.glob("*.json") if f.stem[0].isdigit())
+    for argv in (["notebook", "car.json", "--force", "--out", "car.json-backups/history.jsonl"],
+                 ["run", "car.json", "--out", "car.json-backups/9999999999999-abcdef.json"],
+                 ["export", "r.json", "--out", "car.json-backups/run.csv"],
+                 ["schema", "--out", "car.json-backups"],
+                 ["edit", "car.json", "--set", "Vehicle.mass_kg=1", "--out", "car.json-backups/x.json"],
+                 ["edit", str(backup.relative_to(tmp_path)), "--set", "Vehicle.mass_kg=1"],
+                 ["run", "car.json", "--out", "car.json-runs/r.csv"]):
+        r = cli(*argv, cwd=tmp_path, env=env)
+        assert r.returncode == 3 and "a folder LightSim keeps" in r.stderr, (argv, r.stdout, r.stderr)
+    assert {f: f.read_bytes() for f in backups.rglob("*") if f.is_file()} == before
+    assert not (tmp_path / "car.json-runs").exists()
