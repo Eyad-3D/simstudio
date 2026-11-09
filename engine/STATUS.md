@@ -344,3 +344,39 @@ outside (`engine/judge`: `msl-pid-controller` and `driver.py`).
   length known to a step; 1 s on the 83 042 s long-haul cycle). SAE
   J2951's drive-quality metrics, which 1066.425(j) asks for, are not
   computed: the standard is paid for.
+
+## Known issues left at the end of step 2 (9 November 2026)
+
+The owner's decision of 9 November: the problems the mismatch sweep's last
+re-check (re-check 5, at 55e293f) left open are recorded here as known
+issues, not fixed now. Step 2's acceptance has not been run.
+
+- **A case handed back before its first point turns success into a
+  warning.** The note of a fall-back before any point (and quick mode's
+  for a case run in full) is a warning, so a run today's engine finishes
+  with success shows a warning: 241 of the sweep's app-style runs.
+  55e293f left these out of the sweep's compare and its `[sweep]` measure
+  after the measured run, with no dated `[[changes]]` entry in
+  `acceptance.toml`, so the sweep's count of 0 mismatches does not cover
+  them. A likely fix: those notes at level info, with their codes, as
+  `NEW-LIVE-RESTART`'s and the refusal before a run already are.
+  (`docs/KNOWN-LIMITS.md` says so.)
+- **A restart after `NEW-ERROR` counts as a hand-back.** `sweep.compare`
+  counts a run restarted on today's engine after a path fault as a
+  `NEW-LIVE-RESTART` hand-back, where a fall-back or a strict run with the
+  same `NEW-ERROR` is a mismatch.
+- **Two of the sweep's round-5 changes have no test:** `frontend/src/api.ts`
+  passing the `restart` event to `onRestart` (without it the chart adds
+  today's points from t = 0 after the new engine's), and `run_fault`
+  giving the `live` setting a view on a case that is not live.
+- **`overspeed:hybrid-car/case-hwfet:down` still differs:** the new engine
+  adds the battery's "charging exceeds max charge power" warning (2 runs,
+  1 fault), neither matched nor handed back, so the sweep's pass mark of 0
+  is not met. (`docs/KNOWN-LIMITS.md` says so.)
+- **Docs:** `docs/spec/api.md` has no `restart` event (no fields: drop the
+  points shown, the run starts again at t = 0), and
+  `benchmarks/back_to_back/sweep.md` calls the app-style runs strict.
+- **Fixed but not re-checked:** the judge's fix round 5 (2ef9b76, 95b945d,
+  baseline-6 at e0b81e5) and the live runs' fix round 2 (0d74737) fixed the
+  defects their last re-checks found, each with tests that fail without the
+  fix, but no independent re-check ran after them.

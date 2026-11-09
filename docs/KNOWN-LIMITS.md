@@ -822,17 +822,26 @@ minimum or an average, for example from the CSV export, or put the
   switches about the limit without end, which today's engine, with a fixed
   step that lets a machine carry past by a step, does not notice (a
   downhill cycle run of the example BEV or aero car with its Final Drive
-  ratio x3; the hybrid with its ratio x3 on any grade, where today's
-  engine succeeds and the new engine's Engine switches between fired and
-  not fired a few seconds in). Such a run in the app, which has a view, is
+  ratio x3; the hybrid with its ratio x3, on the level or on a 6 %
+  downhill grade, where the new engine's Engine switches between fired
+  and not fired 7 to 28 s in, and today's engine succeeds on the highway
+  and mixed cycles on the level and warns on the others: its engine past
+  its maximum speed, or the battery full). Such a run in the app, which has a view, is
   run again from t = 0 on today's engine (`NEW-LIVE-RESTART`, a note) and
   gives today's verdict, at the cost of the first run's time; a Stop read
   before the storm makes it fail instead, as the run cannot start again
   without it. With `LIGHTSIM_ENGINE_STRICT=1` it fails. The hybrid on the
-  highway cycle at that ratio and grade also gets the battery's "charging
-  exceeds max charge power" warning, which today's engine does not give
-  (a verdict that differs where the new engine runs it to its end). A live edit
+  highway cycle at that ratio downhill does not switch so: the new engine
+  runs it to its end and warns, as today's engine does, but also gives
+  the battery's "charging exceeds max charge power" warning, which today's
+  engine does not give. A live edit
   that later moves the run past the data does fail it.
+  *Roadmap:* ENG-16.
+- **A case handed back to today's engine shows a warning.** With
+  `LIGHTSIM_ENGINE=new`, a case the new engine fails before its first
+  point runs on today's engine, and the note that says so, with its code,
+  is a warning; so is quick mode's note for a case it runs in full. A run
+  today's engine finishes with success then shows a warning.
   *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a
