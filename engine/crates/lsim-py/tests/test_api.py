@@ -1158,13 +1158,14 @@ def test_table_sites_lists_every_table_read_of_the_blocks():
     abscissa of each axis as the block's equations write it. A Fuel Cell
     Stack reads its curve at its current and at its Maximum Current (its
     most power), an E-Motor with a supply window its loss map at no torque
-    too, a Lookup in the Mode 2D its table at both its inputs."""
+    too (at its speed held to its maximum, as it reads both its maps), a
+    Lookup in the Mode 2D its table at both its inputs."""
     sites = le.table_sites()
     got = {(s["component"], s["table"], tuple(s["at"])) for s in sites}
     assert len(got) == len(sites)
     assert {("fuelcell.stack", "polarization", ("I",)),
             ("fuelcell.stack", "polarization", ("i_max",)),
-            ("motor.emotor", "power_loss", ("wa", "0 * unit_N_m")),
+            ("motor.emotor", "power_loss", ("noEvent(min(wa, w_max))", "0 * unit_N_m")),
             ("signal.lookup", "table", ("sig_x_in", "sig_y_in"))} <= got
 
 
