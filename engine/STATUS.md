@@ -533,8 +533,10 @@ references are out of date; on Windows also `test_licence_policy.py`), and
 the third-party licences check (`libzstd.so.1` belongs to no known project
 and FMPy 0.3.32 declares no licence).
 
-To be taken up in later steps: update that test; regenerate the skill pack
-and review the licence entries; then run `ci.yml` again on the fixed commit
+To be taken up in later steps: update that test and regenerate the skill pack (both done at
+the merge of 10 November: the test now expects the loss map read at the
+held speed, and test_ai_skills passes);
+review the licence entries; then run `ci.yml` again on the fixed commit
 and read the stop-latency and FMU results there. Class with evidence, or
 fix, the 1 090 unclassified differences, and make `probe/bev-performance`
 run. Fix the Driver with no P gain, or have the owner decide the pass mark
