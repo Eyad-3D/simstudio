@@ -337,10 +337,12 @@ def _values(project: ls.Project) -> dict:
 
 
 def _kept(project: ls.Project) -> dict:
-    """What else a solution keeps: part id -> its type, and (case id, field)
-    -> the case's fields (name, kind, duration, time step, end distance...;
-    its parameter overrides are ``_values``')."""
-    out = {e.id: e.componentDefId for e in project.elements}
+    """What else a solution keeps: part id -> its type (and the text file
+    it is built from, when it has one), and (case id, field) -> the case's
+    fields (name, kind, duration, time step, end distance...; its parameter
+    overrides are ``_values``')."""
+    out = {e.id: e.componentDefId + (f" from {e.textFile}" if getattr(e, "textFile", None) else "")
+           for e in project.elements}
     for case in project.cases:
         out.update({(case.id, k): v for k, v in case.model_dump(exclude={"parameterOverrides"}).items()})
     return out

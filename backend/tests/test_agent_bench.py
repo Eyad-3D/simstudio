@@ -255,6 +255,7 @@ def test_a_repair_may_not_change_any_field_of_a_case_the_brief_leaves_alone(fiel
 @pytest.mark.parametrize("change, said", [
     ("remove", "part 'Ground' is gone"),         # a part with no parameters: no value to compare
     ("retype", "part 'Vehicle Monitor' is 'electric.node'"),
+    ("text", "from monitor.txt'"),
 ])
 def test_a_repair_may_not_remove_or_swap_a_part_the_brief_leaves_alone(change, said):
     task = next(t for t in TASKS if t.id == "repair-hatchback")
@@ -262,8 +263,11 @@ def test_a_repair_may_not_remove_or_swap_a_part_the_brief_leaves_alone(change, s
     if change == "remove":
         model, _ = apply_operations(model, [{"op": "remove", "element": "Ground"}])
     else:
-        next(e for s in model.systems for e in s.elements if e.label == "Vehicle Monitor"
-             ).componentDefId = "electric.node"
+        part = next(e for s in model.systems for e in s.elements if e.label == "Vehicle Monitor")
+        if change == "text":  # (a part built from a text file: step 2's text components)
+            part.textFile = "monitor.txt"
+        else:
+            part.componentDefId = "electric.node"
     (problem,) = agent._unasked_changes(task, agent.ls.Project(model))
     assert said in problem, problem
 
