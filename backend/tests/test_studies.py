@@ -130,3 +130,17 @@ def test_the_default_pool_leaves_a_core_and_fits_in_memory(monkeypatch):
     assert studies.default_workers(p, 100) == 4  # 1 GB ÷ 250 MB
     hybrid = load_example("hybrid-car")  # Script blocks: + 512 MB a worker
     assert studies.default_workers(hybrid, 100) == 1
+
+
+def test_a_point_sends_its_recorded_points_without_the_peaks_between():
+    """A study point keeps its recorded points, not the peaks between them
+    (ENG-16), and the worker leaves them out before the result goes to the
+    server: a quarter as much to read when a stopped study waits for its
+    running points."""
+    import json
+
+    project = bev_axle()
+    result, _ = studies.run_point(project.model_dump_json(), project.cases[0].id)
+    channels = json.loads(result)["channels"]
+    assert channels and all(c["timeSeries"] for c in channels)
+    assert all(c.get(k) is None for c in channels for k in ("min", "max", "mean"))

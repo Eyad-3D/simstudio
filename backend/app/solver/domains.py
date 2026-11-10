@@ -134,7 +134,13 @@ def full_torque(mc: MotorCache, volts: float, rpm: float, drive: bool = True) ->
 
 class RunContext:
     """All shared solver state for one run — the former closure variables of
-    simulate(), promoted to attributes so the domain slaves can share them."""
+    simulate(), promoted to attributes so the domain slaves can share them.
+
+    With ``workers`` False it starts no Script or FMU worker: the new
+    engine's path (new_engine.py) builds one, never steps it, and reads the
+    project's parts from it as today's engine does (each battery's capacity
+    and checks, each motor's maximum speed, each driveline's parts, each
+    table's axes), filling in their totals from its own run."""
 
     def __init__(
         self,
@@ -143,6 +149,7 @@ class RunContext:
         rt: Runtime,
         gear_of: dict[str, float],
         case_overrides: dict,
+        workers: bool = True,
     ):
         self.project = project
         self.model = model
@@ -157,6 +164,7 @@ class RunContext:
         # speed": a motor's Maximum Speed, an engine's full-load curve's last
         # speed). The run summary lists the records with outside_s > 0.
         self.map_use: list[MapUse] = []
+        self.maps: dict[tuple[str, str], Map] = {}  # each table read, by (element, key)
         self.amb_id = model.ambient  # sets the air density (None: 20 °C, 101.325 kPa)
 
         # ---- element caches --------------------------------------------------
@@ -306,7 +314,7 @@ class RunContext:
                             if p.direction == "input"],
                 params=dict(self.params(el_id)),
             ))
-        if script_specs:
+        if script_specs and workers:
             if strict:
                 # A strict agent run is made safe by the OS sandbox, not by a
                 # per-user approval: the run is refused when the sandbox cannot
@@ -332,7 +340,7 @@ class RunContext:
         self.fmus: dict = {}  # element id -> fmu.sandbox.FmuSandbox
         fmu_ids = [el_id for el_id in model.signal_blocks
                    if model.cdef_of[el_id].id == FMU_COMPONENT]
-        if fmu_ids:
+        if fmu_ids and workers:
             if strict and (why := why_no_strict_sandbox()):
                 raise ModelInitError([why])
             # imported here: the FMU worker process imports this package, and
@@ -511,6 +519,49 @@ class RunContext:
             return 20.0
         return max(-273.0, float(self.params(self.amb_id).get("temperature_C", 20)))
 
+    def read_ambient(self, t: float, rho: float | None = None) -> None:
+        """The air density the Vehicle's drag sees, from the Ambient (read
+        every step: live edits, case values and sweeps apply), and a warning
+        once when the air is outside the usual: Data Checks refuse air at or
+        below absolute zero or 0 kPa and warn outside the usual air, but
+        never see a study's point, a sweep or a live edit, which must not
+        crash and is warned about here. ``rho``: the density another engine's
+        run used, said instead of today's (the new engine's path asks this
+        once, at the run's start: its Ambient is the case's throughout)."""
+        if not self.amb_id:
+            return
+        ap = self.params(self.amb_id)
+        t_c = float(ap.get("temperature_C", 20))
+        p_kpa = float(ap.get("pressure_kPa", 101.325))
+        self.rho = air_density(max(-273.0, t_c), max(0.0, p_kpa)) if rho is None else rho
+        if not (AMBIENT_C[0] <= t_c <= AMBIENT_C[1] and AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]):
+            self.rt.warn_once(
+                f"ambient:{self.amb_id}",
+                f"'{self.model.elements[self.amb_id].label}' is at {t_c:g} °C and "
+                f"{p_kpa:g} kPa at t = {t:.2f} s, outside the usual {AMBIENT_C[0]:g} to "
+                f"{AMBIENT_C[1]:g} °C and {AMBIENT_KPA[0]:g} to {AMBIENT_KPA[1]:g} kPa "
+                f"(1 bar = 100 kPa), which gives the Vehicle's drag an air density "
+                f"of {self.rho:.3g} kg/m³ — check the value and its unit.")
+
+    def wheels_lift(self, lifted: str, t: float) -> None:
+        """Say once that the Vehicle's wheels on an axle ("Front", "Rear")
+        or all of them ("Both") lift off the road at ``t``."""
+        which, rest = (("All the", "") if lifted == "Both" else
+                       (f"The {lifted.lower()}", " and the other wheels carry it all"))
+        self.rt.warn_once(
+            f"lift:{self.veh_id}",
+            f"{which} wheels of Vehicle '{self.model.elements[self.veh_id].label}' lift "
+            f"off the road at t = {t:.2f} s: they carry no load{rest} (LightSim does "
+            f"not model the car pitching or tipping over). Check the Centre of Gravity "
+            f"Height, the Wheelbase and the Downforce Area.")
+
+    def no_supply(self, el_id: str) -> None:
+        """Say once that an E-Motor has no live electrical supply (its bus
+        at 1 V or less)."""
+        self.rt.warn_once(f"deadbus:{el_id}",
+                          f"E-Motor '{self.model.elements[el_id].label}' has no live electrical "
+                          f"supply — it produces no torque.")
+
     def cell_pack(self, el_id: str, p: dict) -> CellPack | None:
         """A battery's cells (Defined By: Cells), or its pack-level limits
         (Pack values with a current or voltage limit or a derating band), or
@@ -586,7 +637,8 @@ class RunContext:
         uses = [MapUse(el_id, f"'{pdef.label}' table", a.name, a.unit, 0.0, table=key)
                 for a in axes]
         self.map_use += uses
-        return Map(pts, f"{cdef.name} '{el.label}' {pdef.label}", policy, uses)
+        m = self.maps[(el_id, key)] = Map(pts, f"{cdef.name} '{el.label}' {pdef.label}", policy, uses)
+        return m
 
     def speed_use(self, el_id: str, n_max: float) -> MapUse:
         use = MapUse(el_id, "maximum speed", "Speed", "1/min", n_max)
@@ -639,6 +691,13 @@ class RunContext:
                             [w for w in wheels if w.axle == "Rear"])
         self.update_wheel_loads()
 
+    def load_shift(self) -> tuple[float, float]:
+        """The Vehicle's Centre of Gravity Height (never below 0) and its
+        Downforce Area: with neither, no load moves between its axles and
+        no wheel is checked for lifting off the road."""
+        vp = self.params(self.veh_id)
+        return max(0.0, float(vp.get("cg_height_m", 0))), float(vp.get("downforce_cza_m2", 0))
+
     def update_wheel_loads(self) -> None:
         """Each wheel's normal load for this solver step: its share of the
         weight normal to the road, plus, with a CG height or a downforce area
@@ -651,8 +710,7 @@ class RunContext:
         for w in self.wheels:
             w.n_load = w.load_share * self.veh_mass * GRAVITY * self.slope_cos
         vp = self.params(self.veh_id)
-        h = max(0.0, float(vp.get("cg_height_m", 0)))
-        cza = float(vp.get("downforce_cza_m2", 0))
+        h, cza = self.load_shift()
         if not (h or cza):
             return
         front, rear = self.axle_wheels
@@ -681,14 +739,7 @@ class RunContext:
             lifted = "Both" if sum(w.n_load for w in ws) + down < 0 else None
             groups = ((ws, down),)
         if lifted:
-            which, rest = (("All the", "") if lifted == "Both" else
-                           (f"The {lifted.lower()}", " and the other wheels carry it all"))
-            self.rt.warn_once(
-                f"lift:{self.veh_id}",
-                f"{which} wheels of Vehicle '{self.model.elements[self.veh_id].label}' lift "
-                f"off the road at t = {self.t:.2f} s: they carry no load{rest} (LightSim does "
-                f"not model the car pitching or tipping over). Check the Centre of Gravity "
-                f"Height, the Wheelbase and the Downforce Area.")
+            self.wheels_lift(lifted, self.t)
         for ws, delta in groups:
             s_axle = sum(w.load_share for w in ws)
             for w in ws:
@@ -1185,9 +1236,7 @@ class RunContext:
         rt, model = self.rt, self.model
         volts = self.motor_volts(mc)
         if volts <= 1.0:
-            rt.warn_once(f"deadbus:{mc.el_id}",
-                         f"E-Motor '{model.elements[mc.el_id].label}' has no live electrical "
-                         f"supply — it produces no torque.")
+            self.no_supply(mc.el_id)
             return 0.0, False
         rpm = abs(omega_m) * RPM
         if demand == 0.0 or rpm > mc.max_rpm * (1.0 + 1e-9):  # (float noise at the limit)
@@ -2638,24 +2687,7 @@ class MechanicalSlave(_CtxSlave):
         if ctx.veh_id:  # the road's slope angle, for the tyres and the vehicle alike
             theta = math.atan((rt.read_signal(ctx.veh_id, "sig_grade_in") or 0.0) / 100.0)
             ctx.slope_sin, ctx.slope_cos = math.sin(theta), math.cos(theta)
-            if ctx.amb_id:  # read every step: live edits, case values and sweeps apply
-                # (Data Checks refuse air at or below absolute zero or 0 kPa
-                # and warn outside the usual air, but see only the block's own
-                # values: a case value, sweep or live edit must not crash and
-                # is warned about here)
-                ap = ctx.params(ctx.amb_id)
-                t_c = float(ap.get("temperature_C", 20))
-                p_kpa = float(ap.get("pressure_kPa", 101.325))
-                ctx.rho = air_density(max(-273.0, t_c), max(0.0, p_kpa))
-                if not (AMBIENT_C[0] <= t_c <= AMBIENT_C[1]
-                        and AMBIENT_KPA[0] <= p_kpa <= AMBIENT_KPA[1]):
-                    rt.warn_once(
-                        f"ambient:{ctx.amb_id}",
-                        f"'{ctx.model.elements[ctx.amb_id].label}' is at {t_c:g} °C and "
-                        f"{p_kpa:g} kPa at t = {t:.2f} s, outside the usual {AMBIENT_C[0]:g} to "
-                        f"{AMBIENT_C[1]:g} °C and {AMBIENT_KPA[0]:g} to {AMBIENT_KPA[1]:g} kPa "
-                        f"(1 bar = 100 kPa), which gives the Vehicle's drag an air density "
-                        f"of {ctx.rho:.3g} kg/m³ — check the value and its unit.")
+            ctx.read_ambient(t)
             ctx.update_wheel_loads()  # for this step's tyres, from the last step's acceleration
         active = [st for st in ctx.dls if not st.plan.over_constrained and st.plan.n]
 

@@ -191,6 +191,21 @@ def test_memory_bomb_fails_the_run():
     assert any("Probe" in m.text for m in result.messages if m.level == "error")
 
 
+def test_an_output_too_large_for_a_number_fails_the_run_plainly():
+    # 10 ** 400 is past the largest float: the run fails saying so, in the
+    # worker and in-process alike (the worker used to stop, and the run said
+    # it may have run out of memory). Found by the differential fuzzing of
+    # the engine's own Script runner (lsim-script/tests/fuzz.rs).
+    from app.solver import scripting  # noqa: PLC0415
+    code = "def step(t, dt, inputs, state, params):\n    return {'cmd_out': 10 ** 400}\n"
+    result = simulate(_scripted(code), "case")
+    assert result.status == "failed"
+    errors = [m.text for m in result.messages if m.level == "error"]
+    assert any("Script 'Probe' output 'cmd_out' is too large to be a number" in t for t in errors), errors
+    with pytest.raises(ScriptError, match="output 'cmd_out' is too large to be a number"):
+        scripting.run_script(scripting.compile_script(code, "Probe"), "Probe", 0.0, 0.01, {}, {}, {})
+
+
 # ---- lifecycle: no orphan workers ---------------------------------------------
 
 def test_no_worker_for_a_model_without_scripts():
@@ -264,3 +279,50 @@ def test_live_param_edit_reaches_the_worker():
         assert sb.run("s", "P", 0.01, 0.01, {}, {"gain": 5.0}) == {"y": 5.0}
     finally:
         sb.close()
+
+
+def test_tcp_socketpair_ignores_a_program_that_connects_first():
+    """Python 3.11.9 (the Windows build) pairs the first connection it sees;
+    ours must pair only the socket it made itself (CVE-2024-3219)."""
+    import socket
+
+    from app.solver.sandbox_worker import checked_socketpair
+    intruders = []
+
+    def race(addr):
+        intruders.append(socket.create_connection(addr))
+
+    a, b = checked_socketpair(tcp=True, _after_listen=race)
+    try:
+        a.sendall(b"hi")
+        assert b.recv(2) == b"hi"
+        intruders[0].settimeout(2)  # the intruder was dropped, not paired
+        assert intruders[0].recv(1) == b""
+    finally:
+        for s in (a, b, *intruders):
+            s.close()
+
+
+def test_both_workers_pair_their_sockets_through_the_checked_helper(monkeypatch):
+    """Putting socket.socketpair() back in either worker would reopen the
+    Windows spoofing gap; the helper must be the call both make."""
+    from types import SimpleNamespace
+
+    from app.fmu.sandbox import FmuSandbox
+    from app.solver import sandbox_worker
+
+    class Used(Exception):
+        pass
+
+    calls = []
+
+    def spy(*a, **k):
+        calls.append(1)
+        raise Used
+
+    monkeypatch.setattr(sandbox_worker, "checked_socketpair", spy)
+    with pytest.raises(Used):
+        ScriptSandbox([ScriptSpec("s", "Probe", STEP, [], {})])
+    with pytest.raises(Used):
+        FmuSandbox(SimpleNamespace(unzip_dir="."))
+    assert len(calls) == 2

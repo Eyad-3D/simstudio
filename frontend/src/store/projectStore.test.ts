@@ -1511,6 +1511,36 @@ describe("run snapshots", () => {
     return { handle, finish: () => finish() };
   }
 
+  it("a restart from the engine drops the points shown so far, and the new ones follow from t = 0", async () => {
+    await start();
+    let callbacks!: Parameters<typeof api.runSimulationLive>[2];
+    let finish!: () => void;
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId, cb) => {
+      callbacks = cb;
+      return {
+        setParam: vi.fn(),
+        cancel: vi.fn(),
+        done: new Promise((resolve) => {
+          finish = () => resolve({ caseId, status: "success", messages: [], channels: [], summary: [] });
+        }),
+      };
+    });
+    const step = (t: number) => callbacks!.onStep!({ t, pct: 0, values: { "el-const:sig_out": t } });
+    const series = () => store().runs[0].result.channels.map((c) => c.timeSeries.map((p) => p.t));
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalledTimes(1));
+    step(0);
+    step(1);
+    await vi.waitFor(() => expect(series()).toEqual([[0, 1]]));
+    callbacks!.onRestart!();
+    expect(series()).toEqual([]);
+    step(0);
+    await vi.waitFor(() => expect(series()).toEqual([[0]]));
+    finish();
+    await running;
+  });
+
   it("a run carries the model, case settings, app version and fingerprint it was made with", async () => {
     await start();
     engineFinishesRuns();
@@ -1548,6 +1578,38 @@ describe("run snapshots", () => {
     ]);
     expect(findElement("el-shaft")?.parameterOverrides.efficiency_pct).toBe(91);
     expect(snap.project.systems[0].elements.find((e) => e.id === "el-shaft")?.parameterOverrides).toEqual({});
+  });
+
+  it("the snapshot keeps what ran the run, and the engine's own list of its live edits", async () => {
+    await start();
+    let finish!: () => void;
+    const handle = { setParam: vi.fn(), cancel: vi.fn(), done: undefined as unknown as Promise<SimResult> };
+    api.validateProject.mockResolvedValue([]);
+    const taken = { t: 12.37, elementId: "el-shaft", key: "efficiency_pct", value: 90 };
+    api.runSimulationLive.mockImplementation((_project, caseId) => {
+      handle.done = new Promise((resolve) => {
+        finish = () =>
+          resolve({
+            caseId, status: "success", messages: [], channels: [], summary: [],
+            engine: "new", engineVersion: "0.1.0", solverOptions: { rtol: 1e-6, atol: 1e-8 },
+            liveEdits: [taken],
+          });
+      });
+      return handle;
+    });
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
+    useProjectStore.setState({ liveT: 12 });
+    store().setParameter("el-shaft", "efficiency_pct", 90);
+    store().setParameter("el-shaft", "ratio", 3); // (one the engine did not make)
+    finish();
+    await running;
+    const snap = store().runs[0].snapshot!;
+    expect(snap.liveEdits).toEqual([taken]); // the engine's times, not the app's guess
+    expect(snap.engine).toBe("new");
+    expect(snap.engineVersion).toBe("0.1.0");
+    expect(snap.solverOptions).toEqual({ rtol: 1e-6, atol: 1e-8 });
+    expect(api.storeRun.mock.calls[0][1].snapshot).toEqual(snap);
   });
 
   it("a live edit outside its limits is kept in the model but not sent to the run", async () => {
@@ -1604,6 +1666,20 @@ describe("run snapshots", () => {
     expect(s.dirty).toBe(true);
     expect(s.revision).toBeNull();
     expect(messages().some((m) => m.startsWith("info: Opened the model of run 'Case 2'"))).toBe(true);
+  });
+
+  it("a run's model opened says how many live edits the run made, not those it left for the next run", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    const run = store().runs[0];
+    const made = { t: 3, elementId: "el-shaft", key: "efficiency_pct", value: 90 };
+    const later = { ...made, key: "ratio", value: 3, note: "… on the next run [NEW-LIVE-NEXT-RUN]." };
+    useProjectStore.setState({
+      runs: [{ ...run, snapshot: { ...run.snapshot!, liveEdits: [made, later] } }],
+    });
+    store().openRunModel(run.id);
+    expect(messages().some((m) => m.includes("the 1 live edit(s) made during the run"))).toBe(true);
   });
 
   it("a run stored before runs kept a snapshot cannot be opened as a model", async () => {

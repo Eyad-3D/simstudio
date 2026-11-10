@@ -1159,11 +1159,31 @@ pub fn float_repr(x: f64) -> String {
         return if x.is_sign_negative() { "-0.0" } else { "0.0" }.into();
     }
     // Rust's shortest digits are Python's (both the shortest that read
-    // back, the nearer of two)
+    // back, the nearer of two), but for a value exactly halfway between two
+    // (186323534390030.125): Rust takes the upper, Python (David Gay's
+    // dtoa) the one whose last digit is even
     let sci = format!("{:e}", x.abs());
     let (mant, exp) = sci.split_once('e').expect("an exponent");
     let exp: i32 = exp.parse().expect("an integer exponent");
-    let digits: String = mant.chars().filter(|c| *c != '.').collect();
+    let mut digits: String = mant.chars().filter(|c| *c != '.').collect();
+    if (digits.as_bytes()[digits.len() - 1] - b'0') % 2 == 1 {
+        // the exact value (a double has at most 767 significant digits)
+        let whole = format!("{:.800e}", x.abs());
+        let (wm, we) = whole.split_once('e').expect("an exponent");
+        let exact: String = wm.chars().filter(|c| *c != '.').collect();
+        let exact = exact.trim_end_matches('0');
+        let n = digits.len();
+        if we.parse::<i32>() == Ok(exp) && exact.len() == n + 1 && exact.ends_with('5') {
+            let below = &exact[..n];
+            let back = format!("{below}e{}", exp - (n as i32 - 1)).parse::<f64>();
+            if below[..n - 1] == digits[..n - 1]
+                && below.as_bytes()[n - 1] + 1 == digits.as_bytes()[n - 1]
+                && back == Ok(x.abs())
+            {
+                digits = below.to_string();
+            }
+        }
+    }
     let (n, point) = (digits.len() as i32, exp + 1);
     let body = if !(-4 < point && point <= 16) {
         let rest = &digits[1..];

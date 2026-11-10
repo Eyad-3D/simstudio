@@ -182,18 +182,98 @@ def test_example_data_is_credited_with_its_notice(notices, allowed):
     assert notice in committed
 
 
-def test_the_fmu_packs_lgpl_parts_fail_the_check(notices, allowed):
-    """NumPy's and lxml's metadata name only permissive licences, but their
-    wheels carry LGPL code (libquadmath; GNU libiconv). clarifications.json
-    records that, so an engine frozen with the FMU pack fails the check until
-    the owner decides (backend/lightsim-backend.spec)."""
-    _, clarified, _, _ = notices.load_policy()
+def _fmu_pack(notices):
     engine = notices.ENGINE
     numpy = notices.Component(engine, "numpy", "2.4.6", "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
                               texts=[("LICENSE.txt", "Name: libquadmath\nFiles: numpy.libs/libquadmath*.so\n"
                                                      "License: LGPL-2.1-or-later")])
     lxml = notices.Component(engine, "lxml", "6.1.3", "BSD-3-Clause",
                              texts=[("LICENSES.txt", "**iconv**: LGPL 2.1, https://www.gnu.org/licenses/")])
-    problems = notices.check([numpy, lxml], allowed, clarified["python"])
+    return [numpy, lxml]
+
+
+def test_the_fmu_packs_lgpl_parts_pass_listed_with_their_source(notices, allowed):
+    """NumPy's and lxml's metadata name only permissive licences, but their
+    wheels carry LGPL code (libquadmath; GNU libiconv). clarifications.json
+    records that and lists each LGPL part, its files and its source, which
+    the owner allowed on 20 October 2026 as separate, replaceable files, so
+    an engine frozen with the FMU pack passes, and the notices name each
+    part with the link to its source."""
+    _, clarified, _, _ = notices.load_policy()
+    pack = _fmu_pack(notices)
+    assert notices.check(pack, allowed, clarified["python"]) == []
+    assert all("LGPL-2.1-or-later" in c.terms for c in pack)
+    text = notices.render(pack)
+    for name, source in (("libquadmath", "https://gcc.gnu.org/git/?p=gcc.git;a=tree;f=libquadmath"),
+                         ("GNU libiconv", "https://ftp.gnu.org/pub/gnu/libiconv/")):
+        assert f"Source: {source}" in text and name in text
+    assert "Parts under the GNU Lesser General Public License" in text
+    assert "GNU LESSER GENERAL PUBLIC LICENSE" in text  # (its standard text, in the appendix)
+
+
+def test_an_lgpl_part_without_its_listing_fails_the_check(notices, allowed):
+    """LGPL passes only for a component whose clarifications.json entry
+    lists its LGPL parts: another one, or an entry without them, fails."""
+    _, clarified, _, _ = notices.load_policy()
+    other = notices.Component(notices.ENGINE, "somelib", "1.0", "LGPL-2.1-or-later", texts=[("COPYING", "x")])
+    (problem,) = notices.check([other], allowed, clarified["python"])
+    assert problem.startswith("somelib") and "an LGPL part needs its entry" in problem
+    bare = {k: {kk: vv for kk, vv in v.items() if kk != "lgpl"} for k, v in clarified["python"].items()}
+    problems = notices.check(_fmu_pack(notices), allowed, bare)
     assert [p.split(" ", 1)[0] for p in problems] == ["numpy", "lxml"]
-    assert all("LGPL-2.1-or-later" in p and "is not allowed" in p for p in problems)
+
+
+@pytest.mark.parametrize("workflow, step", [("desktop-build.yml", "Freeze the backend"),
+                                            ("ci.yml", "Freeze the engine")])
+def test_the_installer_and_the_licence_check_freeze_the_fmu_pack_in(workflow, step):
+    """The desktop build freezes the engine with the FMU pack (step 2's item
+    5: the pack goes into the installer), and the licence check reads an
+    engine frozen the same way."""
+    text = (SCRIPT.parents[1] / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
+    block = text[text.index(f"- name: {step}"):]
+    block = block[:block.index("\n      - ")]
+    assert 'LIGHTSIM_FREEZE_FMU_PACK: "1"' in block
+    assert "requirements-fmu.txt" in block and '"fmpy==0.3.32"' in block
+
+
+# what the win_amd64 wheels' licence files say (numpy 2.4.6 and lxml 6.1.3:
+# NumPy's names the OpenBLAS DLL with the GCC runtime linked in, and no
+# libquadmath; lxml's LICENSES.txt is the same file on every platform)
+WIN_NUMPY = ("Name: OpenBLAS\nFiles: numpy.libs\\libscipy_openblas*.dll\nLicense: BSD-3-Clause\n\n"
+             "Name: GCC runtime library\nFiles: numpy.libs\\libscipy_openblas*.dll\n"
+             "License: GPL-3.0-or-later WITH GCC-exception-3.1\n")
+
+
+def test_the_fmu_pack_on_windows_lists_what_its_wheels_hold(notices, allowed):
+    """The desktop build freezes the win_amd64 wheels, and its notices step
+    checks them on Windows: NumPy's bundles no libquadmath, so on Windows
+    its entry lists no LGPL part (and passes on its own licence file),
+    while lxml's GNU libiconv is listed as on Linux. Each platform's entry
+    reads only its own wheel's text."""
+    _, clarified, _, _ = notices.load_policy()
+    engine = notices.ENGINE
+    numpy = notices.Component(engine, "numpy", "2.4.6", "BSD-3-Clause",
+                              texts=[("LICENSE.txt", WIN_NUMPY)])
+    lxml = _fmu_pack(notices)[1]
+    assert notices.check([numpy, lxml], allowed, clarified["python"], system="win32") == []
+    assert numpy.lgpl == [] and not any(t.startswith("LGPL-") for t in numpy.terms)
+    assert "GPL-3.0-or-later WITH GCC-exception-3.1" in numpy.terms
+    assert [p["name"] for p in lxml.lgpl] == ["GNU libiconv"]
+    text = notices.render([numpy, lxml])
+    assert "libquadmath" not in text and "Source: https://ftp.gnu.org/pub/gnu/libiconv/" in text
+    linux_numpy = _fmu_pack(notices)[0]
+    assert [p.split(" ", 1)[0] for p in notices.check([linux_numpy], allowed, clarified["python"],
+                                                       system="win32")] == ["numpy"]
+    windows_numpy = notices.Component(engine, "numpy", "2.4.6", "BSD-3-Clause",
+                                      texts=[("LICENSE.txt", WIN_NUMPY)])
+    assert [p.split(" ", 1)[0] for p in notices.check([windows_numpy], allowed, clarified["python"],
+                                                       system="linux")] == ["numpy"]
+
+
+def test_the_fmu_pack_takes_an_lxml_whose_licence_file_names_its_libiconv():
+    """lxml's binary wheels link GNU libiconv in on Windows too (its alias
+    table is in lxml 6.1.1's etree.pyd), which 6.1.1's LICENSES.txt, the file
+    every wheel carries, does not say and 6.1.3's does: the pack's floor is 6.1.3, so
+    the notices check on Windows reads the words it expects."""
+    req = (SCRIPT.parents[1] / "backend" / "requirements-fmu.txt").read_text(encoding="utf-8")
+    assert "\nlxml>=6.1.3" in req

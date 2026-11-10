@@ -70,7 +70,39 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
 * `Run`: `times`, `channels`, `min`, `max`, `mean` (today's names and units,
   NumPy arrays; `min`/`max`/`mean` are per output interval),
   `engine_channels` (the engine's own names, SI), `events`, `report`,
-  `energy` (the books, or `None`) and `figures`.
+  `energy` (the books, or `None`) and `figures`; and what the app's
+  verdict and reports are made from: `integrals` (each channel, in its
+  display unit, and each engine variable, SI, over the run: `integral`,
+  `square` and `magnitude` of the line through every point the integrator
+  visited, `max`, `min`), `trace` (the channels or variables
+  `simulate(trace=[...], trace_step=0.1)` asked for, sampled from the
+  dense output every `trace_step` s and at the end, besides the output
+  grid and without changing it; `None` without one), `windows` (for each
+  name `simulate(windows={name: seconds})` asked for, its highest moving
+  average over that span, `peak`, and when the span ended, `t`: of the same
+  line through every point visited, read at each, nothing before the
+  start; 0 s gives the highest value), `table_outside`
+  (each table axis read past its data: when it first left, for how long,
+  how far, its part), `table_reads` (each read of a table in the model,
+  one per place a part reads it and per axis: its table, part and axis,
+  and the abscissa it read at each output point) and `report["asserts"]`
+  (each warning `assert` that did not hold). `model.report["instances"]`
+  maps each element to its instance name (the energy books' parts' paths);
+  `model.var_names()` lists the engine's variables and today's channels.
+* `RunControl(queue=0)`: one run's control (`model.simulate(control=c)`),
+  used from other threads while the run goes. `c.cancel()` stops the run
+  where it is (`run.report["stopped"]` says when; its last output point is
+  there); `c.t` and `c.t_end` are its progress; `c.points(timeout=0.1)`
+  gives the output points recorded since the last call, `(t, values)` in
+  `c.channels`' order, the result's values to the bit, through a queue of
+  `queue` points that the run waits on while it is full (0: none kept);
+  `c.set_params({...})` changes parameters from the run's next output time
+  on. The run never needs the interpreter's lock for any of it.
+  `run.report["edits"]` lists the changes made (`t` when taken, `at` when
+  made, `params`); `model.simulate(edits=[(t, params), ...])` makes them
+  again, the same run bit for bit. An acceleration test tells only its
+  last run's points (it runs again to the finish) and takes changes in
+  its first run only.
 * `model.sweep(sets, threads=4, ...)` runs each set (on top of what
   `set_params` set) in parallel. The list it returns has a `Run` for each
   set that ran and the exception object for each that failed, in order.
@@ -108,8 +140,35 @@ the run that only Python has) makes `simulate` raise a `ModelError` coded
 `RUN-SCRIPT` that names the part; give the part a function to run it on
 Python. With `native_scripts=False` a part without a function makes
 `simulate` raise a `ValueError` that names the part. `run.report["scripts"]`
-says what ran each part: `"python"` (your function) or `"native"`. FMU
-parts are not supported yet (`ModelError`).
+says what ran each part: `"python"` (your function) or `"native"`.
+
+An FMU part needs its host: `model.simulate(fmus={"el-fmu": f})`, where
+`f(t, h, inputs)` steps the FMU to `t` and returns a dict of its outputs
+there; it is called at the start and at every multiple of the part's
+Communication Step from 0 s (the engine loads no FMU's code; a part given
+none fails `RUN-FMU`).
+
+A part can be built from a component in the text format
+(`engine/docs/text-format.md`): `le.part_text(project_json, case_id,
+element_id)` prints the definition the import makes for it, and
+`le.build(project_json, case_id, texts={element_id: text})` builds the
+part from a text in its place (`TEXT-PARSE`, `TEXT-PORTS`, `TEXT-PARAMS`,
+`TEXT-NO-PART`, `TEXT-SAMPLED` when it does not fit).
+
+Fast mode on a drive-cycle case: `run = le.fast(project_json, case_id)`
+gives a `Run` with today's channels and figures over the cycle at 1 s
+steps (`step=`), its flags in `run.report["fast"]["flags"]` and the tables
+it read past their data in `run.table_outside` (from its points; a point
+within 1e-9 of the axis's larger end past an edge is inside); it refuses
+with `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL`, `FAST-SAMPLED`,
+`FAST-TABLE-ERROR` (a table axis set to Error read outside its data, as a
+full run stops there) or `FAST-RUN`.
+
+`le.table_sites()` lists every table read in the library's blocks, in
+each configuration that changes which tables they read or where: the
+block's component id, the table, and the abscissa of each axis as its
+equations write it. The app's judge of a table read past its data holds a
+rule for each (`backend/app/solver/new_engine.py`'s `BRANCH_READS`).
 
 `tests/test_api.py` builds such a function from the app's Script runner
 (`backend/app/solver/sandbox_worker.py`'s `_run_step`, as the app calls

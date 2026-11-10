@@ -7,10 +7,13 @@ light version of it while the run goes, so a live run warns early):
 
 - speed trace against the Driver's target: largest and RMS error, and the
   time outside the WLTP tolerance band (±2 km/h, ±1 s) and the EPA band
-  (±2 mph, ±1 s). Each point's band spans the target's lowest and highest
-  value within ±1 s of it, widened by the speed tolerance. The trace is
-  sampled every TRACE_STEP_S of solver time, not at the case step, so the
-  verdict does not depend on how often results are stored;
+  (±2 mph, ±1 s). At each instant the band spans the target's lowest and
+  highest value within ±1 s of it, widened by the speed tolerance (40 CFR
+  1066.425(b)(1)-(2); Regulation (EU) 2017/1151 Annex XXI Sub-Annex 6
+  2.6.8.3.1), and the time outside is that of the lines through the
+  trace's samples, exactly (trace_metrics). The trace is sampled every
+  TRACE_STEP_S of solver time, not at the case step, so the verdict does
+  not depend on how often results are stored;
 - distance driven against the distance the target asks for;
 - non-finite (NaN / inf) values in any channel.
 
@@ -21,7 +24,11 @@ distance the car covers in ±1 s at the target speed (at least ±BAND_MIN_M).
 
 A run whose trace leaves the WLTP band for more than 1 % of its duration
 (at least 2 s) did not follow the cycle: its status is at best "warning"
-and the figures per distance are flagged not valid. A run that covers less
+and the figures per distance are flagged not valid. That allowance is
+LightSim's own rule, and its message says so: the EPA accepts speeds
+beyond the limits for up to 2.0 s on any one occasion (40 CFR
+1066.425(b)(4)(i)), the WLTP for up to 1 s on any one occasion and ten
+such a cycle (2.6.8.3.1). A run that covers less
 than 5 % of the cycle's distance, or produces non-finite values, "failed".
 
 A performance-test case (SimCase.kind "performance": a step in the target
@@ -32,9 +39,13 @@ sampled at every solver step, so that time is read where the speed crosses
 the target, not on a line to a 0.1 s sample taken after the Driver lifted
 off.
 
+The verdict reads the run only through an engine-neutral evidence object
+(evidence.Evidence, the trace's ``ctx``), which today's engine fills from
+its RunContext and the new engine from its run (new_engine.py).
+
 The physics stayed in range: a motor, engine, battery or fuel cell that ran
 past the data of one of its tables, or above its maximum speed (the
-counters in RunContext.map_use), for longer than the trace's allowance
+counters in the evidence's map_use), for longer than the trace's allowance
 (1 % of the run, at least 2 s) makes the run at best "warning", and the
 figures per distance and a performance test's rows are flagged not valid,
 naming the element, how far past and for how long.
@@ -50,8 +61,7 @@ from __future__ import annotations
 
 import math
 from bisect import bisect_left, bisect_right
-from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
 from .maps import MapUse
@@ -80,11 +90,30 @@ class TraceMetrics:
     outside_epa_s: float
 
 
+@dataclass
+class Trace:
+    """The Driver's target and the vehicle's speed (km/h) and distance (m)
+    at the times a run was sampled: what the verdict judges, from either
+    engine. ``ctx`` is the run's evidence (evidence.Evidence)."""
+
+    ctx: object
+    by_distance: bool = False
+    times: list[float] = field(default_factory=list)
+    target: list[float] = field(default_factory=list)
+    speed: list[float] = field(default_factory=list)
+    dist: list[float] = field(default_factory=list)
+
+    def metrics(self) -> TraceMetrics | None:
+        if self.by_distance:
+            return distance_trace_metrics(self.times, self.dist, self.target, self.speed)
+        return trace_metrics(self.times, self.target, self.speed)
+
+
 class CycleTrace:
-    """Samples the Driver's target and the vehicle speed of a run that has
-    both, every TRACE_STEP_S of solver time (at the first solver step on or
-    after each multiple of it; at every solver step in a performance test)
-    and at the run's first and last instant."""
+    """Samples the Driver's target and the vehicle speed of a run on
+    today's engine that has both, every TRACE_STEP_S of solver time (at the
+    first solver step on or after each multiple of it; at every solver step
+    in a performance test) and at the run's first and last instant."""
 
     def __init__(self, ctx):
         model = ctx.model
@@ -132,53 +161,184 @@ class CycleTrace:
         self.dist.append(self.ctx.distance)
 
     def live_problem(self) -> str | None:
-        """A problem worth telling the user while a live run goes (once)."""
-        if self.live_warned or not self.times or self.times[-1] < LIVE_AFTER_S:
+        """A problem worth telling the user while a run goes (once; asked
+        at the end of every output step of every run, live or not)."""
+        if self.live_warned or not self.times:
             return None
-        if self.cycle_m > 100.0 and self.ctx.distance < NOT_DRIVEN_SHARE * self.cycle_m:
-            self.live_warned = True
-            return (f"No distance covered after {self.times[-1]:.0f} s although the drive "
-                    f"cycle asks for {self.cycle_m / 1000.0:.2f} km so far — check that a motor "
-                    f"or engine drives the wheels and gets a command.")
-        return None
+        problem = not_driven(self.times[-1], self.cycle_m, self.ctx.distance)
+        self.live_warned = problem is not None
+        return problem
 
     def metrics(self) -> TraceMetrics | None:
         if self.by_distance:
             return distance_trace_metrics(self.times, self.dist, self.target, self.speed)
         return trace_metrics(self.times, self.target, self.speed)
 
+    def judged(self, ev) -> Trace:
+        """The samples, with the run's evidence ``ev``, for the verdict."""
+        return Trace(ctx=ev, by_distance=bool(self.by_distance), times=self.times,
+                     target=self.target, speed=self.speed, dist=self.dist)
+
+
+def not_driven(t: float, cycle_m: float, distance: float) -> str | None:
+    """The run's check while it goes, at ``t`` (from LIVE_AFTER_S on): the
+    drive cycle has asked for more than 100 m so far (``cycle_m``) and the
+    vehicle has driven less than NOT_DRIVEN_SHARE of it."""
+    if t < LIVE_AFTER_S or not (cycle_m > 100.0 and distance < NOT_DRIVEN_SHARE * cycle_m):
+        return None
+    return (f"No distance covered after {t:.0f} s although the drive cycle asks for "
+            f"{cycle_m / 1000.0:.2f} km so far — check that a motor or engine drives the "
+            f"wheels and gets a command.")
+
+
+def first_not_driven(trace: Trace) -> str | None:
+    """not_driven at each of a finished run's traced points, the target's
+    distance by the trapezoid rule over them as CycleTrace.sample adds it
+    up: the first problem (the new engine's path, whose run is over before
+    it is judged; today's engine asks at the end of each output step)."""
+    cycle_m = 0.0
+    for k, t in enumerate(trace.times):
+        if k:
+            cycle_m += 0.5 * (trace.target[k] + trace.target[k - 1]) / 3.6 * (t - trace.times[k - 1])
+        problem = not_driven(t, cycle_m, trace.dist[k])
+        if problem:
+            return problem
+    return None
+
+
+def _line(ts: list[float], vs: list[float], t: float, shift: float = 0.0) -> tuple[float, float]:
+    """The line through the samples' piece that holds ``t + shift``, as a
+    function of t: (slope, value at t = 0)."""
+    k = min(max(bisect_right(ts, t + shift) - 1, 0), len(ts) - 2)
+    dt = ts[k + 1] - ts[k]
+    m = (vs[k + 1] - vs[k]) / dt if dt > 0 else 0.0
+    return m, vs[k] - m * (ts[k] - shift)
+
+
+def _where(conds: list[tuple[float, float]], u0: float, u1: float) -> float:
+    """How long, in [u0, u1], every line m·t + c of ``conds`` is above 0."""
+    lo, hi = u0, u1
+    for m, c in conds:
+        if m == 0.0:
+            if c <= 0.0:
+                return 0.0
+        elif m > 0.0:
+            lo = max(lo, -c / m)
+        else:
+            hi = min(hi, -c / m)
+    return max(0.0, hi - lo)
+
+
+def band_outside(ts: list[float], tgt: list[float], spd: list[float],
+                 tols: tuple[float, ...]) -> list[float]:
+    """For each speed tolerance of ``tols`` (km/h), the time the speed
+    ``spd`` spends beyond the band around the target ``tgt`` (both km/h,
+    sampled at ``ts``), exactly, for the lines through the samples: at every
+    instant t the band spans the target's lowest and highest value within
+    ±BAND_S of t (cut to the trace's span), widened by the tolerance (40 CFR
+    1066.425(b)(1)-(2); WLTP 2.6.8.3.1). Over each piece between the
+    samples, the samples shifted by ±BAND_S and the trace's ends, the
+    band's edges are the extremes of a constant (the samples inside the
+    window) and the target's two lines at the window's ends, so where the
+    speed's line lies beyond them all is an interval."""
+    n = len(ts)
+    out = [0.0] * len(tols)
+    if n < 2:
+        return out
+    t0, t1 = ts[0], ts[-1]
+    rng = _RangeMinMax(tgt)
+    cuts = sorted({c for t in ts for c in (t - BAND_S, t, t + BAND_S) if t0 <= c <= t1})
+    zero = _zero_pieces(ts, tgt, spd, tols, cuts, rng)
+    for p, (u0, u1) in enumerate(zip(cuts, cuts[1:])):
+        if u1 <= u0 or (zero is not None and all(zero[p])):
+            continue
+        mid = 0.5 * (u0 + u1)
+        a, b = mid - BAND_S, mid + BAND_S
+        i, j = bisect_right(ts, a), bisect_left(ts, b)  # the samples inside (a, b)
+        lines = [(0.0, v) for v in (rng(i, j) if j > i else ())]
+        # the window's ends: the target there (a line), or its end value
+        # where the window is cut at the trace's span
+        lines.append((0.0, tgt[0]) if a <= t0 else _line(ts, tgt, mid, -BAND_S))
+        lines.append((0.0, tgt[-1]) if b >= t1 else _line(ts, tgt, mid, BAND_S))
+        sm, sc = _line(ts, spd, mid)
+        for k, tol in enumerate(tols):
+            if zero is not None and zero[p][k]:
+                continue  # (it would add 0.0 to out[k]: the same bits)
+            # below every candidate less tol, or above every one plus tol
+            below = [(m - sm, c - tol - sc) for m, c in lines]
+            above = [(sm - m, sc - c - tol) for m, c in lines]
+            out[k] += _where(below, u0, u1) + _where(above, u0, u1)
+    return out
+
+
+def _zero_pieces(ts: list[float], tgt: list[float], spd: list[float], tols: tuple[float, ...],
+                 cuts: list[float], rng: _RangeMinMax):
+    """For each piece of band_outside (between ``cuts``) and each tolerance,
+    whether band_outside's own arithmetic adds exactly 0.0 for it: its
+    _where is 0.0 for the speed below every candidate less the tolerance
+    and for it above every one plus it, where already the lowest and the
+    highest target sample inside the window, each a candidate, gives that
+    (the same expressions, so the same bits; most pieces of a run that
+    follows its cycle). Worked out for all pieces at once with NumPy, which
+    the new engine's module brings; None without it (each piece then
+    computed in full: the same result, slower)."""
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    t, g, s = (np.asarray(x, dtype=float) for x in (ts, tgt, spd))
+    u = np.asarray(cuts, dtype=float)
+    if len(u) < 2:
+        return None
+    u0, u1 = u[:-1], u[1:]
+    mid = 0.5 * (u0 + u1)
+    i, j = np.searchsorted(t, mid - BAND_S, "right"), np.searchsorted(t, mid + BAND_S, "left")
+    have = j > i  # (no sample inside: no such candidate)
+    # the lowest and highest sample inside, from the same sparse tables
+    lo, hi = np.full(len(mid), np.nan), np.full(len(mid), np.nan)
+    width = np.where(have, j - i, 1)
+    level = np.frexp(width.astype(float))[1] - 1  # floor(log2(width))
+    for lv in np.unique(level[have]):
+        at = have & (level == lv)
+        a, b = i[at], j[at] - (1 << int(lv))
+        lows, highs = np.asarray(rng.lo[lv]), np.asarray(rng.hi[lv])
+        lo[at] = np.where(lows[b] < lows[a], lows[b], lows[a])  # (as rng's min and max)
+        hi[at] = np.where(highs[b] > highs[a], highs[b], highs[a])
+    # the speed's line over the piece (_line at mid)
+    n = len(t)
+    k = np.clip(np.searchsorted(t, mid, "right") - 1, 0, n - 2)
+    dt = t[k + 1] - t[k]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        sm = np.where(dt > 0, (s[k + 1] - s[k]) / np.where(dt > 0, dt, 1.0), 0.0)
+        sc = s[k] - sm * (t[k] - 0.0)
+
+        def nothing(m, c):
+            """_where of one candidate (m·t + c above 0) being 0.0 on [u0, u1]."""
+            bound = -c / np.where(m == 0.0, 1.0, m)
+            return np.where(m == 0.0, c <= 0.0, np.where(m > 0.0, bound >= u1, bound <= u0))
+
+        out = np.empty((len(mid), len(tols)), dtype=bool)
+        for q, tol in enumerate(tols):
+            below = nothing(0.0 - sm, lo - tol - sc)
+            above = nothing(sm - 0.0, sc - hi - tol)
+            out[:, q] = have & below & above
+    return out.tolist()
+
 
 def trace_metrics(ts: list[float], tgt: list[float], spd: list[float]) -> TraceMetrics | None:
     """Trace error of vehicle speeds ``spd`` against targets ``tgt`` (km/h)
-    sampled at times ``ts``; point 0 is the initial state and not judged."""
+    sampled at times ``ts``; point 0 is the initial state and not judged.
+    The time outside each band is band_outside's, exact for the lines
+    through the samples (until 28 October 2026 each sample outside counted
+    its whole step, up to TRACE_STEP_S off at each crossing)."""
     n = len(ts)
     if n < 2:
         return None
-    # sliding window of the samples within ±BAND_S of point i, with the
-    # indices of its lowest and highest target kept in monotonic deques
-    lows: deque[int] = deque()
-    highs: deque[int] = deque()
-    hi = -1
-    out_wltp = out_epa = sq = 0.0
+    out_wltp, out_epa = band_outside(ts, tgt, spd, (WLTP_TOL_KMH, EPA_TOL_KMH))
+    sq = 0.0
     worst, t_worst = 0.0, ts[0]
     for i in range(1, n):
-        while hi + 1 < n and ts[hi + 1] <= ts[i] + BAND_S + 1e-9:
-            hi += 1
-            while lows and tgt[lows[-1]] >= tgt[hi]:
-                lows.pop()
-            lows.append(hi)
-            while highs and tgt[highs[-1]] <= tgt[hi]:
-                highs.pop()
-            highs.append(hi)
-        for dq in (lows, highs):
-            while ts[dq[0]] < ts[i] - BAND_S - 1e-9:
-                dq.popleft()
-        t_lo, t_hi = tgt[lows[0]], tgt[highs[0]]
         dt = ts[i] - ts[i - 1]
-        if spd[i] < t_lo - WLTP_TOL_KMH or spd[i] > t_hi + WLTP_TOL_KMH:
-            out_wltp += dt
-        if spd[i] < t_lo - EPA_TOL_KMH or spd[i] > t_hi + EPA_TOL_KMH:
-            out_epa += dt
         err = spd[i] - tgt[i]
         sq += err * err * dt
         if abs(err) > abs(worst):
@@ -202,11 +362,20 @@ class _RangeMinMax:
 
     def __init__(self, values: list[float]):
         self.lo, self.hi = [values], [values]
+        try:
+            import numpy as np
+        except ImportError:
+            np = None
         k = 1
         while 2 * k <= len(values):
             lo, hi = self.lo[-1], self.hi[-1]
-            self.lo.append([min(lo[i], lo[i + k]) for i in range(len(lo) - k)])
-            self.hi.append([max(hi[i], hi[i + k]) for i in range(len(hi) - k)])
+            if np is not None:  # (min and max as Python's: the first unless the second is beyond)
+                a, b = np.asarray(lo, dtype=float), np.asarray(hi, dtype=float)
+                self.lo.append(np.where(a[k:] < a[:-k], a[k:], a[:-k]).tolist())
+                self.hi.append(np.where(b[k:] > b[:-k], b[k:], b[:-k]).tolist())
+            else:
+                self.lo.append([min(lo[i], lo[i + k]) for i in range(len(lo) - k)])
+                self.hi.append([max(hi[i], hi[i + k]) for i in range(len(hi) - k)])
             k *= 2
 
     def __call__(self, a: int, b: int) -> tuple[float, float]:
@@ -360,13 +529,16 @@ def _time_to(ts: list[float], spd: list[float], level: float,
     return None
 
 
-def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool = False,
+def judge(trace: Trace, distance_m: float, series: dict, performance: bool = False,
           duration_s: float = 0.0, uses: Iterable[MapUse] = (), stopped: bool = False,
           case=None) -> Verdict:
-    """The checks a finished run must pass to be called a success; ``uses``
-    are the run's MapUse records, ``duration_s`` the time it solved,
-    ``stopped`` whether a stop or an error cut it short and ``case`` the
-    SimCase (for an acceleration test's line and reference time)."""
+    """The checks a finished run must pass to be called a success; the
+    trace's ``ctx`` is the run's evidence (evidence.Evidence), ``series``
+    its channels' values as the engine gave them (a value that is not a
+    number is one: judged before any is shown as a gap), ``uses`` the
+    run's MapUse records, ``duration_s`` the time it solved, ``stopped``
+    whether a stop or an error cut it short and ``case`` the SimCase (for
+    an acceleration test's line and reference time)."""
     messages: list[tuple[str, str]] = []
     rows: list[CheckRow] = []
     not_followed = False
@@ -397,7 +569,11 @@ def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool 
                 f"{m.outside_epa_s:.0f} s), up to {abs(m.max_err_kmh):.1f} km/h "
                 f"{'above' if m.max_err_kmh > 0 else 'below'} the target at "
                 f"t = {m.t_max_err:g} s (RMS {m.rms_kmh:.2f} km/h); it drove {km:.2f} of "
-                f"{m.cycle_km:.2f} km. Consumption figures per distance are not valid.")))
+                f"{m.cycle_km:.2f} km. Consumption figures per distance are not valid. "
+                f"Allowing 1 % of the run, at least 2 s, outside the band is LightSim's own "
+                f"rule; the EPA accepts speeds beyond its limits for up to 2.0 s on any one "
+                f"occasion (40 CFR 1066.425(b)(4)(i)), the WLTP for up to 1 s on any one "
+                f"occasion and ten such a cycle (2.6.8.3.1).")))
     end_d = trace.ctx.end_distance
     if (end_d is not None and not trace.ctx.full_throttle and not stopped
             and distance_m < end_d - 1e-6):
@@ -430,7 +606,7 @@ def judge(trace: CycleTrace, distance_m: float, series: dict, performance: bool 
                    rows=tuple(rows), beyond_reason="; ".join(reason for _, reason in beyond))
 
 
-def _acceleration(trace: CycleTrace, case, stopped: bool,
+def _acceleration(trace: Trace, case, stopped: bool,
                   messages: list[tuple[str, str]]) -> list[CheckRow]:
     """The rows of an acceleration test (SimCase.kind "acceleration"): the
     time from the start line to the line ``endDistance`` past it, with the

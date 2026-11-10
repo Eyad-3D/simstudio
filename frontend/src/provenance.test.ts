@@ -175,6 +175,11 @@ describe("comparing two runs", () => {
     ]);
     expect(changes[2].elementId).toBe("el-vehicle");
     expect(nameFromChanges(changes)).toBe("Mechanical Efficiency 95 %");
+    // one the run did not make (it has the run's note) is marked so, as Run info's list marks it
+    const deferred = snap((s) => (s.liveEdits = [{ t: 203.5, elementId: "el-vehicle", key: "mass_kg", value: 2400, note: "next run" }]));
+    expect(texts(snap(), deferred)).toEqual([
+      "Live edit in this run at t ≈ 204 s: Vehicle · Vehicle Mass = 2,400 kg (not made: on the next run)",
+    ]);
     const three = [{ text: "a", short: "A" }, { text: "b", short: "B" }, { text: "c", short: "C" }];
     expect(nameFromChanges(three)).toBe("A +2 more");
     // cut to the 120 characters a stored run's name holds

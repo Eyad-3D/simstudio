@@ -151,6 +151,14 @@ class ElementInstance(BaseModel):
     size: Optional[dict[str, float]] = None
     isSubSystem: bool = False
     subSystemId: Optional[str] = None  # SystemNode this element drills into
+    # A text component (step 2 of the new engine): the path of a file holding
+    # one component in the engine's text format (engine/docs/text-format.md)
+    # with the ports and parameters of the part's own definition; the new
+    # engine builds the part from it in the place of the built-in definition
+    # (a path that is not absolute is read from the user's projects folder).
+    # Today's engine reads none: such a case runs on the new engine. None = the
+    # built-in definition
+    textFile: Optional[str] = None
 
 
 class Connection(BaseModel):
@@ -286,6 +294,13 @@ class SimCase(BaseModel):
     # expected values (VAL-35): a summary value's label, the number, its
     # tolerance and where it comes from; each run says how far it lands
     references: list[ReferenceValue] = Field(default_factory=list)
+    # "quick": the new engine's fast mode (a drive cycle's speed prescribed,
+    # the Driver's pedal worked out back from it, limits flagged rather than
+    # acted on): the totals of a cycle in a fraction of a full run's time,
+    # without the peaks, the speed trace's verdict or the reports
+    # (docs/help/how-to/run-in-quick-mode.md). A case it does not run runs in
+    # full instead, with a warning that says why. "full" = the full dynamic run
+    mode: Literal["full", "quick"] = "full"
 
 
 class StudyFactor(BaseModel):
@@ -572,6 +587,20 @@ class LimitReport(BaseModel):
     tEnd: float
 
 
+class LiveEdit(BaseModel):
+    """A scalar parameter change sent to the engine while a run was going."""
+
+    model_config = PERSISTED
+
+    t: float  # simulated time the run had reached when it was sent (or taken by the engine), s
+    elementId: str
+    key: str
+    value: ScalarValue
+    # for an edit the run did not make (it takes effect on the next run):
+    # the result's note of it, which says why with its code; none for one made
+    note: Optional[str] = None
+
+
 class SimResult(BaseModel):
     caseId: str
     status: Literal["success", "failed", "warning", "cancelled"]
@@ -587,23 +616,25 @@ class SimResult(BaseModel):
     # the case's expected values and the automatic hand calculations, each
     # with its gap and grade (VAL-35)
     references: list[ReferenceCheck] = Field(default_factory=list)
-
-
-class LiveEdit(BaseModel):
-    """A scalar parameter change sent to the engine while a run was going."""
-
-    model_config = PERSISTED
-
-    t: float  # simulated time the run had reached when it was sent, s
-    elementId: str
-    key: str
-    value: ScalarValue
+    # what ran it: the engine ("today" or "new", LIGHTSIM_ENGINE), its
+    # version and the solver options it ran with; and the live parameter
+    # edits it took, each at the simulated time the run had reached when it
+    # took it, one it did not make with its note (absent on runs from before
+    # 0.4 and on runs that never started). A RunSnapshot keeps them, and a
+    # replay makes them again
+    engine: Optional[str] = None
+    engineVersion: Optional[str] = None
+    solverOptions: Optional[dict[str, float]] = None
+    liveEdits: list[LiveEdit] = Field(default_factory=list)
 
 
 class RunSnapshot(BaseModel):
     """What made a run (RES-09): the project and case exactly as they were
     run (a sweep's value included), the app version, a fingerprint of the
-    project, and the live parameter edits made while it ran."""
+    project, the live parameter edits made while it ran, and the engine
+    that ran it, its version and its solver options (from the run's
+    result: :meth:`of`). ``app.solver.replay`` makes the run again from
+    it."""
 
     model_config = PERSISTED
 
@@ -613,6 +644,19 @@ class RunSnapshot(BaseModel):
     # SHA-256 of the project as canonical JSON (keys sorted), hex
     modelHash: Optional[str] = None
     liveEdits: list[LiveEdit] = Field(default_factory=list)
+    engine: Optional[str] = None
+    engineVersion: Optional[str] = None
+    solverOptions: Optional[dict[str, float]] = None
+
+    @classmethod
+    def of(cls, project: Project, case: SimCase, result: SimResult,
+           app_version: Optional[str] = None, model_hash: Optional[str] = None) -> RunSnapshot:
+        """The snapshot of ``result``, a run of ``case`` of ``project``:
+        the engine, its version, its solver options and its live edits as
+        the result says them."""
+        return cls(project=project, case=case, appVersion=app_version, modelHash=model_hash,
+                   liveEdits=list(result.liveEdits), engine=result.engine,
+                   engineVersion=result.engineVersion, solverOptions=result.solverOptions)
 
 
 class StoredRun(BaseModel):

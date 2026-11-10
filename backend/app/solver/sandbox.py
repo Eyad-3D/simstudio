@@ -155,7 +155,7 @@ class ScriptSandbox:
             ctx = multiprocessing.get_context("spawn")
             # The platform's default pair: Unix-domain on Linux, a loopback TCP
             # pair on Windows (whose Python has no AF_UNIX).
-            parent, child = socket.socketpair()
+            parent, child = _w.checked_socketpair()
             self._sock = parent
             self._conn = _w.Conn(parent)
             self._proc = ctx.Process(

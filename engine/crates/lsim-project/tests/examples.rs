@@ -60,6 +60,14 @@ fn every_example_imports_builds_and_starts() {
                 }
             };
             built += 1;
+            // each table guard's argument (what tells how far past its data a
+            // table was read) is the one code generation guards, in its order
+            use lsim_ir::runtime::ModelFunctions;
+            let guards: Vec<u32> = model.jit.table_guard_list().iter().map(|g| g.table).collect();
+            let args: Vec<u32> = model.info.table_args.iter().map(|a| a.0).collect();
+            if guards != args {
+                faults.push(format!("{name}/{id}: table guards {guards:?}, arguments {args:?}"));
+            }
             let p = &model.prepared;
             println!(
                 "{name}/{id}: {} parts, {} states, {} iteration variables, {} modes, {} whens, {} sampled",

@@ -527,6 +527,25 @@ export function CasePanel() {
                 Add a Race Track from Driver &amp; Signals: its layout and laps set a lap case.
               </p>
             ))}
+          {(activeCase.kind ?? "cycle") === "cycle" && (
+            <label
+              className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              title="Quick: the new engine's fast mode. The cycle's speed is prescribed and the Driver's pedal worked out back from it, so the run takes a fraction of a full run's time; it gives the totals (energy, consumption, range, distance, each phase's), not the peaks, the speed trace's verdict or the reports, and flags a limit the car would have met instead of acting on it. A case it cannot run (a Script, FMU or Traction Control part, a battery built from cells, a charge-balanced hybrid) runs in full, saying why."
+            >
+              Run mode
+              <select
+                className="ss-input w-[112px]"
+                aria-label="Run mode"
+                value={activeCase.mode ?? "full"}
+                onChange={(e) =>
+                  setCaseField(activeCase.id, { mode: e.target.value === "quick" ? "quick" : undefined })
+                }
+              >
+                <option value="full">Full</option>
+                <option value="quick">Quick</option>
+              </select>
+            </label>
+          )}
           {!accel && !lap && (
             <label
               className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"

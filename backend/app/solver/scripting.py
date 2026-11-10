@@ -9,7 +9,8 @@ Scripts are for signal math, and are held to that:
 
 * check_script() parses and compiles the code without running any of it —
   all Data Checks ever do — and rejects imports other than math, names and
-  attributes that lead into the interpreter (dunders, frames), attribute
+  attributes that lead into the interpreter (dunders, frames, and the
+  fields of str.format that read attributes or items), attribute
   assignment, class definitions, and builtins scripts are not given
   (open, eval, getattr, ...).
 * At run time the code gets only a small allow-listed set of builtins,
@@ -33,6 +34,7 @@ import ast
 import builtins
 import dis
 import math
+import string
 import sys
 import time
 import types
@@ -171,6 +173,27 @@ def _attr_problem(attr: str) -> str | None:
     return None
 
 
+def _format_problem(receiver: ast.AST, method: str) -> str | None:
+    """str.format reads the attributes and items its fields name
+    ('{0.__globals__}'), past the checks of names and attributes: it is
+    allowed on a string written in the script whose fields name neither."""
+    if not (isinstance(receiver, ast.Constant) and isinstance(receiver.value, str)):
+        return f"'.{method}' is allowed in scripts only on a string written in the script"
+
+    def reads(text: str) -> bool:
+        try:
+            parts = list(string.Formatter().parse(text))
+        except ValueError:  # Python refuses it when it runs, having read nothing
+            return False
+        # (a field's format spec may hold fields of its own: '{0:{1.x}}')
+        return any(field and ("." in field or "[" in field) or (spec and reads(spec))
+                   for _, field, spec, _ in parts)
+
+    if reads(receiver.value):
+        return f"a '.{method}' field that reads an attribute or an item ('{{0.x}}', '{{0[k]}}') is not allowed in scripts"
+    return None
+
+
 def _problems(tree: ast.AST) -> list[tuple[tuple[int, int, int], str]]:
     """What the script uses that scripts may not, sorted by position."""
     bound = _bound_names(tree) | set(_PROVIDED)
@@ -200,6 +223,10 @@ def _problems(tree: ast.AST) -> list[tuple[tuple[int, int, int], str]]:
             elif not isinstance(node.ctx, ast.Load):
                 # math and the helpers are shared with the engine itself
                 add(node, f"changing '.{node.attr}' is not allowed in scripts")
+            elif node.attr in ("format", "format_map"):
+                problem = _format_problem(node.value, node.attr)
+                if problem:
+                    add(node, problem)
         elif isinstance(node, ast.MatchClass):
             for attr in node.kwd_attrs:
                 problem = _attr_problem(attr)
@@ -339,4 +366,6 @@ def run_script(
             result[str(key)] = float(value)
         except (TypeError, ValueError):
             raise ScriptError(f"Script '{label}' output '{key}' is not numeric ({value!r}).")
+        except OverflowError:  # an integer past the largest float
+            raise ScriptError(f"Script '{label}' output '{key}' is too large to be a number.") from None
     return result

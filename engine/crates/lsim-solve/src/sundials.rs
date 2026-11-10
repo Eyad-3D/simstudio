@@ -1503,6 +1503,14 @@ impl Integrator for Sundials<'_> {
         &mut self.prob.d
     }
 
+    fn set_params(&mut self, p: &[f64]) -> bool {
+        if p.len() != self.prob.p.len() {
+            return false;
+        }
+        self.prob.p.copy_from_slice(p);
+        true
+    }
+
     fn set_root_sides(&mut self, sides: &[f64], holds: &[f64]) {
         self.prob.zero.set(sides, holds);
     }

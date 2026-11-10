@@ -6,7 +6,10 @@ A crate passes when its SPDX licence expression can be satisfied using only
 the licences in ALLOWED: for `A OR B` one side must pass, for `A AND B`
 both, and `X WITH exception` passes when `X WITH exception` or `X` is
 allowed. A crate with no licence expression fails (unless it is one of the
-engine's own crates). GPL, LGPL, AGPL, EUPL and SSPL never pass.
+engine's own crates). GPL, LGPL, AGPL, EUPL and SSPL never pass: a crate is
+compiled into the engine's own binary, and the owner's rule of 20 October
+2026 lets LGPL code ship only as a separate, replaceable file
+(scripts/licenses/allowed.txt, for the app's Python and npm parts).
 
 Usage: licences.py [--table] [manifest ...]   (default: engine/Cargo.toml)
 Exit status 1 when any crate fails.

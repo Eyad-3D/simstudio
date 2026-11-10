@@ -29,12 +29,35 @@
     "numpy": {
       "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 AND LGPL-2.1-or-later AND GPL-3.0-or-later WITH GCC-exception-3.1",
       "expect": "Name: libquadmath",
-      "reason": "Only in an engine built with the FMU pack (LIGHTSIM_FREEZE_FMU_PACK=1, backend/lightsim-backend.spec). Its metadata names only the licences of its own code, but its wheels bundle numpy.libs/libquadmath (LGPL-2.1-or-later) and libgfortran (GPL-3.0-or-later with the GCC Runtime Library Exception), as its LICENSE.txt says. LGPL is not in allowed.txt: such a build fails until the owner decides."
+      "reason": "Only in an engine built with the FMU pack (LIGHTSIM_FREEZE_FMU_PACK=1, backend/lightsim-backend.spec; the desktop build sets it). Its metadata names only the licences of its own code, but its Linux wheels bundle libquadmath (LGPL-2.1-or-later) and libgfortran (GPL-3.0-or-later with the GCC Runtime Library Exception) in numpy.libs, as its LICENSE.txt says. The LGPL part is allowed as a separate, replaceable file, listed with its source (the owner, 20 October 2026: lgpl below). Its win_amd64 wheels, which the desktop build freezes, bundle no libquadmath: platforms.win32.",
+      "lgpl": [
+        {
+          "name": "libquadmath (GCC's quad-precision maths library)",
+          "license": "LGPL-2.1-or-later",
+          "files": "the libraries in numpy.libs that NumPy's LICENSE.txt names for it, unmodified",
+          "source": "https://gcc.gnu.org/git/?p=gcc.git;a=tree;f=libquadmath"
+        }
+      ],
+      "platforms": {
+        "win32": {
+          "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 AND GPL-3.0-or-later WITH GCC-exception-3.1",
+          "expect": "Name: GCC runtime library",
+          "reason": "The win_amd64 wheels bundle no libquadmath: numpy.libs holds the OpenBLAS DLL, with the GCC runtime (libgfortran, GPL-3.0-or-later with the GCC Runtime Library Exception) linked into it, as their LICENSE.txt says (numpy 2.4.6), and the MSVC runtime. No LGPL part."
+        }
+      }
     },
     "lxml": {
       "license": "BSD-3-Clause AND PSF-2.0 AND MIT AND Zlib AND LGPL-2.1-or-later",
       "expect": "**iconv**: LGPL 2.1",
-      "reason": "Only in an engine built with the FMU pack (LIGHTSIM_FREEZE_FMU_PACK=1, backend/lightsim-backend.spec). Its metadata says BSD-3-Clause, but its binary wheels link in zlib, libxml2, libxslt and GNU libiconv, which its LICENSES.txt lists as LGPL 2.1. LGPL is not in allowed.txt: such a build fails until the owner decides (or lxml is built from source without GNU libiconv)."
+      "reason": "Only in an engine built with the FMU pack (LIGHTSIM_FREEZE_FMU_PACK=1, backend/lightsim-backend.spec; the desktop build sets it). Its metadata says BSD-3-Clause, but its binary wheels link in zlib, libxml2, libxslt and GNU libiconv, which its LICENSES.txt lists as LGPL 2.1 from lxml 6.1.3 on (the same file in every wheel; the Windows wheels link it in too, unnamed in 6.1.1: requirements-fmu.txt's floor). The LGPL part is allowed in lxml's own files, a separate, replaceable package, listed with its source (the owner, 20 October 2026: lgpl below).",
+      "lgpl": [
+        {
+          "name": "GNU libiconv",
+          "license": "LGPL-2.1-or-later",
+          "files": "lxml's compiled modules (lxml/etree and the others: .pyd on Windows, .so on Linux), which link it in, unmodified",
+          "source": "https://ftp.gnu.org/pub/gnu/libiconv/"
+        }
+      ]
     },
     "setuptools": {
       "license": "MIT",

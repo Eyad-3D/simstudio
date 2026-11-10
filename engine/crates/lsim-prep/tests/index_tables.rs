@@ -1053,3 +1053,181 @@ fn a_linear_table_read_backwards_in_time_matches_the_closed_form() {
     println!("errors: load {e2:.1e}");
     assert!(e2 < 1e-9, "{e2:e}");
 }
+
+// ---------------------------------------------------------------------
+// what a run tells of the tables it read past their data (step 2)
+// ---------------------------------------------------------------------
+
+/// A source whose profile is read along time past its data (Clamp, a line
+/// from 0 to 1 s, read to 3 s): the run says when it first left it, for how long
+/// and how far, with numbers (`SolverReport::table_outside`), beside its
+/// words; a trace samples its voltage every 0.25 s from the dense output
+/// without changing what the grid records; and each table guard's
+/// argument is the code generator's, guard for guard.
+#[test]
+fn a_table_read_past_its_data_is_told_in_numbers() {
+    let (xs, ys) = ([0.0, 0.5, 1.0], [0.0, 0.5, 1.0]);
+    let data = data_1d(&xs, &ys, Interpolation::MonotoneCubic, Outside::Clamp, "s");
+    let top = ComponentDef {
+        name: "Test.ProfileOnResistor".into(),
+        components: vec![
+            with_table(sub("src", "Electrical.TableVoltage", &[]), "profile", data),
+            sub("r", "Electrical.Resistor", &[("R", c(2.0))]),
+            sub("gnd", "Electrical.Ground", &[]),
+        ],
+        connections: vec![
+            connect("src.p", "r.p"),
+            connect("src.n", "r.n"),
+            connect("src.n", "gnd.p"),
+        ],
+        ..Default::default()
+    };
+    let (m, _) = prepare(&top);
+    let jit = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
+    let info = lsim_solve::RunInfo::from_prepared(&m);
+    use lsim_ir::runtime::ModelFunctions;
+    let guards: Vec<u32> = jit.table_guard_list().iter().map(|g| g.table).collect();
+    assert_eq!(info.table_args.iter().map(|a| a.0).collect::<Vec<_>>(), guards);
+    assert!(!guards.is_empty());
+    let v = info.var_names.iter().position(|n| n == "src.v").expect("src.v");
+    let run_with = |trace: Option<lsim_solve::TraceSpec>| {
+        let opts =
+            lsim_solve::SolverOptions { rtol: 1e-8, atol: 1e-8, trace, ..Default::default() };
+        let grid = lsim_solve::OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.4 };
+        lsim_solve::simulate(&jit, &info, &opts, grid, &mut []).expect("runs")
+    };
+    let run = run_with(Some(lsim_solve::TraceSpec { step: 0.25, channels: vec![v] }));
+    let out = &run.report.table_outside;
+    assert_eq!(out.len(), 1, "{out:?}");
+    let o = &out[0];
+    println!("{o:?}");
+    // (its crossing located by root finding, to its precision)
+    assert!((o.first - 1.0).abs() < 1e-8 && (o.total - 2.0).abs() < 1e-8, "{o:?}");
+    assert_eq!((o.lo, o.hi, o.edge), (0.0, 1.0, 1.0));
+    assert!((o.furthest - 3.0).abs() < 1e-12 && (o.t_furthest - 3.0).abs() < 1e-12, "{o:?}");
+    assert!(run.report.warnings.contains(&o.warning), "{:?}", run.report.warnings);
+    // the trace: every 0.25 s and the end, the profile held at its last value
+    let tr = run.trace.as_ref().expect("a trace");
+    assert_eq!(tr.times.len(), 13);
+    assert_eq!(tr.times.last(), Some(&3.0));
+    let cub = Cubic::steffen(&xs, &ys);
+    for (t, x) in tr.times.iter().zip(&tr.values[0]) {
+        assert!((x - cub.at(t.min(1.0))[0]).abs() < 1e-9, "{t} {x}");
+        assert!((x - t.min(1.0)).abs() < 1e-9, "the line {t} {x}");
+    }
+    // ... and the grid's results the same to the bit without it
+    let plain = run_with(None);
+    assert!(plain.trace.is_none());
+    assert_eq!(plain.times, run.times);
+    assert_eq!(plain.values, run.values);
+    assert_eq!(plain.mean, run.mean);
+    assert_eq!(plain.square_integral, run.square_integral);
+    // the run's integral of v² (v = t to 1 s, then 1): 1/3 + 2, the lines
+    // through the points visited exact on a line
+    let exact = 1.0 / 3.0 + 2.0;
+    assert!((run.square_integral[v] - exact).abs() < 1e-8, "{}", run.square_integral[v]);
+    assert!((run.magnitude_integral[v] - 2.5).abs() < 1e-8, "{}", run.magnitude_integral[v]);
+    // its highest moving averages over 0.5 s and 1 s (v = t to 1 s, then
+    // 1: each reaches 1 once its window holds only the held part) and its
+    // highest value, from every point visited; the grid the same to the bit
+    let opts = lsim_solve::SolverOptions {
+        rtol: 1e-8,
+        atol: 1e-8,
+        windows: vec![(v, 0.5), (v, 1.0), (v, 0.0)],
+        ..Default::default()
+    };
+    let grid = lsim_solve::OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.4 };
+    let windowed = lsim_solve::simulate(&jit, &info, &opts, grid, &mut []).expect("runs");
+    assert_eq!(windowed.values, plain.values);
+    let w = &windowed.windows;
+    assert_eq!(w.iter().map(|w| (w.channel, w.window)).collect::<Vec<_>>(), opts.windows);
+    assert!((w[0].peak - 1.0).abs() < 1e-8 && w[0].t >= 1.5 - 1e-8, "{w:?}");
+    assert!((w[1].peak - 1.0).abs() < 1e-8 && w[1].t >= 2.0 - 1e-8, "{w:?}");
+    assert!((w[2].peak - 1.0).abs() < 1e-8 && w[2].t >= 1.0 - 1e-8, "{w:?}");
+    // to 1 s: ∫ t dt = 0.5 over a window of 1 s, nothing before the start
+    let early = lsim_solve::simulate(
+        &jit,
+        &info,
+        &lsim_solve::SolverOptions { windows: vec![(v, 1.0)], ..opts.clone() },
+        lsim_solve::OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.4 },
+        &mut [],
+    )
+    .expect("runs");
+    assert!((early.windows[0].peak - 0.5).abs() < 1e-8, "{:?}", early.windows);
+}
+
+/// A table read at a value an event moves past its data at once (as a
+/// sampled controller moves its output at a tick; here a `when` at 1.5 s
+/// moves it from 0.5 to 2, the data 0 to 1): the integrator, which watches
+/// the table between events, never sees its guard cross, so the event
+/// itself books the read (Clamp: outside from 1.5 s to the end, 2 past it)
+/// or stops the run (Error), as a crossing does (the mismatch sweep: a
+/// hybrid whose control unit moved its E-Motor past its loss map at a
+/// tick was neither counted nor stopped).
+#[test]
+fn a_table_read_an_event_moves_past_its_data_is_booked_at_the_event() {
+    use lsim_ir::component::build::discrete;
+    use lsim_ir::expr::{CmpOp, cmp};
+    use lsim_ir::{Equation, EquationDecl, WhenAction};
+    let jump = |outside: Outside| ComponentDef {
+        name: "Test.Jump".into(),
+        params: vec![table_param(
+            "profile",
+            "1",
+            data_1d(&[0.0, 1.0], &[0.0, 1.0], Interpolation::Linear, outside, "1"),
+        )],
+        vars: vec![
+            discrete("level", "1", 0.5, "where it reads its profile"),
+            var("v", "1", "its profile there"),
+            state("q", "s", 0.0, "its integral"),
+        ],
+        equations: vec![
+            EquationDecl {
+                eq: Equation::When {
+                    condition: cmp(CmpOp::Ge, Expr::Time, c(1.5)),
+                    actions: vec![WhenAction::Assign { var: "level".into(), value: c(2.0) }],
+                },
+                label: Some("it jumps".into()),
+            },
+            eq(n("v"), lsim_ir::expr::table("profile", vec![n("level")]), "its profile"),
+            eq(der("q"), n("v"), "its integral"),
+        ],
+        ..Default::default()
+    };
+    let top = ComponentDef {
+        name: "Test.JumpTop".into(),
+        components: vec![sub("k", "Test.Jump", &[])],
+        ..Default::default()
+    };
+    for outside in [Outside::Clamp, Outside::Error] {
+        let mut l = lib();
+        l.add(jump(outside));
+        let (m, _) = prepare_with_report(&l, &top, None, &Settings::default())
+            .unwrap_or_else(|d| panic!("{d:#?}"));
+        let jit = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
+        let info = lsim_solve::RunInfo::from_prepared(&m);
+        use lsim_ir::runtime::ModelFunctions;
+        assert!(!jit.table_guard_list().is_empty(), "the read is watched");
+        let opts = lsim_solve::SolverOptions { rtol: 1e-8, atol: 1e-8, ..Default::default() };
+        let grid = lsim_solve::OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.5 };
+        let run = lsim_solve::simulate(&jit, &info, &opts, grid, &mut []);
+        match outside {
+            Outside::Error => match run {
+                Err(lsim_solve::SolveError::TableOutside { t, .. }) => {
+                    assert!((t - 1.5).abs() < 1e-9, "{t}")
+                }
+                other => panic!(
+                    "the run did not stop at the jump: {:?}",
+                    other.map(|r| r.report.table_outside)
+                ),
+            },
+            _ => {
+                let out = run.expect("runs").report.table_outside;
+                assert_eq!(out.len(), 1, "{out:?}");
+                let o = &out[0];
+                assert!((o.first - 1.5).abs() < 1e-9 && (o.total - 1.5).abs() < 1e-9, "{o:?}");
+                assert!((o.furthest - 2.0).abs() < 1e-12 && o.edge == 1.0, "{o:?}");
+            }
+        }
+    }
+}

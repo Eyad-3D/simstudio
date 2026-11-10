@@ -591,7 +591,18 @@ buffers, so one compiled model serves any number of simultaneous runs.
 `TableGuard { table, axis, outside }` names one watched table axis: its
 guard is `min(a - lo, hi - a)` of the axis argument, positive inside the
 data; an `Error` axis stops the run where its guard falls through zero,
-the others are booked as time spent outside.
+the others are booked as time spent outside. A guard is watched between
+events by the integrator and, after each event, at the event itself
+(`Loop::sync_guards`): an event that moves a read's argument past the
+data at once (a sampled block's tick, a `when`) is booked, or stops the
+run on an `Error` axis, there. The library's tables
+(`lsim-lib/table.rs`) keep the guard's edges at the edges of today's
+data: a table is padded only past an end its argument never reaches (a
+speed magnitude's 0, an SOC held to 0-1), so it is watched where today's
+engine reads past it; a single point, a constant today never reads
+outside, is held (Clamp) and spread 1 either side; a 2-D table whose
+sheets' inner ranges differ is refused, as today counts a read outside
+the narrowest and the grid's edges are the widest.
 
 ### 5.8 Shared types: what each package must do
 
@@ -2379,8 +2390,10 @@ round).**
   component has one: the four example cars, which are the golden cases,
   make no hold at all (12 cases, 0 holds made, counted at 0beec7d and at
   4d24528). Only a `when`
-  written in equation text reaches holds, and the app offers no
-  equation-text part yet (a step 2 item). On three rules such a user
+  written in equation text reaches holds: a text component (step 2,
+  merged on 10 November 2026) can hold one, on the new engine only, read
+  from the file a part's `textFile` names (the app has no editor for it).
+  On three rules such a user
   could write, the engine at 0beec7d counted right where the build with
   no holds counted firings that did not happen: a Formula Student power
   counter at 70 kW (3 instead of 1), a BEV heater shed swept over ten
@@ -3047,6 +3060,14 @@ round).**
   the channels the event changed (the channels as they stood before the
   first event of that instant changed anything), in order;
   `SimResult::before(c, k)` gives either side's value of any channel.
+  The run's first output time is the exception: its point (and the
+  trace's first point, and the first interval's extremes, which the
+  run's integrals hold) is the initial state, before the events of
+  t = 0 (the Vehicle at rest starts sliding, with the acceleration of
+  its rolling resistance, and sticks within microseconds, so a load
+  transfer that follows its acceleration is off by a few N for no
+  time). A known limit of the recorder: the readers of the evidence
+  allow for it (the app's lift check starts at the second traced point).
   The golden comparison compares today's engine, which records such a
   point before its step, with the left limit. (Work package 4's sixth
   round kept every channel at first: on the hybrid's UDDS, where a
@@ -3215,6 +3236,67 @@ residuals and what they solve for.
 * **Parallel sweeps** (WP4/WP6): `rayon` over parameter sets, one
   integrator and buffer set per worker, one shared compiled model, the
   Python GIL released for the whole sweep.
+* **The run's evidence** (step 2, for the app's verdict and reports):
+  the recorder also integrates each channel's square and magnitude over
+  the whole run, as integrals of the line through every point the
+  integrator visited (its steps, both sides of every event), the means'
+  own trapezoid: `SimResult::square_integral` and `magnitude_integral`
+  (a duty's RMS, a flow's two directions; exact for a value held between
+  events, O(h²) on a smooth one over the integrator's own steps, not
+  under its error control as the energy books are). A trace
+  (`SolverOptions::trace`: channels and a spacing) samples a few channels
+  from the dense output every spacing and at the run's end, interleaved
+  with the grid points and the blocks' ticks as they are, and changes
+  nothing the grid records (a test checks the values, means and integrals
+  to the bit with and without it): `SimResult::trace`. A window
+  (`SolverOptions::windows`: a channel and a span of time) keeps the
+  channel's highest moving average over that span, of the same line
+  through every point visited, read at each, with nothing before the
+  start (an energy meter's log; 0 s: the highest value), and when the span
+  ended: `SimResult::windows` (a battery check's averaged peak, which the
+  output step does not change). The run tells each
+  table axis it read past its data with numbers beside its words
+  (`SolverReport::table_outside`: the table, the axis, when it first left,
+  for how long, the argument furthest past the data at the steps' ends
+  and the edge it was past, the axis's first and last point), each guard's
+  argument taken from `RunInfo::table_args` in code generation's order (a
+  test holds the order to the compiled model's guard list on every example
+  case), and each warning `assert` that did not hold
+  (`SolverReport::asserts`). A guard counts a read wherever its expression
+  is evaluated, also in a branch of an `if` its result does not take (the
+  E-Motor's drag table is read while the motor is powered), where today's
+  engine counts only the operating point it used: the app's verdict can
+  then name a table today's would not (a test holds today's verdict on
+  such a case, marked as expected to fail until the guard counts only the
+  branch taken).
+* **A run's control** (step 2, `SolverOptions::control`, a `RunControl`):
+  one hook serves a run's progress, a live run's stream, a study's Stop
+  and a live edit. The run loop calls it on the run's thread at the end of
+  every step it takes (and once at its end): `reached` is told the point
+  reached and the output points recorded since, the values the result
+  holds; `stop` ends the run there, at the end of the step taken, with a
+  last output point at that time (the grid's times not reached dropped,
+  the books and the trace closed there too, `SolverReport::stopped`); and
+  `edits` gives parameter changes (`ParamEdit`: the whole vector), which
+  are events. A change is taken at the end of the first step at or after
+  its `from` (a live one: the next step) and made at the first output
+  time after that point (or at its own `at`): the integrator stops there,
+  takes the new values (`Integrator::set_params`), solves the iteration
+  variables again with them, settles the conditions and restarts, the
+  books booking the stored energy's change as at any event; the output
+  point there takes the new values and keeps the old ones as its left
+  limit; what else reads the parameters (the blocks' input tapes, the time
+  functions and crossings) is set up again at the next step, as after a
+  switch of the states. `SolverReport::edits` lists each change, when
+  taken, when made. Given again with `from` the time it was taken, a
+  change is taken at the same step's end and made at the same time, and
+  the run is the same bit for bit: every step before it is (a change
+  known from the start would not do: CVODE sizes its first step by the
+  next stop time, and the values after the change moved by an ulp in the
+  test that found it). The parameter sets a run's changes go on with are
+  kept for its length beside the models a switch of the states goes on
+  with, up to 1024 of each; past that a change is not made and the run
+  warns.
 
 **As built (work package 4).** The energy integrals are under the
 integrator's error control by default (`energy_error_control`): without
@@ -3456,11 +3538,21 @@ save most of those 10 ms in every run, sequential or not (a change to
   random expressions over signed zeros, subnormals, the largest floats,
   infinities and NaN): 35 681 calls bitwise equal, 2725 failing on both
   with the same message, 121 random calls handed back to Python, none
-  different; its edge cases add 129 errors scripts meet, each failing
+  different; its edge cases add 133 errors scripts meet, each failing
   with CPython's message or left to Python, and 22 scripts CPython
   refuses to compile, each refused here too; `tests/app_runner.rs` checks
   the cases the reviews found and the limits; and the hybrid's four cases give bitwise the same results
-  on both runners (`lsim-project/examples/script_parity`).
+  on both runners (`lsim-project/examples/script_parity`). Differential
+  fuzzing (`tests/fuzz.rs`: random whole scripts, each called 12 times on
+  both runners, Python held to the worker's 2 s) ran 5 375 500 scripts,
+  54 915 038 calls, in 24 hours (6 November 2026), with no divergence;
+  shorter runs before them found one
+  divergence, now fixed: a float exactly halfway between its two shortest
+  readings was quoted in a message with the upper one, where CPython takes
+  the one whose last digit is even (`value::float_repr`). It is part of the
+  Script decision record (`docs/SCRIPT-RUNNER-DECISION.md`), with the
+  threat model, the count of unsafe code the runner pulls in and the
+  Windows worker's gap.
   A Hybrid Control Unit call costs 6.5–7.1 µs natively (release build,
   `lsim-script/examples/hcu_speed`, on a 4-core VM where the runner
   before the limits took 7.3–7.9 µs) against about 25 µs in-process in
@@ -3687,10 +3779,12 @@ save most of those 10 ms in every run, sequential or not (a change to
   project importer's channel map gives today's names
   (`el-battery:sig_soc`), so the app and the Python package read results
   as today.
-* **Summary rows, duty, limits, references**: computed by today's Python
-  code from the channels at first (the app's KPIs keep their keys; not yet
-  wired for new-engine runs, section 12.3); moved into Rust only where
-  speed requires (WP6).
+* **Summary rows, duty, limits, references**: the figures from the
+  channels (`golden::figures_with`, the app's KPIs keep their keys); the
+  verdict, the energy report, part energies, duty, limits, references and
+  hand calculations by today's Python code from the run's evidence
+  (`backend/app/solver/evidence.py`, section 12.3: no Rust copy of them);
+  moved into Rust only where speed requires (WP6).
 * **Energy books**: for every primitive, `energyIn − energyOut − losses −
   stored = 0` from its port powers (across × through), its loss expression
   and its stored-energy expression — today's `partEnergy`. A part's books
@@ -3800,7 +3894,7 @@ against exact answers from `benchmarks/`.
 | today | new composition (sketch) |
 |---|---|
 | `battery.generic` | OCV(SOC, T) table source + R0(SOC, T) + up to two RC pairs + SOC integrator (∫i dt / capacity) + cell-limit outputs; thermal port |
-| `motor.emotor` | ideal machine (torque = demand × available torque at speed and voltage, `limit` on full-load curve) + loss map table → electrical power = mechanical + loss; with its bus's supply window, the torque cut to the share of the command whose power fits, the inverter off where not even the spin losses fit (its torque the drag; the share is then not solved: at an empty battery it would have none, and IDA stopped with flag -4) |
+| `motor.emotor` | ideal machine (torque = demand × available torque at speed and voltage, `limit` on full-load curve) + loss map table → electrical power = mechanical + loss; with its bus's supply window, the torque cut to the share of the command whose power fits, the inverter off where not even the spin losses fit (its torque the drag; the share is then not solved: at an empty battery it would have none, and IDA stopped with flag -4); its full-load and loss maps are read at the speed held to its maximum speed (above it the inverter is off and they are not used, so a table that ends there is never read past its data) |
 | `engine.combustion` | torque source with full-load and fuel maps (tables), fuel port, idle/on logic as modes |
 | `fuelcell.stack`, `fuel.h2_tank`, `fuel.tank` | polarisation table source; tanks as fuel-port reservoirs (mass state) |
 | `controller.dcdc` | average-model converter with efficiency, power conserved minus loss |
@@ -3843,11 +3937,210 @@ against exact answers from `benchmarks/`.
   efficiency on, and report, the torque their teeth carry, after the
   inertias before the mesh (`lsim-project/golden/README.md`).
 * **Same result schema**: the Python layer converts `SimResult` into
-  today's `SimResult` JSON, so the app needs no change to show new runs.
-  Done: channels with min/max/mean, the summary figures and messages. Not
-  yet: the energy report, part energies, duty, limits, references and
-  today's run verdict (a cycle not followed, data run past: `notValid`,
-  `limit`, `passed`), STATUS WP6.
+  today's whole `SimResult` JSON, so the app needs no change to show new
+  runs (step 2's evidence part, `backend/app/solver/new_engine.py`): the
+  channels with min/max/mean and the summary figures, and from the run's
+  evidence (`evidence.Evidence`, the one object today's engine also fills
+  from its `RunContext`) today's own code makes the rest: the run verdict
+  (`verdict.judge` on the Driver's trace from the dense output, every
+  0.1 s whatever the output step, 0.01 s in an acceleration test; the
+  battery checks, the averaged peak from the run's window
+  (`SimResult::windows`) and the row showing the number its flag is
+  judged on, an enforced cap the engine holds to its tolerance (within
+  100 times the run's rtol) at the cap, not over it; each E-Motor's and
+  Engine's time above its maximum speed, by more than 1e-6 of it, on the
+  line through the trace, and its highest speed from the integrals; the
+  rows a failed check makes `notValid`; the status;
+  a value that is not a number judged before the result shows it as a
+  gap), the part energies and the energy report (each part's losses and
+  stored energy's change from the engine's books, `ImportReport::instances`
+  mapping its path to the element; what went in and out each way from an
+  E-Motor's channels' integrals and a mechanical part's ports' powers on
+  the trace, what came out being what went in less what it lost and
+  stored, so each part's books close exactly; the Vehicle's named terms
+  from its road-load channels), the duty (mean and RMS from the run's
+  integrals, extremes from the output intervals'), what held each
+  driveline back (today's rule, `reports.lane_state`, on the trace, a
+  change at the last event of the run inside the 0.1 s before it), the
+  references and hand calculations, a table read past its data
+  (`SolverReport::table_outside`, today's summary rows, note and verdict,
+  for a table today's engine reads as a part's data; a record of another,
+  a Driving Task's schedule, is a note with the code
+  `NEW-TABLE-NOT-JUDGED`, not judged; `new_engine.BRANCH_READS` says
+  where today's engine books each table the engine's parts read (every
+  read `lsim_lib::blocks::table_sites` lists, in every configuration, a
+  test holding the two equal; a table it names otherwise under its own
+  name, a Lookup's Table 1D or 2D): where the engine reads it (the
+  battery's OCV table, a Lookup's; none of a part today's engine leaves
+  out, `Reads.left_out`: a battery or stack that is the source of none of
+  today's buses, an E-Motor or Engine in none of its drivelines, whose
+  record is that note), only in one branch of its part (the
+  fuel map only while fired), at another point (a Fuel Cell Stack's curve
+  at its current, which the engine reads at its Maximum Current too; a
+  drag table that reaches the maximum speed at that speed above it), or
+  never (an engine's full-load curve, read between its own first and last
+  speed); a record is judged for the time today's read is past the data
+  on the run's trace (the rule's variables, `Reads.uses`, traced at 0.1 s,
+  0.01 s in an acceleration test, each point to the next), its furthest
+  point and first time today's, and is that note when there is none; in
+  fast mode, which has no trace, for the share of its points where the
+  engine read past its data, at any of its reads (`run.table_reads`, each
+  read's abscissa there, from the model itself), that today's read is past
+  it too (an E-Motor is
+  unpowered at a command of 0, which fast mode runs with its inverter
+  on); the engine's records of one axis, one per place the part reads
+  it, are one (the longest time, the furthest point); a record today's
+  engine would not count, of
+  an axis of one point or past its edge by float noise (`Map.bounds`), is
+  left out; a record of an axis set to
+  Error stops the path, `NEW-FAILED`, as the engine stops a run there;
+  so does a run whose supply held an E-Motor back, its time limited above
+  0, when its loss map's torque axis is on Error and its data does not
+  reach 0 N·m: today's search for the share of the command that fits
+  reads the map there, and the engine's read of it at 0 N·m, a constant,
+  has no record, `new_engine._held_at_zero`). Today's warnings that a supply
+  held the car back (a battery at its maximum-power point, full or at its
+  Max Charge Power; a fuel cell at its maximum power or taking nothing
+  back; a bus with no source; a consumer cut back) come from the trace
+  of each motor's time held and recuperation lost, each consumer's share
+  served and each battery's window, each once in today's words (a fuel
+  cell whose Hydrogen Tank the run drains holds the motors back at its
+  maximum power in today's words, as today's, which holds it to the
+  hydrogen left; one empty from the start says the tank is empty); a
+  battery reaching its minimum SOC is said at the run's event; a Script
+  output with no port is today's warning too. A run that reads a value
+  outside its parameter's limits (a study's point: Data Checks check only
+  the study's base project) is not run (`NEW-LIMITS`, in Data Checks'
+  words): today's engine reads many such values clamped, the new engine
+  as typed. Nor is one with a PID or Lookup block whose Sample Time is
+  longer than today's solver step (`NEW-SAMPLED`; quick mode
+  `QUICK-SAMPLED`, `new_engine.held_block`): today's engine holds its
+  output between samples, the engine runs it at every step. A run with
+  a view, which cannot start again on today's engine once it has shown a
+  point, goes there before it starts, decided without running it
+  (`new_engine.live_error_axis`), where the engine could stop it and
+  today's would not: a table today's engine reads in one branch of its
+  part with an axis on Error whose data does not cover what the part
+  reaches (`NEW-LIVE-ERROR-AXIS`; `_covers`: an E-Motor's maps over its
+  speeds and torques, an Engine's fuel map over its full-load curve), or a
+  PID the engine runs at every step, which can storm at its limit
+  (`NEW-LIVE-PID`). Today's checks of the values a run uses are today's code's
+  own words: what its `RunContext` says while it is built (a CG height
+  with every wheel on one axle, wheels off the road at the start, a
+  driveline over-constrained), which the path's never-stepped
+  `RunContext` says too, and what a step of today's run says once it
+  sees it, which the path asks of the run (the Ambient's air outside the
+  usual, at the run's start, with the air density the run's Vehicle
+  used; wheels lifting off the road, only with a CG height or a Downforce
+  Area as today's checks it, an axle's load at 0 in the integrals, which
+  and when from the trace at the Vehicle's own axle-load event, from the
+  trace's second point on, or else at such an event after the first
+  traced stretch, because the first point and the integrals' lowest value
+  hold the state before the events of t = 0, in which a Vehicle at rest
+  moves a few N off a light axle for no time; an
+  E-Motor's supply at 1 V or less at any point the integrator visited).
+  The check that the car has
+  driven by 60 s (`verdict.not_driven`, which today's engine asks at the
+  end of each output step) is asked at every traced point, so the path's
+  verdict does not depend on the output step; an acceleration test with
+  no Vehicle is judged as standing still, as today's trace of it has it.
+  Today's warnings about its
+  own fixed-step solver (a part too stiff for its smallest step, a
+  last-resort clamp on a bus) are not the new engine's and are not given;
+  the engine's books' own closure and drift are. A judged battery check
+  the run kept no record of (its power or voltage, or its power's moving
+  average) fails the path with `NEW-ERROR`, never passes on no number.
+  The harness counts the notes' codes by code (its `[note_codes]`).
+  The engine's own warnings on its run reach the user; its preparation's
+  notes about the start values (`START-ALIAS-CONFLICT`, `START-NOT-SOLVED`,
+  `INIT-START-ASSUMED`, `INIT-UNDECIDED`, `INIT-START-IGNORED`: review
+  finding 36) are notes, never the run's warnings. Not the same: the
+  engine books each inertia with its part (today's books have a
+  driveline's spinning parts as one *Rotating parts* row), a battery's
+  duty *Losses* are all its internal losses (today's: R0's alone), and a
+  wheel's or a gear's flows each way come from a 0.1 s trace.
+* **Live runs, a study's Stop, live edits** (step 2's item 4; review
+  finding 19). The app's every run is live (it streams), and a study's
+  point and an assistant's run have a control: on the path such a run
+  runs the engine in a thread of its own with one `RunControl` (section
+  13), the one stop and progress hook, while the path's thread passes the
+  output points on as today's `step` messages, the result's values bit for
+  bit (the channels the result keeps, a value that is not a number a gap,
+  as there), at the case's real-time pace (the engine waits on the
+  control's queue of 2 points, so it runs at most those and the step it
+  is taking ahead of the view: a Stop or an edit lands within a few output
+  points of what the view shows), and reads the run's
+  control every 20 ms: a cancel stops the run where it is, judged as
+  today's judges a stopped run (*cancelled*, today's words, its figures
+  per distance not valid at the time it stopped; an acceleration test
+  stopped short of its line has no time, speed or gap at the line); a
+  `set_param` is a live
+  edit. A parameter the library marks structural takes effect on the next
+  run, as today's says; for any other the project with the edits so far is
+  built again (a build, no run: 15 ms for the BEV car) and its parameters
+  compared with the run's: those that moved go to the run, an event at its
+  next output time, and a model the engine builds otherwise for the value
+  (a Differential's lock, a Driving Task's mode: a structure of their
+  own), a value it refuses, or one that changes what the path's checks
+  after the run read of today's parts as at its start (`_checked`: the
+  Ambient's air, a battery's minimum SOC, charge power and checks, a
+  machine's maximum speed, a table's axes, the Vehicle's CG height and
+  Downforce Area, which today's engine checks at each step with the values
+  then), takes effect on the next run too. Each such edit, and one too late
+  for the run, is in the result's list with its note (`note`, code
+  `NEW-LIVE-NEXT-RUN`), which the result's messages and the live log give
+  once. The edits the run made are applied after it to today's parts with
+  today's own code, so the reports read them as today's RunContext has
+  them at its run's end (a hand calculation's drag coefficient). A live
+  run the new engine fails after it has read a Stop or an edit fails with
+  its reason code (`NEW-FAILED`, or `NEW-ERROR` for a fault in the path):
+  today's engine would run it again from t = 0 without them; one that has
+  only shown points to the view starts again on today's engine, the view
+  told ("restart": it drops its points) and the result noting it
+  (`NEW-LIVE-RESTART`, a note, so today's verdict stands); one that showed
+  and read nothing (a study's point, or the AI tools' run, whose emit is
+  marked `progress_only`: its points go to a progress bar only) runs on
+  today's engine, saying so. The result
+  names its engine, its version and its
+  solver options (`engine`, `engineVersion`, `solverOptions`; today's
+  engine fills them too) and lists the live edits it took, each at the
+  time the engine took it (`liveEdits`); the app's RunSnapshot keeps them
+  (`RunSnapshot.of`, the app's snapshot of a run), and `app.solver.replay`
+  makes the run again from the snapshot on the engine that ran it, with
+  its options and its live edits, the new engine taking each where the run
+  took it (one it did not make: its note again): the same result, bit for
+  bit (the harness's STREAM S3). Today's
+  engine applies a live edit at the output step at which it polled it,
+  which nothing records: a replay of its run with live edits fails with
+  the code `REPLAY-TODAY-LIVE-EDITS`. A replay runs to the case's end: a
+  stopped run's is the whole run. A stop's latency is the stopped run's result, made by the
+  path's code (the engine stops in 1 ms): its loops over every traced
+  point are NumPy's array operations, and the verdict proves with NumPy
+  which pieces of its band arithmetic add exactly nothing (its own
+  expressions; the plain loop without NumPy gives the same bits); a
+  study's worker leaves a point's peaks out before it sends the result,
+  which the server dropped (the twelfth measurement: p95 0.18 s after a
+  live run's stop, 0.55 s after a 16-point WLTC study's, on a shared Linux
+  machine).
+* **The app's path, both engines** (step 2's judge,
+  `python -m benchmarks.back_to_back`): every example case and eight
+  probes run through the app's own `simulate`, on today's engine at 10 ms
+  and 1 ms and on the new engine's path in strict mode (nothing falls back);
+  every field of the two results is compared against the bands above (a
+  channel over every point of today's 1 ms run, its first point a figure of
+  its own; one only the new engine records against the port the data bus
+  wires to it, where today records that port), over the union of what the
+  three runs give, with a ledger per case that fails it where anything is
+  left out or taken twice (what today's 10 ms run alone flags, a warning, a
+  run not valid or a check not passed, is a difference too), and
+  each difference classed as above (`benchmarks/back_to_back/classes.toml`,
+  each rule with its date, reason and check), beside the planted-fault
+  verdict matrix, the result schema, speed traces with exact answers from
+  the regulations' text, streaming, stop and replay. What it judges and
+  the pass marks were registered before its first run
+  (`benchmarks/back_to_back/acceptance.toml`); where the path stands,
+  measured before the wiring and after its evidence part, is
+  `benchmarks/back_to_back/baseline/README.md`.
 
 ## 13. Python API
 
@@ -3869,13 +4162,19 @@ model.param_names()       # the engine's parameter names
 model.params()            # current values, SI
 model.set_params({"el_vehicle.cd": 0.30})                 # runtime, no rebuild
 run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
-                     native_scripts=True)
+                     native_scripts=True, trace=None, trace_step=0.1, windows=None,
+                     control=None, edits=None)
 run.times                 # NumPy float64
 run.channels["el-battery:sig_soc"]   # today's names and display units, NumPy arrays
 run.engine_channels       # the engine's own names, SI
 run.min, run.max, run.mean           # like channels, per output interval
 run.events, run.report, run.energy   # energy: the books, or None
 run.figures               # today's summary figures {key, label, value, unit}
+run.integrals, run.trace, run.windows, run.table_outside   # the evidence for the app's verdict and reports
+run.table_reads           # each table read's abscissa at the output points
+le.table_sites()          # every table read in the library's blocks, in every configuration
+control = le.RunControl(queue=0)    # stop, points as they are recorded, live changes
+control.cancel(); control.points(timeout=0.1); control.set_params({...}); control.t
 runs = model.sweep([{...}, {...}], threads=4)   # Runs, or the exception for a failed set
 le.diagnose(project_json, case_id)    # structural and unit checks only
 le.ModelError             # .diagnostics: [{severity, code, message, parts, hint, detail}]
@@ -3921,8 +4220,107 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   `native_scripts=False` a part without a function is a `ValueError`
   naming it. `run.report["scripts"]` says which ran each part
   (`"python"` or `"native"`). `script_host` in `lib.rs` is the single
-  place a Script block's host is chosen. FMU parts raise a `ModelError`
-  (not supported yet).
+  place a Script block's host is chosen.
+* **FMU parts** (step 2's item 5): the engine loads no FMU's code itself.
+  `simulate(fmus={part id or label: f})` gives an FMU part its host, a
+  Python function `f(t, h, inputs) -> dict`: the engine calls it once at
+  the start and at every multiple k·h of the part's period (its
+  Communication Step, else 10 ms) from 0 s, the tick times computed as
+  k·h (`offset` 0, not added up), and holds what it returns until the
+  next call. The app's (`new_engine._fmu_host`) runs the FMU in today's
+  locked-down FMPy worker (`app/fmu/sandbox.py`) and steps it as FMI's
+  own tools step a co-simulation FMU (FMPy's `simulate_fmu`, fmusim): at
+  each call it sets the inputs of the last call, steps from the last
+  call's time to this one (the worker's `doStep(t_k, t_{k+1} - t_k)`,
+  which for k ≥ 1 is FMPy's step size to the bit: both ends within a
+  factor of two) and returns the outputs there; a call before the last
+  one's time is the run from its start again (an acceleration test's
+  second run, to its finish), so the FMU starts again in a new worker.
+  An FMU part given no function fails `RUN-FMU` naming it; a key that
+  names no FMU part is a `ValueError`; `sweep` gives none (an FMU's state
+  is the run's own), so such a part fails there.
+* **Text components**: `build(..., texts={element id: text})` builds a
+  part from one component in the text format (§5.4) in the place of the
+  definition the import made for it (`core::with_texts`), every value,
+  port and link of the part unchanged; `part_text(project, case,
+  element)` prints that definition, which built as the part's text gives
+  the same model (the round trip of `lsim-project/tests/text_format.rs`).
+  The text must hold one component with the part's ports (the same names
+  and kinds: `TEXT-PORTS`) and every parameter its values set
+  (`TEXT-PARAMS`); one that does not read is `TEXT-PARSE` in the parser's
+  words; a sampled part (`TEXT-SAMPLED`) and a part the case's model does
+  not hold (`TEXT-NO-PART`) have none. A text equal to the definition
+  keeps its name; another, whose name is the library's, is renamed for
+  its part (`<name>_text_<element>`), so the other parts that use the
+  definition (the four wheels share one) keep it. The app reads the text
+  from the file the part's `textFile` names (`new_engine.read_texts`).
+* **Fast mode for project files**: `fast(project, case, step=None,
+  texts=None)` imports a drive-cycle case as its inverse model (§10),
+  runs it at `step` s (1 s) over the cycle and returns a `Run`: today's
+  channels and figures (`figures_with` on the run's values), and
+  `report["fast"]` with the step, the work, the `flags` (each stretch, its
+  part, side, worst excess) and the events; `table_outside` lists each
+  table axis it read past its data, as a full run's records do, from its
+  points (each table read's argument evaluated at each step's end, a
+  crossing placed on the line between two). Refusals are `ModelError`s:
+  `FAST-NO-CYCLE`, `FAST-SAMPLED-CONTROL` (the import's), `FAST-SAMPLED`
+  (any other sampled part: fast mode is given no host),
+  `FAST-TABLE-ERROR` (a table axis set to Error read outside its data,
+  where a full run stops) and `FAST-RUN` (the run stopped). The app's quick mode (below) runs on it.
+* **The run's evidence** (step 2's evidence part): `simulate(...,
+  trace=[names], trace_step=0.1)` samples channels (today's `element:port`,
+  in their display units) or engine variables (SI) from the dense output
+  every `trace_step` s and at the run's end, without changing anything
+  else (`run.trace`: NumPy arrays, `times` among them); `run.integrals`
+  gives each channel (display units) and each engine variable (SI) over
+  the run: `integral` (∫x dt), `square` (∫x² dt), `magnitude` (∫|x| dt,
+  NaN for a unit with an offset), `max` and `min`; `simulate(...,
+  windows={name: seconds})` keeps each name's highest moving average over
+  its span of time (`run.windows`: `window`, `peak` in the name's unit, and
+  `t`, when the span ended; 0 s: the highest value); `run.table_outside`
+  each table axis read past its data (table, part, axis, first, total,
+  t_furthest, and in the unit the engine reads the axis in, SI but for the
+  climate demand's outside temperature in °C, furthest, edge, lo, hi, with
+  its warning's words); `run.table_reads` each read of a table in the
+  model, one per place a part reads it and per axis (table, part, axis,
+  and its abscissa at each output point, in that unit, evaluated on the
+  point's variables: a full run's and fast mode's alike); `le.table_sites()`
+  every table read in the library's blocks (`lsim_lib::blocks::table_sites`,
+  in every configuration that changes which tables a block reads or where:
+  its component id, the table, each axis's abscissa as its equations write
+  it);
+  `run.report["asserts"]` each warning assert that did not hold (`t`,
+  `message`); `model.report["instances"]` each element's instance name
+  (the energy books' parts' paths); `model.var_names()` the engine's
+  variables and today's channels. What the app reads of them is section
+  12.3's.
+* **A run's control** (step 2, item 4: one stop and progress callback for
+  a study's Stop, a run's progress and a live run). `simulate(control=c)`
+  runs with `c`, a `RunControl` (one run each), which other Python threads
+  use while the run goes: `c.cancel()` stops it where it is
+  (`run.report["stopped"]`, section 8.4); `c.t` and `c.t_end` are its
+  progress; `c.points(timeout)` gives the output points recorded since the
+  last call, each `(t, values)` in `c.channels`' order (today's channels,
+  display units), the result's values bit for bit, through a queue of at
+  most `queue` points that the run waits on while it is full (the reader
+  paces the run so; `queue=0`, the default, keeps none, for a stop
+  alone); `c.set_params({...})` changes parameters from the run's next
+  output time on, checked as `set_params` checks them on top of the
+  changes before (a value bound to another may be given only as its
+  binding makes it). The control's state is atomics, a mutex-guarded
+  queue and condition variables in Rust: the run never takes the
+  interpreter's lock for it (it goes on while another thread holds the
+  lock, a test shows), and `points` waits without the lock. A run told to
+  stop, or whose reader called `close()`, waits for no reader. `run.report
+  ["edits"]` lists the changes made (`t`, the point the run had reached
+  when it took the change; `at`, when it made it; the parameters that
+  changed), and `simulate(edits=[(t, {...}), ...])` makes them again: the
+  same run, bit for bit. An acceleration test, which runs again to the
+  moment it crosses the finish, tells its last run's points only (after
+  its first run, when that is the result), its second run making the
+  first's changes before the finish at their times and refusing others (a
+  change there would move the finish it runs to): `run.report["edits"]`
+  then lists the first run's.
 * **Output grid.** A grid (from `t_end` and `output_step`, the caller's or
   the case's own) of more than 10⁷ points, or whose results would take
   more than 4 GB (each point holds every recorded variable's value, min,
@@ -3935,16 +4333,22 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   again to the finish.
 * **The app.** With `LIGHTSIM_ENGINE=new` the backend
   (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
-  cases on this module and everything else on today's engine (live runs,
-  FMU parts, Formula Student events and hybrid charge-balance cases too);
-  any failure of the new engine runs the case on today's engine with a
-  warning. The result has channels with min/max/mean, the summary figures
-  and messages, but no energy report, part energies, duty, limits,
-  references or run verdict yet (section 12.3). The
+  cases on this module, live ones too (section 12.3: streamed, stopped,
+  edited live), FMU parts and text components included, and everything
+  else on today's engine (Formula Student events, hybrid charge-balance cases,
+  batteries built from cells and a study's point holding a value outside
+  its parameter's limits, which Data Checks refuse for a single run and
+  today's engine reads clamped, too); any failure of the new engine runs the
+  case on today's engine with a warning. Every fall-back carries a reason
+  code (`NEW-LAP`, `NEW-FAILED` with the engine's own codes, ...:
+  `new_engine.CODES`), and with `LIGHTSIM_ENGINE_STRICT=1` nothing falls
+  back: the case fails with its code (the both-engines diff's strict mode,
+  `benchmarks/back_to_back`). The result is today's whole result, made
+  by today's own code from the run's evidence (section 12.3). The
   default is today's engine. There the Script blocks run in today's
   locked-down worker (each part is given a function that calls it, and
   `native_scripts=False`) until the owner decides the native runner may
-  replace it.
+  replace it (the evidence for that choice: `docs/SCRIPT-RUNNER-DECISION.md`).
 * **Errors.** A project that cannot be imported or prepared, or a run that
   fails, raises `ModelError` (a `ValueError`) with the diagnostics (code,
   message, parts, hint, detail) so the app can highlight the parts; a
@@ -3954,10 +4358,21 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   `RUN-MEMORY`).
   A panic inside the engine becomes a `ModelError` coded `ENGINE-FAULT`;
   bad arguments are `ValueError` or `TypeError`.
-* **Not yet:** fast mode for project files (no `mode` argument, so nothing
-  silently runs something else), FMU parts, a progress callback, cancelling
-  a run, the one-click tighter run as its own call
-  (call `simulate` again with a smaller `rtol`).
+  A case in quick mode (its `mode` "quick") runs on `fast` whatever
+  `LIGHTSIM_ENGINE` says (`new_engine.quick`): its channels, the figures
+  that sum or integrate over the run (`QUICK_ROWS`), each flag a warning,
+  and today's checks of what the run read (the model builder's warnings,
+  the Ambient's air, the tables read past their data, judged as the verdict
+  judges them, which marks the consumptions not valid); a case it does not
+  run (one that ends at a distance or a lap count: `QUICK-END`; one whose
+  time past a table's data, at its points once a second, lies within two
+  of its steps a stretch of what the run allows: `QUICK-TABLE-TIME`,
+  `new_engine._decided`) runs in full with a warning carrying its
+  `QUICK-*` code (strict: fails with it). A project with a text component
+  runs on this module whatever the flag says (today's engine reads none);
+  one the path does not run fails with its code and `NEW-TEXT`.
+* **Not yet:** the one-click tighter run as its own call (call `simulate`
+  again with a smaller `rtol`).
 
 ## 14. Error messages
 
@@ -4906,8 +5321,11 @@ contains no KLU and no GPL code.
 requires every third-party crate's SPDX expression to be satisfiable with
 MIT, MIT-0, Apache-2.0 (also WITH LLVM-exception), BSD-2/3-Clause, ISC,
 Zlib, 0BSD, BSL-1.0, CC0-1.0 or Unicode-3.0; GPL, LGPL, AGPL, EUPL and SSPL
-never pass. cargo-deny 0.20.2 (`deny.toml`, same policy) agrees: "bans ok,
-licenses ok". Stage 1 (historical) built with 113 third-party crates, all
+never pass: a crate is compiled into LightSim's own binary, and LGPL code
+may ship only as a separate, replaceable file (the owner, 20 October 2026;
+the app's notices allow it for the FMU pack's NumPy and lxml on those
+terms, `scripts/licenses/allowed.txt`). cargo-deny 0.20.2 (`deny.toml`,
+same policy) agrees: "bans ok, licenses ok". Stage 1 (historical) built with 113 third-party crates, all
 permissive: the main ones are Cranelift 0.134.4 and regalloc2 (Apache-2.0
 WITH LLVM-exception), sundials-sys 0.6.2 and the vendored SUNDIALS 7.1.1
 (BSD-3-Clause; no KLU, no GPL code), bindgen (BSD-3-Clause, build only),

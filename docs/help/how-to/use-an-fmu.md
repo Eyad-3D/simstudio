@@ -68,6 +68,19 @@ Select the block. *Properties* shows:
 4. Click **Run**. The block's outputs are recorded: on the *Results* page,
    search for the block's name.
 
+## On the new engine
+
+With `LIGHTSIM_ENGINE=new` an FMU block runs as a sampled part of the new
+engine, in the same locked-down process. At every multiple of its
+*Communication Step* from the start, the FMU is given its inputs, steps to
+the next multiple and its outputs are read there, as FMI's own tools
+(FMPy, fmusim) step a co-simulation FMU; between those points its outputs
+hold. (Today's engine steps the FMU at a solver step's end, so its outputs
+can be one solver step ahead of the new engine's.) With a Communication
+Step of 0 it exchanges every 10 ms. An FMU's start values and its
+Communication Step changed while a run goes take effect on the next run.
+Quick mode does not run a model with an FMU: such a case runs in full.
+
 ## When something goes wrong
 
 - **The run stops with "crashed", "did not finish its step" or "reported
@@ -80,8 +93,9 @@ Select the block. *Properties* shows:
 - **"… was not found … Import the FMU again".** The project came from
   another computer: FMU files are not yet saved inside the project. Get
   the `.fmu` file and choose it in *Properties*.
-- **"FMU support is not installed".** This copy of LightSim does not have
-  the FMU pack (FMPy). From source: `pip install -r requirements-fmu.txt`
-  then `pip install --no-deps fmpy==0.3.32` in `backend/`.
+- **"FMU support is not installed".** This copy of LightSim was built
+  without the FMU pack (FMPy), which the installers carry. From source:
+  `pip install -r requirements-fmu.txt` then `pip install --no-deps
+  fmpy==0.3.32` in `backend/`.
 
 [Known issues](../../KNOWN-LIMITS.md) lists what FMU blocks cannot do yet.

@@ -91,7 +91,7 @@ class FmuSandbox:
             self._watch.start()
         else:
             ctx = multiprocessing.get_context("spawn")
-            parent, child = socket.socketpair()
+            parent, child = _sw.checked_socketpair()
             self._sock = parent
             self._conn = _sw.Conn(parent)
             self._proc = ctx.Process(

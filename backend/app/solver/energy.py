@@ -217,8 +217,32 @@ def add_lap(book: EnergyBook, lap_book, veh_id: str, label: str) -> None:
                "acceleration": lap_book.kinetic}
 
 
-def energy_flows(book: EnergyBook) -> list:
-    """The book as the run result's energy list (kWh, kW), in ORDER."""
+class BookFlow:
+    """One part's energy over a run as the new engine's books give it (J,
+    new_engine.py): what energy_flows and reports.book_report read of a
+    Flow, its loss as its books have it (not worked out from its in, out
+    and stored energy, which the books close to their own accuracy)."""
+
+    def __init__(self, el_id: str | None, label: str, part: str, in_j: float, out_j: float,
+                 loss_j: float, stored_j: float, in_rev_j: float = 0.0, peak_w: float = 0.0,
+                 p_int: float = 0.0, p2_int: float = 0.0, terms: dict | None = None,
+                 fuel_j: float = 0.0) -> None:
+        self.el_id, self.label, self.part = el_id, label, part
+        self.in_j, self.out_j, self.loss_j, self.stored_j = in_j, out_j, loss_j, stored_j
+        self.in_rev_j, self.peak_w, self.p_int, self.p2_int = in_rev_j, peak_w, p_int, p2_int
+        self.terms = terms or {}
+        self.fuel_j = fuel_j
+
+    def mean_w(self, time_s: float) -> float:
+        return self.p_int / time_s if time_s > 0 else 0.0
+
+    def rms_w(self, time_s: float) -> float:
+        return math.sqrt(self.p2_int / time_s) if time_s > 0 else 0.0
+
+
+def energy_flows(flows, time_s: float) -> list:
+    """A run's books (Flow or BookFlow, over ``time_s``) as its result's
+    energy list (kWh, kW), in ORDER."""
     from ..schemas import PartEnergyFlow
 
     def rank(f: Flow) -> int:
@@ -233,8 +257,8 @@ def energy_flows(book: EnergyBook) -> list:
         losses=f.loss_j * kwh, stored=f.stored_j * kwh,
         energyInReverse=f.in_rev_j * kwh,
         **({"peakPower": f.peak_w / 1000.0,
-            "meanPower": f.mean_w(book.time_s) / 1000.0,
-            "rmsPower": f.rms_w(book.time_s) / 1000.0}
+            "meanPower": f.mean_w(time_s) / 1000.0,
+            "rmsPower": f.rms_w(time_s) / 1000.0}
            if f.part not in NO_DUTY else {}),
         terms={k: v * kwh for k, v in f.terms.items()},
-    ) for f in sorted(book.flows.values(), key=rank)]
+    ) for f in sorted(flows, key=rank)]

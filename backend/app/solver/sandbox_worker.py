@@ -48,9 +48,45 @@ reports, or a clean allocation failure) instead of the machine.
 from __future__ import annotations
 
 import os
+import socket
 import struct
 import sys
 import time
+
+
+def checked_socketpair(*, tcp: bool | None = None, _after_listen=None):
+    """A connected socket pair; on Windows a loopback TCP pair whose far end is checked.
+
+    Python 3.11.9 (the newest with a Windows installer, the one the app is
+    built with) makes that pair without asking who connected, so another local
+    program could race in and take the worker's place (CVE-2024-3219, fixed in
+    3.11.10). This does the check itself: it accepts only the connection that
+    came from the socket it just made. ``tcp`` forces the TCP kind (tests);
+    ``_after_listen`` is a test hook.
+    """
+    if tcp is None:
+        tcp = sys.platform == "win32"
+    if not tcp:
+        return socket.socketpair()
+    lst = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    cli = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        lst.bind(("127.0.0.1", 0))
+        lst.listen(8)
+        if _after_listen:
+            _after_listen(lst.getsockname())
+        cli.connect(lst.getsockname())
+        lst.settimeout(5.0)
+        while True:
+            srv, _ = lst.accept()
+            if srv.getpeername() == cli.getsockname():
+                return cli, srv
+            srv.close()  # not ours
+    except BaseException:
+        cli.close()
+        raise
+    finally:
+        lst.close()
 
 # ---- wire protocol -----------------------------------------------------------
 # Every frame is a 4-byte big-endian length followed by that many bytes; the
@@ -702,6 +738,9 @@ def _run_step(scripting, script: _Script, t: float, dt: float,
             raise scripting.ScriptError(
                 f"Script '{script.label}' output '{key}' is not numeric "
                 f"({value!r}).") from None
+        except OverflowError:  # an integer past the largest float
+            raise scripting.ScriptError(
+                f"Script '{script.label}' output '{key}' is too large to be a number.") from None
     return result
 
 

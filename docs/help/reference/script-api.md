@@ -63,7 +63,9 @@ values.
 
 A script cannot open files, start programs, reach the network or define
 classes, and cannot use Python's internals: names that start with two
-underscores, attributes that start with one. Data Checks compile the code
+underscores, attributes that start with one, and `.format` fields that read
+an attribute or an item (`'{0.x}'`, `'{0[k]}'`; `.format` works on a string
+written in the script, such as `'{:.2f}'.format(x)`). Data Checks compile the code
 (they never run it) and report what is not allowed.
 
 ## Limits

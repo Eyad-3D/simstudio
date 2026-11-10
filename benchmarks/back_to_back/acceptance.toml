@@ -1,0 +1,1080 @@
+# Step 2's acceptance file ("Wire the new engine into the app"), committed
+# before the first measured run (the roadmap's rule 1: pre-register). It
+# lists every line the step is judged on: the cases, the measure, the pass
+# mark, the judge and the expected outcome, which may be a refusal with its
+# code. A wrong refusal of a sound model is a failure. Any later change to
+# this file is listed under [[changes]] at the end with its date and reason.
+#
+# `python -m benchmarks.back_to_back all OUT` measures every line from
+# scratch and writes OUT/report.json and OUT/report.md (the harness's own
+# docstring has the parts and the options).
+
+[step]
+name = "Step 2. Wire the new engine into the app"
+registered = "2026-10-28"
+source = "deeper/roadmap-deeper.md, Part B, step 2's acceptance list; owner's answers of 20 October 2026"
+# the path under test: the app's own run function, app.solver.simulate, with
+# LIGHTSIM_ENGINE=new (backend/app/solver/new_engine.py), against today's
+# engine through the same function without it
+path = "app.solver.simulate"
+
+# ---------------------------------------------------------------------------
+# Reason codes. Every refusal and every fall-back of the new engine's path
+# carries one of these (rule 8: no silent fall-back). The harness counts them
+# and fails STRICT on any other.
+# ---------------------------------------------------------------------------
+[codes]
+NEW-NOT-FOUND = "the case is not in the project"
+NEW-CASE-KIND = "a case kind the new engine's path does not run"
+NEW-LAP = "a lap case (stays on today's lap solver: owner, 20 October)"
+NEW-FS-EVENT = "a Formula Student event case (stays refused: owner, 20 October)"
+NEW-BALANCE = "a hybrid's charge-balanced case (stays refused: owner, 20 October)"
+NEW-CELLS = "a battery built from cells (stays refused: owner, 20 October)"
+NEW-LIMITS = "a value outside its parameter's limits, which Data Checks refuse for a single run and a study's point can still hold (added 30 October: [[changes]])"
+NEW-MISSING = "the module lightsim_engine is not installed"
+NEW-BUILD = "today's model builder refused the model before the new engine saw it"
+NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow in the message)"
+NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
+NEW-TEXT = "a part whose equations come from a text file, in a case the new engine's path does not run, or whose file it cannot read: today's engine does not read text components, so the case fails with the code of the refusal and this one (added 31 October, widened 1 November: [[changes]])"
+NEW-LIVE-ERROR-AXIS = "a run with a view (a live run) of a project with a table that today's engine reads only in one branch of its part, with an axis set to Error whose data does not cover every value the new engine reads it at: it goes to today's engine before it starts, as a live run that has shown points cannot start again (added 7 November, the sweep; decided before the run from 7 November, re-check 2: [[changes]])"
+NEW-LIVE-RESTART = "a run with a view that the new engine stopped after it had shown points, with no Stop and no live edit read: it starts again at t = 0 on today's engine (the view is told to drop its points), a note, so today's verdict stands (added 7 November, fix round 5: [[changes]])"
+NEW-LIVE-PID = "a run with a view (a live run) of a project with a PID block the new engine runs at every step, which can stop it at its limit (RUN-EVENT-STORM) where today's engine finishes: it goes to today's engine before it starts (added 7 November, re-check 2 of the sweep: [[changes]])"
+NEW-SAMPLED = "a PID or Lookup block with a Sample Time longer than today's solver step: today's engine runs it only at multiples of its Sample Time and holds its output in between, the new engine runs it at every step (added 6 November, the sweep: [[changes]])"
+# quick mode (a case's mode "quick": the new engine's fast mode, step 2's item 5;
+# added 31 October: [[changes]]). A case quick mode does not run runs in full
+# instead, with its code in a warning, or in strict mode fails with it.
+QUICK-NOT-FOUND = "quick mode: the case is not in the project"
+QUICK-KIND = "quick mode: a case that drives no drive cycle (an acceleration or performance test, a lap, a Formula Student event)"
+QUICK-SAMPLED = "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control): fast mode reads no host for one; or a PID or Lookup block with a Sample Time longer than today's solver step, whose output today's engine holds between samples (widened 6 November, the sweep: [[changes]])"
+QUICK-CELLS = "quick mode: a battery built from cells"
+QUICK-LIMITS = "quick mode: a value outside its parameter's limits (a study's point can hold one)"
+QUICK-MISSING = "quick mode: the module lightsim_engine is not installed"
+QUICK-BALANCE = "quick mode: a hybrid's charge-balanced case (added 1 November: [[changes]])"
+QUICK-END = "quick mode: a case that ends at a distance or a lap count (its Distance or Laps, from its Start line): fast mode runs the cycle's whole duration (added 1 November, the checker's round: [[changes]])"
+QUICK-BUILD = "quick mode: today's model builder refused the model, or a text component's file could not be read (widened 1 November: [[changes]])"
+QUICK-FAILED = "quick mode: the engine's fast mode refused or stopped (its own codes follow: FAST-NO-CYCLE, FAST-SAMPLED-CONTROL, ...)"
+QUICK-TABLE-TIME = "quick mode: a table read past its data for a time that fast mode's points once a second cannot tell from what the run allows, within two of its steps a stretch past the data, where today's count could fall on either side (added 6 November, the sweep: [[changes]])"
+QUICK-ERROR = "quick mode: an exception that is not the engine's own refusal (always a failure)"
+
+# Notes' codes. A note of the new engine's path saying that something of a
+# run it ran is not judged by the verdict, or that the run did not make a
+# live edit, carries one of these; B2B and
+# FAULTS count them by code, and STRICT fails on a [NEW-...] code in any
+# message that neither section lists (added 29 October: [[changes]]).
+[note_codes]
+NEW-TABLE-NOT-JUDGED = "a table the run read past its data that today's engine does not read there (a Driving Task's or Road Profile's profile run past its end; a part's table read only in a branch the run did not take there, or at another point, widened 1 November; every table the engine's parts read has its rule, 5 November: [[changes]]): a note, not judged"
+NEW-LIVE-NEXT-RUN = "a live edit the run did not make, which takes effect on the next run: one the new engine builds another model for, one its checks after the run read as at the start, a structural parameter, a table, or one too late for the run (added 31 October: [[changes]])"
+
+# ---------------------------------------------------------------------------
+# The items of the back-to-back diff: the 16 example cases, and probes that
+# reach the rest of the path. `expect` is what the new engine's path must
+# do: "run" (it runs the case itself) or "refuse:<code>".
+# ---------------------------------------------------------------------------
+[[item]]
+id = "aero-bev/case-udds"
+expect = "run"
+[[item]]
+id = "aero-bev/case-hwfet"
+expect = "run"
+[[item]]
+id = "aero-bev/case-wltc"
+expect = "run"
+[[item]]
+id = "bev-car/case-city"
+expect = "run"
+[[item]]
+id = "bev-car/case-wltc"
+expect = "run"
+[[item]]
+id = "bev-car/case-wltc-hvac"
+expect = "run"
+[[item]]
+id = "bev-car/case-wltc-winter"
+expect = "run"
+[[item]]
+id = "bev-car/case-wltc-summer"
+expect = "run"
+[[item]]
+id = "bev-car/case-city-live"
+expect = "run"
+note = "a live run streamed to the app (pace raised to 1000x for the diff: pace does not change a result); step 2's goal is live streaming on the new engine"
+[[item]]
+id = "fs-electric/case-accel-75m"
+expect = "run"
+[[item]]
+id = "fs-electric/case-autocross"
+expect = "refuse:NEW-LAP"
+[[item]]
+id = "fs-electric/case-endurance"
+expect = "refuse:NEW-LAP"
+[[item]]
+id = "hybrid-car/case-udds"
+expect = "refuse:NEW-BALANCE"
+[[item]]
+id = "hybrid-car/case-hwfet"
+expect = "refuse:NEW-BALANCE"
+[[item]]
+id = "hybrid-car/case-mixed"
+expect = "refuse:NEW-BALANCE"
+[[item]]
+id = "hybrid-car/case-mixed-live"
+expect = "run"
+note = "live, so not charge-balanced; its Script block runs in today's worker"
+
+# probes: the hybrid's three balanced cases as single runs, so that both
+# engines judge the same physics; a performance test; the other refusals
+[[item]]
+id = "probe/hybrid-udds-single"
+base = "hybrid-car/case-udds"
+change = "chargeBalance = false"
+expect = "run"
+[[item]]
+id = "probe/hybrid-hwfet-single"
+base = "hybrid-car/case-hwfet"
+change = "chargeBalance = false"
+expect = "run"
+[[item]]
+id = "probe/hybrid-mixed-single"
+base = "hybrid-car/case-mixed"
+change = "chargeBalance = false"
+expect = "run"
+[[item]]
+id = "probe/bev-performance"
+base = "bev-car/case-wltc"
+change = "kind = performance, a 0-100 km/h step held 30 s (duration 40 s)"
+expect = "run"
+[[item]]
+id = "probe/fs-event-acceleration"
+base = "fs-electric/case-accel-75m"
+change = "fsEvent = acceleration"
+expect = "refuse:NEW-FS-EVENT"
+[[item]]
+id = "probe/bev-cells"
+base = "bev-car/case-city"
+change = "the battery built from cells (pack_model = Cells)"
+expect = "refuse:NEW-CELLS"
+[[item]]
+id = "probe/bev-fmu"
+base = "bev-car/case-city"
+change = "an FMU block added (the backend's test FMU), its output unwired"
+expect = "run"
+note = "FMU parts are step 2's item 5; the FMU line judges their numbers"
+[[item]]
+id = "probe/no-module"
+base = "bev-car/case-city"
+change = "the module lightsim_engine hidden from the import"
+expect = "refuse:NEW-MISSING"
+
+# a battery's Output Power Limit only checked, which the verdict judges on
+# the averaged peak: META's cases with a battery check (added 2026-10-29,
+# see the changes)
+[[item]]
+id = "bev-car/case-city-checked"
+base = "bev-car/case-city"
+change = "the battery's Output Power Limit 23 kW, only checked (not enforced), averaged over 0.5 s"
+expect = "run"
+[[item]]
+id = "bev-car/case-city-checked-w0"
+base = "bev-car/case-city"
+change = "the battery's Output Power Limit 23.6 kW, only checked, with no averaging window"
+expect = "run"
+
+# ---------------------------------------------------------------------------
+# The lines. Each names its judge (rule 3: not made by the implementer or
+# the owner; our own tests are guards only).
+# ---------------------------------------------------------------------------
+
+[[line]]
+id = "B2B"
+what = "Back to back: every item above on both engines, every SimResult field"
+cases = "every item; today's engine at its normal solver step (10 ms) and at a tenth of it (1 ms); the new engine's path at its own settings (rtol 1e-6)"
+measure = """
+Every field of the two SimResults: caseId, status, messages, channels (ids, labels, units, the times, \
+values, min, max and mean), summary rows (key, label, unit, value, notValid, limit, passed), partEnergy, \
+energy, duty, limits and references. A number is outside when it is outside its band: a figure's band is \
+the larger of twice the difference between today's two runs and a floor (0.1 % of the value for energies, \
+kWh and J; 0.5 % for everything else), the new value compared with today's 1 ms value; a channel's band \
+is twice the RMS of today's two runs' difference, at least 0.5 % of its RMS, the RMS of the new run's \
+difference to today's 1 ms run over every output point but the first (DESIGN.md 12.3, \
+lsim-project/golden/README.md). Text and identities compare equal or differ. Every difference is classed \
+(classes.toml): a, the new engine wrong; b, today's engine wrong, shown by an exact answer, a fully resolved \
+model, a converged reference or a conservation law; c, the band wrong for that field, for a documented, \
+sound reason, never widened to pass. The gear rows (gearbox, final drive and differential: torque, power, \
+losses) are b only where golden/definitions.py's rebuild of today's rule from the new run's own channels \
+lands inside the band. A field the new path leaves out that today's has is a difference (class a).
+"""
+pass_mark = "every item as expected (run or its refusal code); zero unclassified differences; zero class a"
+judge = "today's engine (a separate code path, the weaker judge), with the classes' evidence from exact answers and conservation laws"
+
+[[line]]
+id = "STRICT"
+what = "Strict mode: no fall-back to today's engine without a listed code"
+cases = "every item and every planted fault (FAULTS), on the new path with LIGHTSIM_ENGINE_STRICT=1"
+measure = "each refusal's code (from the run's first message); an item refused that should run; a code not in [codes]; NEW-ERROR; a refusal whose message carries no code"
+pass_mark = "zero items refused that should run, zero refused with another code than expected, zero codes outside [codes], zero NEW-ERROR, zero refusals without a code; every fault's refusal counted"
+judge = "this file's expected outcomes"
+
+[[line]]
+id = "SCHEMA"
+what = "Every result validates against the published result format"
+cases = "every result the harness records (items on both engines, both steps; faults on both engines; the META runs)"
+measure = "jsonschema 4.26 (Draft 2020-12) against docs/spec/schemas/result.schema.json, every error counted"
+pass_mark = "zero errors"
+judge = "the published JSON schema, checked by an independent validator"
+
+[[line]]
+id = "FAULTS"
+what = "The verdict matrix: planted faults on both engines, and mutation testing of verdict.py"
+cases = """
+The 160 single deletions of backend/tests/test_broken_models.py (every element, wire and signal link of \
+bev-car, fs-electric and hybrid-car), plus parameter faults: on each of the parameters below, its value \
+(the part's own or the library default) set to 0, to its negative, to 100 times and to a hundredth of it \
+(108 faults), and the same four variants of the parameters under case_values set as the case's own value \
+(its parameterOverrides), which Data Checks do not see and today's engine checks while it runs (20 faults, \
+'<example>:case/<element>.<parameter>:<variant>'). Each fault is run on its project's first case: bev-car's \
+City Cycle, fs-electric's 75 m acceleration, hybrid-car's EPA city cycle as a single run (chargeBalance false, \
+so both engines judge it).
+"""
+parameters = [
+  "bev-car:el-vehicle.mass_kg", "bev-car:el-vehicle.cd", "bev-car:el-vehicle.frontal_area_m2",
+  "bev-car:el-wheel-fl.radius_m", "bev-car:el-battery.capacity_kWh",
+  "bev-car:el-battery.internal_resistance_ohm", "bev-car:el-motor.torque_scale_pct",
+  "bev-car:el-final-drive.ratio", "bev-car:el-driver.driver_kp",
+  "fs-electric:el-vehicle.mass_kg", "fs-electric:el-vehicle.cd", "fs-electric:el-vehicle.frontal_area_m2",
+  "fs-electric:el-wheel-rl.radius_m", "fs-electric:el-battery.capacity_kWh",
+  "fs-electric:el-battery.internal_resistance_ohm", "fs-electric:el-motor.torque_scale_pct",
+  "fs-electric:el-final-drive.ratio", "fs-electric:el-wheel-rl.mu",
+  "hybrid-car:el-vehicle.mass_kg", "hybrid-car:el-vehicle.cd", "hybrid-car:el-vehicle.frontal_area_m2",
+  "hybrid-car:el-wheel-l.radius_m", "hybrid-car:el-battery.capacity_kWh",
+  "hybrid-car:el-battery.internal_resistance_ohm", "hybrid-car:el-motor.torque_scale_pct",
+  "hybrid-car:el-fd.ratio", "hybrid-car:el-engine.engine_scale_pct",
+]
+variants = ["zero", "negative", "x100", "div100"]
+case_values = [
+  "bev-car:el-ambient.pressure_kPa", "bev-car:el-ambient.temperature_C",
+  "fs-electric:el-vehicle.wheelbase_m", "fs-electric:el-vehicle.cg_height_m",
+  "fs-electric:el-vehicle.downforce_cza_m2",
+]
+measure = """
+Each fault's status on today's engine (default settings) and on the new path in strict mode, and its Data \
+Checks' worst level (engine-independent). A violation: today's run fails or warns and the new path's says \
+success. A hidden violation: the new path's run says warning only because of preparation notes that are not \
+about the run (the start-guess note of review finding 36: messages whose engine code is START-NOT-SOLVED, \
+INIT-UNDECIDED or INIT-START-IGNORED, and any message of the engine's own report that is not a warning of \
+the run), without which it would say success. A refusal of the new path (any NEW- code) counts as not \
+success. Beside them the report lists the flips (today's run passes, the new path's warns or fails) and each \
+fault's unsaid (a warning or error today's run gives, in its words without their numbers, that the new path's \
+run, where it ran, does not), counted, not in the pass mark. Mutation testing: mutmut 3 on backend/app/solver/verdict.py with the backend tests that import it \
+(test_verdict.py and the others the harness lists), resumable; every surviving mutant needs a written \
+reason in survivors.toml (equivalent, or what test would kill it and why none is wanted).
+"""
+pass_mark = "zero violations; zero hidden violations; every mutmut survivor with a written reason"
+judge = "today's engine's verdict on the same broken model (a separate code path); mutmut"
+
+[[line]]
+id = "META"
+what = "Metamorphic: the verdict does not depend on the output step or the tolerance"
+cases = """
+On the new path: bev-car/case-city, bev-car/case-wltc, fs-electric/case-accel-75m, \
+bev-car/case-city-checked, bev-car/case-city-checked-w0, and the faults \
+bev-car:el-motor.torque_scale_pct:div100, bev-car:el-vehicle.mass_kg:x100, \
+fs-electric:el-motor.torque_scale_pct:div100, fs-electric:el-battery.internal_resistance_ohm:x100; \
+each at the case's own output step times 0.1, 1 and 5 (a cycle case: 0.1, 1 and 5 s) at rtol 1e-6, and \
+at its own output step at rtol 1e-8.
+"""
+measure = "the verdict: the status, the set of summary keys flagged notValid (with their reasons' first words) and every limit row's passed flag; vacuous when no run of the set has a non-success status or a notValid or passed=false row"
+pass_mark = "the same verdict at all four settings for every case of the set, and not vacuous"
+judge = "the metamorphic relation itself (Chen et al., ACM Computing Surveys 51(1), 2018)"
+
+[[line]]
+id = "ANALYTIC"
+what = "Speed traces whose exact time outside the band is known from the regulations' text"
+cases = """
+Five made-up traces (piecewise linear, sampled every 0.1 s as the verdict samples a run): a plateau excursion \
+on a steady target, a lag on a ramp, an overshoot at a peak, a short excursion inside the EPA's 2.0 s \
+allowance, and a slow car below a ramp at full throttle. Their exact time outside each band is computed in \
+rational arithmetic from the rules' own words: 40 CFR 1066.425(b)(1)-(2) (2.0 mi/h above the highest and \
+below the lowest point of the trace within 1.0 s; the annual edition of 1 July 2024, judge-cache cfr/) and \
+Regulation (EU) 2017/1151 Annex XXI Sub-Annex 6, 2.6.8.3.1 (2.0 km/h, within 1.0 s; read before encoding \
+it, the copy and its checksum in the report).
+"""
+measure = "|the verdict's time outside each band (verdict.trace_metrics: outside_epa_s, outside_wltp_s) - the exact time|; and whether the run's \"cycle not followed\" message labels its 1 %/2 s allowance as LightSim's own rule, not the EPA's or the WLTP's"
+pass_mark = "every difference at most 1e-6 s; the label present"
+judge = "the regulations' text and exact arithmetic"
+
+[[line]]
+id = "ENERGY"
+what = "Energy rows, duty RMS and limit intervals from the engine's own books"
+cases = "every B2B item the new path runs; a sine probe: a Script block (sample time T/N, N = 40) commands a Power Consumer P0 + A sin(2 pi t / T) over whole periods; the BEVs' cycle cases against fast mode"
+measure = """
+E1: the sum of the result's partEnergy rows (in, out, losses, stored) against the engine's own totals of \
+the run (lightsim_engine's run.energy), relative to the throughput. E2: the Power Consumer's duty RMS \
+against sqrt(P0^2 + A^2/2), exact for a held sine sampled N >= 3 times a period over whole periods \
+(sum of sin^2 over N equally spaced phases is N/2). E3: the seconds each driveline spent at each limit \
+(the result's limits) against fast mode's limit flags on the same cycle.
+"""
+pass_mark = "E1 within 1e-12 of the throughput; E2 within 1e-9 relative; E3 within one output step per change of state"
+judge = "the engine's energy books (conservation), a closed form, fast mode (a separate solver)"
+
+[[line]]
+id = "STREAM"
+what = "Streaming, stop and replay"
+cases = "the live items (bev-car/case-city-live, hybrid-car/case-mixed-live); a stop probe on bev-car/case-wltc as a live run and on a 16-point study of bev-car/case-city (vehicle mass from 1200 to 2700 kg); a replay of bev-car/case-city and fs-electric/case-accel-75m from their RunSnapshot"
+measure = """
+S1: every streamed point (the run's "step" messages) against the final result's channels, bit for bit. \
+S2: stop latency, the wall time from a stop asked (the control's cancel, or the study's stop) to the run or \
+study returning, 20 stops each at random times; a stop shows something only when a point was running and \
+ends cancelled; fewer than half the stops showing something is "not measured", not a pass. S3: the \
+SHA-256 of the result's JSON (keys sorted) replayed from the snapshot against the original, and whether \
+the RunSnapshot records the engine, its version and the solver options.
+"""
+pass_mark = "S1 every point equal; S2 p95 at most 0.25 s for the live run and at most 1.0 s for the study, on Windows CI (tests/test_stop_latency.py; numbers taken here are labelled as from a shared machine); S3 the same SHA-256 and the three fields recorded"
+judge = "the final result itself (S1), the wall clock (S2), SHA-256 (S3)"
+
+[[line]]
+id = "FMU"
+what = "Co-simulation FMUs as sampled blocks"
+cases = "the Reference FMUs v0.0.41 that are co-simulation FMUs for x86_64-windows (FMI 2 and 3), each in a one-block project"
+measure = "every output of the FMU block run inside LightSim's new path against fmusim (BSD-2) run alone, and against FMPy 0.3.32, at the same communication step"
+pass_mark = "equal to the last digit at every communication point"
+judge = "fmusim and FMPy"
+
+[[line]]
+id = "TEXT"
+what = "Text components read from files"
+cases = "each library part the text format can express that an example uses, written as a text component in the example in its place"
+measure = "the run's result against the built-in part's"
+pass_mark = "exactly the same result"
+judge = "the built-in part"
+
+[[line]]
+id = "QUICK"
+what = "Quick mode for project files, from the app"
+cases = "the example cars' cycle cases"
+measure = "quick mode reachable from the app's run (a run option); its figures against the full run, inside the documented band; its refusals coded"
+pass_mark = "every case runs or is refused with a code; inside the band; the limits stated in the help"
+judge = "the full dynamic run (a separate solver) and FASTSim 3.1.0 for the energy (step 5)"
+
+[[line]]
+id = "SCRIPTS"
+what = "The Script decision record for the owner, with no switch"
+cases = "the record and the new path's Script blocks"
+measure = "a: Script blocks on the new path run in today's worker (native_scripts False); b: a decision record holding the STRIDE threat model, differential fuzzing against CPython 3.11 (hours, inputs, divergences), a cargo-geiger count and the PLT-35 gap; c: the owner's plain page (decisions/script-runner-explained.md)"
+pass_mark = "a, b and c"
+judge = "CPython 3.11 (the fuzzing's oracle); the owner reads the page"
+
+[[line]]
+id = "NOSKIP"
+what = "The new engine's tests do not skip where the module should be (review finding 18)"
+cases = "backend/tests/test_new_engine_flag.py and the harness's own tests"
+measure = "a: with LIGHTSIM_REQUIRE_NEW_ENGINE=1 and the module installed, how many skip (Windows-only tests aside); b: with LIGHTSIM_REQUIRE_NEW_ENGINE=1 and the module hidden, whether they fail; c: whether CI builds and installs the module where they run, with LIGHTSIM_REQUIRE_NEW_ENGINE=1"
+pass_mark = "a zero; b they fail; c yes (Windows CI runs it after the merge)"
+judge = "pytest's own counts"
+
+[[line]]
+id = "STATUS"
+what = "Today's full SimResult on the new path, and the documents true to it"
+cases = "the eleven things step 2's goal names: the verdict, the energy report, part energies, duty, limits, references, live streaming, study stop and progress, FMU parts, text components, quick mode"
+measure = "each one present on the new path in the measured results (B2B, STREAM, FMU, TEXT, QUICK), and DESIGN.md 12.3, STATUS.md and docs/KNOWN-LIMITS.md saying what the measurement shows"
+pass_mark = "11 of 11, and the documents true"
+judge = "the measured results"
+
+# ---------------------------------------------------------------------------
+# Later changes, each with its date and reason. The lines above keep their
+# registered words; a change says what it replaces.
+# ---------------------------------------------------------------------------
+
+[[changes]]
+date = "2026-10-28"
+line = "ENERGY"
+change = """E2 reads the battery's "Power" duty row, not "the Power Consumer's duty RMS"; the probe's battery \
+has no resistance (R0 and the RC pair 0)."""
+reason = """The first run of the sine probe on today's engine showed that a Power Consumer has no duty part: \
+today's reports give duty rows to motors, batteries, engines, fuel cells and DC-DC converters only \
+(app/solver/reports.py, duty_parts). The battery is the consumer's only supply and, without resistance, \
+carries exactly its power, so its RMS is the same closed form. Today's engine gave 5.431390245600112 kW \
+against the exact 5.431390245600108 kW."""
+
+[[changes]]
+date = "2026-10-28"
+line = "META"
+change = """A run the new engine's path refuses (a NEW- code in its first message) judges nothing: it does \
+not make the set "not vacuous"."""
+reason = """Said outright before the baseline was reported: a refusal's "failed" status is the path's, not \
+a verdict of the engine on the run, and would make any set of refused runs look judged."""
+
+[[changes]]
+date = "2026-10-28"
+line = "META"
+change = """Nor does a "warning" that comes only from the engine's preparation notes (the FAULTS line's hidden \
+rule: the run's status without its build report's messages): such a run counts as judged only when its \
+status without them is not success, or it has a notValid or passed=false row."""
+reason = """The first report showed every run of the set at "warning", each from the start-guess note \
+(START-ALIAS-CONFLICT) and none from the verdict: by the registered words the line would pass on notes \
+that are not about the run at all, which is the vacuous case the line exists to catch (review finding 36)."""
+
+[[changes]]
+date = "2026-10-28"
+line = "ANALYTIC"
+change = """The two copies of the regulations' text the line reads are pinned below ([source]: where each \
+is fetched from and its SHA-256), as the copies read for the baseline were; `python -m \
+benchmarks.back_to_back fetch` puts them in the judges' cache and checks them."""
+reason = """The report took them from one machine's folders by a fixed path, with nothing to fetch them \
+elsewhere or to say they are the copies read (the judge's checker, 28 October). The words of the rules \
+are unchanged."""
+
+[[changes]]
+date = "2026-10-28"
+line = "B2B"
+change = """How a message ("Text ... compare equal or differ") is compared: it pairs with today's 1 ms run's \
+message of the same level and the same text with its numbers taken out (a quoted name keeps its numbers: it \
+is text), in order where one repeats; a message on one side only, or repeated a different number of times, \
+differs; and each number of a pair is a figure, against the same number of today's message, its band from \
+today's 10 ms run's same message (the 0.5 % floor). Rows of a field are matched by their key in the same way: \
+a key repeated a different number of times differs ("duplicate")."""
+reason = """A message's numbers are figures of the run (a time, a limit, a distance, the verdict's time \
+outside the band), which today's own two runs give apart by up to a solver step: compared as whole text, \
+every message with a time in it would differ at any step. Until the judge's re-check (28 October) the \
+harness took the numbers out and compared only the rest, so another limit or time in a message was no \
+difference at all, which was not registered; the re-check also found a second row of the same key never \
+compared."""
+
+[[changes]]
+date = "2026-10-28"
+line = "B2B"
+change = """The gear rows are b only where, besides today's rule, the new run's own gear channel is the new \
+engine's law rebuilt from the same sources (diff.teeth: the inertias before each mesh taken out), inside the \
+band for its values and mean; a minimum or maximum, which that rebuild cannot give exactly, within the \
+inertias' term plus one band of both rules and holding its values at its interval's ends. An acceleration \
+test's last output time is b only where it is the only time that differs, inside today's last output step. \
+A channel's values or statistic at fewer points than today's lacks the others (each a value the new run \
+lacks), and a statistic at another number of points differs ("grid")."""
+reason = """The judge's third re-check (28 October): a gear channel three times off, zero or negated was b, \
+because the rule was rebuilt from the sources and the gear's own channel never read; the time axis x 1.5 or \
++ 1 s was b from the last distance alone; a minimum, maximum or mean cut to half was compared over the \
+points it kept. Each made a class or a comparison weaker than the registered words ("every point", b \
+"shown by" the rule); on baseline-3 two differences change class (the hybrid's UDDS differential torque \
+minima, b to unclassified)."""
+
+[[changes]]
+date = "2026-10-28"
+line = "B2B"
+change = """The comparison walks the union of what today's 10 ms run, today's 1 ms run and the new run give \
+(every record, field, channel, statistic, list and point, and every message) and keeps a ledger per item: a \
+leaf both today's 1 ms run and the new run have is compared, one either of them lacks is reported as a \
+difference, one only today's 10 ms run has is a gap; an item whose ledger does not balance (a leaf left out, \
+or taken twice) fails the line, and the report shows each item's totals. A channel's size is the RMS over \
+every point of today's 1 ms run but the first, its band from the points both of today's runs have and its \
+floor from today's 1 ms run, so a point past the end of today's 10 ms list, and a channel that run lacks, are \
+compared; a value the new run has where today's 1 ms run has none differs ("extra"); the first point, which \
+the band leaves out, is a figure of its own ("first point", in its figure band), classed c \
+(today-first-point-before-its-step) only where the new run's first value lies between today's first two \
+values, within the channel's band. A gear row's minimum or maximum is b only where it also lies, at every \
+output interval, within one band of the range the new engine's law gives it there: the law at the \
+accelerations of the interval and of its two neighbours, widened by the law's own error on the run's values \
+at the interval's two ends."""
+reason = """The judge's fourth re-check (28 October): today's 10 ms run ends one point before the 1 ms run on \
+the acceleration test (400 points against 401) and the diff ran over the points both of today's runs had, so \
+the new run's state at the line was never compared on any channel (ten times off, or not a number, was no \
+difference), nor the values of a channel the 10 ms run lacks. Three earlier rounds had each found another \
+place the comparison never looked; the ledger closes that class, because anything the walk leaves out fails \
+the item instead of passing. A first value ten times off was no difference either, which the registered \
+words ("every output point but the first") left open; the first point keeps its documented reason (today \
+records it before its first step, lsim-project/golden/README.md) as a checked class c. The gear bound was an \
+RMS over every interval, so one interval of 1801 at 161 bands passed; the room at each interval comes from \
+the run itself (the law's spread over the neighbouring accelerations and its error on the values), the one \
+band from the comparison, neither from a baseline. Written before baseline-5 was measured; on baseline-4's \
+records this judge adds the 312 first points (all class c) and moves nothing else."""
+
+[[changes]]
+date = "2026-10-28"
+line = "B2B"
+change = """A channel only the new run records that the project's data bus wires to a port today's 1 ms run \
+records (a monitor's or a driver's input, a brake's demand) is compared with that port's channel, as a port \
+reads what is wired to it: its values and statistics in that channel's band, its times, its unit, and its label \
+against the one today's engine gives the port (core.py, "part · port"); its leaves are counted "by source" in \
+the ledger, and only a channel with no recorded port wired to it is "extra" (new-records-more, class c). An \
+acceleration test's grid is b only where its last times are the distance channel's own, the run's time at the \
+line. The ledger counts a leaf where today's 10 ms run says another text or flag than its 1 ms run (or no \
+number where it has one) on its own ("10 ms only"), and what today's 10 ms run flags (a warning or failed \
+status, a notValid, a passed=false, a warning or error it writes) that neither its 1 ms run nor the new run \
+does is a difference ("10 ms only", which no rule explains)."""
+reason = """The judge's fourth re-check (28 October): 26 of the 39 channel keys only the new run records are \
+input ports whose source today records, each equal to its source on the new run, yet classed c and never \
+compared, so the vehicle monitor's speed ten times off moved nothing; one channel's own grid ending 8 ms \
+before the line was b from the distance channel's line; and what only today's 10 ms run says (the app's own \
+step today: a status of failed, a row not valid, a check not passed) was neither compared nor counted, so a \
+case today's engine flags at the app's setting could pass (and so could a warning only that run writes, a \
+sibling of the same hole). Written before baseline-6 was measured; on baseline-5's records this judge takes the 169 lent channels' "extra" (c) away and adds 48 first points on them \
+(c) and 15 value differences (unclassified, each its source's own on the hybrid), and moves nothing else."""
+
+[[changes]]
+date = "2026-10-29"
+line = "ENERGY"
+change = """E3 runs fast mode by its own runner (engine/crates/lsim-project/examples/fast.rs, built: \
+$LSIM_FAST_BIN), which prints its flags' stretches (flag_spans), on each of the BEVs' cycle items the new path \
+runs (aero-bev's three cycles and bev-car's five; not the live one, which it streams), and judges the stretches \
+the new run's limit lanes spend at a limit (grip, set_limit, supply or machine, joined where they touch) against \
+fast mode's flagged stretches (joined likewise): the same number, each start and end within the case's output \
+step. Without the runner it is "not measured". The report says how many items met a limit on either side."""
+reason = """Registered with no runner named: fast mode for project files is not reachable from Python (lightsim_engine \
+has no fast-mode call; quick mode in the app is a later part of step 2), so the judge runs fast mode as a process \
+of its own, as engine/judge does. The stretches are judged, which the seconds follow from, the pass mark's "one \
+output step per change of state" read at each stretch's two ends. Written before the evidence part's first \
+measured run; a probe run then showed neither side meeting a limit on bev-car's city, WLTC and aero-bev's UDDS \
+cycles (no flag, no limited stretch), so on the registered cases E3 can show agreement only on nothing being \
+limited: the report counts the items that met one."""
+
+[[changes]]
+date = "2026-10-29"
+line = "FAULTS"
+change = """The hidden rule's "message of the engine's own report" is also matched where the path shows it with its \
+code before its words ("Preparation [CODE]: <the report's message>", new_engine.py), not only word for word; the \
+META line reads the same function (report._without_notes)."""
+reason = """Step 2's evidence part shows the engine's build notes about its start values as notes (info) and any other \
+build warning as "Preparation [CODE]: ...": matched word for word only, such a warning would count as the run's \
+own and could hide a fault the registered words count as hidden. Written before the part's first measured run."""
+
+[[changes]]
+date = "2026-10-29"
+line = "ENERGY"
+change = """E1's engine totals: the parts' losses sum to what the books say the parts lost to heat (lost_J) plus what \
+the rigid engagements took at the parts the books name (each part's impulse_lost_J, a gear shift's: \
+parts_impulse_lost_J in the record), their stored energies to the books' change of stored energy (stored_change_J); \
+each to 1e-12 of the throughput."""
+reason = """The new path books what a gear shift's impulse takes as the gearbox's loss, as today's books do (today's \
+RunContext.carry_over: "the kinetic energy that loses is the gearbox's loss"); the engine's books keep it apart \
+from the heat (event and impulse losses), so lost_J alone leaves the hybrid's shifts out. Written before the \
+evidence part's first measured run."""
+
+[[changes]]
+date = "2026-10-29"
+line = "META"
+change = """Two cases added to the set, and as items to B2B: bev-car/case-city with its battery's Output Power Limit \
+only checked, 23 kW averaged over 0.5 s (bev-car/case-city-checked), and 23.6 kW with no averaging window \
+(bev-car/case-city-checked-w0); both are flagged by today's engine (23.5 and 23.6 kW)."""
+reason = """The evidence part's review found the battery check's averaged peak taken from the output grid's means \
+(a success at an output step of 5 s, where 0.1 and 1 s and today's engine warn), which none of the five cases \
+had a battery check to show. Written before the next measured run (baseline-7's records have no runs of them)."""
+
+[[changes]]
+date = "2026-10-29"
+line = "ENERGY"
+change = """E3 is "vacuous" when every item passes and none met a limit on either side, and ENERGY is "vacuous" when \
+its parts pass but one is vacuous; neither is a pass. Its pass mark is not changed for a stretch where the \
+forward car falls behind the cycle and fast mode, which drives it exactly, cannot: such a case is still to be \
+registered (engine/STATUS.md)."""
+reason = """Baseline-7 reported ENERGY "pass" on an E3 whose eight items met no limit on either side (met_a_limit 0), \
+which cannot fail; META's pass mark already counts that case as vacuous. The one probe that meets a limit (a 15 kW \
+cap on bev-car) fails E3's mark, its limited stretches ending up to 20 s later than fast mode's while the forward \
+car catches up the cycle: registering it needs a pass mark for that, which is open."""
+
+[[changes]]
+date = "2026-10-29"
+line = "FAULTS"
+change = """The report lists the flips beside the violations and the hidden: a planted fault today's engine passes \
+and the new path warns or fails on (not refused). They are counted, not in the pass mark."""
+reason = """The evidence part's review found such a case (an enforced 80 kW cap held to the solver's tolerance read as \
+broken, fs-electric with no internal resistance, itself a planted fault) counted nowhere. A flip can be the new \
+engine's own physics, which B2B classes; FAULTS lists them so that none goes unseen."""
+
+[[changes]]
+date = "2026-10-29"
+line = "STRICT"
+change = """A [note_codes] section beside [codes], listing NEW-TABLE-NOT-JUDGED: B2B and FAULTS count each run's \
+notes by their code, and STRICT fails on a [NEW-...] code in any message of a new-path run (not only its first) \
+that neither section lists."""
+reason = """The evidence part's second review found the path's note NEW-TABLE-NOT-JUDGED, which leaves a record of \
+the run out of the verdict, in no section and counted by no line: rule 8 wants every such skip coded and counted. \
+No pass mark is loosened."""
+
+[[changes]]
+date = "2026-10-30"
+line = "FAULTS"
+change = """Five parameters' four variants also planted as the case's own value (case_values: the Ambient's pressure \
+and temperature on bev-car, the Vehicle's Wheelbase, Centre of Gravity Height and Downforce Area on fs-electric; \
+20 faults, '<example>:case/<element>.<parameter>:<variant>'), and the report lists each fault's unsaid: a warning \
+or error of today's run, in its words without their numbers, that the new path's run, where it ran (not refused), \
+does not give; counted, not in the pass mark."""
+reason = """The evidence part's third review found today's run-time checks of a case's values (the Ambient's air \
+outside the usual, a Wheelbase of 0 with a CG height) and today's check that the car has driven by 60 s with no \
+counterpart on the new path, which said success where today's warns. The matrix planted block values only, which \
+Data Checks see, and compared statuses only, so a warning missing beside another (the Ambient at 70 °C beside the \
+climate table's) was counted by no line. No pass mark is loosened. Written before the next measured run \
+(baseline-9)."""
+
+[[changes]]
+date = "2026-10-30"
+line = "STRICT"
+change = """A code added to [codes]: NEW-LIMITS, the new path's refusal of a run that reads a value outside its \
+parameter's limits (each part's own value, the case's own over it; Data Checks' words), which then runs on today's \
+engine, or in strict mode fails with the code. FAULTS' parameter faults outside their limits (53 of the 128: zero \
+or negative where a value must be above 0, x100 past a maximum) are such runs; by the line's registered words a \
+refusal counts as not success."""
+reason = """The evidence part's fourth review found a study's point at -50 kPa or -300 °C (Data Checks refuse such a \
+single run, but check only a study's base project) run on the new engine as typed (a negative air density, a \
+negative drag) under today's words, which give today's clamped density, and at -300 °C without today's "Cycle not \
+followed" and its four rows not valid; a CG height of -0.3 m too (today's engine reads 0). Today's engine clamps \
+dozens of such values, each its own way; the new engine runs only what Data Checks let through. Written before \
+the next measured run (baseline-10)."""
+
+[[changes]]
+date = "2026-10-30"
+line = "FAULTS"
+change = """A fault's unsaid also holds a row today's run makes not valid and a check it fails that the new path's run, \
+where it ran, does not (the both-engines diff's own list of what a run flags, diff.flags); counted, not in the pass \
+mark. The case_values faults' words "which Data Checks do not see" read: which Data Checks check for a single run, \
+not for a study's point (a fault's record keeps their level, which is an error outside the limits)."""
+reason = """The same review found the -300 °C point counted as fine by every line: the same status, the same words \
+without their numbers, and the four rows today makes not valid compared by no line. The case values' words were \
+wrong: Data Checks do check a case's own values; a study's points are what they never see. No pass mark is \
+loosened. Written before the next measured run (baseline-10)."""
+
+[[changes]]
+date = "2026-10-31"
+line = "STREAM"
+change = """S3 makes each run again through the app's own replay (app.solver.replay) from the snapshot the app keeps (RunSnapshot.of: the project, the case as run, and what the result says ran it), read back from its JSON, and judges the three fields from each snapshot's values, not from the fields' names. On the new engine's path it also replays a live run with a live edit (bev-car/case-wltc, the Vehicle's drag coefficient set to 0.35 once the run has streamed a point past 300 s); not on today's engine, which does not replay live edits (it applies one at the output step its polling saw it, which nothing records)."""
+reason = """Step 2's item 4 made a live edit a timed event and gave the snapshot the engine, its version and the solver options. The registered probe made the run again from the project alone and read the fields' names, so a snapshot that named the fields and held nothing, or a replay that dropped a live edit, would pass; a live edit is what the item's timed events are for. No pass mark is loosened. Written before the part's first measured run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "STRICT"
+change = """The code NEW-LIVE ("a live (streamed or paced) run") leaves [codes]: the new engine's path runs live \
+runs (step 2's item 4), and refuses none for being live; a message with that code now fails STRICT as one no \
+section lists."""
+reason = """The code named a refusal the path no longer makes. Keeping it listed would let a live run refused \
+with it pass STRICT's code check; leaving it out makes the line stricter. Written before the part's first \
+measured run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "B2B"
+change = """The result's four new fields (step 2's item 4: engine, engineVersion, solverOptions, liveEdits) are \
+compared as text, and the first three, which differ between the engines by design, are classed c by the rule \
+each-run-says-what-ran-it (classes.toml), checked: each run names its own engine, with a version and its own \
+engine's solver options."""
+reason = """A field of the result the diff does not say how to compare fails the harness's own test; these say \
+which engine ran the run, which the two runs of an item give apart on purpose. No pass mark is loosened. \
+Written before the part's first measured run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "STREAM"
+change = """S2's study is a 16-point study of bev-car/case-wltc (the vehicle's mass from 1200 to 2700 kg, as \
+before), not of bev-car/case-city. The pass mark (p95 at most 1.0 s on Windows CI) and the rule for a stop that \
+shows something (a point running ends cancelled; fewer than half the stops showing something is "not \
+measured") are unchanged."""
+reason = """The twelfth measurement (judge-cache/step2/baseline-12, at 3e8459e) ran the registered study: on the \
+new engine's path a City Cycle point is done in about 0.1 s, so 11 of the 20 random stops found no point \
+running (the pool still starting its workers, or between points) and the line was "not measured" (9 of 20 \
+shown, their p95 0.47 s); today's engine, whose points take seconds, showed all 20. The roadmap asks for "a \
+16-point study", not its case; the WLTC's points take about 1.3 s on the new engine, long enough for a random \
+stop to find one running, and the live part of S2 runs the same case. Written after that measurement, which it \
+names; the stop probe is measured again with it."""
+
+[[changes]]
+date = "2026-10-31"
+line = "STRICT"
+change = """[note_codes] lists NEW-LIVE-NEXT-RUN, the code of the new engine's path's note on a live edit the run \
+did not make (it takes effect on the next run); the result lists such an edit with that note."""
+reason = """The checker of item 4 (f8389aa..d296cc3) found that an edit the path takes on the next run left \
+nothing in the result and carried no code, and that the path's checks after the run read edits of what today's \
+engine checks at each step as they were at the start: such an edit is now taken on the next run, with this code \
+(rule 8: no silent fall-back). STRICT fails on a [NEW-...] code no section lists, so the code is listed; no pass \
+mark moves. The harness runs no live edit but S3's, which the path makes."""
+
+[[changes]]
+date = "2026-10-31"
+line = "FMU"
+change = """The line's cases, hosts and points, said in full. Cases: the Reference FMUs v0.0.41 (the release's \
+Reference-FMUs.zip, pinned below as [source.reference-fmus]) that have a co-simulation interface: 2.0/BouncingBall, \
+Dahlquist, Feedthrough, Resource, Stair, VanDerPol and 3.0/BouncingBall, Dahlquist, Feedthrough, Resource, Roberts, \
+Stair, StateSpace, VanDerPol (3.0/Clocks has scheduled execution only: not a case). Each in a one-block project: \
+the FMU block with every output variable LightSim can pin (a number, not an array) as an output pin and no input \
+pin (the inputs keep their start values on all three hosts), its Communication Step h; the case runs from 0 s to \
+the stop time T with the output step h. h and T are the FMU's default experiment's (stepSize, stopTime); where it \
+gives no stepSize (Feedthrough, Resource, StateSpace, Roberts) h = T / 500, fmusim's own default; Roberts, whose \
+default experiment runs to 1e8 s on a co-simulation solver of 1e-6 s steps, runs to T = 1 s; every case from 0 s \
+(Roberts' default start is 1e-5 s); T must be n h exactly in floating point. Hosts: LightSim's new engine's path \
+(app.solver.simulate, LIGHTSIM_ENGINE=new, strict); FMPy 0.3.32's simulate_fmu (fmi_type CoSimulation, start 0, \
+stop T, output_interval h, the pinned outputs); fmusim v0.7.0 (github.com/modelica/fmusim, BSD-2-Clause, its \
+release binary pinned below) `simulate --interface-type cs --start-time 0 --stop-time T --output-interval h \
+--output-file ... --output-variable ...`, its CSV read as written (Rust's shortest text that reads back to the same \
+number). Each pinned output at each communication point k h (k = 0 ... n) and the points' times: LightSim's \
+channel at its output time k h, FMPy's recorded row, fmusim's row. "Equal to the last digit": the same IEEE double \
+(a Float32 output: the same single, widened). A case with no output LightSim can pin (StateSpace: its only output \
+is an array) compares nothing and is listed as such, neither passed nor failed. Where it is measured: on Windows \
+CI (the FMUs' x86_64-windows / win64 code; backend/tests/test_new_engine_fmu.py in the engine-windows job, \
+with LIGHTSIM_REFERENCE_FMUS and LIGHTSIM_FMUSIM pointing at the pinned copies), and by the harness wherever \
+both are set; elsewhere the line is "not measured"."""
+reason = """Step 2's item 5 wires FMU parts into the new engine's path through today's FMPy worker; the registered \
+words left open which FMUs are co-simulation FMUs in v0.0.41, which outputs, step and stop time, what an input \
+reads and how the three hosts' numbers are read. The step and stop are the FMUs' own (fmusim's defaults where they \
+give none) so no number is chosen here; Roberts' default experiment cannot run in co-simulation (1e14 solver \
+steps). fmusim moved out of the Reference FMUs' repository (v0.0.41's release holds no fmusim): v0.7.0 is the \
+release of the same day as v0.0.41 (12 August 2026). On this machine (the owner's WSL, 31 October) the permission \
+system refused running the downloaded fmusim binary, so neither it nor the Reference FMUs' code is run here: the \
+line is judged on Windows CI, as the roadmap's Windows-only rule wants anyway. No pass mark moves. Written before \
+the line's first measured run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "STRICT"
+change = """NEW-FMU ("a project with an FMU part") leaves [codes]: the new engine's path runs FMU parts (step 2's \
+item 5), through today's FMPy worker; a message with that code now fails STRICT as one no section lists. \
+NEW-TEXT joins [codes]: a case with a part whose equations come from a text file that the new engine's path does \
+not run cannot fall back to today's engine, which does not read text components: it fails with the refusal's code \
+and NEW-TEXT. The QUICK-* codes join [codes] (the QUICK line's change below)."""
+reason = """The code named a refusal the path no longer makes (as NEW-LIVE before it); keeping it listed would let a \
+project with an FMU part refused with it pass STRICT's code check. A text component on today's engine would run \
+the built-in part in its place without a word: rule 8 wants that coded. Written before the part's first measured \
+run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "TEXT"
+change = """The line's cases and measure, said in full. A part reads its equations from a text file when its element \
+names one (ElementInstance.textFile: the file's path; the file holds one component in the text format, \
+engine/docs/text-format.md, with the ports and parameters of the part's own definition); the new engine's path \
+reads the file and builds the part from it in the place of the built-in definition, the part's values, ports and \
+everything else the app knows of it unchanged. Cases: every part of the four example projects whose definition the \
+engine's import makes from equations (every element but the sampled parts: a Script, an FMU, a Traction Control, \
+whose code runs outside the equations, and a sub-system's container, which has none), each written as a text \
+component in its place (lightsim_engine.part_text: the definition the import makes for it, printed in the text \
+format, in a file of its own), one part at a time, on each example's first case the new path runs (aero-bev \
+case-udds, bev-car case-city, fs-electric case-accel-75m, hybrid-car case-udds as a single run, chargeBalance \
+false), the new path in strict mode. Measure: the result's JSON (keys sorted) against the same case with the \
+built-in part; "exactly the same result": the same SHA-256."""
+reason = """The registered words did not say how a project names a text component nor which parts are the cases; \
+"each library part the text format can express that an example uses" is each part the import builds from \
+equations, which the text format expresses whole (lsim-lang's round trip of every definition the example \
+projects import). Written before the line's first measured run."""
+
+[[changes]]
+date = "2026-10-31"
+line = "QUICK"
+change = """The line's cases, run option, figures and band, said in full. Run option: a case's mode, "full" (the \
+default) or "quick" (SimCase.mode; the case panel's Run mode), which app.solver.simulate runs on the new engine's \
+fast mode (DESIGN.md section 10: the cycle's speed prescribed, the Driver's pedal solved for, limits flagged, not \
+acted on) whatever LIGHTSIM_ENGINE says; a case quick mode does not run runs in full instead with a warning \
+carrying its QUICK-* code ([codes]), or with LIGHTSIM_ENGINE_STRICT=1 fails with it. Cases: every case of the \
+four example projects with mode "quick" (each runs or is refused with a listed code: the cycle cases of aero-bev \
+and bev-car run, the others are refused); and each one that runs against the same case in full on the new \
+engine's path (rtol 1e-6). Figures: quick mode's summary rows are the engine's own figures of the run \
+(lsim-project golden::figures_with, today's keys) that sum or integrate over the run (a battery's final SOC, its \
+energy delivered, recuperated and internal losses, the climate's energy used, the distance, the consumptions, \
+MPGe, the range, each phase's distance and consumption, the simulated duration); not the peaks, minima and times \
+at a limit, which follow the full run's driver (stated in the help). Band: every figure within 1 % of the full \
+run's same row, the final SOC judged as the charge used (its change from the start), on each case quick mode \
+flags nothing on (DESIGN.md section 10's band for the charge used, the outside judge's of 20 October); a case it \
+flags is listed with its flags, its figures not judged in the band. The limits stated: docs/help and \
+docs/KNOWN-LIMITS.md say what quick mode does not do (each refusal's code, the rows it leaves out, the flags), \
+checked by the docs tests."""
+reason = """The registered words did not name the run option, which figures quick mode gives nor the band: the band \
+is the one documented for fast mode (DESIGN.md section 10; engine/judge/fast.py), extended to each figure that is \
+a sum over the run, which fast mode's prescribed motion gives as the full run's within its driver's tracking; a \
+peak or a minimum is the full run's driver's own and is left out rather than put in a band of its own. Quick mode \
+runs whatever engine the flag picks for a full run, as the owner wants users to be able to use it (20 October); \
+its speed is not judged (the owner's decision 7). Written before the line's first measured run."""
+
+[[changes]]
+date = "2026-11-01"
+line = "STRICT"
+change = """QUICK-BALANCE joins [codes]: a hybrid's charge-balanced case in quick mode (balance.applies) runs in full \
+instead, with this code (strict: fails with it). NEW-TEXT also codes a text component's file the path cannot \
+read, and QUICK-BUILD the same in quick mode (a file read is part of building the model)."""
+reason = """Found while building quick mode (step 2's item 5): a charge-balanced case runs its cycle until the \
+battery ends where it started, and fast mode runs it once; running it once without a word would be a silent \
+change of what the case asks (rule 8). On the examples the hybrid's three balanced cases have a Script (the \
+Hybrid Control Unit) and would be refused QUICK-SAMPLED anyway; the code is what a hybrid without one gets, and \
+the path asks it first. An unreadable text file had no code (it would have been NEW-ERROR). Written before the \
+QUICK and TEXT lines' first measured run (their probes, item5.py); an exploratory run of quick mode against the \
+full runs on 1 November (lane-step2/item5/quick1.json) came before this change, and showed the energy recuperated \
+and the internal losses up to 1.75 % and 1.40 % from the full run's: no band, case or pass mark moves."""
+
+[[changes]]
+date = "2026-11-01"
+line = "TEXT"
+change = """How the line is measured and what is no case, said in full. The probe (`python -m benchmarks.back_to_back \
+text OUT`, item5.py) takes every element of each example's case, asks lightsim_engine.part_text for its text and \
+runs the case with that text in a file the element names (ElementInstance.textFile), LIGHTSIM_ENGINE=new and \
+strict; the result's JSON (keys sorted) is hashed as STREAM S3's is. An element part_text refuses is no case \
+only with TEXT-SAMPLED for a Script, an FMU or a Traction Control, and TEXT-NO-PART for a sub-system's \
+container; any other refusal fails the line."""
+reason = """The registered words named the parts and the measure but not how a part's text is made, nor which \
+refusal makes an element no case: written so that an element the text format should express and does not \
+cannot leave the line unsaid. Written before the line's first measured run."""
+
+[[changes]]
+date = "2026-11-01"
+line = "QUICK"
+change = """How the line is measured, said in full. The probe (`python -m benchmarks.back_to_back quick OUT`, \
+item5.py) runs every case of the four examples with mode "quick" (LIGHTSIM_ENGINE=new and strict): a case \
+refused passes when its first message carries a QUICK-* code of [codes]; one that runs must say so (its \
+solverOptions is fast mode's step alone, quickStep) and is run again in full on the new path (strict, its \
+default options: rtol 1e-6); each of its summary rows against the full run's row of the same key, the final \
+SOC as the charge used (the full run's start SOC less each final SOC); a row the full run lacks fails; a case \
+with a flag (a warning that starts "Quick mode: " other than the first message) is listed with its flags and \
+its rows not judged. The limits stated: the help page docs/help/how-to/run-in-quick-mode.md and \
+docs/KNOWN-LIMITS.md name every QUICK-* code (also backend/tests/test_docs.py, with each kind of row quick mode \
+gives)."""
+reason = """The registered words left open how a run is told to be quick mode's, which full run is the band's \
+reference and how the help's statement of the limits is checked. Written before the line's first measured run \
+(the exploratory run of 1 November is said in the STRICT change of the same day)."""
+
+[[changes]]
+date = "2026-11-01"
+line = "STRICT"
+change = """QUICK-END joins [codes]: a cycle case with a Distance (endDistance) or Laps (endLaps) set, in quick \
+mode, runs in full instead with this code (strict: fails with it)."""
+reason = """Found by the checker of item 5 (1 November): fast mode runs a cycle's whole duration and never \
+read the case's end, so a case ending at 3,000 m gave the whole cycle's totals as a success with no code (rule \
+8, no silent fallback). No example case sets either, so no measured case or record moves; the QUICK and STRICT \
+lines' pass marks are unchanged."""
+
+[[changes]]
+date = "2026-11-01"
+line = "B2B"
+change = """[note_codes]: NEW-TABLE-NOT-JUDGED widened: the note also leaves unjudged a record of a table \
+today's engine reads only in one branch of its part (new_engine.BRANCH_READS: an E-Motor's drag table while it \
+is unpowered, its loss map's speed and full-load curve while powered, an engine's drag table while not fired or \
+braking at idle) when the run never was in that branch past the table's data; a record it was is judged for that \
+share of its points."""
+reason = """Found by the checker of item 5's refix (1 November): the engine's table guards read a table's \
+argument at every point, so the E-Motor's drag table cut at 4000 1/min warned and marked the consumptions not \
+valid, on the full path and in quick mode, where today's engine passes the run. No measured record holds a table \
+read past its data on the new path or in fast mode (baseline-13's raw records), so no case or record moves; no \
+pass mark moves."""
+
+[[changes]]
+date = "2026-11-01"
+line = "B2B"
+change = """[note_codes]: NEW-TABLE-NOT-JUDGED widened again: new_engine.BRANCH_READS also names an engine's fuel map \
+(read by today's engine only while it is fired), a Climate Control's demand table (only while it asks for heat or \
+cooling), an E-Motor loss map's torque axis (only while powered), and reads a drag table that reaches the \
+machine's maximum speed at that speed above it (over speed, not past the table); a record is judged for the \
+share of the run's points where today's read is past the data. The engine's records of one table axis, one per \
+place a part reads it, are judged as one."""
+reason = """Found by the checker of fix round 13 (1 November): the engine now watches a table at its own data's \
+edges, so a hybrid fuel map with no 0 N·m column warned for the whole UDDS where today's run succeeds, and a drag \
+table ending at the maximum speed gave a drag-table warning in place of today's over-speed one. No measured \
+record holds a table read past its data on the new path or in fast mode (baseline-13's raw records), so no case \
+or record moves; no pass mark moves."""
+
+[[changes]]
+date = "2026-11-05"
+line = "B2B"
+change = """[note_codes]: NEW-TABLE-NOT-JUDGED: new_engine.BRANCH_READS holds a rule for every table read in the \
+engine's part equations (lightsim_engine.table_sites, in every configuration; a test holds the two equal), and \
+the engine's reads at the run's points come from the model itself (run.table_reads): a Fuel Cell Stack's \
+curve, which the engine also reads at its Maximum Current, is judged at the current it gives; an engine's \
+full-load curve and a Road Profile's profile are never judged (today's engine books no read of them); a \
+Lookup's table is judged under today's name for it (its Table 1D or 2D: its summary rows and note, no verdict, \
+as today's), where before it was this note."""
+reason = """Found by the checker of fix round 14 (1 November): a stack's curve cut short of its Maximum Current \
+warned for the whole city cycle and marked Consumption not valid where today's run succeeds, the fourth table \
+judged where today's engine books no read; the owner asked on 5 November to close the class by construction. \
+No measured record holds a table read past its data on the new path or in fast mode (baseline-13's raw records; \
+the example cases' runs and their records are the same with the new module), so no case or record moves; no \
+pass mark moves."""
+
+[[changes]]
+date = "2026-11-06"
+line = "SWEEP"
+change = """[sweep] added: the mismatch sweep, faults built on purpose and run on both engines at once \
+(benchmarks/back_to_back/sweep.py), with what it builds, what it compares and its pass mark, before its first \
+measured run."""
+reason = """The owner's approval of 6 November: five fix rounds of the FMU part each found one or two new cases where \
+the new path or quick mode and today's engine disagree about a table read or a part today's engine leaves out; \
+the sweep finds them all at once. No line, item, code or pass mark above moves."""
+
+[[changes]]
+date = "2026-11-06"
+line = "STRICT"
+change = """[codes]: NEW-SAMPLED added, QUICK-SAMPLED widened: a PID or Lookup block with a Sample Time longer than \
+today's solver step is refused by the new path and by quick mode (in strict mode it fails with the code, else it \
+runs on today's engine, which holds the block's output between samples). [note_codes]: NEW-TABLE-NOT-JUDGED also \
+notes a battery's OCV table or a fuel cell stack's curve read past its data on a part connected to no bus, which \
+today's engine leaves out. A run whose E-Motor its supply held back stops (NEW-FAILED, QUICK-FAILED) when the \
+motor's loss map has its torque axis on Error and its data does not reach 0 N·m, as today's run stops there."""
+reason = """Found by the mismatch sweep's before-run ([sweep]) and, before it, the FMU part's last re-check of \
+5 November: on each, today's engine gave another verdict or other outputs and no code said so. No item of the \
+diff has a PID or Lookup block, a part on no bus or a loss map short of 0 N·m, so no item, record or pass mark \
+moves."""
+
+[[changes]]
+date = "2026-11-06"
+line = "SWEEP"
+change = """[sweep]: a live case (bev-car/case-city-live, hybrid-car/case-mixed-live) runs live, its points to a view, \
+as the app runs it; before, it ran as its case without the view, the same runs as its base case's."""
+reason = """So that the sweep reaches the path's live run (new_engine._Live) too. No measured run of the sweep had \
+finished: the first three were stopped for faults of the harness (b118358, ba93d20) and their records removed."""
+
+[[changes]]
+date = "2026-11-06"
+line = "SWEEP"
+change = """[sweep] measure: a sampled block's first output point is held to the judge's own rule for a channel's \
+first point (classes.toml, today-first-point-before-its-step, 28 October): within the band of today's first \
+two values, not of today's first value alone."""
+reason = """The before-run found a PID with a Sample Time within today's solver step on the FS car's acceleration \
+at 0 at t = 0 on today's run (recorded before its first step, while its inputs read 0) and 0.1 on the new \
+engine's (kp times its error there), every later point within the band: the difference the judge already \
+classes as today's first point before its step, which the sweep had not taken over. No other comparison moves."""
+
+[[changes]]
+date = "2026-11-06"
+line = "B2B"
+change = """[note_codes]: NEW-TABLE-NOT-JUDGED also notes a record of an E-Motor's or a Combustion Engine's table when \
+the part is in none of today's drivelines (its shaft drives nothing), which today's engine leaves out, as it \
+notes a battery's or stack's on no bus (new_engine.BRANCH_READS' left_out)."""
+reason = """Found by the sweep's before-run: an Engine placed on the FS car and connected to nothing, its fuel map cut, \
+warned and made the acceleration's rows not valid on the new path, where today's run judged nothing of it. No \
+item of the diff has such a part, so no record or pass mark moves."""
+
+[[changes]]
+date = "2026-11-06"
+line = "B2B"
+change = """[codes]: QUICK-TABLE-TIME added. A table record judged in fast mode whose time past the data, counted at \
+its points once a second, lies within two steps a stretch of what the run allows is not judged there: the case \
+runs in full with the code. On the full path a table today's engine reads in one branch of its part is counted \
+on the run's 0.1 s trace (0.01 s in an acceleration test) instead of as a share of its output points."""
+reason = """Found by the sweep's before-run: the aerodynamic BEV's HWFET with the E-Motor's curve from 1000 1/min, \
+past it 9.8 s on today's run (over the 7.65 s allowed), 7.4 s on the new path (the share of its 1 s points; \
+8.8 s on its trace) and 7.3 s in quick mode: both gave success where today's warns. No item of the diff holds \
+a table record, so no record or pass mark moves."""
+
+# ---------------------------------------------------------------------------
+# The mismatch sweep (the owner, 6 November; added 6 November: [[changes]]).
+# `python -m benchmarks.back_to_back sweep OUT` builds every fault, runs each
+# on both engines and writes OUT/sweep.json and OUT/sweep.md.
+# ---------------------------------------------------------------------------
+[sweep]
+what = """No project gets a different verdict on the new path or in quick mode than on today's engine, and never \
+a success where today's engine fails or warns: a case either path cannot match is handed to today's engine \
+with its code."""
+cases = """The judge's 16 cases (the items above that are not probes; a hybrid's case as a single run, as FAULTS \
+runs it; a live case run live, its points to a view, at LIVE_PACE). On each: every table of every part the new engine reads \
+(lightsim_engine.table_sites, new_engine.BRANCH_READS; a part's own table, else the library's default) cut \
+short at each end of each axis, by its outermost point and to its inner half, with that axis's out-of-range \
+setting on Error, on Clamp and on Linear (the other axes as the part has them); a Driving Task's profile \
+it runs, and a Road Profile added on the Vehicle's grade, cut to each half; the case as it is. On the judge's \
+three fault bases (bev-car/case-city, fs-electric/case-accel-75m, hybrid-car/case-udds) and on the live \
+cases (bev-car/case-city-live, hybrid-car/case-mixed-live; added 7 November, [[changes]]): one part of every \
+library component but a subsystem, connected to nothing, with its defaults and with each table the engine \
+reads of it cut as above (a Lookup in the mode of the table cut, its tables of five points an axis); a PID, a 1D Lookup and a 2D Lookup fed the Vehicle's speed (and distance), with a \
+Sample Time of 0, 5 ms, 15 ms (today's solver step is 10 ms), half the case's time step, one step, \
+three steps and 5 s (the first three added 7 November, [[changes]]). On every one of the 16 cases: every Final Drive ratio times 3 (the motor reaches its maximum speed at a third of the car's), alone and on a constant 6 % downhill grade (a motor driven past its maximum speed; added 7 November, [[changes]])."""
+measure = """Each fault runs through app.solver.simulate four times: today's engine (no flag), the new path in \
+strict mode (LIGHTSIM_ENGINE=new, LIGHTSIM_ENGINE_STRICT=1) and quick mode in strict mode (the case's mode \
+"quick"). A strict run refused with a code of [codes] (not NEW-ERROR nor QUICK-ERROR) is handed back: counted \
+by code, not compared. Any other is compared with today's run; a mismatch is any of: the status (the verdict) \
+differs; a [NEW-/QUICK-/FAST-] code in a warning or an error (a note's code of [note_codes] is not one); and, \
+when neither run failed, a warning that only one run gives, its numbers masked as diff.masked masks them (but \
+the path's and quick mode's messages about themselves, which start "Run on the new engine" or "Quick mode: "; \
+in quick mode today's speed trace warning, the one naming the WLTP band, pairs with quick mode's flags: one \
+without the other is a mismatch); a row marked not valid on one run only (in quick mode, of the rows it \
+gives); for a PID's or Lookup's fault, its output at the times both runs give further than 2 % of its range \
+on today's run from today's (its first point, which today's engine records before its first step, within that \
+of today's first two values, as classes.toml's rule today-first-point-before-its-step has it: changed \
+6 November, [[changes]]). Every fault is also run a fourth time as the app runs a case (every run the app \
+starts has a view, a live case or not), the new path not strict and with a view, and compared with today's run \
+like a strict one; one the app runs again on today's engine (NEW-LIVE-RESTART, or a refusal said in its first \
+message) is handed back with that code, its verdict being today's (a note of a restart or a refusal must not change it; the warning of a case the new engine could not run is on purpose and may) (added 7 November, [[changes]]; for live cases only, then). An exception out of a run, \
+or a fault that cannot be built, is a mismatch."""
+pass_mark = """0 mismatches over every fault, after the fixes: each one the sweep finds before them is fixed or \
+its run handed back with a listed code. The three cases the FMU part's last re-check left open (a battery or \
+fuel cell on no bus with its table cut; FS 75 m acceleration with the loss map from 23 N·m on Error; a PID or \
+Lookup with a Sample Time) are among the mismatches the sweep finds before the fixes."""
+judge = """Today's engine: its verdict, warnings and rows for the same project and case, through the same \
+function. The sweep's own tests (tests/test_back_to_back.py) are guards."""
+
+# The sources a line reads, each with where it comes from and its SHA-256:
+# kept in the judges' cache ($LSIM_JUDGE_CACHE, else $LSIM_SCRATCH/judge-cache)
+# at `file`.
+[source.cfr-1066-425]
+name = "40 CFR 1066.425 (annual edition of 1 July 2024)"
+url = "https://www.govinfo.gov/content/pkg/CFR-2024-title40-vol37/xml/CFR-2024-title40-vol37-sec1066-425.xml"
+file = "cfr/CFR-2024-title40-vol37-sec1066-425.xml"
+sha256 = "90187363ce0f181d03a23ab79ad566d5d66781bcfe5675549986e2d23473de5a"
+
+[source.wltp-sub-annex-6]
+name = "Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 6 (legislation.gov.uk's copy)"
+url = "https://www.legislation.gov.uk/eur/2017/1151/annex/Sub/6"
+file = "wltp/eur-2017-1151-annex-Sub-6.html"
+sha256 = "1c465cf11633de49b8547dee633ac8dba846a4f8ef2cdd268104d2275e02d032"
+
+# the FMU line's (added 31 October: [[changes]]): the Reference FMUs and the
+# fmusim release of the same day
+[source.reference-fmus]
+name = "Reference FMUs v0.0.41 (Modelica Association, BSD-2-Clause)"
+url = "https://github.com/modelica/Reference-FMUs/releases/download/v0.0.41/Reference-FMUs.zip"
+file = "reference-fmus/Reference-FMUs-0.0.41.zip"
+sha256 = "62babca76b9c23a51c3096be4bb5930ff8b4388659056be3c0c4ef7a3aeb5403"
+line = "FMU"
+
+[source.fmusim-windows]
+name = "fmusim v0.7.0 for x86_64-windows (Modelica Association, BSD-2-Clause)"
+url = "https://github.com/modelica/fmusim/releases/download/v0.7.0/fmusim-x86_64-windows.zip"
+file = "fmusim-0.7.0/fmusim-x86_64-windows.zip"
+sha256 = "bcabfa115022805e66d2815666b5970d4f911f894e53f035502580ed7be000aa"
+line = "FMU"
+
+[source.fmusim-linux]
+name = "fmusim v0.7.0 for x86_64-linux (Modelica Association, BSD-2-Clause)"
+url = "https://github.com/modelica/fmusim/releases/download/v0.7.0/fmusim-x86_64-linux.zip"
+file = "fmusim-0.7.0/fmusim-x86_64-linux.zip"
+sha256 = "85d19b9b23ad54d8bbac30d4032ff08b7311e220cf07ffbf434234d63ca2beb9"
+line = "FMU"
+
+[[changes]]
+date = "2026-11-07"
+line = "SWEEP"
+change = """[sweep] faults: the sampled blocks also get a Sample Time of 0, 5 ms and 15 ms (today's solver step is \
+10 ms), besides half, one and three of the case's output steps and 5 s: 36 sampled faults become 63."""
+reason = """The independent check of 7 November: on a cycle the output step is 1 s, so every Sample Time of the \
+sweep was over today's solver step and held (NEW-SAMPLED), and no PID the new path runs was compared on a \
+cycle; such a PID at its limit stops the new engine and quick mode where today's succeeds (KNOWN-LIMITS). \
+No pass mark moves."""
+
+[[changes]]
+date = "2026-11-07"
+line = "SWEEP"
+change = """[sweep] measure: a live case is run a fourth time as the app runs it (the new path not strict, with a view); \
+a live run the new engine fails where today's does not fail is a mismatch. [codes] lists NEW-LIVE-ERROR-AXIS, \
+the code of a live run sent to today's engine before it starts. The [sweep] cases text lists the seven Sample \
+Times the change of the same day added."""
+reason = """The second independent check of 7 November: in the app a live run the new engine fails is not run again \
+on today's engine, but the sweep's strict run counts it as handed back (NEW-FAILED) and skipped today's run; \
+the BEV's live city case with its E-Motor's drag table cut at the top of its speed axis and set to Error fails \
+at 24 s in the app where today's succeeds. No pass mark moves."""
+
+[[changes]]
+date = "2026-11-07"
+line = "SWEEP"
+change = """[sweep] cases: the alone and sampled faults (a part of every library component on nothing; a PID, a \
+1D and a 2D Lookup, seven Sample Times) are also built on the two live cases. [codes]: NEW-LIVE-ERROR-AXIS is decided before the run, and \
+NEW-LIVE-PID is added."""
+reason = """The third independent check of 7 November: the new path ran a project with an axis set to Error \
+once in full before a run with a view (every example BEV's, every run the app starts), reading no Stop (the \
+STREAM S2 probe failed here: p95 0.675 s), and it handed back only a stop at a table, so a live run of the BEV's \
+city case with a PID at its limit failed at 309 s where today's succeeds; the sweep had no sampled fault on a \
+live case, so its live compare never met a PID, nor any part alone (the same hole: a strict hand-back on a \
+fault base hides a live run that fails). No pass mark moves."""
+
+[[changes]]
+date = "2026-11-07"
+line = "SWEEP"
+change = """[sweep] cases: an over-speed fault on all 16 cases (every Final Drive ratio times 3, alone and on a 6 % downhill grade)."""
+reason = """The fourth independent check of 7 November: a motor driven past its maximum speed (the example BEV with its Final Drive x3 on a downhill grade) failed every run with a view on the new path (RUN-TABLE, the full-load and loss maps read past their data on Error, above the maximum speed where the inverter is off) where today's engine only warns; the sweep built no such fault. The motor now reads the maps at its speed held to the maximum. No pass mark moves."""
+
+[[changes]]
+date = "2026-11-07"
+line = "SWEEP"
+change = """[sweep] measure: every fault, not only a live case's, is run as the app runs it (not strict, with a view) and compared with today's like a strict run; one run again on today's engine is handed back with its code. [codes]: NEW-LIVE-RESTART is added."""
+reason = """The fifth independent check of 7 November: 13 of the over-speed faults failed in the app (a run the new engine stops after showing points was not run again) where today's engine warns or succeeds, and the sweep counted 10 of them as strict hand-backs, because its app-style run was made only on live cases, though every run the app starts has a view (the generator did not find the BEV WLTC downhill case). A run the new engine stops after points, with no Stop or edit read, now starts again on today's engine, the view told. No pass mark moves."""
+
+[[changes]]
+date = "2026-11-09"
+line = "SWEEP"
+change = """Two changes, both written here before step 2's acceptance run. (1) Recorded after the fact: 55e293f (7 November) changed the [sweep] measure after the sweep's measured run with no entry here. It added that a note of a restart or a refusal must not change a handed-back run's verdict, while the warning of a case the new engine could not run "is on purpose and may"; so the 241 app-style runs whose verdict that warning turned from today's success into a warning were not counted as mismatches. (2) The pass mark moves, by the owner's decision: 0 mismatches over every fault after the fixes, apart from two known issues recorded in engine/STATUS.md ("Known issues left at the end of step 2") and docs/KNOWN-LIMITS.md: (a) a case the new engine fails before its first point, handed to today's engine, whose fall-back warning turns today's success into a warning; (b) overspeed:hybrid-car/case-hwfet:down, where the new engine also gives the battery's "charging exceeds max charge power" warning. Each must be reported with its count. Nothing else is excused: a run started again on today's engine after a NEW-ERROR is a mismatch, whatever sweep.compare counts it as."""
+reason = """The sweep's last independent check (re-check 5, 8 November) found the change in (1) made after the measured run with no entry, and both (a) and (b) still open. On 9 November the owner decided to record what that check left open as known issues and move on ("just record them as known issues and move on"), rather than run more fix rounds. Writing both here keeps the acceptance honest: the exception is named, counted and dated before the run that judges it."""

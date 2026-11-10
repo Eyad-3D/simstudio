@@ -108,6 +108,10 @@ export interface ElementInstance {
   size?: { width: number; height: number } | null;
   isSubSystem?: boolean;
   subSystemId?: string | null;
+  /** A text component: the path of a file holding the part as one component
+   *  in the new engine's text format, built in the place of its built-in
+   *  definition (a path that is not absolute: from the projects folder). */
+  textFile?: string | null;
   /** Where each parameter value comes from (CON-13), by parameter key. */
   parameterSources?: Record<string, ParameterSource>;
 }
@@ -191,6 +195,13 @@ export interface SimCase {
    * battery (and is not paced).
    */
   chargeBalance?: boolean | null;
+  /**
+   * "quick": the new engine's fast mode (the cycle's speed prescribed, the
+   * Driver's pedal worked out back from it, limits flagged, not acted on):
+   * a cycle's totals, without the peaks, the verdict or the reports. A case
+   * it does not run runs in full, saying why. Absent = "full".
+   */
+  mode?: "full" | "quick";
   /** Distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3: 0.30 m). */
   startLine?: number;
   /** A time to compare the acceleration test's time with, s; null = none. */
@@ -524,15 +535,27 @@ export interface SimResult {
   /** the case's expected values and the hand calculations, graded (absent
    *  on runs from before 0.3) */
   references?: ReferenceCheck[];
+  /** what ran it: the engine ("today" or "new"), its version and the solver
+   *  options it ran with (absent on runs from before 0.4) */
+  engine?: string | null;
+  engineVersion?: string | null;
+  solverOptions?: Record<string, number> | null;
+  /** the live edits the run made, each at the simulated time the run had
+   *  reached when the engine took it (absent on runs from before 0.4) */
+  liveEdits?: LiveEdit[];
 }
 
 /** A scalar parameter change sent to the engine while a run was going. */
 export interface LiveEdit {
-  /** simulated time the run had reached when the edit was sent, s */
+  /** simulated time the run had reached when the edit was sent (or, from
+   *  the result, when the engine took it), s */
   t: number;
   elementId: string;
   key: string;
   value: ScalarValue;
+  /** for an edit the run did not make (it takes effect on the next run):
+   *  the result's note of it, which says why, with its code */
+  note?: string | null;
 }
 
 /** What made a run (RES-09): enough to tell which model and settings
@@ -547,8 +570,14 @@ export interface RunSnapshot {
   /** SHA-256 of the project as canonical JSON, hex (absent where the
    *  browser offers no Web Crypto) */
   modelHash?: string;
-  /** scalar parameter edits made while it ran, in order */
+  /** scalar parameter edits made while it ran, in order: the engine's own
+   *  list, from the result, where it has one */
   liveEdits: LiveEdit[];
+  /** the engine that ran it, its version and its solver options, from the
+   *  result (absent on runs from before 0.4) */
+  engine?: string | null;
+  engineVersion?: string | null;
+  solverOptions?: Record<string, number> | null;
 }
 
 /** One recorded simulation run. Finished runs are stored on disk with their

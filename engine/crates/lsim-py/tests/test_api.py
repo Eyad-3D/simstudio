@@ -686,3 +686,503 @@ def test_runs_from_several_python_threads(bev):
     for t in threads:
         t.join()
     assert len(results) == 3 and len(set(results)) == 1
+
+
+# ---- a run's control: stop, its points as it records them, live changes ----
+
+def _start(model, control, **kw):
+    """`model.simulate(control=control, **kw)` in a thread of its own; once
+    the run has started."""
+    out = {}
+
+    def work():
+        try:
+            out["run"] = model.simulate(control=control, **kw)
+        except BaseException as e:  # noqa: BLE001 — told by the test
+            out["error"] = e
+
+    th = threading.Thread(target=work)
+    th.start()
+    while not control.channels and th.is_alive():  # (set as the run starts)
+        time.sleep(0.001)
+    return th, out
+
+
+def _drive(model, control, during=None, **kw):
+    """The run with its points read as it goes; `during(control)` between
+    reads."""
+    th, out = _start(model, control, **kw)
+    points = []
+    while True:
+        got = control.points(0.05)
+        points += got
+        if during:
+            during(control)
+        if not th.is_alive() and not got:
+            break
+    th.join()
+    if "error" in out:
+        raise out["error"]
+    return out["run"], points
+
+
+def _bits(a) -> bytes:
+    return np.asarray(a, dtype=np.float64).tobytes()
+
+
+def test_a_control_streams_every_point_of_the_result(bev, bev_run):
+    """Every output point, as the run records it, through a queue the run
+    waits on when it is full (8 points here): the result's, bit for bit."""
+    c = le.RunControl(queue=8)
+    run, points = _drive(bev, c)
+    assert run.report["stopped"] is None and c.finished and not c.cancelled
+    assert _bits(run.times) == _bits(bev_run.times)  # (a control changes nothing)
+    assert all(_bits(v) == _bits(bev_run.channels[n]) for n, v in run.channels.items())
+    assert len(points) == len(run.times)
+    for k, (t, values) in enumerate(points):
+        assert t == run.times[k]
+        for name, v in zip(c.channels, values):
+            assert _bits([v]) == _bits(run.channels[name][k:k + 1]), (name, k)
+    assert set(c.channels) == set(run.channels)
+
+
+def test_a_control_stops_the_run_where_it_is(bev):
+    """A stop ends the run at the end of the step it takes: its points up
+    to there and a last one there, the books closed; a control with no
+    queue (the default) keeps no points and holds nothing up."""
+    c = le.RunControl()
+    th, out = _start(bev, c)
+    while c.t < 500 and th.is_alive():
+        time.sleep(0.001)
+    asked = time.perf_counter()
+    c.cancel()
+    th.join()
+    took = time.perf_counter() - asked
+    run = out["run"]
+    stopped = run.report["stopped"]
+    assert 500 <= stopped < 600 and run.times[-1] == stopped, stopped
+    assert run.times[-2] == np.floor(stopped) and len(run.times) < 1801
+    assert all(len(v) == len(run.times) for v in run.channels.values())
+    assert run.energy["relative_closure"] < 1e-8
+    assert c.points(0.0) == [] and c.cancelled
+    assert took < 0.5, took  # (stopped within a step; not the judged latency)
+
+
+def test_the_run_goes_on_while_python_holds_its_lock(bev):
+    """The engine never waits for the interpreter's lock while it runs: it
+    goes on while this thread keeps the lock (a switch interval of 10 s and
+    a busy loop)."""
+    c = le.RunControl()
+    th, _ = _start(bev, c)
+    while c.t <= 0 and th.is_alive():
+        time.sleep(0.001)
+    before = sys.getswitchinterval()
+    sys.setswitchinterval(10.0)
+    try:
+        t0, start = time.perf_counter(), c.t
+        while time.perf_counter() - t0 < 0.3:
+            pass
+        moved = c.t - start
+    finally:
+        sys.setswitchinterval(before)
+    th.join()
+    assert moved > 0 or c.t >= 1800
+
+
+def test_a_live_change_is_made_at_the_next_output_time_and_made_again_exactly(bev):
+    """A live change (`RunControl.set_params`) is taken at the run's next
+    step and made at the first output time after it, as an event; the run
+    given it again (`simulate(edits=...)`, the time it was taken) is the
+    same bit for bit. What `set_params` refuses: a structural parameter, a
+    bound one given otherwise than its binding makes it, a control that
+    serves no run, a control given to a second run."""
+    asked = {}
+
+    def change(c):
+        if not asked and c.t >= 300:
+            asked["at"] = c.t  # (before: the run goes on meanwhile)
+            c.set_params({CD: 0.35})
+
+    c = le.RunControl()
+    run, _ = _drive(bev, c, change)
+    (e,) = run.report["edits"]
+    assert e["params"] == {CD: 0.35}
+    assert asked["at"] <= e["t"] < e["at"] == np.floor(e["t"]) + 1.0  # (the case's 1 s grid)
+    k = list(run.times).index(e["at"])
+    assert any(ev["kind"] == "params" and ev["t"] == e["at"] for ev in run.events)
+    again = bev.simulate(edits=[(e["t"], e["params"])])
+    assert again.report["edits"] == run.report["edits"]
+    for name, v in run.channels.items():
+        assert _bits(v) == _bits(again.channels[name]), name
+    assert _bits(run.times[:k]) == _bits(bev.simulate().times[:k])
+
+    with pytest.raises(ValueError, match="serves no run"):
+        le.RunControl().set_params({CD: 0.3})
+    with pytest.raises(ValueError, match="one each"):
+        bev.simulate(control=c)
+    c = le.RunControl()
+    th, _ = _start(bev, c)
+    try:
+        with pytest.raises(ValueError, match="structure"):
+            c.set_params({MASS: 1500.0})
+        mu = "el_wheel_fl.mu"
+        with pytest.raises(ValueError, match="bound"):
+            c.set_params({mu + "0": 0.5})
+        c.set_params({mu: 0.9, mu + "0": 0.9})  # (as its binding makes it)
+    finally:
+        c.cancel()
+        th.join()
+
+
+def test_an_acceleration_test_streams_its_last_run_and_takes_no_change_in_it():
+    """An acceleration test runs again to the moment it crosses the finish:
+    a control is told the points of that last run only (the result's, bit
+    for bit), which takes the changes its first run made, at their times,
+    and no others. Its changes made again from the times its first run took
+    them give the same run."""
+    fs = le.build((BACKEND / "projects" / "fs-electric.json").read_text(encoding="utf-8"),
+                  "case-accel-75m")
+    refused = []
+
+    def late(c):
+        if not refused:
+            try:
+                c.set_params({"el_vehicle.cd": 1.0})
+            except ValueError as e:
+                refused.append(str(e))
+
+    c = le.RunControl(queue=4)
+    run, points = _drive(fs, c, late)
+    assert run.report["reran_to_finish"]
+    assert [p[0] for p in points] == list(run.times)
+    for k, (_, values) in enumerate(points):
+        for name, v in zip(c.channels, values):
+            assert _bits([v]) == _bits(run.channels[name][k:k + 1]), (name, k)
+    assert refused and "next run" in refused[0], refused
+
+    changed = fs.simulate(edits=[(0.5, {"el_vehicle.cd": 1.0})])
+    (e,) = changed.report["edits"]
+    assert changed.report["reran_to_finish"] and e["at"] == 0.51
+    assert changed.times[-1] != fs.simulate().times[-1]  # (another drag: another finish)
+    again = fs.simulate(edits=[(e["t"], e["params"])])
+    assert _bits(again.times) == _bits(changed.times)
+    for name, v in changed.channels.items():
+        assert _bits(v) == _bits(again.channels[name]), name
+
+
+# ---- FMU parts --------------------------------------------------------------
+
+def _fmu_project(h=0.1, wired=True, duration=1.0):
+    """A project of an FMU block (its file is never read here: the caller's
+    function is its host) and, when `wired`, a Constant 2.0 into its input;
+    its Communication Step `h`."""
+    sig = {"kind": "signal", "unitGroup": "No Unit"}
+    pos = {"x": 0, "y": 0}
+    fmu = {"id": "el-fmu", "componentDefId": "signal.fmu", "label": "Lag", "position": pos,
+           "parameterOverrides": {"fmu_path": "lag.fmu", "sample_time_s": h},
+           "dynamicPorts": [{"id": "fmu_u", "name": "u", "direction": "input", **sig},
+                            {"id": "fmu_y", "name": "y", "direction": "output", **sig}]}
+    elements = [fmu]
+    links = []
+    if wired:
+        elements.append({"id": "el-src", "componentDefId": "signal.constant", "label": "Source",
+                         "position": pos, "parameterOverrides": {"value": 2.0}})
+        links.append({"id": "db-1", "element1Id": "el-src", "port1Id": "sig_out",
+                      "element2Id": "el-fmu", "port2Id": "fmu_u"})
+    return json.dumps({"id": "fmu", "name": "FMU", "systems": [
+        {"id": "sys", "name": "Main", "elements": elements, "connections": []}],
+        "dataBusConnections": links,
+        "cases": [{"id": "case", "name": "Case", "duration": duration, "timeStep": h}]})
+
+
+def test_an_fmu_part_runs_the_callers_function_at_its_communication_points():
+    """An FMU part's host is the caller's function: called once at the
+    start and at every multiple k*h of its Communication Step from 0 s (the
+    times exactly k*h, as an FMU host's communication points), its inputs
+    read there, its outputs held until the next call and recorded at an
+    output time on a call as the call left them."""
+    h = 0.1
+    model = le.build(_fmu_project(h), "case")
+    (block,) = model.report["case"]["sampled_blocks"]
+    assert block["kind"] == "fmu" and block["id"] == "el-fmu" and block["period"] == h
+    calls = []
+
+    def lag(t, dt, inputs):
+        calls.append((t, dt, dict(inputs)))
+        return {"fmu_y": 10.0 * t + inputs["fmu_u"]}
+
+    run = model.simulate(fmus={"el-fmu": lag})
+    times = [c[0] for c in calls]
+    assert times[0] == 0.0  # the start
+    assert times[1:] == [k * h for k in range(len(times) - 1)], times
+    assert times[-1] == pytest.approx(1.0)
+    assert all(c[2] == {"fmu_u": 2.0} for c in calls), calls[:3]
+    assert _bits(run.times) == _bits([k * h for k in range(11)])
+    assert _bits(run.channels["el-fmu:fmu_y"]) == _bits([10.0 * k * h + 2.0 for k in range(11)])
+    # the label is a key too
+    again = le.build(_fmu_project(h), "case").simulate(fmus={"Lag": lag})
+    assert _bits(again.channels["el-fmu:fmu_y"]) == _bits(run.channels["el-fmu:fmu_y"])
+
+
+def test_an_fmu_part_without_a_function_or_with_a_wrong_key_is_refused():
+    """The engine loads no FMU's code: an FMU part given no function fails
+    the run with RUN-FMU naming the part, and a key of `fmus` that names no
+    FMU part (or an FMU part's key under `scripts`) is a ValueError."""
+    model = le.build(_fmu_project(), "case")
+    with pytest.raises(le.ModelError) as e:
+        model.simulate()
+    (d,) = e.value.diagnostics
+    assert d["code"] == "RUN-FMU" and d["parts"] == ["el-fmu"] and "fmus={'el-fmu': f}" in d["hint"]
+    with pytest.raises(ValueError, match="names no FMU part") as e:
+        model.simulate(fmus={"el-lag": lambda t, h, i: {}})
+    assert "'el-fmu' (Lag)" in str(e.value)
+    with pytest.raises(ValueError, match="no FMU parts"):
+        le.build(BEV, WLTC).simulate(t_end=5.0, fmus={"el-fmu": lambda t, h, i: {}})
+    with pytest.raises(TypeError, match="fmus"):
+        model.simulate(fmus=42)
+    with pytest.raises(ValueError, match="no Script parts"):
+        model.simulate(scripts={"el-fmu": lambda t, h, i: {}})
+
+
+# ---- fast mode ---------------------------------------------------------------
+
+def test_fast_mode_runs_a_drive_cycle_case_with_todays_channels_and_figures(bev_run):
+    """Fast mode on the BEV's WLTC: today's channels and figures, the
+    cycle's speed followed (prescribed, so the Vehicle's speed is the
+    cycle's at its samples), no flag, and its charge used within 1 % of the
+    full run's (DESIGN.md section 10's band)."""
+    run = le.fast(BEV, WLTC)
+    fast = run.report["fast"]
+    assert fast["step"] == 1.0 and fast["flags"] == [] and fast["steps"] > 1000
+    assert run.times[0] == 0.0 and run.times[-1] == pytest.approx(1800.0)
+    assert "el-battery:sig_soc" in run.channels and "el-vehicle:sig_speed" in run.channels
+    keys = [f["key"] for f in run.figures]
+    assert keys[:3] == [f["key"] for f in bev_run.figures][:3]
+
+    def used(r):
+        return 100.0 - figure(r, "el-battery.final_soc_pct")  # (the BEV starts full)
+    start = bev_run.channels["el-battery:sig_soc"][0]
+    assert run.channels["el-battery:sig_soc"][0] == start
+    full, quick = start - figure(bev_run, "el-battery.final_soc_pct"), start - figure(run, "el-battery.final_soc_pct")
+    assert abs(quick / full - 1.0) < 0.01, (quick, full)
+    assert figure(run, "distance_km") == pytest.approx(figure(bev_run, "distance_km"), rel=0.01)
+
+
+def test_fast_mode_refuses_what_it_cannot_run_with_its_codes():
+    """An acceleration test has no cycle (FAST-NO-CYCLE); the hybrid's
+    supervisory Script reads the pedal (FAST-SAMPLED-CONTROL); a sampled
+    part elsewhere has no host in fast mode (FAST-SAMPLED); a bad step is a
+    ValueError."""
+    fs = (BACKEND / "projects" / "fs-electric.json").read_text(encoding="utf-8")
+    with pytest.raises(le.ModelError) as e:
+        le.fast(fs, "case-accel-75m")
+    assert [d["code"] for d in e.value.diagnostics] == ["FAST-NO-CYCLE"]
+    with pytest.raises(le.ModelError) as e:
+        le.fast(HYBRID, "case-udds")
+    assert "FAST-SAMPLED-CONTROL" in [d["code"] for d in e.value.diagnostics]
+    p = json.loads(BEV)
+    p["systems"][0]["elements"].append(
+        {"id": "el-s", "componentDefId": "signal.script", "label": "Spare", "position": {"x": 0, "y": 0},
+         "parameterOverrides": {"code": "pass", "sample_time_s": 0.1}, "dynamicPorts": []})
+    with pytest.raises(le.ModelError) as e:
+        le.fast(json.dumps(p), WLTC)
+    assert [d["code"] for d in e.value.diagnostics] == ["FAST-SAMPLED"] and "Spare" in str(e.value)
+    with pytest.raises(ValueError, match="step"):
+        le.fast(BEV, WLTC, step=0.0)
+
+
+
+@pytest.mark.parametrize("ambient_c", [65.0, -70.0])
+def test_fast_mode_reports_the_tables_it_read_past_their_data(ambient_c):
+    """The BEV's city cycle with its Ambient past the Climate Control's
+    demand table (-20 to 40 C): fast mode's table_outside records, from its
+    points, give the full run's: the table, its axis, how long, from when,
+    how far and its edge. At 20 C it reads none."""
+    p = json.loads(BEV)
+    case = next(c for c in p["cases"] if c["id"] == "case-city")
+    keys = ("table", "part", "axis", "total", "first", "furthest", "edge", "lo", "hi")
+
+    def records(run):
+        return [{k: d[k] for k in keys} for d in run.table_outside]
+    case.setdefault("parameterOverrides", {}).setdefault("el-ambient", {})["temperature_C"] = ambient_c
+    j = json.dumps(p)
+    fast, full = records(le.fast(j, "case-city")), records(le.build(j, "case-city").simulate())
+    assert [d["table"] for d in fast] == ["el_climate.demand_table"]
+    assert fast == full
+    case["parameterOverrides"]["el-ambient"]["temperature_C"] = 20.0
+    assert le.fast(json.dumps(p), "case-city").table_outside == []
+
+
+@pytest.mark.parametrize("axis", [0, 1])
+def test_fast_mode_stops_at_a_table_axis_set_to_error(axis):
+    """The BEV's E-Motor Power Loss map, both of whose axes are set to
+    Error, cut to 4000 1/min (its first axis) or 50 N.m (its second) on the
+    WLTC: a full run stops where the motor leaves the data; so does fast
+    mode, FAST-TABLE-ERROR naming the table and the axis (before: it ran the
+    whole cycle, its record a table read past its data). With the map whole
+    neither stops."""
+    p = json.loads(BEV)
+    motor = next(e for e in p["systems"][0]["elements"] if e["id"] == "el-motor")
+    loss = motor["parameterOverrides"]["power_loss"]
+    motor["parameterOverrides"]["power_loss"] = (
+        {k: v for k, v in loss.items() if float(k) <= 4000.0} if axis == 0
+        else {k: {x: y for x, y in v.items() if float(x) <= 50.0} for k, v in loss.items()})
+    j = json.dumps(p)
+    with pytest.raises(le.ModelError) as e:
+        le.fast(j, WLTC)
+    assert [d["code"] for d in e.value.diagnostics] == ["FAST-TABLE-ERROR"]
+    which = "first" if axis == 0 else "second"
+    assert f"the table 'el_motor.power_loss' was read outside its data on its {which} axis" in str(e.value)
+    with pytest.raises(le.ModelError, match="outside = Error"):
+        le.build(j, WLTC).simulate()
+    assert le.fast(BEV, WLTC).table_outside == []
+
+
+@pytest.mark.parametrize("part,table,keep,edge", [
+    ("el-motor", "power_loss", 1000.0, 1000.0 * np.pi / 30.0),
+    ("el-battery", "ocv_table", 89.5, 0.9)])
+def test_a_table_whose_data_stop_short_of_where_it_is_read_is_watched_there(part, table, keep, edge):
+    """The E-Motor's Power Loss map from 1000 1/min (the motor stands at 0
+    at the start), or the battery's OCV table for 90-100 % SOC (the city
+    cycle starts at 90 % and goes below), set to Error: a full run and fast
+    mode stop, as today's engine does, FAST-TABLE-ERROR in fast mode
+    (before: the engine padded the table past its first point, so neither
+    watched it there and both ran the whole cycle). With Clamp, fast mode
+    and the full run record the same table read past that first point."""
+    p = json.loads(BEV)
+    el = next(e for e in p["systems"][0]["elements"] if e["id"] == part)
+    lib = json.loads((BACKEND / "app" / "library" / "components.json").read_text(encoding="utf-8"))
+    kind = next(c for c in lib["components"] if c["id"] == el["componentDefId"])
+    data = el["parameterOverrides"].get(table) or next(
+        x["default"] for x in kind["parameters"] if x["key"] == table)
+    el["parameterOverrides"][table] = {k: v for k, v in data.items() if float(k) >= keep}
+    axes = 2 if table == "power_loss" else 1
+    for policy in ("error", "clamp"):
+        el["tableOutside"] = {table: [policy] * axes}
+        j = json.dumps(p)
+        if policy == "error":
+            with pytest.raises(le.ModelError) as e:
+                le.fast(j, "case-city")
+            assert [d["code"] for d in e.value.diagnostics] == ["FAST-TABLE-ERROR"]
+            with pytest.raises(le.ModelError, match="outside = Error"):
+                le.build(j, "case-city").simulate()
+            continue
+        fast = le.fast(j, "case-city").table_outside
+        full = le.build(j, "case-city").simulate().table_outside
+        # (one record per read of the table in the part's equations)
+        assert {(d["table"], d["axis"]) for d in fast} == {(f"{part.replace('-', '_')}.{table}", 0)}
+        assert all(d["edge"] == d["lo"] == pytest.approx(edge) and d["total"] > 0 for d in fast)
+        assert {(d["table"], d["axis"], d["edge"]) for d in full} == {
+            (d["table"], d["axis"], d["edge"]) for d in fast}
+
+
+def test_fast_mode_counts_float_noise_at_an_edge_as_inside():
+    """The BEV's Ambient at 40 °C + 1e-9, its climate demand table's last
+    point being 40 °C and its axis set to Error: today's engine counts a
+    point within 1e-9 of the larger end past an edge as inside, and runs
+    the case; so does fast mode, with no record (before: FAST-TABLE-ERROR
+    at t = 0)."""
+    p = json.loads(BEV)
+    els = {e["id"]: e for e in p["systems"][0]["elements"]}
+    case = next(c for c in p["cases"] if c["id"] == "case-city")
+    case.setdefault("parameterOverrides", {}).setdefault("el-ambient", {})["temperature_C"] = 40.0 + 1e-9
+    els["el-climate"]["tableOutside"] = {"demand_table": ["error"]}
+    assert le.fast(json.dumps(p), "case-city").table_outside == []
+    case["parameterOverrides"]["el-ambient"]["temperature_C"] = 40.001  # (past it: stops)
+    with pytest.raises(le.ModelError) as e:
+        le.fast(json.dumps(p), "case-city")
+    assert [d["code"] for d in e.value.diagnostics] == ["FAST-TABLE-ERROR"]
+
+
+# ---- text components ---------------------------------------------------------
+
+def test_a_part_built_from_its_text_gives_the_same_run(bev_run):
+    """part_text prints the definition the import makes for a part; the
+    part built from that text (build(texts=...)) gives the same run, every
+    channel bit for bit."""
+    text = le.part_text(BEV, WLTC, "el-battery")
+    assert text.lstrip().startswith(("model", "block", "partial", "connector", "within", "//", "\""))
+    run = le.build(BEV, WLTC, texts={"el-battery": text}).simulate()
+    assert _bits(run.times) == _bits(bev_run.times)
+    for name, v in bev_run.channels.items():
+        assert _bits(run.channels[name]) == _bits(v), name
+
+
+def test_a_changed_text_changes_only_its_own_part():
+    """A text that changes the part's equations is that part's own: the
+    run reads it (the drag coefficient's term doubled moves the result),
+    and a definition another part shares is not touched."""
+    text = le.part_text(BEV, WLTC, "el-vehicle")
+    plain = le.build(BEV, WLTC).simulate(t_end=60.0)
+    changed_text = text.replace("max(cd, 0)", "2 * max(cd, 0)", 1)  # (twice the drag)
+    assert changed_text != text
+    changed = le.build(BEV, WLTC, texts={"el-vehicle": changed_text}).simulate(t_end=60.0)
+    assert _bits(changed.channels["el-battery:sig_soc"]) != _bits(plain.channels["el-battery:sig_soc"])
+    # the four wheels share one definition: one wheel's changed text (twice
+    # its rolling resistance) is not the four's
+    wheels = ["el-wheel-fl", "el-wheel-fr", "el-wheel-rl", "el-wheel-rr"]
+    wheel = le.part_text(BEV, WLTC, wheels[0])
+    assert all(le.part_text(BEV, WLTC, w) == wheel for w in wheels)
+    doubled = wheel.replace("f_rr = c_rr * N", "f_rr = 2 * c_rr * N", 1)
+    assert doubled != wheel
+
+    def soc(texts):
+        return _bits(le.build(BEV, WLTC, texts=texts).simulate(t_end=60.0).channels["el-battery:sig_soc"])
+    one, four = soc({wheels[0]: doubled}), soc({w: doubled for w in wheels})
+    assert len({one, four, _bits(plain.channels["el-battery:sig_soc"])}) == 3
+
+
+def test_a_text_that_does_not_fit_its_part_is_refused_with_its_code():
+    text = le.part_text(BEV, WLTC, "el-battery")
+    cases = {
+        "TEXT-PARSE": ("el-battery", "model Broken\n  Real x\nend Broken;"),
+        "TEXT-NO-PART": ("el-nothing", text),
+    }
+    for code, (el, t) in cases.items():
+        with pytest.raises(le.ModelError) as e:
+            le.build(BEV, WLTC, texts={el: t})
+        assert [d["code"] for d in e.value.diagnostics] == [code], (code, str(e.value))
+    # another part's text: its ports are not the battery's
+    other = le.part_text(BEV, WLTC, "el-vehicle")
+    with pytest.raises(le.ModelError) as e:
+        le.build(BEV, WLTC, texts={"el-battery": other})
+    assert [d["code"] for d in e.value.diagnostics] == ["TEXT-PORTS"]
+    with pytest.raises(le.ModelError) as e:
+        le.part_text(HYBRID, "case-udds", "el-hcu")
+    assert [d["code"] for d in e.value.diagnostics] == ["TEXT-SAMPLED"]
+
+
+def test_table_sites_lists_every_table_read_of_the_blocks():
+    """le.table_sites() lists every table read in the library's blocks, in
+    every configuration, once each: its component id, its table and the
+    abscissa of each axis as the block's equations write it. A Fuel Cell
+    Stack reads its curve at its current and at its Maximum Current (its
+    most power), an E-Motor with a supply window its loss map at no torque
+    too, a Lookup in the Mode 2D its table at both its inputs."""
+    sites = le.table_sites()
+    got = {(s["component"], s["table"], tuple(s["at"])) for s in sites}
+    assert len(got) == len(sites)
+    assert {("fuelcell.stack", "polarization", ("I",)),
+            ("fuelcell.stack", "polarization", ("i_max",)),
+            ("motor.emotor", "power_loss", ("wa", "0 * unit_N_m")),
+            ("signal.lookup", "table", ("sig_x_in", "sig_y_in"))} <= got
+
+
+@pytest.mark.parametrize("fast", [False, True])
+def test_a_runs_table_reads_are_each_reads_abscissa(bev_run, fast):
+    """run.table_reads gives each read of a table in the model, one per
+    place a part reads it and per axis, with the abscissa it read at each
+    output point, from the model itself: the BEV's E-Motor reads its drag
+    table at its speed's magnitude and its loss map on both axes, its
+    battery its OCV table at its SOC held to 0-1. Fast mode's alike."""
+    run = le.fast(BEV, WLTC) if fast else bev_run
+    reads = run.table_reads
+    assert reads and all(r["values"].shape == run.times.shape for r in reads)
+    ch = run.engine_channels
+    drag = [r for r in reads if r["table"] == "el_motor.drag_torque"]
+    assert [(r["part"], r["axis"]) for r in drag] == [("el-motor", 0)]
+    np.testing.assert_array_equal(drag[0]["values"], ch["el_motor.wa"])
+    ocv = [r for r in reads if r["table"] == "el_battery.ocv_table"]
+    np.testing.assert_array_equal(ocv[0]["values"], ch["el_battery.soc_c"])
+    assert {r["axis"] for r in reads if r["table"] == "el_motor.power_loss"} == {0, 1}
+    assert not any(np.isnan(r["values"]).any() for r in reads)

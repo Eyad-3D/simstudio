@@ -160,9 +160,10 @@ export function RunInfo({ run }: { run: SimRun }) {
           ) : (
             <ul>
               {snap.liveEdits.map((e, i) => (
-                <li key={i}>
+                <li key={i} title={e.note ?? undefined}>
                   t ≈ {e.t.toLocaleString(undefined, { maximumFractionDigits: 1 })} s: {paramName(e.elementId, e.key)} ={" "}
                   {String(e.value)}
+                  {e.note && " (not made: on the next run)"}
                 </li>
               ))}
             </ul>

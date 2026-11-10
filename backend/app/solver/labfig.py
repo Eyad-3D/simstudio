@@ -25,6 +25,7 @@ closes) is the engine area's ENG-33; this module only reports.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from .. import cycles
@@ -83,6 +84,35 @@ def _num(params: dict, key: str, default: float) -> float:
         return float(params.get(key, default))
     except (TypeError, ValueError):
         return default
+
+
+# the lab-style rows' base rows, by their keys (lab_rows): a row shares its
+# base row's validity
+_BASE = {"consumption_ac_kwh_per_100km": "Consumption", "mpge_ac": "Consumption",
+         "range_km": "Consumption", "battery_energy_change_pct_of_fuel": "Fuel consumption",
+         "fuel_consumption_corrected_l_per_100km": "Fuel consumption",
+         "ftp_consumption_kwh_per_100km": "Consumption",
+         "ftp_fuel_consumption_l_per_100km": "Fuel consumption"}
+_PHASE = re.compile(r"phase\d+_(distance_km|consumption_kwh_per_100km|fuel_consumption_l_per_100km)$")
+
+
+def lab_base(rows: list[SummaryValue], electric: bool) -> dict[str, str]:
+    """For the lab-style rows among ``rows`` (as lab_rows makes them, by
+    their keys), the base row whose validity each shares, by label: what
+    lab_rows gives today's engine, for rows the new engine computes
+    (``electric``: the run used no fuel, had no fuel cell and took energy
+    from its batteries)."""
+    out: dict[str, str] = {}
+    for r in rows:
+        base = _BASE.get(r.key)
+        m = _PHASE.match(r.key)
+        if m:
+            base = {"consumption_kwh_per_100km": "Consumption",
+                    "fuel_consumption_l_per_100km": "Fuel consumption"}.get(
+                m.group(1), "Consumption" if electric else "Fuel consumption")
+        if base:
+            out[r.label] = base
+    return out
 
 
 def lab_rows(ctx, model, log: LabLog, density_kg_per_l: float,

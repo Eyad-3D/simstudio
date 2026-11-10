@@ -24,6 +24,8 @@ extension-module = ["pyo3/extension-module"]
 [dependencies]
 lsim-engine.workspace = true
 lsim-ir.workspace = true
+lsim-lang.workspace = true
+lsim-lib.workspace = true
 lsim-project.workspace = true
 lsim-script.workspace = true
 lsim-solve.workspace = true

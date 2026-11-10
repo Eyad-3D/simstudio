@@ -2,13 +2,20 @@
 (app/solver/new_engine.py); today's engine stays the default.
 
 The tests that run the new engine need the compiled module ``lightsim_engine``
-(engine/crates/lsim-py, built with maturin); CI's backend jobs do not build
-it, so they skip there."""
+(engine/crates/lsim-py, built with maturin). CI's backend jobs do not build
+it, so they skip there; the Windows engine job builds and installs it and
+runs them with ``LIGHTSIM_REQUIRE_NEW_ENGINE=1``, where a missing module
+fails them instead of skipping them (review finding 18)."""
 from __future__ import annotations
+
+import os
 
 import pytest
 
+from app import studies
+from app.schemas import ElementInstance
 from app.solver import new_engine, simulate
+from app.solver.network import ModelError
 from app.storage import load_example
 
 try:
@@ -17,13 +24,22 @@ try:
 except ImportError as e:
     NEW_ENGINE_MISSING = f"the compiled module lightsim_engine is not installed ({e})"
 
-needs_engine = pytest.mark.skipif(NEW_ENGINE_MISSING is not None, reason=NEW_ENGINE_MISSING or "")
+# where the module must be there, nothing skips for want of it
+REQUIRED = os.environ.get("LIGHTSIM_REQUIRE_NEW_ENGINE", "").strip() == "1"
+needs_engine = pytest.mark.skipif(NEW_ENGINE_MISSING is not None and not REQUIRED,
+                                  reason=NEW_ENGINE_MISSING or "")
 
 WLTC = "case-wltc"
 
 
 def texts(result) -> str:
     return "\n".join(f"{m.level}: {m.text}" for m in result.messages)
+
+
+def test_the_module_is_there_where_it_must_be():
+    if not REQUIRED:
+        pytest.skip("LIGHTSIM_REQUIRE_NEW_ENGINE is not set: the module may be missing here")
+    assert NEW_ENGINE_MISSING is None, NEW_ENGINE_MISSING
 
 
 @pytest.fixture(scope="module")
@@ -46,7 +62,8 @@ def test_new_engine_runs_a_cycle_case_like_today(monkeypatch, today):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
     result = simulate(load_example("bev-car"), WLTC)
     assert result.status in ("success", "warning")
-    assert result.messages[0].level == "info" and "new engine" in result.messages[0].text
+    assert result.messages[0].level == "info"
+    assert result.messages[0].text.startswith("Run on the new engine")
     assert "today's engine" not in texts(result)
 
     # every channel of today's, in today's order (the new engine records a
@@ -84,7 +101,8 @@ def test_new_engine_runs_a_cycle_case_like_today(monkeypatch, today):
 def test_new_engine_runs_an_acceleration_test(monkeypatch):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
     result = simulate(load_example("fs-electric"), "case-accel-75m")
-    assert result.messages[0].level == "info" and "new engine" in result.messages[0].text
+    assert result.messages[0].level == "info"
+    assert result.messages[0].text.startswith("Run on the new engine")
     assert result.channels and result.summary
 
 
@@ -94,18 +112,104 @@ def test_a_lap_case_falls_back_with_a_message(monkeypatch):
     first = result.messages[0]
     assert first.level == "info"
     assert "today's engine" in first.text and "lap" in first.text
+    assert "[NEW-LAP]" in first.text
     assert result.channels  # and it ran
 
 
 def test_a_hybrid_balanced_case_falls_back(monkeypatch):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    assert "charge-balance" in new_engine.unsupported(load_example("hybrid-car"), "case-mixed", None)
+    why = new_engine.unsupported(load_example("hybrid-car"), "case-mixed")
+    assert why.code == "NEW-BALANCE" and "charge-balance" in why.why
 
 
-def test_a_live_run_falls_back(monkeypatch):
+
+
+def _changed(name: str, case_id: str, **case):
+    project = load_example(name)
+    c = next(c for c in project.cases if c.id == case_id)
+    for k, v in case.items():
+        setattr(c, k, v)
+    return project
+
+
+def test_every_refusal_has_its_code():
+    """Each reason the path does not run a case comes with a code of CODES."""
+    cells = load_example("bev-car")
+    battery = next(el for s in cells.systems for el in s.elements if el.id == "el-battery")
+    battery.parameterOverrides["pack_model"] = "Cells"
+    fmu = load_example("bev-car")
+    fmu.systems[0].elements.append(
+        ElementInstance(id="fmu", componentDefId="signal.fmu", label="Lag", position={"x": 0, "y": 0}))
+    single = _changed("hybrid-car", "case-udds", chargeBalance=False)
+    sampled = load_example("bev-car")
+    sampled.systems[0].elements.append(ElementInstance(
+        id="pid", componentDefId="control.pid", label="PID", position={"x": 0, "y": 0},
+        parameterOverrides={"sample_time_s": 0.5}))
+    seen = {
+        "NEW-NOT-FOUND": new_engine.unsupported(load_example("bev-car"), "no-such-case"),
+        "NEW-LAP": new_engine.unsupported(load_example("fs-electric"), "case-autocross"),
+        "NEW-CASE-KIND": new_engine.unsupported(
+            _changed("bev-car", WLTC, kind="performance"), WLTC),
+        "NEW-FS-EVENT": new_engine.unsupported(
+            _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
+        "NEW-BALANCE": new_engine.unsupported(load_example("hybrid-car"), "case-udds"),
+        "NEW-CELLS": new_engine.unsupported(cells, WLTC),
+        "NEW-SAMPLED": new_engine.unsupported(sampled, WLTC),
+        "NEW-LIMITS": new_engine.unsupported(studies._point_project(
+            load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),
+        # quick mode's (a case's mode "quick")
+        "QUICK-NOT-FOUND": new_engine.quick_unsupported(load_example("bev-car"), "no-such-case"),
+        "QUICK-KIND": new_engine.quick_unsupported(load_example("fs-electric"), "case-accel-75m"),
+        "QUICK-BALANCE": new_engine.quick_unsupported(load_example("hybrid-car"), "case-udds"),
+        "QUICK-SAMPLED": new_engine.quick_unsupported(single, "case-udds"),
+        "QUICK-END": new_engine.quick_unsupported(_changed("bev-car", WLTC, endLaps=2.0), WLTC),
+        "QUICK-CELLS": new_engine.quick_unsupported(cells, WLTC),
+        "QUICK-LIMITS": new_engine.quick_unsupported(studies._point_project(
+            load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),
+    }
+    assert {code: why.code for code, why in seen.items()} == {code: code for code in seen}
+    assert all(why.why for why in seen.values())
+    # an FMU part is no reason any more (step 2's item 5)
+    assert new_engine.unsupported(fmu, WLTC) is None or new_engine.unsupported(fmu, WLTC).code == "NEW-MISSING"
+    assert new_engine.quick_unsupported(fmu, WLTC).code == "QUICK-SAMPLED"
+    assert new_engine.quick_unsupported(sampled, WLTC).code == "QUICK-SAMPLED"
+    assert set(seen) | {"NEW-MISSING", "NEW-BUILD", "NEW-FAILED", "NEW-ERROR", "NEW-TEXT", "QUICK-MISSING",
+                        "QUICK-BUILD", "QUICK-FAILED", "QUICK-TABLE-TIME", "QUICK-ERROR",
+                                "NEW-LIVE-ERROR-AXIS", "NEW-LIVE-PID", "NEW-LIVE-RESTART"} == set(new_engine.CODES)
+
+
+def test_a_failure_is_coded_by_who_refused():
+    assert new_engine.failure(ModelError(["No vehicle."])).code == "NEW-BUILD"
+    assert new_engine.failure(KeyError("el-x")).code == "NEW-ERROR"
+
+
+def _no_today(*args, **kwargs):
+    raise AssertionError("strict mode ran the case on today's engine")
+
+
+def test_strict_mode_runs_nothing_on_today_engine(monkeypatch):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    why = new_engine.unsupported(load_example("bev-car"), WLTC, lambda msg: None)
-    assert "live" in why
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    result = new_engine.simulate(load_example("fs-electric"), "case-autocross", None, None, _no_today)
+    assert result.status == "failed" and not result.channels
+    assert [m.level for m in result.messages] == ["error"]
+    assert "[NEW-LAP]" in result.messages[0].text
+
+
+def test_strict_mode_does_not_fall_back_after_a_failure(monkeypatch):
+    def broken(project, case_id, *live):
+        raise KeyError("el-x")
+
+    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    monkeypatch.setattr(new_engine, "unsupported", lambda *args: None)
+    monkeypatch.setattr(new_engine, "run_new", broken)
+    result = new_engine.simulate(load_example("bev-car"), WLTC, None, None, _no_today)
+    assert result.status == "failed" and "[NEW-ERROR]" in result.messages[0].text
+    monkeypatch.delenv(new_engine.STRICT_VAR)
+    fell = new_engine.simulate(load_example("bev-car"), WLTC, None, None,
+                               lambda *args: new_engine.refused(WLTC, new_engine.Refusal("X", "y")))
+    assert "[NEW-ERROR]" in fell.messages[0].text and "today's engine" in fell.messages[0].text
 
 
 def test_without_the_module_it_falls_back(monkeypatch):
@@ -121,6 +225,7 @@ def test_without_the_module_it_falls_back(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", refuse)
     result = simulate(load_example("fs-electric"), "case-accel-75m")
     assert "not installed" in result.messages[0].text and result.channels
+    assert "[NEW-MISSING]" in result.messages[0].text
 
 
 @needs_engine
@@ -128,13 +233,20 @@ def test_a_failing_new_engine_falls_back_with_a_warning(monkeypatch, today):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
 
     def broken(*args, **kwargs):
-        raise lightsim_engine.ModelError("[RUN-INTEGRATOR] the integrator gave up at t = 12 s")
+        e = lightsim_engine.ModelError("[RUN-INTEGRATOR] the integrator gave up at t = 12 s")
+        e.diagnostics = [{"code": "RUN-INTEGRATOR", "severity": "error"}]
+        raise e
 
     monkeypatch.setattr(lightsim_engine, "build", broken)
     result = simulate(load_example("bev-car"), WLTC)
     first = result.messages[0]
     assert first.level == "warning"
     assert "RUN-INTEGRATOR" in first.text and "today's engine" in first.text
+    assert "[NEW-FAILED]" in first.text
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    strict = simulate(load_example("bev-car"), WLTC)
+    assert strict.status == "failed" and not strict.channels
+    assert "[NEW-FAILED]" in strict.messages[0].text and "RUN-INTEGRATOR" in strict.messages[0].text
     assert result.status == "warning"
     assert [s.key for s in result.summary] == [s.key for s in today.summary]
     assert [s.value for s in result.summary] == [s.value for s in today.summary]

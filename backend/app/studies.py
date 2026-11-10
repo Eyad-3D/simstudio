@@ -51,7 +51,12 @@ def _control() -> list[dict]:
 
 
 def run_point(project_json: str, case_id: str) -> tuple[str, float]:
-    """Run one point in a worker: (its SimResult as JSON, wall time in s)."""
+    """Run one point in a worker: (its SimResult as JSON, wall time in s).
+    A sweep point keeps its recorded points, not the peaks between them
+    (ENG-16): those make a run about 5 times larger, and a 200-point sweep
+    would push older runs out of the disk budget; left out here, before
+    the result goes to the server, which then has a quarter as much to
+    read (a stopped study waits for its running points' results)."""
     from .solver import simulate  # imported once per worker, on its first point
 
     t0 = time.perf_counter()
@@ -60,6 +65,8 @@ def run_point(project_json: str, case_id: str) -> tuple[str, float]:
             {"level": "info", "text": "Simulation cancelled by user at t = 0 s."}])
     else:
         result = simulate(Project.model_validate_json(project_json), case_id, None, _control)
+    for ch in result.channels:
+        ch.min = ch.max = ch.mean = None
     return result.model_dump_json(), time.perf_counter() - t0
 
 
@@ -195,11 +202,6 @@ async def run_study(project: Project, case_id: str, points: list[StudyPointSpec]
                         caseId=case_id, status="failed", channels=[],
                         messages=[{"level": "error", "text": f"The run's worker stopped: {e}"}]), 0.0
                 walls.append(wall)
-                # a sweep point keeps its recorded points, not the peaks between
-                # them (ENG-16): those make a run about 5 times larger, and a
-                # 200-point sweep would push older runs out of the disk budget
-                for ch in result.channels:
-                    ch.min = ch.max = ch.mean = None
                 run_id = None
                 pruned: list[str] = []
                 incomplete = _incomplete(result)
@@ -212,13 +214,12 @@ async def run_study(project: Project, case_id: str, points: list[StudyPointSpec]
                         sweepId=options.sweep_id or None, sweepParam=options.sweep_param,
                         sweepValue=pt.values[0] if len(pt.values) == 1 else None,
                         sweepUnit=options.sweep_unit, incomplete=incomplete,
-                        # (set, so the run store, which leaves out unset
-                        # fields, keeps the empty list the app reads)
                         # the model as it was and the case with the point's
                         # value, as a run from the app keeps them (the swept
-                        # value is the run's own, not a change to the model)
-                        snapshot=RunSnapshot(project=project, case=pcase, appVersion=VERSION,
-                                             liveEdits=[]))
+                        # value is the run's own, not a change to the model),
+                        # and what ran it (its live edits a list the run store
+                        # keeps, set: it leaves out unset fields)
+                        snapshot=RunSnapshot.of(project, pcase, result, VERSION))
                     try:
                         _, pruned = await asyncio.to_thread(run_store.save_run, project.id, run)
                     except ValueError:

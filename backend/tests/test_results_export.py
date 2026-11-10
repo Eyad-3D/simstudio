@@ -172,6 +172,22 @@ def test_the_run_card_json_names_every_column():
     assert card["case"]["name"] == "City Cycle"
 
 
+def test_a_live_edit_the_run_did_not_make_keeps_its_note_in_the_run_card():
+    """An edit the run did not make (it takes effect on the next run: the
+    result's note says why) is told so in the JSON card and the .mat
+    file's details; one made has no note."""
+    run = _run("bev-car", "case-city", seconds=5)
+    told = "'E-Motor.max_speed_rpm' changed — next run [NEW-LIVE-NEXT-RUN]."
+    run.snapshot.liveEdits.append(LiveEdit(t=3.5, elementId="el-motor", key="max_speed_rpm",
+                                           value=3000, note=told))
+    rt = results.table(run)
+    card = json.loads(results.run_card_json(rt))
+    assert [(e["key"], e["note"]) for e in card["liveEdits"]] == [("kp", None), ("max_speed_rpm", told)]
+    edits = _load(results.to_mat(rt))["meta"]["live_edits"]
+    assert [e["key"] for e in edits] == ["kp", "max_speed_rpm"]
+    assert len(edits[0]["note"]) == 0 and edits[1]["note"] == told  # (none: an empty text)
+
+
 def test_a_run_without_a_snapshot_still_exports():
     run = _run("bev-car", "case-city", seconds=3)
     bare = run.model_copy(update={"snapshot": None})

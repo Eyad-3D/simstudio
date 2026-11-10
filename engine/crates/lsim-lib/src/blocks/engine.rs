@@ -87,20 +87,26 @@ impl EngineConfig {
     /// scaled), the Engine Scale and the full-load curve's first and last
     /// speeds.
     pub fn values(&self) -> Result<Vec<(String, ParamValue)>, String> {
+        let (n0, n1) = self.full_load.range();
         Ok(vec![
             // the maps are read at a speed held to the full-load curve's
-            // range and at torques of 0 or more: padded past those edges, so
-            // the run loop's watch of an edge never rests on it
+            // range and at torques of 0 or more: padded past those edges
+            // where their data reach them, so the run loop's watch of an
+            // edge never rests on it (a map whose data stop short is
+            // watched there, as today's engine reads it)
             (
                 "full_load_torque".into(),
-                ParamValue::Table(self.full_load.padded(true, true).data("rad/s")?),
+                ParamValue::Table(self.full_load.padded(Some(n0), Some(n1)).data("rad/s")?),
             ),
-            ("drag_torque".into(), ParamValue::Table(self.drag.padded(true, false).data("rad/s")?)),
+            (
+                "drag_torque".into(),
+                ParamValue::Table(self.drag.padded(Some(0.0), None).data("rad/s")?),
+            ),
             (
                 "fuel_map".into(),
                 ParamValue::Table(
                     self.fuel_map
-                        .padded((true, true), (true, false))
+                        .padded((Some(n0), Some(n1)), (Some(0.0), None))
                         .grid_data(["rad/s", "N.m"])?,
                 ),
             ),

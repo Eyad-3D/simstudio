@@ -1052,6 +1052,8 @@ version = "0.1.0"
 dependencies = [
  "lsim-engine",
  "lsim-ir",
+ "lsim-lang",
+ "lsim-lib",
  "lsim-project",
  "lsim-script",
  "lsim-solve",

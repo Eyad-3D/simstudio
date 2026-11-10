@@ -411,6 +411,9 @@ class Engine:
             if progress and event.get("type") == "step" and isinstance(event.get("pct"), (int, float)):
                 progress(float(event["pct"]))
 
+        # (no live view: a run the new engine fails may run again on today's,
+        # its progress starting again, as a study's point does: new_engine.simulate)
+        emit.progress_only = True
         # An agent's run is strict: Script blocks and FMUs must run OS-confined
         # (file access to the project only, the network held off), and the run is refused
         # when that cannot be set up — never a silent fall-back (PLT-35).

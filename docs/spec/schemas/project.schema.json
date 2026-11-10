@@ -230,6 +230,18 @@
           ],
           "default": null,
           "title": "Subsystemid"
+        },
+        "textFile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Textfile"
         }
       },
       "required": [
@@ -720,6 +732,15 @@
           },
           "title": "References",
           "type": "array"
+        },
+        "mode": {
+          "default": "full",
+          "enum": [
+            "full",
+            "quick"
+          ],
+          "title": "Mode",
+          "type": "string"
         }
       },
       "required": [

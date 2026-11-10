@@ -557,6 +557,7 @@ export interface ProjectState {
       endDistance: number | null;
       endLaps: number | null;
       chargeBalance: boolean | null;
+      mode: "full" | "quick" | undefined;
       startLine: number;
       referenceTime: number | null;
       energyReport: boolean;
@@ -1096,16 +1097,32 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         buffer.push(ev);
         if (!flushTimer) flushTimer = setTimeout(flush, LIVE_FLUSH_MS);
       },
+      onRestart: () => {
+        buffer = [];
+        chanByKey.clear();
+        partial.channels.length = 0;
+        set((s) => ({
+          runs: s.runs.map((r) => (r.id === runId ? { ...r, result: { ...partial, channels: [] } } : r)),
+          liveValues: {},
+          liveT: 0,
+          livePct: 0,
+        }));
+      },
       onMessage: (m) => log(m.level, m.text),
     });
     activeRun = handle;
     liveLog = { runId, edits: [] };
-    // the snapshot as the run ends: its live edits and the model's fingerprint
-    const finalSnapshot = async (): Promise<Partial<SimRun>> => {
+    // the snapshot as the run ends: its live edits (the engine's own list
+    // when the result has one, each at the time the engine took it), the
+    // model's fingerprint, and what ran it (engine, version, solver options)
+    const finalSnapshot = async (result?: SimResult): Promise<Partial<SimRun>> => {
       if (!snapshot) return {};
-      const edits = liveLog?.runId === runId ? [...liveLog.edits] : [];
+      const edits = result?.liveEdits ?? (liveLog?.runId === runId ? [...liveLog.edits] : []);
       const modelHash = await fingerprint;
-      return { snapshot: { ...snapshot, liveEdits: edits, ...(modelHash ? { modelHash } : {}) } };
+      const ran = result?.engine
+        ? { engine: result.engine, engineVersion: result.engineVersion ?? null, solverOptions: result.solverOptions ?? null }
+        : {};
+      return { snapshot: { ...snapshot, liveEdits: edits, ...(modelHash ? { modelHash } : {}), ...ran } };
     };
     try {
       const result = await handle.done;
@@ -1116,7 +1133,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         result,
         status: result.status,
         ...(incomplete ? { incomplete } : {}),
-        ...(await finalSnapshot()),
+        ...(await finalSnapshot(result)),
       };
       set((s) => ({
         runs: s.runs.map((r) => (r.id === runId ? finished : r)),
@@ -3092,7 +3109,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const snap = run?.snapshot;
       if (!run || !snap) return;
       const when = new Date(run.startedAt).toLocaleString();
-      const edits = snap.liveEdits.length;
+      const edits = snap.liveEdits.filter((e) => !e.note).length; // (one not made: the next run's)
       get().openAsCopy(
         snap.project,
         `${snap.project.name} (run of ${when})`,

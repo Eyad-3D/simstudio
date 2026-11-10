@@ -376,8 +376,13 @@ struct Loop<'a> {
     outside_since: Vec<Option<f64>>,
     /// per table guard: time spent outside, and when it first left
     outside_total: Vec<(f64, f64)>,
+    /// per table guard: the furthest its argument was read past the data
+    /// at the steps' ends, the edge it was past and when (NaN: not seen)
+    outside_far: Vec<[f64; 3]>,
     /// asserts that already warned
     warned: Vec<bool>,
+    /// the warning asserts that held false, each the first time
+    assert_hits: Vec<crate::AssertHit>,
     /// whether several links shared an engagement's impulse (warned once)
     warned_links: bool,
     warnings: Vec<String>,
@@ -2308,10 +2313,56 @@ impl Loop<'_> {
                 if !self.warned[k] {
                     self.warned[k] = true;
                     self.warnings.push(format!("at t = {t:.6} s: {}", a.message));
+                    self.assert_hits.push(crate::AssertHit { t, message: a.message.clone() });
                 }
             }
         }
         Ok(())
+    }
+
+    /// Guard `k`'s table axis's first and last point, and its argument at
+    /// the channels just sampled; `None` where the run does not know them.
+    fn guard_reading(&self, k: usize, t: f64) -> Option<(f64, f64, f64)> {
+        let guards = self.model.table_guard_list();
+        let (g, (table, arg)) = (guards.get(k)?, self.info.table_args.get(k)?);
+        if self.info.table_args.len() != guards.len() || *table != g.table {
+            return None;
+        }
+        let k_t = g.table as usize;
+        let points = match self.info.table_axes.get(k_t) {
+            Some(ax) if !ax[0].is_empty() => &ax[g.axis as usize],
+            _ => self.info.table_breaks.get(k_t)?,
+        };
+        let (lo, hi) = (*points.first()?, *points.last()?);
+        let env = crate::info::ChannelEnv {
+            t,
+            vars: &self.vars,
+            params: &self.info.params,
+            model: self.model,
+        };
+        Some((lo, hi, lsim_ir::eval::eval(arg, &env)))
+    }
+
+    /// At a step's end, the channels just sampled: how far past its data
+    /// each table read outside it now is, kept when it is the furthest.
+    fn track_outside(&mut self, t: f64) {
+        for k in 0..self.outside_since.len() {
+            if self.outside_since[k].is_none() {
+                continue;
+            }
+            let Some((lo, hi, a)) = self.guard_reading(k, t) else { continue };
+            let edge = if a < lo {
+                lo
+            } else if a > hi {
+                hi
+            } else {
+                continue;
+            };
+            let far = &mut self.outside_far[k];
+            if far[0].is_nan() || (a - edge).abs() > (far[0] - far[1]).abs() {
+                *far = [a, edge, t];
+            }
+        }
     }
 
     /// Table guards that crossed at `t`: leaving the data on an `Error`
@@ -2328,6 +2379,31 @@ impl Loop<'_> {
                     }
                 }
                 _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// After an event at `t`, the guards just evaluated
+    /// ([`Loop::update_sides`]): each table guard whose side the event moved
+    /// it to, where no crossing in `dirs` booked it, left (an `Error` axis
+    /// stops the run) or back inside. An event moves a read's argument at
+    /// once (a sampled block's tick, a `when`), and the integrator, which
+    /// watches the guards between events, never sees it cross.
+    fn sync_guards(&mut self, t: f64, dirs: Option<&[i32]>) -> Result<(), SolveError> {
+        let nr = self.model.layout().n_roots;
+        let guards = self.model.table_guard_list();
+        for (k, g) in guards.iter().enumerate() {
+            if dirs.and_then(|ds| ds.get(nr + k)).is_some_and(|&r| r != 0) {
+                continue;
+            }
+            let a = self.raw.get(nr + k).copied().unwrap_or(0.0);
+            if a < 0.0 && self.outside_since[k].is_none() {
+                self.leave_table(k, t, g)?;
+            } else if a > 0.0
+                && let Some(t0) = self.outside_since[k].take()
+            {
+                self.outside_total[k].0 += t - t0;
             }
         }
         Ok(())
@@ -2407,15 +2483,20 @@ impl Loop<'_> {
                     self.info.held.get(k).map(|h| h.label.as_str()).unwrap_or("a table")
                 ),
             ),
+            EventKind::Params(k) => (usize::MAX, format!("the parameters changed (change {k})")),
         };
         self.events.push(EventRecord { t, when, label: label.clone(), kind });
         // storm detection: state events only (clocks and time events are
         // scheduled, not chattering, and so is what they cause at their
         // instant: a controller switching a mode from one tick to the next)
         // (nor a held table read going on in its next cell: its argument
-        // crossing the table's breakpoints, as often as the data has them)
+        // crossing the table's breakpoints, as often as the data has them;
+        // nor a change of the parameters, which the run's control asks for)
         if self.scheduled
-            || matches!(kind, EventKind::Block(_) | EventKind::Time(_) | EventKind::Cell(_))
+            || matches!(
+                kind,
+                EventKind::Block(_) | EventKind::Time(_) | EventKind::Cell(_) | EventKind::Params(_)
+            )
         {
             return Ok(());
         }
@@ -3290,8 +3371,10 @@ pub fn run_loop(
     // what the run says of itself (the held reads it released), told with
     // its failure too
     let notes = std::cell::RefCell::new(vec![]);
-    // the models the run switches to, and the one it is on
+    // the models the run switches to, and the one it is on; the parameter
+    // sets its changes go on with
     let arena = switch::Arena::new();
+    let edited = switch::Arena::new();
     let mut cur = Current { model, info, integ: None };
     let watch = crate::states::Watch::new(info, model, opts.books_kernels);
     let mut watch = if opts.backend == crate::Backend::Sundials {
@@ -3302,7 +3385,7 @@ pub fn run_loop(
         )
     };
     let run = run_watched(
-        &arena,
+        (&arena, &edited),
         &mut cur,
         opts,
         grid,
@@ -3473,7 +3556,7 @@ fn ready_switch<'a>(
 
 #[allow(clippy::too_many_arguments)]
 fn run_watched<'a>(
-    arena: &'a switch::Arena,
+    (arena, edited): (&'a switch::Arena, &'a switch::Arena<RunInfo>),
     cur: &mut Current<'a>,
     opts: &'a SolverOptions,
     grid: OutputGrid,
@@ -3507,6 +3590,39 @@ fn run_watched<'a>(
         });
     }
     let mut rec = Recorder::new(opts.record.as_ref().map_or(l.n_vars, |r| r.len()), &times)?;
+    // a channel of the model's, where the recorder keeps it (its place among
+    // those recorded); a trace's or a window's channel must be recorded
+    let slot = |c: usize| match &opts.record {
+        None => (c < l.n_vars).then_some(c),
+        Some(r) => r.iter().position(|&j| j == c),
+    };
+    if let Some(tr) = &opts.trace {
+        let mut at_slots = Vec::with_capacity(tr.channels.len());
+        for &c in &tr.channels {
+            let Some(s) = slot(c) else {
+                return Err(SolveError::Integrator {
+                    t: grid.t0,
+                    message: format!("the trace asks for channel {c} of {}, not recorded", l.n_vars),
+                });
+            };
+            at_slots.push(s);
+        }
+        let at = OutputGrid { t0: grid.t0, t_end, dt: tr.step }.times()?;
+        rec = rec.with_trace(at, at_slots)?;
+    }
+    let mut windows = Vec::with_capacity(opts.windows.len());
+    for &(c, w) in &opts.windows {
+        match slot(c) {
+            Some(s) if w.is_finite() && w >= 0.0 => windows.push((s, w)),
+            _ => {
+                return Err(SolveError::Integrator {
+                    t: grid.t0,
+                    message: format!("a window of {w} s asked for channel {c} of {}", l.n_vars),
+                });
+            }
+        }
+    }
+    rec = rec.with_windows(&windows);
     let mut lp = Loop {
         model,
         info,
@@ -3572,7 +3688,9 @@ fn run_watched<'a>(
         passed: vec![],
         outside_since: vec![None; model.table_guard_list().len()],
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
+        outside_far: vec![[f64::NAN; 3]; model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
+        assert_hits: vec![],
         warned_links: false,
         warnings: axes_warnings,
         scheduled: false,
@@ -3602,7 +3720,8 @@ fn run_watched<'a>(
     }
     lp.hold_roots =
         (0..l.n_roots).filter(|&c| lp.mode_of_root[c].is_none() && !lp.held_root[c]).collect();
-    let p = &info.params;
+    // (the parameters the run is on: other ones from a change, ParamEdit)
+    let mut p = &info.params;
     // (the run's own integrator until it chooses its states again)
     let integ: &mut dyn Integrator = &mut *integ0;
     let mut y = vec![0.0; n];
@@ -3742,6 +3861,19 @@ fn run_watched<'a>(
     let mut switch_notes: Vec<String> = vec![];
     let mut switches = 0usize;
     let mut probe = Probe::default();
+    // the run's control (SolverOptions::control): the output points told
+    // it so far, the parameter changes not taken yet, those taken and still
+    // to make (when made, when taken, the values), in time order, and where
+    // it stopped the run
+    let control = opts.control.as_deref();
+    let mut told = 0usize;
+    let mut waiting: Vec<crate::ParamEdit> = vec![];
+    let mut pending: Vec<(f64, f64, Vec<f64>)> = vec![];
+    let mut stopped_at: Option<f64> = None;
+    // a change made at the last event (what reads the parameters is set up
+    // again), and one not made for want of room
+    let mut params_changed = false;
+    let mut edits_full = false;
     while t < t_end {
         // the states chosen again: the run goes on with them from here (a
         // switch readied in a step that a tick then cut short, or whose
@@ -3848,6 +3980,7 @@ fn run_watched<'a>(
                 *c = fresh;
             }
             lp.update_sides(&mut *ni, t, &y, &d, None, None);
+            lp.sync_guards(t, None)?;
             lp.push_sides(&mut *ni);
             // the switch, an event: the stored energy's change
             // (the iteration variables solved again) booked
@@ -3880,9 +4013,10 @@ fn run_watched<'a>(
                 lg.after_event(t, &lp.vars, p, &b, None);
             }
             if rec.next_grid_time() == Some(t) {
-                rec.left_limit(&left, lp.recorded());
-                rec.grid_point(t, lp.recorded());
-                if let Some(lg) = ledger.as_mut() {
+                rec.left_limit(t, &left, lp.recorded());
+                if rec.grid_point(t, lp.recorded())
+                    && let Some(lg) = ledger.as_mut()
+                {
                     integ.quadrature(t, &mut lg.q)?;
                     lg.grid_point(t, &lp.vars, p);
                 }
@@ -3892,6 +4026,67 @@ fn run_watched<'a>(
             Some(i) => i,
             None => &mut *integ0,
         };
+        // the run's control: the point reached and the output points new
+        // since, whether to stop here, the parameter changes asked for
+        // (one with no time at the next output time: a grid point is never
+        // before the point reached, those up to it are recorded)
+        if let Some(c) = control {
+            let (at, values) = rec.so_far();
+            c.reached(t, t_end, told, at, values);
+            told = at.len();
+            if c.stop() {
+                stopped_at = Some(t);
+                break;
+            }
+            waiting.extend(c.edits());
+        }
+        // the changes due to be taken here (ParamEdit::from), in order
+        if !waiting.is_empty() {
+            for e in std::mem::take(&mut waiting) {
+                if e.from > t {
+                    waiting.push(e);
+                    continue;
+                }
+                match e.at.or_else(|| rec.next_output_time()) {
+                    Some(at) if at >= t && at <= t_end => {
+                        let k = pending.partition_point(|x| x.0 <= at);
+                        pending.insert(k, (at, t, e.params));
+                    }
+                    _ => {} // (too late: not made, and not in the report's list)
+                }
+            }
+        }
+        // the parameters changed at the last event: what reads them besides
+        // the model's functions (the sampled blocks' input tapes, the time
+        // functions and crossings, the tables read along time) set up again
+        // with them, as after a switch of the states
+        if params_changed {
+            params_changed = false;
+            for (b, c) in clocks.iter_mut().enumerate() {
+                let mut fresh = clock_for(blocks[b].as_ref(), &info.blocks[b], info, opts, &l, t);
+                fresh.k = c.k;
+                fresh.stop_next = c.stop_next;
+                fresh.inputs = std::mem::take(&mut c.inputs);
+                fresh.outputs = std::mem::take(&mut c.outputs);
+                fresh.idle_run = c.idle_run;
+                *c = fresh;
+            }
+            lp.tf = timefn::TimeFns::new(info.time_crossings.len().max(info.time_functions.len()));
+            lp.sample(t, &y, &d);
+            let mut mask = lp.time_functions_start(t_end);
+            mask.resize(lp.sides.len(), false);
+            for (k, tc) in info.time_crossings.iter().enumerate() {
+                mask[k] |= tc.is_some();
+            }
+            lp.use_timed = mask.iter().any(|m| *m) && integ.set_root_mask(&mask);
+            lp.t_star.iter_mut().for_each(|x| *x = f64::NAN);
+            lp.schedule(t);
+            if !info.time_tables.is_empty() {
+                lp.schedule_breaks(t, false);
+                lp.schedule_breaks(t, true);
+            }
+            scheduled_for.copy_from_slice(&d);
+        }
         probe.valid = false;
         dense_gen += 1;
         // the time crossings' times move only when a discrete value does
@@ -3926,6 +4121,9 @@ fn run_watched<'a>(
             if c.stop_next {
                 t_stop = t_stop.min(c.next());
             }
+        }
+        if let Some(&(te, _, _)) = pending.first() {
+            t_stop = t_stop.min(te);
         }
         // the point the step starts from (where a failure of the
         // integrator is told), and the choice of states there, where an
@@ -4141,7 +4339,8 @@ fn run_watched<'a>(
         let due = |ts: f64| ts == t_new || ((stopped || is_root) && same_instant(ts, t_new));
         let at_time_event = info.time_events.get(next_time_event).is_some_and(|&te| due(te));
         let crossing_due = lp.t_live.iter().any(|&k| due(lp.t_star[k]));
-        let event_now = is_root || at_time_event || crossing_due;
+        let edit_due = pending.first().is_some_and(|e| due(e.0));
+        let event_now = is_root || at_time_event || crossing_due || edit_due;
 
         // the integrator's error estimate
         if !same && integ.local_error(&mut local) {
@@ -4465,6 +4664,7 @@ fn run_watched<'a>(
                     }
                     let at = y_at.as_deref().map(|y0| (y0, d_pre.as_slice()));
                     lp.update_sides(integ, tk, &yk, &d, None, at);
+                    lp.sync_guards(tk, None)?;
                     lp.push_sides(integ);
                     if imp.is_none()
                         && tk == t_new
@@ -4541,6 +4741,7 @@ fn run_watched<'a>(
         }
         t = t_new;
         lp.check_asserts(t)?;
+        lp.track_outside(t);
         // the switch readied in this step: made at the loop's top (an event
         // here: not made, the watch looks again from the point after it). A
         // tick at the point that changed the discrete values (going on
@@ -4651,6 +4852,9 @@ fn run_watched<'a>(
                     }
                     let at = y_at.as_deref().map(|y0| (y0, d_pre.as_slice()));
                     lp.update_sides(integ, t, &y, &d, dirs, at);
+                    // (the crossings here are held conditions', none a
+                    // guard's that guard_crossings booked)
+                    lp.sync_guards(t, None)?;
                     lp.push_sides(integ);
                     integ.restart(t, &y)?;
                     y.copy_from_slice(integ.y());
@@ -4733,6 +4937,56 @@ fn run_watched<'a>(
                     lp.after_t = None;
                 }
             }
+            // the parameters changed (ParamEdit): every change due now, the
+            // run going on with the last one's values; the iteration
+            // variables solved again with them before the conditions are
+            // checked; what else reads them set up again at the loop's top
+            if edit_due {
+                let mut last = None;
+                let mut taken = vec![];
+                while pending.first().is_some_and(|e| e.0 == t || same_instant(e.0, t)) {
+                    let (_, from, params) = pending.remove(0);
+                    taken.push((from, params.clone()));
+                    last = Some(params);
+                }
+                let kept = last.and_then(|params| edited.keep(info.with_params(&params)));
+                match kept {
+                    Some(kept) => {
+                        info = kept;
+                        cur.info = kept;
+                        lp.info = kept;
+                        p = &kept.params;
+                        if !integ.set_params(p) {
+                            return Err(SolveError::Integrator {
+                                t,
+                                message: format!(
+                                    "the {} integrator cannot change a parameter while it runs",
+                                    integ.name()
+                                ),
+                            });
+                        }
+                        if l.n_z > 0 {
+                            integ.consistent_z(t, &mut y, &d)?;
+                        }
+                        lp.record(t, crate::EventKind::Params(report.edits.len()))?;
+                        // (each with its own values: the last one's the run's)
+                        for (from, own) in taken {
+                            report.edits.push((from, t, own));
+                        }
+                        params_changed = true;
+                        changed = true;
+                    }
+                    None if !edits_full => {
+                        edits_full = true;
+                        lp.warnings.push(format!(
+                            "from t = {t:.9} s on, the parameters were not changed as asked: a \
+                             run makes at most {} changes",
+                            switch::MAX_MODELS
+                        ));
+                    }
+                    None => {}
+                }
+            }
             // the time crossings due now cross as scheduled: in their
             // direction, exactly here (with the roots the integrator found
             // at the same instant)
@@ -4800,6 +5054,7 @@ fn run_watched<'a>(
             }
             let at = y_at.as_deref().map(|y0| (y0, d_pre.as_slice()));
             lp.update_sides(integ, t, &y, &d, dirs, at);
+            lp.sync_guards(t, dirs)?;
             lp.push_sides(integ);
             // (a step ended at a pulse the run loop found: the integrator,
             // past it, restarts here even when nothing changed; so it does
@@ -4836,7 +5091,36 @@ fn run_watched<'a>(
         Some(i) => i,
         None => &mut *integ0,
     };
-    let (values, min, max, mean, left_limits) = rec.finish();
+    // a run its control stopped ends where it is: its last output point
+    // there, which is the run's end
+    let t_end = match stopped_at {
+        Some(ts) => {
+            lp.sample(ts, &y, &d);
+            if rec.end_at(ts, lp.recorded())
+                && let Some(lg) = ledger.as_mut()
+            {
+                integ.quadrature(ts, &mut lg.q)?;
+                lg.grid_point(ts, &lp.vars, p);
+            }
+            report.stopped = Some(ts);
+            ts
+        }
+        None => t_end,
+    };
+    if let Some(c) = control {
+        let (at, values) = rec.so_far();
+        c.reached(t, t_end, told, at, values);
+    }
+    let mut recd = rec.finish();
+    // (a trace's and a window's channels named as the model's again)
+    if let Some(r) = &opts.record {
+        for c in recd.trace.iter_mut().flat_map(|tr| tr.channels.iter_mut()) {
+            *c = r[*c];
+        }
+        for w in &mut recd.windows {
+            w.channel = r[w.channel];
+        }
+    }
     let energy = match ledger {
         Some(mut lg) => {
             integ.quadrature(t_end, &mut lg.q)?;
@@ -4898,15 +5182,31 @@ fn run_watched<'a>(
         let (total, first) = lp.outside_total[k];
         if total > 0.0 || !first.is_nan() {
             let name = info.table_names.get(g.table as usize).cloned().unwrap_or_default();
-            let said = format!(
+            let words = format!(
                 "the table '{name}' was read outside its data on its {} axis for {total:.6} s, first at t = {first:.6} s",
                 if g.axis == 0 { "first" } else { "second" }
             );
-            if !report.warnings.contains(&said) {
-                report.warnings.push(said);
+            // (warned of once, not once per table guard; a record per guard)
+            if !report.warnings.contains(&words) {
+                report.warnings.push(words.clone());
             }
+            let [furthest, edge, t_furthest] = lp.outside_far[k];
+            let (lo, hi) = lp.guard_reading(k, t_end).map_or((f64::NAN, f64::NAN), |r| (r.0, r.1));
+            report.table_outside.push(crate::TableOutside {
+                table: name,
+                axis: g.axis,
+                first,
+                total,
+                furthest,
+                edge,
+                t_furthest,
+                lo,
+                hi,
+                warning: words,
+            });
         }
     }
+    report.asserts = std::mem::take(&mut lp.assert_hits);
     for m in &lp.tf.mixed {
         report.mixed_certified += m.certified;
         report.mixed_scanned += m.scanned;
@@ -4950,16 +5250,20 @@ fn run_watched<'a>(
         }
     }
     Ok(SimResult {
-        times,
+        times: if report.stopped.is_some() { recd.times } else { times },
         names: match &opts.record {
             Some(record) => record.iter().map(|&c| info0.var_names[c].clone()).collect(),
             None => info0.var_names.clone(),
         },
-        values,
-        min,
-        max,
-        mean,
-        left_limits,
+        values: recd.values,
+        min: recd.min,
+        max: recd.max,
+        mean: recd.mean,
+        left_limits: recd.left,
+        square_integral: recd.square,
+        magnitude_integral: recd.magnitude,
+        trace: recd.trace,
+        windows: recd.windows,
         events: lp.events,
         stats: report.stats,
         backend: integ.name(),
@@ -4996,8 +5300,10 @@ fn grid_point(
 ) -> Result<(), SolveError> {
     integ.interpolate(t, yk)?;
     lp.sample(t, yk, d);
-    rec.grid_point(t, lp.recorded());
-    if let Some(lg) = ledger.as_mut() {
+    // (a trace's time alone is no point of the books)
+    if rec.grid_point(t, lp.recorded())
+        && let Some(lg) = ledger.as_mut()
+    {
         integ.quadrature(t, &mut lg.q)?;
         lg.grid_point(t, &lp.vars, &lp.info.params);
     }
@@ -5070,9 +5376,10 @@ fn after_event(
     }
     if rec.next_grid_time() == Some(t) {
         let left = lp.recorded_of(left);
-        rec.left_limit(&left, lp.recorded());
-        rec.grid_point(t, lp.recorded());
-        if let Some(lg) = ledger.as_mut() {
+        rec.left_limit(t, &left, lp.recorded());
+        if rec.grid_point(t, lp.recorded())
+            && let Some(lg) = ledger.as_mut()
+        {
             integ.quadrature(t, &mut lg.q)?;
             lg.grid_point(t, &lp.vars, &lp.info.params);
         }

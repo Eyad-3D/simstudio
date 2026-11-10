@@ -534,6 +534,9 @@ export interface StepEvent {
 
 export interface LiveRunCallbacks {
   onStep?: (ev: StepEvent) => void;
+  /** The engine starts the run again from t = 0 (the new engine stopped
+   *  after showing points and today's engine runs it): drop the points. */
+  onRestart?: () => void;
   onMessage?: (m: SimMessage) => void;
 }
 
@@ -572,6 +575,9 @@ export function runSimulationLive(
     switch (msg.type) {
       case "step":
         callbacks.onStep?.(msg as unknown as StepEvent);
+        break;
+      case "restart":
+        callbacks.onRestart?.();
         break;
       case "message":
         callbacks.onMessage?.({ level: msg.level, text: msg.text } as SimMessage);

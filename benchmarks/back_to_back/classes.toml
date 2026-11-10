@@ -1,0 +1,226 @@
+# The classes of the both-engines diff's differences (DESIGN.md 12.3):
+#   a  the new engine (or its path into the app) wrong: to be fixed
+#   b  today's engine wrong, shown by an exact answer, a fully resolved
+#      model, a converged reference or a conservation law (today's engine
+#      is not changed for it)
+#   c  the band wrong for that field: the comparison changed only for a
+#      documented, sound reason, never widened to pass
+# A difference takes the first rule that matches it (diff.classify); one
+# that matches none is unclassified. Each rule has its date, its reason and,
+# where it rests on the runs, the check they must pass.
+#
+# Matching: `field` (globs on the field), `what` ("missing", "extra",
+# "value", "text", "grid", "not finite", "duplicate", "first point", "10 ms
+# only": what today's 10 ms run flags and neither its 1 ms run nor the new
+# run does), `item` (globs), `key`
+# (a regular expression on the channel, row or message), `max_x` (at most
+# this many bands), `check` (a test diff.py runs on the item's runs). A "not
+# finite" difference (a value the new run lacks) and a "10 ms only" one match
+# only a rule whose `what` names them (no rule names "10 ms only").
+
+[[rule]]
+id = "new-path-lacks-reports"
+class = "a"
+date = "2026-10-28"
+field = ["partEnergy", "energy", "duty", "limits", "references"]
+what = ["missing"]
+reason = """The new engine's path builds no part energies, energy report, duty, limits or references yet \
+(DESIGN.md 12.3 "Not yet"; review findings 34 and 35; step 2's items 1 to 3)."""
+
+[[rule]]
+id = "new-path-lacks-verdict"
+class = "a"
+date = "2026-10-28"
+field = ["summary.notValid", "summary.passed", "summary.limit"]
+what = ["text"]
+check = "today_has_new_none"
+reason = """Today's run verdict on a summary row (notValid, or a check's limit and passed) is not made on the new path (DESIGN.md 12.3; review finding 36)."""
+
+[[rule]]
+id = "today-integrator-checks"
+class = "c"
+date = "2026-10-28"
+field = ["summary"]
+what = ["missing"]
+key = "^(energy_balance_residual_pct|energy_balance_error_pct)$"
+reason = """Today's "Energy balance residual" and "Electrical energy balance error" check today's own \
+integrator; the new engine's energy books report their own closure instead (lsim-project/golden/README.md, \
+"Not compared")."""
+
+[[rule]]
+id = "new-records-more"
+class = "c"
+date = "2026-10-28"
+field = ["channels"]
+what = ["extra"]
+reason = """The new engine records a few channels today's does not (the battery's current limits, among \
+others); the app shows any channel it is given (backend/tests/test_new_engine_flag.py). Only a channel with \
+nothing to judge it by: one the project's data bus wires to a port today's 1 ms run records (a monitor's or a \
+driver's input, a brake's demand) is compared with that port's channel instead (diff._lend, since the judge's \
+fourth re-check, 28 October: such a channel ten times off was this rule's c and never compared), so on the \
+examples this rule is left with the battery's current limits (sig_i_ch_limit, sig_i_dis_limit) and the \
+track's signals, which no recorded port is wired to."""
+
+[[rule]]
+id = "engine-note"
+class = "c"
+date = "2026-10-28"
+field = ["messages"]
+what = ["extra"]
+key = "^info: Run on the new engine \\(LIGHTSIM_ENGINE=new\\)\\.$"
+reason = "The first message of a run on the new path says which engine ran it (new_engine.py), by design."
+
+[[rule]]
+id = "gears-today-rule"
+class = "b"
+date = "2026-10-28"
+field = ["channels.values", "channels.min", "channels.max", "channels.mean"]
+what = ["value"]
+check = "gear_rebuild"
+reason = """A gear's torque, power or losses: today's engine applies a gear's efficiency to, and reports as \
+the gear's, the torque of the sources above it, the inertias between them not taken out; the new engine \
+loses it on, and reports, the torque the teeth carry (lsim-project/golden/README.md, the October 2026 \
+triage). Classed b only where golden/definitions.py, today's rule rebuilt from the new run's own channels, \
+lands inside the band, and the same rule rebuilt from today's 1 ms run reproduces today's channel. \
+For a channel's minimum, maximum and mean over each output interval the rule is applied to the sources' \
+statistic there (its second check, on today's own run, shows where that holds). Only a value the new \
+run has (`what`, since 28 October, the judge's re-check): the rule is rebuilt from the sources, never from the \
+gear's own channel, so a gear channel the new run leaves out, or has as not a number, is not explained by it. \
+And, since the judge's third re-check (28 October: a gear channel three times off, zero or negated was still \
+b, its own values never read), the new run's own channel must be the new engine's law: diff.teeth rebuilds \
+it from the same sources (blocks/driveline.rs: the inertias before each mesh, J times the carrier's \
+acceleration over the interval before the point, taken out), and a channel's values and its mean must lie \
+inside the band of that rebuild (on baseline-3 every one classed b did, at 0.84 x band or less). A minimum or \
+maximum over an interval is not rebuilt exactly (the acceleration at it is not on the output grid), so it \
+must hold the new run's values at its interval's ends and lie no farther from the law, and from today's rule \
+on the same sources, than the inertias' term between the two plus one band. That bound is an RMS over every \
+interval, so, since the judge's fourth re-check (28 October: a WLTC differential torque minimum flipped from \
++27 to -128 N m at one interval, 161 bands, was still b), the minimum or maximum must also lie, at every \
+interval, within one band of the range the law gives it there (diff._interval): the law on the sources' \
+statistic at the accelerations of that interval and of the ones before and after it (the speed is not linear \
+inside an interval), widened by the law's own error on the run's values at the interval's two ends (an \
+extremum taken at an end is that end's value). The one band is the comparison's own and the range and the \
+error come from the run itself, not from a baseline. Its ceiling, interval by interval: a minimum or maximum \
+inside that range (the inertias' term over the neighbouring accelerations, the law's error at the ends and \
+one band) is not told from the rule."""
+
+[[rule]]
+id = "today-first-point-before-its-step"
+class = "c"
+date = "2026-10-28"
+field = ["channels.values", "channels.min", "channels.max", "channels.mean"]
+what = ["first point"]
+check = "before_first_step"
+reason = """A channel's first point: today's engine records it before its first step, when the signals its \
+blocks publish still read 0 (lsim-project/golden/README.md; DESIGN.md 12.3's band leaves it out), while the \
+new engine starts from a consistent state. Until the judge's fourth re-check (28 October) the diff left the \
+first point's value out altogether (only its absence was a difference), so a first value ten times off was no \
+difference; it is now a figure of its own ("first point"), classed c only where the new run's first value \
+lies between today's first two values, within the channel's band: where today's run is once it has taken its \
+first step. Its ceiling: a first value anywhere in that range passes, however wide today's first output step \
+makes it."""
+
+[[rule]]
+id = "engine-preparation-notes"
+class = "c"
+date = "2026-10-29"
+field = ["messages"]
+what = ["extra"]
+key = "^info: Preparation note \\[(START-ALIAS-CONFLICT|START-NOT-SOLVED|INIT-START-ASSUMED|INIT-UNDECIDED|INIT-START-IGNORED)\\]: "
+reason = """The new engine's notes about its start values (two names of one variable with different start guesses, a \
+start preparation could not solve, a start not fully given), shown as notes since step 2's evidence part \
+(new_engine.START_NOTES; review finding 36): about the engine's own preparation, which today's engine has none of, \
+by design, as the engine-note is. A warning or an error of the engine's build is no such note: it is not matched."""
+
+[[rule]]
+id = "preparation-note-as-warning"
+class = "a"
+date = "2026-10-28"
+field = ["messages"]
+what = ["extra"]
+check = "preparation_note"
+reason = """A note of the new engine's preparation (a start guess two names of one variable disagree on, \
+START-ALIAS-CONFLICT; a start the preparation could not solve) shown as a warning of the run: it is about \
+the start values, not about the run's result (review finding 36; it also hides faults: FAULTS)."""
+
+[[rule]]
+id = "preparation-note-status"
+class = "a"
+date = "2026-10-28"
+field = ["status"]
+check = "status_from_notes"
+reason = """The new run says "warning" only because of the engine's preparation notes; without them it says \
+today's status (review finding 36)."""
+
+[[rule]]
+id = "today-run-summary"
+class = "c"
+date = "2026-10-28"
+field = ["messages"]
+what = ["missing"]
+key = "^info: Case '.*' solved: # (of # )?steps × # s(, the last one # s|, ended at # m driven at t = # s)? \\(# sub-steps each\\), # points recorded(, stored every #)?, # result channels\\.$"
+reason = """Today's engine's own summary of its fixed steps ("solved: N steps x dt (n sub-steps each), points \
+recorded"): it describes today's integrator, which the new engine does not have; the new path's first \
+message says which engine ran the case instead. The whole message, as solver/core.py writes it (its key \
+matched only its start until the judge's third re-check, 28 October: any message that began the same way \
+was explained by it)."""
+
+[[rule]]
+id = "new-path-lacks-messages"
+class = "a"
+date = "2026-10-28"
+field = ["messages"]
+what = ["missing"]
+reason = """A note or warning of today's run that the new path does not write: the verdict's and the run's \
+messages (an acceleration test's "results are estimates", a battery held at its output power limit, a \
+Driving Task that follows a typed profile, CON-26). The new path's messages are its build warnings only \
+(new_engine.run_new; review finding 36)."""
+
+[[rule]]
+id = "bev-city-recuperation"
+class = "b"
+date = "2026-10-28"
+field = ["summary.value"]
+item = ["bev-car/case-city", "bev-car/case-city-live", "probe/bev-fmu"]
+key = "^el-battery\\.energy_recuperated_kwh$"
+what = ["value"]
+max_x = 1.01
+reason = """The battery-electric car's recuperated energy on the city cycle, 1.0039 x band (the golden \
+comparison's own figure, 1.0039 x, 1.0044 x converged): the gears' rule, the triage's one cause \
+(lsim-project/golden/README.md, "the two figures"). Capped: a larger difference stays unclassified. \
+probe/bev-fmu (the same car and cycle with an FMU block whose output nothing reads) added on 1 November, \
+when the new path first ran it: today's runs of it give the city's figures to the bit, the new engine's \
+within 1e-9 kWh, and the same 1.0039 x."""
+
+[[rule]]
+id = "each-run-says-what-ran-it"
+class = "c"
+date = "2026-10-31"
+field = ["engine", "engineVersion", "solverOptions"]
+what = ["text"]
+check = "ran_as_its_engine"
+reason = """What ran a run (step 2's item 4: the result's engine, its version and its solver options, which \
+the RunSnapshot keeps and a replay reads): each engine's own by design, "today" with the app's version and \
+its fixed step's settings, "new" with the module's version and its tolerances, so they differ on every item. \
+Checked: today's run says today's engine with a version and today's settings, every one a finite number, the \
+new run the new engine's; a run that names the other engine, no version or other settings stays \
+unclassified."""
+
+[[rule]]
+id = "acceleration-ends-at-the-line"
+class = "b"
+date = "2026-10-28"
+field = ["times"]
+what = ["grid"]
+check = "ends_at_the_line"
+reason = """An acceleration test's last output time: today's engine ends at the end of the solver step that \
+crossed the line (75.306 m at 1 ms, t = 4 s), the new engine at the line itself, an exact event (75.3000007 m \
+at t = 3.9994 s). The case asks for the time at the line (SimCase.endDistance), so today's last point is \
+today's discretisation, checked: the new engine within 1 mm of the line, today's past it by more than ten \
+times that; and, since the judge's third re-check (28 October: the new run's every output time x 1.5, or \
++ 1 s, was still b), the grid itself: the same number of output times, every one but the last the same, and \
+the new run's last inside today's last output step, before today's last. And, since the judge's fourth \
+re-check (28 October: one channel's own grid, ending 8 ms before the line while the run's other channels end \
+at it, was b from the distance channel's line), the grid's last times must be the distance channel's own, \
+today's and the new run's: a channel told on its own that ends elsewhere is not at the line. Any other grid \
+stays unclassified."""

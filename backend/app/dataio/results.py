@@ -136,7 +136,8 @@ def run_card(run: StoredRun) -> dict[str, Any]:
         el = elements.get(e.elementId)
         live.append({"t": e.t, "element": el.label if el else e.elementId,
                      "elementId": e.elementId, "parameter": label, "key": e.key,
-                     "value": e.value, "unit": unit})
+                     "value": e.value, "unit": unit,
+                     "note": e.note})  # (one the run did not make: why; none for one made)
     summary = [s.model_dump(exclude_none=True) for s in run.result.summary]
     return {
         "format": RUN_CARD_FORMAT,
