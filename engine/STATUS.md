@@ -93,21 +93,24 @@ also run on Linux, but only Windows CI proves what ships.
 | WP5 library, import | `wp5/library` (merged) | Done: physical library and the 36 vehicle blocks; project importer; 199 of 201 golden figures inside their bands, 984 of 1038 channels; energy books closed to 1e-6 or better (1.5e-9 or better on every case). Triage of every difference outside (October 2026): all 2 figures and 54 channels are today's engine's error, one cause (it applies a gear's efficiency to, and reports as the gear's, the torque of the sources above it, the rotor's and gears' inertias not taken out; the new engine's gears lose it on, and report, the torque their teeth carry); shown by today's rule rebuilt from the new engine's run (`golden/definitions.py`: every channel to 0.17 × band or less), the same car without those inertias (every figure and channel inside), the inertias moved past the gear (the figure inside), an exact answer (`tests/gear_loss.rs`) and the wheels' momentum balance; none is the new engine's or a band's | The 2 figures (the BEV's city recuperation, 1.0039 × since IDAS's order fix, 1.0013 × before, converged 1.0044 ×) and 54 channels stay outside as compared: today's engine is not changed here (`lsim-project/golden/README.md`). Found on the way, for WP4, and fixed there (eleventh round): on IDA a model whose states are exactly polynomial in time stayed at order 1, so its books' quadratures set the step (9 336 steps for a 2 s spin-up at 1e-6, steps growing as 1/√rtol, the books off by about 0.26·√rtol); IDAS's order decrease is now decided on the books' errors too (96 steps, the books 2e-10 off) |
 | WP6 fast mode, Python | `wp6/fast-engine-python` (merged) | Rosenbrock-W fast stepper; limit flags match the forward run's limit hits; the example projects' drive-cycle cases in fast mode (`ImportOptions::inverse`, DESIGN.md §10: the cycle prescribed, the Driver's pedal freed, inverse variants of the Driver, body, wheels, brakes and e-motor; an acceleration test and the hybrid, whose Script reads the pedal, refused with their reasons; judged by `engine/judge/fast.py`); input events (FMI 3.0) at a trace's breakpoints and a block's ticks, every mode checked against its crossing after each step, strict `when`s fired as the forward run loop fires them, the modes and clauses on a mode set where its crossing leaves zero following at once (DESIGN.md §10); every bundled cycle runs on both battery-electric cars (54; 9 stopped on a singular Jacobian that named nothing before, 2 raised flags the car never reached): the inverse variants follow the pedal beyond full throttle and brake and have one root (no saturation leaves the pedal free, the tyre's slip held to its grip, a supply window flagged, not cut), the inverter draws nothing standing still, an emptied battery is flagged, every solve kept to the root that continues from its consistent point, a singular Jacobian names the variables it leaves free; fast mode's charge used within 1 % of the full dynamic run's on all 61 cases with a reference (−0.76 … +0.02 %; New York's city cycle was 1.43 % over without a flag, and on 7 of the 9 example cases 25 to 48 % short before the input events), −0.05 … +0.07 % on the speed the full dynamic run drove, a cycle changed at round-off level changing it by 1.5e-7 at most and no flag, its energy on EPA's four reference cars within 1.3 % of FASTSim 3.1.0's given the same cars (mean 0.92 %), samples added on a trace's lines changing nothing (a property test); engine facade, whose `Started` wrapper forwards every `ModelFunctions` method (a test fails if one is missed); the Python module `lightsim_engine` (build, simulate, set_params, sweep, diagnose, NumPy arrays, interpreter lock released, plain errors; bit for bit the golden comparison's run on the BEV and hybrid cases, DESIGN.md §13); Script blocks without Python (`lsim-script`: a strict subset of Python whose results are the app's Script runner's bit for bit, checked against that runner as the app calls it; anything outside the subset runs on Python, a case that meets it mid-run is run again on Python; each call held to the worker's 2 s and 512 MB (every heap block its values and code hold counted) and to half a MiB of stack; DESIGN.md §9); numbers in JSON read exactly (before, about one in eight came back off by a unit in the last place); the app's backend runs drive-cycle and acceleration cases on the new engine when `LIGHTSIM_ENGINE=new` is set (today's engine is the default and the fall-back; Script blocks still run in today's locked-down worker there; `backend/app/solver/new_engine.py`), every fall-back with a reason code, and `LIGHTSIM_ENGINE_STRICT=1` making each a coded failure instead; that path judged by step 2's both-engines diff (`python -m benchmarks.back_to_back`: both engines on every field, the planted-fault verdict matrix, the result schema, exact speed traces, streaming, stop, replay, mutation testing of the verdict), its baseline in `benchmarks/back_to_back/baseline/README.md`, measured
 before the wiring, after its evidence part, after that part's four fix rounds and after item 4
-(live runs, a study's Stop, progress and live edits through the run's control: STREAM passes, the
+(live runs, a study's Stop, progress and live edits through the run's control: S1 and S3 pass (S2, the stop's latency, was not measured on Windows CI:
+run 42709765031 stopped at a test_api.py failure; the acceptance's local
+p95 on a loaded machine was 0.283 s live and 0.752 s for the study), the
 stream equal to the result bit for bit, the stop's p95 0.18 s live and 0.55 s for a 16-point WLTC
 study on a shared Linux machine, the marks of 0.25 s and 1.0 s to be judged on Windows CI, a replay
 from the run's snapshot the same SHA-256, a live edit included; STATUS 7 of 11), and after
 item 5 (FMU parts, text components, quick mode: TEXT passes, 92 parts written as text the built-in
 parts' results to the SHA-256; QUICK fails on the energy recuperated and the internal losses, up to
 1.75 % from the full run's on 6 of the 9 cycle cases it runs, every other row within the 1 % band;
-FMU not measured on Linux, judged on Windows CI; STATUS 8 of 11) (the verdict, the
+FMU not measured on Linux, and not measured on Windows CI either; STATUS 7 of 11 as the
+acceptance of 9 and 10 November counted it) (the verdict, the
 energy report, part energies, duty, limits and references from the run's
 evidence: lsim-py's integrals, trace from the dense output, table records,
 per-part books and events; ANALYTIC and META pass, ENERGY's E1 and E2
 pass and its E3 is vacuous, so ENERGY is too: no registered case meets a
 limit on either side, and the one probe that does fails E3's mark while
 the forward car falls behind the cycle, which needs a pass mark of its
-own before such a case is registered; no planted fault hidden, 20 of them now a case's own value; a run reading a value outside its parameter's limits, which a study's point can hold, runs on today's engine with the code NEW-LIMITS, as do the 53 planted faults outside them); measured on one machine, release builds, against the start of this round: fast mode on the test car 16.6 → 6.0 ms (1.1·10⁵ → 3.0·10⁵× real time), its full dynamic run 1008 → 119 ms (the cycle read as a time table), the hybrid's UDDS 93 → 56 s, its mixed cycle 26 → 12 s (Script blocks without Python), the BEV's WLTC unchanged (2.7–2.8 s, about 650×); the golden comparison unchanged (199 of 201 figures, 984 of 1038 channels, books closed to 1.5e-9) | Speed against the average of comparable tools (the owner's goal since 15 October 2026, DESIGN.md §2; the fixed 10⁶× and 1000× targets are dropped): to measure. Today fast mode 3.0·10⁵× real time; full dynamic BEV WLTC 2.2 s on a 4-core VM after the merge with WP3's compiled books (about 820×), the hybrid's UDDS 42 s; the hybrid (33× real time on the UDDS since the merge; 25× before it) restarts the integrator at every controller output change (about 22 steps per 10 ms tick; going on without a restart is off by default for accuracy, WP4); Python 3.13 fails two of the backend's Script-safety tests (they pass on 3.11, CI's version, and failed before this work too); whether the app may run Script blocks on the native runner instead of the worker is the owner's call; on the new engine's path in the app, one planted fault today's engine warns on comes out a success (bev-car's Driver with no P gain: the new engine's PI, LimPID's back-calculation, follows the cycle within 1.6 km/h where today's lags 17 km/h; the Drivers' laws differ; the new Driver can also ask for more recuperation than the battery takes, where today's never asks it), 852 of the 1 498 differences against today's engine are unclassified (the tenth measurement; the channels' 270 of before; the gears' rule in the reports' gear rows; the wheels' and brakes' flows each way from a 0.1 s trace; the books' remainder of 1e-10 against today's 0; duty minima at the first instant; a checked battery limit's time over it, which today's counts in whole steps), its duty RMS rides on the integrator's steps (not error-controlled quadratures), a table guard counts a read in a branch the run does not take (the E-Motor's drag table while powered: the path judges such a record for the share of the output points in the branch today's engine reads it in, a stretch between two points missed; an axis set to Error there stops the run, which then runs on today's engine with NEW-FAILED), and FMU parts, text components and quick mode are not wired yet (live runs, a study's Stop, progress and live edits are, through the run's control: stop latency to be judged on Windows CI); Python API: fast mode for project files, FMU parts; wheels; fast mode for a car whose sampled controller reads the pedal (the hybrid: its supervisory controller would have to be inverted, or its outputs freed instead of the pedal); the full dynamic run of the 805 km long-haul cycle, which empties the battery, stops where the battery empties (14 881 s on the aerodynamic BEV, 14 541 s on the BEV), naming the E-Motor's equation that cuts its torque to what its supply gives (before, on a bare SUNDIALS flag −4; fast mode runs it and flags the battery from the second it is empty); the inverse model has no stiction and no slip below 0.5 m/s (on the driven speed fast mode is within 0.07 % of the full dynamic run) |
+own before such a case is registered; no planted fault hidden, 20 of them now a case's own value; a run reading a value outside its parameter's limits, which a study's point can hold, runs on today's engine with the code NEW-LIMITS, as do the 53 planted faults outside them); measured on one machine, release builds, against the start of this round: fast mode on the test car 16.6 → 6.0 ms (1.1·10⁵ → 3.0·10⁵× real time), its full dynamic run 1008 → 119 ms (the cycle read as a time table), the hybrid's UDDS 93 → 56 s, its mixed cycle 26 → 12 s (Script blocks without Python), the BEV's WLTC unchanged (2.7–2.8 s, about 650×); the golden comparison unchanged (199 of 201 figures, 984 of 1038 channels, books closed to 1.5e-9) | Speed against the average of comparable tools (the owner's goal since 15 October 2026, DESIGN.md §2; the fixed 10⁶× and 1000× targets are dropped): to measure. Today fast mode 3.0·10⁵× real time; full dynamic BEV WLTC 2.2 s on a 4-core VM after the merge with WP3's compiled books (about 820×), the hybrid's UDDS 42 s; the hybrid (33× real time on the UDDS since the merge; 25× before it) restarts the integrator at every controller output change (about 22 steps per 10 ms tick; going on without a restart is off by default for accuracy, WP4); Python 3.13 fails two of the backend's Script-safety tests (they pass on 3.11, CI's version, and failed before this work too); whether the app may run Script blocks on the native runner instead of the worker is the owner's call; on the new engine's path in the app, one planted fault today's engine warns on comes out a success (bev-car's Driver with no P gain: the new engine's PI, LimPID's back-calculation, follows the cycle within 1.6 km/h where today's lags 17 km/h; the Drivers' laws differ; the new Driver can also ask for more recuperation than the battery takes, where today's never asks it), 1 090 of the 1 917 differences against today's engine are unclassified (the acceptance of 9 and 10 November: the hybrid's channel minima, maxima, values and means; every battery-electric item's part energies in and out; the hybrid's peak powers and its energy in reverse. The tenth measurement had 852 of 1 498, from these causes: the channels' 270 of before; the gears' rule in the reports' gear rows; the wheels' and brakes' flows each way from a 0.1 s trace; the books' remainder of 1e-10 against today's 0; duty minima at the first instant; a checked battery limit's time over it, which today's counts in whole steps), its duty RMS rides on the integrator's steps (not error-controlled quadratures), a table guard counts a read in a branch the run does not take (the E-Motor's drag table while powered: the path judges such a record for the share of the output points in the branch today's engine reads it in, a stretch between two points missed; an axis set to Error there stops the run, which then runs on today's engine with NEW-FAILED), and FMU parts, text components and quick mode are wired on the new path (TEXT passes: 92 of 92 parts the same as the built-in parts; quick mode runs 9 of 16 cases and refuses 7 with listed codes, and QUICK fails its 1 % band; the FMU probe item runs, and FMU is not measured against the Reference FMUs), and so are live runs, a study's Stop, progress and live edits, through the run's control (stop latency not measured on Windows CI, whose run 42709765031 stopped at a test_api.py failure); Python API: fast mode for project files, FMU parts; wheels; fast mode for a car whose sampled controller reads the pedal (the hybrid: its supervisory controller would have to be inverted, or its outputs freed instead of the pedal); the full dynamic run of the 805 km long-haul cycle, which empties the battery, stops where the battery empties (14 881 s on the aerodynamic BEV, 14 541 s on the BEV), naming the E-Motor's equation that cuts its torque to what its supply gives (before, on a bare SUNDIALS flag −4; fast mode runs it and flags the battery from the second it is empty); the inverse model has no stiction and no slip below 0.5 m/s (on the driven speed fast mode is within 0.07 % of the full dynamic run) |
 
 ## Run-loop issues from the golden comparison: resolved (`wp4/solver`)
 
@@ -349,16 +352,17 @@ outside (`engine/judge`: `msl-pid-controller` and `driver.py`).
 
 The owner's decision of 9 November: the problems the mismatch sweep's last
 re-check (re-check 5, at 55e293f) left open are recorded here as known
-issues, not fixed now. Step 2's acceptance has not been run.
+issues, not fixed now. Step 2's acceptance was run on 9 and 10 November
+at 1debfc4 and did not pass (see the section below).
 
 - **A case handed back before its first point turns success into a
   warning.** The note of a fall-back before any point (and quick mode's
   for a case run in full) is a warning, so a run today's engine finishes
   with success shows a warning: 241 of the sweep's app-style runs.
   55e293f left these out of the sweep's compare and its `[sweep]` measure
-  after the measured run, with no dated `[[changes]]` entry in
-  `acceptance.toml`, so the sweep's count of 0 mismatches does not cover
-  them. A likely fix: those notes at level info, with their codes, as
+  after the measured run. The 9 November entry in `acceptance.toml`'s
+  `[[changes]]` records that afterwards, and the sweep line reports them
+  as known issue (a), with their count. A likely fix: those notes at level info, with their codes, as
   `NEW-LIVE-RESTART`'s and the refusal before a run already are.
   (`docs/KNOWN-LIMITS.md` says so.)
 - **A restart after `NEW-ERROR` counts as a hand-back.** `sweep.compare`
@@ -371,12 +375,114 @@ issues, not fixed now. Step 2's acceptance has not been run.
   giving the `live` setting a view on a case that is not live.
 - **`overspeed:hybrid-car/case-hwfet:down` still differs:** the new engine
   adds the battery's "charging exceeds max charge power" warning (2 runs,
-  1 fault), neither matched nor handed back, so the sweep's pass mark of 0
-  is not met. (`docs/KNOWN-LIMITS.md` says so.)
+  1 fault), the 9 November entry in `acceptance.toml`'s `[[changes]]` excuses them
+  as known issue (b), reported with its count, so the sweep line passes. (`docs/KNOWN-LIMITS.md` says so.)
 - **Docs:** `docs/spec/api.md` has no `restart` event (no fields: drop the
   points shown, the run starts again at t = 0), and
-  `benchmarks/back_to_back/sweep.md` calls the app-style runs strict.
+  the `sweep.md` that the sweep writes in its output folder
+  (`sweep.summarise`) calls the app-style runs strict ("8052 strict runs
+  compared", 2 684 of them app-style); there is no such file in the
+  repository.
 - **Fixed but not re-checked:** the judge's fix round 5 (2ef9b76, 95b945d,
   baseline-6 at e0b81e5) and the live runs' fix round 2 (0d74737) fixed the
   defects their last re-checks found, each with tests that fail without the
   fix, but no independent re-check ran after them.
+
+## Step 2 closed without acceptance (10 November 2026)
+
+Step 2's acceptance ran on 9 and 10 November 2026 on `work/step2` at
+1debfc4, and an independent audit of it agrees on all 15 line states.
+**Step 2 was not accepted:** of the 15 lines in its acceptance file, 6 pass,
+7 fail and 2 could not be measured. The owner decided on 10 November to
+close step 2 with the failed and unmeasured lines recorded as known issues,
+to be taken up in later steps. `acceptance.toml` is unchanged: the marks of
+the lines stay as written. The acceptance report is kept in the project's
+private workspace.
+
+The installed engine module was found out of date (installed before the
+motor fix of 7 November, 955a90c). It was rebuilt from 1debfc4 for the
+measurement; every raw record names the build it ran on.
+
+Passed: SCHEMA, META, ANALYTIC, TEXT, SCRIPTS and SWEEP (SWEEP under the 9
+November change: 2 684 faults, 241 runs of known issue (a), 2 of known issue
+(b), 0 other mismatches).
+
+Failed or not measured, with the numbers:
+
+- **B2B fails.** 25 of 26 items are as expected; `probe/bev-performance`, a
+  0 to 100 km/h performance case, is refused with `NEW-CASE-KIND` where it
+  should run. 1 917 differences against today's engine: class a 0, class b
+  147, class c 680, unclassified 1 090. Every item's ledger balances. The
+  unclassified differences are the hybrid's channel minima, maxima, values
+  and means; every battery-electric item's part energies in and out; and
+  the hybrid's peak powers and its energy in reverse.
+- **STRICT fails.** 114 refusals, all with listed codes (`NEW-LIMITS` 53,
+  `NEW-FAILED` 36, `NEW-BUILD` 16, `NEW-BALANCE` 3, `NEW-LAP` 2,
+  `NEW-CASE-KIND`, `NEW-CELLS`, `NEW-FS-EVENT` and `NEW-MISSING` 1 each),
+  0 `NEW-ERROR`; 1 item refused that should run, the same performance
+  case.
+- **FAULTS fails.** 288 faults measured: 1 violation,
+  `bev-car:el-driver.driver_kp:zero`, where today's engine warns and the
+  new path says success; 0 hidden, 0 flips. Mutation testing of the
+  verdict (mutmut 3.8.1): 1 391 mutants, 965 killed, 412 survived with no
+  written reason (`survivors.toml` is empty), 14 with no tests. A class does
+  not excuse a FAULTS violation: it needs a fix or the owner's dated
+  decision on the pass mark.
+- **ENERGY fails.** E1 passes (17 of 17) and E2 passes (5.4313902456001095
+  kW against 5.431390245600108 exact), but E3 is vacuous: its 8 items meet
+  no limit on either side, and a vacuous E3 is not a pass (29 October). It
+  needs a registered case that meets a limit, with a pass mark for the
+  forward car falling behind the cycle.
+- **QUICK fails.** 16 cases: 9 run, 7 are refused with listed codes
+  (`QUICK-KIND` 3, `QUICK-BALANCE` 3, `QUICK-SAMPLED` 1), 0 flagged. 11 rows
+  are outside the 1 % band, on 6 of the 9 cases that run (aero-bev UDDS and
+  WLTC, bev-car WLTC, hvac, winter and summer): energy recuperated up to
+  -1.750 % (bev-car WLTC winter) and internal losses up to -1.395 %
+  (bev-car WLTC).
+- **NOSKIP fails** (its part c). a: 170 tests, 0 skipped besides the 2
+  Windows-only ones, 0 failed. b: with the module hidden, 7 fail and none
+  is skipped. c: `ci.yml`'s `engine-windows` job builds the wheel and runs
+  the tests with `LIGHTSIM_REQUIRE_NEW_ENGINE=1`, but on run 42709765031
+  that step was skipped, so the tests did not run on Windows CI at 1debfc4.
+  The line's wording is ambiguous: read as the CI configuration, c is
+  yes; read as the tests running on Windows CI, c is no and the line fails.
+  The acceptance kept the second reading.
+- **STATUS fails.** The harness counts 7 of 11 present (the energy report,
+  part energies, duty, limits, references, live streaming and text
+  components). Missing: the verdict (FAULTS), study stop and progress
+  (STREAM S2), FMU parts (not measured) and quick mode (QUICK fails). The
+  audit notes that a more literal count of what runs on the new path gives
+  more than 7, and that the line fails under both counts.
+- **STREAM: S2 not measured.** S1 passes (601 of 601 points equal on both
+  live items, both engines) and S3 passes (5 replays with the same
+  SHA-256, a live edit included; engine, version and solver options
+  recorded). S2 is on Windows CI, and the Windows CI run 42709765031 never
+  reached `test_stop_latency.py`. Local indication only, on a shared,
+  heavily loaded machine: the new engine's live p95 0.283 s (over the 0.25
+  s mark) and study p95 0.752 s; today's engine 0.246 s and 0.790 s.
+- **FMU: not measured.** Not run locally (`LIGHTSIM_REFERENCE_FMUS` and
+  `LIGHTSIM_FMUSIM` not set, and the line's FMUs are x86_64-windows), and
+  on Windows CI `test_new_engine_fmu.py` never ran.
+
+Why the Windows CI run failed (run 42709765031, `workflow_dispatch`, at
+1debfc4; it is the only run on this branch): "Engine (Rust) on Windows"
+stopped at "Python module (tests)" in
+`test_api.py::test_table_sites_lists_every_table_read_of_the_blocks`, which
+still expects an entry for the E-Motor's power loss that 955a90c removed
+when motor.rs began reading its maps at the speed held to the maximum. The
+steps after it, among them the stop-latency, FMU and live tests of the new
+engine in the app, were skipped. Three other jobs failed too: the Linux
+backend and the Windows backend (`test_ai_skills.py`, whose generated
+references are out of date; on Windows also `test_licence_policy.py`), and
+the third-party licences check (`libzstd.so.1` belongs to no known project
+and FMPy 0.3.32 declares no licence).
+
+To be taken up in later steps: update that test; regenerate the skill pack
+and review the licence entries; then run `ci.yml` again on the fixed commit
+and read the stop-latency and FMU results there. Class with evidence, or
+fix, the 1 090 unclassified differences, and make `probe/bev-performance`
+run. Fix the Driver with no P gain, or have the owner decide the pass mark
+with a dated reason. Write a reason for each of the 412 surviving mutants or
+add tests that kill them. Register a case that meets a limit for ENERGY's
+E3. Fix fast mode's recuperation and losses, or have the owner decide the
+band with a dated reason.

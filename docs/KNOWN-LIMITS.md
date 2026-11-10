@@ -843,6 +843,17 @@ minimum or an average, for example from the CSV export, or put the
   is a warning; so is quick mode's note for a case it runs in full. A run
   today's engine finishes with success then shows a warning.
   *Roadmap:* ENG-16.
+- **The new engine runs only drive-cycle and acceleration cases.** With
+  `LIGHTSIM_ENGINE=new` a case of kind *Performance* (a 0 to 100 km/h step
+  held for 30 s, say) runs on today's engine, saying so with the code
+  `NEW-CASE-KIND`; a lap case does the same with `NEW-LAP`, and with
+  `LIGHTSIM_ENGINE_STRICT=1` each is a coded failure instead.
+  *Roadmap:* ENG-16.
+- **A Driver with no P gain can succeed on the new engine.** With
+  `LIGHTSIM_ENGINE=new` a Driver whose *Kp* is 0 follows the cycle (on the
+  BEV, within 1.6 km/h), where today's engine lags it by about 17 km/h and
+  warns. The run shows success, not that warning, because the two engines'
+  Drivers differ. *Roadmap:* ENG-16.
 - **The new engine runs only values inside their limits.** A study's
   point can hold a value that Data Checks would refuse for a single run (a
   negative pressure, a CG height below 0, a wheel's load share of 0):
