@@ -2495,7 +2495,10 @@ impl Loop<'_> {
         if self.scheduled
             || matches!(
                 kind,
-                EventKind::Block(_) | EventKind::Time(_) | EventKind::Cell(_) | EventKind::Params(_)
+                EventKind::Block(_)
+                    | EventKind::Time(_)
+                    | EventKind::Cell(_)
+                    | EventKind::Params(_)
             )
         {
             return Ok(());
@@ -3602,7 +3605,10 @@ fn run_watched<'a>(
             let Some(s) = slot(c) else {
                 return Err(SolveError::Integrator {
                     t: grid.t0,
-                    message: format!("the trace asks for channel {c} of {}, not recorded", l.n_vars),
+                    message: format!(
+                        "the trace asks for channel {c} of {}, not recorded",
+                        l.n_vars
+                    ),
                 });
             };
             at_slots.push(s);
