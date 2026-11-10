@@ -2,59 +2,65 @@
 
 Connect AI → AI access, the help (*Use an AI assistant*, *Command-line tool*,
 *Python API*), Known issues, the README and the skill pack all say what an
-AI app can do through LightSim's MCP server today:
+AI app can do through LightSim's MCP server today (step 6, the owner's
+decision of 1 November 2026: an agent works hands-off):
 
-- it reads, checks and compares, and runs a project without Script blocks,
-  with no question;
-- it asks the user, through the AI app, before it saves an edit and before
-  it runs a project with Script blocks; but the answer the app sends back
-  is not single-use: sent again, it repeats a run, or saves another copy of
-  an edited example or new project, with no new question;
-- an app on the older handshake that cannot ask is refused what needs a
-  yes; on the 2026-07-28 protocol the server does not check whether the app
-  can ask, so an app that answers itself can save and run;
-- on Windows it runs such a project only when the connection was started
-  with ``--trust-scripts``;
+- it reads, checks, compares, runs a project and saves an edit, all without
+  a question — the connection never asks the user to confirm;
+- a project with Script blocks or FMUs runs in an OS sandbox (file access to
+  the project's folder only; a Script can open no network connection, and an
+  FMU's native code is held off by the OS, which on Linux leaves UDP open, as
+  Known issues says; an AppContainer on Windows); when that sandbox cannot be
+  set up the run is refused with the stable code ``sandbox_unavailable``
+  rather than run less safely;
+- an edit is saved straight away and is recoverable: the previous version is
+  kept as a backup, and an example's edit is saved as a new project; each
+  edit saved to a project (and each ``lightsim edit``) is one step in the
+  project's history, which the open window shows at once and undoes, or the
+  agent's whole session, in one click (held in test_history.py and the
+  browser test e2e/ai04-live.spec.ts);
 - it does NOT read the trust list that ``lightsim ai trust`` keeps: only
   Python code that goes through ``lightsim.ai_access.AgentSession`` does,
   and the plain ``lightsim`` package and ``lightsim run`` read no AI access
   setting at all;
-- LightSim's own approval of Script code (app/script_trust.py) applies to an
-  AI app's run, so code nobody approved in the app fails the run;
-- LightSim cannot tell who answered a question, and the question for a run
-  does not show the code;
+- the command-line tool (``lightsim run``, ``lightsim-backend run``) is
+  hands-off for every run, since it cannot tell an agent from a person:
+  Script blocks and FMUs in the same sandbox with no approval, or refused;
+  ``LIGHTSIM_STRICT_SANDBOX=0`` gives a person the app's rules (held in
+  test_cli.py and test_agent_bench.py);
+- LightSim's own approval of Script code (app/script_trust.py) does NOT
+  apply to an AI app's run: the sandbox is the safety, so a brand-new script
+  the assistant writes runs in the sandbox without the **Run scripts**
+  approval (that approval still guards a run a person starts in the app, so
+  the pages about it say "in the app": the command-line tool asks nothing);
 - the AI apps' audit log has a line for each call that reaches a tool, but
-  not for a call that brings back the user's no, a run sent as a task that
-  is asked about or refused before it starts, or a call LightSim cannot read
-  (a tool it does not have, arguments that are not an object);
+  not for a run sent as a task that is refused before it starts, or a call
+  LightSim cannot read (a tool it does not have, arguments that are not an
+  object);
 - the connection reads the settings before every tool call, and
   ``AgentSession`` reads them once, when the session starts;
 - while AI access is off (the user's switch or the organisation's policy)
   every tool call is refused, but an AI app can still read the skill pack
-  and the part library that come with LightSim, and the question for a
-  yes does not promise that it counts once.
+  and the part library that come with LightSim.
 
 The behaviour is held in test_mcp_server.py (``test_reading_asks_the_user_
-nothing``, ``test_every_script_run_asks_and_the_trust_list_is_not_read``,
-``test_a_yes_sent_again_repeats_a_run_or_saves_another_copy_without_a_new_question``,
-``test_whether_an_app_can_ask_is_checked_only_on_the_older_handshake``,
-``test_an_app_that_cannot_ask_gets_a_refusal_for_a_script_run``,
-``test_script_code_nobody_approved_fails_the_run_even_after_a_yes``,
+nothing``, ``test_edits_are_dry_runs_and_saving_is_direct``,
+``test_script_projects_run_in_the_sandbox_or_are_refused``,
+``test_every_script_run_is_sandboxed_and_the_trust_list_is_not_read``,
+``test_an_agents_new_script_runs_without_approval``,
 ``test_what_the_audit_log_leaves_out``,
-``test_every_tool_call_is_refused_while_ai_access_is_off``, and the Windows
-rule in ``test_script_projects_run_only_after_a_yes``) and in
-test_ai_access.py (what ``AgentSession`` does with the list). This file holds
-the rest of the facts about the Python side, and the words: the page, the
-help and the other places that repeat the claim must say it, must not
-say the old claim again (that the trust list governs AI apps), and must not
-say more than the code does (that LightSim asks before *each* run, that
-nothing is saved or run for an app that cannot ask, that every call is
-logged, that an AI app gets nothing while access is off).
+``test_every_tool_call_is_refused_while_ai_access_is_off``) and in
+test_agent_sandbox.py (the strict sandbox and the refusal). This file holds
+the rest of the facts and the words: the page, the help and the other places
+that repeat the claim must say it, must not say the old claim again (that the
+trust list governs AI apps, or that the connection asks before an edit or a
+run), and must not say more than the code does.
 
 When the behaviour changes, change these tests with the page and the help.
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -83,6 +89,12 @@ DEPLOY = "docs/help/how-to/deploy-for-it.md"
 CONNECT = "frontend/src/components/AiConnectDialog.tsx"
 SKILL = "backend/app/ai/skills/lightsim-write-a-script-block/SKILL.md"
 SKILL_LIMITS = "backend/app/ai/skills/lightsim-what-it-cannot-do/references/known-limits.md"
+BENCH = "benchmarks/agent/README.md"
+SCRIPT_API = "docs/help/reference/script-api.md"
+OPEN_SCRIPTS = "docs/help/how-to/open-a-project-with-scripts.md"
+#: the record of the bench's baseline, measured before the hands-off change:
+#: it tells what the old tools did, so it keeps their words
+RECORDS = {"benchmarks/agent/BASELINE.md"}
 
 
 # -- the Python side, as the page and the help describe it -----------------------
@@ -118,9 +130,6 @@ def test_lightsim_ai_log_lists_only_the_calls_through_agentsession(tmp_path, mon
 
 
 def test_agentsession_reads_the_settings_when_the_session_starts(tmp_path, monkeypatch):
-    # the page and the help: the connection for AI apps reads the settings
-    # before every tool call (test_mcp_server holds that), AgentSession when
-    # it starts a session
     projects = tmp_path / "projects"
     monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(projects))
     allow_ai(projects)
@@ -134,11 +143,15 @@ def test_agentsession_reads_the_settings_when_the_session_starts(tmp_path, monke
 
 def test_the_run_case_tool_tells_an_agent_what_it_will_meet():
     description = next(t for t in TOOLS if t["name"] == "run_case")["description"]
-    assert "says yes to LightSim's question" in description
-    assert "sent again it repeats the run without asking the user" in description
-    assert "has not been approved" in description
+    assert "not asked to confirm" in description
+    assert "OS sandbox" in description and "sandbox_unavailable" in description
+    assert "you are not asked to get it approved" in description
+    assert "has not been approved" not in description  # the hands-off change
     edit = next(t for t in TOOLS if t["name"] == "model_edit")["description"]
-    assert "a yes sent again saves another copy" in edit
+    assert "saved straight away (you are not asked to confirm)" in edit
+    assert "backup" in edit and "undo it" in edit
+    assert "one step in the project's history" in edit and "with one click" in edit
+    assert "reason" in next(t for t in TOOLS if t["name"] == "model_edit")["inputSchema"]["properties"]
 
 
 # -- the words -------------------------------------------------------------------
@@ -151,23 +164,28 @@ def text(rel: str) -> str:
     return re.sub(r"\s+", " ", raw)
 
 
-#: what an answer sent again does (the page, the help, Known issues)
-AGAIN = ("app that sends your answer again repeats a run, or saves another copy of an edited "
-         "example or new project, without asking you")
-#: what an app that cannot ask can do (the page, the help, Known issues)
-OLDER = "that cannot ask you is refused anything that needs your yes"
-NEWER = ("LightSim does not check whether the app can ask, so an app that answers for you can "
-         "save edits and run Script projects")
-#: what the AI apps' log leaves out (the help, Known issues)
-UNLOGGED = "a call that brings back your no"
-UNREAD = "a call LightSim cannot read, such as one of a tool it does not have"
+#: an agent works hands-off (the page, the help, Known issues, the README)
+HANDS_OFF = "an agent works hands-off"
+NO_QUESTION = "the connection never asks you to confirm"
+#: a Script/FMU run goes in a sandbox, or is refused (the page, the help, Known issues)
+SANDBOXED = "runs in an OS sandbox"
+REFUSED = "the run is refused with the code `sandbox_unavailable` rather than run less safely"
+#: an edit is saved and recoverable
+SAVED = "an edit is saved straight away"
+RECOVER = "the previous version is kept as a backup"
+#: an edit is one step of the project's history, live in the window, undone in one click
+LIVE = "the open LightSim window shows it at once, and one click undoes it or the agent's whole session"
+#: a brand-new script an agent writes runs in the sandbox, no approval asked
+NO_APPROVAL = "runs in that sandbox straight away, with no **Run scripts** approval"
 #: when the settings are read (the page, the help)
 FRESH = "before every tool call"
 STARTS = "reads them when it starts a session"
 #: what an AI app still gets while access is off (the page, the help, the IT page)
 STILL = "can still read the skill pack and the part library that come with LightSim"
-#: what an answer sent again does, in short (the README, Connect AI, the release notes)
-SHORT = "an answer the AI app sends again is not asked about again"
+#: what the AI apps' log leaves out (the help, Known issues)
+UNLOGGED = "a run sent as a task that LightSim refuses before it starts"
+UNREAD = "a call LightSim cannot read, such as one of a tool it does not have"
+
 
 #: sentences each place must keep saying (after text())
 MUST_SAY = {
@@ -175,29 +193,34 @@ MUST_SAY = {
         "An AI app you connected reads these settings " + FRESH + ".",
         "Python code that uses <code>lightsim.ai_access.AgentSession</code> " + STARTS + ".",
         "AI access is off: every tool call from an AI tool is refused, though a connected AI app " + STILL + ".",
-        "<code>--trust-scripts</code>",
-        "running a project without Script blocks: no question.",
-        "Saving an edit: LightSim asks you first.",
-        "LightSim asks you first, and the question does not show the code.",
-        "LightSim cannot tell who answered.",
-        AGAIN, OLDER, NEWER,
-        "Connect only an AI app that shows you each question.",
-        "Trusted projects (Python package only)",
+        "An AI agent works hands-off: the connection never asks you to confirm.",
+        "saved straight away. An example is saved as a new project, and the previous version is kept as a backup",
+        "Each edit saved to a project is one step in the project's history, with the AI app's reason: " + LIVE,
+        "it runs in an OS sandbox with access to the project's folder only, and no network — a Script "
+        "can open none, and an FMU's native code is held off by the OS",
+        "the run is refused with the code <code>sandbox_unavailable</code> rather than run less safely",
+        "A brand-new script an assistant writes runs in that sandbox straight away, with no <b>Run scripts</b> approval",
+        "A run you start yourself in LightSim still asks you to approve new script code",
+        "The command-line tool (<code>lightsim run</code>) runs every project the same way, with no approval: "
+        "it cannot tell an agent from a person.",
         "Only Python code that uses <code>lightsim.ai_access.AgentSession</code> reads it",
         "The connection for AI apps does not read this list.",
-        "refuses Script code you have not approved there",
     ],
     HOWTO: [
-        "and run a project without Script blocks, with no question to you",
-        "to save one, LightSim asks you first",
-        "makes LightSim ask you before it runs, in the AI app",
-        "it does not show the code",
-        "does not run at all unless you added `--trust-scripts` to the connection",
-        "Code that is not code you approved in LightSim makes the run fail",
-        "LightSim cannot tell whether you or the assistant answered",
-        AGAIN, OLDER, NEWER, UNLOGGED, UNREAD,
-        "that LightSim asks about or refuses before it starts",
-        "(not the calls the log leaves out, above)",
+        "AI agent works hands-off: the connection never asks you to confirm",
+        "and run a project, with no question to you",
+        "an edit is saved straight away, and is recoverable",
+        "Each edit it saves to a project is one step in the project's history, with the reason the "
+        "assistant gives, which AI app made it and in which session: " + LIVE,
+        "your next Save keeps both: neither overwrites the other",
+        "runs in an OS sandbox: access to the project's folder only, and no network — a Script can "
+        "open none, and an FMU's native code is held off by the OS",
+        "the run is refused with the code `sandbox_unavailable` rather than run less safely",
+        "A brand-new Script block the assistant writes runs in that sandbox straight away, with no **Run scripts** approval",
+        "A run you start yourself in LightSim still asks you to approve new script code",
+        "The command-line tool (`lightsim run`) runs every project the same way, with no approval: it "
+        "cannot tell an agent from a person",
+        UNLOGGED, UNREAD,
         "An AI app you connected reads them " + FRESH + ", and Python code that goes through "
         "`lightsim.ai_access.AgentSession` " + STARTS + ".",
         "Off, every tool call from an AI tool is refused; a connected AI app " + STILL + ".",
@@ -211,73 +234,144 @@ MUST_SAY = {
         "(`lightsim-backend mcp`, the MCP server) " + FRESH + ", and Python code that goes through "
         "`lightsim.ai_access.AgentSession`, when it starts a session",
         "The connection for AI apps does not read the list.",
-        "makes LightSim ask you before it runs, in the AI app",
-        "The trust list above plays no part.",
-        "code you have not approved there makes the run fail",
-        "only after you say yes to the change in the AI app",
-        "LightSim cannot tell who answered, and an " + AGAIN,
-        OLDER, NEWER, UNLOGGED,
-        "that LightSim asks about or refuses before it starts, and " + UNREAD,
+        "An agent works hands-off: the connection never asks you to confirm",
+        "runs a project with Script blocks or FMUs in an OS sandbox",
+        "refused with the code `sandbox_unavailable`",
+        "a brand-new script the assistant writes runs in the sandbox without the app's **Run scripts** approval",
         "The last calls made through `AgentSession`",
-        "It runs a project with Script blocks only if you trusted the project",
+        # the command-line tool is hands-off for every run (it cannot tell who runs it)
+        "The tool cannot tell an AI agent from a person, and an agent must never wait on a person, "
+        "so this holds for every run.",
+        "set the environment variable `LIGHTSIM_STRICT_SANDBOX=0`",
+        "The command-line tool is hands-off as well: `lightsim run`, and the engine program's "
+        "`lightsim-backend run`, hold every run to the same OS sandbox, with no **Run scripts** approval",
+        "In place it keeps each version it replaces in `<file>-backups`",
+        "The save is one step in the project's history, with `--reason`: the open LightSim window shows "
+        "it at once, and one click undoes it or the whole session",
+        "Each edit it saves to a project is one step in the project's history, with the `reason` it "
+        "gives: the open LightSim window shows it at once, and one click undoes it or the agent's whole "
+        "session",
+        # the command line's own paragraph: no network for a Script, the OS for
+        # an FMU, and where the per-platform detail is (Linux lets UDP out)
+        "with access to the project's folder only and the network held off — a Script can open no "
+        "connection, and an FMU's native code is held off by the OS ([Known issues](../../KNOWN-LIMITS.md) "
+        "has the per-platform detail)",
+    ],
+    # the approval of scripts from elsewhere is the app's; the command line asks nothing
+    SCRIPT_API: [
+        "Scripts that came with a project from another computer run in the app only after you approve them",
+        "The command-line tool (`lightsim run`) and AI apps ask for no approval: they run every script "
+        "in the OS sandbox, or refuse the run where that sandbox cannot be set up",
+    ],
+    OPEN_SCRIPTS: [
+        "so the LightSim app shows it to you and asks before it runs",
+        "The command-line tool (`lightsim run`) and AI apps do not ask: they run a project's scripts in "
+        "an OS sandbox, with access to the project's folder only, or refuse the run where that sandbox "
+        "cannot be set up",
     ],
     PYTHON_API: [
         "the `lightsim` package does not read the AI access settings",
         "reads the same settings (all but the trust list) before every tool call, and does not use "
         "`AgentSession`",
         "It reads the settings when you create it, so a change takes effect in the next session.",
-        AGAIN,
+        "The connection for AI apps works hands-off: it never asks you to confirm",
+        # (9) AgentSession is the one agent door not yet hands-off; the page says so and why
+        "`AgentSession`, the Python-library door, is **not** hands-off yet: it still raises "
+        "`ConfirmationRequired` before it saves or runs",
+        "The owner has not yet decided this door, so it keeps today's confirmation and trust list",
+        "the command-line tool (`lightsim run`, and the engine program's `lightsim-backend run`), "
+        "which holds every run to them",
+        "A run from Python (`project.run()`) keeps the app's rules",
     ],
     KNOWN_LIMITS: [
-        "**AI apps pass on LightSim's questions; the trust list is not used.**",
-        "does not read the trust list (`lightsim ai trust`), and its questions before an edit or a run "
-        "of a project with Script blocks go through the AI app, which can answer for you or send your "
-        "answer again.",
-        AGAIN, "(an edit of a saved project asks again)", OLDER, NEWER,
-        "(for the whole connection, not per project), and then it still asks",
+        "**AI apps work hands-off; the trust list is not used.**",
+        "The connection for AI apps (the MCP server) never asks you to confirm",
+        "runs a project with Script blocks or FMUs in an OS sandbox — file access to the "
+        "project's folder only, and the network held off as the *Scripts* and *FMU* entries above "
+        "set out",
+        "an FMU's native code is stopped by the OS, which on Linux blocks TCP from kernel 6.7 on "
+        "but not UDP or local sockets, so attach only FMUs you trust",
+        "the run is refused with the code `sandbox_unavailable` rather than run less safely",
+        "edit it saves is recoverable (the previous version kept as a backup, an example saved "
+        "as a new project)",
+        "Each edit it saves to a project, and each `lightsim edit`, is one step in the project's "
+        "history: " + LIVE,
+        "A change made to the file by anything else (a text editor, a git pull, an agent writing the "
+        "file directly) is not in the history",
         "`lightsim run` and the `lightsim` package read no AI access setting at all",
-        "LightSim cannot tell who answered a question",
-        "That log leaves out " + UNLOGGED + ", a run sent as a task that LightSim asks about or "
-        "refuses before it starts, and " + UNREAD + ".",
-        "not the script's code",
-        "makes the run fail until you choose **Run scripts** there",
+        "The command-line tool (`lightsim run`, `lightsim-backend run`) is hands-off too: it cannot "
+        "tell an agent from a person, so every run of it holds Script blocks and FMUs to the same "
+        "sandbox with no approval, or is refused; `LIGHTSIM_STRICT_SANDBOX=0` gives a person the "
+        "app's rules instead.",
+        "a brand-new script the assistant writes runs without the **Run scripts** approval",
         "`lightsim ai log` lists only the calls made through `AgentSession`",
+        "That log leaves out " + UNLOGGED + ", and " + UNREAD + ".",
     ],
     README: [
-        "before it saves an edit and before it runs a project with Script blocks (it cannot tell who "
-        "answered, and " + SHORT + ": see [Known issues](docs/KNOWN-LIMITS.md)), and it does not read the "
-        "`lightsim ai trust` list",
+        "it works hands-off (it never asks you to confirm), running a project's Script blocks and "
+        "FMUs in an OS sandbox or refusing the run when that sandbox cannot be set up",
+        "it does not read the `lightsim ai trust` list",
+        "each edit it saves (and each `lightsim edit`) is one step in the project's history, with its "
+        "reason: the open window shows it at once, and one click undoes it or the agent's whole session",
         "the trust list that only Python code using `AgentSession` reads",
+        "Script blocks keep today's rules: approved code only in a run started in the app, the strict "
+        "OS sandbox with no approval for the command-line tool and AI apps",
     ],
     RELEASE_NOTES: [
         "the connection for AI apps does not read that list",
-        "LightSim cannot tell who answered, and " + SHORT,
+        "it works hands-off: it never asks you to confirm",
+        "the engine itself refuses to run such code in a run started in the app or from Python (the "
+        "command-line tool and AI apps hold it to the OS sandbox instead, with no approval",
         "its tool calls go into a local log, `.ai/audit.jsonl` in the projects folder (*Known issues* "
         "lists the calls it leaves out)",
     ],
     DEPLOY: [
         "`off`: AI apps get none of your projects from LightSim. Every tool call from a connected "
         "assistant is refused (it " + STILL + ")",
+        # scriptTrust is the app's prompt
+        "This is for runs started in the app: the command-line tool and AI apps ask nothing, and run "
+        "scripts only in the OS sandbox",
     ],
     CONNECT: [
-        "It asks you, in the AI app, before it saves a change or runs a project that contains Script blocks.",
-        "LightSim cannot tell who answered, and " + SHORT + ": see <b>AI access</b>.",
+        "It works hands-off: it does not ask you to confirm.",
+        "It runs a project's Script blocks and FMUs in a sandbox, or refuses the run",
     ],
     SKILL: [
-        "The `lightsim ai trust` list plays no part.",
-        "the run ends *failed* with \"has not been approved to run\"",
-        "tell the user to open the project in LightSim and choose **Run scripts**",
-        "an answer sent again repeats the run, or saves another copy of an edited example or new "
-        "project, without asking the user",
-        "Only the user answers LightSim's questions.",
+        "The `lightsim ai trust` list plays no part",
+        "A script you write or change with `model_edit` runs in that sandbox straight away",
+        "the connection for AI apps asks nobody to approve it",
+        "The connection does not ask the user to confirm a run.",
     ],
     SKILL_LIMITS: [  # only the first sentence of the entry reaches the skill pack
-        "**AI apps pass on LightSim's questions; the trust list is not used.**",
-        "does not read the trust list (`lightsim ai trust`), and its questions before an edit or a run "
-        "of a project with Script blocks go through the AI app, which can answer for you or send your "
-        "answer again.",
+        "**AI apps work hands-off; the trust list is not used.**",
+        "The connection for AI apps (the MCP server) never asks you to confirm",
+    ],
+    BENCH: [  # what an agent meets in a try, after the hands-off change
+        "During a try nobody answers questions, and LightSim asks none: it works hands-off",
+        "`lightsim edit` saves in `cli` mode the same way",
+        "the MCP server and the `lightsim` command run a project's Script blocks and FMUs in an OS "
+        "sandbox with no approval",
+        "An agent that still stops to ask its user has chosen to",
     ],
 }
+
+
+def test_the_mcp_bundle_tells_an_ai_app_what_the_connection_does():
+    # The .mcpb bundle's manifest is what an AI app shows when it installs
+    # LightSim's connection; it used to say the connection asks before it saves
+    # or runs a project with Script blocks.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("build_mcpb", ROOT / "scripts" / "mcp" / "build-mcpb.py")
+    builder = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(builder)
+    long = builder.manifest("0.0.0")["long_description"]
+    assert "works hands-off: it never asks you to confirm" in long
+    assert ("runs a project's Script blocks and FMUs in an OS sandbox, or refuses the run when that "
+            "sandbox cannot be set up") in long
+    assert "recoverable from the project's backups" in long
+    assert "one step in the project's history that the open app shows and undoes in one click" in long
+    assert not [c for c in OVERSTATED if c in long.lower()]
 
 
 @pytest.mark.parametrize("rel", MUST_SAY)
@@ -307,45 +401,99 @@ OLD_CLAIMS = [
     "rules every ai tool works under",
     "the trusted script projects",
 ]
-#: what the code does not do: ask before *each* run whatever the app sends,
-#: refuse every app that cannot ask, log every call
+#: the confirmation the connection no longer asks for; and claims stronger
+#: than the code. (--trust-scripts is no longer forbidden as a bare token: the
+#: server now accepts and ignores it for an old connection config — app/ai/
+#: cli.py names it in that back-compat note — so only the old instruction to
+#: ADD it is forbidden, below.)
 OVERSTATED = [
+    # the MCP connection's removed confirmation claims (the Python AgentSession
+    # still confirms, so a generic "needs confirmation" is not forbidden)
+    "asks you before it saves",
+    "asks you before it runs",
+    "lightsim asks you first",
+    "a yes sent again",
+    "an answer the ai app sends again",
+    "sends your answer again",
+    "cannot tell who answered",
+    "does not show the code",
+    "cannot ask you is refused",
+    "does not check whether the app can ask",
+    "add --trust-scripts",
+    "add `--trust-scripts`",
+    "pass --trust-scripts",
+    "input_required",
+    "elicitation",
     "asks you each time",
-    "script blocks, each time",
     "before each run",
-    "confirms each run",
     "confirm each run",
     "confirm each change",
-    "nothing is saved or run",
-    "cannot ask you cannot save",
-    "every tool call an ai app makes, allowed or refused",
-    "every request is written to a log",
-    "every tool call goes into a local audit log",
     "every call is logged",
-    "every request goes into",
-    "before every request",
-    "every request from",
+    "every tool call an ai app makes, allowed or refused",
     "every call from an ai tool is refused",
     "get nothing from lightsim",
-    "already connected gets nothing",
-    "do this once",
+    # the command line's old rules: a plain run asked about new script code, and
+    # only an agent runner's LIGHTSIM_STRICT_SANDBOX=1 made it hands-off
+    "is for people and keeps today's behaviour",
+    "asks about script code it does not know",
+    "lightsim_strict_sandbox=1",
+    # the Windows sandbox is built (an AppContainer with no capabilities, not
+    # the stricter LPAC), and lightsim edit saves, keeping every version
+    "today, on windows",
+    "where the appcontainer is not built yet",
+    "where that sandbox is not built yet",
+    "low-privilege appcontainer",
+    "has no command that saves",
+    "previous version as `<file>.bak`",
+    # scripts from elsewhere wait for an approval only in the app: the
+    # command-line tool and AI apps run them in the sandbox, asking nothing
+    "from another computer run only after you approve them",
+    "so lightsim shows it to you and asks before it runs",
+    "refuses to run such code, for every kind of run",
+    "script blocks keep today's checks (approved code only",
+    # "no network" flat, for a sandbox that holds FMUs too: on Linux an FMU's
+    # native code can still send UDP (Known issues), so each place says a
+    # Script opens no connection and the OS holds an FMU off
+    "with access to the project's folder only and no network",
+    "fmus runs in an os sandbox (no network",
+    "(no network, no file access outside the project), which needs landlock",
+    "fmu '{spec.label}' cannot be run os-confined (no network",
+    "must run os-confined (no network, file access to the project only)",
+    "os-confined (no network, no file access outside the project), and the run",
+    "strict os sandbox (no network, project-only files)",
+    "strict agent sandbox (file-confined, no network)",
+    # an agent's edit is live in the window and undone in one click (step 6)
+    "until a live one-click undo lands",
+    "reopen it there to see the change",
+    "until an agent's change is a live",
 ]
 #: a mention of the trust command must say, near it, who reads the list
 WHO_READS = ("AgentSession", "does not read", "is not read", "plays no part", "not used")
 
 
-def _places():
-    """Every file that could repeat the claim: the docs, the help, the README,
-    the page and the engine's and the package's own words (not the tests)."""
-    roots = [ROOT / "docs", ROOT / "backend" / "app", ROOT / "backend" / "lightsim",
-             ROOT / "frontend" / "src", ROOT / "frontend" / "e2e", ROOT / "desktop" / "src"]
-    files = [ROOT / "README.md", ROOT / "CONTRIBUTING.md", ROOT / "SECURITY.md"]
-    for root in roots:
-        for pattern in ("*.md", "*.py", "*.ts", "*.tsx", "*.js"):
-            files += [f for f in root.rglob(pattern)
-                      if "node_modules" not in f.parts and ".test." not in f.name
-                      and f.name != "test_ai_claims.py"]
-    return sorted({f for f in files if f.is_file()})
+#: folders the scan does not enter: tests (they quote the old claims to forbid
+#: them), installed packages, build output and caches
+_NOT_SCANNED = {"tests", "node_modules", "dist", "build", "target", "__pycache__", "venv"}
+_TEXT = (".md", ".py", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".toml", ".yml", ".yaml", ".html")
+
+
+@functools.lru_cache(maxsize=1)
+def _places() -> tuple[Path, ...]:
+    """Every text file of the repository that could repeat a claim, wherever
+    it is: the docs, the help, the page, the engine's and the package's words,
+    the scripts, the bench, the workflows. A list of folders missed the MCP
+    bundle's manifest (scripts/) and the bench's README. Left out: the tests,
+    unit tests beside the code (``*.test.*``), what is installed or built, and
+    the records of the past (RECORDS)."""
+    found = []
+    for folder, subs, names in os.walk(ROOT):
+        subs[:] = [s for s in subs if s not in _NOT_SCANNED and (s == ".github" or not s.startswith("."))]
+        for name in names:
+            f = Path(folder) / name
+            if (f.suffix in _TEXT and ".test." not in name
+                    and f.relative_to(ROOT).as_posix() not in RECORDS):
+                found.append(f)
+    return tuple(sorted(found))
 
 
 #: a comment marker at the start of a line (``//``, ``#``, ``/**``, `` * ``)
@@ -369,7 +517,11 @@ def test_the_places_to_check_are_found():
     assert _flat("/** Trust:\n *  only here */") == "Trust: only here */"
     assert {"AiAccessPanel.tsx", "AiConnectDialog.tsx", "use-an-ai-assistant.md", "command-line.md",
             "deploy-for-it.md", "KNOWN-LIMITS.md", "README.md", "ai_access.py", "mcp_server.py",
-            "ai01-access.spec.ts", "SKILL.md", "known-limits.md", "tools.py", "policy.js"} <= names
+            "ai01-access.spec.ts", "SKILL.md", "known-limits.md", "tools.py", "policy.js",
+            "build-mcpb.py", "run.py", "guard.py", "ci.yml", "write-speed-limiter.toml"} <= names
+    rel = {f.relative_to(ROOT).as_posix() for f in _places()}
+    assert BENCH in rel and "scripts/mcp/build-mcpb.py" in rel
+    assert not RECORDS & rel and not any(r.startswith("backend/tests/") for r in rel)
 
 
 def test_no_place_repeats_the_old_claim():

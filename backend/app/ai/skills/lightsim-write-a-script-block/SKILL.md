@@ -58,17 +58,17 @@ and report what is not allowed: run `run_checks` after every change.
 - Signal units are not checked: a Battery's `sig_soc` is in % (0-100).
 - Keep switching decisions steady: minimum on/off times and hysteresis
   stop a decision from flickering every step.
-- Running a project with Script blocks over MCP makes LightSim ask the
-  user first, and on Windows it refuses unless the user allowed it when
-  connecting (`--trust-scripts`). The `lightsim ai trust` list plays no
-  part. Only the user answers LightSim's questions. Send their answer
-  once: LightSim does not check who answered, and an answer sent again
-  repeats the run, or saves another copy of an edited example or new
-  project, without asking the user.
-- Code the user has not approved in LightSim does not run, even after a
-  yes: the run ends *failed* with "has not been approved to run". The
-  examples' code and code the user typed in the app count as approved; a
-  script you write or change with `model_edit` does not. After you save one,
-  tell the user to open the project in LightSim and choose **Run scripts**,
-  then run the case.
+- Running a project with Script blocks over MCP runs them in an OS sandbox:
+  file access to the project's folder only, and no network (Script code
+  cannot open a connection — it has only `math` and the basic functions
+  above). The connection does not ask the user to confirm a run. Where that
+  sandbox cannot be set up (Linux older than 5.13, or a Windows computer
+  that cannot make its AppContainer) the run is refused with the code
+  `sandbox_unavailable` rather than run less safely. The `lightsim run`
+  command follows the same rules. The `lightsim ai trust` list plays no
+  part (only `AgentSession` reads it).
+- A script you write or change with `model_edit` runs in that sandbox
+  straight away: the connection for AI apps asks nobody to approve it (the
+  sandbox is the safety). Save it with `model_edit` (`dry_run: false`), then
+  run the case with `run_case`.
 - Help page: *Script API* in LightSim's Help.

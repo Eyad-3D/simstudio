@@ -1,0 +1,124 @@
+id = "write-speed-limiter"
+kind = "write"
+version = 4
+title = "Write a speed limiter as a Script block"
+statement = """
+car.json models our electric hatchback. Fleet customers want a speed limiter.
+Add a Script block labelled "Speed Limiter" that passes the drive cycle's
+target speed on to the driver, but never more than 100 km/h. Give it an input
+port "demand", fed by the Vehicle Task's target speed, and an output port
+"target" that drives the Driver's target speed input in place of the direct
+link. Save the model in car.json. It must pass LightSim's Data Checks with no
+errors or warnings. The case "Motorway (WLTC Extra High)" shows the effect.
+"""
+
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Hatchback, fleet version"
+ops = [
+  { op = "add_case", name = "Motorway (WLTC Extra High)", id = "case-motorway", copy_of = "case-wltc", duration = 323 },
+  { op = "set", element = "Vehicle Task", param = "cycle", value = "wltc-3-extra-high", case = "case-motorway" },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.script", label = "Speed Limiter" },
+  { op = "set", element = "Speed Limiter", param = "code", value = """
+LIMIT_KMH = 100.0
+
+
+def step(t, dt, inputs, state, params):
+    return {"target": min(inputs.get("demand", 0.0), LIMIT_KMH)}
+""" },
+  { op = "add_port", element = "Speed Limiter", name = "demand", direction = "input" },
+  { op = "add_port", element = "Speed Limiter", name = "target", direction = "output" },
+  { op = "disconnect", from = "Vehicle Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Speed Limiter:demand" },
+  { op = "connect", from = "Speed Limiter:target", to = "Driver:sig_target_in" },
+]
+
+# The limit at 120 km/h.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Speed Limiter", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"target": min(inputs.get("demand", 0.0), 120.0)}
+""" }]
+
+# No Script block: a Lookup Table, under the asked label, caps the target.
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Speed Limiter" },
+  { op = "set", element = "Speed Limiter", param = "table_1d", value = { "0" = 0.0, "100" = 100.0, "300" = 100.0 } },
+  { op = "disconnect", from = "Vehicle Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Speed Limiter:sig_x_in" },
+  { op = "connect", from = "Speed Limiter:sig_out", to = "Driver:sig_target_in" },
+]
+
+# A Lookup Table caps the target. The Script under the asked label is only
+# for show: fed as the brief says, but its output goes to a Monitor.
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Speed Cap Table" },
+  { op = "set", element = "Speed Cap Table", param = "table_1d", value = { "0" = 0.0, "100" = 100.0, "300" = 100.0 } },
+  { op = "disconnect", from = "Vehicle Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Speed Cap Table:sig_x_in" },
+  { op = "connect", from = "Speed Cap Table:sig_out", to = "Driver:sig_target_in" },
+  { op = "add", type = "signal.script", label = "Speed Limiter" },
+  { op = "set", element = "Speed Limiter", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"target": min(inputs.get("demand", 0.0), 120.0)}
+""" },
+  { op = "add_port", element = "Speed Limiter", name = "demand", direction = "input" },
+  { op = "add_port", element = "Speed Limiter", name = "target", direction = "output" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Speed Limiter:demand" },
+  { op = "add", type = "signal.monitor", label = "Scope" },
+  { op = "add_port", element = "Scope", name = "x", direction = "input" },
+  { op = "connect", from = "Speed Limiter:target", to = "Scope:x" },
+]
+
+# A Lookup Table caps the target, and the Script is wired as the brief says but
+# returns what the table gives it on an extra input port "capped".
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Cap Table" },
+  { op = "set", element = "Cap Table", param = "table_1d", value = { "0" = 0.0, "100" = 100.0, "300" = 100.0 } },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Cap Table:sig_x_in" },
+  { op = "add", type = "signal.script", label = "Speed Limiter" },
+  { op = "set", element = "Speed Limiter", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"target": inputs.get("capped", 0.0)}
+""" },
+  { op = "add_port", element = "Speed Limiter", name = "demand", direction = "input" },
+  { op = "add_port", element = "Speed Limiter", name = "capped", direction = "input" },
+  { op = "add_port", element = "Speed Limiter", name = "target", direction = "output" },
+  { op = "disconnect", from = "Vehicle Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle Task:sig_demand", to = "Speed Limiter:demand" },
+  { op = "connect", from = "Cap Table:sig_out", to = "Speed Limiter:capped" },
+  { op = "connect", from = "Speed Limiter:target", to = "Driver:sig_target_in" },
+]
+
+# The condition dropped: the Script passes the target on with no cap.
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Speed Limiter", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"target": inputs.get("demand", 0.0)}
+""" }]
+
+[check]
+file = "car.json"
+case = "Motorway (WLTC Extra High)"
+require = { type = "signal.script", label = "Speed Limiter", ports = { demand = "Vehicle Task:sig_demand", target = "Driver:sig_target_in" } }
+figures = [
+  { key = "distance_km", rtol = 0.01 },
+  { key = "consumption_kwh_per_100km", rtol = 0.03 },
+  { channel = "vehicle.body:sig_speed", stat = "max", brief = 100.0, atol = 1.5 },
+]

@@ -1,0 +1,41 @@
+id = "compare-bev-gearing"
+kind = "compare"
+version = 1
+title = "Pick the final drive for a highway car"
+statement = """
+Our efficient sedan is sold mainly to people who drive long highway trips.
+sedan-a.json is design A, with a tall final drive (4.5:1); sedan-b.json is
+design B, with a shorter one (7.0:1). Everything else is the same. Which design
+uses less energy per 100 km at the battery on the highway cycle, the case
+"EPA highway (HWFET)", and how much is that, in kWh per 100 km?
+
+End your reply with one line in exactly this form:
+ANSWER: <A or B>; <consumption>
+"""
+
+[[start]]
+file = "sedan-a.json"
+from = "example:aero-bev"
+name = "Sedan, final drive 4.5"
+ops = [{ op = "set", element = "Final Drive", param = "ratio", value = 4.5 }]
+
+[[start]]
+file = "sedan-b.json"
+from = "example:aero-bev"
+name = "Sedan, final drive 7.0"
+ops = [{ op = "set", element = "Final Drive", param = "ratio", value = 7.0 }]
+
+# The shorter gearing wins the city cycle (the model's first case), but not
+# the highway.
+[wrong]
+answer = "ANSWER: B; 10.29"
+
+[[answer]]
+choice = "A"
+options = { A = "sedan-a.json", B = "sedan-b.json" }
+best = { case = "EPA highway (HWFET)", key = "consumption_kwh_per_100km", pick = "min" }
+
+[[answer]]
+value = 10.797
+rtol = 0.01
+figure = { file = "sedan-a.json", case = "EPA highway (HWFET)", key = "consumption_kwh_per_100km" }

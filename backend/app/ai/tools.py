@@ -7,10 +7,12 @@ edit a model. Each answer is a small JSON object (with the same JSON as
 text, for AI apps that ignore structured output), kept under
 :data:`MAX_ANSWER_BYTES`; anything cut says so.
 
-The protocol (JSON-RPC, versions, confirmations, tasks) lives in
-:mod:`app.ai.mcp_server`; this module knows nothing about it. A tool that
-needs the user's confirmation raises :class:`ConfirmationNeeded`, and the
-server calls it again with the confirmation once the user agreed.
+The protocol (JSON-RPC, versions, tasks) lives in :mod:`app.ai.mcp_server`;
+this module knows nothing about it. An agent works hands-off: no tool asks
+the user to confirm (the owner's decision, 1 November 2026). A run of a
+project with Script blocks or FMUs is refused, with a stable code, when the
+OS sandbox for them cannot be set up (:meth:`Policy.strict_sandbox_refusal`),
+never run less safely.
 """
 from __future__ import annotations
 
@@ -29,7 +31,7 @@ from ..schemas import Project, RunSnapshot, SimResult, StoredRun
 from ..version import VERSION
 from . import results as R
 from .access import AuditLog, Policy
-from .edits import EditError, apply_operations, check_counts, describe_check
+from .edits import EditError, apply_operations, check_counts, describe_check, no_part_message
 from .engine import Engine, NotFound, ProjectHandle
 from .overview import KNOWN_LIMITS_URL, model_overview, quote, run_for_overview
 from .skillpack import known_limit_sections
@@ -47,19 +49,11 @@ class ToolError(Exception):
 
 
 @dataclass
-class ConfirmationNeeded(Exception):
-    """The action needs the user's yes; ``seal`` names exactly this action."""
-
-    message: str
-    seal: str
-
-
-@dataclass
 class CallContext:
-    confirmed: Optional[str] = None  # the seal the user confirmed
     cancel: threading.Event = field(default_factory=threading.Event)
     progress: Optional[Callable[[float], None]] = None
     client: str = ""
+    session: str = ""
 
 
 def _project_arg(desc: str = "The project, as lightsim_list_projects names it "
@@ -72,6 +66,61 @@ _RUN_ARG = {"type": "string", "description": "A run id from run_case or lightsim
             "recentRuns, or 'latest' (the default)."}
 
 _OBJ = {"type": "object"}
+
+#: The operations model_edit takes, as a JSON Schema the AI app shows the
+#: model: each is an object with an "op" key naming the kind, and the fields
+#: that kind needs. ``apply_operations`` in edits.py is the matching code.
+_OP_SCHEMAS: list[dict] = [
+    {"title": "set", "type": "object", "required": ["op", "element", "param", "value"],
+     "properties": {
+         "op": {"const": "set"},
+         "element": {"type": "string", "description": "the part's id or exact label"},
+         "param": {"type": "string", "description": "the parameter's key (element_read lists the keys)"},
+         "value": {"description": "a number in the parameter's own unit (a text such as \"150 kW\" "
+                   "must name that unit), text, true/false, or a table as {x: value}"},
+         "case": {"type": "string", "description": "set it for this case only (its id or name)"}}},
+    {"title": "add", "type": "object", "required": ["op", "type"],
+     "properties": {
+         "op": {"const": "add"},
+         "type": {"type": "string", "description": "a library part id such as motor.emotor "
+                  "(lightsim://components lists them)"},
+         "label": {"type": "string", "description": "the new part's label"},
+         "id": {"type": "string"},
+         "system": {"type": "string", "description": "the system to put it in, by its id or name; "
+                    "leave it out for the main system"}}},
+    {"title": "remove", "type": "object", "required": ["op", "element"],
+     "properties": {"op": {"const": "remove"},
+                    "element": {"type": "string", "description": "its id or exact label "
+                                "(its wires and signals go with it)"}}},
+    {"title": "connect", "type": "object", "required": ["op", "from", "to"],
+     "properties": {"op": {"const": "connect"},
+                    "from": {"type": "string", "description": "element:port"},
+                    "to": {"type": "string", "description": "element:port (two signal ports make a "
+                           "data-bus signal, anything else a wire)"}}},
+    {"title": "disconnect", "type": "object", "required": ["op", "from", "to"],
+     "properties": {"op": {"const": "disconnect"},
+                    "from": {"type": "string", "description": "element:port"},
+                    "to": {"type": "string", "description": "element:port"}}},
+    {"title": "add_port", "type": "object", "required": ["op", "element", "name", "direction"],
+     "properties": {"op": {"const": "add_port"},
+                    "element": {"type": "string", "description": "a Script or Monitor part"},
+                    "name": {"type": "string", "description": "the signal port's name"},
+                    "direction": {"enum": ["input", "output"]}}},
+    {"title": "add_case", "type": "object", "required": ["op", "name"],
+     "properties": {"op": {"const": "add_case"}, "name": {"type": "string"}, "id": {"type": "string"},
+                    "copy_of": {"type": "string", "description": "copy this case's values (its id or name)"},
+                    "kind": {"enum": ["cycle", "performance", "acceleration", "lap"]},
+                    "duration": {"type": "number", "description": "seconds"},
+                    "timeStep": {"type": "number", "description": "seconds"}}},
+    {"title": "set_case", "type": "object", "required": ["op", "case"],
+     "properties": {"op": {"const": "set_case"},
+                    "case": {"type": "string", "description": "the case's id or name"},
+                    "name": {"type": "string"},
+                    "kind": {"enum": ["cycle", "performance", "acceleration", "lap"]},
+                    "duration": {"type": "number", "description": "seconds"},
+                    "timeStep": {"type": "number", "description": "seconds"},
+                    "endDistance": {"type": "number", "description": "metres"}}},
+]
 
 TOOLS: list[dict] = [
     {
@@ -138,12 +187,17 @@ TOOLS: list[dict] = [
         "title": "Run a case",
         "description": "Simulate one case of a model (Data Checks first) and return its status, "
                        "key results (with 'not valid' notes) and messages. Runs take seconds to "
-                       "a few minutes; AI apps that support MCP Tasks get a task to poll. A project "
-                       "with Script blocks runs only after the user says yes to LightSim's question "
-                       "(send that yes once: sent again it repeats the run without asking the user), "
-                       "and only with Script code the user has approved in LightSim (a script you "
-                       "wrote or changed fails with 'has not been approved'). The run is kept for "
-                       "results_query and compare_runs; it does not change the project.",
+                       "a few minutes; AI apps that support MCP Tasks get a task to poll. You are "
+                       "not asked to confirm. A project with Script blocks or FMUs runs in an OS "
+                       "sandbox (file access to the project's folder only, and no network a Script "
+                       "can open — an FMU's native code is held off by the OS; KNOWN-LIMITS has the "
+                       "per-platform detail); if that sandbox "
+                       "cannot be set up (Linux older than 5.13, or a Windows computer that cannot "
+                       "make its AppContainer) the run is refused with the code "
+                       "'sandbox_unavailable' rather than run less safely. A brand-new Script "
+                       "block you write runs in that sandbox straight away: you are not asked to "
+                       "get it approved. The run is kept for results_query and compare_runs; it "
+                       "does not change the project.",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
             "case": {"type": "string", "description": "The case's id or name."},
@@ -181,7 +235,10 @@ TOOLS: list[dict] = [
         "name": "compare_runs",
         "title": "Compare two runs",
         "description": "What differs between the models and cases two runs were made with, and "
-                       "how each key result changed (with 'not valid' notes).",
+                       "how each key result changed (with 'not valid' notes). Both runs must be of "
+                       "the one project named here; it cannot compare runs of two different "
+                       "projects. To compare two designs, make them two cases of one project (or "
+                       "two model_edit variants) and run each, then compare those two run ids.",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
             "run_a": {"type": "string", "description": "The baseline run id."},
@@ -209,19 +266,29 @@ TOOLS: list[dict] = [
     {
         "name": "model_edit",
         "title": "Edit a model",
-        "description": "Change a model with a batch of operations, all or nothing: set (element, "
-                       "param, value[, case]), add (type, label), remove (element), connect and "
-                       "disconnect (from/to as 'element:port'), add_port (a Script's signal "
-                       "port), add_case and set_case. By default a "
+        "description": "Change a model with a batch of operations, applied all or nothing. Each "
+                       "operation is an object with an \"op\" key naming the kind, and that kind's "
+                       "fields (the operations schema lists them): \"set\" (element, param, value, "
+                       "optional case), \"add\" (type, label), \"remove\" (element), \"connect\" and "
+                       "\"disconnect\" (from, to as 'element:port'), \"add_port\" (a Script's signal "
+                       "port), \"add_case\" and \"set_case\". For example "
+                       "{\"op\": \"set\", \"element\": \"Vehicle\", \"param\": \"mass_kg\", "
+                       "\"value\": 1900}. By default a "
                        "dry run: returns what would change and the Data Checks afterwards, saving "
-                       "nothing. With dry_run false the user must confirm, then it is saved (an "
-                       "example is saved as a new project; for an example or a 'new:' project a yes "
-                       "sent again saves another copy; the app keeps backups of every save).",
+                       "nothing. With dry_run false it is saved straight away (you are not asked "
+                       "to confirm): an example or a 'new:' project is saved as a new project. "
+                       "Each save is one step in the project's history, with a backup of the "
+                       "previous version and your reason: the open LightSim window shows it at "
+                       "once, and the user can undo it, or your whole session, with one click.",
         "inputSchema": {"type": "object", "properties": {
             "project": _project_arg(),
-            "operations": {"type": "array", "items": {"type": "object"}, "minItems": 1,
-                           "maxItems": 200},
+            "operations": {"type": "array", "minItems": 1, "maxItems": 200,
+                           "description": "the operations, in order; each has an \"op\" key",
+                           "items": {"type": "object", "required": ["op"], "oneOf": _OP_SCHEMAS}},
             "dry_run": {"type": "boolean", "default": True},
+            "reason": {"type": "string", "maxLength": 500,
+                       "description": "why you make this change, in one line (kept with the "
+                                      "change in the project's history, which the user reads)"},
         }, "required": ["project", "operations"], "additionalProperties": False},
         "outputSchema": {"type": "object", "properties": {
             "applied": {"type": "boolean"}, "changes": {"type": "array"},
@@ -286,8 +353,7 @@ class Tools:
     # -- dispatch ---------------------------------------------------------
 
     def call(self, name: str, args: dict, ctx: CallContext) -> dict:
-        """The tool's answer (JSON-ready); raises ToolError, NotFound or
-        ConfirmationNeeded."""
+        """The tool's answer (JSON-ready); raises ToolError or NotFound."""
         fn = getattr(self, "t_" + name, None)
         if name not in TOOL_NAMES or fn is None:
             raise ToolError(f"No tool '{name}'.")
@@ -347,7 +413,7 @@ class Tools:
         found = [(s, e) for s in project.systems for e in s.elements if e.id == name] or \
             [(s, e) for s in project.systems for e in s.elements if e.label == name]
         if not found:
-            raise ToolError(f"No part '{name}' in this project: lightsim_overview lists them.")
+            raise ToolError(no_part_message(project, name, self.engine.library()))
         system, el = found[0]
         lib = self.engine.library()
         cdef = lib.get(el.componentDefId)
@@ -443,26 +509,20 @@ class Tools:
             "summary": R.summary_rows(result.summary),
             "messages": _messages(result),
             "channels": len(result.channels),
-            "next": "results_query reads its channels; compare_runs compares it with another run.",
+            "next": "results_query reads its channels; compare_runs compares it with another run "
+                    "of this project.",
         }
 
     def check_run_allowed(self, handle: ProjectHandle, project: Project, case: Any,
                           ctx: CallContext) -> None:
-        """Raise ToolError if the case may not run, or ConfirmationNeeded
-        until the user confirmed running a project with Script blocks."""
-        if not self.engine.has_scripts(project):
-            return
-        refusal = self.policy.script_run_refusal()
-        if refusal:
-            raise ToolError(refusal)
-        seal = self.policy.seal("run", {"project": handle.ref,
-                                        "model": project.model_dump_json(), "case": case.id})
-        if ctx.confirmed != seal:
-            raise ConfirmationNeeded(
-                f"Your AI assistant wants to run the case \"{case.name}\" of the LightSim project "
-                f"\"{project.name}\". The project contains Script blocks: Python code that runs "
-                "on your computer in LightSim's sandbox. Run it only if you trust where the "
-                "project came from.", seal)
+        """Raise ToolError when a project with Script blocks or FMUs may not
+        run because its OS sandbox cannot be set up on this platform (so the
+        run is refused rather than run less safely). A hands-off agent is
+        never asked to confirm."""
+        if self.engine.has_scripts(project) or self.engine.has_fmus(project):
+            refusal = self.policy.strict_sandbox_refusal()
+            if refusal:
+                raise ToolError(refusal)
 
     def find_case(self, project: Project, want: str) -> Any:
         case = next((c for c in project.cases if c.id == want), None) or \
@@ -500,8 +560,8 @@ class Tools:
 
     def t_compare_runs(self, args: dict, ctx: CallContext) -> dict:
         handle, _, _ = self._load(args)
-        a = self._get_run(handle, str(args.get("run_a") or ""))
-        b = self._get_run(handle, str(args.get("run_b") or ""))
+        a = self._compare_run(handle, args.get("run_a"))
+        b = self._compare_run(handle, args.get("run_b"))
         snap = lambda r: (r.snapshot.project, r.snapshot.case) if r.snapshot else None  # noqa: E731
         return {
             "runA": {"run": a.id, "case": a.caseName, "status": a.status},
@@ -509,6 +569,19 @@ class Tools:
             "modelDifferences": R.model_differences(snap(a), snap(b)),
             "results": R.kpi_changes(a.result.summary, b.result.summary),
         }
+
+    def _compare_run(self, handle: ProjectHandle, run_id: Any) -> StoredRun:
+        """A run of this project for compare_runs, with a plain message when
+        the id is of another project (the agent ran two project files and
+        tried to compare their runs)."""
+        try:
+            return self._get_run(handle, str(run_id or ""))
+        except ToolError as e:
+            raise ToolError(
+                f"{e} compare_runs compares two runs of this one project; it cannot compare runs "
+                "of two different project files. To compare two designs, make them two cases of "
+                "one project (or two model_edit variants) and run each, then compare those two "
+                "run ids.") from None
 
     def t_explain_message(self, args: dict, ctx: CallContext) -> dict:
         text = str(args.get("text") or "").strip()
@@ -542,13 +615,31 @@ class Tools:
         }
 
     def t_model_edit(self, args: dict, ctx: CallContext) -> dict:
-        handle, project, revision = self._load(args)
         dry_run = args.get("dry_run", True) is not False
-        before = self.engine.checks(project)
-        try:
-            edited, changes = apply_operations(project, args.get("operations"))
-        except EditError as e:
-            raise ToolError(f"{e} Nothing was changed.") from None
+        if not dry_run and not self.policy.allow_edits:
+            raise ToolError("Edits are switched off for this connection (--read-only).")
+        meta = {"by": "agent", "tool": "model_edit", "client": ctx.client or None,
+                "session": ctx.session or None, "reason": args.get("reason")}
+        # the project is read, edited and saved; a save from the app (or
+        # another agent) in between is not overwritten: the operations are
+        # applied again to the newer file, as they would be by hand
+        for attempt in range(3):
+            handle, project, revision = self._load(args)
+            before = self.engine.checks(project)
+            try:
+                edited, changes = apply_operations(project, args.get("operations"))
+            except EditError as e:
+                raise ToolError(f"{e} Nothing was changed.") from None
+            if dry_run:
+                break
+            try:
+                ref, new_revision = self.engine.save(handle, edited, revision,
+                                                     {**meta, "changes": changes})
+                break
+            except storage.ConflictError:
+                if attempt == 2:
+                    raise ToolError("The project kept changing on disk while it was being "
+                                    "saved. Read it again and repeat the edit.") from None
         after = self.engine.checks(edited)
         answer: dict = {
             "applied": False, "dryRun": dry_run, "changes": changes,
@@ -556,38 +647,23 @@ class Tools:
             "checks": [describe_check(c) for c in after if c.level in ("error", "warning")],
         }
         if dry_run:
-            answer["next"] = "Call again with dry_run false to save; the user will be asked."
+            answer["next"] = "Call again with dry_run false to save."
             return answer
-        if not self.policy.allow_edits:
-            raise ToolError("Edits are switched off for this connection (--read-only).")
-        seal = self.policy.seal("edit", {"project": handle.ref, "revision": revision,
-                                         "model": edited.model_dump_json()})
-        if ctx.confirmed != seal:
-            target = ("a new project" + (" (the example stays as it is)" if handle.kind == "example" else "")
-                      if handle.read_only
-                      else f"the project \"{project.name}\"")
-            listed = "\n".join(f"- {c}" for c in changes[:15])
-            more = f"\n- … and {len(changes) - 15} more" if len(changes) > 15 else ""
-            if handle.kind == "folder":
-                kept = (" LightSim keeps the previous version as a backup, in the folder "
-                        f"\"{handle.backups.name}\" beside the file.")
-            elif handle.kind == "user":
-                kept = " LightSim keeps the previous version as a backup."
-            else:
-                kept = ""
-            raise ConfirmationNeeded(
-                f"Your AI assistant wants to save these changes to {target} in LightSim:\n"
-                f"{listed}{more}\nData Checks after the change: "
-                f"{answer['checksAfter']['error']} errors, {answer['checksAfter']['warning']} "
-                f"warnings.{kept}", seal)
-        try:
-            ref, new_revision = self.engine.save(handle, edited, revision)
-        except storage.ConflictError:
-            raise ToolError("The project changed on disk since it was read (perhaps in the app). "
-                            "Read it again and repeat the edit.") from None
         answer.update({"applied": True, "project": ref, "revision": new_revision})
-        answer["note"] = ("If the project is open in the LightSim app, reopen it there to see "
-                          "the change.")
+        if handle.kind == "example":
+            where = (f"The example is unchanged; your edit was saved as a new project "
+                     f"\"{ref}\". ")
+        elif handle.kind == "new":
+            where = f"Saved as a new project \"{ref}\". "
+        else:
+            kept = (f"in the folder \"{handle.backups.name}\" beside the file"
+                    if handle.kind == "folder" else "by LightSim")
+            where = ("Saved as one step in the project's history, with the previous version "
+                     f"kept as a backup {kept}: the open LightSim window shows the change, and "
+                     "the user can undo it there with one click. ")
+        if not meta["reason"]:
+            where += "Give a reason with each save: the user reads it in the history."
+        answer["note"] = where.strip()
         return answer
 
     # -- runs ---------------------------------------------------------------

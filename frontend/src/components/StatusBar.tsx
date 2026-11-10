@@ -1,4 +1,4 @@
-import { CircleAlert, CircleCheck, CloudOff, Loader2, Plus, TriangleAlert, X } from "lucide-react";
+import { Bot, CircleAlert, CircleCheck, CloudOff, Loader2, Plus, TriangleAlert, X } from "lucide-react";
 import { confirmReplaceProject, followNotice, problemCounts, useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
 import { progressText } from "../sweep";
@@ -68,6 +68,65 @@ function FinishNotice() {
             />
             Always open Results
           </label>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** An AI agent's latest change to the open project (step 6), over the left
+ *  end of the status bar: who, why, and one click to undo it or the agent's
+ *  whole session in the file. It stays until closed or undone. */
+function AgentChangeNotice() {
+  const change = useProjectStore((s) => s.agentChange);
+  const projectId = useProjectStore((s) => s.project?.id);
+  const undo = useProjectStore((s) => s.undoAgentChange);
+  const dismiss = useProjectStore((s) => s.dismissAgentChange);
+  if (!change || change.projectId !== projectId) return null;
+  const { entry, sessionCount } = change;
+  const what = entry.reason || entry.changes.slice(0, 2).join("; ") || "changed the model";
+  return (
+    <div
+      role="status"
+      aria-label="AI change"
+      className="fixed bottom-[32px] left-3 z-50 w-[330px] max-w-[calc(100vw-24px)] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-[12px] shadow-lg"
+    >
+      <div className="flex items-start gap-1.5">
+        <Bot size={15} className="mt-px shrink-0 text-[color:var(--ss-accent)]" aria-hidden />
+        <span className="min-w-0 flex-1 break-words">
+          <b>{entry.client || "An AI agent"}</b>: {what}
+        </span>
+        <button
+          className="shrink-0 rounded p-0.5 text-[color:var(--ss-text-dim)] hover:bg-[color:var(--ss-hover)]"
+          title="Close"
+          aria-label="Close"
+          onClick={dismiss}
+        >
+          <X size={13} />
+        </button>
+      </div>
+      {entry.changes.length > 0 && entry.reason && (
+        <div className="mt-0.5 pl-[21px] text-[11px] text-[color:var(--ss-text-dim)]">
+          {entry.changes.slice(0, 3).join("; ")}
+          {entry.changes.length > 3 ? ` (+${entry.changes.length - 3})` : ""}
+        </div>
+      )}
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-[21px]">
+        <button
+          className="ss-toolbtn border border-[color:var(--ss-border)]"
+          title="Undo this change in the project file"
+          onClick={() => void undo("change")}
+        >
+          Undo
+        </button>
+        {entry.session && (
+          <button
+            className="ss-toolbtn border border-[color:var(--ss-border)]"
+            title="Undo every change of this agent session in the project file"
+            onClick={() => void undo("session")}
+          >
+            Undo session{sessionCount > 1 ? ` (${sessionCount} changes)` : ""}
+          </button>
         )}
       </div>
     </div>
@@ -161,6 +220,7 @@ export function StatusBar() {
         )}
       </div>
       <FinishNotice />
+      <AgentChangeNotice />
     </div>
   );
 }

@@ -26,6 +26,7 @@ Elements are named by id or by their exact label.
 """
 from __future__ import annotations
 
+import difflib
 import re
 from typing import Any, Optional
 
@@ -58,6 +59,33 @@ def _norm_unit(u: str) -> str:
     return u.replace("·", "").replace("*", "").replace(" ", "").replace("²", "^2").lower()
 
 
+def no_part_message(project: Project, name: Any, lib: Optional[dict] = None) -> str:
+    """Why no part matches ``name``, with the parts listed as
+    ``id ("label", type)``, the closest to ``name`` first, and a word when
+    ``name`` is really a case or a library part type — the two things agents
+    most often pass by mistake (BASELINE item 5: the old message named no
+    part at all, which agents recovered from least)."""
+    name = str(name or "")
+    parts = [(e.id, e.label, e.componentDefId) for s in project.systems for e in s.elements]
+
+    def closeness(part: tuple[str, str, str]) -> float:
+        e_id, label, _ = part
+        return max(difflib.SequenceMatcher(None, name.lower(), c.lower()).ratio()
+                   for c in (e_id, label or e_id))
+
+    parts.sort(key=closeness, reverse=True)
+    listed = ", ".join(f'{e_id} ("{label}", {type_id})' for e_id, label, type_id in parts[:12])
+    if len(parts) > 12:
+        listed += f", … ({len(parts) - 12} more)"
+    hint = ""
+    if any(name in (c.id, c.name) for c in project.cases):
+        hint = f" '{name}' is a case, not a part."
+    elif lib is not None and name in lib:
+        hint = f" '{name}' is a part type, not a part in this model (model_edit's add adds one)."
+    return (f"No part '{name}' in this project.{hint} Name a part by its id or exact label; "
+            f"parts (closest first): {listed}.")
+
+
 class _Model:
     def __init__(self, project: Project) -> None:
         self.p = project
@@ -71,7 +99,7 @@ class _Model:
         hits = [(s, e) for s, e in self.elements() if e.id == name]
         hits = hits or [(s, e) for s, e in self.elements() if e.label == name]
         if not hits:
-            raise EditError(f"No part '{name}' (name a part by its id or exact label).")
+            raise EditError(no_part_message(self.p, name, self.lib))
         if len(hits) > 1:
             raise EditError(f"Several parts are labelled '{name}': name it by id "
                             f"({', '.join(e.id for _, e in hits)}).")
@@ -165,15 +193,26 @@ def apply_operations(project: Project, operations: list[dict]) -> tuple[Project,
     for i, op in enumerate(operations, 1):
         try:
             if not isinstance(op, dict):
-                raise EditError("An operation is an object with an 'op'.")
+                raise EditError("an operation is an object with an \"op\" key, not "
+                                f"{type(op).__name__}.")
             changes.append(_apply(m, op))
         except EditError as e:
-            raise EditError(f"Operation {i} ({op.get('op') if isinstance(op, dict) else op}): {e}") from None
+            label = op.get("op") if isinstance(op, dict) and op.get("op") is not None else "no op"
+            raise EditError(f"Operation {i} ({label}): {e}") from None
     return m.p, changes
+
+
+_OP_KINDS = ("set", "add", "remove", "connect", "disconnect", "add_port", "add_case", "set_case")
 
 
 def _apply(m: _Model, op: dict) -> str:
     kind = op.get("op")
+    if kind is None:
+        keys = ", ".join(repr(k) for k in op) or "no keys"
+        raise EditError(
+            f"this operation has no \"op\" key (its keys: {keys}). Every operation needs an "
+            f"\"op\" naming the kind: {', '.join(_OP_KINDS)}. For example "
+            "{\"op\": \"set\", \"element\": \"Vehicle\", \"param\": \"mass_kg\", \"value\": 1900}.")
     if kind == "set":
         _, el = m.element(op.get("element"))
         key = str(op.get("param") or "")
@@ -190,10 +229,12 @@ def _apply(m: _Model, op: dict) -> str:
         if cdef is None or type_id == "container.system":
             raise EditError(f"No library part '{type_id}' (lightsim://components lists them).")
         system_id = op.get("system")
-        system = next((s for s in m.p.systems if s.id == system_id), None) if system_id else \
+        system = next((s for s in m.p.systems if system_id in (s.id, s.name)), None) if system_id else \
             next((s for s in m.p.systems if s.parentId is None), m.p.systems[0])
         if system is None:
-            raise EditError(f"No system '{system_id}'.")
+            listed = ", ".join(f'{s.id} ("{s.name}")' for s in m.p.systems)
+            raise EditError(f"No system '{system_id}' (the systems: {listed}). Leave 'system' out "
+                            "to add the part to the main system.")
         label = str(op.get("label") or cdef.name)
         el_id = m.free_id(str(op.get("id") or "el-" + label.lower()))
         x = max((e.position.get("x", 0) for e in system.elements), default=0) + 160
@@ -268,7 +309,7 @@ def _apply(m: _Model, op: dict) -> str:
         if not changed:
             raise EditError(f"Nothing to change: give any of {', '.join(_CASE_FIELDS)}.")
         return f'Case "{case.name}": ' + ", ".join(changed)
-    raise EditError("Unknown 'op': use set, add, remove, connect, disconnect, add_port, add_case or set_case.")
+    raise EditError(f"unknown op {kind!r}: use one of {', '.join(_OP_KINDS)}.")
 
 
 def _set_case_fields(case: SimCase, op: dict) -> list[str]:

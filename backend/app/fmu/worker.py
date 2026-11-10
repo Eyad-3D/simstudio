@@ -199,25 +199,42 @@ def _describe_error(e: BaseException) -> str:
     return text[:500]
 
 
-def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
-    """Entry point of an FMU worker process (spawned by the engine)."""
-    import json
-
-    # Everything Python will need is imported while the filesystem is open.
+def _import_fmpy() -> None:
+    # Everything Python will need, imported while the filesystem is still open.
     import fmpy  # noqa: F401
     import fmpy.fmi2  # noqa: F401
     import fmpy.fmi3  # noqa: F401
 
-    summary = _sw.harden(sock.fileno(), mem_bytes,
-                         read_paths=[*read_paths, *_SYSTEM_READ_PATHS],
-                         drop_modules=False)
+
+def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
+    """Entry point of the socket FMU worker (spawned by the engine over a
+    ``socketpair``). The Windows AppContainer worker runs :func:`serve` over an
+    inherited pipe instead (``win_sandbox.child_main``); both run identical
+    logic."""
+    _import_fmpy()
+    summary, confined = _sw.harden(sock.fileno(), mem_bytes,
+                                   read_paths=[*read_paths, *_SYSTEM_READ_PATHS],
+                                   drop_modules=False)
     try:
         sys.stderr.write(f"[fmu sandbox] {summary}\n")
         sys.stderr.flush()
     except Exception:  # noqa: BLE001
         pass
+    try:
+        serve(_sw.Conn(sock), confined)
+    finally:
+        try:
+            sock.close()
+        except Exception:  # noqa: BLE001
+            pass
 
-    conn = _sw.Conn(sock)
+
+def serve(conn, confined: bool) -> None:
+    """Load/step/quit an FMU over ``conn`` until it closes. ``confined`` is
+    what :func:`harden` reported; a strict run whose worker is not confined
+    loads no FMU (the engine refuses it)."""
+    import json
+
     inst: _Instance | None = None
     try:
         while True:
@@ -233,12 +250,20 @@ def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
                     conn.send(pack_values(MSG_STEP_OK, out))
             elif kind == MSG_INIT:
                 spec = json.loads(body[1:].decode("utf-8"))
+                if spec.get("strict") and not confined:
+                    # strict agent run, worker not OS-confined: load nothing and
+                    # reply at once, so the FMU's native code never runs
+                    # unconfined; the engine refuses the run (PLT-35).
+                    conn.send(MSG_INIT + json.dumps(
+                        {"error": None, "confined": confined}).encode("utf-8"))
+                    continue
                 err = None
                 try:
                     inst = _Instance(spec)
                 except Exception as e:  # noqa: BLE001
                     err = _describe_error(e)
-                conn.send(MSG_INIT + json.dumps({"error": err}).encode("utf-8"))
+                conn.send(MSG_INIT + json.dumps(
+                    {"error": err, "confined": confined}).encode("utf-8"))
             elif kind == MSG_QUIT:
                 return
     except (EOFError, ConnectionError, BrokenPipeError):
@@ -246,7 +271,3 @@ def worker_main(sock, mem_bytes: int, read_paths: list[str]) -> None:
     finally:
         if inst is not None:
             inst.close()
-        try:
-            sock.close()
-        except Exception:  # noqa: BLE001
-            pass

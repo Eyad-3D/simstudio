@@ -97,44 +97,37 @@ it("shows a refusal and the settings as they are", async () => {
   expect(box("Let AI tools use LightSim").checked).toBe(false); // read again after the refusal
 });
 
-// The page says what the connection does today (AI-01, step 6): it asks before
-// an edit and before a Script run, but an answer sent again is not asked about
-// again and an app on the newer protocol may answer for you; it does not read
-// the trust list, and the trust list belongs to the Python package.
-// backend/tests/test_ai_claims.py holds the same facts against the code and
-// the help pages.
+// The page says what the connection does today (AI-01, step 6): an agent works
+// hands-off — the connection never asks to confirm; a Script/FMU run goes in an
+// OS sandbox or is refused with a stable code; an edit is saved and
+// recoverable; it does not read the trust list, which belongs to the Python
+// package. backend/tests/test_ai_claims.py holds the same facts against the
+// code and the help pages.
 it("says what the connection for AI apps does today", async () => {
   await render(base);
   const text = (host.textContent ?? "").replace(/\s+/g, " ");
   expect(text).toContain("An AI app you connected reads these settings before every tool call.");
   expect(text).toContain("Python code that uses lightsim.ai_access.AgentSession reads them when it starts a session.");
+  expect(text).toContain("An AI agent works hands-off: the connection never asks you to confirm.");
   expect(text).toContain(
-    "Reading, checking and comparing models, and running a project without Script blocks: no question.",
+    "Saving an edit: saved straight away. An example is saved as a new project, and the previous version is kept as a backup, so the change can be undone.",
   );
-  expect(text).toContain("Saving an edit: LightSim asks you first.");
-  expect(text).toContain("Running a project with Script blocks (Python code): LightSim asks you first");
-  expect(text).toContain("the question does not show the code");
   expect(text).toContain(
-    "An app that sends your answer again repeats a run, or saves another copy of an edited example or new project, without asking you.",
+    "it runs in an OS sandbox with access to the project's folder only, and no network — a Script can open none, and an FMU's native code is held off by the OS",
   );
-  expect(text).toContain("An AI app on MCP's older handshake that cannot ask you is refused anything that needs your yes");
+  expect(text).toContain("the run is refused with the code sandbox_unavailable rather than run less safely");
   expect(text).toContain(
-    "LightSim does not check whether the app can ask, so an app that answers for you can save edits and run Script projects.",
+    "A brand-new script an assistant writes runs in that sandbox straight away, with no Run scripts approval",
   );
-  expect(text).toContain("Connect only an AI app that shows you each question.");
-  expect(text).toContain(
-    "On Windows such a project does not run at all unless the connection was started with --trust-scripts",
-  );
-  expect(text).toContain("LightSim also refuses Script code you have not approved there (Run scripts)");
-  expect(text).toContain("LightSim cannot tell who answered");
+  expect(text).toContain("A run you start yourself in LightSim still asks you to approve new script code");
   expect(text).toContain("Only Python code that uses lightsim.ai_access.AgentSession reads it");
   expect(text).toContain("The connection for AI apps does not read this list.");
-  // the claims it used to make
+  // the claims it used to make, and the confirmation it no longer asks for
   expect(text).not.toContain("only once you trust it");
   expect(text).not.toContain("enforced by the engine");
-  expect(text).not.toContain("hold for every AI tool");
+  expect(text).not.toContain("LightSim asks you first");
   expect(text).not.toContain("each time");
   expect(text).not.toContain("before each run");
-  expect(text).not.toContain("cannot ask you cannot save");
-  expect(text).not.toContain("before every request");
+  expect(text).not.toContain("--trust-scripts");
+  expect(text).not.toContain("sends your answer again");
 });

@@ -64,7 +64,7 @@ from .runtime import (
     solve_linear,
     tyre_mu,
 )
-from .sandbox import ScriptSandbox, ScriptSpec
+from .sandbox import STRICT, ScriptSandbox, ScriptSpec, why_no_strict_sandbox
 from .scaling import max_speed_rpm, scaled
 from .scripting import ScriptError
 from .slave import ParamResult, Slave, StepResult, VarDef, split_var
@@ -287,6 +287,11 @@ class RunContext:
         # sandbox.py): one worker for the whole run, reused every step, with the
         # block's state kept in the worker. Only built when the model has Script
         # blocks, so a model without them starts no worker.
+        # A strict run (an AI agent's, app/ai) must run Script blocks and FMUs
+        # OS-confined, and is refused when that cannot be set up — never a
+        # silent fall-back to the weaker worker (PLT-35). A person's run in the
+        # app leaves STRICT False and keeps today's best-effort isolation.
+        strict = STRICT.get()
         self.sandbox: ScriptSandbox | None = None
         script_specs: list[ScriptSpec] = []
         for el_id in model.signal_blocks:
@@ -302,13 +307,22 @@ class RunContext:
                 params=dict(self.params(el_id)),
             ))
         if script_specs:
-            # Only code this user has approved runs (app/script_trust.py).
+            if strict:
+                # A strict agent run is made safe by the OS sandbox, not by a
+                # per-user approval: the run is refused when the sandbox cannot
+                # be set up, so the agent never waits on a person (the owner's
+                # hands-off decision, 1 November 2026). script_trust is for a
+                # person's run in the app, which leaves STRICT False.
+                if why := why_no_strict_sandbox():
+                    raise ModelInitError([why])
+            else:
+                # Only code this user has approved runs (app/script_trust.py).
+                try:
+                    script_trust.check([(sp.label, sp.code) for sp in script_specs])
+                except script_trust.ScriptsNotApproved as e:
+                    raise ModelInitError([str(e)])
             try:
-                script_trust.check([(sp.label, sp.code) for sp in script_specs])
-            except script_trust.ScriptsNotApproved as e:
-                raise ModelInitError([str(e)])
-            try:
-                self.sandbox = ScriptSandbox(script_specs)
+                self.sandbox = ScriptSandbox(script_specs, strict=strict)
             except ScriptError as e:
                 raise ModelInitError([str(e)])
 
@@ -319,6 +333,8 @@ class RunContext:
         fmu_ids = [el_id for el_id in model.signal_blocks
                    if model.cdef_of[el_id].id == FMU_COMPONENT]
         if fmu_ids:
+            if strict and (why := why_no_strict_sandbox()):
+                raise ModelInitError([why])
             # imported here: the FMU worker process imports this package, and
             # the FMU modules import the worker
             from ..fmu.block import spec_for as fmu_spec_for
@@ -332,7 +348,7 @@ class RunContext:
                     self.fmu_ports[el_id] = (
                         [p.id for p in ports if p.direction == "input"],
                         [p.id for p in ports if p.direction == "output"])
-                    self.fmus[el_id] = FmuSandbox(spec)
+                    self.fmus[el_id] = FmuSandbox(spec, strict=strict)
             except (FmuError, FmuFileError) as e:
                 self.close_sandboxes()
                 raise ModelInitError([str(e)])

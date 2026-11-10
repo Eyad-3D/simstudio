@@ -35,9 +35,9 @@ MODEL_DESCRIPTION = f"""<?xml version="1.0" encoding="UTF-8"?>
     <ScalarVariable name="t_fmu" valueReference="4" causality="output" variability="continuous"
         initial="exact" description="The FMU's own time"><Real start="0" unit="s"/></ScalarVariable>
     <ScalarVariable name="escaped" valueReference="5" causality="output" variability="discrete"
-        initial="exact" description="1: read a file, 2: wrote a file (mode 3)"><Real start="0"/></ScalarVariable>
+        initial="exact" description="mode 3 escape bits: 1 read, 2 wrote, 4 connected, 8 ran a process"><Real start="0"/></ScalarVariable>
     <ScalarVariable name="mode" valueReference="6" causality="parameter" variability="fixed"
-        description="0 behave, 1 crash, 2 hang, 3 files, 4 memory, 5 error"><Integer start="0"/></ScalarVariable>
+        description="0 behave, 1 crash, 2 hang, 3 escape attempts, 4 memory, 5 error"><Integer start="0"/></ScalarVariable>
   </ModelVariables>
   <ModelStructure>
     <Outputs>

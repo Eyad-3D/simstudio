@@ -18,14 +18,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
 from pathlib import Path
 from typing import Optional, Sequence
 
 EXIT_OK, EXIT_CHECKS, EXIT_NOT_VALID, EXIT_USAGE = 0, 1, 2, 3
 
 #: the subcommands, for the engine's entry point to tell them from its own options
-COMMANDS = ("run", "check", "export", "show", "params", "parts", "examples", "schema",
+COMMANDS = ("run", "check", "edit", "export", "show", "params", "parts", "examples", "schema",
             "notebook", "ai", "version")
 
 
@@ -61,6 +63,8 @@ def _write_outputs(result, outs: Sequence[str]) -> list[str]:
     for out in outs:
         path = Path(out.replace("{case}", _safe(result.case_name or result.case_id)))
         suffix = path.suffix.lower()
+        if suffix in (".csv", ".mat", ".json", ".parquet"):
+            _keep_what_it_replaces(path)
         if suffix == ".csv":
             result.to_csv(path)
         elif suffix == ".mat":
@@ -76,6 +80,46 @@ def _write_outputs(result, outs: Sequence[str]) -> list[str]:
             raise UsageError(f"--out '{out}': give a .csv, .mat, .json or .parquet file.")
         written.append(str(path))
     return written
+
+
+def _keep_what_it_replaces(path: Path) -> None:
+    """Before an --out file replaces one that is there: a LightSim project
+    is never replaced (results over the model are a slip, or an instruction
+    planted in a file an agent read), nor is a file in a folder LightSim
+    keeps for a project (its backups and history: see
+    storage.kept_by_lightsim); any other file is kept as it was in its
+    backups (``<file>-backups``, the newest storage.KEEP_BACKUPS, and the
+    file as it was before the session's first --out over it), so an agent's
+    --out can be undone to the exact earlier file."""
+    from ._engine import engine
+
+    storage = engine("storage")
+    _not_kept_by_lightsim(path, storage)
+    if not path.is_file():
+        return
+    old = path.read_bytes()
+    try:
+        storage.read_project(old)
+    except storage.NewerFileError:
+        pass  # a project of a newer LightSim
+    except Exception:  # not a project: any other error reading it as one
+        loc = storage.location_of_file(path)
+        # ponytail: with no session named, one day's --outs are one session
+        session = (os.environ.get("LIGHTSIM_SESSION") or os.environ.get("CLAUDE_CODE_SESSION_ID")
+                   or "out-" + time.strftime("%Y-%m-%d"))
+        with storage.project_lock(loc):
+            storage._keep_backup(loc, path, old)
+            storage._keep_session_start(loc, session, old)
+        return
+    raise UsageError(f"'{path}' is a LightSim project; --out does not replace it. "
+                     "Give another file name.")
+
+
+def _not_kept_by_lightsim(path: Path, storage) -> None:
+    if storage.kept_by_lightsim(path):
+        raise UsageError(f"'{path}' is in a folder LightSim keeps for a project (its backups, "
+                         "history or runs); LightSim does not write there for you. "
+                         "Give another file name.")
 
 
 def _safe(name: str) -> str:
@@ -103,20 +147,30 @@ def _result_text(result, written: list[str]) -> str:
 # -- commands -------------------------------------------------------------------
 def cmd_run(args) -> int:
     from . import Project
+    from ._engine import engine
 
     project = Project.load(args.project)
     cases = [c.id for c in project.cases] if args.all_cases else [project.case(args.case).id]
     _apply_sets(project, args.set or [], cases)
     if len(cases) > 1 and any("{case}" not in o for o in args.out or []):
         raise UsageError("With --all-cases, put {case} in each --out file name.")
-    code, payload, texts = EXIT_OK, [], []
-    for case_id in cases:
-        result = project.run(case_id, check=not args.no_check, time_limit_s=args.time_limit)
-        written = _write_outputs(result, args.out or [])
-        rc = _run_exit(result)
-        code = max(code, rc)
-        payload.append({**result.to_dict(channels=False), "exitCode": rc, "wrote": written})
-        texts.append(_result_text(result, written))
+    # Hands-off, as the MCP server's runs: Script blocks and FMUs run in the
+    # strict OS sandbox (project-only files, network held off) with no per-user
+    # approval, and the run is refused where that sandbox cannot be set up.
+    # LIGHTSIM_STRICT_SANDBOX=0 gives a person the app's rules instead.
+    sandbox = engine("solver.sandbox")
+    token = sandbox.STRICT.set(sandbox.command_line_strict())
+    try:
+        code, payload, texts = EXIT_OK, [], []
+        for case_id in cases:
+            result = project.run(case_id, check=not args.no_check, time_limit_s=args.time_limit)
+            written = _write_outputs(result, args.out or [])
+            rc = _run_exit(result)
+            code = max(code, rc)
+            payload.append({**result.to_dict(channels=False), "exitCode": rc, "wrote": written})
+            texts.append(_result_text(result, written))
+    finally:
+        sandbox.STRICT.reset(token)
     _out(args, payload[0] if len(payload) == 1 else payload, "\n\n".join(texts))
     return code
 
@@ -168,6 +222,133 @@ def cmd_check(args) -> int:
     _out(args, {"project": project.name, "errors": errors, "warnings": warnings,
                 "checks": [c.to_dict() for c in checks], "exitCode": code}, "\n".join(lines))
     return code
+
+
+def cmd_edit(args) -> int:
+    """Apply operations to a project and save it (AI-02). The same operations
+    as the AI plug's ``model_edit`` tool, so an edit works the same from the
+    command line as over MCP. The save is one step in the project's history
+    (with the reason, client and session), with the previous version kept
+    as a backup, so the open app shows the edit and can undo it."""
+    from . import Project
+    from ._engine import engine
+
+    edits = engine("ai.edits")
+    project = Project.load(args.project)
+    ops: list = []
+    for assignment in args.set or []:
+        ref, sep, value = assignment.partition("=")
+        if not sep:
+            raise UsageError(f"--set '{assignment}': write Part.parameter=value.")
+        element, _, param = ref.strip().rpartition(".")
+        if not element or not param:
+            raise UsageError(f"--set '{assignment}': write Part.parameter=value.")
+        ops.append({"op": "set", "element": element, "param": param, "value": _typed(value.strip())})
+    for one in args.op or []:
+        try:
+            ops.append(json.loads(one))
+        except ValueError as e:
+            raise UsageError(f"--op is one JSON operation object: {e}") from None
+    if args.ops:
+        try:
+            batch = json.loads(args.ops)
+        except ValueError as e:
+            raise UsageError(f"--ops is a JSON array of operations: {e}") from None
+        if not isinstance(batch, list):
+            raise UsageError("--ops is a JSON array of operations.")
+        ops += batch
+    if not ops:
+        raise UsageError("Give at least one change: --set, --op or --ops.")
+    target = Path(args.out) if args.out else project.path
+    if target is None:
+        raise UsageError("This project is an example: give --out, a file to save the edit to.")
+    storage = engine("storage")
+    _not_kept_by_lightsim(target, storage)
+    loc = storage.location_of_file(target)
+    client = (args.client or os.environ.get("LIGHTSIM_CLIENT")
+              or os.environ.get("AI_AGENT") or "command line")
+    meta = {"by": "agent", "tool": "lightsim edit", "reason": args.reason, "client": client,
+            "session": args.session or os.environ.get("LIGHTSIM_SESSION")
+            or os.environ.get("CLAUDE_CODE_SESSION_ID") or _go_on_session(loc, client)}
+    # Saved the way the app saves: the version it replaces kept in the
+    # backups (the newest storage.KEEP_BACKUPS) and one line in the
+    # project's history, which the open window reads to show the change and
+    # undo it. A save from the app between the read and the write is not
+    # overwritten: the operations are applied again to the newer file.
+    in_place = project.path is not None and target == project.path
+    for attempt in range(3):
+        revision = None
+        if in_place:
+            project, revision = _load_unchanged(target, storage)
+        try:
+            edited, changes = edits.apply_operations(project.model, ops)
+        except edits.EditError as e:
+            raise UsageError(str(e)) from None
+        project.model = edited
+        data = edited.model_dump_json(indent=2).encode("utf-8")
+        try:
+            storage.write_file(loc, data, revision, meta={**meta, "changes": changes})
+            break
+        except storage.ConflictError:
+            if attempt == 2:
+                raise UsageError(f"{target} kept changing while it was being saved; "
+                                 "nothing was saved. Try again.") from None
+    project.path = target
+    checks = project.check()
+    errors = sum(c.level == "error" for c in checks)
+    backups = loc.backups
+    where = (f"one step in the project's history ({backups / 'history.jsonl'}), which the open "
+             f"app shows and undoes in one click; the previous versions are kept in {backups} "
+             f"(the newest {storage.KEEP_BACKUPS})")
+    if args.out and not in_place:
+        where += "; the original project is unchanged"
+    lines = [f"Saved {target} ({len(changes)} change{'s' if len(changes) != 1 else ''})"]
+    lines += [f"  {c}" for c in changes]
+    lines.append(f"  ({where})")
+    lines += [f"  {c.level}: {c.text}" + (f" How to fix: {c.fix}" if c.fix else "")
+              for c in checks if c.level != "info"]
+    _out(args, {"saved": str(target), "changes": changes, "backups": str(backups),
+                "history": str(backups / "history.jsonl"), "session": meta["session"],
+                "recoverable": where, "errors": errors,
+                "checks": [c.to_dict() for c in checks]}, "\n".join(lines))
+    return EXIT_OK
+
+
+#: Saves by ``lightsim edit`` this close together, with no other save between,
+#: are one session when none is named.
+SESSION_GAP_MS = 15 * 60 * 1000
+
+
+def _go_on_session(loc, client: str) -> str:
+    """The session of an edit that names none. An agent's shell tool starts
+    a new shell for each call, so the shell says nothing: go on with the
+    session of the project's newest save when that is this client's
+    ``lightsim edit`` with no session named, made less than SESSION_GAP_MS
+    ago; else start one."""
+    import uuid
+
+    from ._engine import engine
+
+    lines = engine("history").entries(loc.backups)
+    last = lines[-1] if lines else {}
+    # ponytail: two agents with the same client editing one file within the
+    # gap share a session; they can name their own with LIGHTSIM_SESSION
+    if (last.get("tool") == "lightsim edit" and last.get("client") == client
+            and str(last.get("session") or "").startswith("cli-")
+            and time.time() * 1000 - (last.get("t") or 0) < SESSION_GAP_MS):
+        return last["session"]
+    return f"cli-{uuid.uuid4().hex[:12]}"
+
+
+def _load_unchanged(path: Path, storage):
+    """The project at ``path`` and the revision of the bytes it was read from."""
+    from . import Project
+
+    while True:
+        revision = storage.revision_of(path.read_bytes())
+        project = Project.load(path)
+        if storage.revision_of(path.read_bytes()) == revision:
+            return project, revision
 
 
 def cmd_export(args) -> int:
@@ -263,6 +444,8 @@ def cmd_schema(args) -> int:
     from .spec import json_schemas, write_schemas
 
     if args.out:
+        for name in json_schemas():
+            _keep_what_it_replaces(Path(args.out) / f"{name}.schema.json")
         paths = write_schemas(args.out)
         _out(args, [str(p) for p in paths], "\n".join(f"wrote {p}" for p in paths))
         return EXIT_OK
@@ -285,6 +468,7 @@ def cmd_notebook(args) -> int:
     out = Path(args.out or f"{_safe(project.name)}.ipynb")
     if out.exists() and not args.force:
         raise UsageError(f"'{out}' exists; add --force to replace it.")
+    _keep_what_it_replaces(out)
     out.write_text(json.dumps(notebook(str(args.project), case.name), indent=1), encoding="utf-8")
     _out(args, {"wrote": str(out)}, f"wrote {out}")
     return EXIT_OK
@@ -338,6 +522,26 @@ def parser() -> argparse.ArgumentParser:
     c.add_argument("--strict", action="store_true", help="warnings fail too (exit 1)")
     c.add_argument("--verbose", "-v", action="store_true", help="list info findings too")
     c.set_defaults(func=cmd_check)
+
+    ed = add("edit", "Change a project and save it (the same operations as the AI plug).")
+    ed.add_argument("project", help="project file, or an example id (needs --out)")
+    ed.add_argument("--set", action="append", metavar="PART.KEY=VALUE",
+                    help="set a parameter, e.g. 'Vehicle.mass_kg=1900 kg' (repeatable)")
+    ed.add_argument("--op", action="append", metavar="JSON",
+                    help="one operation as JSON, e.g. '{\"op\":\"add\",\"type\":\"mech.brake\","
+                         "\"label\":\"Brake\"}' (repeatable)")
+    ed.add_argument("--ops", metavar="JSON", help="a JSON array of operations")
+    ed.add_argument("--out", "-o", help="save to this file (default: the project file in place; "
+                                        "the previous versions are kept beside it in <file>-backups)")
+    ed.add_argument("--reason", help="why, in one line: kept with the change in the project's "
+                                     "history, which the open app shows")
+    ed.add_argument("--client", help="who is editing (default: LIGHTSIM_CLIENT, AI_AGENT or "
+                                     "'command line')")
+    ed.add_argument("--session", help="group edits into one session that the app undoes in one "
+                                      "click (default: LIGHTSIM_SESSION, CLAUDE_CODE_SESSION_ID, "
+                                      "else the session of the file's last lightsim edit if "
+                                      "it named none and was under 15 minutes ago)")
+    ed.set_defaults(func=cmd_edit)
 
     e = add("export", "Write a stored run (.json.gz from the app, or .json) as CSV, MAT, JSON "
                       "or Parquet.")

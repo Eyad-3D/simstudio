@@ -1,0 +1,156 @@
+id = "build-city-ev"
+kind = "build"
+version = 1
+title = "Build a small electric city car from its data sheet"
+statement = """
+car.json holds an empty LightSim model with one case, "WLTC Class 3b" (1800 s).
+Build a battery electric city car in it from this data sheet, and save it in
+car.json:
+
+- one electric motor (LightSim's standard E-Motor, with the library's values)
+  drives the wheels through a single final drive of ratio 8.2:1;
+- test mass 1,350 kg; drag coefficient 0.31; frontal area 2.25 m²;
+- tyres: radius 0.30 m, rolling resistance coefficient 0.0095;
+- battery: 42 kWh usable (the library's standard battery otherwise), at 95 %
+  charge when the drive starts;
+- an always-on load of 0.35 kW (the 12 V systems), fed from the high-voltage
+  battery;
+- the case "WLTC Class 3b" drives the standard WLTC Class 3b cycle (LightSim's
+  cycle "wltc-3b").
+
+Leave every other value at LightSim's library default. The model must pass
+LightSim's Data Checks with no errors or warnings, and run.
+"""
+
+[[start]]
+file = "car.json"
+from = "blank"
+name = "City car"
+ops = [{ op = "set_case", case = "case-1", name = "WLTC Class 3b", duration = 1800 }]
+
+# The smallest car that drives (the lightsim-build-a-bev skill), one wheel
+# for the whole axle, with the data sheet's values.
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "vehicle.body", label = "Vehicle" },
+  { op = "add", type = "signal.driving_task", label = "Driving Task" },
+  { op = "add", type = "driver.driver", label = "Driver" },
+  { op = "add", type = "battery.generic", label = "Battery" },
+  { op = "add", type = "motor.emotor", label = "E-Motor" },
+  { op = "add", type = "mech.final_drive", label = "Final Drive" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel" },
+  { op = "add", type = "electric.constant_drive", label = "12 V loads" },
+  { op = "connect", from = "Battery:pos", to = "E-Motor:pos" },
+  { op = "connect", from = "Battery:neg", to = "E-Motor:neg" },
+  { op = "connect", from = "Battery:pos", to = "12 V loads:pos" },
+  { op = "connect", from = "Battery:neg", to = "12 V loads:neg" },
+  { op = "connect", from = "E-Motor:shaft", to = "Final Drive:flange_in" },
+  { op = "connect", from = "Final Drive:flange_out", to = "Wheel:shaft" },
+  { op = "connect", from = "Driving Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle:sig_speed", to = "Driver:sig_speed_in" },
+  { op = "connect", from = "Driver:sig_traction_cmd", to = "E-Motor:sig_demand_in" },
+  { op = "set", element = "Wheel", param = "vehicle_load_share_pct", value = 100 },
+  { op = "set", element = "Wheel", param = "radius_m", value = 0.30 },
+  { op = "set", element = "Wheel", param = "rolling_resistance", value = 0.0095 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 1350 },
+  { op = "set", element = "Vehicle", param = "cd", value = 0.31 },
+  { op = "set", element = "Vehicle", param = "frontal_area_m2", value = 2.25 },
+  { op = "set", element = "Final Drive", param = "ratio", value = 8.2 },
+  { op = "set", element = "Battery", param = "capacity_kWh", value = 42 },
+  { op = "set", element = "Battery", param = "initial_soc_pct", value = 95 },
+  { op = "set", element = "12 V loads", param = "power_kW", value = 0.35 },
+  { op = "set", element = "Driving Task", param = "cycle", value = "wltc-3b" },
+]
+
+# The reference with the mass left at the library's 1,800 kg.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Vehicle", param = "mass_kg", value = 1800 }]
+
+# Built the other way: four wheels, brakes, a differential and nodes, as in
+# the Battery Electric Car example, all with library values.
+[[also_right]]
+file = "car.json"
+ops = [
+  { op = "add", type = "vehicle.body", label = "Vehicle" },
+  { op = "add", type = "signal.driving_task", label = "Driving Task" },
+  { op = "add", type = "driver.driver", label = "Driver" },
+  { op = "add", type = "battery.generic", label = "Battery" },
+  { op = "add", type = "motor.emotor", label = "E-Motor" },
+  { op = "add", type = "mech.final_drive", label = "Final Drive" },
+  { op = "add", type = "mech.differential", label = "Differential" },
+  { op = "add", type = "mech.node", label = "Node FL" },
+  { op = "add", type = "mech.node", label = "Node FR" },
+  { op = "add", type = "electric.constant_drive", label = "12 V loads" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel FL" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel FR" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel RL" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel RR" },
+  { op = "add", type = "mech.brake", label = "Brake FL" },
+  { op = "add", type = "mech.brake", label = "Brake FR" },
+  { op = "add", type = "mech.brake", label = "Brake RL" },
+  { op = "add", type = "mech.brake", label = "Brake RR" },
+  { op = "connect", from = "Battery:pos", to = "E-Motor:pos" },
+  { op = "connect", from = "Battery:neg", to = "E-Motor:neg" },
+  { op = "connect", from = "Battery:pos", to = "12 V loads:pos" },
+  { op = "connect", from = "Battery:neg", to = "12 V loads:neg" },
+  { op = "connect", from = "E-Motor:shaft", to = "Final Drive:flange_in" },
+  { op = "connect", from = "Final Drive:flange_out", to = "Differential:flange_in" },
+  { op = "connect", from = "Differential:flange_out_a", to = "Node FL:f1" },
+  { op = "connect", from = "Differential:flange_out_b", to = "Node FR:f1" },
+  { op = "connect", from = "Node FL:f2", to = "Brake FL:flange" },
+  { op = "connect", from = "Node FL:f3", to = "Wheel FL:shaft" },
+  { op = "connect", from = "Node FR:f2", to = "Brake FR:flange" },
+  { op = "connect", from = "Node FR:f3", to = "Wheel FR:shaft" },
+  { op = "connect", from = "Brake RL:flange", to = "Wheel RL:shaft" },
+  { op = "connect", from = "Brake RR:flange", to = "Wheel RR:shaft" },
+  { op = "connect", from = "Driving Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle:sig_speed", to = "Driver:sig_speed_in" },
+  { op = "connect", from = "Driver:sig_traction_cmd", to = "E-Motor:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FL:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FR:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake RL:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake RR:sig_demand_in" },
+  { op = "set", element = "Wheel RL", param = "axle", value = "Rear" },
+  { op = "set", element = "Wheel RR", param = "axle", value = "Rear" },
+  { op = "set", element = "Wheel FL", param = "radius_m", value = 0.30 },
+  { op = "set", element = "Wheel FR", param = "radius_m", value = 0.30 },
+  { op = "set", element = "Wheel RL", param = "radius_m", value = 0.30 },
+  { op = "set", element = "Wheel RR", param = "radius_m", value = 0.30 },
+  { op = "set", element = "Wheel FL", param = "rolling_resistance", value = 0.0095 },
+  { op = "set", element = "Wheel FR", param = "rolling_resistance", value = 0.0095 },
+  { op = "set", element = "Wheel RL", param = "rolling_resistance", value = 0.0095 },
+  { op = "set", element = "Wheel RR", param = "rolling_resistance", value = 0.0095 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 1350 },
+  { op = "set", element = "Vehicle", param = "cd", value = 0.31 },
+  { op = "set", element = "Vehicle", param = "frontal_area_m2", value = 2.25 },
+  { op = "set", element = "Final Drive", param = "ratio", value = 8.2 },
+  { op = "set", element = "Battery", param = "capacity_kWh", value = 42 },
+  { op = "set", element = "Battery", param = "initial_soc_pct", value = 95 },
+  { op = "set", element = "12 V loads", param = "power_kW", value = 0.35 },
+  { op = "set", element = "Driving Task", param = "cycle", value = "wltc-3b" },
+]
+
+[check]
+file = "car.json"
+case = "WLTC Class 3b"
+params = [
+  { type = "vehicle.body", key = "mass_kg", value = 1350, rtol = 0.002 },
+  { type = "vehicle.body", key = "cd", value = 0.31, rtol = 0.002 },
+  { type = "vehicle.body", key = "frontal_area_m2", value = 2.25, rtol = 0.002 },
+  { type = "propulsion.wheel", key = "radius_m", value = 0.30, rtol = 0.002 },
+  { type = "propulsion.wheel", key = "rolling_resistance", value = 0.0095, rtol = 0.002 },
+  { type = "mech.final_drive", key = "ratio", value = 8.2, rtol = 0.002 },
+  { type = "battery.generic", key = "capacity_kWh", value = 42, rtol = 0.002 },
+  { type = "battery.generic", key = "initial_soc_pct", value = 95, rtol = 0.002 },
+  { type = "electric.constant_drive", key = "power_kW", value = 0.35, rtol = 0.002 },
+  { type = "signal.driving_task", key = "cycle", value = "wltc-3b" },
+]
+# One wheel or four, brakes or none: the bands hold any right build.
+figures = [
+  { key = "distance_km", rtol = 0.01 },
+  { key = "consumption_kwh_per_100km", rtol = 0.06 },
+  { key = "*.final_soc_pct", atol = 1.0 },
+]

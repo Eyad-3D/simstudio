@@ -5,16 +5,16 @@ Two things read these settings. Python code that goes through
 when the session started. The MCP server for AI apps (``app/ai``) reads
 the settings file too, before every tool call, for the switch, the
 folders, the examples, the run time cap and the organisation's policy,
-and keeps a project marked "noAi" out of sight; it
-does **not** read the trust list (``trustedScripts``). It asks the user,
-through the AI app, before it saves an edit and before it runs a project
-with Script blocks (and on Windows runs one only when started with
-``--trust-scripts``), but cannot tell who answered, and an answer the app
-sends again repeats a run, or saves another copy of an edited example or
-new project (docs/KNOWN-LIMITS.md). Plain ``import lightsim`` and
-``lightsim run`` read none of it. The read-only and destructive hints an AI
-app shows are only hints. What the app's *Connect AI → AI access* page and
-the help say about this is held by ``tests/test_ai_claims.py``.
+and keeps a project marked "noAi" out of sight; it does **not** read the
+trust list (``trustedScripts``). The MCP connection works hands-off (the
+owner's decision, 1 November 2026): it never asks the user to confirm, and
+instead runs a project's Script blocks and FMUs in an OS sandbox — or
+refuses the run when that sandbox cannot be set up — and keeps every edit
+it saves recoverable from the project's backups (docs/KNOWN-LIMITS.md).
+Plain ``import lightsim`` and ``lightsim run`` read none of it. The
+read-only and destructive hints an AI app shows are only hints. What the
+app's *Connect AI → AI access* page and the help say about this is held by
+``tests/test_ai_claims.py``.
 
 - **Off by default.** Until the user turns AI access on, every call is
   refused.

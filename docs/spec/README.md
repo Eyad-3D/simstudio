@@ -25,7 +25,7 @@ Abualkhair, CC BY 4.0".
 
 | Page | Covers |
 |---|---|
-| [Project file](project.md) | A project: its parts, wires, signal links, cases and studies |
+| [Project file](project.md) | A project: its parts, wires, signal links, cases and studies, and its history of saves |
 | [Runs and results](results.md) | The runs folder, a stored run, a result, the summary keys, and the CSV, MAT and JSON exports |
 | [Engine API](api.md) | The HTTP API, the live-run WebSocket messages and the offline API page |
 | [Format changelog](CHANGELOG.md) | What changed in each version of each format |
@@ -43,6 +43,7 @@ cannot drift from what the app reads and writes:
 | `library.schema.json` | the part library (`GET /api/library`, `components`) |
 | `data-checks.schema.json` | the Data Checks' findings (`POST /api/validate`) |
 | `lightsim-result.schema.json` | the JSON that `lightsim run -o result.json` writes |
+| `history.schema.json` | one line of a project's history (`history.jsonl` beside its backups) |
 
 `python -m lightsim schema --out docs/spec/schemas` writes them again; a
 test fails when the committed copies are out of date, and another checks

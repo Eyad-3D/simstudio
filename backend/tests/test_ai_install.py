@@ -4,7 +4,11 @@ never overwrites a file it cannot read."""
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import tomllib
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +16,21 @@ from app.ai import install
 from app.ai.cli import main
 
 CMD = ["/opt/LightSim/lightsim-backend", "mcp"]
+BACKEND = Path(__file__).resolve().parent.parent
+
+
+def test_the_server_still_starts_for_a_connection_set_up_with_trust_scripts(tmp_path):
+    # --trust-scripts was removed with the hands-off change (the owner,
+    # 1 Nov 2026); accept and ignore it so a connection whose config still
+    # passes it starts, with a note on stderr to drop it. Empty stdin ends
+    # the serve loop at once, so the server starts and exits 0.
+    env = {**os.environ, "LIGHTSIM_PROJECTS_DIR": str(tmp_path / "projects"),
+           "LIGHTSIM_AI_SETTINGS": str(tmp_path / "ai.json")}
+    r = subprocess.run([sys.executable, "-m", "app.ai", "--trust-scripts"],
+                       cwd=BACKEND, stdin=subprocess.DEVNULL, capture_output=True,
+                       text=True, timeout=60, env=env)
+    assert r.returncode == 0, r.stderr
+    assert "trust-scripts is no longer needed" in r.stderr
 
 
 @pytest.fixture(autouse=True)

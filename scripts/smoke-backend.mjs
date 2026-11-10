@@ -130,7 +130,9 @@ try {
   console.log(`✓ scripted run: '${scripted.name}' ${sRun.status}, script worker ok`);
 
   // The same executable is the command-line tool (AI-02): a run in its own
-  // process, no server; exit 0 means a valid run.
+  // process, no server; exit 0 means a valid run. Its runs are held to the
+  // strict sandbox, so the hybrid's Script block runs in the AppContainer
+  // worker, which in this build is the executable again.
   const outDir = mkdtempSync(join(tmpdir(), "lightsim-smoke-"));
   for (const example of ["bev-car", "hybrid-car"]) {
     const out_ = join(outDir, `${example}.mat`);

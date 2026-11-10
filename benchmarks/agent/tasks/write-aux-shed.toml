@@ -1,0 +1,153 @@
+id = "write-aux-shed"
+kind = "write"
+version = 5
+title = "Write a load-shedding rule for the cabin comfort load"
+statement = """
+car.json models our electric hatchback fitted with a small 4 kWh test
+battery, on a short city run that starts at 36 % charge and ends below 15 %.
+Its cabin comfort load (the Power Consumer) is 3 kW. To save range the car
+must shed that load as the battery empties: the full 3 kW at 30 % charge or
+more, 0.6 kW (20 % of it) at 15 % charge or less, and in a straight line
+between the two. Add a Script block labelled "Aux Shedding" with one input
+port, "soc" (the battery's state of charge, %), and one output port,
+"load_kw" (the power the comfort load is to draw, kW), which drives the
+Power Consumer's demand input. Wire the battery's state of charge to "soc".
+Save the model in car.json. It must pass LightSim's Data Checks with no
+errors or warnings. The case "City Cycle" shows the effect.
+"""
+
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Hatchback, small test battery"
+ops = [
+  { op = "set", element = "Power Consumer", param = "power_kW", value = 3.0 },
+  { op = "set", element = "HV Battery Pack", param = "capacity_kWh", value = 4 },
+  { op = "set", element = "HV Battery Pack", param = "initial_soc_pct", value = 36 },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.script", label = "Aux Shedding" },
+  { op = "set", element = "Aux Shedding", param = "code", value = """
+FULL_KW = 3.0
+
+
+def step(t, dt, inputs, state, params):
+    soc = inputs.get("soc", 100.0)
+    return {"load_kw": FULL_KW * clamp(0.2 + 0.8 * (soc - 15.0) / 15.0, 0.2, 1.0)}
+""" },
+  { op = "add_port", element = "Aux Shedding", name = "soc", direction = "input" },
+  { op = "add_port", element = "Aux Shedding", name = "load_kw", direction = "output" },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Aux Shedding:soc" },
+  { op = "connect", from = "Aux Shedding:load_kw", to = "Power Consumer:sig_demand_in" },
+]
+
+# The load never goes below half.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Aux Shedding", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    soc = inputs.get("soc", 100.0)
+    return {"load_kw": 3.0 * clamp(0.5 + 0.5 * (soc - 15.0) / 15.0, 0.5, 1.0)}
+""" }]
+
+# No Script block: a Lookup Table, under the asked label, sheds the load.
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Aux Shedding" },
+  { op = "set", element = "Aux Shedding", param = "table_1d", value = { "15" = 0.6, "30" = 3.0 } },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Aux Shedding:sig_x_in" },
+  { op = "connect", from = "Aux Shedding:sig_out", to = "Power Consumer:sig_demand_in" },
+]
+
+# A Lookup Table sheds the load. The Script under the asked label is only for
+# show: fed as the brief says, but its output goes to a Monitor.
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Shed Table" },
+  { op = "set", element = "Shed Table", param = "table_1d", value = { "15" = 0.6, "30" = 3.0 } },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Shed Table:sig_x_in" },
+  { op = "connect", from = "Shed Table:sig_out", to = "Power Consumer:sig_demand_in" },
+  { op = "add", type = "signal.script", label = "Aux Shedding" },
+  { op = "set", element = "Aux Shedding", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"load_kw": 3.0}
+""" },
+  { op = "add_port", element = "Aux Shedding", name = "soc", direction = "input" },
+  { op = "add_port", element = "Aux Shedding", name = "load_kw", direction = "output" },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Aux Shedding:soc" },
+  { op = "add", type = "signal.monitor", label = "Scope" },
+  { op = "add_port", element = "Scope", name = "x", direction = "input" },
+  { op = "connect", from = "Aux Shedding:load_kw", to = "Scope:x" },
+]
+
+# A Lookup Table sheds the load, and the Script is wired as the brief says but
+# returns what the table gives it on an extra input port "x".
+[[also_wrong]]
+file = "car.json"
+ops = [
+  { op = "add", type = "signal.lookup", label = "Shed Table" },
+  { op = "set", element = "Shed Table", param = "table_1d", value = { "15" = 0.6, "30" = 3.0 } },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Shed Table:sig_x_in" },
+  { op = "add", type = "signal.script", label = "Aux Shedding" },
+  { op = "set", element = "Aux Shedding", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"load_kw": inputs.get("x", 3.0)}
+""" },
+  { op = "add_port", element = "Aux Shedding", name = "soc", direction = "input" },
+  { op = "add_port", element = "Aux Shedding", name = "x", direction = "input" },
+  { op = "add_port", element = "Aux Shedding", name = "load_kw", direction = "output" },
+  { op = "connect", from = "HV Battery Pack:sig_soc", to = "Aux Shedding:soc" },
+  { op = "connect", from = "Shed Table:sig_out", to = "Aux Shedding:x" },
+  { op = "connect", from = "Aux Shedding:load_kw", to = "Power Consumer:sig_demand_in" },
+]
+
+# The condition dropped: a constant load (the run's mean), whatever the charge, ...
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Aux Shedding", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"load_kw": 1.30}
+""" }]
+
+# ... or two levels with no straight line between them.
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Aux Shedding", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    return {"load_kw": 0.6 if inputs.get("soc", 100.0) < 22.5 else 3.0}
+""" }]
+
+# The share (0.2 to 1) into the demand input, which takes kW: the load is 1 kW at most.
+[[also_wrong]]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Aux Shedding", param = "code", value = """
+def step(t, dt, inputs, state, params):
+    soc = inputs.get("soc", 100.0)
+    return {"load_kw": clamp(0.2 + 0.8 * (soc - 15.0) / 15.0, 0.2, 1.0)}
+""" }]
+
+# The figures that matter are the Power Consumer's own power (the run starts
+# above 30 % and ends below 15 %, so its top, its end and its mean show every
+# part of the rule; the top and the end are the brief's own 3 kW and 0.6 kW);
+# the energy figures follow from it.
+[check]
+file = "car.json"
+case = "City Cycle"
+require = { type = "signal.script", label = "Aux Shedding", ports = { soc = "HV Battery Pack:sig_soc", load_kw = "Power Consumer:sig_demand_in" } }
+figures = [
+  { key = "distance_km", rtol = 0.005 },
+  { key = "consumption_kwh_per_100km", rtol = 0.015 },
+  { key = "*.final_soc_pct", atol = 0.1 },
+  { channel = "electric.constant_drive:sig_power", stat = "max", brief = 3.0, atol = 0.06 },
+  { channel = "electric.constant_drive:sig_power", stat = "end", brief = 0.6, atol = 0.06 },
+  { channel = "electric.constant_drive:sig_power", stat = "mean", rtol = 0.02 },
+]

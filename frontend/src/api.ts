@@ -233,6 +233,59 @@ export async function fetchRevision(projectId: string): Promise<string | null> {
   return (await request<{ revision: string | null }>(`/projects/${encodeURIComponent(projectId)}/revision`)).revision;
 }
 
+/** One save of a project, as its history keeps it (docs/spec/project.md,
+ *  Project history), without the diff. */
+export interface HistoryEntry {
+  id: string;
+  t: number;
+  /** "app": this window or another; "agent": an AI agent or the command line */
+  by: "app" | "agent";
+  tool: string;
+  client?: string | null;
+  session?: string | null;
+  reason?: string | null;
+  changes: string[];
+  from?: string | null;
+  to: string;
+  undoes?: string[];
+  /** false: the save has no diff (it made the project), so it cannot be undone */
+  undoable?: boolean;
+}
+
+export interface Rebased {
+  project: StoredProject;
+  revision: string;
+  entries: HistoryEntry[];
+  conflicts: string[];
+}
+
+/** The project's newest saves, newest first, each with whether it was undone. */
+export function fetchHistory(projectId: string): Promise<(HistoryEntry & { undone?: boolean })[]> {
+  return request(`/projects/${encodeURIComponent(projectId)}/history`);
+}
+
+/** Lay the saves made since `revision` (an AI agent's edit, another window's
+ *  save) over this window's copy with its unsaved changes. ApiError 409 when
+ *  the history does not lead to the file on disk (a git pull, an editor). */
+export function rebaseProject(project: Project, revision: string): Promise<Rebased> {
+  return request(`/projects/${encodeURIComponent(project.id)}/rebase`, {
+    method: "POST",
+    body: JSON.stringify({ revision, project }),
+  });
+}
+
+/** Undo one save of the project's history, or every change of an agent's
+ *  session; values changed again since stay and come back in `conflicts`. */
+export function undoChange(
+  projectId: string,
+  what: { entry: string } | { session: string },
+): Promise<{ revision: string; undid: string[]; conflicts: string[] }> {
+  return request(`/projects/${encodeURIComponent(projectId)}/undo`, {
+    method: "POST",
+    body: JSON.stringify(what),
+  });
+}
+
 /** A project file read by the engine and upgraded to the current format. */
 export interface UpgradeReply {
   project: Project;

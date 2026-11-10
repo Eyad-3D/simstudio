@@ -10,13 +10,22 @@
  * misbehave on purpose once its time reaches 0.5 s, to prove that a bad FMU
  * cannot hurt the engine:
  *     0 behave, 1 crash (null pointer write), 2 hang (endless loop),
- *     3 try to read and write files and report what worked in "escaped",
+ *     3 try to escape — read a file outside itself, write a file, open a TCP
+ *       connection and start a process — and report which succeeded as a bit
+ *       sum in "escaped" (1 read, 2 wrote, 4 connected, 8 ran a process; 0
+ *       when the sandbox blocked them all),
  *     4 eat memory, 5 report an error from fmi2DoStep.
  */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(_WIN32)
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#endif
 
 #if defined(_WIN32)
 #define EXPORT __declspec(dllexport)
@@ -59,6 +68,19 @@ static void misbehave(Model *m) {
         if (f) { found += 1; fclose(f); }
         f = fopen("lightsim-fmu-escape.txt", "w");
         if (f) { found += 2; fputs("escaped", f); fclose(f); }
+#if !defined(_WIN32)
+        int s = socket(AF_INET, SOCK_STREAM, 0);
+        if (s >= 0) {
+            struct sockaddr_in addr;
+            memset(&addr, 0, sizeof(addr));
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons(80);
+            addr.sin_addr.s_addr = inet_addr("93.184.216.34"); /* example.com */
+            if (connect(s, (struct sockaddr *)&addr, sizeof(addr)) == 0) found += 4;
+            close(s);
+        }
+        if (system("true") == 0) found += 8; /* started a process */
+#endif
         m->escaped = found;
         break;
     }

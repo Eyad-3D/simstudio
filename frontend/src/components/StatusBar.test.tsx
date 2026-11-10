@@ -96,3 +96,40 @@ it("says how a run ended, with its button and the setting to open Results by its
   expect(host.textContent).toMatch(/sweep: 1 of 4 points done · about 30 s left/);
   act(() => useProjectStore.setState({ running: false, sweepProgress: null }));
 });
+
+it("shows an AI agent's change with who and why, and undoes it or its session in one click (step 6)", async () => {
+  const host = document.body.appendChild(document.createElement("div"));
+  await act(async () => createRoot(host).render(<StatusBar />));
+  const notice = () => host.querySelector("[aria-label='AI change']");
+  const button = (name: RegExp) =>
+    [...(notice()?.querySelectorAll("button") ?? [])].find((b) => name.test(b.textContent ?? "")) ?? null;
+  const click = (el: Element | null) => act(() => el!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  const undoAgentChange = vi.fn(async () => {});
+  const entry = {
+    id: "h1",
+    t: 1,
+    by: "agent" as const,
+    tool: "model_edit",
+    client: "claude-code",
+    session: "s1",
+    reason: "heavier battery pack",
+    changes: ['"Vehicle": Mass 2,100 kg'],
+    to: "r2",
+  };
+  act(() =>
+    useProjectStore.setState({
+      project: { id: "car", name: "Car", systems: [], dataBusConnections: [], cases: [] },
+      agentChange: { projectId: "car", entry, sessionCount: 3 },
+      undoAgentChange,
+    }),
+  );
+  expect(notice()?.textContent).toContain("claude-code: heavier battery pack");
+  expect(notice()?.textContent).toContain('"Vehicle": Mass 2,100 kg');
+  click(button(/^Undo$/));
+  expect(undoAgentChange).toHaveBeenLastCalledWith("change");
+  click(button(/^Undo session \(3 changes\)$/));
+  expect(undoAgentChange).toHaveBeenLastCalledWith("session");
+  // another project's change is not shown
+  act(() => useProjectStore.setState({ project: { id: "other", name: "Other", systems: [], dataBusConnections: [], cases: [] } }));
+  expect(notice()).toBeNull();
+});

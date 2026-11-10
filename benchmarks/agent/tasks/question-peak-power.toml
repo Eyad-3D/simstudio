@@ -1,0 +1,31 @@
+id = "question-peak-power"
+kind = "question"
+version = 1
+title = "Peak battery power and motor speed on the highway cycle"
+statement = """
+sedan.json models an efficient electric sedan. On its case "EPA highway
+(HWFET)": what is the highest power the battery delivers during the drive, in
+kW, and the highest speed the electric motor turns at, in revolutions per
+minute?
+
+End your reply with one line in exactly this form, numbers only:
+ANSWER: <battery power>; <motor speed>
+"""
+
+[[start]]
+file = "sedan.json"
+from = "example:aero-bev"
+
+# The motor's mechanical power and the wheels' speed.
+[wrong]
+answer = "ANSWER: 36.5; 769"
+
+[[answer]]
+value = 38.69
+rtol = 0.02
+figure = { file = "sedan.json", case = "EPA highway (HWFET)", channel = "battery.generic:sig_power", stat = "max" }
+
+[[answer]]
+value = 6923.5
+rtol = 0.01
+figure = { file = "sedan.json", case = "EPA highway (HWFET)", channel = "motor.emotor:sig_speed", stat = "max" }

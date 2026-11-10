@@ -12,18 +12,21 @@ const message = (e: unknown) => String((e as Error).message ?? e).replace(/^Erro
  *  the switch, the folders, the examples and the run time cap before every
  *  tool call (AgentSession when a session starts), and keeps a project marked
  *  "noAi" out of sight. While access is off it refuses every tool call but
- *  still serves its skill pack and part library. It asks the user,
- *  through the AI app, before it saves an edit and before it runs a project
- *  with Script blocks, but it cannot tell who answers: an answer the app sends
- *  again repeats a run, or saves another copy of an edited example or new
- *  project, and on the 2026-07-28 protocol an app that cannot ask may answer
- *  itself. It does not read the trust list shown here, which only Python code
- *  that uses `lightsim.ai_access.AgentSession` reads. Folders and trust can
- *  only be taken away here: a folder is added in the desktop app's
- *  folder dialog, a project trusted with `lightsim ai trust`. When the
- *  organisation's policy turns AI access off, it cannot be turned on here.
- *  Every sentence about what AI tools do is held by
- *  backend/tests/test_ai_claims.py and by AiAccessPanel.test.tsx. */
+ *  still serves its skill pack and part library. An agent works hands-off
+ *  (the owner's decision, 1 November 2026): the connection never asks the
+ *  user to confirm. Safety is by design instead — a project with Script
+ *  blocks or FMUs runs in an OS sandbox (file access to the project only,
+ *  the network held off; an AppContainer on Windows), and the run is refused when
+ *  that sandbox cannot be set up rather than run less safely; every edit it saves is
+ *  recoverable from the project's backups, and is one step in the project's
+ *  history that the open window shows and undoes in one click. It does not read the trust list
+ *  shown here, which only Python code that uses
+ *  `lightsim.ai_access.AgentSession` reads. Folders and trust can only be
+ *  taken away here: a folder is added in the desktop app's folder dialog, a
+ *  project trusted with `lightsim ai trust`. When the organisation's policy
+ *  turns AI access off, it cannot be turned on here. Every sentence about
+ *  what AI tools do is held by backend/tests/test_ai_claims.py and by
+ *  AiAccessPanel.test.tsx. */
 export function AiAccessPanel() {
   const [state, setState] = useState<api.AiAccess | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -177,24 +180,31 @@ export function AiAccessPanel() {
         AI tools may open the examples that come with LightSim
       </label>
 
-      <div className={heading}>When an AI app has to ask you</div>
-      <ul aria-label="Questions to you" className="list-disc pl-5">
-        <li>Reading, checking and comparing models, and running a project without Script blocks: no question.</li>
-        <li>Saving an edit: LightSim asks you first.</li>
+      <div className={heading}>What the connection does without asking you</div>
+      <p className="text-[color:var(--ss-text-dim)]">
+        An AI agent works hands-off: the connection never asks you to confirm. Reading, checking and comparing models,
+        running a project, and saving an edit all go through with no question. Safety comes from the design instead.
+      </p>
+      <ul aria-label="What the connection does" className="list-disc pl-5">
+        <li>Saving an edit: saved straight away. An example is saved as a new project, and the previous version is kept
+          as a backup, so the change can be undone. Each edit saved to a project is one step in the project's history,
+          with the AI app's reason: the open LightSim window shows it at once, and one click undoes it or the agent's
+          whole session.</li>
         <li>
-          Running a project with Script blocks (Python code): LightSim asks you first, and the question does not show
-          the code. On Windows such a project does not run at all unless the connection was started with{" "}
-          <code>--trust-scripts</code>. As in the app, LightSim also refuses Script code you have not approved there (
-          <b>Run scripts</b>).
+          Running a project with Script blocks (Python code) or FMUs: it runs in an OS sandbox with access to the
+          project's folder only, and no network — a Script can open none, and an FMU's native code is held off by the
+          OS (Known issues has the per-platform detail; on Windows the sandbox is an AppContainer). If that sandbox
+          cannot be set up — on Linux older than 5.13, or on a Windows computer that cannot make the AppContainer — the
+          run is refused with the code <code>sandbox_unavailable</code> rather than run less safely. A brand-new script an
+          assistant writes runs in that sandbox straight away, with no{" "}
+          <b>Run scripts</b> approval — the sandbox is the safety. (A run you start yourself in LightSim still asks you
+          to approve new script code.)
+        </li>
+        <li>
+          The command-line tool (<code>lightsim run</code>) runs every project the same way, with no approval: it cannot
+          tell an agent from a person.
         </li>
       </ul>
-      <p className="text-[color:var(--ss-text-dim)]">
-        Your AI app shows the question and sends the answer back, and LightSim cannot tell who answered. An app that
-        sends your answer again repeats a run, or saves another copy of an edited example or new project, without asking
-        you. An AI app on MCP's older handshake that cannot ask you is refused anything that needs your yes. On MCP's 28
-        July 2026 revision LightSim does not check whether the app can ask, so an app that answers for you can save
-        edits and run Script projects. Connect only an AI app that shows you each question.
-      </p>
 
       <div className={heading}>Trusted projects (Python package only)</div>
       <ul aria-label="Trusted projects">
@@ -223,8 +233,8 @@ export function AiAccessPanel() {
       </ul>
       <p className="text-[color:var(--ss-text-dim)]">
         <code>lightsim ai trust &lt;file&gt;</code> puts a project on this list. Only Python code that uses{" "}
-        <code>lightsim.ai_access.AgentSession</code> reads it, to decide which projects' Script blocks it may run (each
-        run still needs a yes). The connection for AI apps does not read this list. Changing a script ends the trust.
+        <code>lightsim.ai_access.AgentSession</code> reads it, to decide which projects' Script blocks it may run. The
+        connection for AI apps does not read this list. Changing a script ends the trust.
       </p>
 
       <label className="mt-3 flex items-center gap-2">

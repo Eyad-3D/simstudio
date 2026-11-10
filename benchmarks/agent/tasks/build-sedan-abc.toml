@@ -1,0 +1,158 @@
+id = "build-sedan-abc"
+kind = "build"
+version = 1
+title = "Build an electric sedan from a US test-car entry"
+statement = """
+car.json holds an empty LightSim model with one case, "EPA highway (HWFET)"
+(765 s). Build a battery electric sedan in it from this entry of a US test-car
+list, and save it in car.json:
+
+- test weight 4,250 lb;
+- road load target coefficients A = 37.17 lbf, B = 0.0470 lbf/mph and
+  C = 0.01440 lbf/mph² (LightSim's Vehicle part takes a road load as
+  coefficients A, B and C);
+- tyres: rolling radius 13.15 in;
+- one electric motor (LightSim's standard E-Motor, with the library's values)
+  drives the wheels through a single final drive of ratio 9.0:1, 98 %
+  efficient;
+- battery: 54 kWh usable, used down to 5 % charge, full (100 %) when the drive
+  starts;
+- the case "EPA highway (HWFET)" drives the standard HWFET cycle (LightSim's
+  cycle "hwfet").
+
+No other loads. Leave every other value at LightSim's library default. The
+model must pass LightSim's Data Checks with no errors or warnings, and run.
+"""
+
+[[start]]
+file = "car.json"
+from = "blank"
+name = "Electric sedan"
+ops = [{ op = "set_case", case = "case-1", name = "EPA highway (HWFET)", duration = 765 }]
+
+# One wheel for the whole axle; the road load comes from the coefficients,
+# converted to N, N per km/h and N per (km/h)^2.
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "vehicle.body", label = "Vehicle" },
+  { op = "add", type = "signal.driving_task", label = "Driving Task" },
+  { op = "add", type = "driver.driver", label = "Driver" },
+  { op = "add", type = "battery.generic", label = "Battery" },
+  { op = "add", type = "motor.emotor", label = "E-Motor" },
+  { op = "add", type = "mech.final_drive", label = "Final Drive" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel" },
+  { op = "connect", from = "Battery:pos", to = "E-Motor:pos" },
+  { op = "connect", from = "Battery:neg", to = "E-Motor:neg" },
+  { op = "connect", from = "E-Motor:shaft", to = "Final Drive:flange_in" },
+  { op = "connect", from = "Final Drive:flange_out", to = "Wheel:shaft" },
+  { op = "connect", from = "Driving Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle:sig_speed", to = "Driver:sig_speed_in" },
+  { op = "connect", from = "Driver:sig_traction_cmd", to = "E-Motor:sig_demand_in" },
+  { op = "set", element = "Wheel", param = "vehicle_load_share_pct", value = 100 },
+  { op = "set", element = "Wheel", param = "radius_m", value = 0.334 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 1928 },
+  { op = "set", element = "Vehicle", param = "road_load_mode", value = "Coefficients A/B/C" },
+  { op = "set", element = "Vehicle", param = "road_load_a_N", value = 165.34 },
+  { op = "set", element = "Vehicle", param = "road_load_b_N_per_kmh", value = 0.1299 },
+  { op = "set", element = "Vehicle", param = "road_load_c_N_per_kmh2", value = 0.02473 },
+  { op = "set", element = "Final Drive", param = "ratio", value = 9.0 },
+  { op = "set", element = "Final Drive", param = "efficiency_pct", value = 98 },
+  { op = "set", element = "Battery", param = "capacity_kWh", value = 54 },
+  { op = "set", element = "Battery", param = "min_soc_pct", value = 5 },
+  { op = "set", element = "Battery", param = "initial_soc_pct", value = 100 },
+  { op = "set", element = "Driving Task", param = "cycle", value = "hwfet" },
+]
+
+# The coefficients typed in as they stand on the sheet, in newtons.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [
+  { op = "set", element = "Vehicle", param = "road_load_a_N", value = 37.17 },
+  { op = "set", element = "Vehicle", param = "road_load_b_N_per_kmh", value = 0.047 },
+  { op = "set", element = "Vehicle", param = "road_load_c_N_per_kmh2", value = 0.0144 },
+]
+
+# Built the other way: four wheels, brakes, a differential and nodes, as in the
+# Efficient Electric Sedan example, all with library values.
+[[also_right]]
+file = "car.json"
+ops = [
+  { op = "add", type = "vehicle.body", label = "Vehicle" },
+  { op = "add", type = "signal.driving_task", label = "Driving Task" },
+  { op = "add", type = "driver.driver", label = "Driver" },
+  { op = "add", type = "battery.generic", label = "Battery" },
+  { op = "add", type = "motor.emotor", label = "E-Motor" },
+  { op = "add", type = "mech.final_drive", label = "Final Drive" },
+  { op = "add", type = "mech.differential", label = "Differential" },
+  { op = "add", type = "mech.node", label = "Node FL" },
+  { op = "add", type = "mech.node", label = "Node FR" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel FL" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel FR" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel RL" },
+  { op = "add", type = "propulsion.wheel", label = "Wheel RR" },
+  { op = "add", type = "mech.brake", label = "Brake FL" },
+  { op = "add", type = "mech.brake", label = "Brake FR" },
+  { op = "add", type = "mech.brake", label = "Brake RL" },
+  { op = "add", type = "mech.brake", label = "Brake RR" },
+  { op = "connect", from = "Battery:pos", to = "E-Motor:pos" },
+  { op = "connect", from = "Battery:neg", to = "E-Motor:neg" },
+  { op = "connect", from = "E-Motor:shaft", to = "Final Drive:flange_in" },
+  { op = "connect", from = "Final Drive:flange_out", to = "Differential:flange_in" },
+  { op = "connect", from = "Differential:flange_out_a", to = "Node FL:f1" },
+  { op = "connect", from = "Differential:flange_out_b", to = "Node FR:f1" },
+  { op = "connect", from = "Node FL:f2", to = "Brake FL:flange" },
+  { op = "connect", from = "Node FL:f3", to = "Wheel FL:shaft" },
+  { op = "connect", from = "Node FR:f2", to = "Brake FR:flange" },
+  { op = "connect", from = "Node FR:f3", to = "Wheel FR:shaft" },
+  { op = "connect", from = "Brake RL:flange", to = "Wheel RL:shaft" },
+  { op = "connect", from = "Brake RR:flange", to = "Wheel RR:shaft" },
+  { op = "connect", from = "Driving Task:sig_demand", to = "Driver:sig_target_in" },
+  { op = "connect", from = "Vehicle:sig_speed", to = "Driver:sig_speed_in" },
+  { op = "connect", from = "Driver:sig_traction_cmd", to = "E-Motor:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FL:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FR:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake RL:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake RR:sig_demand_in" },
+  { op = "set", element = "Wheel RL", param = "axle", value = "Rear" },
+  { op = "set", element = "Wheel RR", param = "axle", value = "Rear" },
+  { op = "set", element = "Wheel FL", param = "radius_m", value = 0.334 },
+  { op = "set", element = "Wheel FR", param = "radius_m", value = 0.334 },
+  { op = "set", element = "Wheel RL", param = "radius_m", value = 0.334 },
+  { op = "set", element = "Wheel RR", param = "radius_m", value = 0.334 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 1928 },
+  { op = "set", element = "Vehicle", param = "road_load_mode", value = "Coefficients A/B/C" },
+  { op = "set", element = "Vehicle", param = "road_load_a_N", value = 165.34 },
+  { op = "set", element = "Vehicle", param = "road_load_b_N_per_kmh", value = 0.1299 },
+  { op = "set", element = "Vehicle", param = "road_load_c_N_per_kmh2", value = 0.02473 },
+  { op = "set", element = "Final Drive", param = "ratio", value = 9.0 },
+  { op = "set", element = "Final Drive", param = "efficiency_pct", value = 98 },
+  { op = "set", element = "Battery", param = "capacity_kWh", value = 54 },
+  { op = "set", element = "Battery", param = "min_soc_pct", value = 5 },
+  { op = "set", element = "Battery", param = "initial_soc_pct", value = 100 },
+  { op = "set", element = "Driving Task", param = "cycle", value = "hwfet" },
+]
+
+[check]
+file = "car.json"
+case = "EPA highway (HWFET)"
+params = [
+  { type = "vehicle.body", key = "mass_kg", value = 1928, rtol = 0.002 },
+  { type = "vehicle.body", key = "road_load_mode", value = "Coefficients A/B/C" },
+  { type = "vehicle.body", key = "road_load_a_N", value = 165.34, rtol = 0.01 },
+  { type = "vehicle.body", key = "road_load_b_N_per_kmh", value = 0.1299, rtol = 0.01 },
+  { type = "vehicle.body", key = "road_load_c_N_per_kmh2", value = 0.02473, rtol = 0.01 },
+  { type = "propulsion.wheel", key = "radius_m", value = 0.334, rtol = 0.002 },
+  { type = "mech.final_drive", key = "ratio", value = 9.0, rtol = 0.002 },
+  { type = "mech.final_drive", key = "efficiency_pct", value = 98, rtol = 0.002 },
+  { type = "battery.generic", key = "capacity_kWh", value = 54, rtol = 0.002 },
+  { type = "battery.generic", key = "min_soc_pct", value = 5, rtol = 0.002 },
+  { type = "battery.generic", key = "initial_soc_pct", value = 100, rtol = 0.002 },
+  { type = "signal.driving_task", key = "cycle", value = "hwfet" },
+]
+figures = [
+  { key = "distance_km", rtol = 0.005 },
+  { key = "consumption_kwh_per_100km", rtol = 0.04 },
+  { key = "*.final_soc_pct", atol = 0.5 },
+]

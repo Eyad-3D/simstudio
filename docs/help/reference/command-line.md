@@ -30,6 +30,7 @@ The examples below write `lightsim`; use whichever of these you have
 |---|---|
 | `lightsim run PROJECT [--case NAME]` | Runs a case (the first if none is named) and prints its summary |
 | `lightsim check PROJECT` | Runs the Data Checks (the *Problems* list). `--strict` fails on warnings too |
+| `lightsim edit PROJECT [--set P.K=V] [--op JSON] [--ops JSON] [-o FILE] [--reason TEXT] [--session ID] [--client NAME]` | Applies changes (the AI plug's `model_edit` operations) and saves. In place it keeps each version it replaces in `<file>-backups` (the newest 20), so any recent one can be restored. The save is one step in the project's history, with `--reason`: the open LightSim window shows it at once, and one click undoes it or the whole session. A session is `--session`, else `LIGHTSIM_SESSION`, else Claude Code's session, else the session of the file's last `lightsim edit` if that named none either and was less than 15 minutes ago with no other save between (so the edits of an agent whose tool starts a new shell for each command undo together); `--client` (else `LIGHTSIM_CLIENT`, else `AI_AGENT`) names who edits. A save from the app between the read and the write is not overwritten: the changes are applied again to the newer file |
 | `lightsim export RUN -o FILE` | Writes a stored run (`.json.gz` from the app's runs folder, or `.json`) as CSV, MAT, JSON or Parquet |
 | `lightsim show PROJECT` | Lists the project's cases and parts, with their ids |
 | `lightsim params PROJECT [--part LABEL]` | Lists the parameter values, as `Part.key = value unit` |
@@ -44,6 +45,16 @@ The examples below write `lightsim`; use whichever of these you have
 `fs-electric`). Every command takes `--json` to print JSON instead of
 text, and `-h` for its options.
 
+A file that `run`, `export`, `schema` or `notebook --force` writes over is
+kept as it was in `<file>-backups` beside it (the newest 20, and the file
+as it was before the session first wrote over it: the session is
+`LIGHTSIM_SESSION`, else Claude Code's, else one per day), so it can be put
+back. They never write over a LightSim project, and neither they nor
+`edit` write in a folder LightSim keeps for a project (`<file>-backups`,
+`<file>-runs`, `<file>-resources`, a projects folder's `.backups`, `runs`
+and `resources`, `.ai`): the command stops with exit code 3 (use `edit` to
+change a project).
+
 `run` also takes:
 
 | Option | Does |
@@ -57,6 +68,21 @@ text, and `-h` for its options.
 
 The files' contents are described in
 [Runs and results](../../spec/results.md#exports).
+
+**Script blocks and FMUs.** `run`, and the engine program's own `run`,
+work hands-off, as the connection for AI apps does
+([AI access](#ai-access)): a project's Script blocks and FMUs run in an
+OS sandbox, with access to the project's folder only and the network held
+off — a Script can open no connection, and an FMU's native code is held
+off by the OS ([Known issues](../../KNOWN-LIMITS.md) has the per-platform
+detail) — and a script nobody approved runs there with no **Run scripts**
+approval.
+Where that sandbox cannot be set up, the run is refused with the code
+`sandbox_unavailable`. The tool cannot tell an AI agent from a person,
+and an agent must never wait on a person, so this holds for every run.
+To run with the app's rules instead (only scripts you approved in the
+app, the app's isolation), set the environment variable
+`LIGHTSIM_STRICT_SANDBOX=0`.
 
 ## Exit codes
 
@@ -101,40 +127,47 @@ read them.
 | `lightsim ai trust PROJECT`, `… untrust PROJECT` | Puts this project on, or takes it off, the trust list that `AgentSession` reads before it runs the project's Script blocks. The connection for AI apps does not read the list. Changing a script, or a value of a Script block, takes the trust away, also when only one case sets it |
 | `lightsim ai log [-n N]` | The last calls made through `AgentSession`. An AI app's calls are in `.ai/audit.jsonl` in your projects folder; the AI access tab of *Connect AI* lists both |
 
-What an AI app can do once access is on:
+An agent works hands-off: the connection never asks you to confirm (the
+owner's decision, 1 November 2026). What an AI app can do once access is on:
 
 - **Read** an allowed project, check it, and read its results. LightSim
   asks you nothing.
-- **Run** a case. A run stops after 300 s. A project with Script blocks
-  (Python code that runs on your computer) makes LightSim ask you before
-  it runs, in the AI app; the question does not show the code. On Windows
-  the Script sandbox is weaker (see [Known issues](../../KNOWN-LIMITS.md)),
-  so such a project does not run unless the connection was started with
-  `--trust-scripts`, and you are asked then too. The trust list above
-  plays no part. LightSim's check of script code applies as in the app:
-  code you have not approved there makes the run fail.
-- **Change** a project only after you say yes to the change in the AI app.
+- **Run** a case. A run stops after 300 s. It runs a project with Script
+  blocks or FMUs in an OS sandbox: access to the project's folder only, and
+  no network — a Script can open none, and an FMU's native code is held off
+  by the OS ([Known issues](../../KNOWN-LIMITS.md) has the per-platform
+  detail; on Windows the sandbox is an AppContainer). When that sandbox
+  cannot be set up — on Linux older than 5.13, or on a Windows computer
+  that cannot make the AppContainer — the run is refused
+  with the code `sandbox_unavailable` rather than run less safely. The trust
+  list above plays no part, and a brand-new script the assistant writes runs
+  in the sandbox without the app's **Run scripts** approval — the sandbox is
+  the safety.
+- **Change** a project: with model_edit's dry run off the edit is saved
+  straight away, and is recoverable (an example saved as a new project, the
+  previous version kept as a backup). Each edit it saves to a project is
+  one step in the project's history, with the `reason` it gives: the open
+  LightSim window shows it at once, and one click undoes it or the agent's
+  whole session (one connection of the AI app).
 
-Your AI app shows these questions and sends your answer back; LightSim
-cannot tell who answered, and an app that sends your answer again repeats
-a run, or saves another copy of an edited example or new project, without
-asking you. An AI app on MCP's older handshake that cannot ask you is
-refused anything that needs your yes. On MCP's 28 July 2026 revision
-LightSim does not check whether the app can ask, so an app that answers
-for you can save edits and run Script projects. Connect only an AI app
-that shows you each question.
+The command-line tool is hands-off as well: `lightsim run`, and the
+engine program's `lightsim-backend run`, hold every run to the same OS
+sandbox, with no **Run scripts** approval, or refuse the run where that
+sandbox cannot be set up (they cannot tell an agent from a person; see
+*Script blocks and FMUs* above). `LIGHTSIM_STRICT_SANDBOX=0` gives a
+person the app's rules instead; an agent gains nothing by it, since a
+script must then be approved in the app.
 
 Python code that goes through `AgentSession` sees the same folders, the
-same `"noAi"` mark and the same time cap. It runs a project with Script
-blocks only if you trusted the project with `lightsim ai trust`, and each
-run needs `confirmed=True`.
+same `"noAi"` mark and the same time cap, and runs a project with Script
+blocks only if you trusted the project with `lightsim ai trust`.
 
 Labels, descriptions and script text from your projects reach the AI as
 quoted data, not as instructions. Each tool call an AI app makes, done or
-not, is written to `.ai/audit.jsonl` in your projects folder, except a
-call that brings back your no, a run sent as a task (a long run the AI app
-checks on) that LightSim asks about or refuses before it starts, and a
-call LightSim cannot read, such as one of a tool it does not have. Every
-call through `AgentSession` goes to `ai-audit.jsonl` next to the settings
-file (`ai-access.json` in `%APPDATA%\LightSim` on Windows,
-`~/.config/LightSim` on Linux). The logs never leave your computer.
+not, is written to `.ai/audit.jsonl` in your projects folder, except a run
+sent as a task (a long run the AI app checks on) that LightSim refuses
+before it starts, and a call LightSim cannot read, such as one of a tool
+it does not have. Every call through `AgentSession` goes to
+`ai-audit.jsonl` next to the settings file (`ai-access.json` in
+`%APPDATA%\LightSim` on Windows, `~/.config/LightSim` on Linux). The logs
+never leave your computer.

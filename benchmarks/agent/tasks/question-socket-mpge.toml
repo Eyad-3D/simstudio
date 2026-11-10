@@ -1,0 +1,34 @@
+id = "question-socket-mpge"
+kind = "question"
+version = 1
+title = "Label figures of a sedan with a better charger"
+statement = """
+sedan.json models our efficient electric sedan, now with a charger that is 92 %
+efficient (the example's is 86 %). For the label we need the figures at the
+wall socket, not at the battery. On its case "EPA highway (HWFET)": what is
+the consumption at the socket, in kWh per 100 km, and the fuel-economy
+equivalent, in MPGe?
+
+End your reply with one line in exactly this form, numbers only:
+ANSWER: <consumption at the socket>; <MPGe>
+"""
+
+[[start]]
+file = "sedan.json"
+from = "example:aero-bev"
+name = "Efficient electric sedan, 92 % charger"
+ops = [{ op = "set", element = "HV Battery Pack", param = "charger_efficiency_pct", value = 92 }]
+
+# The consumption at the battery, and the MPGe of the example's own charger.
+[wrong]
+answer = "ANSWER: 11.06; 162.8"
+
+[[answer]]
+value = 12.023
+rtol = 0.01
+figure = { file = "sedan.json", case = "EPA highway (HWFET)", key = "consumption_ac_kwh_per_100km" }
+
+[[answer]]
+value = 174.19
+rtol = 0.01
+figure = { file = "sedan.json", case = "EPA highway (HWFET)", key = "mpge_ac" }

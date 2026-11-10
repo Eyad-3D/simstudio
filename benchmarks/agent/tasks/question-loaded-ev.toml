@@ -1,0 +1,36 @@
+id = "question-loaded-ev"
+kind = "question"
+version = 1
+title = "Consumption and regeneration of a loaded electric car"
+statement = """
+car.json models our electric hatchback carrying four people and their
+luggage, with a 0.6 kW load always on. On its case "WLTC Class 3b": what is
+its consumption at the battery, in kWh per 100 km, and how much energy does
+the battery take back by regenerative braking over the drive, in kWh?
+
+End your reply with one line in exactly this form, numbers only:
+ANSWER: <consumption>; <energy taken back>
+"""
+
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Hatchback, fully loaded"
+ops = [
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 2150 },
+  { op = "set", element = "Power Consumer", param = "power_kW", value = 0.6 },
+]
+
+# The example's own figures, unloaded.
+[wrong]
+answer = "ANSWER: 14.05; 1.10"
+
+[[answer]]
+value = 15.625
+rtol = 0.02
+figure = { file = "car.json", case = "WLTC Class 3b", key = "consumption_kwh_per_100km" }
+
+[[answer]]
+value = 1.2033
+rtol = 0.03
+figure = { file = "car.json", case = "WLTC Class 3b", key = "*.energy_recuperated_kwh" }

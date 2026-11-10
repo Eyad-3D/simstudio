@@ -13,7 +13,7 @@ from conftest import allow_ai
 from app.ai import skillpack
 from app.ai.access import AuditLog, Policy
 from app.ai.engine import Engine
-from app.ai.tools import TOOLS, CallContext, ConfirmationNeeded, Tools
+from app.ai.tools import TOOLS, CallContext, Tools
 from app.library import load_library
 
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
@@ -56,7 +56,8 @@ def test_every_name_the_skills_use_exists():
     tools = {t["name"] for t in TOOLS}
     words = {"add_port", "add_case", "set_case", "dry_run", "t_from", "t_to", "full_tables",
              "hide_values", "motor_rpm", "engine_rpm", "motor_cmd", "engine_on", "clutch_cmd",
-             "references/components.md", "references/known-limits.md", "wltc-3b"}
+             "references/components.md", "references/known-limits.md", "wltc-3b",
+             "sandbox_unavailable"}  # the stable code a strict run reports (app/solver/sandbox.py)
     for path in SKILL_FILES:
         for token in re.findall(r"`([^`\s]+)`", path.read_text(encoding="utf-8")):
             if re.fullmatch(r"[a-z]+\.[a-z0-9_]+", token):
@@ -75,9 +76,7 @@ def test_the_bev_recipe_builds_a_car_that_drives(tmp_path, monkeypatch):
     args = {"project": "new:My EV", "operations": ops, "dry_run": False}
     dry = tools.call("model_edit", {**args, "dry_run": True}, CallContext())
     assert dry["checksAfter"]["error"] == 0 and dry["checksAfter"]["warning"] == 0
-    with pytest.raises(ConfirmationNeeded) as need:
-        tools.call("model_edit", args, CallContext())
-    saved = tools.call("model_edit", args, CallContext(confirmed=need.value.seal))
+    saved = tools.call("model_edit", args, CallContext())  # hands-off: saved straight away
     run = tools.call("run_case", {"project": saved["project"], "case": "Case 1"}, CallContext())
     rows = {r["key"]: r["value"] for r in run["summary"]}
     assert run["status"] == "success"

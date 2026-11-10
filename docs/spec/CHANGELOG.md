@@ -14,4 +14,5 @@ Python API. The rules for when a version changes are in the
 | Study | 1 | First published. Its table is keyed by the summary rows' labels, not yet by their keys. A study from the parallel runner records `workers` and `wallS`, each point its `wallS` (ENG-05) |
 | Library, Data Checks | 1 | First published. A Data Check has an optional `caseId`: the case whose own values or kind it is about (it stops only that case's runs) |
 | `lightsim-result` (JSON export) | 1 | New |
+| Project history (`history.jsonl`) | 1 | New: one line per save of a project, beside its backups, with who saved (the app or an AI agent, its client and session), why, what changed and the change itself (step 6) |
 | Python API (`lightsim`) | 1 | New: `run`, `check`, `load`, `read_run`, `Project`, `Result`. `Result.to_parquet` writes Parquet when pyarrow is installed (STD-09) |

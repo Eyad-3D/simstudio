@@ -61,45 +61,53 @@ refuse every change.
 - It sees your saved projects and the examples, and the folders you
   allowed. A project file that contains `"noAi": true` stays hidden, and
   so does a link in an allowed folder to a file outside them.
-- It can read, check and compare models, and run a project without Script
-  blocks, with no question to you. It can propose changes as a dry run; to
-  save one, LightSim asks you first, and you answer **Allow this** in the
-  AI app. An example is never
-  changed: the edit is saved as a new project. LightSim keeps the previous
+  An AI agent works hands-off: the connection never asks you to confirm (the
+  owner's decision, 1 November 2026). Safety comes from the design instead.
+- It can read, check and compare models, and run a project, with no question
+  to you. It can propose changes as a dry run; with the dry run off, an edit
+  is saved straight away, and is recoverable: an example is never changed
+  (the edit is saved as a new project), and LightSim keeps the previous
   version of a project as a backup, as for every save. For a file in a
   folder you allowed, the backups are kept beside it, in a folder named
   after it (`car.json-backups`, which git ignores).
-- A project with Script blocks (Python code) makes LightSim ask you before
-  it runs, in the AI app. The question names the project and the case; it
-  does not show the code, so read the code in LightSim before you say yes.
-  On Windows, where LightSim's script sandbox is weak, such a project does
-  not run at all unless you added `--trust-scripts` to the connection, and
-  then you are asked as well.
-- LightSim's check of script code applies to an assistant's run as to yours.
-  Code that is not code you approved in LightSim makes the run fail and
-  say so. Approved code is the code of the examples, code you typed into a
-  Script block, and code you approved with **Run scripts**
-  ([how](open-a-project-with-scripts.md)). A script an assistant writes or
-  changes is new code: open the project in LightSim and choose
-  **Run scripts** before the assistant runs it.
-- The question is LightSim's, but your AI app shows it and sends your
-  answer back. LightSim cannot tell whether you or the assistant answered,
-  and an app that sends your answer again repeats a run, or saves another
-  copy of an edited example or new project, without asking you. An AI app
-  on MCP's older handshake that cannot ask you is refused anything that
-  needs your yes. On MCP's 28 July 2026 revision LightSim does not check
-  whether the app can ask, so an app that answers for you can save edits
-  and run Script projects. Connect only an AI app that shows you each
-  question.
+- Each edit it saves to a project is one step in the project's history,
+  with the reason the assistant gives, which AI app made it and in which
+  session: the open LightSim window shows it at once, and one click undoes
+  it or the agent's whole session. The edit appears over any changes you
+  have not saved yet, and your next Save keeps both: neither overwrites the
+  other. Where you and the assistant changed the same value, the window
+  shows the assistant's value and says so; **Undo** (Ctrl+Z) brings yours
+  back. The notice at the bottom left names the AI app and its reason,
+  with **Undo** (this change) and **Undo session** (every change of that
+  connection). An undo leaves a value that was changed again since as it
+  is, and says which. A project the assistant changed while it was not open
+  offers the same notice when you open it. The history is the file
+  `history.jsonl` in the project's backups folder.
+- A project with Script blocks (Python code) or FMUs runs in an OS sandbox:
+  access to the project's folder only, and no network — a Script can open
+  none, and an FMU's native code is held off by the OS (see
+  [Known issues](../../KNOWN-LIMITS.md) for what that covers on each
+  platform; on Windows the sandbox is an AppContainer). When that sandbox
+  cannot be set up — on Linux older than 5.13, or on a Windows computer
+  that cannot make the AppContainer — the run is refused with the code
+  `sandbox_unavailable` rather than run less safely.
+- A brand-new Script block the assistant writes runs in that sandbox
+  straight away, with no **Run scripts** approval — the sandbox is the
+  safety, not an approval. (A run you start yourself in LightSim still asks
+  you to approve new script code the first time, see
+  [Open a project with scripts](open-a-project-with-scripts.md); that guards
+  your own runs, not an assistant's.)
+- The command-line tool (`lightsim run`) runs every project the same way,
+  with no approval: it cannot tell an agent from a person
+  ([Command-line tool](../reference/command-line.md#ai-access)).
 - A run started by an assistant stops after 5 minutes, or sooner if you
   set a shorter cap under **AI access**. Its runs are kept apart from yours
   (the newest 20 per project).
 - LightSim writes each tool call an assistant makes, done or not, to a log
   on this computer, `.ai/audit.jsonl` in your projects folder. It leaves
-  out a call that brings back your no, a long run (an MCP task) that
-  LightSim asks about or refuses before it starts, and a call LightSim
-  cannot read, such as one of a tool it does not have. The log is never
-  uploaded.
+  out a run sent as a task that LightSim refuses before it starts, and a
+  call LightSim cannot read, such as one of a tool it does not have. The log
+  is never uploaded.
 - On a computer your organisation manages, its policy file can turn AI
   access off (`"ai": "off"`, see [Install LightSim for a lab or
   a company](deploy-for-it.md)). The window then says so and cannot add
@@ -128,12 +136,12 @@ reads them when it starts a session. Other Python code (`import lightsim`,
 - **AI tools may open the examples that come with LightSim.**
 - **Trusted projects (Python package only)**: a project you trusted with
   `lightsim ai trust <file>`. Only Python code that uses `AgentSession`
-  reads this list, to decide which projects' Script blocks it may run; each
-  run still needs a yes. The connection for AI apps does not read it: the
-  questions above are asked whether a project is on the list or not.
-  **Untrust** takes the project off the list; a project whose scripts
-  changed since is marked, as its trust no longer holds. Trust can only be
-  given on the command line.
+  reads this list, to decide which projects' Script blocks it may run. The
+  connection for AI apps does not read it: an assistant runs any project's
+  Script blocks in the sandbox, whether a project is on the list or not and
+  whether or not the code has been approved. **Untrust** takes the project off
+  the list; a project whose scripts changed since is marked, as its trust no
+  longer holds. Trust can only be given on the command line.
 - **Stop an AI tool's run after** a number of seconds (5 minutes unless you
   change it).
 - **Latest calls from AI tools**: what they asked, when, and whether it

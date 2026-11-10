@@ -2,7 +2,7 @@
 
 A Script block holds Python code (a short program) that runs while the
 model simulates. Code from another person can do things you did not
-expect, so LightSim shows it to you and asks before it runs.
+expect, so the LightSim app shows it to you and asks before it runs.
 
 1. Open or import the project (**Open**, or **Import** on the Home tab).
    If it has scripts you have not approved on this computer, LightSim shows
@@ -38,6 +38,10 @@ script, including those in the projects you had saved before 0.3.0.
 - Your organisation can make LightSim ask every time it opens a project
   (the dialog then says *Managed by your organisation*); approvals then
   last until LightSim closes. See [Install LightSim for a lab or a company](deploy-for-it.md).
+- The command-line tool (`lightsim run`) and AI apps do not ask: they run
+  a project's scripts in an OS sandbox, with access to the project's
+  folder only, or refuse the run where that sandbox cannot be set up. See
+  [Command line](../reference/command-line.md).
 - Data Checks never run a script: they only check that it is valid.
 - Approving a script does not unlock it: it still runs in a locked-down
   process. What that process may do depends on your system, see the
