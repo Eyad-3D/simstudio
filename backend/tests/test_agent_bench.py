@@ -229,7 +229,7 @@ _CASE_CHANGES = {
     "name": "WLTC, short", "duration": 60.0, "timeStep": 5.0, "outputEvery": 5, "realtimeFactor": 2.0,
     "kind": "performance", "endDistance": 500.0, "endLaps": 2.0, "chargeBalance": True, "startLine": 1.0,
     "referenceTime": 30.0, "energyReport": False, "fsEvent": "endurance", "referenceEnergy": 1.5,
-    "referenceEnergyTime": 20.0, "references": [{"kpi": "distance_km", "value": 23.2}],
+    "referenceEnergyTime": 20.0, "references": [{"kpi": "distance_km", "value": 23.2}], "mode": "quick",
 }
 
 
