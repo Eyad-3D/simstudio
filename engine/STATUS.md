@@ -417,8 +417,10 @@ at 1debfc4 and did not pass (see the section below).
   with success shows a warning: 241 of the sweep's app-style runs.
   55e293f left these out of the sweep's compare and its `[sweep]` measure
   after the measured run. The 9 November entry in `acceptance.toml`'s
-  `[[changes]]` records that afterwards, and the sweep line reports them
-  as known issue (a), with their count. A likely fix: those notes at level info, with their codes, as
+  `[[changes]]` records that afterwards and names them known issue (a),
+  to be reported with their count. `sweep.compare` itself counts them as
+  hand-backs; the count of (a) (241) comes from the acceptance's recount
+  of the raw records, a script outside the repository. A likely fix: those notes at level info, with their codes, as
   `NEW-LIVE-RESTART`'s and the refusal before a run already are.
   (`docs/KNOWN-LIMITS.md` says so.)
 - **A restart after `NEW-ERROR` counts as a hand-back.** `sweep.compare`
@@ -432,7 +434,18 @@ at 1debfc4 and did not pass (see the section below).
 - **`overspeed:hybrid-car/case-hwfet:down` still differs:** the new engine
   adds the battery's "charging exceeds max charge power" warning (2 runs,
   1 fault), the 9 November entry in `acceptance.toml`'s `[[changes]]` excuses them
-  as known issue (b), reported with its count, so the sweep line passes. (`docs/KNOWN-LIMITS.md` says so.)
+  as known issue (b), to be reported with its count, so the sweep line passes.
+  `sweep.compare` itself reports them as its 2 mismatched runs; the same
+  recount names them (b). (`docs/KNOWN-LIMITS.md` says so.)
+- **Three Reference FMUs fail the FMU line's test on Linux.** With
+  Reference FMUs 0.0.41 and fmusim 0.7.0 on Linux,
+  `test_new_engine_fmu.py`'s line test fails for 3 of its FMUs, on
+  `work/step2` and on the merge alike: 2.0/Stair and 3.0/Stair, where the
+  new path stops the run with `RUN-BLOCK` when the FMU asks to stop the
+  simulation at t = 9 s (2.0: `fmi2DoStep` returns discard), and
+  3.0/BouncingBall, where the reference run with fmusim itself ends with
+  an error. 2.0/BouncingBall and the rest pass. The line is judged on
+  Windows CI, where it has not run yet; it may fail the same way there.
 - **Docs:** `docs/spec/api.md` has no `restart` event (no fields: drop the
   points shown, the run starts again at t = 0), and
   the `sweep.md` that the sweep writes in its output folder
@@ -515,10 +528,15 @@ Failed or not measured, with the numbers:
   recorded). S2 is on Windows CI, and the Windows CI run 42709765031 never
   reached `test_stop_latency.py`. Local indication only, on a shared,
   heavily loaded machine: the new engine's live p95 0.283 s (over the 0.25
-  s mark) and study p95 0.752 s; today's engine 0.246 s and 0.790 s.
+  s mark) and study p95 0.752 s; today's engine 0.246 s and 0.790 s. At
+  the merge of 10 November (also local and loaded): the new engine's live
+  p95 0.233 s, but its study p95 rose to 0.975 s, 2.5 % under the 1.0 s
+  mark.
 - **FMU: not measured.** Not run locally (`LIGHTSIM_REFERENCE_FMUS` and
   `LIGHTSIM_FMUSIM` not set, and the line's FMUs are x86_64-windows), and
-  on Windows CI `test_new_engine_fmu.py` never ran.
+  on Windows CI `test_new_engine_fmu.py` never ran. At the merge of 10
+  November it ran on Linux with the Linux build of the same FMUs: 3 of
+  them fail (see the known issues above).
 
 Why the Windows CI run failed (run 42709765031, `workflow_dispatch`, at
 1debfc4; it is the only run on this branch): "Engine (Rust) on Windows"
