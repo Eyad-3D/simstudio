@@ -132,6 +132,48 @@ def test_an_fmu_with_a_communication_step_holds_its_outputs_between_its_points(t
 
 
 @needs_engine
+def test_an_agents_fmu_runs_in_a_strict_worker_or_is_refused_before_any_starts(test_fmu, monkeypatch):
+    """An agent's run (STRICT) on the new path starts its FMU's worker
+    OS-confined; where that cannot be set up it is refused
+    [sandbox_unavailable] before any FMU worker starts. A person's run's
+    worker is the ordinary one."""
+    from app.fmu import sandbox as fmu_sandbox
+    from app.solver.sandbox import SANDBOX_UNAVAILABLE, STRICT, why_no_strict_sandbox
+
+    built = []
+
+    class Recorded(fmu_sandbox.FmuSandbox):
+        def __init__(self, spec, *a, **k):
+            built.append(k.get("strict", False))
+            super().__init__(spec, *a, **k)
+    monkeypatch.setattr(fmu_sandbox, "FmuSandbox", Recorded)
+    proj = _lag_project(_import(test_fmu), 1.0, 0.1, 1.0)
+
+    def agent_run():
+        token = STRICT.set(True)
+        try:
+            return simulate(proj, "case")
+        finally:
+            STRICT.reset(token)
+    if why_no_strict_sandbox() is None:  # (Linux with Landlock, Windows with the AppContainer)
+        result = agent_run()
+        assert result.status == "success", [m.text for m in result.messages]
+        assert result.messages[0].text.startswith("Run on the new engine")
+        assert built == [True]
+    built.clear()
+    monkeypatch.setattr(new_engine, "why_no_strict_sandbox",
+                        lambda *a: f"no sandbox here [{SANDBOX_UNAVAILABLE}]")
+    result = agent_run()
+    assert result.status == "failed"
+    assert SANDBOX_UNAVAILABLE in " ".join(m.text for m in result.messages)
+    assert result.messages[0].text.startswith("Run on the new engine")
+    assert built == [], "no FMU worker started"
+    result = simulate(proj, "case")  # a person's run
+    assert result.status == "success", [m.text for m in result.messages]
+    assert built == [False]
+
+
+@needs_engine
 def test_an_fmu_nobody_allowed_is_refused_in_todays_words(test_fmu, monkeypatch):
     """Guard: an FMU not allowed on this computer does not run on the new
     path either, with today's engine's message."""

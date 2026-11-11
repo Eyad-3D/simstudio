@@ -33,6 +33,73 @@ landlock = pytest.mark.skipif(
     not sys.platform.startswith("linux") or sw.landlock_abi() < 0,
     reason="the strict Linux sandbox needs Landlock (Linux >= 5.13)")
 
+try:
+    import lightsim_engine  # noqa: F401
+    NEW_MISSING = None
+except ImportError as e:
+    NEW_MISSING = f"the compiled module lightsim_engine is not installed ({e})"
+needs_engine = pytest.mark.skipif(
+    NEW_MISSING is not None and os.environ.get("LIGHTSIM_REQUIRE_NEW_ENGINE", "").strip() != "1",
+    reason=NEW_MISSING or "")
+
+
+@pytest.fixture(params=["today", pytest.param("new", marks=needs_engine)])
+def engine(request, monkeypatch):
+    """Each engine's path: today's, and the new one (LIGHTSIM_ENGINE=new,
+    strict, so nothing falls back to today's and hides what it did)."""
+    from app.solver import new_engine
+    monkeypatch.setenv(new_engine.ENV_VAR, request.param)
+    if request.param == "new":
+        monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    else:
+        monkeypatch.delenv(new_engine.STRICT_VAR, raising=False)
+    return request.param
+
+
+@pytest.fixture
+def no_sandbox(monkeypatch):
+    """The strict sandbox cannot be set up here. Each engine's path imports
+    the gate by name, so both are told."""
+    from app.solver import domains, new_engine
+    for mod in (domains, new_engine):
+        monkeypatch.setattr(mod, "why_no_strict_sandbox",
+                            lambda *a: f"no sandbox here [{SANDBOX_UNAVAILABLE}]")
+
+
+@pytest.fixture
+def built(monkeypatch):
+    """``strict`` of each Script worker a run starts, on either engine's path."""
+    from app.solver import domains, new_engine
+    seen: list = []
+
+    class Recorded(ScriptSandbox):
+        def __init__(self, specs, *a, **k):
+            seen.append(k.get("strict", False))
+            super().__init__(specs, *a, **k)
+    for mod in (domains, new_engine):
+        monkeypatch.setattr(mod, "ScriptSandbox", Recorded)
+    return seen
+
+
+@pytest.fixture
+def asked(monkeypatch):
+    """The Script approval checks a run makes (app/script_trust.py)."""
+    from app import script_trust
+    seen: list = []
+    real = script_trust.check
+
+    def check(scripts):
+        seen.append(len(scripts))
+        return real(scripts)
+    monkeypatch.setattr(script_trust, "check", check)
+    return seen
+
+
+def _on(engine: str, result) -> None:
+    """The run went down ``engine``'s path (the new one says so first)."""
+    first = result.messages[0].text if result.messages else ""
+    assert first.startswith("Run on the new engine") == (engine == "new"), first
+
 
 def _scripted(code: str):
     proj = bev_axle()
@@ -174,11 +241,9 @@ def test_the_probe_waits_for_its_worker_as_long_as_a_run_does(fresh_probe, monke
     assert waits == [5.0 + sandbox_mod._AC_START_S]
 
 
-def test_an_agent_script_run_is_refused_when_the_sandbox_is_unavailable(monkeypatch):
-    # the agent path (STRICT) on a platform where the sandbox cannot be set up
-    from app.solver import domains
-    monkeypatch.setattr(domains, "why_no_strict_sandbox",
-                        lambda *a: f"no sandbox here [{SANDBOX_UNAVAILABLE}]")
+def test_an_agent_script_run_is_refused_when_the_sandbox_is_unavailable(engine, no_sandbox, built):
+    # the agent path (STRICT) on a platform where the sandbox cannot be set up:
+    # refused with the code before any worker starts, on either engine
     token = STRICT.set(True)
     try:
         result = simulate(_scripted(STEP), "case")
@@ -186,16 +251,33 @@ def test_an_agent_script_run_is_refused_when_the_sandbox_is_unavailable(monkeypa
         STRICT.reset(token)
     assert result.status == "failed"
     assert SANDBOX_UNAVAILABLE in " ".join(m.text for m in result.messages)
+    assert built == [], "no Script worker started"
+    _on(engine, result)
 
 
-def test_an_app_run_is_not_refused_when_strict_is_off(monkeypatch):
+def test_an_app_run_is_not_refused_when_strict_is_off(engine, no_sandbox, built, asked):
     # a person's run (STRICT unset) keeps today's behaviour even where the
-    # strict sandbox would be unavailable
-    from app.solver import domains
-    monkeypatch.setattr(domains, "why_no_strict_sandbox",
-                        lambda *a: f"no sandbox here [{SANDBOX_UNAVAILABLE}]")
+    # strict sandbox would be unavailable: its Scripts are checked for the
+    # user's approval and run in the ordinary (not strict) worker
     result = simulate(_scripted(STEP), "case")
     assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    assert asked, "the approval was checked"
+    assert built and not any(built), built
+    _on(engine, result)
+
+
+@landlock
+def test_an_agent_script_run_skips_approval_and_runs_in_a_strict_worker(engine, built, asked):
+    # the sandbox, not a person's approval, is what makes an agent's run safe
+    token = STRICT.set(True)
+    try:
+        result = simulate(_scripted(STEP), "case")
+    finally:
+        STRICT.reset(token)
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    assert asked == [], "no approval asked"
+    assert built and all(built), built
+    _on(engine, result)
 
 
 # -- confinement is confirmed, not assumed ------------------------------------
