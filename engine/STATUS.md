@@ -246,8 +246,9 @@ own before such a case is registered; no planted fault hidden, 20 of them now a 
   reading the crossing as its own made 135 suite runs wrong); (2) a
   user's threshold set exactly at a value the model holds (a `when` on
   battery power at 80 kW beside the Accumulator's 80 kW Output Power
-  Limit) stops the run with an event storm on every build, no holds
-  included (at 0.706 s here); since step 3 the model's preparation warns
+  Limit) stops the run with an event storm at rtol 1e-6 on every build,
+  no holds included (at 0.706 s here, and at 0.210 s at 1e-8); at 1e-4
+  it does not stop but counts 125 firings; since step 3 the model's preparation warns
   of it (`WHEN-AT-LIMIT`, naming the `when`'s part, the part holding the
   value and the limit). Neither reaches a user today: users run today's
   Python engine, the new one is opt-in and not in the installer, no

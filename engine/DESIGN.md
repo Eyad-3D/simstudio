@@ -2437,8 +2437,8 @@ round).**
     in the limit and 1 chatter of five firings outside every limit
     (s2/time-up/diffsol K 1e4 a 4.4 q 0.5 rtol 1e-8), both right at
     4d24528 and with no holds, wrong since revision 3.
-  - *A threshold set at a value the model pins* (not a hold's: every build
-    stops, no holds included). On the Formula Student car (75 m
+  - *A threshold set at a value the model pins* (not a hold's: at rtol
+    1e-6 every build stops, no holds included). On the Formula Student car (75 m
     acceleration) a user's `when u > level then hits = pre(hits) + 1`, u
     the battery's terminal power (a solved value) and level 80 000 W,
     exactly the Accumulator's Output Power Limit (80 kW, 0.5 s window,
@@ -2454,8 +2454,11 @@ round).**
     warning naming the `when`'s part, the part that holds the value and
     the limit (here 'Watch', 'Accumulator' and p_cap, "the terminal power
     it is held to (Output Power Limit less its margin)"), wherever a
-    `when` compares a value with a threshold equal (to 1e-9; where both
-    are plain parameters, in the same unit) to a limit an equation holds
+    `when` compares a value with a threshold equal (to 1e-9, and in the
+    same dimension wherever the units give both, by the dimension check's
+    own rules: a `when` on time is never at a limit in watts, though
+    `time >= 60000` has the number of a 60 000 W limit) to a limit an
+    equation holds
     a value at: an argument of a `min`, `max` or `limit` that is one
     side's whole value, or a branch's of its `if`, and reads only
     parameters and numbers (`p_max`, `-p_max`, `2*p_half`; a `max` in a
