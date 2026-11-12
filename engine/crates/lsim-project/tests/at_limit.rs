@@ -1,8 +1,9 @@
 //! A `when` whose threshold equals a limit the model holds a value at is
 //! warned about (step 3): the Formula Student car's 75 m acceleration with a
 //! counter of the battery's power above a level, beside the Accumulator's
-//! 80 kW Output Power Limit. At 80 kW exactly every build stopped with an
-//! event storm; a little above or below, the count is right.
+//! 80 kW Output Power Limit. At 80 kW exactly the run stopped with an event
+//! storm at rtol 1e-6 and 1e-8 (at 1e-4 it counted 125 firings instead); a
+//! little above or below, the count is right.
 
 use lsim_ir::component::build::connect;
 use lsim_ir::component::build::{discrete, eq, var};
@@ -139,6 +140,26 @@ fn a_threshold_at_a_negated_or_scaled_limit_is_warned_about() {
         }
         assert!(d.detail.iter().any(|x| x.contains(param)), "{:?}", d.detail);
     }
+}
+
+/// A `when` on time is never at a limit in watts, though its threshold
+/// has the limit's number: beside `min(u, 2*p_half)` (60 000 W), `when
+/// time >= p_t` (p_t = 60 000 s) and `when time >= 60000` add no warning
+/// to the two above (fix round 2: the unit was checked only where both
+/// were plain parameters, so both were warned about).
+#[test]
+fn a_when_on_time_at_a_limits_number_is_not_warned_about() {
+    let mut def = clip();
+    def.name = "User.ClipT".into();
+    def.params.push(p("p_t", "s", 60_000.0, "a late moment"));
+    def.vars.push(discrete("late", "1", 0.0, "how many late moments passed"));
+    for (thr, label) in [(n("p_t"), "late"), (c(60_000.0), "late, by number")] {
+        def.equations.push(when(ge(time(), thr), &[("late", pre("late") + c(1.0))], label));
+    }
+    let at: Vec<Diagnostic> =
+        with_part(def, "clip", vec![]).into_iter().filter(|d| d.code == "WHEN-AT-LIMIT").collect();
+    assert_eq!(at.len(), 2, "{at:?}");
+    assert!(at.iter().all(|d| !d.detail.iter().any(|x| x.contains("late"))), "{at:?}");
 }
 
 /// No example project's case, as it comes, is warned about: the library's

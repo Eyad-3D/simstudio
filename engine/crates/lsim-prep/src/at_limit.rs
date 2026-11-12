@@ -3,20 +3,24 @@
 //! the value sits on the threshold, and the condition can change on the
 //! solver's rounding alone: on the Formula Student car a counter of the
 //! battery's power above 80 kW, beside its Accumulator's 80 kW Output
-//! Power Limit, stopped every build with an event storm. The limits are
-//! the values an equation holds a value at: an argument of a `min`, `max`
-//! or `limit` that is the value of one side of the equation (or of a
-//! branch of its `if`) and is a parameter or an expression of parameters
+//! Power Limit, stopped the run with an event storm at rtol 1e-6 and 1e-8
+//! (at 1e-4 it counted 125 firings instead). The limits are the
+//! values an equation holds a value at: an argument of a `min`, `max` or
+//! `limit` that is the value of one side of the equation (or of a branch
+//! of its `if`) and is a parameter or an expression of parameters
 //! (`-p_max`, `p_kw*1000`); a `when` threshold equal to one (to 1e-9 of
-//! it; where both are plain parameters, in the same unit) is warned about,
-//! `WHEN-AT-LIMIT`, naming both parts and the limit.
+//! it, and in the same dimension wherever the units give both: a `when`
+//! on time is never at a limit in watts) is warned about, `WHEN-AT-LIMIT`,
+//! naming both parts and the limit.
 
 use crate::diagnose::warning;
 use crate::params;
+use crate::units_check::known_dim;
 use lsim_ir::Diagnostic;
 use lsim_ir::component::Library;
 use lsim_ir::expr::{Builtin, Expr};
 use lsim_ir::flat::{FlatSystem, ParamId};
+use lsim_ir::units::Dim;
 
 /// How close a threshold must be to a limit to count as equal, relative.
 const SAME: f64 = 1e-9;
@@ -77,13 +81,15 @@ fn held_at<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr, ParamId)) {
 pub fn thresholds_at_limits(flat: &FlatSystem, lib: &Library) -> Vec<Diagnostic> {
     let values: Vec<f64> = flat.params.iter().map(|p| p.value).collect();
     // the limits a min, max or limit bounds a value with, by value, with
-    // the parameter each reads and whether it is that parameter itself
-    // (not 0, a sign's split, and not the 1e30 that stands for "no limit")
-    let mut limits: Vec<(f64, ParamId, bool)> = vec![];
+    // the parameter each reads, whether it is that parameter itself and
+    // its dimension (not 0, a sign's split, and not the 1e30 that stands
+    // for "no limit")
+    let mut limits: Vec<(f64, ParamId, bool, Option<Dim>)> = vec![];
     for e in &flat.equations {
         for side in [&e.lhs, &e.rhs] {
             held_at(side, &mut |a, p| {
-                let l = (params::value(a, &values), p, matches!(a, Expr::Param(_)));
+                let l =
+                    (params::value(a, &values), p, matches!(a, Expr::Param(_)), known_dim(a, flat));
                 if l.0 != 0.0 && l.0.abs() < 1e29 && !limits.contains(&l) {
                     limits.push(l);
                 }
@@ -104,11 +110,12 @@ pub fn thresholds_at_limits(flat: &FlatSystem, lib: &Library) -> Vec<Diagnostic>
                 _ => return,
             };
             let v = params::value(thr, &values);
-            for &(l, p, plain) in &limits {
-                let same_unit = match thr {
-                    Expr::Param(q) if plain => {
-                        flat.params[q.0 as usize].unit == flat.params[p.0 as usize].unit
-                    }
+            // the comparison's dimension, from whichever side's units give
+            // one (`time >= 60000` compares seconds)
+            let compared = known_dim(a, flat).or_else(|| known_dim(b, flat));
+            for &(l, p, plain, ld) in &limits {
+                let same_unit = match (compared, ld) {
+                    (Some(x), Some(y)) => x == y,
                     _ => true,
                 };
                 if same_unit
