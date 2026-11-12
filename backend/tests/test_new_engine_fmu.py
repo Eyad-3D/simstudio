@@ -379,10 +379,29 @@ def compare_reference(path: Path, h: float, stop: float, fmusim: str, out_dir: P
     return rec
 
 
+# The FMU line's known issue (engine/STATUS.md, "Step 2 closed without
+# acceptance"; the owner's decision of 10 November 2026): these 3 FMUs fail on
+# Windows CI (run 43116535929, 989204b) and on Linux the same way on every run,
+# so each is an expected failure that is strict: when a fix makes one pass,
+# CI fails (XPASS) until its mark is removed. Each expects only its own
+# failure; any other error still fails the test.
+KNOWN_FMU_FAILURES = {
+    "2.0/Stair": (AssertionError, "known issue: the FMU's fmi2DoStep returns discard at t = 8.8 s, "
+                                  "and the new path stops the run with RUN-BLOCK"),
+    "3.0/Stair": (AssertionError, "known issue: the FMU asks to stop the simulation at t = 8.8 s, "
+                                  "and the new path stops the run with RUN-BLOCK"),
+    "3.0/BouncingBall": (subprocess.CalledProcessError,
+                         "known issue: the reference run, fmusim 0.7.0 alone, ends with an error"),
+}
+
+
 @needs_engine
 @pytest.mark.skipif(not (REFERENCE and FMUSIM),
                     reason="LIGHTSIM_REFERENCE_FMUS and LIGHTSIM_FMUSIM not set (Windows CI sets them)")
-@pytest.mark.parametrize("which", sorted(CASES))
+@pytest.mark.parametrize("which", [
+    pytest.param(w, marks=pytest.mark.xfail(raises=KNOWN_FMU_FAILURES[w][0], strict=True,
+                                            reason=KNOWN_FMU_FAILURES[w][1]))
+    if w in KNOWN_FMU_FAILURES else w for w in sorted(CASES)])
 def test_reference_fmus_on_the_new_path_equal_fmusim_and_fmpy(which, tmp_path):
     """The FMU line (acceptance.toml): each co-simulation Reference FMU
     v0.0.41 in a one-block project on LightSim's new path equals fmusim run
