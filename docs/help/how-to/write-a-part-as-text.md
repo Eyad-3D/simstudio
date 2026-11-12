@@ -26,8 +26,11 @@ from there.
 
 ## Name the file in the project
 
-In the project file, give the part a `textFile`: the file's path, absolute
-or from your projects folder.
+In the project file, give the part a `textFile`: the file's path from
+your projects folder (or an absolute one). The file must be inside your
+projects folder: a path that leads out of it (`..`, `~`, another folder,
+or a link to a file elsewhere) fails the run with `NEW-TEXT`, and the file
+is not read.
 
 ```json
 {"id": "el-battery", "componentDefId": "battery.generic", "label": "HV Battery Pack",
@@ -46,7 +49,8 @@ new engine whatever `LIGHTSIM_ENGINE` says. Its first message says so.
 A case the new engine does not run fails instead of running the built-in
 part in the file's place: its message gives the reason's code and
 `NEW-TEXT` (for example `Not run [NEW-LAP] [NEW-TEXT]` for a lap case). A
-file that cannot be read fails the run with `NEW-TEXT`; a text that does
+file that cannot be read, or one outside your projects folder, fails the
+run with `NEW-TEXT`; a text that does
 not fit the part fails with the engine's code:
 
 | Code | Why |

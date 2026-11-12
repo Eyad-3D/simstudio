@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 
 import pytest
 
@@ -31,7 +32,8 @@ CITY = "case-city"
 
 @pytest.fixture(autouse=True)
 def user_folder(tmp_path, monkeypatch):
-    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path / "user"))
+    # the projects folder is tmp_path: a text file must be inside it
+    monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path))
     monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
     monkeypatch.delenv(new_engine.STRICT_VAR, raising=False)
 
@@ -77,8 +79,7 @@ def test_the_file_is_read_and_without_the_flag_the_new_engine_runs_it(tmp_path, 
     text = le.part_text(project.model_dump_json(), CITY, "el-vehicle")
     doubled = text.replace("max(cd, 0)", "2 * max(cd, 0)", 1)
     assert doubled != text
-    user = tmp_path / "user"
-    proj = _with_text("bev-car", CITY, "el-vehicle", user / "parts" / "vehicle.mo", doubled)
+    proj = _with_text("bev-car", CITY, "el-vehicle", tmp_path / "parts" / "vehicle.mo", doubled)
     el = next(e for s in proj.systems for e in s.elements if e.id == "el-vehicle")
     el.textFile = "parts/vehicle.mo"
     result = simulate(proj, CITY)
@@ -154,3 +155,91 @@ def test_without_the_module_a_text_component_never_runs_on_today_engine(tmp_path
     result = simulate(project, CITY)
     assert result.status == "failed"
     assert result.messages[0].text.startswith("Not run [NEW-MISSING] [NEW-TEXT]")
+
+
+# ---- where a text file may be (merge follow-up N3) ---------------------------------
+# One rule for every run, read in new_engine.read_texts: the file's path, taken
+# from the projects folder, must lie inside it once links are followed. Each
+# case runs with LIGHTSIM_ENGINE unset and =new (a text component runs on the
+# new engine either way) and as an agent's strict run (STRICT, set by app/ai).
+
+RUNS = [("", False), ("new", False), ("", True), ("new", True)]
+
+
+def _run(proj, engine: str, agent: bool, monkeypatch):
+    from app.solver.sandbox import STRICT
+    if engine:
+        monkeypatch.setenv(new_engine.ENV_VAR, engine)
+    token = STRICT.set(agent)
+    try:
+        return simulate(proj, CITY)
+    finally:
+        STRICT.reset(token)
+
+
+@pytest.fixture
+def outside(tmp_path_factory):
+    """The battery's own text in a folder outside the projects folder: read,
+    it would run as well as a good file does."""
+    folder = tmp_path_factory.mktemp("outside")
+    text = le.part_text(load_example("bev-car").model_dump_json(), CITY, "el-battery")
+    (folder / "battery.mo").write_text(text, encoding="utf-8")
+    return folder
+
+
+def _escapes(tmp_path, outside, monkeypatch):
+    """Each way out of the projects folder (tmp_path), as a textFile."""
+    monkeypatch.setenv("HOME", str(outside))  # (expanduser: HOME, USERPROFILE on Windows)
+    monkeypatch.setenv("USERPROFILE", str(outside))
+    out = {"absolute": str(outside / "battery.mo"), "home": "~/battery.mo",
+           "dot-dot": os.path.relpath(outside / "battery.mo", tmp_path)}
+    try:
+        (tmp_path / "link.mo").symlink_to(outside / "battery.mo")
+        (tmp_path / "linked").symlink_to(outside, target_is_directory=True)
+        out |= {"file link": "link.mo", "folder link": "linked/battery.mo"}
+    except OSError:  # (Windows without the right to make links)
+        pass
+    return out
+
+
+@needs_engine
+@pytest.mark.parametrize("engine, agent", RUNS)
+def test_a_text_file_outside_the_projects_folder_is_never_read(engine, agent, tmp_path, outside,
+                                                               monkeypatch):
+    escapes = _escapes(tmp_path, outside, monkeypatch)
+    assert escapes["dot-dot"].startswith("..")
+    if sys.platform != "win32":
+        assert {"file link", "folder link"} <= set(escapes)
+    for how, name in escapes.items():
+        proj = load_example("bev-car")
+        next(e for s in proj.systems for e in s.elements if e.id == "el-battery").textFile = name
+        result = _run(proj, engine, agent, monkeypatch)
+        assert result.status == "failed" and not result.channels, how
+        said = result.messages[0].text
+        assert said.startswith("Not run [NEW-TEXT]: the text file of 'HV Battery Pack' "
+                               f"({name}) is outside the projects folder"), (how, said)
+        if "link" in how:  # (a link's target is not told)
+            assert str(outside) not in said, (how, said)
+
+
+@needs_engine
+@pytest.mark.parametrize("engine, agent", RUNS)
+def test_a_text_file_inside_the_projects_folder_runs(engine, agent, tmp_path, monkeypatch):
+    """A relative path from the projects folder, one with a harmless ``..``
+    that stays inside, and a link that stays inside: each runs, the result
+    the built-in part's."""
+    plain = _run(load_example("bev-car"), "new", False, monkeypatch)
+    _with_text("bev-car", CITY, "el-battery", tmp_path / "parts" / "battery.mo")
+    names = ["parts/battery.mo", "parts/../parts/battery.mo"]
+    try:
+        (tmp_path / "inside.mo").symlink_to(tmp_path / "parts" / "battery.mo")
+        names.append("inside.mo")
+    except OSError:  # (Windows without the right to make links)
+        pass
+    for name in names:
+        proj = load_example("bev-car")
+        next(e for s in proj.systems for e in s.elements if e.id == "el-battery").textFile = name
+        result = _run(proj, engine, agent, monkeypatch)
+        assert result.status == plain.status == "success", (name, [m.text for m in result.messages])
+        assert result.engine == "new"
+        assert [s.value for s in result.summary] == [s.value for s in plain.summary], name

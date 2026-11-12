@@ -758,7 +758,9 @@ minimum or an average, for example from the CSV export, or put the
 - **Text components need the new engine and a project file edit.** A part
   can read its equations from a text file (its `textFile`, see [Write a
   part as text](help/how-to/write-a-part-as-text.md)); there is no editor
-  for it in the app, and the file is not kept inside the project. Today's
+  for it in the app, and the file is not kept inside the project (it must be
+  inside the projects folder, links followed, or the run fails with
+  `NEW-TEXT`). Today's
   engine reads none, so such a case runs on the new engine; one the new
   engine does not run (a lap case, a charge-balanced hybrid) fails with
   its code and `NEW-TEXT` rather than running the built-in part. A
