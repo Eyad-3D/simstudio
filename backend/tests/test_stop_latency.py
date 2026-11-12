@@ -22,11 +22,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # the repository: benchmarks/
 
-pytestmark = [
-    pytest.mark.skipif(sys.platform != "win32", reason="stop latency is judged on Windows only"),
-    pytest.mark.skipif(os.environ.get("LIGHTSIM_REQUIRE_NEW_ENGINE", "").strip() != "1",
-                       reason="needs the module (CI's Windows engine job)"),
-]
+windows_only = pytest.mark.skipif(sys.platform != "win32", reason="stop latency is judged on Windows only")
+needs_module = pytest.mark.skipif(os.environ.get("LIGHTSIM_REQUIRE_NEW_ENGINE", "").strip() != "1",
+                                  reason="needs the module (CI's Windows engine job)")
 
 
 # STREAM S2's live mark is a known issue (engine/STATUS.md, "Step 2 closed
@@ -34,19 +32,38 @@ pytestmark = [
 # run 43116535929 (989204b) its p95 was 0.296 s against 0.25 s, with 3 of 20
 # stops over the mark. It is a timing near its mark (0.233 s on a local run),
 # so a run may pass: not strict, as a pass must not turn CI red. Only a
-# measured run over its mark (state "fail") is an expected failure, shown as
-# XFAIL with its p95; a run where nothing was measured ("not measured"), or
-# any other error, still fails.
+# measured run over its mark by no more than the known issue's size (state
+# "fail", p95 at most KNOWN_LIVE_P95_S) is an expected failure, shown as XFAIL
+# with its p95; a larger p95 is a new slowdown and fails, as does a run where
+# nothing was measured ("not measured") or any other error.
+KNOWN_LIVE_P95_S = 0.4  # ponytail: a fixed ceiling, 35 % over CI's 0.296 s
+
+
+def is_known_live_overrun(got: dict) -> bool:
+    return got["state"] == "fail" and got["p95_s"] <= KNOWN_LIVE_P95_S
+
+
+def test_only_a_live_stop_a_little_over_its_mark_is_the_known_issue():
+    assert is_known_live_overrun({"state": "fail", "p95_s": 0.296})
+    assert not is_known_live_overrun({"state": "fail", "p95_s": 5.0})
+    assert not is_known_live_overrun({"state": "not measured", "p95_s": 0.3})
+    assert not is_known_live_overrun({"state": "pass", "p95_s": 0.2})
+
+
+@windows_only
+@needs_module
 def test_a_live_run_stops_within_its_mark():
     from benchmarks.back_to_back import stream
     got = stream.live_stops("new", 20)
     print(got)
-    if got["state"] == "fail":
+    if is_known_live_overrun(got):
         pytest.xfail(f"known issue: the live stop p95 {got['p95_s']} s is over its 0.25 s mark "
                      "on Windows CI")
     assert got["state"] == "pass", got
 
 
+@windows_only
+@needs_module
 def test_a_study_stops_within_its_mark():
     from benchmarks.back_to_back import stream
     got = stream.study_stops("new", 20)

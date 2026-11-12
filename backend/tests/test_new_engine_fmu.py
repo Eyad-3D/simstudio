@@ -330,6 +330,23 @@ def reference_project(path: Path, h: float, stop: float) -> tuple[Project, list[
     return proj, names
 
 
+def fmusim_columns(variables: list[dict], names: list[str]) -> dict[str, str]:
+    """Each pinned output's column in fmusim's file: an alias (an output of
+    the same type and value reference as one before it, as h_ft is of h in
+    3.0/BouncingBall: an FMI 3 Alias) is the same value, and fmusim 0.7.0
+    takes no alias by name, so it reads the first one's column."""
+    key = {v["name"]: (v["type"], v["valueReference"]) for v in variables}
+    first: dict = {}
+    return {n: first.setdefault(key[n], n) for n in names}
+
+
+def test_an_alias_reads_the_column_of_the_output_it_names():
+    v = [{"name": n, "type": t, "valueReference": r}
+         for n, t, r in (("h", "Float64", 1), ("v", "Float64", 3), ("h_ft", "Float64", 1),
+                         ("i", "Int32", 1))]
+    assert fmusim_columns(v, ["h", "v", "h_ft", "i"]) == {"h": "h", "v": "v", "h_ft": "h", "i": "i"}
+
+
 def compare_reference(path: Path, h: float, stop: float, fmusim: str, out_dir: Path) -> dict:
     """One case of the FMU line: the pinned outputs at every communication
     point on the three hosts, and every place they differ."""
@@ -355,11 +372,12 @@ def compare_reference(path: Path, h: float, stop: float, fmusim: str, out_dir: P
     csv_path = out_dir / f"{path.parent.name}-{path.stem}.csv"
     cmd = [fmusim, "simulate", "--interface-type", "cs", "--start-time", "0", "--stop-time",
            repr(stop), "--output-interval", repr(h), "--output-file", str(csv_path)]
-    for name in names:
+    column = fmusim_columns(info.describe(path)["variables"], names)
+    for name in dict.fromkeys(column.values()):
         cmd += ["--output-variable", name]
     subprocess.run([*cmd, str(path)], check=True, capture_output=True, timeout=600)
     with csv_path.open(newline="") as f:
-        rows = list(csv.DictReader(f))
+        rows = [{"time": r["time"], **{k: r[column[k]] for k in names}} for r in csv.DictReader(f)]
     for host, table in (("FMPy", [{"time": r["time"], **{k: r[k] for k in names}} for r in fmpy]),
                         ("fmusim", rows)):
         if len(table) != n + 1:
@@ -380,7 +398,7 @@ def compare_reference(path: Path, h: float, stop: float, fmusim: str, out_dir: P
 
 
 # The FMU line's known issue (engine/STATUS.md, "Step 2 closed without
-# acceptance"; the owner's decision of 10 November 2026): these 3 FMUs fail on
+# acceptance"; the owner's decision of 10 November 2026): these 2 FMUs fail on
 # Windows CI (run 43116535929, 989204b) and on Linux the same way on every run,
 # so each is an expected failure that is strict: when a fix makes one pass,
 # CI fails (XPASS) until its mark is removed. Each expects only its own
@@ -398,9 +416,6 @@ KNOWN_FMU_FAILURES = {  # which: (text its failure's message holds, the known is
                   "t = 8.8 s: the FMU asked to stop the simulation)",
                   "known issue: the FMU asks to stop the simulation at t = 8.8 s, "
                   "and the new path stops the run with RUN-BLOCK"),
-    "3.0/BouncingBall": ('error: The requested output variable "h_ft" does not exist.',
-                         "known issue: the reference run, fmusim 0.7.0 alone, ends with an error: "
-                         "it does not find the output h_ft, an FMI 3 alias of h"),
 }
 
 
@@ -438,12 +453,7 @@ def test_reference_fmus_on_the_new_path_equal_fmusim_and_fmpy(which, tmp_path):
     every point, to the last digit."""
     path = Path(REFERENCE) / f"{which}.fmu"
     h, stop = CASES[which]
-    try:
-        rec = compare_reference(path, h, stop, FMUSIM, tmp_path)
-    except subprocess.CalledProcessError as e:  # (the fmusim run)
-        if is_known_failure(which, e.stderr.decode(errors="replace")):
-            raise KnownIssue(e.stderr) from e
-        raise
+    rec = compare_reference(path, h, stop, FMUSIM, tmp_path)
     if rec["state"] == "nothing to compare":
         pytest.skip(f"{which}: no output LightSim can pin (its outputs are arrays)")
     if rec["state"] == "fail" and is_known_failure(which, rec.get("why") or ""):

@@ -437,22 +437,28 @@ at 1debfc4 and did not pass (see the section below).
   as known issue (b), to be reported with its count, so the sweep line passes.
   `sweep.compare` itself reports them as its 2 mismatched runs; the same
   recount names them (b). (`docs/KNOWN-LIMITS.md` says so.)
-- **Three Reference FMUs fail the FMU line's test, on Linux and on
+- **Two Reference FMUs fail the FMU line's test, on Linux and on
   Windows.** With Reference FMUs 0.0.41 and fmusim 0.7.0,
-  `test_new_engine_fmu.py`'s line test has 14 FMUs: 10 pass, 3 fail and 1
-  is skipped, the same on Linux (`work/step2` and the merge) and on
-  Windows CI (run 43116535929 at 989204b, its first run there). Pass:
+  `test_new_engine_fmu.py`'s line test has 14 FMUs. On Linux (since 12
+  November, fix round 3) 11 pass, 2 fail and 1 is skipped. Pass:
   2.0/BouncingBall, 2.0/Dahlquist, 2.0/Feedthrough, 2.0/Resource,
-  2.0/VanDerPol, 3.0/Dahlquist, 3.0/Feedthrough, 3.0/Resource,
-  3.0/Roberts and 3.0/VanDerPol. Fail: 2.0/Stair and 3.0/Stair, where the
-  new path stops the run with `RUN-BLOCK` when the FMU asks to stop the
-  simulation at t = 8.8 s (2.0: `fmi2DoStep` returns discard), and
-  3.0/BouncingBall, where the reference run with fmusim alone ends with
-  an error (on Linux: fmusim 0.7.0 does not find the output `h_ft`, an
-  FMI 3 alias of `h`, by its name; Windows CI does not show fmusim's
-  error text). Skipped: 3.0/StateSpace, whose outputs are arrays, so it
-  has no output LightSim can pin and nothing is compared. The 3 failures are
-  marked as expected failures (strict), see the step 2 close below.
+  2.0/VanDerPol, 3.0/BouncingBall, 3.0/Dahlquist, 3.0/Feedthrough,
+  3.0/Resource, 3.0/Roberts and 3.0/VanDerPol. Fail: 2.0/Stair and
+  3.0/Stair, where the new path stops the run with `RUN-BLOCK` when the
+  FMU asks to stop the simulation at t = 8.8 s (2.0: `fmi2DoStep`
+  returns discard). Skipped: 3.0/StateSpace, whose outputs are arrays, so
+  it has no output LightSim can pin and nothing is compared. The 2
+  failures are marked as expected failures (strict), see the step 2 close
+  below. Windows CI run 43116535929 (989204b, the line's first run there)
+  gave 10 pass and 3 fail, 3.0/BouncingBall the third: that was a defect
+  of the test, not of the engine. The test asked fmusim for every output
+  by name, `h_ft` too, which the FMU declares as an FMI 3 alias of `h`,
+  and fmusim 0.7.0 refuses an alias by name (on Linux: "The requested
+  output variable "h_ft" does not exist"; CI does not print fmusim's
+  error text). The test now asks fmusim once per value and reads `h_ft`
+  from `h`'s column (`fmusim_columns`, with a test), and 3.0/BouncingBall
+  passes on Linux to the last digit against FMPy and fmusim. Windows CI
+  has not run since that fix.
 - **Docs:** `docs/spec/api.md` has no `restart` event (no fields: drop the
   points shown, the run starts again at t = 0), and
   the `sweep.md` that the sweep writes in its output folder
@@ -549,31 +555,37 @@ Failed or not measured, with the numbers:
   November it ran on Linux with the Linux build of the same FMUs, and on
   Windows CI run 43116535929 (989204b) for the first time: on both, 10
   pass, 3 fail (2.0/Stair, 3.0/Stair, 3.0/BouncingBall) and 3.0/StateSpace
-  is skipped (see the known issues above). The line fails; a known issue
-  (the owner's decision of 10 November).
+  is skipped (see the known issues above). 3.0/BouncingBall's failure was
+  a defect of the test, fixed on 12 November (fix round 3): on Linux the
+  line is now 11 pass, 2 fail (the two Stair FMUs), 1 skipped. The line
+  fails; a known issue (the owner's decision of 10 November).
 
 **Expected failures in CI** (since 12 November). So that CI shows new
-failures again without hiding these, the 4 tests that fail on Windows CI
-run 43116535929 for the known issues above are marked as expected failures
-naming the known issue, each expecting only its own failure; any other
+failures again without hiding these, the 3 tests that fail on Windows CI
+run 43116535929 for the known issues above report XFAIL (an expected
+failure) naming the known issue, each only for its own failure; any other
 failure of the same test still fails (since 12 November, fix round 2: at
-first each mark matched only the error's type, so another assertion in a
+first each matched only the error's type, so another assertion in a
 Stair case, or a live stop where nothing was measured, would have been
-hidden as an expected failure):
+hidden as an expected failure). A fourth, 3.0/BouncingBall, is no longer
+one: its failure was the test's own, and is fixed (fix round 3).
 
-- `test_new_engine_fmu.py`, the FMU line's 2.0/Stair, 3.0/Stair and
-  3.0/BouncingBall: **strict**. Each fails the same way on every run, on
-  Linux and on Windows; a fix makes the test pass, and strict turns that
+- `test_new_engine_fmu.py`, the FMU line's 2.0/Stair and 3.0/Stair:
+  marked **strict**. Each fails the same way on every run, on Linux and
+  on Windows CI (the same `RUN-BLOCK` text, word for word, in run
+  43116535929's log); a fix makes the test pass, and strict turns that
   pass into a CI failure until the mark is removed, so a fix shows. A
-  failure counts as expected only when its message holds the known text
-  (`KNOWN_FMU_FAILURES`: for each Stair the run's whole `RUN-BLOCK`
-  refusal, for 3.0/BouncingBall fmusim's error about `h_ft`).
+  failure counts as expected only when its message holds the run's whole
+  `RUN-BLOCK` refusal (`KNOWN_FMU_FAILURES`).
 - `test_stop_latency.py::test_a_live_run_stops_within_its_mark` (S2's
-  live stop): **not strict**. It is a timing near its mark (0.296 s on
-  Windows CI, 0.233 s locally), so some runs pass; a pass must not turn
-  CI red. Only a measured run over its mark (state `fail`) reports
-  XFAIL, with its p95; a run where nothing was measured (`not measured`)
-  fails.
+  live stop): **not strict**, and no mark: the test calls `pytest.xfail`
+  itself. It is a timing near its mark (0.296 s on Windows CI, 0.233 s
+  locally), so some runs pass; a pass must not turn CI red. Only a
+  measured run over its mark by no more than the known issue's size
+  (state `fail`, p95 at most 0.4 s, `KNOWN_LIVE_P95_S`) reports XFAIL,
+  with its p95; a larger p95 is a new slowdown and fails (since 12
+  November, fix round 3: before, any p95 over 0.25 s gave XFAIL, 5 s
+  too), and so does a run where nothing was measured (`not measured`).
 
 The same run's two licence failures are fixed (12 November): FMPy 0.3.32
 declares no licence in its metadata, so `scripts/licenses/clarifications.json`
@@ -584,7 +596,7 @@ wheel's licence file does name the GCC runtime library; the test now checks
 the example as Linux).
 
 Why the Windows CI run failed (run 42709765031, `workflow_dispatch`, at
-1debfc4; it is the only run on this branch): "Engine (Rust) on Windows"
+1debfc4; the branch's first run, before run 43116535929 above): "Engine (Rust) on Windows"
 stopped at "Python module (tests)" in
 `test_api.py::test_table_sites_lists_every_table_read_of_the_blocks`, which
 still expects an entry for the E-Motor's power loss that 955a90c removed
