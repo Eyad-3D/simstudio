@@ -2454,10 +2454,12 @@ round).**
     warning naming the `when`'s part, the part that holds the value and
     the limit (here 'Watch', 'Accumulator' and p_cap, "the terminal power
     it is held to (Output Power Limit less its margin)"), wherever a
-    `when` compares a value with a threshold equal (to 1e-9, in the same
-    unit) to a parameter an equation holds a value at: an argument of a
-    `min`, `max` or `limit` that is one side's whole value, or a branch's
-    of its `if` (a `max` in a slip's denominator holds no value). The run
+    `when` compares a value with a threshold equal (to 1e-9; where both
+    are plain parameters, in the same unit) to a limit an equation holds
+    a value at: an argument of a `min`, `max` or `limit` that is one
+    side's whole value, or a branch's of its `if`, and reads only
+    parameters and numbers (`p_max`, `-p_max`, `2*p_half`; a `max` in a
+    slip's denominator holds no value). The run
     itself is unchanged: at 80 000 W it stops with the storm at rtol 1e-6
     (0.706 s) and 1e-8 (0.210 s) and counts 125 firings at 1e-4, at the
     engine before and after step 3 alike; at 70 000, 79 999 and 80 001 W
