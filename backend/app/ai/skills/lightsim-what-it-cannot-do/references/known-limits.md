@@ -93,6 +93,18 @@ Point 0 of every run is the initial state at t = 0.
 - **The limit band is a rule of thumb.** Each step is named by the first state that applies, in a fixed order: braking, tyre grip, set power limit, battery or supply, motor or engine, coasting, demand met.
 - **Change marks compare with the run's stored model.** The dots and the *These results are from before …* note compare the model on screen with the copy the run kept: a run stored before 0.2.0 kept none and gets no marks, edits made while a run was going are not counted, and a part or wire you removed is counted …
 
+### The new engine on published hard problems
+
+- **Derivatives that appear only in a combination that cancels are
+  refused.** Where two equations hold the same derivatives with opposite signs (the test set's transistor amplifier: a capacitor's `c (v1' - v2')` in one node's equation and `-c (v1' - v2')` in the other's), the model stops at preparation with `SINGULAR-LOOP` naming those…
+- **Some constrained mechanisms and networks stop when their states stop
+  working.** The slider-crank with an elastic rod, 20 particles held on a sphere, a charge pump and a railway wheelset stop with `RUN-STATE-SELECT`, at the start or when the states chosen at the start no longer decide the rest.
+- **Two large circuits are not initialised.** The two bit adding unit (350 equations) and the water tube network (49) stop with `RUN-INIT` even from their published consistent start.
+- **A quantity far below the absolute tolerance can ruin a run with no
+  message.** Robertson's chemical reaction run with an absolute tolerance of 1e-4, 1e-6 or 1e-7 ends with concentrations of -5.7e7 and 5.7e7 (their sum still 1): the middle species, about 1e-14 at the end, went negative and the solution grew without bound, and the run rep…
+- **Very stiff chemistry over a very long time can stop.** The test set's E5 problem (a reaction over 10¹³ s) stops with `RUN-INTEGRATOR` at every tolerance; the atmospheric chemistry problem (EMEP) stops at sunset when every block is kept implicit.
+- **Fewer correct digits than implicit Runge-Kutta methods.** At the same tolerance the engine's answers have about as many correct digits as DASSL's (the same family of methods) and often one or two fewer than RADAU5's or PSIDE's.
+
 ### Live edits, charts, sweeps and export
 
 - **Sweeps run side by side, but single runs do not.** A sweep's runs go in worker processes, one per processor core less one (ENG-05; LightSim counts logical processors, so on a computer with hyper-threading it may start more than its physical cores less one), and fewer when half the computer's memory would not …
