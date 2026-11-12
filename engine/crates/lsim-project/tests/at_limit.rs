@@ -5,7 +5,7 @@
 //! event storm; a little above or below, the count is right.
 
 use lsim_ir::component::build::connect;
-use lsim_ir::component::build::discrete;
+use lsim_ir::component::build::{discrete, eq, var};
 use lsim_ir::expr::Expr;
 use lsim_ir::{ComponentDef, Diagnostic, Modifier, ParamValue, SubDecl};
 use lsim_lib::x::*;
@@ -29,8 +29,50 @@ fn watch() -> ComponentDef {
     }
 }
 
+/// A user's part that holds its input at limits written as expressions of
+/// its parameters (`-p_max`, `2*p_half`) and counts how often the held
+/// values reach them.
+fn clip() -> ComponentDef {
+    ComponentDef {
+        name: "User.Clip".into(),
+        doc: "Holds its input within limits and counts how often it reaches them.".into(),
+        ports: vec![input("u", "W", "the held signal")],
+        params: vec![
+            p("p_max", "W", 50_000.0, "the largest power either way"),
+            p("p_half", "W", 30_000.0, "half the largest power"),
+        ],
+        vars: vec![
+            var("y1", "W", "u held within -p_max and p_max"),
+            var("y2", "W", "u held below twice p_half"),
+            discrete("low", "1", 0.0, "how many times y1 fell below -p_max"),
+            discrete("high", "1", 0.0, "how many times y2 rose above twice p_half"),
+        ],
+        equations: vec![
+            eq(n("y1"), limit(n("u"), -n("p_max"), n("p_max")), "y1 within the power limits"),
+            eq(n("y2"), min(n("u"), c(2.0) * n("p_half")), "y2 below twice p_half"),
+            when(lt(n("y1"), -n("p_max")), &[("low", pre("low") + c(1.0))], "y1 below -p_max"),
+            when(
+                gt(n("y2"), c(2.0) * n("p_half")),
+                &[("high", pre("high") + c(1.0))],
+                "y2 above twice p_half",
+            ),
+        ],
+        ..Default::default()
+    }
+}
+
 /// The warnings of fs-electric's 75 m acceleration with the counter at `level`.
 fn warnings(level: f64) -> Vec<Diagnostic> {
+    with_part(
+        watch(),
+        "watch",
+        vec![Modifier { param: "level".into(), value: ParamValue::Real(Expr::Const(level)) }],
+    )
+}
+
+/// The warnings of fs-electric's 75 m acceleration with the user's part
+/// `def`, named `name` and labelled after it, reading the battery's power.
+fn with_part(def: ComponentDef, name: &str, modifiers: Vec<Modifier>) -> Vec<Diagnostic> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../backend/projects");
     let project: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("fs-electric.json")).unwrap())
@@ -43,18 +85,16 @@ fn warnings(level: f64) -> Vec<Diagnostic> {
     )
     .expect("the case imports");
     let mut lib = rep.library();
-    lib.add(watch());
+    let (def_name, label) = (def.name.clone(), def.name.trim_start_matches("User.").to_string());
+    lib.add(def);
     top.components.push(SubDecl {
-        name: "watch".into(),
-        def: "User.Watch".into(),
-        modifiers: vec![Modifier {
-            param: "level".into(),
-            value: ParamValue::Real(Expr::Const(level)),
-        }],
-        label: Some("Watch".into()),
+        name: name.into(),
+        def: def_name,
+        modifiers,
+        label: Some(label),
         ui_id: None,
     });
-    top.connections.push(connect("el_battery.sig_power", "watch.u"));
+    top.connections.push(connect("el_battery.sig_power", &format!("{name}.u")));
     let m = lsim_prep::prepare(&lib, &top, &Default::default()).expect("the model prepares");
     m.warnings
 }
@@ -78,6 +118,26 @@ fn a_threshold_at_the_accumulators_output_power_limit_is_warned_about() {
         let w: Vec<Diagnostic> =
             warnings(level).into_iter().filter(|d| d.code == "WHEN-AT-LIMIT").collect();
         assert!(w.is_empty(), "{level}: {w:?}");
+    }
+}
+
+/// A limit written as an expression of a parameter counts by its value: a
+/// threshold at `-p_max` beside `limit(u, -p_max, p_max)`, and one at
+/// `2*p_half` beside `min(u, 2*p_half)`, are both warned about, each
+/// naming the parameter it reads (fix round 1: only a plain parameter
+/// counted, so neither was).
+#[test]
+fn a_threshold_at_a_negated_or_scaled_limit_is_warned_about() {
+    let at: Vec<Diagnostic> = with_part(clip(), "clip", vec![])
+        .into_iter()
+        .filter(|d| d.code == "WHEN-AT-LIMIT")
+        .collect();
+    assert_eq!(at.len(), 2, "{at:?}");
+    for (d, (value, param)) in at.iter().zip([("-50000", "p_max"), ("60000", "p_half")]) {
+        for part in ["'Clip'", value, param] {
+            assert!(d.message.contains(part), "{part} not in: {}", d.message);
+        }
+        assert!(d.detail.iter().any(|x| x.contains(param)), "{:?}", d.detail);
     }
 }
 

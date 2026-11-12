@@ -4,11 +4,12 @@
 //! solver's rounding alone: on the Formula Student car a counter of the
 //! battery's power above 80 kW, beside its Accumulator's 80 kW Output
 //! Power Limit, stopped every build with an event storm. The limits are
-//! the parameters an equation holds a value at: an argument of a `min`,
-//! `max` or `limit` that is the value of one side of the equation (or of a
-//! branch of its `if`); a `when` threshold equal to one (to 1e-9 of it, in
-//! the same unit) is warned about, `WHEN-AT-LIMIT`, naming both parts and
-//! the limit.
+//! the values an equation holds a value at: an argument of a `min`, `max`
+//! or `limit` that is the value of one side of the equation (or of a
+//! branch of its `if`) and is a parameter or an expression of parameters
+//! (`-p_max`, `p_kw*1000`); a `when` threshold equal to one (to 1e-9 of
+//! it; where both are plain parameters, in the same unit) is warned about,
+//! `WHEN-AT-LIMIT`, naming both parts and the limit.
 
 use crate::diagnose::warning;
 use crate::params;
@@ -35,19 +36,31 @@ fn fixed(e: &Expr) -> bool {
     })
 }
 
-/// The parameters a side of an equation holds its value at: the arguments
-/// of a `min`, `max` or `limit` that is the side's whole value, or a
-/// branch's of an `if` (`p = if c then min(a, p_max) else 0`), not one deep
-/// inside arithmetic (a `max(|v|, v_eps)` in a slip's denominator holds no
-/// value at v_eps).
-fn held_at(e: &Expr, f: &mut impl FnMut(ParamId)) {
+/// The first parameter `e` reads, if any.
+fn first_param(e: &Expr) -> Option<ParamId> {
+    let mut found = None;
+    e.walk(&mut |x| {
+        if let (None, Expr::Param(p)) = (found, x) {
+            found = Some(*p);
+        }
+    });
+    found
+}
+
+/// The limits a side of an equation holds its value at: the arguments of
+/// a `min`, `max` or `limit` that is the side's whole value, or a branch's
+/// of an `if` (`p = if c then min(a, p_max) else 0`), not one deep inside
+/// arithmetic (a `max(|v|, v_eps)` in a slip's denominator holds no value
+/// at v_eps). An argument counts where it reads only parameters and
+/// numbers, at least one parameter (`p_max`, `-p_max`, `p_kw*1000`); `f`
+/// is given it and the first parameter it reads.
+fn held_at<'a>(e: &'a Expr, f: &mut impl FnMut(&'a Expr, ParamId)) {
     match e {
         Expr::Call(Builtin::Min | Builtin::Max | Builtin::Limit, args) => {
             for a in args {
-                if let Expr::Param(p) = a {
-                    f(*p);
-                } else {
-                    held_at(a, f);
+                match first_param(a) {
+                    Some(p) if fixed(a) => f(a, p),
+                    _ => held_at(a, f),
                 }
             }
         }
@@ -63,15 +76,16 @@ fn held_at(e: &Expr, f: &mut impl FnMut(ParamId)) {
 /// The `WHEN-AT-LIMIT` warnings of a flat model.
 pub fn thresholds_at_limits(flat: &FlatSystem, lib: &Library) -> Vec<Diagnostic> {
     let values: Vec<f64> = flat.params.iter().map(|p| p.value).collect();
-    // the limits: parameters a min, max or limit bounds a value with (not
-    // 0, a sign's split, and not the 1e30 that stands for "no limit")
-    let mut limits: Vec<ParamId> = vec![];
+    // the limits a min, max or limit bounds a value with, by value, with
+    // the parameter each reads and whether it is that parameter itself
+    // (not 0, a sign's split, and not the 1e30 that stands for "no limit")
+    let mut limits: Vec<(f64, ParamId, bool)> = vec![];
     for e in &flat.equations {
         for side in [&e.lhs, &e.rhs] {
-            held_at(side, &mut |p| {
-                let v = values[p.0 as usize];
-                if v != 0.0 && v.abs() < 1e29 && !limits.contains(&p) {
-                    limits.push(p);
+            held_at(side, &mut |a, p| {
+                let l = (params::value(a, &values), p, matches!(a, Expr::Param(_)));
+                if l.0 != 0.0 && l.0.abs() < 1e29 && !limits.contains(&l) {
+                    limits.push(l);
                 }
             });
         }
@@ -81,7 +95,7 @@ pub fn thresholds_at_limits(flat: &FlatSystem, lib: &Library) -> Vec<Diagnostic>
         return out;
     }
     for w in &flat.whens {
-        let mut found: Vec<(f64, ParamId)> = vec![];
+        let mut found: Vec<(f64, ParamId, bool)> = vec![];
         w.condition.walk(&mut |x| {
             let Expr::Compare(_, a, b) = x else { return };
             let thr = match (fixed(a), fixed(b)) {
@@ -90,20 +104,22 @@ pub fn thresholds_at_limits(flat: &FlatSystem, lib: &Library) -> Vec<Diagnostic>
                 _ => return,
             };
             let v = params::value(thr, &values);
-            for &p in &limits {
-                let l = values[p.0 as usize];
+            for &(l, p, plain) in &limits {
                 let same_unit = match thr {
-                    Expr::Param(q) => {
+                    Expr::Param(q) if plain => {
                         flat.params[q.0 as usize].unit == flat.params[p.0 as usize].unit
                     }
                     _ => true,
                 };
-                if same_unit && (v - l).abs() <= SAME * l.abs() && !found.iter().any(|f| f.1 == p) {
-                    found.push((v, p));
+                if same_unit
+                    && (v - l).abs() <= SAME * l.abs()
+                    && !found.iter().any(|f| f.1 == p && f.2 == plain)
+                {
+                    found.push((v, p, plain));
                 }
             }
         });
-        for (v, p) in found {
+        for (v, p, plain) in found {
             let fp = &flat.params[p.0 as usize];
             let local = fp.name.rsplit('.').next().unwrap_or(&fp.name);
             let decl = lib
@@ -111,7 +127,10 @@ pub fn thresholds_at_limits(flat: &FlatSystem, lib: &Library) -> Vec<Diagnostic>
                 .get(&flat.instance(fp.instance).def)
                 .and_then(|d| d.params.iter().find(|q| q.name == local));
             let what = decl.map_or(local.to_string(), |d| format!("{local}: {}", d.doc));
-            let unit = decl.map_or("", |d| d.unit.as_str());
+            // an expression of the parameter (`-p_max`, `p_kw*1000`) is named
+            // by it, and its unit is not the parameter's
+            let what = if plain { what } else { format!("from {what}") };
+            let unit = if plain { decl.map_or("", |d| d.unit.as_str()) } else { "1" };
             let unit = if unit == "1" { String::new() } else { format!(" {unit}") };
             let (by, at) = (flat.top_part(fp.instance), flat.top_part(w.origin.instance));
             let mut d = warning(
@@ -138,7 +157,11 @@ pub fn thresholds_at_limits(flat: &FlatSystem, lib: &Library) -> Vec<Diagnostic>
             if let Some(l) = &w.origin.label {
                 d.detail.push(format!("the `when`: {l}"));
             }
-            d.detail.push(format!("the limit: {} = {v}{unit}", fp.name));
+            d.detail.push(if plain {
+                format!("the limit: {} = {v}{unit}", fp.name)
+            } else {
+                format!("the limit: {v}, from {}", fp.name)
+            });
             out.push(d);
         }
     }
