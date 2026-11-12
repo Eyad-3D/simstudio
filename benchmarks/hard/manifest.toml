@@ -352,3 +352,12 @@ expect = { ida = "warning INIT-START-IGNORED naming y6, then result", diffsol = 
 # ---------------------------------------------------------------------------
 # Dated changes (append only)
 # ---------------------------------------------------------------------------
+[[changes]]
+date = "2026-11-12"
+what = "criteria.transcription: the scale of a row is the largest term its computation adds (the largest magnitude of a side, or of an operand of a sum or difference, in its equation or in any intermediate it reads), at that point; there is no floor at 1."
+why = "The registered wording asked for the largest term and set a floor of 1. The evaluator now measures the terms; the floor of 1 would have made the check absolute for problems whose values are tiny (pump, transamp, nand: 1e-9 to 1e-4), so it is dropped, which makes the check stricter. Before the terms were measured, the largest value a row takes over the points was used; it is not the largest term, and rows whose terms cancel (water, crank) failed it on rounding alone."
+
+[[changes]]
+date = "2026-11-12"
+what = "judge-andrews, judge-caraxis, judge-chemakzo: each of their equations must equal one row of the original times a constant at every point (their equations are scaled and named otherwise); the y' of a variable whose second derivative the judge reads takes the test set's value of it at each point."
+why = "The registered check compared row by row, which needs the same rows in the same order; step 1's hand transcriptions write the same equations with other scaling and use der(v) where the test set has the variable w."
