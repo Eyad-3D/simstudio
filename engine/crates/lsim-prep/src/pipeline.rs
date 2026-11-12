@@ -547,6 +547,7 @@ pub fn run(
     let isolated = isolated_parts(&flat, lib);
     let mut report = PrepReport::default();
     let mut warnings: Vec<Diagnostic> = vec![];
+    warnings.extend(crate::at_limit::thresholds_at_limits(&flat, lib));
     let (mut input, prescribed) = match spec {
         Some(spec) => {
             let s = inverse::apply(&mut flat, &mut extras, spec)?;
