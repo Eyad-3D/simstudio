@@ -65,6 +65,8 @@ DERIVED = {
     "derived-andrews-massless": ("andrews", {"m1": 0.0}, [], [], {}),
     "derived-chemakzo-y6-start": ("chemakzo", {}, [], [], {6: (1.0, True)}),
 }
+OURS = os.environ.get("HARD_OURS", "ours")  # where our runs go (a second run beside the first)
+WITHDRAWN = {"derived-andrews-massless"}  # see the manifest dated changes
 GFORTRAN = os.environ.get("GFORTRAN", "gfortran")
 CPUS = os.environ.get("HARD_CPUS")  # e.g. "16-23": runs are pinned with taskset
 
@@ -245,8 +247,8 @@ def probe_one(cache: Path, work: Path, name: str) -> dict:
     (d / "probe.f").write_text(PROBE)
     exe = d / "probe"
     src = problem_file(cache, name)
-    r = subprocess.run([GFORTRAN, "-O0", "-ffpe-summary=none", "-std=legacy", "-o", str(exe),
-                        str(d / "probe.f"), str(src)], capture_output=True, text=True)
+    r = subprocess.run(pinned([GFORTRAN, "-O0", "-ffpe-summary=none", "-std=legacy", "-o", str(exe),
+                        str(d / "probe.f"), str(src)]), capture_output=True, text=True)
     if r.returncode:
         raise RuntimeError(f"gfortran: {r.stderr[-2000:]}")
     # once for the header, once more with the points
@@ -440,6 +442,400 @@ def check(work: Path, only: list[str]) -> None:
     p.write_text(json.dumps(sorted(old.values(), key=lambda c: c["id"]), indent=1))
 
 
+# ---------------------------------------------------------------------------
+# outside: the test set's own solvers, built here
+# ---------------------------------------------------------------------------
+
+OUTSIDE = {  # solver: (driver, solver file, auxiliary file, reads h0)
+    "RADAU5": ("radau5d", "radau5", "radaua", True),
+    "DASSL": ("dassld", "ddassl", "dassla", False),
+    "PSIDE": ("psided", "pside", "psidea", False),
+}
+
+
+def outside_one(exe: Path, rtol: float, pump: bool, h0: bool, timeout: float) -> dict:
+    feed = [repr(rtol)] if pump else [repr(rtol), repr(rtol)]
+    if h0:
+        feed.append(repr(rtol))
+    d = exe.parent / f"run-{rtol:g}"
+    d.mkdir(exist_ok=True)
+    try:
+        r = subprocess.run(pinned([str(exe), str(d) + "/"]), input="\n".join(feed) + "\n",
+                           capture_output=True, text=True, timeout=timeout, cwd=d)
+    except subprocess.TimeoutExpired:
+        return {"rtol": rtol, "ok": False, "error": f"no answer within {timeout:g} s"}
+    out = r.stdout
+    ys = {int(i): float(v.replace("D", "E")) for i, v in
+          re.findall(r"y\(\s*(\d+)\)\s*=\s*([-+0-9.EeDd]+)", out)}
+    counts = {}
+    for key, pat in (("steps", r"number of integration steps\s+(\d+)"),
+                     ("accepted", r"number of accepted steps\s+(\d+)"),
+                     ("rhs_evals", r"number of f evaluations\s+(\d+)"),
+                     ("jac_evals", r"number of Jacobian evaluations\s+(\d+)"),
+                     ("lu", r"number of LU decompositions\s+(\d+)")):
+        m = re.search(pat, out)
+        if m:
+            counts[key] = int(m.group(1))
+    if not ys or "ERROR" in out:
+        err = [ln.strip() for ln in out.splitlines() if "ERROR" in ln or "error" in ln.lower()]
+        return {"rtol": rtol, "ok": False, "error": " | ".join(err[-3:]) or out[-300:]}
+    return {"rtol": rtol, "ok": True, "y": [ys[i] for i in sorted(ys)], **counts}
+
+
+def outside(cache: Path, work: Path, only: list[str], jobs: int = 8, timeout: float = 900) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    src = cache / TS_DIR / "src"
+    tasks = []
+    for solver, (drv, sol, aux, h0) in OUTSIDE.items():
+        for p in PROBLEMS:
+            if only and p not in only and solver not in only:
+                continue
+            d = work / "outside" / solver / p
+            d.mkdir(parents=True, exist_ok=True)
+            exe = d / "solve"
+            r = subprocess.run(pinned([GFORTRAN, "-O2", "-std=legacy", "-w", "-o", str(exe),
+                                str(src / "drivers" / f"{drv}.f"), str(src / "solvers" / f"{sol}.f"),
+                                str(src / "auxil" / f"{aux}.f"), str(src / "auxil" / "report.f"),
+                                str(problem_file(cache, p))]), capture_output=True, text=True)
+            if r.returncode:
+                (d / "result.json").write_text(json.dumps({"solver": solver, "problem": p,
+                                                           "build": r.stderr[-1500:], "runs": []}))
+                continue
+            tasks.append((solver, p, exe, h0))
+
+    def go(t):
+        solver, p, exe, h0 = t
+        runs = [outside_one(exe, rt, p == "pump", h0, timeout) for rt in RTOLS]
+        (exe.parent / "result.json").write_text(json.dumps({"solver": solver, "problem": p,
+                                                            "runs": runs}))
+        ok = sum(r["ok"] for r in runs)
+        print(f"{solver} {p}: {ok} of {len(runs)} ran", file=sys.stderr)
+
+    with ThreadPoolExecutor(jobs) as ex:
+        list(ex.map(go, tasks))
+
+
+# ---------------------------------------------------------------------------
+# run: ours
+# ---------------------------------------------------------------------------
+
+# ida: every block kept implicit, so every problem runs on IDA (its
+# intermediates are IDA's algebraic unknowns too); default: the engine's own
+# choice (CVODE for an explicit ODE, IDA otherwise), as a user's run
+BACKENDS = {"ida": {"force_implicit": True}, "diffsol": {"backend": "diffsol"}, "default": {}}
+
+
+def run_ours(work: Path, only: list[str], jobs: int = 8, timeout: float = 1200) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+    runner = target_dir() / "judge"
+    tasks = []
+    for f in sorted((work / "cases").glob("*.json")):
+        cid = f.stem
+        if only and cid not in only and not any(cid.endswith(o) for o in only):
+            continue
+        for be in BACKENDS:
+            for rt in RTOLS:
+                tasks.append((cid, be, rt))
+
+    def go(t):
+        cid, be, rt = t
+        case = json.loads((work / "cases" / f"{cid}.json").read_text())
+        d = work / OURS / be / cid
+        d.mkdir(parents=True, exist_ok=True)
+        one = dict(case, rtols=[rt], text=str((work / "cases" / case["text"]).resolve()),
+                   options=BACKENDS[be])
+        cf, of = d / f"{rt:g}.case.json", d / f"{rt:g}.json"
+        cf.write_text(json.dumps(one))
+        try:
+            r = subprocess.run(pinned([str(runner), str(cf), str(of)]), capture_output=True,
+                               text=True, timeout=timeout)
+            if r.returncode:
+                of.write_text(json.dumps({"stage": "crash", "error":
+                                          f"exit status {r.returncode}: {r.stderr[-1500:]}"}))
+        except subprocess.TimeoutExpired:
+            of.write_text(json.dumps({"stage": "hang", "error": f"no answer within {timeout:g} s"}))
+        res = json.loads(of.read_text())
+        # keep the end values of the problem's own variables only
+        for run in res.get("runs", []):
+            if "final" in run:
+                run["final"] = {k: v for k, v in run["final"].items() if re.fullmatch(r"y\d+", k)}
+            run.pop("series", None)
+        of.write_text(json.dumps(res))
+        cf.unlink()
+        stage = res.get("stage")
+        okr = [r.get("ok") for r in res.get("runs", [])]
+        print(f"{cid} {be} {rt:g}: {stage} {okr}", file=sys.stderr, flush=True)
+
+    with ThreadPoolExecutor(jobs) as ex:
+        list(ex.map(go, tasks))
+
+
+# ---------------------------------------------------------------------------
+# score
+# ---------------------------------------------------------------------------
+
+def digits(problem: str, yref: list[float], y: list[float]) -> tuple[float, float]:
+    """scd and mescd as the test set's getscd computes them (atol = rtol)."""
+    skip = SKIP.get(problem, lambda i: False)
+    rel, mixed = 0.0, 0.0
+    for i, (r, v) in enumerate(zip(yref, y), 1):
+        if v is None or not math.isfinite(v):
+            return -math.inf, -math.inf
+        if abs(r) >= 1e-200 and not skip(i):
+            rel = max(rel, abs((r - v) / r))
+        mixed = max(mixed, abs(r - v) / (1.0 + abs(r)))
+    lg = lambda e: 16.0 if e == 0 else -math.log10(e)  # noqa: E731
+    return lg(rel), lg(mixed)
+
+
+def load_ours(work: Path, be: str, cid: str) -> dict:
+    out = {}
+    for rt in RTOLS:
+        f = work / OURS / be / cid / f"{rt:g}.json"
+        if not f.exists():
+            continue
+        res = json.loads(f.read_text())
+        runs = res.get("runs") or [{"ok": False, "stage": res.get("stage"), "error": res.get("error"),
+                                    "codes": res.get("codes")}]
+        r = dict(runs[0])
+        r["prepare_warnings"] = res.get("prepare_warnings", [])
+        if res.get("stage") != "run":
+            r["stage"] = res.get("stage")
+            r["codes"] = res.get("codes")
+        out[rt] = r
+    return out
+
+
+def score(work: Path, cache: Path | None = None) -> dict:
+    man = tomllib.loads((HERE / "manifest.toml").read_text())
+    table = {"cases": {}, "outside": {}}
+    for p in PROBLEMS:
+        d = json.loads((work / "probe" / f"{p}.json").read_text())
+        yref = d.get("yref")
+        best = {}
+        for solver in OUTSIDE:
+            f = work / "outside" / solver / p / "result.json"
+            if not f.exists():
+                continue
+            res = json.loads(f.read_text())
+            rows = {}
+            for r in res["runs"]:
+                if r["ok"] and yref:
+                    r["scd"], r["mescd"] = digits(p, yref, r["y"])
+                    best[r["rtol"]] = max(best.get(r["rtol"], -math.inf), r["scd"])
+                rows[r["rtol"]] = {k: v for k, v in r.items() if k != "y"}
+            table["outside"].setdefault(p, {})[solver] = rows
+        table["outside"].setdefault(p, {})["best"] = best
+    checks = {c["id"]: c for c in json.loads((work / "check.json").read_text())} \
+        if (work / "check.json").exists() else {}
+    for c in man["case"]:
+        cid = c["id"]
+        if not (cid.startswith("ivp-") or cid.startswith("derived-")):
+            continue
+        p = cid[4:] if cid.startswith("ivp-") else DERIVED[cid][0]
+        d = json.loads((work / "probe" / f"{p}.json").read_text())
+        yref, n = d.get("yref"), d["neqn"]
+        row = {"transcription": checks.get(f"ivp-{p}", {}).get("ok")}
+        for be in BACKENDS:
+            runs = load_ours(work, be, cid)
+            rows, verdicts = {}, []
+            for rt in RTOLS:
+                r = runs.get(rt)
+                if r is None:
+                    continue
+                o = {k: r.get(k) for k in ("ok", "steps", "rhs_evals", "jac_evals", "lin_setups",
+                                           "err_test_fails", "nonlin_fails", "events", "code",
+                                           "stage", "codes")}
+                o["error"] = r.get("error") or None
+                o["warnings"] = [w["code"] for w in r.get("prepare_warnings", [])]
+                o["warning_parts"] = [w["parts"] for w in r.get("prepare_warnings", [])]
+                if r.get("ok") and yref:
+                    y = [r["final"].get(f"y{i + 1}") for i in range(n)]
+                    o["scd"], o["mescd"] = digits(p, yref, y)
+                rows[rt] = o
+            row[be] = rows
+            row[be + "_verdict"] = ({"pass": None, "fails": ["withdrawn (manifest changes)"], "notes": []}
+                                    if cid in WITHDRAWN else
+                                    judge_case(c, be, rows, table["outside"].get(p, {}).get("best", {})))
+        table["cases"][cid] = row
+    (work / "score.json").write_text(json.dumps(table, indent=1, default=str))
+    return table
+
+
+def judge_case(c: dict, be: str, rows: dict, best: dict) -> dict:
+    """The manifest's expectation for one backend, applied: pass or the
+    failures, each classed as the triage orders them."""
+    exp = c.get("expect", {}).get(be, "") or c.get("expect", {}).get("ida", "")
+    fails, notes = [], []
+    if not rows:
+        return {"pass": None, "fails": ["not run"]}
+    if exp == "result" or exp.endswith("then result"):
+        for rt, o in rows.items():
+            if not o.get("ok"):
+                kind = "crash" if o.get("stage") == "crash" else "hang" if o.get("stage") == "hang" \
+                    else "false refusal"
+                fails.append(f"{kind} at {rt:g}: {o.get('code') or o.get('codes')} {(o.get('error') or '')[:120]}")
+                continue
+            sc = o.get("scd")
+            if sc is None:
+                continue
+            want = (best[rt] - 1) if rt in best and math.isfinite(best[rt]) else -math.log10(rt) - 3
+            if sc < want:
+                kind = "silent wrong answer" if sc < 1 else "short of digits"
+                fails.append(f"{kind} at {rt:g}: scd {sc:.2f}, wanted {want:.2f}")
+        s4, s10 = rows.get(1e-4, {}).get("scd"), rows.get(1e-10, {}).get("scd")
+        if s4 is not None and s10 is not None and s10 - s4 < 3:
+            fails.append(f"error does not fall with the tolerance: scd {s4:.2f} at 1e-4, {s10:.2f} at 1e-10")
+        prev = None
+        for rt in RTOLS:
+            sc = rows.get(rt, {}).get("scd")
+            if sc is not None and prev is not None and sc < prev - 1:
+                fails.append(f"loses {prev - sc:.2f} digits at {rt:g}")
+            prev = sc if sc is not None else prev
+        if exp.startswith("warning"):
+            m = re.match(r"warning (\S+) naming (\S+)", exp)
+            for rt, o in rows.items():
+                if m.group(1) not in o.get("warnings", []):
+                    fails.append(f"no {m.group(1)} warning at {rt:g} (warnings {o.get('warnings')})")
+                    break
+    elif exp.startswith("refusal"):
+        m = re.match(r"refusal (\S+) naming (\S+)", exp)
+        code, part = m.group(1), m.group(2)
+        for rt, o in rows.items():
+            codes = o.get("codes") or ([{"code": o.get("code"), "parts": []}] if o.get("code") else [])
+            if o.get("ok"):
+                fails.append(f"silent wrong answer at {rt:g}: no refusal (scd {o.get('scd')})")
+                break
+            got = [x["code"] for x in codes]
+            word = re.compile(rf"\b{re.escape(part)}\b")
+            text = json.dumps([x.get("parts") for x in codes]) + (o.get("error") or "")
+            named = bool(word.search(text))
+            among = len(set(re.findall(r"\b(?:y|w)\d+\b", o.get("error") or "")))
+            if code not in got:
+                fails.append(f"refusal {got} instead of {code} at {rt:g}; names {part}: {named}")
+                break
+            if not named:
+                fails.append(f"refusal {code} at {rt:g} does not name {part}")
+                break
+            if among > 3:
+                notes.append(f"names {part} among {among} variables")
+            break
+    return {"pass": not fails, "fails": fails, "notes": notes}
+
+
+def report(t: dict, work: Path) -> None:
+    """The scores as a table (WORK/report.md): each case's verdicts, then its
+    work-precision rows (digits against steps, evaluations and LU)."""
+    def cell(o):
+        if not o:
+            return "-"
+        if not o.get("ok"):
+            return f"FAIL {o.get('code') or o.get('stage') or o.get('error', '')[:30]}"
+        sc = o.get("scd")
+        lu = o.get("lin_setups", o.get("lu"))
+        return (f"{sc:.2f}" if sc is not None else "?") + f" / {o.get('steps')} / {o.get('rhs_evals')} / {lu}"
+    lines = ["# Hard problems, phase 1", "",
+             "Cell: scd / steps / function evaluations / LU factorisations.", ""]
+    npass = {be: 0 for be in BACKENDS}
+    for cid, row in t["cases"].items():
+        for be in BACKENDS:
+            npass[be] += bool(row.get(be + "_verdict", {}).get("pass"))
+    lines.append(f"Cases passing their expectation: " +
+                 ", ".join(f"{be} {npass[be]} of {len(t['cases'])}" for be in BACKENDS))
+    lines.append("")
+    for cid, row in t["cases"].items():
+        p = cid[4:] if cid.startswith("ivp-") else DERIVED[cid][0]
+        lines.append(f"## {cid} (transcription {'matches' if row['transcription'] else 'DIFFERS'})")
+        for be in BACKENDS:
+            v = row.get(be + "_verdict", {})
+            lines.append(f"- {be}: {'pass' if v.get('pass') else 'FAIL'}"
+                         + ("".join(f"\n  - {f}" for f in v.get("fails", []))))
+        out = t["outside"].get(p, {})
+        lines.append("")
+        lines.append("| rtol | IDA | diffsol | RADAU5 | DASSL | PSIDE |")
+        lines.append("|---|---|---|---|---|---|")
+        for rt in RTOLS:
+            cells = [cell(row.get(be, {}).get(rt)) for be in BACKENDS]
+            cells += [cell(out.get(s, {}).get(rt)) for s in OUTSIDE]
+            lines.append(f"| {rt:g} | " + " | ".join(cells) + " |")
+        lines.append("")
+    (work / "report.md").write_text("\n".join(lines))
+    print("\n".join(lines[:6]), file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# sundials: SUNDIALS' own C examples, built here, against their .out files
+# ---------------------------------------------------------------------------
+
+SUNDIALS_TGZ = ("sundials/sundials-7.1.1.tar.gz",
+                "https://github.com/LLNL/sundials/releases/download/v7.1.1/sundials-7.1.1.tar.gz",
+                "ea7d6edfb52448ddfdc1ec48f89a721fe6c0a259c10f8ef56f60fcded87a94bb")
+SUN_EXAMPLES = ["cvode/serial/cvRoberts_dns", "ida/serial/idaRoberts_dns",
+                "idas/serial/idasAkzoNob_dns", "ida/serial/idaSlCrank_dns",
+                "cvode/serial/cvPendulum_dns", "cvode/serial/cvDisc_dns"]
+
+
+def sundials_c(cache: Path, work: Path) -> list[dict]:
+    """Builds upstream SUNDIALS 7.1.1 (CVODE, IDA, IDAS; the release the
+    engine vendors, without the engine's patch) and each example as
+    shipped, runs it, and compares what it prints with its .out, line by
+    line: every printed number and count."""
+    rel, url, digest = SUNDIALS_TGZ
+    tgz = cache / rel
+    if not (tgz.exists() and sha256(tgz) == digest):
+        tgz.parent.mkdir(parents=True, exist_ok=True)
+        with urllib.request.urlopen(url, timeout=300) as r, open(tgz, "wb") as f:
+            shutil.copyfileobj(r, f)
+        if sha256(tgz) != digest:
+            sys.exit(f"{rel}: changed upstream, not used")
+    base = work / "sundials"
+    src, build, prefix = base / "src", base / "build", base / "install"
+    cmake = os.environ.get("CMAKE", "cmake")
+    if not (prefix / "lib").exists() and not (prefix / "lib64").exists():
+        shutil.rmtree(base, ignore_errors=True)
+        src.mkdir(parents=True)
+        subprocess.run(["tar", "-xzf", str(tgz), "-C", str(src), "--strip-components=1"], check=True)
+        flags = ["-DBUILD_SHARED_LIBS=OFF", "-DBUILD_STATIC_LIBS=ON", "-DEXAMPLES_ENABLE_C=OFF",
+                 "-DEXAMPLES_INSTALL=OFF", "-DBUILD_ARKODE=OFF", "-DBUILD_CVODES=OFF",
+                 "-DBUILD_KINSOL=OFF", "-DBUILD_TESTING=OFF", "-DCMAKE_BUILD_TYPE=Release",
+                 f"-DCMAKE_INSTALL_PREFIX={prefix}"]
+        subprocess.run(pinned([cmake, "-S", str(src), "-B", str(build)] + flags), check=True,
+                       stdout=subprocess.DEVNULL)
+        subprocess.run(pinned([cmake, "--build", str(build), "-j", "4", "--target", "install"]),
+                       check=True, stdout=subprocess.DEVNULL)
+    lib = prefix / "lib" if (prefix / "lib").exists() else prefix / "lib64"
+    libs = sorted(str(p) for p in lib.glob("libsundials_*.a"))
+    res = []
+    for ex in SUN_EXAMPLES:
+        c = src / "examples" / f"{ex}.c"
+        shipped = (src / "examples" / f"{ex}.out").read_text()
+        d = base / "run" / Path(ex).name
+        d.mkdir(parents=True, exist_ok=True)
+        exe = d / "example"
+        pkg = ex.split("/")[0]
+        mine = [x for x in libs if Path(x).name.split("_")[1].split(".")[0]
+                not in ({"cvode", "ida", "idas"} - {pkg})]
+        b = subprocess.run(pinned(["cc", "-O2", "-I", str(prefix / "include"), str(c), "-o", str(exe),
+                                   "-Wl,--start-group"] + mine + ["-Wl,--end-group", "-lm"]),
+                           capture_output=True, text=True)
+        if b.returncode:
+            res.append({"example": ex, "ok": False, "why": b.stderr[-800:]})
+            continue
+        out = subprocess.run(pinned([str(exe)]), capture_output=True, text=True, timeout=600,
+                             cwd=d).stdout
+        (d / "printed.out").write_text(out)
+        a = [ln.rstrip() for ln in shipped.splitlines() if ln.strip()]
+        o = [ln.rstrip() for ln in out.splitlines() if ln.strip()]
+        diff = [(x, y) for x, y in zip(a, o) if x != y]
+        if len(a) != len(o):
+            diff.append((f"{len(a)} lines", f"{len(o)} lines"))
+        res.append({"example": ex, "ok": not diff, "lines": len(a), "differ": len(diff),
+                    "first": diff[:6]})
+        print(f"{ex}: {'identical' if not diff else f'{len(diff)} lines differ'}", file=sys.stderr)
+    (work / "sundials.json").write_text(json.dumps(res, indent=1))
+    return res
+
+
 def run_probe_points(work: Path, name: str, pts: list[dict]) -> list[list[float]]:
     """f at the given points, from the problem's gfortran-built probe."""
     exe = work / "probe" / name / "probe"
@@ -549,6 +945,14 @@ def main() -> None:
         check(Path(a.dirs[0]), a.only)
         if not a.only:
             check_judge(Path(a.dirs[0]))
+    elif st == "outside":
+        outside(Path(a.dirs[0]), Path(a.dirs[1]), a.only)
+    elif st == "run":
+        run_ours(Path(a.dirs[0]), a.only)
+    elif st == "sundials":
+        sundials_c(Path(a.dirs[0]), Path(a.dirs[1]))
+    elif st == "score":
+        report(score(Path(a.dirs[0])), Path(a.dirs[0]))
     else:
         sys.exit(f"unknown stage {st}")
 

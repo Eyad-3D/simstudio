@@ -34,7 +34,7 @@ def main():
     # integer division 7/2 = 3, a(3) = 9; REAL*4 0.1 kept at single precision
     assert "(9.0) * (y1)" in text, text
     assert repr(float.fromhex("0x1.99999ap-4")) in text, text
-    assert "if (y1) > (0.0) then w1 else w2" in text, text
+    assert "if noEvent((y1) > (0.0)) then w1 else w2" in text, text
     assert any("step rejection" in n for n in notes), notes
     assert "(y1) * (y1)" in text and "(time / s1)" in text, text
     assert reads == set()

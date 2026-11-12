@@ -369,6 +369,7 @@ class Machine:
     def __init__(self, units_: dict, neqn: int, trange=(0.0, 1.0)):
         self.trange = trange
         self.unset: set[str] = set()
+        self.single: set[str] = set()  # REAL*4 variables given a symbolic value
         self.units = units_
         self.neqn = neqn
         self.store: dict = {}          # (key, index) -> V
@@ -589,7 +590,12 @@ class Machine:
                 x, y = a.c, b.c
                 return V("l", {"<": x < y, "<=": x <= y, ">": x > y, ">=": x >= y,
                                "==": x == y, "<>": x != y}[e[1]])
-            return V("l", s=f"({a.text()}) {e[1]} ({b.text()})")
+            rel = f"({a.text()}) {e[1]} ({b.text()})"
+            # Fortran evaluates a relation as it stands: on the state, no
+            # event (noEvent); on time alone, an event, as the test set's
+            # drivers restart their solvers at those times (ndisc)
+            timed = all(v.const or v.tf is not None for v in (a, b))
+            return V("l", s=rel if timed else f"noEvent({rel})")
         if op in ("and", "or"):
             a, b = self.ev(fr, e[1]), self.ev(fr, e[2])
             if a.const and b.const:
@@ -729,7 +735,8 @@ class Machine:
             if a.const and b.const:
                 k = max(a.kind, b.kind, key=lambda x: RANK[x])
                 return V(k, coerce(abs(a.c) if b.c >= 0 else -abs(a.c), k))
-            return self.sym(f"if ({b.text()}) >= 0 then abs({a.text()}) else -abs({a.text()})")
+            c = f"({b.text()}) >= 0" if b.tf is not None else f"noEvent(({b.text()}) >= 0)"
+            return self.sym(f"if {c} then abs({a.text()}) else -abs({a.text()})")
         if name in ("atan2", "datan2"):
             a, b = vals
             if a.const and b.const:
@@ -746,6 +753,8 @@ class Machine:
             if name in fr.params:
                 raise Unsupported(f"assignment to parameter {name}")
             _, key, off = self.slot(fr, name)
+            if self.kind_of(fr, name) == "r" and not v.const:
+                self.single.add(name)
             self.store[(key, off)] = self.conv(v, self.kind_of(fr, name))
             return
         a = self.arr(fr, name)
@@ -1146,6 +1155,9 @@ def feval_symbolic(src: str, neqn: int, kind: str, edit_params: dict | None = No
         m.store[("y", k)] = V("d", s=f"y{k + 1}")
         m.store[("yprime", k)] = V("d", s=f"(s1 * der(y{k + 1}))")
     m.run(fr, body, skip_decl=True)
+    if m.single:
+        m.notes.append("SINGLE PRECISION: Fortran rounds these to REAL*4, the model keeps double: "
+                       + ", ".join(sorted(m.single)))
     if m.unset:
         m.notes.append("array elements read before any assignment, taken as 0 (static storage): "
                        + ", ".join(sorted(m.unset)))

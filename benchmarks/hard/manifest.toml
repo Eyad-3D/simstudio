@@ -361,3 +361,13 @@ why = "The registered wording asked for the largest term and set a floor of 1. T
 date = "2026-11-12"
 what = "judge-andrews, judge-caraxis, judge-chemakzo: each of their equations must equal one row of the original times a constant at every point (their equations are scaled and named otherwise); the y' of a variable whose second derivative the judge reads takes the test set's value of it at each point."
 why = "The registered check compared row by row, which needs the same rows in the same order; step 1's hand transcriptions write the same equations with other scaling and use der(v) where the test set has the variable w."
+
+[[changes]]
+date = "2026-11-12"
+what = "Transcription: a relation on the state is written inside noEvent (Fortran evaluates it as it stands, with no event); a relation on time alone keeps its event (the test set drivers restart their solvers at those times, ndisc). The first run (R5, every relation an event) is kept beside the second in the report. A third backend, default (the engine choice: CVODE for an explicit ODE, IDA otherwise), runs every case beside ida and diffsol with the ida expectations."
+why = "R5 showed that events the original never has decide some outcomes (nand: an event storm at t = 0 where a transistor current switches branches on a node voltage of 0); the default backend separates what forcing every block onto IDA costs (IDA error-tests every intermediate) from what a user run gets."
+
+[[changes]]
+date = "2026-11-12"
+what = "derived-andrews-massless is withdrawn as a singular case: with m1 = 0 the mass matrix keeps the inertias i1 and i2 in its first row, so the model is sound. It is still run and reported, with no verdict (it is not the original problem, so its digits mean nothing either)."
+why = "The registered expectation rested on a wrong reading of the model; found when its IDA run gave a result instead of a refusal."
