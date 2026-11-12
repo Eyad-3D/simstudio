@@ -209,50 +209,55 @@ own before such a case is registered; no planted fault hidden, 20 of them now a 
   explains why it reads short, never where the event itself moved it
   back (its own `when`, a sibling, a `reinit`, a value it froze, a
   rounding wider than the solve's), read where the crossing really is;
-  and every hold has a time limit: at every event its time is worked out
-  again, and if x does not get across by itself in eight times what its
-  shortfall needs (at the speed x has after the event where the condition
-  is on the crossing's line, however it is written, else at the speed it
-  had), it is read as it is, and its opposite `when` fires there. A hold
-  that is wrong can so hide at most its width of x, for no longer than x
-  needs to cross that width at its speed at the latest event that timed
-  it: within the solver's timing precision where no event changes x's
-  speed, K times that where an event slows x K times (round 4, the hold
-  rule: DESIGN.md 8.2, *Conditions on iteration variables*); but where
-  x has stopped just short of its line and a later event times the hold
-  again, that speed is x's creep or rounding and the limit 1e2 to 4e3 s.
-  On diffsol and the stateless backend the opposite `when` of a
-  crossing's own move now fires (it never did). The holds suite
-  (`engine/judge/holds.py`, 364 770 counted runs of every shape the
-  reviews and re-checks found, against hand-worked counts and times):
-  352 530 right, 1 662 bounded (an extra or a lost pair of firings within
-  the solver's timing precision), 377 within the time limit where an
-  event slows x, 537 within the two known limits below, 7 630 within the
-  other named limits, 2 034 wrong. Of those, 1 429 (1 345 solver stops,
-  and 84 runs where diffsol's own x drifts below the line it should stay
-  above) are wrong at 4d24528 too, and 605 are re-check 5's shapes
-  (mostly diffsol never reporting a crossing after a restart, at every
-  build, no holds included); two runs right at 4d24528 are wrong (the
-  chatters of the second limit below). Known limits, accepted on 30
-  October 2026 (step 3 of the roadmap closes the first two and warns of
-  the third): (1) a hold from a crossing that an event then stops just
-  short of its line is timed again at a later event from x's creep, so
-  its back and the next forth can be lost for good (534 suite runs; 1 302
-  at 4d24528, whose holds have no time limit at all); (2) on diffsol
-  only, a crossing it reports at a time event beside a `when` that slows
-  x gets the short limit, and the slowed re-crossing is never reported (5
-  runs right at 4d24528: 3 inside the limit, 2 chattering); (3) a user's threshold set
-  exactly at a value the model pins (a `when` on battery power at 80 kW
-  beside the Accumulator's 80 kW limit) stops the run with an event
-  storm on every build, no holds included (at 0.706 s here). None
-  reaches a user today: users run today's Python engine, the new one is
-  opt-in and not in the installer, no library component has a `when` on
-  a solved value, the golden cars make no hold, an equation-text part (step
+  and every hold has a time limit: the event that makes it works its
+  time out, and if x does not get across by itself in eight times what
+  its shortfall needs (at the speed x has after the event where the
+  condition is on the crossing's line, however it is written, else at
+  the speed it had), it is read as it is, and its opposite `when` fires
+  there; a later event works the time out again and can only shorten it
+  (step 3, 12 November). A hold that is wrong can so hide at most its
+  width of x, for no longer than x needs to cross that width at its
+  speed at the event that made it: within the solver's timing precision
+  where no event changes x's speed, K times that where the crossing's
+  own event slows x K times (round 4, the hold rule: DESIGN.md 8.2,
+  *Conditions on iteration variables*). On diffsol and the stateless
+  backend the opposite `when` of a crossing's own move now fires (it
+  never did). The holds suite (`engine/judge/holds.py`, 364 770 counted
+  runs of every shape the reviews and re-checks found, against
+  hand-worked counts and times), at step 3's engine: 352 626 right,
+  2 026 bounded (an extra or a lost pair of firings within the solver's
+  timing precision), 284 within the time limit where an event slows x, 1
+  within the known limit below, 7 801 within the other named limits,
+  2 032 wrong. Of those, 1 429 (1 345 solver stops, and 84 runs where
+  diffsol's own x drifts below the line it should stay above) are wrong
+  at 4d24528 too, and 603 are re-check 5's shapes (mostly diffsol never
+  reporting a crossing after a restart, at every build, no holds
+  included); one run right at 4d24528 is wrong (the chatter of the known
+  limit below). Step 3 (12 November) closed the first of the two holes
+  recorded on 30 October (a hold from a crossing that an event then
+  stopped just short of its line was timed again at a later event from
+  x's creep, and its back and the next forth were lost for good: 534
+  suite runs, now 0) and the second where a time crossing beside the
+  crossing changes nothing x reads (tev: 2 runs in the limit and a
+  chatter, now right). Known limits: (1) on diffsol only, a crossing it
+  reports at a `when time >= t2` that itself slows x gets the short
+  limit, and the slowed re-crossing is never reported (1 run in the
+  limit, 1 chattering; the rule cannot tell that slow from a stop, where
+  reading the crossing as its own made 135 suite runs wrong); (2) a
+  user's threshold set exactly at a value the model holds (a `when` on
+  battery power at 80 kW beside the Accumulator's 80 kW Output Power
+  Limit) stops the run with an event storm on every build, no holds
+  included (at 0.706 s here); since step 3 the model's preparation warns
+  of it (`WHEN-AT-LIMIT`, naming the `when`'s part, the part holding the
+  value and the limit). Neither reaches a user today: users run today's
+  Python engine, the new one is opt-in and not in the installer, no
+  library component has a `when` on a solved value, the golden cars make
+  no hold, diffsol is not selectable, and an equation-text part (step
   2's text components, merged 10 November 2026) runs only on the new
-  engine, from a project file edit, and about 5 000 car runs produced neither of the first
-  two. Also known: a mode and a `when` on one relation can read two
-  values at one event (mode read), the event storm beside a mode, and
-  diffsol losing a crossing right after a restart.
+  engine, from a project file edit. Also known: a mode and a `when` on
+  one relation can read two values at one event (mode read), the event
+  storm beside a mode, and diffsol losing a crossing right after a
+  restart.
 
 ## The vendored IDAS against SUNDIALS 7.9.0 (20 October 2026)
 

@@ -33,6 +33,7 @@
 //! | `STATE-SELECT-PREFER` | a variable marked `stateSelect = prefer` whose choice of states would start too near the run's limit to be taken (warning) |
 //! | `STATE-SELECT-CONFLICT` | one variable (its aliases) marked with different `stateSelect` (warning) |
 //! | `REINIT-NOT-STATE` | `reinit` of something that is not a state, or cannot stay one |
+//! | `WHEN-AT-LIMIT` | a `when` threshold equal to a limit the model holds a value at (warning; [`crate::at_limit`]) |
 //! | `INVERSE-OVER`, `INVERSE-UNDER` | fast mode's prescription over- or under-determines the model |
 //! | `STRUCT-OVER`, `STRUCT-UNDER` | anything else structurally singular |
 
