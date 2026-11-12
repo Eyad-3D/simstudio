@@ -895,6 +895,44 @@ minimum or an average, for example from the CSV export, or put the
   wire you removed is counted in the note but has nothing to carry a dot.
   *Roadmap:* UX-41.
 
+### The new engine on published hard problems
+
+The new engine (not the default: `LIGHTSIM_ENGINE=new`) was run on the 23
+problems of the IVP Test Set 2.4, each transcribed by script from its own
+Fortran and checked against it, at tolerances 1e-4 to 1e-10
+(`benchmarks/hard`, 12 November 2026). What a model like them meets:
+
+- **Derivatives that appear only in a combination that cancels are
+  refused.** Where two equations hold the same derivatives with opposite
+  signs (the test set's transistor amplifier: a capacitor's `c (v1' - v2')`
+  in one node's equation and `-c (v1' - v2')` in the other's), the model
+  stops at preparation with `SINGULAR-LOOP` naming those derivatives,
+  though it is sound. Write the sum of the two equations out as one of
+  them.
+- **Some constrained mechanisms and networks stop when their states stop
+  working.** The slider-crank with an elastic rod, 20 particles held on a
+  sphere, a charge pump and a railway wheelset stop with
+  `RUN-STATE-SELECT`, at the start or when the states chosen at the start
+  no longer decide the rest.
+- **Two large circuits are not initialised.** The two bit adding unit (350
+  equations) and the water tube network (49) stop with `RUN-INIT` even
+  from their published consistent start.
+- **A quantity far below the absolute tolerance can ruin a run with no
+  message.** Robertson's chemical reaction run with an absolute tolerance
+  of 1e-4, 1e-6 or 1e-7 ends with concentrations of -5.7e7 and 5.7e7
+  (their sum still 1): the middle species, about 1e-14 at the end, went
+  negative and the solution grew without bound, and the run reports
+  success. Keep the absolute tolerance below the smallest value that
+  matters. The test set's RADAU5 does the same at 1e-5.
+- **Very stiff chemistry over a very long time can stop.** The test set's
+  E5 problem (a reaction over 10¹³ s) stops with `RUN-INTEGRATOR` at every
+  tolerance; the atmospheric chemistry problem (EMEP) stops at sunset when
+  every block is kept implicit.
+- **Fewer correct digits than implicit Runge-Kutta methods.** At the
+  same tolerance the engine's answers have about as many correct digits as
+  DASSL's (the same family of methods) and often one or two fewer than
+  RADAU5's or PSIDE's.
+
 ### Live edits, charts, sweeps and export
 
 - **Sweeps run side by side, but single runs do not.** A sweep's runs go

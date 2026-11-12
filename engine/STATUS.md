@@ -562,3 +562,24 @@ with a dated reason. Write a reason for each of the 412 surviving mutants or
 add tests that kill them. Register a case that meets a limit for ENERGY's
 E3. Fix fast mode's recuperation and losses, or have the owner decide the
 band with a dated reason.
+
+## Step 3, hard problems, phase 1 (12 November 2026)
+
+`benchmarks/hard` (its manifest pre-registered before any run, 6be3f87):
+the IVP Test Set 2.4's 23 problems transcribed by script from their
+Fortran (`fortran.py` runs each `feval` on symbols) and checked against the
+gfortran-built originals at eight points to 1e-13 of each row's largest
+term: 22 match (most to the bit); the wheelset differs (rows 6 to 11: a
+50-digit evaluation of the transcription agrees with the engine, so the
+text and the Fortran compute different things; the cause is not found and
+the case is not judged). Step 1's three hand transcriptions match. SUNDIALS
+7.1.1's six serial dense examples built here print their `.out` files'
+numbers and counts line for line (cvPendulum's header prints its
+tolerances in another format). RADAU5, DASSL and PSIDE ran beside the
+engine's IDA (every block implicit), its default path and diffsol at rtol =
+atol 1e-4 to 1e-10. What users of such models meet is in
+`docs/KNOWN-LIMITS.md` (*The new engine on published hard problems*).
+Nothing in the engine was changed in this phase; the runner `judge` now
+prints refusal codes, preparation warnings and the Newton-matrix
+factorisations, and `hard_eval` evaluates a model's equations as the
+engine reads them.
