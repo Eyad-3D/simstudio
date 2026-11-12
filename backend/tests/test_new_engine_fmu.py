@@ -384,22 +384,51 @@ def compare_reference(path: Path, h: float, stop: float, fmusim: str, out_dir: P
 # Windows CI (run 43116535929, 989204b) and on Linux the same way on every run,
 # so each is an expected failure that is strict: when a fix makes one pass,
 # CI fails (XPASS) until its mark is removed. Each expects only its own
-# failure; any other error still fails the test.
-KNOWN_FMU_FAILURES = {
-    "2.0/Stair": (AssertionError, "known issue: the FMU's fmi2DoStep returns discard at t = 8.8 s, "
-                                  "and the new path stops the run with RUN-BLOCK"),
-    "3.0/Stair": (AssertionError, "known issue: the FMU asks to stop the simulation at t = 8.8 s, "
-                                  "and the new path stops the run with RUN-BLOCK"),
-    "3.0/BouncingBall": (subprocess.CalledProcessError,
-                         "known issue: the reference run, fmusim 0.7.0 alone, ends with an error"),
+# failure: the test raises KnownIssue only when the failure's message holds
+# the text below (the same on Windows CI and on Linux), so any other failure
+# of these FMUs, a value difference or another refusal, still fails the test.
+KNOWN_FMU_FAILURES = {  # which: (text its failure's message holds, the known issue)
+    "2.0/Stair": ("the new engine refused it (RUN-BLOCK) (sampled block Stair failed at t = 9 s: "
+                  "FMU 'Stair' failed at t = 9 s: FmuError: FMU 'Stair' reported an error at "
+                  "t = 8.8 s: fmi2DoStep failed with status 2 (discard).)",
+                  "known issue: the FMU's fmi2DoStep returns discard at t = 8.8 s, "
+                  "and the new path stops the run with RUN-BLOCK"),
+    "3.0/Stair": ("the new engine refused it (RUN-BLOCK) (sampled block Stair failed at t = 9 s: "
+                  "FMU 'Stair' failed at t = 9 s: FmuError: FMU 'Stair' reported an error at "
+                  "t = 8.8 s: the FMU asked to stop the simulation)",
+                  "known issue: the FMU asks to stop the simulation at t = 8.8 s, "
+                  "and the new path stops the run with RUN-BLOCK"),
+    "3.0/BouncingBall": ('error: The requested output variable "h_ft" does not exist.',
+                         "known issue: the reference run, fmusim 0.7.0 alone, ends with an error: "
+                         "it does not find the output h_ft, an FMI 3 alias of h"),
 }
+
+
+class KnownIssue(Exception):
+    """An FMU of KNOWN_FMU_FAILURES failed with its own known failure."""
+
+
+def is_known_failure(which: str, message: str) -> bool:
+    return which in KNOWN_FMU_FAILURES and KNOWN_FMU_FAILURES[which][0] in message
+
+
+def test_only_a_known_fmu_failures_own_message_is_expected():
+    """The marks below expect KnownIssue, raised only on a known failure's own
+    message: another failure of the same FMU, or the same text for another
+    FMU, is not one."""
+    for which, (text, _) in KNOWN_FMU_FAILURES.items():
+        assert is_known_failure(which, f"Not run [NEW-FAILED]: {text}; more")
+        assert not is_known_failure(which, "values differ from fmusim")
+        assert not is_known_failure(which, text[:-2])
+    assert not is_known_failure("2.0/Dahlquist", KNOWN_FMU_FAILURES["2.0/Stair"][0])
+    assert not is_known_failure("2.0/Stair", KNOWN_FMU_FAILURES["3.0/Stair"][0])
 
 
 @needs_engine
 @pytest.mark.skipif(not (REFERENCE and FMUSIM),
                     reason="LIGHTSIM_REFERENCE_FMUS and LIGHTSIM_FMUSIM not set (Windows CI sets them)")
 @pytest.mark.parametrize("which", [
-    pytest.param(w, marks=pytest.mark.xfail(raises=KNOWN_FMU_FAILURES[w][0], strict=True,
+    pytest.param(w, marks=pytest.mark.xfail(raises=KnownIssue, strict=True,
                                             reason=KNOWN_FMU_FAILURES[w][1]))
     if w in KNOWN_FMU_FAILURES else w for w in sorted(CASES)])
 def test_reference_fmus_on_the_new_path_equal_fmusim_and_fmpy(which, tmp_path):
@@ -409,7 +438,14 @@ def test_reference_fmus_on_the_new_path_equal_fmusim_and_fmpy(which, tmp_path):
     every point, to the last digit."""
     path = Path(REFERENCE) / f"{which}.fmu"
     h, stop = CASES[which]
-    rec = compare_reference(path, h, stop, FMUSIM, tmp_path)
+    try:
+        rec = compare_reference(path, h, stop, FMUSIM, tmp_path)
+    except subprocess.CalledProcessError as e:  # (the fmusim run)
+        if is_known_failure(which, e.stderr.decode(errors="replace")):
+            raise KnownIssue(e.stderr) from e
+        raise
     if rec["state"] == "nothing to compare":
         pytest.skip(f"{which}: no output LightSim can pin (its outputs are arrays)")
+    if rec["state"] == "fail" and is_known_failure(which, rec.get("why") or ""):
+        raise KnownIssue(rec["why"])
     assert rec["state"] == "pass", (rec.get("why"), rec["differences"][:5])

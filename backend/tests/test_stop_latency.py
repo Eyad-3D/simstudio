@@ -33,14 +33,17 @@ pytestmark = [
 # without acceptance"; the owner's decision of 10 November 2026): on Windows CI
 # run 43116535929 (989204b) its p95 was 0.296 s against 0.25 s, with 3 of 20
 # stops over the mark. It is a timing near its mark (0.233 s on a local run),
-# so a run may pass: not strict, as a pass must not turn CI red; a failed
-# mark still shows as XFAIL with its numbers, and any other error still fails.
-@pytest.mark.xfail(raises=AssertionError, strict=False,
-                   reason="known issue: the live stop p95 is over its 0.25 s mark on Windows CI")
+# so a run may pass: not strict, as a pass must not turn CI red. Only a
+# measured run over its mark (state "fail") is an expected failure, shown as
+# XFAIL with its p95; a run where nothing was measured ("not measured"), or
+# any other error, still fails.
 def test_a_live_run_stops_within_its_mark():
     from benchmarks.back_to_back import stream
     got = stream.live_stops("new", 20)
     print(got)
+    if got["state"] == "fail":
+        pytest.xfail(f"known issue: the live stop p95 {got['p95_s']} s is over its 0.25 s mark "
+                     "on Windows CI")
     assert got["state"] == "pass", got
 
 

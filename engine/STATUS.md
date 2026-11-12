@@ -448,8 +448,10 @@ at 1debfc4 and did not pass (see the section below).
   new path stops the run with `RUN-BLOCK` when the FMU asks to stop the
   simulation at t = 8.8 s (2.0: `fmi2DoStep` returns discard), and
   3.0/BouncingBall, where the reference run with fmusim alone ends with
-  an error. Skipped: 3.0/StateSpace, whose outputs are arrays, so it has
-  no output LightSim can pin and nothing is compared. The 3 failures are
+  an error (on Linux: fmusim 0.7.0 does not find the output `h_ft`, an
+  FMI 3 alias of `h`, by its name; Windows CI does not show fmusim's
+  error text). Skipped: 3.0/StateSpace, whose outputs are arrays, so it
+  has no output LightSim can pin and nothing is compared. The 3 failures are
   marked as expected failures (strict), see the step 2 close below.
 - **Docs:** `docs/spec/api.md` has no `restart` event (no fields: drop the
   points shown, the run starts again at t = 0), and
@@ -553,17 +555,25 @@ Failed or not measured, with the numbers:
 **Expected failures in CI** (since 12 November). So that CI shows new
 failures again without hiding these, the 4 tests that fail on Windows CI
 run 43116535929 for the known issues above are marked as expected failures
-naming the known issue, each expecting only its own error (any other error
-still fails):
+naming the known issue, each expecting only its own failure; any other
+failure of the same test still fails (since 12 November, fix round 2: at
+first each mark matched only the error's type, so another assertion in a
+Stair case, or a live stop where nothing was measured, would have been
+hidden as an expected failure):
 
 - `test_new_engine_fmu.py`, the FMU line's 2.0/Stair, 3.0/Stair and
   3.0/BouncingBall: **strict**. Each fails the same way on every run, on
   Linux and on Windows; a fix makes the test pass, and strict turns that
-  pass into a CI failure until the mark is removed, so a fix shows.
+  pass into a CI failure until the mark is removed, so a fix shows. A
+  failure counts as expected only when its message holds the known text
+  (`KNOWN_FMU_FAILURES`: for each Stair the run's whole `RUN-BLOCK`
+  refusal, for 3.0/BouncingBall fmusim's error about `h_ft`).
 - `test_stop_latency.py::test_a_live_run_stops_within_its_mark` (S2's
   live stop): **not strict**. It is a timing near its mark (0.296 s on
   Windows CI, 0.233 s locally), so some runs pass; a pass must not turn
-  CI red. A failing run still reports XFAIL with its numbers in the log.
+  CI red. Only a measured run over its mark (state `fail`) reports
+  XFAIL, with its p95; a run where nothing was measured (`not measured`)
+  fails.
 
 The same run's two licence failures are fixed (12 November): FMPy 0.3.32
 declares no licence in its metadata, so `scripts/licenses/clarifications.json`

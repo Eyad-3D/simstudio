@@ -226,11 +226,11 @@ def test_a_text_file_outside_the_projects_folder_is_never_read(engine, agent, tm
 @pytest.mark.parametrize("engine, agent", RUNS)
 def test_a_text_file_inside_the_projects_folder_runs(engine, agent, tmp_path, monkeypatch):
     """A relative path from the projects folder, one with a harmless ``..``
-    that stays inside, and a link that stays inside: each runs, the result
-    the built-in part's."""
+    that stays inside, an absolute path inside it, and a link that stays
+    inside: each runs, the result the built-in part's."""
     plain = _run(load_example("bev-car"), "new", False, monkeypatch)
     _with_text("bev-car", CITY, "el-battery", tmp_path / "parts" / "battery.mo")
-    names = ["parts/battery.mo", "parts/../parts/battery.mo"]
+    names = ["parts/battery.mo", "parts/../parts/battery.mo", str(tmp_path / "parts" / "battery.mo")]
     try:
         (tmp_path / "inside.mo").symlink_to(tmp_path / "parts" / "battery.mo")
         names.append("inside.mo")

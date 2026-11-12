@@ -567,7 +567,9 @@ WINDOWS_ONLY = "judged on Windows only"
 
 
 def _pytest(where: Path, args: list[str], env: dict, xml: Path) -> dict:
-    """Run pytest, read its JUnit XML: tests, failed, skipped (and why)."""
+    """Run pytest, read its JUnit XML: tests, failed, skipped (and why).
+    An expected failure (XFAIL, JUnit's skipped of type pytest.xfail) ran,
+    so it is not a skip."""
     import os
     import xml.etree.ElementTree as ET
     subprocess.run([sys.executable, "-m", "pytest", *args, "-q", "-p", "no:cacheprovider",
@@ -575,7 +577,8 @@ def _pytest(where: Path, args: list[str], env: dict, xml: Path) -> dict:
                    capture_output=True, text=True)
     root = ET.parse(xml).getroot()
     cases = list(root.iter("testcase"))
-    skipped = [c.find("skipped").get("message", "") for c in cases if c.find("skipped") is not None]
+    skipped = [s.get("message", "") for s in (c.find("skipped") for c in cases)
+               if s is not None and s.get("type") != "pytest.xfail"]
     failed = [c.get("name") for c in cases if c.find("failure") is not None or c.find("error") is not None]
     return {"tests": len(cases), "failed": failed, "skipped": skipped}
 

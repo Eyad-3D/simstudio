@@ -1148,6 +1148,19 @@ def test_the_noskip_probe_says_which_code_made_it(tmp_path, monkeypatch):
     assert [m["probes"] for m in report.stamps(tmp_path)] == [["noskip.json"]]
 
 
+def test_the_noskip_probe_counts_an_expected_failure_as_run_not_skipped(tmp_path):
+    """An XFAIL ran (the live stop's known issue on Windows): it is no skip."""
+    (tmp_path / "test_x.py").write_text(
+        "import pytest\n"
+        "def test_ok(): pass\n"
+        "@pytest.mark.skip(reason='a skip')\n"
+        "def test_skip(): pass\n"
+        "def test_known(): pytest.xfail('a known issue')\n"
+        "def test_bad(): assert False\n")
+    got = report._pytest(tmp_path, ["test_x.py"], {}, tmp_path / "x.xml")
+    assert got == {"tests": 4, "failed": ["test_bad"], "skipped": ["a skip"]}
+
+
 def test_the_report_lists_the_code_that_made_what_it_reads(tmp_path):
     s = {"commit": "abcdef0123456789", "dirty": None, "lightsim_engine": "0.1.0",
          "lightsim_engine_sha256": "f" * 64}
