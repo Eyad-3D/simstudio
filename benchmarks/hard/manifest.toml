@@ -1,0 +1,354 @@
+# Step 3's hard problems: the pre-registered manifest.
+#
+# Written and committed BEFORE any case below was run (by us or by an outside
+# tool). Every case states its expected outcome. A later change goes in a
+# dated [[changes]] entry at the end with its reason; the rows above it are
+# not edited.
+#
+# Sources of this phase (phase 1):
+#   * the IVP Test Set 2.4 (F. Mazzia, C. Magherini, University of Bari),
+#     https://archimede.uniba.it/~testset - research use only: fetched at test
+#     time into the cache, never committed; SciMLBenchmarks.jl (MIT) is the
+#     second copy of its problems;
+#   * SUNDIALS 7.1.1's serial dense examples with their .out files (LLNL,
+#     BSD-3-Clause).
+# Later phases (not here): the Modelica library 4.1.0 via OpenModelica,
+# ARGESIM C21, ScalableTestSuite, Tan-Nedialkov-Pryce, ModelingToolkit,
+# generators (a) and (b), mutation and coverage.
+
+version = 1
+registered = "2026-11-12"
+
+# ---------------------------------------------------------------------------
+# What "expected" means
+# ---------------------------------------------------------------------------
+[criteria]
+rtols = [1e-4, 1e-5, 1e-6, 1e-7, 1e-8, 1e-9, 1e-10]
+atol = "equal to rtol (the test set's own runs use rtol = atol = h0)"
+ours = "IDA (every block kept implicit: force_implicit) and diffsol, each at every rtol"
+outside = "RADAU5, DASSL and PSIDE from the test set, built here with gfortran, at the same rtol = atol = h0"
+scd = """The test set's own measure (src/auxil/report.f, getscd): scd = -log10 of the
+largest relative error at the end time over the components the test set does
+not skip (andrews 1-7, crank 1-7 and 22-24, nand 5, pump 1-8, tba 224, 305
+and 323, fekete 1-60, plei 1-14, beam 1-40, emep all but 36 and 38; every
+component of the others), only components whose reference is at least 1e-200
+in size; mescd likewise with the error over (atol/rtol + |reference|) over all
+components."""
+transcription = """A transcription is right when, at each reference point (the
+start values, the reference solution at the end, and three points near each
+of them moved by a relative 1e-3 with seeds 1, 2, 3), every one of its
+equations' residuals agrees with the gfortran-built original's
+(M y' - f(t, y), or the implicit residual) to 1e-13, relative to the largest
+term of that row (1 where every term is below 1). A case whose transcription
+fails this is not run until fixed."""
+result = """E1: no refusal and no stop (a sound model refused is a FAILURE, a false
+refusal). E2: at each rtol, scd >= (the best scd any outside solver reached at
+that rtol) - 1; where no outside solver succeeded, scd >= -log10(rtol) - 3.
+E3: the error falls with the tolerance: scd(1e-10) - scd(1e-4) >= 3, and no
+tighter rtol loses more than 1 digit against the looser one before it. A run
+that ends with no message and scd < 1 where E2 asks for more is a SILENT WRONG
+ANSWER."""
+refusal = """A refusal is right when its code is the one named and its message names
+the part (here: the variable) named. A refusal with another code that names
+the right part is counted as naming the part, the code mismatch listed."""
+counts = "steps, residual/function evaluations, Jacobian evaluations and Newton-matrix factorisations (LU), never seconds"
+sundials_c = """SUNDIALS' own C examples built here against the release the engine
+vendors (7.1.1) print the shipped .out's numbers to every printed digit and
+the same step, function-evaluation and setup counts."""
+sundials_ours = """Our run of a SUNDIALS example's transcription prints each value the
+.out prints, at its time, within 100 times the example's own rtol (relative)
+plus its atol; each root the example reports, at its time within the same."""
+
+# ---------------------------------------------------------------------------
+# The six failure kinds
+# ---------------------------------------------------------------------------
+[[kind]]
+id = "singular-structural"
+what = "more or fewer equations than unknowns somewhere: no unique solution by structure"
+expect = "refusal STRUCT-UNDER or STRUCT-OVER naming the variable"
+phase1 = ["derived-chemakzo-no-algebraic", "derived-hires-extra-equation"]
+later = "step 2's 160-fault corpus with the 'names the planted part' column; mutation (generator b)"
+
+[[kind]]
+id = "singular-numerical"
+what = "the structure is fine but the Newton or index-reduction matrix is singular at the start or on the way"
+expect = "refusal (code stated per case) naming the variable"
+phase1 = ["derived-andrews-massless"]
+later = "Tan-Nedialkov-Pryce, manufactured index (generator a)"
+
+[[kind]]
+id = "inconsistent-start"
+what = "start values that break an algebraic equation, or derivatives the test set gives inconsistent"
+expect = "a warning INIT-START-IGNORED naming the variable, then the result of the consistent problem"
+phase1 = ["derived-chemakzo-y6-start"]
+later = "generators (a), Modelica library examples"
+
+[[kind]]
+id = "chattering"
+what = "a switch that the solution keeps crossing (sliding mode)"
+expect = "a result that slides, or RUN-EVENT-STORM naming the switching variable"
+phase1 = []
+later = "ARGESIM C21; no source of phase 1 chatters (said here so the empty row is not a gap)"
+
+[[kind]]
+id = "stiff"
+what = "very fast and very slow parts at once"
+expect = "result (criteria.result)"
+phase1 = ["ivp-hires", "ivp-pollu", "ivp-ringmod", "ivp-vdpol", "ivp-vdpolm", "ivp-orego", "ivp-rober", "ivp-e5",
+          "ivp-medakzo", "ivp-emep", "ivp-chemakzo", "ivp-transamp", "ivp-beam",
+          "sun-cvRoberts_dns", "sun-idaRoberts_dns", "sun-idasAkzoNob_dns"]
+
+[[kind]]
+id = "high-index"
+what = "hidden constraints index reduction must find, including large swings (index 3 in at position level)"
+expect = "result (criteria.result)"
+phase1 = ["ivp-andrews", "ivp-caraxis", "ivp-crank", "ivp-fekete", "ivp-pump", "ivp-water", "ivp-wheel",
+          "ivp-plei", "sun-idaSlCrank_dns", "sun-cvPendulum_dns"]
+large_swings = "step 1's judge pendulums released up to 3.14 rad and the IFToMM four-bar (engine/judge, not rerun here)"
+
+[[kind]]
+id = "discontinuous"
+what = "a right-hand side that jumps or kinks in time or in the state"
+expect = "result (criteria.result)"
+phase1 = ["ivp-medakzo", "ivp-nand", "ivp-pump", "ivp-tba", "ivp-water", "ivp-beam",
+          "sun-cvRoberts_dns", "sun-idaRoberts_dns", "sun-cvDisc_dns"]
+
+# ---------------------------------------------------------------------------
+# The cases. expect.ida / expect.diffsol: "result" means criteria.result.
+# ---------------------------------------------------------------------------
+# The IVP Test Set 2.4: 23 problem files (vdpolm is vdpol rescaled). Each is
+# transcribed by script from its own Fortran (problems/NAME.f: feval, meval,
+# init, solut), never by hand.
+[[case]]
+id = "ivp-hires"
+source = "ivptestset/problems/hires.f"
+type = "ODE 8"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-pollu"
+source = "ivptestset/problems/pollu.f"
+type = "ODE 20"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-ringmod"
+source = "ivptestset/problems/ringmod.f"
+type = "ODE 15"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-vdpol"
+source = "ivptestset/problems/vdpol.f"
+type = "ODE 2"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-vdpolm"
+source = "ivptestset/problems/vdpolm.f"
+type = "ODE 2"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-orego"
+source = "ivptestset/problems/orego.f"
+type = "ODE 3"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-rober"
+source = "ivptestset/problems/rober.f"
+type = "ODE 3"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-e5"
+source = "ivptestset/problems/e5.f"
+type = "ODE 4"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-medakzo"
+source = "ivptestset/problems/medakzo.f"
+type = "ODE 400, a switch at t = 5"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-emep"
+source = "ivptestset/problems/emep.f"
+type = "ODE 66"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-plei"
+source = "ivptestset/problems/plei.f"
+type = "ODE 28 (second order written first order)"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-beam"
+source = "ivptestset/problems/beam.f"
+type = "ODE 80, a switch at t = pi"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-chemakzo"
+source = "ivptestset/problems/chemakzo.f"
+type = "DAE 6, index 1"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-andrews"
+source = "ivptestset/problems/andrews.f"
+type = "DAE 27, index 3, at position level"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-transamp"
+source = "ivptestset/problems/transamp.f"
+type = "DAE 8, index 1, a constant singular mass matrix"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-caraxis"
+source = "ivptestset/problems/caraxis.f"
+type = "DAE 10, index 3, at position level"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-crank"
+source = "ivptestset/problems/crank.f"
+type = "DAE 24, index 2 (as the test set states it)"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-fekete"
+source = "ivptestset/problems/fekete.f"
+type = "DAE 160, index 2"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-pump"
+source = "ivptestset/problems/pump.f"
+type = "DAE 9, index 2, a piecewise linear input"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-tba"
+source = "ivptestset/problems/tba.f"
+type = "DAE 350, index 1, piecewise inputs"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-water"
+source = "ivptestset/problems/water.f"
+type = "DAE 49, index 2, a laminar/turbulent switch on the state"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-nand"
+source = "ivptestset/problems/nand.f"
+type = "IDE 14, index 0, piecewise inputs"
+expect = { ida = "result", diffsol = "result" }
+
+[[case]]
+id = "ivp-wheel"
+source = "ivptestset/problems/wheel.f"
+type = "IDE 17, index 2"
+expect = { ida = "result", diffsol = "result" }
+
+# step 1's own hand transcriptions of three test set problems (engine/judge/
+# judge.py): checked against the same gfortran-built originals (residuals at
+# the consistent start and at the reference solution, criteria.transcription).
+# They were run and scored in step 1; here only their transcription is checked.
+[[case]]
+id = "judge-andrews"
+source = "engine/judge/judge.py andrews() against ivptestset/problems/andrews.f"
+expect = { transcription = "match to 1e-13" }
+
+[[case]]
+id = "judge-caraxis"
+source = "engine/judge/judge.py caraxis() against ivptestset/problems/caraxis.f"
+expect = { transcription = "match to 1e-13" }
+
+[[case]]
+id = "judge-chemakzo"
+source = "engine/judge/judge.py chemakzo() against ivptestset/problems/chemakzo.f"
+expect = { transcription = "match to 1e-13" }
+
+# step 1's 14 hand-derived reference problems (benchmarks/reference/problems)
+# have no Fortran original: their transcription check is their own second
+# derivation (benchmarks/reference/verify.py, DOP853 at 1e-13).
+[[case]]
+id = "reference-14"
+source = "benchmarks/reference/verify.py"
+expect = { transcription = "every exact answer within verify.py's own bounds" }
+
+# SUNDIALS 7.1.1's serial dense examples. Each is transcribed by script from
+# its C right-hand side or residual; its .out is the reference.
+[[case]]
+id = "sun-cvRoberts_dns"
+source = "sundials-7.1.1/examples/cvode/serial/cvRoberts_dns.c"
+type = "ODE 3, stiff, two roots"
+expect = { c = "criteria.sundials_c", ida = "criteria.sundials_ours", diffsol = "criteria.sundials_ours" }
+
+[[case]]
+id = "sun-idaRoberts_dns"
+source = "sundials-7.1.1/examples/ida/serial/idaRoberts_dns.c"
+type = "DAE 3, index 1, two roots"
+expect = { c = "criteria.sundials_c", ida = "criteria.sundials_ours", diffsol = "criteria.sundials_ours" }
+
+[[case]]
+id = "sun-idasAkzoNob_dns"
+source = "sundials-7.1.1/examples/idas/serial/idasAkzoNob_dns.c"
+type = "DAE 6, index 1 (the test set's chemakzo)"
+expect = { c = "criteria.sundials_c", ida = "criteria.sundials_ours", diffsol = "criteria.sundials_ours" }
+
+[[case]]
+id = "sun-idaSlCrank_dns"
+source = "sundials-7.1.1/examples/ida/serial/idaSlCrank_dns.c"
+type = "DAE 10, index 2 (stabilised slider-crank)"
+expect = { c = "criteria.sundials_c", ida = "criteria.sundials_ours", diffsol = "criteria.sundials_ours" }
+
+[[case]]
+id = "sun-cvPendulum_dns"
+source = "sundials-7.1.1/examples/cvode/serial/cvPendulum_dns.c"
+type = "the pendulum in x and y (the example integrates its index-1 form with projection; ours takes it in at position level)"
+expect = { c = "criteria.sundials_c", ida = "criteria.sundials_ours", diffsol = "criteria.sundials_ours" }
+
+[[case]]
+id = "sun-cvDisc_dns"
+source = "sundials-7.1.1/examples/cvode/serial/cvDisc_dns.c"
+type = "ODE with a discontinuity in the solution and one in the right-hand side"
+expect = { c = "criteria.sundials_c", ida = "criteria.sundials_ours", diffsol = "criteria.sundials_ours" }
+
+# Derived cases: a transcribed problem changed by one stated edit, made by
+# the same script (no hand-written model), one per failure kind no source of
+# this phase covers.
+[[case]]
+id = "derived-chemakzo-no-algebraic"
+from = "ivp-chemakzo"
+edit = "row 6 (0 = Ks y1 y4 - y6) left out"
+expect = { ida = "refusal STRUCT-UNDER naming y6", diffsol = "refusal STRUCT-UNDER naming y6" }
+
+[[case]]
+id = "derived-hires-extra-equation"
+from = "ivp-hires"
+edit = "an extra equation y8 = 0.0057 beside row 8"
+expect = { ida = "refusal STRUCT-OVER naming y8", diffsol = "refusal STRUCT-OVER naming y8" }
+
+[[case]]
+id = "derived-andrews-massless"
+from = "ivp-andrews"
+edit = "the mass of body 1 (m1, the row of beta's acceleration) set to 0: the mass matrix singular"
+expect = { ida = "refusal STATE-SELECT-SINGULAR naming y1", diffsol = "refusal STATE-SELECT-SINGULAR naming y1" }
+
+[[case]]
+id = "derived-chemakzo-y6-start"
+from = "ivp-chemakzo"
+edit = "y6 given the fixed start 1.0, which 0 = Ks y1 y4 - y6 contradicts"
+expect = { ida = "warning INIT-START-IGNORED naming y6, then result", diffsol = "warning INIT-START-IGNORED naming y6, then result" }
+
+# ---------------------------------------------------------------------------
+# Dated changes (append only)
+# ---------------------------------------------------------------------------
