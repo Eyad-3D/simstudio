@@ -638,10 +638,10 @@ def test_the_schema_checks_are_kept_for_the_same_validator_only(tmp_path, monkey
     import importlib.metadata
     _write(tmp_path, {"kind": "item", "id": "a/b", "setting": "new"}, result=_result())
     report.schema(tmp_path)
-    key = json.loads((tmp_path / "schema.json").read_text())["schema"]
+    key = json.loads((tmp_path / "schema.json").read_text(encoding="utf-8"))["schema"]
     monkeypatch.setattr(importlib.metadata, "version", lambda name: "0.0-another")
     report.schema(tmp_path)
-    assert json.loads((tmp_path / "schema.json").read_text())["schema"] != key
+    assert json.loads((tmp_path / "schema.json").read_text(encoding="utf-8"))["schema"] != key
 
 
 def test_a_duty_part_with_no_rows_is_compared():
@@ -1110,10 +1110,10 @@ def test_the_mutmut_copy_is_made_afresh_for_other_code(tmp_path):
     from benchmarks.back_to_back import mutation
     old = tmp_path / "mutation" / "backend" / "app" / "solver" / "verdict.py"
     old.parent.mkdir(parents=True)
-    old.write_text("# the verdict.py of an earlier commit\n")
+    old.write_text("# the verdict.py of an earlier commit\n", encoding="utf-8")
     work = mutation.prepare(tmp_path)
     assert old.read_bytes() == (runs.BACKEND / "app" / "solver" / "verdict.py").read_bytes()
-    (work / "progress").write_text("mutmut's")  # kept while the code is the same: it resumes
+    (work / "progress").write_text("mutmut's", encoding="utf-8")  # kept while the code is the same: it resumes
     mutation.prepare(tmp_path)
     assert (work / "progress").exists()
 
@@ -1128,23 +1128,23 @@ def test_the_mutmut_copy_is_made_afresh_when_what_its_tests_read_changes(tmp_pat
     for rel in ("tests/helpers.py", "tests/conftest.py", "app/library/components.json", "projects/bev-car.json",
                 "app/solver/verdict.py", *tests):
         (backend / rel).parent.mkdir(parents=True, exist_ok=True)
-        (backend / rel).write_text(f"# {rel}\n")
+        (backend / rel).write_text(f"# {rel}\n", encoding="utf-8")
     (backend / ".hypothesis").mkdir()
     monkeypatch.setattr(mutation, "BACKEND", backend)
     work = mutation.prepare(tmp_path / "out")
-    (work / "progress").write_text("mutmut's")
-    (backend / ".hypothesis" / "examples").write_text("a cache, not code")
+    (work / "progress").write_text("mutmut's", encoding="utf-8")
+    (backend / ".hypothesis" / "examples").write_text("a cache, not code", encoding="utf-8")
     mutation.prepare(tmp_path / "out")
     assert (work / "progress").exists()  # a cache changed: kept
-    (backend / changed).write_text("# changed\n")
+    (backend / changed).write_text("# changed\n", encoding="utf-8")
     mutation.prepare(tmp_path / "out")
-    assert (work / changed).read_text() == "# changed\n" and not (work / "progress").exists()
+    assert (work / changed).read_text(encoding="utf-8") == "# changed\n" and not (work / "progress").exists()
 
 
 def test_the_noskip_probe_says_which_code_made_it(tmp_path, monkeypatch):
     monkeypatch.setattr(report, "_pytest", lambda *a, **k: {"tests": 1, "failed": [], "skipped": []})
     report.noskip_probe(tmp_path)
-    assert json.loads((tmp_path / "noskip.json").read_text())["stamp"] == runs.stamp()
+    assert json.loads((tmp_path / "noskip.json").read_text(encoding="utf-8"))["stamp"] == runs.stamp()
     assert [m["probes"] for m in report.stamps(tmp_path)] == [["noskip.json"]]
 
 
@@ -1156,7 +1156,7 @@ def test_the_noskip_probe_counts_an_expected_failure_as_run_not_skipped(tmp_path
         "@pytest.mark.skip(reason='a skip')\n"
         "def test_skip(): pass\n"
         "def test_known(): pytest.xfail('a known issue')\n"
-        "def test_bad(): assert False\n")
+        "def test_bad(): assert False\n", encoding="utf-8")
     got = report._pytest(tmp_path, ["test_x.py"], {}, tmp_path / "x.xml")
     assert got == {"tests": 4, "failed": ["test_bad"], "skipped": ["a skip"]}
 
@@ -1166,7 +1166,7 @@ def test_the_report_lists_the_code_that_made_what_it_reads(tmp_path):
          "lightsim_engine_sha256": "f" * 64}
     _write(tmp_path, {"kind": "item", "id": "a/b", "setting": "new"}, stamp=s)
     _write(tmp_path, {"kind": "item", "id": "a/c", "setting": "new"})
-    (tmp_path / "stop.json").write_text(json.dumps({"stamp": s}))
+    (tmp_path / "stop.json").write_text(json.dumps({"stamp": s}), encoding="utf-8")
     got = {json.dumps(m["stamp"]): m for m in report.stamps(tmp_path)}
     assert got[json.dumps(s)]["records"] == 1 and got[json.dumps(s)]["probes"] == ["stop.json"]
     assert got['"none"']["records"] == 1
@@ -1281,17 +1281,17 @@ def test_scripts_b_reads_what_the_decision_record_holds(tmp_path, monkeypatch):
     monkeypatch.setattr(runs, "REPO", tmp_path)
     (tmp_path / "docs").mkdir()
     record = tmp_path / "docs" / "script-decision.md"
-    record.write_text("")  # a name alone (the judge's re-check, recheck/stale_more.py)
+    record.write_text("", encoding="utf-8")  # a name alone (the judge's re-check, recheck/stale_more.py)
     got = report.scripts({"items": []}, tmp_path)
     assert got["b_decision_record"] == [] and got["b_records_lack"]["docs/script-decision.md"] == \
         list(report.RECORD_PARTS)
     record.write_text("# Script blocks: the decision\n\n## Threat model (STRIDE)\n\n...\n\n"
                       "## Differential fuzzing against CPython 3.11\n\n- **Hours:** 24\n- Inputs: 1,200,000\n"
                       "- Divergences: 0\n\n## Unsafe code\n\n| cargo-geiger, unsafe expressions | 12 |\n\n"
-                      "## The PLT-35 gap\n\n...\n")
+                      "## The PLT-35 gap\n\n...\n", encoding="utf-8")
     got = report.scripts({"items": []}, tmp_path)
     assert got["b_decision_record"] == ["docs/script-decision.md"], got["b_records_lack"]
-    record.write_text(record.read_text().replace("- Divergences: 0\n", ""))
+    record.write_text(record.read_text(encoding="utf-8").replace("- Divergences: 0\n", ""), encoding="utf-8")
     assert report.scripts({"items": []}, tmp_path)["b_records_lack"]["docs/script-decision.md"] == [
         "the fuzzing's divergences"]
 
@@ -1628,7 +1628,7 @@ def test_both_engines_run_the_acceleration_test_and_the_diff_classes_it(tmp_path
     assert ("a", "new-path-lacks-reports") not in got and ("c", "engine-preparation-notes") in got
     assert new["partEnergy"] and new["energy"] and new["duty"] and new["limits"] and new["references"]
     import jsonschema
-    schema = json.loads((runs.REPO / "docs" / "spec" / "schemas" / "result.schema.json").read_text())
+    schema = json.loads((runs.REPO / "docs" / "spec" / "schemas" / "result.schema.json").read_text(encoding="utf-8"))
     for r in rec:
         jsonschema.Draft202012Validator(schema).validate(r["result"])
 

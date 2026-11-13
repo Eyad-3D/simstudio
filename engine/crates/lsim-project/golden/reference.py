@@ -68,7 +68,7 @@ def main() -> None:
     for path in sorted(pathlib.Path("projects").glob("*.json")):
         if wanted and path.stem not in wanted:
             continue
-        raw = json.loads(path.read_text())
+        raw = json.loads(path.read_text(encoding="utf-8"))
         for case in raw.get("cases", []):
             if case.get("kind") == "lap":
                 continue
@@ -87,7 +87,7 @@ def main() -> None:
                 result[label] = run(Project.model_validate(proj), case["id"], h)
                 print(f"{path.stem} {case['id']} {label}: {result[label]['status']} "
                       f"in {result[label]['wall_seconds']:.1f} s", flush=True)
-            (out / f"{path.stem}__{case['id']}.json").write_text(json.dumps(result))
+            (out / f"{path.stem}__{case['id']}.json").write_text(json.dumps(result), encoding="utf-8")
 
 
 if __name__ == "__main__":

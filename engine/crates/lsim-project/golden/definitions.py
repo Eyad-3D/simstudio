@@ -43,7 +43,7 @@ def rms(xs):
 
 
 def defaults():
-    lib = json.loads((BACKEND / "app/library/components.json").read_text())
+    lib = json.loads((BACKEND / "app/library/components.json").read_text(encoding="utf-8"))
     return {c["id"]: {p["key"]: p.get("default") for p in c.get("parameters", [])}
             for c in lib["components"]}
 
@@ -148,10 +148,10 @@ def main():
         new_path = outs / f"{project}__{case}.new.json"
         if (wanted and project not in wanted and tag not in wanted) or not new_path.exists():
             continue
-        ref = json.loads(path.read_text())
-        new = json.loads(new_path.read_text())["channels"]
+        ref = json.loads(path.read_text(encoding="utf-8"))
+        new = json.loads(new_path.read_text(encoding="utf-8"))["channels"]
         chain, motors, clutches, node = driveline(
-            json.loads((BACKEND / "projects" / f"{project}.json").read_text()))
+            json.loads((BACKEND / "projects" / f"{project}.json").read_text(encoding="utf-8")))
         fine = {k: v["values"] for k, v in ref["fine"]["channels"].items()}
         normal = {k: v["values"] for k, v in ref["normal"]["channels"].items()}
         mine = rebuild(fine, chain, motors, clutches, node)

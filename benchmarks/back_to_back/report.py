@@ -550,7 +550,7 @@ def scripts(b: dict, out: Path) -> dict:
             runners[r["id"]] = {k: (engine or {}).get(k) for k in ("scripts", "script_calls", "script_served",
                                                                     "script_worker")}
     a = None if any(v is None for v in served.values()) else bool(served) and all(served.values())
-    records = {str(p.relative_to(runs.REPO)): record_lacks(p.read_text(encoding="utf-8"))
+    records = {p.relative_to(runs.REPO).as_posix(): record_lacks(p.read_text(encoding="utf-8"))
                for p in sorted((runs.REPO / "docs").rglob("*.md"))
                if "script" in p.name.lower() and "decision" in p.name.lower()}
     whole = [p for p, lacks in records.items() if not lacks]
@@ -595,7 +595,7 @@ def noskip_probe(out: Path) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         shadow = Path(tmp) / "shadow" / "lightsim_engine"
         shadow.mkdir(parents=True)
-        (shadow / "__init__.py").write_text('raise ImportError("hidden by the NOSKIP probe")\n')
+        (shadow / "__init__.py").write_text('raise ImportError("hidden by the NOSKIP probe")\n', encoding="utf-8")
         for tag, env in (("a", {"LIGHTSIM_REQUIRE_NEW_ENGINE": "1"}),
                          ("b", {"LIGHTSIM_REQUIRE_NEW_ENGINE": "1", "PYTHONPATH": str(shadow.parent)})):
             r1 = _pytest(runs.BACKEND, tests, env, Path(tmp) / f"{tag}1.xml")
@@ -692,7 +692,7 @@ def fingerprint() -> dict:
         engine = None
     cpu = ""
     try:
-        cpu = next(line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo") if line.startswith("model name"))
+        cpu = next(line.split(":", 1)[1].strip() for line in open("/proc/cpuinfo", encoding="utf-8") if line.startswith("model name"))
     except (OSError, StopIteration):
         pass
     return {"commit": run("git", "rev-parse", "HEAD"), "dirty": bool(run("git", "status", "--porcelain")),
