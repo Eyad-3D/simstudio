@@ -27,6 +27,15 @@ equation
   der(x) = -1;
 end Falling;
 
+model Pulled "a's rate is b, which is not negative where it starts at or above zero, but starts below"
+  parameter Real s1(unit = "s") = 1;
+  Real a(start = 1, fixed = true);
+  Real b(start = -1, fixed = true);
+equation
+  s1 * der(a) = b;
+  s1 * der(b) = 0;
+end Pulled;
+
 model Oscillator
   parameter Real s1(unit = "s") = 1;
   Real x(start = 1, fixed = true);
@@ -76,6 +85,9 @@ fn a_state_kept_at_or_above_zero_taken_below_it_is_told() {
     assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
     // a state its equations do take below zero is not told
     let r = run("Falling", &tol(1e-6), 3.0).unwrap();
+    assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
+    // nor one whose rate reads a state that starts below zero (a = 1 - t)
+    let r = run("Pulled", &tol(1e-6), 3.0).unwrap();
     assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
 }
 

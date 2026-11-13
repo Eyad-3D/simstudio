@@ -657,10 +657,11 @@ impl MagInfo {
     /// quasi-positive system, as chemical kinetics is). Each rate is
     /// bounded by interval arithmetic rounded outwards over the
     /// assignments, with the parameters `p` as they are: a proof, not a
-    /// sample. A state whose rate comes from the residuals, or whose bound
-    /// reaches below zero, is not kept; the set shrinks until the rest
-    /// hold.
-    pub fn kept_nonnegative(&self, n_x: usize, p: &[f64]) -> Vec<bool> {
+    /// sample. The set starts from the states that start at or above zero
+    /// (`start`): a state that starts below may take the others with it. A
+    /// state whose rate comes from the residuals, or whose bound reaches
+    /// below zero, is not kept; the set shrinks until the rest hold.
+    pub fn kept_nonnegative(&self, n_x: usize, p: &[f64], start: &[bool]) -> Vec<bool> {
         use lsim_ir::interval::{ALL, Iv, J2, ZERO, binary_j2, call_j2};
         fn bound(e: &Expr, env: &HashMap<VarId, Iv>, p: &[f64]) -> Iv {
             let k = |e: &Expr| J2::konst(bound(e, env, p));
@@ -684,7 +685,8 @@ impl MagInfo {
                 Slot::Var(v) | Slot::Der(v) => v,
             })
             .collect();
-        let mut kept = vec![true; states.len()];
+        let mut kept: Vec<bool> =
+            (0..states.len()).map(|i| start.get(i).copied().unwrap_or(false)).collect();
         loop {
             let mut dropped = false;
             for i in 0..states.len() {

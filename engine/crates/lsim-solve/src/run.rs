@@ -4400,7 +4400,9 @@ fn run_watched<'a>(
                 let floor = -(opts.rtol * ymax[i] + opts.atol * info.y_nominal[i]);
                 if start_nonneg[i] && yv[i] < floor {
                     let kept = kept_nonneg.get_or_insert_with(|| {
-                        info.mag.as_ref().map_or_else(Vec::new, |m| m.kept_nonnegative(l.n_x, p))
+                        info.mag
+                            .as_ref()
+                            .map_or_else(Vec::new, |m| m.kept_nonnegative(l.n_x, p, &start_nonneg))
                     });
                     if kept.get(i) == Some(&true) {
                         let name = info.y_names.get(i).cloned().unwrap_or_default();
