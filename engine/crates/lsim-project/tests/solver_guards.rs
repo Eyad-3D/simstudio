@@ -21,6 +21,28 @@ equation
   s1 * der(y3) = 3e7 * y2 * y2;
 end Robertson;
 
+model RobertsonBalance "Robertson with the third species from the balance (SUNDIALS' idaRoberts)"
+  parameter Real s1(unit = "s") = 1;
+  Real y1(start = 1, fixed = true);
+  Real y2(start = 0, fixed = true);
+  Real y3(start = 0);
+equation
+  s1 * der(y1) = -0.04 * y1 + 1e4 * y2 * y3;
+  s1 * der(y2) = 0.04 * y1 - 1e4 * y2 * y3 - 3e7 * y2 * y2;
+  y1 + y2 + y3 = 1;
+end RobertsonBalance;
+
+model Fed "x's rate is the balance a = 1 - z, which goes below zero (z = t) before x does"
+  parameter Real s1(unit = "s") = 1;
+  Real x(start = 1, fixed = true);
+  Real z(start = 0, fixed = true);
+  Real a;
+equation
+  a = 1 - z;
+  s1 * der(x) = a;
+  s1 * der(z) = 1;
+end Fed;
+
 model Falling "a state its equations take below zero"
   Real x(start = 1, fixed = true);
 equation
@@ -88,6 +110,25 @@ fn a_state_kept_at_or_above_zero_taken_below_it_is_told() {
     assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
     // nor one whose rate reads a state that starts below zero (a = 1 - t)
     let r = run("Pulled", &tol(1e-6), 3.0).unwrap();
+    assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
+}
+
+#[test]
+fn a_balance_of_the_states_joins_the_proof_while_it_stays_at_or_above_zero() {
+    // Robertson with y3 = 1 - y1 - y2 (no interval over the states keeps
+    // it at or above zero): the same blow-up on the default path, told
+    for t in [1e-4, 1e-6] {
+        let r = run("RobertsonBalance", &tol(t), 1e11).unwrap();
+        let y1 = r.names.iter().position(|n| n == "y1").unwrap();
+        assert!(r.values[y1].last().unwrap() < &-1.0, "{t}: {:?}", r.values[y1]);
+        let w = below(&r);
+        assert!(w.len() == 1 && w[0].starts_with("y1"), "{t}: {:?}", r.report.warnings);
+    }
+    // a balance that goes below zero first (a = 1 - z, z = t) leaves the
+    // proof: x = 1 + t - t²/2 then goes below zero rightly, not told
+    let r = run("Fed", &tol(1e-6), 4.0).unwrap();
+    let x = r.names.iter().position(|n| n == "x").unwrap();
+    assert!(r.values[x].last().unwrap() < &-0.5, "{:?}", r.values[x]);
     assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
 }
 

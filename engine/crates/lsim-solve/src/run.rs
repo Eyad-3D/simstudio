@@ -3854,10 +3854,19 @@ fn run_watched<'a>(
     // so. The proof ([`crate::info::MagInfo::kept_nonnegative`]) is made at
     // the first such step, in no other run; off where states jump
     // (impulses), after a change of the parameters and once the states are
-    // chosen again
+    // chosen again. A balance of the states (Robertson's third species as
+    // `1 - y1 - y2`) that starts at or above zero joins the proof as not
+    // negative while every step ends with it at or above its own floor; one
+    // that goes below leaves it for the rest of the run (the states it kept
+    // may then go below zero rightly), and the proof is made again
     let start_nonneg: Vec<bool> = y[..l.n_x].iter().map(|v| *v >= 0.0).collect();
     let mut signs_on = info.impulse.is_none() && info.mag.is_some();
-    let mut kept_nonneg: Option<Vec<bool>> = None;
+    let mut members: Vec<crate::info::Affine> = match &info.mag {
+        Some(m) if signs_on => m.affine_members(l.n_x, p),
+        _ => vec![],
+    };
+    members.retain(|a| a.value(&y) >= 0.0);
+    let mut kept_nonneg: Option<(usize, Vec<bool>)> = None;
     let mut below: Vec<Option<(String, f64, f64)>> = vec![None; l.n_x];
 
     if !info.time_tables.is_empty() {
@@ -4392,6 +4401,14 @@ fn run_watched<'a>(
         }
         if signs_on && !same {
             let yv = integ.y();
+            members.retain(|a| {
+                let floor: f64 = a
+                    .terms
+                    .iter()
+                    .map(|&(j, w)| w.abs() * (opts.rtol * ymax[j] + opts.atol * info.y_nominal[j]))
+                    .sum();
+                a.value(yv) >= -floor
+            });
             for i in 0..l.n_x {
                 if let Some(b) = below[i].as_mut() {
                     b.2 = b.2.min(yv[i]);
@@ -4399,11 +4416,15 @@ fn run_watched<'a>(
                 }
                 let floor = -(opts.rtol * ymax[i] + opts.atol * info.y_nominal[i]);
                 if start_nonneg[i] && yv[i] < floor {
-                    let kept = kept_nonneg.get_or_insert_with(|| {
-                        info.mag
-                            .as_ref()
-                            .map_or_else(Vec::new, |m| m.kept_nonnegative(l.n_x, p, &start_nonneg))
-                    });
+                    // (made again when a member has left since)
+                    if kept_nonneg.as_ref().is_none_or(|k| k.0 != members.len()) {
+                        let vars: Vec<_> = members.iter().map(|a| a.var).collect();
+                        let kept = info.mag.as_ref().map_or_else(Vec::new, |m| {
+                            m.kept_nonnegative(l.n_x, p, &start_nonneg, &vars)
+                        });
+                        kept_nonneg = Some((members.len(), kept));
+                    }
+                    let kept = kept_nonneg.as_ref().map_or(&[][..], |k| &k.1[..]);
                     if kept.get(i) == Some(&true) {
                         let name = info.y_names.get(i).cloned().unwrap_or_default();
                         below[i] = Some((name, t_new, yv[i]));
@@ -5281,8 +5302,8 @@ fn run_watched<'a>(
         report.warnings.push(format!(
             "{}{more} went below zero (first {first} at t = {tb:.6} s, down to {low:.3e}), \
              though the model's equations keep {it} at or above zero: the solution left the \
-             region they keep it in, so the result is wrong by more than the tolerance from \
-             there on. A smaller absolute tolerance (now {:.1e} times {its} nominal value) may \
+             region they keep it in, so from that step the result may be wrong by more than \
+             the tolerance. A smaller absolute tolerance (now {:.1e} times {its} nominal value) may \
              keep {it} there; the 10× tighter check shows how far the result moves",
             names.join(", "),
             opts.atol

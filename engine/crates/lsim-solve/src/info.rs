@@ -661,7 +661,19 @@ impl MagInfo {
     /// (`start`): a state that starts below may take the others with it. A
     /// state whose rate comes from the residuals, or whose bound reaches
     /// below zero, is not kept; the set shrinks until the rest hold.
-    pub fn kept_nonnegative(&self, n_x: usize, p: &[f64], start: &[bool]) -> Vec<bool> {
+    ///
+    /// `members`: assigned variables taken as not negative too (each bound
+    /// cut at zero), such as Robertson's third species written as
+    /// `1 - y1 - y2`, which no interval over the states keeps at or above
+    /// zero. The states kept are then kept only while those stay at or
+    /// above zero: the run watches them ([`MagInfo::affine_members`]).
+    pub fn kept_nonnegative(
+        &self,
+        n_x: usize,
+        p: &[f64],
+        start: &[bool],
+        members: &[VarId],
+    ) -> Vec<bool> {
         use lsim_ir::interval::{ALL, Iv, J2, ZERO, binary_j2, call_j2};
         fn bound(e: &Expr, env: &HashMap<VarId, Iv>, p: &[f64]) -> Iv {
             let k = |e: &Expr| J2::konst(bound(e, env, p));
@@ -685,6 +697,7 @@ impl MagInfo {
                 Slot::Var(v) | Slot::Der(v) => v,
             })
             .collect();
+        let members: std::collections::HashSet<VarId> = members.iter().copied().collect();
         let mut kept: Vec<bool> =
             (0..states.len()).map(|i| start.get(i).copied().unwrap_or(false)).collect();
         loop {
@@ -712,7 +725,12 @@ impl MagInfo {
                             break;
                         }
                         Slot::Var(v) => {
-                            let b = bound(e, &env, p);
+                            let mut b = bound(e, &env, p);
+                            if b.hi >= 0.0 && members.contains(&v) {
+                                // (the region assumed: the member is not
+                                // negative there)
+                                b = Iv::new(b.lo.max(0.0), b.hi);
+                            }
                             env.insert(v, b);
                         }
                         Slot::Der(_) => {}
@@ -727,6 +745,89 @@ impl MagInfo {
                 return kept;
             }
         }
+    }
+
+    /// The assigned variables that are a constant plus a weighted sum of
+    /// the states (the first `n_x` of y), with the parameters `p` as they
+    /// are: a balance such as `y3 = 1 - y1 - y2`. The run reads them from
+    /// the states at each step's end.
+    pub fn affine_members(&self, n_x: usize, p: &[f64]) -> Vec<Affine> {
+        use lsim_ir::expr::BinaryOp;
+        type Form = (f64, Vec<(usize, f64)>);
+        // ponytail: forms of more terms are dropped (a long chain of sums
+        // would cost quadratic time); raise it if a balance needs more
+        const MAX_TERMS: usize = 64;
+        fn add(mut a: Form, b: Form, s: f64) -> Option<Form> {
+            a.0 += s * b.0;
+            for (j, w) in b.1 {
+                match a.1.iter_mut().find(|t| t.0 == j) {
+                    Some(t) => t.1 += s * w,
+                    None => a.1.push((j, s * w)),
+                }
+            }
+            (a.1.len() <= MAX_TERMS).then_some(a)
+        }
+        fn scale(a: Form, s: f64) -> Form {
+            (a.0 * s, a.1.into_iter().map(|(j, w)| (j, w * s)).collect())
+        }
+        fn form(e: &Expr, known: &HashMap<VarId, Form>, p: &[f64]) -> Option<Form> {
+            match e {
+                Expr::Const(v) => Some((*v, vec![])),
+                Expr::Param(q) => p.get(q.0 as usize).map(|v| (*v, vec![])),
+                Expr::Var(v) => known.get(v).cloned(),
+                Expr::Neg(a) => form(a, known, p).map(|f| scale(f, -1.0)),
+                Expr::NoEvent(a) => form(a, known, p),
+                Expr::Binary(op, a, b) => {
+                    let (fa, fb) = (form(a, known, p)?, form(b, known, p)?);
+                    match op {
+                        BinaryOp::Add => add(fa, fb, 1.0),
+                        BinaryOp::Sub => add(fa, fb, -1.0),
+                        BinaryOp::Mul if fa.1.is_empty() => Some(scale(fb, fa.0)),
+                        BinaryOp::Mul if fb.1.is_empty() => Some(scale(fa, fb.0)),
+                        BinaryOp::Div if fb.1.is_empty() => Some(scale(fa, 1.0 / fb.0)),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            }
+        }
+        let mut known: HashMap<VarId, Form> = HashMap::new();
+        for (i, s) in self.y_slots.iter().take(n_x).enumerate() {
+            if let Slot::Var(v) = *s {
+                known.insert(v, (0.0, vec![(i, 1.0)]));
+            }
+        }
+        let mut out = vec![];
+        for (target, e) in &self.assign {
+            if let Slot::Var(v) = *target
+                && let Some(f) = form(e, &known, p)
+            {
+                if f.0.is_finite() && f.1.iter().all(|t| t.1.is_finite()) && !f.1.is_empty() {
+                    out.push(Affine { var: v, c: f.0, terms: f.1.clone() });
+                }
+                known.insert(v, f);
+            }
+        }
+        out
+    }
+}
+
+/// An assigned variable that is a constant plus a weighted sum of the
+/// states ([`MagInfo::affine_members`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Affine {
+    /// the variable
+    pub var: VarId,
+    /// the constant
+    pub c: f64,
+    /// (state index, weight)
+    pub terms: Vec<(usize, f64)>,
+}
+
+impl Affine {
+    /// Its value from the states `y`.
+    pub fn value(&self, y: &[f64]) -> f64 {
+        self.c + self.terms.iter().map(|&(j, w)| w * y[j]).sum::<f64>()
     }
 }
 
