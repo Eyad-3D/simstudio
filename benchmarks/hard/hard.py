@@ -96,18 +96,29 @@ def pinned(cmd: list[str]) -> list[str]:
 # fetch
 # ---------------------------------------------------------------------------
 
-def fetch(cache: Path) -> None:
-    for rel, url, digest in SOURCES:
-        p = cache / rel
-        if not (p.exists() and sha256(p) == digest):
-            p.parent.mkdir(parents=True, exist_ok=True)
-            tmp = p.with_suffix(".part")
+def get(cache: Path, rel: str, url: str, digest: str) -> Path:
+    """cache/rel, downloaded from url unless the cache holds it with this
+    SHA-256 already; a download that fails says where to put the file."""
+    p = cache / rel
+    if not (p.exists() and sha256(p) == digest):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(".part")
+        try:
             with urllib.request.urlopen(url, timeout=300) as r, open(tmp, "wb") as f:
                 shutil.copyfileobj(r, f)
-            got = sha256(tmp)
-            if got != digest:
-                sys.exit(f"{rel}: SHA-256 {got}, expected {digest}: changed upstream, not used")
-            tmp.replace(p)
+        except OSError as e:
+            sys.exit(f"{rel}: could not download it from {url} ({getattr(e, 'reason', e)}). "
+                     f"Put the file (SHA-256 {digest}) at {p} and run again.")
+        got = sha256(tmp)
+        if got != digest:
+            sys.exit(f"{rel}: SHA-256 {got}, expected {digest}: changed upstream, not used")
+        tmp.replace(p)
+    return p
+
+
+def fetch(cache: Path) -> None:
+    for rel, url, digest in SOURCES:
+        get(cache, rel, url, digest)
     ts = cache / TS_DIR
     if not ts.exists():
         with tarfile.open(cache / SOURCES[0][0]) as t:
@@ -826,14 +837,7 @@ def sundials_c(cache: Path, work: Path) -> list[dict]:
     CVODES and IDAS, its mathematics lsim-math's: the static library
     `sundials_c` of lsim-sundials-sys), runs each, and compares what it
     prints with its .out, line by line: every printed number and count."""
-    rel, url, digest = SUNDIALS_TGZ
-    tgz = cache / rel
-    if not (tgz.exists() and sha256(tgz) == digest):
-        tgz.parent.mkdir(parents=True, exist_ok=True)
-        with urllib.request.urlopen(url, timeout=300) as r, open(tgz, "wb") as f:
-            shutil.copyfileobj(r, f)
-        if sha256(tgz) != digest:
-            sys.exit(f"{rel}: changed upstream, not used")
+    tgz = get(cache, *SUNDIALS_TGZ)
     base = work / "sundials"
     src, build, prefix = base / "src", base / "build", base / "install"
     # (CMAKE, else one on the PATH, else pip's next to this Python)

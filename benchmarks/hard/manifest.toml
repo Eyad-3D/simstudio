@@ -411,3 +411,8 @@ why = "The registered wording could not be met as written (printed precision) an
 date = "2026-11-13"
 what = "sundials_ours, after its first run (R16): each run ends at the time the example's solver returned, unrounded (the example run as shipped with each return time printed in full), not at the .out's rounded time; idaSlCrank_dns's rows (no '|' column) are read."
 why = "R16 ran to the printed times, which idasAkzoNob_dns rounds to 3 digits (1.12e-06 for 1.1237e-06): its y3, which grows in proportion to t there, then missed by 0.3 %, a harness error, not the engine's. idaSlCrank_dns's rows were not read at all. The allowances are unchanged."
+
+[[changes]]
+date = "2026-11-13"
+what = "Correction to the change above that drops SciMLBenchmarks.jl: its reason covers the equations only. SciMLBenchmarks' reference solutions, computed by its own solvers, are an outside judge of their own in the roadmap (step 3, item 4), and they are dropped with it. Its sentence that they 'would only repeat the test set's' was not checked. The outside judges of phase 1 are the test set's own reference solutions, RADAU5, DASSL and PSIDE built and run here, and SUNDIALS' .out files."
+why = "Fix round 2 (check-step3-hard-1, N2): the owner decides whether the independent references are wanted; adding them needs Julia and SciMLBenchmarks' own runs."
