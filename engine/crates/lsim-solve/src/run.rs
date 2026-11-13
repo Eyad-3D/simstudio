@@ -3846,6 +3846,19 @@ fn run_watched<'a>(
     let mut acc = vec![0.0; n];
     let mut ymax: Vec<f64> = y.iter().map(|v| v.abs()).collect();
     let mut yk = vec![0.0; n];
+    // the states the equations keep at or above zero, watched for a step
+    // that ends with one clearly below it (beyond its error weight): the
+    // solution has then left the region the equations keep it in (a
+    // tolerance far above a vanishing concentration lets one turn negative,
+    // and Robertson's reaction then grows without bound), and the run says
+    // so. The proof ([`crate::info::MagInfo::kept_nonnegative`]) is made at
+    // the first such step, in no other run; off where states jump
+    // (impulses), after a change of the parameters and once the states are
+    // chosen again
+    let start_nonneg: Vec<bool> = y[..l.n_x].iter().map(|v| *v >= 0.0).collect();
+    let mut signs_on = info.impulse.is_none() && info.mag.is_some();
+    let mut kept_nonneg: Option<Vec<bool>> = None;
+    let mut below: Vec<Option<(String, f64, f64)>> = vec![None; l.n_x];
 
     if !info.time_tables.is_empty() {
         lp.schedule_breaks(t, false);
@@ -4002,6 +4015,7 @@ fn run_watched<'a>(
                 kind: EventKind::States(sw_k),
             });
             switches += 1;
+            signs_on = false;
             if switch_notes.len() < 20 {
                 switch_notes.push(format!("at t = {t:.9} s, {label}"));
             }
@@ -4193,6 +4207,21 @@ fn run_watched<'a>(
         let mut st = if same { Step::Stopped(t_stop) } else { integ.step(t_stop)? };
         if !same {
             lp.steps += 1;
+            // (the integrators' own limit counts the steps of one call, and
+            // the run calls them a step at a time: the run counts them)
+            if lp.steps > opts.max_steps {
+                return Err(SolveError::Integrator {
+                    t: st.time(),
+                    message: format!(
+                        "{} took {} steps without reaching the run's end at {t_end} s (the \
+                         limit of steps, max_steps): the model needs steps far shorter than \
+                         its time scale here (a stiffness or a chatter the method cannot \
+                         step over), or the tolerance is tighter than it can reach",
+                        integ.name(),
+                        opts.max_steps
+                    ),
+                });
+            }
         }
         // steps that leave the time where it was (shorter than its
         // resolution here, which the integrators take for steps all the
@@ -4359,6 +4388,25 @@ fn run_watched<'a>(
                 }
                 let tol = opts.rtol * yv[i].abs() + opts.atol * info.y_nominal[i];
                 acc[i] += local[i] * tol;
+            }
+        }
+        if signs_on && !same {
+            let yv = integ.y();
+            for i in 0..l.n_x {
+                if let Some(b) = below[i].as_mut() {
+                    b.2 = b.2.min(yv[i]);
+                    continue;
+                }
+                let floor = -(opts.rtol * ymax[i] + opts.atol * info.y_nominal[i]);
+                if start_nonneg[i] && yv[i] < floor {
+                    let kept = kept_nonneg.get_or_insert_with(|| {
+                        info.mag.as_ref().map_or_else(Vec::new, |m| m.kept_nonnegative(l.n_x, p))
+                    });
+                    if kept.get(i) == Some(&true) {
+                        let name = info.y_names.get(i).cloned().unwrap_or_default();
+                        below[i] = Some((name, t_new, yv[i]));
+                    }
+                }
             }
         }
 
@@ -4980,6 +5028,7 @@ fn run_watched<'a>(
                             report.edits.push((from, t, own));
                         }
                         params_changed = true;
+                        signs_on = false;
                         changed = true;
                     }
                     None if !edits_full => {
@@ -5218,6 +5267,16 @@ fn run_watched<'a>(
         report.mixed_scanned += m.scanned;
     }
     report.warnings.append(&mut lp.warnings);
+    for (name, tb, low) in below.into_iter().flatten() {
+        report.warnings.push(format!(
+            "{name} went below zero at t = {tb:.6} s (down to {low:.3e}), though the model's \
+             equations keep it at or above zero: the solution left the region they keep it in, \
+             so the result is wrong by more than the tolerance from there on. A smaller \
+             absolute tolerance (now {:.1e} times its nominal value) may keep it there; the \
+             10× tighter check shows how far the result moves",
+            opts.atol
+        ));
+    }
     if let Some(e) = &energy {
         report.notes.push(e.summary());
         if !e.error_controlled {

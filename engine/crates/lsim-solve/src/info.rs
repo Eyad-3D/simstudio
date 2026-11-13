@@ -647,6 +647,87 @@ pub struct MagInfo {
     pub u_vars: Vec<VarId>,
 }
 
+impl MagInfo {
+    /// Per state (the first `n_x` of y): whether its equations keep it at or
+    /// above zero once it starts there. That holds for the states of a set
+    /// whose rate is never negative where the state is zero and the set's
+    /// other states are not negative, whatever the rest (iteration
+    /// variables, discrete values, inputs, time) is: the region where the
+    /// set is not negative is then one the solution cannot leave (a
+    /// quasi-positive system, as chemical kinetics is). Each rate is
+    /// bounded by interval arithmetic rounded outwards over the
+    /// assignments, with the parameters `p` as they are: a proof, not a
+    /// sample. A state whose rate comes from the residuals, or whose bound
+    /// reaches below zero, is not kept; the set shrinks until the rest
+    /// hold.
+    pub fn kept_nonnegative(&self, n_x: usize, p: &[f64]) -> Vec<bool> {
+        use lsim_ir::interval::{ALL, Iv, J2, ZERO, binary_j2, call_j2};
+        fn bound(e: &Expr, env: &HashMap<VarId, Iv>, p: &[f64]) -> Iv {
+            let k = |e: &Expr| J2::konst(bound(e, env, p));
+            match e {
+                Expr::Const(v) => Iv::point(*v),
+                Expr::Param(q) => p.get(q.0 as usize).map_or(ALL, |v| Iv::point(*v)),
+                Expr::Var(v) => env.get(v).copied().unwrap_or(ALL),
+                Expr::Neg(a) => bound(a, env, p).neg(),
+                Expr::NoEvent(a) => bound(a, env, p),
+                Expr::Binary(op, a, b) => binary_j2(*op, k(a), k(b)).v,
+                Expr::If(_, a, b) => bound(a, env, p).hull(bound(b, env, p)),
+                Expr::Call(f, args) => call_j2(*f, &args.iter().map(k).collect::<Vec<_>>()).v,
+                // (time, derivatives, discrete values before an event,
+                // tables, truth values: anything)
+                _ => ALL,
+            }
+        }
+        let states: Vec<VarId> = self.y_slots[..n_x.min(self.y_slots.len())]
+            .iter()
+            .map(|s| match *s {
+                Slot::Var(v) | Slot::Der(v) => v,
+            })
+            .collect();
+        let mut kept = vec![true; states.len()];
+        loop {
+            let mut dropped = false;
+            for i in 0..states.len() {
+                if !kept[i] {
+                    continue;
+                }
+                let mut env: HashMap<VarId, Iv> = HashMap::new();
+                for (j, v) in states.iter().enumerate() {
+                    let b = if j == i {
+                        ZERO
+                    } else if kept[j] {
+                        Iv::new(0.0, f64::INFINITY)
+                    } else {
+                        ALL
+                    };
+                    env.insert(*v, b);
+                }
+                let mut rate = None;
+                for (target, e) in &self.assign {
+                    match *target {
+                        Slot::Der(v) if v == states[i] => {
+                            rate = Some(bound(e, &env, p));
+                            break;
+                        }
+                        Slot::Var(v) => {
+                            let b = bound(e, &env, p);
+                            env.insert(v, b);
+                        }
+                        Slot::Der(_) => {}
+                    }
+                }
+                if !rate.is_some_and(|r| r.lo >= 0.0) {
+                    kept[i] = false;
+                    dropped = true;
+                }
+            }
+            if !dropped {
+                return kept;
+            }
+        }
+    }
+}
+
 /// A table read at an argument that moves with the states (DESIGN.md
 /// §8.2), held in its cells or stepped over.
 #[derive(Clone, Debug, PartialEq)]
