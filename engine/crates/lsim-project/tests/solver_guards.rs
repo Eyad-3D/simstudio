@@ -43,6 +43,19 @@ equation
   s1 * der(z) = 1;
 end Fed;
 
+model Amplified "x's rate is 1e8 times the balance m = a - b, which goes slightly below zero (b = 1e-6 t) and takes x rightly below zero"
+  parameter Real s1(unit = "s") = 1;
+  Real x(start = 0, fixed = true);
+  Real a(start = 0, fixed = true);
+  Real b(start = 0, fixed = true);
+  Real m;
+equation
+  m = a - b;
+  s1 * der(x) = 1e8 * m;
+  s1 * der(a) = 0;
+  s1 * der(b) = 1e-6;
+end Amplified;
+
 model Falling "a state its equations take below zero"
   Real x(start = 1, fixed = true);
 equation
@@ -129,6 +142,13 @@ fn a_balance_of_the_states_joins_the_proof_while_it_stays_at_or_above_zero() {
     let r = run("Fed", &tol(1e-6), 4.0).unwrap();
     let x = r.names.iter().position(|n| n == "x").unwrap();
     assert!(r.values[x].last().unwrap() < &-0.5, "{:?}", r.values[x]);
+    assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
+    // nor one that is slightly below zero, well within its error weights,
+    // when a rate multiplies it many times (m = -1e-6 t, x = -50 t²: the
+    // ring modulator's y2 in miniature)
+    let r = run("Amplified", &tol(1e-6), 1.0).unwrap();
+    let x = r.names.iter().position(|n| n == "x").unwrap();
+    assert!(r.values[x].last().unwrap() < &-10.0, "{:?}", r.values[x]);
     assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
 }
 

@@ -3856,9 +3856,13 @@ fn run_watched<'a>(
     // (impulses), after a change of the parameters and once the states are
     // chosen again. A balance of the states (Robertson's third species as
     // `1 - y1 - y2`) that starts at or above zero joins the proof as not
-    // negative while every step ends with it at or above its own floor; one
-    // that goes below leaves it for the rest of the run (the states it kept
-    // may then go below zero rightly), and the proof is made again
+    // negative while every step ends with it at or above zero (up to the
+    // rounding of its sum); one that goes below leaves it for the rest of
+    // the run (the states it kept may then go below zero rightly), and the
+    // proof is made again. Not up to the tolerance: a rate can multiply a
+    // member's slight negative value many times over (the ring modulator's
+    // y2, whose rate is a sum of currents over 1.6e-8, went below zero
+    // rightly while that sum stayed within its error weights)
     let start_nonneg: Vec<bool> = y[..l.n_x].iter().map(|v| *v >= 0.0).collect();
     let mut signs_on = info.impulse.is_none() && info.mag.is_some();
     let mut members: Vec<crate::info::Affine> = match &info.mag {
@@ -4402,12 +4406,8 @@ fn run_watched<'a>(
         if signs_on && !same {
             let yv = integ.y();
             members.retain(|a| {
-                let floor: f64 = a
-                    .terms
-                    .iter()
-                    .map(|&(j, w)| w.abs() * (opts.rtol * ymax[j] + opts.atol * info.y_nominal[j]))
-                    .sum();
-                a.value(yv) >= -floor
+                let size = a.c.abs() + a.terms.iter().map(|&(j, w)| (w * yv[j]).abs()).sum::<f64>();
+                a.value(yv) >= -8.0 * f64::EPSILON * size
             });
             for i in 0..l.n_x {
                 if let Some(b) = below[i].as_mut() {

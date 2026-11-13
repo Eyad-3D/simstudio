@@ -613,7 +613,10 @@ loose absolute tolerance, which upstream CVODE shares, was silent). Fix
 round 2: a variable the model sets to a constant plus a weighted sum of
 the states (Robertson's third species as 1 - y1 - y2, SUNDIALS'
 idaRoberts form, whose blow-up stayed silent) joins the proof as not
-negative while every step ends with it at or above its own floor, and
-leaves it for the rest of the run once one does not; the warning says the
+negative while every step ends with it at or above zero (up to the
+rounding of its sum, not the tolerance: a first try with the tolerance
+told the ring modulator's y2 falsely, its rate being such a sum over
+1.6e-8), and leaves it for the rest of the run once one does not; the
+warning says the
 result may be wrong from that step, not that it is. Integration is
 unchanged (`tests/solver_guards.rs`).
