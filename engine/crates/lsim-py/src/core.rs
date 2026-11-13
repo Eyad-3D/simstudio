@@ -59,6 +59,9 @@ fn solve_failure(e: &SolveError) -> Failure {
         SolveError::Assert { .. } => ("RUN-ASSERT", vec![]),
         SolveError::Block { block, .. } => ("RUN-BLOCK", vec![block.clone()]),
         SolveError::Memory { .. } => ("RUN-MEMORY", vec![]),
+        SolveError::TimeLimit { .. } => ("RUN-TIME-LIMIT", vec![]),
+        SolveError::NotFinite { .. } => ("RUN-NOT-FINITE", vec![]),
+        SolveError::MemoryLimit { .. } => ("RUN-MEMORY-LIMIT", vec![]),
         SolveError::NoBackend => ("RUN-NO-BACKEND", vec![]),
     };
     let mut d = Diagnostic::error(code, e.to_string());
@@ -597,6 +600,14 @@ pub struct RunOptions {
     /// parameter changes at times of their own (`(t, the whole vector)`,
     /// [`params_after`] gives it): a run's live changes made again
     pub edits: Vec<(f64, Vec<f64>)>,
+    /// the longest each run may take by the wall clock, s (an acceleration
+    /// test's second run has its own); `None`: no limit. A run over it
+    /// fails `RUN-TIME-LIMIT`
+    pub time_limit: Option<f64>,
+    /// the most bytes a run's recorded results may take: a grid that
+    /// would take more is refused before the run, and a run whose events
+    /// would fails `RUN-MEMORY-LIMIT`
+    pub memory_limit: f64,
 }
 
 /// The most output points a run records.
@@ -622,6 +633,8 @@ impl Default for RunOptions {
             windows: vec![],
             control: None,
             edits: vec![],
+            time_limit: None,
+            memory_limit: MAX_RESULT_BYTES,
         }
     }
 }
@@ -643,6 +656,10 @@ impl RunOptions {
         if let Some(v) = self.t_end {
             positive("t_end", v)?;
         }
+        if let Some(v) = self.time_limit {
+            positive("time_limit", v)?;
+        }
+        positive("memory_limit", self.memory_limit)?;
         if let Some(tr) = &self.trace {
             positive("trace_step", tr.step)?;
         }
@@ -655,18 +672,23 @@ impl RunOptions {
     /// Whether the output grid from 0 to `t_end` every `output_step` (the
     /// caller's or the case's own) has at most [`MAX_OUTPUT_POINTS`] and
     /// its results for `variables` recorded variables take at most
-    /// [`MAX_RESULT_BYTES`].
-    pub fn check_grid(t_end: f64, output_step: f64, variables: usize) -> Result<(), Failure> {
+    /// `memory_limit` bytes.
+    pub fn check_grid(
+        t_end: f64,
+        output_step: f64,
+        variables: usize,
+        memory_limit: f64,
+    ) -> Result<(), Failure> {
         let points = (t_end / output_step).ceil() + 1.0;
         let bytes = points * variables as f64 * 4.0 * 8.0;
-        if points.is_nan() || points > MAX_OUTPUT_POINTS || bytes > MAX_RESULT_BYTES {
+        if points.is_nan() || points > MAX_OUTPUT_POINTS || bytes > memory_limit {
             return Err(Failure::Value(format!(
                 "An output every {output_step} s up to {t_end} s makes {points:.3e} output points, \
                  whose results ({variables} variables' value, min, max and mean at each) would \
                  take {:.3} GB; a run records at most {MAX_OUTPUT_POINTS:.0e} points and {:.0} GB: \
                  give a larger output_step or a shorter t_end.",
                 bytes / 1e9,
-                MAX_RESULT_BYTES / 1e9
+                memory_limit / 1e9
             )));
         }
         Ok(())
@@ -1089,9 +1111,10 @@ pub fn run(
         let run = &built.rep.run;
         let t_end = o.t_end.unwrap_or(run.duration);
         let output_step = o.output_step.unwrap_or_else(|| run.output_dt());
-        RunOptions::check_grid(t_end, output_step, built.model.info.var_names.len())?;
+        let vars = built.model.info.var_names.len();
+        RunOptions::check_grid(t_end, output_step, vars, o.memory_limit)?;
         if let Some(tr) = &o.trace {
-            RunOptions::check_grid(t_end, tr.step, tr.channels.len())?;
+            RunOptions::check_grid(t_end, tr.step, tr.channels.len(), o.memory_limit)?;
         }
         // the run's control: the caller's, or one for the changes at times
         // of their own alone. An acceleration test that runs again to its
@@ -1115,6 +1138,9 @@ pub fn run(
             trace: o.trace.clone(),
             windows: o.windows.clone(),
             control: ctl.clone().map(|c| c as Arc<dyn RunControl>),
+            // (RunOptions::check: both finite and positive)
+            time_limit: o.time_limit.and_then(|s| Duration::try_from_secs_f64(s).ok()),
+            memory_limit: Some(o.memory_limit as usize),
             ..Default::default()
         };
         let scripts = std::cell::RefCell::new(vec![]);

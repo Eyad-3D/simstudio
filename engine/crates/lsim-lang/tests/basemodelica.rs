@@ -1117,3 +1117,36 @@ fn an_imported_model_prints_and_parses_back() {
         assert_eq!(back, vec![def], "{printed}");
     }
 }
+
+/// A variable the integrator never sees (an output of the states) that is
+/// not a number is no result: the run stops with `NotFinite`, naming it,
+/// where the model divides by zero (step 3 fuzzing: a run reported
+/// `E_L = L / 0 * i^2` as NaN and inf, and succeeded).
+#[test]
+fn a_variable_that_is_not_a_number_stops_the_run() {
+    let text = r#"package M
+  model M
+    parameter Real L(unit = "H") = 5.0e-4;
+    parameter Real tau(unit = "s") = 1;
+    Real i(unit = "A", start = 1, fixed = true);
+    Real E_L(unit = "J");
+  equation
+    der(i) = -i / tau;
+    E_L = L / 0 * i ^ 2;
+  end M;
+end M;
+"#;
+    let def = basemodelica::import(text).unwrap_or_else(|e| panic!("import:\n{}", Report(&e)));
+    let prepared = lsim_prep::prepare(&Library::default(), &def, &PrepOptions::default())
+        .unwrap_or_else(|d| panic!("prepare: {d:#?}"));
+    let jit = lsim_codegen::compile(&prepared, &CodegenOptions::default()).expect("compile");
+    let info = RunInfo::from_prepared(&prepared);
+    let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 };
+    match lsim_solve::simulate(&jit, &info, &SolverOptions::default(), grid, &mut []) {
+        Err(lsim_solve::SolveError::NotFinite { t, message }) => {
+            assert_eq!(t, 0.0, "{message}");
+            assert!(message.contains("E_L") && message.contains("infinite"), "{message}");
+        }
+        other => panic!("{:?}", other.map(|r| r.values)),
+    }
+}

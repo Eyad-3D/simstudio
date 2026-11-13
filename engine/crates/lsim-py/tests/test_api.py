@@ -325,7 +325,8 @@ def test_diagnose_clean_model():
 
 def test_bad_run_arguments(bev):
     for kw in ({"rtol": 0.0}, {"atol": -1.0}, {"output_step": 0.0}, {"t_end": -5.0},
-               {"rtol": float("nan")}):
+               {"rtol": float("nan")}, {"time_limit": 0.0}, {"time_limit": float("nan")},
+               {"memory_limit": -1.0}, {"memory_limit": float("inf")}):
         with pytest.raises(ValueError, match="positive number"):
             bev.simulate(**kw)
 
@@ -404,6 +405,38 @@ def test_results_too_large_for_memory_never_abort_the_interpreter():
     assert lines[-1] == "done" and len(lines) == 10, done.stdout
     assert all(x.split()[0] in ("read", "memory") for x in lines[2:-1]), done.stdout
     assert any(x.startswith("memory") for x in lines[2:-1]), done.stdout
+
+
+def test_a_run_over_its_time_limit_fails_with_a_code():
+    """`time_limit` (s, wall clock): a run that takes longer stops where it
+    is with RUN-TIME-LIMIT, naming the limit and the time it reached; the
+    hybrid car's controller made slow (a function that sleeps 20 ms a
+    tick, over 2 minutes for the cycle without the limit)."""
+    model = le.build(HYBRID, "case-mixed")
+    step = _compiled_hcu()
+
+    def slow(t, dt, inputs):
+        time.sleep(0.02)
+        return step(t, dt, inputs)
+
+    started = time.monotonic()
+    with pytest.raises(le.ModelError) as e:
+        model.simulate(scripts={"el-hcu": slow}, native_scripts=False, time_limit=0.5)
+    assert time.monotonic() - started < 10.0
+    d = e.value.diagnostics[0]
+    assert d["code"] == "RUN-TIME-LIMIT", d
+    assert "time limit of 0.5 s" in d["message"], d
+
+
+def test_a_grid_over_its_memory_limit_is_refused(bev, bev_run):
+    """`memory_limit` (bytes, default 4 GB): a grid whose results would take
+    more is refused before the run; within it, the run is the same."""
+    with pytest.raises(ValueError, match="GB"):
+        bev.simulate(memory_limit=1e6)
+    run = bev.simulate(memory_limit=1e10, time_limit=600.0)
+    assert np.array_equal(run.times, bev_run.times)
+    for name, values in bev_run.channels.items():
+        assert np.array_equal(run.channels[name], values, equal_nan=True), name
 
 
 def test_no_panics_for_plain_mistakes(bev):

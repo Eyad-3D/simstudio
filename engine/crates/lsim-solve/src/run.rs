@@ -3577,6 +3577,33 @@ fn run_watched<'a>(
     let (mut model, mut info) = (model0, info0);
     let mut l = *model.layout();
     let mut n = l.n_y();
+    // the run's limits (SolverOptions::time_limit, memory_limit): the
+    // memory its record on the grid and the trace's times takes, checked
+    // before anything is made
+    let deadline = opts.time_limit.and_then(|d| started.checked_add(d));
+    let recorded = opts.record.as_ref().map_or(l.n_vars, |r| r.len());
+    let record_bytes = (grid.intervals() + 1.0) * 8.0 * (4.0 * recorded as f64 + 1.0)
+        + opts.trace.as_ref().map_or(0.0, |tr| {
+            let g = OutputGrid { dt: tr.step, ..grid };
+            (g.intervals() + 1.0) * 8.0 * (tr.channels.len() as f64 + 1.0)
+        });
+    if let Some(limit) =
+        opts.memory_limit.filter(|&m| record_bytes.is_nan() || record_bytes > m as f64)
+    {
+        return Err(SolveError::MemoryLimit {
+            t: grid.t0,
+            message: format!(
+                "what it would record ({recorded} channels' value, min, max and mean every {} s \
+                 from {} s to {} s) takes {:.3} GB, more than its memory limit of {:.3} GB: give \
+                 a larger output step, a shorter run or fewer channels",
+                grid.dt,
+                grid.t0,
+                grid.t_end,
+                record_bytes / 1e9,
+                limit as f64 / 1e9
+            ),
+        });
+    }
     let times = grid.times()?;
     let t_end = grid.t_end;
     tables_given(model, info, opts, grid.t0)?;
@@ -4032,6 +4059,32 @@ fn run_watched<'a>(
             Some(i) => i,
             None => &mut *integ0,
         };
+        // the run's limits: its time, and the memory its events add
+        if deadline.is_some_and(|d| Instant::now() >= d) {
+            return Err(SolveError::TimeLimit {
+                t,
+                message: format!(
+                    "it took longer than its time limit of {} s (wall clock) and had reached \
+                     t = {t} s of {t_end} s",
+                    opts.time_limit.unwrap_or_default().as_secs_f64()
+                ),
+            });
+        }
+        if let Some(limit) = opts.memory_limit {
+            // ponytail: an event's label counted as 64 bytes, not its own length
+            let each = std::mem::size_of::<EventRecord>() + 64;
+            if record_bytes + (lp.events.len() * each) as f64 > limit as f64 {
+                return Err(SolveError::MemoryLimit {
+                    t,
+                    message: format!(
+                        "its {} events and what it records would take more than its memory \
+                         limit of {:.3} GB",
+                        lp.events.len(),
+                        limit as f64 / 1e9
+                    ),
+                });
+            }
+        }
         // the run's control: the point reached and the output points new
         // since, whether to stop here, the parameter changes asked for
         // (one with no time at the next output time: a grid point is never

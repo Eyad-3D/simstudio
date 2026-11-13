@@ -4805,3 +4805,91 @@ fn a_live_change_is_an_event_at_the_next_output_time_and_made_again_exactly() {
     assert!(run.report.edits.is_empty());
     assert_eq!(run.values[1][10], 1.0);
 }
+
+/// A run's time limit (SolverOptions::time_limit) stops it where it is,
+/// with a coded error that says how far it got: a model whose sampled
+/// block takes 2 ms a tick, 100 000 ticks (over 3 minutes without it).
+#[test]
+fn a_run_over_its_time_limit_stops_with_a_time_limit_error() {
+    let (model, mut info) = held_dae();
+    info.blocks = vec![block(vec![0], vec![0], 0.01)];
+    for backend in backends() {
+        let opts = SolverOptions {
+            backend,
+            time_limit: Some(std::time::Duration::from_millis(300)),
+            ..Default::default()
+        };
+        let mut blocks: Vec<Box<dyn DiscreteBlock>> = vec![Box::new(Sampled {
+            period: 0.01,
+            offset: 0.0,
+            law: |t, _, o| {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+                o[0] = t
+            },
+        })];
+        let grid = OutputGrid { t0: 0.0, t_end: 1000.0, dt: 1.0 };
+        let started = std::time::Instant::now();
+        let e = simulate(&model, &info, &opts, grid, &mut blocks).expect_err("over its limit");
+        let took = started.elapsed().as_secs_f64();
+        match &e {
+            SolveError::TimeLimit { t, message } => {
+                assert!(*t > 0.0 && *t < 1000.0, "{backend:?}: {e}");
+                assert!(message.contains("time limit of 0.3 s"), "{backend:?}: {e}");
+            }
+            _ => panic!("{backend:?}: {e}"),
+        }
+        assert!(took < 5.0, "{backend:?}: stopped after {took} s");
+    }
+}
+
+/// A run's memory limit (SolverOptions::memory_limit): an output grid
+/// whose record would take more is refused before the run (nothing is
+/// made), and a run whose events would take more stops where they do.
+/// Within the limit, the run is the same as without one.
+#[test]
+fn a_run_over_its_memory_limit_is_refused_with_a_memory_limit_error() {
+    let (model, mut info) = held_dae();
+    info.blocks = vec![block(vec![0], vec![0], 0.001)];
+    let law = |t: f64, _: &[f64], o: &mut [f64]| o[0] = t;
+    let blocks = || -> Vec<Box<dyn DiscreteBlock>> {
+        vec![Box::new(Sampled { period: 0.001, offset: 0.0, law })]
+    };
+    for backend in backends() {
+        // 3 channels every 1e-9 s over 1000 s: 1.04e14 bytes, refused at
+        // the start (no grid of 1e12 times is made first)
+        let opts = SolverOptions { backend, memory_limit: Some(1 << 30), ..Default::default() };
+        let grid = OutputGrid { t0: 0.0, t_end: 1000.0, dt: 1e-9 };
+        let e = simulate(&model, &info, &opts, grid, &mut blocks()).expect_err("too large");
+        match &e {
+            SolveError::MemoryLimit { t, message } => {
+                assert_eq!(*t, 0.0, "{backend:?}: {e}");
+                assert!(message.contains("memory limit of 1.074 GB"), "{backend:?}: {e}");
+            }
+            _ => panic!("{backend:?}: {e}"),
+        }
+        // the grid's record takes 3 points × 13 numbers × 8 bytes; the
+        // events of 1000 ticks do not fit in 3000 bytes
+        let grid = OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.5 };
+        let opts = SolverOptions { backend, memory_limit: Some(3000), ..Default::default() };
+        let e = simulate(&model, &info, &opts, grid, &mut blocks()).expect_err("events");
+        match &e {
+            SolveError::MemoryLimit { t, message } => {
+                assert!(*t > 0.0 && *t < 1.0, "{backend:?}: {e}");
+                assert!(message.contains("events"), "{backend:?}: {e}");
+            }
+            _ => panic!("{backend:?}: {e}"),
+        }
+        // within its limits, the same run as without them
+        let free = SolverOptions { backend, ..Default::default() };
+        let bound = SolverOptions {
+            backend,
+            memory_limit: Some(1 << 30),
+            time_limit: Some(std::time::Duration::from_secs(600)),
+            ..Default::default()
+        };
+        let a = simulate(&model, &info, &free, grid, &mut blocks()).expect("free");
+        let b = simulate(&model, &info, &bound, grid, &mut blocks()).expect("bound");
+        assert_eq!(a.values, b.values, "{backend:?}");
+        assert_eq!(a.events.len(), b.events.len(), "{backend:?}");
+    }
+}

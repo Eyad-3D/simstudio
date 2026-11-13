@@ -138,6 +138,33 @@ pub enum SolveError {
         /// what was asked for
         message: String,
     },
+    /// The run took longer than its time limit
+    /// ([`SolverOptions::time_limit`]).
+    #[error("the run stopped at t = {t} s: {message}")]
+    TimeLimit {
+        /// where it was
+        t: f64,
+        /// the limit and how far the run got, in words
+        message: String,
+    },
+    /// A recorded channel is not a number (NaN) or infinite: never
+    /// reported as a result ([`simulate`]).
+    #[error("the run stopped at t = {t} s: {message}")]
+    NotFinite {
+        /// the first output time where a channel is not finite
+        t: f64,
+        /// which channel, in words
+        message: String,
+    },
+    /// What the run records would take more memory than its limit
+    /// ([`SolverOptions::memory_limit`]).
+    #[error("the run stopped at t = {t} s: {message}")]
+    MemoryLimit {
+        /// where it was (the start, for an output grid that is too large)
+        t: f64,
+        /// the limit and what would exceed it, in words
+        message: String,
+    },
     /// No integrator backend is compiled in.
     #[error("no integrator backend is built into this engine")]
     NoBackend,
@@ -230,6 +257,17 @@ pub struct SolverOptions {
     pub method: Method,
     /// give up after this many internal steps
     pub max_steps: u64,
+    /// stop the run with [`SolveError::TimeLimit`] once it has taken this
+    /// long by the wall clock, its initialisation included (checked at the
+    /// end of every step); `None`, the default: no limit
+    pub time_limit: Option<std::time::Duration>,
+    /// refuse the run with [`SolveError::MemoryLimit`] where what it records
+    /// would take more than this many bytes: every recorded channel's
+    /// value, min, max and mean at each output time and the trace's points
+    /// (checked before the run), and its events (checked along it);
+    /// `None`, the default: no limit (an allocation that fails is still
+    /// [`SolveError::Memory`])
+    pub memory_limit: Option<usize>,
     /// the linear solver
     pub linear_solver: LinearSolver,
     /// the integrator library
@@ -417,6 +455,8 @@ impl Default for SolverOptions {
             max_step: 0.0,
             method: Method::Auto,
             max_steps: 10_000_000,
+            time_limit: None,
+            memory_limit: None,
             linear_solver: LinearSolver::Auto,
             backend: Backend::Sundials,
             energy_books: true,
@@ -727,11 +767,17 @@ pub struct OutputGrid {
 }
 
 impl OutputGrid {
+    /// How many intervals the grid has (a float: a grid too large to hold
+    /// is still counted).
+    pub fn intervals(&self) -> f64 {
+        ((self.t_end - self.t0) / self.dt - 1e-9).ceil().max(0.0)
+    }
+
     /// The grid's times: from `t0` every `dt`, the last one `t_end`
     /// exactly (also when `n·dt` rounds a few ulps short of it). A grid
     /// whose times do not fit in memory is an error, not an abort.
     pub fn times(&self) -> Result<Vec<f64>, SolveError> {
-        let n = ((self.t_end - self.t0) / self.dt - 1e-9).ceil().max(0.0) as usize;
+        let n = self.intervals() as usize;
         let mut t = Vec::new();
         try_room(&mut t, n.saturating_add(1), || {
             format!(
@@ -1091,6 +1137,8 @@ pub fn simulate(
     };
     // (a run that fails after the start released a read says so)
     let result = result.map_err(|e| e.with_notes(&released));
+    // a channel that is not a number is no result
+    let result = result.and_then(|r| not_finite(&r).map_or(Ok(r), Err));
     result.map(|mut r| {
         r.report.notes.insert(0, format!("start: {}", start.what));
         for (i, note) in released.into_iter().enumerate() {
@@ -1110,6 +1158,35 @@ pub fn simulate(
             ));
         }
         r
+    })
+}
+
+/// The first recorded value (or minimum, maximum or mean over an output
+/// interval) that is NaN or infinite, as the run's error: a model's
+/// equation that divides by zero, or takes the square root or logarithm
+/// of a negative number, in a variable the integrator never sees (an
+/// output computed from the states).
+fn not_finite(r: &SimResult) -> Option<SolveError> {
+    let mut first: Option<(usize, usize, f64)> = None;
+    for c in 0..r.names.len() {
+        for col in [&r.values, &r.min, &r.max, &r.mean] {
+            let Some(v) = col.get(c) else { continue };
+            let end = first.map_or(v.len(), |(k, _, _)| k.min(v.len()));
+            if let Some(k) = v[..end].iter().position(|x| !x.is_finite()) {
+                first = Some((k, c, v[k]));
+            }
+        }
+    }
+    let (k, c, x) = first?;
+    let t = r.times.get(k).copied().unwrap_or(f64::NAN);
+    let what = if x.is_nan() { "is not a number (NaN)" } else { "is infinite" };
+    Some(SolveError::NotFinite {
+        t,
+        message: format!(
+            "the variable '{}' {what} at t = {t} s: one of its equations divides by zero, or \
+             takes the square root or logarithm of a negative number, there",
+            r.names[c]
+        ),
     })
 }
 
