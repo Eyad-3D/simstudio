@@ -618,7 +618,8 @@ def load_ours(work: Path, be: str, cid: str) -> dict:
 def score(work: Path, cache: Path | None = None) -> dict:
     man = tomllib.loads((HERE / "manifest.toml").read_text())
     table = {"cases": {}, "outside": {}}
-    for p in PROBLEMS:
+    probed = [p for p in PROBLEMS if (work / "probe" / f"{p}.json").exists()]  # (--only)
+    for p in probed:
         d = json.loads((work / "probe" / f"{p}.json").read_text())
         yref = d.get("yref")
         best, best_m = {}, {}
@@ -644,6 +645,8 @@ def score(work: Path, cache: Path | None = None) -> dict:
         if not (cid.startswith("ivp-") or cid.startswith("derived-")):
             continue
         p = cid[4:] if cid.startswith("ivp-") else DERIVED[cid][0]
+        if p not in probed or not (work / "cases" / f"{cid}.json").exists():
+            continue
         d = json.loads((work / "probe" / f"{p}.json").read_text())
         yref, n = d.get("yref"), d["neqn"]
         row = {"transcription": checks.get(f"ivp-{p}", {}).get("ok")}
@@ -782,6 +785,23 @@ def report(t: dict, work: Path) -> None:
             cells = [cell(row.get(be, {}).get(rt)) for be in BACKENDS]
             cells += [cell(out.get(s, {}).get(rt), s != "DASSL") for s in OUTSIDE]
             lines.append(f"| {rt:g} | " + " | ".join(cells) + " |")
+        lines.append("")
+    if (work / "sundials.json").exists():
+        lines += ["## SUNDIALS' C examples (criteria.sundials_c)", ""]
+        for r in json.loads((work / "sundials.json").read_text()):
+            lines.append(f"- {r['example']} ({r.get('copy', 'upstream')}): "
+                         + ("identical" if r["ok"] else f"{r.get('differ', '?')} lines differ "
+                            f"{r.get('first', r.get('why', ''))}"))
+        lines.append("")
+    if (work / "sun-ours.json").exists():
+        lines += ["## SUNDIALS' examples on ours (criteria.sundials_ours)", ""]
+        for m in json.loads((work / "sun-ours.json").read_text()):
+            chk = m.get("check", {})
+            lines.append(f"- {m['id']}: transcription "
+                         + ("MATCH" if chk.get("ok") else f"not right: {m.get('why') or chk}"))
+            for be, v in m.get("verdicts", {}).items():
+                lines.append(f"  - {be}: {'pass' if v['pass'] else 'FAIL'}"
+                             + "".join(f"\n    - {f}" for f in v["fails"][:4]))
         lines.append("")
     (work / "report.md").write_text("\n".join(lines))
     print("\n".join(lines[:6]), file=sys.stderr)
