@@ -4,8 +4,9 @@
 resolver = "3"
 members = ["crates/*"]
 # experiments/ hold one-off measurements with their own manifests and build
-# needs; they are not part of the engine.
-exclude = ["experiments"]
+# needs; they are not part of the engine. fuzz/ holds the fuzz targets
+# (cargo-fuzz on a nightly toolchain, benchmarks/fuzz/PLAN.md).
+exclude = ["experiments", "fuzz"]
 
 [workspace.package]
 version = "0.1.0"
