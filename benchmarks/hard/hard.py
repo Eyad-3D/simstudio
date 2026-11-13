@@ -22,7 +22,9 @@ and each stage alone:
 `all` builds the engine's runners first (cargo, release examples `judge` and
 `hard_eval` into CARGO_TARGET_DIR) and runs every stage in this order. CACHE
 and WORK are folders outside the repository. HARD_CPUS pins the runs
-(taskset), HARD_OURS names the folder of our runs.
+(taskset), HARD_OURS names the folder of our runs. Needs gfortran, a C
+compiler, cmake (CMAKE, the PATH's, or pip's next to this Python) and the
+engine's Rust toolchain.
 """
 from __future__ import annotations
 
@@ -814,7 +816,9 @@ def sundials_c(cache: Path, work: Path) -> list[dict]:
             sys.exit(f"{rel}: changed upstream, not used")
     base = work / "sundials"
     src, build, prefix = base / "src", base / "build", base / "install"
-    cmake = os.environ.get("CMAKE", "cmake")
+    # (CMAKE, else one on the PATH, else pip's next to this Python)
+    cmake = (os.environ.get("CMAKE") or shutil.which("cmake")
+             or str(Path(sys.executable).with_name("cmake")))
     if not (prefix / "lib").exists() and not (prefix / "lib64").exists():
         shutil.rmtree(base, ignore_errors=True)
         src.mkdir(parents=True)
