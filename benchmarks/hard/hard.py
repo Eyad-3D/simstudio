@@ -11,11 +11,18 @@ and each stage alone:
     transcribe CACHE WORK  each problem's feval run on symbols into a model (fortran.py)
     check WORK             every model's equations against the Fortran at the points (1e-13)
     outside CACHE WORK     RADAU5, DASSL and PSIDE from the test set at every tolerance
-    run WORK               ours: IDA (every block implicit) and diffsol at every tolerance
+    run WORK               ours: ida (every block implicit), diffsol and default (the
+                           engine's own choice) at every tolerance
+    sundials CACHE WORK    SUNDIALS 7.1.1's C examples, built against upstream and against
+                           the engine's own copy, against their .out files
+    sunours WORK           the same examples transcribed by script (csun.py), checked
+                           against their C functions, run on ours, against their .out
     score WORK             digits and counts against the manifest's expectations
 
-CACHE and WORK are folders outside the repository. The engine's runners come
-from CARGO_TARGET_DIR (release examples `judge` and `hard_eval`).
+`all` builds the engine's runners first (cargo, release examples `judge` and
+`hard_eval` into CARGO_TARGET_DIR) and runs every stage in this order. CACHE
+and WORK are folders outside the repository. HARD_CPUS pins the runs
+(taskset), HARD_OURS names the folder of our runs.
 """
 from __future__ import annotations
 
@@ -349,8 +356,8 @@ def target_dir() -> Path:
     return Path(os.environ.get("CARGO_TARGET_DIR", REPO / "engine" / "target")) / "release" / "examples"
 
 
-def check_one(work: Path, case_id: str) -> dict:
-    case = json.loads((work / "cases" / f"{case_id}.json").read_text())
+def check_one(work: Path, case_id: str, cases: str = "cases") -> dict:
+    case = json.loads((work / cases / f"{case_id}.json").read_text())
     d = json.loads((work / "probe" / f"{case['problem']}.json").read_text())
     n, kind = d["neqn"], d["type"]
     pts = d["points"]
@@ -360,14 +367,14 @@ def check_one(work: Path, case_id: str) -> dict:
     pf.parent.mkdir(parents=True, exist_ok=True)
     pf.write_text(json.dumps(feed))
     of = work / "check" / f"{case_id}.eval.json"
-    r = subprocess.run(pinned([str(target_dir() / "hard_eval"), str(work / "cases" / case["text"]),
+    r = subprocess.run(pinned([str(target_dir() / "hard_eval"), str(work / cases / case["text"]),
                                case["model"], str(pf), str(of)]), capture_output=True, text=True)
     if r.returncode:
         return {"id": case_id, "ok": False, "why": f"hard_eval: {r.stderr[-1500:]}"}
     ev = json.loads(of.read_text())
     # the Fortran's rows: lhs (M y', y' or 0) and rhs (f)
     worst, where, bad = 0.0, None, []
-    deps = term_deps(work / "cases" / case["text"])
+    deps = term_deps(work / cases / case["text"])
     fort = []
     for p in pts:
         lhs = []
@@ -612,7 +619,7 @@ def score(work: Path, cache: Path | None = None) -> dict:
     for p in PROBLEMS:
         d = json.loads((work / "probe" / f"{p}.json").read_text())
         yref = d.get("yref")
-        best = {}
+        best, best_m = {}, {}
         for solver in OUTSIDE:
             f = work / "outside" / solver / p / "result.json"
             if not f.exists():
@@ -623,9 +630,11 @@ def score(work: Path, cache: Path | None = None) -> dict:
                 if r["ok"] and yref:
                     r["scd"], r["mescd"] = digits(p, yref, r["y"])
                     best[r["rtol"]] = max(best.get(r["rtol"], -math.inf), r["scd"])
+                    best_m[r["rtol"]] = max(best_m.get(r["rtol"], -math.inf), r["mescd"])
                 rows[r["rtol"]] = {k: v for k, v in r.items() if k != "y"}
             table["outside"].setdefault(p, {})[solver] = rows
         table["outside"].setdefault(p, {})["best"] = best
+        table["outside"][p]["best_mescd"] = best_m
     checks = {c["id"]: c for c in json.loads((work / "check.json").read_text())} \
         if (work / "check.json").exists() else {}
     for c in man["case"]:
@@ -649,6 +658,7 @@ def score(work: Path, cache: Path | None = None) -> dict:
                 o["error"] = r.get("error") or None
                 o["warnings"] = [w["code"] for w in r.get("prepare_warnings", [])]
                 o["warning_parts"] = [w["parts"] for w in r.get("prepare_warnings", [])]
+                o["run_warnings"] = r.get("warnings") or []
                 if r.get("ok") and yref:
                     y = [r["final"].get(f"y{i + 1}") for i in range(n)]
                     o["scd"], o["mescd"] = digits(p, yref, y)
@@ -656,17 +666,19 @@ def score(work: Path, cache: Path | None = None) -> dict:
             row[be] = rows
             row[be + "_verdict"] = ({"pass": None, "fails": ["withdrawn (manifest changes)"], "notes": []}
                                     if cid in WITHDRAWN else
-                                    judge_case(c, be, rows, table["outside"].get(p, {}).get("best", {})))
+                                    judge_case(c, be, rows, table["outside"].get(p, {}).get("best", {}),
+                                               table["outside"].get(p, {}).get("best_mescd", {})))
         table["cases"][cid] = row
     (work / "score.json").write_text(json.dumps(table, indent=1, default=str))
     return table
 
 
-def judge_case(c: dict, be: str, rows: dict, best: dict) -> dict:
+def judge_case(c: dict, be: str, rows: dict, best: dict, best_mescd: dict | None = None) -> dict:
     """The manifest's expectation for one backend, applied: pass or the
     failures, each classed as the triage orders them."""
     exp = c.get("expect", {}).get(be, "") or c.get("expect", {}).get("ida", "")
     fails, notes = [], []
+    best_mescd = best_mescd or {}
     if not rows:
         return {"pass": None, "fails": ["not run"]}
     if exp == "result" or exp.endswith("then result"):
@@ -681,8 +693,16 @@ def judge_case(c: dict, be: str, rows: dict, best: dict) -> dict:
                 continue
             want = (best[rt] - 1) if rt in best and math.isfinite(best[rt]) else -math.log10(rt) - 3
             if sc < want:
-                kind = "silent wrong answer" if sc < 1 else "short of digits"
-                fails.append(f"{kind} at {rt:g}: scd {sc:.2f}, wanted {want:.2f}")
+                # (a run whose warnings name a variable of the problem told
+                # the user: not silent; the mixed digits beside the best
+                # outside solver's show whether the error lies in components
+                # far below the absolute tolerance)
+                told = any(re.search(r"\by\d+\b", w) for w in o.get("run_warnings", []))
+                kind = ("short of digits" if sc >= 1 else
+                        "wrong answer, warned" if told else "silent wrong answer")
+                fails.append(f"{kind} at {rt:g}: scd {sc:.2f}, wanted {want:.2f}; mescd "
+                             f"{o.get('mescd', math.nan):.2f}, best outside "
+                             f"{best_mescd.get(rt, math.nan):.2f}")
         s4, s10 = rows.get(1e-4, {}).get("scd"), rows.get(1e-10, {}).get("scd")
         if s4 is not None and s10 is not None and s10 - s4 < 3:
             fails.append(f"error does not fall with the tolerance: scd {s4:.2f} at 1e-4, {s10:.2f} at 1e-10")
@@ -718,7 +738,8 @@ def judge_case(c: dict, be: str, rows: dict, best: dict) -> dict:
                 fails.append(f"refusal {code} at {rt:g} does not name {part}")
                 break
             if among > 3:
-                notes.append(f"names {part} among {among} variables")
+                fails.append(f"refusal {code} at {rt:g} names {part} among {among} variables: "
+                             "it does not point at the planted part")
             break
     return {"pass": not fails, "fails": fails, "notes": notes}
 
@@ -726,16 +747,17 @@ def judge_case(c: dict, be: str, rows: dict, best: dict) -> dict:
 def report(t: dict, work: Path) -> None:
     """The scores as a table (WORK/report.md): each case's verdicts, then its
     work-precision rows (digits against steps, evaluations and LU)."""
-    def cell(o):
+    def cell(o, counts_lu=True):
         if not o:
             return "-"
         if not o.get("ok"):
             return f"FAIL {o.get('code') or o.get('stage') or o.get('error', '')[:30]}"
         sc = o.get("scd")
-        lu = o.get("lin_setups", o.get("lu"))
+        lu = o.get("lin_setups", o.get("lu")) if counts_lu else "n/c"
         return (f"{sc:.2f}" if sc is not None else "?") + f" / {o.get('steps')} / {o.get('rhs_evals')} / {lu}"
     lines = ["# Hard problems, phase 1", "",
-             "Cell: scd / steps / function evaluations / LU factorisations.", ""]
+             "Cell: scd / steps / function evaluations / LU factorisations (n/c: not counted; "
+             "DASSL counts none, the test set's report.f sets nlu = 0 for it).", ""]
     npass = {be: 0 for be in BACKENDS}
     for cid, row in t["cases"].items():
         for be in BACKENDS:
@@ -752,11 +774,11 @@ def report(t: dict, work: Path) -> None:
                          + ("".join(f"\n  - {f}" for f in v.get("fails", []))))
         out = t["outside"].get(p, {})
         lines.append("")
-        lines.append("| rtol | IDA | diffsol | RADAU5 | DASSL | PSIDE |")
-        lines.append("|---|---|---|---|---|---|")
+        lines.append("| rtol | " + " | ".join(BACKENDS) + " | " + " | ".join(OUTSIDE) + " |")
+        lines.append("|---" * (1 + len(BACKENDS) + len(OUTSIDE)) + "|")
         for rt in RTOLS:
             cells = [cell(row.get(be, {}).get(rt)) for be in BACKENDS]
-            cells += [cell(out.get(s, {}).get(rt)) for s in OUTSIDE]
+            cells += [cell(out.get(s, {}).get(rt), s != "DASSL") for s in OUTSIDE]
             lines.append(f"| {rt:g} | " + " | ".join(cells) + " |")
         lines.append("")
     (work / "report.md").write_text("\n".join(lines))
@@ -776,10 +798,12 @@ SUN_EXAMPLES = ["cvode/serial/cvRoberts_dns", "ida/serial/idaRoberts_dns",
 
 
 def sundials_c(cache: Path, work: Path) -> list[dict]:
-    """Builds upstream SUNDIALS 7.1.1 (CVODE, IDA, IDAS; the release the
-    engine vendors, without the engine's patch) and each example as
-    shipped, runs it, and compares what it prints with its .out, line by
-    line: every printed number and count."""
+    """Builds each example as shipped twice: against upstream SUNDIALS
+    7.1.1 (CVODE, IDA, IDAS; the release the engine vendors) and against
+    the engine's own copy (the vendored sources with the engine's patch,
+    CVODES and IDAS, its mathematics lsim-math's: the static library
+    `sundials_c` of lsim-sundials-sys), runs each, and compares what it
+    prints with its .out, line by line: every printed number and count."""
     rel, url, digest = SUNDIALS_TGZ
     tgz = cache / rel
     if not (tgz.exists() and sha256(tgz) == digest):
@@ -805,35 +829,284 @@ def sundials_c(cache: Path, work: Path) -> list[dict]:
                        check=True, stdout=subprocess.DEVNULL)
     lib = prefix / "lib" if (prefix / "lib").exists() else prefix / "lib64"
     libs = sorted(str(p) for p in lib.glob("libsundials_*.a"))
+    # the engine's own copy (vendored, patched, CVODES and IDAS, its
+    # mathematics lsim-math's) as one static library; the examples' cvode/
+    # and ida/ headers lead to cvodes/ and idas/, whose interface holds theirs
+    subprocess.run(pinned(["cargo", "build", "--release", "--locked", "-p", "lsim-sundials-sys",
+                           "--example", "sundials_c"]), cwd=REPO / "engine", check=True)
+    shim = base / "engine-include"
+    for h, to in (("cvode/cvode.h", "cvodes/cvodes.h"), ("ida/ida.h", "idas/idas.h")):
+        (shim / h).parent.mkdir(parents=True, exist_ok=True)
+        (shim / h).write_text(f"#include <{to}>\n")
+    vendored = REPO / "engine" / "crates" / "lsim-sundials-sys" / "sundials" / "include"
+    engine_lib = str(target_dir() / "libsundials_c.a")
     res = []
     for ex in SUN_EXAMPLES:
         c = src / "examples" / f"{ex}.c"
         shipped = (src / "examples" / f"{ex}.out").read_text()
-        d = base / "run" / Path(ex).name
-        d.mkdir(parents=True, exist_ok=True)
-        exe = d / "example"
         pkg = ex.split("/")[0]
         mine = [x for x in libs if Path(x).name.split("_")[1].split(".")[0]
                 not in ({"cvode", "ida", "idas"} - {pkg})]
-        b = subprocess.run(pinned(["cc", "-O2", "-I", str(prefix / "include"), str(c), "-o", str(exe),
-                                   "-Wl,--start-group"] + mine + ["-Wl,--end-group", "-lm"]),
-                           capture_output=True, text=True)
-        if b.returncode:
-            res.append({"example": ex, "ok": False, "why": b.stderr[-800:]})
-            continue
-        out = subprocess.run(pinned([str(exe)]), capture_output=True, text=True, timeout=600,
-                             cwd=d).stdout
-        (d / "printed.out").write_text(out)
-        a = [ln.rstrip() for ln in shipped.splitlines() if ln.strip()]
-        o = [ln.rstrip() for ln in out.splitlines() if ln.strip()]
-        diff = [(x, y) for x, y in zip(a, o) if x != y]
-        if len(a) != len(o):
-            diff.append((f"{len(a)} lines", f"{len(o)} lines"))
-        res.append({"example": ex, "ok": not diff, "lines": len(a), "differ": len(diff),
-                    "first": diff[:6]})
-        print(f"{ex}: {'identical' if not diff else f'{len(diff)} lines differ'}", file=sys.stderr)
+        builds = {
+            "upstream": ["-I", str(prefix / "include"), str(c), "-Wl,--start-group"] + mine
+            + ["-Wl,--end-group", "-lm"],
+            "engine": ["-I", str(shim), "-I", str(vendored), "-DSUNDIALS_STATIC_DEFINE", str(c),
+                       engine_lib, "-lm", "-lpthread", "-ldl"],
+        }
+        for copy, args in builds.items():
+            d = base / "run" / copy / Path(ex).name
+            d.mkdir(parents=True, exist_ok=True)
+            exe = d / "example"
+            b = subprocess.run(pinned(["cc", "-O2", "-o", str(exe)] + args), capture_output=True,
+                               text=True)
+            if b.returncode:
+                res.append({"example": ex, "copy": copy, "ok": False, "why": b.stderr[-800:]})
+                print(f"{ex} ({copy}): not built: {b.stderr[-300:]}", file=sys.stderr)
+                continue
+            out = subprocess.run(pinned([str(exe)]), capture_output=True, text=True, timeout=600,
+                                 cwd=d).stdout
+            (d / "printed.out").write_text(out)
+            a = [ln.rstrip() for ln in shipped.splitlines() if ln.strip()]
+            o = [ln.rstrip() for ln in out.splitlines() if ln.strip()]
+            diff = [(x, y) for x, y in zip(a, o) if x != y]
+            if len(a) != len(o):
+                diff.append((f"{len(a)} lines", f"{len(o)} lines"))
+            res.append({"example": ex, "copy": copy, "ok": not diff, "lines": len(a),
+                        "differ": len(diff), "first": diff[:6]})
+            print(f"{ex} ({copy}): {'identical' if not diff else f'{len(diff)} lines differ'}",
+                  file=sys.stderr)
     (work / "sundials.json").write_text(json.dumps(res, indent=1))
     return res
+
+
+def sun_model(cid: str, n: int, kind: str, rows, roots, quad, base: dict, phase, quad_atol):
+    """A SUNDIALS example's transcription as model text (fortran.model_text's
+    form): a vector absolute tolerance as nominal values (atol = rtol x
+    nominal), the quadrature a state, each root function's crossings either
+    way recorded at events, the main program's reset of the solution an
+    event."""
+    reads = {k for k in range(n) if any(f"der(y{k + 1})" in r for r in rows)}
+    fixed = [True] * n if kind == "ODE" else [k in reads for k in range(n)]
+    title = f"SUNDIALS 7.1.1 example {cid[4:]}, transcribed by script from its C source"
+    text, index = fortran.model_text(model_name(cid), title, n, kind, rows, [], None, base["y0"],
+                                     fixed)
+    rtol = base["rtol"]
+    if base.get("atol"):
+        for k, a in enumerate(base["atol"]):
+            text = re.sub(rf"(  Real y{k + 1}\(start = [^,]+, fixed = \w+)\)",
+                          rf"\1, nominal = {a / rtol!r})", text)
+    decl, eqs = [], []
+    if quad:
+        q0 = (base.get("q0") or [0.0])[0]
+        nom = f", nominal = {quad_atol / rtol!r}" if quad_atol else ""
+        decl.append(f"  Real q1(start = {q0!r}, fixed = true{nom});")
+        eqs.append(f"  s1 * der(q1) = {quad[0]};")
+    for j, g in enumerate(roots):
+        for way, rel in (("up", ">="), ("down", "<=")):
+            decl.append(f"  discrete Real r{j + 1}{way}(start = -1, fixed = true);")
+            eqs.append(f"  when ({g}) {rel} 0 then\n    r{j + 1}{way} = time / s1;\n  end when;")
+    if phase and phase.get("reset"):
+        t, v = phase["reset"]
+        eqs.append(f"  when time >= {t!r} * s1 then\n    reinit(y1, {v!r});\n  end when;")
+    text = text.replace("\nequation\n", "\n" + "".join(x + "\n" for x in decl) + "equation\n")
+    text = text.replace(f"\nend {model_name(cid)};", "\n" + "\n".join(eqs) + f"\nend {model_name(cid)};")
+    return text.replace("\n\n", "\n"), index
+
+
+def sun_ours(work: Path, only: list[str], jobs: int = 8) -> list[dict]:
+    """Each SUNDIALS example transcribed (csun), checked against its C
+    function at points near its start (1e-13, as the test set's), run on
+    every backend at the example's own tolerances to each time its .out
+    prints, and judged (criteria.sundials_ours, with the dated changes of
+    13 November: half a unit of the last printed digit allowed besides;
+    cvPendulum_dns on its errors at tf)."""
+    import csun  # noqa: PLC0415
+    from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+    sun, prefix = work / "sundials" / "src", work / "sundials" / "install"
+    (work / "suncases").mkdir(parents=True, exist_ok=True)
+    runner = target_dir() / "judge"
+    tasks, models = [], []
+    for name, ex in csun.EXAMPLES.items():
+        if only and name not in only:
+            continue
+        src_text = (sun / "examples" / f"{ex['path']}.c").read_text()
+        shown = csun.printed(name, ex, (sun / "examples" / f"{ex['path']}.out").read_text())
+        try:
+            base = csun.probe(sun, work / "sunprobe" / name, ex, None, prefix)
+        except csun.Unsupported as e:
+            models.append({"id": f"sun-{name}", "transcribed": False, "why": str(e)})
+            print(f"sun-{name}: NOT probed: {e}", file=sys.stderr)
+            continue
+        # the times the .out rounds, as the example's solver returned them
+        trace = base.get("trace", [])
+
+        def exact(t, th):
+            near = [x for x in trace if abs(x - t) <= th * (1 + 1e-9)]
+            return min(near, key=lambda x: abs(x - t)) if near else t
+        for secs in shown["models"].values():
+            for sec in secs.values():
+                sec["rows"] = [(exact(t, th), th, v) for t, th, v in sec["rows"]]
+                sec["roots"] = [(exact(t, th), th) for t, th in sec["roots"]]
+        n = len(base["y0"])
+        kind = "ODE" if ex["pkg"] == "cv" else "IDE"
+        defs = csun.defines(src_text)
+        quad_atol = float(re.sub(r"SUN_RCONST\((.*)\)", r"\1", defs["ATOLQ"])) if ex.get("quad") else None
+        for key, phase in (csun.PHASES.get(name) or {"main": None}).items():
+            cid = f"sun-{name}" + ("" if key == "main" else f"-{key}")
+            pts = []
+            for t_from, flag in (phase["flags"] if phase else [(base["t0"], "-")]):
+                t = base["t0"] if t_from <= base["t0"] else t_from + 0.5
+                for seed in (0, 1, 2, 3):
+                    r = random.Random(seed)
+                    mv = (lambda v: v) if seed == 0 else \
+                        (lambda v: v * (1 + 1e-3 * r.uniform(-1, 1)) + 1e-3 * r.uniform(-1, 1))
+                    pts.append({"t": t, "flag": flag, "seed": seed, "y": [mv(v) for v in base["y0"]],
+                                "yp": [mv(v) for v in (base["yp0"] or [0.0] * n)]})
+            try:
+                at = csun.probe(sun, work / "sunprobe" / name / key, ex, pts, prefix)
+                rows, roots, quad, _ = csun.transcribe(src_text, ex, n, phase)
+            except csun.Unsupported as e:
+                models.append({"id": cid, "transcribed": False, "why": str(e)})
+                print(f"{cid}: NOT transcribed: {e}", file=sys.stderr)
+                continue
+            for p, q in zip(pts, at["points"]):
+                p["f"], p["ierr"] = q["f"], 0
+                if kind == "ODE":
+                    p["yp"] = q["f"]
+            text, index = sun_model(cid, n, kind, rows, roots, quad, base, phase, quad_atol)
+            (work / "suncases" / f"{cid}.mo").write_text(text)
+            (work / "suncases" / f"{cid}.json").write_text(json.dumps(
+                {"text": f"{cid}.mo", "model": model_name(cid), "problem": cid, "rows": index,
+                 "notes": [], "type": kind, "n_w": 0}, indent=1))
+            (work / "probe" / f"{cid}.json").write_text(json.dumps(
+                {"type": kind, "neqn": n, "t": [base["t0"]], "y0": base["y0"], "yp0": base["yp0"],
+                 "mass": None, "points": pts}))
+            chk = check_one(work, cid, "suncases")
+            print(f"{cid}: transcription {'MATCH' if chk['ok'] else 'DIFFERS'} worst "
+                  f"{chk.get('worst')} {chk.get('why', '')} {chk.get('problems', '')}", file=sys.stderr)
+            m = {"id": cid, "transcribed": True, "check": chk, "n": n, "kind": kind,
+                 "rtol": base["rtol"], "atol": base.get("atol") or [base["satol"]] * n,
+                 "printed": shown["models"].get(key, {}), "quad": shown["quad"],
+                 "pendulum": shown["pendulum"], "ref": base.get("ref")}
+            models.append(m)
+            if not chk["ok"]:
+                continue
+            factor = 1.0 if base.get("atol") else base["satol"] / base["rtol"]
+            if ex["out"] == "pendulum":
+                ends = [(rt, 30.0) for rt in shown["pendulum"]]
+            else:
+                times = sorted({r[0] for sec in m["printed"].values() for r in sec["rows"]})
+                ends = [(base["rtol"], t) for t in times if t > base["t0"]]
+            for be in BACKENDS:
+                for rt, t_end in ends:
+                    tasks.append((cid, be, rt, t_end, factor if ex["out"] != "pendulum" else 1.0))
+
+    def go(task):
+        cid, be, rt, t_end, factor = task
+        d = work / "sunours" / be / cid
+        d.mkdir(parents=True, exist_ok=True)
+        case = {"text": str((work / "suncases" / f"{cid}.mo").resolve()), "model": model_name(cid),
+                "t0": 0.0, "t_end": t_end, "dt": t_end, "rtols": [rt], "atol_factor": factor,
+                "record": [], "repeat": 1, "options": BACKENDS[be]}
+        cf, of = d / f"{rt:g}-{t_end!r}.case.json", d / f"{rt:g}-{t_end!r}.json"
+        cf.write_text(json.dumps(case))
+        try:
+            r = subprocess.run(pinned([str(runner), str(cf), str(of)]), capture_output=True,
+                               text=True, timeout=600)
+            if r.returncode:
+                of.write_text(json.dumps({"stage": "crash", "error": r.stderr[-800:]}))
+        except subprocess.TimeoutExpired:
+            of.write_text(json.dumps({"stage": "hang", "error": "no answer within 600 s"}))
+        cf.unlink()
+        res = json.loads(of.read_text())
+        run = (res.get("runs") or [{}])[0]
+        return task, {"ok": bool(run.get("ok")), "final": run.get("final", {}),
+                      "events": run.get("event_times", []), "warnings": run.get("warnings", []),
+                      "error": run.get("error") or res.get("error"), "code": run.get("code")
+                      or [c.get("code") for c in res.get("codes") or []], "steps": run.get("steps")}
+
+    with ThreadPoolExecutor(jobs) as pool:
+        done = list(pool.map(go, tasks))
+    got = {}
+    for (cid, be, rt, t_end, _), r in done:
+        got.setdefault((cid, be), {})[(rt, t_end)] = r
+    out = []
+    for m in models:
+        if not m.get("transcribed") or not m["check"]["ok"]:
+            out.append({**m, "verdicts": {}})
+            continue
+        m["verdicts"] = {be: sun_judge(m, got.get((m["id"], be), {})) for be in BACKENDS}
+        for be, v in m["verdicts"].items():
+            print(f"{m['id']} {be}: {'pass' if v['pass'] else 'FAIL'} {v['fails'][:3]}", file=sys.stderr)
+        out.append(m)
+    (work / "sun-ours.json").write_text(json.dumps(out, indent=1, default=str))
+    return out
+
+
+def sun_judge(m: dict, runs: dict) -> dict:
+    """criteria.sundials_ours on one backend's runs (and the dated change of
+    13 November: half a unit in the last digit the .out prints is allowed
+    besides; cvPendulum_dns: each error at tf at most ten times the
+    example's own without projection)."""
+    fails, compared = [], 0
+    if m["pendulum"]:
+        for rt, rowsets in m["pendulum"].items():
+            r = runs.get((rt, 30.0))
+            if not r or not r["ok"]:
+                fails.append(f"rtol {rt:g}: {r and (r['code'] or r['error'])}")
+                continue
+            errs = [abs(r["final"][f"y{k + 1}"] - m["ref"][k]) for k in range(4)]
+            compared += 4
+            if any(e > 10 * no for e, no in zip(errs, rowsets["NO"])):
+                fails.append(f"rtol {rt:g}: errors {['%.2e' % e for e in errs]}, the example's "
+                             f"without projection {rowsets['NO']}, with {rowsets['YES']}")
+        return {"pass": not fails and compared > 0, "fails": fails or
+                ([] if compared else ["nothing compared"]), "compared": compared}
+    rtol, atol = m["rtol"], m["atol"]
+    for section, sec in m["printed"].items():
+        by_t: dict = {}
+        for t, th, vals in sec["rows"]:
+            by_t.setdefault(t, []).append(vals)
+        for t, alts in by_t.items():
+            r = runs.get((rtol, t))
+            if t <= 0.0:
+                continue
+            if not r or not r["ok"]:
+                fails.append(f"{section} t = {t:g}: {r and (r['code'] or (r['error'] or '')[:120])}")
+                continue
+            # (a time printed twice, before and after the main program's
+            # reset: either value)
+            ok_any, worst = False, None
+            for vals in alts:
+                bad = []
+                for k, v, hu in vals:
+                    u = r["final"].get(f"y{k + 1}")
+                    lim = 100 * rtol * abs(v) + atol[k] + hu
+                    if u is None or abs(u - v) > lim:
+                        bad.append(f"y{k + 1} {u} against {v} (allowed {lim:.1e})")
+                compared += len(vals)
+                ok_any |= not bad
+                worst = worst or bad
+            if not ok_any:
+                fails.append(f"{section} t = {t:g}: {worst[:2]}")
+        if sec["roots"]:
+            t_last = max(t for t, _, _ in sec["rows"])
+            ev = (runs.get((rtol, t_last)) or {}).get("events", [])
+            for t, hu in sec["roots"]:
+                compared += 1
+                if not any(abs(e - t) <= 100 * rtol * abs(t) + hu for e in ev):
+                    fails.append(f"{section}: no root near t = {t:g} (events {ev[:6]})")
+    if m.get("quad"):
+        v, hu = m["quad"]
+        t_last = max(t for sec in m["printed"].values() for t, _, _ in sec["rows"])
+        r = runs.get((rtol, t_last))
+        u = r and r["final"].get("q1")
+        compared += 1
+        if u is None or abs(u - v) > 100 * rtol * abs(v) + hu:
+            fails.append(f"quadrature G at t = {t_last:g}: {u} against {v}")
+    if not compared:
+        fails.append("nothing compared (no printed value read)")
+    return {"pass": not fails, "fails": fails, "compared": compared}
 
 
 def run_probe_points(work: Path, name: str, pts: list[dict]) -> list[list[float]]:
@@ -951,8 +1224,26 @@ def main() -> None:
         run_ours(Path(a.dirs[0]), a.only)
     elif st == "sundials":
         sundials_c(Path(a.dirs[0]), Path(a.dirs[1]))
+    elif st == "sunours":
+        sun_ours(Path(a.dirs[0]), a.only)
     elif st == "score":
         report(score(Path(a.dirs[0])), Path(a.dirs[0]))
+    elif st == "all":
+        cache, work = Path(a.dirs[0]), Path(a.dirs[1])
+        subprocess.run(pinned(["cargo", "build", "--release", "--locked", "-p", "lsim-project",
+                               "--example", "judge", "--example", "hard_eval"]),
+                       cwd=REPO / "engine", check=True)
+        fetch(cache)
+        probe(cache, work, a.only)
+        transcribe(cache, work, a.only)
+        check(work, a.only)
+        if not a.only:
+            check_judge(work)
+        outside(cache, work, a.only)
+        run_ours(work, a.only)
+        sundials_c(cache, work)
+        sun_ours(work, a.only)
+        report(score(work), work)
     else:
         sys.exit(f"unknown stage {st}")
 

@@ -371,3 +371,43 @@ why = "R5 showed that events the original never has decide some outcomes (nand: 
 date = "2026-11-12"
 what = "derived-andrews-massless is withdrawn as a singular case: with m1 = 0 the mass matrix keeps the inertias i1 and i2 in its first row, so the model is sound. It is still run and reported, with no verdict (it is not the original problem, so its digits mean nothing either)."
 why = "The registered expectation rested on a wrong reading of the model; found when its IDA run gave a result instead of a refusal."
+
+[[changes]]
+date = "2026-11-13"
+what = "Transcription: only a NEGATIVE ierr (or stop) marks an IF arm as the solver's step rejection, left out of the model. An arm that sets a positive ierr is the model's."
+why = "The first rule (any nonzero ierr) dropped wheel.f's creep-force normalisation (lines 778-783 and 831-836 set IERR = 3 or 4; line 572 maps IERR >= 0 to a good residual), which is why wheel differed by 7.8e-13. Found by the independent check. Wheel is transcribed and checked again; the merged values of a branch are also written in a fixed order now (the text no longer depends on Python's hash seed)."
+
+[[changes]]
+date = "2026-11-13"
+what = "criteria.result: a run whose scd is below 1 where E2 asks for more, and which ends with a run warning naming a variable of the problem, is a WRONG ANSWER, WARNED, not a silent one. Every scd failure also shows the run's mescd beside the best outside solver's. The registered rule is otherwise applied as written: no failure is set aside for its mescd."
+why = "The engine now warns when a state its equations keep at or above zero ends a step clearly below it (Robertson's blow-up). The first report set aside scd failures on mescd grounds without a dated entry; they are counted again, with the mescd shown so the reader can see which lie in components far below the absolute tolerance."
+
+[[changes]]
+date = "2026-11-13"
+what = "criteria.refusal: a refusal whose message names the planted variable among more than 3 variables does not name the part (it is counted as a refusal that misses the fault)."
+why = "The structural refusals of derived-chemakzo-no-algebraic and derived-hires-extra-equation name the planted variable among 40 and more others: that points at no part. The first run counted them as passes."
+
+[[changes]]
+date = "2026-11-13"
+what = "The failure kind singular-numerical has no case in phase 1: its one case (derived-andrews-massless) was withdrawn on 12 November. A case for it comes with a later source."
+why = "Recorded so the kind's empty row is not read as covered."
+
+[[changes]]
+date = "2026-11-13"
+what = "SciMLBenchmarks.jl is not used as a second copy of the test set's problems in phase 1."
+why = "Its purpose in the roadmap is a second copy against 'one copy that nobody else checked'. Every transcription here is checked against the test set's own Fortran, built with gfortran, at 8 points to 1e-13 of each row's largest term (23 of 23 match after the wheel fix): a check against the original, which a second copy (itself transcribed from the same Fortran) cannot strengthen. Its reference solutions would only repeat the test set's, which every run here is scored against."
+
+[[changes]]
+date = "2026-11-13"
+what = "criteria.sundials_c: each example is built twice, against upstream SUNDIALS 7.1.1 and against the engine's own copy (the vendored sources with the engine's patch, CVODES and IDAS, its mathematics lsim-math's: lsim-sundials-sys's static library sundials_c). The criterion is judged on each; a difference in the engine's copy alone is explained by the patch or reported."
+why = "The first run built upstream only: it showed SUNDIALS reproduces itself here, not that the engine's copy does."
+
+[[changes]]
+date = "2026-11-13"
+what = "criteria.sundials_ours, registered before our first run of them: (1) a printed value also allows half a unit in the last digit the .out prints (it prints 3 to 7 digits; 100 rtol alone is below that for idasAkzoNob_dns, rtol 1e-8); (2) each printed time is its own run to that time (the runner's output grid is uniform); a time printed twice (cvDisc_dns, before and after its main program resets y) may match either value; (3) the example's tolerances are its own: a vector atol as nominal values (atol = rtol x nominal), idasAkzoNob_dns's quadrature a state under the states' rtol with ATOLQ; (4) cvDisc_dns's main program (the right-hand side it switches at t = 1, the reset of y at t = 1) is written as events, stated in csun.PHASES; its two right-hand-side sections are one model; (5) cvPendulum_dns prints, per rtol, the errors at tf = 30 against its own reference (with and without projection); ours (its f transcribed, no projection) passes where each of the four errors is at most 10 times the example's own without projection; (6) the transcriptions are checked against the C functions (the example built with a probe, evaluating them at its start and at 3 points moved by 1e-3, relative and absolute) to 1e-13, as the test set's; root functions and the quadrature are not part of that check."
+why = "The registered wording could not be met as written (printed precision) and did not say how the main programs' own steps, the vector tolerances and cvPendulum_dns's error table are read."
+
+[[changes]]
+date = "2026-11-13"
+what = "sundials_ours, after its first run (R16): each run ends at the time the example's solver returned, unrounded (the example run as shipped with each return time printed in full), not at the .out's rounded time; idaSlCrank_dns's rows (no '|' column) are read."
+why = "R16 ran to the printed times, which idasAkzoNob_dns rounds to 3 digits (1.12e-06 for 1.1237e-06): its y3, which grows in proportion to t there, then missed by 0.3 %, a harness error, not the engine's. idaSlCrank_dns's rows were not read at all. The allowances are unchanged."
