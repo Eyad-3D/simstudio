@@ -68,7 +68,8 @@ fn a_state_kept_at_or_above_zero_taken_below_it_is_told() {
     let y1 = r.names.iter().position(|n| n == "y1").unwrap();
     assert!(r.values[y1].last().unwrap() < &-1.0, "the blow-up this guards: {:?}", r.values[y1]);
     let w = below(&r);
-    assert!(w.iter().any(|w| w.starts_with("y1 went below zero")), "{:?}", r.report.warnings);
+    // (one warning, naming both)
+    assert!(w.len() == 1 && w[0].starts_with("y1, y2 went below zero"), "{:?}", r.report.warnings);
     // within the tolerance at 1e-8 (y1 = 2.08e-8 at 1e11), and nothing said
     let r = run("Robertson", &tol(1e-8), 1e11).unwrap();
     assert!((r.values[y1].last().unwrap() - 2.0833e-8).abs() < 1e-8, "{:?}", r.values[y1]);

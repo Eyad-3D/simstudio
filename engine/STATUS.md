@@ -563,23 +563,41 @@ add tests that kill them. Register a case that meets a limit for ENERGY's
 E3. Fix fast mode's recuperation and losses, or have the owner decide the
 band with a dated reason.
 
-## Step 3, hard problems, phase 1 (12 November 2026)
+## Step 3, hard problems, phase 1 (12 and 13 November 2026)
 
-`benchmarks/hard` (its manifest pre-registered before any run, 6be3f87):
-the IVP Test Set 2.4's 23 problems transcribed by script from their
-Fortran (`fortran.py` runs each `feval` on symbols) and checked against the
+`benchmarks/hard` (its manifest pre-registered before any run, 6be3f87;
+later changes dated in it), one command: `hard.py all CACHE WORK`. The IVP
+Test Set 2.4's 23 problems transcribed by script from their Fortran
+(`fortran.py` runs each `feval` on symbols) and checked against the
 gfortran-built originals at eight points to 1e-13 of each row's largest
-term: 22 match (most to the bit); the wheelset differs (rows 6 to 11: a
-50-digit evaluation of the transcription agrees with the engine, so the
-text and the Fortran compute different things; the cause is not found and
-the case is not judged). Step 1's three hand transcriptions match. SUNDIALS
-7.1.1's six serial dense examples built here print their `.out` files'
-numbers and counts line for line (cvPendulum's header prints its
-tolerances in another format). RADAU5, DASSL and PSIDE ran beside the
-engine's IDA (every block implicit), its default path and diffsol at rtol =
-atol 1e-4 to 1e-10. What users of such models meet is in
-`docs/KNOWN-LIMITS.md` (*The new engine on published hard problems*).
-Nothing in the engine was changed in this phase; the runner `judge` now
-prints refusal codes, preparation warnings and the Newton-matrix
-factorisations, and `hard_eval` evaluates a model's equations as the
-engine reads them.
+term: all 23 match (the wheelset after a transcriber fix: an arm setting a
+positive IERR is the model's, not a step rejection). Step 1's three hand
+transcriptions match. SUNDIALS 7.1.1's six serial dense examples print
+their `.out` files' numbers and counts line for line built against
+upstream (cvPendulum's header prints its tolerances in another format) and
+against the engine's own copy (lsim-sundials-sys's static library
+`sundials_c`), except idasAkzoNob's steps and counts there, which the
+engine's IDAS patch changes by design (it decides the order on the states
+and the error-controlled quadrature together); its printed states are the
+same. The same six examples transcribed from their C code (`csun.py`, each
+checked against its C functions to the bit) and run on the engine at their
+own tolerances: on IDA (every block implicit) all but cvRoberts print what
+their `.out` prints within 100 rtol plus atol; cvRoberts misses at
+t = 4e10 on every backend, where the `.out`'s own y1 (6.9e-8) is 33 % off
+the exact value (2083/t = 5.2e-8) and the engine's is nearer. On the
+default path idaRoberts' root comes 1 % late (y3 solved from the states
+carries their error), idaSlCrank misses once by 1.4e-5 where y1 crosses
+zero, and cvPendulum (no projection) drifts at 1e-5. RADAU5, DASSL and
+PSIDE ran beside the engine's IDA (every block implicit), its default path
+and diffsol at rtol = atol 1e-4 to 1e-10. What users of such models meet is
+in `docs/KNOWN-LIMITS.md` (*The new engine on published hard problems*).
+
+Engine changes from it (13 November): the run loop counts its steps
+against `max_steps` (SUNDIALS counts its limit per call, and the run calls
+it a step at a time, so the limit never ended a run: beam with every block
+implicit at 1e-10 ran for hours, and now stops after 10 000 000 steps); a
+state the equations keep at or above zero (an interval proof over the
+assignments, made only when a step ends with one clearly below zero) that a
+run takes below it is named in a run warning (Robertson's blow-up at a
+loose absolute tolerance, which upstream CVODE shares, was silent).
+Integration is unchanged (`tests/solver_guards.rs`).

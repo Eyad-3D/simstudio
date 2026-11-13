@@ -5267,13 +5267,22 @@ fn run_watched<'a>(
         report.mixed_scanned += m.scanned;
     }
     report.warnings.append(&mut lp.warnings);
-    for (name, tb, low) in below.into_iter().flatten() {
+    // (one warning for them all, the first to go below named first)
+    let mut below: Vec<(String, f64, f64)> = below.into_iter().flatten().collect();
+    below.sort_by(|a, b| a.1.total_cmp(&b.1));
+    if let Some((first, tb, low)) = below.first() {
+        let mut names: Vec<&str> = below.iter().take(3).map(|b| b.0.as_str()).collect();
+        names.sort_unstable();
+        let more =
+            if below.len() > 3 { format!(" and {} more", below.len() - 3) } else { String::new() };
+        let (it, its) = if below.len() > 1 { ("them", "each one's") } else { ("it", "its") };
         report.warnings.push(format!(
-            "{name} went below zero at t = {tb:.6} s (down to {low:.3e}), though the model's \
-             equations keep it at or above zero: the solution left the region they keep it in, \
-             so the result is wrong by more than the tolerance from there on. A smaller \
-             absolute tolerance (now {:.1e} times its nominal value) may keep it there; the \
-             10× tighter check shows how far the result moves",
+            "{}{more} went below zero (first {first} at t = {tb:.6} s, down to {low:.3e}), \
+             though the model's equations keep {it} at or above zero: the solution left the \
+             region they keep it in, so the result is wrong by more than the tolerance from \
+             there on. A smaller absolute tolerance (now {:.1e} times {its} nominal value) may \
+             keep {it} there; the 10× tighter check shows how far the result moves",
+            names.join(", "),
             opts.atol
         ));
     }
