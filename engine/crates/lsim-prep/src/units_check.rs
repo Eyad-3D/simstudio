@@ -41,6 +41,12 @@ fn dimensionless(a: D, f: &str) -> Result<(), Mismatch> {
     }
 }
 
+/// A dimension worked out, or the refusal of one whose exponents left
+/// -128..=127 (lsim_ir::units::Dim::checked_mul).
+fn known(d: Option<Dim>) -> Result<Dim, Mismatch> {
+    d.ok_or_else(|| Mismatch("a unit whose exponents are too large for any quantity".into()))
+}
+
 fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
     let var = |v: &lsim_ir::VarId| D::Known(flat.vars[v.0 as usize].unit.dim);
     Ok(match e {
@@ -56,7 +62,7 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
                     // order
                     if let Ok(u) = &axis {
                         for _ in 0..order[k] {
-                            out = out / u.dim;
+                            out = known(out.checked_div(u.dim))?;
                         }
                     }
                     if let (D::Known(x), Ok(u)) = (dim(a, flat)?, axis)
@@ -78,7 +84,7 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
         Expr::Var(v) | Expr::Pre(v) => var(v),
         Expr::Param(p) => D::Known(flat.params[p.0 as usize].unit.dim),
         Expr::Der(v) => match var(v) {
-            D::Known(d) => D::Known(d / Dim::TIME),
+            D::Known(d) => D::Known(known(d.checked_div(Dim::TIME))?),
             D::Any => D::Any,
         },
         Expr::Neg(a) | Expr::NoEvent(a) => dim(a, flat)?,
@@ -87,14 +93,14 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
             match op {
                 BinaryOp::Add | BinaryOp::Sub => unify(da, db, "a sum")?,
                 BinaryOp::Mul => match (da, db) {
-                    (D::Known(x), D::Known(y)) => D::Known(x * y),
+                    (D::Known(x), D::Known(y)) => D::Known(known(x.checked_mul(y))?),
                     (D::Known(x), D::Any) | (D::Any, D::Known(x)) => D::Known(x),
                     (D::Any, D::Any) => D::Any,
                 },
                 BinaryOp::Div => match (da, db) {
-                    (D::Known(x), D::Known(y)) => D::Known(x / y),
+                    (D::Known(x), D::Known(y)) => D::Known(known(x.checked_div(y))?),
                     (D::Known(x), D::Any) => D::Known(x),
-                    (D::Any, D::Known(y)) => D::Known(Dim::NONE / y),
+                    (D::Any, D::Known(y)) => D::Known(known(Dim::NONE.checked_div(y))?),
                     (D::Any, D::Any) => D::Any,
                 },
                 BinaryOp::Pow => {
@@ -102,12 +108,14 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
                     match (da, b.as_ref()) {
                         (D::Any, _) => D::Any,
                         (D::Known(x), _) if x.is_none() => da,
-                        (D::Known(x), Expr::Const(n)) if n.fract() == 0.0 => {
-                            D::Known(x.pow(*n as i8))
+                        (D::Known(x), Expr::Const(n)) if n.fract() == 0.0 && n.abs() < 128.0 => {
+                            D::Known(known(x.checked_pow(*n as i8))?)
                         }
-                        (D::Known(x), Expr::Const(n)) if (2.0 * n).fract() == 0.0 => {
+                        (D::Known(x), Expr::Const(n))
+                            if (2.0 * n).fract() == 0.0 && n.abs() < 64.0 =>
+                        {
                             match x.root(2) {
-                                Some(r) => D::Known(r.pow((2.0 * n) as i8)),
+                                Some(r) => D::Known(known(r.checked_pow((2.0 * n) as i8))?),
                                 None => {
                                     return Err(Mismatch(format!(
                                         "{} has no square root",
@@ -118,7 +126,8 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
                         }
                         (D::Known(x), _) => {
                             return Err(Mismatch(format!(
-                                "{} is raised to a power that is not a whole or half number",
+                                "{} is raised to a power that is not a whole or half number \
+                                 (or is too large)",
                                 describe(x)
                             )));
                         }

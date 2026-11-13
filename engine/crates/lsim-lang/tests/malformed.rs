@@ -1,6 +1,6 @@
 //! Malformed texts: each gives an error with a place and a plain message.
 
-use lsim_lang::{LangError, parse, parse_with};
+use lsim_lang::{LangError, basemodelica, parse, parse_with};
 
 /// A resistor written correctly, for the cases to break.
 const GOOD: &str = r#"model R "A resistor."
@@ -722,4 +722,27 @@ fn a_reinit_of_a_part_is_checked_against_the_library() {
             )
         );
     }
+}
+
+/// Inputs step 3's fuzzing found panicking (shrunk), each now a coded
+/// refusal: a call of a Base Modelica function with no output, and units
+/// whose exponents overflow (a unit text, a power in an equation).
+#[test]
+fn what_the_fuzzing_found_is_refused_plainly() {
+    let no_output = "package'CellsOnPlate'function 'flow' \"\"input Real 'T';input Real'd';\n\
+                     end'flow';model'CellsOnPlate'e'/2';equation '2' ='flow'('c','T2'); end \
+                     'CellsOnPlate';\nend'CellsOnPlate';\n";
+    let e = basemodelica::import(no_output).expect_err("a function with no output");
+    assert!(e.iter().any(|e| e.code == "FUNCTION" && e.message.contains("no output")), "{e:?}");
+
+    let unit = "package'BatteryCC'model BatteryCC\"\"Real 'V'(unit=\"V66\");end 'BatteryCC';\
+                end'BatteryCC';";
+    let e = basemodelica::import(unit).expect_err("a unit whose exponents overflow");
+    assert!(e.iter().any(|e| e.message.contains("exponent is too large")), "{e:?}");
+
+    // m³ to the 63rd: an exponent of 189
+    let power = "model M\n  Real x(unit = \"m3\");\n  Real y;\nequation\n  x = 1;\n  \
+                 y = x ^ 63;\nend M;\n";
+    let e = parse(power).expect_err("a power whose unit overflows");
+    assert!(e.iter().any(|e| e.message.contains("too large for any quantity")), "{e:?}");
 }

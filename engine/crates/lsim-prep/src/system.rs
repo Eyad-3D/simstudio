@@ -355,7 +355,9 @@ impl Sys {
                 let base = flat.var(nd.var).clone();
                 let mut dim = base.unit.dim;
                 for _ in 0..nd.order {
-                    dim = dim / lsim_ir::Dim::TIME;
+                    // ponytail: a unit already at the end of the exponents'
+                    // range keeps it (the derivative's unit is only shown)
+                    dim = dim.checked_div(lsim_ir::Dim::TIME).unwrap_or(dim);
                 }
                 let rec = FlatVar {
                     name: self.name(flat, i),
@@ -381,7 +383,7 @@ impl Sys {
                     let base = flat.var(nd.var).clone();
                     let mut dim = base.unit.dim;
                     for _ in 0..nd.order {
-                        dim = dim / lsim_ir::Dim::TIME;
+                        dim = dim.checked_div(lsim_ir::Dim::TIME).unwrap_or(dim);
                     }
                     flat.vars.push(FlatVar {
                         name,

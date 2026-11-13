@@ -41,9 +41,36 @@ impl Dim {
     /// Temperature, K.
     pub const TEMPERATURE: Dim = Dim([0, 0, 0, 0, 1, 0, 0]);
 
-    /// This dimension to a whole power.
+    /// This dimension to a whole power (of a dimension the code names:
+    /// [`Dim::checked_pow`] for one read from a model).
     pub fn pow(self, n: i8) -> Dim {
-        Dim(self.0.map(|a| a * n))
+        self.checked_pow(n).expect("a dimension's exponent outside -128..=127")
+    }
+
+    /// This dimension to a whole power; `None` where an exponent would
+    /// leave -128..=127 (no quantity has such a unit).
+    pub fn checked_pow(self, n: i8) -> Option<Dim> {
+        self.zip(Dim::NONE, |a, _| a.checked_mul(n))
+    }
+
+    /// The product of two dimensions; `None` where an exponent would leave
+    /// -128..=127.
+    pub fn checked_mul(self, o: Dim) -> Option<Dim> {
+        self.zip(o, i8::checked_add)
+    }
+
+    /// The quotient of two dimensions; `None` where an exponent would
+    /// leave -128..=127.
+    pub fn checked_div(self, o: Dim) -> Option<Dim> {
+        self.zip(o, i8::checked_sub)
+    }
+
+    fn zip(self, o: Dim, f: impl Fn(i8, i8) -> Option<i8>) -> Option<Dim> {
+        let mut d = [0; 7];
+        for ((x, a), b) in d.iter_mut().zip(self.0).zip(o.0) {
+            *x = f(a, b)?;
+        }
+        Some(Dim(d))
     }
 
     /// The n-th root, when every exponent divides by n.
@@ -66,11 +93,7 @@ impl std::ops::Mul for Dim {
     type Output = Dim;
     /// The product of two dimensions.
     fn mul(self, o: Dim) -> Dim {
-        let mut d = self.0;
-        for (a, b) in d.iter_mut().zip(o.0) {
-            *a += b;
-        }
-        Dim(d)
+        self.checked_mul(o).expect("a dimension's exponent outside -128..=127")
     }
 }
 
@@ -80,11 +103,7 @@ impl std::ops::Div for Dim {
     type Output = Dim;
     /// The quotient of two dimensions.
     fn div(self, o: Dim) -> Dim {
-        let mut d = self.0;
-        for (a, b) in d.iter_mut().zip(o.0) {
-            *a -= b;
-        }
-        Dim(d)
+        self.checked_div(o).expect("a dimension's exponent outside -128..=127")
     }
 }
 
@@ -172,16 +191,16 @@ impl Unit {
         (v - self.offset) / self.scale
     }
 
-    fn mul(self, o: Unit) -> Unit {
-        Unit::new(self.dim * o.dim, self.scale * o.scale)
+    fn mul(self, o: Unit) -> Option<Unit> {
+        Some(Unit::new(self.dim.checked_mul(o.dim)?, self.scale * o.scale))
     }
 
-    fn div(self, o: Unit) -> Unit {
-        Unit::new(self.dim / o.dim, self.scale / o.scale)
+    fn div(self, o: Unit) -> Option<Unit> {
+        Some(Unit::new(self.dim.checked_div(o.dim)?, self.scale / o.scale))
     }
 
-    fn pow(self, n: i8) -> Unit {
-        Unit::new(self.dim.pow(n), crate::math::powi(self.scale, n as i32))
+    fn pow(self, n: i8) -> Option<Unit> {
+        Some(Unit::new(self.dim.checked_pow(n)?, crate::math::powi(self.scale, n as i32)))
     }
 }
 
@@ -374,7 +393,7 @@ impl Parser<'_> {
                 } else {
                     self.factor()?
                 };
-                u = u.div(den);
+                u = u.div(den).ok_or_else(|| self.err(TOO_LARGE))?;
             } else {
                 return Ok(u);
             }
@@ -391,10 +410,10 @@ impl Parser<'_> {
                 Some('.' | '·' | '*' | '⋅') => {
                     self.pos += 1;
                     self.skip_space();
-                    u = u.mul(self.factor()?);
+                    u = u.mul(self.factor()?).ok_or_else(|| self.err(TOO_LARGE))?;
                 }
                 Some(c) if self.pos > save && (c.is_alphabetic() || c == '°') => {
-                    u = u.mul(self.factor()?);
+                    u = u.mul(self.factor()?).ok_or_else(|| self.err(TOO_LARGE))?;
                 }
                 _ => {
                     self.pos = save;
@@ -446,7 +465,7 @@ impl Parser<'_> {
         if u.offset != 0.0 {
             return Err(UnitError::OffsetInCompound { text: self.text.to_string() });
         }
-        Ok(u.pow(e))
+        u.pow(e).ok_or_else(|| self.err(TOO_LARGE))
     }
 
     /// exponent := ['^'] ['-'] digits | superscripts
@@ -478,7 +497,7 @@ impl Parser<'_> {
             let digit = c.to_digit(10).map(|v| v as i32).or(sup(c));
             match digit {
                 Some(v) => {
-                    val = val * 10 + v;
+                    val = val.saturating_mul(10).saturating_add(v);
                     any = true;
                     self.pos += 1;
                 }
@@ -511,8 +530,14 @@ pub fn parse_unit(text: &str) -> Result<Unit, UnitError> {
     if p.factors > 1 && p.offset_seen {
         return Err(UnitError::OffsetInCompound { text: text.to_string() });
     }
+    if !(u.scale.is_finite() && u.scale != 0.0) {
+        return Err(p.err("its size in SI units is too large or too small for a number"));
+    }
     Ok(u)
 }
+
+/// Why a unit whose exponents overflow is refused.
+const TOO_LARGE: &str = "an exponent is too large";
 
 #[cfg(test)]
 mod tests {
@@ -558,6 +583,14 @@ mod tests {
         assert!(matches!(parse_unit("furlong"), Err(UnitError::UnknownSymbol { .. })));
         assert!(matches!(parse_unit("W/(m.K"), Err(UnitError::Syntax { .. })));
         assert!(matches!(parse_unit("°C/s"), Err(UnitError::OffsetInCompound { .. })));
+        // exponents beyond -128..=127 (a power, a product, a quotient, a
+        // number too long for any exponent) and a scale beyond the numbers:
+        // refused, not an overflow (step 3's fuzzing: "V66" panicked)
+        for text in ["V66", "s127.s", "s-128/s", "m99999999999", "km127", "mm-127.mm-127"] {
+            let e = parse_unit(text).expect_err(text);
+            assert!(matches!(e, UnitError::Syntax { .. }), "{text}: {e}");
+        }
+        assert_eq!(parse_unit("s127").unwrap().dim, Dim([0, 0, 127, 0, 0, 0, 0]));
     }
 
     #[test]

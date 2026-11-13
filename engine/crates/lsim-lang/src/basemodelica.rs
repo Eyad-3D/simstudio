@@ -508,7 +508,16 @@ impl<'a> Importer<'a> {
                 }
             }
             self.run_body(f, &f.body, &mut env, depth)?;
-            let out = &f.outputs[0];
+            let Some(out) = f.outputs.first() else {
+                return Err(LangError::new(
+                    "FUNCTION",
+                    span,
+                    format!(
+                        "the function '{}' has no output, so a call of it has no value",
+                        f.name
+                    ),
+                ));
+            };
             let v = env.remove(out).ok_or_else(|| {
                 LangError::new(
                     "FUNCTION",
