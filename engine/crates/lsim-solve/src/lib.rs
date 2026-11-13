@@ -1178,16 +1178,20 @@ fn not_finite(r: &SimResult) -> Option<SolveError> {
         }
     }
     let (k, c, x) = first?;
-    let t = r.times.get(k).copied().unwrap_or(f64::NAN);
+    Some(not_finite_error(&r.names[c], x, r.times.get(k).copied().unwrap_or(f64::NAN)))
+}
+
+/// [`SolveError::NotFinite`]: the variable `name` is `x` (NaN or
+/// infinite) at `t`.
+pub(crate) fn not_finite_error(name: &str, x: f64, t: f64) -> SolveError {
     let what = if x.is_nan() { "is not a number (NaN)" } else { "is infinite" };
-    Some(SolveError::NotFinite {
+    SolveError::NotFinite {
         t,
         message: format!(
-            "the variable '{}' {what} at t = {t} s: one of its equations divides by zero, or \
-             takes the square root or logarithm of a negative number, there",
-            r.names[c]
+            "the variable '{name}' {what} at t = {t} s: one of its equations divides by zero, or \
+             takes the square root or logarithm of a negative number, there"
         ),
-    })
+    }
 }
 
 /// A new integrator for `model` from `(t0, y0, d0)`, `grid` its run

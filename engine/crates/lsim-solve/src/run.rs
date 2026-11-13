@@ -3581,6 +3581,9 @@ fn run_watched<'a>(
     // memory its record on the grid and the trace's times takes, checked
     // before anything is made
     let deadline = opts.time_limit.and_then(|d| started.checked_add(d));
+    // (the output points checked for a value that is not a number: the run
+    // stops at the first, not at its end)
+    let mut finite_upto = 0usize;
     let recorded = opts.record.as_ref().map_or(l.n_vars, |r| r.len());
     let record_bytes = (grid.intervals() + 1.0) * 8.0 * (4.0 * recorded as f64 + 1.0)
         + opts.trace.as_ref().map_or(0.0, |tr| {
@@ -4069,6 +4072,18 @@ fn run_watched<'a>(
                     opts.time_limit.unwrap_or_default().as_secs_f64()
                 ),
             });
+        }
+        let (at, values) = rec.so_far();
+        if at.len() > finite_upto {
+            for (s, v) in values.iter().enumerate() {
+                let new = v.get(finite_upto..at.len()).unwrap_or_default();
+                if let Some(k) = new.iter().position(|x| !x.is_finite()) {
+                    let c = opts.record.as_ref().map_or(s, |r| r[s]);
+                    let name = info.var_names.get(c).map_or("?", |n| n.as_str());
+                    return Err(crate::not_finite_error(name, new[k], at[finite_upto + k]));
+                }
+            }
+            finite_upto = at.len();
         }
         if let Some(limit) = opts.memory_limit {
             // ponytail: an event's label counted as 64 bytes, not its own length
