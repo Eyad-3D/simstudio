@@ -1833,3 +1833,157 @@ fn a_hold_its_crossing_made_ends_within_its_limit_from_the_latest_event() {
     }
     assert!(bad.is_empty(), "{} of {runs} wrong:\n{}", bad.len(), bad.join("\n"));
 }
+
+/// A hold an event stops short is not stretched by a later event (step 3,
+/// RC5-B1; the holds suite's f3): x falls (or rises) through 0.5 at t1 =
+/// 0.625 / a; at t2 = t1 − d (d = q band / |x'|) a time event or a state w
+/// = t passing t2 stops it short of 0.5, where it creeps at eps = ±1e-9 per
+/// second, until k2 at tb = t1 + 0.5 takes it past; a state w3 = t passing
+/// t3 = t2 + f L, after the stop, changes nothing x reads. Where the
+/// crossing was located before t2, forth fired there and its hold stood at
+/// t2: the stop gave it the short limit, and the event at t3 timed it again
+/// from x's creep, 1e2 to 4e3 s, so back and the lift's forth were lost for
+/// good (531 suite runs). A later event now only shortens a hold: back
+/// fires within the location tolerance after t2, forth at tb.
+#[test]
+fn a_hold_an_event_stops_short_is_not_stretched_by_a_later_event() {
+    let mut bad = vec![];
+    let mut runs = 0;
+    for (config, frz, up) in
+        [(Config::Ida, "w", false), (Config::Diffsol, "time", true), (Config::Diffsol, "w", false)]
+    {
+        let with_state = config.state();
+        let phi = |_: &dyn Fn() -> Expr| {
+            if with_state {
+                n("k2") * c(0.1)
+            } else {
+                c(0.0) - n("k") * (n("a") - n("eps")) * (Expr::Time - n("t2")) + n("k2") * c(0.1)
+            }
+        };
+        let rate = n("a") * (c(1.0) - n("k")) + n("k") * n("eps");
+        let stop = if frz == "w" {
+            cmp(CmpOp::Gt, n("w"), n("t2"))
+        } else {
+            cmp(CmpOp::Ge, Expr::Time, n("t2"))
+        };
+        let more = vec![
+            assign_when(stop, "k", c(1.0), "k set"),
+            assign_when(cmp(CmpOp::Ge, Expr::Time, n("tb")), "k2", c(1.0), "k2 set"),
+            assign_when(cmp(CmpOp::Gt, n("w3"), n("t3")), "j", c(1.0), "j set"),
+        ];
+        let mut m = holds_shape(
+            up,
+            true,
+            config,
+            &phi,
+            rate,
+            vec![],
+            vec![],
+            more,
+            &[("t2", "s", 1.0), ("t3", "s", 1.0), ("tb", "s", 1.0), ("eps", "1/s", 0.0)],
+            &[("k", "1"), ("k2", "1"), ("j", "1")],
+        );
+        m.vars.push(state("w", "s", 0.0, "a clock"));
+        m.equations.push(eq(der("w"), c(1.0), "the clock's rate"));
+        m.vars.push(state("w3", "s", 0.0, "a second clock"));
+        m.equations.push(eq(der("w3"), c(1.0), "the second clock's rate"));
+        let built = holds_build(&m, config);
+        for a in [1.0, 2.3] {
+            for q in [0.35, 0.5, 1.0] {
+                for f in [0.001, 0.03, 0.1] {
+                    for eps in [1e-9, -1e-9] {
+                        for rtol in [1e-5, 1e-7] {
+                            let band = 0.51 * rtol;
+                            let t1 = 0.625 / a;
+                            let t2 = t1 - q * band * 1.75 / a;
+                            let (t3, tb) = (t2 + f * loc(a, rtol), t1 + 0.5);
+                            let ps = [("a", a), ("t2", t2), ("t3", t3), ("tb", tb), ("eps", eps)];
+                            runs += 1;
+                            let what = format!(
+                                "{config:?} {frz} up {up} a {a} q {q} f {f} eps {eps:e} rtol {rtol:e}"
+                            );
+                            match holds_run(&built, config, &ps, rtol) {
+                                Ok(r) => {
+                                    // the lift's forth at tb, the last firing; every back
+                                    // within the location tolerance after t2; the counters
+                                    // as fired, x across at the end
+                                    let lift =
+                                        r.forth.last().is_some_and(|f| (f - tb).abs() <= 1e-12);
+                                    let backs = r.back.iter().all(|b| *b <= t2 + loc(a, rtol));
+                                    let counted = (r.n, r.m)
+                                        == (r.forth.len() as f64, r.back.len() as f64)
+                                        && r.n - r.m == 1.0;
+                                    if !(lift && backs && counted) {
+                                        bad.push(format!(
+                                            "{what}: forth {:?}, back {:?} (t1 {t1}, t2 {t2}, t3 {t3}, tb {tb})",
+                                            r.forth, r.back
+                                        ));
+                                    }
+                                }
+                                Err(e) => bad.push(format!("{what}: {e}")),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{} of {runs} wrong:\n{}", bad.len(), bad.join("\n"));
+}
+
+/// A crossing diffsol reports beside an unrelated time crossing is the
+/// crossing's own (step 3, RC5-B2; the holds suite's tev): forth slows x K
+/// times (k, tk) at t1 = 0.625 / a, and `when time >= te then j = 1`, te =
+/// t1 + f L a hair before it, changes nothing x reads. Diffsol reports the
+/// crossing at te; with a time crossing due there it was not counted as the
+/// crossing's own, its hold took the short limit from the rate before, back
+/// fired before the slowed arrival and diffsol, its own x past the line,
+/// never reported the crossing again (or the run chattered). The time
+/// crossing's clauses leave x's rate as it is, so the crossing is its own and
+/// its hold waits for the slowed arrival. Truth: forth once at t1, back
+/// never.
+#[test]
+fn a_crossing_beside_an_unrelated_time_crossing_is_its_own() {
+    let mut bad = vec![];
+    let mut runs = 0;
+    let config = Config::Diffsol;
+    let phi = |_: &dyn Fn() -> Expr| c(0.0);
+    let m = holds_shape(
+        true,
+        true,
+        config,
+        &phi,
+        n("a") * (c(1.0) - n("cs") * n("k")),
+        vec![set("k", c(1.0)), set("tk", Expr::Time)],
+        vec![],
+        vec![assign_when(cmp(CmpOp::Ge, Expr::Time, n("te")), "j", c(1.0), "j set")],
+        &[("cs", "1", 0.0), ("te", "s", 1.0)],
+        &[("k", "1"), ("tk", "s"), ("j", "1")],
+    );
+    let built = holds_build(&m, config);
+    let a = 4.4;
+    for (big, f, rtol) in [
+        (100.0, -0.01, 1e-5),
+        (1e4, -0.01, 1e-8),
+        (1e4, -0.03, 1e-8),
+        (100.0, -0.03, 1e-6),
+        (1e4, -0.03, 1e-6),
+    ] {
+        let t1 = 0.625 / a;
+        let ps = [("a", a), ("cs", 1.0 - 1.0 / big), ("te", t1 + f * loc(a, rtol))];
+        runs += 1;
+        let what = format!("K {big} f {f} rtol {rtol:e}");
+        match holds_run(&built, config, &ps, rtol) {
+            Ok(r) => {
+                if !(at_times(&r.forth, &[(t1, loc(a, rtol))])
+                    && r.back.is_empty()
+                    && (r.n, r.m) == (1.0, 0.0))
+                {
+                    bad.push(format!("{what}: forth {:?}, back {:?}", r.forth, r.back));
+                }
+            }
+            Err(e) => bad.push(format!("{what}: {e}")),
+        }
+    }
+    assert!(bad.is_empty(), "{} of {runs} wrong:\n{}", bad.len(), bad.join("\n"));
+}

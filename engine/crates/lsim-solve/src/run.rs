@@ -347,12 +347,15 @@ struct Loop<'a> {
     /// ([`Loop::renew_holds`])
     renew: Vec<(usize, f64)>,
     /// the event being handled may be a crossing's own (`own_ok` from the
-    /// run loop: a root, nothing scheduled, no expiry cut), and is (`own`,
+    /// run loop: a root, no time event, no expiry cut), and is (`own`,
     /// set by [`Loop::iterate`]: no tick at its instant changed a value);
     /// which functions are the crossing's own is read by value
-    /// ([`Loop::set_expiry`])
+    /// ([`Loop::set_expiry`]); `own_at_time`: a time crossing is due there
+    /// too, whose clauses must leave a function's rate as it is
+    /// ([`Loop::time_clauses_move`])
     own_ok: bool,
     own: bool,
+    own_at_time: bool,
     /// the functions the last round of event iteration held on their side
     /// (the engagement loop's value before the states move applies them)
     ev_held: Vec<(usize, f64)>,
@@ -1044,13 +1047,16 @@ impl Loop<'_> {
             self.set_expiry(integ, t, y, d, before, &was);
         }
         self.own = false;
+        self.own_at_time = false;
     }
 
     /// The time limit of every hold standing after this event (`was`: the
-    /// functions held before it, empty where none was): each expires at t +
-    /// T, T from this event's rates, a hold made here or standing from an
-    /// earlier one alike; a function no longer held has none. (At the start
-    /// and where the integrator chooses its states again, `before` `None`, no
+    /// functions held before it, empty where none was): a hold made here
+    /// expires at t + T, T from this event's rates; a hold standing from an
+    /// earlier event is timed again, and keeps the earlier of its expiry and
+    /// t + T (step 3, RC5-B1: a later event only shortens a hold, never
+    /// lengthens it); a function no longer held has none. (At the start and
+    /// where the integrator chooses its states again, `before` `None`, no
     /// hold is made and a standing hold keeps its expiry.)
     ///
     /// T is eight times what the function needs, at its rate, to close its
@@ -1060,10 +1066,12 @@ impl Loop<'_> {
     /// * a hold on one of the crossing's own conditions ([`Loop::own`]: a
     ///   crossing's event, and a function that vanishes at its instant within
     ///   its hold's width, as the integrator had it there, whatever its
-    ///   expression) takes the rate after the event, ġ1 = ∇g·ẏ1 at the
-    ///   consistent point after it ([`Loop::rates_after`]), where that moves
-    ///   it toward its side: T = min(8 max(|g1|, ρ), W)/|ġ1|. An event that
-    ///   slows the function slows its arrival, and the hold waits for it;
+    ///   expression; at a time crossing, one whose rate the time crossing's
+    ///   own clauses do not change, [`Loop::time_clauses_move`]) takes the
+    ///   rate after the event, ġ1 = ∇g·ẏ1 at the consistent point after it
+    ///   ([`Loop::rates_after`]), where that moves it toward its side: T =
+    ///   min(8 max(|g1|, ρ), W)/|ġ1|. An event that slows the function slows
+    ///   its arrival, and the hold waits for it;
     /// * every other hold, and one whose rate after the event is 0 or moves
     ///   away, takes the rate before it: σ, the consistent pre-event
     ///   function's change over the integrator's last step (where a solve
@@ -1071,11 +1079,12 @@ impl Loop<'_> {
     ///   W/max(|σ|, |ġ0(P)|)), ġ0(P) that function's rate at the event's
     ///   point (a secant that undersells it does not stretch the cap).
     ///
-    /// So a hold never outlasts W at x's speed after the latest event, and
-    /// what it hides stays within W of its function. Never less than 64 ε
-    /// max(|t|, 1) (the integrators cannot step 16 ε |t|): that floor where
-    /// no rate is known for a hold made here; a standing hold the event
-    /// gives no rate for keeps its expiry.
+    /// So a hold never outlasts W at x's speed after the event that made
+    /// it, and what it hides stays within W of its function; a later event
+    /// that stops x ends it sooner (x's creep after a stop cannot stretch
+    /// it). Never less than 64 ε max(|t|, 1) (the integrators cannot step
+    /// 16 ε |t|): that floor where no rate is known for a hold made here; a
+    /// standing hold the event gives no rate for keeps its expiry.
     fn set_expiry(
         &mut self,
         integ: &mut dyn Integrator,
@@ -1103,13 +1112,26 @@ impl Loop<'_> {
         // the crossing's own conditions: those that vanish at its instant,
         // within their holds' widths (the location error's bound), as the
         // integrator had them there
-        let own: Vec<bool> = match before {
+        let mut own: Vec<bool> = match before {
             Some((y0, d0)) if self.own => {
                 self.eval_raw(t, y0, d0);
                 timed.iter().map(|&(c, _)| self.raw[c].abs() <= self.hold[c]).collect()
             }
             _ => vec![false; timed.len()],
         };
+        // a crossing the integrator reports at a time crossing (diffsol
+        // does, RC5-B2): its conditions are its own only where the time
+        // crossing's clauses leave their rates as they are; where those
+        // clauses move them (a `when time >= t2` that slows or stops x),
+        // the event has that other cause too, and the rate before decides
+        if self.own_at_time && own.iter().any(|o| *o) {
+            let moved = before.and_then(|(_, d0)| self.time_clauses_move(integ, t, y, d0));
+            for (o, &(c, _)) in own.iter_mut().zip(&timed) {
+                if moved.as_ref().is_none_or(|m| m[c]) {
+                    *o = false;
+                }
+            }
+        }
         let after = if own.iter().any(|o| *o) { self.rates_after(t, y, d) } else { None };
         let before_rates = before.and_then(|(y0, d0)| self.rates_before(integ, t, y0, d0));
         self.eval_raw(t, y, d);
@@ -1129,10 +1151,61 @@ impl Loop<'_> {
                 _ => 0.0,
             };
             let lim = if lim.is_finite() { lim.max(floor) } else { floor };
-            self.expiry[c] = t + lim;
-            self.limit[c] = lim;
+            // a standing hold: the earlier of its expiry and this event's
+            // (its renewal, [`Loop::renew_holds`], keeps that limit)
+            if !standing || t + lim < self.expiry[c] {
+                self.expiry[c] = t + lim;
+                self.limit[c] = lim;
+            }
         }
         self.raw = keep;
+    }
+
+    /// Per root function, whether the clauses of the time crossings due at
+    /// this event at `t`, replayed alone from the discrete values before it
+    /// (`d0`), change its rate at the event's point `y`: the rates with
+    /// those values and with `d0`, each at its consistent point
+    /// ([`Loop::rates_after`]). `None` where a solve or a rate cannot be
+    /// had.
+    fn time_clauses_move(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        y: &[f64],
+        d0: &[f64],
+    ) -> Option<Vec<bool>> {
+        let info = self.info;
+        let of_time: Vec<bool> = info
+            .whens
+            .iter()
+            .map(|(r, _)| info.time_crossings.get(*r).is_some_and(|x| x.is_some()))
+            .collect();
+        let mut dt = d0.to_vec();
+        let mut yz = y.to_vec();
+        for round in &self.fired_log {
+            let fired: Vec<f64> =
+                round.iter().zip(&of_time).map(|(f, o)| if *o { *f } else { 0.0 }).collect();
+            if fired.iter().all(|f| *f == 0.0) {
+                continue;
+            }
+            integ.consistent_z_aside(t, &mut yz, &dt).ok()?;
+            let mut dn = dt.clone();
+            let inp = EvalInput { t, y: &yz, p: &info.params, d: &dt, u: self.u };
+            self.model.when(&inp, &fired, &mut self.work, &mut dn);
+            dt = dn;
+        }
+        let mut y0 = y.to_vec();
+        integ.consistent_z_aside(t, &mut y0, d0).ok()?;
+        let r0 = self.rates_after(t, &y0, d0)?;
+        let mut y1 = y.to_vec();
+        integ.consistent_z_aside(t, &mut y1, &dt).ok()?;
+        let r1 = self.rates_after(t, &y1, &dt)?;
+        Some(
+            r0.iter()
+                .zip(&r1)
+                .map(|(a, b)| (a - b).abs() > 1e-9 * a.abs().max(b.abs()) + f64::MIN_POSITIVE)
+                .collect(),
+        )
     }
 
     /// The rate of every root function at the consistent point after an
@@ -3683,6 +3756,7 @@ fn run_watched<'a>(
         rho_of: vec![0.0; l.n_roots + model.table_guard_list().len()],
         renew: vec![],
         own_ok: false,
+        own_at_time: false,
         own: false,
         ev_held: vec![],
         rate_jac: None,
@@ -5024,9 +5098,12 @@ fn run_watched<'a>(
             // a time event or crossing is scheduled; a root (with any ticks
             // at its instant) is a state event
             lp.scheduled = !is_root;
-            // (a root with nothing scheduled due and no expiry cut: its
-            // crossing may be the event's one cause, [`Loop::iterate`])
-            lp.own_ok = is_root && !at_time_event && !crossing_due && !expiry_now;
+            // (a root with no time event due and no expiry cut: its crossing
+            // may be the event's one cause, [`Loop::iterate`]; beside a time
+            // crossing, where that crossing's clauses leave a function's
+            // rate as it is, [`Loop::set_expiry`])
+            lp.own_ok = is_root && !at_time_event && !expiry_now;
+            lp.own_at_time = crossing_due;
             let it = lp.settle(integ, t, &mut y, &mut d, &d_pre, dirs, &before_vars);
             lp.scheduled = false;
             lp.own_ok = false;
