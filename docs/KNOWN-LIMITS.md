@@ -924,11 +924,20 @@ SUNDIALS' own examples, transcribed from their C code
   and as much positive (their sum still 1): the first species, 2e-8 at
   the end, went negative, and below zero the equations drift away without
   bound (SUNDIALS' own CVODE does the same, and the test set's RADAU5 at
-  1e-5). The run now warns, naming the species, wherever a quantity the
-  model's equations keep at or above zero (a concentration, an amount, a
-  loss counted up) ends a step clearly below zero; a quantity that may go
-  negative gets no such warning. Keep the absolute tolerance below the
-  smallest value that matters.
+  1e-5). Written with the third species worked out from the balance
+  y1 + y2 + y3 = 1 (as SUNDIALS' own Robertson DAE example writes it), it
+  ends at about -8.1e7, -4.8e7 or -4.7e7 at 1e-4, 1e-5 or 1e-6. The run
+  warns, naming the species, when a quantity ends a step clearly below
+  zero that the engine can prove the model's equations keep at or above
+  zero (a concentration, an amount, a loss counted up): its rate, where
+  it is zero, cannot be negative while the other such quantities are not
+  negative, nor any constant plus a weighted sum of them that the rate
+  reads (the third species above), as long as that sum has stayed at or
+  above zero. A quantity kept at or above zero only in some other way (a
+  balance that is not such a sum, a rate read through a variable the
+  engine solves by iteration) gets no warning, and nor does one that may
+  go negative. Keep the absolute tolerance below the smallest value that
+  matters.
 - **Very stiff chemistry over a very long time can stop.** The test set's
   E5 problem (a reaction over 10¹³ s) stops with `RUN-INTEGRATOR` at every
   tolerance.
@@ -936,14 +945,21 @@ SUNDIALS' own examples, transcribed from their C code
   naming the limit of steps; the test set's beam problem, made to run
   every block implicitly at a tolerance of 1e-10, reached it after about 8
   minutes, 0.86 s into its 5 s.
-- **A constraint the model keeps only through its derivative drifts.** A
-  pendulum written with its rod's tension worked out from the velocities
-  (SUNDIALS' pendulum example, which corrects the drift with a projection
-  the engine does not have) drifted off its circle: at a tolerance of 1e-5
-  over 30 s its 1 m pendulum ended 95 m from the pivot (SUNDIALS' own run
-  without the projection ends about 1 m off). Write the constraint itself
-  (x² + y² = L²):
-  the engine then keeps it.
+- **A constraint the model keeps only through its derivatives can drift
+  off without a warning.** A pendulum written with its rod's tension
+  worked out from the velocities (SUNDIALS' pendulum example) keeps the
+  rod's length only through its second derivative, so a small error in
+  the length grows. At a tolerance of 1e-5 over 30 s its 1 m pendulum
+  ended 95 m from the pivot, and the run said nothing. SUNDIALS' own CVODE
+  does the same: run as the engine runs it here (the Adams method with
+  fixed-point iteration, the engine's choice for a non-stiff model) it
+  ends 95 m off too, and its BDF method, the engine's other choice, also
+  leaves the circle at some tolerances (with an absolute tolerance 100
+  times below the relative one of 1e-5, it ends 55 m from the pivot).
+  The example keeps the length with a projection, which the engine does
+  not have. Write the constraint itself (x² + y² = L²): the engine then
+  keeps it. A run at tolerances ten times tighter (the accuracy check)
+  shows the drift: it moves the pendulum's end by 95 m.
 - **A variable worked out from the states is not under its own
   tolerance.** Where the engine solves a variable explicitly from the
   states (Robertson's third species as 1 minus the other two), its error is

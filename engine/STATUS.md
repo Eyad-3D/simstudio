@@ -584,10 +584,20 @@ checked against its C functions to the bit) and run on the engine at their
 own tolerances: on IDA (every block implicit) all but cvRoberts print what
 their `.out` prints within 100 rtol plus atol; cvRoberts misses at
 t = 4e10 on every backend, where the `.out`'s own y1 (6.9e-8) is 33 % off
-the exact value (2083/t = 5.2e-8) and the engine's is nearer. On the
+the exact value (2083/t = 5.2e-8) and the engine's is nearer, and at
+t = 4e9 on the default path, where the `.out`'s y2 (2.1034e-12) is 1.0 %
+above the exact value (2.0833e-12: the default path at rtol 1e-10 and
+1e-11 agree to 7 digits) and the engine's (2.0702e-12) 0.6 % below: the two
+errors together exceed the allowance. On the
 default path idaRoberts' root comes 1 % late (y3 solved from the states
 carries their error), idaSlCrank misses once by 1.4e-5 where y1 crosses
-zero, and cvPendulum (no projection) drifts at 1e-5. RADAU5, DASSL and
+zero, and cvPendulum ends 95 m off its 1 m circle at 1e-5, with no
+warning: its rod's length is kept only through its second derivative, and
+upstream CVODE run as the engine runs it there (Adams with fixed-point
+iteration, no linear solver) gives the same 95 m (12 939 steps against
+the engine's 12 897); upstream's BDF leaves the circle too at some
+tolerances (55 m at rtol 1e-5 with atol 1e-7), so whether a run keeps it
+is the luck of the method. RADAU5, DASSL and
 PSIDE ran beside the engine's IDA (every block implicit), its default path
 and diffsol at rtol = atol 1e-4 to 1e-10. What users of such models meet is
 in `docs/KNOWN-LIMITS.md` (*The new engine on published hard problems*).
@@ -599,5 +609,11 @@ implicit at 1e-10 ran for hours, and now stops after 10 000 000 steps); a
 state the equations keep at or above zero (an interval proof over the
 assignments, made only when a step ends with one clearly below zero) that a
 run takes below it is named in a run warning (Robertson's blow-up at a
-loose absolute tolerance, which upstream CVODE shares, was silent).
-Integration is unchanged (`tests/solver_guards.rs`).
+loose absolute tolerance, which upstream CVODE shares, was silent). Fix
+round 2: a variable the model sets to a constant plus a weighted sum of
+the states (Robertson's third species as 1 - y1 - y2, SUNDIALS'
+idaRoberts form, whose blow-up stayed silent) joins the proof as not
+negative while every step ends with it at or above its own floor, and
+leaves it for the rest of the run once one does not; the warning says the
+result may be wrong from that step, not that it is. Integration is
+unchanged (`tests/solver_guards.rs`).
