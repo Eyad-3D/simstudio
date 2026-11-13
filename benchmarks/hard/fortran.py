@@ -964,11 +964,14 @@ class Machine:
 
     def branches(self, fr, arms, else_body, no, nxt):
         """Branches on symbols: each arm run on a copy, then merged with if
-        expressions. An arm that rejects the point (ierr set, return) is a
-        guard of the solver's, not of the model: left out, and noted."""
+        expressions. An arm that rejects the point (a negative ierr, or stop)
+        is a guard of the solver's, not of the model: left out, and noted. A
+        positive ierr is not a rejection (wheel.f sets 3 or 4 in its
+        creep-force normalisation and maps ierr >= 0 to a good residual): such
+        an arm is the model's."""
         def guard(b):
             texts = [s for _, s, _ in b]
-            return any(re.match(r"ierr\s*=\s*-?\s*[1-9]", t) or re.match(r"stop\b", t)
+            return any(re.match(r"ierr\s*=\s*-\s*[1-9]", t) or re.match(r"stop\b", t)
                        for t in texts)
         live = []
         for c, b in arms:
@@ -990,7 +993,8 @@ class Machine:
             except Return:
                 raise Unsupported("return inside a branch on a symbol")
             results.append((c, self.store))
-        keys = set().union(*[set(r.keys()) for _, r in results])
+        # (in the order the arms set them: the same text whatever the hash seed)
+        keys = list(dict.fromkeys(k for _, r in results for k in r))
         merged = dict(before)
         for k in keys:
             vals = [r.get(k) for _, r in results]
