@@ -53,19 +53,26 @@ runs = model.sweep([{"el_vehicle.cd": 0.25}, {"el_vehicle.cd": 0.35}], threads=4
   the model's structure (the vehicle's mass, for one) cannot be set; build
   again with the changed project.
 * `model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None,
-  scripts=None, native_scripts=True)` returns a `Run`. The GIL is released
+  scripts=None, native_scripts=True, time_limit=None, memory_limit=None)`
+  returns a `Run`. The GIL is released
   while the engine runs, so other Python threads go on. It is the golden
   comparison's run (`lsim_project::golden::run_case`): the same solver and
   tolerances, the energy books on, and an acceleration test runs again to
   the moment it crosses the finish. The results are bit for bit the same.
   An output grid (`t_end / output_step`, the caller's or the case's own)
   of more than ten million points, or whose results would take more than
-  4 GB (every recorded variable's value, min, max and mean at each output
-  time), is refused with a `ValueError` before the run. A run whose results
-  do not fit in the memory left fails with a `ModelError` coded
-  `RUN-MEMORY`, and reading results into Python (`times`, `channels`, …,
-  which copies them) without the memory for it raises `MemoryError`:
-  neither ends the interpreter. `scripts` and `native_scripts` are below,
+  `memory_limit` bytes (4 GB when not given: every recorded variable's
+  value, min, max and mean at each output time), is refused with a
+  `ValueError` before the run, and a run whose events would take more fails
+  with a `ModelError` coded `RUN-MEMORY-LIMIT`. A run that takes longer
+  than `time_limit` seconds by the wall clock (no limit when not given)
+  fails with a `ModelError` coded `RUN-TIME-LIMIT`, saying how far it got.
+  A run whose results do not fit in the memory left fails with a
+  `ModelError` coded `RUN-MEMORY`, and reading results into Python
+  (`times`, `channels`, …, which copies them) without the memory for it
+  raises `MemoryError`: neither ends the interpreter. A run with a variable
+  that is not a number (NaN) or infinite at an output time fails with a
+  `ModelError` coded `RUN-NOT-FINITE`, naming it: it is never a result. `scripts` and `native_scripts` are below,
   under Script blocks.
 * `Run`: `times`, `channels`, `min`, `max`, `mean` (today's names and units,
   NumPy arrays; `min`/`max`/`mean` are per output interval),

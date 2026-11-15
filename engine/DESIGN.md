@@ -4323,14 +4323,28 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   then lists the first run's.
 * **Output grid.** A grid (from `t_end` and `output_step`, the caller's or
   the case's own) of more than 10⁷ points, or whose results would take
-  more than 4 GB (each point holds every recorded variable's value, min,
-  max and mean), is a `ValueError` before the run. Below it the grid, the
+  more than `memory_limit` (4 GB unless given; each point holds every
+  recorded variable's value, min, max and mean), is a `ValueError` before
+  the run. Below it the grid, the
   recorder and the energy books reserve their room with `try_reserve` and
   fail with `RUN-MEMORY` instead of aborting, and the copies the `Run`
   makes for Python (times, channels, min, max, mean, engine channels, the
   books' series) ask for their room first and raise `MemoryError`; an
   acceleration test's first run lets go of its results before it runs
   again to the finish.
+* **Time and memory limits** (`SolverOptions::time_limit` and
+  `memory_limit`; `time_limit=` and `memory_limit=` in Python). A run that
+  takes longer by the wall clock (its start included; checked at the end
+  of every step) stops with `RUN-TIME-LIMIT` at the time it reached; one
+  whose record would take more memory is refused before anything is made,
+  and one whose events would is stopped where they do (`RUN-MEMORY-LIMIT`).
+  Both are off by default (no time limit; 4 GB in Python). They and the
+  step limit (`max_steps`) bound every run; step 3's fuzzing
+  (`benchmarks/fuzz/PLAN.md`) runs every input under them.
+* **Not a number.** A run whose recorded variable is NaN or infinite at an
+  output time (an output of the states that divides by zero, say, which
+  the integrator never sees) fails with `RUN-NOT-FINITE`, naming the
+  variable and the first such time: never a result.
 * **The app.** With `LIGHTSIM_ENGINE=new` the backend
   (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
   cases on this module, live ones too (section 12.3: streamed, stopped,
