@@ -766,6 +766,16 @@ minimum or an average, for example from the CSV export, or put the
   its code and `NEW-TEXT` rather than running the built-in part. A
   Script, FMU or Traction Control part, and a sub-system's container, have
   no text component. *Roadmap:* ENG-16.
+- **A `when` set exactly at a limit the model holds can stop the run.** In
+  a text component, a `when` that compares a value with exactly a limit the
+  model holds a value at (a counter of the battery's power above 80 kW
+  beside the Accumulator's 80 kW *Output Power Limit*) can stop the new
+  engine with an event storm: once the battery is held at its limit, its
+  power sits on the threshold and the condition changes on rounding alone.
+  Preparing the model warns of it with the code `WHEN-AT-LIMIT`, naming
+  the part with the `when`, the part that holds the value and the limit.
+  Set the threshold a little above or below the limit (79 999 W and
+  80 001 W count right). *Roadmap:* ENG-16.
 - **FMUs on the new engine step at their own points.** With
   `LIGHTSIM_ENGINE=new` an FMU is given its inputs at each multiple of its
   Communication Step, steps to the next and is read there (as FMPy and
