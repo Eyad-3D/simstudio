@@ -71,6 +71,23 @@ equation
   s1 * der(b) = 0;
 end Pulled;
 
+model Redone "u goes below zero at 0.08 (the proof is made then, with the balance m a member), m = 1 - z leaves at 1, x and q (rate m) go below zero rightly at 2.7"
+  parameter Real s1(unit = "s") = 1;
+  Real u(start = 1, fixed = true);
+  Real v(start = 0, fixed = true);
+  Real x(start = 1, fixed = true);
+  Real q(start = 1, fixed = true);
+  Real z(start = 0, fixed = true);
+  Real m;
+equation
+  m = 1 - z;
+  s1 * der(u) = 20 * v;
+  s1 * der(v) = -20 * u;
+  s1 * der(x) = m;
+  s1 * der(q) = m;
+  s1 * der(z) = 1;
+end Redone;
+
 model Oscillator
   parameter Real s1(unit = "s") = 1;
   Real x(start = 1, fixed = true);
@@ -149,6 +166,21 @@ fn a_balance_of_the_states_joins_the_proof_while_it_stays_at_or_above_zero() {
     let r = run("Amplified", &tol(1e-6), 1.0).unwrap();
     let x = r.names.iter().position(|n| n == "x").unwrap();
     assert!(r.values[x].last().unwrap() < &-10.0, "{:?}", r.values[x]);
+    assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
+}
+
+#[test]
+fn the_proof_is_made_again_when_a_member_has_left_since() {
+    // u (an oscillation, which keeps the steps short) goes below zero first,
+    // so the proof is made while the balance m is still a member, and then
+    // holds x and q (whose rate is m) at or above zero. m leaves at t = 1; x
+    // and q then go below zero rightly, and the proof made with m would tell
+    // them falsely: it must be made again without m.
+    let r = run("Redone", &tol(1e-6), 4.0).unwrap();
+    for n in ["x", "q"] {
+        let i = r.names.iter().position(|x| x == n).unwrap();
+        assert!(r.values[i].last().unwrap() < &-0.5, "{n}: {:?}", r.values[i]);
+    }
     assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
 }
 
