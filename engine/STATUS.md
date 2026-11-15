@@ -592,12 +592,19 @@ errors together exceed the allowance. On the
 default path idaRoberts' root comes 1 % late (y3 solved from the states
 carries their error), idaSlCrank misses once by 1.4e-5 where y1 crosses
 zero, and cvPendulum ends 95 m off its 1 m circle at 1e-5, with no
-warning: its rod's length is kept only through its second derivative, and
-upstream CVODE run as the engine runs it there (Adams with fixed-point
-iteration, no linear solver) gives the same 95 m (12 939 steps against
-the engine's 12 897); upstream's BDF leaves the circle too at some
-tolerances (55 m at rtol 1e-5 with atol 1e-7), so whether a run keeps it
-is the luck of the method. RADAU5, DASSL and
+warning: its rod's length is kept only through its second derivative.
+The engine's default run there (rtol = atol = 1e-5) starts on Adams with
+fixed-point iteration and no linear solver, changes to BDF at t = 27.1 s
+after repeated convergence failures, takes 1 645 steps and ends 95.7 m
+from the pivot; held to Adams it takes 12 897 steps and ends 95.7 m off
+too; held to BDF it takes 1 549 steps and stays on the circle (radius
+0.9997). Upstream CVODE with Adams, fixed-point iteration and no linear
+solver (how the engine runs its Adams method) ends 95 m off as well, in
+12 939 steps: that run belongs beside the engine held to Adams (12 897
+steps), not beside the default run, which changes method on the way.
+Upstream's BDF leaves the circle too at some tolerances (55 m at rtol
+1e-5 with atol 1e-7), so whether a run keeps it is the luck of the
+method. RADAU5, DASSL and
 PSIDE ran beside the engine's IDA (every block implicit), its default path
 and diffsol at rtol = atol 1e-4 to 1e-10. What users of such models meet is
 in `docs/KNOWN-LIMITS.md` (*The new engine on published hard problems*).

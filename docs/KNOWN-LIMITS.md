@@ -951,11 +951,15 @@ SUNDIALS' own examples, transcribed from their C code
   rod's length only through its second derivative, so a small error in
   the length grows. At a tolerance of 1e-5 over 30 s its 1 m pendulum
   ended 95 m from the pivot, and the run said nothing. SUNDIALS' own CVODE
-  does the same: run as the engine runs it here (the Adams method with
-  fixed-point iteration, the engine's choice for a non-stiff model) it
-  ends 95 m off too, and its BDF method, the engine's other choice, also
-  leaves the circle at some tolerances (with an absolute tolerance 100
-  times below the relative one of 1e-5, it ends 55 m from the pivot).
+  does the same: with the Adams method, fixed-point iteration and no
+  linear solver (how the engine runs Adams, its choice for a non-stiff
+  model) it ends 95 m off too. The engine's own run there starts on
+  Adams, changes to BDF at 27.1 s when Adams keeps failing to converge,
+  and ends 95 m off as well (the pendulum is already off the circle by
+  then); held to BDF from the start it stayed on the circle at this
+  tolerance. CVODE's own BDF method also leaves the circle at some
+  tolerances (with an absolute tolerance 100 times below the relative one
+  of 1e-5, it ends 55 m from the pivot).
   The example keeps the length with a projection, which the engine does
   not have. Write the constraint itself (x² + y² = L²): the engine then
   keeps it. A run at tolerances ten times tighter (the accuracy check)
