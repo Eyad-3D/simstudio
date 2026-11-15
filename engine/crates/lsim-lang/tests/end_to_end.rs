@@ -133,3 +133,40 @@ fn a_structural_parameter_is_part_of_the_structure_key() {
     // a structural one does
     assert_ne!(base, key(&STRUCTURAL.replace("n(unit = \"1\") = 2", "n(unit = \"1\") = 3")));
 }
+
+/// Fuzzing finding: a model with a part of its own kind (or two that hold
+/// each other) was built again without end and overflowed the stack. It is
+/// now one coded refusal that names the cycle.
+#[test]
+fn models_that_hold_each_other_are_refused() {
+    let text = r#"
+model Test.Loop "Holds a part of its own kind."
+  Test.Loop again;
+end Test.Loop;
+
+model Test.Ping "Holds a Pong."
+  Test.Pong pong;
+end Test.Ping;
+
+model Test.Pong "Holds a Ping."
+  Test.Ping ping;
+end Test.Pong;
+"#;
+    let mut lib = lsim_lib::library();
+    let parsed = parse_library(text, Some(&lib)).unwrap_or_else(|e| panic!("{}", Report(&e)));
+    for c in parsed.components.into_values() {
+        lib.add(c);
+    }
+    for (top, chain) in [
+        ("Test.Loop", "Test.Loop holds Test.Loop"),
+        // the top is a copy of the library's Test.Ping, so the cycle is seen
+        // when the library's own Test.Pong comes round again
+        ("Test.Ping", "Test.Pong holds Test.Ping holds Test.Pong"),
+    ] {
+        let top = lib.components[top].clone();
+        let err = lsim_prep::flatten::flatten(&lib, &top).unwrap_err();
+        let d =
+            err.iter().find(|d| d.code == "COMPONENT-CYCLE").unwrap_or_else(|| panic!("{err:#?}"));
+        assert!(d.message.contains(chain), "{}", d.message);
+    }
+}

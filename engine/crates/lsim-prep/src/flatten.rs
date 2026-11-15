@@ -743,6 +743,36 @@ impl<'a> Flattener<'a> {
                 ));
                 continue;
             };
+            // a part of a kind that is already being built (the model's own, or
+            // an enclosing part's) would be built again without end
+            let mut chain = vec![];
+            let mut up = Some(id);
+            let mut cycle = false;
+            while let Some(i) = up {
+                chain.push(self.flat.instance(i).def.clone());
+                if std::ptr::eq(self.defs[i.0 as usize], sdef) {
+                    cycle = true;
+                    break;
+                }
+                up = self.flat.instance(i).parent;
+            }
+            if cycle {
+                chain.reverse();
+                chain.push(sdef.name.clone());
+                let mut d = Diagnostic::error(
+                    "COMPONENT-CYCLE",
+                    format!(
+                        "'{}' contains itself: {}. A model cannot hold a part of its own kind, \
+                         directly or through other parts.",
+                        sdef.name,
+                        chain.join(" holds ")
+                    ),
+                )
+                .with_hint("Take the part out, or give it another kind.");
+                d.parts.push(path.clone());
+                self.diags.push(d);
+                continue;
+            }
             let mut sub_given = FxMap::default();
             for m in &s.modifiers {
                 let g = self.param_value(
@@ -1398,5 +1428,42 @@ mod tests {
         assert_eq!(err[0].code, "UNKNOWN-NAME");
         assert!(err[0].message.contains("'Heater' (Bad)"), "{}", err[0].message);
         assert!(err[0].message.contains("'Rx'"));
+    }
+
+    /// A model that holds a part of its own kind, directly or through other
+    /// parts, is refused with the cycle named (a fuzzing finding: it was
+    /// built again without end and overflowed the stack).
+    #[test]
+    fn a_part_of_its_own_kind_is_refused_naming_the_cycle() {
+        let part = |name: &str, kinds: &[(&str, &str)]| ComponentDef {
+            name: name.into(),
+            components: kinds.iter().map(|(n, d)| sub(n, d, &[])).collect(),
+            ..Default::default()
+        };
+        // each case: the library's models, the top's parts, the chain named
+        let cases: [(&[(&str, &[(&str, &str)])], &[(&str, &str)], &str); 4] = [
+            (&[("A", &[("a", "A")])], &[("x", "A")], "A holds A"),
+            (&[("A", &[("b", "B")]), ("B", &[("a", "A")])], &[("x", "A")], "A holds B holds A"),
+            (
+                &[("A", &[("b", "B")]), ("B", &[("c", "C")]), ("C", &[("a", "A")])],
+                &[("x", "B")],
+                "B holds C holds A holds B",
+            ),
+            (&[("Top", &[("x", "Top")])], &[("x", "Top")], "Top holds Top"),
+        ];
+        for (models, top_parts, chain) in cases {
+            let mut lib = lsim_lib::library();
+            for (name, parts) in models {
+                lib.add(part(name, parts));
+            }
+            let top = part("Top", top_parts);
+            let err = flatten(&lib, &top).unwrap_err();
+            let d = err
+                .iter()
+                .find(|d| d.code == "COMPONENT-CYCLE")
+                .unwrap_or_else(|| panic!("{err:#?}"));
+            assert!(d.message.contains(chain), "{chain}: {}", d.message);
+            assert!(d.message.contains("its own kind"), "{}", d.message);
+        }
     }
 }
