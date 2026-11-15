@@ -12,7 +12,6 @@ a routine the file does not hold) stops it with the line it stopped at.
 """
 from __future__ import annotations
 
-import copy
 import math
 import re
 import struct
@@ -883,7 +882,6 @@ class Machine:
             return i + 1
         m = re.match(r"([a-z_]\w*)\s*(\(.*?\))?\s*=(?!=)(.*)$", s)
         if m:
-            lhs_text = m.group(1) + (m.group(2) or "")
             # an array element's index may itself hold parentheses
             lhs, rhs = split_assign(s)
             target = parse_expr(lhs)

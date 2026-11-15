@@ -24,7 +24,8 @@ and each stage alone:
 and WORK are folders outside the repository. HARD_CPUS pins the runs
 (taskset), HARD_OURS names the folder of our runs. Needs gfortran, a C
 compiler, cmake (CMAKE, the PATH's, or pip's next to this Python) and the
-engine's Rust toolchain.
+engine's Rust toolchain; a stage whose tools are missing stops at once and
+names them, with how to get each without sudo.
 """
 from __future__ import annotations
 
@@ -90,6 +91,43 @@ def sha256(p: Path) -> str:
 
 def pinned(cmd: list[str]) -> list[str]:
     return ["taskset", "-c", CPUS] + cmd if CPUS else cmd
+
+
+def find_cmake() -> str | None:
+    """CMAKE, else one on the PATH, else pip's next to this Python."""
+    if os.environ.get("CMAKE"):
+        return shutil.which(os.environ["CMAKE"])
+    sibling = Path(sys.executable).with_name("cmake")
+    return shutil.which("cmake") or (str(sibling) if sibling.exists() else None)
+
+
+# What each stage shells out to, and how to get each tool without sudo.
+NEEDS = {
+    "probe": ["gfortran"], "outside": ["gfortran"], "sunours": ["cc"],
+    "sundials": ["cmake", "cc", "tar", "cargo"],
+    "all": ["cargo", "gfortran", "cc", "tar", "cmake"],
+}
+HOW = {
+    "cmake": "python -m pip install cmake (into the Python that runs this script), "
+             "or set CMAKE to the cmake you have",
+    "gfortran": "micromamba create -p ~/gf -c conda-forge gfortran, then GFORTRAN=~/gf/bin/gfortran",
+    "cc": "a C compiler named cc on the PATH: conda-forge's gcc package in a folder of your "
+          "own (micromamba create -p ~/cc -c conda-forge gcc) and a link cc -> gcc there",
+    "cargo": "rustup in your home folder: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh",
+    "tar": "tar, which every Linux base install holds",
+    "taskset": "taskset (util-linux), or leave HARD_CPUS unset",
+}
+
+
+def require_tools(stage: str) -> None:
+    """Stops at once, naming each missing tool and how to get it in user
+    space, so a stage does not fail minutes into a run on a missing one."""
+    wanted = list(NEEDS.get(stage, [])) + (["taskset"] if CPUS and stage not in ("fetch", "transcribe", "score") else [])
+    where = {"cmake": find_cmake(), "gfortran": shutil.which(GFORTRAN)}
+    missing = [t for t in wanted if not where.get(t, shutil.which(t))]
+    if missing:
+        sys.exit(f"hard.py {stage}: not found on this machine: {', '.join(missing)}. "
+                 "Nothing was started. " + " ".join(f"{t}: {HOW[t]}." for t in missing))
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +251,10 @@ def parse_probe(out: str) -> dict:
     lines = out.split("\n")
     d: dict = {"F": []}
     i = 0
-    nums = lambda k: [float(x.replace("D", "E")) for x in lines[i + 1:i + 1 + k]]
+
+    def nums(k):
+        return [float(x.replace("D", "E")) for x in lines[i + 1:i + 1 + k]]
+
     while i < len(lines):
         ln = lines[i].strip()
         if ln.startswith("TYPE"):
@@ -663,7 +704,7 @@ def score(work: Path, cache: Path | None = None) -> dict:
         row = {"transcription": checks.get(f"ivp-{p}", {}).get("ok")}
         for be in BACKENDS:
             runs = load_ours(work, be, cid)
-            rows, verdicts = {}, []
+            rows = {}
             for rt in RTOLS:
                 r = runs.get(rt)
                 if r is None:
@@ -778,7 +819,7 @@ def report(t: dict, work: Path) -> None:
     for cid, row in t["cases"].items():
         for be in BACKENDS:
             npass[be] += bool(row.get(be + "_verdict", {}).get("pass"))
-    lines.append(f"Cases passing their expectation: " +
+    lines.append("Cases passing their expectation: " +
                  ", ".join(f"{be} {npass[be]} of {len(t['cases'])}" for be in BACKENDS))
     lines.append("")
     for cid, row in t["cases"].items():
@@ -840,9 +881,7 @@ def sundials_c(cache: Path, work: Path) -> list[dict]:
     tgz = get(cache, *SUNDIALS_TGZ)
     base = work / "sundials"
     src, build, prefix = base / "src", base / "build", base / "install"
-    # (CMAKE, else one on the PATH, else pip's next to this Python)
-    cmake = (os.environ.get("CMAKE") or shutil.which("cmake")
-             or str(Path(sys.executable).with_name("cmake")))
+    cmake = find_cmake()
     if not (prefix / "lib").exists() and not (prefix / "lib64").exists():
         shutil.rmtree(base, ignore_errors=True)
         src.mkdir(parents=True)
@@ -948,8 +987,9 @@ def sun_ours(work: Path, only: list[str], jobs: int = 8) -> list[dict]:
     prints, and judged (criteria.sundials_ours, with the dated changes of
     13 November: half a unit of the last printed digit allowed besides;
     cvPendulum_dns on its errors at tf)."""
-    import csun  # noqa: PLC0415
     from concurrent.futures import ThreadPoolExecutor  # noqa: PLC0415
+
+    import csun  # noqa: PLC0415
     sun, prefix = work / "sundials" / "src", work / "sundials" / "install"
     (work / "suncases").mkdir(parents=True, exist_ok=True)
     runner = target_dir() / "judge"
@@ -1165,7 +1205,7 @@ def check_judge(work: Path) -> None:
         n = d["neqn"]
         chans = case["judge"]["channels"]
         pts = [dict(p) for p in d["points"]]
-        names, ders = {}, {}
+        names = {}
         for i, c in enumerate(chans):
             if isinstance(c, list):  # component i is der(X): X's y' is y(i)
                 x = c[0][4:-1]
@@ -1236,6 +1276,7 @@ def main() -> None:
     ap.add_argument("--only", nargs="*", default=[])
     a = ap.parse_args()
     st = a.stage
+    require_tools(st)
     if st == "fetch":
         fetch(Path(a.dirs[0]))
     elif st == "probe":

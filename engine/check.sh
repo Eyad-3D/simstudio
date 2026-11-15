@@ -42,6 +42,7 @@ python3 judge/test_judge.py
 
 step "the hard-problem harness's transcriber (benchmarks/hard)"
 python3 ../benchmarks/hard/test_fortran.py
+python3 ../benchmarks/hard/test_tools.py
 
 if command -v cargo-deny >/dev/null 2>&1; then
     step "cargo-deny (licences, bans)"
