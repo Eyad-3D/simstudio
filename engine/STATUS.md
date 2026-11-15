@@ -209,50 +209,56 @@ own before such a case is registered; no planted fault hidden, 20 of them now a 
   explains why it reads short, never where the event itself moved it
   back (its own `when`, a sibling, a `reinit`, a value it froze, a
   rounding wider than the solve's), read where the crossing really is;
-  and every hold has a time limit: at every event its time is worked out
-  again, and if x does not get across by itself in eight times what its
-  shortfall needs (at the speed x has after the event where the condition
-  is on the crossing's line, however it is written, else at the speed it
-  had), it is read as it is, and its opposite `when` fires there. A hold
-  that is wrong can so hide at most its width of x, for no longer than x
-  needs to cross that width at its speed at the latest event that timed
-  it: within the solver's timing precision where no event changes x's
-  speed, K times that where an event slows x K times (round 4, the hold
-  rule: DESIGN.md 8.2, *Conditions on iteration variables*); but where
-  x has stopped just short of its line and a later event times the hold
-  again, that speed is x's creep or rounding and the limit 1e2 to 4e3 s.
-  On diffsol and the stateless backend the opposite `when` of a
-  crossing's own move now fires (it never did). The holds suite
-  (`engine/judge/holds.py`, 364 770 counted runs of every shape the
-  reviews and re-checks found, against hand-worked counts and times):
-  352 530 right, 1 662 bounded (an extra or a lost pair of firings within
-  the solver's timing precision), 377 within the time limit where an
-  event slows x, 537 within the two known limits below, 7 630 within the
-  other named limits, 2 034 wrong. Of those, 1 429 (1 345 solver stops,
-  and 84 runs where diffsol's own x drifts below the line it should stay
-  above) are wrong at 4d24528 too, and 605 are re-check 5's shapes
-  (mostly diffsol never reporting a crossing after a restart, at every
-  build, no holds included); two runs right at 4d24528 are wrong (the
-  chatters of the second limit below). Known limits, accepted on 30
-  October 2026 (step 3 of the roadmap closes the first two and warns of
-  the third): (1) a hold from a crossing that an event then stops just
-  short of its line is timed again at a later event from x's creep, so
-  its back and the next forth can be lost for good (534 suite runs; 1 302
-  at 4d24528, whose holds have no time limit at all); (2) on diffsol
-  only, a crossing it reports at a time event beside a `when` that slows
-  x gets the short limit, and the slowed re-crossing is never reported (5
-  runs right at 4d24528: 3 inside the limit, 2 chattering); (3) a user's threshold set
-  exactly at a value the model pins (a `when` on battery power at 80 kW
-  beside the Accumulator's 80 kW limit) stops the run with an event
-  storm on every build, no holds included (at 0.706 s here). None
-  reaches a user today: users run today's Python engine, the new one is
-  opt-in and not in the installer, no library component has a `when` on
-  a solved value, the golden cars make no hold, an equation-text part (step
+  and every hold has a time limit: the event that makes it works its
+  time out, and if x does not get across by itself in eight times what
+  its shortfall needs (at the speed x has after the event where the
+  condition is on the crossing's line, however it is written, else at
+  the speed it had), it is read as it is, and its opposite `when` fires
+  there; a later event works the time out again and can only shorten it
+  (step 3, 12 November). A hold that is wrong can so hide at most its
+  width of x, for no longer than x needs to cross that width at its
+  speed at the event that made it: within the solver's timing precision
+  where no event changes x's speed, K times that where the crossing's
+  own event slows x K times (round 4, the hold rule: DESIGN.md 8.2,
+  *Conditions on iteration variables*). On diffsol and the stateless
+  backend the opposite `when` of a crossing's own move now fires (it
+  never did). The holds suite (`engine/judge/holds.py`, 364 770 counted
+  runs of every shape the reviews and re-checks found, against
+  hand-worked counts and times), at step 3's engine: 352 626 right,
+  2 026 bounded (an extra or a lost pair of firings within the solver's
+  timing precision), 284 within the time limit where an event slows x, 1
+  within the known limit below, 7 801 within the other named limits,
+  2 032 wrong. Of those, 1 429 (1 345 solver stops, and 84 runs where
+  diffsol's own x drifts below the line it should stay above) are wrong
+  at 4d24528 too, and 603 are re-check 5's shapes (mostly diffsol never
+  reporting a crossing after a restart, at every build, no holds
+  included); one run right at 4d24528 is wrong (the chatter of the known
+  limit below). Step 3 (12 November) closed the first of the two holes
+  recorded on 30 October (a hold from a crossing that an event then
+  stopped just short of its line was timed again at a later event from
+  x's creep, and its back and the next forth were lost for good: 534
+  suite runs, now 0) and the second where a time crossing beside the
+  crossing changes nothing x reads (tev: 2 runs in the limit and a
+  chatter, now right). Known limits: (1) on diffsol only, a crossing it
+  reports at a `when time >= t2` that itself slows x gets the short
+  limit, and the slowed re-crossing is never reported (1 run in the
+  limit, 1 chattering; the rule cannot tell that slow from a stop, where
+  reading the crossing as its own made 135 suite runs wrong); (2) a
+  user's threshold set exactly at a value the model holds (a `when` on
+  battery power at 80 kW beside the Accumulator's 80 kW Output Power
+  Limit) stops the run with an event storm at rtol 1e-6 on every build,
+  no holds included (at 0.706 s here, and at 0.210 s at 1e-8); at 1e-4
+  it does not stop but counts 125 to 135 firings, by build (125 at 88b5e2f, 135 at 4d24528); since step 3 the model's preparation warns
+  of it (`WHEN-AT-LIMIT`, naming the `when`'s part, the part holding the
+  value and the limit). Neither reaches a user today: users run today's
+  Python engine, the new one is opt-in and not in the installer, no
+  library component has a `when` on a solved value, the golden cars make
+  no hold, diffsol is not selectable, and an equation-text part (step
   2's text components, merged 10 November 2026) runs only on the new
-  engine, from a project file edit, and about 5 000 car runs produced neither of the first
-  two. Also known: a mode and a `when` on one relation can read two
-  values at one event (mode read), the event storm beside a mode, and
-  diffsol losing a crossing right after a restart.
+  engine, from a project file edit. Also known: a mode and a `when` on
+  one relation can read two values at one event (mode read), the event
+  storm beside a mode, and diffsol losing a crossing right after a
+  restart.
 
 ## The vendored IDAS against SUNDIALS 7.9.0 (20 October 2026)
 
@@ -437,15 +443,28 @@ at 1debfc4 and did not pass (see the section below).
   as known issue (b), to be reported with its count, so the sweep line passes.
   `sweep.compare` itself reports them as its 2 mismatched runs; the same
   recount names them (b). (`docs/KNOWN-LIMITS.md` says so.)
-- **Three Reference FMUs fail the FMU line's test on Linux.** With
-  Reference FMUs 0.0.41 and fmusim 0.7.0 on Linux,
-  `test_new_engine_fmu.py`'s line test fails for 3 of its FMUs, on
-  `work/step2` and on the merge alike: 2.0/Stair and 3.0/Stair, where the
-  new path stops the run with `RUN-BLOCK` when the FMU asks to stop the
-  simulation at t = 9 s (2.0: `fmi2DoStep` returns discard), and
-  3.0/BouncingBall, where the reference run with fmusim itself ends with
-  an error. 2.0/BouncingBall and the rest pass. The line is judged on
-  Windows CI, where it has not run yet; it may fail the same way there.
+- **Two Reference FMUs fail the FMU line's test, on Linux and on
+  Windows.** With Reference FMUs 0.0.41 and fmusim 0.7.0,
+  `test_new_engine_fmu.py`'s line test has 14 FMUs. On Linux (since 12
+  November, fix round 3) 11 pass, 2 fail and 1 is skipped. Pass:
+  2.0/BouncingBall, 2.0/Dahlquist, 2.0/Feedthrough, 2.0/Resource,
+  2.0/VanDerPol, 3.0/BouncingBall, 3.0/Dahlquist, 3.0/Feedthrough,
+  3.0/Resource, 3.0/Roberts and 3.0/VanDerPol. Fail: 2.0/Stair and
+  3.0/Stair, where the new path stops the run with `RUN-BLOCK` when the
+  FMU asks to stop the simulation at t = 8.8 s (2.0: `fmi2DoStep`
+  returns discard). Skipped: 3.0/StateSpace, whose outputs are arrays, so
+  it has no output LightSim can pin and nothing is compared. The 2
+  failures are marked as expected failures (strict), see the step 2 close
+  below. Windows CI run 43116535929 (989204b, the line's first run there)
+  gave 10 pass and 3 fail, 3.0/BouncingBall the third: that was a defect
+  of the test, not of the engine. The test asked fmusim for every output
+  by name, `h_ft` too, which the FMU declares as an FMI 3 alias of `h`,
+  and fmusim 0.7.0 refuses an alias by name (on Linux: "The requested
+  output variable "h_ft" does not exist"; CI does not print fmusim's
+  error text). The test now asks fmusim once per value and reads `h_ft`
+  from `h`'s column (`fmusim_columns`, with a test), and 3.0/BouncingBall
+  passes on Linux to the last digit against FMPy and fmusim. Windows CI
+  has not run since that fix.
 - **Docs:** `docs/spec/api.md` has no `restart` event (no fields: drop the
   points shown, the run starts again at t = 0), and
   the `sweep.md` that the sweep writes in its output folder
@@ -531,15 +550,59 @@ Failed or not measured, with the numbers:
   s mark) and study p95 0.752 s; today's engine 0.246 s and 0.790 s. At
   the merge of 10 November (also local and loaded): the new engine's live
   p95 0.233 s, but its study p95 rose to 0.975 s, 2.5 % under the 1.0 s
-  mark.
-- **FMU: not measured.** Not run locally (`LIGHTSIM_REFERENCE_FMUS` and
+  mark. **Measured on Windows CI for the first time** (run 43116535929,
+  989204b, 11 November): the live stop fails, p95 0.296 s against the 0.25
+  s mark (20 stops, all shown; median 0.176 s, maximum 0.308 s, 3 stops
+  over 0.25 s); the study stop passes. S2 is a known issue (the owner's
+  decision of 10 November).
+- **FMU: not measured** at 1debfc4. Not run locally (`LIGHTSIM_REFERENCE_FMUS` and
   `LIGHTSIM_FMUSIM` not set, and the line's FMUs are x86_64-windows), and
   on Windows CI `test_new_engine_fmu.py` never ran. At the merge of 10
-  November it ran on Linux with the Linux build of the same FMUs: 3 of
-  them fail (see the known issues above).
+  November it ran on Linux with the Linux build of the same FMUs, and on
+  Windows CI run 43116535929 (989204b) for the first time: on both, 10
+  pass, 3 fail (2.0/Stair, 3.0/Stair, 3.0/BouncingBall) and 3.0/StateSpace
+  is skipped (see the known issues above). 3.0/BouncingBall's failure was
+  a defect of the test, fixed on 12 November (fix round 3): on Linux the
+  line is now 11 pass, 2 fail (the two Stair FMUs), 1 skipped. The line
+  fails; a known issue (the owner's decision of 10 November).
+
+**Expected failures in CI** (since 12 November). So that CI shows new
+failures again without hiding these, the 3 tests that fail on Windows CI
+run 43116535929 for the known issues above report XFAIL (an expected
+failure) naming the known issue, each only for its own failure; any other
+failure of the same test still fails (since 12 November, fix round 2: at
+first each matched only the error's type, so another assertion in a
+Stair case, or a live stop where nothing was measured, would have been
+hidden as an expected failure). A fourth, 3.0/BouncingBall, is no longer
+one: its failure was the test's own, and is fixed (fix round 3).
+
+- `test_new_engine_fmu.py`, the FMU line's 2.0/Stair and 3.0/Stair:
+  marked **strict**. Each fails the same way on every run, on Linux and
+  on Windows CI (the same `RUN-BLOCK` text, word for word, in run
+  43116535929's log); a fix makes the test pass, and strict turns that
+  pass into a CI failure until the mark is removed, so a fix shows. A
+  failure counts as expected only when its message holds the run's whole
+  `RUN-BLOCK` refusal (`KNOWN_FMU_FAILURES`).
+- `test_stop_latency.py::test_a_live_run_stops_within_its_mark` (S2's
+  live stop): **not strict**, and no mark: the test calls `pytest.xfail`
+  itself. It is a timing near its mark (0.296 s on Windows CI, 0.233 s
+  locally), so some runs pass; a pass must not turn CI red. Only a
+  measured run over its mark by no more than the known issue's size
+  (state `fail`, p95 at most 0.4 s, `KNOWN_LIVE_P95_S`) reports XFAIL,
+  with its p95; a larger p95 is a new slowdown and fails (since 12
+  November, fix round 3: before, any p95 over 0.25 s gave XFAIL, 5 s
+  too), and so does a run where nothing was measured (`not measured`).
+
+The same run's two licence failures are fixed (12 November): FMPy 0.3.32
+declares no licence in its metadata, so `scripts/licenses/clarifications.json`
+now records it from its licence file (BSD-2-Clause, and BSD-3-Clause for the
+FMI schema files frozen with it); and on Windows `test_licence_policy.py`
+checked its Linux NumPy example against NumPy's Windows entry (the Windows
+wheel's licence file does name the GCC runtime library; the test now checks
+the example as Linux).
 
 Why the Windows CI run failed (run 42709765031, `workflow_dispatch`, at
-1debfc4; it is the only run on this branch): "Engine (Rust) on Windows"
+1debfc4; the branch's first run, before run 43116535929 above): "Engine (Rust) on Windows"
 stopped at "Python module (tests)" in
 `test_api.py::test_table_sites_lists_every_table_read_of_the_blocks`, which
 still expects an entry for the E-Motor's power loss that 955a90c removed

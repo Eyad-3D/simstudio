@@ -130,7 +130,7 @@ from the library's defaults, in `parameterOverrides`.
 | `size` | `{width, height}` or null | Its size on the diagram; null for the default |
 | `isSubSystem` | true or false | true when the part opens a sub-system |
 | `subSystemId` | text or null | The system it opens |
-| `textFile` | text or null | A text component: the path (absolute, or from the projects folder) of a file holding the part as one component in the new engine's text format, with its ports and parameters; the new engine builds the part from it in the place of its built-in definition. Today's engine reads none, so such a case runs on the new engine. See [Write a part as text](../help/how-to/write-a-part-as-text.md) |
+| `textFile` | text or null | A text component: the path (from the projects folder, or absolute) of a file inside the projects folder, links followed, holding the part as one component in the new engine's text format, with its ports and parameters; the new engine builds the part from it in the place of its built-in definition. Today's engine reads none, so such a case runs on the new engine. See [Write a part as text](../help/how-to/write-a-part-as-text.md) |
 
 ### Values
 

@@ -171,6 +171,15 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
     })
 }
 
+/// The dimension of `e` where its units give one: none for a bare number,
+/// nor where its units do not balance.
+pub(crate) fn known_dim(e: &Expr, flat: &FlatSystem) -> Option<Dim> {
+    match dim(e, flat) {
+        Ok(D::Known(d)) => Some(d),
+        _ => None,
+    }
+}
+
 /// `0 = if c then a else b` holds as `0 = a` while `c` and `0 = b`
 /// otherwise (an `if` equation whose branches state different
 /// quantities): each branch must balance on its own.

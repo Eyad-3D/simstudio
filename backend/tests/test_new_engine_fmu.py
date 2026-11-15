@@ -330,6 +330,23 @@ def reference_project(path: Path, h: float, stop: float) -> tuple[Project, list[
     return proj, names
 
 
+def fmusim_columns(variables: list[dict], names: list[str]) -> dict[str, str]:
+    """Each pinned output's column in fmusim's file: an alias (an output of
+    the same type and value reference as one before it, as h_ft is of h in
+    3.0/BouncingBall: an FMI 3 Alias) is the same value, and fmusim 0.7.0
+    takes no alias by name, so it reads the first one's column."""
+    key = {v["name"]: (v["type"], v["valueReference"]) for v in variables}
+    first: dict = {}
+    return {n: first.setdefault(key[n], n) for n in names}
+
+
+def test_an_alias_reads_the_column_of_the_output_it_names():
+    v = [{"name": n, "type": t, "valueReference": r}
+         for n, t, r in (("h", "Float64", 1), ("v", "Float64", 3), ("h_ft", "Float64", 1),
+                         ("i", "Int32", 1))]
+    assert fmusim_columns(v, ["h", "v", "h_ft", "i"]) == {"h": "h", "v": "v", "h_ft": "h", "i": "i"}
+
+
 def compare_reference(path: Path, h: float, stop: float, fmusim: str, out_dir: Path) -> dict:
     """One case of the FMU line: the pinned outputs at every communication
     point on the three hosts, and every place they differ."""
@@ -355,11 +372,12 @@ def compare_reference(path: Path, h: float, stop: float, fmusim: str, out_dir: P
     csv_path = out_dir / f"{path.parent.name}-{path.stem}.csv"
     cmd = [fmusim, "simulate", "--interface-type", "cs", "--start-time", "0", "--stop-time",
            repr(stop), "--output-interval", repr(h), "--output-file", str(csv_path)]
-    for name in names:
+    column = fmusim_columns(info.describe(path)["variables"], names)
+    for name in dict.fromkeys(column.values()):
         cmd += ["--output-variable", name]
     subprocess.run([*cmd, str(path)], check=True, capture_output=True, timeout=600)
     with csv_path.open(newline="") as f:
-        rows = list(csv.DictReader(f))
+        rows = [{"time": r["time"], **{k: r[column[k]] for k in names}} for r in csv.DictReader(f)]
     for host, table in (("FMPy", [{"time": r["time"], **{k: r[k] for k in names}} for r in fmpy]),
                         ("fmusim", rows)):
         if len(table) != n + 1:
@@ -379,10 +397,55 @@ def compare_reference(path: Path, h: float, stop: float, fmusim: str, out_dir: P
     return rec
 
 
+# The FMU line's known issue (engine/STATUS.md, "Step 2 closed without
+# acceptance"; the owner's decision of 10 November 2026): these 2 FMUs fail on
+# Windows CI (run 43116535929, 989204b) and on Linux the same way on every run,
+# so each is an expected failure that is strict: when a fix makes one pass,
+# CI fails (XPASS) until its mark is removed. Each expects only its own
+# failure: the test raises KnownIssue only when the failure's message holds
+# the text below (the same on Windows CI and on Linux), so any other failure
+# of these FMUs, a value difference or another refusal, still fails the test.
+KNOWN_FMU_FAILURES = {  # which: (text its failure's message holds, the known issue)
+    "2.0/Stair": ("the new engine refused it (RUN-BLOCK) (sampled block Stair failed at t = 9 s: "
+                  "FMU 'Stair' failed at t = 9 s: FmuError: FMU 'Stair' reported an error at "
+                  "t = 8.8 s: fmi2DoStep failed with status 2 (discard).)",
+                  "known issue: the FMU's fmi2DoStep returns discard at t = 8.8 s, "
+                  "and the new path stops the run with RUN-BLOCK"),
+    "3.0/Stair": ("the new engine refused it (RUN-BLOCK) (sampled block Stair failed at t = 9 s: "
+                  "FMU 'Stair' failed at t = 9 s: FmuError: FMU 'Stair' reported an error at "
+                  "t = 8.8 s: the FMU asked to stop the simulation)",
+                  "known issue: the FMU asks to stop the simulation at t = 8.8 s, "
+                  "and the new path stops the run with RUN-BLOCK"),
+}
+
+
+class KnownIssue(Exception):
+    """An FMU of KNOWN_FMU_FAILURES failed with its own known failure."""
+
+
+def is_known_failure(which: str, message: str) -> bool:
+    return which in KNOWN_FMU_FAILURES and KNOWN_FMU_FAILURES[which][0] in message
+
+
+def test_only_a_known_fmu_failures_own_message_is_expected():
+    """The marks below expect KnownIssue, raised only on a known failure's own
+    message: another failure of the same FMU, or the same text for another
+    FMU, is not one."""
+    for which, (text, _) in KNOWN_FMU_FAILURES.items():
+        assert is_known_failure(which, f"Not run [NEW-FAILED]: {text}; more")
+        assert not is_known_failure(which, "values differ from fmusim")
+        assert not is_known_failure(which, text[:-2])
+    assert not is_known_failure("2.0/Dahlquist", KNOWN_FMU_FAILURES["2.0/Stair"][0])
+    assert not is_known_failure("2.0/Stair", KNOWN_FMU_FAILURES["3.0/Stair"][0])
+
+
 @needs_engine
 @pytest.mark.skipif(not (REFERENCE and FMUSIM),
                     reason="LIGHTSIM_REFERENCE_FMUS and LIGHTSIM_FMUSIM not set (Windows CI sets them)")
-@pytest.mark.parametrize("which", sorted(CASES))
+@pytest.mark.parametrize("which", [
+    pytest.param(w, marks=pytest.mark.xfail(raises=KnownIssue, strict=True,
+                                            reason=KNOWN_FMU_FAILURES[w][1]))
+    if w in KNOWN_FMU_FAILURES else w for w in sorted(CASES)])
 def test_reference_fmus_on_the_new_path_equal_fmusim_and_fmpy(which, tmp_path):
     """The FMU line (acceptance.toml): each co-simulation Reference FMU
     v0.0.41 in a one-block project on LightSim's new path equals fmusim run
@@ -393,4 +456,6 @@ def test_reference_fmus_on_the_new_path_equal_fmusim_and_fmpy(which, tmp_path):
     rec = compare_reference(path, h, stop, FMUSIM, tmp_path)
     if rec["state"] == "nothing to compare":
         pytest.skip(f"{which}: no output LightSim can pin (its outputs are arrays)")
+    if rec["state"] == "fail" and is_known_failure(which, rec.get("why") or ""):
+        raise KnownIssue(rec["why"])
     assert rec["state"] == "pass", (rec.get("why"), rec["differences"][:5])

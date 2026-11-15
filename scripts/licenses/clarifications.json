@@ -42,7 +42,7 @@
         "win32": {
           "license": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 AND GPL-3.0-or-later WITH GCC-exception-3.1",
           "expect": "Name: GCC runtime library",
-          "reason": "The win_amd64 wheels bundle no libquadmath: numpy.libs holds the OpenBLAS DLL, with the GCC runtime (libgfortran, GPL-3.0-or-later with the GCC Runtime Library Exception) linked into it, as their LICENSE.txt says (numpy 2.4.6), and the MSVC runtime. No LGPL part."
+          "reason": "The win_amd64 wheels bundle no libquadmath: numpy.libs holds the OpenBLAS DLL, with the GCC runtime (libgfortran, GPL-3.0-or-later with the GCC Runtime Library Exception) linked into it, as their LICENSE.txt says, and the MSVC runtime (msvcp140). No LGPL part. Read again on 12 November 2026 in numpy 2.4.6's cp311 win_amd64 wheel: its LICENSE.txt names OpenBLAS (BSD-3-Clause), LAPACK inside the OpenBLAS DLL (BSD-3-Clause-Open-MPI, whose text that file carries; not yet a term of this expression) and \"Name: GCC runtime library\"."
         }
       }
     },
@@ -63,6 +63,11 @@
       "license": "MIT",
       "expect": "Permission is hereby granted, free of charge",
       "reason": "Its metadata names no licence; its LICENSE file is the MIT licence. PyInstaller pulls parts of it into the engine."
+    },
+    "FMPy": {
+      "license": "BSD-2-Clause AND BSD-3-Clause",
+      "expect": "FMPy is released under the 2-Clause BSD license",
+      "reason": "Only in an engine built with the FMU pack (LIGHTSIM_FREEZE_FMU_PACK=1). FMPy 0.3.32's metadata declares no licence (no License, License-Expression or classifier). Its LICENSE.txt, the same file byte for byte as LICENSE.txt at tag v0.3.32 of https://github.com/CATIA-Systems/FMPy (read 12 November 2026), says FMPy is under the 2-Clause BSD licence; the FMI schema files it ships, which the engine freezes (fmpy/schema), are under the BSD 3-clause terms with an extension that modified copies stay under them (LightSim ships them unmodified). Its parts under other terms are not frozen (backend/lightsim-backend.spec): the icons (CC BY 4.0 and MIT, fmpy.gui) and SUNDIALS (BSD-3-Clause, fmpy.sundials)."
     }
   },
   "npm": {}

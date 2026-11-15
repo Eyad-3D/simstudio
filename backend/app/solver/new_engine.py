@@ -305,15 +305,24 @@ def texts_of(project: Project) -> dict[str, tuple[str, str]]:
 
 
 def read_texts(project: Project) -> dict[str, str]:
-    """Each text component's text, read from its file (a path that is not
-    absolute from the user's projects folder). Raises TextFileError."""
+    """Each text component's text, read from its file: its path is taken
+    from the user's projects folder (or is absolute) and, links followed,
+    must lie inside that folder. Every run reads text files here, on either
+    engine's flag and on an agent's strict run alike, so a file elsewhere
+    (an absolute path, ``~``, ``..`` or a link out of the folder) is never
+    read. Raises TextFileError."""
     from ..paths import projects_dir
 
+    root = projects_dir().resolve()
     out = {}
     for el_id, (label, name) in texts_of(project).items():
-        path = Path(name).expanduser()
-        if not path.is_absolute():
-            path = projects_dir() / path
+        try:
+            path = (root / Path(name).expanduser()).resolve()
+        except (OSError, RuntimeError) as e:  # (RuntimeError: a loop of links)
+            raise TextFileError(f"the text file of {label!r} could not be read ({name}: {e})") from e
+        if not path.is_relative_to(root):
+            raise TextFileError(f"the text file of {label!r} ({name}) is outside the projects "
+                                f"folder, where a text component's file must be (links followed)")
         try:
             if path.stat().st_size > TEXT_LIMIT_BYTES:
                 raise TextFileError(f"the text file of {label!r} ({path}) is over "

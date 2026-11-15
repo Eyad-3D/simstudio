@@ -183,6 +183,8 @@ def test_example_data_is_credited_with_its_notice(notices, allowed):
 
 
 def _fmu_pack(notices):
+    """The pack as its Linux wheels carry it (NumPy's libquadmath): check
+    it with system="linux", or a Windows run reads the win32 entry."""
     engine = notices.ENGINE
     numpy = notices.Component(engine, "numpy", "2.4.6", "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0",
                               texts=[("LICENSE.txt", "Name: libquadmath\nFiles: numpy.libs/libquadmath*.so\n"
@@ -201,7 +203,7 @@ def test_the_fmu_packs_lgpl_parts_pass_listed_with_their_source(notices, allowed
     part with the link to its source."""
     _, clarified, _, _ = notices.load_policy()
     pack = _fmu_pack(notices)
-    assert notices.check(pack, allowed, clarified["python"]) == []
+    assert notices.check(pack, allowed, clarified["python"], system="linux") == []
     assert all("LGPL-2.1-or-later" in c.terms for c in pack)
     text = notices.render(pack)
     for name, source in (("libquadmath", "https://gcc.gnu.org/git/?p=gcc.git;a=tree;f=libquadmath"),
@@ -219,7 +221,7 @@ def test_an_lgpl_part_without_its_listing_fails_the_check(notices, allowed):
     (problem,) = notices.check([other], allowed, clarified["python"])
     assert problem.startswith("somelib") and "an LGPL part needs its entry" in problem
     bare = {k: {kk: vv for kk, vv in v.items() if kk != "lgpl"} for k, v in clarified["python"].items()}
-    problems = notices.check(_fmu_pack(notices), allowed, bare)
+    problems = notices.check(_fmu_pack(notices), allowed, bare, system="linux")
     assert [p.split(" ", 1)[0] for p in problems] == ["numpy", "lxml"]
 
 
@@ -268,6 +270,21 @@ def test_the_fmu_pack_on_windows_lists_what_its_wheels_hold(notices, allowed):
                                       texts=[("LICENSE.txt", WIN_NUMPY)])
     assert [p.split(" ", 1)[0] for p in notices.check([windows_numpy], allowed, clarified["python"],
                                                        system="linux")] == ["numpy"]
+
+
+def test_fmpy_which_declares_no_licence_passes_on_its_licence_file(notices, allowed):
+    """FMPy 0.3.32's metadata declares no licence; its LICENSE.txt (the same
+    file as at its v0.3.32 tag) says BSD-2-Clause for FMPy, and the FMI
+    schema files the engine freezes with it are under BSD 3-clause terms.
+    Without those words in its licence file, the check fails again."""
+    _, clarified, _, _ = notices.load_policy()
+    fmpy = notices.Component(notices.ENGINE, "FMPy", "0.3.32", "",
+                             texts=[("LICENSE.txt", "FMPy is released under the 2-Clause BSD license:")])
+    assert notices.check([fmpy], allowed, clarified["python"]) == []
+    assert fmpy.terms == ["BSD-2-Clause", "BSD-3-Clause"]
+    other = notices.Component(notices.ENGINE, "FMPy", "0.4.0", "", texts=[("LICENSE.txt", "MIT")])
+    (problem,) = notices.check([other], allowed, clarified["python"])
+    assert problem.startswith("FMPy 0.4.0: its licence file no longer contains")
 
 
 def test_the_fmu_pack_takes_an_lxml_whose_licence_file_names_its_libiconv():

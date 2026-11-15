@@ -73,9 +73,17 @@ def text_probe(out: Path) -> None:
             file = folder / f"{name}__{el.id}.mo"
             file.write_text(text, encoding="utf-8")
             project = _project(name, case_id)
-            next(e for s in project.systems for e in s.elements if e.id == el.id).textFile = str(file)
-            with _Env("new"):
-                got = simulate(project, case_id)
+            next(e for s in project.systems for e in s.elements if e.id == el.id).textFile = file.name
+            saved = os.environ.get("LIGHTSIM_PROJECTS_DIR")
+            os.environ["LIGHTSIM_PROJECTS_DIR"] = str(folder)  # (a text file must be inside it)
+            try:
+                with _Env("new"):
+                    got = simulate(project, case_id)
+            finally:
+                if saved is None:
+                    os.environ.pop("LIGHTSIM_PROJECTS_DIR")
+                else:
+                    os.environ["LIGHTSIM_PROJECTS_DIR"] = saved
             rec["parts"].append({"part": el.id, "kind": el.componentDefId, "status": got.status,
                                  "sha256": sha256_of(got), "same": sha256_of(got) == rec["sha256"],
                                  "first": got.messages[0].text if got.messages else ""})
