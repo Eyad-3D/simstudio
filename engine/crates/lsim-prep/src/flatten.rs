@@ -1441,7 +1441,9 @@ mod tests {
             ..Default::default()
         };
         // each case: the library's models, the top's parts, the chain named
-        let cases: [(&[(&str, &[(&str, &str)])], &[(&str, &str)], &str); 4] = [
+        type Parts<'a> = &'a [(&'a str, &'a str)];
+        type Case<'a> = (&'a [(&'a str, Parts<'a>)], Parts<'a>, &'a str);
+        let cases: [Case; 4] = [
             (&[("A", &[("a", "A")])], &[("x", "A")], "A holds A"),
             (&[("A", &[("b", "B")]), ("B", &[("a", "A")])], &[("x", "A")], "A holds B holds A"),
             (
