@@ -262,7 +262,7 @@ jobs:
         run: |
           python -m pip install -r requirements-dev.txt
           # -rP prints what a passing test printed: the stop probes' result lines (p95, shown) are in the log on a pass too
-          python -m pytest tests/test_new_engine_flag.py tests/test_new_engine_live.py tests/test_stop_latency.py tests/test_new_engine_fmu.py tests/test_new_engine_quick.py tests/test_new_engine_text.py -v -rsP
+          python -m pytest tests/test_new_engine_flag.py tests/test_new_engine_live.py tests/test_stop_latency.py tests/test_new_engine_fmu.py tests/test_new_engine_quick.py tests/test_new_engine_text.py -v -rsxP
 
       - name: The both-engines diff (its own tests)
         working-directory: .

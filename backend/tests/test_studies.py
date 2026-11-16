@@ -157,9 +157,11 @@ def test_a_stop_does_not_spin_the_study(monkeypatch):
     stop, and one that finds the stop. Counted, not timed."""
     import asyncio
 
-    project = short_bev(duration=6000.0)  # (no point can finish before the stop)
+    # (the stop comes with the first point's result, so points are running,
+    # queued and not started whichever engine runs them and however fast)
+    project = short_bev(duration=600.0)
     points = [studies.StudyPointSpec(overrides={"el-vehicle": {"mass_kg": m}}, values=[m])
-              for m in (1500, 1600, 1700, 1800)]
+              for m in range(1500, 2300, 100)]
     real, waits, sent = asyncio.wait, [], []
 
     async def main():
@@ -171,12 +173,14 @@ def test_a_stop_does_not_spin_the_study(monkeypatch):
 
         async def send(msg):
             sent.append(msg)
+            stop.set()
 
         monkeypatch.setattr(studies.asyncio, "wait", counting)
-        asyncio.get_running_loop().call_later(2.0, stop.set)
         await studies.run_study(project, "case-city", points, studies.StudyOptions(store=False, workers=2),
                                 send, stop)
 
     asyncio.run(main())
-    assert len(sent) == len(points) and {m["status"] for m in sent} <= {"cancelled", "not run"}, sent
+    statuses = [m["status"] for m in sent]
+    assert len(sent) == len(points) and set(statuses) <= {"success", "cancelled", "not run"}, sent
+    assert statuses.count("success") < len(points), "the stop came after the last point: nothing was counted"
     assert waits.count(True) <= len(points) + 1, f"{waits.count(True)} passes after the stop"
