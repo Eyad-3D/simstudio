@@ -172,6 +172,16 @@ path's own loops became array operations (0.31 → 0.16 s after a stop at
 (`stop-city-3e8459e.json`, `stop-wltc-c0a52a1.json`, the report at
 `3e8459e`: `report-3e8459e.md`).
 
+The study's stop kept sitting at its mark on Windows CI after those fixes
+(p95 1.024 s and 1.226 s, 12 to 16 November), and a later measurement (16
+November) found that most of what remained was not the result's size: the
+study's own loop spun once the stop was set (`studies.run_study`: the wait
+set held the stop's finished future), starving the threads of the pool that
+hand the results on. With that fixed, on a shared Linux machine, the new
+path's study stop p95 is 0.43 s against 0.71 to 0.98 s before, at the same
+load (the engine's stop and the stopped point's result, 0.02 to 0.35 s, are
+what is left); Windows CI judges it.
+
 ## After the tenth: the runs measured again for the fifth fix round
 
 The fourth re-check found two non-blocking defects, both in the path.
