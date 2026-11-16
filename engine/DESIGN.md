@@ -4458,7 +4458,7 @@ all. The catalogue as built (each code's model and expected parts are in
 `INDEX-TABLE-NOT-SMOOTH`, `STATE-SELECT-SINGULAR`, `STATE-SELECT-ALWAYS`,
 `STATE-SELECT-NEVER`, `STATE-SELECT-PREFER` and `STATE-SELECT-CONFLICT`
 (warnings),
-`PIVOT-ZERO-AT-START` (a warning), `PARAM-CYCLE`, `EXTERNAL-PERIOD`, `EXTERNAL-LOOP` (a warning),
+`PIVOT-ZERO-AT-START` (a warning), `PARAM-CYCLE`, `COMPONENT-CYCLE` (a model that holds a part of its own kind, directly or through other parts), `EXTERNAL-PERIOD`, `EXTERNAL-LOOP` (a warning),
 `WHEN-CONDITION`, `WHEN-CONTINUOUS`, `REINIT-NOT-STATE`, `STRUCT-OVER` and
 `STRUCT-UNDER`; `WHEN-AT-LIMIT` (a warning, step 3: a `when` threshold
 equal to a limit the model holds a value at, 8.2) is tested on the
