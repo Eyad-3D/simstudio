@@ -4380,7 +4380,9 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   the trace and the events, not everything a run holds. The step limit
   (`max_steps`) is per integrator call, and the run loop's own
   no-progress check ends a run the integrator cannot follow (after about
-  100 s for a gear at 2.78e18 N.m over 1 s: coded, but slow). Step 3's
+  100 s for the gear example with its `__LightSim_energy` line taken out,
+  at 2.78e18 N.m over 1 s: coded, but slow; with the line the example runs
+  to the end in 0.001 s at that torque). Step 3's
   fuzzing (`benchmarks/fuzz/PLAN.md`) runs every input under a 10 s time
   limit, so a run that would take longer is a coded refusal there.
 * **Not a number.** A run whose recorded variable is NaN or infinite at an

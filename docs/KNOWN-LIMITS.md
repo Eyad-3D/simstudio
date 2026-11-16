@@ -789,8 +789,9 @@ minimum or an average, for example from the CSV export, or put the
   gives one (the app gives none; the Python module's `time_limit=` does,
   and its `memory_limit=` is 4 GB when not given, counting the recorded
   results and the events, not everything the run holds). A model the
-  integrator cannot follow (the gear example with a torque of about
-  10^18 N.m for a 1 s run) takes about 100 s before the run stops with
+  integrator cannot follow (the gear example with its
+  `__LightSim_energy` line taken out, driven by a torque of 2.78e18 N.m
+  for a 1 s run) takes about 100 s before the run stops with
   the integrator's own refusal (`RUN-INTEGRATOR`, "made no progress"); with
   a time limit it stops sooner, with `RUN-TIME-LIMIT`, saying how far it
   got. A variable that is not a number or is infinite at an output time
