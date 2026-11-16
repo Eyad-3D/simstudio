@@ -693,3 +693,29 @@ told the ring modulator's y2 falsely, its rate being such a sum over
 warning says the
 result may be wrong from that step, not that it is. Integration is
 unchanged (`tests/solver_guards.rs`).
+
+## Step 3: fuzzing the engine's inputs (16 November 2026)
+
+The plan is `benchmarks/fuzz/PLAN.md`, committed before the first run (a7c91b8); the targets are in `engine/fuzz`. Four targets feed the engine with machine-made inputs: `text` (the text format), `basemodelica` (the Base Modelica importer, which exists although the brief said it did not), `project` (edited example projects) and `params` (extreme parameter values). The one rule: every input ends in a result or a coded refusal within 30 s and 1.5 GB, never a panic, an abort, a hang, or a NaN or infinity reported as a result. Every run inside the harness is under a 10 s time limit and a 256 MB memory limit.
+
+**Time spent, by the plan's rule.** At least 4 h of wall time per target; if the coverage count still grew in the last hour, 2 h more, up to 12 h. Rounds M1 to M4 took 9.05 h per target. In M4's last hour `text`, `basemodelica` and `project` still grew (+71, +1 261 and +90 edges) and `params` did not (+0), so the plan called for more, and the first report stopped there against its own rule. M5 (2 h) and M6 (1 h, up to the cap) followed on the final code. Result: `text` 12.07 h, `basemodelica` 12.06 h, `project` 12.03 h, `params` 9.05 h (replayed once on the final build, clean). At the cap coverage still grew a little in the last hour (+59, +56 and +7 edges): these hours did not exhaust the targets.
+
+| target | executions | coverage (edges) | corpus (after merging) |
+|---|---|---|---|
+| `text` | 10 555 376 | 49 255 | 3 435 |
+| `basemodelica` | 146 553 300 | 40 174 | 4 661 |
+| `project` | 187 730 | 57 391 | 2 533 |
+| `params` | 99 615 | 50 943 | 1 195 |
+
+**What it found, all fixed at the root with a test that fails without the fix:**
+
+1. A Base Modelica function with no output panicked: now the coded refusal `FUNCTION`.
+2. Units whose exponents leave -128 to 127 panicked in the unit parser, the equation checks (`dims.rs`, `units_check.rs`), the derivative's unit (`system.rs`) and the Base Modelica importer's unit inference. The independent check found the last one after the first fix. `Dim`'s `*` and `/` no longer exist: only `checked_mul`, `checked_div` and `checked_pow` remain for a model's units, which return nothing on overflow (`Dim::pow`, which panics, stays for the dimensions the code names: no model input reaches it), and a name whose inferred unit would overflow keeps none.
+3. A variable that is NaN or infinite was reported as a result: now `RUN-NOT-FINITE`, at the first output point it shows (and for a minimum, maximum or mean at the run's end).
+4. A model that holds a part of its own kind overflowed the stack: now `COMPONENT-CYCLE`, naming the cycle. The test uses the input the fuzzer found.
+
+The time and memory limits (`RUN-TIME-LIMIT`, `RUN-MEMORY-LIMIT`) came with it; `docs/KNOWN-LIMITS.md` says what they cover.
+
+**Failures since the last fix (98975bc), and the bound they allow.** The three extended targets had no panic, abort, out-of-memory or NaN result in M5 and M6. Every slow input or timeout the fuzzers wrote (144 files: 78 in M5, 66 in M6) ran again alone without failure: the slow ones take 20 s (two harness runs, each stopped by the 10 s limit), and the timeouts come from WSL's clock stepping back, which libFuzzer reads as an endless unit. With no failure in N executions, the failure rate per input is probably (95 %) below 3/N: `text` N = 3 329 814 (below 9.0e-7), `basemodelica` N = 30 897 730 (below 9.7e-8), `project` N = 56 351 (below 5.3e-5), `params` N = 22 469 (below 1.3e-4 counting its last fuzzing run, 21 205 executions made on 6b62cae before the fix in item 2, and the 1 264-input corpus replay after it; params does not run the Base Modelica importer that fix changed, but on the replay alone the bound is 2.4e-3). These bounds hold for what these generators reach, not for every input.
+
+**Open.** A 1 s run of the gear example with its `__LightSim_energy` line taken out (the fuzzer's input; the example itself runs to the end in 0.001 s at 2.78e18 N.m) at the fuzzer's exact torque, 2777777777777777700 N.m, takes 60 to 100 s before the integrator refuses it (`RUN-INTEGRATOR`, "made no progress"); at 2.78e18 N.m the same model had reached t = 4.6e-5 s of 1 s after 1300 s and was still running (the second check's run). The app sets no time limit. Inside the harness's 10 s budget both are a coded refusal, but for a person the first is slow and the second does not end (see `docs/KNOWN-LIMITS.md`). The fuzzing ran on Linux only; the Windows CI has not run on this branch.
