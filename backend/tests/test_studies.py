@@ -144,3 +144,39 @@ def test_a_point_sends_its_recorded_points_without_the_peaks_between():
     channels = json.loads(result)["channels"]
     assert channels and all(c["timeSeries"] for c in channels)
     assert all(c.get(k) is None for c in channels for k in ("min", "max", "mean"))
+
+
+def test_a_stop_does_not_spin_the_study(monkeypatch):
+    """After a stop the study waits for its points' results without spinning.
+    Its wait once held the stop's finished future, so every wait returned at
+    once: the loop ran thousands of passes a second until the last point was
+    back, holding the GIL the pool's own threads need to hand the results on
+    (a stopped study took up to a second longer on Windows CI, the mark of
+    benchmarks/back_to_back's stop probe). A pass now ends with a result: no
+    more than one pass per point after the stop, and one that finds the
+    stop. Counted, not timed."""
+    import asyncio
+
+    project = short_bev(duration=6000.0)  # (no point can finish before the stop)
+    points = [studies.StudyPointSpec(overrides={"el-vehicle": {"mass_kg": m}}, values=[m])
+              for m in (1500, 1600, 1700, 1800)]
+    real, waits, sent = asyncio.wait, [], []
+
+    async def main():
+        stop = asyncio.Event()
+
+        async def counting(fs, **kw):  # (whether the stop was set when a wait began)
+            waits.append(stop.is_set())
+            return await real(fs, **kw)
+
+        async def send(msg):
+            sent.append(msg)
+
+        monkeypatch.setattr(studies.asyncio, "wait", counting)
+        asyncio.get_running_loop().call_later(2.0, stop.set)
+        await studies.run_study(project, "case-city", points, studies.StudyOptions(store=False, workers=2),
+                                send, stop)
+
+    asyncio.run(main())
+    assert len(sent) == len(points) and {m["status"] for m in sent} <= {"cancelled", "not run"}, sent
+    assert waits.count(True) <= len(points) + 1, f"{waits.count(True)} passes after the stop"
