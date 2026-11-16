@@ -677,9 +677,12 @@ against `max_steps` (SUNDIALS counts its limit per call, and the run calls
 it a step at a time, so the limit never ended a run: beam with every block
 implicit at 1e-10 ran for hours, and now stops after 10 000 000 steps); a
 state the equations keep at or above zero (an interval proof over the
-assignments, made only when a step ends with one clearly below zero) that a
-run takes below it is named in a run warning (Robertson's blow-up at a
-loose absolute tolerance, which upstream CVODE shares, was silent). Fix
+assignments, made only when a step ends with one clearly below zero, and a
+step an event cut back (a hold expiring, a pulse inside it, a state switch, a
+clock tick that changes an output) is judged at the cut, not at the end the
+integrator had reached) that a run takes below it is named in a run warning
+(Robertson's blow-up at a loose absolute tolerance, which upstream CVODE
+shares, was silent). Fix
 round 2: a variable the model sets to a constant plus a weighted sum of
 the states (Robertson's third species as 1 - y1 - y2, SUNDIALS'
 idaRoberts form, whose blow-up stayed silent) joins the proof as not
