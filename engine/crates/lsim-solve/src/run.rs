@@ -4465,10 +4465,16 @@ fn run_watched<'a>(
         let event_now = is_root || at_time_event || crossing_due || edit_due;
 
         // the integrator's error estimate
+        // (the integrator's step may have been cut back above: what the run
+        // goes on from is the state at the cut, which the step's end, past
+        // it, is not. The error estimate is the step's as it was taken and
+        // is paired with the weights of the state it was taken to; the
+        // largest magnitude is the run's, so the cut state's)
         if !same && integ.local_error(&mut local) {
             let yv = integ.y();
+            let y_on = y_cut.as_deref().unwrap_or(yv);
             for i in 0..n {
-                ymax[i] = ymax[i].max(yv[i].abs());
+                ymax[i] = ymax[i].max(y_on[i].abs());
                 if local[i] > report.error.worst_local {
                     report.error.worst_local = local[i];
                     report.error.worst_local_var = info.y_names.get(i).cloned().unwrap_or_default();
@@ -4478,7 +4484,8 @@ fn run_watched<'a>(
             }
         }
         if signs_on && !same {
-            let yv = integ.y();
+            // (the state the run goes on from: at a step cut back, the cut's)
+            let yv = y_cut.as_deref().unwrap_or(integ.y());
             members.retain(|a| {
                 let size = a.c.abs() + a.terms.iter().map(|&(j, w)| (w * yv[j]).abs()).sum::<f64>();
                 a.value(yv) >= -8.0 * f64::EPSILON * size

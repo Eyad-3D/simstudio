@@ -88,6 +88,22 @@ equation
   s1 * der(z) = 1;
 end Redone;
 
+model RobertsonClock "Robertson's reaction beside a clock of its own: q counts the time sin(w time) > c, c falling slowly, a condition of time and a state whose pulses CVODE's long steps span (the run cuts each step back to the pulse's edge)"
+  parameter Real s1(unit = "s") = 1;
+  parameter Real w(unit = "1/s") = 1.0471975511965976e-8 "2 pi over 6e8 s";
+  Real y1(start = 1, fixed = true);
+  Real y2(start = 0, fixed = true);
+  Real y3(start = 0, fixed = true);
+  Real c(start = 1, fixed = true);
+  Real q(start = 0, fixed = true);
+equation
+  s1 * der(y1) = -0.04 * y1 + 1e4 * y2 * y3;
+  s1 * der(y2) = 0.04 * y1 - 1e4 * y2 * y3 - 3e7 * y2 * y2;
+  s1 * der(y3) = 3e7 * y2 * y2;
+  s1 * der(c) = -1e-11;
+  s1 * der(q) = if sin(w * time) > c then 1 else 0;
+end RobertsonClock;
+
 model Oscillator
   parameter Real s1(unit = "s") = 1;
   Real x(start = 1, fixed = true);
@@ -181,6 +197,22 @@ fn the_proof_is_made_again_when_a_member_has_left_since() {
         let i = r.names.iter().position(|x| x == n).unwrap();
         assert!(r.values[i].last().unwrap() < &-0.5, "{n}: {:?}", r.values[i]);
     }
+    assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
+}
+
+#[test]
+fn a_step_cut_back_by_an_event_is_judged_at_the_cut_not_at_its_end() {
+    // Robertson at 1e-5 stays within its tolerance (y1 never lower than
+    // -1.2e-5 against a floor of -2e-5), and the clock's pulses make the
+    // run cut steps back. CVODE's step that ended at 1.3344e9 s was cut
+    // back to a pulse's edge, where y1 = -2.4e-6; the watch read the state
+    // at the step's end instead (-4.9e-5, below the floor) and told, at the
+    // cut's time, of a value the run never had.
+    let r = run("RobertsonClock", &tol(1e-5), 1e11).unwrap();
+    assert!(r.report.pulses_found > 100, "the cuts this guards: {}", r.report.pulses_found);
+    let y1 = r.names.iter().position(|n| n == "y1").unwrap();
+    let low = r.min[y1].iter().copied().fold(f64::INFINITY, f64::min);
+    assert!(low > -2e-5, "y1 stays above its floor along the run: {low:e}");
     assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
 }
 
