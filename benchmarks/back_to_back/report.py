@@ -136,14 +136,17 @@ def b2b(out: Path) -> dict:
                 project, case_id, _ = project
                 ctx["gears"] = diff.gear_rebuild(project, n, f, new)
                 case = runs._case(project, case_id)
-                if case.get("kind") == "acceleration" and case.get("endDistance"):
+                if case.get("endDistance"):
                     # the distance channel's last point, its value and its time, today's and the new run's
+                    # (an acceleration test's, for acceleration-ends-at-the-line; any other case's, for
+                    # distance-end-ends-at-the-line: a rule reads only its own)
                     last = {k: next((c["timeSeries"][-1] for c in r["channels"]
                                      if c["elementId"] == "el-vehicle" and c["portId"] == "sig_distance"
                                      and c["timeSeries"]), {}) for k, r in (("today", f), ("new", new))}
-                    ctx["line_end"] = {"today": last["today"].get("value"), "new": last["new"].get("value"),
-                                       "t_today": last["today"].get("t"), "t_new": last["new"].get("t"),
-                                       "line": (case.get("startLine") or 0.0) + case["endDistance"]}
+                    key = "line_end" if case.get("kind") == "acceleration" else "distance_end"
+                    ctx[key] = {"today": last["today"].get("value"), "new": last["new"].get("value"),
+                                "t_today": last["today"].get("t"), "t_new": last["new"].get("t"),
+                                "line": (case.get("startLine") or 0.0) + case["endDistance"]}
             diff.classify(ds, {item["id"]: ctx})
             row["classes"] = dict(Counter(d["cls"] for d in ds))
             row["ledger"] = ds.ledger.totals()  # every leaf of the three runs compared, reported or a gap

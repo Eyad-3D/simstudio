@@ -38,7 +38,7 @@ def test_the_acceptance_file_names_every_line_and_code():
     assert set(acc["note_codes"]) == set(new_engine.NOTE_CODES) and not set(acc["note_codes"]) & set(acc["codes"])
     for item in acc["item"]:
         assert item["expect"] == "run" or item["expect"].removeprefix("refuse:") in acc["codes"]
-    assert len(acc["item"]) == 26
+    assert len(acc["item"]) == 27  # (26, and probe/bev-performance-distance, 16 November)
     assert len(runs.fault_ids()) == 160 + 27 * 4 + 5 * 4
     cases, faults = runs.meta_set()
     assert len(cases) == 5 and len(faults) == 4
@@ -1093,8 +1093,9 @@ def test_all_runs_every_part_the_baseline_ran():
     # the baseline's jobs, the sine probe's two among them, and (since the evidence part) fast mode
     # on the BEVs' eight cycle items for E3, and (since the evidence part's review) the two items
     # with a battery check, on both engines and at META's three settings, and (since its third
-    # review) the 20 faults planted as a case's own values, on both engines
-    assert len(runs.specs(set(parts.split(",")))) == 631 + 8 + 2 * (3 + 3) + 2 * 5 * 4
+    # review) the 20 faults planted as a case's own values, on both engines, and (since the
+    # switch lane's performance piece) probe/bev-performance-distance, three more jobs
+    assert len(runs.specs(set(parts.split(",")))) == 631 + 3 + 8 + 2 * (3 + 3) + 2 * 5 * 4
 
 
 def test_a_record_another_code_made_is_run_again(tmp_path):

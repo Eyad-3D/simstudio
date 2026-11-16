@@ -862,7 +862,7 @@ def _matches(rule: dict, df: Diff, ctx: dict) -> bool:
     if check == "preparation_note":  # the message is one of the engine's build notes
         return df["key"].split(": ", 1)[-1] in ctx.get("notes", ())
     if check == "ends_at_the_line":  # an acceleration test's end: today past the line, the new at it
-        end = ctx.get("line_end")
+        end = ctx.get(rule.get("context", "line_end"))
         if not end or not all(_finite(end.get(k)) for k in ("today", "new", "line")):
             return False
         # and only the last output time differs: the same count, the same times before it, the new

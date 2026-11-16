@@ -91,9 +91,11 @@ def item_project(item: dict, scratch: Path, build_fmu: bool = True) -> tuple[dic
         how["live"] = True
     if iid.endswith("-single"):
         case["chargeBalance"] = False
-    elif iid == "probe/bev-performance":
+    elif iid in ("probe/bev-performance", "probe/bev-performance-distance"):
         case.update(kind="performance", duration=40.0)
         case.setdefault("parameterOverrides", {})["el-task"] = {"cycle": "", "profile": "0:100; 40:100"}
+        if iid.endswith("-distance"):
+            case["endDistance"] = 300.0
     elif iid == "probe/fs-event-acceleration":
         case["fsEvent"] = "acceleration"
     elif iid == "probe/bev-cells":

@@ -144,6 +144,11 @@ base = "bev-car/case-wltc"
 change = "kind = performance, a 0-100 km/h step held 30 s (duration 40 s)"
 expect = "run"
 [[item]]
+id = "probe/bev-performance-distance"
+base = "bev-car/case-wltc"
+change = "kind = performance, the same step, ending where the car has driven 300 m (endDistance; duration 40 s)"
+expect = "run"
+[[item]]
 id = "probe/fs-event-acceleration"
 base = "fs-electric/case-accel-75m"
 change = "fsEvent = acceleration"
@@ -1078,3 +1083,9 @@ date = "2026-11-09"
 line = "SWEEP"
 change = """Two changes, both written here before step 2's acceptance run. (1) Recorded after the fact: 55e293f (7 November) changed the [sweep] measure after the sweep's measured run with no entry here. It added that a note of a restart or a refusal must not change a handed-back run's verdict, while the warning of a case the new engine could not run "is on purpose and may"; so the 241 app-style runs whose verdict that warning turned from today's success into a warning were not counted as mismatches. (2) The pass mark moves, by the owner's decision: 0 mismatches over every fault after the fixes, apart from two known issues recorded in engine/STATUS.md ("Known issues left at the end of step 2") and docs/KNOWN-LIMITS.md: (a) a case the new engine fails before its first point, handed to today's engine, whose fall-back warning turns today's success into a warning; (b) overspeed:hybrid-car/case-hwfet:down, where the new engine also gives the battery's "charging exceeds max charge power" warning. Each must be reported with its count. Nothing else is excused: a run started again on today's engine after a NEW-ERROR is a mismatch, whatever sweep.compare counts it as."""
 reason = """The sweep's last independent check (re-check 5, 8 November) found the change in (1) made after the measured run with no entry, and both (a) and (b) still open. On 9 November the owner decided to record what that check left open as known issues and move on ("just record them as known issues and move on"), rather than run more fix rounds. Writing both here keeps the acceptance honest: the exception is named, counted and dated before the run that judges it."""
+
+[[changes]]
+date = "2026-11-16"
+line = "B2B"
+change = """A probe item, probe/bev-performance-distance: probe/bev-performance with endDistance = 300 m (kind = performance, a case that ends where the car has driven 300 m). probe/bev-performance itself now runs on the new path (it was refused with NEW-CASE-KIND; its expect is unchanged)."""
+reason = """The switch lane's performance piece (16 November) made a performance case run on the new path and found that the path ran a case to its whole duration whatever its endDistance or Laps (a performance test to 300 m: 1.029 km and 40 s on the new path, 0.300 km and 13.75 s on today's; the BEV's city cycle to 3000 m: 7.29 km and 600 s against 3.0 km and 195.01 s), where only an acceleration test ended at its line. The engine now ends any case at its endDistance; the probe holds that for a performance test, and the new class rule distance-end-ends-at-the-line (classes.toml) names what remains of the difference. No pass mark moves."""
