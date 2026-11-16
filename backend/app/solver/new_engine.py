@@ -1,7 +1,7 @@
 """Running a case on the new engine, behind a flag (LIGHTSIM_ENGINE).
 
 ``LIGHTSIM_ENGINE=new`` makes ``simulate`` (core.py) try the new engine, the
-Rust module ``lightsim_engine``, for the cases it can run: a drive cycle or an
+Rust module ``lightsim_engine``, for the cases it can run: a drive cycle, a performance or an
 acceleration test whose values keep to their parameters' limits (a study's
 point can hold one Data Checks never saw), live or not. A live run (an emit,
 a control: the app's runs, a study's points) runs the engine in a thread of
@@ -83,7 +83,7 @@ from .verdict import (
 
 ENV_VAR = "LIGHTSIM_ENGINE"
 STRICT_VAR = "LIGHTSIM_ENGINE_STRICT"
-KINDS = ("cycle", "acceleration")  # the case kinds the new engine runs
+KINDS = ("cycle", "performance", "acceleration")  # the case kinds the new engine runs
 
 # why the new engine's path does not run a case (benchmarks/back_to_back/acceptance.toml)
 CODES = {
@@ -661,7 +661,14 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
     ctx.end_distance, laps_warning = core.end_distance(ctx, case, t_end)
     lanes = RunRecorder(ctx).lanes
     texts = read_texts(project)
-    built = lightsim_engine.build(project.model_dump_json(), case_id, cycles_dir=str(cycles.DIR),
+    # the engine ends a case where the vehicle has driven its endDistance; a case that
+    # ends after laps is given the distance its laps make (as today's, end_distance above)
+    shipped = project
+    if ctx.end_distance is not None and not (case.endDistance or 0) > 0:
+        shipped = project.model_copy(deep=True)
+        next(c for c in shipped.cases if c.id == case_id).endDistance = (
+            ctx.end_distance - max(0.0, case.startLine))
+    built = lightsim_engine.build(shipped.model_dump_json(), case_id, cycles_dir=str(cycles.DIR),
                                   texts=texts)
     plan = _Plan(model, ctx, built, lanes)
     opts = options or {}
@@ -671,7 +678,7 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
               windows=plan.windows)
     # a replay's live edits, each as the engine's parameter changes, taken
     # where the run took them (one it did not make: its note again)
-    again = _Edits(project, case_id, built, texts) if edits else None
+    again = _Edits(shipped, case_id, built, texts) if edits else None
     replayed = []  # as _Live.taken
     for e in edits:
         if e.note:
@@ -682,7 +689,7 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
         replayed.append((e.elementId, e.key, e.value, e.t, bool(changes), None))
         if changes:
             kw.setdefault("edits", []).append((e.t, changes))
-    live = _Live(project, case, model, built, emit, control, texts) if emit or control else None
+    live = _Live(shipped, case, model, built, emit, control, texts) if emit or control else None
 
     def go(**more):
         return live.drive(lambda **c: built.simulate(**kw, **more, **c)) if live else \

@@ -9,6 +9,7 @@ fails them instead of skipping them (review finding 18)."""
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 
@@ -17,6 +18,8 @@ from app.schemas import ElementInstance
 from app.solver import new_engine, simulate
 from app.solver.network import ModelError
 from app.storage import load_example
+from tests.helpers import series
+from tests.test_distance_profile import lap_project
 
 try:
     import lightsim_engine  # noqa: F401
@@ -106,6 +109,133 @@ def test_new_engine_runs_an_acceleration_test(monkeypatch):
     assert result.channels and result.summary
 
 
+def _performance(profile: str, **vehicle):
+    """The BEV car's WLTC case as a performance test: its Driving Task a step
+    to the target (the registered probe of benchmarks/back_to_back, and what
+    /api/vehicle-tests builds)."""
+    project = load_example("bev-car")
+    case = next(c for c in project.cases if c.id == WLTC)
+    case.kind, case.duration = "performance", 40.0
+    case.parameterOverrides = {"el-task": {"cycle": "", "profile": profile}}
+    if vehicle:
+        case.parameterOverrides["el-vehicle"] = vehicle
+    return project
+
+
+PERFORMANCE = {
+    "a step from the start": ("0:100; 40:100", {}),
+    "a step at 5 s": ("0:0; 5:100; 40:100", {}),
+    "two steps": ("0:50; 10:150; 40:150", {}),
+    "a car that starts at its target": ("0:100; 20:50; 40:50", {"initial_speed_kmh": 100}),
+}
+
+
+def _masked(result) -> list[str]:
+    """The run's warnings and errors, their numbers left out."""
+    return sorted(re.sub(r"[-+]?\d[\d.,]*(e[-+]?\d+)?", "#", m.text)
+                  for m in result.messages if m.level in ("warning", "error"))
+
+
+@needs_engine
+@pytest.mark.parametrize("name", PERFORMANCE)
+def test_new_engine_runs_a_performance_test_like_today(monkeypatch, name):
+    """A performance test (full throttle up to the target, the PI after it)
+    runs on the new engine and gives today's rows, status and warnings, its
+    time to the target and its maximum speed within the two engines' own
+    difference (0.3 % and 0.05 % on the probe: today's 10 ms against 1 ms
+    steps differ by 0.35 %). Strict: nothing falls back to today's."""
+    profile, vehicle = PERFORMANCE[name]
+    project = _performance(profile, **vehicle)
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
+    today = simulate(project, WLTC)
+    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    assert new_engine.unsupported(project, WLTC) is None
+    result = simulate(project, WLTC)
+    assert result.messages[0].text.startswith("Run on the new engine"), texts(result)
+    assert result.status == today.status, texts(result)
+    assert _masked(result) == _masked(today)
+    # today's two checks of its own integrator, which the new engine replaces
+    # with its energy books' closure (golden/README.md)
+    checks = {"energy_balance_residual_pct", "energy_balance_error_pct"}
+    assert [(s.key, s.label, s.unit, s.notValid) for s in result.summary] \
+        == [(s.key, s.label, s.unit, s.notValid) for s in today.summary if s.key not in checks]
+    now = {s.key: s.value for s in result.summary}
+    for s in today.summary:
+        if s.key in ("time_to_target_s", "max_speed_kmh", "distance_km"):
+            assert now[s.key] == pytest.approx(s.value, rel=0.01), s.key
+    assert [(c.elementId, c.portId) for c in today.channels] \
+        == [(c.elementId, c.portId) for c in result.channels
+            if (c.elementId, c.portId) in {(t.elementId, t.portId) for t in today.channels}]
+
+
+def _ends_at(project, case_id: str, **case):
+    c = next(c for c in project.cases if c.id == case_id)
+    for k, v in case.items():
+        setattr(c, k, v)
+    return project
+
+
+@needs_engine
+@pytest.mark.parametrize("name", ["a performance test to a distance", "a cycle to a distance"])
+def test_new_engine_ends_a_case_at_its_distance_like_today(monkeypatch, name):
+    """A case's Distance (or its Laps, a Driving Task over distance) ends the
+    run where the vehicle has driven it, as today's: the engine ran the whole
+    duration and gave a distance and consumption of the whole run before."""
+    if name == "a performance test to a distance":
+        project, case_id, far = _ends_at(_performance("0:100; 40:100"), WLTC, endDistance=300.0), WLTC, 0.3
+    else:
+        project, case_id, far = _ends_at(load_example("bev-car"), "case-city", endDistance=3000.0), "case-city", 3.0
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
+    today = simulate(project, case_id)
+    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    result = simulate(project, case_id)
+    assert result.messages[0].text.startswith("Run on the new engine"), texts(result)
+    assert result.status == today.status, texts(result)
+    now, then = ({s.key: s.value for s in r.summary} for r in (result, today))
+    assert now["distance_km"] == pytest.approx(far, abs=0.002)
+    assert then["distance_km"] == pytest.approx(far, abs=0.002)
+    # (today's last step ends past the line, the new run's at it: a step of 1 s or 10 ms)
+    assert now["simulated_duration_s"] == pytest.approx(then["simulated_duration_s"], abs=1.0)
+    assert now["consumption_kwh_per_100km"] == pytest.approx(then["consumption_kwh_per_100km"], rel=0.02)
+
+
+@needs_engine
+def test_new_engine_ends_a_case_after_its_laps_like_today(monkeypatch):
+    """Two laps of a Driving Task over distance (2400 m): the case's Laps are
+    given to the engine as the distance they make (test_distance_profile)."""
+    project = lap_project()
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
+    today = simulate(project, "case")
+    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    result = simulate(project, "case")
+    assert result.messages[0].text.startswith("Run on the new engine"), texts(result)
+    assert result.status == today.status, texts(result)
+    dist = [p["value"] for p in series(result, "veh", "sig_distance")]
+    assert dist[-1] == pytest.approx(2 * 1200, abs=1.0)
+    now, then = ({s.key: s.value for s in r.summary} for r in (result, today))
+    assert now["simulated_duration_s"] == pytest.approx(then["simulated_duration_s"], abs=0.5)
+
+
+@needs_engine
+def test_a_performance_test_holds_full_throttle_up_to_its_target(monkeypatch):
+    """The pedal is down from the step in the target until the speed gets
+    there, and the car then holds the target (no overshoot of the speed)."""
+    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    result = simulate(_performance("0:0; 5:100; 40:100"), WLTC)
+    series = {c.portId: [(p["t"], p["value"]) for p in c.timeSeries]
+              for c in result.channels if c.elementId in ("el-vehicle", "el-driver")}
+    reached = next(t for t, v in series["sig_speed"] if v >= 99.0)
+    assert 6.0 <= reached <= 9.0  # 0-100 km/h in about 7 s (the profile ramps to 100 at 5 s)
+    pedal = dict(series["sig_accel_pedal"])
+    assert all(pedal[t] == 1.0 for t, _ in series["sig_speed"] if 1.0 < t < reached - 1.0)
+    assert all(pedal[t] < 1.0 for t, _ in series["sig_speed"] if t > reached + 3.0)
+    assert max(v for _, v in series["sig_speed"]) < 101.0
+
+
 def test_a_lap_case_falls_back_with_a_message(monkeypatch):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
     result = simulate(load_example("fs-electric"), "case-autocross")
@@ -148,8 +278,8 @@ def test_every_refusal_has_its_code():
     seen = {
         "NEW-NOT-FOUND": new_engine.unsupported(load_example("bev-car"), "no-such-case"),
         "NEW-LAP": new_engine.unsupported(load_example("fs-electric"), "case-autocross"),
-        "NEW-CASE-KIND": new_engine.unsupported(
-            _changed("bev-car", WLTC, kind="performance"), WLTC),
+        # (a kind the schema does not have yet: the four it has are all handled above it)
+        "NEW-CASE-KIND": new_engine.unsupported(_changed("bev-car", WLTC, kind="drift"), WLTC),
         "NEW-FS-EVENT": new_engine.unsupported(
             _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
         "NEW-BALANCE": new_engine.unsupported(load_example("hybrid-car"), "case-udds"),

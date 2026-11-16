@@ -96,6 +96,25 @@ def test_a_live_run_streams_every_point_of_its_result(example, case_id, duration
     assert [m["pct"] for m in live.steps()][-1] == 100.0
 
 
+@pytest.mark.parametrize("end_distance", [None, 300.0])
+def test_a_live_performance_run_streams_every_point_of_its_result(end_distance):
+    """A performance test (the BEV's step to 100 km/h), alone and ending at a
+    distance (the engine runs it to its finish first, then again, and the
+    view is shown the points of the second run only)."""
+    project = load_example("bev-car")
+    case = _case(project, "case-wltc")
+    case.kind, case.duration, case.endDistance = "performance", 40.0, end_distance
+    case.parameterOverrides = {"el-task": {"cycle": "", "profile": "0:100; 40:100"}}
+    live = _Live()
+    result = simulate(project, "case-wltc", live.emit, live.control)
+    assert result.messages[0].text.startswith("Run on the new engine"), result.messages[0].text
+    assert result.status == "success" and result.engine == "new", result.messages[0].text
+    _streamed_is_the_result(live.steps(), result)
+    assert len(live.steps()) == (41 if end_distance is None else 15)
+    if end_distance is None:  # (a run that ends at its distance shows its share of the duration, as an acceleration test's does)
+        assert [m["pct"] for m in live.steps()][-1] == 100.0
+
+
 def test_a_paced_run_keeps_its_pace():
     """A run with a real-time factor streams its points no faster than the
     clock allows (the engine waits on the run's queue meanwhile)."""
