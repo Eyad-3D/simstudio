@@ -1,0 +1,65 @@
+# The fuzz targets of step 3 (benchmarks/fuzz/PLAN.md): cargo-fuzz on a
+# nightly toolchain, outside the engine's workspace (its own lock file).
+#
+#   cd engine && cargo +nightly fuzz run text      # or basemodelica, project, params
+#   cargo +nightly run --manifest-path fuzz/Cargo.toml --bin seeds -- DIR
+[package]
+name = "lsim-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license-file = "../../LICENSE"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# MIT OR Apache-2.0 (libFuzzer itself: Apache-2.0 WITH LLVM-exception); a
+# testing tool, not shipped
+libfuzzer-sys = "=0.4.13"
+arbitrary = { version = "=1.5.0", features = ["derive"] }
+lsim-engine = { path = "../crates/lsim-engine" }
+lsim-ir = { path = "../crates/lsim-ir" }
+lsim-lang = { path = "../crates/lsim-lang" }
+lsim-lib = { path = "../crates/lsim-lib" }
+lsim-project = { path = "../crates/lsim-project" }
+lsim-solve = { path = "../crates/lsim-solve" }
+serde_json = { version = "=1.0.151", features = ["float_roundtrip"] }
+
+# not a member of the engine's workspace
+[workspace]
+
+[[bin]]
+name = "text"
+path = "fuzz_targets/text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "basemodelica"
+path = "fuzz_targets/basemodelica.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "project"
+path = "fuzz_targets/project.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "params"
+path = "fuzz_targets/params.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "seeds"
+path = "src/bin/seeds.rs"
+test = false
+doc = false
+bench = false

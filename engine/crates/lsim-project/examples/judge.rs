@@ -103,6 +103,9 @@ fn run_code(e: &lsim_solve::SolveError) -> &'static str {
         S::Assert { .. } => "RUN-ASSERT",
         S::Block { .. } => "RUN-BLOCK",
         S::Memory { .. } => "RUN-MEMORY",
+        S::TimeLimit { .. } => "RUN-TIME-LIMIT",
+        S::NotFinite { .. } => "RUN-NOT-FINITE",
+        S::MemoryLimit { .. } => "RUN-MEMORY-LIMIT",
         S::NoBackend => "RUN-NO-BACKEND",
     }
 }

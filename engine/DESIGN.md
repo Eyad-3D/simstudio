@@ -4360,14 +4360,37 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   then lists the first run's.
 * **Output grid.** A grid (from `t_end` and `output_step`, the caller's or
   the case's own) of more than 10⁷ points, or whose results would take
-  more than 4 GB (each point holds every recorded variable's value, min,
-  max and mean), is a `ValueError` before the run. Below it the grid, the
+  more than `memory_limit` (4 GB unless given; each point holds every
+  recorded variable's value, min, max and mean), is a `ValueError` before
+  the run. Below it the grid, the
   recorder and the energy books reserve their room with `try_reserve` and
   fail with `RUN-MEMORY` instead of aborting, and the copies the `Run`
   makes for Python (times, channels, min, max, mean, engine channels, the
   books' series) ask for their room first and raise `MemoryError`; an
   acceleration test's first run lets go of its results before it runs
   again to the finish.
+* **Time and memory limits** (`SolverOptions::time_limit` and
+  `memory_limit`; `time_limit=` and `memory_limit=` in Python). A run that
+  takes longer by the wall clock (its start included; checked at the end
+  of every step) stops with `RUN-TIME-LIMIT` at the time it reached; one
+  whose record would take more memory is refused before anything is made,
+  and one whose events would is stopped where they do (`RUN-MEMORY-LIMIT`).
+  Both are off by default in Rust (no time limit; 4 GB in Python), and
+  the app sets no time limit. The memory limit covers the recorded grid,
+  the trace and the events, not everything a run holds. The step limit
+  (`max_steps`) is per integrator call, and the run loop's own
+  no-progress check ends some runs the integrator cannot follow, not all
+  (the gear example with its `__LightSim_energy` line taken out, over 1 s:
+  at 2777777777777777700 N.m it ends after 60 to 100 s, coded but slow; at
+  2.78e18 N.m it had reached t = 4.6e-5 s after 1300 s and was still
+  running, so only a time limit ends it; with the line the example runs
+  to the end in 0.001 s at 2.78e18 N.m). Step 3's
+  fuzzing (`benchmarks/fuzz/PLAN.md`) runs every input under a 10 s time
+  limit, so a run that would take longer is a coded refusal there.
+* **Not a number.** A run whose recorded variable is NaN or infinite at an
+  output time (an output of the states that divides by zero, say, which
+  the integrator never sees) fails with `RUN-NOT-FINITE`, naming the
+  variable and the first such time: never a result.
 * **The app.** With `LIGHTSIM_ENGINE=new` the backend
   (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
   cases on this module, live ones too (section 12.3: streamed, stopped,
@@ -4444,7 +4467,7 @@ all. The catalogue as built (each code's model and expected parts are in
 `INDEX-TABLE-NOT-SMOOTH`, `STATE-SELECT-SINGULAR`, `STATE-SELECT-ALWAYS`,
 `STATE-SELECT-NEVER`, `STATE-SELECT-PREFER` and `STATE-SELECT-CONFLICT`
 (warnings),
-`PIVOT-ZERO-AT-START` (a warning), `PARAM-CYCLE`, `EXTERNAL-PERIOD`, `EXTERNAL-LOOP` (a warning),
+`PIVOT-ZERO-AT-START` (a warning), `PARAM-CYCLE`, `COMPONENT-CYCLE` (a model that holds a part of its own kind, directly or through other parts), `EXTERNAL-PERIOD`, `EXTERNAL-LOOP` (a warning),
 `WHEN-CONDITION`, `WHEN-CONTINUOUS`, `REINIT-NOT-STATE`, `STRUCT-OVER` and
 `STRUCT-UNDER`; `WHEN-AT-LIMIT` (a warning, step 3: a `when` threshold
 equal to a limit the model holds a value at, 8.2) is tested on the
