@@ -4375,9 +4375,14 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   of every step) stops with `RUN-TIME-LIMIT` at the time it reached; one
   whose record would take more memory is refused before anything is made,
   and one whose events would is stopped where they do (`RUN-MEMORY-LIMIT`).
-  Both are off by default (no time limit; 4 GB in Python). They and the
-  step limit (`max_steps`) bound every run; step 3's fuzzing
-  (`benchmarks/fuzz/PLAN.md`) runs every input under them.
+  Both are off by default in Rust (no time limit; 4 GB in Python), and
+  the app sets no time limit. The memory limit covers the recorded grid,
+  the trace and the events, not everything a run holds. The step limit
+  (`max_steps`) is per integrator call, and the run loop's own
+  no-progress check ends a run the integrator cannot follow (after about
+  100 s for a gear at 2.78e18 N.m over 1 s: coded, but slow). Step 3's
+  fuzzing (`benchmarks/fuzz/PLAN.md`) runs every input under a 10 s time
+  limit, so a run that would take longer is a coded refusal there.
 * **Not a number.** A run whose recorded variable is NaN or infinite at an
   output time (an output of the states that divides by zero, say, which
   the integrator never sees) fails with `RUN-NOT-FINITE`, naming the

@@ -1150,3 +1150,94 @@ end M;
         other => panic!("{:?}", other.map(|r| r.values)),
     }
 }
+
+/// A model with `x` and `y`, `y` without a unit, and one equation; `a` is
+/// a parameter in `m100`.
+fn unit_model(x_unit: &str, equation: &str) -> String {
+    format!(
+        "package M\n  model M\n    parameter Real a(unit = \"m100\") = 1;\n    \
+         Real x(unit = \"{x_unit}\");\n    Real y;\n  equation\n    {equation};\n  end M;\nend M;\n"
+    )
+}
+
+/// The unit the import gave `y`.
+fn y_unit(text: &str) -> String {
+    let def = basemodelica::import(text).unwrap_or_else(|e| panic!("import:\n{}", Report(&e)));
+    def.vars.iter().find(|v| v.name == "y").map(|v| v.unit.clone()).expect("y")
+}
+
+#[test]
+fn a_unit_inferred_with_an_exponent_out_of_range_is_left_out() {
+    // fuzzing found these panicking: each needs a unit for `y` whose
+    // exponent would pass 127 (or -128), so `y` keeps none (and the
+    // equation is refused for its units, or imports with `y` unitless)
+    for (x_unit, equation) in [
+        ("m100", "x = sqrt(y)"),
+        ("s127", "der(y) = x"),
+        ("m-100", "x = a / y"),
+        ("m-100", "x = a * y"),
+    ] {
+        match basemodelica::import(&unit_model(x_unit, equation)) {
+            // refused in plain words: the units do not balance
+            Err(e) => assert!(Report(&e).to_string().contains("units"), "{equation}: {e:?}"),
+            Ok(def) => {
+                let y = def.vars.iter().find(|v| v.name == "y").expect("y");
+                assert!(y.unit.is_empty() || y.unit == "1", "{equation}: y got '{}'", y.unit);
+            }
+        }
+    }
+    // the same equations with a unit in range do give `y` one
+    assert_eq!(y_unit(&unit_model("m2", "x = sqrt(y)")), "m4");
+}
+
+/// Imports, prepares and compiles `text` and runs it with `opts`.
+fn run_with(
+    text: &str,
+    grid: OutputGrid,
+    opts: &SolverOptions,
+) -> Result<SimResult, lsim_solve::SolveError> {
+    let def = basemodelica::import(text).unwrap_or_else(|e| panic!("import:\n{}", Report(&e)));
+    let prepared = lsim_prep::prepare(&Library::default(), &def, &PrepOptions::default())
+        .unwrap_or_else(|d| panic!("prepare: {d:#?}"));
+    let jit = lsim_codegen::compile(&prepared, &CodegenOptions::default()).expect("compile");
+    let info = RunInfo::from_prepared(&prepared);
+    lsim_solve::simulate(&jit, &info, opts, grid, &mut [])
+}
+
+/// The run stops at the first output point that is not a number, not at
+/// the run's end: here a stiff oscillator no run to t = 1000 s could
+/// finish in its time limit, and `y` is infinite at t = 0.
+#[test]
+fn a_value_that_is_not_a_number_stops_the_run_at_that_point() {
+    let text = "package M\n  model M\n    parameter Real w2(unit = \"s-2\") = 1e12;\n    \
+        Real x(unit = \"1\", start = 1, fixed = true);\n    \
+        Real v(unit = \"1/s\", start = 0, fixed = true);\n    Real y;\n  equation\n    der(x) = v;\n    der(v) = -w2 * x;\n    y = x / 0;\n  end M;\nend M;\n";
+    let opts =
+        SolverOptions { time_limit: Some(std::time::Duration::from_secs(5)), ..Default::default() };
+    match run_with(text, OutputGrid { t0: 0.0, t_end: 1000.0, dt: 1.0 }, &opts) {
+        Err(lsim_solve::SolveError::NotFinite { t, message }) => {
+            assert_eq!(t, 0.0, "{message}");
+            assert!(message.contains("'y'"), "{message}");
+        }
+        other => panic!("{:?}", other.map(|r| r.values)),
+    }
+}
+
+/// The minimum, maximum and mean over an output interval are checked
+/// too: `y` is finite at every output point (the oscillator `x` is 0 at
+/// each half period) and infinite between them.
+#[test]
+fn a_value_that_is_not_a_number_between_output_points_is_no_result() {
+    let text = "package M\n  model M\n    parameter Real w2(unit = \"s-2\") = 39.47841760435743;\n    \
+        Real x(unit = \"1\", start = 0, fixed = true);\n    \
+        Real v(unit = \"1/s\", start = 6.283185307179586, fixed = true);\n    \
+        Real y;\n  equation\n    der(x) = v;\n    der(v) = -w2 * x;\n    y = exp(1000 * x);\n  \
+        end M;\nend M;\n";
+    let grid = OutputGrid { t0: 0.0, t_end: 2.0, dt: 0.5 };
+    match run_with(text, grid, &SolverOptions::default()) {
+        Err(lsim_solve::SolveError::NotFinite { message, .. }) => {
+            assert!(message.contains("'y'") && message.contains("infinite"), "{message}");
+        }
+        other => panic!("{:?}", other.map(|r| (r.values, r.max))),
+    }
+}

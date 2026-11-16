@@ -313,6 +313,14 @@ pub struct SlotMap {
     pub kept: Vec<(VarId, VarId)>,
 }
 
+/// The dimension of the `order`-th time derivative of a quantity of
+/// dimension `dim`. ponytail: a unit already at the end of the exponents'
+/// range keeps it (the derivative's unit is only shown, and the units were
+/// checked on the equations as written).
+fn derivative_dim(dim: lsim_ir::Dim, order: impl Into<u64>) -> lsim_ir::Dim {
+    (0..order.into()).fold(dim, |d, _| d.checked_div(lsim_ir::Dim::TIME).unwrap_or(d))
+}
+
 impl Sys {
     /// Maps nodes to slots: a state node is a flat variable (made for a
     /// derivative order ≥ 1), the derivative of a state is that state's
@@ -353,12 +361,7 @@ impl Sys {
             let own_var = is_state[i] || !is_state[p] || nd.kind != NodeKind::Unknown;
             if own_var {
                 let base = flat.var(nd.var).clone();
-                let mut dim = base.unit.dim;
-                for _ in 0..nd.order {
-                    // ponytail: a unit already at the end of the exponents'
-                    // range keeps it (the derivative's unit is only shown)
-                    dim = dim.checked_div(lsim_ir::Dim::TIME).unwrap_or(dim);
-                }
+                let dim = derivative_dim(base.unit.dim, nd.order);
                 let rec = FlatVar {
                     name: self.name(flat, i),
                     unit: Unit::new(dim, 1.0),
@@ -381,10 +384,7 @@ impl Sys {
                 let name = self.name(flat, i);
                 if keep.contains(&name) {
                     let base = flat.var(nd.var).clone();
-                    let mut dim = base.unit.dim;
-                    for _ in 0..nd.order {
-                        dim = dim.checked_div(lsim_ir::Dim::TIME).unwrap_or(dim);
-                    }
+                    let dim = derivative_dim(base.unit.dim, nd.order);
                     flat.vars.push(FlatVar {
                         name,
                         unit: Unit::new(dim, 1.0),
@@ -480,5 +480,19 @@ impl lsim_ir::eval::Env for NodeEnv<'_> {
     }
     fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
         lsim_ir::eval::interpolate(self.tables, k, order, args)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derivative_dim;
+    use lsim_ir::Dim;
+
+    #[test]
+    fn a_derivative_past_the_end_of_the_exponents_keeps_the_last_unit() {
+        let s = |e: i8| Dim::TIME.pow(e);
+        assert_eq!(derivative_dim(Dim::LENGTH, 2u32), Dim([1, 0, -2, 0, 0, 0, 0]));
+        assert_eq!(derivative_dim(s(-126), 2u32), s(-128));
+        assert_eq!(derivative_dim(s(-127), 3u32), s(-128));
     }
 }

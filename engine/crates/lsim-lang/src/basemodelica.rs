@@ -1317,24 +1317,24 @@ fn push(e: &Expr, want: Dim, dims: &mut HashMap<String, Dim>, open: &mut BTreeSe
         }
         Expr::Binary(BinaryOp::Mul, a, b) => {
             if let Some(x) = known_dim(a, dims) {
-                push(b, want / x, dims, open);
+                push_opt(b, want.checked_div(x), dims, open);
             } else if matches!(**a, Expr::Const(_)) {
                 push(b, want, dims, open);
             }
             if let Some(y) = known_dim(b, dims) {
-                push(a, want / y, dims, open);
+                push_opt(a, want.checked_div(y), dims, open);
             } else if matches!(**b, Expr::Const(_)) {
                 push(a, want, dims, open);
             }
         }
         Expr::Binary(BinaryOp::Div, a, b) => {
             if let Some(y) = known_dim(b, dims) {
-                push(a, want * y, dims, open);
+                push_opt(a, want.checked_mul(y), dims, open);
             } else if matches!(**b, Expr::Const(_)) {
                 push(a, want, dims, open);
             }
             if let Some(x) = known_dim(a, dims) {
-                push(b, x / want, dims, open);
+                push_opt(b, x.checked_div(want), dims, open);
             }
         }
         Expr::Call(
@@ -1347,15 +1347,28 @@ fn push(e: &Expr, want: Dim, dims: &mut HashMap<String, Dim>, open: &mut BTreeSe
         }
         Expr::Call(Builtin::Der, args) => {
             if let Some(a) = args.first() {
-                push(a, want * Dim::TIME, dims, open);
+                push_opt(a, want.checked_mul(Dim::TIME), dims, open);
             }
         }
         Expr::Call(Builtin::Sqrt, args) => {
             if let Some(a) = args.first() {
-                push(a, want * want, dims, open);
+                push_opt(a, want.checked_mul(want), dims, open);
             }
         }
         _ => {}
+    }
+}
+
+/// [`push`] of a dimension that may have overflowed: a name whose unit
+/// would need an exponent outside -128..=127 stays without one.
+fn push_opt(
+    e: &Expr,
+    want: Option<Dim>,
+    dims: &mut HashMap<String, Dim>,
+    open: &mut BTreeSet<String>,
+) {
+    if let Some(w) = want {
+        push(e, w, dims, open);
     }
 }
 

@@ -170,3 +170,55 @@ end Test.Pong;
         assert!(d.message.contains(chain), "{}", d.message);
     }
 }
+
+/// The input the fuzzer found it with (text target, minimised; the first
+/// definition holds a part of its own kind, then a model built on it): it
+/// overflowed the stack when prepared. (The input's control bytes, all inside
+/// descriptions, are spaces here.)
+#[test]
+fn the_input_that_overflowed_the_stack_is_refused() {
+    let text = r#"
+model Rotational.ShiftingGear "Gear with a ratio ."
+  connector a: Flange "input side";
+  connector b: Flange "output side";
+  input Real ratio(unit = "1") ".a' or tobque";
+  Rotational.ShiftingGear gear(eta = 2) "Gearbox";
+  Signal.Step select(y0 = 72, y1 = 7, t_step = 4) " s speed / b's speed";
+  parameter Real eta(unit = "1") = 1 "efficielcy, in the Adirection the poewr flows";
+  Real eta_dir(unit = "1", start = eta) "the torque facto+r hp %terese nt power direction";
+equation
+  a.w = ratio * b.w "a turns ratio times as fast as b";
+  eta_dir = if a.tau * a.w *  1 then eta else 1 / eta "the loss follows the power";
+  b.tau = -ratio * eta_dir * a.tau "th})e .orque is multiplied by t he ratio, less the loss";
+  annotation(__LightSim_energy(loss = a.tau * a.w + b.tau * b.w));
+  annotation(__LightSim_engagement(changes = ratio));
+end Rotational.ShiftingGear;
+
+model Examples.GearChange "A motor at 1 0 O oad through a gear that shifts from 06:1& to 7:1 at 4 s."
+  Rotational.Inertia motor(J = 0.05) "Motor rotor";
+  Rotational.Inertia load(J = 135) "Load";
+  Rotational.ConstantTorque drive(tau = 2777777777777777700) "Motor tobque";
+  Rotational.ShiftingGear gear(eta = 2) "Gearbox";
+  Signal.Step select(y0 = 72, y1 = 7, t_step = 4) "Selected rat)o";
+equation
+  connect(drive.flange, motor.a);
+  connect(motor.b, gear.a);
+  connect(gear.b, load.a);
+  connect(select.y, gear.ratio);
+end Examples.GearChange;
+"#;
+    let lib = lsim_lib::library();
+    let mut defs = lsim_lang::parse_with(text, &lib).unwrap_or_else(|e| panic!("{}", Report(&e)));
+    let top = defs.pop().expect("a model");
+    let mut lib = lib;
+    for d in defs {
+        lib.add(d);
+    }
+    let err = lsim_prep::prepare(&lib, &top, &PrepOptions::default()).unwrap_err();
+    let d = err.iter().find(|d| d.code == "COMPONENT-CYCLE").unwrap_or_else(|| panic!("{err:#?}"));
+    assert!(
+        d.message.contains("Rotational.ShiftingGear holds Rotational.ShiftingGear"),
+        "{}",
+        d.message
+    );
+}

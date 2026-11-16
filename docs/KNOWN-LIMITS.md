@@ -784,6 +784,19 @@ minimum or an average, for example from the CSV export, or put the
   solver step's change. On the new engine an FMU's start values and its
   Communication Step changed during a run take effect on the next run
   (code `NEW-LIVE-NEXT-RUN`). *Roadmap:* ENG-16.
+- **A run the new engine cannot follow can take minutes to be refused.**
+  With `LIGHTSIM_ENGINE=new` a run has no time limit unless the caller
+  gives one (the app gives none; the Python module's `time_limit=` does,
+  and its `memory_limit=` is 4 GB when not given, counting the recorded
+  results and the events, not everything the run holds). A model the
+  integrator cannot follow (the gear example with a torque of about
+  10^18 N.m for a 1 s run) takes about 100 s before the run stops with
+  the integrator's own refusal (`RUN-INTEGRATOR`, "made no progress"); with
+  a time limit it stops sooner, with `RUN-TIME-LIMIT`, saying how far it
+  got. A variable that is not a number or is infinite at an output time
+  (an output that divides by zero, say) is never a result: the run stops
+  at that time with `RUN-NOT-FINITE`, naming the variable. *Roadmap:*
+  ENG-16.
 - **A PID or Lookup block with a Sample Time runs on today's engine.**
   Today's engine runs a PID or Lookup block whose Sample Time is longer
   than its solver step (10 ms, less for a stiff model) only at multiples

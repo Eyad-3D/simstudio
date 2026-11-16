@@ -87,26 +87,6 @@ impl Dim {
     }
 }
 
-// exponents add when quantities multiply
-#[allow(clippy::suspicious_arithmetic_impl)]
-impl std::ops::Mul for Dim {
-    type Output = Dim;
-    /// The product of two dimensions.
-    fn mul(self, o: Dim) -> Dim {
-        self.checked_mul(o).expect("a dimension's exponent outside -128..=127")
-    }
-}
-
-// exponents subtract when quantities divide
-#[allow(clippy::suspicious_arithmetic_impl)]
-impl std::ops::Div for Dim {
-    type Output = Dim;
-    /// The quotient of two dimensions.
-    fn div(self, o: Dim) -> Dim {
-        self.checked_div(o).expect("a dimension's exponent outside -128..=127")
-    }
-}
-
 impl fmt::Display for Dim {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.is_none() {
@@ -597,7 +577,7 @@ mod tests {
     fn dimension_arithmetic() {
         let v = parse_unit("V").unwrap().dim;
         let a = parse_unit("A").unwrap().dim;
-        assert_eq!(v * a, parse_unit("W").unwrap().dim);
+        assert_eq!(v.checked_mul(a), Some(parse_unit("W").unwrap().dim));
         assert_eq!(parse_unit("m2").unwrap().dim.root(2), Some(Dim::LENGTH));
         assert_eq!(Dim::LENGTH.root(2), None);
         assert_eq!(format!("{}", parse_unit("N.m").unwrap().dim), "m2.kg.s-2");
