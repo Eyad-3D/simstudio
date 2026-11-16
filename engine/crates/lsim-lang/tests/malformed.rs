@@ -1,6 +1,6 @@
 //! Malformed texts: each gives an error with a place and a plain message.
 
-use lsim_lang::{LangError, parse, parse_with};
+use lsim_lang::{LangError, basemodelica, parse, parse_with};
 
 /// A resistor written correctly, for the cases to break.
 const GOOD: &str = r#"model R "A resistor."
@@ -720,6 +720,56 @@ fn a_reinit_of_a_part_is_checked_against_the_library() {
                 "In 'M', “when time > 1 then reinit({target}, 0); end when” restarts '{target}' \
                  with reinit, but {why}"
             )
+        );
+    }
+}
+
+/// Inputs step 3's fuzzing found panicking (shrunk), each now a coded
+/// refusal: a call of a Base Modelica function with no output, and units
+/// whose exponents overflow (a unit text, a power in an equation).
+#[test]
+fn what_the_fuzzing_found_is_refused_plainly() {
+    let no_output = "package'CellsOnPlate'function 'flow' \"\"input Real 'T';input Real'd';\n\
+                     end'flow';model'CellsOnPlate'e'/2';equation '2' ='flow'('c','T2'); end \
+                     'CellsOnPlate';\nend'CellsOnPlate';\n";
+    let e = basemodelica::import(no_output).expect_err("a function with no output");
+    assert!(e.iter().any(|e| e.code == "FUNCTION" && e.message.contains("no output")), "{e:?}");
+
+    let unit = "package'BatteryCC'model BatteryCC\"\"Real 'V'(unit=\"V66\");end 'BatteryCC';\
+                end'BatteryCC';";
+    let e = basemodelica::import(unit).expect_err("a unit whose exponents overflow");
+    assert!(e.iter().any(|e| e.message.contains("exponent is too large")), "{e:?}");
+
+    // m³ to the 63rd: an exponent of 189
+    let power = "model M\n  Real x(unit = \"m3\");\n  Real y;\nequation\n  x = 1;\n  \
+                 y = x ^ 63;\nend M;\n";
+    let e = parse(power).expect_err("a power whose unit overflows");
+    assert!(e.iter().any(|e| e.message.contains("too large for any quantity")), "{e:?}");
+}
+
+/// Every way an equation can make a unit whose exponents overflow is a
+/// refusal that says so (the same cases as the preparation's, which
+/// checks the equations again).
+#[test]
+fn an_equation_whose_unit_overflows_is_refused_in_each_form() {
+    for (what, equation) in [
+        ("a product", "z = a * b"),
+        ("a quotient", "z = a / m"),
+        ("a number over a unit", "z = 1 / m"),
+        ("a whole power", "z = q ^ 63"),
+        ("a half power", "z = a ^ 31.5"),
+        ("a derivative", "z = der(s)"),
+    ] {
+        let text = format!(
+            "model M\n  Real a(unit = \"m100\");\n  Real b(unit = \"m100\");\n  \
+             Real m(unit = \"m-128\");\n  Real q(unit = \"m4\");\n  Real s(unit = \"s-128\");\n  \
+             Real z;\nequation\n  a = 1;\n  b = 1;\n  m = 1;\n  q = 1;\n  s = 1;\n  {equation};\n\
+             end M;\n"
+        );
+        let e = parse(&text).expect_err(what);
+        assert!(
+            e.iter().any(|e| e.message.contains("too large for any quantity")),
+            "{what}: {e:?}"
         );
     }
 }

@@ -11,7 +11,8 @@
 //! model.report                                              # sizes, times, cache hit, warnings
 //! model.set_params({"el-battery.Q": 756000.0})              # runtime, no rebuild
 //! run = model.simulate(rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None,
-//!                      native_scripts=True, trace=None, trace_step=0.1, windows=None)
+//!                      native_scripts=True, trace=None, trace_step=0.1, windows=None,
+//!                      time_limit=None, memory_limit=None)
 //! run.times, run.channels["el-battery:sig_soc"]             # NumPy arrays, today's names
 //! run.min / run.max / run.mean / run.events / run.report / run.energy / run.figures
 //! run.integrals / run.trace / run.windows / run.table_outside  # the evidence for the verdict
@@ -901,14 +902,26 @@ impl Model {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_options(
     rtol: f64,
     atol: f64,
     output_step: Option<f64>,
     t_end: Option<f64>,
     native_scripts: bool,
+    time_limit: Option<f64>,
+    memory_limit: Option<f64>,
 ) -> RunOptions {
-    RunOptions { rtol, atol, output_step, t_end, native_scripts, ..Default::default() }
+    RunOptions {
+        rtol,
+        atol,
+        output_step,
+        t_end,
+        native_scripts,
+        time_limit,
+        memory_limit: memory_limit.unwrap_or(core::MAX_RESULT_BYTES),
+        ..Default::default()
+    }
 }
 
 #[pymethods]
@@ -1012,9 +1025,13 @@ impl Model {
     /// plainly when the code is outside it. `run.report["scripts"]` says
     /// which ran; a key of `scripts` that names no Script part, or a part
     /// named by two keys (its id and its label), is a ValueError. A grid of
-    /// more than 1e7 output points, or whose results
-    /// would take more than 4 GB, is refused; results read without the
-    /// memory left for them raise MemoryError. `trace` names channels
+    /// more than 1e7 output points, or whose results would take more than
+    /// `memory_limit` bytes (default 4 GB), is refused, and a run whose
+    /// events would take more fails `RUN-MEMORY-LIMIT`; results read without
+    /// the memory left for them raise MemoryError. A run that takes longer
+    /// than `time_limit` s by the wall clock (default: no limit) fails
+    /// `RUN-TIME-LIMIT` (a ModelError, the time it reached in its message).
+    /// `trace` names channels
     /// (today's `element:port`, or the engine's own variables) to sample
     /// from the dense output every `trace_step` s and at the run's end,
     /// besides the output grid and without changing it (`run.trace`).
@@ -1032,7 +1049,7 @@ impl Model {
     /// there (held until the next call); the engine loads no FMU's code, so
     /// an FMU part given none fails the run (`RUN-FMU`), and a key that
     /// names no FMU part is a ValueError.
-    #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true, trace=None, trace_step=0.1, windows=None, control=None, edits=None, fmus=None))]
+    #[pyo3(signature = (rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true, trace=None, trace_step=0.1, windows=None, control=None, edits=None, fmus=None, time_limit=None, memory_limit=None))]
     #[allow(clippy::too_many_arguments)]
     fn simulate(
         &self,
@@ -1049,6 +1066,8 @@ impl Model {
         control: Option<Py<RunControl>>,
         edits: Option<Vec<(f64, Bound<'_, PyAny>)>>,
         fmus: Option<&Bound<'_, PyAny>>,
+        time_limit: Option<f64>,
+        memory_limit: Option<f64>,
     ) -> PyResult<Run> {
         let scripts = scripts_of(scripts, "scripts")?;
         core::check_script_keys(&self.built, scripts.keys(), false).map_err(|f| to_err(py, f))?;
@@ -1057,7 +1076,8 @@ impl Model {
         let factory = host_factory(scripts, fmus);
         let params = self.state().values.clone();
         let built = Arc::clone(&self.built);
-        let mut opts = run_options(rtol, atol, output_step, t_end, native_scripts);
+        let mut opts =
+            run_options(rtol, atol, output_step, t_end, native_scripts, time_limit, memory_limit);
         let mut set: Vec<(String, f64)> =
             self.state().set.iter().map(|(k, v)| (k.clone(), *v)).collect();
         for (t, changes) in edits.unwrap_or_default() {
@@ -1108,7 +1128,7 @@ impl Model {
     /// or a part named twice, is a ValueError); a Script function is shared
     /// by all the runs: give
     /// a sweep stateless functions.
-    #[pyo3(signature = (sets, threads=4, rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true))]
+    #[pyo3(signature = (sets, threads=4, rtol=1e-6, atol=1e-8, output_step=None, t_end=None, scripts=None, native_scripts=true, time_limit=None, memory_limit=None))]
     #[allow(clippy::too_many_arguments)]
     fn sweep(
         &self,
@@ -1121,6 +1141,8 @@ impl Model {
         t_end: Option<f64>,
         scripts: Option<&Bound<'_, PyAny>>,
         native_scripts: bool,
+        time_limit: Option<f64>,
+        memory_limit: Option<f64>,
     ) -> PyResult<Vec<Py<PyAny>>> {
         if threads == 0 {
             return Err(PyValueError::new_err("threads must be at least 1"));
@@ -1137,7 +1159,8 @@ impl Model {
         let current: Vec<(String, f64)> =
             self.state().set.iter().map(|(k, v)| (k.clone(), *v)).collect();
         let built = Arc::clone(&self.built);
-        let opts = run_options(rtol, atol, output_step, t_end, native_scripts);
+        let opts =
+            run_options(rtol, atol, output_step, t_end, native_scripts, time_limit, memory_limit);
         let results = py.detach(|| {
             core::par_map(parsed.len(), threads, |i| {
                 let changes = parsed[i].clone().map_err(Failure::Value)?;

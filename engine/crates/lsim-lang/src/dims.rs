@@ -74,6 +74,13 @@ fn const_value(e: &Expr) -> Option<f64> {
     }
 }
 
+/// A dimension worked out, or the refusal of one whose exponents left
+/// -128..=127 (lsim_ir::units::Dim::checked_mul).
+fn known(d: Option<Dim>) -> Result<D, Mismatch> {
+    d.map(D::Known)
+        .ok_or_else(|| Mismatch("a unit whose exponents are too large for any quantity".into()))
+}
+
 /// The dimension of `e`.
 pub(crate) fn dim(e: &Expr, r: &dyn Resolve) -> Result<D, Mismatch> {
     Ok(match e {
@@ -94,15 +101,15 @@ pub(crate) fn dim(e: &Expr, r: &dyn Resolve) -> Result<D, Mismatch> {
                 BinaryOp::Add | BinaryOp::Sub => unify(da, db, "a sum")?,
                 BinaryOp::Mul => match (da, db) {
                     (D::Unknown, _) | (_, D::Unknown) => D::Unknown,
-                    (D::Known(x), D::Known(y)) => D::Known(x * y),
+                    (D::Known(x), D::Known(y)) => known(x.checked_mul(y))?,
                     (D::Known(x), D::Any) | (D::Any, D::Known(x)) => D::Known(x),
                     (D::Any, D::Any) => D::Any,
                 },
                 BinaryOp::Div => match (da, db) {
                     (D::Unknown, _) | (_, D::Unknown) => D::Unknown,
-                    (D::Known(x), D::Known(y)) => D::Known(x / y),
+                    (D::Known(x), D::Known(y)) => known(x.checked_div(y))?,
                     (D::Known(x), D::Any) => D::Known(x),
-                    (D::Any, D::Known(y)) => D::Known(Dim::NONE / y),
+                    (D::Any, D::Known(y)) => known(Dim::NONE.checked_div(y))?,
                     (D::Any, D::Any) => D::Any,
                 },
                 BinaryOp::Pow => {
@@ -112,11 +119,11 @@ pub(crate) fn dim(e: &Expr, r: &dyn Resolve) -> Result<D, Mismatch> {
                         D::Known(x) if x.is_none() => da,
                         D::Known(x) => match const_value(b) {
                             Some(n) if n.fract() == 0.0 && n.abs() < 64.0 => {
-                                D::Known(x.pow(n as i8))
+                                known(x.checked_pow(n as i8))?
                             }
                             Some(n) if (2.0 * n).fract() == 0.0 && n.abs() < 32.0 => {
                                 match x.root(2) {
-                                    Some(rt) => D::Known(rt.pow((2.0 * n) as i8)),
+                                    Some(rt) => known(rt.checked_pow((2.0 * n) as i8))?,
                                     None => {
                                         return Err(Mismatch(format!(
                                             "{} has no square root",
@@ -148,7 +155,7 @@ pub(crate) fn dim(e: &Expr, r: &dyn Resolve) -> Result<D, Mismatch> {
                 },
                 Builtin::Abs | Builtin::Pre => first,
                 Builtin::Der => match first {
-                    D::Known(d) => D::Known(d / Dim::TIME),
+                    D::Known(d) => known(d.checked_div(Dim::TIME))?,
                     other => other,
                 },
                 Builtin::Sign => D::Known(Dim::NONE),
