@@ -575,8 +575,14 @@ Failed or not measured, with the numbers:
   load, 20 stops of the new engine: p95 0.71 and 0.98 s before, 0.43 and
   0.43 s after (median 0.40 and 0.31 s before, 0.19 and 0.15 s after);
   today's engine, 10 stops: 0.74 s before, 0.43 s after. The phases before
-  the engine run were not changed. The CI step now prints a passing stop
-  test's result line (`-rP`).
+  the engine run were not changed. The CI step now prints a stop test's
+  result line when it passes and its reason when it is an expected failure
+  (`-rsxP`). **On Windows CI after the fix** (run 43947526693, 58f952a):
+  the study stop passes with p95 0.913 s (20 of 20 stops shown, median
+  0.359 s, maximum 1.060 s, 3 stops over 0.9 s; the unstopped study 21.95
+  s). That is one run, and the run before the fix (dd35ac4) passed too, so
+  it does not show that the fix helped on Windows: the wait there still
+  sits near its mark.
 - **FMU: not measured** at 1debfc4. Not run locally (`LIGHTSIM_REFERENCE_FMUS` and
   `LIGHTSIM_FMUSIM` not set, and the line's FMUs are x86_64-windows), and
   on Windows CI `test_new_engine_fmu.py` never ran. At the merge of 10
@@ -741,3 +747,14 @@ The time and memory limits (`RUN-TIME-LIMIT`, `RUN-MEMORY-LIMIT`) came with it; 
 **Failures since the last fix (98975bc), and the bound they allow.** The three extended targets had no panic, abort, out-of-memory or NaN result in M5 and M6. Every slow input or timeout the fuzzers wrote (144 files: 78 in M5, 66 in M6) ran again alone without failure: the slow ones take 20 s (two harness runs, each stopped by the 10 s limit), and the timeouts come from WSL's clock stepping back, which libFuzzer reads as an endless unit. With no failure in N executions, the failure rate per input is probably (95 %) below 3/N: `text` N = 3 329 814 (below 9.0e-7), `basemodelica` N = 30 897 730 (below 9.7e-8), `project` N = 56 351 (below 5.3e-5), `params` N = 22 469 (below 1.3e-4 counting its last fuzzing run, 21 205 executions made on 6b62cae before the fix in item 2, and the 1 264-input corpus replay after it; params does not run the Base Modelica importer that fix changed, but on the replay alone the bound is 2.4e-3). These bounds hold for what these generators reach, not for every input.
 
 **Open.** A 1 s run of the gear example with its `__LightSim_energy` line taken out (the fuzzer's input; the example itself runs to the end in 0.001 s at 2.78e18 N.m) at the fuzzer's exact torque, 2777777777777777700 N.m, takes 60 to 100 s before the integrator refuses it (`RUN-INTEGRATOR`, "made no progress"); at 2.78e18 N.m the same model had reached t = 4.6e-5 s of 1 s after 1300 s and was still running (the second check's run). The app sets no time limit. Inside the harness's 10 s budget both are a coded refusal, but for a person the first is slow and the second does not end (see `docs/KNOWN-LIMITS.md`). The fuzzing ran on Linux only; the Windows CI has not run on this branch.
+
+## Step 3 closed (16 November 2026): what stays open
+
+Step 3's four pieces are merged: the hard problems, the below-zero watch at a cut step, the fuzzing of the engine's inputs and the study stop's wait. None of the points below blocked a merge; each is a thing known and not done.
+
+1. **The study stop on Windows still sits near its mark.** After the loop fix its one Windows CI run gave p95 0.913 s against 1.0 s (the paragraph on the study stop above). On Linux the same fix halved it (an independent check, the two versions run in turn on one build: p95 0.69 to 0.95 s before, 0.33 to 0.43 s after). What a stopped study still waits for: each running point's result up to where it stopped (0.006 to 0.3 s to assemble, more the further the run got), its dump and its decoding on the server, and one round trip for each point the pool had already queued. None of these was changed. The CI log now holds the number on every run, so the next runs say whether Windows needs more.
+2. **The live stop** is still the known issue of 10 November (an expected failure on Windows CI).
+3. **The below-zero watch at a cut step.** Four planted changes to it (the recorded low, the largest value seen, a member leaving the watched set, the state handed over at a clock tick) are caught by no test, and no model was found in which they change a run's output. Its tests reach their case only through the steps CVODE takes on the machine they were written on; each test's comment names what to turn if a new CVODE moves them. With the diffsol integrator and the stateless one there is no error estimate, so the watch's floor stays at the start values.
+4. **`DESIGN.md` has no section** on the below-zero warning or on the step limit counted over a run.
+5. **A run the integrator cannot follow** can take minutes to be refused, or not end, and the app sets no time limit (the fuzzing section's last paragraph; `docs/KNOWN-LIMITS.md`).
+6. **The fuzzing ran on Linux only**, and its hours did not exhaust three of the four targets (coverage still grew a little at the 12 h cap).
