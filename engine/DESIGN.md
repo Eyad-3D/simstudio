@@ -4379,10 +4379,12 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   the app sets no time limit. The memory limit covers the recorded grid,
   the trace and the events, not everything a run holds. The step limit
   (`max_steps`) is per integrator call, and the run loop's own
-  no-progress check ends a run the integrator cannot follow (after about
-  100 s for the gear example with its `__LightSim_energy` line taken out,
-  at 2.78e18 N.m over 1 s: coded, but slow; with the line the example runs
-  to the end in 0.001 s at that torque). Step 3's
+  no-progress check ends some runs the integrator cannot follow, not all
+  (the gear example with its `__LightSim_energy` line taken out, over 1 s:
+  at 2777777777777777700 N.m it ends after 60 to 100 s, coded but slow; at
+  2.78e18 N.m it had reached t = 4.6e-5 s after 1300 s and was still
+  running, so only a time limit ends it; with the line the example runs
+  to the end in 0.001 s at 2.78e18 N.m). Step 3's
   fuzzing (`benchmarks/fuzz/PLAN.md`) runs every input under a 10 s time
   limit, so a run that would take longer is a coded refusal there.
 * **Not a number.** A run whose recorded variable is NaN or infinite at an

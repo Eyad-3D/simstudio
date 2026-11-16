@@ -3950,6 +3950,32 @@ fn run_watched<'a>(
     let mut acc = vec![0.0; n];
     let mut ymax: Vec<f64> = y.iter().map(|v| v.abs()).collect();
     let mut yk = vec![0.0; n];
+    // the states the equations keep at or above zero, watched for a step
+    // that ends with one clearly below it (beyond its error weight): the
+    // solution has then left the region the equations keep it in (a
+    // tolerance far above a vanishing concentration lets one turn negative,
+    // and Robertson's reaction then grows without bound), and the run says
+    // so. The proof ([`crate::info::MagInfo::kept_nonnegative`]) is made at
+    // the first such step, in no other run; off where states jump
+    // (impulses), after a change of the parameters and once the states are
+    // chosen again. A balance of the states (Robertson's third species as
+    // `1 - y1 - y2`) that starts at or above zero joins the proof as not
+    // negative while every step ends with it at or above zero (up to the
+    // rounding of its sum); one that goes below leaves it for the rest of
+    // the run (the states it kept may then go below zero rightly), and the
+    // proof is made again. Not up to the tolerance: a rate can multiply a
+    // member's slight negative value many times over (the ring modulator's
+    // y2, whose rate is a sum of currents over 1.6e-8, went below zero
+    // rightly while that sum stayed within its error weights)
+    let start_nonneg: Vec<bool> = y[..l.n_x].iter().map(|v| *v >= 0.0).collect();
+    let mut signs_on = info.impulse.is_none() && info.mag.is_some();
+    let mut members: Vec<crate::info::Affine> = match &info.mag {
+        Some(m) if signs_on => m.affine_members(l.n_x, p),
+        _ => vec![],
+    };
+    members.retain(|a| a.value(&y) >= 0.0);
+    let mut kept_nonneg: Option<(usize, Vec<bool>)> = None;
+    let mut below: Vec<Option<(String, f64, f64)>> = vec![None; l.n_x];
 
     if !info.time_tables.is_empty() {
         lp.schedule_breaks(t, false);
@@ -4106,6 +4132,7 @@ fn run_watched<'a>(
                 kind: EventKind::States(sw_k),
             });
             switches += 1;
+            signs_on = false;
             if switch_notes.len() < 20 {
                 switch_notes.push(format!("at t = {t:.9} s, {label}"));
             }
@@ -4335,6 +4362,21 @@ fn run_watched<'a>(
         let mut st = if same { Step::Stopped(t_stop) } else { integ.step(t_stop)? };
         if !same {
             lp.steps += 1;
+            // (the integrators' own limit counts the steps of one call, and
+            // the run calls them a step at a time: the run counts them)
+            if lp.steps > opts.max_steps {
+                return Err(SolveError::Integrator {
+                    t: st.time(),
+                    message: format!(
+                        "{} took {} steps without reaching the run's end at {t_end} s (the \
+                         limit of steps, max_steps): the model needs steps far shorter than \
+                         its time scale here (a stiffness or a chatter the method cannot \
+                         step over), or the tolerance is tighter than it can reach",
+                        integ.name(),
+                        opts.max_steps
+                    ),
+                });
+            }
         }
         // steps that leave the time where it was (shorter than its
         // resolution here, which the integrators take for steps all the
@@ -4490,11 +4532,20 @@ fn run_watched<'a>(
         let edit_due = pending.first().is_some_and(|e| due(e.0));
         let event_now = is_root || at_time_event || crossing_due || edit_due;
 
-        // the integrator's error estimate
-        if !same && integ.local_error(&mut local) {
+        // the integrator's error estimate: the step's as the integrator took
+        // it (a step cut back below keeps it whole, which over-states the
+        // part kept: the safe side). The integrators set their error weights
+        // from the state a step starts from (CVODE and IDA at the top of
+        // their loop, before the step), so the estimate is a share of the
+        // start's tolerance; its absolute size below uses the tolerance of
+        // the state the step ended at, an approximation (the weights moved
+        // with the state over the step), kept as it is so that no result
+        // moves. The largest magnitude is not read here: it is the run's,
+        // so that of the state the pass ends with (below)
+        let err_read = !same && integ.local_error(&mut local);
+        if err_read {
             let yv = integ.y();
             for i in 0..n {
-                ymax[i] = ymax[i].max(yv[i].abs());
                 if local[i] > report.error.worst_local {
                     report.error.worst_local = local[i];
                     report.error.worst_local_var = info.y_names.get(i).cloned().unwrap_or_default();
@@ -4760,8 +4811,10 @@ fn run_watched<'a>(
                         .iter()
                         .flat_map(|&b| info.blocks[b].outputs.iter().copied())
                         .collect();
-                    // (the point the integrator had, for the holds)
-                    let y_at = lp.may_hold().then(|| yk.clone());
+                    // (the point the integrator had, for the holds; and, if the
+                    // tick cuts the step back, the state the run judges there)
+                    let y_pre = yk.clone();
+                    let y_at = lp.may_hold().then_some(y_pre.as_slice());
                     lp.scheduled = true;
                     // (the step ends here: the holds an expiry check found
                     // arrived before the tick go on from it)
@@ -4810,7 +4863,7 @@ fn run_watched<'a>(
                     if let Some(e) = &imp {
                         report.impulses += e.count;
                     }
-                    let at = y_at.as_deref().map(|y0| (y0, d_pre.as_slice()));
+                    let at = y_at.map(|y0| (y0, d_pre.as_slice()));
                     lp.update_sides(integ, tk, &yk, &d, None, at);
                     lp.sync_guards(tk, None)?;
                     lp.push_sides(integ);
@@ -4854,7 +4907,52 @@ fn run_watched<'a>(
                     )?;
                     t = tk;
                     cut = true;
+                    y_cut = Some(y_pre);
                     break;
+                }
+            }
+        }
+        // The state the run goes on from, at the time it goes on from it,
+        // is what the largest magnitude and the below-zero watch judge. At
+        // a step the run cut back (a hold expiry, a pulse, a state switch,
+        // or a tick that changed an output) that is the cut: its state
+        // (`y_cut`, the dense output there, before the event) and its time,
+        // not the end the integrator took its own step to, past it. At a
+        // step that went on to its end (a tick there that only slightly
+        // changed what the integrator reads included) it is the end.
+        let t_at = if cut { t } else { t_new };
+        let y_on = y_cut.as_deref().unwrap_or(integ.y());
+        if err_read {
+            for i in 0..n {
+                ymax[i] = ymax[i].max(y_on[i].abs());
+            }
+        }
+        if signs_on && !same {
+            let yv = y_on;
+            members.retain(|a| {
+                let size = a.c.abs() + a.terms.iter().map(|&(j, w)| (w * yv[j]).abs()).sum::<f64>();
+                a.value(yv) >= -8.0 * f64::EPSILON * size
+            });
+            for i in 0..l.n_x {
+                if let Some(b) = below[i].as_mut() {
+                    b.2 = b.2.min(yv[i]);
+                    continue;
+                }
+                let floor = -(opts.rtol * ymax[i] + opts.atol * info.y_nominal[i]);
+                if start_nonneg[i] && yv[i] < floor {
+                    // (made again when a member has left since)
+                    if kept_nonneg.as_ref().is_none_or(|k| k.0 != members.len()) {
+                        let vars: Vec<_> = members.iter().map(|a| a.var).collect();
+                        let kept = info.mag.as_ref().map_or_else(Vec::new, |m| {
+                            m.kept_nonnegative(l.n_x, p, &start_nonneg, &vars)
+                        });
+                        kept_nonneg = Some((members.len(), kept));
+                    }
+                    let kept = kept_nonneg.as_ref().map_or(&[][..], |k| &k.1[..]);
+                    if kept.get(i) == Some(&true) {
+                        let name = info.y_names.get(i).cloned().unwrap_or_default();
+                        below[i] = Some((name, t_at, yv[i]));
+                    }
                 }
             }
         }
@@ -5122,6 +5220,7 @@ fn run_watched<'a>(
                             report.edits.push((from, t, own));
                         }
                         params_changed = true;
+                        signs_on = false;
                         changed = true;
                     }
                     None if !edits_full => {
@@ -5363,6 +5462,25 @@ fn run_watched<'a>(
         report.mixed_scanned += m.scanned;
     }
     report.warnings.append(&mut lp.warnings);
+    // (one warning for them all, the first to go below named first)
+    let mut below: Vec<(String, f64, f64)> = below.into_iter().flatten().collect();
+    below.sort_by(|a, b| a.1.total_cmp(&b.1));
+    if let Some((first, tb, low)) = below.first() {
+        let mut names: Vec<&str> = below.iter().take(3).map(|b| b.0.as_str()).collect();
+        names.sort_unstable();
+        let more =
+            if below.len() > 3 { format!(" and {} more", below.len() - 3) } else { String::new() };
+        let (it, its) = if below.len() > 1 { ("them", "each one's") } else { ("it", "its") };
+        report.warnings.push(format!(
+            "{}{more} went below zero (first {first} at t = {tb:.6} s, down to {low:.3e}), \
+             though the model's equations keep {it} at or above zero: the solution left the \
+             region they keep it in, so from that step the result may be wrong by more than \
+             the tolerance. A smaller absolute tolerance (now {:.1e} times {its} nominal value) may \
+             keep {it} there; the 10× tighter check shows how far the result moves",
+            names.join(", "),
+            opts.atol
+        ));
+    }
     if let Some(e) = &energy {
         report.notes.push(e.summary());
         if !e.error_controlled {

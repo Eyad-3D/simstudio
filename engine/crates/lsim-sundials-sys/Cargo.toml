@@ -22,3 +22,10 @@ cc.workspace = true
 
 [lints]
 workspace = true
+
+# the engine's own SUNDIALS (vendored, patched, its mathematics the
+# engine's) as one static C library, which SUNDIALS' own C examples link
+# against (benchmarks/hard, the sundials stage)
+[[example]]
+name = "sundials_c"
+crate-type = ["staticlib"]
