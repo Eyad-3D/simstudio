@@ -106,8 +106,8 @@ Differential).
 building the installer yourself from this repository, on Windows 10/11
 (64-bit): see
 [Building the app from source](https://github.com/Eyad-3D/simstudio#building-the-app-from-source).
-Python and Node are needed for the build, not to run the app: the simulation
-engine is bundled inside the installer.
+Python, Node and Rust are needed for the build, not to run the app: the
+simulation engines are bundled inside the installer.
 
 | Platform | The build makes |
 |---|---|
@@ -217,9 +217,19 @@ limits in short:
 
 ## Building the app from source
 
-One command builds the UI, freezes the backend, and produces the Windows
-installers. Run it on Windows 10/11 (64-bit), the only target that is built
-and tested for now. Requires Python ≥ 3.11 and Node ≥ 20.
+One command builds the UI, builds the new engine's module, freezes the
+backend with it, and produces the Windows installers. Run it on Windows
+10/11 (64-bit), the only target that is built and tested for now. Requires
+Python ≥ 3.11, Node ≥ 20 and Rust ([rustup](https://rustup.rs); the build
+installs the release `engine/rust-toolchain.toml` pins; the vendored C code
+needs Visual Studio's C++ build tools with their Clang component, `clang-cl`,
+on Windows). The new engine is the Rust module
+`lightsim_engine` (`engine/crates/lsim-py`), which the app runs every case
+on, so the installer must hold it: the build builds it with maturin into a
+wheel, installs the wheel into the Python that freezes the backend, and
+`LIGHTSIM_FREEZE_ENGINE=1` makes the freeze stop when it is not installed.
+A frozen backend that carries no module fails the notices step and
+`scripts/smoke-backend.mjs`.
 
 ```powershell
 .\scripts\build-desktop.ps1         # Windows
@@ -359,7 +369,9 @@ artefacts rather than the source (Node ≥ 22, for its built-in WebSocket):
 
 ```bash
 node scripts/smoke-backend.mjs    # the frozen executable: library, examples,
-                                  # a REST run and a live WebSocket run
+                                  # a REST run, a live WebSocket run, a
+                                  # scripted run and the command line, each
+                                  # made by the new engine
 xvfb-run -a node scripts/smoke-app.mjs \
   desktop/release/linux-unpacked/lightsim   # the packaged app reaches its engine
 ```
@@ -416,9 +428,14 @@ node scripts/sync-version.mjs --check   # what CI runs
 ### Third-party licences
 
 The app ships other people's open-source code: the UI's npm packages,
-Electron and any runtime dependencies of the desktop shell, and everything
+Electron and any runtime dependencies of the desktop shell, everything
 PyInstaller freezes into the engine (Python
-packages, the Python runtime and native libraries such as OpenSSL).
+packages, the Python runtime and native libraries such as OpenSSL), and
+what is compiled into the new engine's module: the Rust crates of its
+normal dependency tree for the Windows target (read with `cargo metadata`,
+so the script needs cargo; build-only and test-only crates are not
+listed), and the vendored C code (SUNDIALS, CORE-MATH and musl's fma, in
+`scripts/licenses/compiled-in.json`).
 `scripts/third-party-notices.py` lists all of it, with the licence texts, in
 `THIRD-PARTY-NOTICES.txt` (**Help → Third-Party Notices** in the app), and as
 a CycloneDX software bill of materials in `sbom.cdx.json`; the installers
@@ -438,9 +455,12 @@ and every push to `main`. To regenerate them by hand, and commit the result
 when the dependencies change:
 
 ```bash
+(cd engine && python -m pip install maturin numpy &&
+  python -m maturin build --release -m crates/lsim-py/Cargo.toml --out wheels &&
+  python -m pip install --no-deps --no-index --find-links wheels lightsim-engine)
 cd backend
 pip install -r requirements-build.txt   # includes pip-licenses
-python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
+LIGHTSIM_FREEZE_ENGINE=1 python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
 cd ..
 npm ci --prefix frontend && npm ci --prefix desktop   # desktop/ pins the npm licence reader
 python scripts/third-party-notices.py   # add --check to only check
@@ -458,7 +478,7 @@ goes in `scripts/licenses/bundled-runtime.json`. Adding a licence to
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `ci.yml` | every push and PR (~3 min; the browser tests ~6 min, in parallel) | backend lint + tests, frontend lint + unit tests + typecheck + build, browser + accessibility tests, version-sync check, third-party licence check |
+| `ci.yml` | every push and PR (~3 min; the browser tests ~6 min, in parallel) | backend lint + tests, frontend lint + unit tests + typecheck + build, browser + accessibility tests, version-sync check, third-party licence check (which builds the new engine's module to freeze it in) |
 | `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds the Windows installers (setup program and MSI, with their third-party notices), signs them when the secrets exist, smoke-tests the frozen backend and the packaged app (which must contact nothing outside the computer), tests the Windows silent and MSI installs and a Defender scan, uploads artefacts with SHA-256 checksums |
 | `update-rollout.yml` | manual | raises or pulls a release's staged update rollout |
 

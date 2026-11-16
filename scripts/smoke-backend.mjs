@@ -11,6 +11,12 @@
  * (A missing websockets module passed every unit test and would have shipped
  * a broken "Run" button — hence this script.)
  *
+ * Every run must be made by the new engine (the Rust module lightsim_engine
+ * the frozen backend carries): the backend starts with LIGHTSIM_ENGINE=new and
+ * LIGHTSIM_ENGINE_STRICT=1 (no fall-back to today's engine), and each result
+ * must say engine "new" (SimResult.engine), so a build whose module is
+ * missing or broken fails here.
+ *
  *   node scripts/smoke-backend.mjs [path-to-executable]
  */
 import { spawn, spawnSync } from "node:child_process";
@@ -32,8 +38,10 @@ if (!existsSync(exe)) {
 }
 
 let log = "";
+// ponytail: the two lines go when the new engine is the default with no fall-back
+const engineEnv = { LIGHTSIM_ENGINE: "new", LIGHTSIM_ENGINE_STRICT: "1" };
 const child = spawn(exe, ["--port", String(PORT), "--host", "127.0.0.1"], {
-  env: { ...process.env, LIGHTSIM_PROJECTS_DIR: join(root, ".smoke-projects") },
+  env: { ...process.env, ...engineEnv, LIGHTSIM_PROJECTS_DIR: join(root, ".smoke-projects") },
 });
 child.stdout.on("data", (d) => (log += d));
 child.stderr.on("data", (d) => (log += d));
@@ -46,6 +54,13 @@ const fail = (msg) => {
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A run made by anything but the new engine fails the smoke test.
+const onNewEngine = (what, result) => {
+  if (result.engine !== "new") {
+    fail(`${what} ran on engine '${result.engine}', not the new engine: ${(result.messages ?? []).slice(0, 2).map((m) => m.text).join(" | ")}`);
+  }
+};
 
 async function waitForHealth(timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
@@ -98,16 +113,20 @@ try {
     body: JSON.stringify({ project, caseId }),
   })).json();
   if (rest.status !== "success") fail(`REST simulate returned '${rest.status}'`);
-  console.log(`✓ REST simulate: ${rest.channels.length} channels`);
+  onNewEngine("REST simulate", rest);
+  console.log(`✓ REST simulate: ${rest.channels.length} channels, engine ${rest.engine} ${rest.engineVersion}`);
 
   const live = await liveRun(project, caseId);
   if (live.result.status !== "success") fail(`live run returned '${live.result.status}'`);
+  onNewEngine("live run", live.result);
   if (live.steps < 1) fail("live run streamed no steps — the WebSocket path is broken");
   console.log(`✓ live run: ${live.steps} streamed steps, ${live.result.channels.length} channels`);
 
   // Script blocks run in a separate worker process that the frozen executable
   // starts as a copy of itself, which only a frozen build can show works.
-  // Two minutes of an example with a Script block is enough.
+  // Two minutes of an example with a Script block is enough. The new engine
+  // does not charge-balance a hybrid's case yet (NEW-BALANCE), so the case
+  // runs unbalanced (chargeBalance false): the script worker is what is tested.
   let scripted = null;
   for (const ex of examples) {
     const p = await (await fetch(`${base}/api/examples/${ex.id}`)).json();
@@ -116,7 +135,7 @@ try {
     if (hasScript) { scripted = p; break; }
   }
   if (!scripted) fail("no example with a Script block to test the script worker with");
-  const sCase = { ...scripted.cases[0], duration: 120, realtimeFactor: 0 };
+  const sCase = { ...scripted.cases[0], duration: 120, realtimeFactor: 0, chargeBalance: false };
   scripted.cases = [sCase, ...scripted.cases.slice(1)];
   const sRun = await (await fetch(`${base}/api/simulate`, {
     method: "POST",
@@ -127,7 +146,8 @@ try {
   if (sRun.status === "failed" || errors.length) {
     fail(`scripted run of '${scripted.name}' returned '${sRun.status}': ${errors.join("; ")}`);
   }
-  console.log(`✓ scripted run: '${scripted.name}' ${sRun.status}, script worker ok`);
+  onNewEngine(`scripted run of '${scripted.name}'`, sRun);
+  console.log(`✓ scripted run: '${scripted.name}' ${sRun.status}, script worker ok, engine ${sRun.engine}`);
 
   // The FMU pack (STD-01) is frozen in: Data Checks of an FMU block with no
   // file ask for the file, not for the pack.
@@ -155,15 +175,19 @@ try {
   // The same executable is the command-line tool (AI-02): a run in its own
   // process, no server; exit 0 means a valid run. Its runs are held to the
   // strict sandbox, so the hybrid's Script block runs in the AppContainer
-  // worker, which in this build is the executable again.
+  // worker, which in this build is the executable again. The hybrid's first
+  // case is charge-balanced, which the new engine does not run yet; its
+  // "Mixed Cycle (live, 10×)" case is not (the command line runs a paced
+  // case unpaced and unbalanced).
   const outDir = mkdtempSync(join(tmpdir(), "lightsim-smoke-"));
-  for (const example of ["bev-car", "hybrid-car"]) {
+  for (const [example, caseId] of [["bev-car", null], ["hybrid-car", "case-mixed-live"]]) {
     const out_ = join(outDir, `${example}.mat`);
-    const cli = spawnSync(exe, ["run", example, "--out", out_, "--json"],
-                          { encoding: "utf8", timeout: 300_000 });
+    const cli = spawnSync(exe, ["run", example, ...(caseId ? ["--case", caseId] : []), "--out", out_, "--json"],
+                          { encoding: "utf8", timeout: 300_000, env: { ...process.env, ...engineEnv } });
     if (cli.status !== 0) fail(`'lightsim-backend run ${example}' exited ${cli.status}: ${cli.stderr}`);
     const out = JSON.parse(cli.stdout);
     if (out.status !== "success") fail(`'lightsim-backend run ${example}' gave ${out.status}`);
+    onNewEngine(`'lightsim-backend run ${example}'`, out);
     if (!existsSync(out_)) fail(`'lightsim-backend run ${example}' wrote no ${out_}`);
     console.log(`✓ command line: run ${example} → ${out.status}, ${Object.keys(out.summary).length} figures`);
   }

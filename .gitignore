@@ -27,6 +27,8 @@ desktop/release/
 backend/build/
 # the lightsim wheel (scripts/build-wheel.py)
 backend/dist-wheel/
+# the new engine's module, built by maturin (scripts/build-desktop.*)
+engine/wheels/
 .smoke-projects/
 
 # The help pages, built from docs/ by frontend/scripts/build-docs.mjs

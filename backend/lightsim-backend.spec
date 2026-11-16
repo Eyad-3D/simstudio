@@ -48,6 +48,24 @@ hiddenimports += collect_submodules("lightsim")
 # list it so the frozen build carries it and the MCP wire types it uses.
 hiddenimports += collect_submodules("app.ai") + collect_submodules("mcp_types")
 
+# The new engine (the Rust module lightsim_engine, built from engine/crates/lsim-py
+# with maturin) goes in when the build asks for it: LIGHTSIM_FREEZE_ENGINE=1,
+# which the desktop build sets. Without it the app has no engine to run a case
+# on (every case is refused with NEW-MISSING), so a build that asks for it and
+# has no module installed stops here, never ships without it. The module needs
+# NumPy, which the build otherwise leaves out unless the FMU pack is in.
+FREEZE_ENGINE = os.environ.get("LIGHTSIM_FREEZE_ENGINE") == "1"
+if FREEZE_ENGINE:
+    try:
+        import lightsim_engine  # noqa: F401
+    except ImportError:
+        raise SystemExit("LIGHTSIM_FREEZE_ENGINE=1, but the module lightsim_engine is not "
+                         "installed (maturin build --release -m engine/crates/lsim-py/Cargo.toml, "
+                         "then pip install the wheel)") from None
+    # new_engine.py imports it by name inside functions, and the module reaches
+    # NumPy's C interface by itself: name both so the scanner keeps them
+    hiddenimports += ["lightsim_engine", "numpy"]
+
 # GNU Readline is GPL-3.0: on Linux the stdlib readline module would pull
 # libreadline into the bundle, which a proprietary app cannot ship. Nothing
 # here reads a terminal, and every importer (site, rlcompleter,
@@ -81,7 +99,9 @@ if os.environ.get("LIGHTSIM_FREEZE_FMU_PACK") == "1":
                  "fmpy.container_fmu", "fmpy.sundials", "fmpy.template", "jinja2",
                  "nbformat", "cmake"]
 else:
-    excludes += ["fmpy", "numpy", "lxml", "pandas"]
+    excludes += ["fmpy", "lxml", "pandas"]
+    if not FREEZE_ENGINE:
+        excludes += ["numpy"]
 
 a = Analysis(
     ["run_backend.py"],
