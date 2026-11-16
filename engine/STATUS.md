@@ -632,12 +632,12 @@ The plan is `benchmarks/fuzz/PLAN.md`, committed before the first run (a7c91b8);
 
 **Time spent, by the plan's rule.** At least 4 h of wall time per target; if the coverage count still grew in the last hour, 2 h more, up to 12 h. Rounds M1 to M4 took 9.05 h per target. In M4's last hour `text`, `basemodelica` and `project` still grew (+71, +1 261 and +90 edges) and `params` did not (+0), so the plan called for more, and the first report stopped there against its own rule. M5 (2 h) and M6 (1 h, up to the cap) followed on the final code. Result: `text` 12.07 h, `basemodelica` 12.06 h, `project` 12.03 h, `params` 9.05 h (replayed once on the final build, clean). At the cap coverage still grew a little in the last hour (+59, +56 and +7 edges): these hours did not exhaust the targets.
 
-| target | executions | coverage (edges) | corpus |
+| target | executions | coverage (edges) | corpus (after merging) |
 |---|---|---|---|
-| `text` | 10 555 376 | 49 255 | 3 642 |
-| `basemodelica` | 146 553 300 | 40 174 | 4 777 |
-| `project` | 187 730 | 57 391 | 2 654 |
-| `params` | 99 615 | 50 943 | 1 618 |
+| `text` | 10 555 376 | 49 255 | 3 435 |
+| `basemodelica` | 146 553 300 | 40 174 | 4 661 |
+| `project` | 187 730 | 57 391 | 2 533 |
+| `params` | 99 615 | 50 943 | 1 195 |
 
 **What it found, all fixed at the root with a test that fails without the fix:**
 
