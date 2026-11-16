@@ -625,3 +625,68 @@ with a dated reason. Write a reason for each of the 412 surviving mutants or
 add tests that kill them. Register a case that meets a limit for ENERGY's
 E3. Fix fast mode's recuperation and losses, or have the owner decide the
 band with a dated reason.
+
+## Step 3, hard problems, phase 1 (12 and 13 November 2026)
+
+`benchmarks/hard` (its manifest pre-registered before any run, 6be3f87;
+later changes dated in it), one command: `hard.py all CACHE WORK`. The IVP
+Test Set 2.4's 23 problems transcribed by script from their Fortran
+(`fortran.py` runs each `feval` on symbols) and checked against the
+gfortran-built originals at eight points to 1e-13 of each row's largest
+term: all 23 match (the wheelset after a transcriber fix: an arm setting a
+positive IERR is the model's, not a step rejection). Step 1's three hand
+transcriptions match. SUNDIALS 7.1.1's six serial dense examples print
+their `.out` files' numbers and counts line for line built against
+upstream (cvPendulum's header prints its tolerances in another format) and
+against the engine's own copy (lsim-sundials-sys's static library
+`sundials_c`), except idasAkzoNob's steps and counts there, which the
+engine's IDAS patch changes by design (it decides the order on the states
+and the error-controlled quadrature together); its printed states are the
+same. The same six examples transcribed from their C code (`csun.py`, each
+checked against its C functions to the bit) and run on the engine at their
+own tolerances: on IDA (every block implicit) all but cvRoberts print what
+their `.out` prints within 100 rtol plus atol; cvRoberts misses at
+t = 4e10 on every backend, where the `.out`'s own y1 (6.9e-8) is 33 % off
+the exact value (2083/t = 5.2e-8) and the engine's is nearer, and at
+t = 4e9 on the default path, where the `.out`'s y2 (2.1034e-12) is 1.0 %
+above the exact value (2.0833e-12: the default path at rtol 1e-10 and
+1e-11 agree to 7 digits) and the engine's (2.0702e-12) 0.6 % below: the two
+errors together exceed the allowance. On the
+default path idaRoberts' root comes 1 % late (y3 solved from the states
+carries their error), idaSlCrank misses once by 1.4e-5 where y1 crosses
+zero, and cvPendulum ends 95 m off its 1 m circle at 1e-5, with no
+warning: its rod's length is kept only through its second derivative.
+The engine's default run there (rtol = atol = 1e-5) starts on Adams with
+fixed-point iteration and no linear solver, changes to BDF at t = 27.1 s
+after repeated convergence failures, takes 1 645 steps and ends 95.7 m
+from the pivot; held to Adams it takes 12 897 steps and ends 95.7 m off
+too; held to BDF it takes 1 549 steps and stays on the circle (radius
+0.9997). Upstream CVODE with Adams, fixed-point iteration and no linear
+solver (how the engine runs its Adams method) ends 95 m off as well, in
+12 939 steps: that run belongs beside the engine held to Adams (12 897
+steps), not beside the default run, which changes method on the way.
+Upstream's BDF leaves the circle too at some tolerances (55 m at rtol
+1e-5 with atol 1e-7), so whether a run keeps it is the luck of the
+method. RADAU5, DASSL and
+PSIDE ran beside the engine's IDA (every block implicit), its default path
+and diffsol at rtol = atol 1e-4 to 1e-10. What users of such models meet is
+in `docs/KNOWN-LIMITS.md` (*The new engine on published hard problems*).
+
+Engine changes from it (13 November): the run loop counts its steps
+against `max_steps` (SUNDIALS counts its limit per call, and the run calls
+it a step at a time, so the limit never ended a run: beam with every block
+implicit at 1e-10 ran for hours, and now stops after 10 000 000 steps); a
+state the equations keep at or above zero (an interval proof over the
+assignments, made only when a step ends with one clearly below zero) that a
+run takes below it is named in a run warning (Robertson's blow-up at a
+loose absolute tolerance, which upstream CVODE shares, was silent). Fix
+round 2: a variable the model sets to a constant plus a weighted sum of
+the states (Robertson's third species as 1 - y1 - y2, SUNDIALS'
+idaRoberts form, whose blow-up stayed silent) joins the proof as not
+negative while every step ends with it at or above zero (up to the
+rounding of its sum, not the tolerance: a first try with the tolerance
+told the ring modulator's y2 falsely, its rate being such a sum over
+1.6e-8), and leaves it for the rest of the run once one does not; the
+warning says the
+result may be wrong from that step, not that it is. Integration is
+unchanged (`tests/solver_guards.rs`).

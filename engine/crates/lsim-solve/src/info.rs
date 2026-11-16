@@ -647,6 +647,190 @@ pub struct MagInfo {
     pub u_vars: Vec<VarId>,
 }
 
+impl MagInfo {
+    /// Per state (the first `n_x` of y): whether its equations keep it at or
+    /// above zero once it starts there. That holds for the states of a set
+    /// whose rate is never negative where the state is zero and the set's
+    /// other states are not negative, whatever the rest (iteration
+    /// variables, discrete values, inputs, time) is: the region where the
+    /// set is not negative is then one the solution cannot leave (a
+    /// quasi-positive system, as chemical kinetics is). Each rate is
+    /// bounded by interval arithmetic rounded outwards over the
+    /// assignments, with the parameters `p` as they are: a proof, not a
+    /// sample. The set starts from the states that start at or above zero
+    /// (`start`): a state that starts below may take the others with it. A
+    /// state whose rate comes from the residuals, or whose bound reaches
+    /// below zero, is not kept; the set shrinks until the rest hold.
+    ///
+    /// `members`: assigned variables taken as not negative too (each bound
+    /// cut at zero), such as Robertson's third species written as
+    /// `1 - y1 - y2`, which no interval over the states keeps at or above
+    /// zero. The states kept are then kept only while those stay at or
+    /// above zero: the run watches them ([`MagInfo::affine_members`]).
+    pub fn kept_nonnegative(
+        &self,
+        n_x: usize,
+        p: &[f64],
+        start: &[bool],
+        members: &[VarId],
+    ) -> Vec<bool> {
+        use lsim_ir::interval::{ALL, Iv, J2, ZERO, binary_j2, call_j2};
+        fn bound(e: &Expr, env: &HashMap<VarId, Iv>, p: &[f64]) -> Iv {
+            let k = |e: &Expr| J2::konst(bound(e, env, p));
+            match e {
+                Expr::Const(v) => Iv::point(*v),
+                Expr::Param(q) => p.get(q.0 as usize).map_or(ALL, |v| Iv::point(*v)),
+                Expr::Var(v) => env.get(v).copied().unwrap_or(ALL),
+                Expr::Neg(a) => bound(a, env, p).neg(),
+                Expr::NoEvent(a) => bound(a, env, p),
+                Expr::Binary(op, a, b) => binary_j2(*op, k(a), k(b)).v,
+                Expr::If(_, a, b) => bound(a, env, p).hull(bound(b, env, p)),
+                Expr::Call(f, args) => call_j2(*f, &args.iter().map(k).collect::<Vec<_>>()).v,
+                // (time, derivatives, discrete values before an event,
+                // tables, truth values: anything)
+                _ => ALL,
+            }
+        }
+        let states: Vec<VarId> = self.y_slots[..n_x.min(self.y_slots.len())]
+            .iter()
+            .map(|s| match *s {
+                Slot::Var(v) | Slot::Der(v) => v,
+            })
+            .collect();
+        let members: std::collections::HashSet<VarId> = members.iter().copied().collect();
+        let mut kept: Vec<bool> =
+            (0..states.len()).map(|i| start.get(i).copied().unwrap_or(false)).collect();
+        loop {
+            let mut dropped = false;
+            for i in 0..states.len() {
+                if !kept[i] {
+                    continue;
+                }
+                let mut env: HashMap<VarId, Iv> = HashMap::new();
+                for (j, v) in states.iter().enumerate() {
+                    let b = if j == i {
+                        ZERO
+                    } else if kept[j] {
+                        Iv::new(0.0, f64::INFINITY)
+                    } else {
+                        ALL
+                    };
+                    env.insert(*v, b);
+                }
+                let mut rate = None;
+                for (target, e) in &self.assign {
+                    match *target {
+                        Slot::Der(v) if v == states[i] => {
+                            rate = Some(bound(e, &env, p));
+                            break;
+                        }
+                        Slot::Var(v) => {
+                            let mut b = bound(e, &env, p);
+                            if b.hi >= 0.0 && members.contains(&v) {
+                                // (the region assumed: the member is not
+                                // negative there)
+                                b = Iv::new(b.lo.max(0.0), b.hi);
+                            }
+                            env.insert(v, b);
+                        }
+                        Slot::Der(_) => {}
+                    }
+                }
+                if !rate.is_some_and(|r| r.lo >= 0.0) {
+                    kept[i] = false;
+                    dropped = true;
+                }
+            }
+            if !dropped {
+                return kept;
+            }
+        }
+    }
+
+    /// The assigned variables that are a constant plus a weighted sum of
+    /// the states (the first `n_x` of y), with the parameters `p` as they
+    /// are: a balance such as `y3 = 1 - y1 - y2`. The run reads them from
+    /// the states at each step's end.
+    pub fn affine_members(&self, n_x: usize, p: &[f64]) -> Vec<Affine> {
+        use lsim_ir::expr::BinaryOp;
+        type Form = (f64, Vec<(usize, f64)>);
+        // ponytail: forms of more terms are dropped (a long chain of sums
+        // would cost quadratic time); raise it if a balance needs more
+        const MAX_TERMS: usize = 64;
+        fn add(mut a: Form, b: Form, s: f64) -> Option<Form> {
+            a.0 += s * b.0;
+            for (j, w) in b.1 {
+                match a.1.iter_mut().find(|t| t.0 == j) {
+                    Some(t) => t.1 += s * w,
+                    None => a.1.push((j, s * w)),
+                }
+            }
+            (a.1.len() <= MAX_TERMS).then_some(a)
+        }
+        fn scale(a: Form, s: f64) -> Form {
+            (a.0 * s, a.1.into_iter().map(|(j, w)| (j, w * s)).collect())
+        }
+        fn form(e: &Expr, known: &HashMap<VarId, Form>, p: &[f64]) -> Option<Form> {
+            match e {
+                Expr::Const(v) => Some((*v, vec![])),
+                Expr::Param(q) => p.get(q.0 as usize).map(|v| (*v, vec![])),
+                Expr::Var(v) => known.get(v).cloned(),
+                Expr::Neg(a) => form(a, known, p).map(|f| scale(f, -1.0)),
+                Expr::NoEvent(a) => form(a, known, p),
+                Expr::Binary(op, a, b) => {
+                    let (fa, fb) = (form(a, known, p)?, form(b, known, p)?);
+                    match op {
+                        BinaryOp::Add => add(fa, fb, 1.0),
+                        BinaryOp::Sub => add(fa, fb, -1.0),
+                        BinaryOp::Mul if fa.1.is_empty() => Some(scale(fb, fa.0)),
+                        BinaryOp::Mul if fb.1.is_empty() => Some(scale(fa, fb.0)),
+                        BinaryOp::Div if fb.1.is_empty() => Some(scale(fa, 1.0 / fb.0)),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            }
+        }
+        let mut known: HashMap<VarId, Form> = HashMap::new();
+        for (i, s) in self.y_slots.iter().take(n_x).enumerate() {
+            if let Slot::Var(v) = *s {
+                known.insert(v, (0.0, vec![(i, 1.0)]));
+            }
+        }
+        let mut out = vec![];
+        for (target, e) in &self.assign {
+            if let Slot::Var(v) = *target
+                && let Some(f) = form(e, &known, p)
+            {
+                if f.0.is_finite() && f.1.iter().all(|t| t.1.is_finite()) && !f.1.is_empty() {
+                    out.push(Affine { var: v, c: f.0, terms: f.1.clone() });
+                }
+                known.insert(v, f);
+            }
+        }
+        out
+    }
+}
+
+/// An assigned variable that is a constant plus a weighted sum of the
+/// states ([`MagInfo::affine_members`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Affine {
+    /// the variable
+    pub var: VarId,
+    /// the constant
+    pub c: f64,
+    /// (state index, weight)
+    pub terms: Vec<(usize, f64)>,
+}
+
+impl Affine {
+    /// Its value from the states `y`.
+    pub fn value(&self, y: &[f64]) -> f64 {
+        self.c + self.terms.iter().map(|&(j, w)| w * y[j]).sum::<f64>()
+    }
+}
+
 /// A table read at an argument that moves with the states (DESIGN.md
 /// §8.2), held in its cells or stepped over.
 #[derive(Clone, Debug, PartialEq)]

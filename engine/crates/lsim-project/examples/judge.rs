@@ -90,6 +90,23 @@ fn options(case: &Value, rtol: f64) -> SolverOptions {
     opts
 }
 
+/// The code a failed run is reported with (the Python module's codes).
+fn run_code(e: &lsim_solve::SolveError) -> &'static str {
+    use lsim_solve::SolveError as S;
+    match e {
+        S::Integrator { .. } => "RUN-INTEGRATOR",
+        S::Initialisation { .. } => "RUN-INIT",
+        S::EventStorm { .. } => "RUN-EVENT-STORM",
+        S::StateSelection { .. } => "RUN-STATE-SELECT",
+        S::EnergyBooks { .. } => "RUN-ENERGY",
+        S::TableOutside { .. } => "RUN-TABLE",
+        S::Assert { .. } => "RUN-ASSERT",
+        S::Block { .. } => "RUN-BLOCK",
+        S::Memory { .. } => "RUN-MEMORY",
+        S::NoBackend => "RUN-NO-BACKEND",
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() != 2 {
@@ -147,7 +164,9 @@ fn main() {
         Ok(p) => p,
         Err(d) => {
             let msgs: Vec<String> = d.iter().map(|x| format!("{x}")).collect();
-            write(json!({"stage": "prepare", "error": msgs.join("\n")}));
+            let codes: Vec<Value> =
+                d.iter().map(|x| json!({"code": x.code, "parts": x.parts})).collect();
+            write(json!({"stage": "prepare", "error": msgs.join("\n"), "codes": codes}));
             return;
         }
     };
@@ -174,14 +193,14 @@ fn main() {
     for rtol in case["rtols"].as_array().expect("rtols").iter().filter_map(Value::as_f64) {
         let opts = options(&case, rtol);
         let mut walls = vec![];
-        let mut first: Option<Result<SimResult, String>> = None;
+        let mut first: Option<Result<SimResult, (String, &str)>> = None;
         for _ in 0..repeat {
             let t = Instant::now();
             let r = lsim_solve::simulate(&code, &info, &opts, grid, &mut []);
             walls.push(t.elapsed().as_secs_f64());
             let failed = r.is_err();
             if first.is_none() {
-                first = Some(r.map_err(|e| format!("{e}")));
+                first = Some(r.map_err(|e| (format!("{e}"), run_code(&e))));
             }
             if failed {
                 break;
@@ -199,6 +218,7 @@ fn main() {
                     "steps": r.stats.steps, "rhs_evals": r.stats.rhs_evals,
                     "jac_evals": r.stats.jac_evals, "err_test_fails": r.stats.err_test_fails,
                     "nonlin_fails": r.stats.nonlin_fails, "restarts": r.stats.restarts,
+                    "lin_setups": r.stats.lin_setups,
                     "events": r.events.len(),
                     "switches": r.events.iter()
                         .filter(|e| matches!(e.kind, lsim_solve::EventKind::States(_))).count(),
@@ -215,13 +235,17 @@ fn main() {
                     "series": series(&r, &record),
                 })
             }
-            Err(e) => {
-                json!({"rtol": rtol, "atol": opts.atol, "ok": false, "error": e, "wall_s": wall})
+            Err((e, code)) => {
+                json!({"rtol": rtol, "atol": opts.atol, "ok": false, "error": e, "code": code,
+                       "wall_s": wall})
             }
         });
     }
     write(json!({
         "stage": "run", "prepare_s": prepare_s, "compile_s": compile_s,
         "states": states, "n_y": info.y_names.len(), "runs": runs,
+        "prepare_warnings": prepared.warnings.iter()
+            .map(|x| json!({"code": x.code, "parts": x.parts, "message": x.message}))
+            .collect::<Vec<_>>(),
     }));
 }

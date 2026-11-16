@@ -907,6 +907,86 @@ minimum or an average, for example from the CSV export, or put the
   wire you removed is counted in the note but has nothing to carry a dot.
   *Roadmap:* UX-41.
 
+### The new engine on published hard problems
+
+The new engine (not the default: `LIGHTSIM_ENGINE=new`) was run on the 23
+problems of the IVP Test Set 2.4, each transcribed by script from its own
+Fortran and checked against it, at tolerances 1e-4 to 1e-10, and on six of
+SUNDIALS' own examples, transcribed from their C code
+(`benchmarks/hard`, 12 and 13 November 2026). What a model like them meets:
+
+- **Derivatives that appear only in a combination that cancels are
+  refused.** Where two equations hold the same derivatives with opposite
+  signs (the test set's transistor amplifier: a capacitor's `c (v1' - v2')`
+  in one node's equation and `-c (v1' - v2')` in the other's), the model
+  stops at preparation with `SINGULAR-LOOP` naming those derivatives,
+  though it is sound. Write the sum of the two equations out as one of
+  them.
+- **Some constrained mechanisms and networks stop when their states stop
+  working.** The slider-crank with an elastic rod, 20 particles held on a
+  sphere, a charge pump and a railway wheelset stop with
+  `RUN-STATE-SELECT`, at the start or when the states chosen at the start
+  no longer decide the rest.
+- **A large circuit and a network of water tubes are not initialised.**
+  The two bit adding unit (350 equations) and the water tube network (49)
+  stop with `RUN-INIT` even from their published consistent start.
+- **A quantity far below the absolute tolerance can turn a run wrong.**
+  Robertson's chemical reaction run with an absolute tolerance of 1e-4,
+  1e-6 or 1e-7 ends with concentrations of about -5.7e7, -4.8e7 or -3.6e7
+  and as much positive (their sum still 1): the first species, 2e-8 at
+  the end, went negative, and below zero the equations drift away without
+  bound (SUNDIALS' own CVODE does the same, and the test set's RADAU5 at
+  1e-5). Written with the third species worked out from the balance
+  y1 + y2 + y3 = 1 (as SUNDIALS' own Robertson DAE example writes it), it
+  ends at about -8.1e7, -4.8e7 or -4.7e7 at 1e-4, 1e-5 or 1e-6. The run
+  warns, naming the species, when a quantity ends a step clearly below
+  zero that the engine can prove the model's equations keep at or above
+  zero (a concentration, an amount, a loss counted up): its rate, where
+  it is zero, cannot be negative while the other such quantities are not
+  negative, nor any constant plus a weighted sum of them that the rate
+  reads (the third species above), as long as that sum has stayed at or
+  above zero. A quantity kept at or above zero only in some other way (a
+  balance that is not such a sum, a rate read through a variable the
+  engine solves by iteration) gets no warning, and nor does one that may
+  go negative. Keep the absolute tolerance below the smallest value that
+  matters.
+- **Very stiff chemistry over a very long time can stop.** The test set's
+  E5 problem (a reaction over 10¹³ s) stops with `RUN-INTEGRATOR` at every
+  tolerance.
+- **A run stops after 10 million steps.** It stops with `RUN-INTEGRATOR`
+  naming the limit of steps; the test set's beam problem, made to run
+  every block implicitly at a tolerance of 1e-10, reached it after about 8
+  minutes, 0.86 s into its 5 s.
+- **A constraint the model keeps only through its derivatives can drift
+  off without a warning.** A pendulum written with its rod's tension
+  worked out from the velocities (SUNDIALS' pendulum example) keeps the
+  rod's length only through its second derivative, so a small error in
+  the length grows. At a tolerance of 1e-5 over 30 s its 1 m pendulum
+  ended 95 m from the pivot, and the run said nothing. SUNDIALS' own CVODE
+  does the same: with the Adams method, fixed-point iteration and no
+  linear solver (how the engine runs Adams, its choice for a non-stiff
+  model) it ends 95 m off too. The engine's own run there starts on
+  Adams, changes to BDF at 27.1 s when Adams keeps failing to converge,
+  and ends 95 m off as well (the pendulum is already off the circle by
+  then); held to BDF from the start it stayed on the circle at this
+  tolerance. CVODE's own BDF method also leaves the circle at some
+  tolerances (with an absolute tolerance 100 times below the relative one
+  of 1e-5, it ends 55 m from the pivot).
+  The example keeps the length with a projection, which the engine does
+  not have. Write the constraint itself (x² + y² = L²): the engine then
+  keeps it. A run at tolerances ten times tighter (the accuracy check)
+  shows the drift: it moves the pendulum's end by 95 m.
+- **A variable worked out from the states is not under its own
+  tolerance.** Where the engine solves a variable explicitly from the
+  states (Robertson's third species as 1 minus the other two), its error is
+  theirs: about the relative tolerance times the largest of them, here 1 %
+  of a 0.01 threshold on it, which the run then crossed 1 % late. Give a
+  threshold that matters a margin, or tighten the tolerance.
+- **Fewer correct digits than implicit Runge-Kutta methods.** At the
+  same tolerance the engine's answers have about as many correct digits as
+  DASSL's (the same family of methods) and often one or two fewer than
+  RADAU5's or PSIDE's.
+
 ### Live edits, charts, sweeps and export
 
 - **Sweeps run side by side, but single runs do not.** A sweep's runs go
