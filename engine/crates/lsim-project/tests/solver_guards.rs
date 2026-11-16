@@ -6,6 +6,9 @@
 //! call, and the run calls them a step at a time, so a run needing millions
 //! of steps went on for hours).
 
+use lsim_ir::component::build::param;
+use lsim_ir::runtime::DiscreteBlock;
+use lsim_ir::{ComponentDef, PortDecl, PortKind};
 use lsim_lang::{Report, parse_library};
 use lsim_solve::{OutputGrid, RunInfo, SimResult, SolveError, SolverOptions};
 
@@ -104,6 +107,20 @@ equation
   s1 * der(q) = if sin(w * time) > c then 1 else 0;
 end RobertsonClock;
 
+model RobertsonTick "Robertson's reaction beside a clock: a sampled block whose output sets q's rate and changes only at every few ticks, so the integrator steps past the ticks that change nothing and the run cuts a step back to the tick that does"
+  parameter Real s1(unit = "s") = 1;
+  External.Toggler tg;
+  Real y1(start = 1, fixed = true);
+  Real y2(start = 0, fixed = true);
+  Real y3(start = 0, fixed = true);
+  Real q(start = 0, fixed = true);
+equation
+  s1 * der(y1) = -0.04 * y1 + 1e4 * y2 * y3;
+  s1 * der(y2) = 0.04 * y1 - 1e4 * y2 * y3 - 3e7 * y2 * y2;
+  s1 * der(y3) = 3e7 * y2 * y2;
+  s1 * der(q) = tg.y;
+end RobertsonTick;
+
 model Oscillator
   parameter Real s1(unit = "s") = 1;
   Real x(start = 1, fixed = true);
@@ -114,9 +131,63 @@ equation
 end Oscillator;
 "#;
 
+/// A sampled block that holds 0 or 1 and flips it at every `every`th tick.
+struct Toggler {
+    period: f64,
+    every: u64,
+    k: u64,
+}
+
+impl DiscreteBlock for Toggler {
+    fn name(&self) -> &str {
+        "tg"
+    }
+    fn period(&self) -> f64 {
+        self.period
+    }
+    fn init(&mut self, _t: f64, _i: &[f64], o: &mut [f64]) -> Result<(), String> {
+        self.k = 0;
+        o[0] = 0.0;
+        Ok(())
+    }
+    fn tick(&mut self, _t: f64, _i: &[f64], o: &mut [f64]) -> Result<(), String> {
+        self.k += 1;
+        o[0] = ((self.k / self.every) % 2) as f64;
+        Ok(())
+    }
+}
+
 fn run(name: &str, opts: &SolverOptions, t_end: f64) -> Result<SimResult, SolveError> {
+    run_src(MODELS, name, opts, t_end, None)
+}
+
+/// RobertsonClock with its pulses `period` s apart.
+fn run_clock(period: f64, opts: &SolverOptions) -> Result<SimResult, SolveError> {
+    let w = 2.0 * std::f64::consts::PI / period;
+    let src = MODELS.replace("1.0471975511965976e-8", &format!("{w:e}"));
+    run_src(&src, "RobertsonClock", opts, 1e11, None)
+}
+
+/// `tick`: the period and the `every` of the model's [`Toggler`].
+fn run_src(
+    src: &str,
+    name: &str,
+    opts: &SolverOptions,
+    t_end: f64,
+    tick: Option<(f64, u64)>,
+) -> Result<SimResult, SolveError> {
     let mut lib = lsim_lib::library();
-    let parsed = parse_library(MODELS, Some(&lib)).unwrap_or_else(|e| panic!("{}", Report(&e)));
+    lib.add(ComponentDef {
+        name: "External.Toggler".into(),
+        ports: vec![PortDecl {
+            name: "y".into(),
+            kind: PortKind::Output { unit: "1".into() },
+            doc: String::new(),
+        }],
+        params: vec![param("period", "s", tick.map_or(1.0, |t| t.0), "")],
+        ..Default::default()
+    });
+    let parsed = parse_library(src, Some(&lib)).unwrap_or_else(|e| panic!("{}", Report(&e)));
     lib.types.extend(parsed.types);
     for def in parsed.components.into_values() {
         lib.add(def);
@@ -127,7 +198,11 @@ fn run(name: &str, opts: &SolverOptions, t_end: f64) -> Result<SimResult, SolveE
     let code = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
     let info = RunInfo::from_prepared(&m);
     let grid = OutputGrid { t0: 0.0, t_end, dt: t_end / 10.0 };
-    lsim_solve::simulate(&code, &info, opts, grid, &mut [])
+    let mut blocks: Vec<Box<dyn DiscreteBlock>> = match tick {
+        Some((period, every)) => vec![Box::new(Toggler { period, every, k: 0 })],
+        None => vec![],
+    };
+    lsim_solve::simulate(&code, &info, opts, grid, &mut blocks)
 }
 
 fn tol(t: f64) -> SolverOptions {
@@ -136,6 +211,13 @@ fn tol(t: f64) -> SolverOptions {
 
 fn below(r: &SimResult) -> Vec<&String> {
     r.report.warnings.iter().filter(|w| w.contains("went below zero")).collect()
+}
+
+/// The lowest value of `name` along the run, as a warning writes it.
+fn own_low(r: &SimResult, name: &str) -> String {
+    let i = r.names.iter().position(|n| n == name).unwrap();
+    let low = r.min[i].iter().copied().fold(f64::INFINITY, f64::min);
+    format!("down to {low:.3e}")
 }
 
 #[test]
@@ -147,6 +229,9 @@ fn a_state_kept_at_or_above_zero_taken_below_it_is_told() {
     let w = below(&r);
     // (one warning, naming both)
     assert!(w.len() == 1 && w[0].starts_with("y1, y2 went below zero"), "{:?}", r.report.warnings);
+    // (the value it gives, for the first of them to go below, is the lowest
+    // the run has of it)
+    assert!(w[0].contains(&own_low(&r, "y2")), "{w:?} against {}", own_low(&r, "y2"));
     // within the tolerance at 1e-8 (y1 = 2.08e-8 at 1e11), and nothing said
     let r = run("Robertson", &tol(1e-8), 1e11).unwrap();
     assert!((r.values[y1].last().unwrap() - 2.0833e-8).abs() < 1e-8, "{:?}", r.values[y1]);
@@ -214,6 +299,58 @@ fn a_step_cut_back_by_an_event_is_judged_at_the_cut_not_at_its_end() {
     let low = r.min[y1].iter().copied().fold(f64::INFINITY, f64::min);
     assert!(low > -2e-5, "y1 stays above its floor along the run: {low:e}");
     assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
+}
+
+#[test]
+fn the_low_a_cut_step_is_told_with_is_the_runs_own() {
+    // RobertsonClock with a pulse every 1.5e9 s at 3e-6: y1 does fall below
+    // its floor (-6e-6) on this run, to -6.15e-6 at 2.13e9 s, so the warning
+    // is right, and what it gives must be the lowest y1 the run has. The
+    // watch once gave -1.6e-5, the end of a step cut back to a pulse, at
+    // 1.83e9 s. (As the test above: it depends on CVODE's exact steps; the
+    // knob is the pulses' period, 1.5e9 s, with the tolerance.)
+    let r = run_clock(1.5e9, &tol(3e-6)).unwrap();
+    assert!(r.report.pulses_found > 10, "the cuts this guards: {}", r.report.pulses_found);
+    let w = below(&r);
+    assert!(w.len() == 1 && w[0].starts_with("y1 went below zero"), "{:?}", r.report.warnings);
+    assert!(w[0].contains(&own_low(&r, "y1")), "{w:?} against {}", own_low(&r, "y1"));
+}
+
+#[test]
+fn a_step_a_tick_cut_back_is_judged_at_the_tick_not_at_its_end() {
+    // The block ticks every 75 000 000 s and changes its output (q's rate)
+    // at every 8th tick: the integrator steps past the ticks that change
+    // nothing, and the run cuts a step back to the tick that does. Robertson
+    // at 1e-6 stays within its tolerance (y1 never lower than +2e-8; its
+    // floor is -2e-6). The step that ended at 6.35e8 s was cut back to the
+    // tick at 5.25e8 s, where y1 = +1.7e-6; the watch read the state at the
+    // step's end instead (-8.4e-6, below the floor) and told, at the tick's
+    // time, of a value the run never had.
+    // (It depends on CVODE's exact steps: if another platform moves them,
+    // this passes without reaching the case. The knob is the block's
+    // period, 7.5e7 s, with `every` = 8 and the tolerance beside it: re-tune
+    // them until a run of the unfixed watch warns here.)
+    let r = run_src(MODELS, "RobertsonTick", &tol(1e-6), 1e11, Some((7.5e7, 8))).unwrap();
+    assert!(r.report.block_changes > 100, "the cuts this guards: {}", r.report.block_changes);
+    let y1 = r.names.iter().position(|n| n == "y1").unwrap();
+    let low = r.min[y1].iter().copied().fold(f64::INFINITY, f64::min);
+    assert!(low > -2e-6, "y1 stays above its floor along the run: {low:e}");
+    assert!(below(&r).is_empty(), "{:?}", r.report.warnings);
+}
+
+#[test]
+fn a_warning_at_a_tick_cut_is_told_at_the_tick() {
+    // The same model with the ticks 3e8 s apart, at 1e-6: Robertson blows up
+    // here (y1 to -4.75e7), so the warning is right; the first step that
+    // ended below the floor was cut back to the tick at 6e8 s, and the
+    // warning gives that tick as its time. (The watch once gave the end of
+    // the step, 6.35e8 s, where the run never was.) The knob, if CVODE's
+    // steps move: the period, 3e8 s, with `every` = 3.
+    let r = run_src(MODELS, "RobertsonTick", &tol(1e-6), 1e11, Some((3e8, 3))).unwrap();
+    let w = below(&r);
+    assert!(w.len() == 1 && w[0].starts_with("y1, y2 went below zero"), "{:?}", r.report.warnings);
+    assert!(w[0].contains("first y1 at t = 600000000.000000 s"), "{w:?}");
+    assert!(w[0].contains(&own_low(&r, "y1")), "{w:?} against {}", own_low(&r, "y1"));
 }
 
 #[test]
