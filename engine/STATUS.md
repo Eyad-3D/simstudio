@@ -555,6 +555,28 @@ Failed or not measured, with the numbers:
   s mark (20 stops, all shown; median 0.176 s, maximum 0.308 s, 3 stops
   over 0.25 s); the study stop passes. S2 is a known issue (the owner's
   decision of 10 November).
+  **The study stop at its mark (Windows CI, 12 to 16 November):** p95
+  1.024 s (a02d591; it passed on a rerun) and 1.226 s (d19c5e7: 18 of 20
+  stops shown, median 0.468 s, 6 of the 18 over 0.9 s). Measured on Linux
+  on 16 November, on a shared machine (an indication; Windows CI is the
+  judge): the phases of a point before the engine runs (today's model, the
+  engine's build, the second model build of the live edits) take 0.02 s of
+  a 1.7 s point (0.1 s in a worker's first), and in 20 stopped studies none
+  of the 78 points that were running was in one when the stop came; a
+  running point read the stop within 0.02 s and gave its result back within
+  0.02 to 0.35 s. What the study waited for was its own loop: after a stop
+  the wait set held the stop's finished future, so the loop spun, 5 000 to
+  20 000 passes a second until the last point was back, and starved the
+  pool's threads that hand the results on and feed the points it had
+  already queued (up to the workers plus one, which cannot be cancelled and
+  end at once), which then came back 0.2 to 0.5 s apart. Fixed in
+  `studies.run_study` (the stop's future leaves the wait once it is set; the
+  test counts the loop's passes, it does not time them). Same tree, same
+  load, 20 stops of the new engine: p95 0.71 and 0.98 s before, 0.43 and
+  0.43 s after (median 0.40 and 0.31 s before, 0.19 and 0.15 s after);
+  today's engine, 10 stops: 0.74 s before, 0.43 s after. The phases before
+  the engine run were not changed. The CI step now prints a passing stop
+  test's result line (`-rP`).
 - **FMU: not measured** at 1debfc4. Not run locally (`LIGHTSIM_REFERENCE_FMUS` and
   `LIGHTSIM_FMUSIM` not set, and the line's FMUs are x86_64-windows), and
   on Windows CI `test_new_engine_fmu.py` never ran. At the merge of 10
