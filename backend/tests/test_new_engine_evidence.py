@@ -226,9 +226,10 @@ def test_the_new_engine_run_warnings_reach_the_user(new):
 
 
 def test_non_finite_values_are_judged_before_they_are_gaps(new, monkeypatch):
-    """A channel that is not a number fails the run (the verdict reads the
-    engine's values; the result shows them as gaps): before, NaN became
-    None first and the run passed."""
+    """A channel that is not a number fails the run: before, NaN became None
+    first and the run passed. The engine now stops the run at the first
+    output time where a channel is not a number (step 3 fuzzing: RUN-NOT-FINITE
+    naming the variable and the time), so no values are shown as gaps."""
     monkeypatch.setenv("LIGHTSIM_SCRIPT_TRUST", "off")
     proj = load_example("bev-car")
     code = ("def step(t, dt, inputs, state, params):\n"
@@ -241,11 +242,8 @@ def test_non_finite_values_are_judged_before_they_are_gaps(new, monkeypatch):
     proj.dataBusConnections.append(dbc(50, "nan", "y", "mon", "sig_in"))
     result = simulate(proj, "case-city")
     assert result.status == "failed", _texts(result)
-    assert any("Non-finite values" in t and "nan:y" in t for t in _texts(result, "error"))
-    y = next(c for c in result.channels if c.elementId == "nan" and c.portId == "y")
-    assert y.timeSeries[-1]["value"] is None  # shown as a gap
-    assert all(s.notValid == "the solution broke down" for s in result.summary
-               if s.label != "Simulated duration")
+    assert any("RUN-NOT-FINITE" in t and "'nan.y' is not a number" in t and "t = 6 s" in t
+               for t in _texts(result, "error")), _texts(result)
 
 
 def _verdict(result):

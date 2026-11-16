@@ -1188,8 +1188,9 @@ pub(crate) fn not_finite_error(name: &str, x: f64, t: f64) -> SolveError {
     SolveError::NotFinite {
         t,
         message: format!(
-            "the variable '{name}' {what} at t = {t} s: one of its equations divides by zero, or \
-             takes the square root or logarithm of a negative number, there"
+            "the variable '{name}' {what} at t = {t} s. A result with a value that is not a \
+             number is never reported: look for a division by zero, a square root or logarithm \
+             of a negative number, or a block (a Script, say) that returns NaN"
         ),
     }
 }
