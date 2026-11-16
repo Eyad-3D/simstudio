@@ -951,7 +951,7 @@ pub fn figures_with(
             }
         }
     }
-    if let Some(tm) = &rep.run.timing {
+    if let Some(tm) = rep.run.timing.as_ref().filter(|t| t.figures) {
         let (ts, tf) =
             (last(res, &tm.t_start).unwrap_or(-1.0), last(res, &tm.t_finish).unwrap_or(-1.0));
         let d = tm.finish - tm.start_line;

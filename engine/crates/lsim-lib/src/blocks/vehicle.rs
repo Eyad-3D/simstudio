@@ -583,6 +583,11 @@ pub struct DriverConfig {
     /// (the friction brakes past their capacity, recuperation where there
     /// are none), so the command stays determined
     pub inverse: bool,
+    /// a performance test: full throttle while the speed is below the
+    /// target, until it first gets there; the PI holds the target after that
+    /// (today's `flat_out` and `reached`). Not with `full_throttle` or
+    /// `inverse`
+    pub performance: bool,
 }
 
 /// The driver.
@@ -597,7 +602,8 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
             cfg.target_wired as u8 as f64,
         ]
         .into_iter()
-        .chain(cfg.inverse.then_some(1.0)),
+        .chain(cfg.inverse.then_some(1.0))
+        .chain(cfg.performance.then_some(2.0)),
     );
     let outs = ["sig_traction_cmd", "sig_brake_cmd", "sig_accel_pedal", "sig_brake_pedal"];
     if cfg.full_throttle {
@@ -662,26 +668,69 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
     let fb = if cfg.speed_wired { n("sig_speed_in") } else { n("v_vehicle") };
     let w = clamp(n("regen_weight_pct"), c(0.0), c(1.0));
     let taper = clamp(n("v_vehicle") / (c(3.0) * n("unit_ms")), c(0.0), c(1.0));
-    let controller = vec![
+    // LimPID's back-calculation: der(I) = err + (cmd − cmd_u)/(ki·Tt),
+    // Tt = Ni·Ti, Ti = kp/ki, so ki·Tt = Ni·kp; without a P Gain, Ti is
+    // Ti_min (with neither gain the command and its excess are 0, and
+    // the floor keeps 0/0 out). Inside the limits cmd = cmd_u exactly.
+    let pi = if cfg.performance { "cmd_pi" } else { "cmd" };
+    let back_calc = n("err")
+        + (n(pi) - n("cmd_u"))
+            / (n("Ni")
+                * max(max(n("driver_kp"), n("driver_ki") * n("Ti_min")), c(1e-12) / n("unit_ms")));
+    let mut controller = vec![
         eq(n("err"), target - fb, "the speed error"),
         eq(n("cmd_u"), n("driver_kp") * n("err") + n("driver_ki") * n("I"), "the PI command"),
-        eq(n("cmd"), clamp(n("cmd_u"), c(-1.0), c(1.0)), "held to full brake … full throttle"),
-        // LimPID's back-calculation: der(I) = err + (cmd − cmd_u)/(ki·Tt),
-        // Tt = Ni·Ti, Ti = kp/ki, so ki·Tt = Ni·kp; without a P Gain, Ti is
-        // Ti_min (with neither gain the command and its excess are 0, and
-        // the floor keeps 0/0 out). Inside the limits cmd = cmd_u exactly.
-        eq(
-            der("I"),
-            n("err")
-                + (n("cmd") - n("cmd_u"))
-                    / (n("Ni")
-                        * max(
-                            max(n("driver_kp"), n("driver_ki") * n("Ti_min")),
-                            c(1e-12) / n("unit_ms"),
-                        )),
-            "the error's integral, pulled back while the command is held at a limit",
-        ),
     ];
+    if cfg.performance {
+        // a performance test (today's DriverSlave): full throttle while
+        // below the target, until the speed first gets there (`reached`,
+        // latched where the error first falls to 0: it can fall
+        // there only after being above), the PI's command after that. Held
+        // at full throttle the integral does not wind up, as today's
+        // (conditional integration: it moves only while the command is
+        // below 0), so the PI starts holding the target from an integral
+        // that has not been pulled to the limit and back.
+        // (a nanometre per second above 0, not 0, here and where `reached`
+        // is latched: a car that starts at its target has an error of
+        // exactly 0, where the solver can find no root to watch; and the
+        // same line for both, so that there is no band between them where a
+        // car that has just got there is let off the throttle, slows and is
+        // forced again)
+        let above = gt(n("err"), c(1e-9) * n("unit_ms"));
+        let free = c(1.0) - n("reached");
+        controller.extend([
+            eq(n("cmd_pi"), clamp(n("cmd_u"), c(-1.0), c(1.0)), "the PI's command, held to ±1"),
+            eq(
+                n("cmd"),
+                ite(
+                    above.clone(),
+                    n("cmd_pi") + free.clone() * (c(1.0) - n("cmd_pi")),
+                    n("cmd_pi"),
+                ),
+                "full throttle until the target is first reached, then the PI's",
+            ),
+            eq(
+                der("I"),
+                ite(
+                    above,
+                    n("reached") * back_calc.clone()
+                        + free * ite(noev(lt(n("cmd_u"), c(0.0))), n("err"), c(0.0) * n("unit_ms")),
+                    back_calc,
+                ),
+                "the error's integral, pulled back while the command is held at a limit; \
+                 frozen at full throttle",
+            ),
+        ]);
+    } else {
+        controller.extend([
+            eq(n("cmd"), clamp(n("cmd_u"), c(-1.0), c(1.0)), "held to full brake … full throttle"),
+            eq(
+                der("I"),
+                back_calc,
+                "the error's integral, pulled back while the command is held at a limit",
+            ),
+        ]);
+    }
     // fast mode: the pedal command is solved for; beyond full brake or
     // full throttle the car cannot follow the cycle, and fast mode flags it
     let pedal = vec![eq(
@@ -769,6 +818,15 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
     ];
     if cfg.inverse {
         vars.retain(|v| !["I", "err", "cmd_u"].contains(&v.name.as_str()));
+    }
+    if cfg.performance {
+        vars.push(var("cmd_pi", "1", "the PI's command"));
+        vars.push(discrete("reached", "1", 0.0, "1 once the speed has got to the target"));
+        eqs.push(when(
+            le(n("err"), c(1e-9) * n("unit_ms")),
+            &[("reached", c(1.0))],
+            "the target is reached where the error first falls to 0 (it was above before)",
+        ));
     }
     ComponentDef { name, doc: doc(id), ports, params, vars, equations: eqs, ..Default::default() }
 }

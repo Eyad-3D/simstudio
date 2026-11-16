@@ -202,7 +202,8 @@ pub struct RunSettings {
     pub timing: Option<Timing>,
 }
 
-/// An acceleration test's timing.
+/// An acceleration test's timing, or where a case that ends at a distance
+/// (`endDistance`) ends.
 #[derive(Clone, Debug)]
 pub struct Timing {
     /// the start line, m
@@ -215,6 +216,10 @@ pub struct Timing {
     pub t_finish: String,
     /// the variable holding the time 100 km/h was reached (−1 until then)
     pub t_100: String,
+    /// an acceleration test: its own figures (the time to the finish, the speed
+    /// there) are made from it; a cycle or a performance test that ends at a
+    /// distance only stops there
+    pub figures: bool,
 }
 
 impl RunSettings {
@@ -382,20 +387,11 @@ pub fn import_case(
         ),
     };
     let run = run_settings(case);
-    match run.kind {
-        CaseKind::Lap => {
-            return Err(vec![err(
-                "LAP-CASE",
-                "Lap cases run in today's lap solver (quasi-steady, not a time simulation).",
-            )]);
-        }
-        CaseKind::Performance => {
-            return Err(vec![err(
-                "NOT-YET",
-                "Performance cases (full throttle up to the target, then hold it) are not imported yet.",
-            )]);
-        }
-        _ => {}
+    if run.kind == CaseKind::Lap {
+        return Err(vec![err(
+            "LAP-CASE",
+            "Lap cases run in today's lap solver (quasi-steady, not a time simulation).",
+        )]);
     }
     let dir = opts.cycles_dir.clone().unwrap_or_else(bundled_cycles_dir);
     let own: Vec<Value> = project["cycles"].as_array().cloned().unwrap_or_default();
@@ -412,12 +408,16 @@ pub fn import_case(
     let mut facts = facts::read(project, case, &cycles)
         .map_err(|e| e.into_iter().map(|m| err("PROJECT", m)).collect::<Vec<_>>())?;
     facts.full_throttle = run.kind == CaseKind::Acceleration;
+    facts.performance = run.kind == CaseKind::Performance;
     facts.inverse = opts.inverse;
-    if opts.inverse && facts.full_throttle {
+    if opts.inverse && (facts.full_throttle || facts.performance) {
         return Err(vec![err(
             "FAST-NO-CYCLE",
-            "Fast mode prescribes a drive cycle's speed; an acceleration test has none (its \
-             speed is what it measures): run it in full dynamic mode.",
+            format!(
+                "Fast mode prescribes a drive cycle's speed; {} has none (its speed is what it \
+                 measures): run it in full dynamic mode.",
+                if facts.full_throttle { "an acceleration test" } else { "a performance test" }
+            ),
         )]);
     }
     let mut b = Builder::new(project, &facts, run);
@@ -1088,9 +1088,6 @@ impl<'a> Builder<'a> {
 
     fn timing(&mut self) {
         let Some(case) = self.report.run.case_id.clone() else { return };
-        if self.report.run.kind != CaseKind::Acceleration {
-            return;
-        }
         let c = self.project["cases"]
             .as_array()
             .into_iter()
@@ -1114,6 +1111,7 @@ impl<'a> Builder<'a> {
             t_start: format!("{h}.t_start"),
             t_finish: format!("{h}.t_finish"),
             t_100: format!("{h}.t_100"),
+            figures: self.report.run.kind == CaseKind::Acceleration,
         });
     }
 
@@ -1391,6 +1389,7 @@ pub fn standard_registry() -> Registry {
     add!("driver.driver", |el: &Element, f: &Facts| {
         Ok(Mapped::of(vehicle::driver(vehicle::DriverConfig {
             full_throttle: f.full_throttle,
+            performance: f.performance,
             speed_wired: wired(el, f, "sig_speed_in"),
             target_wired: wired(el, f, "sig_target_in"),
             inverse: f.inverse,
