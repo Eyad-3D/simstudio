@@ -183,8 +183,8 @@ async def run_study(project: Project, case_id: str, points: list[StudyPointSpec]
             # (once the stop is set its future leaves the wait: a finished
             # future in the set ends every wait at once, and the loop would
             # spin, holding the GIL the pool's feeder and result threads need,
-            # until the last point is back, which slowed the very points it
-            # waits for: test_a_stop_does_not_spin_the_study's loop)
+            # until the last point is back, and the pool's threads that hand
+            # the points' results on starved: see test_studies.py)
             done, _ = await asyncio.wait(pending if cancel_event.is_set() else pending | {stopper},
                                          return_when=asyncio.FIRST_COMPLETED)
             if stopper in done and not cancel_event.is_set():

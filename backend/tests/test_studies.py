@@ -151,10 +151,10 @@ def test_a_stop_does_not_spin_the_study(monkeypatch):
     Its wait once held the stop's finished future, so every wait returned at
     once: the loop ran thousands of passes a second until the last point was
     back, holding the GIL the pool's own threads need to hand the results on
-    (a stopped study took up to a second longer on Windows CI, the mark of
-    benchmarks/back_to_back's stop probe). A pass now ends with a result: no
-    more than one pass per point after the stop, and one that finds the
-    stop. Counted, not timed."""
+    (the stop probe of benchmarks/back_to_back, mark 1.0 s, gave p95 0.7 to
+    1.0 s with the spin and 0.43 s without, on a shared Linux machine). A
+    pass now ends with a result: no more than one pass per point after the
+    stop, and one that finds the stop. Counted, not timed."""
     import asyncio
 
     project = short_bev(duration=6000.0)  # (no point can finish before the stop)
