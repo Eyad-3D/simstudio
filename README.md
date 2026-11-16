@@ -479,7 +479,7 @@ goes in `scripts/licenses/bundled-runtime.json`. Adding a licence to
 | Workflow | Runs on | Does |
 |---|---|---|
 | `ci.yml` | every push and PR (~3 min; the browser tests ~6 min, in parallel) | backend lint + tests, frontend lint + unit tests + typecheck + build, browser + accessibility tests, version-sync check, third-party licence check (which builds the new engine's module to freeze it in) |
-| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds the Windows installers (setup program and MSI, with their third-party notices), signs them when the secrets exist, smoke-tests the frozen backend and the packaged app (which must contact nothing outside the computer), tests the Windows silent and MSI installs and a Defender scan, uploads artefacts with SHA-256 checksums |
+| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging or the engine (~22 min, 6 of them the new engine's Rust build) | builds the Windows installers (setup program and MSI, with their third-party notices), signs them when the secrets exist, smoke-tests the frozen backend and the packaged app (which must contact nothing outside the computer), tests the Windows silent and MSI installs and a Defender scan, uploads artefacts with SHA-256 checksums |
 | `update-rollout.yml` | manual | raises or pulls a release's staged update rollout |
 
 Push a `v*` tag to draft a release with the installers attached. Dependabot

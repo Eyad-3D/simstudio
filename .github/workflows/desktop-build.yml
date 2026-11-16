@@ -5,8 +5,9 @@
 #
 # Both halves are platform-specific — the frozen Python backend and the
 # Electron package — so each target builds on its own runner. Slower than CI
-# (~12 min), so on pull requests it only runs when the packaging itself
-# changes; everything else is covered by the CI gate.
+# (~22 min, 6 of them the new engine's Rust build), so on pull requests it
+# only runs when the packaging or the engine itself changes; everything else
+# is covered by the CI gate.
 #
 # Signing costs money and is the owner's decision, so every signing step runs
 # only when its secrets exist (README → "Signing the installers" lists them):
