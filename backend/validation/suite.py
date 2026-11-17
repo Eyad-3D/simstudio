@@ -15,6 +15,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -202,24 +203,36 @@ def run_cycle(case: dict, cycle_id: str, step: float = 1.0, every: int = 1) -> C
         messages=[m.text for m in result.messages if m.level != "info"])
 
 
-@lru_cache(maxsize=None)
 def measured(case_id: str, cycle_id: str, step: float = 1.0, every: int = 1) -> CycleResult:
     """:func:`run_cycle` for a case by its id, once for each process. The
     tests that read the results (test_reference_suite.py, and test_docs.py
     for the numbers docs/VALIDATION-STATUS.md quotes) share these runs, each
-    of which takes about 15 s."""
+    of which takes about 15 s. Kept per engine (LIGHTSIM_ENGINE)."""
+    return _measured(case_id, cycle_id, step, every, os.environ.get("LIGHTSIM_ENGINE"))
+
+
+@lru_cache(maxsize=None)
+def _measured(case_id: str, cycle_id: str, step: float = 1.0, every: int = 1, engine: str | None = None) -> CycleResult:
     return run_cycle(next(c for c in load_cases() if c["id"] == case_id), cycle_id, step, every)
 
 
-@lru_cache(maxsize=None)
 def measured_coastdown(case_id: str) -> dict:
-    """:func:`coastdown` for a case by its id, once for each process."""
+    """:func:`coastdown` for a case by its id, once for each process. Kept per engine (LIGHTSIM_ENGINE)."""
+    return _measured_coastdown(case_id, os.environ.get("LIGHTSIM_ENGINE"))
+
+
+@lru_cache(maxsize=None)
+def _measured_coastdown(case_id: str, engine: str | None = None) -> dict:
     return coastdown(next(c for c in load_cases() if c["id"] == case_id))
 
 
-@lru_cache(maxsize=None)
 def measured_exact(exact_id: str) -> dict:
-    """:func:`run_exact` for an exact-answer case by its id, once for each process."""
+    """:func:`run_exact` for an exact-answer case by its id, once for each process. Kept per engine (LIGHTSIM_ENGINE)."""
+    return _measured_exact(exact_id, os.environ.get("LIGHTSIM_ENGINE"))
+
+
+@lru_cache(maxsize=None)
+def _measured_exact(exact_id: str, engine: str | None = None) -> dict:
     return run_exact(next(e for e in EXACT["cases"] if e["id"] == exact_id))
 
 

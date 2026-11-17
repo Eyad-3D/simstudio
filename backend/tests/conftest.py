@@ -53,15 +53,18 @@ def pytest_collection_modifyitems(config, items):
         raise pytest.UsageError(f"tests/engine_marks.py names tests that do not exist: {stale}")
 
 
-@pytest.fixture(autouse=True)
-def _engine(request, monkeypatch):
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
     """The app's engine (the new one) for every test, whatever the shell
     says; today's for a test marked ``todays_engine`` (the marker says why).
-    A test that sets LIGHTSIM_ENGINE itself does so after this."""
-    if request.node.get_closest_marker("todays_engine"):
-        monkeypatch.setenv("LIGHTSIM_ENGINE", "today")
+    Set before the test's fixtures, a module's among them, and not through
+    monkeypatch (a test's monkeypatch.undo() keeps it); a test that sets
+    LIGHTSIM_ENGINE itself does so after this. The shared caches of runs
+    (helpers.example_result, validation/suite.py) are kept per engine."""
+    if item.get_closest_marker("todays_engine"):
+        os.environ["LIGHTSIM_ENGINE"] = "today"
     else:
-        monkeypatch.delenv("LIGHTSIM_ENGINE", raising=False)
+        os.environ.pop("LIGHTSIM_ENGINE", None)
 
 
 @pytest.fixture(autouse=True)
