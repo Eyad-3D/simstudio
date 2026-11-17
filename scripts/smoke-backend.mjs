@@ -12,10 +12,9 @@
  * a broken "Run" button — hence this script.)
  *
  * Every run must be made by the new engine (the Rust module lightsim_engine
- * the frozen backend carries): the backend starts with LIGHTSIM_ENGINE=new and
- * LIGHTSIM_ENGINE_STRICT=1 (no fall-back to today's engine), and each result
- * must say engine "new" (SimResult.engine), so a build whose module is
- * missing or broken fails here.
+ * the frozen backend carries, the app's engine with no fall-back to today's):
+ * each result must say engine "new" (SimResult.engine), so a build whose
+ * module is missing or broken fails here.
  *
  *   node scripts/smoke-backend.mjs [path-to-executable]
  */
@@ -38,10 +37,8 @@ if (!existsSync(exe)) {
 }
 
 let log = "";
-// ponytail: the two lines go when the new engine is the default with no fall-back
-const engineEnv = { LIGHTSIM_ENGINE: "new", LIGHTSIM_ENGINE_STRICT: "1" };
 const child = spawn(exe, ["--port", String(PORT), "--host", "127.0.0.1"], {
-  env: { ...process.env, ...engineEnv, LIGHTSIM_PROJECTS_DIR: join(root, ".smoke-projects") },
+  env: { ...process.env, LIGHTSIM_PROJECTS_DIR: join(root, ".smoke-projects") },
 });
 child.stdout.on("data", (d) => (log += d));
 child.stderr.on("data", (d) => (log += d));
@@ -183,7 +180,7 @@ try {
   for (const [example, caseId] of [["bev-car", null], ["hybrid-car", "case-mixed-live"]]) {
     const out_ = join(outDir, `${example}.mat`);
     const cli = spawnSync(exe, ["run", example, ...(caseId ? ["--case", caseId] : []), "--out", out_, "--json"],
-                          { encoding: "utf8", timeout: 300_000, env: { ...process.env, ...engineEnv } });
+                          { encoding: "utf8", timeout: 300_000 });
     if (cli.status !== 0) fail(`'lightsim-backend run ${example}' exited ${cli.status}: ${cli.stderr}`);
     const out = JSON.parse(cli.stdout);
     if (out.status !== "success") fail(`'lightsim-backend run ${example}' gave ${out.status}`);
