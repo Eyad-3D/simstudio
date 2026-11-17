@@ -21,7 +21,8 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 - **Some figures differ from the older engine's by more than the band the
   two engines are compared at, and no class of difference explains them
   yet** : the energy of a gear shift, a clutch that never locks exactly, the axle loads under load transfer, a car coasting up a grade (16.66 against 20.39 for the energy test's m g h), an idle car's final SOC (89.9991 % against 90 %), the slip Traction Control holds…
-- **The Engine can still stop a run by switching without end.** An Engine whose fired and not fired states alternate (the P2 Hybrid Car with a live edit across two gear shifts, at t = 4.73 s) or a machine driven to its maximum speed by the car (an E-Motor held there) can stop a run with `RUN-EVENT-STORM` that the older en…
+- **A machine driven to its maximum speed can stop a run by switching
+  without end** (`RUN-EVENT-STORM`: the BEV's WLTC cycle on a 6 % downhill grade with its Final Drive ratio x3, the hybrid's Mixed Cycle with its gears x3), where the older engine warned or finished; and a motor driven past its maximum speed in a top-speed test stops on its …
 - **A battery driven to its limits, an empty battery's consumers and a
   fuel cell behind a one-way DC-DC converter can fail at their start or at
   t = 0** (`RUN-INIT` at about 2.2 s; `RUN-TABLE` at t = 0): the new engine cannot start again from the state these cases reach.
