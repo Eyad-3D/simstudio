@@ -116,3 +116,71 @@ fn an_unknown_block_and_a_lap_case_are_refused_in_plain_words() {
     let e = import_case(&q, Some("c1"), &reg, &ImportOptions::default()).unwrap_err();
     assert_eq!(e[0].code, "LAP-CASE");
 }
+
+/// A part's start value (a number the importer set) in the hybrid car
+/// started at 80 km/h, with `edit` applied to the project first.
+fn hybrid_start(edit: &dyn Fn(&mut serde_json::Value), part: &str, param: &str) -> Option<f64> {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut p: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("../../../backend/projects/hybrid-car.json")).unwrap(),
+    )
+    .unwrap();
+    let veh = &mut p["systems"][0]["elements"][0];
+    assert_eq!(veh["id"], "el-vehicle");
+    veh["parameterOverrides"]["initial_speed_kmh"] = json!(80.0);
+    edit(&mut p);
+    let (top, _) = import(&p, &standard_registry()).unwrap_or_else(|e| panic!("{e:?}"));
+    let part = top.components.iter().find(|s| s.ui_id.as_deref() == Some(part)).expect(part);
+    part.modifiers.iter().find(|m| m.param == param).map(|m| match &m.value {
+        lsim_ir::ParamValue::Real(lsim_ir::Expr::Const(v)) => *v,
+        v => panic!("{param}: {v:?}"),
+    })
+}
+
+/// A car that starts at speed, as today's `start_at_vehicle_speed` sets it:
+/// a clutch that a block commands has had no say at t = 0, so it starts
+/// open, what only it ties to the wheels starts at rest and the clutch
+/// starts slipping; a clutch that is unwired, or that a Constant engages,
+/// starts closed and both its sides turn together.
+#[test]
+fn what_only_an_open_clutch_ties_to_the_wheels_starts_at_rest() {
+    // 80 km/h on 0.31 m wheels, the final drive and first gear: about 9000 1/min
+    let motor = hybrid_start(&|_| (), "el-motor", "w0").unwrap();
+    assert!((850.0..1050.0).contains(&motor), "{motor}");
+    // the hybrid's Script commands its clutch (engine on flange a)
+    assert_eq!(hybrid_start(&|_| (), "el-engine", "w0"), Some(0.0));
+    assert_eq!(hybrid_start(&|_| (), "el-clutch", "s0"), Some(-motor));
+    // nothing commands it: engaged, the engine turns with the gearbox input
+    let unwire = |p: &mut serde_json::Value| {
+        let links = p["dataBusConnections"].as_array_mut().unwrap();
+        links.retain(|l| l["port2Id"] != "sig_engage_in");
+    };
+    assert_eq!(hybrid_start(&unwire, "el-engine", "w0"), Some(motor));
+    assert_eq!(hybrid_start(&unwire, "el-clutch", "s0"), None);
+    // a Constant commands it: closed above 0, open at 0
+    let constant = |value: f64| {
+        move |p: &mut serde_json::Value| {
+            p["systems"][0]["elements"].as_array_mut().unwrap().push(json!({
+                "id": "el-k", "componentDefId": "signal.constant", "label": "Engage",
+                "parameterOverrides": {"value": value}}));
+            for l in p["dataBusConnections"].as_array_mut().unwrap() {
+                if l["port2Id"] == "sig_engage_in" {
+                    l["element1Id"] = json!("el-k");
+                    l["port1Id"] = json!("sig_out");
+                }
+            }
+        }
+    };
+    assert_eq!(hybrid_start(&constant(1.0), "el-engine", "w0"), Some(motor));
+    assert_eq!(hybrid_start(&constant(0.0), "el-engine", "w0"), Some(0.0));
+    // a clutch that can carry nothing holds nothing
+    let no_torque = |p: &mut serde_json::Value| {
+        unwire(p);
+        for e in p["systems"][0]["elements"].as_array_mut().unwrap() {
+            if e["id"] == "el-clutch" {
+                e["parameterOverrides"]["max_torque_Nm"] = json!(0.0);
+            }
+        }
+    };
+    assert_eq!(hybrid_start(&no_torque, "el-engine", "w0"), Some(0.0));
+}
