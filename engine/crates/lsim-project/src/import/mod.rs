@@ -1035,17 +1035,44 @@ impl<'a> Builder<'a> {
                 grounded.insert(r);
             }
         }
-        // a bus manager on every bus whose source hands out a window
+        // a bus manager on every bus whose source hands out a window; a
+        // DC-DC converter at its power setpoint (setpoint mode) is a
+        // consumer of its input bus and an inflow of its output bus
+        let at_setpoint: Vec<String> = facts
+            .of_kind("controller.dcdc")
+            .map(|e| e.id.clone())
+            .filter(|d| self.has_port(d, "p_set"))
+            .collect();
+        let setpoint = |port: &str, bus: &facts::Bus| -> Vec<String> {
+            let on = |d: &&String| bus.members.iter().any(|(e, p)| e == *d && p == port);
+            at_setpoint.iter().filter(on).cloned().collect()
+        };
         for bus in facts.buses.iter().filter(|b| b.windowed()) {
             let (src, kind) = bus.source.clone().expect("a windowed bus has a source");
-            let consumers: Vec<String> =
+            let mut consumers: Vec<String> =
                 bus.consumers.iter().filter(|c| self.has_port(c, "served")).cloned().collect();
+            consumers.extend(setpoint("a_pos", bus));
             let motors: Vec<String> =
                 bus.motors.iter().filter(|m| self.has_port(m, "p_hi")).cloned().collect();
-            if consumers.is_empty() && motors.is_empty() {
+            let inflows = setpoint("b_pos", bus);
+            if consumers.is_empty() && motors.is_empty() && inflows.is_empty() {
                 continue;
             }
-            let h = self.helper("bus", electric::bus_manager(motors.len(), consumers.len()), &[]);
+            // what the bus's loads use now: motors, consumers, converters drawing from it
+            let mut uses: Vec<String> = vec![];
+            if !inflows.is_empty() {
+                let i = |e: &String| self.inst(e);
+                uses.extend(bus.motors.iter().map(|m| format!("{}.sig_elec_power", i(m))));
+                uses.extend(bus.consumers.iter().map(|c| format!("{}.sig_power", i(c))));
+                for d in facts.of_kind("controller.dcdc") {
+                    if bus.members.iter().any(|(e, p)| *e == d.id && p == "a_pos") {
+                        uses.push(format!("{}.sig_power_in", i(&d.id)));
+                    }
+                }
+            }
+            let def =
+                electric::bus_manager_fed(motors.len(), consumers.len(), inflows.len(), uses.len());
+            let h = self.helper("bus", def, &[]);
             let si = self.inst(&src);
             self.link(format!("{si}.p_deliver"), format!("{h}.p_deliver"));
             if kind == "battery.generic" {
@@ -1064,12 +1091,27 @@ impl<'a> Builder<'a> {
                 self.link(format!("{h}.p_hi{}", k + 1), format!("{mi}.p_hi"));
                 self.link(format!("{h}.p_lo{}", k + 1), format!("{mi}.p_lo"));
             }
+            for (j, d) in inflows.iter().enumerate() {
+                let di = self.inst(d);
+                self.link(format!("{di}.p_set"), format!("{h}.p_in{}", j + 1));
+                self.link(format!("{h}.absorb{}", j + 1), format!("{di}.absorb"));
+            }
+            for (u, from) in uses.into_iter().enumerate() {
+                self.link(from, format!("{h}.p_use{}", u + 1));
+            }
         }
-        if facts.of_kind("controller.dcdc").next().is_some() {
+        // a converter at its setpoint drawing from a voltage source: served in full
+        for d in facts.of_kind("controller.dcdc") {
+            let input = facts.bus_of(&d.id, "a_pos");
+            if self.has_port(&d.id, "p_set") && !input.is_some_and(facts::Bus::windowed) {
+                self.constant_into(format!("{}.served", self.inst(&d.id)), "1", 1.0);
+            }
+        }
+        if facts.of_kind("controller.dcdc").any(|d| !self.has_port(&d.id, "p_set")) {
             self.report.warnings.push(warning(
                 "DCDC-WINDOW",
-                "Buses behind a DC-DC converter have no bus manager yet: their motors are not \
-                 held to the supply's window.",
+                "Buses fed by a DC-DC converter holding its output voltage have no bus manager \
+                 yet: their motors are not held to the supply's window.",
             ));
         }
     }
@@ -1354,9 +1396,18 @@ pub fn standard_registry() -> Registry {
         let setpoint_mode = f.bus_of(&el.id, "b_pos").is_some_and(|b| {
             b.members.iter().any(|(e, p)| p == "pos" && f.el(e).kind == "battery.generic")
         });
-        if setpoint_mode {
+        // its setpoint is cut back by its input's own source (today's
+        // source tree); a converter fed through another converter, or by
+        // nothing, has none here
+        let fed = f.bus_of(&el.id, "a_pos").and_then(|b| b.source.as_ref()).is_some_and(|s| {
+            matches!(s.1.as_str(), "battery.generic" | "fuelcell.stack" | "electric.voltage_source")
+        });
+        if setpoint_mode && !fed {
             return Err(
-                "a DC-DC converter feeding a battery bus (setpoint mode) is not imported yet"
+                "a DC-DC converter feeding a battery bus works at its power setpoint, and \
+                 its input must be on a bus with a battery, fuel cell or voltage source of its \
+                 own (not behind another DC-DC converter, nor left open): connect its input to \
+                 such a bus"
                     .into(),
             );
         }

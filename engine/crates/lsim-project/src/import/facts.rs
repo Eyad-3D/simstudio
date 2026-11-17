@@ -458,8 +458,13 @@ fn buses(f: &mut Facts) {
         for (e, p) in members {
             let k = f.el(e).kind.as_str();
             match (k, p.as_str()) {
-                ("battery.generic" | "electric.voltage_source" | "fuelcell.stack", "pos")
-                | ("controller.dcdc", "b_pos") => {
+                // a source of its own before a DC-DC converter feeding the bus
+                ("battery.generic" | "electric.voltage_source" | "fuelcell.stack", "pos") => {
+                    if bus.source.as_ref().is_none_or(|s| s.1 == "controller.dcdc") {
+                        bus.source = Some((e.clone(), k.to_string()));
+                    }
+                }
+                ("controller.dcdc", "b_pos") => {
                     if bus.source.is_none() {
                         bus.source = Some((e.clone(), k.to_string()));
                     }
