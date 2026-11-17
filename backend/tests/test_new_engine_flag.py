@@ -250,13 +250,13 @@ def _cells(project):
     return project
 
 
-# the four features the new engine does not run yet (the owner, 16 November):
+# the three features the new engine does not run yet (the owner, 16 November;
+# a hybrid's charge-balanced case runs since its port, 17 November):
 # each case fails with its code and says so; its tests run today's engine
 # (the marker todays_engine) as the oracle for the port
 NOT_YET = {
     "NEW-LAP": lambda: (load_example("fs-electric"), "case-autocross"),
     "NEW-FS-EVENT": lambda: (_changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
-    "NEW-BALANCE": lambda: (load_example("hybrid-car"), "case-udds"),
     "NEW-CELLS": lambda: (_cells(load_example("bev-car")), WLTC),
 }
 
@@ -276,13 +276,15 @@ def test_a_feature_not_ported_yet_is_refused_with_its_code(monkeypatch, code):
     (only,) = result.messages
     assert only.level == "error" and only.text.startswith(f"Not run [{code}]: "), only.text
     assert "in this version of LightSim yet" in only.text and "LIGHTSIM_" not in only.text
-    if code in ("NEW-BALANCE", "NEW-CELLS"):
+    if code == "NEW-CELLS":
         assert "to run" in only.text  # (what to set to run it)
 
 
-def test_a_hybrid_balanced_case_is_refused(monkeypatch):
+def test_a_hybrid_balanced_case_is_not_refused():
+    """Its port (test_new_engine_balance.py): the path runs it, balanced."""
     why = new_engine.unsupported(load_example("hybrid-car"), "case-mixed")
-    assert why.code == "NEW-BALANCE" and "charge-balanced" in why.why
+    assert why is None or why.code == "NEW-MISSING"
+    assert "NEW-BALANCE" not in new_engine.CODES
 
 
 def _changed(name: str, case_id: str, **case):
@@ -311,7 +313,6 @@ def test_every_refusal_has_its_code():
         "NEW-CASE-KIND": new_engine.unsupported(_changed("bev-car", WLTC, kind="drift"), WLTC),
         "NEW-FS-EVENT": new_engine.unsupported(
             _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
-        "NEW-BALANCE": new_engine.unsupported(load_example("hybrid-car"), "case-udds"),
         "NEW-CELLS": new_engine.unsupported(cells, WLTC),
         "NEW-LIMITS": new_engine.unsupported(studies._point_project(
             load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),

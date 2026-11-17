@@ -79,8 +79,8 @@ export function finishNotice(page: Page): Locator {
   return page.getByLabel("Run finished");
 }
 
-/** A run the app refuses: a lap case, a Formula Student event, a hybrid's
- *  charge-balanced case or a battery built from cells, which do not run in
+/** A run the app refuses: a lap case, a Formula Student event or a
+ *  battery built from cells, which do not run in
  *  this version yet. The run ends failed, and Problems shows the refusal
  *  with its code. */
 export async function expectRefused(page: Page, code: string): Promise<void> {

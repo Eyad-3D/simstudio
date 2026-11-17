@@ -762,7 +762,7 @@ minimum or an average, for example from the CSV export, or put the
   inside the projects folder, links followed, or the run fails with
   `NEW-TEXT`). Today's
   engine reads none, so such a case runs on the new engine; one the new
-  engine does not run (a lap case, a charge-balanced hybrid) fails with
+  engine does not run (a lap case, a battery built from cells) fails with
   its code and `NEW-TEXT` rather than running the built-in part. A
   Script, FMU or Traction Control part, and a sub-system's container, have
   no text component. *Roadmap:* ENG-16.

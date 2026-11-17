@@ -175,9 +175,9 @@ def _fact_id(fact: dict) -> str:
 
 
 # the features the new engine does not run yet: a fact read from such a run
-# (a lap or a Formula Student event, a hybrid's charge-balanced case, a
-# battery built from cells) runs today's engine, the oracle for the port
-NOT_PORTED = ("NEW-LAP", "NEW-FS-EVENT", "NEW-BALANCE", "NEW-CELLS")
+# (a lap or a Formula Student event, a battery built from cells) runs
+# today's engine, the oracle for the port
+NOT_PORTED = ("NEW-LAP", "NEW-FS-EVENT", "NEW-CELLS")
 
 
 def _not_ported(fact: dict) -> str | None:

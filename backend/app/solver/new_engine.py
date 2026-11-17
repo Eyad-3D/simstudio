@@ -16,10 +16,11 @@ its solver options and the live edits it took (``replay`` makes them
 again). A case the new engine does not run, or that it refuses or stops,
 fails with a stable reason code in brackets (``[NEW-LAP]``; CODES lists
 them, and benchmarks/back_to_back counts them): nothing runs on today's
-engine instead. Four features are not ported yet and are refused so: lap
-cases (NEW-LAP), Formula Student events (NEW-FS-EVENT), a hybrid's
-charge-balanced case (NEW-BALANCE) and a battery built from cells
-(NEW-CELLS). ``LIGHTSIM_ENGINE=today`` runs today's engine instead, for
+engine instead. Three features are not ported yet and are refused so: lap
+cases (NEW-LAP), Formula Student events (NEW-FS-EVENT) and a battery built
+from cells (NEW-CELLS). A hybrid's charge-balanced case runs as today's
+does (balance.py): run after run on the new engine, each from the charge
+the last ended with. ``LIGHTSIM_ENGINE=today`` runs today's engine instead, for
 developers and the both-engines comparison (benchmarks/back_to_back); a
 replay of a run stored from today's engine runs on it whatever the
 variable says (core.replay).
@@ -89,7 +90,6 @@ CODES = {
     "NEW-CASE-KIND": "a case kind the new engine's path does not run",
     "NEW-LAP": "a lap case",
     "NEW-FS-EVENT": "a Formula Student event case",
-    "NEW-BALANCE": "a hybrid's charge-balanced case",
     "NEW-CELLS": "a battery built from cells",
     "NEW-LIMITS": "a value outside its parameter's limits (a study's point can hold one)",
     "NEW-MISSING": "the module lightsim_engine is not installed",
@@ -134,19 +134,60 @@ def wanted() -> bool:
 
 def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
              control: Optional[ControlFn]) -> SimResult:
-    """Run the case on the new engine; a case it does not run, or refuses
+    """Run the case on the new engine, a hybrid's charge-balanced case run
+    after run as today's (balance.py); a case it does not run, or refuses
     or stops, fails with the reason's code (refused)."""
     why = unsupported(project, case_id)
-    if why is None:
-        try:
-            return _ran(run_new(project, case_id, emit, control), project)
-        except Exception as e:  # noqa: BLE001 — told as the reason's code
-            why, detail = failure(e), str(e)
-    else:
-        detail = ""
-    if texts_of(project):
-        return no_text(case_id, why, project, detail)
-    return refused(case_id, why, detail)
+    if why is not None:
+        return no_text(case_id, why, project) if texts_of(project) else refused(case_id, why)
+    return _balanced(project, case_id, emit, control)
+
+
+# a charge-balanced run's record in its solver options, for its replay: the
+# runs balancing finished, and 1 when the run after them was stopped
+BALANCE_RUNS, BALANCE_STOPPED = "chargeBalanceRuns", "chargeBalanceStopped"
+
+
+def _balanced(project: Project, case_id: str, emit: Optional[EmitFn],
+              control: Optional[ControlFn], edits: list[LiveEdit] = (),
+              options: Optional[dict] = None) -> SimResult:
+    """The case on the new engine through balance.simulate_balanced: once,
+    or for a charge-balanced case run after run, each from the charge the
+    last ended with (each run live when the call is). A replay (``edits``
+    and ``options`` from a run's snapshot) makes the runs again as its
+    record says: the live edits on its last finished run, which end
+    balancing there as they did, and the run after it, when it was
+    stopped, stopped again; the rest are the same runs, bit for bit."""
+    opts = options or {}
+    keep, stopped = int(opts.get(BALANCE_RUNS, 0)), bool(opts.get(BALANCE_STOPPED, 0))
+    live = bool(emit or control)
+    runs: list[SimResult] = []
+
+    def once(proj: Project, cid: str, emit_=None, control_=None, totals=None) -> SimResult:
+        k = len(runs)
+        if keep and stopped and k == keep:
+            out = SimResult(caseId=cid, status="cancelled", channels=[], messages=[])
+        else:
+            if edits and keep and k == keep - 1:
+                control_()  # (balancing hears of the edits, as it did)
+            try:
+                out = _ran(run_new(proj, cid, emit_ if live else None, control_ if live else None,
+                                   edits=edits if k == max(keep, 1) - 1 else (), options=options,
+                                   totals=totals), proj)
+            except Exception as e:  # noqa: BLE001 — told as the reason's code
+                why, detail = failure(e), str(e)
+                out = (no_text(cid, why, proj, detail) if texts_of(proj)
+                       else refused(cid, why, detail))
+        runs.append(out)
+        return out
+
+    result = balance.simulate_balanced(project, case_id, emit,
+                                       control or (lambda: [{"type": "set_param"}]), once)
+    if any(s.key == "charge_balance_runs" for s in result.summary):
+        done = sum(r.status not in ("failed", "cancelled") for r in runs)
+        result.solverOptions = {**(result.solverOptions or {}), BALANCE_RUNS: float(done),
+                                **({BALANCE_STOPPED: 1.0} if runs[-1].status == "cancelled" else {})}
+    return result
 
 
 def _ran(result: SimResult, project: Optional[Project] = None) -> SimResult:
@@ -221,12 +262,12 @@ def no_text(case_id: str, why: Refusal, project: Project, detail: str = "") -> S
 def replay(project: Project, case_id: str, options: dict, edits: list[LiveEdit]) -> SimResult:
     """A run of the new engine made again (core.replay): with its solver
     options, each live edit taken again where the run took it, so the same
-    result bit for bit. A run the engine cannot make again fails with the
-    reason's code."""
+    result bit for bit; a charge-balanced run balanced again (_balanced). A
+    run the engine cannot make again fails with the reason's code."""
     try:
         if "quickStep" in options:  # (a quick run)
             return run_quick(project, case_id, float(options["quickStep"]))
-        return _ran(run_new(project, case_id, edits=edits, options=options), project)
+        return _balanced(project, case_id, None, None, edits, options)
     except Exception as e:  # noqa: BLE001 — told as the reason's code
         return refused(case_id, failure(e), str(e))
 
@@ -473,9 +514,6 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     if case.fsEvent:
         return Refusal("NEW-FS-EVENT", "Formula Student event cases do not run in this version of LightSim yet")
     elements = [el for s in project.systems for el in s.elements]
-    if balance.applies(project, case):
-        return Refusal("NEW-BALANCE", "a hybrid's charge-balanced case does not run in this version of LightSim yet; set "
-                                      "the case's Charge balance off to run it once")
     overrides = getattr(case, "parameterOverrides", None) or {}
     if any(el.componentDefId == "battery.generic"
            and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
@@ -502,12 +540,14 @@ _GEARS = ("mech.shaft", "mech.final_drive", "mech.gearbox", "mech.differential",
 
 def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
             control: Optional[ControlFn] = None, edits: list[LiveEdit] = (),
-            options: Optional[dict] = None) -> SimResult:
+            options: Optional[dict] = None, totals: Optional[dict] = None) -> SimResult:
     """The case on the new engine, as today's SimResult: live (its points
     to ``emit``, its ``control`` read: _Live) when either is given; with a
     run's live ``edits`` made again where it took them and its solver
-    ``options`` (a replay). Raises when the new engine cannot build or run
-    it."""
+    ``options`` (a replay). ``totals``, when given, is filled as today's
+    run_case fills it for charge balancing (balance.run_totals, of the
+    parts at the run's start and end). Raises when the new engine cannot
+    build or run it."""
     import lightsim_engine
 
     from . import core  # (core imports this module)
@@ -524,6 +564,7 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
         return SimResult(caseId=case_id, status="failed", channels=[],
                          messages=[SimMessage(level="error", text=t) for t in e.messages])
     model = ctx.model
+    soc_start = {el_id: b.soc for el_id, b in ctx.batteries.items()}
     ctx.performance = case.kind != "cycle"
     ctx.full_throttle = case.kind == "acceleration"
     t_end = max(0.0, float(case.duration))
@@ -628,6 +669,8 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
     result = _result(project, case, model, ctx, built, run, plan, lanes, laps_warning,
                      list(dropped.values()), stopped, [e for e in taken if not e.note])
     result.messages += _notes(taken)
+    if totals is not None:  # (_result has read each battery's end SOC and the fuel into ctx)
+        totals.update(balance.run_totals(ctx, soc_start))
     # what ran it
     result.engine, result.engineVersion = "new", lightsim_engine.version()
     result.solverOptions = {"rtol": float(run.report["rtol"]), "atol": float(run.report["atol"]),
@@ -1203,8 +1246,12 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     channels = _channels(model, run, times)
 
     # ---- the summary: the engine's figures, judged ---------------------------
+    # (a charge-balanced case's battery share and charge-corrected fuel are
+    # balance.py's, as today's lab_rows leaves them to it)
+    one_run = (("battery_energy_change_pct_of_fuel", "fuel_consumption_corrected_l_per_100km")
+               if balance.applies(project, case) else ())
     summary = [SummaryValue(key=f["key"], label=f["label"], value=f["value"], unit=f["unit"])
-               for f in run.figures]
+               for f in run.figures if f["key"] not in one_run]
     by_key = {s.key: s for s in summary}
     for b in ctx.batteries.values():
         if b.check is None:
