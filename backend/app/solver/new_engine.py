@@ -2157,6 +2157,14 @@ def _flows(model, inst: dict, books: dict, integ: dict,
             (pe_in, _), (_, pm_in) = flow(f"{el}:sig_elec_power"), flow(f"{el}:sig_mech_power")
             if _finite(pe_in) and _finite(pm_in):
                 f.in_j, f.in_rev_j = pe_in + pm_in, pm_in
+        elif f.part == "controller.dcdc":  # what it draws at its input (its books: only the net, its loss)
+            p_in, _ = flow(f"{el}:sig_power_in")
+            if _finite(p_in):
+                f.in_j = p_in
+        elif f.part == "fuelcell.stack":  # its hydrogen's energy: what it gives plus its loss
+            p_out, _ = flow(f"{el}:sig_power")
+            if _finite(p_out):
+                f.in_j = p_out + f.loss_j
         elif el in shafts and f.part != "vehicle.body":
             f.in_j, f.in_rev_j = shafts[el][:2]
         elif f.part == "mech.brake":  # the braking power it takes in (its disc spins with the rest)
