@@ -616,7 +616,7 @@ class SimResult(BaseModel):
     # the case's expected values and the automatic hand calculations, each
     # with its gap and grade (VAL-35)
     references: list[ReferenceCheck] = Field(default_factory=list)
-    # what ran it: the engine ("today" or "new", LIGHTSIM_ENGINE), its
+    # what ran it: the engine ("new", the app's; "today" only with LIGHTSIM_ENGINE=today), its
     # version and the solver options it ran with; and the live parameter
     # edits it took, each at the simulated time the run had reached when it
     # took it, one it did not make with its note (absent on runs from before

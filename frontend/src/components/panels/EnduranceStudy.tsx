@@ -73,7 +73,8 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
       </div>
       <p className="mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
         Runs this endurance at every pair of {battery.label}&apos;s capacity (its charge in Ah scales with it) and
-        Output Power Limit, to see how pack size and power cap trade off. Each run takes about 10 s.
+        Output Power Limit, to see how pack size and power cap trade off. Each run takes about 10 s. This does not run in
+        this version of LightSim yet: an endurance is a lap case (Not run [NEW-LAP]).
       </p>
       <div className="grid gap-1">
         <label className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]">

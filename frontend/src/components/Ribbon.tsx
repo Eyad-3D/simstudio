@@ -505,7 +505,7 @@ function SimulationsTab() {
         <BigButton
           icon={Trophy}
           label="FS events"
-          title="Formula Student dynamic events: marks (or adds) an Acceleration, a Skidpad, an Autocross and an Endurance case (22 laps of the Autocross layout, about 22 km, with the driver change), runs the four and shows their points in Cases & Parameters → Formula Student points. Set each case's reference values (the best teams' time and energy) for the points. Scoring: FS Rules 2026 v1.1 (FSG) D 9, estimates, not official results; FSUK and FSAE score differently."
+          title="Formula Student dynamic events: marks (or adds) an Acceleration, a Skidpad, an Autocross and an Endurance case (22 laps of the Autocross layout, about 22 km, with the driver change), runs the four and shows their points in Cases & Parameters → Formula Student points. Set each case's reference values (the best teams' time and energy) for the points. Scoring: FS Rules 2026 v1.1 (FSG) D 9, estimates, not official results; FSUK and FSAE score differently. Does not run in this version of LightSim yet: these cases fail with Not run [NEW-FS-EVENT] or [NEW-LAP]."
           disabled={store.running || !store.project}
           onClick={() => void store.runFsEvents()}
         />
@@ -520,7 +520,7 @@ function SimulationsTab() {
         <BigButton
           icon={Crosshair}
           label="Calibrate lap"
-          title="Calibrate lap mode on a logged lap: LightSim builds the track from the lap's speed and lateral acceleration, fits the tyres' grip scale and the downforce (CzA) to the logged speed, and checks the prediction on a second lap, blind (lap time, speed RMS and energy errors). The files stay on your computer."
+          title="Calibrate lap mode on a logged lap: LightSim builds the track from the lap's speed and lateral acceleration, fits the tyres' grip scale and the downforce (CzA) to the logged speed, and checks the prediction on a second lap, blind (lap time, speed RMS and energy errors). The files stay on your computer. Does not run in this version of LightSim yet: it runs lap cases, which fail with Not run [NEW-LAP]."
           disabled={store.running || !store.project}
           onClick={() => setCalibrating(true)}
         />
