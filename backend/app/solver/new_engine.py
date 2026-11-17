@@ -1345,6 +1345,10 @@ def _tables(ctx, run, messages: list[SimMessage]) -> list:
         m = ctx.maps.get((el_id, key))
         rng = m.ranges[axis] if m is not None and axis < len(m.ranges) else None
         shown = _to_today(rec, rng)
+        if el_id in ctx.engines and key == "drag_torque" and _finite(rec["furthest"]) and (
+                shown(float(rec["edge"])) >= (top := ctx.engines[el_id].speed_use.edge) * (1 - 1e-9)
+                and shown(float(rec["furthest"])) <= top * (1 + ENGINE_REV_BAND) * (1 + 1e-6)):
+            continue  # in its rev limiter's band: today's limiter books it at its maximum speed
         if m is not None and axis < len(m.bounds) and (m.bounds[axis] is None or (
                 _finite(rec["furthest"]) and m.edge(axis, shown(float(rec["furthest"]))) is None)):
             continue
@@ -1707,14 +1711,18 @@ def _first(run, name: Optional[str], hit: Callable[[float], bool]) -> Optional[f
                      float(tr["times"][k - 1]), float(tr["times"][k]))
 
 
+ENGINE_REV_BAND = 1e-3  # an Engine's rev limiter band above its limit, of it (lsim-lib's REV_BAND)
+
+
 def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
     """Each E-Motor's and Engine's time above its maximum speed and its
     highest speed then (today's speed_use records, which the verdict and
     the summary judge), from the run: the time the line through its traced
     speed spends above that speed by more than 1e-6 of it (today's
     over_speed counts no step its own drive or a limiter holds it there;
-    the engine's motor gives no drive torque at its maximum speed and its
-    limiter switches at it, so only what drives it higher is above), its
+    the engine's motor gives no drive torque at its maximum speed and an
+    engine's rev limiter fires less and less over its band above it,
+    ENGINE_REV_BAND, so only what drives it higher is above), its
     highest speed over every point the integrator visited and when the
     trace saw it; and, as today's engine says it, a note when it first
     went above."""
@@ -1727,7 +1735,7 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
         if name is None or not got or len(times) < 2:
             continue
         n_max = use.edge
-        top = n_max * (1.0 + 1e-6)
+        top = n_max * (1.0 + 1e-6) * (1.0 + (ENGINE_REV_BAND if el_id in ctx.engines else 0.0))
         xs = [abs(float(x)) for x in tr[name]]
         above, first = 0.0, None
         for k in range(1, len(times)):
@@ -1737,13 +1745,19 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
                 above += share * dt
                 if first is None:
                     first = times[k - 1] if a > 0 else times[k] - share * dt
+        label = ctx.model.elements[el_id].label
+        highest = max(float(got["max"]), -float(got["min"]))
+        if el_id in ctx.engines and highest >= n_max * (1 - 1e-9):
+            # held at its rev limit: today's note (MOD-18)
+            messages.append(SimMessage(level="info", text=(
+                f"Engine '{label}' reached its maximum speed ({n_max:,.0f} 1/min, the full-load "
+                f"curve's last point) — the rev limiter cuts fuel and torque above it.")))
         if above <= 0:
             continue
         k = max(range(len(xs)), key=xs.__getitem__)
         use.outside_s = above
         use.value = max(float(got["max"]), -float(got["min"]))
         use.t = times[k]
-        label = ctx.model.elements[el_id].label
         messages.append(SimMessage(level="info", text=(
             f"E-Motor '{label}' was driven above its maximum speed ({n_max:,.0f} 1/min) at "
             f"t = {first:.2f} s; its inverter is off above it, so it gives no drive torque and "
