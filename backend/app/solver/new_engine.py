@@ -181,8 +181,9 @@ def _balanced(project: Project, case_id: str, emit: Optional[EmitFn],
         runs.append(out)
         return out
 
-    result = balance.simulate_balanced(project, case_id, emit,
-                                       control or (lambda: [{"type": "set_param"}]), once)
+    # (a replay has no control: its edits tell balancing of themselves, in once)
+    told = (lambda: [{"type": "set_param"}]) if edits and control is None else control
+    result = balance.simulate_balanced(project, case_id, emit, told, once)
     if any(s.key == "charge_balance_runs" for s in result.summary):
         done = sum(r.status not in ("failed", "cancelled") for r in runs)
         result.solverOptions = {**(result.solverOptions or {}), BALANCE_RUNS: float(done),

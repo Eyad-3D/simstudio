@@ -103,6 +103,16 @@ def test_the_first_run_streams_and_the_later_ones_say_which_run_they_are():
     assert _sha(_replayed(_hybrid(30.0), result)) == _sha(result)
 
 
+def test_a_streamed_run_without_a_control_is_not_taken_for_an_edited_one():
+    """A run that streams its points but reads no control (a script's emit)
+    made no live edit: balancing goes on to its second run."""
+    stream = []
+    result = simulate(_hybrid(30.0, duration=300.0), CASE, stream.append)
+    assert result.engine == "new" and result.liveEdits == []
+    assert not any("a parameter was changed" in m.text for m in result.messages), result.messages[1].text
+    assert _row(result, "charge_balance_runs").value >= 2
+
+
 def test_a_live_edit_in_the_first_run_ends_balancing_and_replays():
     edit = {"type": "set_param", "elementId": "el-vehicle", "key": "cd", "value": 0.35}
     live = _Live(edit=edit)
