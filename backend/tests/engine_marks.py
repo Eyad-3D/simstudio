@@ -111,6 +111,7 @@ TODAY = {
         "(ii) the golden fixtures are today's engine's regression net (the new engine's is the engine's own golden "
         "comparison: 0 differences in 11,347 values)"),
     "test_energy.py::test_battery_energy_matches_kinetic_energy": INTEGRATOR,
+    "test_battery_charge.py::test_coulombic_efficiency_counts_charge_only": INTEGRATOR,
     "test_energy_book.py::test_each_part_closes_and_all_together_nearly[bev-car-case-city]": INTEGRATOR,
     "test_energy_book.py::test_each_part_closes_and_all_together_nearly[fs-electric-case-accel-75m]": INTEGRATOR,
     "test_energy_book.py::test_a_locked_differential_is_walked_every_step_and_still_closes": INTEGRATOR,
@@ -146,10 +147,6 @@ TODAY = {
         "(ii) the validation page records today's engine's measurement (20 October 2026)"),
 }
 
-PORT = ("NEW-FAILED (PORT-NOT-MAPPED): an acceleration case of a car whose Driver has Target Speed or Actual "
-        "Speed linked is refused; fixed on work/flip-path")
-DCDC = ("NEW-FAILED (BLOCK): a DC-DC converter feeding a battery bus (setpoint mode) is not imported yet; fixed "
-        "on work/dcdc-setpoint")
 STORM_ENGINE = ("NEW-FAILED (RUN-EVENT-STORM): the Engine's fired / not fired switch chatters (open; queued for "
                 "the solver side)")
 STORM_MAX = ("NEW-FAILED (RUN-EVENT-STORM): a machine driven to its maximum speed or rev limiter switches about "
@@ -166,25 +163,13 @@ LIMITS = ("NEW-LIMITS: the new path refuses a run with a value outside its param
           "the owner's call whether the app keeps it)")
 
 XFAIL = {
-    "test_acceleration.py::test_a_75_m_run_without_slip_matches_a_point_mass": PORT,
-    "test_acceleration.py::test_full_throttle_needs_no_target": PORT,
-    "test_acceleration.py::test_the_app_runs_an_acceleration_test_without_a_target": PORT,
-    "test_acceleration.py::test_time_at_the_grip_limit": PORT,
-    "test_acceleration.py::test_the_estimate_note_follows_the_load_transfer": PORT,
-    "test_acceleration.py::test_terminal_power_rows": PORT,
-    "test_acceleration.py::test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step": PORT + (
-        "; with that fix it still differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
-    "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": PORT + (
-        "; with that fix it still fails: StopIteration in the test's own _at (open)"),
-    "test_acceleration.py::test_missing_the_line_within_the_time_limit_is_a_warning": PORT + (
-        "; with that fix it still fails: a cancel sent through control ends 'success' (open)"),
-    "test_battery_charge.py::test_coulombic_efficiency_counts_charge_only": DCDC,
-    "test_expansion.py::test_fuel_cell_via_dcdc_setpoint_into_battery_bus": DCDC,
-    "test_vehicle_tests.py::test_a_fuel_cell_car_gets_no_range_from_its_battery_alone": DCDC,
-    "test_expansion.py::test_hybrid_p2_hcu_charges_low_battery": STORM_ENGINE + " (t = 2.37 s)",
+    "test_acceleration.py::test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step": (
+        "the time to 75 m differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
+    "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": (
+        "StopIteration in the test's own _at: a point it looks for is not in the new engine's run (open)"),
+    "test_acceleration.py::test_missing_the_line_within_the_time_limit_is_a_warning": (
+        "a cancel sent through control ends 'success' (open)"),
     "test_live_params.py::test_live_edit_survives_two_gear_shifts": STORM_ENGINE + " (t = 4.73 s)",
-    "test_engine.py::test_rev_limiter_cuts_fuel_and_torque": STORM_MAX + " (the Engine at its rev limiter, t = 0.85 s)",
-    "test_map_edges.py::test_a_machine_held_at_its_limiter_is_not_over_speed[engine-params2]": STORM_MAX,
     "test_map_edges.py::test_a_motor_driven_past_its_maximum_speed_is_flagged": STORM_MAX,
     "test_verdict.py::test_a_motor_above_its_maximum_speed_is_named": STORM_MAX,
     "test_map_edges.py::test_maximum_speed_beyond_the_map_stops_the_run": TABLE_WORDS,
