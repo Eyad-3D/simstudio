@@ -1055,6 +1055,17 @@ pub fn figures_with(
         {
             let cycle = rep_cycle(project, &rep.run, &task.0);
             let phases = cycle.map(|c| cycle_phases(&c)).unwrap_or_default();
+            // only the published trace has the cycle's phases (today's
+            // cycles.not_as_published): not scaled, not repeated past one
+            // pass, not read against distance
+            let tp = params_of(&task.0);
+            let scaled =
+                (lsim_lib::blocks::catalog::get(&tp, "scale_pct", 100.0) - 100.0).abs() > 1e-9;
+            let pass = phases.last().map_or(f64::INFINITY, |p| p.2);
+            let repeated = lsim_lib::blocks::catalog::flag(&tp, "repeat", false)
+                && rep.run.duration > pass + 1e-6;
+            let by_distance = lsim_lib::blocks::catalog::text(&tp, "mode", "time") == "distance";
+            let phases = if scaled || repeated || by_distance { vec![] } else { phases };
             let at = |name: &str, t: f64| -> f64 {
                 let Some(ch) = res.channel(name) else { return 0.0 };
                 match res.times.iter().position(|x| *x >= t - 1e-9) {
