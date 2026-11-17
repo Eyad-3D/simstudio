@@ -377,6 +377,8 @@ struct Loop<'a> {
     passed: Vec<usize>,
     /// per table guard: since when it is outside its data
     outside_since: Vec<Option<f64>>,
+    /// the channels where a guard's branches are read ([`Loop::read_in_use`])
+    when_vars: Vec<f64>,
     /// per table guard: time spent outside, and when it first left
     outside_total: Vec<(f64, f64)>,
     /// per table guard: the furthest its argument was read past the data
@@ -2440,12 +2442,14 @@ impl Loop<'_> {
 
     /// Table guards that crossed at `t`: leaving the data on an `Error`
     /// axis stops the run; the others book the time outside.
+    /// (An `Error` axis is decided after the event, by [`Loop::sync_guards`],
+    /// where the branches its read sits in are known.)
     fn guard_crossings(&mut self, t: f64, dirs: &[i32]) -> Result<(), SolveError> {
         let nr = self.model.layout().n_roots;
         let guards = self.model.table_guard_list();
         for (k, g) in guards.iter().enumerate() {
             match dirs.get(nr + k).copied().unwrap_or(0) {
-                -1 => self.leave_table(k, t, g)?,
+                -1 if g.outside != lsim_ir::table::Outside::Error => self.leave_table(k, t, g)?,
                 1 => {
                     if let Some(t0) = self.outside_since[k].take() {
                         self.outside_total[k].0 += t - t0;
@@ -2463,15 +2467,29 @@ impl Loop<'_> {
     /// stops the run) or back inside. An event moves a read's argument at
     /// once (a sampled block's tick, a `when`), and the integrator, which
     /// watches the guards between events, never sees it cross.
-    fn sync_guards(&mut self, t: f64, dirs: Option<&[i32]>) -> Result<(), SolveError> {
+    /// An `Error` axis outside its data stops the run where its read's
+    /// value is used ([`Loop::read_in_use`], at `(t, y, d)`); elsewhere it is
+    /// looked at again after each event.
+    fn sync_guards(
+        &mut self,
+        t: f64,
+        y: &[f64],
+        d: &[f64],
+        dirs: Option<&[i32]>,
+    ) -> Result<(), SolveError> {
         let nr = self.model.layout().n_roots;
         let guards = self.model.table_guard_list();
         for (k, g) in guards.iter().enumerate() {
-            if dirs.and_then(|ds| ds.get(nr + k)).is_some_and(|&r| r != 0) {
+            let error = g.outside == lsim_ir::table::Outside::Error;
+            if !error && dirs.and_then(|ds| ds.get(nr + k)).is_some_and(|&r| r != 0) {
                 continue;
             }
             let a = self.raw.get(nr + k).copied().unwrap_or(0.0);
-            if a < 0.0 && self.outside_since[k].is_none() {
+            if a < 0.0 && error {
+                if self.read_in_use(k, t, y, d) {
+                    self.leave_table(k, t, g)?;
+                }
+            } else if a < 0.0 && self.outside_since[k].is_none() {
                 self.leave_table(k, t, g)?;
             } else if a > 0.0
                 && let Some(t0) = self.outside_since[k].take()
@@ -2480,6 +2498,30 @@ impl Loop<'_> {
             }
         }
         Ok(())
+    }
+
+    /// Whether guard `k`'s read is used at `(t, y, d)`: every `if` it sits
+    /// in takes its branch there (an Error axis read past its data in a
+    /// branch not taken does not stop the run: today's engine reads a table
+    /// only where it uses it). True where the run does not know.
+    fn read_in_use(&mut self, k: usize, t: f64, y: &[f64], d: &[f64]) -> bool {
+        let n = self.model.table_guard_list().len();
+        if self.info.table_when.len() != n || self.info.table_when[k].is_empty() {
+            return true;
+        }
+        let l = self.model.layout();
+        self.when_vars.resize(l.n_vars, 0.0);
+        let inp = EvalInput { t, y, p: &self.info.params, d, u: self.u };
+        self.model.vars(&inp, &mut self.work, &mut self.when_vars);
+        let env = crate::info::ChannelEnv {
+            t,
+            vars: &self.when_vars,
+            params: &self.info.params,
+            model: self.model,
+        };
+        self.info.table_when[k]
+            .iter()
+            .all(|(c, side)| (lsim_ir::eval::eval(c, &env) != 0.0) == *side)
     }
 
     fn leave_table(
@@ -2498,7 +2540,7 @@ impl Loop<'_> {
             return Err(SolveError::TableOutside {
                 t,
                 message: format!(
-                    "the table '{name}' was read outside its data on its {} axis, which allows no                      values outside (outside = Error): widen the table or keep the operating point inside it",
+                    "the table '{name}' was read outside its data on its {} axis, which allows no values outside (outside = Error): widen the table or keep the operating point inside it",
                     if g.axis == 0 { "first" } else { "second" }
                 ),
             });
@@ -3797,6 +3839,7 @@ fn run_watched<'a>(
         seen_now: false,
         passed: vec![],
         outside_since: vec![None; model.table_guard_list().len()],
+        when_vars: vec![],
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
         outside_far: vec![[f64::NAN; 3]; model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
@@ -3933,7 +3976,9 @@ fn run_watched<'a>(
     if !guards.is_empty() {
         lp.eval_raw(t, &y, &d);
         for (k, g) in guards.iter().enumerate() {
-            if lp.raw[l.n_roots + k] < 0.0 {
+            if lp.raw[l.n_roots + k] < 0.0
+                && (g.outside != lsim_ir::table::Outside::Error || lp.read_in_use(k, t, &y, &d))
+            {
                 lp.leave_table(k, t, g)?;
             }
         }
@@ -4116,7 +4161,7 @@ fn run_watched<'a>(
                 *c = fresh;
             }
             lp.update_sides(&mut *ni, t, &y, &d, None, None);
-            lp.sync_guards(t, None)?;
+            lp.sync_guards(t, &y, &d, None)?;
             lp.push_sides(&mut *ni);
             // the switch, an event: the stored energy's change
             // (the iteration variables solved again) booked
@@ -4865,7 +4910,7 @@ fn run_watched<'a>(
                     }
                     let at = y_at.map(|y0| (y0, d_pre.as_slice()));
                     lp.update_sides(integ, tk, &yk, &d, None, at);
-                    lp.sync_guards(tk, None)?;
+                    lp.sync_guards(tk, &yk, &d, None)?;
                     lp.push_sides(integ);
                     if imp.is_none()
                         && tk == t_new
@@ -5100,7 +5145,7 @@ fn run_watched<'a>(
                     lp.update_sides(integ, t, &y, &d, dirs, at);
                     // (the crossings here are held conditions', none a
                     // guard's that guard_crossings booked)
-                    lp.sync_guards(t, None)?;
+                    lp.sync_guards(t, &y, &d, None)?;
                     lp.push_sides(integ);
                     integ.restart(t, &y)?;
                     y.copy_from_slice(integ.y());
@@ -5304,7 +5349,7 @@ fn run_watched<'a>(
             }
             let at = y_at.as_deref().map(|y0| (y0, d_pre.as_slice()));
             lp.update_sides(integ, t, &y, &d, dirs, at);
-            lp.sync_guards(t, dirs)?;
+            lp.sync_guards(t, &y, &d, dirs)?;
             lp.push_sides(integ);
             // (a step ended at a pulse the run loop found: the integrator,
             // past it, restarts here even when nothing changed; so it does
