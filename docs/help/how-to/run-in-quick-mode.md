@@ -52,11 +52,10 @@ come out up to 1.8 % and 1.4 % lower than the full run's (measured on
   points) for longer than the run allows, which marks the consumptions,
   MPGe and the range not valid as a full run does. A table whose axis is
   set to *Error* read past its data stops fast mode as it stops a full
-  run: the case runs in full instead (`QUICK-FAILED`, with
-  `FAST-TABLE-ERROR`), and fails there as today's run does. So does an
-  E-Motor's loss map whose *Torque* axis is set to *Error* and starts
-  above 0 N·m, when the supply holds the motor back: a full run reads it
-  at 0 N·m there (`QUICK-FAILED`). The tables of a part connected to
+  run: the quick run fails (`QUICK-FAILED`, with `FAST-TABLE-ERROR`). So
+  does an E-Motor's loss map whose *Torque* axis is set to *Error* and
+  starts above 0 N·m, when the supply holds the motor back: a full run
+  reads it at 0 N·m there (`QUICK-FAILED`). The tables of a part connected to
   nothing (a battery, a fuel cell, a motor or an engine) are not judged,
   as a full run leaves the part out.
 - **No checks of the motion.** The wheels lifting off the road, an
@@ -71,10 +70,10 @@ come out up to 1.8 % and 1.4 % lower than the full run's (measured on
   take more than the car could have given. Run the case in full to see what
   it does.
 
-## When it runs in full instead
+## When it does not run
 
-A case quick mode does not run runs as a full run, with a warning that
-starts *Not run in quick mode* and gives a code:
+A case quick mode does not run fails with an error that starts *Not run*,
+gives a code and ends *Set the case's mode to full to run it*:
 
 | Code | Why |
 |---|---|
@@ -90,7 +89,5 @@ starts *Not run in quick mode* and gives a code:
 | `QUICK-TABLE-TIME` | a table was read past its data for a time too near what the run allows to judge at quick mode's points once a second: a full run counts it every solver step |
 | `QUICK-NOT-FOUND` | the case is not in the project |
 | `QUICK-ERROR` | a fault of LightSim's own: please report it |
-
-With `LIGHTSIM_ENGINE_STRICT=1` such a case fails with its code instead.
 
 [Known issues](../../KNOWN-LIMITS.md) lists what quick mode does not do.

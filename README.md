@@ -380,32 +380,21 @@ These exist because a frozen build can be missing a module that every unit
 test passes without — that is exactly how a broken live-run WebSocket nearly
 shipped.
 
-### Trying the new engine
+### The new engine
 
-The backend still runs every case on today's engine. To try the new engine
-(the Rust module `lightsim_engine`, built with maturin; see
-`engine/crates/lsim-py/README.md`), start the backend with the environment
-variable `LIGHTSIM_ENGINE=new`. The values are `today` (the default, also
-when the variable is not set) and `new`. With `new`, a drive cycle or an
-acceleration test runs on the new engine, FMU parts and live runs in the
-app included, and gives today's whole result (the energy report, part
-energies, duty, limits and references, made by today's own code from the
-run's evidence). Everything else runs on today's engine: lap cases, other
-performance cases, a hybrid's charge-balanced case, Formula Student event
-cases, a battery built from cells, a PID or Lookup block with a Sample Time
-longer than the solver step, a study's point with a value outside its
-limits, a live run with a PID block or with a table set to Error that its
-part reads past, and any case when the module is not installed. A case in
-quick mode (*Run mode*: *Quick*) runs on the new engine's fast mode, its
-totals only, and a part can be read from a text file (`textFile`); what
-differs is in [Known issues and limits](docs/KNOWN-LIMITS.md). If the new engine fails on a case, the case
-runs on today's engine and the result carries a warning with the new
-engine's own message. The first message of every result says which engine
-ran the case and, after a fall-back, why, with a reason code in brackets
-(`[NEW-LAP]`, `[NEW-FAILED]`; the list is in
-`benchmarks/back_to_back/acceptance.toml`). With `LIGHTSIM_ENGINE_STRICT=1`
-as well, nothing falls back: such a case fails with its code instead (the
-both-engines diff, `python -m benchmarks.back_to_back`, runs this way).
+The backend runs every case on the new engine (the Rust module
+`lightsim_engine`, built with maturin; see `engine/crates/lsim-py/README.md`),
+with no fall-back to today's engine. A case it does not run fails with an
+error that starts *Not run* and gives a reason code in brackets (`[NEW-LAP]`,
+`[NEW-FAILED]`; the list is in `benchmarks/back_to_back/acceptance.toml`).
+Four features do not run in this version yet and are refused so: lap cases
+(`NEW-LAP`), Formula Student event cases (`NEW-FS-EVENT`), a hybrid's
+charge-balanced case (`NEW-BALANCE`; set the case's *Charge balance* off to
+run it once) and a battery built from cells (`NEW-CELLS`). What else
+differs is in [Known issues and limits](docs/KNOWN-LIMITS.md). For
+developers, `LIGHTSIM_ENGINE=today` runs today's engine instead (the
+both-engines comparison, `python -m benchmarks.back_to_back`, uses it), and a
+replay of a run stored from today's engine runs on today's engine.
 Script blocks keep today's rules: approved code only in a run started in
 the app, the strict OS sandbox with no approval for the command-line tool
 and AI apps, and the locked-down worker either way.
