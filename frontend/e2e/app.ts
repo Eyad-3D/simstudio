@@ -79,6 +79,17 @@ export function finishNotice(page: Page): Locator {
   return page.getByLabel("Run finished");
 }
 
+/** A run the app refuses: a lap case, a Formula Student event, a hybrid's
+ *  charge-balanced case or a battery built from cells, which do not run in
+ *  this version yet. The run ends failed, and Problems shows the refusal
+ *  with its code. */
+export async function expectRefused(page: Page, code: string): Promise<void> {
+  await expect(finishNotice(page)).toContainText("failed: see Messages", { timeout: 60_000 });
+  await ribbonTab(page, "Home").click();
+  await showPanel(page, "Problems");
+  await expect(page.getByText(`Not run [${code}]: `).first()).toBeVisible();
+}
+
 /** Wait for a run or sweep to end and show its results. The page stays
  *  where it was when the run ended, with a notice that offers the results
  *  (UX-21): its Show results opens the Results page. A run started on the
