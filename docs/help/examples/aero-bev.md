@@ -35,9 +35,9 @@ charger's losses (86 % efficiency, as FASTSim takes it), as EPA's tests do.
 
 | Case | Consumption (battery) | At the socket | MPGe |
 |---|---|---|---|
-| *EPA city (UDDS)* | 9.50 kWh/100 km | 11.05 kWh/100 km | 189.6 |
-| *EPA highway (HWFET)* | 11.06 kWh/100 km | 12.86 kWh/100 km | 162.8 |
-| *WLTC Class 3b* | 11.78 kWh/100 km | 13.69 kWh/100 km | 152.9 |
+| *EPA city (UDDS)* | 9.52 kWh/100 km | 11.07 kWh/100 km | 189.2 |
+| *EPA highway (HWFET)* | 11.06 kWh/100 km | 12.87 kWh/100 km | 162.8 |
+| *WLTC Class 3b* | 11.79 kWh/100 km | 13.71 kWh/100 km | 152.8 |
 
 EPA's tests of the real car gave 185.3 MPGe in the city and 170.1 on the
 highway (unadjusted, before the label's corrections): LightSim's figures
@@ -63,7 +63,7 @@ back afterwards, or close the copy without saving.
 1. **Compare it with the Battery Electric Car.** Run *WLTC Class 3b* on
    both examples. How much less energy does the sedan use?
 
-   **Answer:** 11.78 against 14.05 kWh/100 km at the battery: 16 % less,
+   **Answer:** 11.79 against 14.05 kWh/100 km at the battery: 16 % less,
    with almost the same mass. Its lower road load is worth more than the
    Battery Electric Car's smaller size.
 
@@ -78,13 +78,13 @@ back afterwards, or close the copy without saving.
 3. **Add 200 kg.** On *EPA city (UDDS)*, set the *Vehicle Mass* from
    1,928 to 2128 kg. What changes?
 
-   **Answer:** 9.50 to 9.64 kWh/100 km, only 1.5 % more for 10.4 % more
+   **Answer:** 9.52 to 9.66 kWh/100 km, only 1.5 % more for 10.4 % more
    mass: in town, much of the energy for speeding up comes back through
    recuperation.
 
 4. **Turn the heating on.** On *EPA city (UDDS)*, set the *Power Consumer*
    to 2.5 kW. How far does the range fall?
 
-   **Answer:** From 543.3 to 310.3 km: at city speeds the heater draws
+   **Answer:** From 542.2 to 309.9 km: at city speeds the heater draws
    almost as much as driving does, so the consumption rises by three
    quarters (9.50 to 16.64 kWh/100 km).

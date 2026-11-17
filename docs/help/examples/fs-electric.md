@@ -35,10 +35,10 @@ current season's rules.
 
 On *Acceleration 75 m*:
 
-1. **0 to 0.37 s.** Full throttle from standstill. The rear tyres spin: the
+1. **0 to 0.20 s.** Full throttle from standstill. The rear tyres spin: the
    motor gives more torque than they can put down, and the model has no
    traction control.
-2. **From 0.37 s.** The Accumulator reaches 80 kW and the battery holds it
+2. **From 0.20 s.** The Accumulator reaches 80 kW and the battery holds it
    there. The rear tyres still spin at their grip limit, so part of that
    power only spins the wheels: the tyres, not the power limit, set the
    pace.
@@ -56,7 +56,7 @@ The summary says for how long each limit held the car back, for example
 
 | Case | Result |
 |---|---|
-| *Acceleration 75 m* | 3.751 s from the start line, 118.89 km/h at the line, 0-100 km/h in 2.95 s |
+| *Acceleration 75 m* | 3.754 s from the start line, 118.86 km/h at the line, 0-100 km/h in 2.96 s |
 | *Autocross (flying lap)* | 57.721 s for the flying lap, 60.31 km/h average |
 | *Endurance energy* (23 laps, 30 kW limit) | 1,428.53 s, 5.33 kWh net from the Accumulator, 25.02 % SOC left |
 
@@ -79,15 +79,15 @@ These results are estimates: see the messages each run gives, and
 1. **Halve the power.** On *Acceleration 75 m*, set the Accumulator's
    *Output Power Limit* from 80 to 40 kW. How much slower is the car?
 
-   **Answer:** 3.751 to 4.231 s, 0.481 s slower, and 95.94 km/h at the
-   line instead of 118.89 km/h.
+   **Answer:** 3.754 to 4.235 s, 0.481 s slower, and 95.92 km/h at the
+   line instead of 118.86 km/h.
 
 2. **Use worn tyres.** On *Acceleration 75 m*, set the *Friction
    Coefficient μ* of *Wheel RL* and *Wheel RR* from 1.5 to 1.3. What
    changes?
 
-   **Answer:** 3.751 to 4.026 s. The car spends 64.1 % of the run at the
-   tyres' grip limit instead of 48.6 %: with less grip, the tyres, not
+   **Answer:** 3.754 to 4.030 s. The car spends 64.3 % of the run at the
+   tyres' grip limit instead of 48.7 %: with less grip, the tyres, not
    the power limit, hold it back for longer.
 
 3. **Turn the endurance power down.** The *Endurance energy* case sets

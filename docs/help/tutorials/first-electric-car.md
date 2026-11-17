@@ -37,8 +37,8 @@ The *Results* page compares the new run with the one before, the
 baseline ([how](../how-to/compare-two-runs.md)).
 
 **Check:** *Consumption* still reads 14.05 kWh/100 km, but the battery's
-final SOC (state of charge, how full it is) falls from 84.93 % to
-82.12 %.
+final SOC (state of charge, how full it is) falls from 84.92 % to
+82.11 %.
 
 The car needs the same energy, which is a larger share of a smaller
 battery. LightSim does not make the car lighter when the battery
