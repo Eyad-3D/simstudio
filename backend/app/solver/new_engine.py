@@ -1,29 +1,28 @@
-"""Running a case on the new engine, behind a flag (LIGHTSIM_ENGINE).
+"""Running a case on the new engine, the app's engine.
 
-``LIGHTSIM_ENGINE=new`` makes ``simulate`` (core.py) try the new engine, the
-Rust module ``lightsim_engine``, for the cases it can run: a drive cycle, a performance or an
-acceleration test whose values keep to their parameters' limits (a study's
-point can hold one Data Checks never saw), live or not. A live run (an emit,
-a control: the app's runs, a study's points) runs the engine in a thread of
-its own with a ``lightsim_engine.RunControl`` (_Live): its output points
-streamed as today's "step" messages as the engine records them, the
-result's values bit for bit, at the case's pace; a cancel stops it where it
-is; a set_param is a live edit of a runtime parameter, an event at the
-run's next output time (a structural one, one the path's checks after the
-run read as at its start, takes effect on the next run, and the result's
-note of it says so with the code NEW-LIVE-NEXT-RUN). The result says which
-engine ran it, its version, its solver options and the live edits it took
-(``replay`` makes them again). Everything else, and any failure of the new
-engine, runs on today's engine (a live run the new engine fails after it
-has shown a point to a live view starts again at t = 0, the view told
-"restart", NEW-LIVE-RESTART; one that has read a Stop or an edit fails with
-its code, as today's engine would start without them), and the result's messages say which engine ran the case and,
-after a fall-back, why, with a stable reason code in brackets (``[NEW-LAP]``;
-CODES lists them, and benchmarks/back_to_back counts them). With
-``LIGHTSIM_ENGINE_STRICT=1`` as well nothing falls back: a case the new
-engine's path does not run fails with its code instead (the both-engines
-diff's strict mode). Without the flag (or with ``today``) nothing here is
-used.
+``simulate`` (core.py) runs every case on the new engine, the Rust module
+``lightsim_engine``: a drive cycle, a performance or an acceleration test
+whose values keep to their parameters' limits (a study's point can hold one
+Data Checks never saw), live or not. A live run (an emit, a control: the
+app's runs, a study's points) runs the engine in a thread of its own with a
+``lightsim_engine.RunControl`` (_Live): its output points streamed as
+"step" messages as the engine records them, the result's values bit for
+bit, at the case's pace; a cancel stops it where it is; a set_param is a
+live edit of a runtime parameter, an event at the run's next output time (a
+structural one, one the path's checks after the run read as at its start,
+takes effect on the next run, and the result's note of it says so with the
+code NEW-LIVE-NEXT-RUN). The result says which engine ran it, its version,
+its solver options and the live edits it took (``replay`` makes them
+again). A case the new engine does not run, or that it refuses or stops,
+fails with a stable reason code in brackets (``[NEW-LAP]``; CODES lists
+them, and benchmarks/back_to_back counts them): nothing runs on today's
+engine instead. Four features are not ported yet and are refused so: lap
+cases (NEW-LAP), Formula Student events (NEW-FS-EVENT), a hybrid's
+charge-balanced case (NEW-BALANCE) and a battery built from cells
+(NEW-CELLS). ``LIGHTSIM_ENGINE=today`` runs today's engine instead, for
+developers and the both-engines comparison (benchmarks/back_to_back); a
+replay of a run stored from today's engine runs on it whatever the
+variable says (core.replay).
 
 The new engine's run is turned into today's whole SimResult: its channels
 and figures are already in today's names and units; this module adds the
@@ -82,7 +81,6 @@ from .verdict import (
 )
 
 ENV_VAR = "LIGHTSIM_ENGINE"
-STRICT_VAR = "LIGHTSIM_ENGINE_STRICT"
 KINDS = ("cycle", "performance", "acceleration")  # the case kinds the new engine runs
 
 # why the new engine's path does not run a case (benchmarks/back_to_back/acceptance.toml)
@@ -100,9 +98,6 @@ CODES = {
     "NEW-ERROR": "an exception that is not the engine's own refusal",
     "NEW-TEXT": "a part from a text file in a case the path does not run, or whose file it cannot read "
                 "(today's engine reads none)",
-    "NEW-LIVE-RESTART": "a run with a view that the new engine stopped after it had shown points, with no "
-                        "Stop or live edit read: it starts again at t = 0 on today's engine, and the "
-                        "view is told to drop the points it has",
     # quick mode's (a case's mode "quick": the new engine's fast mode)
     "QUICK-NOT-FOUND": "quick mode: the case is not in the project",
     "QUICK-KIND": "quick mode: a case that drives no drive cycle",
@@ -132,81 +127,26 @@ class Refusal(NamedTuple):
 
 
 def wanted() -> bool:
-    """Whether the flag asks for the new engine (read at each run)."""
-    return os.environ.get(ENV_VAR, "today").strip().lower() == "new"
-
-
-def strict() -> bool:
-    """Whether nothing may fall back to today's engine (read at each run)."""
-    return os.environ.get(STRICT_VAR, "").strip() == "1"
+    """Whether the new engine runs a case: always, unless LIGHTSIM_ENGINE is
+    "today" (developers, benchmarks/back_to_back; read at each run)."""
+    return os.environ.get(ENV_VAR, "").strip().lower() != "today"
 
 
 def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
-             control: Optional[ControlFn], today: TodayFn) -> SimResult:
-    """Run the case on the new engine when it can, otherwise on ``today``'s
-    engine, with a message saying which ran it (in strict mode not at all:
-    the case fails with the reason's code)."""
+             control: Optional[ControlFn]) -> SimResult:
+    """Run the case on the new engine; a case it does not run, or refuses
+    or stops, fails with the reason's code (refused)."""
     why = unsupported(project, case_id)
-    view = emit is not None and not getattr(emit, "progress_only", False)
     if why is None:
-        # what a live run did that today's engine, run instead from t = 0,
-        # would undo: "shown" (a point or a note to a live view: an emit not
-        # marked progress_only, as the AI tools' is, whose bar may start
-        # again), "cancel" (a Stop read), "set_param" (a live edit read). A run
-        # the new engine fails after a Stop or an edit is not run again on
-        # today's; one that only showed points is, from t = 0 (the view told).
-        did: set[str] = set()
-
-        def shown(msg: dict) -> None:
-            did.add("shown")
-            emit(msg)
-
-        def read() -> list[dict]:
-            got = list(control())
-            did.update(str(m.get("type")) for m in got)
-            return got
         try:
-            return _ran(run_new(project, case_id, shown if view else emit, control and read), project)
-        except Exception as e:  # noqa: BLE001 — the new engine must never break a run
-            why = failure(e)
-            if texts_of(project):  # (in either mode: today's engine reads none)
-                return no_text(case_id, why, project, str(e))
-            if strict():
-                return refused(case_id, why, str(e))
-            if did == {"shown"}:  # (no Stop, no edit to lose: start again on today's, telling the view)
-                emit({"type": "restart"})
-                result = today(project, case_id, emit, control)
-                result.messages.insert(0, SimMessage(  # (a note, as a warning would change today's verdict)
-                    level="info", text=f"The new engine stopped this run after it had shown points "
-                                       f"[{why.code}] ({e}); it ran again from t = 0 on today's "
-                                       f"engine [NEW-LIVE-RESTART]."))
-                return result
-            if did:
-                lost = " and ".join(w for k, w in (("cancel", "the Stop"), ("set_param", "the live edits"))
-                                    if k in did)
-                return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
-                    level="error", text=f"The new engine could not finish this live run "
-                                        f"[{why.code}]: {why.why} ({e}). It is not run again on "
-                                        f"today's engine, which would start it again at t = 0 "
-                                        + (f"without {lost} it was given" if lost else
-                                           "after the points it has shown")
-                                        + f": run the case again (with {ENV_VAR}=today for "
-                                          f"today's engine).")])
-            result = today(project, case_id, emit, control)
-            result.messages.insert(0, SimMessage(
-                level="warning", text=f"The new engine could not run this case [{why.code}] "
-                                      f"({e}); it ran on today's engine instead."))
-            _refresh_status(result)
-            return result
+            return _ran(run_new(project, case_id, emit, control), project)
+        except Exception as e:  # noqa: BLE001 — told as the reason's code
+            why, detail = failure(e), str(e)
+    else:
+        detail = ""
     if texts_of(project):
-        return no_text(case_id, why, project)
-    if strict():
-        return refused(case_id, why)
-    result = today(project, case_id, emit, control)
-    result.messages.insert(0, SimMessage(
-        level="info", text=f"Run on today's engine, not the new one ({ENV_VAR}=new) "
-                           f"[{why.code}]: {why.why}."))
-    return result
+        return no_text(case_id, why, project, detail)
+    return refused(case_id, why, detail)
 
 
 def _ran(result: SimResult, project: Optional[Project] = None) -> SimResult:
@@ -215,7 +155,7 @@ def _ran(result: SimResult, project: Optional[Project] = None) -> SimResult:
         text = (f"Run on the new engine: today's engine reads no text components ({label!r} "
                 f"reads its equations from a file).")
     else:
-        text = f"Run on the new engine ({ENV_VAR}=new)."
+        text = "Run on the new engine."
     result.messages.insert(0, SimMessage(level="info", text=text))
     return result
 
@@ -408,27 +348,20 @@ def quick_failure(e: Exception) -> Refusal:
     return Refusal(code.get(why.code, "QUICK-ERROR"), why.why.replace("the new engine", "fast mode"))
 
 
-def quick(project: Project, case_id: str, emit: Optional[EmitFn], control: Optional[ControlFn],
-          full: TodayFn) -> SimResult:
+def quick(project: Project, case_id: str) -> SimResult:
     """A case's quick mode (its mode "quick"), whatever LIGHTSIM_ENGINE
     says: the new engine's fast mode (run_quick). A case it does not run
-    runs in ``full`` instead, with a warning carrying the reason's code (in
-    strict mode it fails with it)."""
+    fails with the reason's code, and the message says to run it in full."""
     why, detail = quick_unsupported(project, case_id), ""
     if why is None:
         try:
             return run_quick(project, case_id)
         except Exception as e:  # noqa: BLE001 — told as the reason's code
             why, detail = quick_failure(e), str(e)
-    if strict():
-        return refused(case_id, why, detail)
-    result = full(project, case_id, emit, control)
     more = f" ({detail})" if detail else ""
-    result.messages.insert(0, SimMessage(
-        level="warning", text=f"Not run in quick mode [{why.code}]: {why.why}{more}; it ran in full "
-                              f"instead."))
-    _refresh_status(result)
-    return result
+    return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
+        level="error", text=f"Not run [{why.code}] in quick mode: {why.why}{more}. Set the case's "
+                            f"mode to full to run it.")])
 
 
 def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> SimResult:
@@ -521,11 +454,11 @@ def failure(e: Exception) -> Refusal:
 
 
 def refused(case_id: str, why: Refusal, detail: str = "") -> SimResult:
-    """Strict mode's result for a case the new engine's path did not run."""
+    """The result of a case the new engine's path did not run: failed, with
+    the reason's code and words."""
     more = f" ({detail})" if detail else ""
     return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
-        level="error", text=f"Not run [{why.code}]: {why.why}{more}; with {STRICT_VAR}=1 no "
-                            f"case runs on today's engine instead.")])
+        level="error", text=f"Not run [{why.code}]: {why.why}{more}.")])
 
 
 def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
@@ -534,29 +467,31 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     if case is None:
         return Refusal("NEW-NOT-FOUND", "the case was not found")
     if case.kind == "lap":
-        return Refusal("NEW-LAP", "it does not run lap cases")
+        return Refusal("NEW-LAP", "lap cases do not run in this version of LightSim yet")
     if case.kind not in KINDS:
-        return Refusal("NEW-CASE-KIND", f"it does not run {case.kind} cases yet")
+        return Refusal("NEW-CASE-KIND", f"{case.kind} cases do not run in this version of LightSim yet")
     if case.fsEvent:
-        return Refusal("NEW-FS-EVENT", "it does not score Formula Student events")
+        return Refusal("NEW-FS-EVENT", "Formula Student event cases do not run in this version of LightSim yet")
     elements = [el for s in project.systems for el in s.elements]
     if balance.applies(project, case):
-        return Refusal("NEW-BALANCE", "it does not charge-balance a hybrid's case")
+        return Refusal("NEW-BALANCE", "a hybrid's charge-balanced case does not run in this version of LightSim yet; set "
+                                      "the case's Charge balance off to run it once")
     overrides = getattr(case, "parameterOverrides", None) or {}
     if any(el.componentDefId == "battery.generic"
            and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
            for el in elements):
-        return Refusal("NEW-CELLS", "it does not run a battery built from cells")
+        return Refusal("NEW-CELLS", "a battery built from cells (Pack model 'Cells') does not run "
+                                    "in this version of LightSim yet; set its Pack model to 'Pack values' to run the case")
     from ..validation import value_problems  # (validation imports this package)
     if problems := value_problems(project, case_id):  # (a study's point: Data Checks never saw it)
         return Refusal("NEW-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse a "
-                                     f"single run for; today's engine clamps many such values, a pressure "
-                                     f"or a CG height at 0, a mass at 1 kg, where the new engine would "
-                                     f"read them as typed)")
+                                     f"single run for: bring the value inside them, in the study's range "
+                                     f"if a study set it)")
     try:
         import lightsim_engine  # noqa: F401
     except ImportError:
-        return Refusal("NEW-MISSING", "the new engine is not installed")
+        return Refusal("NEW-MISSING", "the engine module lightsim_engine is not installed; "
+                                      "install LightSim again")
     return None
 
 
