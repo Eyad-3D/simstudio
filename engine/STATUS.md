@@ -620,6 +620,16 @@ one: its failure was the test's own, and is fixed (fix round 3).
   with its p95; a larger p95 is a new slowdown and fails (since 12
   November, fix round 3: before, any p95 over 0.25 s gave XFAIL, 5 s
   too), and so does a run where nothing was measured (`not measured`).
+- `test_stop_latency.py::test_a_study_stops_within_its_mark` (S2's study
+  stop): the same rule since 17 November, with the ceiling 1.5 s
+  (`KNOWN_STUDY_P95_S`). Four Windows CI runs of 17 November gave p95 0.729,
+  0.754, 0.988 and 1.088 s (the last one failed) while the unstopped study
+  took 11.7, 15.3, 22.3 and 22.3 s and the module's own tests 224, 244, 340
+  and 364 s: the wait follows the speed of the runner, not the change under
+  test (the last run's change was to the Engine block; the battery electric
+  car has none, and one run of its WLTC took 1.52 s before and after on one
+  machine). The mark stays 1.0 s; what the stopped study waits for is not
+  changed (point 1 of step 3's list below).
 
 The same run's two licence failures are fixed (12 November): FMPy 0.3.32
 declares no licence in its metadata, so `scripts/licenses/clarifications.json`
