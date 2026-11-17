@@ -21,10 +21,13 @@ test("MOD-43: one click marks the four FS events and runs them; the table says t
   });
   await expect(table).toBeVisible();
   // the four cases are marked; the first event's run was refused, which stops the others
-  await expect(table.getByRole("row", { name: /^Acceleration/ })).toContainText("The run failed: see Messages.");
+  // (the Acceleration row reads the example's stored run, a run of today's engine)
   for (const ev of ["Skidpad", "Autocross", "Endurance"]) {
     await expect(table.getByRole("row", { name: new RegExp(`^${ev}`) })).toContainText("Not run yet.");
   }
+  await showPanel(page, "Problems");
+  await expect(page.getByText("Not run [NEW-FS-EVENT]: ").first()).toBeVisible();
+  await showPanel(page, "Cases & Parameters");
   // the skidpad case keeps its event
   await showPanel(page, "Cases & Parameters");
   // (the page stays on the Simulations tab, whose ribbon has a Case list too: UX-21)

@@ -52,7 +52,6 @@ TODAY = {
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[repair-hybrid-wiring]": BALANCE,
     "test_agent_bench.py::test_the_endurance_energy_to_two_decimals_passes": LAP,
     "test_agent_sandbox.py::test_the_hybrid_example_runs_the_same_under_the_strict_sandbox": BALANCE,
-    "test_agent_sandbox.py::test_lightsim_run_from_the_wheel_runs_a_new_script_in_the_strict_sandbox": BALANCE,
     "test_ai_access.py::test_a_script_project_runs_only_when_trusted_and_confirmed": BALANCE,
     "test_ai_access.py::test_an_agent_session_opens_no_network_socket": BALANCE,
     "test_cli.py::test_both_command_lines_hold_every_run_to_the_strict_sandbox": BALANCE,
@@ -232,8 +231,6 @@ XFAIL = {
     "test_control_rate.py::test_block_with_a_sample_time_runs_at_that_rate_and_holds": TICK,
     "test_signal_wiring.py::test_the_delay_is_what_the_run_does": TICK,
     "test_fmu.py::test_communication_step_holds_outputs_between_steps": TICK,
-    "test_cycles.py::test_a_scaled_cycle_says_so_and_has_no_phase_figures": (
-        "the new path gives a scaled cycle's phase figures, which today's leaves out (open)"),
     "test_engine.py::test_coasting_in_gear_burns_no_fuel_and_co2_follows_the_fuel": (
         "an Engine coasting in gear burns 1.9 g/s on the new engine, where today's cuts the fuel (open)"),
     "test_gear_shifts.py::test_a_shift_keeps_the_angular_momentum_and_books_the_energy_it_loses": (
