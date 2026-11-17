@@ -2016,3 +2016,70 @@ def test_a_table_read_a_tick_moves_past_its_data_is_booked_there(new, monkeypatc
     result = simulate(_hybrid_loss_to_50("error"), "case-udds")
     assert result.status == "failed" and _texts(result)[0].startswith("Not run [NEW-FAILED]"), _texts(result)
     assert "t = 20.2" in _texts(result)[0]
+
+
+def _range_extender(setpoint_kw: float, wired: bool = False, soc_pct: float = 60.0) -> Project:
+    """The tests' fuel cell car: a fuel cell behind a DC-DC converter that
+    delivers its power setpoint into the bus of the battery and the
+    E-Motor (setpoint mode), the setpoint its parameter or, ``wired``, a
+    Constant's on its Power Setpoint input."""
+    from helpers import fuel_cell_car
+    proj = fuel_cell_car(setpoint_kW=0.0 if wired else setpoint_kw)
+    next(e for e in proj.systems[0].elements if e.id == "batt").parameterOverrides[
+        "initial_soc_pct"] = soc_pct
+    if wired:
+        proj.systems[0].elements.append(el("sp", "signal.constant", "Setpoint", value=setpoint_kw))
+        proj.dataBusConnections.append(dbc(40, "sp", "sig_out", "dc", "sig_setpoint_in"))
+    return proj
+
+
+@pytest.mark.parametrize("setpoint_kw, wired, soc_pct", [
+    (1.5, False, 60.0), (25.0, False, 60.0), (25.0, True, 60.0), (120.0, False, 60.0),
+    (25.0, False, 99.5)])
+def test_a_dc_dc_feeding_a_battery_bus_runs_as_today(new, monkeypatch, setpoint_kw, wired, soc_pct):
+    """A DC-DC converter feeding a battery's bus delivers its setpoint, as
+    far as its fuel cell gives it (120 kW: more than its 100 kW) and its
+    battery bus takes it (99.5 %: the battery full within the run, the
+    converter throttles back to what the E-Motor uses), judged by today's
+    engine at 1 ms (where the battery fills, its 10 ms run is 0.1 % off its
+    1 ms run, the new engine 0.02 %). The converter's,
+    the fuel cell's and the tank's channels, the battery's SOC and its
+    power beyond what the E-Motor takes, and the vehicle's speed are
+    today's within 0.5 % of their RMS over every point but the first (the
+    back-to-back diff's floor for a channel; the E-Motor's own power
+    through the acceleration differs from today's by about 1 % of its RMS
+    with no converter on the car too, the motor's difference, not the
+    converter's), and so are
+    the converter's and the fuel cell's energy in, out and lost, within
+    0.1 % (the diff's floor for kWh). Before: refused (BLOCK, setpoint mode)."""
+    from app.solver import core
+    proj = _range_extender(setpoint_kw, wired, soc_pct)
+    with monkeypatch.context() as m:  # (today's at 1 ms, as the back-to-back diff's reference)
+        m.setattr(core, "MAX_SUBSTEP", 0.001)
+        today = _today(proj, "case", monkeypatch)
+    result = simulate(proj, "case")
+    assert result.engine == "new" and result.status == today.status, _texts(result)
+    assert not any("setpoint mode" in t for t in _texts(result))
+    old_s, new_s = ({(c.elementId, c.portId): {p["t"]: p["value"] for p in c.timeSeries}
+                     for c in r.channels} for r in (today, result))
+    for ch in (old_s, new_s):  # what the battery gives beyond what the E-Motor takes: the converter's share
+        bat, mot = ch[("batt", "sig_power")], ch[("mot", "sig_elec_power")]
+        ch[("batt", "less motor")] = {t: bat[t] - mot[t] for t in bat if None not in (bat[t], mot[t])}
+    off_by = {}
+    for key in [("dc", "sig_power_in"), ("dc", "sig_power_out"), ("dc", "sig_losses"),
+                ("batt", "less motor"), ("batt", "sig_soc"), ("fc", "sig_power"), ("h2", "sig_mass"),
+                ("veh", "sig_speed")]:
+        old, got = old_s[key], new_s[key]
+        ts = [t for t in sorted(set(old) & set(got)) if t > 0.0]  # (today's first point is before its first step)
+        assert len(ts) == len(new_s[("veh", "sig_speed")]) - 1, key
+        rms = math.sqrt(sum(old[t] ** 2 for t in ts) / len(ts))
+        off = math.sqrt(sum((got[t] - old[t]) ** 2 for t in ts) / len(ts))
+        if off > 5e-3 * rms + 1e-9:
+            off_by[key] = (off, rms)
+    assert not off_by, off_by
+    # the converter's and the fuel cell's energy rows (before: what each lost went in, nothing out)
+    rows = [{f.elementId: f for f in r.partEnergy} for r in (today, result)]
+    for el_id in ("dc", "fc"):
+        for q in ("energyIn", "energyOut", "losses"):
+            old, got = (getattr(r[el_id], q) for r in rows)
+            assert got == pytest.approx(old, rel=1e-3), (el_id, q, got, old)
