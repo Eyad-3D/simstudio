@@ -23,8 +23,8 @@ is not run again):
   7 November).
 
 Each fault runs four times, through the app's own app.solver.simulate:
-today's engine (LIGHTSIM_ENGINE=today), the new path (LIGHTSIM_ENGINE=new,
-the app's engine, with no fall-back), the new path with a view as the app
+today's engine (LIGHTSIM_ENGINE=today), the new path (the app's
+engine, with no fall-back), the new path with a view as the app
 runs it ("live": every run the app starts has a view), and quick mode (the
 case's mode "quick"). A run refused with a listed code is a run handed back
 (counted by code, never a mismatch; since 17 November the app fails it with

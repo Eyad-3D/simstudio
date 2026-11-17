@@ -1,5 +1,11 @@
 # FS Electric (generic)
 
+**Two of its three cases do not run in this version of LightSim yet.**
+*Acceleration 75 m* runs; *Autocross (flying lap)* and *Endurance energy*
+are lap cases, which the app's engine does not run yet: they fail with
+`Not run [NEW-LAP]`. What this page says about the lap and the endurance
+is what the older engine gave.
+
 **The question it answers:** how fast is a Formula Student electric car
 over 75 m, how long does one lap take, and how much energy does it need
 for the endurance event?

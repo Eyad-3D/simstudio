@@ -57,7 +57,7 @@ come out up to 1.8 % and 1.4 % lower than the full run's (measured on
   starts above 0 N·m, when the supply holds the motor back: a full run
   reads it at 0 N·m there (`QUICK-FAILED`). The tables of a part connected to
   nothing (a battery, a fuel cell, a motor or an engine) are not judged,
-  as a full run leaves the part out.
+  as in a full run's verdict.
 - **No checks of the motion.** The wheels lifting off the road, an
   E-Motor with no live supply and a supply limit holding a motor back are
   not told as a full run tells them; fast mode flags a limit instead (see

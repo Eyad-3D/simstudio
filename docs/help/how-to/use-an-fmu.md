@@ -68,18 +68,19 @@ Select the block. *Properties* shows:
 4. Click **Run**. The block's outputs are recorded: on the *Results* page,
    search for the block's name.
 
-## On the new engine
+## How the engine runs it
 
-With `LIGHTSIM_ENGINE=new` an FMU block runs as a sampled part of the new
-engine, in the same locked-down process. At every multiple of its
+An FMU block runs as a sampled part of the new engine, in the same
+locked-down process. At every multiple of its
 *Communication Step* from the start, the FMU is given its inputs, steps to
 the next multiple and its outputs are read there, as FMI's own tools
 (FMPy, fmusim) step a co-simulation FMU; between those points its outputs
-hold. (Today's engine steps the FMU at a solver step's end, so its outputs
-can be one solver step ahead of the new engine's.) With a Communication
+hold. (The older engine stepped the FMU at a solver step's end, so its outputs
+could be one solver step ahead of the new engine's.) With a Communication
 Step of 0 it exchanges every 10 ms. An FMU's start values and its
 Communication Step changed while a run goes take effect on the next run.
-Quick mode does not run a model with an FMU: such a case runs in full.
+Quick mode does not run a model with an FMU: such a case fails with
+`Not run [QUICK-SAMPLED]`; set the case's mode to full.
 
 ## When something goes wrong
 

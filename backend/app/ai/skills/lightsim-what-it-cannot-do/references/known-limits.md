@@ -4,6 +4,34 @@
 
 Read the full page before relying on a number: https://github.com/Eyad-3D/simstudio/blob/main/docs/KNOWN-LIMITS.md
 
+## Does not run in this version
+
+- **Lap cases** (`NEW-LAP`).
+- **Formula Student events** (`NEW-FS-EVENT`).
+- **A hybrid's charge-balanced case** (`NEW-BALANCE`).
+- **A battery built from cells** (`NEW-CELLS`).
+
+### What else the new engine refuses or stops
+
+- **A value outside its parameter's limits, typed in the case, is refused** (`NEW-LIMITS`).
+- **A part connected to nothing can fail where the older engine left it
+  out.** The older engine builds no part with nothing connected to it (a battery or Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft drives nothing, a Climate Control on nothing) and runs the rest, with a warning from Data Checks.
+- **A table set to Error stops the run in the engine's own words.** The message names the table by its internal name and the time, not in the older words, and a run it stops gives no partial result with its figures marked not valid.
+- **Some notes and rows the older engine wrote are missing** : the note that a motor at its maximum speed holds the car there, the time a Lookup block spent outside its data on *Clamp* or *Linear*, the count of the tables a run read past their data, the *regeneration not recovered* rows behind a one-way DC-DC converter…
+- **Some figures differ from the older engine's by more than the band the
+  two engines are compared at, and no class of difference explains them
+  yet** : the energy of a gear shift, a clutch that never locks exactly, the axle loads under load transfer, a car coasting up a grade (16.66 against 20.39 for the energy test's m g h), an idle car's final SOC (89.9991 % against 90 %), the slip Traction Control holds…
+- **The Engine can still stop a run by switching without end.** An Engine whose fired and not fired states alternate (the P2 Hybrid Car with a live edit across two gear shifts, at t = 4.73 s) or a machine driven to its maximum speed by the car (an E-Motor held there) can stop a run with `RUN-EVENT-STORM` that the older en…
+- **A battery driven to its limits, an empty battery's consumers and a
+  fuel cell behind a one-way DC-DC converter can fail at their start or at
+  t = 0** (`RUN-INIT` at about 2.2 s; `RUN-TABLE` at t = 0): the new engine cannot start again from the state these cases reach.
+- **A model whose loss map has sheets of different range is refused** (`BLOCK`): the older engine counted a read outside the narrowest range, the new engine watches the widest.
+- **The reference suite's coast-down model is a loop the engine cannot solve
+  with its values** (`SINGULAR-LOOP`: the *Brake RL* and *Wheel RL* parts), so the validation page's coast-down rows are not re-measured on the new engine (see What is validated).
+- **A run the engine stops part-way fails with `Not run [NEW-FAILED]`** , even after it showed points: the wording says *Not run* where the run showed, say, 321 s.
+- **A table edited during a live run takes effect on the next run** , and a block's value at an output point is the one after its tick (a Script, FMU or Delay), where the older engine showed the one before.
+- **The MCP server's answer for a run can pass the 20 kB it keeps to** (one is 27 bytes over).
+
 ## Results that can be wrong today
 
 ### Machines and maps at the edge of their data
@@ -20,7 +48,7 @@ A battery delivers power up to its maximum-power point (the most its resistance 
 
 ### Lap mode is a quasi-steady-state estimate
 
-A case of kind *Lap* finds the fastest speed along the Race Track's line about every metre, then drives that speed through the model's motors, gears, brakes and battery.
+**This does not run in this version** (`NEW-LAP`, see Does not run in this version); what follows describes the lap solver of the older engine, which a later version ports.
 
 ### Formula Student points are estimates
 
@@ -32,7 +60,7 @@ A Race Track's *Lift-and-Coast* and *Energy Target* (MOD-44) save energy only by
 
 ### Imported laps are drive cycles against time
 
-**Import lap** (STD-35) makes a lap from a logger or lap simulator into a drive cycle:
+**Import lap** (STD-35) makes a lap from a logger or lap simulator into a drive cycle, which runs as any cycle case does (the *Lap* case kind it can also make does not run in this version, `NEW-LAP`):
 
 ### The Traction Control block is a simple slip loop
 
@@ -40,7 +68,7 @@ The *Traction Control* block (MOD-45) limits one demand for all the motors it fe
 
 ### Lap mode calibration fits two numbers on one lap
 
-**Calibrate lap** (VAL-38) fits only a grip factor and the CzA:
+**Calibrate lap** (VAL-38) runs lap cases, so it does not run in this version (`NEW-LAP`).
 
 ### Signal units are checked, not converted
 
@@ -74,22 +102,20 @@ Point 0 of every run is the initial state at t = 0.
 ### Energy, duty and limit reports
 
 - **A lap case books its gears and friction brakes as the Vehicle's.** In a cycle case every part keeps its own energy books and the *Energy* view shows them part by part, each gear, clutch, brake and wheel included; its *Not accounted for* is only where the books together do not close, the summary's *Energy balance residual*: r…
-- **The duty and the limit band sample every fourth solver step.** They add up every fourth solver step (40 ms at the usual 10 ms), weighted by the time since the last, so their totals cover the whole run, but a duty's highest and lowest value is that of the steps sampled and a state shorter than 40 ms can be missed by the l…
-- **The new engine judges a few checks its own way.** On the new engine (not the default: `LIGHTSIM_ENGINE=new`) a battery's averaged power peak is over every step the engine took, as today's; a motor's or engine's time above its maximum speed is that of a 0.1 s trace of its speed (0.01 s in an acceleration test…
-- **Live runs on the new engine.** With `LIGHTSIM_ENGINE=new` a live run streams each point as the engine records it, and a live edit takes effect at the run's next output point, as an event there (today's engine applies it from the output step its run had reached).
+- **The duty and the limit band come from the engine's integrals and a
+  0.1 s trace.** The duty is taken from the engine's integrals over every step it takes, so its totals cover the whole run; the limit band is read from a 0.1 s trace of the run, each change at the run's own event inside it where there is one, so a state shorter than 0.1 s can…
+- **The new engine judges a few checks its own way.** A battery's averaged power peak is over every step the engine took; a motor's or engine's time above its maximum speed is that of a 0.1 s trace of its speed (0.01 s in an acceleration test); which supply limit held the car back, or cut a consumer back, is rea…
+- **Live runs.** A live run streams each point as the engine records it, and a live edit takes effect at the run's next output point, as an event there.
 - **Quick mode gives a cycle's totals only.** A case in quick mode (*Run mode*: *Quick*) runs on the new engine's fast mode: the cycle's speed is prescribed and the Driver's pedal worked out back from it, every 1 s, so it gives the summary rows that add up over the run (energies, SOC, consumptions, range…
-- **Text components need the new engine and a project file edit.** A part can read its equations from a text file (its `textFile`, see Write a part as text); there is no editor for it in the app, and the file is not kept inside the project (it must be inside the projects folder, links followed, or the run fails with `NEW-TEX…
+- **Text components need a project file edit.** A part can read its equations from a text file (its `textFile`, see Write a part as text); there is no editor for it in the app, and the file is not kept inside the project (it must be inside the projects folder, links followed, or the run fails with `NEW-TEX…
 - **A `when` set exactly at a limit the model holds can stop the run.** In a text component, a `when` that compares a value with exactly a limit the model holds a value at (a counter of the battery's power above 80 kW beside the Accumulator's 80 kW *Output Power Limit*) can stop the new engine with an event storm: once the batter…
-- **FMUs on the new engine step at their own points.** With `LIGHTSIM_ENGINE=new` an FMU is given its inputs at each multiple of its Communication Step, steps to the next and is read there (as FMPy and fmusim run it), where today's engine steps it to the end of the solver step it is in: the two engines' FMU outpu…
+- **FMUs step at their own points.** An FMU is given its inputs at each multiple of its Communication Step, steps to the next and is read there (as FMPy and fmusim run it); the older engine stepped it to the end of the solver step it was in, so an FMU's outputs differ from that engine's by up to…
 - **A run the new engine cannot follow can take minutes to be refused, or
-  not end.** With `LIGHTSIM_ENGINE=new` a run has no time limit unless the caller gives one (the app gives none; the Python module's `time_limit=` does, and its `memory_limit=` is 4 GB when not given, counting the recorded results and the events, not everything the run ho…
-- **A PID or Lookup block with a Sample Time runs on today's engine.** Today's engine runs a PID or Lookup block whose Sample Time is longer than its solver step (10 ms, less for a stiff model) only at multiples of it and holds its output in between; the new engine and quick mode would run it at every step.
-- **A PID at its limit can stop the new engine and quick mode.** A PID block with no Sample Time (or one within today's solver step) whose output sits at its limit for a long stretch of a driving cycle (for example the BEV and aero car on their city, WLTC and UDDS cycles and the hybrid on its UDDS cycle, with a setpoint fa…
-- **A live run can go to today's engine for a table set to Error.** An E-Motor's or Engine's table is read by today's engine only in one branch of the part (an E-Motor's drag table only while it is unpowered); the new engine reads it in every branch and stops a run at its first read past the data when the axis is set to Error…
-- **A case handed back to today's engine shows a warning.** With `LIGHTSIM_ENGINE=new`, a case the new engine fails before its first point runs on today's engine, and the note that says so, with its code, is a warning; so is quick mode's note for a case it runs in full.
-- **The new engine runs only drive-cycle and acceleration cases.** With `LIGHTSIM_ENGINE=new` a case of kind *Performance* (a 0 to 100 km/h step held for 30 s, say) runs on today's engine, saying so with the code `NEW-CASE-KIND`; a lap case does the same with `NEW-LAP`, and with `LIGHTSIM_ENGINE_STRICT=1` each is a coded fai…
-- **A Driver with no P gain can succeed on the new engine.** With `LIGHTSIM_ENGINE=new` a Driver whose *Kp* is 0 follows the cycle (on the BEV, within 1.6 km/h), where today's engine lags it by about 17 km/h and warns.
-- **The new engine runs only values inside their limits.** A study's point can hold a value that Data Checks would refuse for a single run (a negative pressure, a CG height below 0, a wheel's load share of 0): today's engine reads many such values clamped, so with `LIGHTSIM_ENGINE=new` such a point runs on today's en…
+  not end.** A run has no time limit unless the caller gives one (the app gives none; the Python module's `time_limit=` does, and its `memory_limit=` is 4 GB when not given, counting the recorded results and the events, not everything the run holds).
+- **A PID's and a Lookup's Sample Time follow a 10 ms step.** The engine runs a PID block, and a Lookup block with a Sample Time over 10 ms, at the instants the older engine did: every 10 ms step while the Sample Time is within it, otherwise the first step at or after each multiple of the Sample Time, holding the output…
+- **A machine driven to its maximum speed can stop the run.** A motor or engine driven above its maximum speed by something else (a downhill grade, an engine or another motor on its shaft) is not a case of the table stopping the run: the engine reads the motor's full-load and loss maps at its speed held to the maximum (…
+- **A Driver with no P gain can succeed.** A Driver whose *Kp* is 0 follows the cycle (on the BEV, within 1.6 km/h), where the older engine lagged it by about 17 km/h and warned.
+- **A value outside its limits is refused.** A study's point can hold a value that Data Checks would refuse for a single run (a negative pressure, a CG height below 0, a wheel's load share of 0), and so can a case's own Ambient or Vehicle value: the older engine read many such values clamped, the new en…
 - **Fuel energy is a heating value you set.** The fuel's energy is the fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by default; background knowledge, not checked against a source; a model without a Fuel Tank uses that default), and hydrogen's is 119.96 MJ/kg (33.3 kWh/kg).
 - **A wheel's In and Out count both ways.** A wheel's *In* is what its axle gave it while driving and what the car gave it while braking, its *Out* the same the other way, so a wheel that drove and braked shows more than either; its *Lost* (the tyre's slip) is what it lost in both.
 - **A motor's current is its DC current.** The *Duty* view's *DC current* is the motor's electrical power over its bus voltage; the current in the motor's windings (phase current), which sets the inverter's sizing, is not modelled.

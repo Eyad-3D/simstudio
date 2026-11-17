@@ -1,5 +1,10 @@
 # Calibrate lap mode on a logged lap
 
+**This does not run in this version of LightSim yet.** Calibrating runs lap
+cases, which the app's engine does not run yet: **Calibrate lap** fails with
+`Not run [NEW-LAP]`. A later version ports lap mode; the page describes how
+it works then, as it worked on the older engine.
+
 Lap mode's lap times are usually optimistic: it drives an ideal line at
 the tyres' limit. If your car has driven a lap with a data logger, you can
 fit lap mode's grip and downforce to that lap, then check the result on a

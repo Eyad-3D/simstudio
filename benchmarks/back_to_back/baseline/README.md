@@ -1,5 +1,14 @@
 # Step 2's baseline: where the new engine's path stands
 
+*A record of 1 November 2026, kept as it was written. Since the switch-over
+of 17 November 2026 the new engine is the app's engine: `LIGHTSIM_ENGINE=new`
+and `LIGHTSIM_ENGINE_STRICT=1`, which the measurements below ran under, no
+longer exist (the path never falls back, and today's engine is asked for
+by `LIGHTSIM_ENGINE=today`), and the codes `NEW-SAMPLED`, `NEW-LIVE-PID`,
+`NEW-LIVE-ERROR-AXIS` and `NEW-LIVE-RESTART` are gone (`NEW-CASE-KIND` stays
+only as a guard: a performance case now runs). The performance probe's
+refusal below is closed. The acceptance file's dated changes say each step.*
+
 Measured on 1 November 2026 by one command, `python -m benchmarks.back_to_back
 all OUT` (with `LSIM_SCRATCH`, `LSIM_JUDGE_CACHE` and, for the ENERGY line's
 E3, `LSIM_FAST_BIN`, fast mode's runner built from this tree:

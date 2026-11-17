@@ -230,8 +230,8 @@ change makes today's engine more accurate, regenerate it with
 ## Both engines, back to back (step 2)
 
 `benchmarks/back_to_back/` judges the new engine's path into the app
-(`LIGHTSIM_ENGINE=new`, `backend/app/solver/new_engine.py`) against today's
-engine, as step 2 of the roadmap registered it before its first measured
+(the app's engine since 17 November 2026, `backend/app/solver/new_engine.py`)
+against today's engine, which it asks for by name (`LIGHTSIM_ENGINE=today`), as step 2 of the roadmap registered it before its first measured
 run: [`back_to_back/acceptance.toml`](back_to_back/acceptance.toml) lists
 the lines, cases, measures, pass marks, judges and expected refusals.
 
@@ -252,8 +252,8 @@ what needs them is reported as not measured.
 
 It runs every example case (and a few probes) through the app's own
 `simulate` on today's engine at its 10 ms and 1 ms steps and on the new
-engine's path in strict mode (`LIGHTSIM_ENGINE_STRICT=1`: nothing falls
-back), compares every field of the two results (every row, every point
+engine's path (nothing falls back to today's engine; a case the path does
+not run fails with its code), compares every field of the two results (every row, every point
 and every number in a message) against bands measured from today's two
 runs, over the union of what the three runs give, with a ledger per case
 that fails it where anything is left out, and classes every difference

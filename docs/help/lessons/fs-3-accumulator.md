@@ -1,5 +1,10 @@
 # Formula Student 3: size the accumulator
 
+**This lesson does not run in this version of LightSim yet.** It sweeps the
+endurance energy case, a lap case, which the app's engine does not run yet
+(`Not run [NEW-LAP]`). A later version ports lap mode; the lesson describes
+how it works then.
+
 The third Formula Student lesson. You trade endurance time against
 energy with the power limit, find how many cells in parallel the car
 needs to finish, and keep the results for your design review. It takes

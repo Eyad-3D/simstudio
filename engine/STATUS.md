@@ -1,5 +1,13 @@
 # New engine: status of the work packages (15 October 2026)
 
+*Since 17 November 2026 the new engine is the app's engine, with no fall-back
+to today's: the last section, "The switch-over", says what was done, what is
+refused and what is open. The sections before it are dated records; where
+they say the new engine is opt-in, not in the installer, or that a case
+falls back to today's engine or is refused with `NEW-CASE-KIND`,
+`NEW-SAMPLED`, `NEW-LIVE-ERROR-AXIS`, `NEW-LIVE-PID` or `NEW-LIVE-RESTART`,
+that was the state at their date.*
+
 The six packages of DESIGN.md §16 are built on their own branches and
 merged as they finish. On 15 October 2026 all six were merged together
 (each package's latest round): every engine test passes (386), the
@@ -250,9 +258,10 @@ own before such a case is registered; no planted fault hidden, 20 of them now a 
   no holds included (at 0.706 s here, and at 0.210 s at 1e-8); at 1e-4
   it does not stop but counts 125 to 135 firings, by build (125 at 88b5e2f, 135 at 4d24528); since step 3 the model's preparation warns
   of it (`WHEN-AT-LIMIT`, naming the `when`'s part, the part holding the
-  value and the limit). Neither reaches a user today: users run today's
-  Python engine, the new one is opt-in and not in the installer, no
-  library component has a `when` on a solved value, the golden cars make
+  value and the limit). Neither reached a user then (20 October; since 17 November the new
+  engine is the app's and a text component is a project file edit away):
+  users ran today's Python engine, the new one was opt-in and not in the
+  installer, no library component has a `when` on a solved value, the golden cars make
   no hold, diffsol is not selectable, and an equation-text part (step
   2's text components, merged 10 November 2026) runs only on the new
   engine, from a project file edit. Also known: a mode and a `when` on
@@ -404,7 +413,8 @@ outside (`engine/judge`: `msl-pid-controller` and `driver.py`).
   for 1.9 t), not the Driver's. The library's PID block (`control.pid`)
   keeps today's conditional integration as a mode (the app documents
   that its sum stops growing at a limit), so a loop that slides along
-  its limit stops there as a named storm. Only the Battery Electric Car
+  its limit stops there as a named storm (fixed on 17 November: the PID is now
+  today's discrete controller, see "The switch-over"). Only the Battery Electric Car
   was mapped. The rule is read on a 0.1 s output grid (an occasion's
   length known to a step; 1 s on the 83 042 s long-haul cycle). SAE
   J2951's drive-quality metrics, which 1066.425(j) asks for, are not
@@ -768,3 +778,164 @@ Step 3's four pieces are merged: the hard problems, the below-zero watch at a cu
 4. **`DESIGN.md` has no section** on the below-zero warning or on the step limit counted over a run.
 5. **A run the integrator cannot follow** can take minutes to be refused, or not end, and the app sets no time limit (the fuzzing section's last paragraph; `docs/KNOWN-LIMITS.md`).
 6. **The fuzzing ran on Linux only**, and its hours did not exhaust three of the four targets (coverage still grew a little at the 12 h cap).
+
+## The switch-over: the new engine is the app's engine (17 November 2026)
+
+The owner decided on 20 October, 7 November and 16 November 2026: the new
+engine becomes the app's engine with no fall-back to today's. Four features
+stay refused, each with its code and a message, until they are ported: lap
+cases (`NEW-LAP`), Formula Student events (`NEW-FS-EVENT`), a hybrid's
+charge-balanced case (`NEW-BALANCE`) and a battery built from cells
+(`NEW-CELLS`). Today's code stays in the repository (the new path uses its
+model builder and its result-judging code; `LIGHTSIM_ENGINE=today` runs it
+for developers and for the both-engines comparison; a replay of a run stored
+from it runs on it) but no run of the app uses it. There is no public
+release: the lane ends with a Windows installer the owner tries. The work
+was one lane, `work/switch`, in five pieces (the sixth, an independent check,
+comes after this one).
+
+**1. The installer holds the engine** (`fba6de6`, `45494dd`, `75723a2`). The
+build compiles the Rust module `lightsim_engine` with maturin, installs it
+and freezes it into the backend (`LIGHTSIM_FREEZE_ENGINE=1` stops the freeze
+when it is missing); the notices list the module as LightSim's own file with
+163 third-party Rust crates, SUNDIALS 7.1.1, CORE-MATH and musl's fma (all
+permissive). Windows: the installer build, its silent and MSI installs, the
+click-through and the smoke test (engine `new` on every run) passed on the
+first dispatch (run 43960421157); the build went from 16 to 22 minutes and
+the installer artifact from 269.9 to 309.6 MB.
+
+**2. Performance cases run on the new path** (`d9b818f`, `2df6e3b`,
+`899ecea`). The library Driver has a performance variant: full throttle
+until the speed first reaches the target, then its PI command (the integral
+frozen while the throttle is forced; one line, an error of 1e-9 m/s, both
+forces the throttle and latches the target as reached, because a split line
+chatters into a `RUN-EVENT-STORM`). The probe's time to 100 km/h is 7.123 s
+against today's 7.126 s (1 ms step; 7.102 s at 10 ms); 14 of 15 performance
+cases agree within the band of today's own 10 ms and 1 ms runs, and the
+hybrid's 80 to 120 km/h test (12.36 s against 10.41 s) was an initial-state
+difference of the Engine, fixed on the main work branch (an engine's clutch that a
+controller commands starts open: 10.420 s). A found defect was fixed with it:
+the new path ignored a case's end Distance and Laps for every kind but
+acceleration (a city cycle to 3000 m ran 7.29 km and 600 s; now 3.0 km and
+195.009 s, today's 195.01 s). The back-to-back harness has a probe for it.
+
+**3. PID and Lookup blocks, tables in unused branches** (`ac48390`,
+`db66884`, `2450432`). The cause of `NEW-LIVE-PID` was the block: a continuous
+PID whose anti-windup was a mode that drove the state onto its own boundary,
+which the run loop can switch only at an event (an event storm at 309.4 s on
+the BEV's city case). The PID is now today's discrete controller (a sampled
+sub-block, 10 ms or its Sample Time), and a Lookup with a Sample Time over
+10 ms holds its inputs at today's instants, sampling 1 ns after each so that
+an output point holds the value before the tick, as today's. An axis set to
+Error now stops a run only where the branch that reads the table is taken
+(`RunInfo.table_when`, `Loop::read_in_use`): the E-Motor's drag table, the
+Engine's three fuel-map reads and the Climate's demand table. Both-engines
+sweeps: 105 sampled faults and 772 Error-axis faults, 0 mismatched runs;
+the 173 runs where today's succeeds and the new one stops are all parts
+connected to nothing, which today's engine leaves out. Golden comparison 0
+differences in 11,347 values throughout.
+
+**4. The default** (`b28c855` and the commits after it). With the variable
+unset every case runs on the new engine; a case it does not run, or that it
+refuses or stops, fails with *Not run* and its code, and nothing falls back.
+`LIGHTSIM_ENGINE_STRICT`, the fall-back branches, the restart of a live run
+and the AI tools' `progress_only` emit were removed. Quick mode refuses what
+it cannot run instead of running it in full. Windows CI is true and green on
+it (run 44161342487, every job; the installer build 44161347642): Linux
+backend 2389 passed, 29 skipped, 82 expected failures; Windows 2339 passed,
+80 skipped, 81 expected failures; the browser tests 196 passed and 9 marked
+as expected failures; the smoke test reports engine `new` on every run.
+Before the flip the suite, on today's engine, was 2445 passed, 1 failed (the
+known Reference-FMUs version test), 15 skipped, 2 expected failures; the
+first run after it 352 failed and 206 errors, sorted by cause into
+`backend/tests/engine_marks.py`: 179 tests of the four features and 58 of
+today's own workings run on today's engine (the reference for the port), 40
+expected values replaced after each was checked to lie inside the two engines'
+band (`scratch/lanes/switch-expected-changes.md`), 83 defects of the new path
+recorded as strict expected failures with their codes. Two root fixes with
+the flip: the lab and fuel rows ignored a case's own battery and tank values
+(a 50 % charger gave 12.92 kWh/100 km instead of 22.23), and a scaled or
+repeated bundled cycle got phase rows it should not have.
+
+**5. The documents** (this piece). Merged first: the main work branch's 10
+newer commits (the Driver's wired inputs in an acceleration test, a DC-DC
+converter feeding a battery bus, the Engine's rev limiter held in a band, the
+study-stop ceiling), no conflicted file; 11 of the expected failures they
+fixed pass now and their marks are removed (6 acceleration tests, 2 fuel cell
+tests, the hybrid's low-battery test, the rev limiter test, one limiter test);
+the reasons of six others they changed are updated, and one test, which reads today's
+integrator row, moved to the group that runs on today's engine. The pages that say
+what runs: `docs/KNOWN-LIMITS.md` (a section "Does not run in this version",
+the refusals and defects below, the bullets the PID, Sample Time, table and
+performance work removed), its copy in the AI pack, the README (how a
+developer builds the module, `LIGHTSIM_ENGINE=today`), CONTRIBUTING, the help
+pages and the in-app texts of the four features, the validation page (the new
+engine's eight gaps, mean 4.1 %, largest 7.5 %; its exact-answer tier does
+not run), the release notes, `DESIGN.md` §13's account of the app and the
+back-to-back harness's documents.
+
+**What is refused.** The four features above; `NEW-LIMITS` (a value outside
+its parameter's limits, a study's point or a case's own Ambient or Vehicle
+value, which today's engine clamped and Data Checks never see); the engine's
+own refusals and stops (`NEW-FAILED` with its codes); quick mode's
+`QUICK-*` codes. Two refusals beyond the owner's four, an acceleration test of a car whose
+Driver has Target Speed linked (`PORT-NOT-MAPPED`) and a DC-DC converter
+feeding a battery bus (`BLOCK`), were fixed on the main work branch.
+
+**What is open** (each with its evidence in the piece's notes; none blocked
+the switch):
+
+- The expected failures of `backend/tests/engine_marks.py` that remain: the Engine's fired switch and a machine at its maximum speed (a
+  `RUN-TABLE` stop now), tables stopping in the engine's own words and
+  giving no partial result, the reference suite's coast-down model
+  (`SINGULAR-LOOP`: the validation page's exact-answer tier), a battery driven
+  to its limits and an empty battery's consumers (`RUN-INIT`), notes and rows
+  today's engine wrote and the new path does not, and 26 tests whose numbers no
+  class explains (gear shifts, load transfer, coasting up a grade, a clutch
+  that never locks exactly, Traction Control, an Engine coasting in gear).
+- `NEW-LIMITS` as an input guard, or clamping as today's engine did: the
+  owner's call. So is a part connected to nothing, which today's engine leaves
+  out and the new one builds (a lone E-Motor fails `RUN-INIT`, a lone Climate
+  Control `STRUCT-OVER`).
+- The four features' screens are unchanged (a Lap case kind, the FS events
+  button and points table, the endurance study, Charge balance, Pack model
+  *Cells*, lap calibration): hiding or greying them is the owner's choice;
+  they carry a sentence saying they do not run yet. The P2 Hybrid example's
+  three cycle cases are charge-balanced and refused, so opening it and pressing
+  Run fails; only its live case runs. Quick mode refuses a case it cannot run
+  where it used to run it in full: the owner may prefer the run in full.
+- Stored results of the examples and the six Results screenshot baselines show
+  today's engine's runs; storing and regenerating them from the new engine is
+  the lead's call (the regeneration commits from the CI runner without the
+  lane's trailer line).
+- The Engine's drag table is read in a variable of its own, so with its axis on
+  Error it still stops a run where the engine is fired past the table's
+  speeds; putting the read in its branch moves the hybrid's golden values by
+  rounding (169 per case, about 1e-8): a re-baseline decision. The performance
+  Driver's 1e-9 m/s line is a difference in kind from today's exact
+  comparison. On a stiff model today's engine steps at 10/n ms; the new
+  engine's PID and Lookup sampling stay at 10 ms (not measured). A live edit
+  of a Traction Control or Script block's parameters is reported as made and
+  never read by its host (found by reading, not run). The 1 ns sampling that
+  makes an output point show the value before a tick covers the PID and the
+  held Lookup only: a Script or Traction Control block with a Sample Time on
+  the output grid shows the value after.
+- A case that ends at a Distance runs to the whole duration first and again to
+  the finish (up to twice the time; live, the second only, its progress ending
+  at the share of the duration). Nine runs of the hard harness (`ivp-emep`)
+  stop with `RUN-NOT-FINITE` since the per-point not-a-number stop of the
+  fuzz lane; the same stop could refuse an app run whose unused branch is
+  infinite at an output time. A run the engine stops after streaming points
+  says *Not run*.
+- Build and CI: the Rust build of the module (6, 5 and 3 minutes in three
+  jobs) is not cached; the committed `THIRD-PARTY-NOTICES.txt` lacks six
+  native-library entries that CI's Linux Python has (the licences job warns
+  and every desktop build rewrites the file); NumPy 2.5.5 on Python 3.12 fails
+  the notices check; maturin's bill of materials puts the build machine's
+  paths in the wheel; the engine's and the notices' licence lists differ on
+  MIT-0 and BSL-1.0; the notices file grew from 438 KB to 1.2 MB; the local
+  build scripts were not run on Windows. The study-stop test on Windows ran
+  at p95 0.78 to 1.23 s against its 1.0 s mark (a known issue with the
+  ceiling 1.5 s). `scripts/mcp/launcher.js` and `matlab/lightsim_run.m` read
+  `LIGHTSIM_ENGINE` as the path of an installed engine, a name clash that is
+  harmless (any value but `today` means the new engine).
