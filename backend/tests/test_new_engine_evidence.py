@@ -1605,7 +1605,9 @@ def test_every_table_read_of_the_engine_has_a_rule():
     for k, r in new_engine.BRANCH_READS.items():
         for reads, today in r.axes:
             assert today in (new_engine.SAME, new_engine.NEVER) or callable(today), k
-            assert today != new_engine.SAME or len(reads) == 1, k  # (the engine's one read)
+            # (the engine's one read; a Lookup's in each of its two forms: at its
+            # inputs, or held between samples with a Sample Time over today's step)
+            assert today != new_engine.SAME or len(reads) == 1 or k == ("signal.lookup", "table"), k
 
 
 def _fuel_cell_bev(cut: float, load_kw: float, outside: str = "clamp") -> Project:
@@ -1899,33 +1901,41 @@ def _out(result) -> dict:
     return {round(p["t"], 6): p["value"] for p in ch.timeSeries}
 
 
+@pytest.mark.parametrize("sample", [0.0, 0.015, 0.5, 5.0])
 @pytest.mark.parametrize("block", ["lookup", "pid"])
-@pytest.mark.parametrize("quick", [False, True])
-def test_a_pid_or_lookup_with_a_sample_time_runs_on_today_s_engine(new, monkeypatch, block, quick):
-    """A PID or Lookup with a Sample Time of 5 s: today's engine holds its
-    output between samples; the new engine would run it at every step. The
-    new path refuses it (NEW-SAMPLED), quick mode too (QUICK-SAMPLED), so it
-    runs on today's engine with today's outputs (before: the new engine's
-    outputs, which differ between samples, and no code)."""
-    proj = _sampled(block, 5.0)
-    today = _today(proj, "case-city", monkeypatch)
-    code = "QUICK-SAMPLED" if quick else "NEW-SAMPLED"
-    if quick:
-        next(c for c in proj.cases if c.id == "case-city").mode = "quick"
-    strict = simulate(proj, "case-city")
-    assert _texts(strict)[0].startswith(f"Not run [{code}]"), _texts(strict)
-    monkeypatch.delenv(new_engine.STRICT_VAR)
+def test_a_pid_or_lookup_runs_on_the_new_engine_with_today_s_outputs(new, monkeypatch, block, sample):
+    """A PID (today's discrete law at today's 10 ms step, or at its Sample
+    Time) or a Lookup with a Sample Time: the new engine samples it at the
+    instants today's engine does and holds its output between samples, so
+    every output point is today's (before: the new path refused a Sample
+    Time over the step, NEW-SAMPLED, and ran the PID in continuous time,
+    0.0 s here 0.1 at its first point against today's 0.2 on the 5 s
+    sampled PID in lsim-project's tests). The output's first point, which
+    today's engine records before its first step while the block still
+    reads 0, is left out."""
+    proj = _sampled(block, sample)
+    today = _out(_today(proj, "case-city", monkeypatch))
     result = simulate(proj, "case-city")
-    assert result.engine != "new" and f"[{code}]" in _texts(result)[0]
-    assert _out(result) == _out(today)
-
-
-def test_a_sample_time_within_today_s_solver_step_runs_on_the_new_engine(new):
-    """A Sample Time no longer than today's solver step (10 ms): today's
-    engine runs the block at every step, so the new path runs the case."""
-    result = simulate(_sampled("lookup", 0.005), "case-city")
     assert result.engine == "new", _texts(result)
-    assert new_engine.held_block(_sampled("pid", 0.01), _sampled("pid", 0.01).cases[0]) is None
+    got = _out(result)
+    assert set(got) == set(today)
+    # within the both-engines comparison's band for a sampled block's output
+    # (benchmarks/back_to_back/sweep.py OUTPUT_BAND: 2 % of its range): the
+    # car's speed it reads differs between the engines by their own causes
+    band = 0.02 * (max(today.values()) - min(today.values()))
+    worst = max(abs(got[t] - today[t]) for t in today if t > 0)
+    assert worst <= band, (worst, band)
+
+
+def test_quick_mode_runs_no_pid_and_no_held_lookup():
+    """Quick mode (the engine's fast mode) runs no sampled part: a PID, or a
+    Lookup with a Sample Time over today's step (QUICK-SAMPLED); one within
+    the step it runs."""
+    for block, sample, code in (("pid", 0.0, "QUICK-SAMPLED"), ("lookup", 5.0, "QUICK-SAMPLED"),
+                                ("lookup", 0.01, None)):
+        proj = _sampled(block, sample)
+        why = new_engine.quick_unsupported(proj, "case-city")
+        assert (why.code if why else None) in (code, "QUICK-KIND"), (block, sample, why)
 
 
 def test_each_table_rule_reads_only_the_variables_it_traces():

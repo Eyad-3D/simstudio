@@ -1819,8 +1819,8 @@ def test_the_sweep_counts_a_live_run_the_new_path_fails_as_a_mismatch(tmp_path):
     assert "[NEW-LIVE-RESTART]" not in long["first"]
     assert sweep.compare("table:x", "live", ok, long) == {"handed": "NEW-LIVE-RESTART"}
     said = ok | {"first": "Run on today's engine, not the new one (LIGHTSIM_ENGINE=new) "
-                                             "[NEW-SAMPLED]: x."}
-    assert sweep.compare("table:x", "live", ok, said) == {"handed": "NEW-SAMPLED"}
+                                             "[NEW-CELLS]: x."}
+    assert sweep.compare("table:x", "live", ok, said) == {"handed": "NEW-CELLS"}
     unsaid = ok | {"first": "The new engine could not run this case (x); it ran on today's engine instead."}
     (d,) = sweep.compare("table:x", "live", ok, unsaid)["diffs"]
     assert "no listed code" in d

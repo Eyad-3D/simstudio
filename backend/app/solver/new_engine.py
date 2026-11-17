@@ -100,15 +100,6 @@ CODES = {
     "NEW-ERROR": "an exception that is not the engine's own refusal",
     "NEW-TEXT": "a part from a text file in a case the path does not run, or whose file it cannot read "
                 "(today's engine reads none)",
-    "NEW-SAMPLED": "a PID or Lookup block with a Sample Time longer than today's solver step (today's "
-                   "engine holds its output between samples; the new engine runs it at every step)",
-    "NEW-LIVE-ERROR-AXIS": "a live run of a project with a table that today's engine reads only in one "
-                           "branch of its part, with an axis set to Error whose data does not cover every "
-                           "value the new engine reads it at (a live run that has shown points cannot "
-                           "start again on today's engine)",
-    "NEW-LIVE-PID": "a live run of a project with a PID block the new engine runs at every step, which "
-                    "can stop it at its limit (RUN-EVENT-STORM) where today's engine finishes (a live "
-                    "run that has shown points cannot start again on today's engine)",
     "NEW-LIVE-RESTART": "a run with a view that the new engine stopped after it had shown points, with no "
                         "Stop or live edit read: it starts again at t = 0 on today's engine, and the "
                         "view is told to drop the points it has",
@@ -116,7 +107,7 @@ CODES = {
     "QUICK-NOT-FOUND": "quick mode: the case is not in the project",
     "QUICK-KIND": "quick mode: a case that drives no drive cycle",
     "QUICK-SAMPLED": "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control, a "
-                     "PID or Lookup with a Sample Time longer than today's solver step)",
+                     "PID, a Lookup with a Sample Time longer than today's solver step)",
     "QUICK-CELLS": "quick mode: a battery built from cells",
     "QUICK-LIMITS": "quick mode: a value outside its parameter's limits",
     "QUICK-MISSING": "quick mode: the module lightsim_engine is not installed",
@@ -157,8 +148,6 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
     the case fails with the reason's code)."""
     why = unsupported(project, case_id)
     view = emit is not None and not getattr(emit, "progress_only", False)
-    if why is None and view:
-        why = live_error_axis(project, case_id)
     if why is None:
         # what a live run did that today's engine, run instead from t = 0,
         # would undo: "shown" (a point or a note to a live view: an emit not
@@ -218,63 +207,6 @@ def simulate(project: Project, case_id: str, emit: Optional[EmitFn],
         level="info", text=f"Run on today's engine, not the new one ({ENV_VAR}=new) "
                            f"[{why.code}]: {why.why}."))
     return result
-
-
-def live_error_axis(project: Project, case_id: str) -> Optional[Refusal]:
-    """A live run's refusal, decided before the run (nothing is run first,
-    so a Stop is read from the start): a table that today's engine reads
-    only in one branch of its part (BRANCH_READS) with an axis set to Error
-    whose data does not cover every value the new engine reads it at, which
-    it reads in every branch (_covers): the new engine would stop at its
-    first read past the data, today's only when its own read is, and a live
-    run that has shown points is not run again on today's engine. Or a PID
-    block the new engine runs at every step (one with a longer Sample Time
-    is refused before, NEW-SAMPLED): at its limit for a long stretch it can
-    stop the new engine (RUN-EVENT-STORM) where today's engine finishes."""
-    pid = next((el for s in project.systems for el in s.elements if el.componentDefId == "control.pid"), None)
-    if pid is not None:
-        return Refusal("NEW-LIVE-PID", f"the PID block {pid.label!r}, which the new engine runs at "
-                                       f"every step, can stop it at its limit (RUN-EVENT-STORM)")
-    try:
-        ctx = _context(project, case_id)
-    except Exception:  # noqa: BLE001 — the run says it (NEW-BUILD)
-        return None
-    for (el_id, key), m in ctx.maps.items():
-        rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, key))
-        for a in m.error_axes:
-            if rule is not None and a < len(rule.axes) and rule.axes[a][1] not in (SAME, NEVER) \
-                    and not _covers(ctx, el_id, key, a):
-                lo, hi = m.ranges[a] or (0.0, 0.0)
-                return Refusal("NEW-LIVE-ERROR-AXIS", (
-                    f"{m.name}: its {m.uses[a].axis} axis is set to Error and its data ({lo:g} to "
-                    f"{hi:g} {m.uses[a].unit}) does not cover every value the new engine reads it at "
-                    f"(today's engine reads it {rule.where})"))
-    return None
-
-
-def _covers(ctx, el_id: str, key: str, axis: int) -> bool:
-    """Whether a table's axis covers every value the new engine reads it
-    at, in every branch of its part: an E-Motor's full-load torque and loss
-    map from 0 to its maximum speed (above it the inverter is off: see
-    KNOWN-LIMITS for a motor driven above it), its loss map from 0 to the
-    most torque it gives or takes (its full-load torque, as a generator
-    times its Q4 share, or its drag torque; with no axis of those two set
-    to Linear, which reads past their values); an Engine's fuel map between
-    its full-load curve's first and last speed (it is read at its speed held
-    there) and from 0 to its most full-load torque. Any other: False."""
-    m = ctx.maps[(el_id, key)]
-    mc, ec = ctx.motors.get(el_id), ctx.engines.get(el_id)
-    if mc is not None and (key, axis) in (("full_load_torque", 1), ("power_loss", 0)):
-        lo, hi = 0.0, mc.max_rpm
-    elif mc is not None and (key, axis) == ("power_loss", 1) and not any(mc.full_load.linear + mc.drag.linear):
-        fl = max(v for _, row in mc.full_load.pts for _, v in row) if len(mc.full_load.policy) == 2 \
-            else max(v for _, v in mc.full_load.pts)
-        lo, hi = 0.0, max(abs(fl) * max(1.0, abs(mc.q4_scale)), max(abs(v) for _, v in mc.drag.pts))
-    elif ec is not None and key == "fuel_map" and ec.full_load.ranges[0] is not None:
-        lo, hi = ec.full_load.ranges[0] if axis == 0 else (0.0, max(v for _, v in ec.full_load.pts))
-    else:
-        return False
-    return m.edge(axis, lo) is None and m.edge(axis, hi) is None
 
 
 def _ran(result: SimResult, project: Optional[Project] = None) -> SimResult:
@@ -391,12 +323,12 @@ def quick_unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     if balance.applies(project, case):
         return Refusal("QUICK-BALANCE", "it does not charge-balance a hybrid's case (set Charge "
                                         "balance off to run it once)")
-    sampled = next((el for el in elements if el.componentDefId in SAMPLED), None)
+    sampled = next((el for el in elements if el.componentDefId in SAMPLED + ("control.pid",)), None)
     if sampled is not None:
         return Refusal("QUICK-SAMPLED", f"it runs no sampled part (a Script, an FMU, a Traction "
-                                        f"Control: {sampled.label!r})")
+                                        f"Control, a PID: {sampled.label!r})")
     if (held := held_block(project, case)) is not None:
-        return Refusal("QUICK-SAMPLED", f"it runs every block at every step, and {held}")
+        return Refusal("QUICK-SAMPLED", f"it runs no sampled part, and {held}")
     overrides = getattr(case, "parameterOverrides", None) or {}
     if any(el.componentDefId == "battery.generic"
            and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
@@ -413,33 +345,37 @@ def quick_unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     return None
 
 
-HELD = ("control.pid", "signal.lookup")  # the blocks today's engine samples that the new engine runs
+HELD = ("control.pid", "signal.lookup")  # the blocks today's engine samples at their Sample Time
+TODAY_STEP = 0.01  # today's solver step, s (core.MAX_SUBSTEP): the step the engine samples them at
+
+
+def _sample_time(project: Project, case, el_id: str) -> float:
+    """A part's Sample Time, s, with the case's own values over the part's."""
+    overrides = getattr(case, "parameterOverrides", None) or {}
+    el = next(e for s in project.systems for e in s.elements if e.id == el_id)
+    return float({**el.parameterOverrides, **overrides.get(el_id, {})}.get("sample_time_s") or 0)
+
+
+def _sampling(kind: str, ts: float) -> float:
+    """How the new engine samples a PID or Lookup of Sample Time ts (its
+    host's time step, or 0 for a Lookup it reads at every step), as today's
+    engine at its 10 ms step: a PID at its Sample Time or at every step, a
+    Lookup held only with a Sample Time over the step."""
+    if kind == "control.pid":
+        return max(ts, TODAY_STEP)
+    return ts if ts > TODAY_STEP else 0.0
 
 
 def held_block(project: Project, case) -> Optional[str]:
-    """A PID or Lookup block whose Sample Time is longer than today's solver
-    step, in words, or None: today's engine runs it only at multiples of its
-    Sample Time and holds its output in between (domains.ControlSlave), the
-    new engine and its fast mode run it at every step."""
-    from . import core  # (core imports this module; its solver step, as today's run takes it)
-    from .stability import solver_step
-
-    overrides = getattr(case, "parameterOverrides", None) or {}
-    timed = [(el, float({**el.parameterOverrides, **overrides.get(el.id, {})}.get("sample_time_s") or 0))
-             for s in project.systems for el in s.elements if el.componentDefId in HELD]
-    timed = [(el, ts) for el, ts in timed if ts > 0]
-    if not timed:
-        return None
-    try:
-        choice = solver_step(build_model(project, {}, overrides), core.MAX_SUBSTEP)
-    except ModelError:
-        return None  # (the path says it: NEW-BUILD)
-    step = choice.step if choice else core.MAX_SUBSTEP
-    el, ts = max(timed, key=lambda x: x[1])
-    if ts <= step:
-        return None
-    return (f"today's engine holds the output of {el.label!r} between its samples (its Sample Time "
-            f"{ts:g} s, today's solver step {step * 1000:g} ms)")
+    """A Lookup block whose Sample Time is longer than today's solver step,
+    in words, or None: the new engine holds its output between samples as
+    today's engine does (a sampled part, which quick mode does not run)."""
+    for el in (e for s in project.systems for e in s.elements if e.componentDefId == "signal.lookup"):
+        ts = _sample_time(project, case, el.id)
+        if _sampling(el.componentDefId, ts):
+            return (f"the Lookup {el.label!r} holds its output between its samples (its Sample Time "
+                    f"{ts:g} s, today's solver step {TODAY_STEP * 1000:g} ms)")
+    return None
 
 
 class Undecided(Exception):
@@ -611,8 +547,6 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
            and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
            for el in elements):
         return Refusal("NEW-CELLS", "it does not run a battery built from cells")
-    if (held := held_block(project, case)) is not None:
-        return Refusal("NEW-SAMPLED", f"it runs every block at every step, and {held}")
     from ..validation import value_problems  # (validation imports this package)
     if problems := value_problems(project, case_id):  # (a study's point: Data Checks never saw it)
         return Refusal("NEW-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse a "
@@ -1026,13 +960,12 @@ class _Live:
                                   "new engine")
             if not isinstance(value, (bool, int, float, str)):  # (the app sends no other)
                 raise _Later("a table takes effect on the next run on the new engine")
-            if key == "sample_time_s" and model.cdef_of[el_id].id in HELD and isinstance(value, (int, float)):
-                trial = self.edits.project.model_copy(deep=True)
-                case = next(c for c in trial.cases if c.id == self.edits.case_id)
-                case.parameterOverrides.setdefault(el_id, {})[key] = value
-                held = held_block(trial, case)
-                if held:  # (the next run starts on today's engine for it: NEW-SAMPLED)
-                    raise _Later(f"{held}: it takes effect on the next run, which runs on today's engine")
+            kind = model.cdef_of[el_id].id
+            if key == "sample_time_s" and kind in HELD and isinstance(value, (int, float)):
+                case = next(c for c in self.edits.project.cases if c.id == self.edits.case_id)
+                if _sampling(kind, _sample_time(self.edits.project, case, el_id)) != _sampling(kind, value):
+                    raise _Later("a Sample Time that changes when it samples takes effect on the next "
+                                 "run (the new engine samples at the times the run started with)")
             changes = self.edits.changes(el_id, key, value)
             if changes:
                 try:
@@ -1721,7 +1654,8 @@ BRANCH_READS = {
     # its Table 1D, or its Table 2D in the Mode 2D (the verdict leaves it to
     # its summary rows: a controller's own schedule, core.judged_uses)
     ("signal.lookup", "table"): Reads(
-        "at its inputs", ((("sig_x_in",), SAME), (("sig_y_in",), SAME)),
+        "at its inputs (held between samples, with a Sample Time over today's step)",
+        ((("sig_x_in", "hold.x_out"), SAME), (("sig_y_in", "hold.y_out"), SAME)),
         key=lambda p: "table_2d" if str(p.get("mode", "1D")) == "2D" else "table_1d"),
     ("signal.driving_task", "profile"): Reads(
         "as the speeds it asks for, not as a part's data", ((("x",), NEVER),)),

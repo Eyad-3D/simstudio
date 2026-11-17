@@ -284,7 +284,6 @@ def test_every_refusal_has_its_code():
             _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
         "NEW-BALANCE": new_engine.unsupported(load_example("hybrid-car"), "case-udds"),
         "NEW-CELLS": new_engine.unsupported(cells, WLTC),
-        "NEW-SAMPLED": new_engine.unsupported(sampled, WLTC),
         "NEW-LIMITS": new_engine.unsupported(studies._point_project(
             load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),
         # quick mode's (a case's mode "quick")
@@ -303,9 +302,11 @@ def test_every_refusal_has_its_code():
     assert new_engine.unsupported(fmu, WLTC) is None or new_engine.unsupported(fmu, WLTC).code == "NEW-MISSING"
     assert new_engine.quick_unsupported(fmu, WLTC).code == "QUICK-SAMPLED"
     assert new_engine.quick_unsupported(sampled, WLTC).code == "QUICK-SAMPLED"
+    # a PID or Lookup with a Sample Time runs on the new engine (sampled and held as today)
+    assert new_engine.unsupported(sampled, WLTC) is None or new_engine.unsupported(sampled, WLTC).code == "NEW-MISSING"
     assert set(seen) | {"NEW-MISSING", "NEW-BUILD", "NEW-FAILED", "NEW-ERROR", "NEW-TEXT", "QUICK-MISSING",
                         "QUICK-BUILD", "QUICK-FAILED", "QUICK-TABLE-TIME", "QUICK-ERROR",
-                                "NEW-LIVE-ERROR-AXIS", "NEW-LIVE-PID", "NEW-LIVE-RESTART"} == set(new_engine.CODES)
+                                "NEW-LIVE-RESTART"} == set(new_engine.CODES)
 
 
 def test_a_failure_is_coded_by_who_refused():
