@@ -35,7 +35,6 @@ def user_folder(tmp_path, monkeypatch):
     # the projects folder is tmp_path: a text file must be inside it
     monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path))
     monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
-    monkeypatch.delenv(new_engine.STRICT_VAR, raising=False)
 
 
 def _sha(result) -> str:
@@ -61,7 +60,6 @@ def test_a_part_read_from_its_text_file_gives_the_built_in_parts_result(tmp_path
     lightsim_engine.part_text) in a file: on the new path the whole result
     is the built-in part's, its SHA-256 the same."""
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
     plain = simulate(load_example("bev-car"), CITY)
     proj = _with_text("bev-car", CITY, "el-battery", tmp_path / "battery.mo")
     assert new_engine.read_texts(proj) == {"el-battery": (tmp_path / "battery.mo").read_text(encoding="utf-8")}
@@ -71,10 +69,11 @@ def test_a_part_read_from_its_text_file_gives_the_built_in_parts_result(tmp_path
 
 
 @needs_engine
-def test_the_file_is_read_and_without_the_flag_the_new_engine_runs_it(tmp_path, monkeypatch):
+def test_the_file_is_read_and_with_today_s_engine_asked_the_new_engine_runs_it(tmp_path, monkeypatch):
     """The text is what runs (twice the drag in it moves the result), the
     file found from the projects folder when its path is not absolute, and
-    with LIGHTSIM_ENGINE unset the case runs on the new engine, saying why."""
+    with LIGHTSIM_ENGINE=today the case still runs on the new engine, saying
+    why."""
     project = load_example("bev-car")
     text = le.part_text(project.model_dump_json(), CITY, "el-vehicle")
     doubled = text.replace("max(cd, 0)", "2 * max(cd, 0)", 1)
@@ -82,6 +81,7 @@ def test_the_file_is_read_and_without_the_flag_the_new_engine_runs_it(tmp_path, 
     proj = _with_text("bev-car", CITY, "el-vehicle", tmp_path / "parts" / "vehicle.mo", doubled)
     el = next(e for s in proj.systems for e in s.elements if e.id == "el-vehicle")
     el.textFile = "parts/vehicle.mo"
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
     result = simulate(proj, CITY)
     assert result.status != "failed", [m.text for m in result.messages]
     assert result.engine == "new"
@@ -129,13 +129,11 @@ def test_a_text_that_does_not_fit_its_part_fails_with_the_engines_code(tmp_path)
 def test_a_case_the_new_path_does_not_run_fails_with_both_codes(tmp_path, monkeypatch):
     """A lap case (NEW-LAP) with a text component: today's engine would run
     the built-in part in its place without a word, so the case fails with
-    NEW-LAP and NEW-TEXT, in either mode."""
+    NEW-LAP and NEW-TEXT."""
     proj = _with_text("fs-electric", "case-accel-75m", "el-battery", tmp_path / "acc.mo")
-    for strict in ("", "1"):
-        monkeypatch.setenv(new_engine.STRICT_VAR, strict)
-        result = simulate(proj, "case-autocross")
-        assert result.status == "failed" and not result.channels
-        assert result.messages[0].text.startswith("Not run [NEW-LAP] [NEW-TEXT]")
+    result = simulate(proj, "case-autocross")
+    assert result.status == "failed" and not result.channels
+    assert result.messages[0].text.startswith("Not run [NEW-LAP] [NEW-TEXT]")
 
 
 def test_without_the_module_a_text_component_never_runs_on_today_engine(tmp_path, monkeypatch):

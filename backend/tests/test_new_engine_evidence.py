@@ -35,12 +35,11 @@ pytestmark = pytest.mark.skipif(MISSING is not None and not REQUIRED, reason=MIS
 @pytest.fixture
 def new(monkeypatch):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
 
 
 def _today(project, case_id, monkeypatch):
     with monkeypatch.context() as m:
-        m.delenv(new_engine.ENV_VAR, raising=False)
+        m.setenv(new_engine.ENV_VAR, "today")
         return simulate(project, case_id)
 
 
@@ -337,18 +336,14 @@ def test_a_table_whose_data_start_above_where_it_is_read_is_judged_as_today(
 def test_a_table_whose_data_start_above_where_it_is_read_stops_as_today_on_error(
         monkeypatch, el_id, key, first):
     """The same tables (the Power Loss map from 1000 1/min) set to Error:
-    today's run stops at its start; the new engine's run stops too, so the
-    path falls back with NEW-FAILED and today's engine fails the run, or
-    in strict mode fails with the code (before: success, 7.29 km)."""
+    today's run stops at its start; the new engine's run stops too, and the
+    case fails with NEW-FAILED (before: success, 7.29 km)."""
     proj = load_example("bev-car")
     _from(proj, el_id, key, first, "error")
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+    assert _today(proj, "case-city", monkeypatch).status == "failed"
     result = simulate(proj, "case-city")
-    assert result.engine == "today" and result.status == "failed"
-    assert "[NEW-FAILED]" in result.messages[0].text and "outside = Error" in result.messages[0].text
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
-    strict = simulate(proj, "case-city")
-    assert strict.status == "failed" and "[NEW-FAILED]" in strict.messages[0].text
+    assert result.status == "failed" and result.messages[0].text.startswith("Not run [NEW-FAILED]: ")
+    assert "outside = Error" in result.messages[0].text
 
 
 @pytest.mark.parametrize("case_id", ["case-city", "case-wltc"])
@@ -370,22 +365,40 @@ def test_a_table_of_one_point_is_a_constant_as_today(new, monkeypatch, case_id):
         assert not [t for t in _texts(result) if "drag_torque" in t or "Drag Torque" in t]
 
 
-def test_sheets_of_different_ranges_are_refused_with_a_code(monkeypatch):
-    """A Power Loss map whose sheet at 0 1/min starts at 50 N·m, the others
-    at 0: today's engine counts a read outside the narrowest range, which
-    the new engine's watch of the grid's edges cannot; the import refuses
-    it (BLOCK), so the path falls back with NEW-FAILED to today's engine."""
+def _uneven_sheets():
+    """The BEV's Power Loss map with its sheet at 0 1/min from 50 N·m, the
+    others from 0."""
     proj = load_example("bev-car")
     motor = next(e for e in proj.systems[0].elements if e.id == "el-motor")
     loss = motor.parameterOverrides["power_loss"]
     loss["0"] = {k: v for k, v in loss["0"].items() if float(k) >= 50.0}
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    result = simulate(proj, "case-city")
-    assert result.engine == "today"
+    return proj
+
+
+def test_sheets_of_different_ranges_are_refused_with_a_code(monkeypatch):
+    """A Power Loss map whose sheet at 0 1/min starts at 50 N·m, the others
+    at 0: today's engine counts a read outside the narrowest range, which
+    the new engine's watch of the grid's edges cannot; the import refuses
+    it (BLOCK), and the case fails with NEW-FAILED, in the map's own
+    numbers."""
+    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
+    result = simulate(_uneven_sheets(), "case-city")
     first = result.messages[0].text
-    assert "[NEW-FAILED]" in first and "do not all cover the same range" in first, first
+    assert result.status == "failed" and first.startswith("Not run [NEW-FAILED]: "), first
+    assert "do not all cover the same range" in first, first
     # in the map's own numbers (before: the engine's padded range, -310 N·m)
     assert "(50 to 310 on every sheet, 0 to 310 on some)" in first, first
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "NEW-FAILED: the new engine's import refuses a map whose sheets cover different ranges "
+    "(BLOCK), which today's engine runs; until the switch the case fell back to today's engine. "
+    "A defect of the new path, open."))
+def test_sheets_of_different_ranges_run_as_today(monkeypatch):
+    proj = _uneven_sheets()
+    today = _today(proj, "case-city", monkeypatch)
+    result = simulate(proj, "case-city")
+    assert result.engine == "new" and result.status == today.status, _texts(result)
 
 
 def test_a_cycle_run_past_its_end_is_not_judged_on_its_schedule(new, monkeypatch):
@@ -861,7 +874,7 @@ _OUTSIDE = {
 
 
 @pytest.mark.parametrize("point", sorted(_OUTSIDE))
-def test_a_study_point_outside_its_limits_runs_on_today_s_engine(monkeypatch, point):
+def test_a_study_point_outside_its_limits_fails_with_its_code(monkeypatch, point):
     """A study's point whose case values break their parameters' limits
     (Data Checks refuse such a single run, but check only a study's base
     project): today's engine clamps many such values (the air at 0 kPa or
@@ -869,24 +882,18 @@ def test_a_study_point_outside_its_limits_runs_on_today_s_engine(monkeypatch, po
     new path ran other physics under today's words (at -50 kPa a negative
     drag, with today's density of 0 in its warning; at -300 °C no "Cycle
     not followed" and no row not valid). Run as a study runs it, the point
-    runs on today's engine with the code NEW-LIMITS and Data Checks' words:
-    today's status, warnings (today's density among them) and flags. In
-    strict mode it fails with the code."""
+    fails with the code NEW-LIMITS and Data Checks' words (before the
+    switch it ran on today's engine)."""
     from app import studies
     from app.schemas import SimResult
     name, case_id, values, said = _OUTSIDE[point]
     project = studies._point_project(load_example(name), case_id, values)
-    today = _today(project, case_id, monkeypatch)
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
     result = SimResult.model_validate_json(studies.run_point(project.model_dump_json(), case_id)[0])
-    first = result.messages[0]
-    assert first.level == "info" and "[NEW-LIMITS]" in first.text and " must be " in first.text, first.text
-    assert _verdict(result) == _verdict(today)
-    assert _texts(result, "warning") == _texts(today, "warning")
-    assert said is None or any(said in t for t in _texts(result, "warning"))
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
-    strict = simulate(project, case_id)
-    assert strict.status == "failed" and strict.messages[0].text.startswith("Not run [NEW-LIMITS]: ")
+    (first,) = result.messages
+    assert result.status == "failed" and not result.channels
+    assert first.text.startswith("Not run [NEW-LIMITS]: ") and " must be " in first.text, first.text
+    assert "LIGHTSIM_" not in first.text
 
 
 def test_the_ambient_s_warning_gives_the_density_the_run_used(new, monkeypatch):
@@ -1855,18 +1862,15 @@ def test_a_motor_its_supply_holds_back_reads_its_loss_map_at_0_as_today(new, mon
     """Its loss map from 23 N·m on Error: today's run stops where the
     battery's power limit first holds the motor back (its search for the
     share of the command that fits reads the map at 0 N·m). The new path
-    stops too (NEW-FAILED), so the case runs on today's engine and fails as
-    today's (before: the new engine's read at 0 N·m, a constant, was not
-    watched, and its run succeeded with no code)."""
+    stops too: the case fails with NEW-FAILED (before: the new engine's read
+    at 0 N·m, a constant, was not watched, and its run succeeded with no
+    code)."""
     proj = _accel_loss_map_from(20.0, "error")
     today = _today(proj, "case-accel-75m", monkeypatch)
     assert today.status == "failed" and any("Torque 0 N·m is outside its data" in t for t in _texts(today))
     strict = simulate(proj, "case-accel-75m")
     assert _texts(strict)[0].startswith("Not run [NEW-FAILED]"), _texts(strict)
-    monkeypatch.delenv(new_engine.STRICT_VAR)
-    result = simulate(proj, "case-accel-75m")
-    assert result.status == "failed" and result.engine != "new"
-    assert "[NEW-FAILED]" in _texts(result)[0]
+    assert strict.status == "failed"
 
 
 def test_a_motor_its_supply_holds_back_runs_its_clamped_loss_map_as_before(new, monkeypatch):
@@ -1972,7 +1976,7 @@ def test_a_motor_table_read_only_while_powered_is_counted_on_the_trace(new, monk
     assert got[key] == pytest.approx(old[key], abs=0.2)
 
 
-def test_a_table_time_quick_mode_cannot_tell_from_the_allowance_runs_in_full(new, monkeypatch):
+def test_a_table_time_quick_mode_cannot_tell_from_the_allowance_is_refused(new, monkeypatch):
     """The same HWFET in quick mode: at fast mode's points once a second
     the motor is below the curve's data in its powered branch for 7.3 s,
     in two stretches, against the 7.65 s the run allows, where today's
@@ -1986,11 +1990,8 @@ def test_a_table_time_quick_mode_cannot_tell_from_the_allowance_runs_in_full(new
     mot.tableOutside = {"full_load_torque": ["clamp", "clamp"]}
     next(c for c in proj.cases if c.id == "case-hwfet").mode = "quick"
     strict = simulate(proj, "case-hwfet")
-    assert _texts(strict)[0].startswith("Not run [QUICK-TABLE-TIME]"), _texts(strict)
-    monkeypatch.delenv(new_engine.STRICT_VAR)
-    result = simulate(proj, "case-hwfet")
-    assert "[QUICK-TABLE-TIME]" in _texts(result)[0] and result.status == "warning"
-    assert result.solverOptions.get("quickStep") is None  # (the full run)
+    assert _texts(strict)[0].startswith("Not run [QUICK-TABLE-TIME] in quick mode: "), _texts(strict)
+    assert strict.status == "failed" and "Set the case's mode to full" in _texts(strict)[0]
 
 
 def _hybrid_loss_to_50(outside: str) -> Project:

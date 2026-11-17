@@ -31,7 +31,6 @@ pytestmark = needs_engine
 @pytest.fixture(autouse=True)
 def _new(monkeypatch):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
 
 
 def _sha(result) -> str:
@@ -376,12 +375,7 @@ def test_an_edit_too_late_for_the_run_is_listed_with_its_note():
 
 
 def _engine(monkeypatch, engine):
-    if engine == "new":
-        monkeypatch.setenv(new_engine.ENV_VAR, "new")
-        monkeypatch.setenv(new_engine.STRICT_VAR, "1")
-    else:
-        monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
-        monkeypatch.delenv(new_engine.STRICT_VAR, raising=False)
+    monkeypatch.setenv(new_engine.ENV_VAR, engine)
 
 
 def test_a_made_edit_is_read_as_edited_by_the_reports_as_today_s_are(monkeypatch):
@@ -419,49 +413,40 @@ def test_a_stopped_acceleration_test_has_no_finish(monkeypatch):
     assert said["new"] == said["today"] == ({}, [])
 
 
-def test_a_live_run_the_new_engine_fails_is_run_again_on_today_s_only_if_nothing_is_lost(monkeypatch):
-    """In the app's mode (not strict), a live run the new engine fails after
-    it has streamed points and read nothing runs again from t = 0 on
-    today's engine, the view told to drop its points ("restart") and the
-    result saying so (NEW-LIVE-RESTART; before, it failed with the engine's
-    code: 13 of the sweep's over-speed runs failed where today's did not).
-    One that has read an edit fails with its code, saying what today's
-    engine, streaming it again from t = 0, would lose (never a Stop or
-    edits it was not given). A run that showed and read nothing (a study's
-    point), and the AI tools' run, whose points go to a progress bar only
-    (whether it has one or not), run on today's, saying so with the code."""
+def test_a_live_run_the_new_engine_stops_fails_with_its_code(monkeypatch):
+    """A live run the new engine stops after it has streamed points fails
+    with the engine's code: the points shown stay (never streamed again from
+    t = 0), and nothing runs on today's engine; the same for a run with no
+    view (a study's point) and the AI tools' run (before the switch each of
+    these ran again on today's engine, NEW-LIVE-RESTART)."""
     from app.ai.engine import Engine
+    from app.solver import core
 
-    monkeypatch.delenv(new_engine.STRICT_VAR)
+    def no_today(*args, **kwargs):
+        raise AssertionError("a case ran on today's engine")
+
+    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
+    monkeypatch.setattr(core, "simulate_today", no_today)
     project = load_example("bev-car")  # (its battery's resistance x100: the run stops at ~321 s)
     _case(project, "case-city").parameterOverrides.setdefault("el-battery", {})[
         "internal_resistance_ohm"] = 8.0
-    again = _Live(at=1e9)
-    result = simulate(project, "case-city", again.emit, again.control)
-    kinds = [m["type"] for m in again.stream]
-    assert kinds.count("restart") == 1 and result.engine == "today" and result.status != "failed"
-    first = kinds.index("restart")
-    assert [m["t"] for m in again.stream[:first] if m["type"] == "step"][-1] > 300.0
-    assert [m["t"] for m in again.stream[first + 1:] if m["type"] == "step"][0] == 0.0
-    assert "[NEW-FAILED]" in result.messages[0].text and "[NEW-LIVE-RESTART]" in result.messages[0].text
-    for then, lost in (([_set("el-vehicle", "cd", 0.3)], "without the live edits it was given"),):
-        live = _Live(at=100.0, then=then)
+    for then in ([], [_set("el-vehicle", "cd", 0.3)]):
+        live = _Live(at=1e9 if not then else 100.0, then=then)
         result = simulate(project, "case-city", live.emit, live.control)
         times = [m["t"] for m in live.steps()]
         assert times == sorted(set(times)) and 300.0 < times[-1] < 600.0  # (never from 0 again)
         assert "restart" not in [m["type"] for m in live.stream]
         assert result.status == "failed" and result.engine is None
         (msg,) = result.messages
-        assert "[NEW-FAILED]" in msg.text and "RUN-INTEGRATOR" in msg.text, msg.text
-        assert f"It is not run again on today's engine, which would start it again at t = 0 {lost}:" \
-            in msg.text and "Stop" not in msg.text, msg.text
+        assert msg.text.startswith("Not run [NEW-FAILED]: ") and "RUN-INTEGRATOR" in msg.text, msg.text
+        assert "today's engine" not in msg.text
     quiet = simulate(project, "case-city", None, lambda: [])
-    assert quiet.engine == "today" and "[NEW-FAILED]" in quiet.messages[0].text
+    assert quiet.status == "failed" and quiet.messages[0].text.startswith("Not run [NEW-FAILED]: ")
     for progress in (None, lambda pct: None):
         ai = Engine.simulate(project, "case-city", max_seconds=120.0, cancel=threading.Event(),
                              progress=progress)
-        assert ai.engine == "today" and ai.channels, [m.text for m in ai.messages]
-        assert ai.messages[0].text.startswith("The new engine could not run this case [NEW-FAILED]")
+        assert ai.status == "failed" and not ai.channels, [m.text for m in ai.messages]
+        assert ai.messages[0].text.startswith("Not run [NEW-FAILED]: ")
 
 
 def test_the_result_says_what_ran_it_and_the_snapshot_keeps_it(monkeypatch):
@@ -476,12 +461,11 @@ def test_the_result_says_what_ran_it_and_the_snapshot_keeps_it(monkeypatch):
         new.engine, new.engineVersion, new.solverOptions)
     assert _sha(replay(snap)) == _sha(new)
 
-    monkeypatch.delenv(new_engine.ENV_VAR)
-    monkeypatch.delenv(new_engine.STRICT_VAR)
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(project, "case-city")
     assert (today.engine, today.engineVersion) == ("today", VERSION)
     assert set(today.solverOptions) == {"timeStep", "solverStep", "outputEvery"}
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")  # (the snapshot's engine, not the flag's)
+    monkeypatch.setenv(new_engine.ENV_VAR, "new")  # (the snapshot's engine, not the variable's)
     snap = RunSnapshot.of(project, _case(project, "case-city"), today, VERSION)
     assert _sha(replay(snap)) == _sha(today)
     edited = snap.model_copy(update={"liveEdits": [LiveEdit(t=1.0, elementId="el-vehicle",
@@ -564,7 +548,7 @@ def test_a_live_run_with_an_error_axis_one_branch_reads_runs_on_the_new_engine(m
     result = simulate(project, case_id, live.emit, live.control)
     assert result.engine == "new" and result.status == "success", [m.text for m in result.messages]
     assert live.steps()
-    monkeypatch.delenv(new_engine.ENV_VAR)
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
     assert simulate(project, case_id).status == "success"
 
 
@@ -576,7 +560,6 @@ def test_a_viewed_run_of_an_example_runs_once_and_reads_a_stop_from_its_start(mo
     most 0.25 s, on Windows CI in tests/test_stop_latency.py). Before: the
     case first ran in full with no view and read no Stop (the Stop returned
     1.4 s later on WLTC)."""
-    monkeypatch.delenv(new_engine.STRICT_VAR)
     project = load_example("bev-car")
     _case(project, "case-wltc").realtimeFactor = 0
     real, calls = new_engine.run_new, []
@@ -618,7 +601,7 @@ def test_a_live_run_with_an_error_axis_cut_short_ends_as_today_s(fid, monkeypatc
     live = _Live()
     result = simulate(project, case_id, live.emit, live.control)
     texts = [m.text for m in result.messages]
-    monkeypatch.delenv(new_engine.ENV_VAR)
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(project, case_id)
     if today.status == "failed":
         assert result.status == "failed" and "outside its data" in texts[0], texts
@@ -640,27 +623,26 @@ def test_a_motor_driven_past_its_maximum_speed_is_not_stopped_by_a_table_that_en
     assert any("maximum speed" in m.text for m in result.messages)
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "NEW-FAILED: the new engine stops these over-speed runs after showing points (the BEV WLTC on a "
+    "6 % downhill with its Final Drive x3: RUN-EVENT-STORM at 939 s; the hybrid's mixed cycle with "
+    "its gears x3: the Engine switches at 7 s) where today's engine warns or succeeds; until the "
+    "switch they ran again on today's engine (NEW-LIVE-RESTART). A defect of the new path, open."))
 @pytest.mark.parametrize("fid", [
     "overspeed:bev-car/case-wltc:down",  # (today warns; the new engine stops at 939 s, RUN-EVENT-STORM)
     "overspeed:hybrid-car/case-mixed:gear",  # (today succeeds; the new engine's Engine switches at 7 s)
 ])
-def test_a_run_with_a_view_the_new_engine_stops_after_points_gives_today_s_verdict(fid, monkeypatch):
+def test_a_run_with_a_view_of_a_motor_past_its_maximum_speed_gives_today_s_verdict(fid, monkeypatch):
     """The app's run of a motor driven to its maximum speed (the sweep's
-    over-speed faults): every app run has a view, a run that has shown
-    points was not run again, so it failed where today's engine warns or
-    succeeds. It runs again from t = 0 on today's engine now, the view told
-    to drop its points, and gives today's verdict and messages."""
+    over-speed faults) should give today's verdict on the new engine, with
+    a view as every app run has."""
     project, case_id = _fault(fid)
-    monkeypatch.delenv(new_engine.STRICT_VAR)
     live = _Live()
     result = simulate(project, case_id, live.emit, live.control)
-    monkeypatch.delenv(new_engine.ENV_VAR)
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(project, case_id)
     assert today.status != "failed"
-    assert result.engine == "today" and result.status == today.status, [m.text for m in result.messages]
-    assert "[NEW-LIVE-RESTART]" in result.messages[0].text and "[NEW-FAILED]" in result.messages[0].text
-    assert [m["type"] for m in live.stream].count("restart") == 1
-    assert [m.text for m in result.messages[1:]] == [m.text for m in today.messages]
+    assert result.engine == "new" and result.status == today.status, [m.text for m in result.messages]
 
 
 def test_a_live_run_with_a_pid_at_its_limit_runs_on_the_new_engine(monkeypatch):
@@ -676,7 +658,7 @@ def test_a_live_run_with_a_pid_at_its_limit_runs_on_the_new_engine(monkeypatch):
     result = simulate(project, case_id, live.emit, live.control)
     assert result.engine == "new" and result.status == "success", [m.text for m in result.messages]
     assert live.steps()
-    monkeypatch.delenv(new_engine.ENV_VAR)
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(project, case_id)
 
     def out(r):

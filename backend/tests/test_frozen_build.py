@@ -103,12 +103,17 @@ def test_every_workflow_that_freezes_the_backend_builds_the_module_first(workflo
     assert text.index(f"- name: {name}") < text.index(f"- name: {freeze_step}")
 
 
-def test_the_sandbox_test_gets_the_module_only_after_the_backend_tests():
-    """backend-windows' tests run from source without the module, as before;
-    only the frozen engine below them carries it."""
+@pytest.mark.parametrize("job", ["backend", "backend-windows"])
+def test_the_backend_tests_get_the_module_first(job):
+    """The app runs every case on the new engine with no fall-back, so both
+    backend jobs build and install the module before their tests (and
+    backend-windows' frozen engine carries the same module)."""
     text = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
-    text = text[text.index("\n  backend-windows:\n"):]
-    assert text.index("- name: Tests") < text.index("- name: The new engine's module")
+    text = text[text.index(f"\n  {job}:\n"):]
+    build = step("ci.yml", "The new engine's module (Rust build)", job)
+    assert "working-directory: engine" in build and "rustup toolchain install" in build
+    assert "pip install --no-index --find-links wheels lightsim-engine" in build
+    assert text.index("- name: The new engine's module") < text.index("- name: Tests")
 
 
 def test_the_desktop_build_reruns_when_the_engine_changes():
@@ -134,11 +139,11 @@ def test_the_local_build_scripts_build_the_module_too():
 
 
 def test_the_frozen_smoke_test_holds_every_run_to_the_new_engine():
-    """scripts/smoke-backend.mjs starts the frozen backend with the new
-    engine and no fall-back, and fails any result (REST, live, scripted,
-    command line) whose engine is not "new"."""
+    """scripts/smoke-backend.mjs starts the frozen backend as the app does
+    (no engine variable: the new engine is the default) and fails any result
+    (REST, live, scripted, command line) whose engine is not "new"."""
     text = (ROOT / "scripts" / "smoke-backend.mjs").read_text(encoding="utf-8")
-    assert 'LIGHTSIM_ENGINE: "new"' in text and 'LIGHTSIM_ENGINE_STRICT: "1"' in text
+    assert "LIGHTSIM_ENGINE" not in text
     assert 'result.engine !== "new"' in text
     for run in ('onNewEngine("REST simulate"', 'onNewEngine("live run"', "onNewEngine(`scripted run",
                 "onNewEngine(`'lightsim-backend run"):

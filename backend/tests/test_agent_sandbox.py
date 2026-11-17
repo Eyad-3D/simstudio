@@ -45,14 +45,10 @@ needs_engine = pytest.mark.skipif(
 
 @pytest.fixture(params=["today", pytest.param("new", marks=needs_engine)])
 def engine(request, monkeypatch):
-    """Each engine's path: today's, and the new one (LIGHTSIM_ENGINE=new,
-    strict, so nothing falls back to today's and hides what it did)."""
+    """Each engine's path: the new one (the app's, with no fall-back) and
+    today's (LIGHTSIM_ENGINE=today)."""
     from app.solver import new_engine
     monkeypatch.setenv(new_engine.ENV_VAR, request.param)
-    if request.param == "new":
-        monkeypatch.setenv(new_engine.STRICT_VAR, "1")
-    else:
-        monkeypatch.delenv(new_engine.STRICT_VAR, raising=False)
     return request.param
 
 

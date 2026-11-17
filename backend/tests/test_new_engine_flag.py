@@ -1,11 +1,12 @@
-"""LIGHTSIM_ENGINE=new runs the cases the new engine can on it, behind a flag
-(app/solver/new_engine.py); today's engine stays the default.
+"""The new engine is the app's engine (app/solver/new_engine.py): every case
+runs on it, and one it does not run fails with its code, never on today's
+engine; LIGHTSIM_ENGINE=today runs today's (developers, the both-engines
+comparison).
 
 The tests that run the new engine need the compiled module ``lightsim_engine``
-(engine/crates/lsim-py, built with maturin). CI's backend jobs do not build
-it, so they skip there; the Windows engine job builds and installs it and
-runs them with ``LIGHTSIM_REQUIRE_NEW_ENGINE=1``, where a missing module
-fails them instead of skipping them (review finding 18)."""
+(engine/crates/lsim-py, built with maturin). CI builds it before the tests;
+with ``LIGHTSIM_REQUIRE_NEW_ENGINE=1`` a missing module fails them instead
+of skipping them (review finding 18)."""
 from __future__ import annotations
 
 import os
@@ -48,16 +49,27 @@ def test_the_module_is_there_where_it_must_be():
 @pytest.fixture(scope="module")
 def today():
     """The BEV car's WLTC case on today's engine, run once."""
-    return simulate(load_example("bev-car"), WLTC)
+    saved = os.environ.get(new_engine.ENV_VAR)
+    os.environ[new_engine.ENV_VAR] = "today"
+    try:
+        return simulate(load_example("bev-car"), WLTC)
+    finally:
+        os.environ.pop(new_engine.ENV_VAR)
+        if saved is not None:
+            os.environ[new_engine.ENV_VAR] = saved
 
 
-def test_without_the_flag_nothing_changes(monkeypatch, today):
+@needs_engine
+def test_without_the_variable_the_new_engine_runs(monkeypatch, today):
+    """No LIGHTSIM_ENGINE: the app's engine, the new one; "today" runs
+    today's, as before the switch."""
     monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
     result = simulate(load_example("bev-car"), WLTC)
-    assert "engine" not in texts(result).lower().replace("combustion", "")
-    assert result.model_dump() == today.model_dump()
+    assert result.engine == "new" and result.messages[0].text == "Run on the new engine.", texts(result)
+    assert "today's engine" not in texts(result)
     monkeypatch.setenv(new_engine.ENV_VAR, "today")
-    assert simulate(load_example("bev-car"), WLTC).model_dump() == today.model_dump()
+    then = simulate(load_example("bev-car"), WLTC)
+    assert then.engine == "today" and then.model_dump() == today.model_dump()
 
 
 @needs_engine
@@ -149,7 +161,6 @@ def test_new_engine_runs_a_performance_test_like_today(monkeypatch, name):
     monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(project, WLTC)
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
     assert new_engine.unsupported(project, WLTC) is None
     result = simulate(project, WLTC)
     assert result.messages[0].text.startswith("Run on the new engine"), texts(result)
@@ -189,7 +200,6 @@ def test_new_engine_ends_a_case_at_its_distance_like_today(monkeypatch, name):
     monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(project, case_id)
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
     result = simulate(project, case_id)
     assert result.messages[0].text.startswith("Run on the new engine"), texts(result)
     assert result.status == today.status, texts(result)
@@ -209,7 +219,6 @@ def test_new_engine_ends_a_case_after_its_laps_like_today(monkeypatch):
     monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(project, "case")
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
     result = simulate(project, "case")
     assert result.messages[0].text.startswith("Run on the new engine"), texts(result)
     assert result.status == today.status, texts(result)
@@ -224,7 +233,6 @@ def test_a_performance_test_holds_full_throttle_up_to_its_target(monkeypatch):
     """The pedal is down from the step in the target until the speed gets
     there, and the car then holds the target (no overshoot of the speed)."""
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
     result = simulate(_performance("0:0; 5:100; 40:100"), WLTC)
     series = {c.portId: [(p["t"], p["value"]) for p in c.timeSeries]
               for c in result.channels if c.elementId in ("el-vehicle", "el-driver")}
@@ -236,22 +244,45 @@ def test_a_performance_test_holds_full_throttle_up_to_its_target(monkeypatch):
     assert max(v for _, v in series["sig_speed"]) < 101.0
 
 
-def test_a_lap_case_falls_back_with_a_message(monkeypatch):
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    result = simulate(load_example("fs-electric"), "case-autocross")
-    first = result.messages[0]
-    assert first.level == "info"
-    assert "today's engine" in first.text and "lap" in first.text
-    assert "[NEW-LAP]" in first.text
-    assert result.channels  # and it ran
+def _cells(project):
+    battery = next(el for s in project.systems for el in s.elements if el.id == "el-battery")
+    battery.parameterOverrides["pack_model"] = "Cells"
+    return project
 
 
-def test_a_hybrid_balanced_case_falls_back(monkeypatch):
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+# the four features the new engine does not run yet (the owner, 16 November):
+# each case fails with its code and says so; its tests run today's engine
+# (the marker todays_engine) as the oracle for the port
+NOT_YET = {
+    "NEW-LAP": lambda: (load_example("fs-electric"), "case-autocross"),
+    "NEW-FS-EVENT": lambda: (_changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
+    "NEW-BALANCE": lambda: (load_example("hybrid-car"), "case-udds"),
+    "NEW-CELLS": lambda: (_cells(load_example("bev-car")), WLTC),
+}
+
+
+@pytest.mark.parametrize("code", NOT_YET)
+def test_a_feature_not_ported_yet_is_refused_with_its_code(monkeypatch, code):
+    """The app's own path (no variable) refuses the case: failed, no
+    channels, one error with the code that says what does not run in this
+    version yet and, where there is one, what to set to run the case;
+    nothing about environment variables, and nothing on today's engine."""
+    from app.solver import core
+    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
+    monkeypatch.setattr(core, "simulate_today", _no_today)
+    project, case_id = NOT_YET[code]()
+    result = simulate(project, case_id)
+    assert result.status == "failed" and not result.channels and not result.summary
+    (only,) = result.messages
+    assert only.level == "error" and only.text.startswith(f"Not run [{code}]: "), only.text
+    assert "in this version of LightSim yet" in only.text and "LIGHTSIM_" not in only.text
+    if code in ("NEW-BALANCE", "NEW-CELLS"):
+        assert "to run" in only.text  # (what to set to run it)
+
+
+def test_a_hybrid_balanced_case_is_refused(monkeypatch):
     why = new_engine.unsupported(load_example("hybrid-car"), "case-mixed")
-    assert why.code == "NEW-BALANCE" and "charge-balance" in why.why
-
-
+    assert why.code == "NEW-BALANCE" and "charge-balanced" in why.why
 
 
 def _changed(name: str, case_id: str, **case):
@@ -264,9 +295,7 @@ def _changed(name: str, case_id: str, **case):
 
 def test_every_refusal_has_its_code():
     """Each reason the path does not run a case comes with a code of CODES."""
-    cells = load_example("bev-car")
-    battery = next(el for s in cells.systems for el in s.elements if el.id == "el-battery")
-    battery.parameterOverrides["pack_model"] = "Cells"
+    cells = _cells(load_example("bev-car"))
     fmu = load_example("bev-car")
     fmu.systems[0].elements.append(
         ElementInstance(id="fmu", componentDefId="signal.fmu", label="Lag", position={"x": 0, "y": 0}))
@@ -305,8 +334,7 @@ def test_every_refusal_has_its_code():
     # a PID or Lookup with a Sample Time runs on the new engine (sampled and held as today)
     assert new_engine.unsupported(sampled, WLTC) is None or new_engine.unsupported(sampled, WLTC).code == "NEW-MISSING"
     assert set(seen) | {"NEW-MISSING", "NEW-BUILD", "NEW-FAILED", "NEW-ERROR", "NEW-TEXT", "QUICK-MISSING",
-                        "QUICK-BUILD", "QUICK-FAILED", "QUICK-TABLE-TIME", "QUICK-ERROR",
-                                "NEW-LIVE-RESTART"} == set(new_engine.CODES)
+                        "QUICK-BUILD", "QUICK-FAILED", "QUICK-TABLE-TIME", "QUICK-ERROR"} == set(new_engine.CODES)
 
 
 def test_a_failure_is_coded_by_who_refused():
@@ -315,35 +343,35 @@ def test_a_failure_is_coded_by_who_refused():
 
 
 def _no_today(*args, **kwargs):
-    raise AssertionError("strict mode ran the case on today's engine")
+    raise AssertionError("a case ran on today's engine")
 
 
-def test_strict_mode_runs_nothing_on_today_engine(monkeypatch):
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
-    result = new_engine.simulate(load_example("fs-electric"), "case-autocross", None, None, _no_today)
+def test_nothing_runs_on_todays_engine(monkeypatch):
+    from app.solver import core
+    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
+    monkeypatch.setattr(core, "simulate_today", _no_today)
+    result = simulate(load_example("fs-electric"), "case-autocross")
     assert result.status == "failed" and not result.channels
     assert [m.level for m in result.messages] == ["error"]
     assert "[NEW-LAP]" in result.messages[0].text
 
 
-def test_strict_mode_does_not_fall_back_after_a_failure(monkeypatch):
+def test_a_failure_of_the_path_fails_the_case(monkeypatch):
+    from app.solver import core
+
     def broken(project, case_id, *live):
         raise KeyError("el-x")
 
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
+    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
+    monkeypatch.setattr(core, "simulate_today", _no_today)
     monkeypatch.setattr(new_engine, "unsupported", lambda *args: None)
     monkeypatch.setattr(new_engine, "run_new", broken)
-    result = new_engine.simulate(load_example("bev-car"), WLTC, None, None, _no_today)
-    assert result.status == "failed" and "[NEW-ERROR]" in result.messages[0].text
-    monkeypatch.delenv(new_engine.STRICT_VAR)
-    fell = new_engine.simulate(load_example("bev-car"), WLTC, None, None,
-                               lambda *args: new_engine.refused(WLTC, new_engine.Refusal("X", "y")))
-    assert "[NEW-ERROR]" in fell.messages[0].text and "today's engine" in fell.messages[0].text
+    result = simulate(load_example("bev-car"), WLTC)
+    assert result.status == "failed" and not result.channels
+    assert result.messages[0].text.startswith("Not run [NEW-ERROR]: ")
 
 
-def test_without_the_module_it_falls_back(monkeypatch):
+def test_without_the_module_a_case_fails_with_its_code(monkeypatch):
     import builtins
     real = builtins.__import__
 
@@ -352,16 +380,21 @@ def test_without_the_module_it_falls_back(monkeypatch):
             raise ImportError("not built")
         return real(name, *args, **kwargs)
 
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
     monkeypatch.setattr(builtins, "__import__", refuse)
     result = simulate(load_example("fs-electric"), "case-accel-75m")
-    assert "not installed" in result.messages[0].text and result.channels
-    assert "[NEW-MISSING]" in result.messages[0].text
+    assert result.status == "failed" and not result.channels
+    assert result.messages[0].text.startswith("Not run [NEW-MISSING]: ")
+    assert "not installed" in result.messages[0].text and "install LightSim again" in result.messages[0].text
 
 
 @needs_engine
-def test_a_failing_new_engine_falls_back_with_a_warning(monkeypatch, today):
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")
+def test_a_failing_new_engine_fails_the_case(monkeypatch):
+    """The engine's own refusal or stop fails the case with NEW-FAILED and
+    the engine's code; nothing runs on today's engine instead."""
+    from app.solver import core
+    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
+    monkeypatch.setattr(core, "simulate_today", _no_today)
 
     def broken(*args, **kwargs):
         e = lightsim_engine.ModelError("[RUN-INTEGRATOR] the integrator gave up at t = 12 s")
@@ -370,14 +403,6 @@ def test_a_failing_new_engine_falls_back_with_a_warning(monkeypatch, today):
 
     monkeypatch.setattr(lightsim_engine, "build", broken)
     result = simulate(load_example("bev-car"), WLTC)
-    first = result.messages[0]
-    assert first.level == "warning"
-    assert "RUN-INTEGRATOR" in first.text and "today's engine" in first.text
-    assert "[NEW-FAILED]" in first.text
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
-    strict = simulate(load_example("bev-car"), WLTC)
-    assert strict.status == "failed" and not strict.channels
-    assert "[NEW-FAILED]" in strict.messages[0].text and "RUN-INTEGRATOR" in strict.messages[0].text
-    assert result.status == "warning"
-    assert [s.key for s in result.summary] == [s.key for s in today.summary]
-    assert [s.value for s in result.summary] == [s.value for s in today.summary]
+    assert result.status == "failed" and not result.channels
+    assert result.messages[0].text.startswith("Not run [NEW-FAILED]: ")
+    assert "RUN-INTEGRATOR" in result.messages[0].text
