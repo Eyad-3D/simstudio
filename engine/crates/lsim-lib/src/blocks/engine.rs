@@ -344,7 +344,8 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
                         fuel_b2,
                         fuel_0 * (c(1.0) + n("t_b2") / max(n("t_drag"), c(1e-12) * n("unit_N_m"))),
                     ),
-                    n("lim") * fuel_thr,
+                    // (its fuel map read only in the band: outside it the read is in no used branch)
+                    ite(noev(gt(n("lim"), c(0.0))), n("lim") * fuel_thr, c(0.0) * n("unit_kg_s")),
                 ),
             ),
             "the fuel map at its torque; trimmed along a Willans line below zero torque; none \
