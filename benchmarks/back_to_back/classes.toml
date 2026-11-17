@@ -67,7 +67,7 @@ class = "c"
 date = "2026-10-28"
 field = ["messages"]
 what = ["extra"]
-key = "^info: Run on the new engine \\(LIGHTSIM_ENGINE=new\\)\\.$"
+key = "^info: Run on the new engine\\.$"
 reason = "The first message of a run on the new path says which engine ran it (new_engine.py), by design."
 
 [[rule]]

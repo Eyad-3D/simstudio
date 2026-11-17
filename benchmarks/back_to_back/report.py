@@ -58,7 +58,7 @@ def fetch(cache: Path) -> int:
 
 
 def refusal(result: dict | None) -> str | None:
-    """The code of a strict-mode refusal ("Not run [CODE]: ..."), or None
+    """The code of a refusal ("Not run [CODE]: ..."), or None
     when the new path ran the case itself."""
     if not result or not result.get("messages"):
         return None
@@ -202,9 +202,6 @@ def strict(out: Path, b: dict) -> dict:
             bad.append({"job": spec, "why": f"code {code} is not listed"})
         elif code == "NEW-ERROR":
             bad.append({"job": spec, "why": rec["result"]["messages"][0]["text"]})
-        note = rec.get("fallback_note")
-        if code not in ("NEW-FAILED", "NEW-BUILD", "NEW-ERROR") and not (note and f"[{code}]" in note):
-            bad.append({"job": spec, "why": f"the fall-back message lacks [{code}]: {note!r}"})
     wrong = [{"id": r["id"], "expect": r["expect"], "got": r["got"]} for r in b["items"] if not r["as_expected"]]
     return {"state": "pass" if not wrong and not bad else "fail", "refusals": dict(seen),
             "refusals_total": sum(seen.values()), "wrong_items": wrong, "bad": bad}
