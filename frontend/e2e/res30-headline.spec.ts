@@ -20,7 +20,8 @@ test("RES-30: headline numbers in view at 1366×768, plot opens on target vs act
   }
   await expect(headline).toContainText("kWh/100km");
 
-  await expect(page.getByRole("checkbox", { name: /^Target Speed/ })).toBeChecked();
+  // (the Vehicle Task's: the new engine records the Driver's Target Speed too)
+  await expect(page.getByTitle(/^Vehicle Task · Target Speed/).getByRole("checkbox")).toBeChecked();
   await expect(page.getByRole("checkbox", { name: /^Vehicle Speed/ })).toBeChecked();
   // the target is drawn last, over the speed that follows it
   await expect(page.getByRole("img", { name: /^Results chart:/ })).toHaveAttribute(

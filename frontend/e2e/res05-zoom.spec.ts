@@ -75,7 +75,8 @@ test("RES-05: zoom, pan and reset on the Results chart, X-Y view and Signal Plot
   await page.mouse.wheel(0, -300);
   const zoomed = await xRange(chart);
   expect(width(zoomed)).toBeLessThan(600);
-  await page.getByRole("checkbox", { name: /^Target Speed\b/ }).uncheck();
+  // (the Vehicle Task's: the new engine records the Driver's Target Speed too)
+  await page.getByTitle(/^Vehicle Task · Target Speed/).getByRole("checkbox").uncheck();
   await expect(chart).not.toHaveAttribute("aria-label", /Target Speed/);
   expect(await xRange(chart)).toEqual(zoomed);
 

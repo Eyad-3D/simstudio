@@ -43,7 +43,9 @@ def test_follows_speed_against_distance_and_ends_after_laps():
     assert r.status == "success", [m.text for m in r.messages]
     dist = values(r, "veh", "sig_distance")
     assert dist[-1] == pytest.approx(2 * 1200, abs=1.0)  # two laps, then it stops
-    assert "ended at 2400 m driven" in r.messages[0].text
+    # (the run ends at 2400 m; today's engine said so in its run summary note,
+    # which the new engine does not write: classes.toml today-run-summary)
+    assert next(s.value for s in r.summary if s.key == "distance_km") == pytest.approx(2.4, abs=0.001)
     # on the 90 km/h straight of the second lap the target is 90 km/h
     target = values(r, "task", "sig_demand")
     i = next(k for k, d in enumerate(dist) if d > 1200 + 450)
