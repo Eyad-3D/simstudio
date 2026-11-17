@@ -51,6 +51,7 @@ TODAY = {
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-hybrid-load]": BALANCE,
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[repair-hybrid-wiring]": BALANCE,
     "test_agent_bench.py::test_the_endurance_energy_to_two_decimals_passes": LAP,
+    "test_battery_charge.py::test_coulombic_efficiency_counts_charge_only": INTEGRATOR,
     "test_agent_sandbox.py::test_the_hybrid_example_runs_the_same_under_the_strict_sandbox": BALANCE,
     "test_ai_access.py::test_a_script_project_runs_only_when_trusted_and_confirmed": BALANCE,
     "test_ai_access.py::test_an_agent_session_opens_no_network_socket": BALANCE,
@@ -146,14 +147,10 @@ TODAY = {
         "(ii) the validation page records today's engine's measurement (20 October 2026)"),
 }
 
-PORT = ("NEW-FAILED (PORT-NOT-MAPPED): an acceleration case of a car whose Driver has Target Speed or Actual "
-        "Speed linked is refused; fixed on work/flip-path")
-DCDC = ("NEW-FAILED (BLOCK): a DC-DC converter feeding a battery bus (setpoint mode) is not imported yet; fixed "
-        "on work/dcdc-setpoint")
-STORM_ENGINE = ("NEW-FAILED (RUN-EVENT-STORM): the Engine's fired / not fired switch chatters (open; queued for "
-                "the solver side)")
-STORM_MAX = ("NEW-FAILED (RUN-EVENT-STORM): a machine driven to its maximum speed or rev limiter switches about "
-             "it without end (known since step 2, KNOWN-LIMITS; open)")
+PORT = ("an acceleration case of a car whose Driver has Target Speed or Actual Speed linked was refused "
+        "(PORT-NOT-MAPPED, fixed: it runs now)")
+MAX_TABLE = ("NEW-FAILED (RUN-TABLE): a motor driven past its maximum speed reads its full-load map past its "
+             "speed data and the run stops there (open)")
 TABLE_WORDS = ("NEW-FAILED (RUN-TABLE): the new engine stops the run where today's does, but its message names the "
                "table by its internal name at the engine's time, not in today's words the test reads (open)")
 TICK = ("a sampled block's (Script, FMU, Delay) value at an output point is the one after its tick there, where "
@@ -166,27 +163,17 @@ LIMITS = ("NEW-LIMITS: the new path refuses a run with a value outside its param
           "the owner's call whether the app keeps it)")
 
 XFAIL = {
-    "test_acceleration.py::test_a_75_m_run_without_slip_matches_a_point_mass": PORT,
-    "test_acceleration.py::test_full_throttle_needs_no_target": PORT,
-    "test_acceleration.py::test_the_app_runs_an_acceleration_test_without_a_target": PORT,
-    "test_acceleration.py::test_time_at_the_grip_limit": PORT,
-    "test_acceleration.py::test_the_estimate_note_follows_the_load_transfer": PORT,
-    "test_acceleration.py::test_terminal_power_rows": PORT,
     "test_acceleration.py::test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step": PORT + (
-        "; with that fix it still differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
+        "; it still differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
     "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": PORT + (
-        "; with that fix it still fails: StopIteration in the test's own _at (open)"),
+        "; it still fails: StopIteration in the test's own _at (open)"),
     "test_acceleration.py::test_missing_the_line_within_the_time_limit_is_a_warning": PORT + (
-        "; with that fix it still fails: a cancel sent through control ends 'success' (open)"),
-    "test_battery_charge.py::test_coulombic_efficiency_counts_charge_only": DCDC,
-    "test_expansion.py::test_fuel_cell_via_dcdc_setpoint_into_battery_bus": DCDC,
-    "test_vehicle_tests.py::test_a_fuel_cell_car_gets_no_range_from_its_battery_alone": DCDC,
-    "test_expansion.py::test_hybrid_p2_hcu_charges_low_battery": STORM_ENGINE + " (t = 2.37 s)",
-    "test_live_params.py::test_live_edit_survives_two_gear_shifts": STORM_ENGINE + " (t = 4.73 s)",
-    "test_engine.py::test_rev_limiter_cuts_fuel_and_torque": STORM_MAX + " (the Engine at its rev limiter, t = 0.85 s)",
-    "test_map_edges.py::test_a_machine_held_at_its_limiter_is_not_over_speed[engine-params2]": STORM_MAX,
-    "test_map_edges.py::test_a_motor_driven_past_its_maximum_speed_is_flagged": STORM_MAX,
-    "test_verdict.py::test_a_motor_above_its_maximum_speed_is_named": STORM_MAX,
+        "; it still fails: a cancel sent through control ends 'success' (open)"),
+    "test_live_params.py::test_live_edit_survives_two_gear_shifts": (
+        "the test counts the older engine's shift rebuilds (_spy_shifts), which the new engine does not make: "
+        "it sees none (open)"),
+    "test_map_edges.py::test_a_motor_driven_past_its_maximum_speed_is_flagged": MAX_TABLE,
+    "test_verdict.py::test_a_motor_above_its_maximum_speed_is_named": MAX_TABLE,
     "test_map_edges.py::test_maximum_speed_beyond_the_map_stops_the_run": TABLE_WORDS,
     "test_map_edges.py::test_a_lookup_set_to_error_stops_the_run": TABLE_WORDS,
     "test_map_edges.py::test_a_loss_map_narrower_than_the_full_load_map_stops_the_run": TABLE_WORDS,
