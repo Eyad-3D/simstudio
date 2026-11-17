@@ -341,6 +341,23 @@ pub fn climate(cfg: &ClimateConfig) -> ComponentDef {
 /// motor's request `p_req<m>`; its outputs: the consumers' share `served`
 /// and each motor's window `p_hi<m>`, `p_lo<m>` (±1e30 W when open).
 pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
+    bus_manager_fed(motors, consumers, 0, 0)
+}
+
+/// [`bus_manager`] for a battery's bus that `inflows` DC-DC converters at
+/// their power setpoint feed (today's setpoint mode): each one's setpoint,
+/// as far as its own supply serves it (`p_in<j>`), adds to what the
+/// battery gives (today's `inflow`); and with what the bus's `uses` loads
+/// use now (`p_use<u>`: motors, consumers, converters drawing from it),
+/// each converter is told its share of what the bus takes in (`absorb<j>`:
+/// the battery's charge window plus those loads, split in proportion to
+/// the setpoints, as today's bus balance splits it).
+pub fn bus_manager_fed(
+    motors: usize,
+    consumers: usize,
+    inflows: usize,
+    uses: usize,
+) -> ComponentDef {
     let big = || c(BIG_W) * n("unit_W");
     let zero = || c(0.0) * n("unit_W");
     let mut ports = vec![
@@ -353,6 +370,16 @@ pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
     for m in 1..=motors {
         ports.push(input(&format!("p_req{m}"), "W", "a motor's request"));
     }
+    for j in 1..=inflows {
+        ports.push(input(
+            &format!("p_in{j}"),
+            "W",
+            "a converter's setpoint, as its supply serves it",
+        ));
+    }
+    for u in 1..=uses {
+        ports.push(input(&format!("p_use{u}"), "W", "the power a load on the bus uses now"));
+    }
     ports.push(output("served", "1", "the share of their demand the consumers get"));
     for m in 1..=motors {
         ports.push(output(&format!("p_hi{m}"), "W", "the most this motor may draw now"));
@@ -362,6 +389,15 @@ pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
             "the most (negative) this motor may feed back now",
         ));
     }
+    for j in 1..=inflows {
+        ports.push(output(&format!("absorb{j}"), "W", "its share of what the bus takes in"));
+    }
+    // what the source gives, with the converters' inflow
+    let supply = if inflows == 0 {
+        n("p_deliver")
+    } else {
+        n("p_deliver") + sum((1..=inflows).map(|j| n(&format!("p_in{j}"))))
+    };
     let fixed = sum((1..=consumers).map(|k| n(&format!("p_dem{k}"))).chain([zero()]));
     let req = |m: usize| n(&format!("p_req{m}"));
     let pos = sum((1..=motors).map(|m| max(req(m), zero())).chain([zero()]));
@@ -371,13 +407,13 @@ pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
     // request at its boundary), so none needs an event
     let mut eqs = vec![
         eq(n("fixed"), fixed, "the consumers' demand"),
-        eq(n("deliver"), max(n("p_deliver"), zero()), "what the source gives"),
+        eq(n("deliver"), max(supply.clone(), zero()), "what the source gives"),
         eq(
             n("served"),
             ite(noev(gt(n("fixed"), n("deliver"))), n("deliver") / n("fixed"), c(1.0)),
             "the consumers are served first, cut back when the source cannot carry them",
         ),
-        eq(n("hi"), n("p_deliver") - n("fixed") * n("served"), "room left for the motors"),
+        eq(n("hi"), supply - n("fixed") * n("served"), "room left for the motors"),
         eq(n("lo"), -(n("p_absorb") + n("fixed") * n("served")), "what the motors may feed back"),
         eq(n("pos"), pos, "what the motors drawing ask for"),
         eq(n("neg"), neg, "what the motors recuperating ask to feed back"),
@@ -424,8 +460,33 @@ pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
             "its share of what the source takes",
         ));
     }
+    let mut vars = vec![];
+    if inflows > 0 {
+        let inflow = sum((1..=inflows).map(|j| n(&format!("p_in{j}"))));
+        let takes =
+            n("p_absorb") + sum((1..=uses).map(|u| n(&format!("p_use{u}"))).chain([zero()]));
+        eqs.push(eq(n("inflow"), inflow, "the converters' setpoints"));
+        eqs.push(eq(
+            n("takes"),
+            max(takes, zero()),
+            "what the bus takes in: the battery's charge window plus its loads",
+        ));
+        for j in 1..=inflows {
+            eqs.push(eq(
+                n(&format!("absorb{j}")),
+                n("takes") * n(&format!("p_in{j}")) / max(n("inflow"), c(1e-9) * n("unit_W")),
+                "its share of it, in proportion to its setpoint",
+            ));
+        }
+        vars.push(var("inflow", "W", "the converters' setpoints, as their supplies serve them"));
+        vars.push(var("takes", "W", "what the bus takes in"));
+    }
     ComponentDef {
-        name: format!("Blocks.BusManager_{motors}_{consumers}"),
+        name: if inflows == 0 {
+            format!("Blocks.BusManager_{motors}_{consumers}")
+        } else {
+            format!("Blocks.BusManager_{motors}_{consumers}_{inflows}_{uses}")
+        },
         doc: "A bus's source-limit handshake: consumers first, then the motors share the \
               source's window (today's update_source_limits and allocate_motor_power)."
             .into(),
@@ -442,7 +503,10 @@ pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
             var("cut_lo", "1", "1 while the recuperating motors are cut"),
             var("k_hi", "1", "the drawing motors' share"),
             var("k_lo", "1", "the recuperating motors' share"),
-        ],
+        ]
+        .into_iter()
+        .chain(vars)
+        .collect(),
         equations: eqs,
         ..Default::default()
     }
@@ -464,7 +528,10 @@ pub struct DcDcConfig {
 /// controller.dcdc: an averaged converter. Holding its output voltage, it
 /// draws P_out/η at its input for what the output bus takes; at a power
 /// setpoint, it feeds that power into the output bus (the bus's battery
-/// balances the rest) and draws P/η. Power flows from a to b; the motors
+/// balances the rest) and draws P/η; on its input bus it is a load of
+/// P/η (`p_dem`) cut back with the consumers there (`served`), and what
+/// that leaves of its setpoint (`p_set`) is what its output bus's window
+/// counts on. Power flows from a to b; the motors
 /// behind it are allowed to feed back only what that bus's own loads use
 /// (the bus manager's window), as today.
 pub fn dcdc(cfg: DcDcConfig) -> ComponentDef {
@@ -479,13 +546,18 @@ pub fn dcdc(cfg: DcDcConfig) -> ComponentDef {
         ports.push(inp(id, "sig_setpoint_in"));
     }
     if cfg.setpoint_mode {
+        ports.push(input("served", "1", "the share of its demand its input bus serves (0-1)"));
         ports.push(input(
             "absorb",
             "W",
-            "what the output bus can take in (its battery's charge window plus its loads)",
+            "its share of what the output bus can take in (its battery's charge window plus its loads)",
         ));
     }
     ports.extend([out(id, "sig_power_in"), out(id, "sig_power_out"), out(id, "sig_losses")]);
+    if cfg.setpoint_mode {
+        ports.push(output("p_dem", "W", "what its setpoint asks of its input bus"));
+        ports.push(output("p_set", "W", "its setpoint, as far as its input bus serves it"));
+    }
     let mut eqs = vec![
         eq(n("va"), n("a_pos.v") - n("a_neg.v"), "input voltage"),
         eq(n("vb"), n("b_pos.v") - n("b_neg.v"), "output voltage"),
@@ -507,8 +579,18 @@ pub fn dcdc(cfg: DcDcConfig) -> ComponentDef {
     if cfg.setpoint_mode {
         let sp = if cfg.setpoint_wired { n("sig_setpoint_in") } else { n("power_setpoint_kW") };
         eqs.push(eq(
+            n("p_dem"),
+            max(sp.clone(), c(0.0)) / n("efficiency_pct"),
+            "what it asks of its input",
+        ));
+        eqs.push(eq(
+            n("p_set"),
+            max(sp, c(0.0)) * n("served"),
+            "its setpoint, as its input serves it",
+        ));
+        eqs.push(eq(
             n("sig_power_out"),
-            min(max(sp, c(0.0)), max(n("absorb"), c(0.0))),
+            min(n("p_set"), max(n("absorb"), c(0.0))),
             "it delivers its setpoint, as far as its output bus takes it",
         ));
     } else {

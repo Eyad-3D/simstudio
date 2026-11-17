@@ -17,6 +17,9 @@ const RPM: f64 = std::f64::consts::PI / 30.0;
 pub const H2_LHV: f64 = 119.96e6;
 /// petrol's lower heating value, J/kg (today's FUEL_LHV_MJ)
 pub const FUEL_LHV: f64 = 42.9e6;
+/// the rev limiter's band above the rev limit, as a share of it (the
+/// backend's over-speed check does not count it: `ENGINE_REV_BAND`)
+pub const REV_BAND: f64 = 1e-3;
 
 /// The engine's configuration.
 #[derive(Clone, Debug, PartialEq)]
@@ -147,7 +150,13 @@ impl Default for EngineConfig {
 /// drag torque along a Willans line; not fired (switched off, out of fuel,
 /// in overrun fuel cut-off, above the rev limit) it drags and burns
 /// nothing. Below the full-load curve's first speed it uses that point
-/// (the start-up rule).
+/// (the start-up rule). Its rev limiter, as the E-Motor's taper but above
+/// the limit: over a band of [`REV_BAND`] of the rev limit above it, firing
+/// with throttle, it fires a share of the time that falls from 1 to 0 with
+/// the speed, its torque and fuel in proportion; so it settles inside the
+/// band where its torque holds the load. Today's engine fires and cuts step
+/// by step there, its speed a saw-tooth just above the limit (6 1/min
+/// wide at a 1 ms step): this is its average.
 pub fn engine(cfg: &EngineConfig) -> ComponentDef {
     let id = ENG;
     let mut uc = UnitCarriers::default();
@@ -221,8 +230,9 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
         var("fuel_rate", "kg/s", "fuel flow"),
         state("fuel_used", "kg", 0.0, "fuel used"),
         state("work_fired", "J", 0.0, "work given while fired"),
+        var("lim", "1", "in the rev limiter's band, the share of the time it fires"),
     ];
-    for v in vars.iter_mut().skip(14) {
+    for v in vars.iter_mut().skip(14).take(2) {
         v.nominal = Some(1.0);
     }
     let thr = if cfg.throttle_wired { clamp(n("sig_throttle_in"), c(0.0), c(1.0)) } else { c(0.0) };
@@ -238,6 +248,8 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
     let fuel_0 = fm(c(0.0) * n("unit_N_m"));
     let t_full = lsim_ir::expr::table("full_load_torque", vec![n("n_map")]);
     let t_drag = lsim_ir::expr::table("drag_torque", vec![n("wa")]);
+    // against the motion, fading below 0.1 rad/s (see the E-Motor)
+    let drag = -(n("t_drag") * noev(n("w") / max(noev(abs(n("w"))), n("w_slow"))));
     let eqs = vec![
         eq(n("w"), n("shaft.w"), "it turns with the shaft"),
         eq(n("J") * der("w"), n("T") + n("shaft.tau"), "its inertia"),
@@ -277,7 +289,7 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
                 and(
                     gt(n("on"), c(0.5)),
                     and(
-                        below_top,
+                        below_top.clone(),
                         and(le(n("thr"), c(0.0)), le(n("wa"), n("fuel_cut_reentry_rpm"))),
                     ),
                 ),
@@ -285,6 +297,22 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
                 c(0.0),
             ),
             "fired by the governor below the re-entry speed (above it: fuel cut)",
+        ),
+        // the rev limiter's band, a continuous switch (no event: its
+        // relations are under noEvent; 0 wherever it is not in the band, so
+        // that away from it the torque and the fuel are as before, to the bit)
+        eq(
+            n("lim"),
+            ite(
+                noev(and(gt(n("on"), c(0.5)), and(gt(n("thr"), c(0.0)), not(below_top)))),
+                noev(clamp(
+                    (n("n_last") * c(1.0 + REV_BAND) - n("wa")) / (n("n_last") * c(REV_BAND)),
+                    c(0.0),
+                    c(1.0),
+                )),
+                c(0.0),
+            ),
+            "in the rev limiter's band, firing with throttle: the share of the time it fires",
         ),
         eq(
             n("T"),
@@ -294,17 +322,21 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
                 ite(
                     gt(n("fired_idle"), c(0.5)),
                     n("t_b2"),
-                    // against the motion, fading below 0.1 rad/s (see the E-Motor)
-                    -(n("t_drag") * noev(n("w") / max(noev(abs(n("w"))), n("w_slow")))),
+                    ite(
+                        noev(gt(n("lim"), c(0.0))),
+                        drag.clone() + n("lim") * (n("t_b1") - drag.clone()),
+                        drag,
+                    ),
                 ),
             ),
-            "fired, its torque; not fired, its drag against the motion",
+            "fired, its torque; not fired, its drag against the motion (in the rev limiter's \
+             band, the share it fires of its torque)",
         ),
         eq(
             n("fuel_rate"),
             ite(
                 gt(n("fired_thr"), c(0.5)),
-                fuel_thr,
+                fuel_thr.clone(),
                 ite(
                     gt(n("fired_idle"), c(0.5)),
                     ite(
@@ -312,10 +344,11 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
                         fuel_b2,
                         fuel_0 * (c(1.0) + n("t_b2") / max(n("t_drag"), c(1e-12) * n("unit_N_m"))),
                     ),
-                    c(0.0) * n("unit_kg_s"),
+                    n("lim") * fuel_thr,
                 ),
             ),
-            "the fuel map at its torque; trimmed along a Willans line below zero torque; none unfired",
+            "the fuel map at its torque; trimmed along a Willans line below zero torque; none \
+             unfired (in the rev limiter's band, the share it fires)",
         ),
         eq(n("fuel.m_flow"), n("fuel_rate"), "it draws its fuel from the tank"),
         eq(der("fuel_used"), n("fuel_rate"), "fuel used"),
@@ -323,7 +356,10 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
             der("work_fired"),
             ite(
                 gt(n("fuel_rate"), c(0.0)),
-                max(n("T") * n("w"), c(0.0) * n("unit_N_m") * n("unit_rad_s")),
+                max(
+                    ite(noev(gt(n("lim"), c(0.0))), n("lim") * n("t_b1"), n("T")) * n("w"),
+                    c(0.0) * n("unit_N_m") * n("unit_rad_s"),
+                ),
                 c(0.0) * n("unit_N_m") * n("unit_rad_s"),
             ),
             "the work its fuel gave",
