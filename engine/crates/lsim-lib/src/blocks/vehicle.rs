@@ -600,11 +600,20 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
         .chain(cfg.inverse.then_some(1.0)),
     );
     let outs = ["sig_traction_cmd", "sig_brake_cmd", "sig_accel_pedal", "sig_brake_pedal"];
+    let mut ports = vec![];
+    if cfg.target_wired {
+        ports.push(inp(id, "sig_target_in"));
+    }
+    if cfg.speed_wired {
+        ports.push(inp(id, "sig_speed_in"));
+    }
     if cfg.full_throttle {
+        // its Target and Actual Speed inputs, where wired, are read by nothing
+        ports.extend(outs.iter().map(|q| out(id, q)));
         return ComponentDef {
             name,
             doc: doc(id),
-            ports: outs.iter().map(|q| out(id, q)).collect(),
+            ports,
             params: cps(id, &["driver_kp", "driver_ki", "regen_weight_pct"]),
             equations: vec![
                 eq(n("sig_traction_cmd"), c(1.0), "an acceleration test: full throttle"),
@@ -614,13 +623,6 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
             ],
             ..Default::default()
         };
-    }
-    let mut ports = vec![];
-    if cfg.target_wired {
-        ports.push(inp(id, "sig_target_in"));
-    }
-    if cfg.speed_wired {
-        ports.push(inp(id, "sig_speed_in"));
     }
     ports.push(input(
         "v_vehicle",

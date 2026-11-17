@@ -184,3 +184,19 @@ fn what_only_an_open_clutch_ties_to_the_wheels_starts_at_rest() {
     };
     assert_eq!(hybrid_start(&no_torque, "el-engine", "w0"), Some(0.0));
 }
+
+/// An acceleration test of a car built for cycles: the Driver's Target and
+/// Actual Speed inputs stay linked, and at full throttle it reads neither.
+#[test]
+fn an_acceleration_test_keeps_the_drivers_linked_inputs() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut p: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("../../../backend/projects/bev-car.json")).unwrap(),
+    )
+    .unwrap();
+    p["cases"][0]["kind"] = json!("acceleration");
+    let id = p["cases"][0]["id"].as_str().unwrap().to_string();
+    let (top, rep) = import_case(&p, Some(&id), &standard_registry(), &ImportOptions::default())
+        .unwrap_or_else(|e| panic!("{e:?}"));
+    Model::build(&rep.library(), &top).unwrap();
+}
