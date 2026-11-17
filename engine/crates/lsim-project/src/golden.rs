@@ -974,7 +974,7 @@ pub fn figures_with(
         }
         let tank = of("fuel.tank").next();
         let tank_p = |k: &str, d: f64| {
-            tank.map(|t| lsim_lib::blocks::catalog::merged("fuel.tank", &t.3))
+            tank.map(|t| params_of(&t.0))
                 .map(|m| lsim_lib::blocks::catalog::get(&m, k, d))
                 .unwrap_or(d)
         };
@@ -995,8 +995,7 @@ pub fn figures_with(
             let dc = net_wh / 10.0 / km;
             let effs: Vec<f64> = of("battery.generic")
                 .map(|b| {
-                    let m = lsim_lib::blocks::catalog::merged("battery.generic", &b.3);
-                    lsim_lib::blocks::catalog::get(&m, "charger_efficiency_pct", 86.0)
+                    lsim_lib::blocks::catalog::get(&params_of(&b.0), "charger_efficiency_pct", 86.0)
                 })
                 .collect();
             let eff =
