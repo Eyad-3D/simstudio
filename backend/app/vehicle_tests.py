@@ -127,13 +127,15 @@ def _accel(project, veh, task, v0: float, v1: float, label: str) -> list[dict]:
     case = _case("test-accel", label, "performance", 60.0, task, f"0:{v1:g}",
                  {veh.id: {"initial_speed_kmh": v0}} if v0 else None)
     r = _run(project, case)
-    trace = _series(r, veh.id, "sig_speed")
-    t_hit = _crossing(trace, v1)
     rows = {s.label: s for s in r.summary}
+    why = rows.get(f"Time to {v1:g} km/h")
+    # the run's own instant where the target was reached: the recorded trace,
+    # one point a step, misses a target reached and lost between two points
+    t_hit = why.value if why is not None and why.value is not None else _crossing(
+        _series(r, veh.id, "sig_speed"), v1)
     note = "" if t_hit is not None else f"the car did not reach {v1:g} km/h in 60 s"
     if r.status == "failed":
         note = _failure(r)
-    why = rows.get(f"Time to {v1:g} km/h")
     if why is not None and why.notValid:
         note = why.notValid
     return [_row(label, t_hit, "s", f"full throttle from {v0:g} km/h, time where the speed crosses "
