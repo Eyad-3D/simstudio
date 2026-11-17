@@ -7,7 +7,7 @@
 use lsim_engine::{BuildOptions, BuildReport, Engine, RunError};
 use lsim_ir::Diagnostic;
 use lsim_ir::runtime::DiscreteBlock;
-use lsim_project::golden::{Figure, TractionHost, figures_with, sampled_spec};
+use lsim_project::golden::{Figure, figures_with, own_host, sampled_spec};
 use lsim_project::import::Channel;
 use lsim_project::import::{ImportOptions, ImportReport, SampledKind, SampledSpec};
 use lsim_project::{import_case, standard_registry};
@@ -1086,7 +1086,9 @@ pub fn block_hosts(
                 out.scripts.push((spec.label.clone(), runner));
                 out.outside.extend(flag.map(|f| (spec.element.clone(), f)));
             }
-            SampledKind::TractionControl => out.blocks.push(Box::new(TractionHost::new(spec))),
+            SampledKind::TractionControl | SampledKind::Pid | SampledKind::Hold => {
+                out.blocks.push(own_host(spec).expect("its own host"))
+            }
             SampledKind::Fmu { .. } => out.blocks.push(fmu(spec)?),
         }
     }
@@ -1378,7 +1380,7 @@ pub fn script_parts(built: &Built, fmu: bool) -> Vec<&SampledSpec> {
         .filter(|s| match s.kind {
             SampledKind::Script { .. } => !fmu,
             SampledKind::Fmu { .. } => fmu,
-            SampledKind::TractionControl => false,
+            SampledKind::TractionControl | SampledKind::Pid | SampledKind::Hold => false,
         })
         .collect()
 }

@@ -67,6 +67,25 @@ pub enum SampledKind {
     },
     /// the Traction Control block (today's `traction_control`)
     TractionControl,
+    /// a PID block's law (today's `ControlSlave`), at today's solver step
+    /// or its Sample Time
+    Pid,
+    /// a Lookup block's inputs, taken at its Sample Time and held
+    Hold,
+}
+
+/// Today's solver step, s (its `MAX_SUBSTEP`): the step today's engine
+/// runs a PID at, and the Sample Time a PID or Lookup must exceed to be
+/// held between samples.
+pub const TODAY_STEP: f64 = 0.01;
+
+/// A PID's or held Lookup's tick spacing for its Sample Time `ts`: today's
+/// engine samples at its steps, at the first at or after each multiple of
+/// `ts`; the host ticks at `ts` when that is a whole number of steps, else
+/// at every step (and samples at those today samples at).
+pub fn hold_period(ts: f64) -> f64 {
+    let k = ts / TODAY_STEP;
+    if ts > TODAY_STEP && (k - k.round()).abs() < 1e-9 { ts } else { TODAY_STEP }
 }
 
 /// A part as its mapping makes it.
@@ -613,16 +632,27 @@ impl<'a> Builder<'a> {
             }
             let name = self.inst(&el.id);
             if let Some(kind) = mapped.sampled {
-                let (inputs, outputs) = signal_ports(&def);
-                let period = match el.params.get("sample_time_s").and_then(catalog::num) {
-                    Some(t) if t > 0.0 => t,
-                    _ => 0.01,
+                let ts = el.params.get("sample_time_s").and_then(catalog::num);
+                // (a PID's or held Lookup's host is its part's sub-component)
+                let (inputs, outputs, instance, period) = match def.components.first() {
+                    Some(s) if matches!(kind, SampledKind::Pid | SampledKind::Hold) => {
+                        let (i, o) = signal_ports(&standard_library().components[&s.def]);
+                        (i, o, format!("{name}.{}", s.name), hold_period(ts.unwrap_or(0.0)))
+                    }
+                    _ => {
+                        let (i, o) = signal_ports(&def);
+                        let period = match ts {
+                            Some(t) if t > 0.0 => t,
+                            _ => TODAY_STEP,
+                        };
+                        (i, o, name.clone(), period)
+                    }
                 };
                 let wired = inputs.iter().map(|p| facts.is_wired(&el.id, p)).collect();
                 self.report.sampled.push(SampledSpec {
                     element: el.id.clone(),
                     label: el.label.clone(),
-                    instance: name.clone(),
+                    instance,
                     kind,
                     inputs,
                     outputs,
@@ -1482,13 +1512,24 @@ pub fn standard_registry() -> Registry {
         });
     }
     add!("signal.constant", |_: &Element, _: &Facts| Ok(Mapped::of(signals::constant())));
-    add!("control.pid", |_: &Element, _: &Facts| Ok(Mapped::of(signals::pid())));
+    add!("control.pid", |_: &Element, _: &Facts| {
+        let mut m = Mapped::of(signals::pid());
+        m.sampled = Some(SampledKind::Pid);
+        Ok(m)
+    });
     add!("signal.lookup", |el: &Element, _: &Facts| {
         let cfg = if text(el, "mode", "1D") == "2D" {
             signals::LookupConfig::D2(table2(el, "table_2d")?)
         } else {
             signals::LookupConfig::D1(table1(el, "table_1d")?)
         };
+        // a Sample Time over today's step: held between samples, as today
+        let ts = el.params.get("sample_time_s").and_then(catalog::num).unwrap_or(0.0);
+        if ts > TODAY_STEP {
+            let mut m = Mapped::of(signals::lookup_held(&cfg)).with(cfg.values()?);
+            m.sampled = Some(SampledKind::Hold);
+            return Ok(m);
+        }
         Ok(Mapped::of(signals::lookup(&cfg)).with(cfg.values()?))
     });
     for id in ["signal.script", "signal.fmu"] {

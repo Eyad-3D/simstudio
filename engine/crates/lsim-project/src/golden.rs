@@ -20,7 +20,7 @@
 //! Python process, called as the app calls it; the Traction Control block
 //! runs today's rule in Rust.
 
-use crate::import::{CaseKind, ImportOptions, ImportReport, SampledKind, SampledSpec};
+use crate::import::{CaseKind, ImportOptions, ImportReport, SampledKind, SampledSpec, TODAY_STEP};
 use crate::model::Model;
 use lsim_ir::runtime::DiscreteBlock;
 use lsim_solve::{OutputGrid, SimResult, SolverOptions};
@@ -269,11 +269,168 @@ impl DiscreteBlock for TractionHost {
     }
 }
 
+/// How long after each instant a PID or held Lookup samples, s: today's
+/// engine records an output point before the blocks it samples there run
+/// (at the start of the step that follows), so the point shows the output
+/// it held up to then; the host samples just after the point (at a
+/// nanosecond, far below any step: what it reads moves by that much).
+pub const LATE: f64 = 1e-9;
+
+/// When a PID or held Lookup samples, as today's `ControlSlave` has it:
+/// at every solver step (today's 10 ms) while its Sample Time is within
+/// it, its time step then the solver step; otherwise at the first step at
+/// or after each multiple of the Sample Time, its time step the Sample
+/// Time.
+struct Sampler {
+    ts: f64,
+    next: Option<f64>,
+}
+
+impl Sampler {
+    fn new(spec: &SampledSpec) -> Self {
+        Sampler {
+            ts: lsim_lib::blocks::catalog::get(&spec.params, "sample_time_s", 0.0),
+            next: None,
+        }
+    }
+
+    /// The block's time step.
+    fn dt(&self) -> f64 {
+        if self.ts > TODAY_STEP { self.ts } else { TODAY_STEP }
+    }
+
+    /// Whether it samples at `t` (and, if so, its next sample's time).
+    fn due(&mut self, t: f64) -> bool {
+        if self.ts <= TODAY_STEP {
+            return true;
+        }
+        if self.next.is_some_and(|nx| t < nx - 1e-6 * TODAY_STEP) {
+            return false;
+        }
+        self.next = Some(((t / self.ts + 1e-6).floor() + 1.0) * self.ts);
+        true
+    }
+}
+
+/// The PID block: today's law exactly, its derivative the error's change
+/// over its time step, its integral grown only while the output before its
+/// limits (with this sample's growth) is inside them or the error pulls it
+/// back. Inputs: setpoint, feedback, then its gains and limits
+/// (`signals::PID_GAINS`); unwired, an input reads 0, as today.
+pub struct PidHost {
+    name: String,
+    period: f64,
+    at: Sampler,
+    integral: f64,
+    prev_err: f64,
+}
+
+impl PidHost {
+    /// From its spec.
+    pub fn new(spec: &SampledSpec) -> Self {
+        PidHost {
+            name: spec.label.clone(),
+            period: spec.period,
+            at: Sampler::new(spec),
+            integral: 0.0,
+            prev_err: 0.0,
+        }
+    }
+
+    fn step(&mut self, t: f64, inputs: &[f64], outputs: &mut [f64]) {
+        if !self.at.due(t) {
+            return; // between samples: its output holds
+        }
+        let dt = self.at.dt();
+        let [sp, fb, kp, ki, kd, lo, hi] = [0, 1, 2, 3, 4, 5, 6].map(|k| inputs[k]);
+        let err = sp - fb;
+        let deriv = (err - self.prev_err) / dt;
+        let unsat = kp * err + ki * (self.integral + err * dt) + kd * deriv;
+        if (lo <= unsat && unsat <= hi) || err * unsat < 0.0 {
+            self.integral += err * dt; // (anti-windup)
+        }
+        // (Python's max(lo, min(hi, x)))
+        let u = kp * err + ki * self.integral + kd * deriv;
+        let capped = if hi < u { hi } else { u };
+        outputs[0] = if capped < lo { lo } else { capped };
+        self.prev_err = err;
+    }
+}
+
+impl DiscreteBlock for PidHost {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn period(&self) -> f64 {
+        self.period
+    }
+    fn offset(&self) -> f64 {
+        self.period + LATE
+    }
+    fn init(&mut self, t0: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
+        self.step(t0, inputs, outputs);
+        Ok(())
+    }
+    fn tick(&mut self, t: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
+        self.step(t, inputs, outputs);
+        Ok(())
+    }
+}
+
+/// A Lookup with a Sample Time over today's step: its inputs, taken when
+/// it samples and held in between (its table is read at them in the
+/// equations).
+pub struct HoldHost {
+    name: String,
+    period: f64,
+    at: Sampler,
+}
+
+impl HoldHost {
+    /// From its spec.
+    pub fn new(spec: &SampledSpec) -> Self {
+        HoldHost { name: spec.label.clone(), period: spec.period, at: Sampler::new(spec) }
+    }
+}
+
+impl DiscreteBlock for HoldHost {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn period(&self) -> f64 {
+        self.period
+    }
+    fn offset(&self) -> f64 {
+        self.period + LATE
+    }
+    fn init(&mut self, t0: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
+        self.tick(t0, inputs, outputs)
+    }
+    fn tick(&mut self, t: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String> {
+        if self.at.due(t) {
+            outputs.copy_from_slice(inputs);
+        }
+        Ok(())
+    }
+}
+
+/// The host of a sampled block whose law the engine has in Rust (Traction
+/// Control, a PID, a held Lookup's inputs), or None (a Script, an FMU).
+pub fn own_host(spec: &SampledSpec) -> Option<Box<dyn DiscreteBlock>> {
+    match spec.kind {
+        SampledKind::TractionControl => Some(Box::new(TractionHost::new(spec))),
+        SampledKind::Pid => Some(Box::new(PidHost::new(spec))),
+        SampledKind::Hold => Some(Box::new(HoldHost::new(spec))),
+        SampledKind::Script { .. } | SampledKind::Fmu { .. } => None,
+    }
+}
+
 /// The sampled block's spec for a block of the model (`RunInfo::blocks`
 /// name), as the importer reported it.
 pub fn sampled_spec<'a>(rep: &'a ImportReport, block_name: &str) -> Option<&'a SampledSpec> {
     rep.sampled.iter().find(|s| {
         s.instance == block_name
+            || block_name == format!("'{}'", s.instance)
             || s.label == block_name
             || block_name.contains(&format!("'{}'", s.label))
     })
@@ -382,7 +539,9 @@ pub fn hosts_for(
                 out.blocks.push(Box::new(ScriptHost::start(spec, py)?));
                 out.scripts.push((spec.label.clone(), "python"));
             }
-            SampledKind::TractionControl => out.blocks.push(Box::new(TractionHost::new(spec))),
+            SampledKind::TractionControl | SampledKind::Pid | SampledKind::Hold => {
+                out.blocks.push(own_host(spec).expect("its own host"))
+            }
             SampledKind::Fmu { .. } => {
                 return Err(format!("FMU '{}': co-simulation is work package 6's", spec.label));
             }
