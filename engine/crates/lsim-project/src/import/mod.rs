@@ -1429,9 +1429,16 @@ pub fn standard_registry() -> Registry {
         });
     }
     add!("mech.clutch", |el: &Element, f: &Facts| {
-        Ok(Mapped::of(driveline::clutch(driveline::ClutchConfig {
+        let mut m = Mapped::of(driveline::clutch(driveline::ClutchConfig {
             engage_wired: wired(el, f, "sig_engage_in"),
-        })))
+        }));
+        // one that starts open (facts' closed_at_start) starts slipping
+        let w = |port| f.kin_of(&el.id, port).map_or(0.0, |k| k.w0);
+        let s0 = w("flange_a") - w("flange_b");
+        if s0 != 0.0 {
+            m.values.push(("s0".into(), ParamValue::Real(c(s0))));
+        }
+        Ok(m)
     });
     add!("mech.brake", |el: &Element, f: &Facts| {
         Ok(Mapped::of(driveline::brake(driveline::BrakeConfig {

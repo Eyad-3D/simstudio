@@ -124,7 +124,8 @@ pub struct Kin {
     pub eff: f64,
     /// the gearboxes between it and the wheels
     pub gearboxes: Vec<String>,
-    /// its speed at the start (the vehicle's initial speed)
+    /// its speed at the start (the vehicle's initial speed); 0 where only
+    /// a clutch that starts open ties it to the wheels
     pub w0: f64,
     /// a clutch lies between it and the wheels
     pub clutch: bool,
@@ -535,9 +536,33 @@ pub fn default_ratio(e: &Element) -> f64 {
     best.1
 }
 
+/// Whether a clutch turns both its sides together at the start (today's
+/// `clutch_closed_at_start`): it does when nothing commands it, or when a
+/// Constant or a Driving Task engages it at t = 0. One that a block commands
+/// (a Script, a PID …) has had no say yet and counts as open, as does one
+/// that can carry no torque.
+fn closed_at_start(f: &Facts, e: &Element) -> bool {
+    if e.num("max_torque_Nm", 0.0) <= 0.0 {
+        return false;
+    }
+    let Some((src, _)) = f.source_of(&e.id, "sig_engage_in") else { return true };
+    let Some(src) = f.index.get(src).map(|&i| &f.elements[i]) else { return false };
+    match src.kind.as_str() {
+        "signal.constant" => src.num("value", 0.0) > 0.0,
+        "signal.driving_task" => {
+            let t =
+                lsim_lib::table::Table1::from_profile(catalog::text(&src.params, "profile", ""));
+            !t.x.is_empty() && t.eval(0.0) * src.num("scale_pct", 100.0) > 0.0
+        }
+        _ => false,
+    }
+}
+
 /// Speeds when every wheel turns at 1 rad/s (and at the start), from the
 /// wheels up through nodes, shafts, brakes, splits and gears, with the
-/// efficiency of the way down; clutches are taken closed.
+/// efficiency of the way down; clutches are taken closed, except for the
+/// start: what only a clutch that starts open ties to the wheels starts at
+/// rest.
 fn kinematics(f: &mut Facts) {
     let v0 = f
         .vehicle
@@ -562,8 +587,22 @@ fn kinematics(f: &mut Facts) {
         );
         todo.push(k);
     }
+    let open: Vec<String> =
+        f.of_kind("mech.clutch").filter(|e| !closed_at_start(f, e)).map(|e| e.id.clone()).collect();
+    // the far side of each clutch that starts open, at rest: taken up once
+    // everything the wheels turn is known, where nothing else reached it
+    let mut later: Vec<(End, Kin)> = vec![];
     let mut guard = 0;
-    while let Some(p) = todo.pop() {
+    loop {
+        while todo.is_empty()
+            && let Some((k, v)) = later.pop()
+        {
+            if !port_val.contains_key(&k) {
+                port_val.insert(k.clone(), v);
+                todo.push(k);
+            }
+        }
+        let Some(p) = todo.pop() else { break };
         guard += 1;
         if guard > 100_000 {
             break;
@@ -599,7 +638,12 @@ fn kinematics(f: &mut Facts) {
             let clutch = val.clutch || kind == "mech.clutch";
             for q in ports {
                 if *q != p.1 {
-                    set(q, Kin { eff: val.eff * eta, clutch, ..val.clone() }, &mut todo);
+                    let k = Kin { eff: val.eff * eta, clutch, ..val.clone() };
+                    if open.contains(&e.id) {
+                        later.push(((e.id.clone(), q.to_string()), Kin { w0: 0.0, ..k }));
+                    } else {
+                        set(q, k, &mut todo);
+                    }
                 }
             }
         } else if RATIO_TYPES.contains(&kind) && p.1 == "flange_out" {

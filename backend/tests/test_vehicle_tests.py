@@ -101,3 +101,11 @@ def test_a_failed_run_gives_no_figure_and_says_why(monkeypatch):
         assert rows[what]["value"] is None and "Script sandbox stopped" in rows[what]["note"], what
     assert "limited by" not in rows["Top speed"]["note"]
     assert rows["Steepest grade at 30 km/h"]["note"].startswith("the run on the flat failed")
+
+
+def test_an_acceleration_time_is_the_runs_own_not_the_recorded_traces():
+    # the hybrid reaches 120 km/h between two recorded points and its hold
+    # then lets the speed sag just below it: the recorded trace first shows
+    # 120 km/h half a minute later
+    rows = _rows("hybrid-car", "accel_80_120")
+    assert rows["80-120 km/h"]["value"] == pytest.approx(10.4, abs=0.3)
