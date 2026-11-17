@@ -4,9 +4,8 @@ place that says so (conftest.py applies it at collection).
 TODAY: tests that run today's engine (LIGHTSIM_ENGINE=today, the marker
 ``todays_engine``), each with its reason:
   (i) a feature the new engine does not run yet and refuses with its code
-      (lap cases NEW-LAP, Formula Student events NEW-FS-EVENT, a hybrid's
-      charge-balanced case NEW-BALANCE, a battery built from cells
-      NEW-CELLS): their tests are the oracle for the port;
+      (lap cases NEW-LAP, Formula Student events NEW-FS-EVENT, a battery
+      built from cells NEW-CELLS): their tests are the oracle for the port;
   (ii) today's engine's own workings (its fixed-step integrator, its
       checks of it, its recorder, its records).
 XFAIL: tests the new engine fails today, each an open defect of its path
@@ -18,7 +17,6 @@ that matches no collected test of a collected file fails the run.
 
 LAP = "(i) a lap case (NEW-LAP): not ported yet, today's engine is the oracle"
 FS = "(i) a Formula Student event (NEW-FS-EVENT) or lap case (NEW-LAP): not ported yet, today's engine is the oracle"
-BALANCE = "(i) a hybrid's charge-balanced case (NEW-BALANCE): not ported yet, today's engine is the oracle"
 CELLS = "(i) a battery built from cells (NEW-CELLS): not ported yet, today's engine is the oracle"
 INTEGRATOR = ("(ii) today's engine's own integrator check (its Energy balance residual and Electrical energy "
               "balance error rows; the new engine closes its energy books instead: classes.toml "
@@ -34,13 +32,12 @@ TODAY_FILES = {
     "test_lapsim.py": LAP,
     "test_fs_events.py": FS,
     "test_battery_cells.py": CELLS,
-    "test_charge_balance.py": BALANCE,
     "test_calibrate.py": "(i) the lap calibration runs lap cases (NEW-LAP): not ported yet",
     "test_laplog.py": "(i) a logged lap runs as a lap case (NEW-LAP): not ported yet",
 }
 
 TODAY = {
-    # (i) the four features
+    # (i) the three features
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[build-fs-powertrain]": LAP,
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-aero]": LAP,
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-endurance-pack]": LAP,
@@ -48,55 +45,19 @@ TODAY = {
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-fs-endurance]": LAP,
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-fs-limits]": LAP,
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[repair-fs-rules]": LAP,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-hybrid-load]": BALANCE,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[repair-hybrid-wiring]": BALANCE,
     "test_agent_bench.py::test_the_endurance_energy_to_two_decimals_passes": LAP,
-    "test_agent_sandbox.py::test_the_hybrid_example_runs_the_same_under_the_strict_sandbox": BALANCE,
-    "test_ai_access.py::test_a_script_project_runs_only_when_trusted_and_confirmed": BALANCE,
-    "test_ai_access.py::test_an_agent_session_opens_no_network_socket": BALANCE,
-    "test_cli.py::test_both_command_lines_hold_every_run_to_the_strict_sandbox": BALANCE,
-    "test_cli.py::test_a_new_script_runs_from_the_command_line_with_no_approval": BALANCE,
-    "test_cli.py::test_both_examples_run_from_one_line[hybrid-car-EPA city (UDDS)]": BALANCE,
-    "test_control_rate.py::test_demo_kpis_do_not_depend_on_the_output_step[_hybrid": BALANCE,
-    "test_control_rate.py::test_hybrid_engine_switches_do_not_depend_on_the_output_step": BALANCE,
-    "test_energy_book.py::test_each_part_closes_and_all_together_nearly[hybrid-car-case-mixed]": BALANCE,
-    "test_energy_book.py::test_final_drive_power_is_its_own_not_the_driveline_total": BALANCE,
     "test_energy_book.py::test_lap_case_books_the_mechanics_from_the_lap": LAP,
     "test_example_cards.py::test_each_case_lands_within_its_expected_values[fs-electric-case-autocross]": LAP,
     "test_example_cards.py::test_each_case_lands_within_its_expected_values[fs-electric-case-endurance]": LAP,
-    "test_example_cards.py::test_each_case_lands_within_its_expected_values[hybrid-car-": BALANCE,
     "test_example_cards.py::test_a_fresh_run_gives_the_stored_summary[fs-electric-case-autocross]": LAP,
     "test_example_cards.py::test_a_fresh_run_gives_the_stored_summary[fs-electric-case-endurance]": LAP,
-    "test_example_cards.py::test_a_fresh_run_gives_the_stored_summary[hybrid-car-": BALANCE,
-    "test_example_truths.py::test_a_typed_profile_run_says_it_is_not_a_standard_cycle[hybrid-car-case-mixed-True]": BALANCE,
     "test_examples_plausible.py::test_every_shipped_case_succeeds_and_follows_its_cycle[fs-electric-case-autocross]": LAP,
     "test_examples_plausible.py::test_every_shipped_case_succeeds_and_follows_its_cycle[fs-electric-case-endurance]": LAP,
-    "test_examples_plausible.py::test_every_shipped_case_succeeds_and_follows_its_cycle[hybrid-car-case-udds]": BALANCE,
-    "test_examples_plausible.py::test_every_shipped_case_succeeds_and_follows_its_cycle[hybrid-car-case-hwfet]": BALANCE,
-    "test_examples_plausible.py::test_every_shipped_case_succeeds_and_follows_its_cycle[hybrid-car-case-mixed]": BALANCE,
-    "test_examples_plausible.py::test_hybrid_uses_the_fuel_of_a_real_p2_hybrid": BALANCE,
-    "test_examples_plausible.py::test_hybrid_holds_its_charge_from_any_start": BALANCE,
-    "test_examples_plausible.py::test_hybrid_engine_stops_at_standstill_and_never_free_revs": BALANCE,
     "test_examples_plausible.py::test_fs_card_has_result_bands_and_rule_versions": LAP,
     "test_examples_plausible.py::test_fs_pack_is_inside_its_voltage_and_current_class": LAP,
     "test_examples_plausible.py::test_fs_endurance_energy_is_that_of_an_fs_car": LAP,
-    "test_gear_losses.py::test_gear_losses_act_on_the_power_through_the_gears": BALANCE,
-    "test_golden.py::test_example_matches_golden[hybrid-car-": BALANCE,
-    "test_lab_figures.py::test_ftp_bags_are_weighted_as_epa_does": BALANCE,
-    "test_lab_figures.py::test_charge_balancing_and_the_one_run_correction_give_one_set_of_rows": BALANCE,
-    "test_map_edges.py::test_every_example_case_stays_inside_its_maps[hybrid-car-case_ids1]": BALANCE,
-    "test_mcp_server.py::test_script_projects_run_in_the_sandbox_or_are_refused": BALANCE,
-    "test_mcp_server.py::test_every_script_run_is_sandboxed_and_the_trust_list_is_not_read": BALANCE,
-    "test_mcp_server.py::test_an_agents_new_script_runs_without_approval": BALANCE,
-    "test_reports.py::test_a_hybrid_charging_its_battery_is_not_braking": BALANCE,
-    "test_reports.py::test_the_examples_energy_adds_up[hybrid-car-case-mixed]": BALANCE,
     "test_reports.py::test_a_lap_case_names_its_brakes_and_gears": LAP,
-    "test_results_export.py::test_both_examples_round_trip_through_scipy_with_values_and_units[example_run1]": BALANCE,
-    "test_results_export.py::test_the_meta_struct_carries_the_run_card[example_run1]": BALANCE,
-    "test_script_trust.py::test_code_from_elsewhere_never_runs_before_approval": BALANCE,
     "test_summary_keys.py::test_a_lap_case_has_keys_for_its_rows": LAP,
-    "test_vehicle_tests.py::test_the_coast_down_returns_the_road_load_the_model_was_built_from": BALANCE,
-    "test_verdict.py::test_bundled_examples_follow_their_cycles": BALANCE,
     # (ii) today's engine's own workings
     "test_reference_problems.py::test_todays_engine_stays_within_its_baseline": (
         "(ii) today's engine's own baseline on the reference problems (the new engine's is the engine's harness, engine/)"),
@@ -107,12 +68,16 @@ TODAY = {
     "test_precision.py::test_no_envelope_when_every_point_is_one_solver_step": "(ii) today's recorder: its envelope over the solver steps of an output point",
     "test_precision.py::test_energy_books_are_not_rounded": "(ii) today's energy books, kept every solver step",
     "test_solver.py::test_profiles_are_parsed_once_per_run": "(ii) today's run loop: how often it parses a profile",
+    "test_golden.py::test_example_matches_golden[hybrid-car-case-mixed-": (
+        "(ii) the golden fixtures are today's engine's regression net (the new engine's is the engine's own golden "
+        "comparison: 0 differences in 11,347 values)"),
     "test_golden.py::test_example_matches_golden[bev-car-case-city-": (
         "(ii) the golden fixtures are today's engine's regression net (the new engine's is the engine's own golden "
         "comparison: 0 differences in 11,347 values)"),
     "test_energy.py::test_battery_energy_matches_kinetic_energy": INTEGRATOR,
     "test_battery_charge.py::test_coulombic_efficiency_counts_charge_only": INTEGRATOR,
     "test_energy_book.py::test_each_part_closes_and_all_together_nearly[bev-car-case-city]": INTEGRATOR,
+    "test_energy_book.py::test_each_part_closes_and_all_together_nearly[hybrid-car-case-mixed]": INTEGRATOR,
     "test_energy_book.py::test_each_part_closes_and_all_together_nearly[fs-electric-case-accel-75m]": INTEGRATOR,
     "test_energy_book.py::test_a_locked_differential_is_walked_every_step_and_still_closes": INTEGRATOR,
     "test_energy_book.py::test_awd_front_and_rear_final_drives_show_their_own_power": (
@@ -123,6 +88,7 @@ TODAY = {
         "(ii) today's integrator's books closed to 1e-12 against its own fixed steps"),
     "test_reports.py::test_every_part_keeps_its_books_and_the_car_adds_up": INTEGRATOR,
     "test_reports.py::test_the_examples_energy_adds_up[bev-car-case-city]": INTEGRATOR,
+    "test_reports.py::test_the_examples_energy_adds_up[hybrid-car-case-mixed]": INTEGRATOR,
     "test_power_limit.py::test_output_power_limit_holds_terminal_v_times_i": INTEGRATOR,
     "test_source_limits.py::test_min_soc_leaves_the_motor_nothing": INTEGRATOR,
     "test_source_limits.py::test_max_power_point_limits_the_motor": INTEGRATOR,
@@ -163,6 +129,15 @@ LIMITS = ("NEW-LIMITS: the new path refuses a run with a value outside its param
           "the owner's call whether the app keeps it)")
 
 XFAIL = {
+    "test_lab_figures.py::test_ftp_bags_are_weighted_as_epa_does": (
+        "the new path gives no 'FTP weighted fuel consumption' row: the engine's figures have each bag, today's "
+        "lab_rows weights them (open)"),
+    "test_gear_losses.py::test_gear_losses_act_on_the_power_through_the_gears[motor-0.0]": (
+        "NEW-FAILED (STATE-SELECT-SINGULAR): a P2 car driven by its E-Motor, its Engine off behind an open Clutch, is refused at "
+        "the start (the Clutch's constraints; the test's own model, not the example) (open)"),
+    "test_gear_losses.py::test_gear_losses_act_on_the_power_through_the_gears[motor--4.0]": (
+        "NEW-FAILED (STATE-SELECT-SINGULAR): a P2 car driven by its E-Motor, its Engine off behind an open Clutch, is refused at "
+        "the start (the Clutch's constraints; the test's own model, not the example) (open)"),
     "test_acceleration.py::test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step": (
         "the time to 75 m differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
     "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": (

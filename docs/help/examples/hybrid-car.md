@@ -40,7 +40,7 @@ On *EPA city (UDDS)* (the EPA Urban Dynamometer Driving Schedule,
 3. **Braking.** The motor brakes as a generator and charges the battery;
    the engine stops.
 4. **At every stop** the engine is off. Over the whole cycle the engine
-   starts 31 times.
+   starts 30 times.
 
 Tick *Engine · Speed*, *HV Battery · SOC* and *Vehicle · Vehicle Speed*
 on the *Results* page to see the engine switch on and off. The script's
@@ -54,7 +54,7 @@ not flattered by a battery that ran down.
 
 | Case | Fuel consumption | CO₂ | Distance |
 |---|---|---|---|
-| *EPA city (UDDS)* | 2.83 l/100 km | 66.8 g/km | 11.99 km |
+| *EPA city (UDDS)* | 2.81 l/100 km | 66.3 g/km | 11.99 km |
 | *EPA highway (HWFET)* | 3.23 l/100 km | 76.2 g/km | 16.507 km |
 | *Mixed Cycle* | 2.87 l/100 km | 67.8 g/km | 9.556 km |
 
@@ -85,7 +85,7 @@ with the one before. Set the value back afterwards.
 1. **Double the 12 V loads.** On *EPA city (UDDS)*, set the *12 V Loads*'
    *Constant Power Draw* from 0.5 to 1.0 kW. How much more fuel does the car use?
 
-   **Answer:** 2.83 to 3.27 l/100 km, 16 % more. In town the car is slow,
+   **Answer:** 2.81 to 3.27 l/100 km, 16 % more. In town the car is slow,
    so 0.5 kW more for 1,369 s is a large share of the energy per
    kilometre; the engine has to make it, through the battery.
 
@@ -102,7 +102,7 @@ with the one before. Set the value back afterwards.
 3. **Compare city and highway.** Run *EPA city (UDDS)* and *EPA highway
    (HWFET)*. Where does the hybrid use less fuel per 100 km, and why?
 
-   **Answer:** In the city: 2.83 against 3.23 l/100 km. In town the
+   **Answer:** In the city: 2.81 against 3.23 l/100 km. In town the
    hybrid recovers braking energy and stops its engine at every stop; on
    the highway it drives at steady speed with the engine on, where a
    hybrid has little to gain and air drag is higher.

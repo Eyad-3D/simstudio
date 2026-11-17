@@ -126,11 +126,13 @@ def test_both_command_lines_hold_every_run_to_the_strict_sandbox(tmp_path, monke
     # that cannot be set up refuses the run (sandbox_unavailable), never a
     # weaker run. LIGHTSIM_STRICT_SANDBOX=0 gives a person the app's rules.
     import app.solver.domains as domains
+    import app.solver.new_engine as new_engine
     from app.dataio.cli import main as engine_main
     from lightsim.cli import main
 
-    monkeypatch.setattr(domains, "why_no_strict_sandbox",
-                        lambda platform=None: "No sandbox on this test computer [sandbox_unavailable].")
+    for mod in (domains, new_engine):  # (each engine's path imports the gate by name)
+        monkeypatch.setattr(mod, "why_no_strict_sandbox",
+                            lambda platform=None: "No sandbox on this test computer [sandbox_unavailable].")
     monkeypatch.delenv("LIGHTSIM_STRICT_SANDBOX", raising=False)
     proj = _hybrid_with_a_new_script(tmp_path)
     assert main(["run", str(proj), "--case", "case-udds"]) == 2
