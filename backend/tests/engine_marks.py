@@ -244,7 +244,6 @@ XFAIL = {
     "test_vehicle_stop.py::test_a_coasting_car_stops_where_the_closed_form_says_and_stays_stopped": "a coasting car's speed never reaches exactly 0 on the new engine (open)",
     "test_vehicle_stop.py::test_rolling_resistance_holds_a_car_on_a_slope_it_cannot_overcome": "a car held by rolling resistance moves -5.9e-14 on the new engine, not exactly 0 (open)",
     "test_verdict.py::test_a_car_that_does_not_move_fails_and_says_so_early": "the new engine does not stream the early message that the car does not move (open)",
-    "test_examples_plausible.py::test_the_time_to_the_target_is_read_where_the_speed_crosses_it": "the performance test's 'Time to 100 km/h' row is missing on the new path (open)",
     "test_power_limit.py::test_a_margin_outside_0_to_100_percent_is_refused_not_a_crash": LIMITS.format(
         what="it for the case as well"),
     "test_road_load.py::test_a_case_value_outside_the_usual_air_is_warned_about_by_the_run[case_values2-": LIMITS.format(

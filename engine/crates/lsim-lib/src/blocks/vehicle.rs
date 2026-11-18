@@ -699,15 +699,20 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
         // `FLAT_OUT_BELOW`: a start at the target has an error of 0 too),
         // the PI's command after that. Held at full throttle the integral
         // does not wind up, as today's (conditional integration: it moves
-        // only while the command is below 0), so the PI starts holding the target from an integral
-        // that has not been pulled to the limit and back.
+        // only while the command is below 0), so the PI starts holding the
+        // target from an integral that has not been pulled to the limit and back.
         // (a nanometre per second above 0, not 0, here and where `reached`
         // is latched: a car that starts at its target has an error of
         // exactly 0, where the solver can find no root to watch; and the
         // same line for both, so that there is no band between them where a
         // car that has just got there is let off the throttle, slows and is
         // forced again)
-        let above = gt(n("err"), c(1e-9) * n("unit_ms"));
+        // (full throttle starts where the speed is `FLAT_OUT_BELOW` below the
+        // target, and holds up to the 1e-9 line once it has: a car holding a
+        // target it started at wanders inside that band, and must not be
+        // put on full throttle there, or be let off it)
+        let above =
+            gt(n("err"), (c(1e-9) + (c(1.0) - n("flat_out")) * c(FLAT_OUT_BELOW)) * n("unit_ms"));
         let free = c(1.0) - n("reached");
         controller.extend([
             eq(n("cmd_pi"), clamp(n("cmd_u"), c(-1.0), c(1.0)), "the PI's command, held to ±1"),
