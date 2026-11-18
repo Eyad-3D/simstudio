@@ -594,7 +594,7 @@
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "*EPA city (UDDS)* | 2.83 l/100 km | 66.8 g/km | 11.99 km |",
+   "text": "*EPA city (UDDS)* | 2.81 l/100 km | 66.3 g/km | 11.99 km |",
    "expr": "(v('hy-udds', 'Fuel consumption'), v('hy-udds', 'CO₂ emissions'), v('hy-udds', 'Distance driven'))",
    "format": "*EPA city (UDDS)* | {0[0]:.2f} l/100 km | {0[1]:.1f} g/km | {0[2]:.5g} km |"
   },
@@ -612,13 +612,13 @@
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "Over the whole cycle the engine starts 31 times",
+   "text": "Over the whole cycle the engine starts 30 times",
    "expr": "rises('hy-udds', 'Hybrid Control Unit · engine_on')",
    "format": "the engine starts {} times"
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "2.83 to 3.27 l/100 km, 16 % more",
+   "text": "2.81 to 3.27 l/100 km, 16 % more",
    "expr": "(v('hy-udds', 'Fuel consumption'), v('hy-udds-12v', 'Fuel consumption'), 100 * (v('hy-udds-12v', 'Fuel consumption') / v('hy-udds', 'Fuel consumption') - 1))",
    "format": "{0[0]:.2f} to {0[1]:.2f} l/100 km, {0[2]:.0f} % more"
   },
@@ -635,7 +635,7 @@
   },
   {
    "page": "examples/hybrid-car.md",
-   "text": "In the city: 2.83 against 3.23 l/100 km",
+   "text": "In the city: 2.81 against 3.23 l/100 km",
    "expr": "(v('hy-udds', 'Fuel consumption'), v('hy-hwfet', 'Fuel consumption'))",
    "format": "In the city: {0[0]:.2f} against {0[1]:.2f} l/100 km"
   },
@@ -833,7 +833,7 @@
   },
   {
    "page": "theory/why-numbers-differ.md",
-   "text": "uses 2.83 l/100 km on the EPA city cycle",
+   "text": "uses 2.81 l/100 km on the EPA city cycle",
    "expr": "v('hy-udds', 'Fuel consumption')",
    "format": "uses {:.2f} l/100 km"
   },

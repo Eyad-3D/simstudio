@@ -8,7 +8,7 @@ test("PLT-35: scripts from elsewhere never run before the user approves them", a
   const n = Date.now() % 100000;
   await openApp(page);
   const example = await (await page.request.get("/api/examples/hybrid-car")).json();
-  // (run once: a charge-balanced case does not run in this version, NEW-BALANCE)
+  // (run once and short: charge balancing would run it again)
   example.cases = [{ ...example.cases[0], duration: 20, realtimeFactor: 0, chargeBalance: false }];
   const script = example.systems
     .flatMap((s: { elements: { componentDefId: string; label: string; parameterOverrides: Record<string, unknown> }[] }) => s.elements)

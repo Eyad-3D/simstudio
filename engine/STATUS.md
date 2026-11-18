@@ -782,11 +782,13 @@ Step 3's four pieces are merged: the hard problems, the below-zero watch at a cu
 ## The switch-over: the new engine is the app's engine (17 November 2026)
 
 The owner decided on 20 October, 7 November and 16 November 2026: the new
-engine becomes the app's engine with no fall-back to today's. Four features
+engine becomes the app's engine with no fall-back to today's. Three features
 stay refused, each with its code and a message, until they are ported: lap
-cases (`NEW-LAP`), Formula Student events (`NEW-FS-EVENT`), a hybrid's
-charge-balanced case (`NEW-BALANCE`) and a battery built from cells
-(`NEW-CELLS`). Today's code stays in the repository (the new path uses its
+cases (`NEW-LAP`), Formula Student events (`NEW-FS-EVENT`) and a battery
+built from cells (`NEW-CELLS`). A fourth, a hybrid's charge-balanced case,
+was refused (`NEW-BALANCE`) until charge balancing was ported on 17 November
+2026 (the owner's yes of that day); it runs on the new engine now, and
+`NEW-BALANCE` no longer exists. Today's code stays in the repository (the new path uses its
 model builder and its result-judging code; `LIGHTSIM_ENGINE=today` runs it
 for developers and for the both-engines comparison; a replay of a run stored
 from it runs on it) but no run of the app uses it. There is no public
@@ -874,7 +876,7 @@ engine's eight gaps, mean 4.1 %, largest 7.5 %; its exact-answer tier does
 not run), the release notes, `DESIGN.md` §13's account of the app and the
 back-to-back harness's documents.
 
-**What is refused.** The four features above; `NEW-LIMITS` (a value outside
+**What is refused.** The three features above (lap cases, Formula Student events, a battery built from cells); `NEW-LIMITS` (a value outside
 its parameter's limits, a study's point or a case's own Ambient or Vehicle
 value, which today's engine clamped and Data Checks never see); the engine's
 own refusals and stops (`NEW-FAILED` with its codes); quick mode's
@@ -897,12 +899,13 @@ the switch):
   owner's call. So is a part connected to nothing, which today's engine leaves
   out and the new one builds (a lone E-Motor fails `RUN-INIT`, a lone Climate
   Control `STRUCT-OVER`).
-- The four features' screens are unchanged (a Lap case kind, the FS events
-  button and points table, the endurance study, Charge balance, Pack model
+- The three remaining features' screens are unchanged (a Lap case kind, the
+  FS events button and points table, the endurance study, Pack model
   *Cells*, lap calibration): hiding or greying them is the owner's choice;
-  they carry a sentence saying they do not run yet. The P2 Hybrid example's
-  three cycle cases are charge-balanced and refused, so opening it and pressing
-  Run fails; only its live case runs. Quick mode refuses a case it cannot run
+  they carry a sentence saying they do not run yet. Charge balancing, whose
+  screen (Charge balance) was one of the four, was ported on 17 November 2026
+  (the owner's yes of that day): the P2 Hybrid example's three cycle cases run
+  charge-balanced, each settling in 1 run. Quick mode refuses a case it cannot run
   where it used to run it in full: the owner may prefer the run in full.
 - Stored results of the examples and the six Results screenshot baselines show
   today's engine's runs; storing and regenerating them from the new engine is

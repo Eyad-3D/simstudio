@@ -623,8 +623,8 @@ def test_the_frozen_engine_runs_a_new_script_in_its_sandbox(tmp_path):
 
     backend = Path(__file__).resolve().parents[1]
     raw = json.loads((backend / "projects" / "hybrid-car.json").read_text(encoding="utf-8"))
-    # (run once: a charge-balanced case does not run in this version, NEW-BALANCE; the
-    # frozen engine runs the app's engine, the new one)
+    # (run once and short: charge balancing would run it again; the frozen engine runs the app's
+    # engine, the new one)
     raw["cases"] = [{**raw["cases"][0], "duration": 5, "realtimeFactor": 0, "chargeBalance": False}]
     for el in (e for s in raw["systems"] for e in s["elements"] if e["componentDefId"] == "signal.script"):
         el["parameterOverrides"]["code"] = el["parameterOverrides"].get("code", "") + "\n# approved by nobody\n"
@@ -730,7 +730,7 @@ def test_lightsim_run_from_the_wheel_runs_a_new_script_in_the_strict_sandbox(whe
         pytest.skip("this machine cannot set up the strict sandbox")
     backend = Path(__file__).resolve().parents[1]
     raw = json.loads((backend / "projects" / "hybrid-car.json").read_text(encoding="utf-8"))
-    # (run once: a charge-balanced case does not run in this version, NEW-BALANCE; the
+    # (run once and short: charge balancing would run it again; the
     # wheel's command line starts with no engine variable, on the app's engine)
     raw["cases"] = [{**raw["cases"][0], "duration": 5, "realtimeFactor": 0, "chargeBalance": False}]
     for el in (e for s in raw["systems"] for e in s["elements"] if e["componentDefId"] == "signal.script"):

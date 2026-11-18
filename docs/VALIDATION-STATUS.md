@@ -28,8 +28,8 @@ Three words are used carefully on this page:
 Each of these is an automatic test that runs on every change
 (`backend/tests/`). The app now runs every case on the new engine, and these
 tests run on it, with two kinds of exception (`backend/tests/engine_marks.py`
-lists each test and why). The tests of lap mode, the Formula Student events,
-a hybrid's charge balance and a battery built from cells, which the new
+lists each test and why). The tests of lap mode, the Formula Student events
+and a battery built from cells, which the new
 engine does not run yet (see [Known issues](KNOWN-LIMITS.md#does-not-run-in-this-version)),
 and the checks of the older engine's own workings (its fixed solver step in
 *Step convergence* and *Stability*, its integrator rows) run on the older

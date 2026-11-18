@@ -8,7 +8,6 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 
 - **Lap cases** (`NEW-LAP`).
 - **Formula Student events** (`NEW-FS-EVENT`).
-- **A hybrid's charge-balanced case** (`NEW-BALANCE`).
 - **A battery built from cells** (`NEW-CELLS`).
 
 ### What else the new engine refuses or stops
@@ -97,7 +96,7 @@ Point 0 of every run is the initial state at t = 0.
 - **An engine behind a script-controlled clutch starts at rest.** A run that starts at speed starts every wheel, gear and motor at that speed, and an engine behind a closed clutch too; a clutch a Script controls counts as open at t = 0, so the engine behind it starts at rest.
 - **Stiff settings make runs slower, and some effects remain.** Before a run, LightSim checks whether the tyres' *Slip Stiffness* or a propeller-type load is too stiff for its 10 ms solver step and, if so, uses a smaller step (down to 0.5 ms) and says so in Data Checks and *Messages* (ENG-14): a *Slip Stiffness* of 20 or …
 - **A clutch locks on a solver step.** A clutch slips at its whole torque (engagement × *Max Torque*) while its two sides turn at different speeds, and sticks once they meet, passing whatever keeps them together up to that torque.
-- **The P2 Hybrid Car's engine starts can follow the step.** Its control script starts the engine when that is asked for 0.2 s in a row, and near its thresholds a step can tip one start: on EPA city it starts the engine 31 times at the shipped 10 ms step and 30 times at 2.5 ms (once more at 1,299 s), 2.827 against 2.80…
+- **The P2 Hybrid Car's engine starts can follow the step.** Its control script starts the engine when that is asked for 0.2 s in a row, and near its thresholds a step can tip one start: on EPA city the older engine started the engine 31 times at the 10 ms step and 30 times at 2.5 ms (once more at 1,299 s), 2.827 again…
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂ Consumption*, 55 g/kWh by default), which overstates it at part load by up to about a third and understates it at full load.
 
 ### Energy, duty and limit reports
