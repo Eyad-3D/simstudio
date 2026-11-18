@@ -25,11 +25,13 @@ do not change the model or its cases, and their runs are not stored.
 ## Good to know
 
 - The figures are simulated, not certified.
-- The hybrid example's coast-down does not run in this version yet: the
-  hybrid's cycle case is charge-balanced, which the app's engine does not
-  run (`NEW-BALANCE`), so that test fails with its error and the others
-  run. (On the older engine it returned the EPA coefficients the model was
-  built from within 2 %.)
+- All six tests run on the hybrid example. Its coast-down test is a cycle
+  case, so on a hybrid it is charge-balanced (the cycle run again from the
+  charge the battery ended with, until its stored energy changes by less
+  than 1 % of the fuel's energy, at most 5 runs), and the figures are those
+  of the last run. That can take more than one run. Its coast-down gives
+  A 69.3 N, B 0.919 N/(km/h) and C 0.025 N/(km/h)², within 2 % of the EPA
+  coefficients the model was built from (68.64, 0.9093 and 0.025078).
 - Driving a battery down to empty over repeated cycles is not one of the
   tests yet; the run summary's *Range at this consumption* estimates it
   from one cycle ([Consumption figures](../reference/consumption-figures.md)).

@@ -31,7 +31,7 @@ that starts *Not run* and gives a reason code in brackets (for example
 `Not run [NEW-LAP]: lap cases do not run in this version of LightSim yet`).
 The older engine's code stays in the repository for developers and for the
 comparison of the two engines (`LIGHTSIM_ENGINE=today`, see the
-[README](../README.md)); the app does not run a case on it. Four features
+[README](../README.md)); the app does not run a case on it. Three features
 of the older engine are not ported to the new one yet. They do not run in
 this version, and the reason code names each:
 
@@ -48,18 +48,6 @@ this version, and the reason code names each:
   runs that ended, so after a refused run it keeps showing the last
   stored ones. A plain *Acceleration test* (a case of kind *Acceleration*
   with no event) runs.
-- **A hybrid's charge-balanced case** (`NEW-BALANCE`). A hybrid's cycle case
-  with *Charge balance* on its default, *Auto*, runs charge-balanced (the
-  cycle run again from the charge the battery ended with, so the fuel figure
-  holds no battery energy). The P2 Hybrid Car example's three cycle cases
-  (EPA city, EPA highway and Mixed Cycle) are such cases, so opening it and
-  pressing **Run** fails; its *Mixed Cycle (live, 10×)* case, which is
-  paced, runs. The error says what to do: set the case's *Charge balance*
-  to *Off* and the case runs once. That run gives the single run's fuel
-  figure, with whatever energy the battery gave or took (the summary's
-  *Fuel consumption, charge-corrected* estimates the balanced figure from
-  it), not the balanced figure. The coast-down test on the P2 Hybrid Car in
-  *Vehicle tests* is such a case and fails the same way.
 - **A battery built from cells** (`NEW-CELLS`). A Battery with *Defined
   By: Cells*. Set it to *Pack values* (and give the pack's own capacity,
   open-circuit voltage and resistance) to run the case.
@@ -709,10 +697,13 @@ minimum or an average, for example from the CSV export, or put the
   *Roadmap:* ENG-09.
 - **The P2 Hybrid Car's engine starts can follow the step.** Its control
   script starts the engine when that is asked for 0.2 s in a row, and near
-  its thresholds a step can tip one start: on EPA city it starts the engine
-  31 times at the shipped 10 ms step and 30 times at 2.5 ms (once more at
-  1,299 s), 2.827 against 2.808 l/100 km (0.7 %). Its highway (3.228 and
-  3.228) and Mixed Cycle (2.870 at both) figures do not depend on the step.
+  its thresholds a step can tip one start: on EPA city the older engine
+  started the engine 31 times at the 10 ms step and 30 times at 2.5 ms (once
+  more at 1,299 s), 2.827 against 2.808 l/100 km (0.7 %); its highway
+  (3.228 and 3.228) and Mixed Cycle (2.870 at both) figures did not depend
+  on the step. The new engine, at the shipped 10 ms step, starts the engine
+  30 times on EPA city and gives 2.809 l/100 km. How its count changes with
+  a finer step has not been measured.
   *Roadmap:* MOD-14.
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂
   Consumption*, 55 g/kWh by default), which overstates it at part load by up
@@ -1176,17 +1167,15 @@ SUNDIALS' own examples, transcribed from their C code
   mass and road load from EPA data (EPA's own coefficients A/B/C, with the
   axle's losses counted once), but its engine, motor and battery maps
   are generic, not the car's. With its charge-sustaining control script it
-  uses about 2.83 l/100 km on the EPA city cycle and 3.23 on the highway
+  uses about 2.81 l/100 km on the EPA city cycle and 3.23 on the highway
   cycle, against 2.91 and 2.94 for the real car in EPA's tests. The model
   has no cold start, engine warm-up or start-up fuel, so its city figure
   reads below EPA's, whose city test starts cold; on the highway, with its
   generic maps, it stays about 10 % above. Each case starts at the charge
   the cycle ends with (as a preconditioning drive would leave it), and its
   cases run charge-balanced, so started at any charge they give the
-  same fuel figure; the three cycle cases do not run in this version
-  (`NEW-BALANCE`: set *Charge balance* to *Off* to run one once, see
-  [Does not run in this version](#does-not-run-in-this-version)). With
-  *Charge balance* off, the summary's *Fuel consumption, charge-corrected*
+  same fuel figure (see *Charge balancing repeats the whole run* below).
+  With *Charge balance* off, the summary's *Fuel consumption, charge-corrected*
   estimates the balanced figure from one run by counting the battery's
   energy at the engine's average efficiency. *Roadmap:* CON-14 (sourced maps).
 - **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's

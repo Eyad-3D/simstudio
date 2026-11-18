@@ -4397,10 +4397,11 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   starts *Not run*, and nothing falls back to today's engine (the switch-over
   of 17 November 2026, the owner's decision of 20 October, 7 and 16 November:
   the new engine is the app's engine and is in the installer; see
-  `STATUS.md`). Four features are not ported yet and refused so: lap cases
-  (`NEW-LAP`), Formula Student events (`NEW-FS-EVENT`), a hybrid's
-  charge-balanced case (`NEW-BALANCE`) and a battery built from cells
-  (`NEW-CELLS`); a value outside its parameter's limits is refused too
+  `STATUS.md`). Three features are not ported yet and refused so: lap cases
+  (`NEW-LAP`), Formula Student events (`NEW-FS-EVENT`) and a battery built
+  from cells (`NEW-CELLS`); a hybrid's charge-balanced case was refused too
+  (`NEW-BALANCE`) until it was ported on 17 November 2026 (the owner's yes of
+  that day) and now runs on the new engine; a value outside its parameter's limits is refused too
   (`NEW-LIMITS`, which a study's point or a case's own value can hold, and
   which today's engine read clamped). Every code is in `new_engine.CODES`.
   The result is today's whole result, made by today's own code from the
