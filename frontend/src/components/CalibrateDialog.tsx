@@ -78,7 +78,8 @@ export function CalibrateDialog({ onClose }: { onClose: () => void }) {
             Pick a logged lap (CSV with time or distance, speed and lateral acceleration; pack power if you have it).
             LightSim builds the track from it and finds the grip scale and downforce (CzA) whose lap mode speed fits the
             logged speed best. A second lap from another session checks the prediction, blind. The files stay on your
-            computer; the fit takes about 30 s.
+            computer; the fit takes about 30 s. This does not run in this version of LightSim yet: it runs lap cases (Not
+            run [NEW-LAP]).
           </p>
           <label className={row}>
             Lap to calibrate on

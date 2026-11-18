@@ -39,6 +39,16 @@ the owner's ability to sell licences.
 - Small fixes are often quicker as an issue: describe the change and the
   owner can make it.
 
+## Running LightSim from source
+
+To run or test LightSim from a checkout you need Python, Node and Rust: the
+engine that runs every case is a Rust module (`lightsim_engine`) that you
+build once with maturin. The steps are in [README → Developing](README.md#developing);
+until the module is built a run fails with `Not run [NEW-MISSING]`. The old
+Python engine, which the new one replaced, stays in the repository for
+comparison only: `LIGHTSIM_ENGINE=today` runs a case on it (the app never
+does).
+
 ## Before you report
 
 - Check [Known issues](docs/KNOWN-LIMITS.md): your problem may already be

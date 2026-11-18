@@ -18,8 +18,125 @@ how the example cars compare with real ones.
   that tracks the fix, so the release notes can say when it is resolved.
 - *Being fixed* means the work is under way for an upcoming release. Until
   the release notes say it is done, the problem and the workaround apply.
-- Last reviewed: 28 September 2026, for version 0.2.0. This page is updated
+- Last reviewed: 17 November 2026, for version 0.2.0. This page is updated
   with every release.
+
+## Does not run in this version
+
+LightSim runs every case on one simulation engine, the new engine (written
+in Rust). It replaced the older engine (written in Python) as the app's
+engine in this version, and nothing falls back to the older one: a case the
+new engine does not run fails at once, before any result, with an error
+that starts *Not run* and gives a reason code in brackets (for example
+`Not run [NEW-LAP]: lap cases do not run in this version of LightSim yet`).
+The older engine's code stays in the repository for developers and for the
+comparison of the two engines (`LIGHTSIM_ENGINE=today`, see the
+[README](../README.md)); the app does not run a case on it. Four features
+of the older engine are not ported to the new one yet. They do not run in
+this version, and the reason code names each:
+
+- **Lap cases** (`NEW-LAP`). A case of kind *Lap*: the Race Track's
+  quasi-steady-state lap (Autocross, Skidpad, a custom track), the
+  *Endurance energy* case and study that drive laps, and **Calibrate lap**.
+  The Formula Student Electric example's *Autocross* and *Endurance energy*
+  cases fail with it; its *Acceleration 75 m* case runs. The sections on lap
+  mode below describe the older engine's lap solver, which a later version
+  ports.
+- **Formula Student events** (`NEW-FS-EVENT`). A case with a Formula
+  Student event set (what the *FS events* button adds) and the *Formula
+  Student points* table that scores such runs: the points table lists only
+  runs that ended, so after a refused run it keeps showing the last
+  stored ones. A plain *Acceleration test* (a case of kind *Acceleration*
+  with no event) runs.
+- **A hybrid's charge-balanced case** (`NEW-BALANCE`). A hybrid's cycle case
+  with *Charge balance* on its default, *Auto*, runs charge-balanced (the
+  cycle run again from the charge the battery ended with, so the fuel figure
+  holds no battery energy). The P2 Hybrid Car example's three cycle cases
+  (EPA city, EPA highway and Mixed Cycle) are such cases, so opening it and
+  pressing **Run** fails; its *Mixed Cycle (live, 10×)* case, which is
+  paced, runs. The error says what to do: set the case's *Charge balance*
+  to *Off* and the case runs once. That run gives the single run's fuel
+  figure, with whatever energy the battery gave or took (the summary's
+  *Fuel consumption, charge-corrected* estimates the balanced figure from
+  it), not the balanced figure. The coast-down test on the P2 Hybrid Car in
+  *Vehicle tests* is such a case and fails the same way.
+- **A battery built from cells** (`NEW-CELLS`). A Battery with *Defined
+  By: Cells*. Set it to *Pack values* (and give the pack's own capacity,
+  open-circuit voltage and resistance) to run the case.
+
+Quick mode refuses in the same way what it cannot run (see *Quick mode
+gives a cycle's totals only* below): it does not run the case in full
+instead.
+
+### What else the new engine refuses or stops
+
+The cases below ran on the older engine and fail on the new one, or give
+other numbers. Each fails with *Not run* or the engine's own message and a
+code. A test in the repository records each as an expected failure
+(`backend/tests/engine_marks.py`) until it is fixed.
+
+- **A value outside its parameter's limits, typed in the case, is refused**
+  (`NEW-LIMITS`). Data Checks look at the model's own values and a study's
+  base project, not at the case's Ambient or Vehicle values. A case that
+  sets an Ambient temperature of -300 °C, a Vehicle wheelbase of 0 or a
+  battery margin over 100 % is refused with the limit it breaks, where the
+  older engine clamped the value and warned. Bring the value inside its
+  limits.
+- **A part connected to nothing can fail where the older engine left it
+  out.** The older engine builds no part with nothing connected to it (a
+  battery or Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft
+  drives nothing, a Climate Control on nothing) and runs the rest, with a
+  warning from Data Checks. The new engine builds it. A lone E-Motor fails
+  its start (`RUN-INIT`), a lone Climate Control the build (`STRUCT-OVER`),
+  and a lone Engine's, Fuel Cell Stack's or Battery's table with an axis
+  set to Error can stop the run (`RUN-TABLE`) where the table does not
+  cover where the part sits. Connect the part or delete it.
+- **A table set to Error stops the run in the engine's own words.** The
+  message names the table by its internal name and the time, not in the
+  older words, and a run it stops gives no partial result with its figures
+  marked not valid.
+- **Some notes and rows the older engine wrote are missing**: the note
+  that a motor at its maximum speed holds the car there, the time a Lookup
+  block spent outside its data on *Clamp* or *Linear*, the count of the
+  tables a run read past their data, the *regeneration not recovered* rows
+  behind a one-way DC-DC converter, and an early message that the car does
+  not move.
+- **Some figures differ from the older engine's by more than the band the
+  two engines are compared at, and no class of difference explains them
+  yet**: the energy of a gear shift, a clutch that never locks exactly,
+  the axle loads under load transfer, a car coasting up a grade (16.66
+  against 20.39 for the energy test's m g h), an idle car's final SOC
+  (89.9991 % against 90 %), the slip Traction Control holds after the
+  launch ramp (0.359 against under 0.3), the fuel an Engine coasting in
+  gear burns (1.9 g/s, where the older engine cuts it), a car at rest that
+  moves at 1e-14 m/s, and a propeller's books.
+- **A machine driven to its maximum speed can stop a run by switching
+  without end** (`RUN-EVENT-STORM`: the BEV's WLTC cycle on a 6 % downhill
+  grade with its Final Drive ratio x3, the hybrid's Mixed Cycle with its
+  gears x3), where the older engine warned or finished; and a motor driven
+  past its maximum speed in a top-speed test stops on its full-load map
+  (`RUN-TABLE`). See *A machine driven to its maximum speed can stop the
+  run* below.
+- **A battery driven to its limits, an empty battery's consumers and a
+  fuel cell behind a one-way DC-DC converter can fail at their start or at
+  t = 0** (`RUN-INIT` at about 2.2 s; `RUN-TABLE` at t = 0): the new engine
+  cannot start again from the state these cases reach.
+- **A model whose loss map has sheets of different range is refused**
+  (`BLOCK`): the older engine counted a read outside the narrowest range,
+  the new engine watches the widest.
+- **The reference suite's coast-down model is a loop the engine cannot solve
+  with its values** (`SINGULAR-LOOP`: the *Brake RL* and *Wheel RL* parts), so
+  the validation page's coast-down rows are not re-measured on the new
+  engine (see [What is validated](VALIDATION-STATUS.md)).
+- **A run the engine stops part-way fails with `Not run [NEW-FAILED]`**,
+  even after it showed points: the wording says *Not run* where the run
+  showed, say, 321 s.
+- **A table edited during a live run takes effect on the next run**, and a
+  block's value at an output point is the one after its tick (a Script, FMU
+  or Delay), where the older engine showed the one before. The *Live runs*
+  bullet below has the rest.
+- **The MCP server's answer for a run can pass the 20 kB it keeps to** (one
+  is 27 bytes over).
 
 ## Results that can be wrong today
 
@@ -196,6 +313,10 @@ highest terminal voltage of a solver step, not a 500 ms average.
 
 ### Lap mode is a quasi-steady-state estimate
 
+**This does not run in this version** (`NEW-LAP`, see [Does not run in this
+version](#does-not-run-in-this-version)); what follows describes the lap
+solver of the older engine, which a later version ports.
+
 A case of kind *Lap* finds the fastest speed along the Race Track's line
 about every metre, then drives that speed through the model's motors,
 gears, brakes and battery. It is not a driving simulation:
@@ -269,8 +390,9 @@ of power), MOD-09 (heat over an endurance).
 ### Formula Student points are estimates
 
 The *FS event* rows and the *Formula Student points* table score a run
-with the formulas of FS Rules 2026 v1.1 (FSG) D 9. They are not official
-results:
+with the formulas of FS Rules 2026 v1.1 (FSG) D 9. A case with an event set
+does not run in this version (`NEW-FS-EVENT`), so no new run gets these rows
+until it is ported. They are not official results:
 
 - Only FSG 2026 scoring is built in. FSUK and FSAE use other maximum
   points and formulas, and a season's rules can change them.
@@ -327,7 +449,8 @@ both to find the pace you want.
 ### Imported laps are drive cycles against time
 
 **Import lap** (STD-35) makes a lap from a logger or lap simulator into a
-drive cycle:
+drive cycle, which runs as any cycle case does (the *Lap* case kind it can
+also make does not run in this version, `NEW-LAP`):
 
 - The Driving Task follows speed against time, so a trace against
   distance is turned into time from its speed; driving it against
@@ -375,7 +498,8 @@ once MOD-16 exists), MOD-16.
 
 ### Lap mode calibration fits two numbers on one lap
 
-**Calibrate lap** (VAL-38) fits only a grip factor and the CzA:
+**Calibrate lap** (VAL-38) runs lap cases, so it does not run in this
+version (`NEW-LAP`). It fits only a grip factor and the CzA:
 
 - Grip and downforce trade off on one lap, so the two values are not
   reliable on their own; the check lap's errors are.
@@ -418,7 +542,9 @@ and seven comparison signals (vehicle speed and target, battery SOC and
 power, motor speed and torque, engine fuel rate) every second. The other
 channels appear only after **Run**. The stored runs are not saved with the
 project and are not kept when LightSim restarts; the run lists call them
-*not stored on disk*.
+*not stored on disk*. They were made by the older engine; **Run** gives the
+new engine's figures, which differ in the headline rows by well under 1 %
+(the BEV's WLTC consumption is 14.0456 kWh/100 km stored and 14.0532 run).
 
 *Workaround:* press **Run** for every channel.
 
@@ -605,23 +731,20 @@ minimum or an average, for example from the CSV export, or put the
   brakes: they are in the Vehicle's row and named in the chart, not shared
   out part by part. A driveline's spinning parts (motor rotors, gears,
   shafts, wheels) are one *Rotating parts* row. *Roadmap:* MOD-10.
-- **The duty and the limit band sample every fourth solver step.** They
-  add up every fourth solver step (40 ms at the usual 10 ms), weighted by
-  the time since the last, so their totals cover the whole run, but a
-  duty's highest and lowest value is that of the steps sampled and a state
-  shorter than 40 ms can be missed by the limit band. (The energy is booked
-  every step.) The new engine (not the default: `LIGHTSIM_ENGINE=new`)
-  takes the duty from its integrals over every step it takes and the
-  limit band from a 0.1 s trace of its run, each change at the run's own
-  event inside it where there is one. *Roadmap:* ENG-16.
-- **The new engine judges a few checks its own way.** On the new engine
-  (not the default: `LIGHTSIM_ENGINE=new`) a battery's averaged power
-  peak is over every step the engine took, as today's; a motor's or
+- **The duty and the limit band come from the engine's integrals and a
+  0.1 s trace.** The duty is taken from the engine's integrals over every
+  step it takes, so its totals cover the whole run; the limit band is read
+  from a 0.1 s trace of the run, each change at the run's own event inside
+  it where there is one, so a state shorter than 0.1 s can be missed by
+  the band. (The older engine added up every fourth solver step, 40 ms at
+  the usual 10 ms.) *Roadmap:* ENG-16.
+- **The new engine judges a few checks its own way.** A battery's
+  averaged power peak is over every step the engine took; a motor's or
   engine's time above its maximum speed is that of a 0.1 s trace of its
   speed (0.01 s in an acceleration test); which supply limit held the car
   back, or cut a consumer back, is read from the same trace, so a limit
   met for less than its step can go unsaid, and a battery management
-  limit's note is not given. Its record of a table today's engine reads
+  limit's note is not given. Its record of a table the older engine read
   only in one branch of the part, or at another point (an E-Motor's drag
   table while it is unpowered, its loss map and its full-load curve while
   it is powered, an engine's drag table while it is not fired or its idle
@@ -630,100 +753,105 @@ minimum or an average, for example from the CSV export, or put the
   polarization curve at the current it gives, where the new engine also
   reads it at its Maximum Current, its most power; a drag table that
   reaches the machine's maximum speed is read at that speed above it,
-  which counts as over speed) is judged for the time today's read is
-  past the data on the run's 0.1 s trace (0.01 s in an acceleration test;
-  in quick mode the share of its points once a second), and not at all,
-  with a note with the code `NEW-TABLE-NOT-JUDGED`, when there is none; a
-  stretch in that branch shorter than the trace's step can be missed. Every table the new engine's parts read has a rule of
-  where today's engine reads it: one of these, where the new engine reads
-  it (a battery's OCV table, a Lookup's), or nowhere past its data (an
+  which counts as over speed) is judged for the time the older engine's
+  read would be past the data on the run's 0.1 s trace (0.01 s in an
+  acceleration test; in quick mode the share of its points once a second),
+  and not at all, with a note with the code `NEW-TABLE-NOT-JUDGED`, when
+  there is none; a stretch in that branch shorter than the trace's step can
+  be missed. Every table the engine's parts read has a rule of where the
+  older engine read it: one of these, where the new engine reads it (a
+  battery's OCV table, a Lookup's), or nowhere past its data (an
   engine's full-load curve, read between its own first and last speed); a
   test holds the rules to the engine's reads. Where the engine reads a
   table in several places (an engine's fuel map at three torques) its
   time outside is the longest of those reads', which can be less than all
-  of them together. A part today's engine leaves out, because nothing is
-  connected to it (a battery or Fuel Cell Stack on no bus, an E-Motor or
-  Engine whose shaft drives nothing), has its tables noted, not judged,
-  with the code `NEW-TABLE-NOT-JUDGED`.
-  A table axis set to
-  Error stops the run wherever the engine reads it, in either branch: a
-  run today's engine finishes then fails on the new engine, which says
-  so (`NEW-FAILED`) and runs it on today's engine. Today's engine reads an
-  E-Motor's loss map at 0 N·m wherever its supply holds it back (an
-  acceleration test cut by its battery's Output Power Limit); with that
-  map's torque axis on Error and its data starting above 0 N·m, a new
-  engine's run in which the supply held a motor back stops too
-  (`NEW-FAILED`, quick mode `QUICK-FAILED`) and the case runs on today's
-  engine, which stops there. The engine watches a
-  table at the edges of its own data, as today's (it pads a table only
-  past an end its argument never reaches: a speed's 0, an SOC's 0 and
-  100 %); a table of one point is a constant, and a point past an edge
-  by float noise (1e-9 of the larger end) is inside, as today's. A full
-  run's watch of an axis set to Error has no such margin, though: a
-  motor held exactly at the last speed of such an axis can stop the new
-  engine's run, which then runs on today's engine (`NEW-FAILED`). A 2-D
-  table whose sheets do not all cover the same range of their second
-  axis is refused by the new engine's import (`BLOCK`: the path runs it
-  on today's engine with `NEW-FAILED`, quick mode in full with
-  `QUICK-FAILED`), as today's engine counts a read outside the narrowest
-  range and the engine's watch is at the widest. A Driving Task's or a
-  Road Profile's profile run past its end is not judged, and a note with
-  the code `NEW-TABLE-NOT-JUDGED` says so.
+  of them together. A part that has nothing connected to it (a battery or
+  Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft drives
+  nothing) has its tables noted, not judged, with the code
+  `NEW-TABLE-NOT-JUDGED`.
+  A table axis set to Error stops the run where the engine reads the table
+  past its data and uses the value (`NEW-FAILED`, the engine's `RUN-TABLE`,
+  naming the table and the time). A read whose value the engine does not
+  use does not stop it: an E-Motor's drag table while it is powered, an
+  Engine's fuel map while it is not fired, a Climate Control's demand table
+  while it is off. A read it uses does: an E-Motor's full-load map (the
+  Driver reads it, from 0 to the maximum speed, for the generator torque
+  it may brake with), its loss map at its command torque, and a Fuel Cell
+  Stack's curve at its Maximum Current. The E-Motor's loss map is read at
+  0 N·m wherever its supply holds it back (an acceleration test cut by its
+  battery's Output Power Limit); with that map's torque axis on Error and
+  its data starting above 0 N·m, a run in which the supply held a motor
+  back stops too (`NEW-FAILED`, quick mode `QUICK-FAILED`). An Engine's drag
+  table, which the engine reads in a variable of its own, still stops a
+  run where the engine is fired with the throttle on past the table's
+  speeds (the default, *Clamp*, does not stop it). The engine watches a
+  table at the edges of its own data, as the older engine did (it pads a
+  table only past an end its argument never reaches: a speed's 0, an
+  SOC's 0 and 100 %); a table of one point is a constant, and a point past
+  an edge by float noise (1e-9 of the larger end) is inside. A full run's
+  watch of an axis set to Error has no such margin, though: a motor held
+  exactly at the last speed of such an axis can stop the run
+  (`NEW-FAILED`). A 2-D table whose sheets do not all cover the same range
+  of their second axis is refused by the new engine's import (`BLOCK`,
+  shown as `NEW-FAILED`; quick mode `QUICK-FAILED`), as the older engine
+  counted a read outside the narrowest range and the engine's watch is at
+  the widest. A Driving Task's or a Road Profile's profile run past its
+  end is not judged, and a note with the code `NEW-TABLE-NOT-JUDGED` says
+  so.
   Its Driver can ask a motor for more recuperation than its supply
-  takes, where today's never asks it: the run then says the charging was
-  held back, or, on a fuel cell, which takes nothing back, that it cannot
-  take power back. It asks whether the car has driven by 60 s at every
-  0.1 s of its run, today's engine at the end of each output step, so a
-  cycle whose first 100 m end inside an output step can warn on the new
-  engine where today's, at that step, does not. Today's load transfer
-  follows the acceleration one solver step behind, so at a standing start
-  near the limit it can lift the front wheels for a step (the Formula
-  Student car with a 0.5 m Centre of Gravity Height: at 0.01 s) where the
-  new engine's, from the acceleration now, keeps a load on them (87 N).
-  A lift is said from the second point of the 0.1 s trace (0.01 s in an
-  acceleration test) on, or at the Vehicle's own event after it, because
-  the run's first point is the state before the events of t = 0: the
-  Vehicle at rest slides and sticks again within microseconds, which
-  moves a few N of load off a very light axle for no time. A lift that
-  begins and ends inside the first step goes unsaid.
+  takes, where the older engine's never asked it: the run then says the
+  charging was held back, or, on a fuel cell, which takes nothing back,
+  that it cannot take power back. It asks whether the car has driven by
+  60 s at every 0.1 s of its run, the older engine at the end of each
+  output step, so a cycle whose first 100 m end inside an output step can
+  warn on the new engine where the older engine, at that step, did not.
+  The older engine's load transfer followed the acceleration one solver
+  step behind, so at a standing start near the limit it could lift the
+  front wheels for a step (the Formula Student car with a 0.5 m Centre of
+  Gravity Height: at 0.01 s) where the new engine's, from the acceleration
+  now, keeps a load on them (87 N). A lift is said from the second point
+  of the 0.1 s trace (0.01 s in an acceleration test) on, or at the
+  Vehicle's own event after it, because the run's first point is the state
+  before the events of t = 0: the Vehicle at rest slides and sticks again
+  within microseconds, which moves a few N of load off a very light axle
+  for no time. A lift that begins and ends inside the first step goes
+  unsaid.
   *Roadmap:* ENG-16.
-- **Live runs on the new engine.** With `LIGHTSIM_ENGINE=new` a live
-  run streams each point as the engine records it, and a live edit takes
-  effect at the run's next output point, as an event there (today's
-  engine applies it from the output step its run had reached). The engine
-  runs up to two output points and the step it is taking ahead of the
-  view, so a Stop or an edit lands a few output points after the point the
-  view showed (on the BEV's city cycle, run as fast as it goes, 3.5 to
-  5.7 s after it; today's engine, at that point). Some edits today's
-  engine makes live take effect on the next run on the new engine: one it
-  builds another model for (a Differential's lock, a Driving Task's mode
-  or repeat, a Climate Control's heat source), and one the new engine's
+- **Live runs.** A live run streams each point as the engine records it,
+  and a live edit takes effect at the run's next output point, as an event
+  there. The engine runs up to two output points and the step it is taking
+  ahead of the view, so a Stop or an edit lands a few output points after
+  the point the view showed (on the BEV's city cycle, run as fast as it
+  goes, 3.5 to 5.7 s after it). A run's Stop and edits are read every 20 ms
+  of wall time, not at each output point as the older engine read them: a
+  script's run that is over sooner than that ends before a Stop sent to it
+  is read, and ends `success`. Some edits take effect on the next run: one
+  for which the engine builds another model (a Differential's lock, a
+  Driving Task's mode or repeat, a Climate Control's heat source), one the
   checks after the run would read as it was at the start (the Ambient's
   temperature or pressure, a battery's minimum SOC or charge power, an
-  E-Motor's maximum speed, a Vehicle's CG height or Downforce Area),
-  because today's engine checks those at each step with the values then.
-  Such an edit, and one too late for the run, is listed in the run's live
-  edits with its note, code `NEW-LIVE-NEXT-RUN`; so is a structural
-  parameter's (an E-Motor's torque, speed or voltage scale among them), as
-  on today's engine. A table sent to a live run (the app sends none) takes
-  effect on the next run too, noted in the run's log only. A live run the
-  new engine fails after it has read a Stop or an edit fails with its
-  reason code (`NEW-FAILED` for the engine's own refusal, `NEW-ERROR` for a
-  fault in the path after the run) rather than running again on today's
-  engine, which would not have them; one that has only shown points starts
-  again at t = 0 on today's engine, the view told to drop its points, and
-  says so in a note with the code `NEW-LIVE-RESTART` (the verdict is
-  today's); one nothing watches (a study's point, or the AI tools' run,
-  whose points go to a progress bar only) runs on today's engine, saying
-  so with the code. An
-  acceleration test runs twice on the new engine: first over the case's
-  whole duration, which the live view does not show, then again to the
-  moment it crosses the finish, which it shows; an edit made during the
-  second takes effect on the next run. Making a run again from its
-  snapshot (the app's replay) gives the same result on the new engine,
-  live edits included; it runs the case to its end, so a stopped run's
-  replay is the whole run, and a run on today's engine with live edits is
-  not made again (code `REPLAY-TODAY-LIVE-EDITS`). *Roadmap:* ENG-16.
+  E-Motor's maximum speed, a Vehicle's CG height or Downforce Area), and a
+  Sample Time that changes when a PID or Lookup block samples. Such an
+  edit, and one too late for the run, is listed in the run's live edits
+  with its note, code `NEW-LIVE-NEXT-RUN`; so is a structural parameter's
+  (an E-Motor's torque, speed or voltage scale among them). A table sent to
+  a live run (the app sends none) takes effect on the next run too, noted
+  in the run's log only. A live run the engine fails fails with its reason
+  code (`NEW-FAILED` for the engine's own refusal, `NEW-ERROR` for a fault
+  in the path after the run) and does not start again, with or without a
+  Stop or an edit read before it. A live edit that later moves the run past
+  a table's data does fail it. An acceleration test runs twice: first over
+  the case's whole duration, which the live view does not show, then again
+  to the moment it crosses the finish, which it shows; an edit made during
+  the second takes effect on the next run, and so does a performance or
+  cycle test that ends at a *Distance* or a lap count; the progress it
+  shows ends at the share of the whole duration (34 % for a performance
+  test of 300 m), not at 100 %. Making a run again from its snapshot (the
+  app's replay) gives the same result, live edits included; it runs the
+  case to its end, so a stopped run's replay is the whole run. A run stored
+  from the older engine is made again on the older engine, and one with live
+  edits is not made again (code `REPLAY-TODAY-LIVE-EDITS`). *Roadmap:*
+  ENG-16.
 - **Quick mode gives a cycle's totals only.** A case in quick mode (*Run
   mode*: *Quick*) runs on the new engine's fast mode: the cycle's speed is
   prescribed and the Driver's pedal worked out back from it, every 1 s, so
@@ -731,23 +859,23 @@ minimum or an average, for example from the CSV export, or put the
   consumptions, range, distance, each phase's), not the peaks, minima and
   times at a limit, no verdict on the speed trace, no energy report, duty,
   limit band or hand checks, and no live view (Stop, live edits and pacing
-  do nothing). Of today's run-time checks it makes the Ambient's (air
+  do nothing). Of a full run's run-time checks it makes the Ambient's (air
   outside the usual) and the tables' (one read past its data, from its
   points once a second, marks the consumptions not valid; one whose axis
-  is set to Error stops fast mode, `FAST-TABLE-ERROR`, and the case runs
-  in full with `QUICK-FAILED`, even where only a branch the run does not
-  take reads it, as on the new engine's full run); the wheels
+  is set to Error stops fast mode, `FAST-TABLE-ERROR`, and the case fails
+  with `QUICK-FAILED`, even where only a branch the run does not take
+  reads it); the wheels
   lifting, an E-Motor with no live supply and the supply limits' warnings
   are not told. A limit the car would have met is flagged as a warning, not
   acted on, so the totals then take more than the car could give. On the
   example cars' nine cycle cases the energy recuperated and the internal
   losses come out up to 1.8 % and 1.4 % below the full run's (the charge
-  used within 0.2 %). A case it does not run runs in full with a warning
-  and a code: `QUICK-KIND` (no drive cycle: an acceleration, performance,
+  used within 0.2 %). A case it does not run fails with *Not run* and a code, and the
+  advice to set the case's mode to full: `QUICK-KIND` (no drive cycle: an acceleration, performance,
   lap or Formula Student case), `QUICK-BALANCE` (a charge-balanced hybrid
   case), `QUICK-END` (a case that ends at a Distance or a lap count),
   `QUICK-SAMPLED` (a Script, FMU or Traction Control part, or a PID or
-  Lookup block with a Sample Time longer than today's solver step),
+  Lookup block with a Sample Time longer than the 10 ms solver step),
   `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
   `QUICK-FAILED` (fast mode's own refusal), `QUICK-TABLE-TIME` (a
   table read past its data for a time within two of its steps a stretch
@@ -755,15 +883,14 @@ minimum or an average, for example from the CSV export, or put the
   `QUICK-NOT-FOUND`,
   `QUICK-ERROR`. See [Run a cycle in quick mode](help/how-to/run-in-quick-mode.md).
   *Roadmap:* ENG-16.
-- **Text components need the new engine and a project file edit.** A part
+- **Text components need a project file edit.** A part
   can read its equations from a text file (its `textFile`, see [Write a
   part as text](help/how-to/write-a-part-as-text.md)); there is no editor
   for it in the app, and the file is not kept inside the project (it must be
   inside the projects folder, links followed, or the run fails with
-  `NEW-TEXT`). Today's
-  engine reads none, so such a case runs on the new engine; one the new
-  engine does not run (a lap case, a battery built from cells) fails with
-  its code and `NEW-TEXT` rather than running the built-in part. A
+  `NEW-TEXT`). One in a
+  case the engine does not run (a lap case, a battery built from cells) fails
+  with its code and `NEW-TEXT` rather than running the built-in part. A
   Script, FMU or Traction Control part, and a sub-system's container, have
   no text component. *Roadmap:* ENG-16.
 - **A `when` set exactly at a limit the model holds can stop the run.** In
@@ -776,17 +903,16 @@ minimum or an average, for example from the CSV export, or put the
   the part with the `when`, the part that holds the value and the limit.
   Set the threshold a little above or below the limit (79 999 W and
   80 001 W count right). *Roadmap:* ENG-16.
-- **FMUs on the new engine step at their own points.** With
-  `LIGHTSIM_ENGINE=new` an FMU is given its inputs at each multiple of its
-  Communication Step, steps to the next and is read there (as FMPy and
-  fmusim run it), where today's engine steps it to the end of the solver
-  step it is in: the two engines' FMU outputs can differ by up to one
-  solver step's change. On the new engine an FMU's start values and its
+- **FMUs step at their own points.** An FMU is given its inputs at each
+  multiple of its Communication Step, steps to the next and is read there
+  (as FMPy and fmusim run it); the older engine stepped it to the end of
+  the solver step it was in, so an FMU's outputs differ from that engine's
+  by up to one solver step's change. An FMU's start values and its
   Communication Step changed during a run take effect on the next run
   (code `NEW-LIVE-NEXT-RUN`). *Roadmap:* ENG-16.
 - **A run the new engine cannot follow can take minutes to be refused, or
   not end.**
-  With `LIGHTSIM_ENGINE=new` a run has no time limit unless the caller
+  A run has no time limit unless the caller
   gives one (the app gives none; the Python module's `time_limit=` does,
   and its `memory_limit=` is 4 GB when not given, counting the recorded
   results and the events, not everything the run holds). A model the
@@ -801,100 +927,58 @@ minimum or an average, for example from the CSV export, or put the
   (an output that divides by zero, say) is never a result: the run stops
   at that time with `RUN-NOT-FINITE`, naming the variable. *Roadmap:*
   ENG-16.
-- **A PID or Lookup block with a Sample Time runs on today's engine.**
-  Today's engine runs a PID or Lookup block whose Sample Time is longer
-  than its solver step (10 ms, less for a stiff model) only at multiples
-  of it and holds its output in between; the new engine and quick mode
-  would run it at every step. So with `LIGHTSIM_ENGINE=new` such a case
-  runs on today's engine, saying so with the code `NEW-SAMPLED`, and in
-  quick mode it runs in full with `QUICK-SAMPLED`. A live edit that sets
-  such a Sample Time during a run on the new engine is not made: the result
-  lists it with `NEW-LIVE-NEXT-RUN`, and the next run goes to today's
-  engine. *Roadmap:* ENG-16.
-- **A PID at its limit can stop the new engine and quick mode.** A PID
-  block with no Sample Time (or one within today's solver step) whose
-  output sits at its limit for a long stretch of a driving cycle (for
-  example the BEV and aero car on their city, WLTC and UDDS cycles and the
-  hybrid on its UDDS cycle, with a setpoint far
-  from the speed) makes the new engine stop with `NEW-FAILED`
-  (`RUN-EVENT-STORM`, at the anti-windup) and quick mode with
-  `QUICK-FAILED` (`FAST-RUN`), where today's engine succeeds. Without
-  `LIGHTSIM_ENGINE_STRICT` the run goes on today's engine with that
-  warning. A run with a view (every run the app starts) of a project with
-  such a PID goes to today's engine before it starts, with the code
-  `NEW-LIVE-PID`, whether or not its PID would reach its limit.
-  *Roadmap:* ENG-16.
-- **A live run can go to today's engine for a table set to Error.** An
-  E-Motor's or Engine's table is read by today's engine only in one branch
-  of the part (an E-Motor's drag table only while it is unpowered); the new
-  engine reads it in every branch and stops a run at its first read past
-  the data when the axis is set to Error, so it can stop a run that today's
-  engine finishes. A run with no view is then run again on today's engine,
-  but a live run that has shown points is not. So a run with a view (every
-  run the app starts) is decided before it starts, without running it: it
-  goes to today's engine, with the code `NEW-LIVE-ERROR-AXIS`, when such an
-  axis set to Error does not cover every value the new engine can read it
-  at. Covered are an E-Motor's full-load torque and loss map from 0 to its
-  maximum speed, its loss map from 0 to the most torque it gives or takes
-  (with no axis of its full-load or drag table set to Linear), and an
-  Engine's fuel map over its full-load curve's speeds and from 0 to its most
-  torque; any other such axis is not, even where the case would never reach
-  past its data (the example cars' tables are covered). A motor driven
-  above its maximum speed by something else (a downhill grade, an engine
-  or another motor on its shaft) is not a case of it: the new engine
-  reads the motor's full-load and loss maps at its speed held to the
-  maximum (above it the inverter is off and they are not used), as today's
-  engine does, so it does not stop at the table. It can still stop at the
+- **A PID's and a Lookup's Sample Time follow a 10 ms step.** The engine
+  runs a PID block, and a Lookup block with a Sample Time over 10 ms, at
+  the instants the older engine did: every 10 ms step while the Sample Time
+  is within it, otherwise the first step at or after each multiple of the
+  Sample Time, holding the output in between. The older engine took a
+  smaller step (10 ms divided by a whole number) on a stiff model; the new
+  engine's blocks keep 10 ms there, as its Script and Traction Control
+  blocks do, so on such a model a PID samples at 10 ms where the older
+  engine's sampled at 5 ms, and a Lookup with a Sample Time over 5 ms and
+  up to 10 ms is not held. Not measured. A PID's output that feeds the plant
+  restarts the integrator at each tick, as the hybrid's Script blocks do;
+  not measured on a project whose PID drives the car. A Script, Delay or
+  Traction Control block with a Sample Time on the output grid shows its value
+  just after the tick at an output point, where the older engine showed the
+  value before it. *Roadmap:* ENG-16.
+- **A machine driven to its maximum speed can stop the run.** A motor or
+  engine driven above its maximum speed by something else (a downhill
+  grade, an engine or another motor on its shaft) is not a case of the
+  table stopping the run: the engine reads the motor's full-load and loss
+  maps at its speed held to the maximum (above it the inverter is off and
+  they are not used), as the older engine did. It can still stop at the
   limit itself (`NEW-FAILED`, `RUN-EVENT-STORM`): where the driver brakes
-  and gravity or another source drives the motor (or an engine) up to its
-  maximum speed, the brake works below it and not above, and the speed
-  switches about the limit without end, which today's engine, with a fixed
-  step that lets a machine carry past by a step, does not notice (a
-  downhill cycle run of the example BEV or aero car with its Final Drive
-  ratio x3; the hybrid with its ratio x3, on the level or on a 6 %
-  downhill grade, where the new engine's Engine switches between fired
-  and not fired 7 to 28 s in, and today's engine succeeds on the highway
-  and mixed cycles on the level and warns on the others: its engine past
-  its maximum speed, or the battery full). Such a run in the app, which has a view, is
-  run again from t = 0 on today's engine (`NEW-LIVE-RESTART`, a note) and
-  gives today's verdict, at the cost of the first run's time; a Stop read
-  before the storm makes it fail instead, as the run cannot start again
-  without it. With `LIGHTSIM_ENGINE_STRICT=1` it fails. The hybrid on the
-  highway cycle at that ratio downhill does not switch so: the new engine
-  runs it to its end and warns, as today's engine does, but also gives
-  the battery's "charging exceeds max charge power" warning, which today's
-  engine does not give. A live edit
-  that later moves the run past the data does fail it.
-  *Roadmap:* ENG-16.
-- **A case handed back to today's engine shows a warning.** With
-  `LIGHTSIM_ENGINE=new`, a case the new engine fails before its first
-  point runs on today's engine, and the note that says so, with its code,
-  is a warning; so is quick mode's note for a case it runs in full. A run
-  today's engine finishes with success then shows a warning.
-  *Roadmap:* ENG-16.
-- **The new engine runs only drive-cycle and acceleration cases.** With
-  `LIGHTSIM_ENGINE=new` a case of kind *Performance* (a 0 to 100 km/h step
-  held for 30 s, say) runs on today's engine, saying so with the code
-  `NEW-CASE-KIND`; a lap case does the same with `NEW-LAP`, and with
-  `LIGHTSIM_ENGINE_STRICT=1` each is a coded failure instead.
-  *Roadmap:* ENG-16.
-- **A Driver with no P gain can succeed on the new engine.** With
-  `LIGHTSIM_ENGINE=new` a Driver whose *Kp* is 0 follows the cycle (on the
-  BEV, within 1.6 km/h), where today's engine lags it by about 17 km/h and
-  warns. The run shows success, not that warning, because the two engines'
-  Drivers differ. *Roadmap:* ENG-16.
-- **The new engine runs only values inside their limits.** A study's
-  point can hold a value that Data Checks would refuse for a single run (a
-  negative pressure, a CG height below 0, a wheel's load share of 0):
-  today's engine reads many such values clamped, so with
-  `LIGHTSIM_ENGINE=new` such a point runs on today's engine, and its
-  result says so with the code `NEW-LIMITS`. Inside the limits, today's
-  engine still puts a floor under some values that the new engine reads
-  as typed, among them the Ambient's temperature at -273 °C (its limit is
-  above -273.15 °C), a Vehicle's mass at 1 kg, a wheel's radius at 1 mm,
-  a battery's capacity at 1 Wh and its resistance at 1 µΩ. Only values
-  below such a floor run differently; the new engine's warning about the
-  air gives the density its own run used. *Roadmap:* ENG-16.
+  and gravity or another source drives the motor up to its maximum
+  speed, the brake works below it and not above, and the speed switches
+  about the limit without end, which the older engine, with a fixed step
+  that lets a machine carry past by a step, did not notice (a downhill
+  cycle run of the example BEV or aero car with its Final Drive ratio x3;
+  the hybrid with its ratio x3 on a 6 % downhill grade, where the Engine
+  switches between fired and not fired). The older engine finished the
+  run, or warned that the engine went past its maximum speed or the battery
+  was full. Such a run now fails with its code, and no longer starts again
+  on another engine. The hybrid on the highway cycle at that ratio
+  downhill does not switch so: it runs to its end and warns, as the older
+  engine did, but also gives the battery's "charging exceeds max charge
+  power" warning, which the older engine did not give (browser test ENG-34
+  records it). *Roadmap:* ENG-16.
+- **A Driver with no P gain can succeed.** A Driver whose *Kp* is 0
+  follows the cycle (on the BEV, within 1.6 km/h), where the older engine
+  lagged it by about 17 km/h and warned. The run shows success, not that
+  warning, because the two engines' Drivers differ. *Roadmap:* ENG-16.
+- **A value outside its limits is refused.** A study's point can hold a
+  value that Data Checks would refuse for a single run (a negative
+  pressure, a CG height below 0, a wheel's load share of 0), and so can a
+  case's own Ambient or Vehicle value: the older engine read many such
+  values clamped, the new engine refuses the run with the code
+  `NEW-LIMITS` and the limit it breaks. Inside the limits, the older
+  engine put a floor under some values that the new engine reads as typed,
+  among them the Ambient's temperature at -273 °C (its limit is above
+  -273.15 °C), a Vehicle's mass at 1 kg, a wheel's radius at 1 mm, a
+  battery's capacity at 1 Wh and its resistance at 1 µΩ. Only values below
+  such a floor run differently; the new engine's warning about the air
+  gives the density its own run used. *Roadmap:* ENG-16.
 - **Fuel energy is a heating value you set.** The fuel's energy is the
   fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by
   default; background knowledge, not checked against a source; a model
@@ -926,7 +1010,7 @@ minimum or an average, for example from the CSV export, or put the
 
 ### The new engine on published hard problems
 
-The new engine (not the default: `LIGHTSIM_ENGINE=new`) was run on the 23
+The new engine was run on the 23
 problems of the IVP Test Set 2.4, each transcribed by script from its own
 Fortran and checked against it, at tolerances 1e-4 to 1e-10, and on six of
 SUNDIALS' own examples, transcribed from their C code
@@ -1098,11 +1182,13 @@ SUNDIALS' own examples, transcribed from their C code
   reads below EPA's, whose city test starts cold; on the highway, with its
   generic maps, it stays about 10 % above. Each case starts at the charge
   the cycle ends with (as a preconditioning drive would leave it), and its
-  cases run charge-balanced (see below), so started at any charge they
-  give the same fuel figure. With *Charge balance* off, the summary's
-  *Fuel consumption, charge-corrected* estimates the balanced figure from
-  one run by counting the battery's energy at the engine's average
-  efficiency. *Roadmap:* CON-14 (sourced maps).
+  cases run charge-balanced, so started at any charge they give the
+  same fuel figure; the three cycle cases do not run in this version
+  (`NEW-BALANCE`: set *Charge balance* to *Off* to run one once, see
+  [Does not run in this version](#does-not-run-in-this-version)). With
+  *Charge balance* off, the summary's *Fuel consumption, charge-corrected*
+  estimates the balanced figure from one run by counting the battery's
+  energy at the engine's average efficiency. *Roadmap:* CON-14 (sourced maps).
 - **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's
   values; about 14 kWh/100 km on WLTC at the battery and 16.3 at the
   charging socket with the default 86 % charger efficiency (a car of this
@@ -1134,8 +1220,9 @@ SUNDIALS' own examples, transcribed from their C code
   car with traction control reaches it later. Its tyres' *Slip Stiffness*
   of 20 (not 10) makes LightSim run it at a 5 ms step instead of 10 ms
   (ENG-14).
-  The *Endurance energy* case is lap mode at the tyres' limit in every
-  corner and under every braking, with no lift-and-coast and no driver
+  The *Autocross* and *Endurance energy* cases do not run in this
+  version (`NEW-LAP`). The *Endurance energy* case is lap mode at the tyres'
+  limit in every corner and under every braking, with no lift-and-coast and no driver
   change (FS Rules 2026 v1.1 (FSG) D 7.5.4's 3 min); its energy follows the
   Output Power Limit the case sets, 30 kW: 20 kW gives 4.14 kWh net, 40 kW
   6.33 kWh with 7.9 % SOC left, and at 45 kW the pack runs out before the

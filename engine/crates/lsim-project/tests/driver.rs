@@ -263,6 +263,12 @@ fn stepped_car() -> ComponentDef {
             p("vt", "m/s", V, "the target speed"),
             p("t_step", "s", 0.0, "when the target steps"),
             p("drag", "1/s", 0.0, "the speed lost per second per m/s"),
+            p(
+                "off",
+                "m/s",
+                0.0,
+                "a start error that is gone at 0.5 s (a start not solved to the digit)",
+            ),
             p("unit_Nm", "N.m", 1.0, "unit carrier"),
         ],
         vars: vec![state("v", "m/s", 0.0, "the speed")],
@@ -274,8 +280,9 @@ fn stepped_car() -> ComponentDef {
             ),
             eq(
                 n("v_rel"),
-                n("v") - n("vt") * ite(ge(time(), n("t_step")), c(1.0), c(0.0)),
-                "the speed less the target (0 until t_step)",
+                n("v") - n("vt") * ite(ge(time(), n("t_step")), c(1.0), c(0.0))
+                    + n("off") * ite(lt(time(), c(0.5)), c(1.0), c(0.0)),
+                "the speed less the target (0 until t_step), less a start error",
             ),
             eq(n("cap"), c(0.0) * n("unit_Nm"), "no recuperation"),
         ],
@@ -284,6 +291,16 @@ fn stepped_car() -> ComponentDef {
 }
 
 fn performance_run(a: f64, t_step: f64, drag: f64, t_end: f64) -> lsim_solve::SimResult {
+    performance_run_off(a, t_step, drag, t_end, 0.0)
+}
+
+fn performance_run_off(
+    a: f64,
+    t_step: f64,
+    drag: f64,
+    t_end: f64,
+    off: f64,
+) -> lsim_solve::SimResult {
     let mut lib = lib();
     lib.add(stepped_car());
     let driver = lsim_lib::blocks::vehicle::driver(lsim_lib::blocks::vehicle::DriverConfig {
@@ -300,7 +317,11 @@ fn performance_run(a: f64, t_step: f64, drag: f64, t_end: f64) -> lsim_solve::Si
                 &name,
                 &[("driver_kp", KP), ("driver_ki", KI), ("regen_weight_pct", 0.0)],
             ),
-            part("car", "Test.SteppedCar", &[("a", a), ("t_step", t_step), ("drag", drag)]),
+            part(
+                "car",
+                "Test.SteppedCar",
+                &[("a", a), ("t_step", t_step), ("drag", drag), ("off", off)],
+            ),
         ],
         &[
             ("car.v_rel", "driver.v_vehicle"),
@@ -368,6 +389,24 @@ fn a_performance_driver_does_not_chatter_where_it_gets_there() {
     for (k, &t) in res.times.iter().enumerate() {
         if t > 1e-9 && t < 4.0 {
             assert_eq!(pedal[k], 1.0, "full throttle on the way at {t} s: {}", pedal[k]);
+        }
+    }
+}
+
+/// A car at rest with the target at 0 has an error of 0 up to the digits the
+/// start was solved to (here 5e-9 m/s, gone at 0.5 s): that falling to 0 is
+/// not "the speed got to the target", and the Driver must still hold full
+/// throttle when the target steps, up to the target (the check found it
+/// handing over to the PI as soon as the error fell below 1 m/s).
+#[test]
+fn a_performance_driver_that_starts_at_its_target_is_not_reached() {
+    let (a, t_step) = (2.0, 3.0);
+    let res = performance_run_off(a, t_step, 0.0, 12.0, -5e-9);
+    let t_reach = t_step + V / a;
+    let pedal = res.channel("driver.sig_accel_pedal").unwrap();
+    for (k, &t) in res.times.iter().enumerate() {
+        if t > t_step + 1e-9 && t < t_reach - 1e-9 {
+            assert_eq!(pedal[k], 1.0, "full throttle on the way, at {t} s: {}", pedal[k]);
         }
     }
 }

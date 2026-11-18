@@ -60,7 +60,10 @@ tests check every number its tutorials and lessons quote against the app
 
 The *Start* page (and **Open**) lists a second example, a P2 hybrid sized
 after the Hyundai Ioniq Hybrid and driven on the EPA city and highway
-cycles, and a third, *FS Electric (generic)*, a Formula Student electric car
+cycles (in this version its three cycle cases do not run, and the
+autocross lap and endurance energy case of the third example, below, do not
+run either: see [Known issues and limits](docs/KNOWN-LIMITS.md#does-not-run-in-this-version)),
+and a third, *FS Electric (generic)*, a Formula Student electric car
 with a 75 m acceleration test, an autocross lap and an endurance energy
 case, and a fourth, *Efficient Electric Sedan*, a Tesla Model 3 RWD class
 car on EPA's test data that asks what low drag buys you, next to your own
@@ -297,6 +300,11 @@ WebSocket) to the backend.
 # 1. backend  (Python ≥ 3.11)
 cd backend
 pip install -r requirements.txt
+# the engine that runs every case is a Rust module, built once (Rust:
+# https://rustup.rs; rebuild it after the Rust code changes)
+(cd ../engine && python -m pip install maturin numpy &&
+  python -m maturin build --release -m crates/lsim-py/Cargo.toml --out wheels &&
+  python -m pip install --no-deps --no-index --find-links wheels lightsim-engine)
 python -m uvicorn app.main:app --reload --port 8000
 
 # 2. frontend (Node ≥ 20)
@@ -310,8 +318,9 @@ In this mode your projects (with their runs and backups) are saved in
 examples are read from `backend/projects/`, which the engine never writes (the
 golden tests read them too): to change an example, edit its file there.
 Projects that earlier versions saved into `backend/projects/` now show up as
-examples; move them to `backend/dev-projects/`. If the backend is not running
-the UI still works from bundled data (topology editing only); save / checks /
+examples; move them to `backend/dev-projects/`. Without the engine module a
+run fails with `Not run [NEW-MISSING]` (see [The new engine](#the-new-engine)).
+If the backend is not running the UI still works from bundled data (topology editing only); save / checks /
 simulation are disabled and a warning appears in Messages.
 
 Building the frontend once (`cd frontend && npm run build`) also lets the
@@ -327,6 +336,9 @@ no packaging step is needed while developing.
 cd backend
 pip install -r requirements-dev.txt ruff
 python -m pytest tests/     # maps, dynamics, differential modes, scripts, API + WS
+                            # (the engine module must be installed; with
+                            # LIGHTSIM_REQUIRE_NEW_ENGINE=1 a missing one fails
+                            # the tests that need it instead of skipping them)
 ruff check .                # lint (config in backend/pyproject.toml)
 
 cd ../frontend
@@ -391,10 +403,14 @@ Four features do not run in this version yet and are refused so: lap cases
 (`NEW-LAP`), Formula Student event cases (`NEW-FS-EVENT`), a hybrid's
 charge-balanced case (`NEW-BALANCE`; set the case's *Charge balance* off to
 run it once) and a battery built from cells (`NEW-CELLS`). What else
-differs is in [Known issues and limits](docs/KNOWN-LIMITS.md). For
-developers, `LIGHTSIM_ENGINE=today` runs today's engine instead (the
-both-engines comparison, `python -m benchmarks.back_to_back`, uses it), and a
-replay of a run stored from today's engine runs on today's engine.
+differs is in [Known issues and limits](docs/KNOWN-LIMITS.md). A developer
+builds the module as in *Developing* above (a source checkout has none until
+then) and can ask for today's engine, the old Python one, with
+`LIGHTSIM_ENGINE=today`: the both-engines comparison, `python -m
+benchmarks.back_to_back`, does so, and tests of the four features, which
+the new engine does not run yet, use it as their reference. A replay of a
+run stored from today's engine runs on today's engine. The app itself never
+runs a case on it.
 Script blocks keep today's rules: approved code only in a run started in
 the app, the strict OS sandbox with no approval for the command-line tool
 and AI apps, and the locked-down worker either way.
@@ -791,7 +807,9 @@ reached the line by then gets a warning and no time. The results are
 estimates, and Messages, Run info, the headline numbers and the summary
 header say so (see [Known issues and limits](docs/KNOWN-LIMITS.md)).
 
-Set it to *Lap* to drive the model's *Race Track* (Driver & Signals). Its
+Set it to *Lap* to drive the model's *Race Track* (Driver & Signals). A Lap
+case does not run in this version yet (`NEW-LAP`); what follows describes
+the lap solver of today's engine, which a later version ports. Its
 *Track layout* and *Laps*, set in the case, choose the run: Autocross (a
 979 m closed lap), Skidpad (the right and left circles, 9.125 m on the lane
 centre) or Acceleration 75 m, drawn for LightSim after FS Rules 2026 v1.1

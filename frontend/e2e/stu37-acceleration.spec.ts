@@ -5,7 +5,6 @@ import { expect, test } from "@playwright/test";
 import { finishNotice, headlineTile, openApp, openSummary, ribbonTab, showPanel, showResults } from "./app";
 
 test("STU-37: one click gives the 75 m time and the speed at the line within 5 s", async ({ page }) => {
-  test.fail(true, "The Acceleration test button adds an acceleration case to the electric car, whose Driver has its Target Speed and Actual Speed linked: the new engine refuses it (NEW-FAILED, PORT-NOT-MAPPED), fixed on work/flip-path");
   await openApp(page);
   await ribbonTab(page, "Simulations").click();
   const button = page.getByRole("button", { name: "Acceleration test" });

@@ -344,7 +344,8 @@ pub fn engine(cfg: &EngineConfig) -> ComponentDef {
                         fuel_b2,
                         fuel_0 * (c(1.0) + n("t_b2") / max(n("t_drag"), c(1e-12) * n("unit_N_m"))),
                     ),
-                    // (its fuel map read only in the band: outside it the read is in no used branch)
+                    // the fuel map is read only in the band (an Error axis stops
+                    // a run only where its read is used: lsim-solve `table_when`)
                     ite(noev(gt(n("lim"), c(0.0))), n("lim") * fuel_thr, c(0.0) * n("unit_kg_s")),
                 ),
             ),

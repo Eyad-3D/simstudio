@@ -465,6 +465,11 @@ export function CasePanel() {
               <option value="lap">Lap</option>
             </select>
           </label>
+          {activeCase.kind === "lap" && (
+            <p className="text-[11px] text-[color:var(--ss-text-dim)]">
+              Lap cases do not run in this version of LightSim yet: Run fails with Not run [NEW-LAP].
+            </p>
+          )}
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
             title="Every run of this case gets an Energy view in Results: where the battery's or fuel's energy went, as a Sankey chart and a table per part, and Energy labels on the diagram."
@@ -530,7 +535,7 @@ export function CasePanel() {
           {(activeCase.kind ?? "cycle") === "cycle" && (
             <label
               className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-              title="Quick: the new engine's fast mode. The cycle's speed is prescribed and the Driver's pedal worked out back from it, so the run takes a fraction of a full run's time; it gives the totals (energy, consumption, range, distance, each phase's), not the peaks, the speed trace's verdict or the reports, and flags a limit the car would have met instead of acting on it. A case it cannot run (a Script, FMU or Traction Control part, a battery built from cells, a charge-balanced hybrid) runs in full, saying why."
+              title="Quick: the new engine's fast mode. The cycle's speed is prescribed and the Driver's pedal worked out back from it, so the run takes a fraction of a full run's time; it gives the totals (energy, consumption, range, distance, each phase's), not the peaks, the speed trace's verdict or the reports, and flags a limit the car would have met instead of acting on it. A case it cannot run (a Script, FMU or Traction Control part, a battery built from cells, a charge-balanced hybrid) is not run: it fails saying why; set the mode to full."
             >
               Run mode
               <select
@@ -549,7 +554,7 @@ export function CasePanel() {
           {!accel && !lap && (
             <label
               className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-              title="Charge balancing (for hybrids): run the cycle again from the charge the battery ended with, until its stored energy changes by less than 1 % of the fuel's energy (at most 5 runs), so the fuel figure holds no energy the battery gave or took. Auto: on for a Cycle case whose model has an engine and a battery, and not paced."
+              title="Charge balancing (for hybrids): run the cycle again from the charge the battery ended with, until its stored energy changes by less than 1 % of the fuel's energy (at most 5 runs), so the fuel figure holds no energy the battery gave or took. Auto: on for a Cycle case whose model has an engine and a battery, and not paced. A charge-balanced case does not run in this version of LightSim yet (Not run [NEW-BALANCE]): set this to Off to run it once."
             >
               Charge balance
               <select

@@ -567,6 +567,15 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
     }
 }
 
+/// How far below the target (m/s) a performance test's speed has to have
+/// been for getting to it to count: a car at rest with its target at 0 has
+/// an error of 0 only to the digits its start was solved to, and that
+/// falling to 0 is not the car getting to the target.
+const FLAT_OUT_BELOW: f64 = 1e-3;
+
+/// Where (s) a performance test's Driver looks at whether it started below its target.
+const START_LOOK: f64 = 1e-3;
+
 /// The driver's configuration.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct DriverConfig {
@@ -686,19 +695,24 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
     if cfg.performance {
         // a performance test (today's DriverSlave): full throttle while
         // below the target, until the speed first gets there (`reached`,
-        // latched where the error first falls to 0: it can fall
-        // there only after being above), the PI's command after that. Held
-        // at full throttle the integral does not wind up, as today's
-        // (conditional integration: it moves only while the command is
-        // below 0), so the PI starts holding the target from an integral
-        // that has not been pulled to the limit and back.
+        // latched where the error falls to 0 after it has been above
+        // `FLAT_OUT_BELOW`: a start at the target has an error of 0 too),
+        // the PI's command after that. Held at full throttle the integral
+        // does not wind up, as today's (conditional integration: it moves
+        // only while the command is below 0), so the PI starts holding the
+        // target from an integral that has not been pulled to the limit and back.
         // (a nanometre per second above 0, not 0, here and where `reached`
         // is latched: a car that starts at its target has an error of
         // exactly 0, where the solver can find no root to watch; and the
         // same line for both, so that there is no band between them where a
         // car that has just got there is let off the throttle, slows and is
         // forced again)
-        let above = gt(n("err"), c(1e-9) * n("unit_ms"));
+        // (full throttle starts where the speed is `FLAT_OUT_BELOW` below the
+        // target, and holds up to the 1e-9 line once it has: a car holding a
+        // target it started at wanders inside that band, and must not be
+        // put on full throttle there, or be let off it)
+        let above =
+            gt(n("err"), (c(1e-9) + (c(1.0) - n("flat_out")) * c(FLAT_OUT_BELOW)) * n("unit_ms"));
         let free = c(1.0) - n("reached");
         controller.extend([
             eq(n("cmd_pi"), clamp(n("cmd_u"), c(-1.0), c(1.0)), "the PI's command, held to ±1"),
@@ -823,11 +837,24 @@ pub fn driver(cfg: DriverConfig) -> ComponentDef {
     }
     if cfg.performance {
         vars.push(var("cmd_pi", "1", "the PI's command"));
+        vars.push(discrete("flat_out", "1", 0.0, "1 once the speed has been below the target"));
         vars.push(discrete("reached", "1", 0.0, "1 once the speed has got to the target"));
         eqs.push(when(
-            le(n("err"), c(1e-9) * n("unit_ms")),
+            gt(n("err"), c(FLAT_OUT_BELOW) * n("unit_ms")),
+            &[("flat_out", c(1.0))],
+            "the speed is below the target (today's `flat_out`)",
+        ));
+        // a start below the target has no edge to see: looked at once, just after it
+        eqs.push(when(
+            ge(time(), c(START_LOOK)),
+            &[("flat_out", ite(gt(n("err"), c(FLAT_OUT_BELOW) * n("unit_ms")), c(1.0), c(0.0)))],
+            "the speed was below the target at the start",
+        ));
+        eqs.push(when(
+            // one comparison: with `flat_out` 0 the left side is out of reach
+            le(n("err") + (c(1.0) - n("flat_out")) * c(1e6) * n("unit_ms"), c(1e-9) * n("unit_ms")),
             &[("reached", c(1.0))],
-            "the target is reached where the error first falls to 0 (it was above before)",
+            "the target is reached where the error falls to 0 after the speed was below it",
         ));
     }
     ComponentDef { name, doc: doc(id), ports, params, vars, equations: eqs, ..Default::default() }

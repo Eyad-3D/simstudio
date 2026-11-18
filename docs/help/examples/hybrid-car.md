@@ -1,5 +1,15 @@
 # P2 Hybrid Car
 
+**Its three cycle cases do not run in this version of LightSim yet.** A
+hybrid's cycle case runs charge-balanced (the cycle run again from the
+charge the battery ended with), which the app's engine does not run yet:
+*EPA city (UDDS)*, *EPA highway (HWFET)* and *Mixed Cycle* fail with
+`Not run [NEW-BALANCE]`. The error says what to do: open the *Cases* tab,
+set the case's *Charge balance* to *Off* and run it once (the fuel figure
+is then that single run's, not the balanced one). *Mixed Cycle (live, 10×)*
+runs as it is. The results below are the charge-balanced ones of the
+older engine.
+
 **The question it answers:** how much fuel does a parallel hybrid save in
 town and on the highway, and what does its control script decide at each
 moment?

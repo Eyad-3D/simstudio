@@ -519,8 +519,8 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     if any(el.componentDefId == "battery.generic"
            and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
            for el in elements):
-        return Refusal("NEW-CELLS", "a battery built from cells (Pack model 'Cells') does not run "
-                                    "in this version of LightSim yet; set its Pack model to 'Pack values' to run the case")
+        return Refusal("NEW-CELLS", "a battery built from cells (Defined By: Cells) does not run "
+                                    "in this version of LightSim yet; set its Defined By to 'Pack values' to run the case")
     from ..validation import value_problems  # (validation imports this package)
     if problems := value_problems(project, case_id):  # (a study's point: Data Checks never saw it)
         return Refusal("NEW-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse a "

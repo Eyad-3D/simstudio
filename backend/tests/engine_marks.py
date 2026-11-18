@@ -113,10 +113,10 @@ TODAY = {
         "(ii) the validation page records today's engine's measurement (20 October 2026)"),
 }
 
-STORM_ENGINE = ("NEW-FAILED (RUN-EVENT-STORM): the Engine's fired / not fired switch chatters (open; queued for "
-                "the solver side)")
-STORM_MAX = ("NEW-FAILED (RUN-EVENT-STORM): a machine driven to its maximum speed or rev limiter switches about "
-             "it without end (known since step 2, KNOWN-LIMITS; open)")
+PORT = ("an acceleration case of a car whose Driver has Target Speed or Actual Speed linked was refused "
+        "(PORT-NOT-MAPPED, fixed: it runs now)")
+MAX_TABLE = ("NEW-FAILED (RUN-TABLE): a motor driven past its maximum speed reads its full-load map past its "
+             "speed data and the run stops there (open)")
 TABLE_WORDS = ("NEW-FAILED (RUN-TABLE): the new engine stops the run where today's does, but its message names the "
                "table by its internal name at the engine's time, not in today's words the test reads (open)")
 TICK = ("a sampled block's (Script, FMU, Delay) value at an output point is the one after its tick there, where "
@@ -138,15 +138,15 @@ XFAIL = {
     "test_gear_losses.py::test_gear_losses_act_on_the_power_through_the_gears[motor--4.0]": (
         "NEW-FAILED (STATE-SELECT-SINGULAR): a P2 car driven by its E-Motor, its Engine off behind an open Clutch, is refused at "
         "the start (the Clutch's constraints; the test's own model, not the example) (open)"),
-    "test_acceleration.py::test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step": (
-        "the time to 75 m differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
-    "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": (
-        "StopIteration in the test's own _at: a point it looks for is not in the new engine's run (open)"),
-    "test_acceleration.py::test_missing_the_line_within_the_time_limit_is_a_warning": (
-        "a cancel sent through control ends 'success' (open)"),
-    "test_live_params.py::test_live_edit_survives_two_gear_shifts": STORM_ENGINE + " (t = 4.73 s)",
-    "test_map_edges.py::test_a_motor_driven_past_its_maximum_speed_is_flagged": STORM_MAX,
-    "test_verdict.py::test_a_motor_above_its_maximum_speed_is_named": STORM_MAX,
+    "test_acceleration.py::test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step": PORT + (
+        "; it still differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
+    "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": PORT + (
+        "; it still fails: StopIteration in the test's own _at (open)"),
+    "test_live_params.py::test_live_edit_survives_two_gear_shifts": (
+        "the test counts the older engine's shift rebuilds (_spy_shifts), which the new engine does not make: "
+        "it sees none (open)"),
+    "test_map_edges.py::test_a_motor_driven_past_its_maximum_speed_is_flagged": MAX_TABLE,
+    "test_verdict.py::test_a_motor_above_its_maximum_speed_is_named": MAX_TABLE,
     "test_map_edges.py::test_maximum_speed_beyond_the_map_stops_the_run": TABLE_WORDS,
     "test_map_edges.py::test_a_lookup_set_to_error_stops_the_run": TABLE_WORDS,
     "test_map_edges.py::test_a_loss_map_narrower_than_the_full_load_map_stops_the_run": TABLE_WORDS,
@@ -217,7 +217,6 @@ XFAIL = {
     "test_vehicle_stop.py::test_a_coasting_car_stops_where_the_closed_form_says_and_stays_stopped": "a coasting car's speed never reaches exactly 0 on the new engine (open)",
     "test_vehicle_stop.py::test_rolling_resistance_holds_a_car_on_a_slope_it_cannot_overcome": "a car held by rolling resistance moves -5.9e-14 on the new engine, not exactly 0 (open)",
     "test_verdict.py::test_a_car_that_does_not_move_fails_and_says_so_early": "the new engine does not stream the early message that the car does not move (open)",
-    "test_examples_plausible.py::test_the_time_to_the_target_is_read_where_the_speed_crosses_it": "the performance test's 'Time to 100 km/h' row is missing on the new path (open)",
     "test_power_limit.py::test_a_margin_outside_0_to_100_percent_is_refused_not_a_crash": LIMITS.format(
         what="it for the case as well"),
     "test_road_load.py::test_a_case_value_outside_the_usual_air_is_warned_about_by_the_run[case_values2-": LIMITS.format(

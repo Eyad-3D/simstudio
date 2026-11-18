@@ -13,20 +13,21 @@
 name = "Step 2. Wire the new engine into the app"
 registered = "2026-10-28"
 source = "deeper/roadmap-deeper.md, Part B, step 2's acceptance list; owner's answers of 20 October 2026"
-# the path under test: the app's own run function, app.solver.simulate, with
-# LIGHTSIM_ENGINE=new (backend/app/solver/new_engine.py), against today's
-# engine through the same function without it
+# the path under test: the app's own run function, app.solver.simulate, which
+# runs the new engine (backend/app/solver/new_engine.py), against today's
+# engine through the same function with LIGHTSIM_ENGINE=today (until 17
+# November 2026 the new engine needed LIGHTSIM_ENGINE=new)
 path = "app.solver.simulate"
 
 # ---------------------------------------------------------------------------
-# Reason codes. Every refusal and every fall-back of the new engine's path
-# carries one of these (rule 8: no silent fall-back). The harness counts them
-# and fails STRICT on any other.
+# Reason codes. Every refusal of the new engine's path carries one of these
+# (rule 8: no silent fall-back; since 17 November 2026 there is no fall-back
+# at all). The harness counts them and fails STRICT on any other.
 # ---------------------------------------------------------------------------
 [codes]
 NEW-NOT-FOUND = "the case is not in the project"
 NEW-CASE-KIND = "a case kind the new engine's path does not run"
-NEW-LAP = "a lap case (stays on today's lap solver: owner, 20 October)"
+NEW-LAP = "a lap case (not ported yet: refused until it is, owner 16 November)"
 NEW-FS-EVENT = "a Formula Student event case (stays refused: owner, 20 October)"
 NEW-CELLS = "a battery built from cells (stays refused: owner, 20 October)"
 NEW-LIMITS = "a value outside its parameter's limits, which Data Checks refuse for a single run and a study's point can still hold (added 30 October: [[changes]])"
@@ -208,8 +209,8 @@ judge = "today's engine (a separate code path, the weaker judge), with the class
 
 [[line]]
 id = "STRICT"
-what = "Strict mode: no fall-back to today's engine without a listed code"
-cases = "every item and every planted fault (FAULTS), on the new path with LIGHTSIM_ENGINE_STRICT=1"
+what = "Strict mode: every refusal of the new path carries a listed code (since 17 November 2026 the path has no fall-back to today's engine, so every run is a strict run)"
+cases = "every item and every planted fault (FAULTS), on the new path"
 measure = "each refusal's code (from the run's first message); an item refused that should run; a code not in [codes]; NEW-ERROR; a refusal whose message carries no code"
 pass_mark = "zero items refused that should run, zero refused with another code than expected, zero codes outside [codes], zero NEW-ERROR, zero refusals without a code; every fault's refusal counted"
 judge = "this file's expected outcomes"
@@ -256,7 +257,7 @@ case_values = [
   "fs-electric:el-vehicle.downforce_cza_m2",
 ]
 measure = """
-Each fault's status on today's engine (default settings) and on the new path in strict mode, and its Data \
+Each fault's status on today's engine (LIGHTSIM_ENGINE=today, default settings) and on the new path, and its Data \
 Checks' worst level (engine-independent). A violation: today's run fails or warns and the new path's says \
 success. A hidden violation: the new path's run says warning only because of preparation notes that are not \
 about the run (the start-guess note of review finding 36: messages whose engine code is START-NOT-SOLVED, \
@@ -1096,6 +1097,12 @@ date = "2026-11-17"
 line = "STRICT"
 change = """The new engine is the app's engine with no fall-back (the switch lane's flip piece): a case its path does not run, or that it refuses or stops, fails with its code, which is what LIGHTSIM_ENGINE_STRICT=1 did; the variable is gone, and today's engine runs only with LIGHTSIM_ENGINE=today (the harness's today settings now set it, as an unset variable is the new engine). [codes]: NEW-LIVE-RESTART is removed (a live run is no longer started again on today's engine). Quick mode's refusal fails with its code too ("Not run [QUICK-...] in quick mode: ..."), where it ran in full before. STRICT's check that a fall-back message carries the refusal's code (runs.fallback_note) is removed with the fall-back; the refusal's own message carries it. [sweep] measure: the app-style ("live") run is the new path with a view, so a run it refuses or stops is a hand-back with its code, as the same run on today's engine after a fall-back was before; the 9 November exception (a), the fall-back warning, no longer arises."""
 reason = """The owner's decision (20 October, 7 November and 16 November 2026): the new engine becomes the app's engine with no fall-back, four features refused until they are ported (NEW-LAP, NEW-FS-EVENT, NEW-BALANCE, NEW-CELLS). No pass mark moves."""
+
+[[changes]]
+date = "2026-11-17"
+line = "STRICT"
+change = """Wording only, after the switch-over (the docs piece): the file's header comments, [codes]' NEW-LAP, the STRICT line's `what` and `cases` and the FAULTS line's sentence about the engines' settings no longer name LIGHTSIM_ENGINE=new or LIGHTSIM_ENGINE_STRICT=1, which the flip piece's entry above removed from the app, and say that the new engine is the path and today's engine is asked for by name. No code, class, band, expected outcome or pass mark changes."""
+reason = """Sentences that the switch made false (the owner's rule: every document true after the switch). The dated entries above stay as they were written."""
 
 [[changes]]
 date = "2026-11-17"
