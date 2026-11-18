@@ -822,7 +822,10 @@ minimum or an average, for example from the CSV export, or put the
   there. The engine runs up to two output points and the step it is taking
   ahead of the view, so a Stop or an edit lands a few output points after
   the point the view showed (on the BEV's city cycle, run as fast as it
-  goes, 3.5 to 5.7 s after it). Some edits take effect on the next run: one
+  goes, 3.5 to 5.7 s after it). A run's Stop and edits are read every 20 ms
+  of wall time, not at each output point as the older engine read them: a
+  script's run that is over sooner than that ends before a Stop sent to it
+  is read, and ends `success`. Some edits take effect on the next run: one
   for which the engine builds another model (a Differential's lock, a
   Driving Task's mode or repeat, a Climate Control's heat source), one the
   checks after the run would read as it was at the start (the Ambient's

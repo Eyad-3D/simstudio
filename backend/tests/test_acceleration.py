@@ -250,7 +250,12 @@ def test_missing_the_line_within_the_time_limit_is_a_warning():
         calls["n"] += 1
         return [{"type": "cancel"}] if calls["n"] == 3 else []
 
-    stopped = simulate(_bev(), "case-city", control=control)
+    # (paced, with an emit: the new engine reads a run's control every 20 ms
+    # of wall time, not at each output step, and an unpaced run of this case
+    # is over before the third read on a fast machine)
+    paced = _bev()
+    paced.cases[0].realtimeFactor = 1.0
+    stopped = simulate(paced, "case-city", lambda m: None, control)
     assert stopped.status == "cancelled"
     assert not any("did not reach" in m.text for m in stopped.messages)
 

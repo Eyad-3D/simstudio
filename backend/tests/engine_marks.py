@@ -167,8 +167,6 @@ XFAIL = {
         "; it still differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
     "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": PORT + (
         "; it still fails: StopIteration in the test's own _at (open)"),
-    "test_acceleration.py::test_missing_the_line_within_the_time_limit_is_a_warning": PORT + (
-        "; it still fails: a cancel sent through control ends 'success' (open)"),
     "test_live_params.py::test_live_edit_survives_two_gear_shifts": (
         "the test counts the older engine's shift rebuilds (_spy_shifts), which the new engine does not make: "
         "it sees none (open)"),
