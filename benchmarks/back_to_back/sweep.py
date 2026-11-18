@@ -22,15 +22,14 @@ is not run again):
   and three of the case's output steps, and 5 s (the first three added
   7 November).
 
-Each fault runs four times (every run the app starts has a view): the new
-path not strict, with a view, as the app runs it, is compared with today's
-like the strict runs (a run it stopped after points, which the app starts
-again on today's engine, NEW-LIVE-RESTART, is a hand-back), through the app's own app.solver.simulate:
-today's engine (no flag), the new path in strict mode (LIGHTSIM_ENGINE=new,
-LIGHTSIM_ENGINE_STRICT=1) and quick mode in strict mode (the case's mode
-"quick"). A strict run refused with a listed code is a run handed back to
-today's engine (counted by code, never a mismatch); any other is compared
-with today's run (compare(): acceptance.toml's [sweep] says what counts).
+Each fault runs four times, through the app's own app.solver.simulate:
+today's engine (LIGHTSIM_ENGINE=today), the new path (the app's
+engine, with no fall-back), the new path with a view as the app
+runs it ("live": every run the app starts has a view), and quick mode (the
+case's mode "quick"). A run refused with a listed code is a run handed back
+(counted by code, never a mismatch; since 17 November the app fails it with
+that code); any other is compared with today's run (compare():
+acceptance.toml's [sweep] says what counts).
 
     python -m benchmarks.back_to_back sweep OUT [--workers N] [--only SUBSTRING]
 
@@ -64,8 +63,6 @@ SAMPLE_TIMES = ("0", "5ms", "15ms", "half-step", "step", "3-steps", "5s")
 # motor reaches its maximum at a third of the car's speed), alone or on a constant 6 % downhill grade
 OVERSPEED = {"gear": 0.0, "down": -6.0}
 SPARE = "x-spare"  # the id of a fault's added part
-AGAIN = ("The new engine could not run this case", "The new engine stopped this run",
-         "Run on today's engine, not the new one")  # (the app's run on today's engine starts so)
 CODE = re.compile(r"\[((?:NEW|QUICK|FAST)-[A-Z0-9-]+)\]")
 REFUSED = re.compile(r"Not run \[([A-Z0-9-]+)\]")
 FLAG = "Quick mode: "  # the start of quick mode's own messages
@@ -411,12 +408,7 @@ def run_fault(fid: str) -> dict:
     live = (runs._case(raw, case_id).get("realtimeFactor") or 0) > 0
     got: dict = {}
     for setting in SETTINGS:
-        for k in ("LIGHTSIM_ENGINE", "LIGHTSIM_ENGINE_STRICT"):
-            os.environ.pop(k, None)
-        if setting != "today":
-            os.environ.update(LIGHTSIM_ENGINE="new")
-            if setting != "live":
-                os.environ.update(LIGHTSIM_ENGINE_STRICT="1")
+        os.environ["LIGHTSIM_ENGINE"] = "today" if setting == "today" else "new"
         project = Project.model_validate(json.loads(json.dumps(raw)))
         if setting == "quick":
             next(c for c in project.cases if c.id == case_id).mode = "quick"
@@ -426,8 +418,7 @@ def run_fault(fid: str) -> dict:
         except Exception as e:  # noqa: BLE001 — told as the run's result
             got[setting] = {"raised": f"{type(e).__name__}: {e}"[:600]}
         got[setting]["wall_s"] = round(time.perf_counter() - t0, 2)
-    for k in ("LIGHTSIM_ENGINE", "LIGHTSIM_ENGINE_STRICT"):
-        os.environ.pop(k, None)
+    os.environ.pop("LIGHTSIM_ENGINE", None)
     return got
 
 
@@ -442,7 +433,7 @@ LEVEL = {"success": 0, "warning": 1, "failed": 2}
 
 def _own(text: str) -> bool:
     """A message of the path or of quick mode about itself, not of the run."""
-    return text.startswith((FLAG, "Run on the new engine", "Not run in quick mode"))
+    return text.startswith((FLAG, "Run on the new engine"))
 
 
 def compare(fid: str, setting: str, today: dict | None, other: dict) -> dict:
@@ -457,17 +448,6 @@ def compare(fid: str, setting: str, today: dict | None, other: dict) -> dict:
         return {"diffs": [f"refused with {code}, not a listed hand-back"]} if bad else {"handed": code}
     if today is None or "raised" in today:
         return {"diffs": [f"today's run: {today and today.get('raised')}"]}
-    if setting == "live" and other["first"].startswith(AGAIN):  # (the app's run, on today's engine: said why)
-        found = CODE.search(other["first"])
-        # (the restart's note names the engine's own code first and its own at the end, past the digest's cut)
-        code = "NEW-LIVE-RESTART" if other["first"].startswith(AGAIN[1]) else found and found[1]
-        if code not in new_engine.CODES or code.endswith("-ERROR"):
-            return {"diffs": [f"live run on today's engine with no listed code: {other['first'][:200]!r}"]}
-        # (the note of a refusal or a restart must not change today's verdict; the warning of a case the
-        # new engine could not run is on purpose, DESIGN.md 12.3, and may make a success a warning one)
-        if other["status"] != today["status"] and not other["first"].startswith(AGAIN[0]):
-            return {"diffs": [f"verdict: today {today['status']}, live {other['status']} (run again on today's engine)"]}
-        return {"handed": code}
     diffs = []
     if other["status"] != today["status"]:
         worse = LEVEL[other["status"]] < LEVEL[today["status"]]
@@ -574,7 +554,7 @@ def sweep(out: Path, workers: int, only: str = "") -> dict:
     # the slow ones first (the hybrid, the long cycles), so the pool ends together
     todo.sort(key=lambda f: ("hybrid" not in f, "wltc" not in f and "udds" not in f))
     user = out / "user"
-    env = {k: v for k, v in os.environ.items() if k not in ("LIGHTSIM_ENGINE", "LIGHTSIM_ENGINE_STRICT")}
+    env = {k: v for k, v in os.environ.items() if k != "LIGHTSIM_ENGINE"}
     env.update(LIGHTSIM_DATA_DIR=str(user), LIGHTSIM_PROJECTS_DIR=str(user / "projects"), PYTHONHASHSEED="0")
     t0, count = time.monotonic(), [0]
 

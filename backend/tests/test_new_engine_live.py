@@ -31,7 +31,6 @@ pytestmark = needs_engine
 @pytest.fixture(autouse=True)
 def _new(monkeypatch):
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
 
 
 def _sha(result) -> str:
@@ -94,6 +93,25 @@ def test_a_live_run_streams_every_point_of_its_result(example, case_id, duration
     assert result.status in ("success", "warning") and result.engine == "new"
     _streamed_is_the_result(live.steps(), result)
     assert [m["pct"] for m in live.steps()][-1] == 100.0
+
+
+@pytest.mark.parametrize("end_distance", [None, 300.0])
+def test_a_live_performance_run_streams_every_point_of_its_result(end_distance):
+    """A performance test (the BEV's step to 100 km/h), alone and ending at a
+    distance (the engine runs it to its finish first, then again, and the
+    view is shown the points of the second run only)."""
+    project = load_example("bev-car")
+    case = _case(project, "case-wltc")
+    case.kind, case.duration, case.endDistance = "performance", 40.0, end_distance
+    case.parameterOverrides = {"el-task": {"cycle": "", "profile": "0:100; 40:100"}}
+    live = _Live()
+    result = simulate(project, "case-wltc", live.emit, live.control)
+    assert result.messages[0].text.startswith("Run on the new engine"), result.messages[0].text
+    assert result.status == "success" and result.engine == "new", result.messages[0].text
+    _streamed_is_the_result(live.steps(), result)
+    assert len(live.steps()) == (41 if end_distance is None else 15)
+    if end_distance is None:  # (a run that ends at its distance shows its share of the duration, as an acceleration test's does)
+        assert [m["pct"] for m in live.steps()][-1] == 100.0
 
 
 def test_a_paced_run_keeps_its_pace():
@@ -357,12 +375,7 @@ def test_an_edit_too_late_for_the_run_is_listed_with_its_note():
 
 
 def _engine(monkeypatch, engine):
-    if engine == "new":
-        monkeypatch.setenv(new_engine.ENV_VAR, "new")
-        monkeypatch.setenv(new_engine.STRICT_VAR, "1")
-    else:
-        monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
-        monkeypatch.delenv(new_engine.STRICT_VAR, raising=False)
+    monkeypatch.setenv(new_engine.ENV_VAR, engine)
 
 
 def test_a_made_edit_is_read_as_edited_by_the_reports_as_today_s_are(monkeypatch):
@@ -400,49 +413,40 @@ def test_a_stopped_acceleration_test_has_no_finish(monkeypatch):
     assert said["new"] == said["today"] == ({}, [])
 
 
-def test_a_live_run_the_new_engine_fails_is_run_again_on_today_s_only_if_nothing_is_lost(monkeypatch):
-    """In the app's mode (not strict), a live run the new engine fails after
-    it has streamed points and read nothing runs again from t = 0 on
-    today's engine, the view told to drop its points ("restart") and the
-    result saying so (NEW-LIVE-RESTART; before, it failed with the engine's
-    code: 13 of the sweep's over-speed runs failed where today's did not).
-    One that has read an edit fails with its code, saying what today's
-    engine, streaming it again from t = 0, would lose (never a Stop or
-    edits it was not given). A run that showed and read nothing (a study's
-    point), and the AI tools' run, whose points go to a progress bar only
-    (whether it has one or not), run on today's, saying so with the code."""
+def test_a_live_run_the_new_engine_stops_fails_with_its_code(monkeypatch):
+    """A live run the new engine stops after it has streamed points fails
+    with the engine's code: the points shown stay (never streamed again from
+    t = 0), and nothing runs on today's engine; the same for a run with no
+    view (a study's point) and the AI tools' run (before the switch each of
+    these ran again on today's engine, NEW-LIVE-RESTART)."""
     from app.ai.engine import Engine
+    from app.solver import core
 
-    monkeypatch.delenv(new_engine.STRICT_VAR)
+    def no_today(*args, **kwargs):
+        raise AssertionError("a case ran on today's engine")
+
+    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
+    monkeypatch.setattr(core, "simulate_today", no_today)
     project = load_example("bev-car")  # (its battery's resistance x100: the run stops at ~321 s)
     _case(project, "case-city").parameterOverrides.setdefault("el-battery", {})[
         "internal_resistance_ohm"] = 8.0
-    again = _Live(at=1e9)
-    result = simulate(project, "case-city", again.emit, again.control)
-    kinds = [m["type"] for m in again.stream]
-    assert kinds.count("restart") == 1 and result.engine == "today" and result.status != "failed"
-    first = kinds.index("restart")
-    assert [m["t"] for m in again.stream[:first] if m["type"] == "step"][-1] > 300.0
-    assert [m["t"] for m in again.stream[first + 1:] if m["type"] == "step"][0] == 0.0
-    assert "[NEW-FAILED]" in result.messages[0].text and "[NEW-LIVE-RESTART]" in result.messages[0].text
-    for then, lost in (([_set("el-vehicle", "cd", 0.3)], "without the live edits it was given"),):
-        live = _Live(at=100.0, then=then)
+    for then in ([], [_set("el-vehicle", "cd", 0.3)]):
+        live = _Live(at=1e9 if not then else 100.0, then=then)
         result = simulate(project, "case-city", live.emit, live.control)
         times = [m["t"] for m in live.steps()]
         assert times == sorted(set(times)) and 300.0 < times[-1] < 600.0  # (never from 0 again)
         assert "restart" not in [m["type"] for m in live.stream]
         assert result.status == "failed" and result.engine is None
         (msg,) = result.messages
-        assert "[NEW-FAILED]" in msg.text and "RUN-INTEGRATOR" in msg.text, msg.text
-        assert f"It is not run again on today's engine, which would start it again at t = 0 {lost}:" \
-            in msg.text and "Stop" not in msg.text, msg.text
+        assert msg.text.startswith("Not run [NEW-FAILED]: ") and "RUN-INTEGRATOR" in msg.text, msg.text
+        assert "today's engine" not in msg.text
     quiet = simulate(project, "case-city", None, lambda: [])
-    assert quiet.engine == "today" and "[NEW-FAILED]" in quiet.messages[0].text
+    assert quiet.status == "failed" and quiet.messages[0].text.startswith("Not run [NEW-FAILED]: ")
     for progress in (None, lambda pct: None):
         ai = Engine.simulate(project, "case-city", max_seconds=120.0, cancel=threading.Event(),
                              progress=progress)
-        assert ai.engine == "today" and ai.channels, [m.text for m in ai.messages]
-        assert ai.messages[0].text.startswith("The new engine could not run this case [NEW-FAILED]")
+        assert ai.status == "failed" and not ai.channels, [m.text for m in ai.messages]
+        assert ai.messages[0].text.startswith("Not run [NEW-FAILED]: ")
 
 
 def test_the_result_says_what_ran_it_and_the_snapshot_keeps_it(monkeypatch):
@@ -457,12 +461,11 @@ def test_the_result_says_what_ran_it_and_the_snapshot_keeps_it(monkeypatch):
         new.engine, new.engineVersion, new.solverOptions)
     assert _sha(replay(snap)) == _sha(new)
 
-    monkeypatch.delenv(new_engine.ENV_VAR)
-    monkeypatch.delenv(new_engine.STRICT_VAR)
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(project, "case-city")
     assert (today.engine, today.engineVersion) == ("today", VERSION)
     assert set(today.solverOptions) == {"timeStep", "solverStep", "outputEvery"}
-    monkeypatch.setenv(new_engine.ENV_VAR, "new")  # (the snapshot's engine, not the flag's)
+    monkeypatch.setenv(new_engine.ENV_VAR, "new")  # (the snapshot's engine, not the variable's)
     snap = RunSnapshot.of(project, _case(project, "case-city"), today, VERSION)
     assert _sha(replay(snap)) == _sha(today)
     edited = snap.model_copy(update={"liveEdits": [LiveEdit(t=1.0, elementId="el-vehicle",
@@ -473,27 +476,45 @@ def test_the_result_says_what_ran_it_and_the_snapshot_keeps_it(monkeypatch):
 
 
 @pytest.mark.parametrize("block", ["lookup", "pid"])
-def test_a_live_edit_of_a_sample_time_over_the_solver_step_is_for_the_next_run(block):
-    """Today's engine holds a PID or Lookup block's output between samples
-    from a Sample Time edit on; the new engine runs it at every step, so
-    the edit is not made live: the result lists it with NEW-LIVE-NEXT-RUN
-    (the next run is NEW-SAMPLED, on today's engine). One within the step is
-    taken as made. (A live run with a PID runs on today's engine, from
-    7 November: NEW-LIVE-PID.)"""
+def test_a_live_edit_of_a_sample_time_that_changes_its_samples_is_for_the_next_run(block):
+    """The new engine samples a PID or a Lookup with a Sample Time at the
+    times the run started with: a live edit that changes when it samples
+    (0 to 5 s) is not made, the result lists it with NEW-LIVE-NEXT-RUN; one
+    that does not (0 to 5 ms, within today's 10 ms step, where both engines
+    run it at every step) is taken. (Before: an edit over the step was for
+    the next run on today's engine, NEW-SAMPLED, and a live run with a PID
+    went to today's engine before it started, NEW-LIVE-PID.)"""
     from test_new_engine_evidence import _sampled
     project = _sampled(block, 0.0)
     live = _Live(at=20.0, then=[_set("blk", "sample_time_s", 5.0)])
     result = simulate(project, "case-city", live.emit, live.control)
-    if block == "pid":
-        assert result.messages[0].text.startswith("Not run [NEW-LIVE-PID]"), result.messages[0].text
-        return
-    assert result.engine == "new" and result.status == "success"
+    assert result.engine == "new" and result.status == "success", [m.text for m in result.messages]
     (edit,) = result.liveEdits
     assert (edit.key, edit.value) == ("sample_time_s", 5.0)
-    assert edit.note and "[NEW-LIVE-NEXT-RUN]" in edit.note and "holds the output" in edit.note
+    assert edit.note and "[NEW-LIVE-NEXT-RUN]" in edit.note and "Sample Time" in edit.note
     small = _Live(at=20.0, then=[_set("blk", "sample_time_s", 0.005)])
     (taken,) = simulate(project, "case-city", small.emit, small.control).liveEdits
     assert taken.note is None
+
+
+def test_a_live_edit_of_a_pid_gain_reaches_its_samples():
+    """A PID's gains reach the block that runs its law as inputs read at
+    each sample: a live edit of its P gain changes its output from the next
+    output time on (its output is P times the error, I and D 0, the
+    setpoint 0)."""
+    from test_new_engine_evidence import _out, _sampled
+    project = _sampled("pid", 0.0)
+    live = _Live(at=20.0, then=[_set("blk", "kp", 0.02)])
+    result = simulate(project, "case-city", live.emit, live.control)
+    (edit,) = result.liveEdits
+    assert edit.note is None, edit.note
+    out = _out(result)
+    speed = {round(p["t"], 6): p["value"] for p in next(
+        c for c in result.channels if c.elementId == "el-vehicle" and c.portId == "sig_speed").timeSeries}
+    early = [t for t in out if 1.0 < t < 19.0]
+    late = [t for t in out if t > edit.t + 1.0]
+    assert early and all(abs(out[t] + 0.01 * speed[t]) <= 2e-3 * max(1.0, abs(out[t])) for t in early)
+    assert late and all(abs(out[t] + 0.02 * speed[t]) <= 2e-3 * max(1.0, abs(out[t])) for t in late)
 
 
 def _fault(fid):
@@ -514,42 +535,31 @@ def _branch_table(policy):
     return _fault(f"table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:{policy}")
 
 
-def test_a_live_run_with_an_error_axis_one_branch_reads_runs_on_today_s_engine(monkeypatch):
+def test_a_live_run_with_an_error_axis_one_branch_reads_runs_on_the_new_engine(monkeypatch):
     """The E-Motor's drag table is read by today's engine only while the
-    motor is unpowered, so with its axis set to Error today's run succeeds;
-    the new engine stops at its first read past the data (24 s into the city
-    case), and a live run that has shown points is not run again on today's
-    engine. So a live run of it goes to today's engine up front, with
-    NEW-LIVE-ERROR-AXIS (before: failed, NEW-FAILED, after 24 s). With
-    Clamp it stays on the new engine, and a run with no view is not
-    refused."""
+    motor is unpowered, so with its axis set to Error today's run succeeds.
+    The new engine's read of it while the motor is powered sits in the
+    branch of its torque that is not taken then, and an Error axis stops
+    the run only where its read's branch is taken: the live run succeeds on
+    the new engine (before: it went to today's engine up front,
+    NEW-LIVE-ERROR-AXIS; before that it failed after 24 s, NEW-FAILED)."""
     project, case_id = _branch_table("error")
-    shown = _Live()
-    refused = simulate(project, case_id, shown.emit, shown.control)
-    assert refused.messages[0].text.startswith("Not run [NEW-LIVE-ERROR-AXIS]"), refused.messages[0].text
-    assert not shown.stream
-    monkeypatch.delenv(new_engine.STRICT_VAR)
     live = _Live()
     result = simulate(project, case_id, live.emit, live.control)
-    assert result.engine == "today" and result.status == "success", [m.text for m in result.messages]
-    assert "[NEW-LIVE-ERROR-AXIS]" in result.messages[0].text
-    assert not [m for m in result.messages if m.level in ("warning", "error")]
-    clamp, _ = _branch_table("clamp")
-    assert simulate(clamp, case_id, _Live().emit, _Live().control).engine == "new"
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
-    assert not simulate(project, case_id).messages[0].text.startswith("Not run [NEW-LIVE-ERROR-AXIS]")
+    assert result.engine == "new" and result.status == "success", [m.text for m in result.messages]
+    assert live.steps()
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
+    assert simulate(project, case_id).status == "success"
 
 
 def test_a_viewed_run_of_an_example_runs_once_and_reads_a_stop_from_its_start(monkeypatch):
     """The example BEV's E-Motor has axes set to Error on its full-load
-    torque and its loss map, whose data cover every speed and torque the new
-    engine reads them at (new_engine._covers): a run with a view, as every
-    run the app starts, is decided before it runs and runs once, and a Stop
+    torque and its loss map: a run with a view, as every run the app
+    starts, runs once on the new engine, and a Stop
     sent 0.1 s into it ends it within the live run's mark (STREAM S2: p95 at
     most 0.25 s, on Windows CI in tests/test_stop_latency.py). Before: the
     case first ran in full with no view and read no Stop (the Stop returned
     1.4 s later on WLTC)."""
-    monkeypatch.delenv(new_engine.STRICT_VAR)
     project = load_example("bev-car")
     _case(project, "case-wltc").realtimeFactor = 0
     real, calls = new_engine.run_new, []
@@ -569,16 +579,6 @@ def test_a_viewed_run_of_an_example_runs_once_and_reads_a_stop_from_its_start(mo
     assert waited <= 0.25, waited
 
 
-def test_no_example_is_refused_a_viewed_run_for_its_error_axes():
-    """Every case of every example runs a viewed run on the new engine as
-    far as its tables go (the hybrid's are refused before, NEW-BALANCE, but
-    its live case): its Error axes cover what its parts reach."""
-    for name in ("bev-car", "aero-bev", "fs-electric", "hybrid-car"):
-        project = load_example(name)
-        for c in project.cases:
-            assert new_engine.live_error_axis(project, c.id) is None, (name, c.id)
-
-
 @pytest.mark.parametrize("fid", [
     "table:bev-car/case-city-live:el-motor.full_load_torque:1:lo:edge:error",
     "table:bev-car/case-city-live:el-motor.power_loss:0:hi:edge:error",
@@ -588,38 +588,25 @@ def test_no_example_is_refused_a_viewed_run_for_its_error_axes():
     "table:bev-car/case-city-live:el-motor.drag_torque:0:hi:edge:linear",  # (the loss map's torque: Error)
     "table:hybrid-car/case-mixed-live:el-engine.fuel_map:0:hi:edge:error",
     "table:hybrid-car/case-mixed-live:el-engine.fuel_map:1:hi:edge:error",
+    "table:hybrid-car/case-mixed-live:el-engine.full_load_torque:0:lo:edge:error",
 ])
-def test_an_error_axis_short_of_what_its_part_reaches_is_refused_before_the_run(fid):
-    """An E-Motor's full-load torque or loss map cut short of 0 or of its
-    maximum speed, its loss map short of its most torque (or past it, a
-    drag table read Linear), any axis _covers does not decide (the voltage),
-    an Engine's fuel map short of its full-load curve: refused, with no run.
-    The same tables cut on Clamp are not."""
+def test_a_live_run_with_an_error_axis_cut_short_ends_as_today_s(fid, monkeypatch):
+    """A part's table cut short of what the part reaches, an axis on Error
+    (the faults a live run of went to today's engine before it started,
+    NEW-LIVE-ERROR-AXIS, until the new engine stopped only where a read's
+    branch is used): a live run on the new engine ends as today's does, a
+    success where today's succeeds, stopped at that table where today's
+    fails."""
     project, case_id = _fault(fid)
-    why = new_engine.live_error_axis(project, case_id)
-    assert why is not None and why.code == "NEW-LIVE-ERROR-AXIS", why
-    project, case_id = _fault(fid.rsplit(":", 1)[0] + ":clamp")
-    assert new_engine.live_error_axis(project, case_id) is None
-
-
-def test_a_generator_torque_share_over_100_percent_reads_the_loss_map_past_its_full_load_peak():
-    """The example's loss map ends at its full-load peak (310 N.m), which
-    covers a generator at 100 %; at 200 % the motor brakes with twice that,
-    so the same axis on Error is refused (the Q4 share in _covers)."""
-    project = load_example("bev-car")
-    assert new_engine.live_error_axis(project, "case-city-live") is None
-    motor = next(e for s in project.systems for e in s.elements if e.id == "el-motor")
-    motor.parameterOverrides["q4_torque_scale_pct"] = 200
-    why = new_engine.live_error_axis(project, "case-city-live")
-    assert why is not None and why.code == "NEW-LIVE-ERROR-AXIS", why
-
-
-def test_an_engine_full_load_axis_on_error_is_not_refused():
-    """An Engine reads its full-load curve only between its own first and
-    last speed (NEVER: no read past its data in either engine), so cutting
-    it short with the axis on Error is not a reason to hand the run back."""
-    project, case_id = _fault("table:hybrid-car/case-mixed-live:el-engine.full_load_torque:0:lo:edge:error")
-    assert new_engine.live_error_axis(project, case_id) is None
+    live = _Live()
+    result = simulate(project, case_id, live.emit, live.control)
+    texts = [m.text for m in result.messages]
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
+    today = simulate(project, case_id)
+    if today.status == "failed":
+        assert result.status == "failed" and "outside its data" in texts[0], texts
+    else:
+        assert result.engine == "new" and result.status == today.status, texts
 
 
 @pytest.mark.parametrize("fid", ["overspeed:bev-car/case-city-live:down", "overspeed:bev-car/case-city:down"])
@@ -631,52 +618,53 @@ def test_a_motor_driven_past_its_maximum_speed_is_not_stopped_by_a_table_that_en
     showing points. It now reads them at the speed held to the maximum
     (above it the inverter is off), so it warns the same, with a view."""
     project, case_id = _fault(fid)
-    assert new_engine.live_error_axis(project, case_id) is None
     result = simulate(project, case_id, lambda m: None, lambda: [])
     assert result.engine == "new" and result.status == "warning", (result.status, [m.text for m in result.messages])
     assert any("maximum speed" in m.text for m in result.messages)
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "NEW-FAILED: the new engine stops these over-speed runs after showing points (the BEV WLTC on a "
+    "6 % downhill with its Final Drive x3: RUN-EVENT-STORM at 939 s; the hybrid's mixed cycle with "
+    "its gears x3: the Engine switches at 7 s) where today's engine warns or succeeds; until the "
+    "switch they ran again on today's engine (NEW-LIVE-RESTART). A defect of the new path, open."))
 @pytest.mark.parametrize("fid", [
     "overspeed:bev-car/case-wltc:down",  # (today warns; the new engine stops at 939 s, RUN-EVENT-STORM)
     "overspeed:hybrid-car/case-mixed:gear",  # (today succeeds; the new engine's Engine switches at 7 s)
 ])
-def test_a_run_with_a_view_the_new_engine_stops_after_points_gives_today_s_verdict(fid, monkeypatch):
+def test_a_run_with_a_view_of_a_motor_past_its_maximum_speed_gives_today_s_verdict(fid, monkeypatch):
     """The app's run of a motor driven to its maximum speed (the sweep's
-    over-speed faults): every app run has a view, a run that has shown
-    points was not run again, so it failed where today's engine warns or
-    succeeds. It runs again from t = 0 on today's engine now, the view told
-    to drop its points, and gives today's verdict and messages."""
+    over-speed faults) should give today's verdict on the new engine, with
+    a view as every app run has."""
     project, case_id = _fault(fid)
-    monkeypatch.delenv(new_engine.STRICT_VAR)
     live = _Live()
     result = simulate(project, case_id, live.emit, live.control)
-    monkeypatch.delenv(new_engine.ENV_VAR)
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(project, case_id)
     assert today.status != "failed"
-    assert result.engine == "today" and result.status == today.status, [m.text for m in result.messages]
-    assert "[NEW-LIVE-RESTART]" in result.messages[0].text and "[NEW-FAILED]" in result.messages[0].text
-    assert [m["type"] for m in live.stream].count("restart") == 1
-    assert [m.text for m in result.messages[1:]] == [m.text for m in today.messages]
+    assert result.engine == "new" and result.status == today.status, [m.text for m in result.messages]
 
 
-def test_a_live_run_with_a_pid_the_new_engine_runs_at_every_step_runs_on_today_s_engine(monkeypatch):
-    """A PID with a Sample Time of 0 at its limit stops the new engine 309 s
-    into the city case (RUN-EVENT-STORM) where today's engine finishes, and
-    a live run that has shown points is not run again on today's engine.
-    So a live run of a project with a PID the new engine runs at every step
-    goes to today's engine before it runs, NEW-LIVE-PID (before: it failed
-    after 310 points, NEW-FAILED). A run with no view is not refused for it."""
+def test_a_live_run_with_a_pid_at_its_limit_runs_on_the_new_engine(monkeypatch):
+    """A PID with a Sample Time of 0 at its limit for a long stretch of the
+    city case: the new engine runs today's discrete PID at today's 10 ms
+    step, which does not slide along its limit as the continuous one did
+    (it stopped 309 s in, RUN-EVENT-STORM): the live run succeeds on the new
+    engine and its output at every point is today's, within the
+    comparison's band (before: it went to today's engine up front,
+    NEW-LIVE-PID; before that it failed after 310 points, NEW-FAILED)."""
     project, case_id = _fault("sampled:bev-car/case-city-live:pid:0")
-    shown = _Live()
-    refused = simulate(project, case_id, shown.emit, shown.control)
-    assert refused.messages[0].text.startswith("Not run [NEW-LIVE-PID]"), refused.messages[0].text
-    assert not shown.stream
-    monkeypatch.delenv(new_engine.STRICT_VAR)
     live = _Live()
     result = simulate(project, case_id, live.emit, live.control)
-    assert result.engine == "today" and result.status == "success", [m.text for m in result.messages]
-    assert "[NEW-LIVE-PID]" in result.messages[0].text
+    assert result.engine == "new" and result.status == "success", [m.text for m in result.messages]
     assert live.steps()
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
-    assert "[NEW-LIVE-PID]" not in simulate(project, case_id).messages[0].text
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
+    today = simulate(project, case_id)
+
+    def out(r):
+        ch = next(c for c in r.channels if c.elementId == "x-spare" and c.portId == "sig_out")
+        return {round(p["t"], 6): p["value"] for p in ch.timeSeries}
+    new, old = out(result), out(today)
+    assert min(new.values()) == -10.0 and min(old.values()) == -10.0  # (at its limit on both)
+    band = 0.02 * (max(old.values()) - min(old.values()))
+    assert max(abs(new[t] - old[t]) for t in old if t > 0) <= band

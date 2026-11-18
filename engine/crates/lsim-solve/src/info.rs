@@ -501,6 +501,34 @@ pub struct EnergyInfo {
 /// (lsim-codegen's `table_sites`): the table reads (of their values, not
 /// their derivatives) of the assignments, then of the residuals, each read
 /// before the reads inside its arguments, an entry per axis.
+/// For each table guard (in [`table_args`]' order), the branches its
+/// read sits in: each enclosing `if`'s condition and the side it is on
+/// (true: the `then` branch). Empty: read wherever its expression is.
+fn table_when(m: &PreparedModel) -> Vec<Vec<(Expr, bool)>> {
+    fn walk(e: &Expr, path: &mut Vec<(Expr, bool)>, out: &mut Vec<Vec<(Expr, bool)>>) {
+        if let Expr::Table { args, order: [0, 0], .. } = e {
+            out.extend(args.iter().map(|_| path.clone()));
+        }
+        if let Expr::If(c, a, b) = e {
+            walk(c, path, out);
+            for (side, branch) in [(true, a), (false, b)] {
+                path.push(((**c).clone(), side));
+                walk(branch, path, out);
+                path.pop();
+            }
+            return;
+        }
+        for c in e.children() {
+            walk(c, path, out);
+        }
+    }
+    let mut out = vec![];
+    for e in m.assignments.iter().map(|a| &a.expr).chain(m.residuals.iter().map(|r| &r.expr)) {
+        walk(e, &mut vec![], &mut out);
+    }
+    out
+}
+
 fn table_args(m: &PreparedModel) -> Vec<(u32, Expr)> {
     fn walk(e: &Expr, out: &mut Vec<(u32, Expr)>) {
         if let Expr::Table { table, args, order: [0, 0] } = e {
@@ -563,6 +591,12 @@ pub struct RunInfo {
     /// guard per axis): the table and that axis's argument, so the run can
     /// tell how far past its data a table was read; empty: not known
     pub table_args: Vec<(u32, Expr)>,
+    /// per table guard, as `table_args`: the branches of `if`s its read
+    /// sits in (each condition and its side), so a read whose value its
+    /// expression does not use at a point does not stop the run on an
+    /// Error axis there (today's engine reads a table only where it uses
+    /// it); empty: not known
+    pub table_when: Vec<Vec<(Expr, bool)>>,
     /// for each residual of the initialisation system: the equation it is
     pub init_labels: Vec<String>,
     /// for each unknown of the initialisation system: the variable it is
@@ -1213,6 +1247,7 @@ impl RunInfo {
             asserts: vec![],
             table_names: vec![],
             table_args: vec![],
+            table_when: vec![],
             init_labels: vec![],
             init_unknowns: vec![],
             impulse: None,
@@ -1376,6 +1411,7 @@ impl RunInfo {
                 .collect(),
             table_names: flat.tables.iter().map(|t| t.name.clone()).collect(),
             table_args: table_args(m),
+            table_when: table_when(m),
             init_labels: m.init.residuals.iter().map(|r| equation(&r.origin)).collect(),
             init_unknowns: m
                 .init

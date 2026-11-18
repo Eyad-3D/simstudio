@@ -970,6 +970,8 @@ impl Model {
                     lsim_project::import::SampledKind::Script { .. } => "script",
                     lsim_project::import::SampledKind::Fmu { .. } => "fmu",
                     lsim_project::import::SampledKind::TractionControl => "traction_control",
+                    lsim_project::import::SampledKind::Pid => "pid",
+                    lsim_project::import::SampledKind::Hold => "hold",
                 },
             )?;
             x.set_item("period", s.period)?;

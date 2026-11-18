@@ -60,7 +60,10 @@ tests check every number its tutorials and lessons quote against the app
 
 The *Start* page (and **Open**) lists a second example, a P2 hybrid sized
 after the Hyundai Ioniq Hybrid and driven on the EPA city and highway
-cycles, and a third, *FS Electric (generic)*, a Formula Student electric car
+cycles (in this version its three cycle cases do not run, and the
+autocross lap and endurance energy case of the third example, below, do not
+run either: see [Known issues and limits](docs/KNOWN-LIMITS.md#does-not-run-in-this-version)),
+and a third, *FS Electric (generic)*, a Formula Student electric car
 with a 75 m acceleration test, an autocross lap and an endurance energy
 case, and a fourth, *Efficient Electric Sedan*, a Tesla Model 3 RWD class
 car on EPA's test data that asks what low drag buys you, next to your own
@@ -106,8 +109,8 @@ Differential).
 building the installer yourself from this repository, on Windows 10/11
 (64-bit): see
 [Building the app from source](https://github.com/Eyad-3D/simstudio#building-the-app-from-source).
-Python and Node are needed for the build, not to run the app: the simulation
-engine is bundled inside the installer.
+Python, Node and Rust are needed for the build, not to run the app: the
+simulation engines are bundled inside the installer.
 
 | Platform | The build makes |
 |---|---|
@@ -217,9 +220,19 @@ limits in short:
 
 ## Building the app from source
 
-One command builds the UI, freezes the backend, and produces the Windows
-installers. Run it on Windows 10/11 (64-bit), the only target that is built
-and tested for now. Requires Python ≥ 3.11 and Node ≥ 20.
+One command builds the UI, builds the new engine's module, freezes the
+backend with it, and produces the Windows installers. Run it on Windows
+10/11 (64-bit), the only target that is built and tested for now. Requires
+Python ≥ 3.11, Node ≥ 20 and Rust ([rustup](https://rustup.rs); the build
+installs the release `engine/rust-toolchain.toml` pins; the vendored C code
+needs Visual Studio's C++ build tools with their Clang component, `clang-cl`,
+on Windows). The new engine is the Rust module
+`lightsim_engine` (`engine/crates/lsim-py`), which the app runs every case
+on, so the installer must hold it: the build builds it with maturin into a
+wheel, installs the wheel into the Python that freezes the backend, and
+`LIGHTSIM_FREEZE_ENGINE=1` makes the freeze stop when it is not installed.
+A frozen backend that carries no module fails the notices step and
+`scripts/smoke-backend.mjs`.
 
 ```powershell
 .\scripts\build-desktop.ps1         # Windows
@@ -287,6 +300,11 @@ WebSocket) to the backend.
 # 1. backend  (Python ≥ 3.11)
 cd backend
 pip install -r requirements.txt
+# the engine that runs every case is a Rust module, built once (Rust:
+# https://rustup.rs; rebuild it after the Rust code changes)
+(cd ../engine && python -m pip install maturin numpy &&
+  python -m maturin build --release -m crates/lsim-py/Cargo.toml --out wheels &&
+  python -m pip install --no-deps --no-index --find-links wheels lightsim-engine)
 python -m uvicorn app.main:app --reload --port 8000
 
 # 2. frontend (Node ≥ 20)
@@ -300,8 +318,9 @@ In this mode your projects (with their runs and backups) are saved in
 examples are read from `backend/projects/`, which the engine never writes (the
 golden tests read them too): to change an example, edit its file there.
 Projects that earlier versions saved into `backend/projects/` now show up as
-examples; move them to `backend/dev-projects/`. If the backend is not running
-the UI still works from bundled data (topology editing only); save / checks /
+examples; move them to `backend/dev-projects/`. Without the engine module a
+run fails with `Not run [NEW-MISSING]` (see [The new engine](#the-new-engine)).
+If the backend is not running the UI still works from bundled data (topology editing only); save / checks /
 simulation are disabled and a warning appears in Messages.
 
 Building the frontend once (`cd frontend && npm run build`) also lets the
@@ -317,6 +336,9 @@ no packaging step is needed while developing.
 cd backend
 pip install -r requirements-dev.txt ruff
 python -m pytest tests/     # maps, dynamics, differential modes, scripts, API + WS
+                            # (the engine module must be installed; with
+                            # LIGHTSIM_REQUIRE_NEW_ENGINE=1 a missing one fails
+                            # the tests that need it instead of skipping them)
 ruff check .                # lint (config in backend/pyproject.toml)
 
 cd ../frontend
@@ -359,7 +381,9 @@ artefacts rather than the source (Node ≥ 22, for its built-in WebSocket):
 
 ```bash
 node scripts/smoke-backend.mjs    # the frozen executable: library, examples,
-                                  # a REST run and a live WebSocket run
+                                  # a REST run, a live WebSocket run, a
+                                  # scripted run and the command line, each
+                                  # made by the new engine
 xvfb-run -a node scripts/smoke-app.mjs \
   desktop/release/linux-unpacked/lightsim   # the packaged app reaches its engine
 ```
@@ -368,32 +392,25 @@ These exist because a frozen build can be missing a module that every unit
 test passes without — that is exactly how a broken live-run WebSocket nearly
 shipped.
 
-### Trying the new engine
+### The new engine
 
-The backend still runs every case on today's engine. To try the new engine
-(the Rust module `lightsim_engine`, built with maturin; see
-`engine/crates/lsim-py/README.md`), start the backend with the environment
-variable `LIGHTSIM_ENGINE=new`. The values are `today` (the default, also
-when the variable is not set) and `new`. With `new`, a drive cycle or an
-acceleration test runs on the new engine, FMU parts and live runs in the
-app included, and gives today's whole result (the energy report, part
-energies, duty, limits and references, made by today's own code from the
-run's evidence). Everything else runs on today's engine: lap cases, other
-performance cases, a hybrid's charge-balanced case, Formula Student event
-cases, a battery built from cells, a PID or Lookup block with a Sample Time
-longer than the solver step, a study's point with a value outside its
-limits, a live run with a PID block or with a table set to Error that its
-part reads past, and any case when the module is not installed. A case in
-quick mode (*Run mode*: *Quick*) runs on the new engine's fast mode, its
-totals only, and a part can be read from a text file (`textFile`); what
-differs is in [Known issues and limits](docs/KNOWN-LIMITS.md). If the new engine fails on a case, the case
-runs on today's engine and the result carries a warning with the new
-engine's own message. The first message of every result says which engine
-ran the case and, after a fall-back, why, with a reason code in brackets
-(`[NEW-LAP]`, `[NEW-FAILED]`; the list is in
-`benchmarks/back_to_back/acceptance.toml`). With `LIGHTSIM_ENGINE_STRICT=1`
-as well, nothing falls back: such a case fails with its code instead (the
-both-engines diff, `python -m benchmarks.back_to_back`, runs this way).
+The backend runs every case on the new engine (the Rust module
+`lightsim_engine`, built with maturin; see `engine/crates/lsim-py/README.md`),
+with no fall-back to today's engine. A case it does not run fails with an
+error that starts *Not run* and gives a reason code in brackets (`[NEW-LAP]`,
+`[NEW-FAILED]`; the list is in `benchmarks/back_to_back/acceptance.toml`).
+Four features do not run in this version yet and are refused so: lap cases
+(`NEW-LAP`), Formula Student event cases (`NEW-FS-EVENT`), a hybrid's
+charge-balanced case (`NEW-BALANCE`; set the case's *Charge balance* off to
+run it once) and a battery built from cells (`NEW-CELLS`). What else
+differs is in [Known issues and limits](docs/KNOWN-LIMITS.md). A developer
+builds the module as in *Developing* above (a source checkout has none until
+then) and can ask for today's engine, the old Python one, with
+`LIGHTSIM_ENGINE=today`: the both-engines comparison, `python -m
+benchmarks.back_to_back`, does so, and tests of the four features, which
+the new engine does not run yet, use it as their reference. A replay of a
+run stored from today's engine runs on today's engine. The app itself never
+runs a case on it.
 Script blocks keep today's rules: approved code only in a run started in
 the app, the strict OS sandbox with no approval for the command-line tool
 and AI apps, and the locked-down worker either way.
@@ -416,9 +433,14 @@ node scripts/sync-version.mjs --check   # what CI runs
 ### Third-party licences
 
 The app ships other people's open-source code: the UI's npm packages,
-Electron and any runtime dependencies of the desktop shell, and everything
+Electron and any runtime dependencies of the desktop shell, everything
 PyInstaller freezes into the engine (Python
-packages, the Python runtime and native libraries such as OpenSSL).
+packages, the Python runtime and native libraries such as OpenSSL), and
+what is compiled into the new engine's module: the Rust crates of its
+normal dependency tree for the Windows target (read with `cargo metadata`,
+so the script needs cargo; build-only and test-only crates are not
+listed), and the vendored C code (SUNDIALS, CORE-MATH and musl's fma, in
+`scripts/licenses/compiled-in.json`).
 `scripts/third-party-notices.py` lists all of it, with the licence texts, in
 `THIRD-PARTY-NOTICES.txt` (**Help → Third-Party Notices** in the app), and as
 a CycloneDX software bill of materials in `sbom.cdx.json`; the installers
@@ -438,9 +460,12 @@ and every push to `main`. To regenerate them by hand, and commit the result
 when the dependencies change:
 
 ```bash
+(cd engine && python -m pip install maturin numpy &&
+  python -m maturin build --release -m crates/lsim-py/Cargo.toml --out wheels &&
+  python -m pip install --no-deps --no-index --find-links wheels lightsim-engine)
 cd backend
 pip install -r requirements-build.txt   # includes pip-licenses
-python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
+LIGHTSIM_FREEZE_ENGINE=1 python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
 cd ..
 npm ci --prefix frontend && npm ci --prefix desktop   # desktop/ pins the npm licence reader
 python scripts/third-party-notices.py   # add --check to only check
@@ -458,8 +483,8 @@ goes in `scripts/licenses/bundled-runtime.json`. Adding a licence to
 
 | Workflow | Runs on | Does |
 |---|---|---|
-| `ci.yml` | every push and PR (~3 min; the browser tests ~6 min, in parallel) | backend lint + tests, frontend lint + unit tests + typecheck + build, browser + accessibility tests, version-sync check, third-party licence check |
-| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging (~12 min) | builds the Windows installers (setup program and MSI, with their third-party notices), signs them when the secrets exist, smoke-tests the frozen backend and the packaged app (which must contact nothing outside the computer), tests the Windows silent and MSI installs and a Defender scan, uploads artefacts with SHA-256 checksums |
+| `ci.yml` | every push and PR (~3 min; the browser tests ~6 min, in parallel) | backend lint + tests, frontend lint + unit tests + typecheck + build, browser + accessibility tests, version-sync check, third-party licence check (which builds the new engine's module to freeze it in) |
+| `desktop-build.yml` | `main`, `v*` tags, manual, and PRs touching packaging or the engine (~22 min, 6 of them the new engine's Rust build) | builds the Windows installers (setup program and MSI, with their third-party notices), signs them when the secrets exist, smoke-tests the frozen backend and the packaged app (which must contact nothing outside the computer), tests the Windows silent and MSI installs and a Defender scan, uploads artefacts with SHA-256 checksums |
 | `update-rollout.yml` | manual | raises or pulls a release's staged update rollout |
 
 Push a `v*` tag to draft a release with the installers attached. Dependabot
@@ -782,7 +807,9 @@ reached the line by then gets a warning and no time. The results are
 estimates, and Messages, Run info, the headline numbers and the summary
 header say so (see [Known issues and limits](docs/KNOWN-LIMITS.md)).
 
-Set it to *Lap* to drive the model's *Race Track* (Driver & Signals). Its
+Set it to *Lap* to drive the model's *Race Track* (Driver & Signals). A Lap
+case does not run in this version yet (`NEW-LAP`); what follows describes
+the lap solver of today's engine, which a later version ports. Its
 *Track layout* and *Laps*, set in the case, choose the run: Autocross (a
 979 m closed lap), Skidpad (the right and left circles, 9.125 m on the lane
 centre) or Acceleration 75 m, drawn for LightSim after FS Rules 2026 v1.1

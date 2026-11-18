@@ -91,9 +91,11 @@ def item_project(item: dict, scratch: Path, build_fmu: bool = True) -> tuple[dic
         how["live"] = True
     if iid.endswith("-single"):
         case["chargeBalance"] = False
-    elif iid == "probe/bev-performance":
+    elif iid in ("probe/bev-performance", "probe/bev-performance-distance"):
         case.update(kind="performance", duration=40.0)
         case.setdefault("parameterOverrides", {})["el-task"] = {"cycle": "", "profile": "0:100; 40:100"}
+        if iid.endswith("-distance"):
+            case["endDistance"] = 300.0
     elif iid == "probe/fs-event-acceleration":
         case["fsEvent"] = "acceleration"
     elif iid == "probe/bev-cells":
@@ -314,34 +316,15 @@ def meta_set() -> tuple[list[str], list[str]]:
 
 
 def env_of(spec: dict, out: Path) -> dict:
-    env = {k: v for k, v in os.environ.items()
-           if k not in ("LIGHTSIM_ENGINE", "LIGHTSIM_ENGINE_STRICT")}
+    env = {k: v for k, v in os.environ.items() if k != "LIGHTSIM_ENGINE"}
     user = out / "user"
     env.update(LIGHTSIM_DATA_DIR=str(user), LIGHTSIM_PROJECTS_DIR=str(user / "projects"),
                PYTHONHASHSEED="0")
-    if spec["setting"].startswith(("new", "meta")):
-        env.update(LIGHTSIM_ENGINE="new", LIGHTSIM_ENGINE_STRICT="1")
+    # the new engine is the app's (no fall-back); today's is asked for by name
+    env["LIGHTSIM_ENGINE"] = "new" if spec["setting"].startswith(("new", "meta")) else "today"
     if spec["kind"] == "probe":  # the probes' own Script code, which no user approved
         env["LIGHTSIM_SCRIPT_TRUST"] = "off"
     return env
-
-
-def fallback_note(project, case_id: str, emit) -> str | None:
-    """The message the path writes when it hands a case it refuses before
-    running it to today's engine (not strict): STRICT checks it carries the
-    code."""
-    from app.schemas import SimResult
-    from app.solver import new_engine
-    if new_engine.unsupported(project, case_id) is None:
-        return None
-    saved = os.environ.pop(new_engine.STRICT_VAR, None)
-    try:
-        res = new_engine.simulate(project, case_id, emit, None, lambda *a: SimResult(
-            caseId=case_id, status="success", channels=[], messages=[]))
-    finally:
-        if saved is not None:
-            os.environ[new_engine.STRICT_VAR] = saved
-    return res.messages[0].text
 
 
 def _git(*args: str) -> bytes:
@@ -555,8 +538,6 @@ def child(spec: dict, path: Path) -> None:
         "result": result.model_dump(mode="json"),
         "engine": engine.kept if engine else None,
         "stream": streamed(stream, result) if how.get("live") else None,
-        "fallback_note": fallback_note(project, case_id, emit) if engine or how.get("hide_module")
-        else None,
     }
     tmp = path.with_suffix(".part")
     tmp.write_text(json.dumps(record), encoding="utf-8")

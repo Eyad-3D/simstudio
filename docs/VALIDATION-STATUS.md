@@ -26,7 +26,16 @@ Three words are used carefully on this page:
 ## Verified: the engine does what its equations say
 
 Each of these is an automatic test that runs on every change
-(`backend/tests/`):
+(`backend/tests/`). The app now runs every case on the new engine, and these
+tests run on it, with two kinds of exception (`backend/tests/engine_marks.py`
+lists each test and why). The tests of lap mode, the Formula Student events,
+a hybrid's charge balance and a battery built from cells, which the new
+engine does not run yet (see [Known issues](KNOWN-LIMITS.md#does-not-run-in-this-version)),
+and the checks of the older engine's own workings (its fixed solver step in
+*Step convergence* and *Stability*, its integrator rows) run on the older
+engine, as the reference for the port. And a few tests, each an open defect
+of the new engine, are recorded as expected failures, with their reasons, in
+Known issues.
 
 | What | How it is checked | Test file |
 |---|---|---|
@@ -114,7 +123,17 @@ Measured on 20 October 2026, with reference suite 1.1:
 | | HWFET | 145.9 | 145.9 | 0.0 % | one test |
 
 Mean of the gaps' sizes 4.1 %, largest 7.5 %, against a tolerance of 15 %
-(blind). The suite also checks, for each car:
+(blind). That table is the older engine's measurement of 20 October. The
+app now runs the new engine, and the same suite run on it (17 November 2026)
+gives gaps of +5.3 and +7.4 % (Model 3), +0.9 and +7.5 % (Bolt EUV), −1.0
+and +4.1 % (Leaf) and −6.6 and 0.0 % (MINI): mean 4.1 %, largest 7.5 %, so
+the one-line claim above holds for both engines. The virtual coast-down
+below gives 0.00 to 0.01 % on the new engine too; its exact-answer tier
+does not run on it yet (the three coast-down models fail with
+`SINGULAR-LOOP`, a loop of the brake and wheel parts the engine cannot solve
+with their values), and its step-halving check is about the older engine's
+fixed step, so the two rows below are the older engine's. The suite also
+checks, for each car:
 
 | Check | Tolerance | Measured |
 |---|---|---|

@@ -243,3 +243,170 @@ fn the_heavy_cars_that_stormed_run() {
         assert!(books < 1.5e-9, "{case}: the books close to {books:e}");
     }
 }
+
+// ---- a performance test's Driver: full throttle up to the target ----------
+
+/// A point car whose target steps from 0 to `vt` at `t_step` (a Driving
+/// Task's profile "0:0; t_step:vt"), accelerating at `a` per pedal.
+fn stepped_car() -> ComponentDef {
+    ComponentDef {
+        name: "Test.SteppedCar".into(),
+        doc: "A point car whose target is 0 until t_step.".into(),
+        ports: vec![
+            input("acc", "1", "the accelerator pedal"),
+            input("brk", "1", "the brake pedal"),
+            output("v_rel", "m/s", "the speed less the target"),
+            output("cap", "N.m", "no recuperation"),
+        ],
+        params: vec![
+            p("a", "m/s2", A, "the acceleration at a full command"),
+            p("vt", "m/s", V, "the target speed"),
+            p("t_step", "s", 0.0, "when the target steps"),
+            p("drag", "1/s", 0.0, "the speed lost per second per m/s"),
+            p(
+                "off",
+                "m/s",
+                0.0,
+                "a start error that is gone at 0.5 s (a start not solved to the digit)",
+            ),
+            p("unit_Nm", "N.m", 1.0, "unit carrier"),
+        ],
+        vars: vec![state("v", "m/s", 0.0, "the speed")],
+        equations: vec![
+            eq(
+                der("v"),
+                n("a") * (n("acc") - n("brk")) - n("drag") * n("v"),
+                "the pedals accelerate it, drag slows it",
+            ),
+            eq(
+                n("v_rel"),
+                n("v") - n("vt") * ite(ge(time(), n("t_step")), c(1.0), c(0.0))
+                    + n("off") * ite(lt(time(), c(0.5)), c(1.0), c(0.0)),
+                "the speed less the target (0 until t_step), less a start error",
+            ),
+            eq(n("cap"), c(0.0) * n("unit_Nm"), "no recuperation"),
+        ],
+        ..Default::default()
+    }
+}
+
+fn performance_run(a: f64, t_step: f64, drag: f64, t_end: f64) -> lsim_solve::SimResult {
+    performance_run_off(a, t_step, drag, t_end, 0.0)
+}
+
+fn performance_run_off(
+    a: f64,
+    t_step: f64,
+    drag: f64,
+    t_end: f64,
+    off: f64,
+) -> lsim_solve::SimResult {
+    let mut lib = lib();
+    lib.add(stepped_car());
+    let driver = lsim_lib::blocks::vehicle::driver(lsim_lib::blocks::vehicle::DriverConfig {
+        performance: true,
+        ..Default::default()
+    });
+    let name = driver.name.clone();
+    lib.add(driver);
+    let top = model(
+        "PerformanceDriver",
+        vec![
+            part(
+                "driver",
+                &name,
+                &[("driver_kp", KP), ("driver_ki", KI), ("regen_weight_pct", 0.0)],
+            ),
+            part(
+                "car",
+                "Test.SteppedCar",
+                &[("a", a), ("t_step", t_step), ("drag", drag), ("off", off)],
+            ),
+        ],
+        &[
+            ("car.v_rel", "driver.v_vehicle"),
+            ("car.cap", "driver.regen_cap"),
+            ("driver.sig_accel_pedal", "car.acc"),
+            ("driver.sig_brake_pedal", "car.brk"),
+        ],
+    );
+    run(&lib, &top, t_end, 0.05, 1e-8).1
+}
+
+/// A performance test holds full throttle from the step in the target
+/// until the speed first gets there (an error of 0 at V/a after the step),
+/// and then the PI holds it: the integral did not wind up at full throttle,
+/// so the command falls at once to the PI's (a car with no drag stays at the
+/// target at no throttle), where the ordinary Driver, its integral pulled
+/// back to the limit, would overshoot. With the target at 0 until
+/// `t_step` (an error of 0, not below it) the run is not yet "reached".
+#[test]
+fn a_performance_driver_holds_full_throttle_up_to_the_target() {
+    let (a, t_step) = (2.0, 3.0);
+    let res = performance_run(a, t_step, 0.0, 12.0);
+    let t_reach = t_step + V / a;
+    let pedal = res.channel("driver.sig_accel_pedal").unwrap();
+    let v = res.channel("car.v").unwrap();
+    for (k, &t) in res.times.iter().enumerate() {
+        if t < t_step - 1e-9 {
+            assert_eq!(pedal[k], 0.0, "no throttle before the step, at {t} s");
+        } else if t > t_step + 1e-9 && t < t_reach - 1e-9 {
+            assert_eq!(pedal[k], 1.0, "full throttle on the way, at {t} s: {}", pedal[k]);
+        } else if t > t_reach + 1e-3 {
+            assert!(pedal[k].abs() < 1e-3, "the PI's own command after it, at {t} s: {}", pedal[k]);
+            assert!((v[k] - V).abs() < 1e-3, "held at the target at {t} s: {}", v[k]);
+        }
+    }
+    let t_hit = res.times.iter().zip(v).find(|(_, v)| **v >= V - 1e-6).map(|(t, _)| *t).unwrap();
+    assert!((t_hit - t_reach).abs() < 0.06, "the target is reached at {t_hit} s, not {t_reach} s");
+}
+
+/// A target above the speed from the start (0:100 at t = 0) is the same.
+#[test]
+fn a_performance_driver_with_a_target_from_the_start() {
+    let res = performance_run(2.0, 0.0, 0.0, 10.0);
+    let pedal = res.channel("driver.sig_accel_pedal").unwrap();
+    for (k, &t) in res.times.iter().enumerate() {
+        if t > 1e-9 && t < V / 2.0 - 1e-9 {
+            assert_eq!(pedal[k], 1.0, "full throttle at {t} s: {}", pedal[k]);
+        } else if t > V / 2.0 + 1e-3 {
+            assert!(pedal[k].abs() < 1e-3, "the PI's after it, at {t} s: {}", pedal[k]);
+        }
+    }
+}
+
+/// A car with drag that has just got to the target is held there by the PI
+/// (the integral did not wind up, so the command starts from the PI's own),
+/// and is not let off the throttle and put back on at every crossing of the
+/// target: the run ends at the target with a handful of events.
+#[test]
+fn a_performance_driver_does_not_chatter_where_it_gets_there() {
+    let res = performance_run(2.0, 0.0, 0.05, 40.0);
+    let v = res.channel("car.v").unwrap();
+    assert!((v[v.len() - 1] - V).abs() < 0.02 * V, "held at the target: {}", v[v.len() - 1]);
+    assert!(res.events.len() < 20, "{} events", res.events.len());
+    let pedal = res.channel("driver.sig_accel_pedal").unwrap();
+    for (k, &t) in res.times.iter().enumerate() {
+        if t > 1e-9 && t < 4.0 {
+            assert_eq!(pedal[k], 1.0, "full throttle on the way at {t} s: {}", pedal[k]);
+        }
+    }
+}
+
+/// A car at rest with the target at 0 has an error of 0 up to the digits the
+/// start was solved to (here 5e-9 m/s, gone at 0.5 s): that falling to 0 is
+/// not "the speed got to the target", and the Driver must still hold full
+/// throttle when the target steps, up to the target (the check found it
+/// handing over to the PI as soon as the error fell below 1 m/s).
+#[test]
+fn a_performance_driver_that_starts_at_its_target_is_not_reached() {
+    let (a, t_step) = (2.0, 3.0);
+    let res = performance_run_off(a, t_step, 0.0, 12.0, -5e-9);
+    let t_reach = t_step + V / a;
+    let pedal = res.channel("driver.sig_accel_pedal").unwrap();
+    for (k, &t) in res.times.iter().enumerate() {
+        if t > t_step + 1e-9 && t < t_reach - 1e-9 {
+            assert_eq!(pedal[k], 1.0, "full throttle on the way, at {t} s: {}", pedal[k]);
+        }
+    }
+}

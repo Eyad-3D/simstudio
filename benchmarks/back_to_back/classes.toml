@@ -67,7 +67,7 @@ class = "c"
 date = "2026-10-28"
 field = ["messages"]
 what = ["extra"]
-key = "^info: Run on the new engine \\(LIGHTSIM_ENGINE=new\\)\\.$"
+key = "^info: Run on the new engine\\.$"
 reason = "The first message of a run on the new path says which engine ran it (new_engine.py), by design."
 
 [[rule]]
@@ -224,3 +224,14 @@ re-check (28 October: one channel's own grid, ending 8 ms before the line while 
 at it, was b from the distance channel's line), the grid's last times must be the distance channel's own, \
 today's and the new run's: a channel told on its own that ends elsewhere is not at the line. Any other grid \
 stays unclassified."""
+
+[[rule]]
+id = "distance-end-ends-at-the-line"
+class = "b"
+date = "2026-11-16"
+field = ["times"]
+what = ["grid"]
+item = ["probe/bev-performance-distance"]
+check = "ends_at_the_line"
+context = "distance_end"
+reason = """A performance test that ends at its distance (SimCase.endDistance), the same cause and the same check as acceleration-ends-at-the-line above: today's engine ends at the end of the solver step that crossed the line, the new engine at the line itself (the finish event of lsim-project's import, which ends every case with an endDistance since 16 November, not only an acceleration test). Only the probe that holds it (probe/bev-performance-distance, 300 m: today's 13.75 s, the new engine's 13.762 s and 300.0000 m, today's past the line by more than ten times the new run's distance from it) is named, so no other item takes it; the check is the acceleration rule's own: the same number of output times, every one but the last the same, the new run's last inside today's last output step, before it, both at the distance channel's own last time. Any other grid stays unclassified."""

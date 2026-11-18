@@ -45,14 +45,10 @@ needs_engine = pytest.mark.skipif(
 
 @pytest.fixture(params=["today", pytest.param("new", marks=needs_engine)])
 def engine(request, monkeypatch):
-    """Each engine's path: today's, and the new one (LIGHTSIM_ENGINE=new,
-    strict, so nothing falls back to today's and hides what it did)."""
+    """Each engine's path: the new one (the app's, with no fall-back) and
+    today's (LIGHTSIM_ENGINE=today)."""
     from app.solver import new_engine
     monkeypatch.setenv(new_engine.ENV_VAR, request.param)
-    if request.param == "new":
-        monkeypatch.setenv(new_engine.STRICT_VAR, "1")
-    else:
-        monkeypatch.delenv(new_engine.STRICT_VAR, raising=False)
     return request.param
 
 
@@ -627,7 +623,9 @@ def test_the_frozen_engine_runs_a_new_script_in_its_sandbox(tmp_path):
 
     backend = Path(__file__).resolve().parents[1]
     raw = json.loads((backend / "projects" / "hybrid-car.json").read_text(encoding="utf-8"))
-    raw["cases"] = [{**raw["cases"][0], "duration": 5, "realtimeFactor": 0}]
+    # (run once: a charge-balanced case does not run in this version, NEW-BALANCE; the
+    # frozen engine runs the app's engine, the new one)
+    raw["cases"] = [{**raw["cases"][0], "duration": 5, "realtimeFactor": 0, "chargeBalance": False}]
     for el in (e for s in raw["systems"] for e in s["elements"] if e["componentDefId"] == "signal.script"):
         el["parameterOverrides"]["code"] = el["parameterOverrides"].get("code", "") + "\n# approved by nobody\n"
     proj = tmp_path / "car.json"
@@ -732,7 +730,9 @@ def test_lightsim_run_from_the_wheel_runs_a_new_script_in_the_strict_sandbox(whe
         pytest.skip("this machine cannot set up the strict sandbox")
     backend = Path(__file__).resolve().parents[1]
     raw = json.loads((backend / "projects" / "hybrid-car.json").read_text(encoding="utf-8"))
-    raw["cases"] = [{**raw["cases"][0], "duration": 5, "realtimeFactor": 0}]
+    # (run once: a charge-balanced case does not run in this version, NEW-BALANCE; the
+    # wheel's command line starts with no engine variable, on the app's engine)
+    raw["cases"] = [{**raw["cases"][0], "duration": 5, "realtimeFactor": 0, "chargeBalance": False}]
     for el in (e for s in raw["systems"] for e in s["elements"] if e["componentDefId"] == "signal.script"):
         el["parameterOverrides"]["code"] = el["parameterOverrides"].get("code", "") + "\n# approved by nobody\n"
     proj = tmp_path / "car.json"

@@ -16,8 +16,9 @@ This record holds what the owner needs to choose between them: the threat
 model, the differential fuzzing against CPython 3.11, the count of unsafe
 code the runner pulls in, and the gap that lets today's worker read files and
 use the network on Windows (PLT-35). It makes **no switch**: every Script
-block still runs in today's worker, in today's engine and on the new
-engine's path (`new_engine.py` passes `native_scripts=False`; quick mode
+block still runs in today's worker, on the new engine's path (the app's
+engine) and, when a developer asks for it with `LIGHTSIM_ENGINE=today`, in
+today's engine (`new_engine.py` passes `native_scripts=False`; quick mode
 refuses a project with a Script, `QUICK-SAMPLED`). The owner's plain-language
 page is kept with the owner's decisions (`decisions/script-runner-explained.md`
 in the owner's workspace). Measured on 6 November 2026 on work/step2.

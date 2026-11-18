@@ -15,6 +15,58 @@ os.environ.setdefault("LIGHTSIM_SCRIPT_TRUST", "off")
 import pytest  # noqa: E402
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "todays_engine(why): run on today's engine (LIGHTSIM_ENGINE=today), not the app's "
+                   "new engine: a feature the new engine does not run yet, whose tests are the oracle "
+                   "for its port, or today's engine's own internals")
+
+
+def _matches(node: str, key: str) -> bool:
+    return node == key or node.startswith(key + "[") or ("[" in key and node.startswith(key))
+
+
+def pytest_collection_modifyitems(config, items):
+    """tests/engine_marks.py: the tests that run today's engine (marker
+    todays_engine) and those the new engine fails (xfail, strict), each with
+    its reason; a key no collected test of its file matches is an error."""
+    import engine_marks as em
+
+    used, files = set(), set()
+    for item in items:
+        node = item.nodeid.split("tests/", 1)[-1]
+        files.add(node.split("::")[0])
+        if why := em.TODAY_FILES.get(node.split("::")[0]):
+            item.add_marker(pytest.mark.todays_engine(why))
+            used.add(node.split("::")[0])
+        for table, mark in ((em.XFAIL, "xfail"), (em.TODAY, "today")):
+            hits = [k for k in table if _matches(node, k)]
+            if not hits:
+                continue
+            used.update(hits)
+            why = table[max(hits, key=len)]
+            item.add_marker(pytest.mark.xfail(strict=True, reason=why) if mark == "xfail"
+                            else pytest.mark.todays_engine(why))
+            break
+    stale = [k for k in (*em.TODAY_FILES, *em.TODAY, *em.XFAIL) if k.split("::")[0] in files and k not in used]
+    if stale:
+        raise pytest.UsageError(f"tests/engine_marks.py names tests that do not exist: {stale}")
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """The app's engine (the new one) for every test, whatever the shell
+    says; today's for a test marked ``todays_engine`` (the marker says why).
+    Set before the test's fixtures, a module's among them, and not through
+    monkeypatch (a test's monkeypatch.undo() keeps it); a test that sets
+    LIGHTSIM_ENGINE itself does so after this. The shared caches of runs
+    (helpers.example_result, validation/suite.py) are kept per engine."""
+    if item.get_closest_marker("todays_engine"):
+        os.environ["LIGHTSIM_ENGINE"] = "today"
+    else:
+        os.environ.pop("LIGHTSIM_ENGINE", None)
+
+
 @pytest.fixture(autouse=True)
 def _ai_settings(tmp_path_factory, monkeypatch):
     """Every test gets its own AI access settings file (off until a test

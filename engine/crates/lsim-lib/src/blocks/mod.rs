@@ -263,6 +263,9 @@ pub fn table_sites() -> Vec<TableSite> {
     let t2 = crate::table::Table2::from_json(p, Default::default(), Default::default());
     let d2 = signals::LookupConfig::D2(t2.expect("the default 2D table"));
     defs.push(("signal.lookup", signals::lookup(&d2)));
+    // with a Sample Time over today's step: read at its held inputs
+    defs.push(("signal.lookup", signals::lookup_held(&signals::default_lookup())));
+    defs.push(("signal.lookup", signals::lookup_held(&d2)));
     for f in all(2) {
         let (distance, repeat) = (f[0], f[1]);
         let task = signals::ProfileConfig { distance, repeat, ..signals::default_task() };

@@ -4,6 +4,7 @@ installs, so it runs in CI's licence job; these cover its decisions."""
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -294,3 +295,183 @@ def test_the_fmu_pack_takes_an_lxml_whose_licence_file_names_its_libiconv():
     the notices check on Windows reads the words it expects."""
     req = (SCRIPT.parents[1] / "backend" / "requirements-fmu.txt").read_text(encoding="utf-8")
     assert "\nlxml>=6.1.3" in req
+
+
+# --- the new engine's module, lightsim_engine ----------------------------------------
+# The app runs every case on it, so the installer holds it, and what is compiled
+# into it is listed in the notices (scripts/third-party-notices.py).
+
+ROOT = SCRIPT.parents[1]
+VENDORED = {"SUNDIALS", "CORE-MATH (revision e78d2681bb90)", "musl libc fma (commit 9683bd6)"}
+
+
+def _cargo_metadata(tmp_path, normal, build=None, dev=None):
+    """`cargo metadata` output (the parts the script reads) for a workspace whose
+    package lsim-py has these third-party crates, as {name: licence}: reached
+    through normal, build or dev dependencies. The crates' folders are made
+    under tmp_path; one crate, "libm", ships no licence file."""
+    ids = {"lsim-py": "ws-py", "lsim-solve": "ws-solve", "lsim-math": "ws-math"}
+    packages = [{"id": i, "name": n, "version": "0.1.0", "license": None,
+                 "manifest_path": str(tmp_path / n / "Cargo.toml")} for n, i in ids.items()]
+    deps = {"ws-py": [("ws-solve", None), ("ws-math", None)], "ws-solve": [], "ws-math": []}
+    for kind, crates in ((None, normal), ("build", build or {}), ("dev", dev or {})):
+        for name, licence in crates.items():
+            folder = tmp_path / name
+            folder.mkdir()
+            if name != "libm":
+                (folder / "LICENSE-MIT").write_text(f"MIT License\n\nCopyright (c) {name} authors\n")
+            packages.append({"id": name, "name": name, "version": "1.2.3", "license": licence,
+                             "manifest_path": str(folder / "Cargo.toml"), "authors": ["A <a@b.c>"],
+                             "repository": f"https://example.org/{name}"})
+            # normal crates hang off lsim-solve, build ones off lsim-math (as cc does)
+            deps["ws-math" if kind == "build" else "ws-solve" if kind is None else "ws-py"].append((name, kind))
+    nodes = [{"id": i, "deps": [{"pkg": p, "dep_kinds": [{"kind": k, "target": None}]} for p, k in d]}
+             for i, d in deps.items()]
+    nodes += [{"id": p["id"], "deps": []} for p in packages if p["id"] not in deps]
+    # a crate reached only through a build tool: it is not compiled in either
+    for node in nodes:
+        if node["id"] == "cc":
+            node["deps"] = [{"pkg": "shlex", "dep_kinds": [{"kind": None, "target": None}]}]
+    return {"packages": packages, "workspace_members": list(ids.values()), "resolve": {"nodes": nodes}}
+
+
+def test_the_crates_compiled_into_the_module_are_its_normal_dependencies(notices, allowed, tmp_path):
+    """From `cargo metadata` for the Windows target: the crates reached through
+    normal dependencies, LightSim's own crates left out. A crate only a build
+    script runs (the cc crate and what it needs) or only a test uses never
+    ends up in the module, so it is not listed; a crate sharing a Python
+    package's name (numpy) is judged on its own licence, not that package's
+    entry in clarifications.json."""
+    meta = _cargo_metadata(tmp_path, normal={"serde": "MIT OR Apache-2.0", "pyo3-macros": "Apache-2.0/MIT",
+                                             "libm": "MIT", "numpy": "BSD-2-Clause"},
+                           build={"cc": "MIT", "shlex": "MIT"}, dev={"proptest": "MIT"})
+    crates = notices.crates_in(meta)
+    assert [c.name for c in crates] == ["libm", "numpy", "pyo3-macros", "serde"]
+    by = {c.name: c for c in crates}
+    assert by["pyo3-macros"].license == "Apache-2.0 OR MIT"  # the old "A/B" spelling
+    assert all(c.within == notices.ENGINE_MODULE and c.compiled for c in crates)
+    assert by["serde"].purl == "pkg:cargo/serde@1.2.3" and by["serde"].url == "https://example.org/serde"
+    assert [name for name, _ in by["serde"].texts] == ["LICENSE-MIT"]
+    assert "ships no licence file" in by["libm"].note.lower() and "A" in by["libm"].note
+    _, clarified, _, _ = notices.load_policy()
+    assert notices.check(crates, allowed, {}) == []
+    # judged against the Python packages' entries, numpy's "expect" text would not be found
+    assert [p.split(" ", 1)[0] for p in notices.check([by["numpy"]], allowed, clarified["python"])] == ["numpy"]
+
+
+def test_a_crate_under_a_licence_that_allowed_txt_lacks_fails_the_build(notices, allowed, tmp_path):
+    """The policy covers the crates like any other component: GPL and LGPL
+    crates, a licence not in scripts/licenses/allowed.txt (MIT-0 alone is not)
+    and a crate that names none all fail; an OR that offers an allowed choice
+    passes."""
+    meta = _cargo_metadata(tmp_path, normal={"gpl-crate": "GPL-3.0-only", "lgpl-crate": "LGPL-2.1-or-later",
+                                             "mit-zero": "MIT-0", "nameless": None,
+                                             "either": "GPL-3.0-only OR MIT", "fine": "MIT"})
+    problems = notices.check(notices.crates_in(meta), allowed, {})
+    assert sorted(p.split(" ", 1)[0] for p in problems) == ["gpl-crate", "lgpl-crate", "mit-zero", "nameless"]
+    assert any("is not allowed" in p for p in problems) and any("licence unknown" in p for p in problems)
+
+
+def test_a_licence_file_that_is_the_standard_text_goes_to_the_appendix(notices, tmp_path):
+    """Dozens of crates ship the Apache-2.0 text word for word (some with the
+    unfilled "[yyyy] [name of copyright owner]" appendix): it is in the
+    notices once. A file with a copyright holder named, or any other text,
+    stays with its crate."""
+    apache = (ROOT / "scripts" / "licenses" / "texts" / "Apache-2.0.txt").read_text(encoding="utf-8")
+    head, _ = apache.split("END OF TERMS AND CONDITIONS", 1)
+    (tmp_path / "LICENSE-APACHE").write_text(apache.replace("\n", "\r\n"))  # (another line ending)
+    (tmp_path / "LICENSE").write_text(head + "END OF TERMS AND CONDITIONS\n")  # (no appendix)
+    (tmp_path / "LICENSE-MIT").write_text("MIT License\n\nCopyright (c) 2020 Someone\n")
+    (tmp_path / "NOTICE").write_text("Copyright 2020 Someone")
+    named = tmp_path / "named"
+    named.mkdir()
+    (named / "LICENSE").write_text(head + "END OF TERMS AND CONDITIONS\n\nCopyright 2020 Cameron Hart\n")
+    texts, omitted = notices.crate_texts(tmp_path)
+    assert [name for name, _ in texts] == ["LICENSE-MIT", "NOTICE"] and omitted == ["Apache-2.0", "Apache-2.0"]
+    texts, omitted = notices.crate_texts(named)
+    assert [name for name, _ in texts] == ["LICENSE"] and omitted == []
+
+
+def test_a_frozen_engine_without_the_module_does_not_pass(notices):
+    """The desktop build runs the notices step on the engine it froze: with no
+    lightsim_engine in it (the freeze left it out, or it was never installed)
+    or no NumPy to run it, the step fails, so such an engine never ships."""
+    module = ("lightsim-engine", "0.1.0", "")
+    numpy = ("numpy", "2.4.6", "")
+    ext = "lightsim_engine/lightsim_engine.pyd"
+    assert notices.module_problem({module: [ext, "lightsim_engine/__init__.py"], numpy: ["numpy/__init__.py"]}) is None
+    assert notices.module_problem({module: [ext], numpy: []}) is None
+    assert "holds no lightsim-engine module" in notices.module_problem({numpy: ["numpy/__init__.py"]})
+    # only the Python half of the module is not the module
+    assert "no lightsim-engine module" in notices.module_problem({module: ["lightsim_engine/__init__.py"], numpy: ["x"]})
+    assert "not NumPy" in notices.module_problem({module: [ext]})
+
+
+def test_every_vendored_c_licence_in_the_engine_is_in_the_notices(notices, allowed):
+    """SUNDIALS, CORE-MATH and musl's fma are C code compiled into the module
+    that no Cargo.lock lists (scripts/licenses/compiled-in.json): each is
+    listed with its licence files, passes the policy, and is rendered with its
+    text and in the SBOM. A licence or notice file anywhere in engine/crates
+    that no entry names (and that is no copy of one that is named) fails
+    here, so vendored code cannot be added without being listed."""
+    problems: list[str] = []
+    vendored = notices.vendored_components(problems)
+    assert problems == [] and {c.name for c in vendored} == VENDORED
+    assert notices.check(vendored, allowed, {}) == []
+    assert all(c.compiled and c.within == notices.ENGINE_MODULE for c in vendored)
+    text = notices.render([notices.Component(notices.ENGINE, notices.ENGINE_MODULE, "0.1.0", notices.OWN_TERMS,
+                                             own=True), *vendored])
+    assert "Lawrence Livermore National Security" in text and "Rich Felker" in text
+    assert "The CORE-MATH code is distributed under the following license" in text
+    sbom = notices.bill_of_materials([notices.Component(notices.ENGINE, notices.ENGINE_MODULE, "0.1.0",
+                                                         notices.OWN_TERMS, own=True), *vendored])
+    (module,) = sbom["components"]
+    assert [c["name"] for c in module["components"]] == [c.name for c in vendored]
+    assert module["licenses"] == [{"license": {"name": notices.OWN_TERMS}}]
+
+    listed = json.loads((ROOT / "scripts" / "licenses" / "compiled-in.json").read_text(encoding="utf-8"))
+    named = {ROOT / f for v in listed["vendored"] for f in v["files"]}
+    named_text = {" ".join(p.read_text(encoding="utf-8").split()) for p in named}
+    unnamed = [p.relative_to(ROOT).as_posix() for p in (ROOT / "engine" / "crates").rglob("*")
+               if p.is_file() and notices.LICENSE_FILE.match(p.name) and p not in named
+               and " ".join(p.read_text(encoding="utf-8", errors="replace").split()) not in named_text]
+    assert unnamed == [], f"vendored licence files that compiled-in.json does not name: {unnamed}"
+
+
+def _direct_crates() -> set[str]:
+    """The third-party crates the module's own crates depend on, read from their
+    Cargo.toml files: the dependencies of lsim-py and, transitively, of every
+    lsim-* crate it uses (normal dependencies, not dev or build ones)."""
+    import tomllib
+
+    seen, todo, third = set(), ["lsim-py"], set()
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        manifest = tomllib.loads((ROOT / "engine" / "crates" / name / "Cargo.toml").read_text(encoding="utf-8"))
+        for dep in manifest.get("dependencies", {}):
+            if dep.startswith("lsim-"):
+                todo.append(dep)
+            else:
+                third.add(dep)
+    return third
+
+
+def test_the_committed_notices_list_what_the_module_compiles_in(notices):
+    """THIRD-PARTY-NOTICES.txt and sbom.cdx.json (the installer's, rewritten by
+    each desktop build) must list the module, every third-party crate its own
+    crates depend on directly, and the vendored C code: a change to the
+    engine's dependencies without regenerating them fails here (run
+    scripts/third-party-notices.py, README, "Third-party licences")."""
+    crates = _direct_crates()
+    assert {"pyo3", "numpy", "cranelift-codegen", "faer", "serde_json"} <= crates
+    text = (ROOT / "THIRD-PARTY-NOTICES.txt").read_text(encoding="utf-8")
+    listed = notices.contents(text)
+    assert {"lightsim-engine"} | VENDORED <= listed
+    assert crates <= listed, f"crates the engine depends on but the notices do not list: {sorted(crates - listed)}"
+    sbom = json.loads((ROOT / "sbom.cdx.json").read_text(encoding="utf-8"))
+    (module,) = [c for c in sbom["components"] if c["name"] == "lightsim-engine"]
+    inside = {c["name"] for c in module["components"]}
+    assert crates | VENDORED <= inside

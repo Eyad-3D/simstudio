@@ -181,52 +181,92 @@ pub fn constant() -> ComponentDef {
     }
 }
 
-/// control.pid in continuous time: today's PID with its anti-windup (the
-/// integral grows only while the output is inside its limits or the error
-/// pulls it back); the derivative of the error through a first-order
-/// filter with the controller's period as its time constant (today's
-/// difference over one 10 ms step, or over its Sample Time).
+/// control.pid: today's PID exactly (`ControlSlave`), a discrete
+/// controller run by its host (`pid_host`, `lsim_project::golden::PidHost`)
+/// at today's solver step, or at its Sample Time when that is longer, its
+/// output held in between. Its inputs and its gains and limits reach the
+/// host as the host's inputs, read at each sample (a live edit of a gain
+/// takes effect at the next one).
+///
+/// (It was a PID in continuous time, its anti-windup a mode: at its limit
+/// with the error pulling outwards, the frozen integral let the output
+/// back inside and the growing one pushed it out again, so the state slid
+/// along the mode's boundary and the run stopped as an event storm, where
+/// today's PID, which takes one step at a time, does not.)
 pub fn pid() -> ComponentDef {
     let id = "control.pid";
-    let mut params = cps(id, &["kp", "ki", "kd", "out_min", "out_max", "sample_time_s"]);
-    params.push(pe(
-        "t_f",
-        "s",
-        max(n("sample_time_s"), c(0.01) * n("unit_s")),
-        "the derivative's filter time",
-    ));
-    params.insert(0, p("unit_s", "s", 1.0, "unit carrier"));
+    let mut components = vec![sub("ctl", PID_HOST, &[])];
+    let mut connections =
+        vec![connect("sig_setpoint_in", "ctl.sp"), connect("sig_feedback_in", "ctl.fb")];
+    for (g, unit) in pid_gain_units() {
+        let k = crate::signal::constant(&unit);
+        components.push(sub(&format!("{g}_value"), &k.name, &[("k", n(g))]));
+        connections.push(connect(&format!("{g}_value.y"), &format!("ctl.{g}")));
+    }
+    connections.push(connect("ctl.out", "sig_out"));
     ComponentDef {
         name: "Blocks.Pid".into(),
         doc: doc(id),
         ports: vec![inp(id, "sig_setpoint_in"), inp(id, "sig_feedback_in"), out(id, "sig_out")],
-        params,
-        vars: vec![
-            state("I", "s", 0.0, "the error's integral"),
-            state("xd", "1", 0.0, "the error, lagged by the derivative's filter"),
-            var("err", "1", "setpoint − feedback"),
-            var("deriv", "1/s", "the error's rate"),
-            var("u", "1", "the output before its limits"),
-        ],
-        equations: vec![
-            eq(n("err"), n("sig_setpoint_in") - n("sig_feedback_in"), "the error"),
-            eq(n("t_f") * der("xd"), n("err") - n("xd"), "the derivative's filter"),
-            eq(n("deriv"), (n("err") - n("xd")) / n("t_f"), "the error's rate"),
-            eq(n("u"), n("kp") * n("err") + n("ki") * n("I") + n("kd") * n("deriv"), "P + I + D"),
-            eq(
-                der("I"),
-                ite(
-                    or(
-                        and(ge(n("u"), n("out_min")), le(n("u"), n("out_max"))),
-                        lt(n("err") * n("u"), c(0.0)),
-                    ),
-                    n("err"),
-                    c(0.0),
-                ),
-                "the integral grows inside the limits or when the error pulls back",
-            ),
-            eq(n("sig_out"), clamp(n("u"), n("out_min"), n("out_max")), "held to its limits"),
-        ],
+        params: cps(id, &["kp", "ki", "kd", "out_min", "out_max", "sample_time_s"]),
+        components,
+        connections,
+        ..Default::default()
+    }
+}
+
+/// The PID's gains and limits, in the order its host reads them after the
+/// setpoint and the feedback.
+pub const PID_GAINS: [&str; 5] = ["kp", "ki", "kd", "out_min", "out_max"];
+
+/// Each gain's and limit's unit (its catalog parameter's).
+pub fn pid_gain_units() -> Vec<(&'static str, String)> {
+    PID_GAINS.into_iter().zip(cps("control.pid", &PID_GAINS)).map(|(g, p)| (g, p.unit)).collect()
+}
+
+/// The constants that carry the PID's gains and limits to its host.
+pub fn pid_gain_constants() -> Vec<ComponentDef> {
+    let mut units: Vec<String> = pid_gain_units().into_iter().map(|(_, u)| u).collect();
+    units.sort();
+    units.dedup();
+    units.iter().map(|u| crate::signal::constant(u)).collect()
+}
+
+/// The PID's host block's definition.
+pub const PID_HOST: &str = "External.Pid";
+
+/// The sampled part of control.pid: its host runs today's PID law.
+pub fn pid_host() -> ComponentDef {
+    let mut ports = vec![input("sp", "1", "the setpoint"), input("fb", "1", "the feedback")];
+    for (k, unit) in pid_gain_units() {
+        ports.push(input(k, &unit, "a gain or limit"));
+    }
+    ports.push(output("out", "1", "the output, held between samples"));
+    ComponentDef {
+        name: PID_HOST.into(),
+        doc: "today's PID law, run by its host at each sample".into(),
+        ports,
+        params: vec![p("period", "s", 0.01, "its tick spacing (the host's own: today's step)")],
+        ..Default::default()
+    }
+}
+
+/// The sampled part of a Lookup with a Sample Time longer than today's
+/// solver step: its host takes the inputs at each sample and holds them.
+pub fn hold_host(two: bool) -> ComponentDef {
+    let mut ports = vec![input("x_in", "1", "Input X")];
+    if two {
+        ports.push(input("y_in", "1", "Input Y"));
+    }
+    ports.push(output("x_out", "1", "Input X as last sampled"));
+    if two {
+        ports.push(output("y_out", "1", "Input Y as last sampled"));
+    }
+    ComponentDef {
+        name: if two { "External.Hold2" } else { "External.Hold1" }.into(),
+        doc: "its inputs, taken at each sample and held in between".into(),
+        ports,
+        params: vec![p("period", "s", 0.01, "its tick spacing (the host's own)")],
         ..Default::default()
     }
 }
@@ -288,6 +328,32 @@ pub fn lookup(cfg: &LookupConfig) -> ComponentDef {
         equations: vec![eq(n("sig_out"), value, "it reads its table")],
         ..Default::default()
     }
+}
+
+/// signal.lookup with a Sample Time longer than today's solver step: as
+/// today's engine, its table read at its inputs as they were at its last
+/// sample (its host, `hold_host`, takes them at the instants today's
+/// engine samples at and holds them), so its output holds between
+/// samples, and the table's watch and its records are at the point today
+/// books (its held point).
+pub fn lookup_held(cfg: &LookupConfig) -> ComponentDef {
+    let two = matches!(cfg, LookupConfig::D2(_));
+    let host = hold_host(two);
+    let mut d = lookup(cfg);
+    d.name = format!("{}Held", d.name);
+    d.connections = vec![connect("sig_x_in", "hold.x_in")];
+    let mut at = vec![n("hold.x_out")];
+    if two {
+        d.connections.push(connect("sig_y_in", "hold.y_in"));
+        at.push(n("hold.y_out"));
+    }
+    d.equations = vec![eq(
+        n("sig_out"),
+        lsim_ir::expr::table("table", at),
+        "it reads its table at its inputs as last sampled",
+    )];
+    d.components = vec![sub("hold", &host.name, &[])];
+    d
 }
 
 /// The default lookup (1D).
@@ -452,5 +518,30 @@ pub fn defaults() -> Vec<ComponentDef> {
     );
     tc_params.extend(tc.params);
     tc.params = tc_params;
-    vec![task, road, constant(), pid(), look, script, fmu, tc, monitor(&[]), system(), race_track()]
+    let (held1, held2) = (lookup_held(&default_lookup()), {
+        let p = &catalog::param("signal.lookup", "table_2d").expect("table_2d")["default"];
+        lookup_held(&LookupConfig::D2(
+            Table2::from_json(p, Default::default(), Default::default()).expect("table"),
+        ))
+    });
+    let mut out = vec![
+        task,
+        road,
+        constant(),
+        pid(),
+        pid_host(),
+        look,
+        held1,
+        held2,
+        hold_host(false),
+        hold_host(true),
+        script,
+        fmu,
+        tc,
+        monitor(&[]),
+        system(),
+        race_track(),
+    ];
+    out.extend(pid_gain_constants());
+    out
 }

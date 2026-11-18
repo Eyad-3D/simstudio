@@ -13,20 +13,21 @@
 name = "Step 2. Wire the new engine into the app"
 registered = "2026-10-28"
 source = "deeper/roadmap-deeper.md, Part B, step 2's acceptance list; owner's answers of 20 October 2026"
-# the path under test: the app's own run function, app.solver.simulate, with
-# LIGHTSIM_ENGINE=new (backend/app/solver/new_engine.py), against today's
-# engine through the same function without it
+# the path under test: the app's own run function, app.solver.simulate, which
+# runs the new engine (backend/app/solver/new_engine.py), against today's
+# engine through the same function with LIGHTSIM_ENGINE=today (until 17
+# November 2026 the new engine needed LIGHTSIM_ENGINE=new)
 path = "app.solver.simulate"
 
 # ---------------------------------------------------------------------------
-# Reason codes. Every refusal and every fall-back of the new engine's path
-# carries one of these (rule 8: no silent fall-back). The harness counts them
-# and fails STRICT on any other.
+# Reason codes. Every refusal of the new engine's path carries one of these
+# (rule 8: no silent fall-back; since 17 November 2026 there is no fall-back
+# at all). The harness counts them and fails STRICT on any other.
 # ---------------------------------------------------------------------------
 [codes]
 NEW-NOT-FOUND = "the case is not in the project"
 NEW-CASE-KIND = "a case kind the new engine's path does not run"
-NEW-LAP = "a lap case (stays on today's lap solver: owner, 20 October)"
+NEW-LAP = "a lap case (not ported yet: refused until it is, owner 16 November)"
 NEW-FS-EVENT = "a Formula Student event case (stays refused: owner, 20 October)"
 NEW-BALANCE = "a hybrid's charge-balanced case (stays refused: owner, 20 October)"
 NEW-CELLS = "a battery built from cells (stays refused: owner, 20 October)"
@@ -36,13 +37,9 @@ NEW-BUILD = "today's model builder refused the model before the new engine saw i
 NEW-FAILED = "the new engine refused or stopped (its own diagnostic codes follow in the message)"
 NEW-ERROR = "an exception that is not the engine's own refusal escaped the path (always a failure)"
 NEW-TEXT = "a part whose equations come from a text file, in a case the new engine's path does not run, or whose file it cannot read: today's engine does not read text components, so the case fails with the code of the refusal and this one (added 31 October, widened 1 November: [[changes]])"
-NEW-LIVE-ERROR-AXIS = "a run with a view (a live run) of a project with a table that today's engine reads only in one branch of its part, with an axis set to Error whose data does not cover every value the new engine reads it at: it goes to today's engine before it starts, as a live run that has shown points cannot start again (added 7 November, the sweep; decided before the run from 7 November, re-check 2: [[changes]])"
-NEW-LIVE-RESTART = "a run with a view that the new engine stopped after it had shown points, with no Stop and no live edit read: it starts again at t = 0 on today's engine (the view is told to drop its points), a note, so today's verdict stands (added 7 November, fix round 5: [[changes]])"
-NEW-LIVE-PID = "a run with a view (a live run) of a project with a PID block the new engine runs at every step, which can stop it at its limit (RUN-EVENT-STORM) where today's engine finishes: it goes to today's engine before it starts (added 7 November, re-check 2 of the sweep: [[changes]])"
-NEW-SAMPLED = "a PID or Lookup block with a Sample Time longer than today's solver step: today's engine runs it only at multiples of its Sample Time and holds its output in between, the new engine runs it at every step (added 6 November, the sweep: [[changes]])"
 # quick mode (a case's mode "quick": the new engine's fast mode, step 2's item 5;
-# added 31 October: [[changes]]). A case quick mode does not run runs in full
-# instead, with its code in a warning, or in strict mode fails with it.
+# added 31 October: [[changes]]). A case quick mode does not run fails with
+# its code (17 November: [[changes]]).
 QUICK-NOT-FOUND = "quick mode: the case is not in the project"
 QUICK-KIND = "quick mode: a case that drives no drive cycle (an acceleration or performance test, a lap, a Formula Student event)"
 QUICK-SAMPLED = "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control): fast mode reads no host for one; or a PID or Lookup block with a Sample Time longer than today's solver step, whose output today's engine holds between samples (widened 6 November, the sweep: [[changes]])"
@@ -144,6 +141,11 @@ base = "bev-car/case-wltc"
 change = "kind = performance, a 0-100 km/h step held 30 s (duration 40 s)"
 expect = "run"
 [[item]]
+id = "probe/bev-performance-distance"
+base = "bev-car/case-wltc"
+change = "kind = performance, the same step, ending where the car has driven 300 m (endDistance; duration 40 s)"
+expect = "run"
+[[item]]
 id = "probe/fs-event-acceleration"
 base = "fs-electric/case-accel-75m"
 change = "fsEvent = acceleration"
@@ -208,8 +210,8 @@ judge = "today's engine (a separate code path, the weaker judge), with the class
 
 [[line]]
 id = "STRICT"
-what = "Strict mode: no fall-back to today's engine without a listed code"
-cases = "every item and every planted fault (FAULTS), on the new path with LIGHTSIM_ENGINE_STRICT=1"
+what = "Strict mode: every refusal of the new path carries a listed code (since 17 November 2026 the path has no fall-back to today's engine, so every run is a strict run)"
+cases = "every item and every planted fault (FAULTS), on the new path"
 measure = "each refusal's code (from the run's first message); an item refused that should run; a code not in [codes]; NEW-ERROR; a refusal whose message carries no code"
 pass_mark = "zero items refused that should run, zero refused with another code than expected, zero codes outside [codes], zero NEW-ERROR, zero refusals without a code; every fault's refusal counted"
 judge = "this file's expected outcomes"
@@ -256,7 +258,7 @@ case_values = [
   "fs-electric:el-vehicle.downforce_cza_m2",
 ]
 measure = """
-Each fault's status on today's engine (default settings) and on the new path in strict mode, and its Data \
+Each fault's status on today's engine (LIGHTSIM_ENGINE=today, default settings) and on the new path, and its Data \
 Checks' worst level (engine-independent). A violation: today's run fails or warns and the new path's says \
 success. A hidden violation: the new path's run says warning only because of preparation notes that are not \
 about the run (the start-guess note of review finding 36: messages whose engine code is START-NOT-SOLVED, \
@@ -964,10 +966,10 @@ library component but a subsystem, connected to nothing, with its defaults and w
 reads of it cut as above (a Lookup in the mode of the table cut, its tables of five points an axis); a PID, a 1D Lookup and a 2D Lookup fed the Vehicle's speed (and distance), with a \
 Sample Time of 0, 5 ms, 15 ms (today's solver step is 10 ms), half the case's time step, one step, \
 three steps and 5 s (the first three added 7 November, [[changes]]). On every one of the 16 cases: every Final Drive ratio times 3 (the motor reaches its maximum speed at a third of the car's), alone and on a constant 6 % downhill grade (a motor driven past its maximum speed; added 7 November, [[changes]])."""
-measure = """Each fault runs through app.solver.simulate four times: today's engine (no flag), the new path in \
-strict mode (LIGHTSIM_ENGINE=new, LIGHTSIM_ENGINE_STRICT=1) and quick mode in strict mode (the case's mode \
-"quick"). A strict run refused with a code of [codes] (not NEW-ERROR nor QUICK-ERROR) is handed back: counted \
-by code, not compared. Any other is compared with today's run; a mismatch is any of: the status (the verdict) \
+measure = """Each fault runs through app.solver.simulate four times: today's engine (LIGHTSIM_ENGINE=today), the \
+new path (LIGHTSIM_ENGINE=new: the app's engine, with no fall-back since 17 November, [[changes]]) and quick \
+mode (the case's mode "quick"). A run refused with a code of [codes] (not NEW-ERROR nor QUICK-ERROR) is handed \
+back: counted by code, not compared. Any other is compared with today's run; a mismatch is any of: the status (the verdict) \
 differs; a [NEW-/QUICK-/FAST-] code in a warning or an error (a note's code of [note_codes] is not one); and, \
 when neither run failed, a warning that only one run gives, its numbers masked as diff.masked masks them (but \
 the path's and quick mode's messages about themselves, which start "Run on the new engine" or "Quick mode: "; \
@@ -977,9 +979,9 @@ gives); for a PID's or Lookup's fault, its output at the times both runs give fu
 on today's run from today's (its first point, which today's engine records before its first step, within that \
 of today's first two values, as classes.toml's rule today-first-point-before-its-step has it: changed \
 6 November, [[changes]]). Every fault is also run a fourth time as the app runs a case (every run the app \
-starts has a view, a live case or not), the new path not strict and with a view, and compared with today's run \
-like a strict one; one the app runs again on today's engine (NEW-LIVE-RESTART, or a refusal said in its first \
-message) is handed back with that code, its verdict being today's (a note of a restart or a refusal must not change it; the warning of a case the new engine could not run is on purpose and may) (added 7 November, [[changes]]; for live cases only, then). An exception out of a run, \
+starts has a view, a live case or not), the new path with a view, and compared with today's run like the \
+new path's (added 7 November, [[changes]]; for live cases only, then; until 17 November the app ran a case its \
+path refused or stopped again on today's engine, and such a run was handed back with its code). An exception out of a run, \
 or a fault that cannot be built, is a mismatch."""
 pass_mark = """0 mismatches over every fault, after the fixes: each one the sweep finds before them is fixed or \
 its run handed back with a listed code. The three cases the FMU part's last re-check left open (a battery or \
@@ -1078,3 +1080,27 @@ date = "2026-11-09"
 line = "SWEEP"
 change = """Two changes, both written here before step 2's acceptance run. (1) Recorded after the fact: 55e293f (7 November) changed the [sweep] measure after the sweep's measured run with no entry here. It added that a note of a restart or a refusal must not change a handed-back run's verdict, while the warning of a case the new engine could not run "is on purpose and may"; so the 241 app-style runs whose verdict that warning turned from today's success into a warning were not counted as mismatches. (2) The pass mark moves, by the owner's decision: 0 mismatches over every fault after the fixes, apart from two known issues recorded in engine/STATUS.md ("Known issues left at the end of step 2") and docs/KNOWN-LIMITS.md: (a) a case the new engine fails before its first point, handed to today's engine, whose fall-back warning turns today's success into a warning; (b) overspeed:hybrid-car/case-hwfet:down, where the new engine also gives the battery's "charging exceeds max charge power" warning. Each must be reported with its count. Nothing else is excused: a run started again on today's engine after a NEW-ERROR is a mismatch, whatever sweep.compare counts it as."""
 reason = """The sweep's last independent check (re-check 5, 8 November) found the change in (1) made after the measured run with no entry, and both (a) and (b) still open. On 9 November the owner decided to record what that check left open as known issues and move on ("just record them as known issues and move on"), rather than run more fix rounds. Writing both here keeps the acceptance honest: the exception is named, counted and dated before the run that judges it."""
+
+[[changes]]
+date = "2026-11-16"
+line = "B2B"
+change = """A probe item, probe/bev-performance-distance: probe/bev-performance with endDistance = 300 m (kind = performance, a case that ends where the car has driven 300 m). probe/bev-performance itself now runs on the new path (it was refused with NEW-CASE-KIND; its expect is unchanged)."""
+reason = """The switch lane's performance piece (16 November) made a performance case run on the new path and found that the path ran a case to its whole duration whatever its endDistance or Laps (a performance test to 300 m: 1.029 km and 40 s on the new path, 0.300 km and 13.75 s on today's; the BEV's city cycle to 3000 m: 7.29 km and 600 s against 3.0 km and 195.01 s), where only an acceleration test ended at its line. The engine now ends any case at its endDistance; the probe holds that for a performance test, and the new class rule distance-end-ends-at-the-line (classes.toml) names what remains of the difference. No pass mark moves."""
+
+[[changes]]
+date = "2026-11-17"
+line = "STRICT"
+change = """[codes]: NEW-SAMPLED, NEW-LIVE-PID and NEW-LIVE-ERROR-AXIS are removed: the new path no longer refuses a PID or Lookup with a Sample Time, a live run of a project with a PID, or a live run with a table set to Error that today's engine reads only in a branch of its part."""
+reason = """The switch lane's blocks piece (17 November) made the new engine right where the three refusals stood. A PID now runs today's discrete law at today's 10 ms step or its Sample Time, and a PID or Lookup with a Sample Time holds its output between samples at the instants today's engine samples at (the continuous PID it replaces slid along its limit and stopped as RUN-EVENT-STORM, 309 s into the BEV's city case). A table read on an axis set to Error now stops a run only where the branch of its part's equations that reads it is taken, as today's engine reads a table only where it uses it (the BEV's drag table cut to 0-4000 1/min stopped the new engine 24.4 s into the city case, the hybrid's fuel map without its 0 N m points at t = 0, where today's engine finishes both). No pass mark moves; the sweep's sampled and table faults measure the result."""
+
+[[changes]]
+date = "2026-11-17"
+line = "STRICT"
+change = """The new engine is the app's engine with no fall-back (the switch lane's flip piece): a case its path does not run, or that it refuses or stops, fails with its code, which is what LIGHTSIM_ENGINE_STRICT=1 did; the variable is gone, and today's engine runs only with LIGHTSIM_ENGINE=today (the harness's today settings now set it, as an unset variable is the new engine). [codes]: NEW-LIVE-RESTART is removed (a live run is no longer started again on today's engine). Quick mode's refusal fails with its code too ("Not run [QUICK-...] in quick mode: ..."), where it ran in full before. STRICT's check that a fall-back message carries the refusal's code (runs.fallback_note) is removed with the fall-back; the refusal's own message carries it. [sweep] measure: the app-style ("live") run is the new path with a view, so a run it refuses or stops is a hand-back with its code, as the same run on today's engine after a fall-back was before; the 9 November exception (a), the fall-back warning, no longer arises."""
+reason = """The owner's decision (20 October, 7 November and 16 November 2026): the new engine becomes the app's engine with no fall-back, four features refused until they are ported (NEW-LAP, NEW-FS-EVENT, NEW-BALANCE, NEW-CELLS). No pass mark moves."""
+
+[[changes]]
+date = "2026-11-17"
+line = "STRICT"
+change = """Wording only, after the switch-over (the docs piece): the file's header comments, [codes]' NEW-LAP, the STRICT line's `what` and `cases` and the FAULTS line's sentence about the engines' settings no longer name LIGHTSIM_ENGINE=new or LIGHTSIM_ENGINE_STRICT=1, which the flip piece's entry above removed from the app, and say that the new engine is the path and today's engine is asked for by name. No code, class, band, expected outcome or pass mark changes."""
+reason = """Sentences that the switch made false (the owner's rule: every document true after the switch). The dated entries above stay as they were written."""

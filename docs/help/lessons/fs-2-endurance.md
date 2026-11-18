@@ -1,5 +1,10 @@
 # Formula Student 2: endurance energy
 
+**This lesson does not run in this version of LightSim yet.** The endurance
+energy case is a lap case, which the app's engine does not run yet: **Run**
+fails with `Not run [NEW-LAP]`. A later version ports lap mode; the lesson
+describes how it works then.
+
 The second Formula Student lesson. You run the endurance event, about
 22 km, and read how much energy the car takes from its accumulator, how
 hard it works the cells and how long it runs at its power limit. It takes

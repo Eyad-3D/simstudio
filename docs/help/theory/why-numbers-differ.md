@@ -25,7 +25,7 @@ a share of the load and fluids, set by the test's rules. A brochure's
 mass is often the empty car. Use the test mass for *Vehicle Mass* when
 you compare with a test result. The example's
 [exercise](../examples/bev-car.md#exercises) shows how much 200 kg moves
-its consumption: 14.05 to 14.79 kWh/100 km on the WLTC.
+its consumption: 14.05 to 14.80 kWh/100 km on the WLTC.
 
 ## 3. Test figure or label figure
 
@@ -41,7 +41,7 @@ figure you compare with).
 Official consumption tests run with heating and air-con off. In everyday
 driving they can draw kilowatts, and at low speed that is a large share
 of the energy per kilometre. The example's *WLTC, heating/air-con on*
-case adds a 2.5 kW load and uses 18.88 kWh/100 km instead of 14.05. Add
+case adds a 2.5 kW load and uses 18.89 kWh/100 km instead of 14.05. Add
 a *Power Consumer* with your car's load to see its effect.
 
 ## 5. Cold start

@@ -1,6 +1,7 @@
 """Builders for solver test projects."""
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from app.schemas import (
@@ -214,8 +215,13 @@ def series(result, el_id: str, port_id: str):
     raise KeyError(f"channel {el_id}:{port_id} not in result")
 
 
-@lru_cache(maxsize=None)
 def example_result(project_id: str, case_id: str) -> SimResult:
-    """A shipped example's case, run once per test session (read-only: the
-    result is shared by every test that asks for it)."""
+    """A shipped example's case, run once per test session and engine
+    (LIGHTSIM_ENGINE; read-only: the result is shared by every test that asks
+    for it)."""
+    return _example_result(project_id, case_id, os.environ.get("LIGHTSIM_ENGINE"))
+
+
+@lru_cache(maxsize=None)
+def _example_result(project_id: str, case_id: str, engine: str | None) -> SimResult:
     return simulate(load_example(project_id), case_id)

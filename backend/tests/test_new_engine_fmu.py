@@ -43,10 +43,9 @@ needs_engine = pytest.mark.skipif(MISSING is not None and not REQUIRED, reason=M
 
 @pytest.fixture(autouse=True)
 def new_path(tmp_path, monkeypatch):
-    """The new engine's path, strict (no fall-back to today's engine);
-    imported FMUs and the allowed list in a temporary user folder."""
+    """The new engine's path (the app's, no fall-back); imported FMUs and the
+    allowed list in a temporary user folder."""
     monkeypatch.setenv(new_engine.ENV_VAR, "new")
-    monkeypatch.setenv(new_engine.STRICT_VAR, "1")
     monkeypatch.setenv("LIGHTSIM_PROJECTS_DIR", str(tmp_path / "user"))
 
 
@@ -179,7 +178,7 @@ def test_an_fmu_nobody_allowed_is_refused_in_todays_words(test_fmu, monkeypatch)
     path either, with today's engine's message."""
     proj = _lag_project(_import(test_fmu, allow=False), 1.0, 0.1, 1.0)
     new = simulate(proj, "case")
-    monkeypatch.delenv(new_engine.ENV_VAR)
+    monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(proj, "case")
     assert new.status == today.status == "failed"
     assert new.messages[0].text.startswith("Run on the new engine")

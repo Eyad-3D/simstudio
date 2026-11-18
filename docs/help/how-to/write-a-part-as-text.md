@@ -43,8 +43,9 @@ names and kinds) and every parameter its values set.
 
 ## How it runs
 
-Today's engine reads no text components, so a case with one runs on the
-new engine whatever `LIGHTSIM_ENGINE` says. Its first message says so.
+Only the new engine reads text components, and it runs every case now, so a
+case with one runs as any other does. (A developer who asks for the older
+engine with `LIGHTSIM_ENGINE=today` still gets such a case on the new one.)
 
 A case the new engine does not run fails instead of running the built-in
 part in the file's place: its message gives the reason's code and

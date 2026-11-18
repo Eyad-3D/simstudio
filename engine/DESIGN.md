@@ -2392,9 +2392,10 @@ round).**
   *Known limits of the rule* (re-check 5, accepted by the owner on 30
   October 2026; step 3 closed or narrowed them on 12 November; the hold
   spec's sections 4.15 and 4.16 have the shapes and every number). Their
-  reach in real use is small. Users run today's Python engine; the new one
-  runs only with `LIGHTSIM_ENGINE=new`, is not in the installer and has no
-  users yet. A hold is made only for a `when` on a solved value, and no
+  reach in real use was small when it was written. Then users ran today's
+  Python engine and the new one was opt-in, not in the installer and had no
+  users; since the switch-over (17 November 2026, `STATUS.md`) the new
+  engine is the app's engine and is in the installer. A hold is made only for a `when` on a solved value, and no
   library component has one: the four example cars, which are the golden
   cases, make no hold at all (12 cases, 0 holds made, counted at 0beec7d
   and at 4d24528). Only a `when` written in equation text reaches holds: a
@@ -4049,19 +4050,18 @@ against exact answers from `benchmarks/`.
   outside its parameter's limits (a study's point: Data Checks check only
   the study's base project) is not run (`NEW-LIMITS`, in Data Checks'
   words): today's engine reads many such values clamped, the new engine
-  as typed. Nor is one with a PID or Lookup block whose Sample Time is
-  longer than today's solver step (`NEW-SAMPLED`; quick mode
-  `QUICK-SAMPLED`, `new_engine.held_block`): today's engine holds its
-  output between samples, the engine runs it at every step. A run with
-  a view, which cannot start again on today's engine once it has shown a
-  point, goes there before it starts, decided without running it
-  (`new_engine.live_error_axis`), where the engine could stop it and
-  today's would not: a table today's engine reads in one branch of its
-  part with an axis on Error whose data does not cover what the part
-  reaches (`NEW-LIVE-ERROR-AXIS`; `_covers`: an E-Motor's maps over its
-  speeds and torques, an Engine's fuel map over its full-load curve), or a
-  PID the engine runs at every step, which can storm at its limit
-  (`NEW-LIVE-PID`). Today's checks of the values a run uses are today's code's
+  as typed. A PID block, and a Lookup block whose Sample Time is longer
+  than the solver step, run as sampled sub-blocks the engine holds at
+  today's instants (`new_engine.held_block`; quick mode refuses them,
+  `QUICK-SAMPLED`), and an Error axis stops a run only where the read's
+  value is used (`RunInfo.table_when`, `Loop::read_in_use`; the E-Motor's
+  drag table, the Engine's fuel map and the Climate's demand table sit in
+  branches the engine may not take). Until the switch-over a run with a
+  view went to today's engine before it started where the engine could
+  stop it and today's could not (`NEW-SAMPLED`, `NEW-LIVE-ERROR-AXIS`,
+  `NEW-LIVE-PID`, `live_error_axis`, `_covers`); these three codes are
+  gone, and no run goes to today's engine now.
+  Today's checks of the values a run uses are today's code's
   own words: what its `RunContext` says while it is built (a CG height
   with every wheel on one axle, wheels off the road at the start, a
   driveline over-constrained), which the path's never-stepped
@@ -4129,15 +4129,13 @@ against exact answers from `benchmarks/`.
   once. The edits the run made are applied after it to today's parts with
   today's own code, so the reports read them as today's RunContext has
   them at its run's end (a hand calculation's drag coefficient). A live
-  run the new engine fails after it has read a Stop or an edit fails with
-  its reason code (`NEW-FAILED`, or `NEW-ERROR` for a fault in the path):
-  today's engine would run it again from t = 0 without them; one that has
-  only shown points to the view starts again on today's engine, the view
-  told ("restart": it drops its points) and the result noting it
-  (`NEW-LIVE-RESTART`, a note, so today's verdict stands); one that showed
-  and read nothing (a study's point, or the AI tools' run, whose emit is
-  marked `progress_only`: its points go to a progress bar only) runs on
-  today's engine, saying so. The result
+  run the new engine fails fails with its reason code (`NEW-FAILED`, or
+  `NEW-ERROR` for a fault in the path) and does not start again. (Until
+  the switch-over a run with a view that had shown only points started
+  again on today's engine, the view told ("restart": it dropped its
+  points) and the result noting it, `NEW-LIVE-RESTART`, and a run nothing
+  watched, a study's point or the AI tools' run, ran on today's engine;
+  both went with the fall-back.) The result
   names its engine, its version and its
   solver options (`engine`, `engineVersion`, `solverOptions`; today's
   engine fills them too) and lists the live edits it took, each at the
@@ -4162,7 +4160,7 @@ against exact answers from `benchmarks/`.
 * **The app's path, both engines** (step 2's judge,
   `python -m benchmarks.back_to_back`): every example case and eight
   probes run through the app's own `simulate`, on today's engine at 10 ms
-  and 1 ms and on the new engine's path in strict mode (nothing falls back);
+  and 1 ms and on the new engine's path (nothing falls back; the harness asks for today's engine by name, `LIGHTSIM_ENGINE=today`);
   every field of the two results is compared against the bands above (a
   channel over every point of today's 1 ms run, its first point a figure of
   its own; one only the new engine records against the port the data bus
@@ -4391,21 +4389,26 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   output time (an output of the states that divides by zero, say, which
   the integrator never sees) fails with `RUN-NOT-FINITE`, naming the
   variable and the first such time: never a result.
-* **The app.** With `LIGHTSIM_ENGINE=new` the backend
-  (`backend/app/solver/new_engine.py`) runs drive-cycle and acceleration
-  cases on this module, live ones too (section 12.3: streamed, stopped,
-  edited live), FMU parts and text components included, and everything
-  else on today's engine (Formula Student events, hybrid charge-balance cases,
-  batteries built from cells and a study's point holding a value outside
-  its parameter's limits, which Data Checks refuse for a single run and
-  today's engine reads clamped, too); any failure of the new engine runs the
-  case on today's engine with a warning. Every fall-back carries a reason
-  code (`NEW-LAP`, `NEW-FAILED` with the engine's own codes, ...:
-  `new_engine.CODES`), and with `LIGHTSIM_ENGINE_STRICT=1` nothing falls
-  back: the case fails with its code (the both-engines diff's strict mode,
-  `benchmarks/back_to_back`). The result is today's whole result, made
-  by today's own code from the run's evidence (section 12.3). The
-  default is today's engine. There the Script blocks run in today's
+* **The app.** The backend (`backend/app/solver/new_engine.py`) runs every
+  case on this module: drive-cycle, performance and acceleration cases,
+  live ones too (section 12.3: streamed, stopped, edited live), FMU parts
+  and text components included. A case it does not run, or that the
+  engine refuses or stops, fails with a reason code and a message that
+  starts *Not run*, and nothing falls back to today's engine (the switch-over
+  of 17 November 2026, the owner's decision of 20 October, 7 and 16 November:
+  the new engine is the app's engine and is in the installer; see
+  `STATUS.md`). Four features are not ported yet and refused so: lap cases
+  (`NEW-LAP`), Formula Student events (`NEW-FS-EVENT`), a hybrid's
+  charge-balanced case (`NEW-BALANCE`) and a battery built from cells
+  (`NEW-CELLS`); a value outside its parameter's limits is refused too
+  (`NEW-LIMITS`, which a study's point or a case's own value can hold, and
+  which today's engine read clamped). Every code is in `new_engine.CODES`.
+  The result is today's whole result, made by today's own code from the
+  run's evidence (section 12.3): the path uses today's model builder and
+  today's result-judging code, which stay in the repository. Today's
+  engine itself runs only when a developer sets `LIGHTSIM_ENGINE=today`
+  (the both-engines comparison, `benchmarks/back_to_back`, does) and in the
+  replay of a run stored from it. The Script blocks run in today's
   locked-down worker (each part is given a function that calls it, and
   `native_scripts=False`) until the owner decides the native runner may
   replace it (the evidence for that choice: `docs/SCRIPT-RUNNER-DECISION.md`).
@@ -4427,10 +4430,11 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   run (one that ends at a distance or a lap count: `QUICK-END`; one whose
   time past a table's data, at its points once a second, lies within two
   of its steps a stretch of what the run allows: `QUICK-TABLE-TIME`,
-  `new_engine._decided`) runs in full with a warning carrying its
-  `QUICK-*` code (strict: fails with it). A project with a text component
-  runs on this module whatever the flag says (today's engine reads none);
-  one the path does not run fails with its code and `NEW-TEXT`.
+  `new_engine._decided`) fails with *Not run* and its `QUICK-*` code, and the
+  advice to set the case's mode to full (until the switch-over it ran in
+  full with a warning). A project with a text component runs on this
+  module whatever the flag says (today's engine reads none); one the path
+  does not run fails with its code and `NEW-TEXT`.
 * **Not yet:** the one-click tighter run as its own call (call `simulate`
   again with a smaller `rtol`).
 
@@ -5456,6 +5460,8 @@ cargo run --release -p lsim-engine --example spike --manifest-path engine/Cargo.
 (cd engine/experiments/solver-eval && HMIN=1e-20 RTOLS=1e-10,1e-12 cargo run --release)
 ```
 
-Python integration of the app (`backend/`) is unchanged in Stage 1; WP6
-adds the engine behind a process-wide switch (`LIGHTSIM_ENGINE=new`) once
-the example cars run.
+Python integration of the app (`backend/`) was unchanged in Stage 1; WP6
+added the engine behind a process-wide switch (`LIGHTSIM_ENGINE=new`) once
+the example cars ran. The switch-over of 17 November 2026 made the engine
+the default and removed the fall-back: `LIGHTSIM_ENGINE=today` now asks for
+the old engine, for developers.

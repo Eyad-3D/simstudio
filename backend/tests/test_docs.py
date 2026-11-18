@@ -22,6 +22,7 @@ import datetime
 import importlib.util
 import json
 import math
+import os
 import re
 import typing
 from functools import lru_cache
@@ -96,9 +97,15 @@ def _model(spec: dict) -> tuple[Project, str]:
 
 
 @lru_cache(maxsize=None)
-def _run(name: str):
+def _run_on(name: str, engine: str | None):
     project, case_id = _model(CHECKS["runs"][name])
     return simulate(project, case_id)
+
+
+def _run(name: str):
+    """A run of checks.json, once per engine (a fact of a feature the new
+    engine does not run yet reads today's: NOT_PORTED)."""
+    return _run_on(name, os.environ.get("LIGHTSIM_ENGINE"))
 
 
 @lru_cache(maxsize=None)
@@ -167,7 +174,31 @@ def _fact_id(fact: dict) -> str:
     return f"{fact['page']}: {fact['text']}"
 
 
-@pytest.mark.parametrize("fact", CHECKS["facts"], ids=_fact_id)
+# the features the new engine does not run yet: a fact read from such a run
+# (a lap or a Formula Student event, a hybrid's charge-balanced case, a
+# battery built from cells) runs today's engine, the oracle for the port
+NOT_PORTED = ("NEW-LAP", "NEW-FS-EVENT", "NEW-BALANCE", "NEW-CELLS")
+
+
+def _not_ported(fact: dict) -> str | None:
+    from app.solver import new_engine
+    for name in re.findall(r"'([\w-]+)'", fact["expr"]):
+        if name in CHECKS["runs"]:
+            why = new_engine.unsupported(*_model(CHECKS["runs"][name]))
+            if why is not None and why.code in NOT_PORTED:
+                return why.code
+    return None
+
+
+def _facts():
+    for fact in CHECKS["facts"]:
+        code = _not_ported(fact)
+        yield (pytest.param(fact, marks=pytest.mark.todays_engine(
+            f"(i) read from a run the new engine refuses ({code}): not ported yet, today's engine is the oracle"))
+            if code else fact)
+
+
+@pytest.mark.parametrize("fact", list(_facts()), ids=_fact_id)
 def test_the_help_quotes_what_the_app_gives(fact):
     """Each fact's text is on its page, and its expression gives that text
     (formatted with the fact's format) or is true (a band, a message)."""

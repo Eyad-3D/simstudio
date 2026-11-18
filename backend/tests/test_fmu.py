@@ -406,7 +406,7 @@ def test_an_fmu_nobody_allowed_does_not_run(test_fmu):
     before = set(multiprocessing.active_children())
     result = simulate(proj, "case")
     assert result.status == "failed"
-    assert "has not been allowed" in result.messages[0].text
+    assert any(m.level == "error" and "has not been allowed" in m.text for m in result.messages)
     _no_new_workers(before)
 
 

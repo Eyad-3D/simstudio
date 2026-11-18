@@ -38,7 +38,7 @@ def test_the_acceptance_file_names_every_line_and_code():
     assert set(acc["note_codes"]) == set(new_engine.NOTE_CODES) and not set(acc["note_codes"]) & set(acc["codes"])
     for item in acc["item"]:
         assert item["expect"] == "run" or item["expect"].removeprefix("refuse:") in acc["codes"]
-    assert len(acc["item"]) == 26
+    assert len(acc["item"]) == 27  # (26, and probe/bev-performance-distance, 16 November)
     assert len(runs.fault_ids()) == 160 + 27 * 4 + 5 * 4
     cases, faults = runs.meta_set()
     assert len(cases) == 5 and len(faults) == 4
@@ -167,7 +167,7 @@ def test_each_difference_takes_its_class():
             "losses": 0.1, "stored": 0.0}
     today = _result(partEnergy=[part])
     new = _result(messages=[{"level": "info", "text": "ran 3 steps"},
-                            {"level": "info", "text": "Run on the new engine (LIGHTSIM_ENGINE=new)."},
+                            {"level": "info", "text": "Run on the new engine."},
                             {"level": "warning", "text": "Something else."}])
     ds = diff.compare("x", today, today, new)
     diff.classify(ds, {})
@@ -1093,8 +1093,9 @@ def test_all_runs_every_part_the_baseline_ran():
     # the baseline's jobs, the sine probe's two among them, and (since the evidence part) fast mode
     # on the BEVs' eight cycle items for E3, and (since the evidence part's review) the two items
     # with a battery check, on both engines and at META's three settings, and (since its third
-    # review) the 20 faults planted as a case's own values, on both engines
-    assert len(runs.specs(set(parts.split(",")))) == 631 + 8 + 2 * (3 + 3) + 2 * 5 * 4
+    # review) the 20 faults planted as a case's own values, on both engines, and (since the
+    # switch lane's performance piece) probe/bev-performance-distance, three more jobs
+    assert len(runs.specs(set(parts.split(",")))) == 631 + 3 + 8 + 2 * (3 + 3) + 2 * 5 * 4
 
 
 def test_a_record_another_code_made_is_run_again(tmp_path):
@@ -1256,7 +1257,7 @@ class _InProcess:
 def test_scripts_tells_todays_worker_from_the_apps_own_process(tmp_path, monkeypatch):
     import lightsim_engine
     from app.solver import new_engine, sandbox
-    for k, v in (("LIGHTSIM_ENGINE", "new"), ("LIGHTSIM_ENGINE_STRICT", "1"), ("LIGHTSIM_SCRIPT_TRUST", "off"),
+    for k, v in (("LIGHTSIM_ENGINE", "new"), ("LIGHTSIM_SCRIPT_TRUST", "off"),
                  ("LIGHTSIM_DATA_DIR", str(tmp_path / "user")),
                  ("LIGHTSIM_PROJECTS_DIR", str(tmp_path / "user" / "projects"))):
         monkeypatch.setenv(k, v)
@@ -1384,7 +1385,7 @@ def test_mutation_testing_takes_its_tests_and_a_memory_cap():
 
 def test_a_refusal_is_read_from_the_first_message():
     refused = {"messages": [{"level": "error", "text": "Not run [NEW-LAP]: it does not run lap cases; ..."}]}
-    ran = {"messages": [{"level": "info", "text": "Run on the new engine (LIGHTSIM_ENGINE=new)."}]}
+    ran = {"messages": [{"level": "info", "text": "Run on the new engine."}]}
     uncoded = {"messages": [{"level": "error", "text": "Not run [lap]: ..."}]}
     assert report.refusal(refused) == "NEW-LAP"
     assert report.refusal(ran) is None
@@ -1570,7 +1571,7 @@ def test_a_note_of_what_the_verdict_does_not_judge_is_counted_by_its_code(tmp_pa
     item, fault = {"id": "bev-car/case-wltc", "expect": "run"}, "bev-car:el-motor"
     monkeypatch.setattr(runs, "items", lambda: [item])
     monkeypatch.setattr(runs, "fault_ids", lambda: [fault])
-    ran = {"level": "info", "text": "Run on the new engine (LIGHTSIM_ENGINE=new)."}
+    ran = {"level": "info", "text": "Run on the new engine."}
     _write(tmp_path, {"kind": "item", "id": item["id"], "setting": "new"},
            result=_result(caseId="case-wltc", messages=[ran, note]))
     _write(tmp_path, {"kind": "fault", "id": fault, "setting": "today-normal"}, checks=[], result=_result())
@@ -1791,44 +1792,29 @@ def test_the_sweep_compares_as_its_section_says():
 
 
 def test_the_sweep_counts_a_live_run_the_new_path_fails_as_a_mismatch(tmp_path):
-    """Every fault is also run as the app runs a case (not strict, with a
+    """Every fault is also run as the app runs a case (the new path with a
     view; every run the app starts has one), on a live case or not: that run
-    is compared with today's like a strict one, so where today's does not
-    fail a failed one is a mismatch, though its strict run is a hand-back
-    (NEW-FAILED); one the app runs again on today's engine (NEW-LIVE-RESTART,
-    or a refusal said in its first message) is a hand-back with that code,
-    and one on today's engine with no code is a mismatch. A record lacking
-    the live run is a mismatch on any case."""
+    is compared with today's like the plain new-path run, so where today's
+    does not fail, a failed one with no listed refusal is a mismatch, and
+    one refused with a listed code (the app fails it with that code, as it
+    has no fall-back) is a hand-back. A record lacking the live run is a
+    mismatch on any case."""
     import json
 
     from benchmarks.back_to_back import sweep
 
     ok = {"status": "success", "refused": None, "codes": [], "warnings": [], "notValid": [], "rows": [], "first": ""}
-    live_failed = ok | {"status": "failed", "first": "The new engine could not finish this live run [NEW-FAILED]"}
+    live_failed = ok | {"status": "failed", "first": "The run stopped at t = 3 s"}
     assert sweep.compare("table:x", "live", ok, ok) == {"diffs": []}
     assert sweep.compare("table:x", "live", ok | {"status": "failed"}, live_failed) == {"diffs": []}
     (d,) = sweep.compare("table:x", "live", ok, live_failed)["diffs"]
     assert d.startswith("verdict: today success, live failed")
     assert sweep.compare("table:x", "live", ok, ok | {"warnings": ["w"]})["diffs"]  # (not only its verdict)
-    restarted = ok | {"first": "The new engine stopped this run after it had shown "
-                                                  "points [NEW-FAILED] (x); it ran again from t = 0 on "
-                                                  "today's engine [NEW-LIVE-RESTART]."}
-    assert sweep.compare("table:x", "live", ok, restarted) == {"handed": "NEW-LIVE-RESTART"}
-    long = restarted | {"first": restarted["first"].replace("(x)", "(" + "x" * 500 + ")")[:600]}  # (the digest's cut)
-    assert "[NEW-LIVE-RESTART]" not in long["first"]
-    assert sweep.compare("table:x", "live", ok, long) == {"handed": "NEW-LIVE-RESTART"}
-    said = ok | {"first": "Run on today's engine, not the new one (LIGHTSIM_ENGINE=new) "
-                                             "[NEW-SAMPLED]: x."}
-    assert sweep.compare("table:x", "live", ok, said) == {"handed": "NEW-SAMPLED"}
-    unsaid = ok | {"first": "The new engine could not run this case (x); it ran on today's engine instead."}
-    (d,) = sweep.compare("table:x", "live", ok, unsaid)["diffs"]
-    assert "no listed code" in d
-    (d,) = sweep.compare("table:x", "live", ok, restarted | {"status": "warning"})["diffs"]  # (a note, not a warning)
-    assert d.startswith("verdict: today success, live warning")
-    (d,) = sweep.compare("table:x", "live", ok, said | {"status": "failed"})["diffs"]
-    assert d.startswith("verdict: today success, live failed")
-    coded = unsaid | {"first": "The new engine could not run this case [NEW-BUILD] (x); it ran on today's engine instead."}
-    assert sweep.compare("table:x", "live", ok, coded | {"status": "warning"}) == {"handed": "NEW-BUILD"}  # (its warning)
+    refused = ok | {"status": "failed", "refused": "NEW-CELLS",
+                    "first": "Not run [NEW-CELLS]: a battery built from cells ..."}
+    assert sweep.compare("table:x", "live", ok, refused) == {"handed": "NEW-CELLS"}
+    (d,) = sweep.compare("table:x", "live", ok, refused | {"refused": "NEW-ERROR"})["diffs"]
+    assert "not a listed hand-back" in d
     for fid in ("table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:error",
                 "table:bev-car/case-city:el-motor.drag_torque:0:hi:half:error"):
         (tmp_path / "raw").mkdir(exist_ok=True)

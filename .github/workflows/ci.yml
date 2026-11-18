@@ -59,6 +59,21 @@ jobs:
       - name: Lint scripts
         run: ruff check --config backend/pyproject.toml scripts/ benchmarks/
 
+      # The new engine's module (the Rust module lightsim_engine), built
+      # as the desktop build does (desktop-build.yml): the app runs every
+      # case on it, with no fall-back, so the tests need it.
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
+
       - name: Tests
         working-directory: backend
         # Includes the golden fixtures — the regression net for solver changes.
@@ -120,6 +135,22 @@ jobs:
           python -m zipfile -e "$RUNNER_TEMP/reference-fmus.zip" "$RUNNER_TEMP/reference-fmus"
           echo "LIGHTSIM_REFERENCE_FMUS=$RUNNER_TEMP/reference-fmus" >> "$GITHUB_ENV"
 
+      # The new engine's module (the Rust module lightsim_engine), built
+      # as the desktop build does (desktop-build.yml): the app runs every
+      # case on it, with no fall-back, so the tests need it, and the frozen engine below
+      # carries it.
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
+
       - name: Tests
         working-directory: backend
         run: python -m pytest tests/ -q
@@ -127,13 +158,15 @@ jobs:
       # The installed app's engine is frozen (PyInstaller), and an agent's
       # Script or FMU worker is then the engine executable again, inside an
       # AppContainer (app/solver/win_sandbox.py). The tests above run from
-      # source and cannot see that: freeze the engine and run a script nobody
-      # approved through its command line, which allows it only in that sandbox.
+      # source and cannot see that: freeze the engine, with the module, and
+      # run a script nobody approved through its command line, which allows
+      # it only in that sandbox.
       - name: The frozen engine's sandbox
         working-directory: backend
         shell: bash
         env:
           LIGHTSIM_FROZEN_ENGINE: dist/lightsim-backend/lightsim-backend.exe
+          LIGHTSIM_FREEZE_ENGINE: "1"
         run: |
           python -m pip install -r requirements-build.txt
           python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
@@ -228,8 +261,7 @@ jobs:
       # The app's path to the new engine and the both-engines diff's own
       # tests, with the module built above (review finding 18): with
       # LIGHTSIM_REQUIRE_NEW_ENGINE=1 a missing module fails them instead
-      # of skipping them (the backend jobs, which do not build it, skip
-      # them). The live runs' tests and the stop-latency tests' pass marks
+      # of skipping them. The live runs' tests and the stop-latency tests' pass marks
       # (step 2's STREAM S2) are judged here.
       # Step 2's FMU line (benchmarks/back_to_back/acceptance.toml): the
       # Reference FMUs v0.0.41 on the new path against fmusim v0.7.0 run
@@ -292,6 +324,18 @@ jobs:
       - name: Install
         working-directory: backend
         run: python -m pip install -r requirements-dev.txt
+
+      # The new engine's module: the app's engine (no fall-back)
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
 
       # After a force push the previous tip may not exist any more: then the
       # test below finds no LIGHTSIM_PERF_BASE and skips.
@@ -368,6 +412,18 @@ jobs:
         working-directory: backend
         run: python -m pip install -r requirements.txt
 
+      # The new engine's module: the app's engine (no fall-back)
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
+
       # So e2e/std01-fmu.spec.ts can drop an FMU (it skips without the pack)
       - name: Install the FMU pack
         working-directory: backend
@@ -429,6 +485,18 @@ jobs:
       - name: Install the engine
         working-directory: backend
         run: python -m pip install -r requirements.txt
+
+      # The new engine's module: the app's engine (no fall-back)
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
 
       - name: Install and build the UI
         working-directory: frontend
@@ -511,10 +579,25 @@ jobs:
           npm ci --prefix desktop
 
       # What the engine ships is whatever PyInstaller collects, so freeze it
-      # the way the desktop build does (the FMU pack in) and read the result.
+      # the way the desktop build does (the new engine's module and the FMU
+      # pack in) and read the result. The module is built here as in
+      # desktop-build.yml; cargo stays for the check below, which lists the
+      # Rust crates compiled into it.
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
+
       - name: Freeze the engine
         working-directory: backend
         env:
+          LIGHTSIM_FREEZE_ENGINE: "1"
           LIGHTSIM_FREEZE_FMU_PACK: "1"
         run: |
           python -m pip install -r requirements-fmu.txt

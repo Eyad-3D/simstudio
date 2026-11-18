@@ -26,7 +26,7 @@ from pathlib import Path
 
 from . import runs
 
-ENGINES = {"today": {}, "new": {"LIGHTSIM_ENGINE": "new", "LIGHTSIM_ENGINE_STRICT": "1"}}
+ENGINES = {"today": {"LIGHTSIM_ENGINE": "today"}, "new": {"LIGHTSIM_ENGINE": "new"}}
 SHOWS_ENOUGH = 0.5  # fewer stops than this share showing something: not measured
 STUDY_MASSES = [1200.0 + 100.0 * k for k in range(16)]
 
@@ -39,7 +39,7 @@ class _Env:
         self.set = ENGINES[engine]
 
     def __enter__(self):
-        self.saved = {k: os.environ.get(k) for k in ("LIGHTSIM_ENGINE", "LIGHTSIM_ENGINE_STRICT")}
+        self.saved = {"LIGHTSIM_ENGINE": os.environ.get("LIGHTSIM_ENGINE")}
         for k in self.saved:
             os.environ.pop(k, None)
         os.environ.update(self.set)

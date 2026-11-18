@@ -147,7 +147,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         files.append(str(card_path))
     not_valid = rt.card["notValid"]
     summary = {s["label"]: s["value"] for s in rt.card["summary"]}
+    # the engine that ran it (the smoke test of the frozen app checks it)
     out = {"status": result.status, "project": project.name, "case": case.name,
+           "engine": result.engine, "engineVersion": result.engineVersion,
            "files": files, "summary": summary, "summaryUnits": {
                s["label"]: s["unit"] for s in rt.card["summary"]},
            "notValid": not_valid,

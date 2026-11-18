@@ -468,7 +468,17 @@ fn every_block_variant() -> Vec<ComponentDef> {
             speed_wired: s[1],
             target_wired: s[2],
             inverse: false,
+            performance: false,
         }));
+        if !s[0] {
+            v.push(vehicle::driver(vehicle::DriverConfig {
+                full_throttle: false,
+                speed_wired: s[1],
+                target_wired: s[2],
+                inverse: false,
+                performance: true,
+            }));
+        }
         // fast mode's inverse model (no acceleration test there)
         if !s[0] {
             v.push(vehicle::driver(vehicle::DriverConfig {
@@ -476,6 +486,7 @@ fn every_block_variant() -> Vec<ComponentDef> {
                 speed_wired: s[1],
                 target_wired: s[2],
                 inverse: true,
+                performance: false,
             }));
         }
     }
