@@ -58,6 +58,7 @@ impl Builder {
                 warnings: vec![],
                 state_sets: vec![],
                 held: vec![],
+                dummy_derivatives: vec![],
             },
         }
     }

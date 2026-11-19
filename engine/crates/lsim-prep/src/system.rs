@@ -311,6 +311,11 @@ pub struct SlotMap {
     /// derivative ([`Sys::slots_keeping`]): (the variable, the state), set
     /// `v := der(x)`
     pub kept: Vec<(VarId, VarId)>,
+    /// the dummy derivatives: the variables made for the derivative of an
+    /// unknown that is not a state (index reduction differentiated an
+    /// equation and kept another variable as the state), not states
+    /// themselves ([`lsim_ir::PreparedModel::dummy_derivatives`])
+    pub dummies: Vec<VarId>,
 }
 
 /// The dimension of the `order`-th time derivative of a quantity of
@@ -345,6 +350,7 @@ impl Sys {
     ) -> SlotMap {
         let n = self.nodes.len();
         let mut kept = vec![];
+        let mut dummies = vec![];
         let mut var_of: Vec<Option<VarId>> = vec![None; n];
         let mut slot = vec![Slot::Var(VarId(0)); n];
         // nodes in order of increasing derivative order, so integrals first
@@ -378,6 +384,9 @@ impl Sys {
                 let v = VarId(flat.vars.len() as u32 - 1);
                 var_of[i] = Some(v);
                 slot[i] = Slot::Var(v);
+                if !is_state[i] && !is_state[p] && nd.kind == NodeKind::Unknown {
+                    dummies.push(v);
+                }
             } else {
                 let pv = var_of[p].expect("a state is a variable");
                 slot[i] = Slot::Der(pv);
@@ -414,7 +423,7 @@ impl Sys {
                 chained.push((v, var_of[d].expect("a state is a variable")));
             }
         }
-        SlotMap { slot, states, chained, kept }
+        SlotMap { slot, states, chained, kept, dummies }
     }
 }
 

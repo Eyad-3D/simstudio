@@ -10,7 +10,12 @@
 //! that point and goes on, to the exact answer. Where the torque jumps
 //! without an event, no step longer than the time's resolution passes:
 //! the run stops there at once and says so (before, IDA went on taking
-//! steps too short to move the time, without end). Where index
+//! steps too short to move the time, without end). Both hold where the
+//! error test holds `der(fd.w_out)`; since 19 November 2026 it leaves the
+//! dummy derivatives out by default
+//! (`SolverOptions::suppress_dummy_derivative_error`): the states' history
+//! passes the jump, and crosses the kink at rtol 1e-8 without a restart
+//! (at 1e-10 the states' own test restarts it there too). Where index
 //! reduction's chosen states degenerate (a pendulum at the bottom of its
 //! swing), the run stops before they do, naming the constraint
 //! (`state_choice.rs`).
@@ -117,24 +122,38 @@ fn ida_restarts_where_its_history_cannot_cross_a_kink() {
     assert!(l.n_z > 0, "a DAE: it runs on IDA");
     let grid = OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.5 };
     for rtol in [1e-8, 1e-10] {
-        let opts = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
-        let run = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs");
-        assert!(run.backend.contains("IDA"), "{}", run.backend);
-        let w = run.channel("load.w").unwrap();
-        let worst = run
-            .times
-            .iter()
-            .zip(w)
-            .map(|(t, w)| (w - exact(*t)).abs() / exact(*t))
-            .fold(0.0, f64::max);
-        let notes: Vec<&String> =
-            run.report.notes.iter().filter(|n| n.contains("error test failed")).collect();
-        println!(
-            "rtol {rtol:.0e}: {} steps, {} error test failures, the speed {worst:.1e} off; {notes:?}",
-            run.stats.steps, run.stats.err_test_fails
-        );
-        assert!(worst < 1e-2 * rtol, "{worst:e}");
-        assert_eq!(notes.len(), 1, "the restart is noted: {:?}", run.report.notes);
+        // The restart is needed wherever the error test holds
+        // `der(fd.w_out)`; by default it no longer does
+        // (`suppress_dummy_derivative_error`), and at 1e-8 the states'
+        // history crosses the kink by itself, while at 1e-10 the states'
+        // own test cannot cross it either.
+        for tested in [true, false] {
+            let restarts = usize::from(tested || rtol < 1e-9);
+            let opts = SolverOptions {
+                rtol,
+                atol: rtol * 1e-2,
+                suppress_dummy_derivative_error: !tested,
+                ..Default::default()
+            };
+            let run = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs");
+            assert!(run.backend.contains("IDA"), "{}", run.backend);
+            let w = run.channel("load.w").unwrap();
+            let worst = run
+                .times
+                .iter()
+                .zip(w)
+                .map(|(t, w)| (w - exact(*t)).abs() / exact(*t))
+                .fold(0.0, f64::max);
+            let notes: Vec<&String> =
+                run.report.notes.iter().filter(|n| n.contains("error test failed")).collect();
+            println!(
+                "rtol {rtol:.0e}, der(fd.w_out) tested {tested}: {} steps, {} error test \
+                 failures, the speed {worst:.1e} off; {notes:?}",
+                run.stats.steps, run.stats.err_test_fails
+            );
+            assert!(worst < 1e-2 * rtol, "{worst:e}");
+            assert_eq!(notes.len(), restarts, "the restart is noted: {:?}", run.report.notes);
+        }
     }
 }
 
@@ -142,13 +161,63 @@ fn ida_restarts_where_its_history_cannot_cross_a_kink() {
 fn a_jump_no_step_passes_stops_the_run_where_it_is() {
     let built = common::build(&library(true), &drive(), false);
     let grid = OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.5 };
-    let opts = SolverOptions { rtol: 1e-8, atol: 1e-10, ..Default::default() };
+    // With `der(fd.w_out)` in the error test (no longer the default:
+    // `suppress_dummy_derivative_error`), its jump fails every step: the
+    // run stops at the jump.
+    let opts = SolverOptions {
+        rtol: 1e-8,
+        atol: 1e-10,
+        suppress_dummy_derivative_error: false,
+        ..Default::default()
+    };
     let started = std::time::Instant::now();
     let err = simulate(&built.jit, &built.info, &opts, grid, &mut []).map(|_| ()).unwrap_err();
     println!("{err} ({:.2} s)", started.elapsed().as_secs_f64());
     let SolveError::Integrator { t, message } = &err else { panic!("{err}") };
     assert!((t - 1.0).abs() < 1e-9, "{err}");
     assert!(message.contains("no progress") && message.contains("fd."), "{err}");
+    // By default the test leaves the acceleration out, and the states only
+    // kink at the jump, which the steps pass: the run goes on to the exact
+    // answer (the speed's slope steps from 0 to k τ at 1 s).
+    let opts = SolverOptions { rtol: 1e-8, atol: 1e-10, ..Default::default() };
+    let run = simulate(&built.jit, &built.info, &opts, grid, &mut []).expect("runs past the jump");
+    let k = RATIO * ETA / (J_OUT + J_LOAD + ETA * RATIO * RATIO * (J_ROTOR + J_IN));
+    let exact = |t: f64| W0 + k * TAU * (t - 1.0).max(0.0);
+    let w = run.channel("load.w").unwrap();
+    let worst =
+        run.times.iter().zip(w).map(|(t, w)| (w - exact(*t)).abs() / exact(*t)).fold(0.0, f64::max);
+    println!("by default: {} steps, the speed {worst:.1e} off", run.stats.steps);
+    assert!(worst < 1e-6, "{worst:e}");
+}
+
+/// The default leaves the dummy derivatives out of IDA's error test and
+/// keeps the other iteration variables in it; a default gone back to
+/// testing every one would run this model as it did before 19 November
+/// 2026 (DESIGN.md §8.2, *The error test*).
+#[test]
+fn the_dummy_derivatives_are_left_out_of_the_error_test_by_default() {
+    let o = SolverOptions::default();
+    assert!(o.suppress_dummy_derivative_error && !o.suppress_algebraic_error);
+    let built = common::build(&library(false), &drive(), false);
+    let n_x = lsim_ir::runtime::ModelFunctions::layout(&built.jit).n_x;
+    let info = &built.info;
+    let dummies: Vec<&String> =
+        info.y_names.iter().zip(&info.y_dummy).filter(|(_, d)| **d).map(|(n, _)| n).collect();
+    println!("iteration variables {:?}, dummy derivatives {dummies:?}", &info.y_names[n_x..]);
+    assert!(dummies.iter().any(|n| *n == "der(fd.w_out)"), "{dummies:?}");
+    assert!(info.y_dummy[..n_x].iter().all(|d| !d), "no state is a dummy derivative");
+    let grid = OutputGrid { t0: 0.0, t_end: 3.0, dt: 0.5 };
+    let steps = |o: &SolverOptions| {
+        simulate(&built.jit, &built.info, o, grid, &mut []).expect("runs").stats.steps
+    };
+    let rtol = 1e-8;
+    let base = SolverOptions { rtol, atol: rtol * 1e-2, ..Default::default() };
+    let default = steps(&base);
+    let left_out = steps(&SolverOptions { suppress_dummy_derivative_error: true, ..base.clone() });
+    let tested = steps(&SolverOptions { suppress_dummy_derivative_error: false, ..base.clone() });
+    println!("steps: default {default}, left out {left_out}, tested {tested}");
+    assert_eq!(default, left_out);
+    assert_ne!(default, tested);
 }
 
 /// An iteration variable whose equation loses its solution: `z² = 1 − t`

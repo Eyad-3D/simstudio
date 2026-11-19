@@ -302,8 +302,28 @@ pub struct SolverOptions {
     pub storm_events: usize,
     /// … within this share of the run's length (at least 1 µs)
     pub storm_window: f64,
-    /// IDA: leave the iteration variables out of the local error test
+    /// IDA: leave every iteration variable out of the local error test.
+    /// Off by default: the energy books read iteration variables (a bus's
+    /// current, a part's torque), and left out of the test they close 6 to
+    /// 270 times worse on the golden cars (the BEV's city cycle 2.2e-8 of
+    /// the throughput against 6.6e-10), and an exact answer's current 11×
+    /// further off (DESIGN.md §8.2, *The error test*)
     pub suppress_algebraic_error: bool,
+    /// IDA: leave the dummy derivatives out of the local error test
+    /// ([`RunInfo::y_dummy`]: the iteration variables index reduction made
+    /// for the derivative of an unknown it did not keep as a state, such as
+    /// a final drive's output acceleration `der(fd.w_out)`), and keep every
+    /// other iteration variable in it. On by default: their own error has
+    /// no use (a dummy derivative is the derivative of what is integrated,
+    /// and it is solved again from the states at every step), and
+    /// tested, the jumps a controller's tick puts into them kept the
+    /// hybrid's steps at 0.3 to 3 ms (its UDDS: 3.02 million steps and
+    /// 26.9 s, 1.65 million and 18.5 s without; DESIGN.md §8.2, *The error
+    /// test*). Off, with [`SolverOptions::suppress_algebraic_error`] off:
+    /// every iteration variable is tested (the default before 19 November
+    /// 2026). CVODE has no iteration variables; diffsol has its own error
+    /// control and reads neither option
+    pub suppress_dummy_derivative_error: bool,
     /// at a rigid engagement a part declares (a gear shift), move the
     /// states to keep the momentum of everything the engagement ties
     /// together (an impulse projection, [`RunInfo::impulse`]); off: the
@@ -466,6 +486,7 @@ impl Default for SolverOptions {
             storm_events: 100,
             storm_window: 1e-3,
             suppress_algebraic_error: false,
+            suppress_dummy_derivative_error: true,
             impulses: true,
             light_restarts: false,
             time_mixed_checks: false,
@@ -843,7 +864,10 @@ pub struct EventRecord {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ErrorEstimate {
     /// the largest local error estimate of any step, as a share of the
-    /// tolerance (the error test passes at ≤ 1)
+    /// tolerance (the error test passes at ≤ 1 on the entries it tests:
+    /// those it leaves out, the dummy derivatives by default
+    /// ([`SolverOptions::suppress_dummy_derivative_error`]), can be far
+    /// above)
     pub worst_local: f64,
     /// the entry of y it was in
     pub worst_local_var: String,
