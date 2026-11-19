@@ -21,11 +21,15 @@ pip install -r requirements.txt
 python -c "import lightsim; print(lightsim.__version__)"
 ```
 
-Run your scripts from `backend/`, or put `backend/` on `PYTHONPATH`. Or
-build a wheel and install it in any Python 3.11 environment:
-`python scripts/build-wheel.py`, then `pip install
-backend/dist-wheel/lightsim-*.whl`, which also gives you the `lightsim`
-command. LightSim is not on PyPI yet (see
+Run your scripts from `backend/`, or put `backend/` on `PYTHONPATH`. Every
+case runs on LightSim's engine, a Rust module (`lightsim_engine`) that you
+build once; the repository's README shows how. Or build the wheels and
+install them in any Python 3.11 environment: the engine's wheel (`cd
+engine`, then `maturin build --release -m crates/lsim-py/Cargo.toml --out
+../dist-wheel`) and the package's (`python scripts/build-wheel.py --out
+dist-wheel`), then `pip install --find-links dist-wheel
+dist-wheel/lightsim-*.whl`, which takes the engine's wheel from that folder
+and also gives you the `lightsim` command. LightSim is not on PyPI yet (see
 [Known issues](../../KNOWN-LIMITS.md)). `pandas` is optional: it gives
 you the results as a table (`Result.df`).
 

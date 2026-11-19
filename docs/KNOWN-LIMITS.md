@@ -1559,7 +1559,8 @@ SUNDIALS' own examples, transcribed from their C code
   `lightsim` Python package and command-line tool (see *Python API* and
   *Command-line tool* in the help) run from the `backend/` folder of the
   repository, as the desktop engine's `lightsim-backend run …`, or as a
-  wheel you build with `scripts/build-wheel.py`; it is not on PyPI yet.
+  wheel you build with `scripts/build-wheel.py` beside the engine's own
+  wheel (the Rust module the wheel requires); it is not on PyPI yet.
   *Roadmap:* AI-02, AI-07.
 - **AI apps work hands-off; the trust list is not used.**
   The connection for AI apps (the MCP server) never asks you to confirm (the
