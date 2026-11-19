@@ -1,5 +1,5 @@
 -r requirements.txt
-pytest>=9.1.1
+pytest>=9.2.0
 httpx2  # required by starlette TestClient
 schemathesis>=4.28,<5  # API checks against the OpenAPI schema (tests/test_api_schema.py)
 scipy>=1.14  # reads exported .mat files back (tests/test_results_export.py, tests/test_python_api.py); BSD-3-Clause, tests only
