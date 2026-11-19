@@ -304,10 +304,11 @@ pub struct SolverOptions {
     pub storm_window: f64,
     /// IDA: leave every iteration variable out of the local error test.
     /// Off by default: the energy books read iteration variables (a bus's
-    /// current, a part's torque), and left out of the test they close 6 to
+    /// current, a part's torque), and left out of the test they close up to
     /// 270 times worse on the golden cars (the BEV's city cycle 2.2e-8 of
     /// the throughput against 6.6e-10), and an exact answer's current 11×
-    /// further off (DESIGN.md §8.2, *The error test*)
+    /// further off (DESIGN.md §8.2, *The error test leaves out the dummy
+    /// derivatives*)
     pub suppress_algebraic_error: bool,
     /// IDA: leave the dummy derivatives out of the local error test
     /// ([`RunInfo::y_dummy`]: the iteration variables index reduction made
@@ -319,7 +320,7 @@ pub struct SolverOptions {
     /// tested, the jumps a controller's tick puts into them kept the
     /// hybrid's steps at 0.3 to 3 ms (its UDDS: 3.02 million steps and
     /// 26.9 s, 1.65 million and 18.5 s without; DESIGN.md §8.2, *The error
-    /// test*). Off, with [`SolverOptions::suppress_algebraic_error`] off:
+    /// test leaves out the dummy derivatives*). Off, with [`SolverOptions::suppress_algebraic_error`] off:
     /// every iteration variable is tested (the default before 19 November
     /// 2026). CVODE has no iteration variables; diffsol has its own error
     /// control and reads neither option

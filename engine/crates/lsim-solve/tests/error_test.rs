@@ -193,7 +193,8 @@ fn a_jump_no_step_passes_stops_the_run_where_it_is() {
 /// The default leaves the dummy derivatives out of IDA's error test and
 /// keeps the other iteration variables in it; a default gone back to
 /// testing every one would run this model as it did before 19 November
-/// 2026 (DESIGN.md §8.2, *The error test*).
+/// 2026 (DESIGN.md §8.2, *The error test leaves out the dummy
+/// derivatives*).
 #[test]
 fn the_dummy_derivatives_are_left_out_of_the_error_test_by_default() {
     let o = SolverOptions::default();

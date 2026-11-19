@@ -3122,7 +3122,8 @@ round).**
   (IDA) and 2.6 to 1.9 (CVODE). The remaining steps on the hybrid resolve
   the fast transient each torque command excites (the tyres' slip settles
   in about 1e-4 s), which the error test on the iteration variables
-  demands. A tick whose changed outputs reach nothing the integrator
+  demanded (fewer since the dummy derivatives are left out of it, below).
+  A tick whose changed outputs reach nothing the integrator
   integrates or watches (`RunInfo::dynamic_discretes`: no state
   derivative, residual, energy integrand, zero crossing or table argument
   reads them) leaves the solution exactly as it is: the step stands,
@@ -3141,13 +3142,40 @@ round).**
   now in `lsim-solve/tests/run_loop.rs`). A rigorous bound would have to
   carry the kink through the variable-order history, so the default
   restarts.
-* *`suppress_algebraic_error` stays off.* Leaving the iteration variables
-  out of the error test takes the hybrid's first 100 s from 230 234 to
-  62 458 steps and the BEV's first 50 s of WLTC from 7 076 to 2 307; the
-  exact-answer suite still passes, but at the same tolerance the DAE
-  path's errors grow up to 8× (elec_rc_step's current 6.6e-9 → 5.2e-8,
-  motor_dc_spinup's 6.0e-10 → 4.7e-9 and its event 1.4e-10 → 1.3e-9 s).
-  Accuracy comes first: it stays an option, off by default.
+* *The error test leaves out the dummy derivatives* (since 19 November
+  2026; `SolverOptions::suppress_dummy_derivative_error`, on by default).
+  IDA's local error test leaves out the iteration variables index
+  reduction made for the derivative of an unknown it did not keep as a
+  state (`PreparedModel::dummy_derivatives`, `RunInfo::y_dummy`: a final
+  drive's output acceleration `der(fd.w_out)`, a brake's `der(brake.s)`)
+  and keeps every other iteration variable in it. A dummy derivative is
+  the derivative of what is integrated, solved again from the states at
+  every step: its own local error carries nothing into the solution. But
+  a controller's tick jumps it with the torque it commands, and tested, it
+  kept the hybrid's steps at 0.3 to 3 ms (in 98 % of its steps one of its
+  two dummy derivatives had the largest weighted error). IDA reads its id
+  vector for two things only, `IDACalcIC` (1 a state, 0 an iteration
+  variable) and, under `IDASetSuppressAlg`, as the error test's mask: the
+  run hands it a mask with 0 at the dummy derivatives for every step and
+  the true id around `IDACalcIC`. Measured on this change (one PC, the
+  least of three runs): the hybrid's UDDS 26.9 → 18.5 s (3 022 291 →
+  1 648 592 steps), its first 120 s of the mixed cycle 1.83 → 1.24 s, the
+  BEV's WLTC 1.44 → 1.04 s; in the golden comparison 2 109 of 11 347
+  values move, by at most 3.8e-5 of their value but for the books'
+  closures and the RMS of a closed clutch's losses (round-off, 1e-10 W),
+  and the worst closure goes from 6.6e-10 to 1.27e-9 of the throughput
+  (the BEV's city cycle; inside the comparison's 1.5e-9); the
+  exact-answer suite's DAE errors at rtol 1e-8 stay within 1.3× (elec_rl_step's
+  voltage 2.3e-8 → 2.8e-8). Leaving every iteration variable out
+  (`suppress_algebraic_error`, off by default) is faster still (UDDS
+  11.4 s, WLTC 0.67 s), but the energy books read iteration variables the
+  test then no longer holds (a bus's current): they close up to 270 times
+  worse on the golden cars (the BEV's city cycle 2.2e-8 of the
+  throughput, past the comparison's 1.5e-9), and elec_rc_step's current
+  comes out 11× further off (4.6e-9 → 5.3e-8). Both off, every iteration variable is
+  tested, as before 19 November 2026. The run report's `worst_local`
+  covers every entry of y, so with the dummy derivatives out it can be
+  far above 1 on them.
 * *Rigid engagements: the impulse projection* (`lsim-solve/src/run/
   impulse.rs`). Only a part's declared engagement starts one
   (`EngagementDecl { changes }`: the library's gearbox and a gear whose
