@@ -57,7 +57,8 @@ closure, below).
 
 ## Summary
 
-Release build, one case after another on one machine (4 cores). "As the
+Release build, one case after another on one machine (4 cores; the run
+times of 19 November 2026 on 8 cores of another). "As the
 gears engaged" is the kinetic energy the gear shifts' rigid engagements
 took, the gearbox's, with today's gearbox "gear shifts" term at 1 ms
 beside it; the tyres pass no impulse, and what their slip loses as it
@@ -65,20 +66,20 @@ relaxes after a shift is in their own slip losses (below).
 
 | case | figures inside | channels inside | energy books: closure | gear shifts | as the gears engaged, kWh (today's gearbox term) | steps | events | run, s |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| aero-bev/case-hwfet | 10/10 | 63/67 | 6.4e-12 | — | — | 81983 | 17 | 0.91 |
-| aero-bev/case-udds | 14/14 | 63/67 | 4.1e-10 | — | — | 174670 | 257 | 1.67 |
-| aero-bev/case-wltc | 18/18 | 63/67 | 3.1e-11 | — | — | 224108 | 122 | 1.98 |
-| bev-car/case-city | 10/11 | 65/70 | 6.6e-10 | — | — | 4047 | 17 | 0.06 |
-| bev-car/case-city-live | 10/11 | 65/70 | 6.6e-10 | — | — | 4047 | 17 | 0.07 |
-| bev-car/case-wltc | 19/19 | 65/70 | 2.8e-10 | — | — | 213215 | 122 | 2.11 |
-| bev-car/case-wltc-hvac | 19/19 | 65/70 | 2.0e-11 | — | — | 213911 | 122 | 2.10 |
-| bev-car/case-wltc-summer | 20/20 | 65/70 | 1.1e-11 | — | — | 212949 | 122 | 2.19 |
-| bev-car/case-wltc-winter | 20/20 | 65/70 | 6.5e-11 | — | — | 213829 | 122 | 2.06 |
-| fs-electric/case-accel-75m | 19/19 | 65/65 | 8.0e-11 | — | — | 1062 | 14 | 0.06 |
-| hybrid-car/case-hwfet | 9/9 | 88/88 | 1.8e-12 | 16 | 0.0002062 (0.0003367) | 1918237 | 77005 | 26.95 |
-| hybrid-car/case-mixed | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 9.69 |
-| hybrid-car/case-mixed-live | 9/9 | 82/88 | 7.2e-13 | 10 | 0.0001447 (0.0002622) | 571511 | 56218 | 9.70 |
-| hybrid-car/case-udds | 13/13 | 88/88 | 1.2e-11 | 104 | 0.0016634 (0.0035028) | 3022291 | 118072 | 42.28 |
+| aero-bev/case-hwfet | 10/10 | 63/67 | 4.5e-11 | — | — | 50611 | 17 | 0.29 |
+| aero-bev/case-udds | 14/14 | 63/67 | 1.5e-10 | — | — | 112111 | 257 | 0.64 |
+| aero-bev/case-wltc | 18/18 | 63/67 | 1.6e-10 | — | — | 139393 | 122 | 0.78 |
+| bev-car/case-city | 10/11 | 65/70 | 1.3e-09 | — | — | 2751 | 17 | 0.02 |
+| bev-car/case-city-live | 10/11 | 65/70 | 1.3e-09 | — | — | 2751 | 17 | 0.02 |
+| bev-car/case-wltc | 19/19 | 65/70 | 6.3e-10 | — | — | 135991 | 122 | 0.82 |
+| bev-car/case-wltc-hvac | 19/19 | 65/70 | 4.9e-10 | — | — | 136825 | 122 | 0.81 |
+| bev-car/case-wltc-summer | 20/20 | 65/70 | 1.6e-10 | — | — | 135776 | 122 | 0.82 |
+| bev-car/case-wltc-winter | 20/20 | 65/70 | 6.0e-10 | — | — | 136116 | 122 | 0.81 |
+| fs-electric/case-accel-75m | 19/19 | 65/65 | 1.2e-10 | — | — | 796 | 10 | 0.03 |
+| hybrid-car/case-hwfet | 9/9 | 88/88 | 9.0e-12 | 16 | 0.0002062 (0.0003367) | 903552 | 76965 | 8.72 |
+| hybrid-car/case-mixed | 9/9 | 82/88 | 1.9e-12 | 10 | 0.0001447 (0.0002622) | 296432 | 56212 | 3.53 |
+| hybrid-car/case-mixed-live | 9/9 | 82/88 | 1.9e-12 | 10 | 0.0001447 (0.0002622) | 296432 | 56212 | 3.53 |
+| hybrid-car/case-udds | 13/13 | 88/88 | 3.1e-11 | 104 | 0.0016634 (0.0035028) | 1648592 | 118138 | 15.13 |
 
 199 of the 201 figures are inside their bands (194 before work package
 4's second round, below), and 984 of 1038 channels (949 after its fourth
@@ -93,14 +94,15 @@ reports, the torque of the motors and clutches above the gear pushed
 through the gears, the inertias in between (a motor's rotor, the gears'
 own) not taken out. The two figures are the
 Battery Electric Car's recuperated energy on the city cycle (city and
-city-live), at 1.0039 × band (1.0013 × before IDAS's order fix of 16
-October), 1.0044 × converged; the next figure is at
+city-live), at 1.0024 × band (1.0039 × before 19 November 2026, 1.0013 ×
+before IDAS's order fix of 16 October), 1.0044 × converged; the next figure is at
 0.44 × band. The output points where an event happens, which put 22 of
 the hybrid's channels outside after the fourth round, are compared as
 today's engine records them, before its step (the run keeps both sides:
-below). The energy books close to 6.6e-10 of their throughput or better
-in every case (1.5e-9 before IDAS's order fix; the hybrid's to about
-1e-11), each stored energy's rate exact. Since work package 4's twelfth
+below). The energy books close to 1.3e-9 of their throughput or better
+in every case (6.6e-10 before the dummy derivatives left the error test
+on 19 November 2026, 1.5e-9 before IDAS's order fix; the hybrid's to
+about 3e-11), each stored energy's rate exact. Since work package 4's twelfth
 round (16 October) the formula student car's accumulator, held at its
 output power limit, switches 1.7e-7 s earlier (a mode on an iteration
 variable, met again where the integrator located it a little early:
@@ -109,10 +111,12 @@ case the same to the last digit. Since the Driver's anti-windup became
 back-calculation (20 October, the last section) the hybrid's UDDS has
 moved by at most 1.6e-5 × band, every other case the same to the last
 digit.
-Every figure moved by at most 1.5e-3 × band since the fourth round, most
-by less than 5e-4, and none in the sixth or the seventh; with the
+Every figure moved by at most 1.5e-3 × band from the fourth round to 18
+November 2026, most by less than 5e-4, and none in the sixth or the seventh; with the
 engine's own mathematical library (October 2026, the last section) 143
-moved, by at most 4.5e-4 × band.
+moved, by at most 4.5e-4 × band. Leaving the dummy derivatives out of
+the error test (19 November 2026, the section at the end) moved 178
+figures, by at most 3.9e-3 × band, none across its band.
 
 ## Triage
 
@@ -911,3 +915,39 @@ on the battery cars, 0.3 … 0.6 on the hybrid, which closes to about
 1e-12), so it is the integration's error, and the restarts moved it
 0.034 to 52 times either way at equal tolerance (geometric mean 1.05
 over 50 runs, larger in 27): it does not grow with them.
+
+## The dummy derivatives out of the error test (19 November 2026)
+
+IDA's error test leaves out the dummy derivatives by default (DESIGN.md
+8.2, *The error test leaves out the dummy derivatives*): the iteration
+variables index reduction made for the derivative of an unknown it did
+not keep as a state (a final drive's and a brake's accelerations).
+Against the record before (59d4d72, `golden-main-13e59d6`), the
+comparison's run on 0237851:
+
+* **Steps**: 7 427 371 → 3 998 129 over the fourteen cases (the hybrid's
+  UDDS 3 022 291 → 1 648 592, its HWFET 1 918 237 → 903 552, the BEV's
+  WLTC 213 215 → 135 991); events 308 445 → 308 455 (the hybrid's 118 072
+  → 118 138 on the UDDS, 77 005 → 76 965 on the HWFET, 56 218 → 56 212 on
+  the mixed cycle; the formula student car's 14 → 10).
+* **Values**: 2 109 of the 11 347 move: 178 figures, by at most 3.9e-3 ×
+  band (the hybrid's battery losses on the mixed cycle), and 854
+  channels, by at most 2.2e-3 × band but the hybrid's clutch losses at
+  the band's floor, whose RMS is round-off (7e-11 to 6e-10 W) and moved
+  by 0.11 and 0.03 of it. As a share of their value every figure and
+  channel moved by at most 3.8e-5 (the hybrid's UDDS: its bag 2 fuel
+  consumption 2.4569287 → 2.4570230 l/100 km, its fuel 2.8088985 →
+  2.8089691 l/100 km), but those clutch losses. None crossed its band:
+  199 of 201 figures and 984 of 1038 channels inside, each on its side;
+  the BEV's city recuperation at 1.0024 × band.
+* **The energy books** close to 1.3e-9 of their throughput or better (the
+  BEV's city cycle, 6.6e-10 before; its WLTC 2.8e-10 → 6.3e-10, the
+  hybrid's UDDS 1.2e-11 → 3.1e-11), inside the comparison's 1.5e-9. As
+  measured in October (above), the closure is the integration's error,
+  falling with the tolerance.
+
+Leaving every iteration variable out instead (`suppress_algebraic_error`,
+measured the same day on 59d4d72) moves 2 106 values and loses three of
+the formula student car's rows (its last recorded distance 1.8e-7 m short
+of the 75.3 m line, which the time to 75 m reads), and its books close
+up to 270 times worse (the BEV's city cycle 2.2e-8): it stays off.
