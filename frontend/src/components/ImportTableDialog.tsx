@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { FileUp, X } from "lucide-react";
 import * as api from "../api";
+import { useOwnerWindow } from "../ownerWindow";
 import type { Table1D, Table2D } from "../types";
 
 export interface ImportTarget {
@@ -117,11 +118,12 @@ function ImportTableDialog({
     if (result?.ok) applyRef.current?.focus();
   }, [result?.ok]);
 
+  const win = useOwnerWindow();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    win.addEventListener("keydown", onKey);
+    return () => win.removeEventListener("keydown", onKey);
+  }, [onClose, win]);
 
   const set = (patch: api.TableImportOptions) => setOptions((o) => ({ ...o, ...patch }));
   const colName = (c: api.TableImport["columns"][number]) =>
@@ -523,11 +525,12 @@ export function ImportCycleDialog({
   useEffect(() => {
     if (result?.ok) nameRef.current?.focus();
   }, [result?.ok]);
+  const win = useOwnerWindow();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    win.addEventListener("keydown", onKey);
+    return () => win.removeEventListener("keydown", onKey);
+  }, [onClose, win]);
 
   const read = async (f: File) => {
     try {

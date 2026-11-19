@@ -26,6 +26,9 @@ export interface DesktopBridge {
    *  the folder picked (AI-01); the AI access settings as they now are, or
    *  null when the user cancels. */
   allowAiFolder?: () => Promise<AiAccess | null>;
+  /** Bring a part's parameter window (paramWindows.ts) to the front by its
+   *  window name, restoring it if minimised. */
+  raiseWindow?: (name: string) => Promise<void>;
 }
 
 declare global {

@@ -3,6 +3,7 @@ import { Box, Columns3, CornerDownRight, Pencil, Plus, Radio, Rows3, Table2, Tra
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { componentHelpPage, openHelp } from "../../help";
+import { useOwnerWindow } from "../../ownerWindow";
 import { limitsText, paramName, rangeProblem } from "../../paramRules";
 import { LABEL_RRC, describeTyre, parseTyreCode, tyreValues } from "../../tyre";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
@@ -948,6 +949,7 @@ export function ElementForm({
     return () => clearTimeout(t);
   }, [want, help, focused]);
   const card = useRef<HTMLDivElement>(null);
+  const win = useOwnerWindow();
   // a dialog over Properties hides its card (the focus can stay behind it)
   const covered = useUIStore((s) => compact && (s.paramDialogId !== null || s.dialog !== null));
   const helpDef = covered ? undefined : def.parameters.find((p) => p.key === help && p.description);
@@ -968,9 +970,9 @@ export function ElementForm({
       setPointed(null);
       setFocused(null);
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [helpDef]);
+    win.addEventListener("keydown", onKey, true);
+    return () => win.removeEventListener("keydown", onKey, true);
+  }, [helpDef, win]);
   const helpPage = (p: ParameterDef) => `${componentHelpPage(def.id)}#${p.key}`;
   // a different anchor for the dialog's card and the Properties panel's
   const anchor = compact ? "--ss-help-panel" : "--ss-help-dialog";

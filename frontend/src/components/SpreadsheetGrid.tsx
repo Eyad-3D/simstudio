@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useOwnerWindow } from "../ownerWindow";
 
 export type CellKind = "corner" | "colHeader" | "rowHeader" | "body";
 
@@ -80,6 +81,7 @@ export function SpreadsheetGrid({
   const rows = matrix.length;
   const cols = matrix[0]?.length ?? 0;
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const win = useOwnerWindow();
   const [sel, setSel] = useState<Sel>({ anchor: { r: 1, c: 0 }, active: { r: 1, c: 0 } });
   const [editing, setEditingState] = useState<Edit | null>(null);
   // mirrors `editing` so a blur that fires as the editor goes away sees the
@@ -98,9 +100,9 @@ export function SpreadsheetGrid({
 
   useEffect(() => {
     const up = () => (dragging.current = false);
-    window.addEventListener("mouseup", up);
-    return () => window.removeEventListener("mouseup", up);
-  }, []);
+    win.addEventListener("mouseup", up);
+    return () => win.removeEventListener("mouseup", up);
+  }, [win]);
 
   useEffect(() => {
     onSelectionChange?.(range);
