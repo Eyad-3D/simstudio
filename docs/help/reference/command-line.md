@@ -9,7 +9,8 @@ same from Python.
 ## Where it is
 
 - **From the repository**: in `backend/`, with Python 3.11 or newer and
-  `pip install -r requirements.txt`, run `python -m lightsim …`.
+  `pip install -r requirements.txt` and the engine's Rust module built
+  (see the [Python API](python-api.md)), run `python -m lightsim …`.
 - **In the desktop app**: the engine program,
   `resources\backend\lightsim-backend.exe` in the folder LightSim is
   installed in, takes the same commands except four, which are the
