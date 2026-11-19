@@ -15,7 +15,7 @@
   },
   "devDependencies": {
     "electron": "^44.4.5",
-    "electron-builder": "^26.15.3",
+    "electron-builder": "^26.18.0",
     "license-checker-rseidelsohn": "5.0.1"
   },
   "author": {
@@ -29,7 +29,7 @@
   },
   "desktopName": "lightsim.desktop",
   "dependencies": {
-    "electron-updater": "6.8.9"
+    "electron-updater": "6.8.11"
   },
   "overrides": {
     "sax": "1.4.1"
