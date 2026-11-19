@@ -6,12 +6,17 @@
 The wheel holds the ``lightsim`` package and, as ``lightsim._app``, a copy
 of the engine (``backend/app`` without its web server) with the library,
 the drive cycles, the examples and VERSION, so installing it never puts a
-package called ``app`` on anyone's path. It needs only pydantic. It is
-proprietary like the app (EULA.txt goes into the wheel's metadata); the
+package called ``app`` on anyone's path. It needs pydantic and the engine
+module (the ``lightsim-engine`` wheel that maturin builds from
+engine/crates/lsim-py, pinned to the engine's own version in
+engine/Cargo.toml): every case runs on that module, so pip must find it
+(``pip install --find-links <folder holding both wheels> lightsim-*.whl``).
+It is proprietary like the app (EULA.txt goes into the wheel's metadata); the
 file-format specification in docs/spec is separate.
 
 Publishing it to PyPI needs the owner's account: the "Python package"
-workflow uploads it only when the PYPI_API_TOKEN secret exists.
+workflow uploads it, with the engine wheels, only when the PYPI_API_TOKEN
+secret exists.
 """
 from __future__ import annotations
 
@@ -19,6 +24,7 @@ import argparse
 import base64
 import hashlib
 import io
+import tomllib
 import zipfile
 from pathlib import Path
 
@@ -26,7 +32,14 @@ ROOT = Path(__file__).resolve().parent.parent
 BACKEND = ROOT / "backend"
 #: engine modules the wheel leaves out: the web server and what only it uses
 SERVER_ONLY = {"main.py", "server.py", "security.py", "api_docs.py"}
-REQUIRES = ["pydantic>=2.6"]
+
+#: the engine module's distribution (engine/crates/lsim-py/pyproject.toml) and its version
+ENGINE_DIST = "lightsim-engine"
+
+
+def _requires() -> list[str]:
+    engine = tomllib.loads((ROOT / "engine" / "Cargo.toml").read_text(encoding="utf-8"))
+    return ["pydantic>=2.6", f"{ENGINE_DIST}=={engine['workspace']['package']['version']}"]
 
 
 def _files() -> list[tuple[str, bytes]]:
@@ -64,7 +77,7 @@ def build(out_dir: Path) -> Path:
         "Author: Eyad Abualkhair",
         "License: Proprietary; free for non-commercial use, see EULA.txt",
         "Classifier: License :: Other/Proprietary License",
-        "Requires-Python: >=3.11", *(f"Requires-Dist: {r}" for r in REQUIRES), "", ""])
+        "Requires-Python: >=3.11", *(f"Requires-Dist: {r}" for r in _requires()), "", ""])
     files = _files() + [
         (f"{info}/METADATA", metadata.encode()),
         (f"{info}/WHEEL", b"Wheel-Version: 1.0\nGenerator: lightsim build-wheel.py\n"

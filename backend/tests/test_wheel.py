@@ -29,3 +29,15 @@ def test_the_wheel_runs_an_example_on_its_own(tmp_path):
                        capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stderr
     assert r.stdout.split()[0] == (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+
+def test_the_wheel_requires_the_engine_module_at_the_engines_version(tmp_path):
+    # every case runs on lightsim_engine: pip must be told to bring it
+    import tomllib
+    spec = importlib.util.spec_from_file_location("build_wheel", ROOT / "scripts" / "build-wheel.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    with zipfile.ZipFile(mod.build(tmp_path / "dist")) as z:
+        meta = z.read(next(n for n in z.namelist() if n.endswith(".dist-info/METADATA"))).decode()
+    cargo = tomllib.loads((ROOT / "engine" / "Cargo.toml").read_text(encoding="utf-8"))
+    assert f"Requires-Dist: lightsim-engine=={cargo['workspace']['package']['version']}\n" in meta
