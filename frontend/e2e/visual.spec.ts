@@ -1,5 +1,5 @@
 // Screenshot baselines: three key screens (the topology workspace, a parameter
-// dialog and the Results page after a run) at three window sizes in both
+// window and the Results page after a run) at three window sizes in both
 // themes, 18 images. They catch what the other tests cannot see: dark-mode
 // leaks, stray dividers, and clipped or overlapping panels.
 //
