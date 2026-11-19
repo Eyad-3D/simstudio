@@ -107,6 +107,27 @@ test("a part's parameters open in a window of their own, one per part", () => {
   expect(powerInput(opened[0])).not.toBeNull();
 });
 
+test("the form is drawn once the window has its stylesheet", async () => {
+  fakeOpen();
+  // a built page's stylesheet is a file: the window's copy of it loads later
+  const link = document.head.appendChild(document.createElement("link"));
+  link.rel = "stylesheet";
+  try {
+    open("m1");
+    expect(powerInput(opened[0])).toBeNull();
+    // asked for again meanwhile: still one window, nothing drawn yet
+    open("m1");
+    expect(opened).toHaveLength(1);
+    expect(powerInput(opened[0])).toBeNull();
+    await act(async () => {
+      opened[0].document.head.querySelector("link")!.dispatchEvent(new Event("load"));
+    });
+    expect(powerInput(opened[0])).not.toBeNull();
+  } finally {
+    link.remove();
+  }
+});
+
 test("asking again for an open part's window raises it instead of opening another", () => {
   const spy = fakeOpen();
   open("m1");

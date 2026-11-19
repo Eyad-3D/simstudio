@@ -185,15 +185,19 @@ test("UX-10: a click into a field keeps its card, Tab past the card closes it, a
   await page.getByRole("button", { name: "Close the help" }).click();
   await page.mouse.move(5, 5);
 
-  // a window opened with Enter takes the focus to its first field, with no
-  // card open in it
+  // a window opened with Enter takes the focus to its first field: no card
+  // is left open behind it and none is open in it, and Tab to its next
+  // field shows that field's card, as in the main window
   await page.getByRole("button", { name: /^Drag Torque \(unpowered\).*Edit…$/ }).focus();
   const win = await paramWindow(page, () => page.keyboard.press("Enter"));
   await expect(win.getByRole("heading", { name: "E-Motor" })).toBeVisible();
   await expect(win.getByRole("textbox", { name: "Name", exact: true })).toBeFocused();
-  await win.keyboard.press("Tab");
   await win.waitForTimeout(400);
-  await expect(win.locator(".ss-help-card:popover-open")).toHaveCount(0);
+  await expect(card).toHaveCount(0);
+  const winCard = win.locator(".ss-help-card:popover-open");
+  await expect(winCard).toHaveCount(0);
+  await win.keyboard.press("Tab");
+  await expect(winCard).toContainText(param("motor.emotor", "max_speed_rpm").description);
 });
 
 test("UX-10: in the parameter window Esc closes the card, never the window, and tables carry their help", async ({ page }) => {

@@ -10,7 +10,8 @@ const { test } = require("node:test");
 
 const { windowOpenAction, paramWindowOptions, onScreen } = require("../src/windows");
 
-const main = fs.readFileSync(path.join(__dirname, "..", "src", "main.js"), "utf8");
+// (a Windows checkout has CRLF line ends: the patterns below are written for LF)
+const main = fs.readFileSync(path.join(__dirname, "..", "src", "main.js"), "utf8").replace(/\r\n/g, "\n");
 
 test("a blank page under a parameter window's name may open", () => {
   assert.equal(windowOpenAction({ url: "about:blank", frameName: "lightsim-param-el_1" }), "param");

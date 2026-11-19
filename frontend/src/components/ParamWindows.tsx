@@ -53,15 +53,17 @@ export function ParamWindows() {
     };
   }, []);
 
-  return windows.map((w) =>
-    createPortal(
-      <OwnerWindow.Provider value={w.win}>
-        <ParamWindowContent entry={w} />
-      </OwnerWindow.Provider>,
-      w.root,
-      w.id,
-    ),
-  );
+  return windows
+    .filter((w) => w.ready)
+    .map((w) =>
+      createPortal(
+        <OwnerWindow.Provider value={w.win}>
+          <ParamWindowContent entry={w} />
+        </OwnerWindow.Provider>,
+        w.root,
+        w.id,
+      ),
+    );
 }
 
 function ParamWindowContent({ entry }: { entry: ParamWindow }) {

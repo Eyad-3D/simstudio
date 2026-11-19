@@ -20,6 +20,10 @@ export interface ParamWindow {
    *  changes on every request for one, so the same table scrolls in again */
   paramKey: string | null;
   seq: number;
+  /** false until the window has the main window's stylesheets: the form is
+   *  drawn only then. Drawn sooner it is laid out unstyled, and loses its
+   *  place (the table it was opened at) when the styles arrive. */
+  ready: boolean;
 }
 
 /** The parameter windows open now, in the order they were opened. */
@@ -94,6 +98,12 @@ function mirrorLook(doc: Document): MutationObserver {
   return observer;
 }
 
+/** `doc`'s copied stylesheets that are still loading: a built page's
+ *  stylesheet is a file, fetched again for the new window. */
+function loadingSheets(doc: Document): HTMLLinkElement[] {
+  return [...doc.head.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')].filter((l) => !l.sheet);
+}
+
 const observers = new WeakMap<Window, MutationObserver>();
 
 function forget(id: string): void {
@@ -147,7 +157,23 @@ export function openParamWindow(id: string, paramKey?: string): boolean {
     forget(id);
   });
   const root = doc.getElementById("root")!;
-  useParamWindows.setState((s) => ({ windows: [...s.windows, { id, win, root, paramKey: paramKey ?? null, seq: 0 }] }));
+  const loading = loadingSheets(doc);
+  useParamWindows.setState((s) => ({
+    windows: [...s.windows, { id, win, root, paramKey: paramKey ?? null, seq: 0, ready: loading.length === 0 }],
+  }));
+  // (a stylesheet that fails to load must not leave the window blank)
+  void Promise.all(
+    loading.map(
+      (link) =>
+        new Promise((done) => {
+          link.addEventListener("load", done, { once: true });
+          link.addEventListener("error", done, { once: true });
+        }),
+    ),
+  ).then(() => {
+    if (!loading.length) return;
+    useParamWindows.setState((s) => ({ windows: s.windows.map((w) => (w.win === win ? { ...w, ready: true } : w)) }));
+  });
   win.focus();
   return true;
 }
