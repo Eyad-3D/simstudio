@@ -1,5 +1,5 @@
 // Accessibility gate (axe-core) on the topology workspace, the Results page, a
-// parameter dialog and the help pages, each in the light and the dark theme.
+// part's parameter window and the help pages, each in the light and the dark theme.
 // It fails on any serious or critical violation that is not in
 // a11y-baseline.json, the list of issues the app had when the gate was
 // introduced, kept per screen and theme ("topology-dark"). Fixing one of
@@ -24,6 +24,7 @@ import {
   headlineTile,
   openApp,
   openFromMenu,
+  openParams,
   openSummary,
   ribbonTab,
   runActiveCase,
@@ -192,11 +193,10 @@ for (const theme of ["light", "dark"] as const) {
     // CON-16: the Drive Cycle row and its sketch (Properties shows the same)
     test("drive cycle row", async ({ page }) => {
       await openApp(page);
-      await page.locator(".react-flow__node", { hasText: "Vehicle Task" }).first().dblclick();
-      const dialog = page.locator(".fixed.inset-0");
-      await dialog.getByRole("combobox", { name: "Drive Cycle" }).selectOption("wltc-3b");
-      await expect(dialog.getByRole("img", { name: /^Speed over time, WLTC/ })).toBeVisible();
-      await check(page, `parameter-dialog-${theme}`);
+      const win = await openParams(page, "Vehicle Task");
+      await win.getByRole("combobox", { name: "Drive Cycle" }).selectOption("wltc-3b");
+      await expect(win.getByRole("img", { name: /^Speed over time, WLTC/ })).toBeVisible();
+      await check(win, `parameter-window-${theme}`);
     });
 
     // the Formula Student example: its Race Track, the Acceleration test
@@ -247,11 +247,13 @@ for (const theme of ["light", "dark"] as const) {
       await check(page, `help-${theme}`);
     });
 
-    test("parameter dialog", async ({ page }) => {
+    // a part's parameters, in their own window (a page of its own: title,
+    // language, landmarks)
+    test("parameter window", async ({ page }) => {
       await openApp(page);
-      await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().dblclick();
-      await expect(page.getByTitle("Close (Esc)")).toBeVisible();
-      await check(page, `parameter-dialog-${theme}`);
+      const win = await openParams(page, "E-Motor");
+      await expect(win).toHaveTitle("E-Motor");
+      await check(win, `parameter-window-${theme}`);
     });
 
     // GUI-02: every panel, menu and dialog, including problem states

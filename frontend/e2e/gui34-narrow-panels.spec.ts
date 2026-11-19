@@ -5,7 +5,7 @@
 // 2, pushing Stop out of the panel; and the side tabs read "Eleme" and
 // "Cases & Parame".
 import { expect, test, type Page } from "@playwright/test";
-import { expectProject, openApp, openFromMenu, selectElement, showPanel } from "./app";
+import { expectProject, openApp, openFromMenu, paramWindow, selectElement, showPanel } from "./app";
 
 test.use({ viewport: { width: 1366, height: 768 } });
 
@@ -112,11 +112,13 @@ for (const theme of ["light", "dark"] as const) {
 
 test("GUI-34: road-load rows, table buttons and case overrides in a 1366x768 window", async ({ page }) => {
   await openApp(page);
-  // a narrow panel's table button opens the parameter dialog at that table
+  // a narrow panel's table button opens the part's window at that table
   await selectElement(page, "E-Motor");
-  await page.getByRole("button", { name: /^Power Loss \(Motor \+ Inverter\).*Edit…$/ }).click();
-  await expect(page.locator('[data-param="power_loss"]')).toBeInViewport();
-  await page.keyboard.press("Escape");
+  const win = await paramWindow(page, () =>
+    page.getByRole("button", { name: /^Power Loss \(Motor \+ Inverter\).*Edit…$/ }).click(),
+  );
+  await expect(win.locator('[data-param="power_loss"]')).toBeInViewport();
+  await win.close();
 
   // the Road Load From choice ("Drag and rolling resistance") is no wider
   // than a number field, so it leaves the labels their room

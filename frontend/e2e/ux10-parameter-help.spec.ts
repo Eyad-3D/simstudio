@@ -7,7 +7,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { readFileSync } from "node:fs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { openApp, showPanel } from "./app";
+import { openApp, paramWindow, showPanel } from "./app";
 
 type Param = { key: string; description: string; typical: string; whereToFind: string };
 const library: { components: { id: string; parameters: Param[] }[] } = JSON.parse(
@@ -185,36 +185,40 @@ test("UX-10: a click into a field keeps its card, Tab past the card closes it, a
   await page.getByRole("button", { name: "Close the help" }).click();
   await page.mouse.move(5, 5);
 
-  // a dialog opened with Enter leaves the focus behind it: no card there
+  // a window opened with Enter takes the focus to its first field, with no
+  // card open in it
   await page.getByRole("button", { name: /^Drag Torque \(unpowered\).*Edit…$/ }).focus();
-  await page.keyboard.press("Enter");
-  await expect(page.locator(".fixed.inset-0", { hasText: "— E-Motor" })).toBeVisible();
-  await page.keyboard.press("Tab");
-  await page.waitForTimeout(400);
-  await expect(card).toHaveCount(0);
+  const win = await paramWindow(page, () => page.keyboard.press("Enter"));
+  await expect(win.getByRole("heading", { name: "E-Motor" })).toBeVisible();
+  await expect(win.getByRole("textbox", { name: "Name", exact: true })).toBeFocused();
+  await win.keyboard.press("Tab");
+  await win.waitForTimeout(400);
+  await expect(win.locator(".ss-help-card:popover-open")).toHaveCount(0);
 });
 
-test("UX-10: in the parameter dialog Esc closes the card first, and tables carry their help", async ({ page }) => {
+test("UX-10: in the parameter window Esc closes the card, never the window, and tables carry their help", async ({ page }) => {
   const drag = param("motor.emotor", "drag_torque");
   const { card } = await emotorProperties(page);
-  // the Edit… button of a table has the card too; opening the dialog closes it
+  // the Edit… button of a table has the card too; opening the window closes it
   const edit = page.getByRole("button", { name: /^Drag Torque \(unpowered\).*Edit…$/ });
   await edit.hover();
   await expect(card).toContainText(drag.description, { timeout: 1000 });
-  await edit.click();
-  const dialog = page.locator(".fixed.inset-0", { hasText: "— E-Motor" });
-  await expect(dialog).toBeVisible();
+  const win = await paramWindow(page, () => edit.click());
   await expect(card).toHaveCount(0);
   // the table's help line sits above its editor
-  await expect(dialog.locator("[data-param='drag_torque'] .ss-param-help")).toContainText(drag.whereToFind);
+  await expect(win.locator("[data-param='drag_torque'] .ss-param-help")).toContainText(drag.whereToFind);
 
-  await dialog.getByRole("spinbutton", { name: "Generator Torque Limit Scale" }).focus();
-  await expect(card).toHaveCount(1);
-  await page.keyboard.press("Escape");
-  await expect(card).toHaveCount(0);
-  await expect(dialog).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(dialog).toHaveCount(0);
+  // the window's own card: on focus, and Esc closes it
+  const winCard = win.locator(".ss-help-card:popover-open");
+  await win.getByRole("spinbutton", { name: "Generator Torque Limit Scale" }).focus();
+  await expect(winCard).toHaveCount(1);
+  await win.keyboard.press("Escape");
+  await expect(winCard).toHaveCount(0);
+  // a second Esc leaves the window open
+  await win.keyboard.press("Escape");
+  await win.waitForTimeout(300);
+  expect(win.isClosed()).toBe(false);
+  await expect(win.getByRole("heading", { name: "E-Motor" })).toBeVisible();
 });
 
 for (const theme of ["light", "dark"] as const) {

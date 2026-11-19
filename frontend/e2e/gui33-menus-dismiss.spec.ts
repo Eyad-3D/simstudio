@@ -45,7 +45,12 @@ for (const { tab, name, menu } of [
   });
 }
 
+// a browser that blocks pop-ups gets a part's parameters in a dialog in the
+// main window instead of a window of their own, and is told so once
 test("GUI-33: the Open menu closes when the parameter dialog opens, and opens again once an undo removes the part", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.open = () => null; // pop-ups blocked
+  });
   await openApp(page);
   // a new script part, shown in Properties with an Edit… button for its code
   await showPanel(page, "Components");
@@ -70,6 +75,15 @@ test("GUI-33: the Open menu closes when the parameter dialog opens, and opens ag
   await expect(dialog).toHaveCount(0);
   await button.click();
   await expect(list).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  // the dialog opens again for another part, and Messages said why once
+  await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().dblclick();
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await showPanel(page, "Messages");
+  await expect(page.getByText(/The browser blocked the parameter window/)).toHaveCount(1);
 });
 
 test("GUI-33: the diagram's right-click menu closes on a click outside the diagram", async ({ page }) => {
