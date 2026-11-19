@@ -1,0 +1,38 @@
+id = "question-peak-current"
+kind = "question"
+version = 1
+title = "Battery current and voltage sag on the motorway"
+statement = """
+car.json models our electric hatchback with a 50 kWh battery and a test mass of
+2,100 kg. Its case "Motorway (WLTC Extra High)" is the fast last part of the
+WLTC. For the battery over that case: what is the highest current it delivers,
+in A, and the lowest voltage at its terminals, in V?
+
+End your reply with one line in exactly this form, numbers only:
+ANSWER: <highest current>; <lowest voltage>
+"""
+
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Hatchback, 50 kWh"
+ops = [
+  { op = "set", element = "HV Battery Pack", param = "capacity_kWh", value = 50 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 2100 },
+  { op = "add_case", name = "Motorway (WLTC Extra High)", id = "case-motorway", copy_of = "case-wltc", duration = 323 },
+  { op = "set", element = "Vehicle Task", param = "cycle", value = "wltc-3-extra-high", case = "case-motorway" },
+]
+
+# The battery's highest power and its highest voltage.
+[wrong]
+answer = "ANSWER: 58.3; 372"
+
+[[answer]]
+value = 177.69
+rtol = 0.02
+figure = { file = "car.json", case = "Motorway (WLTC Extra High)", channel = "battery.generic:sig_current", stat = "max" }
+
+[[answer]]
+value = 353.47
+rtol = 0.01
+figure = { file = "car.json", case = "Motorway (WLTC Extra High)", channel = "battery.generic:sig_voltage", stat = "min" }

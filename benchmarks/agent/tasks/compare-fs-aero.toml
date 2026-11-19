@@ -1,0 +1,51 @@
+id = "compare-fs-aero"
+kind = "compare"
+version = 1
+title = "Pick the aero package for the autocross"
+statement = """
+Our Formula Student team must choose an aero package for the autocross.
+car-a.json is design A, with the big wings (downforce area 4.2 m², drag
+coefficient 1.45, 287 kg); car-b.json is design B, with the small wings
+(downforce area 2.0 m², drag coefficient 0.95, 276 kg). Everything else is the
+same. Which design gives the quicker lap in the case "Autocross (flying
+lap)", and how much battery energy does that design use per lap in the same
+case, in kWh?
+
+End your reply with one line in exactly this form:
+ANSWER: <A or B>; <energy per lap>
+"""
+
+[[start]]
+file = "car-a.json"
+from = "example:fs-electric"
+name = "FS car, big wings"
+ops = [
+  { op = "set", element = "Vehicle", param = "downforce_cza_m2", value = 4.2 },
+  { op = "set", element = "Vehicle", param = "cd", value = 1.45 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 287 },
+]
+
+[[start]]
+file = "car-b.json"
+from = "example:fs-electric"
+name = "FS car, small wings"
+ops = [
+  { op = "set", element = "Vehicle", param = "downforce_cza_m2", value = 2.0 },
+  { op = "set", element = "Vehicle", param = "cd", value = 0.95 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 276 },
+]
+
+# The small wings win the 75 m acceleration (the model's first case) and use
+# less energy, but the big wings win the autocross lap.
+[wrong]
+answer = "ANSWER: B; 0.3715"
+
+[[answer]]
+choice = "A"
+options = { A = "car-a.json", B = "car-b.json" }
+best = { case = "Autocross (flying lap)", key = "lap_time_s", pick = "min" }
+
+[[answer]]
+value = 0.42399
+rtol = 0.02
+figure = { file = "car-a.json", case = "Autocross (flying lap)", key = "energy_per_lap_kwh" }

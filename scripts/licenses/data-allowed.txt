@@ -1,0 +1,53 @@
+# Licences that data LightSim ships may be under, one term per line (BIZ-34).
+#
+# The data counterpart of allowed.txt, which covers code. Data means drive
+# cycles, vehicle values, cell, motor and engine maps, tracks: anything with
+# a row in docs/data-register.csv. Each row's licence terms are listed in
+# data-licences.json; backend/tests/test_data_register.py fails when a row
+# that ships in the installer has a term that is not listed here.
+#
+# Adding a line is a licensing decision for the owner, not a test fix.
+# LightSim is proprietary, so the test refuses these even if listed here:
+#   - non-commercial (NC) or no-derivatives (ND) licences: LightSim is sold
+#     to companies, and its maps are converted and resampled;
+#   - share-alike licences (CC-BY-SA, ODbL): their terms would reach the data
+#     LightSim builds on them;
+#   - GPL, LGPL, AGPL, EUPL, SSPL;
+#   - LicenseRef-NoLicence (no licence stated) and
+#     LicenseRef-Permission-On-Request (an e-mail saying "fine" is not a
+#     licence that covers every user of every release).
+# Data under those may still be offered for the user to fetch or import
+# (see data-sources.json, class USER-IMPORT), never bundled.
+
+# Open data licences
+CC0-1.0
+CC-BY-4.0
+CDLA-Permissive-2.0
+OGL-UK-3.0
+OGL-Canada-2.0
+
+# Permissive code licences, for data that comes inside such a package
+# (FASTSim's cycle and vehicle files are Apache-2.0)
+Apache-2.0
+MIT
+BSD-3-Clause
+
+# Not SPDX: reuse bases written into law rather than a licence file.
+# Works of the US federal government are public domain (17 U.S.C. 105).
+# Check the terms of the specific source first (DATA-REGISTER.md rule 5).
+LicenseRef-US-Gov-PD
+# EU institutions' documents and data reusable with credit
+# (Commission Decision 2011/833/EU).
+LicenseRef-EU-Reuse
+# Japanese laws, regulations and official notices are not protected
+# (Copyright Act, Article 13).
+LicenseRef-JP-Copyright-Art13
+
+# Not SPDX: LightSim's own data, under LightSim's LICENSE and EULA.
+LicenseRef-LightSim
+# Not SPDX, DRAFT for the owner to confirm: single facts and figures that are
+# not protected as such, quoted with their source (a rulebook's 80 kW limit,
+# a maker's published peak power, a regulation's cycle distance). A whole
+# table copied from a document is not a fact: it takes that document's
+# licence.
+LicenseRef-Facts

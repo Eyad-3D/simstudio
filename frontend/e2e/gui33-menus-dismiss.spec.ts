@@ -59,7 +59,7 @@ test("GUI-33: the Open menu closes when the parameter dialog opens, and opens ag
   // opened from the keyboard, so no click outside closes the menu first
   await button.click();
   await expect(list).toBeVisible();
-  await page.getByTitle("Open the full editor in a dialog").first().focus();
+  await page.getByRole("button", { name: /^Python Code.*Edit…$/ }).focus();
   await page.keyboard.press("Enter");
   await expect(dialog).toBeVisible();
   await expect(list).toHaveCount(0);

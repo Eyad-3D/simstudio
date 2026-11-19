@@ -83,7 +83,7 @@ test("UX-06: '.' frames the selected part at up to 100 %", async ({ page }) => {
   expect(await zoomOf(page)).toBeLessThanOrEqual(1);
 });
 
-/** The BEV example copied 16 times on a 4x4 grid: 352 parts. */
+/** The BEV example copied 16 times on a 4x4 grid: 384 parts (24 each, with its Ambient and Climate Control). */
 async function bigModel(page: Page) {
   const bev = await (await page.request.get("/api/examples/bev-car")).json();
   const root = bev.systems[0];
@@ -117,10 +117,15 @@ async function bigModel(page: Page) {
 test("UX-06: a model too big to read opens at 50 % with the overview map", async ({ page }) => {
   await openApp(page);
   const model = await bigModel(page);
-  expect(model.systems[0].elements).toHaveLength(352);
+  expect(model.systems[0].elements).toHaveLength(384);
   await importProject(page, model);
   await expect.poll(() => zoomOf(page)).toBe(0.5);
   await expect.poll(() => page.locator(".react-flow__minimap-node").count()).toBeGreaterThanOrEqual(300);
+  // hidden, the map stays hidden when the diagram changes size
+  await page.getByTitle("Toggle minimap").click();
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await page.waitForTimeout(1000); // the re-fit waits for the size to settle
+  await expect(page.locator(".react-flow__minimap")).toHaveCount(0);
 });
 
 test("UX-06: leaving a subsystem restores the parent's view", async ({ page }) => {
@@ -137,6 +142,6 @@ test("UX-06: leaving a subsystem restores the parent's view", async ({ page }) =
   const parent = await viewport();
   await page.locator(".react-flow__node", { hasText: "System 1" }).dblclick();
   await expect.poll(() => zoomOf(page), { message: "an empty subsystem opens at 100 %" }).toBe(1);
-  await page.locator(".ss-panel-toolbar button", { hasText: "New Project" }).first().click();
+  await page.getByRole("button", { name: "New Project", exact: true }).click();
   await expect.poll(viewport).toBe(parent);
 });

@@ -1,0 +1,11 @@
+# The mutants of backend/app/solver/verdict.py that the tests do not kill
+# (mutation.py), each with its written reason: why the change makes no
+# difference (an equivalent mutant), or what test would kill it and why
+# none is wanted. The FAULTS line passes only when every survivor has one.
+#
+#   [survivor]
+#   "app.solver.verdict.x_trace_metrics__mutmut_12" = "equivalent: ..."
+#
+# None written yet: the baseline (baseline/README.md) counts the survivors.
+
+[survivor]

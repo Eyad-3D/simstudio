@@ -1,0 +1,36 @@
+name: Bug report
+description: Something in LightSim does not work, or a result looks wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Security problems do not belong here: see SECURITY.md.
+        Check docs/KNOWN-LIMITS.md first; your problem may be listed with what to do.
+  - type: input
+    id: version
+    attributes:
+      label: LightSim version
+      description: Help → About shows it.
+      placeholder: "0.3.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options: [Windows 11, Windows 10, Linux, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, step by step, what you expected and what you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Project file, screenshots, messages
+      description: Attach the project (.json) if you can share it; remove anything private first.

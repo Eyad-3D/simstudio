@@ -1,0 +1,80 @@
+{
+  "id": "p2-hybrid",
+  "name": "P2 hybrid car",
+  "version": 1,
+  "example": "hybrid-car",
+  "description": "A parallel hybrid with the motor between clutch and gearbox (P2), its charge-sustaining control script, EPA city and highway cases, and the P2 Hybrid Car's values (Hyundai Ioniq Hybrid class) as the starting point.",
+  "slots": {
+    "Battery": "el-battery",
+    "E-Drive 1": "el-motor",
+    "Engine": "el-engine",
+    "Transmission": "el-gearbox",
+    "Driveline": "el-fd",
+    "Chassis": "el-vehicle",
+    "Driver": "el-driver",
+    "Accessories": "el-aux",
+    "Controller": "el-hcu"
+  },
+  "form": [
+    {
+      "elementId": "el-vehicle",
+      "key": "mass_kg",
+      "label": "Test mass",
+      "unit": "kg",
+      "default": 1474,
+      "help": "",
+      "minimum": 300,
+      "maximum": 5000
+    },
+    {
+      "elementId": "el-vehicle",
+      "key": "road_load_a_N",
+      "label": "Road load A (f0)",
+      "unit": "N",
+      "default": 68.64,
+      "help": "From a coast-down: EPA's lbf × 4.448.",
+      "minimum": 0,
+      "maximum": 2000
+    },
+    {
+      "elementId": "el-vehicle",
+      "key": "road_load_b_N_per_kmh",
+      "label": "Road load B (f1)",
+      "unit": "N/(km/h)",
+      "default": 0.9093,
+      "help": "EPA's lbf/mph × 2.764.",
+      "minimum": -10,
+      "maximum": 10
+    },
+    {
+      "elementId": "el-vehicle",
+      "key": "road_load_c_N_per_kmh2",
+      "label": "Road load C (f2)",
+      "unit": "N/(km/h)²",
+      "default": 0.025078,
+      "help": "EPA's lbf/mph² × 1.717.",
+      "minimum": 0,
+      "maximum": 1
+    },
+    {
+      "elementId": "el-battery",
+      "key": "capacity_kWh",
+      "label": "Battery usable capacity",
+      "unit": "kWh",
+      "default": 1.56,
+      "help": "",
+      "minimum": 0.1,
+      "maximum": 50
+    },
+    {
+      "elementId": "el-fd",
+      "key": "ratio",
+      "label": "Final drive ratio",
+      "unit": "-",
+      "default": 3.38,
+      "help": "",
+      "minimum": 1,
+      "maximum": 10
+    }
+  ]
+}

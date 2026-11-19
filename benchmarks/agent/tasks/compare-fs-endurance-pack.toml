@@ -1,0 +1,45 @@
+id = "compare-fs-endurance-pack"
+kind = "compare"
+version = 1
+title = "Pick the accumulator that finishes the endurance event"
+statement = """
+Our Formula Student team must choose an accumulator. car-a.json is design A,
+with the 14 Ah accumulator (chassis 280 kg); car-b.json is design B, with a
+smaller 10 Ah accumulator that saves weight (chassis 262 kg). Everything else
+is the same. The case "Endurance energy" runs the 23-lap endurance event
+(22.5 km) at the 30 kW power cap; an accumulator that runs empty before the
+end is out of the event. Which design completes the event, and what is its
+total time in that case, in s?
+
+End your reply with one line in exactly this form:
+ANSWER: <A or B>; <total time>
+"""
+
+[[start]]
+file = "car-a.json"
+from = "example:fs-electric"
+name = "FS car, 14 Ah"
+ops = [{ op = "set", element = "Vehicle", param = "mass_kg", value = 280 }]
+
+[[start]]
+file = "car-b.json"
+from = "example:fs-electric"
+name = "FS car, 10 Ah"
+ops = [
+  { op = "set", element = "Accumulator", param = "capacity_Ah", value = 10 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 262 },
+]
+
+# The lighter car's "total time" is shorter, but it stops 2 km short.
+[wrong]
+answer = "ANSWER: B; 1296.5"
+
+[[answer]]
+choice = "A"
+options = { A = "car-a.json", B = "car-b.json" }
+best = { case = "Endurance energy", key = "distance_km", pick = "max" }
+
+[[answer]]
+value = 1428.53
+rtol = 0.01
+figure = { file = "car-a.json", case = "Endurance energy", key = "total_time_s" }

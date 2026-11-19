@@ -1,0 +1,139 @@
+{
+  "_about": [
+    "Outside sources of vehicle, cycle, cell, motor, tyre and track data that",
+    "LightSim has looked at, each in one of three classes (BIZ-34):",
+    "  BUNDLE       its data may ship in the installer, with the credit it asks for;",
+    "  USER-IMPORT  never bundled: the user may fetch or import it themselves, on",
+    "               their own terms with its owner (share-alike, EUPL, no licence,",
+    "               members-only);",
+    "  LEARN        read it to learn the method, copy nothing (GPL/LGPL code,",
+    "               non-commercial texts).",
+    "backend/tests/test_data_register.py fails when a BUNDLE source's licence is",
+    "not in data-allowed.txt, and when a shipped row of docs/data-register.csv",
+    "names a USER-IMPORT or LEARN source (any 'match' text in its 'source' column).",
+    "'checked' says where the licence was read; re-check it before data from the",
+    "source first ships. Add a source here before its data reaches a pull request."
+  ],
+  "sources": [
+    {
+      "name": "FASTSim (NREL, now National Laboratory of the Rockies): cycle files, default parameters and the vehicle files inside the fastsim package",
+      "url": "https://github.com/NatLabRockies/fastsim",
+      "licence": "Apache-2.0",
+      "class": "BUNDLE",
+      "match": ["FASTSim"],
+      "checked": "LICENSE and NOTICE of fastsim 2.1.5 (CON-02/CON-03, 2026-09); credited in scripts/licenses/bundled-data.json"
+    },
+    {
+      "name": "FASTSim vehicle database (fastsim-vehicles)",
+      "url": "https://github.com/NatLabRockies/fastsim",
+      "licence": "LicenseRef-NoLicence",
+      "class": "USER-IMPORT",
+      "match": ["fastsim-vehicles"],
+      "checked": "No licence file (docs/DATA-REGISTER.md rule 4); fetch on the user's request only, until NREL/NLR confirms the terms"
+    },
+    {
+      "name": "EPA Test Car List and EPA driving schedules",
+      "url": "https://www.epa.gov/compliance-and-fuel-economy-data/data-cars-used-testing-fuel-economy",
+      "licence": "LicenseRef-US-Gov-PD",
+      "class": "BUNDLE",
+      "match": ["EPA"],
+      "checked": "US Government work (17 U.S.C. 105); EPA's own terms not re-checked, epa.gov unreachable (DATA-REGISTER.md rule 5)"
+    },
+    {
+      "name": "PyBaMM parameter sets",
+      "url": "https://github.com/pybamm-team/PyBaMM",
+      "licence": "BSD-3-Clause",
+      "class": "BUNDLE",
+      "match": ["PyBaMM"],
+      "checked": "Roadmap research, physics helper (2026-09); each parameter set cites a paper: check that the paper's tables are not under other terms"
+    },
+    {
+      "name": "BLAST-Lite battery degradation models (NREL)",
+      "url": "https://github.com/NREL/BLAST-Lite",
+      "licence": "BSD-3-Clause",
+      "class": "BUNDLE",
+      "match": ["BLAST-Lite", "BLAST Lite"],
+      "checked": "Roadmap research, physics helper, primary licence file (2026-09)"
+    },
+    {
+      "name": "Formula Student rulebooks (FSG, FSUK, FSAE): single rule values only",
+      "url": "https://www.formulastudent.de",
+      "licence": "LicenseRef-Facts",
+      "class": "BUNDLE",
+      "match": ["Formula Student Rules"],
+      "checked": "Rule values quoted as facts with the rule number; the rulebook text itself is not copied"
+    },
+    {
+      "name": "VECTO missions and cycles (European Commission)",
+      "url": "https://code.europa.eu/vecto/vecto",
+      "licence": "EUPL-1.2",
+      "class": "USER-IMPORT",
+      "match": ["VECTO"],
+      "checked": "Roadmap research, physics helper, primary licence file (2026-09)"
+    },
+    {
+      "name": "JRC wltp (WLTC generator)",
+      "url": "https://github.com/JRCSTU/wltp",
+      "licence": "EUPL-1.1",
+      "class": "LEARN",
+      "match": ["JRC wltp", "JRCSTU"],
+      "checked": "docs/DATA-REGISTER.md rule 2: re-type regulatory cycles from the regulation's tables, not from this code"
+    },
+    {
+      "name": "About:Energy BPX battery parameter sets",
+      "url": "https://github.com/About-Energy-OpenSource/About-Energy-BPX-Parameterisation",
+      "licence": "CC-BY-SA-4.0",
+      "class": "USER-IMPORT",
+      "match": ["About:Energy", "About-Energy"],
+      "checked": "Roadmap research, physics helper, primary licence file (2026-09)"
+    },
+    {
+      "name": "gaia-charge evdb (electric vehicle database)",
+      "url": "https://github.com/gaia-charge/evdb",
+      "licence": "CC-BY-SA-4.0",
+      "class": "USER-IMPORT",
+      "match": ["evdb", "gaia-charge"],
+      "checked": "Roadmap research, content helper (2026-09)"
+    },
+    {
+      "name": "TUM racetrack-database",
+      "url": "https://github.com/TUMFTM/racetrack-database",
+      "licence": "LGPL-3.0-only",
+      "class": "USER-IMPORT",
+      "match": ["racetrack-database"],
+      "checked": "Roadmap research, content helper (2026-09)"
+    },
+    {
+      "name": "FSAE Tire Test Consortium (TTC) data",
+      "url": "https://www.millikenresearch.com/fsaettc.html",
+      "licence": "LicenseRef-Permission-On-Request",
+      "class": "USER-IMPORT",
+      "match": ["Tire Test Consortium", "TTC"],
+      "checked": "Members-only data under the consortium's own terms (roadmap research, 2026-09); teams import their own copy"
+    },
+    {
+      "name": "OpenLAP lap-time simulator",
+      "url": "https://github.com/mc12027/OpenLAP-Lap-Time-Simulator",
+      "licence": "GPL-3.0-only",
+      "class": "LEARN",
+      "match": ["OpenLAP"],
+      "checked": "Roadmap research, physics helper, primary licence file (2026-09)"
+    },
+    {
+      "name": "TUM laptime-simulation",
+      "url": "https://github.com/TUMFTM/laptime-simulation",
+      "licence": "LGPL-3.0-only",
+      "class": "LEARN",
+      "match": ["laptime-simulation"],
+      "checked": "Roadmap research, physics helper, primary licence file (2026-09)"
+    },
+    {
+      "name": "Modelica by Example (book text and models)",
+      "url": "https://mbe.modelica.university",
+      "licence": "CC-BY-NC-ND-3.0",
+      "class": "LEARN",
+      "match": ["Modelica by Example"],
+      "checked": "Roadmap research, content helper (2026-09)"
+    }
+  ]
+}

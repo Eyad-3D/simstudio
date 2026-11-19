@@ -1,0 +1,23 @@
+[package]
+name = "solver-eval"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license-file = "../../../LICENSE"
+description = "Stage 1 experiment: SUNDIALS (CVODE, IDA) versus diffsol (BDF) on a stiff battery-motor-inertia DAE with a brake event, against the exact answer"
+
+# Not a member of the engine workspace: it pulls in SUNDIALS (C, CMake) only
+# to measure it, and the engine itself must not depend on that build.
+[workspace]
+
+[features]
+default = ["sundials", "diffsol"]
+sundials = ["dep:sundials-sys"]
+diffsol = ["dep:diffsol"]
+
+[dependencies]
+sundials-sys = { version = "=0.6.2", default-features = false, features = ["cvode", "ida", "build_libraries", "static_libraries"], optional = true }
+diffsol = { version = "=0.17.1", default-features = false, features = ["nalgebra", "faer"], optional = true }
+
+[profile.release]
+debug = false

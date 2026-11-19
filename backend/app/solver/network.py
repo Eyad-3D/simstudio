@@ -25,12 +25,18 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
+from .. import cycles
 from ..library import library_by_id
 from ..schemas import ComponentDef, ElementInstance, PortDef, Project
+from .profiles import parse_profile
+from .scaling import inertia_scale
 
 JOINT_TYPES = {"mech.differential", "mech.transfer_case", "mech.clutch"}
 SOURCE_TYPES = {"motor.emotor": "motor", "engine.combustion": "engine"}
-SIGNAL_BLOCK_TYPES = ("signal.script", "control.pid", "signal.lookup", "signal.road_profile")
+# electrical loads a bus serves before its motors (source-limit handshake)
+CONSUMER_TYPES = ("electric.constant_drive", "electric.climate")
+SIGNAL_BLOCK_TYPES = ("signal.script", "control.pid", "signal.lookup", "signal.road_profile",
+                      "control.traction", "signal.fmu")
 # The gears a coast-down in neutral turns with the wheels: road-load
 # coefficients measured that way already hold their drag, so with the
 # Vehicle's "Coefficients Include Driveline Losses" they run lossless.
@@ -48,9 +54,10 @@ NO_DRIVER = "No Driver element — nothing commands the powertrain unless you wi
 class ModelError(Exception):
     """Topology cannot be reduced to a solvable model."""
 
-    def __init__(self, errors: list[str]):
+    def __init__(self, errors: list[str], involved: dict[str, list[str]] | None = None):
         super().__init__("; ".join(errors))
         self.errors = errors
+        self.involved = involved or {}  # text -> the parts it is about
 
 
 @dataclass
@@ -62,6 +69,16 @@ class WheelRef:
     mu: float
     c_slip: float
     c_rr: float
+    axle: str = "Front"  # anything but Rear counts as Front
+    n_load: float = 0.0  # normal load this solver step, N (set by the run)
+    # tyre friction (runtime.tyre_mu): lateral μ (0 = μ), load sensitivity
+    # dμ/dFz per N, nominal load (0 = the static load), friction-ellipse
+    # exponent (lap mode)
+    mu_y: float = 0.0
+    dmu_per_n: float = 0.0
+    fz0: float = 0.0
+    n_ell: float = 2.0
+    fz_static: float = 0.0  # its share of the weight on level ground, N (set by the run)
 
 
 @dataclass
@@ -110,6 +127,11 @@ class GearboxRef:
 @dataclass
 class Segment:
     inertia: float = 0.0  # ΣJ·m² at the reference axis
+    # the rotating masses it is made of: (key, J, m), each turning at m × the
+    # reference axis's speed (its J·m² is in ``inertia``). A gear shift or a
+    # lock toggle carries their angular momentum over to the new plan
+    # (RunContext.carry_over).
+    lumps: list[tuple[str, float, float]] = field(default_factory=list)
     wheels: list[WheelRef] = field(default_factory=list)
     brakes: list[BrakeRef] = field(default_factory=list)
     props: list[PropRef] = field(default_factory=list)
@@ -127,6 +149,11 @@ class Segment:
     out_region: int = 0
     stages: list[Optional[GearStage]] = field(default_factory=lambda: [None])
     stage_order: list[int] = field(default_factory=list)
+
+    def add_inertia(self, key: str, j: float, m: float) -> None:
+        """A rotating mass ``j`` turning at ``m`` × the reference axis's speed."""
+        self.inertia += j * m * m
+        self.lumps.append((key, j, m))
 
     def path_eff(self, region: int) -> float:
         """Efficiency of the way from ``region`` to the segment's output."""
@@ -225,9 +252,43 @@ class Model:
     signal_blocks: list[str]  # Script/PID/Lookup/RoadProfile ids in eval order
     floating_returns: list[str] = field(default_factory=list)  # unwired − terminals
     warnings: list[str] = field(default_factory=list)
+    involved: dict[str, list[str]] = field(default_factory=dict)  # warning -> its parts
     ambient: str | None = None  # the Ambient that sets the air density
+    track: str | None = None  # the Race Track lap cases drive
     # re-extracts a driveline for new gears from the current (live) params_of
     rewalk: Optional[Callable[[Driveline, dict[str, float]], Optional[Driveline]]] = None
+
+
+def _number(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def moves_unpowered(model: "Model") -> bool:
+    """Can the Vehicle move with nothing driving it? It does when it starts
+    with speed to coast down from (its Initial Speed, a case's own value
+    included) or when a slope that can run downhill is wired to its Grade
+    input: a Constant below 0, a typed Road Profile with a downhill point,
+    or a block (Script, Lookup Table, FMU …) that might give one. Data
+    Checks decide it the same way (validation._moves_unpowered)."""
+    veh = model.vehicle
+    if veh is None:
+        return False
+    speed = _number(model.params_of[veh].get("initial_speed_kmh", 0))
+    if speed is not None and speed > 0:
+        return True
+    src = model.signal_route.get((veh, "sig_grade_in"))
+    if src is None:
+        return False
+    kind, p = model.cdef_of[src[0]].id, model.params_of[src[0]]
+    if kind == "signal.constant":
+        value = _number(p.get("value"))
+        return value is not None and value < 0
+    if kind == "signal.road_profile":
+        return any(grade < 0 for _, grade in parse_profile(str(p.get("profile", ""))))
+    return True
 
 
 def resolve_params(el: ElementInstance, cdef: ComponentDef) -> dict:
@@ -269,6 +330,13 @@ def build_model(
     defs = library_by_id()
     errors: list[str] = []
     warnings: list[str] = []
+    involved: dict[str, list[str]] = {}
+
+    def about(text: str, *ids: str | None) -> str:
+        """Note the parts `text` is about (Data Checks select them)."""
+        parts = involved.setdefault(text, [])
+        parts.extend(i for i in ids if i and i not in parts)
+        return text
     gear_of = gear_of or {}
     case_overrides = case_overrides or {}
 
@@ -281,16 +349,57 @@ def build_model(
     for el_id, el in elements.items():
         cdef = defs.get(el.componentDefId)
         if cdef is None:
-            errors.append(f"'{el.label}' references unknown component type '{el.componentDefId}'.")
+            errors.append(about(f"'{el.label}' references unknown component type '{el.componentDefId}'.", el_id))
             continue
         cdef_of[el_id] = cdef
         if el.dynamicPorts and not cdef.allowDynamicPorts:
-            errors.append(f"'{el.label}' has custom ports but '{cdef.name}' does not allow them.")
+            errors.append(about(f"'{el.label}' has custom ports but '{cdef.name}' does not allow them.", el_id))
 
     params_of = {el_id: resolve_params(elements[el_id], cdef) for el_id, cdef in cdef_of.items()}
     for el_id, ov in case_overrides.items():
         if el_id in params_of and isinstance(ov, dict):
             params_of[el_id].update(ov)
+            if "profile" in ov and "cycle" not in ov:  # a case's own profile wins
+                params_of[el_id]["cycle"] = ""
+    # a Driving Task on a drive cycle drives its trace (CON-16); a Road
+    # Profile on one takes the cycle's grade along its distance (CON-11). A
+    # cycle is a bundled one or one of the project's own, whose speed may be
+    # against distance: the task then reads it against distance.
+    catalogue = cycles.Catalogue.of(project)
+    for el_id, cdef in cdef_of.items():
+        if cdef.id not in ("signal.driving_task", "signal.road_profile"):
+            continue
+        cycle_id = str(params_of[el_id].get("cycle") or "")
+        if not cycle_id:
+            continue
+        what = "Driving Task" if cdef.id == "signal.driving_task" else "Road Profile"
+        label = elements[el_id].label
+        if not catalogue.knows(cycle_id):
+            errors.append(about(
+                f"{what} '{label}' uses the drive cycle '{cycle_id}', which is not among "
+                f"this project's own cycles." if cycle_id.startswith(cycles.OWN_PREFIX) else
+                f"{what} '{label}' uses the drive cycle '{cycle_id}', which this version of "
+                f"LightSim does not include.", el_id))
+        elif problems := catalogue.problems(cycle_id):
+            errors.append(about(f"{what} '{label}' uses the drive cycle "
+                                f"'{catalogue.name(cycle_id)}', which cannot be driven: "
+                                f"{'; '.join(problems)}.", el_id))
+        elif cdef.id == "signal.driving_task":
+            if not catalogue.has_speed(cycle_id):
+                errors.append(about(f"Driving Task '{label}' uses the drive cycle "
+                                    f"'{catalogue.name(cycle_id)}', which has a grade but no "
+                                    f"speed; a Road Profile can take its grade.", el_id))
+                continue
+            params_of[el_id]["profile"] = catalogue.profile_text(cycle_id)
+            if catalogue.axis(cycle_id) == "distance":
+                params_of[el_id]["mode"] = "distance"
+        elif not catalogue.has_grade(cycle_id):
+            errors.append(about(f"Road Profile '{label}' takes its grade from the "
+                                f"drive cycle '{catalogue.name(cycle_id)}', which has "
+                                f"no grade; pick a cycle with a grade, or Custom profile.", el_id))
+        else:
+            params_of[el_id]["profile"] = catalogue.grade_profile_text(cycle_id)
+            params_of[el_id]["mode"] = "distance"
     # road load from coefficients that hold the axle's drag: the axle gears
     # run lossless (both settings are fixed, so this holds for the whole run)
     veh_p = next((params_of[e] for e, c in cdef_of.items() if c.id == "vehicle.body"), {})
@@ -360,7 +469,7 @@ def build_model(
     def walk_segment(entries: list[tuple[str, str]], gears: dict[str, float]) -> Segment:
         """Collapse a rigid region into a Segment. `entries` are (el, port)
         vertices on the reference axis (m = 1); joint elements are never
-        crossed. Each lossy element crossed starts a new region
+        crossed. Each gear or shaft crossed starts a new region
         (``Segment.links``); ``Segment.orient`` later points them towards
         the segment's output."""
         seg = Segment()
@@ -381,7 +490,9 @@ def build_model(
             key = (el_id, pid)
             if key in seen_ports or el_id in joint_ids:
                 continue
-            if crossed is not None and crossed < 1.0:  # a lossy element: new region
+            # every gear and shaft crossed starts a new region, lossless ones
+            # too, so the power through each can be told apart (MOD-10)
+            if crossed is not None:
                 seg.links.append((el_id, crossed, region, len(seg.links) + 1))
                 region = len(seg.links)
             seen_ports[key] = region
@@ -397,7 +508,7 @@ def build_model(
 
             if t == "mech.shaft":
                 if first_visit:
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
+                    seg.add_inertia(el_id, float(p.get("inertia_kgm2", 0)), m)
                 other = "flange_b" if pid == "flange_a" else "flange_a"
                 eta = max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0)
                 if (el_id, other) not in seen_ports:
@@ -418,8 +529,8 @@ def build_model(
                     m_in, m_out = m, m / ratio
                     other, m_other = "flange_out", m / ratio
                 if first_visit:
-                    seg.inertia += float(p.get("inertia_in_kgm2", 0)) * m_in * m_in
-                    seg.inertia += float(p.get("inertia_out_kgm2", 0)) * m_out * m_out
+                    seg.add_inertia(f"{el_id}:in", float(p.get("inertia_in_kgm2", 0)), m_in)
+                    seg.add_inertia(f"{el_id}:out", float(p.get("inertia_out_kgm2", 0)), m_out)
                     seg.element_ms[el_id] = m_out  # record output-axis speed
                 if (el_id, other) not in seen_ports:
                     queue.append((el_id, other, m_other, region, eta))
@@ -430,14 +541,14 @@ def build_model(
                         queue.append((el_id, pid2, m, region, None))
                 enqueue_peers(el_id, pid, m, region)
             elif t in SOURCE_TYPES:
-                if first_visit:
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
+                if first_visit:  # (a resized machine's rotor: scaling, MOD-47)
+                    seg.add_inertia(el_id, float(p.get("inertia_kgm2", 0)) * inertia_scale(t, p), m)
                     seg.sources.append(SourceRef(
                         el_id=el_id, kind=SOURCE_TYPES[t], m=m, region=region))
                 enqueue_peers(el_id, pid, m, region)
             elif t == "propulsion.wheel":
                 if first_visit:
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
+                    seg.add_inertia(el_id, float(p.get("inertia_kgm2", 0)), m)
                     seg.wheels.append(WheelRef(
                         el_id=el_id,
                         m=m,
@@ -446,11 +557,16 @@ def build_model(
                         mu=max(0.0, float(p.get("mu", 1.0))),
                         c_slip=max(0.1, float(p.get("slip_stiffness", 10))),
                         c_rr=max(0.0, float(p.get("rolling_resistance", 0.012))),
+                        axle="Rear" if p.get("axle") == "Rear" else "Front",
+                        mu_y=max(0.0, float(p.get("mu_lateral", 0))),
+                        dmu_per_n=float(p.get("mu_load_sensitivity_per_kN", 0)) / 1000.0,
+                        fz0=max(0.0, float(p.get("mu_nominal_load_N", 0))),
+                        n_ell=max(1.0, float(p.get("friction_ellipse_exponent", 2))),
                     ))
                 enqueue_peers(el_id, pid, m, region)
             elif t == "mech.brake":
                 if first_visit:
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
+                    seg.add_inertia(el_id, float(p.get("inertia_kgm2", 0)), m)
                     seg.brakes.append(BrakeRef(
                         el_id=el_id, m=m,
                         max_torque=max(0.0, float(p.get("max_torque_Nm", 0))),
@@ -458,7 +574,7 @@ def build_model(
                 enqueue_peers(el_id, pid, m, region)
             elif t == "propulsion.propeller":
                 if first_visit:
-                    seg.inertia += float(p.get("inertia_kgm2", 0)) * m * m
+                    seg.add_inertia(el_id, float(p.get("inertia_kgm2", 0)), m)
                     seg.props.append(PropRef(
                         el_id=el_id, m=m,
                         t_ref=max(0.0, float(p.get("torque_ref_Nm", 0))),
@@ -511,13 +627,13 @@ def build_model(
                 pa = mech_adj.get((j_el, "flange_a"), [])
                 pb = mech_adj.get((j_el, "flange_b"), [])
                 if not pa or not pb:
-                    errors.append(f"Clutch '{elements[j_el].label}' needs both flanges connected.")
+                    errors.append(about(f"Clutch '{elements[j_el].label}' needs both flanges connected.", j_el))
                     ok = False
                     continue
                 sa, sb = segment_for(pa[0]), segment_for(pb[0])
                 if sa == sb:
-                    errors.append(f"Clutch '{elements[j_el].label}' short-circuits a rigid "
-                                  f"segment — that loop is not supported.")
+                    errors.append(about(f"Clutch '{elements[j_el].label}' short-circuits a rigid "
+                                        f"segment — that loop is not supported.", j_el))
                     ok = False
                     continue
                 dl.joints.append(Joint(
@@ -534,14 +650,14 @@ def build_model(
                 pa = mech_adj.get((j_el, "flange_out_a"), [])
                 pb = mech_adj.get((j_el, "flange_out_b"), [])
                 if not pa or not pb:
-                    errors.append(f"'{elements[j_el].label}' needs both outputs connected.")
+                    errors.append(about(f"'{elements[j_el].label}' needs both outputs connected.", j_el))
                     ok = False
                     continue
                 sa, sb = segment_for(pa[0]), segment_for(pb[0])
                 sp = segment_for(pin[0]) if pin else -1
                 if sa == sb or sa == sp or sb == sp:
-                    errors.append(f"'{elements[j_el].label}' outputs reconnect mechanically "
-                                  f"— that loop is not supported.")
+                    errors.append(about(f"'{elements[j_el].label}' outputs reconnect mechanically "
+                                        f"— that loop is not supported.", j_el))
                     ok = False
                     continue
                 f_b = 0.5
@@ -563,8 +679,9 @@ def build_model(
                 )
                 # split carrier inertia lives on the input axis of its parent segment
                 if sp >= 0:
-                    dl.segments[sp].inertia += (float(p.get("inertia_kgm2", 0))
-                                                * joint.parent_m ** 2)
+                    j_carrier = float(p.get("inertia_kgm2", 0))
+                    dl.segments[sp].inertia += j_carrier * joint.parent_m ** 2
+                    dl.segments[sp].lumps.append((j_el, j_carrier, joint.parent_m))
                     split_in.setdefault(sp, pin[0])
                 dl.joints.append(joint)
         if not ok:
@@ -615,9 +732,11 @@ def build_model(
                 parent_count[j.parent_seg] += 1
         for seg_idx, n in parent_count.items():
             if n > 1:
-                errors.append("A rigid section feeds the input of two splits "
-                              "(differential/transfer case) — that is kinematically "
-                              "over-constrained and not supported.")
+                errors.append(about("A rigid section feeds the input of two splits "
+                                    "(differential/transfer case) — that is kinematically "
+                                    "over-constrained and not supported.",
+                                    *(j.el_id for j in dl.joints
+                                      if j.kind == "split" and j.parent_seg == seg_idx)))
         return dl
 
     drivelines: list[Driveline] = []
@@ -703,25 +822,26 @@ def build_model(
             bus = positive_bus(el_id)
             if bus is not None:
                 if bus.battery:
-                    errors.append(f"Bus has two batteries ('{label}' and "
-                                  f"'{elements[bus.battery].label}') — not supported yet.")
+                    errors.append(about(f"Bus has two batteries ('{label}' and "
+                                        f"'{elements[bus.battery].label}') — not supported yet.",
+                                        el_id, bus.battery))
                 else:
                     bus.battery = el_id
         elif t == "electric.voltage_source":
             bus = positive_bus(el_id)
             if bus is not None:
                 if bus.vsource:
-                    errors.append("Bus has two voltage sources — not supported.")
+                    errors.append(about("Bus has two voltage sources — not supported.", el_id, bus.vsource))
                 else:
                     bus.vsource = el_id
         elif t == "fuelcell.stack":
             bus = positive_bus(el_id)
             if bus is not None:
                 if bus.fuelcell:
-                    errors.append("Bus has two fuel cells — not supported yet.")
+                    errors.append(about("Bus has two fuel cells — not supported yet.", el_id, bus.fuelcell))
                 else:
                     bus.fuelcell = el_id
-        elif t == "electric.constant_drive":
+        elif t in CONSUMER_TYPES:
             bus = positive_bus(el_id)
             if bus is not None:
                 bus.consumers.append(el_id)
@@ -740,8 +860,8 @@ def build_model(
     for bus in buses:
         primary = [s for s in (bus.battery, bus.vsource, bus.fuelcell) if s]
         if len(primary) > 1:
-            errors.append("A bus with more than one primary source (battery / voltage "
-                          "source / fuel cell) is not supported.")
+            errors.append(about("A bus with more than one primary source (battery / voltage "
+                                "source / fuel cell) is not supported.", *primary))
 
     # solve order: a bus supplied by a DC-DC must be solved before the bus
     # the DC-DC draws from (its demand becomes load there)
@@ -762,7 +882,8 @@ def build_model(
     while pending:
         ready = [b for b in pending if not (deps[b.id] - {o.id for o in order})]
         if not ready:
-            errors.append("DC-DC converters form a loop between buses — not supported.")
+            errors.append(about("DC-DC converters form a loop between buses — not supported.",
+                                *(d for b in pending for d in (*b.dcdc_in, *b.dcdc_out))))
             order.extend(pending)
             break
         for b in ready:
@@ -773,32 +894,39 @@ def build_model(
     def single(type_id: str, what: str) -> str | None:
         found = [el_id for el_id, cdef in cdef_of.items() if cdef.id == type_id]
         if len(found) > 1:
-            errors.append(f"Only one {what} element per model is supported.")
+            errors.append(about(f"Only one {what} element per model is supported.", *found))
         return found[0] if found else None
 
     vehicle = single("vehicle.body", "Vehicle")
     driver = single("driver.driver", "Driver")
     fuel_tank = single("fuel.tank", "Fuel Tank")
     h2_tank = single("fuel.h2_tank", "Hydrogen Tank")
+    track = single("track.lap", "Race Track")
     # several Ambients (0.2.0 placeholders) still run: the first one counts
     ambients = [el_id for el_id, cdef in cdef_of.items() if cdef.id == "boundary.ambient"]
     if len(ambients) > 1:
-        warnings.append(f"Only the first Ambient ('{elements[ambients[0]].label}') sets the "
-                        f"air density; the others are ignored.")
+        warnings.append(about(f"Only the first Ambient ('{elements[ambients[0]].label}') sets the "
+                              f"air density; the others are ignored.", *ambients))
 
     any_wheels = any(seg.wheels for dl in drivelines for seg in dl.segments)
     if any_wheels and not vehicle:
-        warnings.append(NO_VEHICLE)
+        warnings.append(about(NO_VEHICLE, *(w.el_id for dl in drivelines
+                                            for seg in dl.segments for w in seg.wheels)))
     if vehicle and not any_wheels:
-        warnings.append(NO_WHEELS)
-    if vehicle and any_wheels and not driver:
-        warnings.append(NO_DRIVER)
+        warnings.append(about(NO_WHEELS, vehicle))
+    # (no Driver is needed where every E-Motor's and Engine's command is wired)
+    demands = [(el_id, "sig_demand_in" if cdef.id == "motor.emotor" else "sig_throttle_in")
+               for el_id, cdef in cdef_of.items() if cdef.id in SOURCE_TYPES]
+    if vehicle and any_wheels and not driver and not all(d in signal_route for d in demands):
+        warnings.append(about(NO_DRIVER, vehicle))
     has_engine = any(cdef.id == "engine.combustion" for cdef in cdef_of.values())
     if has_engine and not fuel_tank:
-        warnings.append("Combustion engine without a Fuel Tank — running on infinite fuel.")
+        warnings.append(about("Combustion engine without a Fuel Tank — running on infinite fuel.",
+                              *(e for e, c in cdef_of.items() if c.id == "engine.combustion")))
     has_fc = any(cdef.id == "fuelcell.stack" for cdef in cdef_of.values())
     if has_fc and not h2_tank:
-        warnings.append("Fuel cell without a Hydrogen Tank — running on infinite hydrogen.")
+        warnings.append(about("Fuel cell without a Hydrogen Tank — running on infinite hydrogen.",
+                              *(e for e, c in cdef_of.items() if c.id == "fuelcell.stack")))
 
     # ---- signal-block evaluation order ---------------------------------------
     block_ids = [el_id for el_id, cdef in cdef_of.items()
@@ -811,15 +939,22 @@ def build_model(
     remaining = set(block_ids)
     while remaining:
         ready_s = sorted(s for s in remaining if not (block_deps[s] & remaining))
-        if not ready_s:  # cycle: evaluate in stable order with one-step delay
-            warnings.append("Signal blocks form a loop — resolved with a one-step delay.")
-            ready_s = sorted(remaining)
+        if not ready_s:
+            # a loop (VAL-17): run the first loop whose inputs come from
+            # nothing else still waiting, its blocks in a stable order, so a
+            # value going back round the loop arrives one solver step late
+            loop = next(c for c in signal_loops(remaining, block_deps)
+                        if not (set().union(*(block_deps[s] for s in c)) & remaining) - set(c))
+            ready_s = sorted(loop)
+            warnings.append(about(loop_warning(ready_s, block_deps,
+                                               {s: elements[s].label for s in ready_s}),
+                                  *ready_s))
         for s in ready_s:
             ordered.append(s)
             remaining.discard(s)
 
     if errors:
-        raise ModelError(errors)
+        raise ModelError(errors, involved)
 
     return Model(
         elements=elements,
@@ -835,6 +970,56 @@ def build_model(
         signal_blocks=ordered,
         floating_returns=floating_returns,
         warnings=warnings,
+        involved=involved,
         ambient=ambients[0] if ambients else None,
+        track=track,
         rewalk=lambda dl, gears: extract_driveline(set(dl.element_group), gears, []),
     )
+
+
+def signal_loops(nodes: set[str], deps: dict[str, set[str]]) -> list[list[str]]:
+    """The loops among ``nodes`` (strongly connected groups of two or more
+    blocks, or one that feeds itself), each sorted, in a stable order.
+    ``deps[a]`` holds the blocks whose outputs ``a`` reads."""
+    index: dict[str, int] = {}
+    low: dict[str, int] = {}
+    stack: list[str] = []
+    on_stack: set[str] = set()
+    loops: list[list[str]] = []
+
+    def visit(v: str) -> None:  # Tarjan; a model has a handful of blocks
+        index[v] = low[v] = len(index)
+        stack.append(v)
+        on_stack.add(v)
+        for w in sorted(deps[v] & nodes):
+            if w not in index:
+                visit(w)
+                low[v] = min(low[v], low[w])
+            elif w in on_stack:
+                low[v] = min(low[v], index[w])
+        if low[v] == index[v]:
+            group = []
+            while True:
+                w = stack.pop()
+                on_stack.discard(w)
+                group.append(w)
+                if w == v:
+                    break
+            if len(group) > 1 or v in deps[v]:
+                loops.append(sorted(group))
+
+    for v in sorted(nodes):
+        if v not in index:
+            visit(v)
+    return sorted(loops)
+
+
+def loop_warning(order: list[str], deps: dict[str, set[str]], label: dict[str, str]) -> str:
+    """What a signal loop does, in words: its blocks, the order they run in
+    and which values arrive a step late."""
+    late = [f"'{label[a]}' reads '{label[b]}'" for i, a in enumerate(order)
+            for b in sorted(deps[a] & set(order)) if order.index(b) >= i]
+    names = ", ".join(f"'{label[s]}'" for s in order)
+    return (f"Signal blocks {names} form a loop. Every solver step they run in this order, "
+            f"and LightSim inserts a one-step delay (at most 10 ms) where {'; '.join(late)}: "
+            f"that value is the one from the step before.")

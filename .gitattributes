@@ -1,0 +1,11 @@
+# Data files are checked out byte for byte on every platform. Windows
+# checkouts turn LF into CRLF in text files, which changed the SHA-256
+# fingerprints of the drive cycles (CON-04) and so the data a Windows build
+# ships.
+*.csv -text
+# The vendored CORE-MATH sources too: their SHA-256 sums are recorded
+# (engine/crates/lsim-math/core-math/SHA256SUMS).
+engine/crates/lsim-math/core-math/** -text
+# The Script runner's edge cases: some hold carriage returns on purpose, and
+# both runners must read them as written.
+engine/crates/lsim-script/tests/cases/** -text

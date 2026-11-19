@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Download, FlaskConical, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Download, FlaskConical, LayoutGrid, X } from "lucide-react";
 import { confirmDialog } from "../../dialog";
-import { useProjectStore } from "../../store/projectStore";
+import { openStudyCharts, useProjectStore } from "../../store/projectStore";
 import type { Study, StudyPoint } from "../../types";
-import { csvText } from "./csv";
+import { checkReference, gapText } from "../../references";
+import { csvBlob } from "./csv";
+import { GradeChip } from "./ExpectedValues";
 
 const NO_STUDIES: Study[] = [];
 
@@ -23,7 +25,7 @@ function defaultKpi(study: Study): string {
 
 /** Download a study's whole table: a row per point with its value, status,
  *  run id and every summary value. */
-function exportStudyCsv(study: Study) {
+export function exportStudyCsv(study: Study) {
   const header = [
     ...study.factors.map((f) => `${f.elementLabel} ${f.paramLabel}${f.unit ? ` [${f.unit}]` : ""}`),
     "status",
@@ -36,7 +38,7 @@ function exportStudyCsv(study: Study) {
     p.runId ?? "",
     ...study.kpis.map((k) => (k.label in p.kpis ? String(p.kpis[k.label]) : "")),
   ]);
-  const url = URL.createObjectURL(new Blob([csvText([header, ...rows])], { type: "text/csv" }));
+  const url = URL.createObjectURL(csvBlob([header, ...rows]));
   const a = document.createElement("a");
   a.href = url;
   a.download = `lightsim-study-${study.factors[0]?.paramKey ?? "sweep"}-${study.id}.csv`;
@@ -47,6 +49,10 @@ function exportStudyCsv(study: Study) {
 function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onToggle: () => void }) {
   const removeStudy = useProjectStore((s) => s.removeStudy);
   const [kpi, setKpi] = useState(() => defaultKpi(study));
+  // the case's expected value for this result, if it has one (VAL-35)
+  const ref = useProjectStore(
+    (s) => s.project?.cases.find((c) => c.id === study.caseId)?.references?.find((r) => r.kpi === kpi),
+  );
   const factor = study.factors[0];
   const kpiUnit = study.kpis.find((k) => k.label === kpi)?.unit;
   const when = new Date(study.startedAt).toLocaleString();
@@ -65,12 +71,20 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
           {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
           <span className="min-w-0 flex-1">
             <span className="block truncate font-medium">
-              {factor.elementLabel} · {factor.paramLabel}
+              {study.factors.map((f) => `${f.elementLabel} · ${f.paramLabel}`).join(" × ")}
             </span>
             <span className="block truncate text-[10px] text-[color:var(--ss-text-dim)]">
               {complete.length} of {study.points.length} complete · {when}
             </span>
           </span>
+        </button>
+        <button
+          className="ss-toolbtn"
+          title="Show this study's charts on the Results page: each result against the swept value"
+          aria-label="Study charts"
+          onClick={() => openStudyCharts(study.id)}
+        >
+          <LayoutGrid size={12} />
         </button>
         <button
           className="ss-toolbtn"
@@ -98,6 +112,16 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
         <div className="border-t border-[color:var(--ss-border)] px-1.5 py-1">
           <div className="mb-1 text-[10px] text-[color:var(--ss-text-dim)]">
             Case '{study.caseName}' · {factor.values.length} value(s)
+            {study.workers && study.wallS != null && (
+              <>
+                {" "}
+                · {study.workers} at a time, {study.wallS.toFixed(1)} s
+                {(() => {
+                  const sum = study.points.reduce((t, p) => t + (p.wallS ?? 0), 0);
+                  return sum > 0 ? ` (${(sum / study.wallS).toFixed(1)}× faster than one after another)` : "";
+                })()}
+              </>
+            )}
           </div>
           {study.kpis.length > 0 && (
             <label className="mb-1 flex items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]">
@@ -116,10 +140,14 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
             <thead>
               <tr>
                 <th className="ss-th text-right">
-                  {factor.paramLabel}
-                  {factor.unit ? ` [${factor.unit}]` : ""}
+                  {study.factors.map((f) => `${f.paramLabel}${f.unit ? ` [${f.unit}]` : ""}`).join(", ")}
                 </th>
                 <th className="ss-th text-right">{kpiUnit ? `[${kpiUnit}]` : "Value"}</th>
+                {ref && (
+                  <th className="ss-th" title={`Gap to the expected ${ref.value.toLocaleString()}${kpiUnit ? ` ${kpiUnit}` : ""}${ref.source ? ` (${ref.source})` : ""}`}>
+                    Expected
+                  </th>
+                )}
                 <th className="ss-th">Status</th>
               </tr>
             </thead>
@@ -131,11 +159,23 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
                   <tr key={i} title={p.runId ? `run ${p.runId}` : undefined}>
                     <td className="ss-td text-right font-mono">{p.values.join(", ")}</td>
                     <td
-                      className={`ss-td text-right font-mono ${notValid ? "text-amber-600" : ""}`}
+                      className={`ss-td text-right font-mono ${notValid ? "text-[color:var(--ss-warn)]" : ""}`}
                       title={notValid ? `Not valid: ${notValid}` : undefined}
                     >
                       {typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "—"}
                     </td>
+                    {ref && (
+                      <td className="ss-td whitespace-nowrap">
+                        {(() => {
+                          const c = checkReference(ref, typeof v === "number" ? v : undefined, kpiUnit ?? "", notValid);
+                          return (
+                            <>
+                              <GradeChip check={c} /> <span className="font-mono">{gapText(c)}</span>
+                            </>
+                          );
+                        })()}
+                      </td>
+                    )}
                     <td
                       className={`ss-td ${p.status === "success" && !p.incomplete ? "" : "text-[color:var(--ss-text-dim)]"}`}
                     >
@@ -152,11 +192,11 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
   );
 }
 
-/** Studies saved with the project (STU-03), newest first and the newest
+/** The project's studies (STU-03), kept with its runs (PLT-34), newest first and the newest
  *  opened: each sweep's definition and its results table, a row per point.
  *  Nothing is shown before the first study. */
 export function StudiesList() {
-  const studies = useProjectStore((s) => s.project?.studies ?? NO_STUDIES);
+  const studies = useProjectStore((s) => s.studies ?? NO_STUDIES);
   const [toggled, setToggled] = useState<Record<string, boolean>>({});
   if (studies.length === 0) return null;
   const newest = studies[studies.length - 1].id;
@@ -167,8 +207,8 @@ export function StudiesList() {
         <FlaskConical size={12} /> Saved studies ({studies.length})
       </div>
       <p className="mb-2 text-[11px] text-[color:var(--ss-text-dim)]">
-        Each sweep is kept with the project with its table of results, also after its runs leave the
-        Results history. Save the project to keep new studies on disk.
+        Each sweep is kept with the project&apos;s runs with its table of results, also after its runs
+        leave the Results history. Running a sweep does not change the model file.
       </p>
       {[...studies].reverse().map((st) => {
         const open = toggled[st.id] ?? st.id === newest;

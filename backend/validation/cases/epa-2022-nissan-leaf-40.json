@@ -1,0 +1,100 @@
+{
+  "id": "epa-2022-nissan-leaf-40",
+  "version": 1,
+  "name": "2022 Nissan Leaf (40 kWh)",
+  "mode": "blind",
+  "mode_note": "No input was tuned to the EPA results: the road load, test weight and gearing are EPA's own test data, the powertrain values are FASTSim's published vehicle file, and the conversions are the suite's fixed rules (README.md).",
+  "cycles": {
+    "udds": "87e6efeecfeeac9532f55077f9f37cec2bb2a8345cf2746b0dea2fe6d8b7ca6c",
+    "hwfet": "5a3e46e1a34ef3531c779988a7cc07ecb62f144390f2ec5b39572f02141f36c8"
+  },
+  "target": {
+    "what": "EPA unadjusted energy at the wall socket, charging losses included",
+    "udds_mpge": 175.6,
+    "hwfet_mpge": 141.2,
+    "source": "fueleconomy-gov",
+    "fueleconomy_gov_id": 44446,
+    "repeat_tests": {
+      "udds": [
+        [
+          "JNSX10050525",
+          174.0
+        ],
+        [
+          "JNSX10050514",
+          177.1
+        ]
+      ],
+      "hwfet": [
+        [
+          "JNSX10050513",
+          141.1
+        ],
+        [
+          "JNSX10050515",
+          141.3
+        ]
+      ]
+    },
+    "repeat_tests_source": "epa-test-car-list-2022"
+  },
+  "tolerance_pct": 15,
+  "epa": {
+    "test_weight_lb": 3875,
+    "target_abc_lbf": [
+      25.89,
+      0.3449,
+      0.01945
+    ],
+    "set_abc_lbf": [
+      5.62,
+      0.3104,
+      0.01777
+    ],
+    "n_per_v_rpm_per_mph": 112.5,
+    "drive": "2-Wheel Drive, Front",
+    "source": "epa-test-car-list-2022"
+  },
+  "fastsim": {
+    "motor_kW": 110.0,
+    "battery_kWh": 40.0,
+    "battery_max_kW": 110.0,
+    "wheel_radius_m": 0.336,
+    "aux_kW": 0.25,
+    "charger_efficiency": 0.86,
+    "regen_pct": 98,
+    "motor_efficiency": {
+      "power_out_pct": [
+        0,
+        2,
+        4,
+        6,
+        8,
+        10,
+        20,
+        40,
+        60,
+        80,
+        100
+      ],
+      "efficiency_pct": [
+        84,
+        86,
+        88,
+        90,
+        91,
+        92,
+        94,
+        95,
+        95,
+        94,
+        93
+      ]
+    },
+    "source": "fastsim-f2-vehicles",
+    "file": "2016 Nissan Leaf 30 kWh.yaml"
+  },
+  "notes": [
+    "FASTSim has no 40 kWh Leaf file: the efficiency curve, auxiliaries, charger and wheel radius are its 2016 Leaf 30 kWh's; the motor power (110 kW) and battery size (40 kWh) are the 2022 car's from fueleconomy.gov (evMotor, model name), and the battery's power limit is the motor's."
+  ]
+}

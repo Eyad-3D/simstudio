@@ -1,0 +1,173 @@
+# Command-line tool
+
+The `lightsim` command runs, checks and reads LightSim models from a
+terminal, a script or a continuous-integration (CI) pipeline, without
+opening the app. It runs the model inside its own process: no window, no
+server, nothing on the network. The [Python API](python-api.md) does the
+same from Python.
+
+## Where it is
+
+- **From the repository**: in `backend/`, with Python 3.11 or newer and
+  `pip install -r requirements.txt`, run `python -m lightsim …`.
+- **In the desktop app**: the engine program,
+  `resources\backend\lightsim-backend.exe` in the folder LightSim is
+  installed in, takes the same commands except four, which are the
+  engine's own and take other options: `run` and `export` write the
+  app's MAT-file or the engine's CSV (and `export` the run card), `params`
+  exports and imports the parameter sheet, and `import-table` reads a
+  table from a file (see
+  [Use results in MATLAB and Python](../how-to/use-results-in-matlab-and-python.md#the-same-from-the-command-line),
+  and `lightsim-backend run --help`). Run the others as
+  `lightsim-backend check …`.
+
+The examples below write `lightsim`; use whichever of these you have
+(with the engine program, for every command but those four).
+
+## Commands
+
+| Command | Does |
+|---|---|
+| `lightsim run PROJECT [--case NAME]` | Runs a case (the first if none is named) and prints its summary |
+| `lightsim check PROJECT` | Runs the Data Checks (the *Problems* list). `--strict` fails on warnings too |
+| `lightsim edit PROJECT [--set P.K=V] [--op JSON] [--ops JSON] [-o FILE] [--reason TEXT] [--session ID] [--client NAME]` | Applies changes (the AI plug's `model_edit` operations) and saves. In place it keeps each version it replaces in `<file>-backups` (the newest 20), so any recent one can be restored. The save is one step in the project's history, with `--reason`: the open LightSim window shows it at once, and one click undoes it or the whole session. A session is `--session`, else `LIGHTSIM_SESSION`, else Claude Code's session, else the session of the file's last `lightsim edit` if that named none either and was less than 15 minutes ago with no other save between (so the edits of an agent whose tool starts a new shell for each command undo together); `--client` (else `LIGHTSIM_CLIENT`, else `AI_AGENT`) names who edits. A save from the app between the read and the write is not overwritten: the changes are applied again to the newer file |
+| `lightsim export RUN -o FILE` | Writes a stored run (`.json.gz` from the app's runs folder, or `.json`) as CSV, MAT, JSON or Parquet |
+| `lightsim show PROJECT` | Lists the project's cases and parts, with their ids |
+| `lightsim params PROJECT [--part LABEL]` | Lists the parameter values, as `Part.key = value unit` |
+| `lightsim parts [TYPE]` | Lists the part types of the library, or one type's parameters and ports |
+| `lightsim examples` | Lists the examples that come with LightSim |
+| `lightsim schema [NAME] [--out DIR]` | Prints or writes the JSON Schemas of the [file formats](../../spec/README.md) |
+| `lightsim notebook PROJECT [-o FILE]` | Writes a Jupyter notebook that runs the project and plots its results |
+| `lightsim ai …` | Shows or changes what AI assistants may do: [AI access](#ai-access) |
+| `lightsim version` | The version of LightSim, its Python API and its file formats |
+
+`PROJECT` is a project file, or an example id (`bev-car`, `hybrid-car`,
+`fs-electric`). Every command takes `--json` to print JSON instead of
+text, and `-h` for its options.
+
+A file that `run`, `export`, `schema` or `notebook --force` writes over is
+kept as it was in `<file>-backups` beside it (the newest 20, and the file
+as it was before the session first wrote over it: the session is
+`LIGHTSIM_SESSION`, else Claude Code's, else one per day), so it can be put
+back. They never write over a LightSim project, and neither they nor
+`edit` write in a folder LightSim keeps for a project (`<file>-backups`,
+`<file>-runs`, `<file>-resources`, a projects folder's `.backups`, `runs`
+and `resources`, `.ai`): the command stops with exit code 3 (use `edit` to
+change a project).
+
+`run` also takes:
+
+| Option | Does |
+|---|---|
+| `--case NAME`, `-c` | The case, by name or id |
+| `--all-cases` | Runs every case; put `{case}` in each `--out` name |
+| `--out FILE`, `-o` | Writes the results: `.csv`, `.mat` (MATLAB, Octave), `.json` or `.parquet` (Parquet needs `pip install pyarrow`, so the Python package's `lightsim` writes it and the app's own engine does not); repeat for several |
+| `--set PART.KEY=VALUE` | Changes a value for this run only, with its unit: `--set "Vehicle.mass_kg=1.9 t"`. It also replaces the case's own value, if the case sets one |
+| `--no-check` | Skips the Data Checks |
+| `--time-limit S` | Stops the run after S seconds of wall-clock time |
+
+The files' contents are described in
+[Runs and results](../../spec/results.md#exports).
+
+**Script blocks and FMUs.** `run`, and the engine program's own `run`,
+work hands-off, as the connection for AI apps does
+([AI access](#ai-access)): a project's Script blocks and FMUs run in an
+OS sandbox, with access to the project's folder only and the network held
+off — a Script can open no connection, and an FMU's native code is held
+off by the OS ([Known issues](../../KNOWN-LIMITS.md) has the per-platform
+detail) — and a script nobody approved runs there with no **Run scripts**
+approval.
+Where that sandbox cannot be set up, the run is refused with the code
+`sandbox_unavailable`. The tool cannot tell an AI agent from a person,
+and an agent must never wait on a person, so this holds for every run.
+To run with the app's rules instead (only scripts you approved in the
+app, the app's isolation), set the environment variable
+`LIGHTSIM_STRICT_SANDBOX=0`.
+
+## Exit codes
+
+| Code | Means |
+|---|---|
+| 0 | Done: the checks passed, or the run is a *success* with every figure valid |
+| 1 | The Data Checks found an error (`check`, or `run` before it started) |
+| 2 | The run finished but is not valid: *warning*, *failed* or *cancelled*, or a figure is marked not valid |
+| 3 | A usage or file error: an unknown option, or a file, case, part or unit that does not exist or fit |
+
+## Examples
+
+```text
+lightsim run bev-car --case "City Cycle"
+lightsim run my-car.json --all-cases --out "results/{case}.csv"
+lightsim run my-car.json --case WLTC --set "Vehicle.mass_kg=1900 kg" --json
+lightsim check my-car.json --strict
+lightsim export runs/my-car/run-1.json.gz -o run-1.mat
+```
+
+In a CI pipeline, a failing check or an invalid run stops the job:
+
+```text
+lightsim check my-car.json && lightsim run my-car.json --all-cases --out "out/{case}.json"
+```
+
+## AI access
+
+AI assistants reach your projects only under rules you set. They start
+**off**. Two things read these settings: the connection for AI apps
+(`lightsim-backend mcp`, the MCP server) before every tool call, and Python
+code that goes through `lightsim.ai_access.AgentSession`, when it starts a
+session. Other Python code (`import lightsim`, `lightsim run`) does not
+read them.
+
+| Command | Does |
+|---|---|
+| `lightsim ai status` | Shows the rules |
+| `lightsim ai on`, `lightsim ai off` | Turns AI access on or off |
+| `lightsim ai allow FOLDER`, `… disallow FOLDER` | Lets AI tools see the projects in a folder, or stops it. They see nothing else (the examples excepted) |
+| `lightsim ai block PROJECT`, `… unblock PROJECT` | Hides one project from AI tools, whatever folder it is in (sets `"noAi": true` in the file) |
+| `lightsim ai trust PROJECT`, `… untrust PROJECT` | Puts this project on, or takes it off, the trust list that `AgentSession` reads before it runs the project's Script blocks. The connection for AI apps does not read the list. Changing a script, or a value of a Script block, takes the trust away, also when only one case sets it |
+| `lightsim ai log [-n N]` | The last calls made through `AgentSession`. An AI app's calls are in `.ai/audit.jsonl` in your projects folder; the AI access tab of *Connect AI* lists both |
+
+An agent works hands-off: the connection never asks you to confirm (the
+owner's decision, 1 November 2026). What an AI app can do once access is on:
+
+- **Read** an allowed project, check it, and read its results. LightSim
+  asks you nothing.
+- **Run** a case. A run stops after 300 s. It runs a project with Script
+  blocks or FMUs in an OS sandbox: access to the project's folder only, and
+  no network — a Script can open none, and an FMU's native code is held off
+  by the OS ([Known issues](../../KNOWN-LIMITS.md) has the per-platform
+  detail; on Windows the sandbox is an AppContainer). When that sandbox
+  cannot be set up — on Linux older than 5.13, or on a Windows computer
+  that cannot make the AppContainer — the run is refused
+  with the code `sandbox_unavailable` rather than run less safely. The trust
+  list above plays no part, and a brand-new script the assistant writes runs
+  in the sandbox without the app's **Run scripts** approval — the sandbox is
+  the safety.
+- **Change** a project: with model_edit's dry run off the edit is saved
+  straight away, and is recoverable (an example saved as a new project, the
+  previous version kept as a backup). Each edit it saves to a project is
+  one step in the project's history, with the `reason` it gives: the open
+  LightSim window shows it at once, and one click undoes it or the agent's
+  whole session (one connection of the AI app).
+
+The command-line tool is hands-off as well: `lightsim run`, and the
+engine program's `lightsim-backend run`, hold every run to the same OS
+sandbox, with no **Run scripts** approval, or refuse the run where that
+sandbox cannot be set up (they cannot tell an agent from a person; see
+*Script blocks and FMUs* above). `LIGHTSIM_STRICT_SANDBOX=0` gives a
+person the app's rules instead; an agent gains nothing by it, since a
+script must then be approved in the app.
+
+Python code that goes through `AgentSession` sees the same folders, the
+same `"noAi"` mark and the same time cap, and runs a project with Script
+blocks only if you trusted the project with `lightsim ai trust`.
+
+Labels, descriptions and script text from your projects reach the AI as
+quoted data, not as instructions. Each tool call an AI app makes, done or
+not, is written to `.ai/audit.jsonl` in your projects folder, except a run
+sent as a task (a long run the AI app checks on) that LightSim refuses
+before it starts, and a call LightSim cannot read, such as one of a tool
+it does not have. Every call through `AgentSession` goes to
+`ai-audit.jsonl` next to the settings file (`ai-access.json` in
+`%APPDATA%\LightSim` on Windows, `~/.config/LightSim` on Linux). The logs
+never leave your computer.

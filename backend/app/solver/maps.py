@@ -11,10 +11,13 @@ module so behavior cannot drift between components.
 """
 from __future__ import annotations
 
+from bisect import bisect_left
 from dataclasses import dataclass
+from operator import itemgetter
 
 Points1D = list[tuple[float, float]]
 Sheets2D = list[tuple[float, Points1D]]
+_X = itemgetter(0)  # a point's or a sheet's key
 
 
 class TableError(ValueError):
@@ -75,13 +78,7 @@ def interp1(points: Points1D, x: float, linear: bool = False) -> float:
         return points[-1][1]
     # bisection for the first point at or beyond x: it ends the segment that
     # holds x (an interior grid point belongs to the segment it ends)
-    lo, hi = 1, len(points) - 1
-    while lo < hi:
-        mid = (lo + hi) // 2
-        if points[mid][0] < x:
-            lo = mid + 1
-        else:
-            hi = mid
+    lo = bisect_left(points, x, 1, len(points) - 1, key=_X)
     xa, ya = points[lo - 1]
     xb, yb = points[lo]
     if xb == xa:
@@ -105,13 +102,7 @@ def interp2(sheets: Sheets2D, x_outer: float, x_inner: float,
             return interp1(sheets[edge][1], x_inner, lin_inner)
         lo = 1 if edge == 0 else len(sheets) - 1  # extend the edge pair of sheets
     else:
-        lo, hi = 1, len(sheets) - 1  # bisection, as in interp1
-        while lo < hi:
-            mid = (lo + hi) // 2
-            if sheets[mid][0] < x_outer:
-                lo = mid + 1
-            else:
-                hi = mid
+        lo = bisect_left(sheets, x_outer, 1, len(sheets) - 1, key=_X)  # as in interp1
     xa, pa = sheets[lo - 1]
     xb, pb = sheets[lo]
     ya = interp1(pa, x_inner, lin_inner)
@@ -119,6 +110,12 @@ def interp2(sheets: Sheets2D, x_outer: float, x_inner: float,
     if xb == xa:
         return yb
     return ya + (yb - ya) * (x_outer - xa) / (xb - xa)
+
+
+def slug(text: str) -> str:
+    """``text`` as a lower-case word for a summary key: "Full-Load Torque"
+    → "full_load_torque"."""
+    return "_".join("".join(c if c.isalnum() else " " for c in text.lower()).split())
 
 
 @dataclass
@@ -139,6 +136,7 @@ class MapUse:
     outside_s: float = 0.0  # solver seconds outside
     value: float = 0.0
     t: float = 0.0
+    table: str = ""  # the table parameter's key ("" for the maximum speed)
 
     def count(self, value: float, edge: float, t: float, dt: float) -> bool:
         """Add a step outside at ``value``; True the first time."""
@@ -195,7 +193,8 @@ class Map:
     def at(self, x: float, y: float | None = None) -> float:
         for i in self.error_axes:
             v = y if i else x
-            if self.edge(i, v) is not None:
+            b = self.bounds[i]  # (edge(i, v), inline: read every solver step)
+            if b is not None and (v < b[0] or v > b[1]):
                 lo, hi = self.ranges[i]
                 use = self.uses[i]
                 raise OutsideDataError(
@@ -212,6 +211,9 @@ class Map:
         first = []
         for i in self.counted:
             v = point[i]
+            b = self.bounds[i]  # (edge(i, v), inline: booked every solver step)
+            if b is None or b[0] <= v <= b[1] or v != v:
+                continue
             e = self.edge(i, v)
             if e is not None and self.uses[i].count(v, e, t, dt):
                 first.append(self.uses[i])

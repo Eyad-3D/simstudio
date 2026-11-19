@@ -1,0 +1,49 @@
+{
+  "_about": [
+    "Third-party C code that is vendored into the engine's Rust crates and compiled",
+    "into the new engine's module, lightsim_engine (engine/crates/lsim-py): the part",
+    "of what the module holds that no Cargo.lock lists. scripts/third-party-notices.py",
+    "lists each entry under the module, with the licence files named in 'files'",
+    "(paths from the repository root) and checks its licence against allowed.txt like",
+    "any other component; the Rust crates are read from `cargo metadata` instead.",
+    "backend/tests/test_licence_policy.py fails when a licence or notice file inside",
+    "engine/crates is named by no entry here, so vendored code cannot be added",
+    "without being listed."
+  ],
+  "vendored": [
+    {
+      "name": "SUNDIALS",
+      "version": "7.1.1",
+      "license": "BSD-3-Clause",
+      "url": "https://github.com/LLNL/sundials",
+      "purl": "pkg:generic/sundials@7.1.1",
+      "files": [
+        "engine/crates/lsim-sundials-sys/sundials/LICENSE",
+        "engine/crates/lsim-sundials-sys/sundials/NOTICE"
+      ],
+      "note": "The differential-equation and nonlinear solvers (CVODES, IDAS, KINSOL, with their vectors, matrices and dense and band linear solvers), vendored and patched in the crate lsim-sundials-sys (engine/crates/lsim-sundials-sys/sundials/lsim.patch)."
+    },
+    {
+      "name": "CORE-MATH (revision e78d2681bb90)",
+      "version": "",
+      "license": "MIT",
+      "url": "https://gitlab.inria.fr/core-math/core-math",
+      "purl": "pkg:generic/core-math@e78d2681bb90363ac945d20008e284c3d1b0315f",
+      "files": [
+        "engine/crates/lsim-math/core-math/LICENSE"
+      ],
+      "note": "The correctly rounded sin, cos, tan, asin, acos, atan, atan2, sinh, cosh, tanh, exp, log and pow (Paul Zimmermann, Tom Hubrecht, Alexei Sibidanov and others, Inria), vendored and patched in the crate lsim-math (engine/crates/lsim-math/core-math/lsim.patch); copied from that Git revision."
+    },
+    {
+      "name": "musl libc fma (commit 9683bd6)",
+      "version": "",
+      "license": "MIT",
+      "url": "https://musl.libc.org/",
+      "purl": "pkg:generic/musl@9683bd6",
+      "files": [
+        "engine/crates/lsim-math/csrc/LICENSE-musl"
+      ],
+      "note": "The software fused multiply-add (src/math/fma.c, with its scalbn; Copyright (c) 2005-2020 Rich Felker et al.), changed as engine/crates/lsim-math/csrc/lsim_math_fma.c says; copied from that Git commit."
+    }
+  ]
+}

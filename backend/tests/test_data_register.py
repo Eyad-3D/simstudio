@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
 import subprocess
 import warnings
 from fnmatch import fnmatch
@@ -23,9 +24,27 @@ LIBRARY = "backend/app/library/components.json"
 
 COLUMNS = [
     "id", "file", "dataset", "kind", "description", "source", "history",
-    "licence", "credit", "ships_in_installer", "cleared", "notes",
+    "licence", "reuse_basis", "credit", "ships_in_installer", "cleared", "notes",
 ]
-REQUIRED = ["id", "file", "dataset", "kind", "description", "source", "licence", "credit"]
+REQUIRED = ["id", "file", "dataset", "kind", "description", "source", "licence",
+            "reuse_basis", "credit"]
+# Why LightSim may ship a row's data (DATA-REGISTER.md, "Where data may come
+# from"); a row lists one or more, separated by "; ".
+REUSE_BASES = {
+    "EU-2011/833", "US-17USC105", "JP-Art13", "Apache-2.0", "MIT", "BSD-3-Clause", "CC-BY-4.0",
+    "CDLA-Permissive-2.0", "OGL-Canada-2.0", "LightSim-own", "Facts", "Derived", "Unknown",
+}
+# The bases a bundled drive cycle may rest on: an official text that allows
+# reuse, or a permissive copy of one (CON-31).
+CYCLE_BASES = {"EU-2011/833", "US-17USC105", "JP-Art13", "Apache-2.0", "MIT"}
+# Sources whose terms do not allow reuse in a paid app, or that LightSim must
+# not bundle (DATA-REGISTER.md rule 3, "Never take data from"), from the one
+# list the AI skill pack's reference is also generated from (CON-31). A row
+# may name them only to say it does not use them ("not ..."), so the check
+# reads the source column, where only real sources go.
+BANNED_FILE = ROOT / "scripts" / "licenses" / "banned-data-sources.json"
+BANNED = json.loads(BANNED_FILE.read_text(encoding="utf-8"))["sources"]
+BANNED_SOURCES = [m for b in BANNED for m in b["match"]]
 # Third-party data credited in THIRD-PARTY-NOTICES.txt (Help > Third-Party
 # Notices), with the register rows that use it.
 BUNDLED_DATA = ROOT / "scripts" / "licenses" / "bundled-data.json"
@@ -48,12 +67,13 @@ NOT_DATA = [
     "**/package.json", "**/package-lock.json", "**/tsconfig*.json",
     "**/requirements*.txt",
 ]
-# What the installer carries: the engine bundle takes backend/projects and the
-# catalogue (lightsim-backend.spec); the UI bundle inlines frontend/src/data
-# and copies frontend/public; the shell's asar holds desktop/src.
+# What the installer carries: the engine bundle takes backend/projects, the
+# catalogue and the drive cycles (lightsim-backend.spec); the UI bundle
+# inlines frontend/src/data and copies frontend/public; the shell's asar
+# holds desktop/src.
 SHIPPED = [
-    "backend/projects/*", "backend/app/library/*", "frontend/src/data/*",
-    "frontend/public/*", "desktop/src/*",
+    "backend/projects/*", "backend/app/library/*", "backend/app/cycles/*", "backend/app/templates/*",
+    "frontend/src/data/*", "frontend/public/*", "desktop/src/*",
 ]
 
 _SKIP_DIRS = {".git", "node_modules", "dist", "build", "release", "__pycache__",
@@ -107,7 +127,9 @@ def embedded_datasets() -> set[tuple[str, str]]:
     # the tracked examples only: a developer's own files there are not shipped
     # by CI (the engine used to save projects there in development)
     for rel in data_files():
-        if not fnmatch(rel, "backend/projects/*.json"):
+        # (fnmatch's * also crosses "/": the stored results in
+        # projects/reference/ are not projects)
+        if not fnmatch(rel, "backend/projects/*.json") or rel.count("/") != 2:
             continue
         project = json.loads((ROOT / rel).read_text(encoding="utf-8"))
         component_of = {}
@@ -207,9 +229,95 @@ def test_nothing_ships_that_is_not_cleared(rows):
 
 
 def _needs_credit(credit: str) -> bool:
-    """A credit text of its own, rather than "None ..." or "Same as DR-nn"
-    (that row's credit then covers it)."""
-    return not credit.startswith(("None", "Same as"))
+    """A credit text of its own, rather than "None ...", "Same as DR-nn"
+    (that row's credit then covers it) or EUR-Lex's acknowledgement alone,
+    which the app shows with each cycle (test_eu_credit_is_shown_with_the_cycle)."""
+    return not credit.startswith(("None", "Same as")) and not (
+        credit.startswith("Source: EUR-Lex") and "FASTSim" not in credit)
+
+
+def test_every_row_names_why_lightsim_may_ship_it(rows):
+    """CON-31: every row says on what basis it may be reused, from the list
+    in DATA-REGISTER.md; a bundled drive cycle only on an official text that
+    allows reuse or a permissive copy of one; and no row takes data from a
+    banned source."""
+    for row in rows:
+        bases = row["reuse_basis"].split("; ")
+        assert set(bases) <= REUSE_BASES, f"{row['id']}: unknown reuse basis {row['reuse_basis']!r}"
+        if row["kind"] == "drive-cycle" and row["file"].startswith("backend/app/cycles/"):
+            assert set(bases) <= CYCLE_BASES, f"{row['id']}: a bundled cycle on {bases}"
+        source = row["source"].lower()
+        hits = [b for b in BANNED_SOURCES if b in source]
+        assert not hits, f"{row['id']}: its source names {hits}, which LightSim must not use"
+
+
+def test_the_banned_list_is_the_one_the_rules_and_the_ai_skills_give():
+    """CON-31: the banned sources come from one file. Rule 3 of
+    DATA-REGISTER.md names each of them, and the AI skill pack's reference
+    (generated from the file) lists each with why, so an assistant never
+    suggests data from one."""
+    assert len(BANNED) >= 10
+    for b in BANNED:
+        assert b["name"] and b["why"], b
+        assert b["match"] and all(m == m.lower() for m in b["match"]), b["name"]
+    text = (ROOT / "docs" / "DATA-REGISTER.md").read_text(encoding="utf-8")
+    rule3 = " ".join(text.split("3. Never take data from these", 1)[1]
+                     .split("\n4. ", 1)[0].split()).lower()
+    missing = [b["name"] for b in BANNED if " ".join(b["name"].split()).lower() not in rule3]
+    assert not missing, f"DATA-REGISTER.md rule 3 does not name {missing}"
+    from app.ai import skillpack
+
+    ref = skillpack.DATA_SOURCES_REF.read_text(encoding="utf-8")
+    assert ref == skillpack.data_sources_markdown(), (
+        "the skill pack's data-sources reference is out of date: run "
+        "'python -m app.ai.skillpack --write' in backend/")
+    for b in BANNED:
+        assert f"**{b['name']}**" in ref and b["why"] in ref, b["name"]
+
+
+def _source_texts(node, inside: bool = False):
+    """Every text under a source-like key (source, file, url, title, terms,
+    author, sources) of a JSON tree; notes may name what is not used."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield from _source_texts(value, inside or key in (
+                "source", "file", "url", "title", "terms", "author", "sources"))
+    elif isinstance(node, list):
+        for value in node:
+            yield from _source_texts(value, inside)
+    elif isinstance(node, str) and inside:
+        yield node
+
+
+def test_the_reference_suite_takes_nothing_from_a_banned_source():
+    """Rule 3 holds for the reference suite (backend/validation/) too,
+    though it does not ship: no case or suite source names a banned site.
+    A value a permissive file copies from one is caught by hand: the Model
+    3's motor power is EPA's rated power, not FASTSim's 239 kW, which
+    FASTSim's vehicle database cites from a banned site."""
+    folder = ROOT / "backend" / "validation"
+    files = sorted(folder.rglob("*.json"))
+    assert len(files) >= 6
+    for path in files:
+        tree = json.loads(path.read_text(encoding="utf-8"))
+        text = " ".join(_source_texts(tree)).lower()
+        hits = [b for b in BANNED_SOURCES if b in text]
+        assert not hits, f"{path.name}: its sources name {hits}, which LightSim must not use"
+    model3 = json.loads((folder / "cases" / "epa-2022-tesla-model3-rwd.json").read_text(encoding="utf-8"))
+    assert "motor_kW" not in model3["fastsim"] and model3["epa"]["rated_hp"] == 257
+
+
+def test_eu_credit_is_shown_with_the_cycle(rows):
+    """Data reused under Decision 2011/833/EU must acknowledge EUR-Lex; for
+    the bundled cycles the acknowledgement is in the source the cycle list
+    shows (cycles.json)."""
+    cycles = json.loads((ROOT / "backend/app/cycles/cycles.json").read_text(encoding="utf-8"))["cycles"]
+    for row in rows:
+        if "EU-2011/833" in row["reuse_basis"]:
+            assert "Source: EUR-Lex" in row["credit"], row["id"]
+            if row["file"].startswith("backend/app/cycles/") and row["kind"] == "drive-cycle":
+                cycle_id = Path(row["file"]).stem
+                assert "Source: EUR-Lex, © European Union" in cycles[cycle_id]["source"], row["id"]
 
 
 def test_credited_data_appears_in_the_third_party_notices(rows):
@@ -231,3 +339,228 @@ def test_credited_data_appears_in_the_third_party_notices(rows):
     for rid in listed:
         assert rid in by_id, f"bundled-data.json lists {rid}, which the register does not have"
         assert _needs_credit(by_id[rid]["credit"]), f"{rid} is listed but credits nothing"
+
+
+def test_fs_example_ships_only_lightsim_data(rows):
+    """The Formula Student example (CON-33) is LightSim's own: typical values
+    and synthetic maps, with rule values and published results as facts
+    named with their source. No third-party data (such as an LGPL racetrack
+    database or a tyre test consortium's data) ships in it."""
+    fs = [r for r in rows if r["file"] == "backend/projects/fs-electric.json"]
+    assert {r["dataset"] for r in fs} == {"*", "el-motor.full_load_torque", "el-motor.power_loss",
+                                          "el-motor.drag_torque", "el-battery.ocv_table"}
+    for r in fs:
+        assert r["source"].startswith("Synthetic / created for LightSim"), r["id"]
+        assert r["licence"] == "LightSim's own (LICENSE)" and r["credit"].startswith("None"), r["id"]
+
+
+# ---- licence allow-list for shipped data (BIZ-34) ---------------------------
+# The data counterpart of scripts/third-party-notices.py's check on code.
+LICENSES = ROOT / "scripts" / "licenses"
+DATA_ALLOWED = LICENSES / "data-allowed.txt"
+DATA_LICENCES = LICENSES / "data-licences.json"
+MODEL_SOURCES = LICENSES / "model-sources.json"
+UNKNOWN = "LicenseRef-Unknown"
+# Refused for shipped data even if someone lists them in data-allowed.txt:
+# non-commercial, no-derivatives and share-alike terms, copyleft licences, and
+# data with no licence or only a permission on request.
+REFUSED_TERM = re.compile(
+    r"-NC\b|-ND\b|-SA\b|ODbL|GPL|EUPL|SSPL|LicenseRef-NoLicence|LicenseRef-Permission-On-Request",
+    re.IGNORECASE,
+)
+# The same, as people write them in the register's 'licence' column.
+REFUSED_WORDS = re.compile(
+    r"\bGPL|\bLGPL|\bAGPL|\bEUPL|\bODbL|\bSSPL|BY[- ]SA|BY[- ]NC|BY[- ]ND|share-?alike|"
+    r"non-?commercial (?:licen[cs]e|use only|only)|for non-?commercial use|no-?derivatives|"
+    r"permission on request",
+    re.IGNORECASE,
+)
+# Terms whose licence asks for the source to be credited.
+NEEDS_ATTRIBUTION = {
+    "CC-BY-4.0", "CDLA-Permissive-2.0", "OGL-UK-3.0", "OGL-Canada-2.0",
+    "Apache-2.0", "MIT", "BSD-3-Clause", "LicenseRef-EU-Reuse",
+}
+CLASSES = {"BUNDLE", "USER-IMPORT", "LEARN"}
+# The shipped rows whose licence was not recorded before the gate (BIZ-34)
+# existed. Only these may ship with LicenseRef-Unknown, and only while
+# pending; a new row needs its real licence terms. This list may only
+# shrink: remove an id once the owner's sign-off records its real terms.
+GRANDFATHERED_UNKNOWN = frozenset({
+    "DR-01", "DR-02", "DR-03", "DR-04", "DR-05", "DR-06", "DR-07", "DR-08", "DR-09", "DR-10",
+    "DR-11", "DR-12", "DR-14", "DR-15", "DR-16", "DR-17", "DR-18", "DR-19", "DR-33",
+})
+
+
+def allowed_data_terms() -> set[str]:
+    lines = DATA_ALLOWED.read_text(encoding="utf-8").splitlines()
+    return {s for line in lines if (s := line.split("#", 1)[0].strip())}
+
+
+def data_licences() -> dict[str, list[str]]:
+    return json.loads(DATA_LICENCES.read_text(encoding="utf-8"))["rows"]
+
+
+def model_sources() -> list[dict]:
+    return json.loads(MODEL_SOURCES.read_text(encoding="utf-8"))["sources"]
+
+
+def test_no_refused_licence_is_allowed_for_data():
+    refused = sorted(t for t in allowed_data_terms() if REFUSED_TERM.search(t))
+    assert not refused, f"data-allowed.txt lists licences LightSim never ships: {refused}"
+    assert UNKNOWN not in allowed_data_terms(), "an unknown licence cannot be allowed"
+
+
+def test_every_shipped_row_has_licence_terms(rows):
+    terms = data_licences()
+    by_id = {r["id"]: r for r in rows}
+    shipped = {r["id"] for r in rows if r["ships_in_installer"] == "yes"}
+    missing = sorted(shipped - terms.keys())
+    assert not missing, (
+        f"shipped register rows with no licence terms in "
+        f"scripts/licenses/data-licences.json: {missing} (see docs/DATA-REGISTER.md)"
+    )
+    for rid, row_terms in terms.items():
+        assert rid in by_id, f"data-licences.json lists {rid}, which the register does not have"
+        assert row_terms and len(row_terms) == len(set(row_terms)), f"{rid}: empty or repeated terms"
+
+
+def _same_as(licence: str) -> list[str]:
+    """The rows a "Same as DR-nn" or "Same as DR-nn to DR-mm" licence names."""
+    if not licence.startswith("Same as DR-"):
+        return []
+    ids = [int(n) for n in re.findall(r"DR-(\d+)", licence)]
+    if len(ids) == 2 and " to " in licence:
+        ids = list(range(ids[0], ids[1] + 1))
+    return [f"DR-{n:02d}" for n in ids]
+
+
+def licence_problems(row: dict[str, str], terms: dict[str, list[str]], allowed: set[str],
+                     grandfathered: frozenset[str] = GRANDFATHERED_UNKNOWN) -> list[str]:
+    """Why a shipped row may not ship under its licence terms (empty: it may).
+    An unknown licence passes only for a row recorded before the gate
+    (``grandfathered``) and only while the owner's sign-off is pending: it
+    is the state the register records today, not a licence."""
+    rid, problems = row["id"], []
+    own = terms.get(rid, [])
+    for term in own:
+        if REFUSED_TERM.search(term):
+            problems.append(f"{rid}: {term} must never ship (scripts/licenses/data-allowed.txt)")
+        elif term == UNKNOWN:
+            if rid not in grandfathered:
+                problems.append(f"{rid}: a new dataset cannot ship with an unknown licence; record "
+                                f"its real licence terms (only the rows recorded before the gate, "
+                                f"GRANDFATHERED_UNKNOWN, may wait for the owner's sign-off)")
+            elif row["cleared"] != "pending":
+                problems.append(f"{rid}: cleared = {row['cleared']}, but its licence is still unknown")
+        elif term not in allowed:
+            problems.append(f"{rid}: {term} is not in scripts/licenses/data-allowed.txt "
+                            "(adding it is the owner's licensing decision)")
+    if REFUSED_WORDS.search(row["licence"]):
+        problems.append(f"{rid}: its licence column names a licence LightSim never ships: "
+                        f"{row['licence']!r}")
+    # the words and the terms must tell the same story
+    same_as = _same_as(row["licence"])
+    if same_as:
+        inherited = {t for other in same_as for t in terms.get(other, [])}
+        if not inherited <= set(own):
+            problems.append(f"{rid}: is 'Same as' {', '.join(same_as)} but lacks their terms "
+                            f"{sorted(inherited - set(own))}")
+    elif (UNKNOWN in own) != ("unknown" in row["licence"].lower()):
+        problems.append(f"{rid}: the licence column and data-licences.json disagree on whether "
+                        "the licence is known")
+    return problems
+
+
+def test_shipped_data_is_under_an_allowed_licence(rows):
+    allowed, terms = allowed_data_terms(), data_licences()
+    problems = [p for row in rows if row["ships_in_installer"] == "yes"
+                for p in licence_problems(row, terms, allowed)]
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize("licence, row_terms, cleared, expect", [
+    ("CC BY-SA 4.0", ["CC-BY-SA-4.0"], "pending", "must never ship"),
+    ("CC BY-NC 4.0", ["CC-BY-NC-4.0"], "yes", "must never ship"),
+    ("EUPL-1.2", ["EUPL-1.2"], "pending", "must never ship"),
+    ("No licence stated", ["LicenseRef-NoLicence"], "pending", "must never ship"),
+    ("ODC-By 1.0", ["ODC-By-1.0"], "pending", "not in scripts/licenses/data-allowed.txt"),
+    ("Unknown (not recorded)", [UNKNOWN], "yes", "cannot ship with an unknown licence"),
+    ("Unknown (not recorded)", [UNKNOWN], "pending", "cannot ship with an unknown licence"),
+    ("Unknown (not recorded)", ["LicenseRef-LightSim"], "pending", "disagree"),
+    ("Apache-2.0, as is its share-alike sibling", ["Apache-2.0"], "pending", "licence column names"),
+    ("Same as DR-90", ["LicenseRef-LightSim"], "pending", "lacks their terms"),
+])
+def test_the_gate_refuses_unsuitable_licences(licence, row_terms, cleared, expect):
+    """The gate itself: each of these rows would fail CI if it shipped."""
+    row = {"id": "DR-99", "licence": licence, "cleared": cleared}
+    terms = {"DR-99": row_terms, "DR-90": ["Apache-2.0"]}
+    problems = licence_problems(row, terms, allowed_data_terms())
+    assert any(expect in p for p in problems), problems
+
+
+def test_only_the_grandfathered_rows_wait_for_a_licence():
+    """A grandfathered row with an unknown licence passes while pending and
+    fails once cleared; the list names only rows that still have an unknown
+    licence, so it shrinks as the owner signs them off."""
+    row = {"id": "DR-03", "licence": "Unknown (not recorded)", "cleared": "pending"}
+    assert licence_problems(row, {"DR-03": [UNKNOWN]}, allowed_data_terms()) == []
+    row["cleared"] = "yes"
+    assert any("still unknown" in p
+               for p in licence_problems(row, {"DR-03": [UNKNOWN]}, allowed_data_terms()))
+    terms = data_licences()
+    stale = sorted(rid for rid in GRANDFATHERED_UNKNOWN if UNKNOWN not in terms.get(rid, []))
+    assert not stale, f"remove from GRANDFATHERED_UNKNOWN (their licence is now known): {stale}"
+
+
+def test_the_gate_passes_suitable_licences():
+    allowed = allowed_data_terms()
+    for licence, row_terms in [("CC-BY-4.0", ["CC-BY-4.0"]), ("LightSim's own (LICENSE)", ["LicenseRef-LightSim"]),
+                               ("US Government work (public domain)", ["LicenseRef-US-Gov-PD"])]:
+        row = {"id": "DR-99", "licence": licence, "cleared": "yes"}
+        assert licence_problems(row, {"DR-99": row_terms}, allowed) == []
+
+
+def test_attribution_licences_carry_a_credit(rows):
+    """CC-BY, OGL, Apache and the like ask for credit: such a shipped row needs
+    a credit text (which test_credited_data_appears_in_the_third_party_notices
+    then finds on Help > Third-Party Notices) or names the row that has it."""
+    terms = data_licences()
+    for row in rows:
+        if row["ships_in_installer"] != "yes":
+            continue
+        if NEEDS_ATTRIBUTION & set(terms[row["id"]]):
+            # (EUR-Lex's acknowledgement is the credit the app shows with each cycle)
+            assert _needs_credit(row["credit"]) or row["credit"].startswith(("Same as DR-", "Source: EUR-Lex")), (
+                f"{row['id']}: its licence asks for credit, but its credit is {row['credit']!r}"
+            )
+
+
+def test_every_model_source_is_classed():
+    allowed = allowed_data_terms()
+    names = set()
+    for src in model_sources():
+        name = src["name"]
+        assert name not in names, f"model source listed twice: {name}"
+        names.add(name)
+        assert src["class"] in CLASSES, f"{name}: class must be one of {sorted(CLASSES)}"
+        assert src["licence"] and src["url"] and src["checked"] and src["match"], name
+        if src["class"] == "BUNDLE":
+            assert src["licence"] in allowed and not REFUSED_TERM.search(src["licence"]), (
+                f"{name}: a BUNDLE source under {src['licence']}, which data-allowed.txt does not allow"
+            )
+
+
+def test_no_shipped_row_uses_a_source_that_must_not_ship(rows):
+    """USER-IMPORT and LEARN sources are never bundled: a shipped row whose
+    source names one fails."""
+    for src in model_sources():
+        if src["class"] == "BUNDLE":
+            continue
+        for row in rows:
+            if row["ships_in_installer"] != "yes":
+                continue
+            for text in src["match"]:
+                assert not re.search(rf"(?<![\w-]){re.escape(text)}(?![\w-])", row["source"]), (
+                    f"{row['id']}: its source names {src['name']} ({src['licence']}, "
+                    f"class {src['class']}), which LightSim must not ship"
+                )

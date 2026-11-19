@@ -1,0 +1,461 @@
+//! The compiled model as the solver sees it.
+//!
+//! lsim-codegen implements [`ModelFunctions`] with JIT-compiled machine
+//! code; tests and the solver's own unit tests may implement it by hand.
+//! Every function is pure: it reads its inputs, writes its outputs and uses
+//! the caller's `work` buffer (of [`Layout::n_work`] values) as scratch, so
+//! one compiled model serves any number of simulations at once (parallel
+//! sweeps give each its own buffers).
+//!
+//! Vector layouts:
+//!
+//! * `y = [x; z]`: states then iteration variables, `n_x + n_z` values;
+//! * `p`: parameters, `n_p` values, SI, in [`crate::FlatSystem::params`] order;
+//! * `d`: discrete variables, in [`crate::PreparedModel::discretes`] order;
+//! * `u`: inputs, in [`crate::PreparedModel::inputs`] order;
+//! * residual output `[x'; g]`: the state derivatives, then the residuals.
+
+use crate::expr::Expr;
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// The sparsity of `∂[x'; g]/∂y`, column-compressed: the rows of column
+/// `j` are `row_idx[col_ptr[j]..col_ptr[j + 1]]`, increasing. Produced by
+/// lsim-prep (work package 2), used by lsim-codegen to colour and fill
+/// the Jacobian and by lsim-solve's sparse LU (work packages 3 and 4).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SparsityPattern {
+    /// n_y
+    pub n: usize,
+    /// column starts, n + 1 values
+    pub col_ptr: Vec<usize>,
+    /// row indices
+    pub row_idx: Vec<usize>,
+}
+
+impl SparsityPattern {
+    /// The number of structural non-zeros.
+    pub fn nnz(&self) -> usize {
+        self.row_idx.len()
+    }
+
+    /// The rows of column `j`.
+    pub fn col(&self, j: usize) -> &[usize] {
+        &self.row_idx[self.col_ptr[j]..self.col_ptr[j + 1]]
+    }
+
+    /// The pattern of a dense `n × n` matrix.
+    pub fn dense(n: usize) -> Self {
+        SparsityPattern {
+            n,
+            col_ptr: (0..=n).map(|j| j * n).collect(),
+            row_idx: (0..n * n).map(|k| k % n).collect(),
+        }
+    }
+}
+
+/// One axis of one table read in the model, which the run loop watches
+/// against the table's data range (today's "outside the data" handling:
+/// an `Error` axis stops the run where it leaves its data, the others are
+/// booked as time spent outside). Its guard function
+/// ([`ModelFunctions::table_guards`]) is positive inside the data and
+/// negative outside: `min(a - lo, hi - a)` of the axis argument `a`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TableGuard {
+    /// the table's index in [`crate::FlatSystem::tables`]
+    pub table: u32,
+    /// 0: the first axis, 1: the second
+    pub axis: u8,
+    /// the axis's setting
+    pub outside: crate::table::Outside,
+}
+
+/// The compiled initialisation problem ([`crate::InitSystem`]): Newton
+/// iterates on `w` (passed as [`EvalInput::y`]) until the residuals
+/// vanish, then [`InitFunctions::finish`] gives the model's start vector.
+pub trait InitFunctions: Send + Sync {
+    /// The number of unknowns w (and residuals).
+    fn n_w(&self) -> usize;
+    /// The unknowns' start guesses.
+    fn guess(&self, p: &[f64], w0: &mut [f64]);
+    /// The residuals at `w`.
+    fn residual(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]);
+    /// The exact Jacobian of the residuals times a vector.
+    fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], work: &mut [f64], out: &mut [f64]);
+    /// The structure [`InitFunctions::jacobian_sparse`] fills.
+    fn sparsity(&self) -> &SparsityPattern;
+    /// The Jacobian's values (column-compressed, in [`InitFunctions::sparsity`]'s order).
+    fn jacobian_sparse(&self, inp: &EvalInput<'_>, work: &mut [f64], values: &mut [f64]);
+    /// The model's `y0 = [x; z]` from the solved `w` (every entry the
+    /// initialisation does not compute keeps its start value).
+    fn finish(&self, inp: &EvalInput<'_>, work: &mut [f64], y0: &mut [f64]);
+}
+
+/// A block with its own sample clock, run outside the equations: a Script
+/// block (sandboxed Python), an FMU for co-simulation, a digital
+/// controller. Between its ticks its outputs hold (they are discrete
+/// variables of the model); at a tick the run loop stops the integrator
+/// exactly there, reads the block's inputs, calls [`DiscreteBlock::tick`]
+/// and restarts the integrator only if an output changed. The host (the
+/// Python layer, work package 6) implements it; the run loop (work
+/// package 4) drives it.
+pub trait DiscreteBlock: Send {
+    /// The block's name, for messages.
+    fn name(&self) -> &str;
+    /// Its sample period, s.
+    fn period(&self) -> f64;
+    /// The first tick's time, s.
+    fn offset(&self) -> f64 {
+        0.0
+    }
+    /// Called once at the start with the inputs' initial values; sets the
+    /// outputs' initial values.
+    fn init(&mut self, t0: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String>;
+    /// One tick: reads the inputs at `t`, writes the held outputs.
+    fn tick(&mut self, t: f64, inputs: &[f64], outputs: &mut [f64]) -> Result<(), String>;
+}
+
+/// Sizes of the compiled model's vectors.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct Layout {
+    /// states
+    pub n_x: usize,
+    /// iteration variables
+    pub n_z: usize,
+    /// parameters
+    pub n_p: usize,
+    /// discrete variables
+    pub n_d: usize,
+    /// inputs
+    pub n_u: usize,
+    /// zero-crossing functions
+    pub n_roots: usize,
+    /// `when` clauses
+    pub n_whens: usize,
+    /// all flat variables (the recorded channels)
+    pub n_vars: usize,
+    /// scratch values each call needs
+    pub n_work: usize,
+}
+
+impl Layout {
+    /// n_x + n_z
+    pub fn n_y(&self) -> usize {
+        self.n_x + self.n_z
+    }
+}
+
+/// What every model function reads.
+#[derive(Clone, Copy, Debug)]
+pub struct EvalInput<'a> {
+    /// time, s
+    pub t: f64,
+    /// `[x; z]`
+    pub y: &'a [f64],
+    /// parameters
+    pub p: &'a [f64],
+    /// discrete variables
+    pub d: &'a [f64],
+    /// inputs
+    pub u: &'a [f64],
+}
+
+/// A compiled model.
+pub trait ModelFunctions: Send + Sync {
+    /// The vector sizes.
+    fn layout(&self) -> &Layout;
+
+    /// `out = [x'; g]` at the input point.
+    fn residual(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]);
+
+    /// `out = (∂[x'; g]/∂y) · v`: the exact Jacobian times a vector
+    /// (forward-mode differentiation of the generated code).
+    fn jvp(&self, inp: &EvalInput<'_>, v: &[f64], work: &mut [f64], out: &mut [f64]);
+
+    /// The zero-crossing functions.
+    fn roots(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]);
+
+    /// Every flat variable's value (aliases included), for the results.
+    fn vars(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]);
+
+    /// Applies the `when` clauses whose `fired` entry is non-zero: on entry
+    /// `d_out` holds the discrete values before the event, on return the
+    /// values after it.
+    fn when(&self, inp: &EvalInput<'_>, fired: &[f64], work: &mut [f64], d_out: &mut [f64]);
+
+    /// Start values: `y0` (states' initial values, iteration variables'
+    /// guesses) and `d0`, from the parameters.
+    fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]);
+
+    /// The dense Jacobian `∂[x'; g]/∂y`, column-major (`n_y × n_y`), from
+    /// one [`Self::jvp`] per column. Code generators may override it with a
+    /// sparse, coloured evaluation.
+    fn jacobian_dense(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
+        let n = self.layout().n_y();
+        let mut v = vec![0.0; n];
+        for j in 0..n {
+            v[j] = 1.0;
+            self.jvp(inp, &v, work, &mut out[j * n..(j + 1) * n]);
+            v[j] = 0.0;
+        }
+    }
+
+    /// The structure of `∂[x'; g]/∂y` that [`Self::jacobian_sparse`]
+    /// fills, if the model knows it.
+    fn sparsity(&self) -> Option<&SparsityPattern> {
+        None
+    }
+
+    /// The Jacobian's values, column-compressed in [`Self::sparsity`]'s
+    /// order. The default gathers them from [`Self::jacobian_dense`]; code
+    /// generators override it with a coloured forward-mode evaluation.
+    fn jacobian_sparse(&self, inp: &EvalInput<'_>, work: &mut [f64], values: &mut [f64]) {
+        let Some(pat) = self.sparsity() else {
+            return;
+        };
+        let n = pat.n;
+        let mut dense = vec![0.0; n * n];
+        self.jacobian_dense(inp, work, &mut dense);
+        for j in 0..n {
+            for k in pat.col_ptr[j]..pat.col_ptr[j + 1] {
+                values[k] = dense[j * n + pat.row_idx[k]];
+            }
+        }
+    }
+
+    /// Sets each mode's Boolean ([`crate::Mode`]) from its relation at the
+    /// input point: on entry `d_out` holds the discrete values, on return
+    /// the modes' entries are 1 or 0. Models without modes leave it alone.
+    fn modes(&self, inp: &EvalInput<'_>, work: &mut [f64], d_out: &mut [f64]) {
+        let _ = (inp, work, d_out);
+    }
+
+    /// The compiled initialisation problem, if the model has one.
+    fn init(&self) -> Option<&dyn InitFunctions> {
+        None
+    }
+
+    /// The table axes the run loop watches, in the order
+    /// [`Self::table_guards`] writes them.
+    fn table_guard_list(&self) -> &[TableGuard] {
+        &[]
+    }
+
+    /// Each watched table axis's guard (positive inside the data, negative
+    /// outside), one per entry of [`Self::table_guard_list`].
+    fn table_guards(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
+        let _ = (inp, work, out);
+    }
+
+    /// Table `k` of the flat system ([`crate::expr::Expr::Table`]) at
+    /// `args` (the second ignored by a 1-D table) as the compiled code
+    /// interpolates it: its value and its partial derivatives, so that
+    /// expressions evaluated outside the compiled code (the energy books'
+    /// declared stored energies and losses) read the same tables. `None`
+    /// when the model does not give its tables (the default) or has no
+    /// table `k`.
+    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        let _ = (k, args);
+        None
+    }
+
+    /// [`Self::eval_table`] for a partial derivative of table `k` (of
+    /// `order` along each argument, as index reduction reads it, see
+    /// [`crate::expr::Expr::Table`]): that derivative and its partial
+    /// derivatives, as the compiled code computes them. The default gives
+    /// order `[0, 0]` by [`Self::eval_table`] and nothing else.
+    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        if order == [0, 0] { self.eval_table(k, args) } else { None }
+    }
+
+    /// Table `k`'s breakpoints as the compiled code interpolates it: its
+    /// first axis's, and its second's (empty for a 1-D table), so that the
+    /// run loop's enclosures of the tables follow the data the model was
+    /// given (a model's tables may be swapped after preparation). `None`
+    /// when the model does not give them (the default) or has no table
+    /// `k`.
+    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+        let _ = k;
+        None
+    }
+
+    /// Table `k` as the compiled code interpolates it: the interpolant
+    /// itself, so that the run can tell whether two models read the same
+    /// table to the bit ([`crate::interp::Table::same`]: a model given other
+    /// table data after it was built, and a model with its states chosen
+    /// again, compiled from the data it was prepared with). `None` when
+    /// the model does not give it (the default) or has no table `k`.
+    fn table_interp(&self, k: u32) -> Option<&crate::interp::Table> {
+        let _ = k;
+        None
+    }
+
+    /// The compiled kernels of the conditions the run loop checks along
+    /// its steps ([`ConditionKernels`]), if the model has them. `None` (the
+    /// default): the run loop interprets them from the IR.
+    fn condition_kernels(&self) -> Option<&dyn ConditionKernels> {
+        None
+    }
+
+    /// The energy books' integrands of `spec` compiled ([`BooksKernel`]),
+    /// if the model compiles them. `None` (the default): the run
+    /// interprets them. A wrapper around a compiled model forwards this
+    /// together with [`Self::eval_table`] and [`Self::table_axes`] or none
+    /// of them (the kernel reads the tables of the model that compiled it).
+    fn books_kernel(&self, spec: &BooksSpec) -> Option<Arc<dyn BooksKernel>> {
+        let _ = spec;
+        None
+    }
+}
+
+/// `[lo, hi]` of a value and of its first two rates over an interval of
+/// time (or a box of the states), rounded outwards: the run loop's
+/// enclosures of a condition (lsim-solve's `J2`). An unknown rate is
+/// `[-∞, ∞]`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Enclosure {
+    /// the value
+    pub v: [f64; 2],
+    /// its rate
+    pub d: [f64; 2],
+    /// its second rate
+    pub dd: [f64; 2],
+}
+
+/// Compiled kernels of the zero-crossing functions the run loop checks
+/// along every step (DESIGN.md §5.8, *compiled condition kernels*): those
+/// that read time and continuous variables. Each covered condition `k`
+/// (indexed by its zero crossing) has a point kernel and an interval
+/// kernel, both compiled from the same IR as the interpreter evaluates and
+/// bitwise the interpreter's: `point` is `lsim_ir::eval` of the chain of
+/// assignments the condition reads and of the condition, and `enclose` is
+/// the interval interpreter's enclosure, with its rounding rules. The
+/// caller owns the scratch, so one compiled model serves any number of
+/// runs at once.
+pub trait ConditionKernels: Send + Sync {
+    /// Whether zero-crossing function `k` is compiled (the others are
+    /// interpreted).
+    fn covers(&self, k: usize) -> bool;
+
+    /// The scratch `point` and `enclose` need: (values, enclosures).
+    fn scratch(&self) -> (usize, usize);
+
+    /// Condition `k` (its chain of assignments, then the condition) at a
+    /// point: `inp` as for [`ModelFunctions::roots`].
+    fn point(&self, k: usize, inp: &EvalInput<'_>, work: &mut [f64]) -> f64;
+
+    /// Condition `k` over the times `t`, each entry of y it reads given by
+    /// its enclosure there (`y[i]`, one per entry of y; the others are not
+    /// read), at the discrete values `d`, parameters `p` and inputs `u`.
+    #[allow(clippy::too_many_arguments)]
+    fn enclose(
+        &self,
+        k: usize,
+        t: [f64; 2],
+        y: &[Enclosure],
+        d: &[f64],
+        p: &[f64],
+        u: &[f64],
+        work: &mut [Enclosure],
+    ) -> Enclosure;
+}
+
+/// Where a flat variable's rate along the solution comes from, for the
+/// energy books' stored-energy rates (lsim-solve's `VarSource`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RateSource {
+    /// `y'[i]` (a state or an iteration variable)
+    Y(usize),
+    /// `-y'[i]`
+    NegY(usize),
+    /// constant between events (a discrete variable, an input, a
+    /// constant): rate zero
+    Zero,
+    /// computed by the model's assignments: a rate only through the
+    /// chain ([`BooksSpec::chain`])
+    Computed,
+}
+
+/// One part's integrands, in flat scope, and where they go.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BooksPart {
+    /// the power into it through its ports, W
+    pub power: Expr,
+    /// the power it turns into heat, W
+    pub loss: Option<Expr>,
+    /// the energy it stores, J
+    pub stored: Option<Expr>,
+    /// its stored energy's rate is taken by forward-mode differentiation
+    /// (otherwise the caller takes a difference)
+    pub exact: bool,
+    /// where ∫ power in goes in the integrands' vector
+    pub power_at: usize,
+    /// where ∫ |power in| goes
+    pub abs_at: usize,
+    /// where ∫ loss goes
+    pub loss_at: Option<usize>,
+    /// where ∫ d(stored)/dt goes
+    pub stored_at: Option<usize>,
+}
+
+/// The energy books' integrands as the run evaluates them (lsim-solve's
+/// `energy::Integrand`): each part's power in, its absolute value and its
+/// loss from the channels by `lsim_ir::eval`, and each stored energy's
+/// rate along `(1, y')` by forward-mode differentiation (dual numbers)
+/// through the chain of assignments it reads.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BooksSpec {
+    /// the parts
+    pub parts: Vec<BooksPart>,
+    /// (variable, its expression) in evaluation order: the assignments
+    /// the stored energies' rates go through (each variable's value and
+    /// rate there are the step's, not its channel's)
+    pub chain: Vec<(usize, Expr)>,
+    /// per flat variable: where its rate comes from
+    pub rates: Vec<RateSource>,
+    /// the length of the integrands' vector
+    pub n_out: usize,
+}
+
+/// What a [`BooksKernel`] computes of one part (the rest the caller
+/// interprets).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BooksCover {
+    /// its power in and its absolute value
+    pub power: bool,
+    /// its loss
+    pub loss: bool,
+    /// its stored energy's rate (exact parts only; a rate that is not
+    /// finite is left for the caller to take by a difference, as the
+    /// interpreter's is)
+    pub stored: bool,
+}
+
+/// The energy books' integrands compiled from a [`BooksSpec`]
+/// ([`ModelFunctions::books_kernel`]): bitwise what the run's interpreter
+/// computes for the entries it covers (a NaN as a NaN, its sign and
+/// payload not defined), the IR's order of operations, no
+/// fused multiply-add contraction, the same library functions
+/// (`lsim_ir::math`) and the model's own tables. The caller owns the
+/// scratch, so one kernel serves any number of runs at once.
+pub trait BooksKernel: Send + Sync {
+    /// What it computes of part `j` of the spec.
+    fn cover(&self, j: usize) -> BooksCover;
+
+    /// The scratch values [`Self::eval`] needs.
+    fn scratch(&self) -> usize;
+
+    /// The covered integrands at time `t`: `vars` every flat variable's
+    /// value (the model's channels), `ydot` the rate of each entry of y,
+    /// `p` the parameters; writes the covered entries of `out` (of
+    /// [`BooksSpec::n_out`] values) and leaves the others alone.
+    fn eval(
+        &self,
+        t: f64,
+        vars: &[f64],
+        ydot: &[f64],
+        p: &[f64],
+        work: &mut [f64],
+        out: &mut [f64],
+    );
+}

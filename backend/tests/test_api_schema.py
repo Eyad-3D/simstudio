@@ -9,9 +9,15 @@ Left out:
 - "the API rejects schema-violating data": pydantic's lax mode accepts
   `false` for a number (as 0.0), which the JSON schema forbids. That is a
   deliberate leniency, not a defect.
-- POST /api/simulate: a generated case may ask for any duration and time step
-  and would run the project's control scripts. The solver tests cover it.
+- POST /api/simulate and POST /api/studies: a generated case may ask for any
+  duration and time step and would run the project's control scripts (a
+  study, on every core). The solver and study tests cover them.
+- POST /api/laplog/calibrate: it runs about a hundred lap solutions and a
+  lap case of a generated project; test_calibrate.py covers it.
 - the live-run WebSocket, which is not in the schema.
+- PUT and DELETE /api/ai/connect/{client}: they write the AI apps' own
+  settings files in the user's home folder. tests/test_ai_endpoints.py
+  covers them with a temporary home.
 """
 from __future__ import annotations
 
@@ -43,6 +49,10 @@ UNDECLARED = {
     },
     ("delete", "/api/projects/{project_id}"): {"400": "Invalid project id", "404": "No such project"},
     ("post", "/api/validate"): {"400": "Unreadable request body"},
+    ("post", "/api/sources"): {"400": "Unreadable request body"},
+    ("get", "/api/examples/{example_id}/reference"): {"404": "No such example"},
+    ("post", "/api/scripts/check"): {"400": "Unreadable request body"},
+    ("post", "/api/scripts/approve"): {"400": "Unreadable request body"},
     ("get", "/api/projects/{project_id}/runs"): {"400": "Invalid project id"},
     ("delete", "/api/projects/{project_id}/runs"): {"400": "Invalid project id"},
     ("get", "/api/projects/{project_id}/runs/{run_id}"): {"400": "Invalid id", "404": "No such run"},
@@ -54,6 +64,7 @@ UNDECLARED = {
         "404": "No such backup",
     },
     ("get", "/api/examples/{example_id}"): {"400": "Invalid example id", "404": "No such example"},
+    ("get", "/api/cycles/{cycle_id}"): {"404": "No such drive cycle"},
     ("post", "/api/examples/{example_id}/hide"): {"400": "Invalid example id", "404": "No such example"},
 }
 ERROR_BODY = {
@@ -94,7 +105,7 @@ def projects_dir(tmp_path_factory):
         yield
 
 
-@schema.exclude(path="/api/simulate").parametrize()
+@schema.exclude(path=["/api/simulate", "/api/studies", "/api/laplog/calibrate"]).exclude(path="/api/ai/connect/{client}").parametrize()
 # filter_too_much: a whole valid project body (PUT /api/projects/{id}) is
 # hard to generate, and on some random draws Hypothesis discards so many
 # attempts that its health check stops the test (seen on CI and locally

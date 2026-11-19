@@ -15,8 +15,7 @@ test("BEV example: data checks, run, results channels and CSV export", async ({ 
   // Data Checks: the shipped example must pass the run gate
   await ribbonTab(page, "Simulations").click();
   await page.getByRole("button", { name: "Checks", exact: true }).click();
-  await expect(page.getByText(/^\d+ error\(s\), \d+ warning\(s\), \d+ info$/)).toBeVisible();
-  await expect(page.getByText(/^0 error\(s\)/)).toBeVisible();
+  await expect(page.getByText("0 errors, 0 warnings", { exact: true })).toBeVisible();
 
   // Run: finishes on the Results page with the run stored
   await runActiveCase(page);

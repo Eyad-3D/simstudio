@@ -1,0 +1,1293 @@
+//! # lsim-solve: the solver layer
+//!
+//! * [`Integrator`] — what the run loop needs from a time integrator:
+//!   variable-step stepping that never passes a stop time, exact location
+//!   of zero crossings, dense output, restart after an event, quadratures.
+//!   Backends: SUNDIALS CVODES (models with no iteration variables: ODEs;
+//!   BDF or Adams, chosen automatically) and IDAS (index-1 DAEs) in
+//!   [`sundials`], built in-tree by `lsim-sundials-sys` with dense, band or
+//!   sparse (faer, [`faer_ls`]) LU; diffsol (pure Rust, feature `diffsol`)
+//!   as the independent second backend for cross-checks. A model with no
+//!   state (nothing to integrate) runs on [`stateless`] whichever backend
+//!   is chosen.
+//! * [`simulate`] — the run loop ([`run`]): consistent initialisation
+//!   (Newton, then homotopy: [`init`]), stepping, `when` clauses and modes
+//!   at located zero crossings with event iteration, time events, sampled
+//!   blocks on their clocks (restarting the integrator only when an output
+//!   changed), event-storm detection, re-initialisation, the [`Recorder`]
+//!   that samples every channel on the output grid from the dense output
+//!   with each interval's min, max and time-mean, the energy books
+//!   ([`energy`]) and the run report ([`SolverReport`]).
+//! * [`accuracy_check`] — the one-click check: the same run 10× tighter
+//!   and how far every channel moved.
+//! * [`sweep`] — parameter sets in parallel (rayon), one compiled model.
+
+pub mod accuracy;
+mod ad;
+pub mod choice;
+#[cfg(feature = "diffsol")]
+pub mod diffsol_backend;
+pub mod energy;
+#[cfg(feature = "sundials")]
+pub mod faer_ls;
+mod held;
+pub mod info;
+pub mod init;
+mod interval;
+pub mod jac;
+mod recorder;
+pub mod run;
+pub mod stateless;
+pub mod states;
+#[cfg(feature = "sundials")]
+pub mod sundials;
+pub mod sweep;
+mod tape;
+
+pub use accuracy::{AccuracyReport, ChannelChange, accuracy_check, compare_runs};
+pub use energy::{EnergyBooks, PartBooks};
+pub use info::{
+    AssertInfo, BlockInfo, EnergyInfo, EnergyPart, EngagementInfo, HeldAxisInfo, HeldEdgesInfo,
+    HeldInfo, ImpulseInfo, ImpulseLink, InputChain, ModeInfo, RunInfo, SetReads, StateRead,
+    StateSetInfo, StoredRates, TimeCrossing, TimeFunction, VarSource,
+};
+pub use recorder::{Recorded, Recorder, Traced, WindowPeak};
+pub use run::run_loop;
+pub use sweep::sweep;
+
+use lsim_ir::runtime::{DiscreteBlock, ModelFunctions};
+use std::time::Instant;
+
+/// Why a run failed.
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum SolveError {
+    /// The integrator gave up (step size too small, Newton failures …).
+    #[error("the solver stopped at t = {t} s: {message}")]
+    Integrator {
+        /// where
+        t: f64,
+        /// what it said
+        message: String,
+    },
+    /// The start values could not be made consistent.
+    #[error("the model could not be initialised at t = {t} s: {message}")]
+    Initialisation {
+        /// where
+        t: f64,
+        /// what failed, naming the equations with the largest residuals
+        message: String,
+    },
+    /// Index reduction's choice of states no longer works here: a
+    /// constraint hardly depends on what it decides from the states
+    /// ([`states`]).
+    #[error("the solver stopped at t = {t} s: {message}")]
+    StateSelection {
+        /// where
+        t: f64,
+        /// what, naming the constraint, the variables and what to do
+        message: String,
+        /// the parts the constraint belongs to
+        parts: Vec<String>,
+    },
+    /// Events piled up: a mode or `when` condition chattering.
+    #[error("event storm at t = {t} s: {message}")]
+    EventStorm {
+        /// where
+        t: f64,
+        /// which conditions, naming the parts
+        message: String,
+        /// the conditions' labels, most frequent first
+        parts: Vec<String>,
+    },
+    /// The energy books did not close.
+    #[error("the energy books do not close: {message}")]
+    EnergyBooks {
+        /// how far, and which parts
+        message: String,
+    },
+    /// A table was read outside its data on an axis that forbids it.
+    #[error("at t = {t} s, {message}")]
+    TableOutside {
+        /// where
+        t: f64,
+        /// which table and axis, in words
+        message: String,
+    },
+    /// A model's `assert` (an error) failed.
+    #[error("at t = {t} s, {message}")]
+    Assert {
+        /// where
+        t: f64,
+        /// the assert's message, naming the part
+        message: String,
+    },
+    /// A sampled block failed.
+    #[error("sampled block {block} failed at t = {t} s: {message}")]
+    Block {
+        /// the block
+        block: String,
+        /// when
+        t: f64,
+        /// what it said
+        message: String,
+    },
+    /// The results asked for do not fit in memory (an output grid of
+    /// that many points): refused before the run instead of aborting it.
+    #[error("the results do not fit in memory: {message}")]
+    Memory {
+        /// what was asked for
+        message: String,
+    },
+    /// The run took longer than its time limit
+    /// ([`SolverOptions::time_limit`]).
+    #[error("the run stopped at t = {t} s: {message}")]
+    TimeLimit {
+        /// where it was
+        t: f64,
+        /// the limit and how far the run got, in words
+        message: String,
+    },
+    /// A recorded channel is not a number (NaN) or infinite: never
+    /// reported as a result ([`simulate`]).
+    #[error("the run stopped at t = {t} s: {message}")]
+    NotFinite {
+        /// the first output time where a channel is not finite
+        t: f64,
+        /// which channel, in words
+        message: String,
+    },
+    /// What the run records would take more memory than its limit
+    /// ([`SolverOptions::memory_limit`]).
+    #[error("the run stopped at t = {t} s: {message}")]
+    MemoryLimit {
+        /// where it was (the start, for an output grid that is too large)
+        t: f64,
+        /// the limit and what would exceed it, in words
+        message: String,
+    },
+    /// No integrator backend is compiled in.
+    #[error("no integrator backend is built into this engine")]
+    NoBackend,
+}
+
+impl SolveError {
+    /// The error with what the run said of itself before it (`notes`: the
+    /// table reads it released from their cells, DESIGN.md §8.2), so that
+    /// a run that fails after a release says so.
+    pub fn with_notes(self, notes: &[String]) -> SolveError {
+        if notes.is_empty() {
+            return self;
+        }
+        let said = format!(" (earlier in the run: {})", notes.join("; "));
+        match self {
+            SolveError::Integrator { t, message } => {
+                SolveError::Integrator { t, message: message + &said }
+            }
+            SolveError::Initialisation { t, message } => {
+                SolveError::Initialisation { t, message: message + &said }
+            }
+            SolveError::StateSelection { t, message, parts } => {
+                SolveError::StateSelection { t, message: message + &said, parts }
+            }
+            SolveError::EventStorm { t, message, parts } => {
+                SolveError::EventStorm { t, message: message + &said, parts }
+            }
+            SolveError::TableOutside { t, message } => {
+                SolveError::TableOutside { t, message: message + &said }
+            }
+            SolveError::Assert { t, message } => SolveError::Assert { t, message: message + &said },
+            SolveError::Block { block, t, message } => {
+                SolveError::Block { block, t, message: message + &said }
+            }
+            other => other,
+        }
+    }
+}
+
+/// Integration method.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Method {
+    /// stiff BDF unless the model is plainly non-stiff, then Adams; checked
+    /// again after events, and switched back on convergence trouble (the
+    /// default)
+    #[default]
+    Auto,
+    /// stiff BDF (variable order 1-5) with Newton iteration
+    Bdf,
+    /// non-stiff Adams-Moulton (variable order 1-12) with fixed-point
+    /// iteration (CVODE only; a DAE always uses BDF)
+    Adams,
+}
+
+/// The linear solver inside the Newton iteration.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum LinearSolver {
+    /// dense LU up to 40 unknowns, band LU when the Jacobian's band is
+    /// narrow, sparse LU otherwise (the default)
+    #[default]
+    Auto,
+    /// dense LU with partial pivoting (SUNDIALS)
+    Dense,
+    /// band LU (SUNDIALS), from the Jacobian's band widths
+    Band,
+    /// sparse LU (faer: fill-reducing ordering, partial pivoting)
+    Sparse,
+}
+
+/// Which integrator library runs the model.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Backend {
+    /// SUNDIALS CVODES/IDAS (the default)
+    #[default]
+    Sundials,
+    /// diffsol BDF (pure Rust; the cross-check)
+    Diffsol,
+}
+
+/// Solver settings.
+#[derive(Clone, Debug)]
+pub struct SolverOptions {
+    /// relative tolerance
+    pub rtol: f64,
+    /// absolute tolerance, multiplied by each variable's nominal value
+    pub atol: f64,
+    /// largest internal step, s (0: no limit)
+    pub max_step: f64,
+    /// the method
+    pub method: Method,
+    /// give up after this many internal steps
+    pub max_steps: u64,
+    /// stop the run with [`SolveError::TimeLimit`] once it has taken this
+    /// long by the wall clock, its initialisation included (checked at the
+    /// end of every step); `None`, the default: no limit
+    pub time_limit: Option<std::time::Duration>,
+    /// refuse the run with [`SolveError::MemoryLimit`] where what it records
+    /// would take more than this many bytes: every recorded channel's
+    /// value, min, max and mean at each output time and the trace's points
+    /// (checked before the run), and its events (checked along it);
+    /// `None`, the default: no limit (an allocation that fails is still
+    /// [`SolveError::Memory`])
+    pub memory_limit: Option<usize>,
+    /// the linear solver
+    pub linear_solver: LinearSolver,
+    /// the integrator library
+    pub backend: Backend,
+    /// keep the energy books (port powers, losses, stored energy)
+    pub energy_books: bool,
+    /// fail the run when the books close worse than this share of the
+    /// energy throughput (0: report only)
+    pub energy_tolerance: f64,
+    /// put the energy integrals under the integrator's error control, so
+    /// they are as accurate as the states (the default; the step size then
+    /// also serves them). Off, they ride on the states' steps, which the
+    /// states alone choose: a fast-decaying loss came out 100× less
+    /// accurate than the tolerance, and where the states are exact on long
+    /// steps (a constant torque on an inertia: 1 s steps from the start)
+    /// an integral can be off by tens of percent (9 J supplied came out as
+    /// 15.55 J). The closure compares the integrals with each other and
+    /// can be zero all the same; the drift (stored energy from the states
+    /// against its integral) shows the error, and the run warns that the
+    /// books were not under error control
+    /// ([`EnergyBooks::error_controlled`])
+    pub energy_error_control: bool,
+    /// event iterations allowed at one instant before the run stops with
+    /// an event storm: rounds of re-checking the conditions after a change,
+    /// and, counted on their own, the rigid engagements one instant's
+    /// events chain (a shift whose new speeds fire the next shift, each
+    /// one projected); raise it for a cascade that is meant
+    pub max_event_iterations: usize,
+    /// an event storm: more than this many state events (zero crossings and
+    /// modes; sample ticks and time events do not count, nor what they
+    /// change at their instant) …
+    pub storm_events: usize,
+    /// … within this share of the run's length (at least 1 µs)
+    pub storm_window: f64,
+    /// IDA: leave the iteration variables out of the local error test
+    pub suppress_algebraic_error: bool,
+    /// at a rigid engagement a part declares (a gear shift), move the
+    /// states to keep the momentum of everything the engagement ties
+    /// together (an impulse projection, [`RunInfo::impulse`]); off: the
+    /// states stay and the speeds they set jump to the new couplings
+    pub impulses: bool,
+    /// let a sample tick whose change the next step's error test can
+    /// absorb go on with the integration's history instead of restarting
+    /// (a light restart). Off by default: the history carries the kink the
+    /// tick put in the derivatives into the next steps, and the error that
+    /// leaves has the same sign at every tick of a steadily moving command,
+    /// so it accumulates beyond the tolerance over a long run (a 10 000-tick
+    /// ramp at rtol 1e-6: 57 tolerance units). A tick whose outputs reach
+    /// nothing the integrator integrates or watches goes on without a
+    /// restart either way ([`RunInfo::dynamic_discretes`]): that is exact
+    pub light_restarts: bool,
+    /// time the check of the conditions that mix time and states along
+    /// each step ([`SolverReport::mixed_seconds`]: two clock readings a
+    /// step), for the benchmark of its share of the run (lsim-project's
+    /// `scan_share` example). Off by default
+    pub time_mixed_checks: bool,
+    /// check the conditions that mix time and states with the model's
+    /// compiled kernels where it has them
+    /// ([`lsim_ir::ModelFunctions::condition_kernels`]: bitwise the
+    /// interpreter, faster). On by default; off, every condition is
+    /// interpreted from the IR
+    pub condition_kernels: bool,
+    /// evaluate the energy books' integrands with the model's compiled
+    /// kernel where it has one ([`lsim_ir::ModelFunctions::books_kernel`]:
+    /// bitwise the interpreter, faster). On by default; off, they are
+    /// interpreted from the IR
+    pub books_kernels: bool,
+    /// dynamic state selection (DESIGN.md §6 step 5): where a variable
+    /// index reduction decides from the states comes to move more than
+    /// this many times as much as a state (the choice's exchange factor,
+    /// [`states`]), the run chooses the states again there and goes on
+    /// with them ([`choice`]), where the model can ([`RunInfo::choices`];
+    /// a choice the model's `stateSelect` marks lead, up to
+    /// [`states::MARKED`]). 0: never (the run stops where the choice
+    /// degrades past its limit, naming the constraint)
+    pub state_switch: f64,
+    /// read a sampled block's inputs fast: a computed input's chain run
+    /// as a flat tape instead of interpreted, and the inputs of a block's
+    /// ticks inside one step read together (the dense output and the
+    /// tapes across the ticks), its ticks that change nothing run in a
+    /// row. The same values either way, to the bit (DESIGN.md §9). On by
+    /// default; off, each tick reads its inputs alone, interpreted
+    pub tick_read_ahead: bool,
+    /// release a table read held in its cells (DESIGN.md §8.2, *Tables
+    /// read at a state*) where holding it costs more than it saves: at the
+    /// start where its jumps are within the tolerance (a 1-D read), and
+    /// during the run where its crossings come too often for the
+    /// integrator, which restarts at each, to leave the low orders of its
+    /// restarts (a 1-D or 2-D read). A released read is the table itself
+    /// from then on, stepped over. Only a group with a read that jumps (one
+    /// held only for comparison, `TableCells::Kinks`' reads that only kink,
+    /// is held through every crossing), and only while the run is on the
+    /// explicit form (CVODES):
+    /// the implicit form (IDAS, diffsol's DAE) cannot step over a read's
+    /// jump, and holds every held read through every crossing whatever
+    /// this says. On by default; off, a held read stays held through every
+    /// crossing (for comparison only)
+    pub held_release: bool,
+    /// the channels the run records, by their index among the model's
+    /// ([`RunInfo::var_names`]), in this order: the result holds these
+    /// alone (a long run on a fine grid that needs a few of them: every
+    /// channel of a model recorded every 0.1 s over a day does not fit in
+    /// memory). `None`: every channel. The run itself is the same
+    pub record: Option<Vec<usize>>,
+    /// sample a few channels from the dense output at times of their own,
+    /// besides the output grid and without changing it (a run's speed
+    /// trace for its verdict, independent of the output step:
+    /// [`SimResult::trace`]); `None`, the default: no trace
+    pub trace: Option<TraceSpec>,
+    /// `(channel, window s)`: keep each channel's highest moving average
+    /// over its window, of the line through every point the integrator
+    /// visited, read at each ([`SimResult::windows`]; a battery's averaged
+    /// power peak, independent of the output step); empty by default
+    pub windows: Vec<(usize, f64)>,
+    /// what the run tells as it goes (the point it reached, its output
+    /// points as it records them) and what stops it or changes its
+    /// parameters while it runs ([`RunControl`]); `None`, the default:
+    /// nothing
+    pub control: Option<std::sync::Arc<dyn RunControl>>,
+}
+
+/// What a run tells as it goes, and what stops it or changes its
+/// parameters while it runs ([`SolverOptions::control`]: a run's
+/// progress, a live run's stream, a study's Stop and a live edit through
+/// the one hook). The run loop calls it on the run's own thread at the
+/// end of every step it takes (and once more at its end): each call must
+/// be quick, and may wait only where its caller chose to (a bounded queue
+/// its reader empties).
+pub trait RunControl: Send + Sync + std::fmt::Debug {
+    /// Whether the run is to stop where it is: it then ends there, at the
+    /// end of the step it has taken, with a last output point there and
+    /// what it recorded up to it ([`SolverReport::stopped`]).
+    fn stop(&self) -> bool;
+    /// The run has reached `t` of `t_end` and recorded the output points
+    /// at `times`, `values[c][k]` channel `c` at `times[k]` as the result
+    /// holds it; those from `first` on are new since the last call.
+    fn reached(&self, t: f64, t_end: f64, first: usize, times: &[f64], values: &[Vec<f64>]);
+    /// The parameter changes asked for since the last call, in order.
+    fn edits(&self) -> Vec<ParamEdit> {
+        vec![]
+    }
+}
+
+/// A change of a run's parameters while it goes ([`RunControl::edits`]),
+/// made as an event, where the run then goes on with `params`. The run
+/// takes it at the end of the first step it takes at or after `from` (the
+/// end of its next step, for a live edit: `from` 0), and makes it at the
+/// first output time after that point (a time of the grid), or at `at`
+/// when it has one. A run given the change with `from` the time a run took
+/// it ([`SolverReport::edits`]) takes it at the same point and makes it at
+/// the same time: every step before is the same, so the run is the same
+/// bit for bit (its stop times, the first step's size among them, move
+/// only once it holds the change). A change whose time the run has passed,
+/// or that comes after its end, is not made.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParamEdit {
+    /// taken at the first step's end at or after this time, s
+    pub from: f64,
+    /// made at this time, s; `None`: at the first output time after the
+    /// point it was taken at
+    pub at: Option<f64>,
+    /// the parameter values to go on with (the whole vector, as
+    /// [`RunInfo::params`])
+    pub params: Vec<f64>,
+}
+
+/// Channels to sample from the dense output every `step` s from the
+/// grid's start, and at its end ([`SolverOptions::trace`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct TraceSpec {
+    /// the spacing, s
+    pub step: f64,
+    /// the channels (indices of the flat variables)
+    pub channels: Vec<usize>,
+}
+
+/// [`SolverOptions::state_switch`]'s default.
+pub const STATE_SWITCH: f64 = 3.0;
+
+impl Default for SolverOptions {
+    fn default() -> Self {
+        SolverOptions {
+            rtol: 1e-6,
+            atol: 1e-8,
+            max_step: 0.0,
+            method: Method::Auto,
+            max_steps: 10_000_000,
+            time_limit: None,
+            memory_limit: None,
+            linear_solver: LinearSolver::Auto,
+            backend: Backend::Sundials,
+            energy_books: true,
+            energy_tolerance: 0.0,
+            energy_error_control: true,
+            max_event_iterations: 50,
+            storm_events: 100,
+            storm_window: 1e-3,
+            suppress_algebraic_error: false,
+            impulses: true,
+            light_restarts: false,
+            time_mixed_checks: false,
+            condition_kernels: true,
+            books_kernels: true,
+            tick_read_ahead: true,
+            state_switch: STATE_SWITCH,
+            held_release: true,
+            record: None,
+            trace: None,
+            windows: vec![],
+            control: None,
+        }
+    }
+}
+
+impl SolverOptions {
+    /// The same settings with tolerances 10× tighter: the one-click
+    /// accuracy check (DESIGN.md, *Accuracy*).
+    pub fn tighter(&self) -> Self {
+        SolverOptions { rtol: self.rtol / 10.0, atol: self.atol / 10.0, ..self.clone() }
+    }
+}
+
+/// What one internal step ended with.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Step {
+    /// an ordinary internal step, ending at this time
+    Internal(f64),
+    /// the stop time was reached
+    Stopped(f64),
+    /// zero crossings were located at this time; one entry per crossing:
+    /// +1 rising, -1 falling, 0 none
+    Root(f64, Vec<i32>),
+}
+
+impl Step {
+    /// When the step ended.
+    pub fn time(&self) -> f64 {
+        match self {
+            Step::Internal(t) | Step::Stopped(t) | Step::Root(t, _) => *t,
+        }
+    }
+}
+
+/// Work counters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SolverStats {
+    /// internal steps
+    pub steps: u64,
+    /// residual (right-hand side) evaluations
+    pub rhs_evals: u64,
+    /// Jacobian evaluations
+    pub jac_evals: u64,
+    /// local error test failures
+    pub err_test_fails: u64,
+    /// nonlinear solver convergence failures
+    pub nonlin_fails: u64,
+    /// restarts after events
+    pub restarts: u64,
+    /// Newton-matrix factorisations
+    pub lin_setups: u64,
+}
+
+impl std::ops::AddAssign for SolverStats {
+    fn add_assign(&mut self, o: Self) {
+        self.steps += o.steps;
+        self.rhs_evals += o.rhs_evals;
+        self.jac_evals += o.jac_evals;
+        self.err_test_fails += o.err_test_fails;
+        self.nonlin_fails += o.nonlin_fails;
+        self.restarts += o.restarts;
+        self.lin_setups += o.lin_setups;
+    }
+}
+
+/// The polynomial an integrator's dense output is over its last step, for
+/// some entries of y, in Newton form:
+///
+/// `y(t) = Σ_j a_j Π_{i<j} (τ − x_i) / s_i`, `τ = t − origin`,
+///
+/// the nodes `x_i` and scales `s_i` shared by the entries (CVODE's
+/// Nordsieck array: every `x_i = 0`, `s_i = h`; IDA's modified divided
+/// differences: `x_0 = 0`, `x_i = −ψ_{i−1}`, `s_i = ψ_i`). The run loop
+/// encloses it over any part of the step with outward rounding.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DenseOutput {
+    /// τ's origin
+    pub origin: f64,
+    /// the nodes `x_i`, as many as the degree
+    pub nodes: Vec<f64>,
+    /// the scales `s_i`
+    pub scales: Vec<f64>,
+    /// per entry, its `degree + 1` coefficients `a_j`, entry after entry
+    /// (any values after the last entry's are not part of it)
+    pub coef: Vec<f64>,
+    /// per entry, a bound on its distance from the integrator's own
+    /// interpolant over the part of the step asked for (0: it is that
+    /// interpolant, as the integrator holds it; a backend that cannot
+    /// prove one gives an estimate and says so: diffsol's)
+    pub err: Vec<f64>,
+}
+
+impl DenseOutput {
+    /// The polynomial's degree.
+    pub fn degree(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Entry `m`'s coefficients.
+    pub fn coefficients(&self, m: usize) -> &[f64] {
+        let k = self.degree() + 1;
+        &self.coef[m * k..(m + 1) * k]
+    }
+
+    /// Entry `m` at `t`, in floating point (as the integrators evaluate
+    /// their dense output: the nested Newton form).
+    pub fn at(&self, m: usize, t: f64) -> f64 {
+        let tau = t - self.origin;
+        let a = self.coefficients(m);
+        let q = self.degree();
+        let mut acc = a[q];
+        for j in (0..q).rev() {
+            acc = a[j] + (tau - self.nodes[j]) / self.scales[j] * acc;
+        }
+        acc
+    }
+
+    /// The constant `y` at `t` (an integrator that has not stepped yet).
+    pub fn constant(&mut self, t: f64, y: impl Iterator<Item = f64>) {
+        self.origin = t;
+        self.nodes.clear();
+        self.scales.clear();
+        self.coef.clear();
+        self.coef.extend(y);
+        self.err.clear();
+        self.err.resize(self.coef.len(), 0.0);
+    }
+}
+
+/// A time integrator for `x' = f(t, x, z)`, `0 = g(t, x, z)`.
+pub trait Integrator {
+    /// The backend's name, for the run report.
+    fn name(&self) -> &'static str;
+    /// One internal step, never past `t_stop`.
+    fn step(&mut self, t_stop: f64) -> Result<Step, SolveError>;
+    /// y at the end of the last step.
+    fn y(&self) -> &[f64];
+    /// y at `t`, inside the last step (dense output).
+    fn interpolate(&mut self, t: f64, out: &mut [f64]) -> Result<(), SolveError>;
+    /// Selected entries of y at `t`, inside the last step: `out[m] =
+    /// y(t)[idx[m]]` (a sampled block's inputs, without interpolating the
+    /// whole state).
+    fn interpolate_select(
+        &mut self,
+        t: f64,
+        idx: &[usize],
+        out: &mut [f64],
+    ) -> Result<(), SolveError> {
+        let mut y = self.y().to_vec();
+        self.interpolate(t, &mut y)?;
+        for (o, i) in out.iter_mut().zip(idx) {
+            *o = y[*i];
+        }
+        Ok(())
+    }
+    /// [`Self::interpolate_select`] at several times, the same values,
+    /// entry after entry: `out[m·ts.len() + i] = y(ts[i])[idx[m]]` (a
+    /// sampled block's ticks inside one step, read together).
+    fn interpolate_select_many(
+        &mut self,
+        ts: &[f64],
+        idx: &[usize],
+        out: &mut [f64],
+    ) -> Result<(), SolveError> {
+        let mut one = vec![0.0; idx.len()];
+        for (i, &t) in ts.iter().enumerate() {
+            self.interpolate_select(t, idx, &mut one)?;
+            for (m, v) in one.iter().enumerate() {
+                out[m * ts.len() + i] = *v;
+            }
+        }
+        Ok(())
+    }
+    /// The polynomial the dense output is over the last step, for the
+    /// entries `idx` of y ([`DenseOutput`]), to be read on `[t0, the
+    /// step's end]` (inside the last step). False when the backend does
+    /// not give it (the default) or `t0` lies before the last step: the run
+    /// loop then cannot check a condition along the step, and says so.
+    fn dense_output(
+        &mut self,
+        _t0: f64,
+        _idx: &[usize],
+        _out: &mut DenseOutput,
+    ) -> Result<bool, SolveError> {
+        Ok(false)
+    }
+    /// The discrete variables the model functions read.
+    fn discrete_mut(&mut self) -> &mut [f64];
+    /// Restarts at `t` from `y` (iteration variables are made consistent),
+    /// after the discrete variables changed. `t` may lie inside the last
+    /// step (the rest of the step is dropped).
+    fn restart(&mut self, t: f64, y: &[f64]) -> Result<(), SolveError>;
+    /// Goes on with the parameter values `p` (the whole vector) from the
+    /// next restart on: a run's parameter change ([`ParamEdit`]), made at
+    /// an event, which restarts the integrator. False when the backend
+    /// cannot (the default): the run then stops there, saying so.
+    fn set_params(&mut self, _p: &[f64]) -> bool {
+        false
+    }
+    /// Goes on from `t`, the end of the last step, keeping the integration
+    /// history (no restart), after an event that changed discrete values
+    /// so little that the next step's error test hardly sees it. False when
+    /// the backend cannot (its last step does not end at `t`, or it has
+    /// none): the run loop then restarts it.
+    fn resume(&mut self, _t: f64) -> bool {
+        false
+    }
+    /// The step the integrator plans next, s (0: none yet).
+    fn planned_step(&self) -> f64 {
+        0.0
+    }
+    /// Makes the iteration variables of `y` consistent at `t` with the
+    /// discrete values `d`, the states held (event iteration re-checks the
+    /// conditions with them after a discrete value changed). The run loop
+    /// calls it only for a model with iteration variables, so an
+    /// integrator of ODEs never sees it. The default fails: an integrator
+    /// that solves DAEs and does not implement it stops the run there
+    /// instead of going on with iteration variables that no longer hold.
+    fn consistent_z(&mut self, t: f64, _y: &mut [f64], _d: &[f64]) -> Result<(), SolveError> {
+        Err(SolveError::Integrator {
+            t,
+            message: format!(
+                "the {} integrator cannot make a model's iteration variables consistent after \
+                 an event (Integrator::consistent_z is not implemented)",
+                self.name()
+            ),
+        })
+    }
+    /// [`Integrator::consistent_z`] at a point the run loop only looks at
+    /// (where an event's conditions stood before it): what the integrator
+    /// keeps of its last solve for its restart stays as it was.
+    fn consistent_z_aside(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        self.consistent_z(t, y, d)
+    }
+    /// Work done so far.
+    fn stats(&self) -> SolverStats;
+    /// The energy integrals at `t` (inside the last step), when the backend
+    /// integrates them (see [`energy::Integrand`]).
+    fn quadrature(&mut self, _t: f64, _out: &mut [f64]) -> Result<(), SolveError> {
+        Ok(())
+    }
+    /// Starts the energy integrals at `q` instead of zero, before the first
+    /// step (a run that goes on with the states chosen again carries them
+    /// over); false when the backend cannot (the run then does not switch).
+    fn set_quadratures(&mut self, _q: &[f64]) -> Result<bool, SolveError> {
+        Ok(false)
+    }
+    /// The last step's estimated local error per entry of y, as a share of
+    /// that entry's tolerance (|e| / (rtol |y| + atol)); false when the
+    /// backend does not give it.
+    fn local_error(&mut self, _out: &mut [f64]) -> bool {
+        false
+    }
+    /// For each root function, the side an exact zero counts as (+1 or -1;
+    /// 0: none): the run loop sets it after every event so a function that
+    /// rests at zero after its crossing (a held value) does not fire again;
+    /// and how far on the other side it still counts as on that side (its
+    /// hold, 0: not at all): a crossing that re-solving the iteration
+    /// variables put back a little short of zero does not fire again
+    /// either (`crate::run::apply_zero_sides` maps both).
+    fn set_root_sides(&mut self, _sides: &[f64], _holds: &[f64]) {}
+    /// The root functions the integrator must not watch (true): the run
+    /// loop schedules them itself as exact time events. A backend that
+    /// watches every root function must say so (false).
+    fn set_root_mask(&mut self, mask: &[bool]) -> bool {
+        !mask.iter().any(|m| *m)
+    }
+    /// The method now in use, for the report.
+    fn method(&self) -> String {
+        "BDF".into()
+    }
+    /// How the integrator was set up (method choice, linear solver,
+    /// initialisation), for the report.
+    fn setup_notes(&self) -> Vec<String> {
+        vec![]
+    }
+}
+
+/// The output grid.
+#[derive(Clone, Copy, Debug)]
+pub struct OutputGrid {
+    /// start time, s
+    pub t0: f64,
+    /// end time, s
+    pub t_end: f64,
+    /// spacing, s (the last interval may be shorter)
+    pub dt: f64,
+}
+
+impl OutputGrid {
+    /// How many intervals the grid has (a float: a grid too large to hold
+    /// is still counted).
+    pub fn intervals(&self) -> f64 {
+        ((self.t_end - self.t0) / self.dt - 1e-9).ceil().max(0.0)
+    }
+
+    /// The grid's times: from `t0` every `dt`, the last one `t_end`
+    /// exactly (also when `n·dt` rounds a few ulps short of it). A grid
+    /// whose times do not fit in memory is an error, not an abort.
+    pub fn times(&self) -> Result<Vec<f64>, SolveError> {
+        let n = self.intervals() as usize;
+        let mut t = Vec::new();
+        try_room(&mut t, n.saturating_add(1), || {
+            format!(
+                "an output grid every {} s from {} s to {} s has {n} intervals",
+                self.dt, self.t0, self.t_end
+            )
+        })?;
+        t.extend((0..=n).map(|k| {
+            if k == n { self.t_end } else { (self.t0 + k as f64 * self.dt).min(self.t_end) }
+        }));
+        t.dedup();
+        Ok(t)
+    }
+}
+
+/// Makes room in `v` for `n` items, or says what did not fit.
+pub(crate) fn try_room<T>(
+    v: &mut Vec<T>,
+    n: usize,
+    what: impl FnOnce() -> String,
+) -> Result<(), SolveError> {
+    v.try_reserve_exact(n).map_err(|e| SolveError::Memory { message: format!("{} ({e})", what()) })
+}
+
+/// What made an event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EventKind {
+    /// a `when` clause fired (index into [`RunInfo::whens`])
+    When(usize),
+    /// a mode flipped (index into [`RunInfo::modes`])
+    Mode(usize),
+    /// a sampled block's output changed (index into the blocks)
+    Block(usize),
+    /// a time event (index into [`RunInfo::time_events`])
+    Time(usize),
+    /// the states chosen again (dynamic state selection, [`choice`]): the
+    /// set whose choice degraded (index into the `state_sets` of the model
+    /// the run went on from)
+    States(usize),
+    /// a table read held in its cell went on in another cell: its argument
+    /// crossed a breakpoint (index into [`RunInfo::held`])
+    Cell(usize),
+    /// the parameters changed ([`ParamEdit`]; index into
+    /// [`SolverReport::edits`])
+    Params(usize),
+}
+
+/// An event that happened.
+#[derive(Clone, Debug, PartialEq)]
+pub struct EventRecord {
+    /// when, s (located to the integrator's root-finding precision, or
+    /// exact for time events and sample ticks)
+    pub t: f64,
+    /// which `when` clause fired (`usize::MAX` for other kinds)
+    pub when: usize,
+    /// what it is
+    pub label: String,
+    /// what made it
+    pub kind: EventKind,
+}
+
+/// The achieved accuracy as the integrator estimated it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ErrorEstimate {
+    /// the largest local error estimate of any step, as a share of the
+    /// tolerance (the error test passes at ≤ 1)
+    pub worst_local: f64,
+    /// the entry of y it was in
+    pub worst_local_var: String,
+    /// for each entry of y: the local error estimates summed over every
+    /// step, relative to the entry's largest magnitude (an upper bound of
+    /// the global error that ignores damping), largest first
+    pub accumulated: Vec<(String, f64)>,
+}
+
+/// What the solver did, for the run report (DESIGN.md, *Solver report*).
+#[derive(Clone, Debug, Default)]
+pub struct SolverReport {
+    /// the integrator
+    pub backend: &'static str,
+    /// the method(s) used
+    pub method: String,
+    /// how the integrator was set up: method choice and why, linear
+    /// solver, initialisation path
+    pub notes: Vec<String>,
+    /// relative tolerance
+    pub rtol: f64,
+    /// absolute tolerance (times each variable's nominal value)
+    pub atol: f64,
+    /// the work done
+    pub stats: SolverStats,
+    /// events
+    pub events: usize,
+    /// sampled-block ticks
+    pub block_ticks: u64,
+    /// ticks that changed an output (and so restarted the integrator,
+    /// unless they are counted below)
+    pub block_changes: u64,
+    /// of those, the ticks whose outputs reach nothing the integrator
+    /// integrates or watches ([`RunInfo::dynamic_discretes`]): the step
+    /// went on, exactly, with no restart and no cut
+    pub inert_ticks: u64,
+    /// of those, with [`SolverOptions::light_restarts`] (opt-in), the ticks
+    /// so slight that the integration went on with its history instead of
+    /// restarting, the next step's error test checking the change
+    pub light_restarts: u64,
+    /// restarts at the kinks of tables read along time that index
+    /// reduction differentiated ([`info::TimeTable::kink`])
+    pub kink_restarts: u64,
+    /// impulse projections at rigid engagements (gear shifts)
+    pub impulses: u64,
+    /// iteration variables solved again between the ticks of one instant
+    /// (a block reading what a block before it moved)
+    pub z_solves: u64,
+    /// steps ended at a sign change of a condition that mixes time and
+    /// states, found along the step, that root finding did not see
+    pub pulses_found: u64,
+    /// steps of such conditions a certificate cleared (a few comparisons
+    /// per state they read), summed over the conditions
+    pub mixed_certified: u64,
+    /// steps of such conditions taken along the dense output, where no
+    /// certificate held, summed over the conditions
+    pub mixed_scanned: u64,
+    /// wall-clock time the check of such conditions took, s (0 unless
+    /// [`SolverOptions::time_mixed_checks`])
+    pub mixed_seconds: f64,
+    /// the integrator's own error estimate
+    pub error: ErrorEstimate,
+    /// warnings for the user
+    pub warnings: Vec<String>,
+    /// each table axis the run read outside its data (one whose setting
+    /// lets it go on), as its warning says, with numbers
+    pub table_outside: Vec<TableOutside>,
+    /// each warning `assert` that did not hold, the first time
+    pub asserts: Vec<AssertHit>,
+    /// where a [`RunControl`] stopped the run, s (`None`: it ran to its
+    /// end)
+    pub stopped: Option<f64>,
+    /// each parameter change the run made ([`ParamEdit`]), in order: when it
+    /// took it, when it made it, and the values it went on with from there
+    pub edits: Vec<(f64, f64, Vec<f64>)>,
+}
+
+/// A table axis a run read outside its data ([`SolverReport::table_outside`]),
+/// in SI.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TableOutside {
+    /// the table's name
+    pub table: String,
+    /// 0: its first axis, 1: its second
+    pub axis: u8,
+    /// when the run first read it outside, s
+    pub first: f64,
+    /// how long it read it outside, s (the crossings located as events)
+    pub total: f64,
+    /// the axis argument furthest outside at the steps' ends (NaN: not
+    /// known, or never outside at a step's end)
+    pub furthest: f64,
+    /// the edge of the data it was past then
+    pub edge: f64,
+    /// when, s
+    pub t_furthest: f64,
+    /// the axis's first and last data point (NaN: not known)
+    pub lo: f64,
+    /// (see `lo`)
+    pub hi: f64,
+    /// the warning the run wrote for it ([`SolverReport::warnings`])
+    pub warning: String,
+}
+
+/// A warning `assert` that did not hold ([`SolverReport::asserts`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AssertHit {
+    /// when, s
+    pub t: f64,
+    /// its message, naming the part
+    pub message: String,
+}
+
+/// A run's results.
+#[derive(Clone, Debug)]
+pub struct SimResult {
+    /// the output times
+    pub times: Vec<f64>,
+    /// the channels' names, one per flat variable
+    pub names: Vec<String>,
+    /// `values[channel][k]`: the value at `times[k]`
+    pub values: Vec<Vec<f64>>,
+    /// lowest value over the interval ending at `times[k]` (at k = 0, the value)
+    pub min: Vec<Vec<f64>>,
+    /// highest value over the interval ending at `times[k]`
+    pub max: Vec<Vec<f64>>,
+    /// time-mean over the interval ending at `times[k]`
+    pub mean: Vec<Vec<f64>>,
+    /// the output times that fall exactly on an event, in order of the
+    /// output point: the values just before it (the left limit) of the
+    /// channels the event changed; `values[c][k]` holds the value just
+    /// after the event, as everywhere ([`SimResult::before`] gives either
+    /// side's for any channel). Both sides of the event at the same time,
+    /// as Modelica tools write them to their result files (the left one
+    /// first)
+    pub left_limits: Vec<LeftLimit>,
+    /// per channel, ∫ x² dt over the run, of the line through every point
+    /// the integrator visited (its steps, both sides of every event), as
+    /// the means are taken: a duty's RMS ([`Recorder`])
+    pub square_integral: Vec<f64>,
+    /// per channel, ∫ |x| dt over the run, the same way: with the means,
+    /// the energy a flow carried each way
+    pub magnitude_integral: Vec<f64>,
+    /// the channels [`SolverOptions::trace`] asked for, at its times
+    pub trace: Option<Traced>,
+    /// the highest moving averages [`SolverOptions::windows`] asked for,
+    /// in its order
+    pub windows: Vec<WindowPeak>,
+    /// the events, in order
+    pub events: Vec<EventRecord>,
+    /// work counters
+    pub stats: SolverStats,
+    /// which integrator ran
+    pub backend: &'static str,
+    /// the tolerances it ran with
+    pub options: SolverOptions,
+    /// wall-clock time of the run (not of compilation), s
+    pub wall_seconds: f64,
+    /// the energy books, when kept
+    pub energy: Option<EnergyBooks>,
+    /// what the solver did
+    pub report: SolverReport,
+}
+
+/// The values just before an event that falls on an output time: only
+/// those of the channels the event changed (the others' are the values
+/// after it, [`SimResult::values`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LeftLimit {
+    /// the output point: `times[k]`
+    pub k: usize,
+    /// the channels whose value just before the event differs from the
+    /// value just after, increasing
+    pub channels: Vec<u32>,
+    /// their values just before it
+    pub before: Vec<f64>,
+}
+
+impl LeftLimit {
+    /// The changes from `left` (every channel just before) to `right`
+    /// (just after) at output point `k`.
+    pub fn new(k: usize, left: &[f64], right: &[f64]) -> LeftLimit {
+        let mut out = LeftLimit { k, channels: vec![], before: vec![] };
+        for (c, (a, b)) in left.iter().zip(right).enumerate() {
+            if a.to_bits() != b.to_bits() && !(a.is_nan() && b.is_nan()) {
+                out.channels.push(c as u32);
+                out.before.push(*a);
+            }
+        }
+        out.channels.shrink_to_fit();
+        out.before.shrink_to_fit();
+        out
+    }
+
+    /// Channel `c`'s value just before the event, when the event changed it.
+    pub fn get(&self, c: usize) -> Option<f64> {
+        let c = u32::try_from(c).ok()?;
+        self.channels.binary_search(&c).ok().map(|i| self.before[i])
+    }
+}
+
+impl SimResult {
+    /// A channel's values by name.
+    pub fn channel(&self, name: &str) -> Option<&[f64]> {
+        self.names.iter().position(|n| n == name).map(|i| self.values[i].as_slice())
+    }
+
+    /// Channel `c`'s value just before output point `k`: its left limit
+    /// when an event falls there, else its value (`values[c][k]`).
+    pub fn before(&self, c: usize, k: usize) -> f64 {
+        let left = self
+            .left_limits
+            .binary_search_by_key(&k, |l| l.k)
+            .ok()
+            .and_then(|i| self.left_limits[i].get(c));
+        left.unwrap_or(self.values[c][k])
+    }
+}
+
+/// Runs `model` over `grid` with the backend of `opts` — CVODES when the
+/// model has no iteration variables, IDAS otherwise (or diffsol); a model
+/// with no state and no iteration variable on [`stateless::Stateless`],
+/// which integrates nothing but its energy books — driving the sampled
+/// `blocks` (one per [`RunInfo::blocks`] entry, in order).
+pub fn simulate(
+    model: &dyn ModelFunctions,
+    info: &RunInfo,
+    opts: &SolverOptions,
+    grid: OutputGrid,
+    blocks: &mut [Box<dyn DiscreteBlock>],
+) -> Result<SimResult, SolveError> {
+    // the default floating-point environment for the run, the calling
+    // thread's own again after it (lsim_ir::fenv)
+    let env = lsim_ir::fenv::DefaultFloatEnv::enter();
+    let started = Instant::now();
+    let l = *model.layout();
+    let mut y0 = vec![0.0; l.n_y()];
+    let mut d0 = vec![0.0; l.n_d];
+    model.start(&info.params, &mut y0, &mut d0);
+    let u = vec![0.0; l.n_u];
+    // the held table reads whose jumps are within the tolerance: the table
+    // itself from the start (crate::held). Not on the implicit form (IDAS,
+    // diffsol's DAE): it cannot step over a jump at all (DESIGN.md §8.2)
+    let mut released = vec![];
+    if opts.held_release && l.n_z == 0 {
+        for g in 0..held::groups(info) {
+            if held::continuous_to(model, info, g, opts.rtol, grid.t0)? {
+                held::release(info, g, &mut d0);
+                if let Some(h) = info.held.iter().find(|h| h.group == g) {
+                    released.push(format!(
+                        "the table '{}' read at a state is continuous at its points to the \
+                         tolerance: stepped over, not held in its cells",
+                        h.label
+                    ));
+                }
+            }
+        }
+    }
+    let start = init::start(
+        model,
+        info,
+        grid.t0,
+        &mut y0,
+        &mut d0,
+        &u,
+        &init::InitSettings { rtol: opts.rtol, atol: opts.atol, max_iterations: 50 },
+    )
+    .map_err(|e| {
+        // a start the states chosen at preparation cannot hold (a model
+        // prepared at other values) is told as that
+        states::check_start(model, info, grid.t0, &y0, &d0, &u).err().unwrap_or(e)
+    })?;
+    // index reduction's choice of states, at this start (parameters set
+    // after preparation, a cached model)
+    states::check_start(model, info, grid.t0, &y0, &d0, &u)?;
+    let result = run_backend(model, info, opts, grid, y0, d0, u, blocks, started);
+    // start values the initialisation's equations do not decide, from
+    // which the integrator could not start: told as the start's failure
+    let result = match (result, &start.undecided) {
+        (Err(SolveError::Integrator { t, message }), Some(why)) if t == grid.t0 => {
+            Err(SolveError::Initialisation {
+                t,
+                message: format!(
+                    "{why}, and the integrator could not start from them ({message}). Give start \
+                     values that the equations decide, or leave out the equation that depends \
+                     on the others"
+                ),
+            })
+        }
+        (r, _) => r,
+    };
+    // (a run that fails after the start released a read says so)
+    let result = result.map_err(|e| e.with_notes(&released));
+    // a channel that is not a number is no result
+    let result = result.and_then(|r| not_finite(&r).map_or(Ok(r), Err));
+    result.map(|mut r| {
+        r.report.notes.insert(0, format!("start: {}", start.what));
+        for (i, note) in released.into_iter().enumerate() {
+            r.report.notes.insert(1 + i, note);
+        }
+        if let Some(why) = &start.undecided {
+            r.report.warnings.insert(
+                0,
+                format!("at the start, {why}: the run starts from the start values as given"),
+            );
+        }
+        if let Some(own) = env.changed() {
+            r.report.notes.push(format!(
+                "the calling thread's floating-point environment (MXCSR {own:#06x}: flush-to-zero, \
+                 denormals-are-zero or another rounding) was set to the default for the run and \
+                 restored after it"
+            ));
+        }
+        r
+    })
+}
+
+/// The first recorded value (or minimum, maximum or mean over an output
+/// interval) that is NaN or infinite, as the run's error: a model's
+/// equation that divides by zero, or takes the square root or logarithm
+/// of a negative number, in a variable the integrator never sees (an
+/// output computed from the states).
+fn not_finite(r: &SimResult) -> Option<SolveError> {
+    let mut first: Option<(usize, usize, f64)> = None;
+    for c in 0..r.names.len() {
+        for col in [&r.values, &r.min, &r.max, &r.mean] {
+            let Some(v) = col.get(c) else { continue };
+            let end = first.map_or(v.len(), |(k, _, _)| k.min(v.len()));
+            if let Some(k) = v[..end].iter().position(|x| !x.is_finite()) {
+                first = Some((k, c, v[k]));
+            }
+        }
+    }
+    let (k, c, x) = first?;
+    Some(not_finite_error(&r.names[c], x, r.times.get(k).copied().unwrap_or(f64::NAN)))
+}
+
+/// [`SolveError::NotFinite`]: the variable `name` is `x` (NaN or
+/// infinite) at `t`.
+pub(crate) fn not_finite_error(name: &str, x: f64, t: f64) -> SolveError {
+    let what = if x.is_nan() { "is not a number (NaN)" } else { "is infinite" };
+    SolveError::NotFinite {
+        t,
+        message: format!(
+            "the variable '{name}' {what} at t = {t} s. A result with a value that is not a \
+             number is never reported: look for a division by zero, a square root or logarithm \
+             of a negative number, or a block (a Script, say) that returns NaN"
+        ),
+    }
+}
+
+/// A new integrator for `model` from `(t0, y0, d0)`, `grid` its run
+/// (the backend of `opts`): where a run goes on with its states chosen
+/// again ([`choice`]). `None` where the backend cannot be made so (diffsol,
+/// a run without SUNDIALS).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn new_integrator<'m>(
+    model: &'m dyn ModelFunctions,
+    info: &RunInfo,
+    opts: &SolverOptions,
+    grid: OutputGrid,
+    y0: &[f64],
+    d0: Vec<f64>,
+    u: Vec<f64>,
+) -> Option<Result<Box<dyn Integrator + 'm>, SolveError>> {
+    let l = *model.layout();
+    if l.n_y() == 0 || opts.backend != Backend::Sundials {
+        return None;
+    }
+    let quad = if opts.energy_books {
+        info.energy.as_ref().filter(|e| !e.parts.is_empty()).map(|e| {
+            let q = energy::Integrand::new(e, info, &l);
+            if opts.books_kernels { q.compiled_by(model) } else { q }
+        })
+    } else {
+        None
+    };
+    #[cfg(feature = "sundials")]
+    {
+        Some(
+            sundials::Sundials::new(model, info, opts, grid, y0, d0, u, quad)
+                .map(|s| Box::new(s) as Box<dyn Integrator + 'm>),
+        )
+    }
+    #[cfg(not(feature = "sundials"))]
+    {
+        let _ = (grid, y0, d0, u, quad);
+        None
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_backend(
+    model: &dyn ModelFunctions,
+    info: &RunInfo,
+    opts: &SolverOptions,
+    grid: OutputGrid,
+    y0: Vec<f64>,
+    d0: Vec<f64>,
+    u: Vec<f64>,
+    blocks: &mut [Box<dyn DiscreteBlock>],
+    started: Instant,
+) -> Result<SimResult, SolveError> {
+    let l = *model.layout();
+    let quad = if opts.energy_books {
+        info.energy.as_ref().filter(|e| !e.parts.is_empty()).map(|e| {
+            let q = energy::Integrand::new(e, info, &l);
+            if opts.books_kernels { q.compiled_by(model) } else { q }
+        })
+    } else {
+        None
+    };
+    if l.n_y() == 0 {
+        // nothing to integrate: no backend is needed
+        let _ = y0;
+        let mut integ = stateless::Stateless::new(model, info, opts, grid, d0, u.clone(), quad);
+        return run_loop(model, info, opts, grid, &mut integ, &u, blocks, started);
+    }
+    match opts.backend {
+        Backend::Sundials => {
+            #[cfg(feature = "sundials")]
+            {
+                let mut integ =
+                    sundials::Sundials::new(model, info, opts, grid, &y0, d0, u.clone(), quad)?;
+                run_loop(model, info, opts, grid, &mut integ, &u, blocks, started)
+            }
+            #[cfg(not(feature = "sundials"))]
+            {
+                let _ = (y0, d0, quad, blocks, started);
+                Err(SolveError::NoBackend)
+            }
+        }
+        Backend::Diffsol => {
+            #[cfg(feature = "diffsol")]
+            {
+                diffsol_backend::simulate(
+                    model, info, opts, grid, &y0, d0, &u, quad, blocks, started,
+                )
+            }
+            #[cfg(not(feature = "diffsol"))]
+            {
+                let _ = (y0, d0, quad, blocks, started);
+                Err(SolveError::NoBackend)
+            }
+        }
+    }
+}

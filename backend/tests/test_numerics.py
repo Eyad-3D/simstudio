@@ -12,8 +12,9 @@ import pytest
 from helpers import bev_axle, conn, dbc, el, project, series
 
 import app.solver.core as core
+import app.solver.stability as stability
 from app.solver import simulate
-from app.solver.runtime import AIR_DENSITY, CLUTCH_BAND, GRAVITY
+from app.solver.runtime import AIR_DENSITY, GRAVITY
 
 RPM = 60.0 / (2.0 * math.pi)
 # Loss-free maps over the whole range a motor runs in (0-12000 1/min,
@@ -176,9 +177,12 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
     slip moved linearly between the two points: that sum is the energy lost
     to within 0.1 %, where a slip one step late (the step's start instead
     of its end) is 0.6 % off. The slip is the motor's speed minus the
-    load's at every point, and below its capacity the clutch's torque is
-    capacity / band × that slip: the part the implicit solve adds as the
-    clutch locks, which the energy sum alone hardly sees."""
+    load's at every point. The clutch slips at its capacity until its slip
+    would pass through zero; in that step it sticks (the torque that ends
+    the slip, within its capacity), and from then on it holds both sides
+    together with no slip and, nothing loading them, no torque. (Before,
+    a smooth band of 0.5 rad/s let it creep into lock-up, and at a coarse
+    step it overshot and rang.)"""
     j1, j2 = 0.045, 0.5
     els = [el("src", "electric.voltage_source", "Supply", voltage_V=350),
            el("bus", "electric.node", "Bus"),
@@ -208,10 +212,12 @@ def test_clutch_engagement_loses_the_two_inertia_energy():
         assert s * RPM == pytest.approx(m["value"] - ld["value"], abs=1e-3), m["t"]
     in_clutch = sum(torque[k] * (slip[k - 1] + slip[k]) / 2 for k in range(1, len(slip))) * 0.01
     assert in_clutch == pytest.approx(loss, rel=0.001)
-    locking = [(t_c, s) for t_c, s in zip(torque, slip) if 1e-4 < abs(t_c) < 1.0 - 1e-4]
-    assert len(locking) > 5
-    for t_c, s in locking:  # without the implicit part 0.598 instead of 0.403 N·m
-        assert t_c == pytest.approx(1.0 / CLUTCH_BAND * s, abs=1e-4)
+    stuck = next(k for k, s in enumerate(slip) if k > 150 and s == 0.0)
+    assert 0.0 < torque[stuck] < 1.0  # the step it sticks in: what ends the slip
+    assert all(s > 0 for s in slip[151:stuck])  # it slipped one way only, at its capacity
+    assert all(t_c == pytest.approx(1.0, abs=1e-12) for t_c in torque[152:stuck])
+    assert all(s == 0.0 for s in slip[stuck:])
+    assert all(t_c == pytest.approx(0.0, abs=1e-9) for t_c in torque[stuck + 1:])
 
 
 # ---- battery -------------------------------------------------------------------
@@ -284,9 +290,12 @@ UNSTABLE_HOLD = {(0.0025, 100), (0.0025, 300), (0.005, 100), (0.005, 300), (0.01
                  (0.01, 100), (0.01, 300), (0.02, 30), (0.02, 100), (0.02, 300)}
 
 
-def _unstable_cells(monkeypatch, build, bad):
+def _unstable_cells(monkeypatch, build, bad, guarded=False):
     """(step, slip stiffness) cells where bad(result) holds; steps above the
-    10 ms cap are reached by raising the cap."""
+    10 ms cap are reached by raising the cap. Unless ``guarded``, the
+    pre-run step check (ENG-14) is off, so the grid shows the solver itself."""
+    if not guarded:
+        monkeypatch.setattr(stability, "TYRE_GAIN_MAX", math.inf)
     cells = set()
     for h in STEPS:
         monkeypatch.setattr(core, "MAX_SUBSTEP", h)
@@ -329,3 +338,19 @@ def test_braked_car_stays_at_rest(monkeypatch):
         return not max(v for t, v in _v(result) if t > 11.0) * 3.6 < 0.5
     cells = _unstable_cells(monkeypatch, build, bad)
     assert cells == UNSTABLE_HOLD, _moved(cells, UNSTABLE_HOLD)
+
+
+def test_the_step_check_leaves_no_unstable_cell(monkeypatch):
+    """With the pre-run step check (ENG-14) every cell of both grids is
+    stable: a stiffness too high for the step gets a smaller step."""
+    def launch_bad(result):
+        slips = [abs(p["value"]) for w in ("whl", "whr") for p in series(result, w, "sig_slip")]
+        return not all(math.isfinite(s) for s in slips) or max(slips) >= 0.1
+
+    def hold(case_step, k_slip):
+        return _free_axle(case_step, 20.0, k_slip=k_slip, crr=0.0, cd=0.0, brake_nm=1400.0)
+
+    def hold_bad(result):
+        return not max(v for t, v in _v(result) if t > 11.0) * 3.6 < 0.5
+    assert _unstable_cells(monkeypatch, _launch, launch_bad, guarded=True) == set()
+    assert _unstable_cells(monkeypatch, hold, hold_bad, guarded=True) == set()

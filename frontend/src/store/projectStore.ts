@@ -1,24 +1,32 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import * as api from "../api";
-import { confirmDialog, unsavedChangesDialog } from "../dialog";
+import { confirmDialog, scriptTrustDialog, unsavedChangesDialog } from "../dialog";
+import { desktop } from "../desktop";
 import { loadDraft } from "../persist";
-import { modelFingerprint } from "../provenance";
+import { diffSnapshots, modelFingerprint, nameFromChanges } from "../provenance";
+import { dutyKpis } from "../reports";
 import type {
+  Attachment,
   Channel,
   ComponentDef,
   Connection,
   DataBusConnection,
   DataCheck,
   ElementInstance,
+  ExampleCard,
+  LegacyProject,
   LiveEdit,
   LogMessage,
   OutsidePolicy,
   ParamValue,
+  ParameterSource,
   PortDef,
   PortSide,
   Project,
+  ReferenceValue,
   RunSnapshot,
+  SimCase,
   SimResult,
   SimRun,
   StoredRunInfo,
@@ -26,6 +34,10 @@ import type {
   StudyPoint,
   SystemNode,
 } from "../types";
+import { rangeProblem } from "../paramRules";
+import { FS_EVENT_NAMES, FS_EVENTS, packOverrides, type FsEvent } from "../fsEvents";
+import { codeOf, fingerprintOf } from "../trust";
+import { pointComplete, type SweepProgress } from "../sweep";
 import { useUIStore } from "./uiStore";
 
 export function uid(prefix: string): string {
@@ -45,11 +57,38 @@ function exampleCopy(example: Project): Project {
   return { ...structuredClone(example), id: uid(example.id.slice(0, 120)) };
 }
 
-/** Split a project read from disk into the project and its file revision. */
-function fromDisk(stored: api.StoredProject): { project: Project; revision: string | null } {
-  const { revision, ...project } = stored;
-  return { project, revision: revision ?? null };
+/** Split a project read from disk into the project and the bookkeeping that
+ *  comes with it: its file revision, where it is (a .lightsim file outside
+ *  the projects folder) and why it is read-only (a newer LightSim's file). */
+function fromDisk(stored: api.StoredProject): {
+  project: Project;
+  revision: string | null;
+  filePath: string | null;
+  readOnly: string | null;
+  upgradedFrom: number | null;
+  unstoredStudies: Study[];
+} {
+  const { revision, filePath, readOnly, upgradedFrom, unstoredStudies, ...project } = stored;
+  return {
+    project,
+    revision: revision ?? null,
+    filePath: filePath ?? null,
+    readOnly: readOnly ?? null,
+    upgradedFrom: upgradedFrom ?? null,
+    unstoredStudies: unstoredStudies ?? [],
+  };
 }
+
+/** A project from before 0.3.0 may carry its studies; they now live with the
+ *  runs (PLT-34). Returns the project without them, and them. */
+function splitStudies(project: LegacyProject): { project: Project; studies: Study[] } {
+  const { studies, ...rest } = project;
+  return { project: rest, studies: Array.isArray(studies) ? studies : [] };
+}
+
+/** What a project opened afresh starts with: no studies (they load with its
+ *  runs), not a file outside the projects folder, not read-only. */
+const NO_FILE = { studies: [] as Study[], filePath: null, readOnly: null };
 
 // Saves run one after another, so a second Save starts from the revision the
 // first one returned instead of looking like a conflict with it.
@@ -175,6 +214,50 @@ export interface SweepConfig {
   values: number[];
 }
 
+/** How the latest run, sweep or study ended, for the notice over the status
+ *  bar (UX-21). `show` is what its button opens: the Results page, Messages,
+ *  or Cases & Parameters (where a study's own view is). */
+export interface FinishNotice {
+  /** counts up, so that a notice like the one before is still announced */
+  seq: number;
+  level: "info" | "warning" | "error";
+  text: string;
+  show: "results" | "messages" | "cases";
+  /** a sweep's study, whose charts the notice offers too (STU-16) */
+  studyId?: string;
+}
+let noticeSeq = 0;
+
+/** An AI agent's change to the open project's file, for its notice. */
+export interface AgentChange {
+  projectId: string;
+  entry: api.HistoryEntry;
+  /** the agent session's changes this window has seen and not undone */
+  sessionCount: number;
+}
+// agent changes seen per session, for "Undo session (n)"
+const sessionChanges = new Map<string, number>();
+
+/** The notice a sweep or study ends with (UX-21): finished, stopped (a
+ *  point stopped or not run) or failed, and how many points are complete. */
+function studyNotice(
+  what: string,
+  points: StudyPoint[],
+  failure: string | null,
+  show: FinishNotice["show"],
+  studyId?: string,
+): Omit<FinishNotice, "seq"> {
+  const complete = points.filter(pointComplete).length;
+  const stopped = points.some((p) => p.status === "not run" || p.status === "cancelled");
+  const ended = failure ? "failed" : stopped ? "stopped" : "finished";
+  return {
+    level: failure ? "error" : complete < points.length ? "warning" : "info",
+    text: `${what} ${ended}: ${complete} of ${points.length} point${points.length === 1 ? "" : "s"} complete.`,
+    show,
+    ...(studyId ? { studyId } : {}),
+  };
+}
+
 /** Resolve "elementId:portId" stream keys to channel metadata client-side.
  *  Units come from the library's unitGroups map (single-sourced backend data). */
 function channelMetaResolver(
@@ -231,13 +314,40 @@ function signalSourceOf(
 }
 
 // handle for the in-flight live run (not in reactive state on purpose)
+/** Script code typed in this window (PLT-35). The user wrote it, so it is
+ *  approved without asking when it runs or is saved. Bounded: the oldest
+ *  versions of long edits are dropped. */
+const typedScripts = new Set<string>();
+/** Saving keeps the scripts typed here approved, so reopening the project
+ *  later does not ask about the user's own code. Best effort. */
+async function approveTypedScripts(project: Project) {
+  const codes = project.systems
+    .flatMap((s) => s.elements)
+    .map((e) => e.parameterOverrides?.code)
+    .filter((c): c is string => typeof c === "string" && typedScripts.has(c));
+  if (codes.length) await api.approveScripts(codes).catch(() => {});
+}
+function rememberTyped(code: string) {
+  typedScripts.add(code);
+  if (typedScripts.size > 500) typedScripts.delete(typedScripts.values().next().value as string);
+}
+
 let activeRun: api.LiveRunHandle | null = null;
 // live parameter edits sent to the in-flight run, for its snapshot
 let liveLog: { runId: string; edits: LiveEdit[] } | null = null;
-// set by stopRun so an in-flight parameter sweep aborts after the current point
-let sweepAborted = false;
+// the sweep running in the engine's worker processes (ENG-05); stopRun stops it
+let activeStudy: api.StudyHandle | null = null;
 // bumped per run-history load, so an answer for an earlier load is dropped
 let runHistorySeq = 0;
+// The project (by id) whose code the user is trusted to change in this
+// session: one made here, an example, or one whose code the user agreed to
+// run (STD-02). Code edited in the app since is the user's own and runs
+// without asking again; a project opened, imported or reloaded from disk
+// clears it, so code that came from outside is asked about.
+let trustedProject: string | null = null;
+// a revision of the open project's file already offered for reload (checkDisk)
+let offeredRevision: string | null = null;
+let diskCheckBusy = false;
 
 /** The run Results opens on: the newest complete run that is not a sweep
  *  point, or the newest run when there is none (runs are newest first). */
@@ -245,24 +355,14 @@ function mainRunOf<R extends Pick<SimRun, "status" | "incomplete" | "sweepId">>(
   return runs.find((r) => !r.incomplete && r.status !== "failed" && !r.sweepId) ?? runs[0];
 }
 
-/** A study's table row for a point that ran: its status and summary values. */
-function studyPoint(run: SimRun, values: number[]): StudyPoint {
-  const notValid = run.result.summary.filter((v) => v.notValid);
-  return {
-    values,
-    runId: run.id,
-    status: run.status === "running" ? "failed" : run.status,
-    ...(run.incomplete ? { incomplete: run.incomplete } : {}),
-    // (a value JSON cannot carry would make the project unsavable)
-    kpis: Object.fromEntries(run.result.summary.filter((v) => Number.isFinite(v.value)).map((v) => [v.label, v.value])),
-    ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
-  };
-}
-
-/** Undo and redo step through edits, not studies: a project from the
- *  history gets the studies the project has now. */
-function keepStudies(target: Project, current: Project): Project {
-  return target.studies === current.studies ? target : { ...target, studies: current.studies };
+/** The previous run of a case: its newest run that started before `before`
+ *  and finished normally (not running, stopped or failed), sweep points
+ *  included; runs are newest first. A re-run is named by what changed since
+ *  it and compared with it (RES-10, RES-19). */
+export function previousRunOf(caseId: string, runs: SimRun[], before = Infinity): SimRun | undefined {
+  return runs.find(
+    (r) => r.caseId === caseId && r.startedAt < before && r.status !== "running" && r.status !== "failed" && !r.incomplete,
+  );
 }
 
 /** Why a finished run is not a complete result, or undefined when it is.
@@ -275,7 +375,7 @@ function incompleteReason(result: SimResult): string | undefined {
   return at ? `stopped at t = ${at[1]}` : "stopped";
 }
 
-interface ProjectState {
+export interface ProjectState {
   library: ComponentDef[];
   libraryById: Record<string, ComponentDef>;
   /** unitGroup name → display unit (from the backend catalog). */
@@ -284,11 +384,22 @@ interface ProjectState {
   loaded: boolean;
   /** the app's version as the engine reports it (recorded with each run) */
   appVersion: string | null;
+  /** the standard drive cycles the engine bundles (CON-16) */
+  cycles: api.CycleInfo[];
 
   project: Project | null;
   /** Revision of the project file the open copy was loaded from or last saved
    *  as; a save is refused if the file changed since. null: not on disk yet. */
   revision: string | null;
+  /** Where the open project's .lightsim file is when it is one outside the
+   *  projects folder (PLT-33), else null. */
+  filePath: string | null;
+  /** Why the open project must not be saved over (a file from a newer
+   *  LightSim, PLT-07), else null. */
+  readOnly: string | null;
+  /** The open project's parameter studies, oldest first; kept with its runs,
+   *  not in the model file (PLT-34). */
+  studies: Study[];
   /** The example the open project is an unsaved copy of (its id), else null.
    *  Save keeps the copy as a new project; the example is never written. */
   exampleId: string | null;
@@ -320,6 +431,20 @@ interface ProjectState {
   liveValues: Record<string, number>;
   liveT: number;
   livePct: number;
+  /** The running sweep's or study's progress, for its time left (STU-17);
+   *  null when none runs. */
+  sweepProgress: SweepProgress | null;
+  /** How the latest run, sweep or study ended (UX-21); null once dismissed
+   *  or when the next one starts. */
+  finishNotice: FinishNotice | null;
+  dismissFinishNotice: () => void;
+  /** The latest change an AI agent saved to the open project's file, which
+   *  the window has laid over its copy (step 6); shown with one-click undo. */
+  agentChange: AgentChange | null;
+  /** Undo, in the file, the agent's latest change or every change of its
+   *  session; the window then shows the file as it is. */
+  undoAgentChange: (what: "change" | "session") => Promise<void>;
+  dismissAgentChange: () => void;
 
   // lifecycle
   init: () => Promise<void>;
@@ -343,6 +468,13 @@ interface ProjectState {
   pasteClipboard: (position?: { x: number; y: number }) => string[];
   renameElement: (id: string, label: string) => void;
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
+  /** Several parameters at once (a component preset), as one undo step. */
+  setParameters: (elementId: string, values: Record<string, ParamValue>) => void;
+  /** Record where a parameter value comes from (CON-13); null forgets it. */
+  setParameterSource: (elementId: string, key: string, source: ParameterSource | null) => void;
+  /** Values for parameters of several parts (an imported parameter sheet,
+   *  STD-36), as one undo step. */
+  applyParameterChanges: (changes: { elementId: string; key: string; value: ParamValue }[]) => void;
   /** A table's outside-the-data settings, one per axis (applies on the next run). */
   setTableOutside: (elementId: string, key: string, policies: OutsidePolicy[]) => void;
   setDynamicPorts: (elementId: string, ports: PortDef[]) => void;
@@ -362,9 +494,14 @@ interface ProjectState {
     targetPortId: string,
     replaceId?: string,
   ) => void;
-  addDataBus: (el1: string, p1: string, el2: string, p2: string) => void;
+  /** Link a signal output to an input; with `replaceId`, the new link takes
+   *  that one's place in the same undo step. A link between two inputs or two
+   *  outputs is refused with the reason. */
+  addDataBus: (el1: string, p1: string, el2: string, p2: string, replaceId?: string) => void;
   removeDataBus: (id: string) => void;
   renameSystem: (systemId: string, name: string) => void;
+  /** Set or change the project's card (CON-15); null removes it. */
+  setCard: (card: ExampleCard | null) => void;
 
   undo: () => void;
   redo: () => void;
@@ -374,13 +511,34 @@ interface ProjectState {
   openProject: (id: string) => Promise<void>;
   /** Open an example as an unsaved copy with an id of its own. */
   openExample: (id: string) => Promise<void>;
+  /** Open a project made from a template (CON-18), unsaved. */
+  openNewProject: (project: Project, message: string) => void;
   /** Leave an example out of the Open menu; resolves false when that failed. */
   hideExample: (id: string, name: string) => Promise<boolean>;
   /** Show every hidden example in the Open menu again. */
   restoreExamples: () => Promise<void>;
   saveRemote: () => Promise<void>;
-  exportProject: () => void;
-  importProject: (json: string) => void;
+  /** Save the project as a .lightsim file the user picks (desktop app only,
+   *  PLT-33); resolves true once saved. */
+  saveAs: () => Promise<boolean>;
+  /** Pick a .lightsim file in the system's Open dialog and open it (desktop app). */
+  openFile: () => Promise<void>;
+  /** Take a file off Recent files (the file itself stays). */
+  forgetFile: (id: string) => Promise<void>;
+  /** Notice the open project's file changing on disk: a save LightSim made
+   *  (an AI agent's edit, another window) is laid over the open copy; any
+   *  other change (a git pull) offers a reload. The app calls this every second. */
+  checkDisk: () => Promise<void>;
+  exportProject: () => Promise<void>;
+  /** Open a project file's JSON as a new, unsaved project (upgraded by the
+   *  engine to the current format first). */
+  importProject: (json: string) => Promise<void>;
+  /** Open a zip bundle (a project with its attached files). */
+  importBundle: (zip: Blob) => Promise<void>;
+  /** Attach a file to the project (STD-02); resolves with its path, or null. */
+  attachFile: (file: File) => Promise<string | null>;
+  /** Remove an attached file from the project and its resources folder. */
+  detachFile: (path: string) => Promise<void>;
   /** Open `project` as a new, unsaved project named `name`: it gets an id of
    *  its own, so saving it never replaces another project's file. */
   openAsCopy: (project: Project, name: string, note: string) => void;
@@ -395,7 +553,18 @@ interface ProjectState {
       timeStep: number;
       outputEvery: number;
       realtimeFactor: number;
-      kind: "cycle" | "performance";
+      kind: "cycle" | "performance" | "acceleration" | "lap";
+      endDistance: number | null;
+      endLaps: number | null;
+      chargeBalance: boolean | null;
+      mode: "full" | "quick" | undefined;
+      startLine: number;
+      referenceTime: number | null;
+      energyReport: boolean;
+      fsEvent: FsEvent | null;
+      referenceEnergy: number | null;
+      referenceEnergyTime: number | null;
+      references: ReferenceValue[];
     }>,
   ) => void;
   addCase: () => void;
@@ -405,12 +574,45 @@ interface ProjectState {
   setCaseOverride: (caseId: string, elementId: string, key: string, value: ParamValue) => void;
   /** Remove a per-case parameter override; prunes the element entry when empty. */
   clearCaseOverride: (caseId: string, elementId: string, key: string) => void;
+  /** Point a Driving Task at a bundled drive cycle ("" = its typed profile),
+   *  or with `caseId` only that case. The cycle cases that then drive it take
+   *  the cycle's length, in the same undo step. */
+  setDrivingCycle: (elementId: string, cycleId: string, caseId?: string) => void;
   runDataChecks: () => Promise<DataCheck[]>;
-  /** Error-level data-check gate; resolves true when a run/sweep may proceed. */
-  passesRunGate: () => Promise<boolean>;
-  run: () => Promise<void>;
+  /** Error-level data-check gate for a run of `caseId` (errors about the
+   *  model, and about that case: not another case's own values or kind),
+   *  and the one-time question whether the user trusts the code the project
+   *  carries; resolves true when a run/sweep may proceed. */
+  passesRunGate: (caseId: string) => Promise<boolean>;
+  /** Show the project's scripts that this user has not approved and ask
+   *  before they run (PLT-35); resolves true when nothing is left to ask.
+   *  `when` "open" offers Open without running scripts, "run" Don't run. */
+  reviewScripts: (when: "open" | "run") => Promise<boolean>;
+  /** Run the active case. The page stays where the user is (the Results
+   *  page only when they asked for it: uiStore's resultsAfterRun) and a
+   *  notice says how it ended (UX-21); `quiet` leaves both to the caller,
+   *  for a series of runs that says how it ended itself. */
+  run: (opts?: { quiet?: boolean }) => Promise<void>;
+  /** The one-click Formula Student acceleration test: select the first
+   *  acceleration case (adding a 75 m one if there is none) and run it. */
+  runAccelerationTest: () => Promise<void>;
+  /** The one-click Formula Student events (MOD-43): mark or add an
+   *  Acceleration, Skidpad, Autocross and Endurance case (one undo) and run
+   *  the four; their points show in Cases & Parameters. */
+  runFsEvents: () => Promise<void>;
+  /** Add a cycle case that drives a lap read from a logger or lap simulator
+   *  file (STD-35), adding a Driving Task wired to the Driver when the model
+   *  has none (one undo). */
+  addImportedLap: (lap: api.LapLogResult, name: string, sha256: string) => void;
+  /** The endurance energy study (STU-38): run an endurance case at every
+   *  pair of a battery's capacity and Output Power Limit, and save the grid
+   *  as a two-factor study of the project. */
+  runEnduranceStudy: (args: { caseId: string; batteryId: string; packs: number[]; caps: number[] }) => Promise<void>;
+  /** Apply a lap mode calibration (VAL-38): every wheel's μ, lateral μ and
+   *  load sensitivity times `muScale`, and the Vehicle's CzA (one undo). */
+  applyLapCalibration: (muScale: number, cza: number) => void;
   /** Sequentially run a case once per swept value, each landing in run
-   *  history; the study and its results table are saved with the project. */
+   *  history; the study and its results table are kept with the runs. */
   runSweep: (config: SweepConfig) => Promise<void>;
   /** Delete a saved study (its runs stay in the history). */
   removeStudy: (studyId: string) => void;
@@ -427,6 +629,9 @@ interface ProjectState {
   clearRuns: () => Promise<void>;
   /** Open the model a run was made with (its snapshot) as an unsaved copy. */
   openRunModel: (runId: string) => void;
+  /** Set a run's name or note (trimmed; empty removes it) and store it
+   *  again; nothing while a run is going. */
+  editRun: (runId: string, edit: { name?: string; note?: string }) => void;
 }
 
 export const useProjectStore = create<ProjectState>((set, get) => {
@@ -466,6 +671,79 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     });
   }
 
+  /** Lay the saves made to the open project's file since this copy's
+   *  revision (an AI agent's edit, the command line, another window) over
+   *  the copy, keeping its unsaved changes, as one undo step (step 6).
+   *  "unknown": the history does not say how the file changed (a git pull),
+   *  "busy": the copy changed while asking (try again). */
+  async function pullSaves(): Promise<"merged" | "conflicts" | "unknown" | "busy"> {
+    const { project, revision, log } = get();
+    if (!project || !revision) return "unknown";
+    let res: api.Rebased;
+    try {
+      res = await api.rebaseProject(project, revision);
+    } catch (e) {
+      if ((e as { status?: number }).status === 409) return "unknown";
+      throw e;
+    }
+    const now = get();
+    if (now.project !== project || now.revision !== revision) return "busy";
+    const agents = res.entries.filter((e) => e.by === "agent");
+    // code an agent wrote is not the user's own: a run asks about it first
+    if (agents.length) trustedProject = null;
+    for (const e of agents) if (e.session) sessionChanges.set(e.session, (sessionChanges.get(e.session) ?? 0) + 1);
+    const last = agents[agents.length - 1];
+    lastEdit = null;
+    set({
+      project: fromDisk(res.project).project,
+      revision: res.revision,
+      past: [...now.past.slice(-(HISTORY_LIMIT - 1)), project],
+      future: [],
+      ...(last
+        ? {
+            agentChange: {
+              projectId: project.id,
+              entry: last,
+              sessionCount: last.session ? (sessionChanges.get(last.session) ?? 1) : 1,
+            },
+          }
+        : {}),
+    });
+    offeredRevision = null;
+    for (const e of res.entries) {
+      const who =
+        e.by === "agent" ? `AI change by ${e.client || "an agent"}` : e.tool === "undo" ? "Undone" : "Saved elsewhere";
+      log("info", `${who}: ${e.reason || e.changes.slice(0, 3).join("; ") || "the project file changed"}`);
+    }
+    if (res.conflicts.length)
+      log(
+        "warning",
+        `${res.conflicts.length} value(s) you had changed were changed in the file too; the window shows the ` +
+          `file's value (Undo brings yours back): ${res.conflicts.slice(0, 5).join(", ")}`,
+      );
+    return res.conflicts.length ? "conflicts" : "merged";
+  }
+
+  /** A project opened after an AI agent changed it (the app was closed, or
+   *  showed another project) offers the same one-click undo: the newest save,
+   *  when an agent made it, it is not undone, and it can be (a save that made
+   *  the project, such as an agent's edit of an example, cannot). */
+  async function showLastAgentChange(projectId: string, revision: string | null): Promise<void> {
+    let entries: (api.HistoryEntry & { undone?: boolean })[];
+    try {
+      entries = await api.fetchHistory(projectId);
+    } catch {
+      return; // no history to read: nothing to offer
+    }
+    const open = (e: api.HistoryEntry & { undone?: boolean }) => e.by === "agent" && !e.undone && e.undoable !== false;
+    const last = entries[0];
+    if (!last || !open(last) || last.to !== revision) return;
+    if (get().project?.id !== projectId || get().revision !== revision) return;
+    const count = entries.filter((e) => open(e) && e.session && e.session === last.session).length;
+    if (last.session) sessionChanges.set(last.session, count);
+    set({ agentChange: { projectId, entry: last, sessionCount: Math.max(1, count) } });
+  }
+
   function rootSystemOf(project: Project): SystemNode {
     return project.systems.find((s) => s.parentId === null) ?? project.systems[0];
   }
@@ -493,6 +771,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   async function loadRunHistory(projectId: string): Promise<void> {
     const seq = ++runHistorySeq;
     const current = () => seq === runHistorySeq && get().project?.id === projectId;
+    void loadStudies(projectId);
     let index: StoredRunInfo[];
     try {
       index = await api.listRuns(projectId);
@@ -545,6 +824,133 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     if (unreadable > 0 && current()) {
       get().log("warning", `${unreadable} stored run(s) could not be read and are not listed.`);
     }
+  }
+
+  /** Whether the attached code in `project` (FMUs, AI models, programs)
+   *  may run (STD-02): none, code the user trusted before (by fingerprint),
+   *  their own edits to a trusted project, or a yes to the one-time question
+   *  now. Script blocks are reviewed by reviewScripts (PLT-35). */
+  async function trustsCode(project: Project): Promise<boolean> {
+    if (!codeOf(project, get().libraryById)) return true;
+    // the attached files as they are on disk now, not as the project
+    // recorded them: a file a teammate or a git pull replaced asks again
+    let onDisk: Record<string, string> | undefined;
+    try {
+      const files = await api.listAttachments(project.id);
+      if (Array.isArray(files)) onDisk = Object.fromEntries(files.map((f) => [f.path, f.sha256]));
+    } catch {
+      /* not listed (engine unreachable): the recorded hashes */
+    }
+    const code = codeOf(project, get().libraryById, { onDisk });
+    if (!code) return true;
+    let fingerprint: string | null = null;
+    try {
+      fingerprint = await fingerprintOf(code);
+    } catch {
+      // no Web Crypto (a plain-http page): nothing to remember it by, so ask
+    }
+    const remember = async () => {
+      if (fingerprint) await api.trustFingerprint(fingerprint)?.catch?.(() => undefined);
+    };
+    // the user's own edits to a trusted project need no question; a file
+    // that changed on disk is not one
+    if (trustedProject === project.id && code.changed.length === 0) {
+      void remember();
+      return true;
+    }
+    try {
+      if (fingerprint && (await api.isTrusted(fingerprint))) {
+        trustedProject = project.id;
+        return true;
+      }
+    } catch {
+      /* ask */
+    }
+    const yes = await confirmDialog({
+      title: "Run this project's code?",
+      message:
+        `'${project.name}' carries code that runs on your computer when the model runs: ${code.items.join(", ")}. ` +
+        "Run it only if you trust where the project came from. LightSim asks once; it asks again when that code changes.",
+      confirmLabel: "Trust and run",
+      cancelLabel: "Cancel",
+    });
+    if (!yes) return false;
+    trustedProject = project.id;
+    await remember();
+    return true;
+  }
+
+  /** Open an imported project as a new, unsaved one. */
+  function openImported(project: Project, studies: Study[], readOnly: string | null, note: string): void {
+    project.dataBusConnections ??= [];
+    project.cases ??= [];
+    runHistorySeq++;
+    trustedProject = null;
+    set({
+      project,
+      revision: null,
+      exampleId: null,
+      activeSystemId: project.systems.find((s) => s.parentId === null)?.id ?? project.systems[0]?.id,
+      activeCaseId: project.cases[0]?.id ?? null,
+      activeRunId: null,
+      overlayRunIds: [],
+      selectedElementId: null,
+      past: [],
+      future: [],
+      runs: [],
+      storedRunCount: 0,
+      runsLoading: false,
+      ...NO_FILE,
+      readOnly,
+      dataChecks: null,
+      dirty: true,
+    });
+    get().log("info", note);
+    adoptStudies(project.id, studies);
+    void loadRunHistory(project.id);
+    // scripts that came from another computer: show their code now (PLT-35)
+    void get().reviewScripts("open");
+  }
+
+  /** List the project's studies (kept with its runs, PLT-34), keeping any
+   *  made in this session that the engine does not have (a failed store). */
+  async function loadStudies(projectId: string): Promise<void> {
+    let stored: Study[];
+    try {
+      stored = (await api.listStudies(projectId)) ?? [];
+    } catch {
+      return; // the studies list stays as it is; the runs warning covers it
+    }
+    if (get().project?.id !== projectId) return;
+    set((s) => {
+      const ids = new Set(stored.map((st) => st.id));
+      const extra = s.studies.filter((st) => !ids.has(st.id));
+      return { studies: [...stored, ...extra].sort((a, b) => a.startedAt - b.startedAt) };
+    });
+  }
+
+  /** Keep studies with the project's runs (an old file's or a draft's). */
+  function adoptStudies(projectId: string, studies: Study[]): void {
+    if (studies.length === 0) return;
+    set((s) => ({ studies: [...s.studies.filter((st) => !studies.some((n) => n.id === st.id)), ...studies] }));
+    for (const study of studies) {
+      api.storeStudy(projectId, study)?.catch?.((e: Error) =>
+        get().log("warning", `Study could not be stored with the runs (${e.message}); it is kept for this session only.`),
+      );
+    }
+  }
+
+  /** Say what opening a file from disk found: an older format upgraded, or
+   *  a newer LightSim's file that stays read-only. */
+  function noteFormat(name: string, upgradedFrom: number | null, readOnly: string | null): void {
+    const { log } = get();
+    if (readOnly) log("warning", `'${name}' is read-only. ${readOnly}`);
+    else if (upgradedFrom !== null)
+      log(
+        "info",
+        `'${name}' was saved in an older file format (${upgradedFrom}); LightSim upgraded it. ` +
+          "Saving writes the new format and keeps the old file in its backups (Project → Restore…).",
+      );
   }
 
   /** Add a live edit to the in-flight run's snapshot. Edits of one parameter
@@ -603,9 +1009,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     const { libraryById, log, appVersion } = get();
     const runId = uid("run");
     const simCase = projectToRun.cases.find((c) => c.id === caseId);
-    // the model is the project without its saved studies (results, not
-    // model): the engine runs it and the snapshot keeps it
-    const { studies: _studies, ...model } = projectToRun;
+    // the engine runs the model and the snapshot keeps it
+    const model = projectToRun;
     const snapshot: RunSnapshot | undefined = simCase && {
       project: model,
       case: simCase,
@@ -613,6 +1018,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       liveEdits: [],
     };
     const fingerprint = modelFingerprint(model).catch(() => undefined);
+    // named by what changed since the previous run of its case (a sweep
+    // point is named by its swept value)
+    const prev = extra?.sweepId ? undefined : previousRunOf(caseId, get().runs);
+    const name = prev?.snapshot && snapshot && nameFromChanges(diffSnapshots(prev.snapshot, snapshot, libraryById));
     const partial: SimResult = {
       caseId,
       status: "success",
@@ -628,15 +1037,22 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       status: "running",
       result: partial,
       ...(snapshot ? { snapshot } : {}),
+      ...(name ? { name } : {}),
       ...extra,
     };
-    set((s) => ({
-      runs: [newRun, ...s.runs].slice(0, MAX_RUNS),
-      activeRunId: runId,
-      liveValues: {},
-      liveT: 0,
-      livePct: 0,
-    }));
+    set((s) => {
+      const runs = [newRun, ...s.runs].slice(0, MAX_RUNS);
+      const ids = new Set(runs.map((r) => r.id));
+      return {
+        runs,
+        activeRunId: runId,
+        // a run that dropped out of the list is no longer overlaid
+        overlayRunIds: s.overlayRunIds.filter((id) => ids.has(id)),
+        liveValues: {},
+        liveT: 0,
+        livePct: 0,
+      };
+    });
 
     // incremental result assembly: step events stream in, the store is
     // flushed at most every LIVE_FLUSH_MS so charts/monitors update live
@@ -685,12 +1101,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     });
     activeRun = handle;
     liveLog = { runId, edits: [] };
-    // the snapshot as the run ends: its live edits and the model's fingerprint
-    const finalSnapshot = async (): Promise<Partial<SimRun>> => {
+    // the snapshot as the run ends: its live edits (the engine's own list
+    // when the result has one, each at the time the engine took it), the
+    // model's fingerprint, and what ran it (engine, version, solver options)
+    const finalSnapshot = async (result?: SimResult): Promise<Partial<SimRun>> => {
       if (!snapshot) return {};
-      const edits = liveLog?.runId === runId ? [...liveLog.edits] : [];
+      const edits = result?.liveEdits ?? (liveLog?.runId === runId ? [...liveLog.edits] : []);
       const modelHash = await fingerprint;
-      return { snapshot: { ...snapshot, liveEdits: edits, ...(modelHash ? { modelHash } : {}) } };
+      const ran = result?.engine
+        ? { engine: result.engine, engineVersion: result.engineVersion ?? null, solverOptions: result.solverOptions ?? null }
+        : {};
+      return { snapshot: { ...snapshot, liveEdits: edits, ...(modelHash ? { modelHash } : {}), ...ran } };
     };
     try {
       const result = await handle.done;
@@ -701,7 +1122,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         result,
         status: result.status,
         ...(incomplete ? { incomplete } : {}),
-        ...(await finalSnapshot()),
+        ...(await finalSnapshot(result)),
       };
       set((s) => ({
         runs: s.runs.map((r) => (r.id === runId ? finished : r)),
@@ -722,6 +1143,37 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     }
   }
 
+  /** Say how a run, sweep or study ended (UX-21). The page stays where the
+   *  user is: one with results opens the Results page only when the user
+   *  asked for that (uiStore's resultsAfterRun), and says so there, with
+   *  the setting to turn off. On the Results page already, the results are
+   *  in view: nothing to say. */
+  function announce(notice: Omit<FinishNotice, "seq">): void {
+    const ui = useUIStore.getState();
+    if (notice.show === "results" && ui.ribbonTab === "results") return;
+    // (the page first: arriving on Results puts a notice of results away)
+    if (notice.show === "results" && ui.resultsAfterRun) ui.setRibbonTab("results");
+    set({ finishNotice: { ...notice, seq: ++noticeSeq } });
+  }
+
+  /** Bring Messages forward after a failure, on the model's page where that
+   *  panel is; the Results and Start pages are left as they are (UX-21). */
+  function revealMessages(): void {
+    const ui = useUIStore.getState();
+    if (ui.ribbonTab !== "results" && ui.ribbonTab !== "start") ui.focusPanel("messages");
+  }
+
+  /** A sweep's or study's progress as its points end (STU-17). */
+  function startProgress(total: number): void {
+    set({ livePct: 0, sweepProgress: { total, done: 0, startedAt: Date.now(), lastAt: null } });
+  }
+  function pointEnded(done: number): void {
+    set((s) => ({
+      livePct: s.sweepProgress ? (100 * done) / s.sweepProgress.total : s.livePct,
+      sweepProgress: s.sweepProgress && { ...s.sweepProgress, done, lastAt: Date.now() },
+    }));
+  }
+
   return {
     library: [],
     libraryById: {},
@@ -729,8 +1181,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     offline: false,
     loaded: false,
     appVersion: null,
+    cycles: [],
     project: null,
     revision: null,
+    filePath: null,
+    readOnly: null,
+    studies: [],
     exampleId: null,
     activeSystemId: null,
     selectedElementId: null,
@@ -751,9 +1207,41 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     liveValues: {},
     liveT: 0,
     livePct: 0,
+    sweepProgress: null,
+    finishNotice: null,
+    dismissFinishNotice: () => set({ finishNotice: null }),
+    agentChange: null,
+    dismissAgentChange: () => set({ agentChange: null }),
+
+    undoAgentChange: async (what) => {
+      const { agentChange: change, project, log } = get();
+      if (!change || !project || change.projectId !== project.id) return;
+      const session = what === "session" ? change.entry.session : null;
+      try {
+        const res = await api.undoChange(project.id, session ? { session } : { entry: change.entry.id });
+        set({ agentChange: null });
+        if (session) sessionChanges.delete(session);
+        else if (change.entry.session) sessionChanges.set(change.entry.session, Math.max(0, change.sessionCount - 1));
+        log(
+          res.undid.length ? "info" : "warning",
+          res.undid.length
+            ? `Undone in the file: ${res.undid.length} change(s) by ${change.entry.client || "the AI agent"}.`
+            : "Nothing was undone: every value it changed was changed again since.",
+        );
+        if (res.conflicts.length)
+          log("warning", `Left as they are (changed again since): ${res.conflicts.slice(0, 5).join(", ")}.`);
+        await get().checkDisk();
+      } catch (e) {
+        log("error", `Could not undo the AI change: ${(e as Error).message}`);
+      }
+    },
 
     init: async () => {
-      const [lib, appVersion] = await Promise.all([api.fetchLibrary(), api.fetchVersion()]);
+      const [lib, appVersion, cycles] = await Promise.all([
+        api.fetchLibrary(),
+        api.fetchVersion(),
+        api.listCycles(),
+      ]);
       const demo = await api.fetchDemoProject();
       const libraryById = Object.fromEntries(lib.components.map((c) => [c.id, c]));
       // restore the autosaved working copy if one exists, else open the demo
@@ -761,9 +1249,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const draft = loadDraft();
       const unsaved = Boolean(draft && !draft.clean);
       const exampleId = draft ? (draft.example ?? null) : demo.project.id;
-      let { project, revision } = draft
-        ? { project: draft.project, revision: draft.revision ?? null }
-        : { project: exampleCopy(demo.project), revision: null };
+      const legacy = splitStudies(draft ? (draft.project as LegacyProject) : exampleCopy(demo.project));
+      let project = legacy.project;
+      let revision: string | null = draft ? (draft.revision ?? null) : null;
+      let filePath: string | null = null;
+      let readOnly: string | null = null;
       if (draft?.clean && !lib.offline) {
         // nothing was unsaved: reopen the project from disk (it may be newer
         // than the kept copy), or an example's current version (an update may
@@ -773,7 +1263,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           if (exampleId) {
             project = { ...(await api.fetchExample(exampleId)), id: draft.project.id };
           } else {
-            ({ project, revision } = fromDisk(await api.fetchProject(draft.project.id)));
+            ({ project, revision, filePath, readOnly } = fromDisk(await api.fetchProject(draft.project.id)));
           }
         } catch {
           /* keep the copy */
@@ -786,16 +1276,22 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         offline: lib.offline,
         loaded: true,
         appVersion,
+        cycles,
         project,
         revision,
+        filePath,
+        readOnly,
         exampleId,
         activeSystemId: rootSystemOf(project).id,
         activeCaseId: project.cases[0]?.id ?? null,
         dirty: unsaved,
       });
+      trustedProject = exampleId ? project.id : null;
+      if (!lib.offline) adoptStudies(project.id, legacy.studies);
       const log = get().log;
       log("info", `Component library loaded (${lib.components.length} components).`);
       if (draft && unsaved) {
+        useUIStore.getState().setRibbonTab("home"); // restored work is shown, not the Start page
         log("info", `Restored your unsaved draft from ${new Date(draft.savedAt).toLocaleString()}.`);
       } else {
         log("info", `Project '${project.name}' opened.`);
@@ -810,8 +1306,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
-    log: (level, text) =>
-      set((s) => ({ messages: [...s.messages, { level, text, time: now() }] })),
+    log: (level, text) => {
+      set((s) => ({ messages: [...s.messages, { level, text, time: now() }] }));
+      // Messages has no badge (Problems counts the model's problems), so an
+      // error such as a failed save shows at once
+      if (level === "error") useUIStore.getState().focusPanel("messages");
+    },
     clearMessages: () => set({ messages: [] }),
 
     select: (elementId) => set({ selectedElementId: elementId }),
@@ -982,6 +1482,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       ),
 
     setParameter: (elementId, key, value) => {
+      if (key === "code" && typeof value === "string") rememberTyped(value);
       updateProject(
         (draft) => {
           for (const s of draft.systems) {
@@ -994,10 +1495,46 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       );
       // scalar edits stream into a running simulation (tables/code apply next run)
       if (activeRun && typeof value !== "object") {
+        // a number outside its limits waits for one inside (Data Checks refuse it)
+        const { project, libraryById } = get();
+        const el = project?.systems.flatMap((s) => s.elements).find((e) => e.id === elementId);
+        const pdef = el && libraryById[el.componentDefId]?.parameters.find((p) => p.key === key);
+        if (pdef?.type === "number" && rangeProblem(pdef, Number(value))) return;
         activeRun.setParam(elementId, key, value);
         logLiveEdit({ t: get().liveT, elementId, key, value });
       }
     },
+
+    // presets set "fixed" parameters only, so nothing streams into a live run
+    setParameters: (elementId, values) =>
+      updateProject((draft) => {
+        for (const s of draft.systems) {
+          const el = s.elements.find((e) => e.id === elementId);
+          if (el) Object.assign(el.parameterOverrides, values);
+        }
+      }),
+
+    setParameterSource: (elementId, key, source) =>
+      updateProject(
+        (draft) => {
+          for (const s of draft.systems) {
+            const el = s.elements.find((e) => e.id === elementId);
+            if (!el) continue;
+            const next = { ...el.parameterSources };
+            if (source) next[key] = source;
+            else delete next[key];
+            el.parameterSources = next;
+          }
+        },
+        true,
+        `source:${elementId}:${key}`,
+      ),
+    applyParameterChanges: (changes) =>
+      updateProject((draft) => {
+        for (const s of draft.systems)
+          for (const el of s.elements)
+            for (const c of changes) if (c.elementId === el.id) el.parameterOverrides[c.key] = c.value;
+      }),
 
     setTableOutside: (elementId, key, policies) =>
       updateProject(
@@ -1123,7 +1660,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
     },
 
-    addDataBus: (el1, p1, el2, p2) => {
+    addDataBus: (el1, p1, el2, p2, replaceId) => {
       const { project, libraryById, log } = get();
       if (!project) return;
       const elements = project.systems.flatMap((s) => s.elements);
@@ -1138,18 +1675,20 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
       if (port1.direction === port2.direction) {
         log(
-          "warning",
-          `Data bus: '${e1.label}.${port1.name}' and '${e2.label}.${port2.name}` +
-            `' are both ${port1.direction}s — connection added, but no data will flow.`,
+          "error",
+          `'${e1.label} · ${port1.name}' and '${e2.label} · ${port2.name}' are both ${port1.direction}s: ` +
+            "a signal runs from an output to an input, so no data would flow. Not connected.",
         );
+        return;
       }
-      const dup = project.dataBusConnections.some(
+      const dup = project.dataBusConnections.find(
         (d) =>
           (d.element1Id === el1 && d.port1Id === p1 && d.element2Id === el2 && d.port2Id === p2) ||
           (d.element1Id === el2 && d.port1Id === p2 && d.element2Id === el1 && d.port2Id === p1),
       );
       if (dup) {
-        log("info", "This data bus connection already exists.");
+        // picking the source an input already has changes nothing
+        if (dup.id !== replaceId) log("info", "This data bus connection already exists.");
         return;
       }
       // an input takes one signal (the engine would silently keep only the
@@ -1160,7 +1699,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           : port2.direction === "output" && port1.direction !== "output"
             ? [e1, port1]
             : [null, null];
-      const existing = inEl && inPort && signalSourceOf(project, libraryById, inEl.id, inPort.id);
+      const rest = replaceId
+        ? { ...project, dataBusConnections: project.dataBusConnections.filter((d) => d.id !== replaceId) }
+        : project;
+      const existing = inEl && inPort && signalSourceOf(rest, libraryById, inEl.id, inPort.id);
       if (inEl && inPort && existing) {
         log(
           "error",
@@ -1170,6 +1712,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         return;
       }
       updateProject((draft) => {
+        if (replaceId) draft.dataBusConnections = draft.dataBusConnections.filter((d) => d.id !== replaceId);
         draft.dataBusConnections.push({
           id: uid("dbc"),
           element1Id: el1,
@@ -1178,13 +1721,25 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           port2Id: p2,
         });
       });
-      log("info", `Data bus: '${e1.label}.${port1.name}' ↔ '${e2.label}.${port2.name}' connected.`);
+      const end = (e: ElementInstance, p: PortDef) => `${e.label} · ${p.name}`;
+      const [from, to] =
+        port1.direction === "output" ? [end(e1, port1), end(e2, port2)] : [end(e2, port2), end(e1, port1)];
+      log("info", `Data bus: ${from} → ${to} connected.`);
     },
 
     removeDataBus: (id) =>
       updateProject((draft) => {
         draft.dataBusConnections = draft.dataBusConnections.filter((d) => d.id !== id);
       }),
+
+    setCard: (card) =>
+      updateProject(
+        (draft) => {
+          draft.card = card;
+        },
+        true,
+        "card",
+      ),
 
     renameSystem: (systemId, name) =>
       updateProject(
@@ -1202,7 +1757,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (past.length === 0 || !project) return;
       const prev = past[past.length - 1];
       set({
-        project: keepStudies(prev, project),
+        project: prev,
         past: past.slice(0, -1),
         future: [project, ...future].slice(0, HISTORY_LIMIT),
         dirty: true,
@@ -1213,7 +1768,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (future.length === 0 || !project) return;
       const next = future[0];
       set({
-        project: keepStudies(next, project),
+        project: next,
         future: future.slice(1),
         past: [...past.slice(-(HISTORY_LIMIT - 1)), project],
         dirty: true,
@@ -1244,15 +1799,22 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         runs: [],
         storedRunCount: 0,
         runsLoading: false,
+        ...NO_FILE,
         dataChecks: null,
         dirty: false,
       });
+      trustedProject = project.id;
       get().log("info", "New project created.");
     },
 
     openProject: async (id) => {
       try {
-        const { project, revision } = fromDisk(await api.fetchProject(id));
+        const { project, revision, filePath, readOnly, upgradedFrom, unstoredStudies } = fromDisk(
+          await api.fetchProject(id),
+        );
+        runHistorySeq++; // runs still loading for the project it replaces are dropped
+        trustedProject = null;
+        offeredRevision = null;
         set({
           project,
           revision,
@@ -1267,14 +1829,48 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           runs: [],
           storedRunCount: 0,
           runsLoading: false,
+          ...NO_FILE,
           dataChecks: null,
           dirty: false,
         });
-        get().log("info", `Project '${project.name}' opened.`);
+        set({ filePath, readOnly, studies: unstoredStudies });
+        get().log("info", filePath ? `Project '${project.name}' opened from ${filePath}.` : `Project '${project.name}' opened.`);
+        noteFormat(project.name, upgradedFrom, readOnly);
+        if (unstoredStudies.length > 0)
+          get().log(
+            "warning",
+            `${unstoredStudies.length} parameter stud${unstoredStudies.length === 1 ? "y" : "ies"} of '${project.name}' ` +
+              "could not be stored with its runs (LightSim cannot write to that folder); " +
+              "they are kept for this session only.",
+          );
         void loadRunHistory(project.id);
+        void get().reviewScripts("open");
+        void showLastAgentChange(project.id, revision);
       } catch (e) {
         get().log("error", `Failed to open project: ${(e as Error).message}`);
       }
+    },
+
+    openNewProject: (project, message) => {
+      runHistorySeq++; // runs still loading for the project it replaces are dropped
+      set({
+        project,
+        revision: null,
+        exampleId: null,
+        activeSystemId: rootSystemOf(project).id,
+        activeCaseId: project.cases[0]?.id ?? null,
+        activeRunId: null,
+        overlayRunIds: [],
+        selectedElementId: null,
+        past: [],
+        future: [],
+        runs: [],
+        storedRunCount: 0,
+        runsLoading: false,
+        dataChecks: null,
+        dirty: true,
+      });
+      get().log("info", message);
     },
 
     openExample: async (id) => {
@@ -1301,13 +1897,50 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         runs: [],
         storedRunCount: 0,
         runsLoading: false,
+        ...NO_FILE,
         dataChecks: null,
         dirty: false,
       });
+      trustedProject = project.id; // shipped with the app
       get().log(
         "info",
         `Example '${project.name}' opened as a copy. Save keeps it as a new project of yours; the example stays as it is.`,
       );
+      // its stored reference results, so Results has something to show at
+      // once (CON-15); a Run recomputes them
+      let stored: api.StoredReference[];
+      try {
+        stored = await api.fetchExampleReference(id);
+      } catch {
+        return; // an engine without them: the Results page starts empty
+      }
+      if (get().project?.id !== project.id || stored.length === 0) return;
+      const runs: SimRun[] = stored.flatMap((s) => {
+        const c = project.cases.find((cc) => cc.id === s.caseId);
+        if (!c) return [];
+        return [
+          {
+            id: `stored-${s.caseId}`,
+            caseId: s.caseId,
+            caseName: c.name,
+            startedAt: Date.parse(s.creation.date) || 0,
+            status: s.result.status,
+            result: s.result,
+            name: "Stored result",
+            note: `Stored with LightSim ${s.creation.appVersion} on ${s.creation.date}: only the comparison signals are kept. Press Run to recompute.`,
+            snapshot: { project, case: c, appVersion: s.creation.appVersion, liveEdits: [] },
+          },
+        ];
+      });
+      set((st) => {
+        const own = new Set(st.runs.map((r) => r.caseId));
+        const add = runs.filter((r) => !own.has(r.caseId));
+        const all = [...st.runs, ...add];
+        return {
+          runs: all,
+          activeRunId: st.activeRunId ?? add.find((r) => r.caseId === st.activeCaseId)?.id ?? null,
+        };
+      });
     },
 
     hideExample: async (id, name) => {
@@ -1331,29 +1964,46 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     },
 
     saveRemote: () => {
-      const save = async () => {
-        const { project, revision, exampleId, log } = get();
+      const save = async (attempt = 0): Promise<void> => {
+        const { project, revision, exampleId, log, readOnly, filePath } = get();
         if (!project) return;
+        if (readOnly) {
+          log("error", `Not saved: ${readOnly}`);
+          return;
+        }
+        const where = filePath ? ` to ${filePath}` : " to the server";
         try {
           const res = await api.saveProject(project, revision);
+          void approveTypedScripts(project);
           // an edit made while the save was in flight is still unsaved
           set({ dirty: get().project !== project, revision: res.revision ?? revision, exampleId: null });
+          offeredRevision = null;
           log(
             "info",
             exampleId
-              ? `Project '${project.name}' saved to the server as a new project; the example it was copied from is unchanged.`
-              : `Project '${project.name}' saved to the server.`,
+              ? `Project '${project.name}' saved${where} as a new project; the example it was copied from is unchanged.`
+              : `Project '${project.name}' saved${where}.`,
           );
         } catch (e) {
           if ((e as { status?: number }).status !== 409) {
             log("error", `Save failed: ${(e as Error).message}. Use Export to download the project file instead.`);
             return;
           }
-          // the file on disk is not the version this copy started from
+          // the file on disk is not the version this copy started from: an AI
+          // agent's (or another window's) save is laid over this copy, and the
+          // save goes again, so neither overwrites the other (step 6)
+          if (revision !== null && attempt < 3) {
+            const pulled = await pullSaves().catch(() => "unknown" as const);
+            if (pulled === "merged" || pulled === "busy") return save(attempt + 1);
+            if (pulled === "conflicts") {
+              log("warning", "Not saved yet: check the values the file changed too, then Save again.");
+              return;
+            }
+          }
           const why =
             revision === null
               ? `A project with the id '${project.id}' already exists on disk.`
-              : `'${project.name}' was changed on disk after you opened it (saved from another window or by another program).`;
+              : `'${project.name}' was changed on disk after you opened it (for example by a git pull or another program).`;
           log("warning", `Not saved yet: ${why}`);
           const overwrite = await confirmDialog({
             title: revision === null ? "Project already on disk" : "Project changed on disk",
@@ -1373,61 +2023,231 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             const res = await api.saveProject(project);
             // edits made while the dialog was open were not in this save
             set({ dirty: get().project !== project, revision: res.revision ?? null, exampleId: null });
-            log("info", `Project '${project.name}' saved to the server, replacing the version on disk ` +
+            log("info", `Project '${project.name}' saved${where}, replacing the version on disk ` +
               "(Project → Restore opens that version again).");
           } catch (e2) {
             log("error", `Save failed: ${(e2 as Error).message}. Use Export to download the project file instead.`);
           }
         }
       };
-      const next = saveQueue.then(save);
+      const next = saveQueue.then(() => save());
       saveQueue = next;
       return next;
     },
 
-    exportProject: () => {
-      const { project } = get();
-      if (!project) return;
-      const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${project.id}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      get().log("info", `Project exported as ${project.id}.json.`);
+    saveAs: async () => {
+      const { project, log, readOnly } = get();
+      const shell = desktop();
+      if (!project || !shell) return false;
+      if (readOnly) {
+        // a copy in this LightSim's format could lose what the newer one wrote
+        log("error", `Not saved: ${readOnly}`);
+        return false;
+      }
+      let picked;
+      try {
+        picked = await shell.saveFileAs(project.id, project.name);
+      } catch (e) {
+        log("error", `Save As failed: ${(e as Error).message}`);
+        return false;
+      }
+      if (!picked) return false; // cancelled
+      const saved = { ...project, id: picked.id };
+      try {
+        // the system's Save dialog already asked before replacing a file
+        const res = await api.saveProject(saved);
+        const sameProject = picked.id === project.id;
+        runHistorySeq++;
+        offeredRevision = null;
+        set((s) => ({
+          project: s.project === project ? saved : { ...s.project!, id: picked.id },
+          revision: res.revision ?? null,
+          filePath: picked.path,
+          readOnly: null,
+          exampleId: null,
+          dirty: s.project !== project,
+          ...(sameProject ? {} : { runs: [], storedRunCount: 0, studies: [], activeRunId: null, overlayRunIds: [] }),
+        }));
+        if (trustedProject === project.id) trustedProject = picked.id;
+        log(
+          "info",
+          `Project '${project.name}' saved as ${picked.path}.` +
+            (sameProject ? "" : " It is a copy: the runs stay with the project it came from."),
+        );
+        void loadRunHistory(picked.id);
+        return true;
+      } catch (e) {
+        log("error", `Save As failed: ${(e as Error).message}`);
+        return false;
+      }
     },
 
-    importProject: (json) => {
+    openFile: async () => {
+      const shell = desktop();
+      if (!shell) return;
       try {
-        // a file saved from the engine's API may carry its revision: drop it
-        const { project } = fromDisk(JSON.parse(json) as api.StoredProject);
-        if (!project.id || !Array.isArray(project.systems)) {
+        const picked = await shell.openFile();
+        if (picked) await get().openProject(picked.id);
+      } catch (e) {
+        get().log("error", `Could not open the file: ${(e as Error).message}`);
+      }
+    },
+
+    forgetFile: async (id) => {
+      try {
+        await api.forgetFile(id);
+      } catch (e) {
+        get().log("error", `Could not remove it from Recent files: ${(e as Error).message}`);
+      }
+    },
+
+    checkDisk: async () => {
+      const { project, revision, offline } = get();
+      if (!project || !revision || offline || diskCheckBusy) return;
+      diskCheckBusy = true;
+      try {
+        await saveQueue; // a save in flight changes the file itself
+        if (get().project !== project && get().project?.id !== project.id) return;
+        const onDisk = await api.fetchRevision(project.id);
+        const now = get();
+        if (now.project?.id !== project.id || now.revision !== revision) return; // saved or reopened meanwhile
+        if (onDisk === revision || onDisk === offeredRevision) return;
+        if (onDisk !== null) {
+          // a save LightSim made (an AI agent's edit, the command line, another
+          // window) shows at once, over this copy's own unsaved changes
+          const pulled = await pullSaves();
+          if (pulled !== "unknown") return;
+        }
+        offeredRevision = onDisk;
+        if (onDisk === null) {
+          now.log("warning", `The file of '${project.name}' was deleted or moved on disk; Save writes it again.`);
+          return;
+        }
+        const reload = await confirmDialog({
+          title: "Project changed on disk",
+          message:
+            `'${project.name}' was changed on disk (for example by a git pull or another program). ` +
+            (now.dirty
+              ? "Reload it to see that version: your unsaved changes here would be lost. Keep editing to save yours over it later (Save asks first)."
+              : "Reload it to see that version?"),
+          confirmLabel: "Reload",
+          cancelLabel: now.dirty ? "Keep my changes" : "Not now",
+          danger: now.dirty,
+        });
+        if (reload && get().project?.id === project.id) {
+          const keepCase = get().activeCaseId;
+          await get().openProject(project.id);
+          if (get().project?.cases.some((c) => c.id === keepCase)) set({ activeCaseId: keepCase });
+        }
+      } catch {
+        /* the engine is busy or gone: try again next time */
+      } finally {
+        diskCheckBusy = false;
+      }
+    },
+
+    exportProject: async () => {
+      const { project, log } = get();
+      if (!project) return;
+      const download = (blob: Blob, name: string) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
+      if ((project.attachments ?? []).length > 0) {
+        try {
+          download(await api.exportBundle(project), `${project.id}.lightsim.zip`);
+          log("info", `Project exported with its attached files as ${project.id}.lightsim.zip.`);
+          return;
+        } catch (e) {
+          log("warning", `The attached files could not be packed (${(e as Error).message}); exporting the project file only.`);
+        }
+      }
+      download(new Blob([JSON.stringify(project, null, 2)], { type: "application/json" }), `${project.id}.lightsim`);
+      log("info", `Project exported as ${project.id}.lightsim.`);
+    },
+
+    importProject: async (json) => {
+      const { log, offline } = get();
+      let raw: api.StoredProject;
+      try {
+        raw = JSON.parse(json) as api.StoredProject;
+        if (!raw || typeof raw !== "object" || !raw.id || !Array.isArray(raw.systems)) {
           throw new Error("not a LightSim project file");
         }
-        project.dataBusConnections ??= [];
-        project.cases ??= [];
-        set({
-          project,
-          revision: null,
-          exampleId: null,
-          activeSystemId: project.systems.find((s) => s.parentId === null)?.id ?? project.systems[0]?.id,
-          activeCaseId: project.cases[0]?.id ?? null,
-          activeRunId: null,
-          overlayRunIds: [],
-          selectedElementId: null,
-          past: [],
-          future: [],
-          runs: [],
-          storedRunCount: 0,
-          runsLoading: false,
-          dataChecks: null,
-          dirty: true,
-        });
-        get().log("info", `Project '${project.name}' imported.`);
-        void loadRunHistory(project.id);
+      } catch (e) {
+        log("error", `Import failed: ${(e as Error).message}`);
+        return;
+      }
+      // a file saved from the engine's API may carry bookkeeping: drop it
+      const { project: parsed } = fromDisk(raw);
+      let reply: api.UpgradeReply | undefined;
+      if (!offline) {
+        try {
+          reply = await api.upgradeProject(parsed);
+        } catch (e) {
+          log("error", `Import failed: ${(e as Error).message}`);
+          return;
+        }
+      }
+      // offline (no engine): open it as it is; the engine upgrades it on save
+      const { project, studies } = reply ? { project: reply.project, studies: reply.studies } : splitStudies(parsed);
+      openImported(project, studies, reply?.readOnly ?? null, `Project '${project.name}' imported.`);
+      noteFormat(project.name, reply?.upgradedFrom ?? null, reply?.readOnly ?? null);
+    },
+
+    importBundle: async (zip) => {
+      let reply: api.UpgradeReply;
+      try {
+        reply = await api.importBundle(zip);
       } catch (e) {
         get().log("error", `Import failed: ${(e as Error).message}`);
+        return;
+      }
+      const n = reply.project.attachments?.length ?? 0;
+      openImported(reply.project, reply.studies, reply.readOnly, `Project '${reply.project.name}' imported with ${n} attached file(s).`);
+      noteFormat(reply.project.name, reply.upgradedFrom, reply.readOnly);
+    },
+
+    attachFile: async (file) => {
+      const { project, log, readOnly } = get();
+      if (!project || readOnly) return null;
+      let info: api.AttachedFile;
+      try {
+        info = await api.uploadAttachment(project.id, file, file.name);
+      } catch (e) {
+        log("error", `Could not attach '${file.name}': ${(e as Error).message}`);
+        return null;
+      }
+      if (get().project?.id !== project.id) return null;
+      const ref: Attachment = { path: info.path, sha256: info.sha256, bytes: info.bytes };
+      updateProject((draft) => {
+        draft.attachments = [...(draft.attachments ?? []).filter((a) => a.path !== ref.path), ref];
+      });
+      log(
+        "info",
+        `Attached '${info.name}' (${(info.bytes / 1024).toLocaleString("en", { maximumFractionDigits: 0 })} kB) to the project` +
+          (info.name !== file.name ? ` as '${info.name}'` : "") +
+          "; save the project to keep it in the list.",
+      );
+      return info.path;
+    },
+
+    detachFile: async (path) => {
+      const { project, log } = get();
+      if (!project) return;
+      updateProject((draft) => {
+        draft.attachments = (draft.attachments ?? []).filter((a) => a.path !== path);
+      });
+      try {
+        await api.deleteAttachment(project.id, path.replace(/^resources\//, ""));
+        log("info", `Removed '${path}' from the project and its resources folder.`);
+      } catch (e) {
+        if (!(e as Error).message.startsWith("404"))
+          log("warning", `'${path}' is off the project's list, but the file could not be deleted: ${(e as Error).message}`);
       }
     },
 
@@ -1448,6 +2268,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         runs: [],
         storedRunCount: 0,
         runsLoading: false,
+        ...NO_FILE,
         dataChecks: null,
         dirty: true,
       });
@@ -1531,6 +2352,46 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         c.parameterOverrides = ov;
       }),
 
+    setDrivingCycle: (elementId, cycleId, caseId) => {
+      const cycle = get().cycles.find((c) => c.id === cycleId);
+      const resized: string[] = [];
+      updateProject((draft) => {
+        if (caseId) {
+          const c = draft.cases.find((cc) => cc.id === caseId);
+          if (c)
+            c.parameterOverrides = {
+              ...c.parameterOverrides,
+              [elementId]: { ...c.parameterOverrides?.[elementId], cycle: cycleId },
+            };
+        } else {
+          for (const s of draft.systems) {
+            const el = s.elements.find((e) => e.id === elementId);
+            if (el) el.parameterOverrides.cycle = cycleId;
+          }
+        }
+        // the case length follows the cycle only when it is clear which task
+        // a case drives: the model's only one, or the one the case names
+        const tasks = draft.systems
+          .flatMap((sy) => sy.elements)
+          .filter((e) => e.componentDefId === "signal.driving_task");
+        if (!cycle || (!caseId && tasks.length > 1)) return;
+        for (const c of draft.cases) {
+          const own = c.parameterOverrides?.[elementId] ?? {};
+          const drivesIt = caseId ? c.id === caseId : !("cycle" in own) && !("profile" in own);
+          // a performance case runs to its target, not to a cycle's end
+          if (drivesIt && (c.kind ?? "cycle") === "cycle" && c.duration !== cycle.duration_s) {
+            c.duration = cycle.duration_s;
+            resized.push(`'${c.name}'`);
+          }
+        }
+      });
+      if (cycle && resized.length)
+        get().log(
+          "info",
+          `${resized.join(", ")} now run${resized.length > 1 ? "" : "s"} ${cycle.duration_s.toLocaleString("en")} s, the length of ${cycle.name}.`,
+        );
+    },
+
     runDataChecks: async () => {
       const { project, log } = get();
       if (!project) return [];
@@ -1541,10 +2402,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error").length;
         const warnings = checks.filter((c) => c.level === "warning").length;
-        log(
-          errors ? "error" : warnings ? "warning" : "info",
-          `Data checks: ${errors} error(s), ${warnings} warning(s).`,
-        );
+        // a summary, not a problem: the problems are in the Problems list
+        log("info", `Data checks: ${countOf(errors, "error")}, ${countOf(warnings, "warning")}.`);
         {
           const ui = useUIStore.getState();
           if (ui.ribbonTab === "results") ui.setRibbonTab("home");
@@ -1558,7 +2417,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
-    run: async () => {
+    run: async (opts) => {
+      const quiet = opts?.quiet === true;
       const { project, activeCaseId, log, running } = get();
       if (!project || running) return;
       if (!activeCaseId) {
@@ -1568,39 +2428,362 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
       // pre-flight validation gate: block the run on error-level data checks so
       // broken models fail fast (and visibly) instead of deep inside the solver.
-      // A fresh single run starts with a clean overlay set.
-      set({ running: true, overlayRunIds: [] });
-      if (!(await get().passesRunGate())) {
+      // The runs the user overlaid stay overlaid (RES-19).
+      set({ running: true, ...(quiet ? {} : { finishNotice: null }) });
+      if (!(await get().passesRunGate(activeCaseId))) {
         set({ running: false });
         return;
       }
 
       const caseId = activeCaseId;
       const simCase = project.cases.find((c) => c.id === caseId);
-      log("info", `Running case '${simCase?.name ?? caseId}' …`);
+      const name = simCase?.name ?? caseId;
+      // (no notice about a project that is no longer open)
+      const tell = (notice: Omit<FinishNotice, "seq">) => {
+        if (!quiet && get().project?.id === project.id) announce(notice);
+      };
+      log("info", `Running case '${name}' …`);
+      // a new run of the case is drawn as a chart, not on the Study view
+      // that the case was left on (STU-16)
+      const ui = useUIStore.getState();
+      if (ui.resultsViews[project.id]?.cases?.[caseId]?.view === "study") ui.setPlotView(project.id, caseId, { view: "chart" });
       try {
-        const result = await executeRun(project, caseId, simCase?.name ?? caseId);
+        const result = await executeRun(project, caseId, name);
         set({ running: false });
         if (result.status === "failed") {
           log("error", "Simulation failed — see messages above.");
-          const ui = useUIStore.getState();
-          if (ui.ribbonTab === "results") ui.setRibbonTab("home");
-          ui.focusPanel("messages");
+          revealMessages();
+          tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
         } else {
           log(
             result.status === "warning" ? "warning" : "info",
             `Simulation finished with status '${result.status}'. ${result.channels.length} channels available in Results.`,
           );
-          // switch to the full-page Results workspace
-          useUIStore.getState().setRibbonTab("results");
+          const stopped = incompleteReason(result);
+          tell(
+            stopped
+              ? { level: "warning", text: `'${name}' ${stopped}.`, show: "results" }
+              : result.status === "warning"
+                ? { level: "warning", text: `'${name}' finished with warnings.`, show: "results" }
+                : { level: "info", text: `'${name}' finished: ${result.status}.`, show: "results" },
+          );
         }
       } catch (e) {
         set({ running: false });
         log("error", `Simulation failed: ${(e as Error).message}`);
-        const ui = useUIStore.getState();
-        if (ui.ribbonTab === "results") ui.setRibbonTab("home");
-        ui.focusPanel("messages");
+        revealMessages();
+        tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
       }
+    },
+
+    runAccelerationTest: async () => {
+      const { project, running } = get();
+      if (!project || running) return;
+      const found = project.cases.find((c) => c.kind === "acceleration");
+      const id = found?.id ?? uid("case");
+      if (!found) {
+        // FS Rules 2026 v1.1 (FSG): 75 m from the start line (D 5.1.1), staged
+        // 0.30 m behind it (D 5.2.3); runs over 25 s are disqualified in
+        // driverless runs only (D 9.2.1)
+        updateProject((draft) => {
+          draft.cases.push({
+            id,
+            name: "Acceleration 75 m",
+            duration: 25,
+            timeStep: 0.01,
+            kind: "acceleration",
+            endDistance: 75,
+            startLine: 0.3,
+          });
+        });
+      }
+      set({ activeCaseId: id });
+      await get().run();
+    },
+
+    runFsEvents: async () => {
+      const { project, running, log } = get();
+      if (!project || running) return;
+      const track = project.systems.flatMap((sys) => sys.elements).find((e) => e.componentDefId === "track.lap");
+      if (!track) {
+        log("error", "Formula Student events need a Race Track: add one from Driver & Signals.");
+        return;
+      }
+      const layoutOf = (c: SimCase) =>
+        String(c.parameterOverrides?.[track.id]?.layout ?? track.parameterOverrides.layout ?? "Autocross");
+      const lapsOf = (c: SimCase) => Number(c.parameterOverrides?.[track.id]?.laps ?? track.parameterOverrides.laps ?? 1);
+      // an event's case: the one marked for it, else a case of its shape (the
+      // FS example's own cases), else a new one
+      const shapes: Record<FsEvent, (c: SimCase) => boolean> = {
+        acceleration: (c) => c.kind === "acceleration",
+        skidpad: (c) => c.kind === "lap" && layoutOf(c) === "Skidpad",
+        autocross: (c) => c.kind === "lap" && layoutOf(c) === "Autocross" && lapsOf(c) <= 2,
+        endurance: (c) => c.kind === "lap" && lapsOf(c) >= 15,
+      };
+      const ids: Record<FsEvent, string> = { acceleration: "", skidpad: "", autocross: "", endurance: "" };
+      const taken = new Set<string>();
+      for (const ev of FS_EVENTS) {
+        const c =
+          project.cases.find((x) => x.fsEvent === ev && (x.kind ?? "cycle") !== "cycle") ??
+          project.cases.find((x) => !x.fsEvent && !taken.has(x.id) && shapes[ev](x));
+        if (c) {
+          ids[ev] = c.id;
+          taken.add(c.id);
+        }
+      }
+      updateProject((draft) => {
+        for (const ev of FS_EVENTS) {
+          const found = draft.cases.find((c) => c.id === ids[ev]);
+          if (found) {
+            found.fsEvent = ev;
+            continue;
+          }
+          const id = uid("case");
+          ids[ev] = id;
+          // FS Rules 2026 v1.1 (FSG): acceleration 75 m from 0.30 m behind the
+          // line (D 5.1.1, D 5.2.3); skidpad a right and a left circle after an
+          // establishing lap (D 4.2.1); autocross one lap (D 6.2.1); endurance
+          // about 22 km (D 7.1.3) on the Autocross layout (979 m: 22 laps)
+          const lapCase = (name: string, layout: string, laps: number, every = 1): SimCase => ({
+            id, name, duration: 600, timeStep: 1, kind: "lap", outputEvery: every, fsEvent: ev,
+            parameterOverrides: { [track.id]: { layout, laps } },
+          });
+          draft.cases.push(
+            ev === "acceleration"
+              ? { id, name: "Acceleration 75 m", duration: 25, timeStep: 0.01, kind: "acceleration",
+                  endDistance: 75, startLine: 0.3, fsEvent: ev }
+              : ev === "skidpad"
+                ? lapCase("Skidpad", "Skidpad", 2)
+                : ev === "autocross"
+                  ? lapCase("Autocross", "Autocross", 1)
+                  : lapCase("Endurance", "Autocross", 22, 5),
+          );
+        }
+      });
+      set({ finishNotice: null });
+      let failed: string | null = null;
+      for (const ev of FS_EVENTS) {
+        set({ activeCaseId: ids[ev] });
+        // (one notice for the four, below)
+        await get().run({ quiet: true });
+        if (get().running) return;
+        const last = get().runs.find((r) => r.caseId === ids[ev]);
+        if (!last || last.status === "failed") {
+          failed = FS_EVENT_NAMES[ev];
+          break; // (its messages say why)
+        }
+      }
+      if (get().project?.id !== project.id) return;
+      // the points are in Cases & Parameters, on the model's page: shown
+      // there when the user is on it (UX-21)
+      const ui = useUIStore.getState();
+      if (ui.ribbonTab !== "results" && ui.ribbonTab !== "start") ui.focusPanel(failed ? "messages" : "cases");
+      log("info", "Formula Student events run: their points are in Cases & Parameters → Formula Student points.");
+      announce(
+        failed
+          ? { level: "error", text: `Formula Student events: ${failed} failed, see Messages.`, show: "messages" }
+          : { level: "info", text: "Formula Student events run: their points are in Cases & Parameters.", show: "cases" },
+      );
+    },
+
+    addImportedLap: (lap, name, sha256) => {
+      const { project, log } = get();
+      if (!project) return;
+      const all = project.systems.flatMap((sys) => sys.elements.map((e) => ({ e, sys })));
+      const driver = all.find(({ e }) => e.componentDefId === "driver.driver");
+      const task = all.find(({ e }) => e.componentDefId === "signal.driving_task")?.e;
+      if (!task && !driver) {
+        log("error", "An imported lap needs a Driver to follow it: add one from Driver & Signals.");
+        return;
+      }
+      const taskId = task?.id ?? uid("el");
+      const caseId = uid("case");
+      updateProject((draft) => {
+        if (!task && driver) {
+          const sys = draft.systems.find((x) => x.id === driver.sys.id);
+          sys?.elements.push({
+            id: taskId,
+            componentDefId: "signal.driving_task",
+            label: "Imported lap",
+            position: { x: driver.e.position.x - 200, y: driver.e.position.y },
+            parameterOverrides: {},
+          });
+          // its target into the Driver, unless something already feeds it
+          const fed = draft.dataBusConnections.some(
+            (d) =>
+              (d.element2Id === driver.e.id && d.port2Id === "sig_target_in") ||
+              (d.element1Id === driver.e.id && d.port1Id === "sig_target_in"),
+          );
+          if (!fed)
+            draft.dataBusConnections.push({
+              id: uid("dbc"),
+              element1Id: taskId,
+              port1Id: "sig_demand",
+              element2Id: driver.e.id,
+              port2Id: "sig_target_in",
+            });
+        }
+        draft.cases.push({
+          id: caseId,
+          name,
+          duration: Math.ceil(lap.duration_s * 10) / 10,
+          timeStep: 0.1,
+          kind: "cycle",
+          outputEvery: lap.duration_s > 600 ? 10 : 1,
+          ...(lap.repeated > 1 ? { fsEvent: "endurance" as const } : {}),
+          parameterOverrides: { [taskId]: { profile: lap.profile, cycle: "" } },
+        });
+      });
+      set({ activeCaseId: caseId });
+      log(
+        "info",
+        `Imported lap added as case '${name}': ${lap.duration_s.toLocaleString("en", { maximumFractionDigits: 1 })} s, ` +
+          `${(lap.distance_m / 1000).toLocaleString("en", { maximumFractionDigits: 3 })} km` +
+          `${lap.repeated > 1 ? ` (${lap.repeated} laps)` : ""}; source file SHA-256 ${sha256}. ` +
+          "Its speed comes from the file: LightSim gives the energy and the loads for that speed, not the cornering.",
+      );
+    },
+
+    runEnduranceStudy: async ({ caseId, batteryId, packs, caps }) => {
+      const { project, log, libraryById, running } = get();
+      if (!project || running) return;
+      const simCase = project.cases.find((c) => c.id === caseId);
+      const battery = project.systems.flatMap((sy) => sy.elements).find((e) => e.id === batteryId);
+      if (!simCase || !battery || !packs.length || !caps.length) return;
+      const pdefs = libraryById[battery.componentDefId]?.parameters ?? [];
+      // the battery as the case runs it: the library's values, its own, the case's
+      const params = {
+        ...Object.fromEntries(pdefs.map((d) => [d.key, d.default])),
+        ...battery.parameterOverrides,
+        ...(simCase.parameterOverrides?.[batteryId] ?? {}),
+      };
+      const factor = (key: string, values: number[]) => {
+        const d = pdefs.find((p) => p.key === key);
+        return {
+          elementId: batteryId,
+          paramKey: key,
+          elementLabel: battery.label,
+          paramLabel: d?.label ?? key,
+          unit: d && d.unit !== "-" ? d.unit : "",
+          values,
+        };
+      };
+      const sweepId = uid("sweep");
+      const startedAt = Date.now();
+      const points: StudyPoint[] = [];
+      const kpiUnits = new Map<string, string>();
+      set({ running: true, finishNotice: null });
+      if (!(await get().passesRunGate(caseId))) {
+        set({ running: false });
+        return;
+      }
+      log("info", `Endurance energy study: ${packs.length} × ${caps.length} = ${packs.length * caps.length} runs of '${simCase.name}' …`);
+      // every pack × cap point, run side by side in the engine's worker
+      // processes as a sweep's are (ENG-05)
+      const grid = packs.flatMap((pack) => caps.map((cap) => [pack, cap]));
+      const byIndex = new Map<number, StudyPoint>();
+      let totals: api.StudyTotals | undefined;
+      let failure: string | null = null;
+      startProgress(grid.length);
+      try {
+        const handle = api.runStudyLive(
+          {
+            project: structuredClone(project),
+            caseId,
+            points: grid.map(([pack, cap]) => ({
+              // the pack's size: its kWh and the charge with them (a battery
+              // with a Charge Capacity, or built from cells, ran one size before)
+              overrides: { [batteryId]: { ...packOverrides(params, pack), output_power_limit_kW: cap } },
+              values: [pack, cap],
+              label: `${simCase.name} · ${pack} kWh, ${cap} kW`,
+            })),
+            sweepId,
+            sweepParam: "Pack × power cap",
+            sweepUnit: "kWh",
+          },
+          {
+            onStarted: () => startProgress(grid.length),
+            onPoint: (e) => {
+              const notValid = (e.summary ?? []).filter((v) => v.notValid);
+              byIndex.set(e.index, {
+                values: e.values,
+                ...(e.runId ? { runId: e.runId } : {}),
+                status: e.status,
+                ...(e.incomplete ? { incomplete: e.incomplete } : {}),
+                ...(e.wallS != null ? { wallS: e.wallS } : {}),
+                kpis: Object.fromEntries(
+                  (e.summary ?? []).filter((v) => Number.isFinite(v.value)).map((v) => [v.label, v.value]),
+                ),
+                ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
+              });
+              for (const v of e.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
+              if (e.status === "failed") log("error", `Study point ${e.values[0]} kWh, ${e.values[1]} kW failed.`);
+              pointEnded(byIndex.size);
+            },
+          },
+        );
+        activeStudy = handle;
+        totals = await handle.done;
+      } catch (e) {
+        failure = (e as Error).message;
+        log("error", `Endurance energy study failed: ${failure}`);
+      } finally {
+        activeStudy = null;
+        set({ running: false, sweepProgress: null });
+      }
+      if (get().project?.id === project.id) await loadRunHistory(project.id);
+      points.push(...[...byIndex.entries()].sort((a, b) => a[0] - b[0]).map(([, pt]) => pt));
+      if (get().project?.id !== project.id) return;
+      if (!points.length) {
+        revealMessages();
+        announce({ level: "error", text: "Endurance energy study failed: see Messages.", show: "messages" });
+        return;
+      }
+      const ran = new Set(points.map((p) => p.values.join(",")));
+      const notRun = packs.flatMap((pack) =>
+        caps.filter((cap) => !ran.has(`${pack},${cap}`)).map((cap): StudyPoint => ({ values: [pack, cap], status: "not run", kpis: {} })),
+      );
+      const study: Study = {
+        id: sweepId,
+        startedAt,
+        caseId,
+        caseName: simCase.name,
+        factors: [factor("capacity_kWh", packs), factor("output_power_limit_kW", caps)],
+        kpis: [...kpiUnits].map(([label, unit]) => ({ label, unit })),
+        points: [...points, ...notRun],
+        ...(totals ? { workers: totals.workers, wallS: totals.wallS } : {}),
+      };
+      // kept with the project's runs, not in the model file (PLT-34)
+      set((s) => ({ studies: [...s.studies, study] }));
+      useUIStore.getState().setStudyView(project.id, { study: sweepId });
+      announce(studyNotice("Endurance energy study", study.points, failure, "cases", sweepId));
+      try {
+        await api.storeStudy(project.id, study);
+        log("info", `Endurance energy study saved with the runs (Cases & Parameters → Endurance energy study and Saved studies).`);
+      } catch (e) {
+        log("warning", `The study could not be stored with the runs (${(e as Error).message}); it is kept for this session only.`);
+      }
+    },
+
+    applyLapCalibration: (muScale, cza) => {
+      const { project, libraryById, log } = get();
+      if (!project) return;
+      const def = (id: string, key: string) =>
+        Number(libraryById[id]?.parameters.find((p) => p.key === key)?.default ?? 0);
+      updateProject((draft) => {
+        for (const sys of draft.systems)
+          for (const e of sys.elements) {
+            if (e.componentDefId === "propulsion.wheel") {
+              for (const key of ["mu", "mu_lateral", "mu_load_sensitivity_per_kN"]) {
+                const v = Number(e.parameterOverrides[key] ?? def(e.componentDefId, key));
+                if (v) e.parameterOverrides[key] = Math.round(v * muScale * 1e4) / 1e4;
+              }
+            } else if (e.componentDefId === "vehicle.body") {
+              e.parameterOverrides.downforce_cza_m2 = cza;
+            }
+          }
+      });
+      log("info", `Lap mode calibration applied: the wheels' grip × ${muScale}, the Vehicle's CzA ${cza} m².`);
     },
 
     runSweep: async ({ caseId, elementId, paramKey, values }) => {
@@ -1627,49 +2810,84 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const points: StudyPoint[] = [];
       const kpiUnits = new Map<string, string>();
 
-      set({ running: true });
-      if (!(await get().passesRunGate())) {
+      set({ running: true, finishNotice: null });
+      if (!(await get().passesRunGate(caseId))) {
         set({ running: false });
         return;
       }
 
-      sweepAborted = false;
+      // the points run side by side in the engine's worker processes
+      // (ENG-05); each is stored as a run of the project as it ends, and
+      // only its summary comes back here
       log(
         "info",
         `Sweep: ${el?.label ?? elementId} · ${paramLabel} over ${values.length} value(s) …`,
       );
+      const byIndex = new Map<number, StudyPoint>();
+      let totals: api.StudyTotals | undefined;
+      let failure: string | null = null;
+      startProgress(values.length);
       try {
-        for (const value of values) {
-          if (sweepAborted) break;
-          // clone the project so the swept override is scoped to this one run
-          const runProject = structuredClone(project);
-          const rc = runProject.cases.find((c) => c.id === caseId);
-          if (!rc) break;
-          rc.parameterOverrides = {
-            ...(rc.parameterOverrides ?? {}),
-            [elementId]: { ...(rc.parameterOverrides?.[elementId] ?? {}), [paramKey]: value },
-          };
-          const label = `${simCase.name} · ${paramLabel}=${value}${unit}`;
-          try {
-            await executeRun(runProject, caseId, label, {
-              sweepId,
-              sweepParam: paramLabel,
-              sweepValue: value,
-              sweepUnit: paramUnit,
-            });
-          } catch (e) {
-            log("error", `Sweep point ${paramLabel}=${value} failed: ${(e as Error).message}`);
-            // keep going with the remaining points
-          }
-          // this point's run: the newest run of the sweep not in the table yet
-          const tabled = new Set(points.map((p) => p.runId));
-          const pointRun = get().runs.find((r) => r.sweepId === sweepId && !tabled.has(r.id));
-          points.push(pointRun ? studyPoint(pointRun, [value]) : { values: [value], status: "failed", kpis: {} });
-          for (const v of pointRun?.result.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
-        }
+        const handle = api.runStudyLive(
+          {
+            project: structuredClone(project),
+            caseId,
+            points: values.map((value) => ({
+              overrides: { [elementId]: { [paramKey]: value } },
+              values: [value],
+              label: `${simCase.name} · ${paramLabel}=${value}${unit}`,
+            })),
+            sweepId,
+            sweepParam: paramLabel,
+            sweepUnit: paramUnit,
+          },
+          {
+            onStarted: (workers) => {
+              // the time left counts from here: the points start now
+              startProgress(values.length);
+              log("info", `Sweep running ${countOf(workers, "point")} at a time, one per processor core.`);
+            },
+            onPoint: (e) => {
+              const notValid = (e.summary ?? []).filter((v) => v.notValid);
+              byIndex.set(e.index, {
+                values: e.values,
+                ...(e.runId ? { runId: e.runId } : {}),
+                status: e.status,
+                ...(e.incomplete ? { incomplete: e.incomplete } : {}),
+                ...(e.wallS != null ? { wallS: e.wallS } : {}),
+                // (a value JSON cannot carry would make the project unsavable)
+                // and each part's duty (RES-39)
+                kpis: Object.fromEntries(
+                  [...(e.summary ?? []), ...dutyKpis({ duty: e.duty } as SimResult)]
+                    .filter((v) => Number.isFinite(v.value))
+                    .map((v) => [v.label, v.value]),
+                ),
+                ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
+              });
+              for (const v of [...(e.summary ?? []), ...dutyKpis({ duty: e.duty } as SimResult)])
+                if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
+              if (e.status === "failed") log("error", `Sweep point ${paramLabel}=${e.values[0]}${unit} failed.`);
+              if (e.pruned?.length) {
+                log("warning", `Stored runs reached the disk budget: deleted the ${e.pruned.length} oldest run(s).`);
+              }
+              pointEnded(byIndex.size);
+            },
+          },
+        );
+        activeStudy = handle;
+        totals = await handle.done;
+      } catch (e) {
+        failure = (e as Error).message;
+        log("error", `Sweep failed: ${failure}`);
       } finally {
-        set({ running: false });
+        activeStudy = null;
+        set({ running: false, sweepProgress: null });
       }
+      // the points' runs, from the run store
+      if (get().project?.id === project.id) await loadRunHistory(project.id);
+      points.push(
+        ...values.map((v, i): StudyPoint => byIndex.get(i) ?? { values: [v], status: "not run", kpis: {} }),
+      );
       const family = get()
         .runs.filter((r) => r.sweepId === sweepId)
         .sort((a, b) => (a.sweepValue ?? 0) - (b.sweepValue ?? 0));
@@ -1690,7 +2908,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         // save the study with the project (unless another one was opened
         // meanwhile), with a row for every value, run or not
         if (get().project?.id === project.id) {
-          const notRun = values.slice(points.length).map((v): StudyPoint => ({ values: [v], status: "not run", kpis: {} }));
           const study: Study = {
             id: sweepId,
             startedAt,
@@ -1700,16 +2917,22 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               { elementId, paramKey, elementLabel: el?.label ?? elementId, paramLabel, unit: paramUnit, values },
             ],
             kpis: [...kpiUnits].map(([label, kpiUnit]) => ({ label, unit: kpiUnit })),
-            points: [...points, ...notRun],
+            points,
+            ...(totals ? { workers: totals.workers, wallS: totals.wallS } : {}),
           };
-          updateProject((draft) => {
-            draft.studies = [...(draft.studies ?? []), study];
-          }, false);
-          log(
-            "info",
-            `Sweep saved as a study of '${project.name}' (Cases & Parameters → Saved studies); ` +
-              "save the project to keep it on disk.",
-          );
+          set((s) => ({ studies: [...s.studies, study] }));
+          // the Study view shows the newest sweep (STU-16)
+          useUIStore.getState().setStudyView(project.id, { study: sweepId });
+          try {
+            await api.storeStudy(project.id, study);
+            log(
+              "info",
+              `Sweep saved as a study of '${project.name}' (Cases & Parameters → Saved studies), ` +
+                "with its runs; the model file is unchanged.",
+            );
+          } catch (e) {
+            log("warning", `The study could not be stored with the runs (${(e as Error).message}); it is kept for this session only.`);
+          }
         }
         // overlay the complete family: lowest swept value is the primary run,
         // the rest are overlaid, so all appear together in Results by default.
@@ -1718,28 +2941,47 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           activeRunId: shown[0].id,
           overlayRunIds: shown.slice(1).map((r) => r.id),
         });
-        useUIStore.getState().setRibbonTab("results");
+        // the page stays where the user is; the notice offers the results
+        // and the study's charts (UX-21, STU-16)
+        if (get().project?.id === project.id)
+          announce(studyNotice("Sweep", points, failure, "results", get().studies.some((st) => st.id === sweepId) ? sweepId : undefined));
       } else {
         log("warning", "Sweep produced no runs.");
+        if (get().project?.id === project.id) {
+          revealMessages();
+          announce({
+            level: failure ? "error" : "warning",
+            text: failure ? "Sweep failed: see Messages." : "Sweep produced no runs: see Messages.",
+            show: "messages",
+          });
+        }
       }
     },
 
-    removeStudy: (studyId) =>
-      updateProject((draft) => {
-        draft.studies = (draft.studies ?? []).filter((st) => st.id !== studyId);
-      }, false),
+    removeStudy: (studyId) => {
+      const { project, log } = get();
+      set((s) => ({ studies: s.studies.filter((st) => st.id !== studyId) }));
+      if (!project) return;
+      api.deleteStudy(project.id, studyId)?.catch?.((e: Error) => {
+        if (!e.message.startsWith("404")) log("error", `Could not delete the study: ${e.message}`);
+      });
+    },
 
     /** Error-level data-check gate shared by run + runSweep. */
-    passesRunGate: async () => {
+    passesRunGate: async (caseId) => {
       const { project, log } = get();
       if (!project) return false;
+      if (!(await trustsCode(project))) {
+        log("warning", "Run cancelled: the project's code was not trusted. Run again to be asked again.");
+        return false;
+      }
       try {
         const checks = await api.validateProject(project);
         set({ dataChecks: checks });
         if (get().project !== project) scheduleRecheck(); // edited while it checked
-        const errors = checks.filter((c) => c.level === "error");
+        const errors = runBlockers(checks, caseId);
         if (errors.length > 0) {
-          log("error", `Run blocked — fix ${errors.length} data-check error(s) first.`);
+          log("error", `Run blocked — fix ${countOf(errors.length, "data-check error")} first.`);
           const ui = useUIStore.getState();
           if (ui.ribbonTab === "results") ui.setRibbonTab("home");
           ui.focusPanel("data-checks");
@@ -1749,11 +2991,67 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         // backend unreachable — the run's own connection will surface the failure
         log("warning", `Pre-flight data checks unavailable (${(e as Error).message}); running anyway.`);
       }
+      return get().reviewScripts("run");
+    },
+
+    reviewScripts: async (when) => {
+      const { project, log } = get();
+      if (!project) return true;
+      let report: Awaited<ReturnType<typeof api.checkScripts>>;
+      try {
+        report = await api.checkScripts(project);
+      } catch {
+        return true; // engine unreachable: it refuses unapproved code itself
+      }
+      let pending = report.scripts.filter((s) => !s.approved);
+      // code typed in this window is the user's own: no need to ask
+      const typed = pending.filter((s) => typedScripts.has(s.code));
+      pending = pending.filter((s) => !typedScripts.has(s.code));
+      try {
+        const codes = typed.map((s) => s.code);
+        if (codes.length) await api.approveScripts(codes);
+      } catch (e) {
+        log("warning", `Could not record the scripts you typed as approved: ${(e as Error).message}`);
+      }
+      if (pending.length === 0) return true;
+      const n = pending.length;
+      const scripts = countOf(n, "script");
+      const ok = await scriptTrustDialog({
+        title: when === "open" ? `This project contains ${scripts} you have not approved` : `Run ${scripts} you have not approved?`,
+        message:
+          "Scripts are Python code that runs while the model simulates. " +
+          (n === 1 ? "This one came" : "These came") +
+          " with the project, from another computer or changed since you last approved them. " +
+          "Read the code and run it only if you trust where the project came from.",
+        note:
+          report.mode === "always-prompt"
+            ? "Managed by your organisation: LightSim asks every time it opens a project."
+            : undefined,
+        scripts: pending.map((s) => ({ label: s.label, code: s.code })),
+        confirmLabel: "Run scripts",
+        cancelLabel: when === "open" ? "Open without running scripts" : "Don't run",
+      });
+      if (!ok) {
+        log(
+          "warning",
+          when === "open"
+            ? `Opened without running its scripts: ${pending.map((s) => `'${s.label}'`).join(", ")}. Run asks again.`
+            : "Run cancelled: its scripts are not approved.",
+        );
+        return false;
+      }
+      try {
+        await api.approveScripts(pending.map((s) => s.code));
+      } catch (e) {
+        log("error", `Could not approve the scripts: ${(e as Error).message}`);
+        return false;
+      }
+      log("info", `Approved ${scripts} to run.`);
       return true;
     },
 
     stopRun: () => {
-      sweepAborted = true;
+      activeStudy?.cancel();
       if (activeRun) {
         activeRun.cancel();
         get().log("info", "Stop requested — waiting for the solver to wind down …");
@@ -1800,7 +3098,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const snap = run?.snapshot;
       if (!run || !snap) return;
       const when = new Date(run.startedAt).toLocaleString();
-      const edits = snap.liveEdits.length;
+      const edits = snap.liveEdits.filter((e) => !e.note).length; // (one not made: the next run's)
       get().openAsCopy(
         snap.project,
         `${snap.project.name} (run of ${when})`,
@@ -1810,6 +3108,23 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             : ""),
       );
       if (snap.project.cases.some((c) => c.id === run.caseId)) set({ activeCaseId: run.caseId });
+    },
+    editRun: (runId, edit) => {
+      const { runs, running, project } = get();
+      const run = runs.find((r) => r.id === runId);
+      // (while a run is going its first store may still be on its way)
+      if (!run || running || !project) return;
+      const next = { ...run };
+      for (const key of ["name", "note"] as const) {
+        const v = edit[key]?.trim();
+        if (v) next[key] = v;
+        else if (v === "") delete next[key];
+      }
+      if (next.name === run.name && next.note === run.note) return;
+      set((s) => ({ runs: s.runs.map((r) => (r.id === runId ? next : r)) }));
+      // ponytail: stores the whole run again (about 1.5 s for 18,001 points ×
+      // 45 channels); a PATCH of the name and note if renames get frequent
+      void storeRun(project.id, next);
     },
     clearRuns: async () => {
       const { project, log } = get();
@@ -1827,25 +3142,36 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   };
 });
 
-// Once the model has been checked (Data Checks, or the gate before a run), its
-// checks follow it: a quiet re-check runs RECHECK_MS after the last edit, so
-// part badges and the status-bar count clear as soon as the problems are
-// fixed. A model nobody checked is left alone, and a re-check due while a run
-// is in progress waits for the run to end.
+// The checks follow the model: a quiet re-check runs RECHECK_MS after a
+// project is opened, made or imported and after every edit, so part badges,
+// the Problems list and the status-bar count show a problem, and clear it, as
+// soon as it is made or fixed. A re-check due while a run is in progress
+// waits for the run to end.
 const RECHECK_MS = 600;
 let recheckTimer: ReturnType<typeof setTimeout> | undefined;
-useProjectStore.subscribe((s, prev) => {
-  if (s.project !== prev.project && s.dataChecks) scheduleRecheck();
+let rechecksStopped = false;
+const unsubscribeRechecks = useProjectStore.subscribe((s, prev) => {
+  if (s.project !== prev.project && s.project) scheduleRecheck();
 });
 
 function scheduleRecheck(): void {
   clearTimeout(recheckTimer);
-  recheckTimer = setTimeout(recheck, RECHECK_MS);
+  if (!rechecksStopped) recheckTimer = setTimeout(recheck, RECHECK_MS);
+}
+
+/** Stop this store's quiet re-checks for good: for tests, so that a store
+ *  instance left behind by `vi.resetModules()` cannot check its model (and
+ *  call the shared api mock) during a later test. The app never calls it. */
+export function stopRechecks(): void {
+  rechecksStopped = true;
+  clearTimeout(recheckTimer);
+  recheckTimer = undefined;
+  unsubscribeRechecks();
 }
 
 async function recheck(): Promise<void> {
-  const { project, dataChecks, running } = useProjectStore.getState();
-  if (!project || !dataChecks) return;
+  const { project, running } = useProjectStore.getState();
+  if (!project || rechecksStopped) return;
   if (running) {
     recheckTimer = setTimeout(recheck, RECHECK_MS);
     return;
@@ -1876,6 +3202,134 @@ export async function confirmReplaceProject(action: string): Promise<boolean> {
 }
 
 // -- convenience selectors ----------------------------------------------------
+
+/** "1 error", "2 errors". */
+export function countOf(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+}
+
+/** The Data Checks' errors that stop a run of `caseId`: those about the
+ *  model, and those about that case (an error about another case's own
+ *  values or kind does not stop it). */
+export function runBlockers(checks: DataCheck[], caseId: string): DataCheck[] {
+  return checks.filter((c) => c.level === "error" && (c.caseId == null || c.caseId === caseId));
+}
+
+/** A row of the Problems list. */
+export interface Problem {
+  level: "info" | "warning" | "error";
+  text: string;
+  fix?: string | null;
+  /** the parts it is about (in the open project) */
+  elementIds: string[];
+  /** Data Checks, or the run it came from */
+  source: "check" | { caseName: string; startedAt: number };
+}
+
+/** The latest run that has finished (runs are newest first). */
+function lastRunOf(runs: SimRun[]): SimRun | undefined {
+  return runs.find((r) => r.status !== "running");
+}
+
+/** The parts a run message names: run messages quote part labels
+ *  ('HV Battery Pack', 'E-Motor.torque'). */
+// ponytail: label match; a renamed or repeated label misses or doubles, exact
+// targets come with VAL-10's message format
+function partsNamed(text: string, elements: ElementInstance[]): string[] {
+  return elements.filter((e) => text.includes(`'${e.label}'`) || text.includes(`'${e.label}.`)).map((e) => e.id);
+}
+
+/** The warnings and errors of a finished run that the Data Checks do not
+ *  already list: the engine repeats the model's own warnings in every run,
+ *  and a lap case's without the "Case '…': " the checks put in front. */
+function runProblemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefined) {
+  if (!run || run.status === "running") return [];
+  const checked = new Set((dataChecks ?? []).map((c) => c.text));
+  return run.result.messages.filter(
+    (m) => m.level !== "info" && !checked.has(m.text) && !checked.has(`Case '${run.caseName}': ${m.text}`),
+  );
+}
+
+/** Every current problem: the latest Data Checks, then the warnings and
+ *  errors of the latest finished run. Errors first. */
+export function problemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefined, project: Project | null): Problem[] {
+  const elements = project?.systems.flatMap((s) => s.elements) ?? [];
+  const ids = new Set(elements.map((e) => e.id));
+  const out: Problem[] = (dataChecks ?? []).map((c) => ({
+    level: c.level,
+    text: c.text,
+    fix: c.fix,
+    // engines before 0.3 name one part at most
+    elementIds: (c.elementIds?.length ? c.elementIds : c.elementId ? [c.elementId] : []).filter((id) => ids.has(id)),
+    source: "check" as const,
+  }));
+  if (run) {
+    const source = { caseName: run.caseName, startedAt: run.startedAt };
+    for (const m of runProblemsOf(dataChecks, run)) {
+      out.push({ level: m.level, text: m.text, elementIds: partsNamed(m.text, elements), source });
+    }
+  }
+  const rank = { error: 0, warning: 1, info: 2 };
+  return out.sort((a, b) => rank[a.level] - rank[b.level]); // stable: checks before run messages
+}
+
+export function useProblems(): Problem[] {
+  const dataChecks = useProjectStore((s) => s.dataChecks);
+  const run = useProjectStore((s) => lastRunOf(s.runs));
+  const project = useProjectStore((s) => s.project);
+  return useMemo(() => problemsOf(dataChecks, run, project), [dataChecks, run, project]);
+}
+
+/** Errors and warnings in the Problems list, for the status bar and the tab
+ *  badge. */
+export function problemCounts(s: Pick<ProjectState, "dataChecks" | "runs">): { errors: number; warnings: number } {
+  let errors = 0;
+  let warnings = 0;
+  for (const m of [...(s.dataChecks ?? []), ...runProblemsOf(s.dataChecks, lastRunOf(s.runs))]) {
+    if (m.level === "error") errors++;
+    else if (m.level === "warning") warnings++;
+  }
+  return { errors, warnings };
+}
+
+/** Show a saved study's charts on the Results page (STU-16): the Study view
+ *  of the case Results shows, on that study. */
+export function openStudyCharts(studyId: string): void {
+  const { project, runs, activeRunId } = useProjectStore.getState();
+  if (!project) return;
+  const ui = useUIStore.getState();
+  ui.setStudyView(project.id, { study: studyId });
+  const caseId = (runs.find((r) => r.id === activeRunId) ?? mainRunOf(runs))?.caseId;
+  if (caseId) {
+    if (!activeRunId) useProjectStore.getState().setActiveRun(mainRunOf(runs)!.id);
+    ui.setPlotView(project.id, caseId, { view: "study" });
+  }
+  ui.setRibbonTab("results");
+}
+
+/** Do what a finish notice's button offers (UX-21), and put the notice away. */
+export function followNotice(target: "show" | "study"): void {
+  const { finishNotice: n, dismissFinishNotice } = useProjectStore.getState();
+  if (!n) return;
+  dismissFinishNotice();
+  const ui = useUIStore.getState();
+  if (target === "study" && n.studyId) openStudyCharts(n.studyId);
+  else if (n.show === "results") ui.setRibbonTab("results");
+  else {
+    if (ui.ribbonTab === "results" || ui.ribbonTab === "start") ui.setRibbonTab("home");
+    ui.focusPanel(n.show === "cases" ? "cases" : "messages");
+  }
+}
+
+// a notice about a run of the project open before has nothing to show here
+useProjectStore.subscribe((s, prev) => {
+  if (s.finishNotice && prev.finishNotice && s.project?.id !== prev.project?.id) useProjectStore.setState({ finishNotice: null });
+});
+// going to the Results page shows what a notice of results offered
+useUIStore.subscribe((s, prev) => {
+  if (s.ribbonTab === "results" && prev.ribbonTab !== "results" && useProjectStore.getState().finishNotice?.show === "results")
+    useProjectStore.setState({ finishNotice: null });
+});
 
 export function useActiveRun(): SimRun | null {
   return useProjectStore((s) => s.runs.find((r) => r.id === s.activeRunId) ?? null);

@@ -1,8 +1,17 @@
-import { useMemo, useState } from "react";
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Box, Columns3, CornerDownRight, Pencil, Plus, Radio, Rows3, Table2, Trash2 } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
+import { componentHelpPage, openHelp } from "../../help";
+import { limitsText, paramName, rangeProblem } from "../../paramRules";
+import { LABEL_RRC, describeTyre, parseTyreCode, tyreValues } from "../../tyre";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
+import { KIND_COLOR } from "../canvas/ElementNode";
+import { CyclePreview, CycleSelect } from "./CyclePicker";
+import { SourceBadge, ValueSources } from "./ValueSources";
+import { ImportFromFileButton, type ImportTarget } from "../ImportTableDialog";
+import { FmuPanel } from "./FmuPanel";
+import { FMU_DEF_ID, FMU_FILE_KEYS } from "../../fmu";
 import type {
   AxisDef,
   ComponentDef,
@@ -11,6 +20,7 @@ import type {
   ParameterDef,
   ParamValue,
   PortDef,
+  ScalarValue,
   Table1D,
   Table2D,
 } from "../../types";
@@ -85,12 +95,17 @@ function Table1DEditor({
   valueLabel,
   valueUnit,
   onChange,
+  importTarget,
+  onImport,
 }: {
   value: Table1D;
   axis: AxisDef;
   valueLabel: string;
   valueUnit: string;
   onChange: (v: Table1D) => void;
+  /** offers "Import from file…" for this parameter (STD-10) */
+  importTarget?: ImportTarget;
+  onImport?: (v: Table1D | Table2D | string) => void;
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
   const keys = sortedNumericKeys(value);
@@ -207,6 +222,9 @@ function Table1DEditor({
         >
           <Trash2 size={12} /> Delete row(s)
         </button>
+        {importTarget && (
+          <ImportFromFileButton target={importTarget} onApply={onImport ?? ((v) => onChange(v as Table1D))} />
+        )}
       </div>
       <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
     </div>
@@ -224,12 +242,14 @@ function Table2DEditor({
   valueLabel,
   valueUnit,
   onChange,
+  importTarget,
 }: {
   value: Table2D;
   axes: [AxisDef, AxisDef];
   valueLabel: string;
   valueUnit: string;
   onChange: (v: Table2D) => void;
+  importTarget?: ImportTarget;
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
   const outerKeys = sortedNumericKeys(value);
@@ -402,6 +422,7 @@ function Table2DEditor({
         >
           <Trash2 size={12} /> Row(s)
         </button>
+        {importTarget && <ImportFromFileButton target={importTarget} onApply={(v) => onChange(v as Table2D)} />}
       </div>
       <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
     </div>
@@ -437,7 +458,11 @@ function profileAxes(
   mode: string | undefined,
 ): { x: AxisDef; yLabel: string; yUnit: string } {
   if (defId === "signal.driving_task")
-    return { x: { name: "Time", unit: "s" }, yLabel: "Target Speed", yUnit: "km/h" };
+    return {
+      x: mode === "distance" ? { name: "Distance", unit: "m" } : { name: "Time", unit: "s" },
+      yLabel: "Target Speed",
+      yUnit: "km/h",
+    };
   if (defId === "signal.road_profile")
     return {
       x: mode === "time" ? { name: "Time", unit: "s" } : { name: "Distance", unit: "m" },
@@ -466,30 +491,44 @@ function ProfileGridEditor({
       valueLabel={yLabel}
       valueUnit={yUnit}
       onChange={(t) => onChange(tableToProfile(t))}
+      importTarget={{ componentDefId: defId, paramKey: "profile", mode }}
+      onImport={(v) => onChange(String(v))}
     />
   );
 }
 
 /** Number field that stores only what is a number: clearing it or a half-typed
  *  value is never stored as 0, and leaving the field without a number puts the
- *  stored value back. */
-function NumberInput({
+ *  stored value back. With `def`, a number outside its limits turns it red as
+ *  it is typed (it is still stored, so Data Checks say the same); the reason
+ *  is shown by the caller, in the element `describedBy` names. With `onClear`,
+ *  an empty field is allowed and means none (`value` null). */
+export function NumberInput({
   value,
   onChange,
+  onClear,
   label,
+  def,
+  describedBy,
 }: {
-  value: number;
+  value: number | null;
   onChange: (v: number) => void;
+  onClear?: () => void;
   label?: string;
+  def?: ParameterDef;
+  describedBy?: string;
 }) {
-  const [text, setText] = useState(String(value));
+  const stored = value == null ? "" : String(value);
+  const [text, setText] = useState(stored);
   const [shown, setShown] = useState(value);
   // the stored value changed elsewhere (undo, another view): show it
   if (!Object.is(value, shown)) {
     setShown(value);
-    if (Number(text) !== value || text.trim() === "") setText(String(value));
+    if (Number(text) !== value || text.trim() === "") setText(stored);
   }
-  const invalid = text.trim() === "" || !Number.isFinite(Number(text));
+  const empty = text.trim() === "";
+  const invalid = empty ? !onClear : !Number.isFinite(Number(text));
+  const outside = !invalid && !empty && def ? rangeProblem(def, Number(text)) : null;
   return (
     <input
       type="number"
@@ -497,14 +536,17 @@ function NumberInput({
       value={text}
       step="any"
       aria-label={label}
-      aria-invalid={invalid || undefined}
-      title={invalid ? `Enter a number (leaving the field keeps ${value})` : undefined}
+      aria-invalid={invalid || Boolean(outside) || undefined}
+      aria-describedby={outside ? describedBy : undefined}
+      aria-description={def?.description ?? undefined}
+      title={invalid ? `Enter a number (leaving the field keeps ${stored || "it empty"})` : undefined}
       onChange={(e) => {
         setText(e.target.value);
         const t = e.target.value.trim();
-        if (t !== "" && Number.isFinite(Number(t))) onChange(Number(t));
+        if (t === "") onClear?.();
+        else if (Number.isFinite(Number(t))) onChange(Number(t));
       }}
-      onBlur={() => invalid && setText(String(value))}
+      onBlur={() => invalid && setText(stored)}
     />
   );
 }
@@ -513,10 +555,12 @@ function ParameterInput({
   def,
   value,
   onChange,
+  describedBy,
 }: {
   def: ParameterDef;
   value: ParamValue;
   onChange: (v: ParamValue) => void;
+  describedBy?: string;
 }) {
   switch (def.type) {
     case "boolean":
@@ -524,6 +568,7 @@ function ParameterInput({
         <input
           type="checkbox"
           aria-label={def.label}
+          aria-description={def.description ?? undefined}
           checked={Boolean(value)}
           onChange={(e) => onChange(e.target.checked)}
         />
@@ -533,6 +578,7 @@ function ParameterInput({
         <select
           className="ss-input"
           aria-label={def.label}
+          aria-description={def.description ?? undefined}
           title={String(value)}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
@@ -545,13 +591,19 @@ function ParameterInput({
         </select>
       );
     case "number":
-      return <NumberInput value={Number(value)} onChange={onChange} label={def.label} />;
+      return (
+        <NumberInput value={Number(value)} onChange={onChange} label={def.label} def={def} describedBy={describedBy} />
+      );
+    case "file":
+      return <FileInput def={def} value={String(value ?? "")} onChange={onChange} />;
     case "code":
       return (
         <textarea
           className="ss-input w-full resize-y font-mono text-[11px]"
           rows={12}
           spellCheck={false}
+          aria-label={def.label}
+          aria-description={def.description ?? undefined}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         />
@@ -561,17 +613,71 @@ function ParameterInput({
         <textarea
           className="ss-input w-full resize-y font-mono text-[11px]"
           rows={2}
+          aria-label={def.label}
+          aria-description={def.description ?? undefined}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         />
       ) : (
         <input
           className="ss-input w-full"
+          aria-label={def.label}
+          aria-description={def.description ?? undefined}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         />
       );
   }
+}
+
+/** A file parameter (STD-02): one of the project's attached files, or a new
+ *  one attached on the spot (copied into the project's resources folder). */
+function FileInput({ def, value, onChange }: { def: ParameterDef; value: string; onChange: (v: ParamValue) => void }) {
+  const attachments = useProjectStore((s) => s.project?.attachments) ?? [];
+  const attachFile = useProjectStore((s) => s.attachFile);
+  const input = useRef<HTMLInputElement>(null);
+  const accept = def.accept ?? [];
+  const fits = (path: string) => accept.length === 0 || accept.some((ext) => path.toLowerCase().endsWith(ext.toLowerCase()));
+  const choices = attachments.filter((a) => fits(a.path) || a.path === value);
+  const known = value === "" || attachments.some((a) => a.path === value);
+  return (
+    <div className="flex w-full items-center gap-1">
+      <select
+        className="ss-input min-w-0 flex-1"
+        aria-label={def.label}
+        aria-description={def.description ?? undefined}
+        aria-invalid={!known || undefined}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">(no file)</option>
+        {!known && <option value={value}>{value} (not attached)</option>}
+        {choices.map((a) => (
+          <option key={a.path} value={a.path}>
+            {a.path.replace(/^resources\//, "")}
+          </option>
+        ))}
+      </select>
+      <button className="ss-toolbtn shrink-0 px-1.5" title="Attach a file to the project and use it here" onClick={() => input.current?.click()}>
+        Attach…
+      </button>
+      <input
+        ref={input}
+        type="file"
+        className="hidden"
+        aria-label={`Attach a file for ${def.label}`}
+        accept={accept.join(",") || undefined}
+        onChange={async (e) => {
+          const el = e.target;
+          const f = el.files?.[0];
+          el.value = "";
+          if (!f) return;
+          const path = await attachFile(f);
+          if (path) onChange(path);
+        }}
+      />
+    </div>
+  );
 }
 
 const OUTSIDE_LABELS: Record<OutsidePolicy, string> = {
@@ -621,6 +727,7 @@ function slugify(name: string): string {
 /** Add/rename/remove per-instance signal ports (Script, Monitor). */
 function DynamicPortsEditor({ element }: { element: ElementInstance }) {
   const setDynamicPorts = useProjectStore((s) => s.setDynamicPorts);
+  const unitGroups = useProjectStore((s) => s.unitGroups);
   const ports = element.dynamicPorts ?? [];
   const commit = (next: PortDef[]) => setDynamicPorts(element.id, next);
   const add = (direction: "input" | "output") => {
@@ -670,7 +777,9 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
         <div key={p.id} className="flex items-center gap-1 py-0.5">
           <span
             className={`rounded px-1 text-[9px] font-semibold uppercase ${
-              p.direction === "input" ? "bg-[#e0f2f7] text-[#0e7490]" : "bg-[#fdf1e2] text-[#b45309]"
+              p.direction === "input"
+                ? "bg-[color:var(--ss-info-soft)] text-[color:var(--ss-info)]"
+                : "bg-[color:var(--ss-warn-soft)] text-[color:var(--ss-warn)]"
             }`}
           >
             {p.direction === "input" ? "in" : "out"}
@@ -682,8 +791,23 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
             onBlur={(e) => e.target.value !== p.name && rename(p, e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           />
+          <select
+            className="ss-input w-[92px] text-[11px]"
+            aria-label={`Unit of ${p.name}`}
+            title="The unit this port gives or expects. Data Checks warn when a wire joins two different units, such as a SOC in % into a port set to Fraction (0-1); nothing is converted."
+            value={p.unitGroup ?? "No Unit"}
+            onChange={(e) =>
+              commit(ports.map((q) => (q.id === p.id ? { ...q, unitGroup: e.target.value } : q)))
+            }
+          >
+            {Object.entries(unitGroups).map(([group, unit]) => (
+              <option key={group} value={group}>
+                {group === "No Unit" ? "Not set" : unit === "-" || unit === group ? group : `${group} (${unit})`}
+              </option>
+            ))}
+          </select>
           <button
-            className="text-[color:var(--ss-text-dim)] hover:text-red-600"
+            className="text-[color:var(--ss-text-dim)] hover:text-[color:var(--ss-err)]"
             title="Remove port (disconnects its wires)"
             onClick={() => commit(ports.filter((q) => q.id !== p.id))}
           >
@@ -698,6 +822,36 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
 // profiles are stored as strings but edited as a full-width grid, so they
 // join the tables/code in the "big" (full-width) group rather than the
 // compact scalar table.
+/** A parameter's help texts (LRN-05): what it is, typical values and where
+ *  to find the real number. */
+function ParamHelp({ def }: { def: ParameterDef }) {
+  return (
+    <>
+      <p>{def.description}</p>
+      {def.typical && (
+        <p>
+          <b>Typical:</b> {def.typical}
+        </p>
+      )}
+      {def.whereToFind && (
+        <p>
+          <b>Where to find it:</b> {def.whereToFind}
+        </p>
+      )}
+    </>
+  );
+}
+
+/** "Default 100 % · allowed: at least 0 and at most 200 %" */
+function defaultText(def: ParameterDef): string | null {
+  const unit = def.unit === "-" ? "" : ` ${def.unit}`;
+  const limits = limitsText(def);
+  if (def.type === "number") return `Default ${def.default}${unit}${limits ? ` · allowed: ${limits}` : ""}`;
+  if (def.type === "enum") return `Default ${def.default}`;
+  if (def.type === "boolean") return def.default ? "Ticked by default" : "Not ticked by default";
+  return null;
+}
+
 const isProfile = (p: ParameterDef) => p.type === "string" && p.key === "profile";
 const isBig = (p: ParameterDef) =>
   p.type === "table1d" || p.type === "table2d" || p.type === "code" || isProfile(p);
@@ -714,15 +868,127 @@ export function ElementForm({
   compact?: boolean;
 }) {
   const setParameter = useProjectStore((s) => s.setParameter);
+  const setDrivingCycle = useProjectStore((s) => s.setDrivingCycle);
+  const setParameters = useProjectStore((s) => s.setParameters);
   const renameElement = useProjectStore((s) => s.renameElement);
   const setActiveSystem = useProjectStore((s) => s.setActiveSystem);
   const running = useProjectStore((s) => s.running);
   const openParamDialog = useUIStore((s) => s.openParamDialog);
 
-  const scalarParams = useMemo(() => def.parameters.filter((p) => !isBig(p)), [def]);
-  const bigParams = useMemo(() => def.parameters.filter(isBig), [def]);
+  // a Driving Task on a drive cycle has no typed profile to edit, nor a
+  // Road Profile that takes its grade from one (CON-11); the cycle gets a
+  // full-width row of its own below the table
+  const drivingTask = def.id === "signal.driving_task";
+  const roadProfile = def.id === "signal.road_profile";
+  const cycleId = String(element.parameterOverrides.cycle ?? "");
+  // a parameter that applies only to one setting of another is hidden otherwise
+  const shown = useMemo(() => {
+    const value = (key: string) =>
+      element.parameterOverrides[key] ?? def.parameters.find((q) => q.key === key)?.default;
+    return (p: ParameterDef) => !p.showIf || p.showIf.values.includes(value(p.showIf.key) as ScalarValue);
+  }, [def, element.parameterOverrides]);
+  // an FMU block's file parameters are shown (and set) by its FMU panel
+  const fmuBlock = def.id === FMU_DEF_ID;
+  const scalarParams = useMemo(
+    () =>
+      def.parameters.filter(
+        (p) =>
+          !isBig(p) &&
+          p.key !== "cycle" &&
+          !(roadProfile && cycleId && p.key === "mode") &&
+          !(fmuBlock && FMU_FILE_KEYS.includes(p.key)) &&
+          shown(p),
+      ),
+    [def, roadProfile, cycleId, fmuBlock, shown],
+  );
+  const bigParams = useMemo(
+    () => def.parameters.filter((p) => isBig(p) && !((drivingTask || roadProfile) && cycleId && isProfile(p)) && shown(p)),
+    [def, drivingTask, roadProfile, cycleId, shown],
+  );
   const valueOf = (p: ParameterDef): ParamValue =>
     element.parameterOverrides[p.key] ?? p.default;
+  const valueOfKey = (key: string): ParamValue | undefined =>
+    element.parameterOverrides[key] ?? def.parameters.find((q) => q.key === key)?.default;
+  // A Wheel's tyre (MOD-48): a code that reads fills in the radius and the
+  // tyre estimates, a label class the rolling resistance, in one undo step
+  const wheel = def.id === "propulsion.wheel";
+  const tyre = wheel ? parseTyreCode(String(valueOfKey("tyre_code") ?? "")) : null;
+  const radiusFactor = Number(valueOfKey("rolling_radius_factor") ?? 0.97) || 0.97;
+  const change = (key: string, v: ParamValue) => {
+    if (wheel && (key === "tyre_code" || key === "rolling_radius_factor")) {
+      const spec = key === "tyre_code" ? parseTyreCode(String(v)) : tyre;
+      if (spec) {
+        const values = tyreValues(spec, key === "rolling_radius_factor" ? Number(v) || radiusFactor : radiusFactor);
+        setParameters(element.id, key === "tyre_code" ? { ...values, [key]: v } : { [key]: v, radius_m: values.radius_m });
+        return;
+      }
+    }
+    if (wheel && key === "tyre_label_class" && LABEL_RRC[String(v)] !== undefined) {
+      setParameters(element.id, { [key]: v, rolling_resistance: LABEL_RRC[String(v)] / 1000 });
+      return;
+    }
+    setParameter(element.id, key, v);
+  };
+  const problemOf = (p: ParameterDef) => (p.type === "number" ? rangeProblem(p, Number(valueOf(p))) : null);
+  // the dialog and Properties can show the same part: ids must not clash
+  const formId = useId();
+
+  // the help card (UX-10): one per form, beside the parameter the pointer
+  // rests on (after 300 ms) or the one with focus (at once); it stays while
+  // the pointer is on it or focus is in its row, and Esc closes it.
+  // `pointed` and `focused` are the rows under the pointer and with focus
+  // (the card counts as its row's); `help` is what the card shows.
+  const [help, setHelp] = useState<string | null>(null);
+  const [pointed, setPointed] = useState<string | null>(null);
+  const [focused, setFocused] = useState<string | null>(null);
+  const want = pointed ?? focused;
+  useEffect(() => {
+    if (want === help) return;
+    const t = setTimeout(() => setHelp(want), want && want !== focused ? 300 : 150);
+    return () => clearTimeout(t);
+  }, [want, help, focused]);
+  const card = useRef<HTMLDivElement>(null);
+  // a dialog over Properties hides its card (the focus can stay behind it)
+  const covered = useUIStore((s) => compact && (s.paramDialogId !== null || s.dialog !== null));
+  const helpDef = covered ? undefined : def.parameters.find((p) => p.key === help && p.description);
+  useEffect(() => {
+    const el = card.current;
+    if (!el?.showPopover) return; // no popovers in jsdom
+    const open = el.matches(":popover-open");
+    if (helpDef && !open) el.showPopover();
+    else if (!helpDef && open) el.hidePopover();
+  }, [helpDef]);
+  // Esc closes the card, before it can close a dialog or anything else
+  useEffect(() => {
+    if (!helpDef) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setHelp(null);
+      setPointed(null);
+      setFocused(null);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [helpDef]);
+  const helpPage = (p: ParameterDef) => `${componentHelpPage(def.id)}#${p.key}`;
+  // a different anchor for the dialog's card and the Properties panel's
+  const anchor = compact ? "--ss-help-panel" : "--ss-help-dialog";
+  const helpProps = (p: ParameterDef) => ({
+    "data-help": helpPage(p), // F1 opens it
+    style: help === p.key ? { anchorName: anchor } : undefined,
+    onMouseEnter: () => setPointed(p.key),
+    onMouseLeave: () => setPointed(null),
+    onFocus: () => {
+      setFocused(p.key);
+      setHelp(p.key);
+    },
+    // moving to the card's own button keeps it
+    onBlur: (e: React.FocusEvent) => e.relatedTarget?.closest(".ss-help-card") || setFocused(null),
+  });
+  const profile = drivingTask ? profileToTable(String(valueOf(def.parameters.find(isProfile)!))) : {};
+  // (a Road Profile from a file older than CON-11 has a catalogue with it)
+  const cycleDef = def.parameters.find((p) => p.key === "cycle")!;
 
   return (
     <div className="flex flex-col gap-2 p-2">
@@ -730,6 +996,7 @@ export function ElementForm({
         <span className="w-[72px] shrink-0 text-[11px] text-[color:var(--ss-text-dim)]">Name</span>
         <input
           className="ss-input min-w-0 flex-1"
+          aria-label="Name"
           value={element.label}
           onChange={(e) => renameElement(element.id, e.target.value)}
         />
@@ -741,7 +1008,7 @@ export function ElementForm({
         </span>
         {running && (
           <span
-            className="flex items-center gap-1 rounded bg-[#e5f5eb] px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700"
+            className="flex items-center gap-1 rounded bg-[color:var(--ss-ok-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[color:var(--ss-ok)]"
             title="Simulation running — number/switch edits apply immediately; tables and code apply on the next run"
           >
             <Radio size={10} /> LIVE
@@ -759,6 +1026,26 @@ export function ElementForm({
           <CornerDownRight size={13} /> Open sub-system
         </button>
       )}
+      {def.presets?.map((preset) => (
+        <div key={preset.name} className="flex flex-col gap-0.5">
+          <button
+            className="ss-toolbtn justify-center border border-[color:var(--ss-border)]"
+            onClick={() => setParameters(element.id, preset.values)}
+            title={preset.note}
+          >
+            Apply preset: {preset.name}
+          </button>
+          {/* the source of the values, in full in the tooltip */}
+          {preset.note && (
+            <p
+              className={`text-[10px] text-[color:var(--ss-text-dim)] ${compact ? "line-clamp-2" : ""}`}
+              title={preset.note}
+            >
+              {preset.note}
+            </p>
+          )}
+        </div>
+      ))}
       {scalarParams.length > 0 && (
         // the value and unit take the width they need; the label gets the
         // rest (at least 72 px), on one line, with the full text in its tooltip
@@ -771,40 +1058,102 @@ export function ElementForm({
             </tr>
           </thead>
           <tbody>
-            {scalarParams.map((p) => (
-              <tr key={p.key}>
-                <td className="ss-td flex items-center text-[11px]" title={p.label}>
-                  <span className="truncate">{p.label}</span>
-                  {running && p.variability === "fixed" && (
-                    <span
-                      className="ml-1 shrink-0 text-[10px] italic text-[color:var(--ss-text-dim)]"
-                      title="Structural parameter — a live edit takes effect on the next run"
-                    >
-                      (next run)
-                    </span>
+            {scalarParams.map((p) => {
+              const problem = problemOf(p);
+              return (
+                <Fragment key={p.key}>
+                  <tr {...helpProps(p)}>
+                    {/* the full label is in the help card, or else its tooltip */}
+                    <td className="ss-td flex items-center text-[11px]" title={p.description ? undefined : p.label}>
+                      <span className="truncate">{p.label}</span>
+                      <SourceBadge src={element.parameterSources?.[p.key]} />
+                      {running && p.variability === "fixed" && (
+                        <span
+                          className="ml-1 shrink-0 text-[10px] italic text-[color:var(--ss-text-dim)]"
+                          title="Structural parameter — a live edit takes effect on the next run"
+                        >
+                          (next run)
+                        </span>
+                      )}
+                    </td>
+                    <td className="ss-td">
+                      <ParameterInput
+                        def={p}
+                        value={valueOf(p)}
+                        describedBy={`${formId}${p.key}-problem`}
+                        onChange={(v) => change(p.key, v)}
+                      />
+                    </td>
+                    <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">{p.unit}</td>
+                  </tr>
+                  {problem && (
+                    // why the value is outside its limits, across the whole row
+                    <tr>
+                      <td id={`${formId}${p.key}-problem`} className="ss-td ss-param-problem">
+                        <span role="alert">
+                          {paramName(p)} {problem}.
+                        </span>
+                      </td>
+                    </tr>
                   )}
-                </td>
-                <td className="ss-td">
-                  <ParameterInput
-                    def={p}
-                    value={valueOf(p)}
-                    onChange={(v) => setParameter(element.id, p.key, v)}
-                  />
-                </td>
-                <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">{p.unit}</td>
-              </tr>
-            ))}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
+      )}
+      {tyre && (
+        <p className="text-[11px] text-[color:var(--ss-text-dim)]" data-testid="tyre-summary">
+          {describeTyre(tyre, radiusFactor)}
+        </p>
+      )}
+      <ValueSources element={element} def={def} />
+      {(drivingTask || (roadProfile && cycleDef)) && (
+        <div className="flex flex-col gap-1" {...helpProps(cycleDef)}>
+          <label className="flex flex-col gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
+            <span>
+              {cycleDef.label}
+              {running && (
+                <span className="ml-1 text-[10px] italic" title="Structural parameter — a live edit takes effect on the next run">
+                  (next run)
+                </span>
+              )}
+            </span>
+            <CycleSelect
+              value={cycleId}
+              label={cycleDef.label}
+              description={cycleDef.description}
+              gradeOnly={roadProfile}
+              onChange={(v) => (drivingTask ? setDrivingCycle(element.id, v) : setParameter(element.id, "cycle", v))}
+            />
+          </label>
+          {(drivingTask || cycleId) && (
+            <CyclePreview
+              cycleId={cycleId}
+              points={sortedNumericKeys(profile).map((t) => [Number(t), profile[t]])}
+              byDistance={
+                drivingTask && String(valueOf(def.parameters.find((q) => q.key === "mode")!)) === "distance"
+              }
+            />
+          )}
+        </div>
       )}
       {compact && bigParams.length > 0 && (
         <div className="flex flex-col gap-1">
           {bigParams.map((p) => (
             <button
               key={p.key}
+              {...helpProps(p)}
               className="ss-toolbtn justify-between border border-[color:var(--ss-border)] px-2 py-1"
-              onClick={() => openParamDialog(element.id, p.key)}
-              title={`${isProfile(p) ? "Profile" : p.label}: open the full editor in a dialog`}
+              aria-description={p.description ?? undefined}
+              onClick={() => {
+                // the card is not wanted back when the dialog closes
+                setHelp(null);
+                setPointed(null);
+                setFocused(null);
+                openParamDialog(element.id, p.key);
+              }}
+              title={p.description ? undefined : `${isProfile(p) ? "Profile" : p.label}: open the full editor in a dialog`}
             >
               <span className="flex min-w-0 items-center gap-1.5">
                 {p.type === "code" ? <Pencil size={12} /> : <Table2 size={12} />}
@@ -828,6 +1177,11 @@ export function ElementForm({
               <span className="ml-1 font-normal italic">— applies on next run</span>
             )}
           </div>
+          {p.description && (
+            <div className="ss-param-help mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
+              <ParamHelp def={p} />
+            </div>
+          )}
           {p.axes?.some((a) => a.outside) && <OutsideSettings element={element} param={p} />}
           {isProfile(p) ? (
             <ProfileGridEditor
@@ -843,6 +1197,7 @@ export function ElementForm({
               valueLabel={p.label}
               valueUnit={p.unit}
               onChange={(v) => setParameter(element.id, p.key, v)}
+              importTarget={{ componentDefId: def.id, paramKey: p.key }}
             />
           ) : p.type === "table2d" && p.axes?.length === 2 ? (
             <Table2DEditor
@@ -851,6 +1206,7 @@ export function ElementForm({
               valueLabel={p.label}
               valueUnit={p.unit}
               onChange={(v) => setParameter(element.id, p.key, v)}
+              importTarget={{ componentDefId: def.id, paramKey: p.key }}
             />
           ) : (
             <ParameterInput
@@ -861,7 +1217,11 @@ export function ElementForm({
           )}
         </div>
       ))}
-      {def.allowDynamicPorts && <DynamicPortsEditor element={element} />}
+      {fmuBlock ? (
+        <FmuPanel element={element} compact={compact} />
+      ) : (
+        def.allowDynamicPorts && <DynamicPortsEditor element={element} />
+      )}
       {def.ports.length > 0 && (
         <div>
           <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
@@ -871,16 +1231,7 @@ export function ElementForm({
             <div key={p.id} className="flex items-center gap-2 py-0.5 text-[11px]">
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
-                style={{
-                  background:
-                    p.kind === "electrical"
-                      ? "#e08600"
-                      : p.kind === "mechanical"
-                        ? "#3f4650"
-                        : p.kind === "signal"
-                          ? "#0e7490"
-                          : "#c2410c",
-                }}
+                style={{ background: KIND_COLOR[p.kind] }}
               />
               <span className="truncate">{p.name}</span>
               <span className="ml-auto text-[10px] text-[color:var(--ss-text-dim)]">
@@ -890,6 +1241,35 @@ export function ElementForm({
           ))}
         </div>
       )}
+      <div
+        ref={card}
+        // manual: a click in the row it explains must not close it, as an
+        // "auto" popover's light dismiss would
+        popover="manual"
+        className="ss-help-card"
+        style={{ positionAnchor: anchor }}
+        data-help={helpDef ? helpPage(helpDef) : undefined} // F1 opens what it shows
+        onMouseEnter={() => setPointed(help)}
+        onMouseLeave={() => setPointed(null)}
+        // Tab out of its button closes it
+        onBlur={(e) => e.currentTarget.contains(e.relatedTarget) || setFocused(null)}
+      >
+        {helpDef && (
+          <>
+            <div className="font-semibold">
+              {helpDef.label}
+              {helpDef.unit !== "-" && <span className="font-normal"> [{helpDef.unit}]</span>}
+            </div>
+            <ParamHelp def={helpDef} />
+            {defaultText(helpDef) && <p className="text-[color:var(--ss-text-dim)]">{defaultText(helpDef)}</p>}
+            <p>
+              <button className="text-[color:var(--ss-accent)] underline" onClick={() => openHelp(helpPage(helpDef))}>
+                More in the help (F1)
+              </button>
+            </p>
+          </>
+        )}
+      </div>
       {def.description && (
         <p className="border-t border-[color:var(--ss-border)] pt-2 text-[11px] italic text-[color:var(--ss-text-dim)]">
           {def.description}
@@ -909,7 +1289,8 @@ export function PropertiesPanel() {
   const selectedDef = selected ? libraryById[selected.componentDefId] : undefined;
 
   return (
-    <div className="flex h-full flex-col">
+    // data-properties-panel: Enter on the diagram puts the focus in here (UX-19)
+    <div className="flex h-full flex-col" data-properties-panel>
       <div className="ss-panel-toolbar text-[11px] font-semibold">
         {selected ? `Parameters — ${selected.label}` : "Parameters"}
       </div>

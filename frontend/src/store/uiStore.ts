@@ -1,8 +1,10 @@
 import { create } from "zustand";
 import type { DockviewApi } from "dockview-react";
-import { FONT_SCALE_KEY, THEME_KEY } from "../storageKeys";
+import type { XAxisMode, YAxisCfg } from "../components/panels/chartUtils";
+import { FONT_SCALE_KEY, OPEN_LAST_KEY, RESULTS_AFTER_RUN_KEY, RESULTS_VIEW_KEY, THEME_KEY } from "../storageKeys";
 
 export type RibbonTab =
+  | "start"
   | "project"
   | "home"
   | "simulations"
@@ -15,6 +17,42 @@ export type RibbonTab =
 export type EdgeKindFilter = "electrical" | "mechanical" | "signal";
 
 export type Theme = "light" | "dark";
+
+/** What the Results page shows for one case; an unset field takes the page's
+ *  default. Kept per project and case across runs and reloads (RES-19). */
+export interface PlotView {
+  /** ticked channel keys, in the order ticked (their colours follow it) */
+  channels?: string[];
+  view?: "chart" | "table" | "xy" | "sweep" | "study" | "energy" | "duty";
+  /** the X-Y view's X channel */
+  xKey?: string;
+  /** the summary value the Sweep view plots */
+  sweepMetric?: string;
+  /** the chart's x axis and each unit's y axis (RES-18) */
+  xAxis?: XAxisMode;
+  yAxes?: Record<string, YAxisCfg>;
+  /** the chart's zoom, in s or m; unset: the whole run */
+  zoom?: { kind: "t" | "distance"; min: number; max: number };
+  /** the run the numbers are compared with: unset, the previous run of the
+   *  case; null, none (RES-10) */
+  baselineRunId?: string | null;
+}
+
+/** A project's Results choices: a PlotView per case, and whether the
+ *  baseline run (the previous run of the case, unless another is picked) is
+ *  drawn faint under the lines (unset: yes). */
+export interface ResultsView {
+  comparePrevious?: boolean;
+  cases?: Record<string, PlotView>;
+  /** the saved study the Study view shows (unset: the one of the run shown,
+   *  else the newest), and the figures it charts (STU-16) */
+  study?: string;
+  studyFigures?: string[];
+}
+
+// ponytail: the 50 projects changed last keep their choices (about 120 B a
+// case); plenty for one person, and it keeps the recovery draft's storage free
+const RESULTS_VIEWS_KEPT = 50;
 
 /** A request to show the app's styled confirm/prompt modal (replaces the
  *  native window.confirm/prompt). `resolve` settles the caller's promise. */
@@ -29,6 +67,10 @@ export interface DialogRequest {
   danger?: boolean;
   defaultValue?: string; // prompt only
   placeholder?: string; // prompt only
+  /** confirm only: code to show, one block each (the script trust prompt) */
+  code?: { label: string; code: string }[];
+  /** a line under the message, e.g. that the organisation manages this */
+  note?: string;
   resolve: (value: boolean | string | null) => void;
 }
 
@@ -71,14 +113,67 @@ function applyFontScale(scale: number) {
   document.documentElement.style.setProperty("--ss-ui-scale", String(scale));
 }
 
+function loadResultsViews(): Record<string, ResultsView> {
+  try {
+    const saved: unknown = JSON.parse(window.localStorage.getItem(RESULTS_VIEW_KEY) ?? "{}");
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) return saved as Record<string, ResultsView>;
+  } catch {
+    /* storage unavailable or unreadable: the page's defaults */
+  }
+  return {};
+}
+
+/** `views` with one project's entry changed by `fn` and moved last (the
+ *  newest), the oldest beyond RESULTS_VIEWS_KEPT dropped, and saved. */
+function changeResultsView(
+  views: Record<string, ResultsView>,
+  projectId: string,
+  fn: (view: ResultsView) => ResultsView,
+): Record<string, ResultsView> {
+  const { [projectId]: view = {}, ...others } = views;
+  const next = Object.fromEntries([...Object.entries(others).slice(-(RESULTS_VIEWS_KEPT - 1)), [projectId, fn(view)]]);
+  try {
+    window.localStorage.setItem(RESULTS_VIEW_KEY, JSON.stringify(next));
+  } catch {
+    /* storage unavailable: the choices last for this session */
+  }
+  return next;
+}
+
+function loadOpenLast(): boolean {
+  try {
+    return window.localStorage.getItem(OPEN_LAST_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function loadResultsAfterRun(): boolean {
+  try {
+    return window.localStorage.getItem(RESULTS_AFTER_RUN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 interface UIState {
   ribbonTab: RibbonTab;
   setRibbonTab: (tab: RibbonTab) => void;
+  /** Skip the Start page: open on Home with the last project (UX-16). */
+  openLastAtStart: boolean;
+  setOpenLastAtStart: (on: boolean) => void;
+  /** Open the Results page when a run or sweep ends; off, the page stays
+   *  where the user is and a notice offers the results (UX-21). */
+  resultsAfterRun: boolean;
+  setResultsAfterRun: (on: boolean) => void;
 
   dockApi: DockviewApi | null;
-  setDockApi: (api: DockviewApi) => void;
+  /** `reopen` puts a closed panel back in its place (DockLayout knows where) */
+  setDockApi: (api: DockviewApi, reopen?: (id: string) => boolean) => void;
+  dockReopen: ((id: string) => boolean) | null;
   /** Bring a dockview panel to the front of its group (opening the bottom
-   *  tray or leaving a maximised diagram when needed). */
+   *  tray or leaving a maximised diagram when needed), first putting it back
+   *  in its place if the user closed it. */
   focusPanel: (id: string) => void;
 
   /** Layer Configurations: per-kind edge visibility on the canvas. */
@@ -93,6 +188,13 @@ interface UIState {
    *  visible diagram and select it; returns the new element's label. */
   insertComponent: ((defId: string) => string | null) | null;
   setInsertComponent: (fn: ((defId: string) => string | null) | null) => void;
+  /** Registered by the topology canvas: select these parts and pan and zoom
+   *  the diagram to them, opening the sub-system they are in. */
+  revealElements: ((ids: string[]) => void) | null;
+  setRevealElements: (fn: ((ids: string[]) => void) | null) => void;
+  /** Data Bus Connections: list only the selected part's signals. */
+  busSelectedOnly: boolean;
+  setBusSelectedOnly: (on: boolean) => void;
 
   /** Live-value overlay chips on canvas nodes (fed from the live run stream). */
   showLiveValues: boolean;
@@ -104,6 +206,10 @@ interface UIState {
   paramDialogKey: string | null;
   openParamDialog: (elementId: string, paramKey?: string) => void;
   closeParamDialog: () => void;
+
+  /** The Connect an AI assistant window (AI-29) is open. */
+  aiConnectOpen: boolean;
+  setAiConnectOpen: (open: boolean) => void;
 
   /** Styled confirm/prompt modal (see dialog.ts helpers). */
   dialog: DialogRequest | null;
@@ -117,23 +223,66 @@ interface UIState {
   fontScale: number;
   setFontScale: (scale: number) => void;
   nudgeFontScale: (delta: number) => void;
+
+  /** Results' measurement cursors A and B per run, as times (s) on the
+   *  run's samples; a run without an entry has them off. Kept for the
+   *  session, not saved (RES-06). */
+  cursors: Record<string, [number, number]>;
+  setCursors: (runId: string, ab: [number, number] | null) => void;
+
+  /** The Results page's choices by project id, saved in localStorage (RES-19). */
+  resultsViews: Record<string, ResultsView>;
+  setPlotView: (projectId: string, caseId: string, patch: Partial<PlotView>) => void;
+  setComparePrevious: (projectId: string, on: boolean) => void;
+  /** The study the Study view shows and the figures it charts (STU-16). */
+  setStudyView: (projectId: string, patch: Pick<ResultsView, "study" | "studyFigures">) => void;
 }
 
 const initialTheme = loadTheme();
 applyTheme(initialTheme);
 const initialFontScale = loadFontScale();
 applyFontScale(initialFontScale);
+const initialOpenLast = loadOpenLast();
+const initialResultsAfterRun = loadResultsAfterRun();
 
 export const useUIStore = create<UIState>((set, get) => ({
-  ribbonTab: "home",
+  // every launch starts on the Start page unless the user chose to skip it
+  ribbonTab: initialOpenLast ? "home" : "start",
   setRibbonTab: (tab) => set({ ribbonTab: tab }),
+  openLastAtStart: initialOpenLast,
+  setOpenLastAtStart: (on) => {
+    try {
+      window.localStorage.setItem(OPEN_LAST_KEY, on ? "1" : "0");
+    } catch {
+      /* storage unavailable: this session only */
+    }
+    set({ openLastAtStart: on });
+  },
+  resultsAfterRun: initialResultsAfterRun,
+  setResultsAfterRun: (on) => {
+    try {
+      window.localStorage.setItem(RESULTS_AFTER_RUN_KEY, on ? "1" : "0");
+    } catch {
+      /* storage unavailable: this session only */
+    }
+    set({ resultsAfterRun: on });
+  },
 
   dockApi: null,
-  setDockApi: (api) => set({ dockApi: api }),
+  dockReopen: null,
+  setDockApi: (api, reopen) => set({ dockApi: api, dockReopen: reopen ?? null }),
   focusPanel: (id) => {
+    // the Start page hides the workspace: a panel asked for (an error, a
+    // blocked run, an empty state's button) brings the workspace back
+    if (get().ribbonTab === "start") set({ ribbonTab: "home" });
     const dock = get().dockApi;
-    const panel = dock?.getPanel(id);
-    if (!dock || !panel) return;
+    if (!dock) return;
+    // a panel the user closed (its tab's X) comes back where it lives: every
+    // button that shows it would otherwise do nothing, even after a restart
+    // (the layout is saved without it)
+    if (!dock.getPanel(id)) get().dockReopen?.(id);
+    const panel = dock.getPanel(id);
+    if (!panel) return;
     const group = panel.group.api;
     // a maximised diagram would hide the other grid panels
     if (group.location.type === "grid" && dock.hasMaximizedGroup() && !group.isMaximized()) {
@@ -154,6 +303,10 @@ export const useUIStore = create<UIState>((set, get) => ({
   setPlacingComponent: (defId) => set({ placingComponentId: defId }),
   insertComponent: null,
   setInsertComponent: (fn) => set({ insertComponent: fn }),
+  revealElements: null,
+  setRevealElements: (fn) => set({ revealElements: fn }),
+  busSelectedOnly: false,
+  setBusSelectedOnly: (on) => set({ busSelectedOnly: on }),
 
   showLiveValues: true,
   toggleLiveValues: () => set((s) => ({ showLiveValues: !s.showLiveValues })),
@@ -163,6 +316,9 @@ export const useUIStore = create<UIState>((set, get) => ({
   openParamDialog: (elementId, paramKey) =>
     set({ paramDialogId: elementId, paramDialogKey: paramKey ?? null }),
   closeParamDialog: () => set({ paramDialogId: null, paramDialogKey: null }),
+
+  aiConnectOpen: false,
+  setAiConnectOpen: (open) => set({ aiConnectOpen: open }),
 
   dialog: null,
   openDialog: (req) => set({ dialog: req }),
@@ -192,4 +348,30 @@ export const useUIStore = create<UIState>((set, get) => ({
     set({ fontScale: next });
   },
   nudgeFontScale: (delta) => get().setFontScale(get().fontScale + delta),
+
+  cursors: {},
+  setCursors: (runId, ab) =>
+    set((s) => {
+      const cursors = { ...s.cursors };
+      if (ab) cursors[runId] = ab;
+      else delete cursors[runId];
+      return { cursors };
+    }),
+
+  resultsViews: loadResultsViews(),
+  setPlotView: (projectId, caseId, patch) =>
+    set((s) => ({
+      resultsViews: changeResultsView(s.resultsViews, projectId, (v) => ({
+        ...v,
+        cases: { ...v.cases, [caseId]: { ...v.cases?.[caseId], ...patch } },
+      })),
+    })),
+  setComparePrevious: (projectId, on) =>
+    set((s) => ({
+      resultsViews: changeResultsView(s.resultsViews, projectId, (v) => ({ ...v, comparePrevious: on })),
+    })),
+  setStudyView: (projectId, patch) =>
+    set((s) => ({
+      resultsViews: changeResultsView(s.resultsViews, projectId, (v) => ({ ...v, ...patch })),
+    })),
 }));

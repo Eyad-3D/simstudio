@@ -1,8 +1,19 @@
 import { useMemo, useState } from "react";
 import { Play, Plus, Sliders, Square, X } from "lucide-react";
-import { useProjectStore } from "../../store/projectStore";
+import { useActiveRun, useProjectStore } from "../../store/projectStore";
+import { useStaleness } from "./StaleBanner";
 import type { ComponentDef, ElementInstance, ParamValue, ParameterDef } from "../../types";
 import { StudiesList } from "./StudiesList";
+import { CycleSelect } from "./CyclePicker";
+import { NumberInput } from "./PropertiesPanel";
+import { paramName, rangeProblem } from "../../paramRules";
+import { MAX_SWEEP_POINTS, progressText, sweepValues, type SweepSpacing } from "../../sweep";
+import { useNow } from "../useNow";
+import { FS_EVENT_NAMES, FS_EVENTS } from "../../fsEvents";
+import type { FsEvent } from "../../types";
+import { FsPoints } from "./FsPoints";
+import { EnduranceStudy } from "./EnduranceStudy";
+import { ExpectedValuesEditor } from "./ExpectedValues";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
 // code are edited in Properties. Sweeps additionally require a numeric param.
@@ -27,16 +38,72 @@ function effectiveValue(
   return caseOv?.[el.id]?.[key] ?? el.parameterOverrides[key] ?? def.default;
 }
 
-function linspace(start: number, stop: number, steps: number): number[] {
-  const n = Math.max(1, Math.min(16, Math.round(steps)));
-  if (n === 1) return [round(start)];
-  const out: number[] = [];
-  for (let i = 0; i < n; i++) out.push(round(start + ((stop - start) * i) / (n - 1)));
-  return out;
+function round(v: number): number {
+  return +v.toPrecision(12);
 }
 
-function round(v: number): number {
-  return Math.round(v * 1e6) / 1e6;
+// the values a sweep form shows as chips; a longer list ends "… and N more"
+const SWEEP_CHIPS = 40;
+
+// An acceleration case's own numbers, with the limits the form checks as they
+// are typed (UX-10); the engine ignores a value outside them.
+const DISTANCE: ParameterDef = {
+  key: "endDistance", label: "Distance", unit: "m", default: 75, type: "number", exclusiveMinimum: 0,
+};
+const START_LINE: ParameterDef = {
+  key: "startLine", label: "Start line", unit: "m", default: 0, type: "number", minimum: 0,
+};
+const LAPS: ParameterDef = {
+  key: "endLaps", label: "Laps", unit: "-", default: 1, type: "number", exclusiveMinimum: 0,
+};
+const REFERENCE_TIME: ParameterDef = {
+  key: "referenceTime", label: "Reference time", unit: "s", default: 0, type: "number", exclusiveMinimum: 0,
+};
+const REFERENCE_ENERGY: ParameterDef = {
+  key: "referenceEnergy", label: "Reference energy", unit: "kWh", default: 0, type: "number", exclusiveMinimum: 0,
+};
+const REFERENCE_ENERGY_TIME: ParameterDef = {
+  key: "referenceEnergyTime", label: "Reference energy's time", unit: "s", default: 0, type: "number",
+  exclusiveMinimum: 0,
+};
+
+/** A number row of the case settings: red outside its limits, with a line
+ *  under it that says why, as a parameter's field is. */
+function CaseNumber({
+  name,
+  title,
+  def,
+  value,
+  onChange,
+  onClear,
+}: {
+  name: string;
+  title: string;
+  def: ParameterDef;
+  value: number | null;
+  onChange: (v: number) => void;
+  onClear?: () => void;
+}) {
+  const problem = value == null ? null : rangeProblem(def, value);
+  const id = `case-${def.key}-problem`;
+  return (
+    <>
+      <label
+        className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+        title={title}
+      >
+        {name}
+        <NumberInput value={value} onChange={onChange} onClear={onClear} def={def} describedBy={id} />
+      </label>
+      {problem && (
+        <div id={id} className="ss-param-problem">
+          <span role="alert">
+            {paramName(def)} {problem}.
+          </span>
+        </div>
+      )}
+    </>
+  );
 }
 
 /** A scalar value editor matching the parameter type. */
@@ -45,11 +112,13 @@ function ValueEditor({
   value,
   label,
   onChange,
+  describedBy,
 }: {
   def: ParameterDef;
   value: ParamValue;
   label: string;
   onChange: (v: ParamValue) => void;
+  describedBy?: string;
 }) {
   if (def.type === "boolean") {
     return (
@@ -82,16 +151,8 @@ function ValueEditor({
     );
   }
   if (def.type === "number") {
-    return (
-      <input
-        type="number"
-        className="ss-input"
-        aria-label={label}
-        value={Number(value)}
-        step="any"
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-    );
+    // turns red outside the limits, and a cleared field is not stored as 0
+    return <NumberInput value={Number(value)} onChange={onChange} label={label} def={def} describedBy={describedBy} />;
   }
   return (
     <input
@@ -113,8 +174,10 @@ export function CasePanel() {
   const setCaseField = useProjectStore((s) => s.setCaseField);
   const setCaseOverride = useProjectStore((s) => s.setCaseOverride);
   const clearCaseOverride = useProjectStore((s) => s.clearCaseOverride);
+  const setDrivingCycle = useProjectStore((s) => s.setDrivingCycle);
   const run = useProjectStore((s) => s.run);
   const stopRun = useProjectStore((s) => s.stopRun);
+  const staleness = useStaleness(useActiveRun());
   const runSweep = useProjectStore((s) => s.runSweep);
 
   const cases = project?.cases ?? [];
@@ -154,22 +217,36 @@ export function CasePanel() {
   const [swStart, setSwStart] = useState(0);
   const [swStop, setSwStop] = useState(0);
   const [swSteps, setSwSteps] = useState(5);
+  // even or log steps from one value to another, or a typed list (STU-17)
+  const [swSpacing, setSwSpacing] = useState<SweepSpacing>("linear");
+  const [swList, setSwList] = useState("");
   const swElDef = elemById.get(swEl);
   const swParams = swElDef ? swElDef.def.parameters.filter((p) => p.type === "number") : [];
   const swParam = swParams.find((p) => p.key === swKey) ?? swParams[0];
-  const sweepValues = useMemo(
-    () => linspace(swStart, swStop, swSteps),
-    [swStart, swStop, swSteps],
+  const sweep = useMemo(
+    () => sweepValues(swSpacing, { from: swStart, to: swStop, steps: swSteps }, swList),
+    [swSpacing, swStart, swStop, swSteps, swList],
   );
+  const swUnit = swParam && swParam.unit !== "-" ? ` ${swParam.unit}` : "";
+  // values outside the parameter's limits: said, not refused
+  const outside = swParam ? sweep.values.filter((v) => rangeProblem(swParam, v)) : [];
+  // the running sweep's points done and time left (STU-17)
+  const progress = useProjectStore((s) => s.sweepProgress);
+  const now = useNow(1000, Boolean(progress));
 
   const startSweep = () => {
-    if (!activeCase || !swElDef || !swParam) return;
+    if (!activeCase || !swElDef || !swParam || sweep.problem) return;
     void runSweep({
       caseId: activeCase.id,
       elementId: swElDef.el.id,
       paramKey: swParam.key,
-      values: sweepValues,
+      values: sweep.values,
     });
+  };
+  const pickSpacing = (next: SweepSpacing) => {
+    // a list starts from the values the range gave
+    if (next === "list" && !swList.trim() && sweep.values.length) setSwList(sweep.values.join(", "));
+    setSwSpacing(next);
   };
 
   // seed a sweep range from the parameter's current value when it changes
@@ -182,6 +259,8 @@ export function CasePanel() {
     setSwStop(round(base * 1.5 || 1));
   };
 
+  // cases changed since the run shown in Results (UX-41)
+  const staleCases = staleness.caseIds;
   if (!project || !activeCase) {
     return (
       <div className="px-3 py-2 text-[12px] text-[color:var(--ss-text-dim)]">
@@ -190,6 +269,31 @@ export function CasePanel() {
     );
   }
 
+  const accel = activeCase.kind === "acceleration";
+  const lap = activeCase.kind === "lap";
+  // a lap case drives the model's (one) Race Track: its layout and laps are
+  // this case's overrides of it
+  const track = project.systems.flatMap((s) => s.elements).find((e) => e.componentDefId === "track.lap");
+  const trackParams = libraryById["track.lap"]?.parameters ?? [];
+  const layoutDef = trackParams.find((p) => p.key === "layout");
+  const lapsDef = trackParams.find((p) => p.key === "laps");
+  // a Driving Task over distance (ENG-34): a cycle or performance case can
+  // end after a number of passes through its profile
+  const taskModeDef = libraryById["signal.driving_task"]?.parameters.find((p) => p.key === "mode");
+  const distanceTask =
+    !accel &&
+    !lap &&
+    taskModeDef !== undefined &&
+    project.systems
+      .flatMap((s) => s.elements)
+      .some(
+        (e) =>
+          e.componentDefId === "signal.driving_task" &&
+          effectiveValue(caseOv, e, "mode", taskModeDef) === "distance",
+      );
+  const coastDef = trackParams.find((p) => p.key === "coast_pct");
+  const targetDef = trackParams.find((p) => p.key === "energy_target_kWh");
+  const lapHint = "A lap case is set by the Race Track's layout and laps: Duration, Step and Pacing do not apply.";
   const overrideRows = Object.entries(caseOv ?? {}).flatMap(([elId, params]) =>
     Object.entries(params).map(([key, value]) => ({ elId, key, value })),
   );
@@ -201,15 +305,24 @@ export function CasePanel() {
         <span className="text-[11px] text-[color:var(--ss-text-dim)]">Case</span>
         <select
           className="ss-input w-[150px]"
+          aria-label="Case"
           value={activeCase.id}
           onChange={(e) => setActiveCase(e.target.value)}
         >
           {cases.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name}
+              {staleCases.has(c.id) ? `${c.name} •` : c.name}
             </option>
           ))}
         </select>
+        {staleCases.has(activeCase.id) && (
+          <span
+            className="h-2 w-2 shrink-0 rounded-full bg-[color:var(--ss-accent)]"
+            role="img"
+            aria-label="Changed since the results shown"
+            title="This case changed since the run shown in Results (•)"
+          />
+        )}
         <div className="ml-auto flex items-center gap-1">
           <button
             className="ss-toolbtn border border-[color:var(--ss-border)]"
@@ -237,11 +350,21 @@ export function CasePanel() {
         </div>
         {/* one setting a row: side by side, a side panel left each label ~10 px */}
         <div className="mb-4 grid gap-y-1.5 rounded bg-[color:var(--ss-panel-alt)] p-2">
-          <label className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
+          <label
+            className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+            title={
+              accel
+                ? "The acceleration test's time limit: a car that has not reached the line by then gets a warning. FS Rules 2026 v1.1 (FSG) D 9.2.1 disqualifies runs over 25 s in driverless runs only; FSUK and FSAE may differ, check the current season's rules."
+                : lap
+                  ? lapHint
+                  : undefined
+            }
+          >
             Duration (s)
             <input
               type="number"
-              className="ss-input"
+              className="ss-input disabled:opacity-50"
+              disabled={lap}
               min={1}
               value={activeCase.duration}
               onChange={(e) =>
@@ -251,12 +374,17 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="Output step in seconds (min 0.0001): results are stored and live edits applied at this interval. Controllers, scripts, the drive cycle and the physics run at the solver step (≤10 ms) whatever this is set to."
+            title={
+              lap
+                ? lapHint
+                : "Output step in seconds (min 0.0001): results are stored and live edits applied at this interval. Controllers, scripts, the drive cycle and the physics run at the solver step (≤10 ms) whatever this is set to."
+            }
           >
             Step (s)
             <input
               type="number"
-              className="ss-input"
+              className="ss-input disabled:opacity-50"
+              disabled={lap}
               step="any"
               min={0.0001}
               value={activeCase.timeStep}
@@ -269,7 +397,11 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="Store a result point every N output steps (1 = every step). Keeps results small at fine step sizes."
+            title={
+              lap
+                ? "Store a result point every N track points (about 1 m apart; 1 = every point). Keeps a long run's result small: 5 or more for a Formula Student endurance."
+                : "Store a result point every N output steps (1 = every step). Keeps results small at fine step sizes."
+            }
           >
             Store every (steps)
             <input
@@ -287,11 +419,16 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="0 = solve as fast as possible; N× paces the run against real time so you can watch and tune it live."
+            title={
+              lap
+                ? lapHint
+                : "0 = solve as fast as possible; N× paces the run against real time so you can watch and tune it live."
+            }
           >
             Pacing
             <select
-              className="ss-input w-[72px]"
+              className="ss-input w-[72px] disabled:opacity-50"
+              disabled={lap}
               value={activeCase.realtimeFactor ?? 0}
               onChange={(e) =>
                 setCaseField(activeCase.id, { realtimeFactor: Number(e.target.value) })
@@ -306,21 +443,226 @@ export function CasePanel() {
           </label>
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
-            title="Cycle: judged on following the target speed. Performance: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports the time from t = 0 to the target speed and the maximum speed (for example 0:100 for 0-100 km/h, 0:250 for top speed)."
+            title="Cycle: judged on following the target speed. Performance: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports the time from t = 0 to the target speed and the maximum speed (for example 0:100 for 0-100 km/h, 0:250 for top speed). Acceleration: the Driver holds full throttle the whole run (no target needed) and the run ends at the line, reporting the time from the start line, the speed at the line, 0-100 km/h and the battery's terminal power (results are estimates). Lap: the model's Race Track sets the run (its layout and laps below): a quasi-steady-state lap solver finds the fastest speed along it and the motors and battery drive that speed, reporting the lap and sector times, the energy per lap and what limited the car (results are estimates)."
           >
             Kind
             <select
-              className="ss-input w-[96px]"
+              className="ss-input w-[112px]"
               value={activeCase.kind ?? "cycle"}
-              onChange={(e) =>
-                setCaseField(activeCase.id, { kind: e.target.value as "cycle" | "performance" })
-              }
+              onChange={(e) => {
+                const kind = e.target.value as "cycle" | "performance" | "acceleration" | "lap";
+                // the distance end shows only for Acceleration: another kind
+                // would end at a line it does not show
+                setCaseField(activeCase.id, {
+                  kind,
+                  endDistance: kind === "acceleration" ? activeCase.endDistance || 75 : null,
+                });
+              }}
             >
               <option value="cycle">Cycle</option>
               <option value="performance">Performance</option>
+              <option value="acceleration">Acceleration</option>
+              <option value="lap">Lap</option>
             </select>
           </label>
+          {activeCase.kind === "lap" && (
+            <p className="text-[11px] text-[color:var(--ss-text-dim)]">
+              Lap cases do not run in this version of LightSim yet: Run fails with Not run [NEW-LAP].
+            </p>
+          )}
+          <label
+            className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+            title="Every run of this case gets an Energy view in Results: where the battery's or fuel's energy went, as a Sankey chart and a table per part, and Energy labels on the diagram."
+          >
+            Energy report
+            <input
+              type="checkbox"
+              checked={activeCase.energyReport ?? true}
+              onChange={(e) => setCaseField(activeCase.id, { energyReport: e.target.checked })}
+            />
+          </label>
+          {lap &&
+            (track && layoutDef && lapsDef ? (
+              <>
+                <label
+                  className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                  title={`The layout of Race Track '${track.label}' for this case (a case override). Autocross, Skidpad and Acceleration 75 m are drawn for LightSim after FS Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1 (FSUK and FSAE may differ, check the current season's rules); Custom uses the track's own tables.`}
+                >
+                  Track layout
+                  <select
+                    className="ss-input w-[112px]"
+                    value={String(effectiveValue(caseOv, track, "layout", layoutDef))}
+                    onChange={(e) => setCaseOverride(activeCase.id, track.id, "layout", e.target.value)}
+                  >
+                    {(layoutDef.options ?? []).map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <CaseNumber
+                  name="Laps"
+                  title="Laps driven one after the other (a case override): lap 1 from the Vehicle's Initial Speed (no faster than the first corner allows), each later lap from the speed the one before ended with."
+                  def={lapsDef}
+                  value={Number(effectiveValue(caseOv, track, "laps", lapsDef))}
+                  onChange={(v) => setCaseOverride(activeCase.id, track.id, "laps", v)}
+                />
+                {coastDef && targetDef && (
+                  <>
+                    <CaseNumber
+                      name="Lift-and-coast (%)"
+                      title="Energy strategy (a case override): the driver lifts off for this share of each stretch of acceleration that ends in braking, and the car coasts until it has to brake. It saves energy for some lap time; sweep it for the trade-off. An Energy target above 0 sets it lap by lap instead."
+                      def={coastDef}
+                      value={Number(effectiveValue(caseOv, track, "coast_pct", coastDef))}
+                      onChange={(v) => setCaseOverride(activeCase.id, track.id, "coast_pct", v)}
+                    />
+                    <CaseNumber
+                      name="Energy target (kWh)"
+                      title="The net energy the laps may take from the batteries (a case override). Above 0, lap mode chooses each lap's lift-and-coast so that the laps together take about this much, for example the accumulator's usable energy less a margin for an endurance. 0 = off."
+                      def={targetDef}
+                      value={Number(effectiveValue(caseOv, track, "energy_target_kWh", targetDef))}
+                      onChange={(v) => setCaseOverride(activeCase.id, track.id, "energy_target_kWh", v)}
+                    />
+                  </>
+                )}
+              </>
+            ) : (
+              <p className="text-[11px] text-[color:var(--ss-text-dim)]">
+                Add a Race Track from Driver &amp; Signals: its layout and laps set a lap case.
+              </p>
+            ))}
+          {(activeCase.kind ?? "cycle") === "cycle" && (
+            <label
+              className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              title="Quick: the new engine's fast mode. The cycle's speed is prescribed and the Driver's pedal worked out back from it, so the run takes a fraction of a full run's time; it gives the totals (energy, consumption, range, distance, each phase's), not the peaks, the speed trace's verdict or the reports, and flags a limit the car would have met instead of acting on it. A case it cannot run (a Script, FMU or Traction Control part, a battery built from cells, a charge-balanced hybrid) is not run: it fails saying why; set the mode to full."
+            >
+              Run mode
+              <select
+                className="ss-input w-[112px]"
+                aria-label="Run mode"
+                value={activeCase.mode ?? "full"}
+                onChange={(e) =>
+                  setCaseField(activeCase.id, { mode: e.target.value === "quick" ? "quick" : undefined })
+                }
+              >
+                <option value="full">Full</option>
+                <option value="quick">Quick</option>
+              </select>
+            </label>
+          )}
+          {!accel && !lap && (
+            <label
+              className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              title="Charge balancing (for hybrids): run the cycle again from the charge the battery ended with, until its stored energy changes by less than 1 % of the fuel's energy (at most 5 runs), so the fuel figure holds no energy the battery gave or took. Auto: on for a Cycle case whose model has an engine and a battery, and not paced. Quick mode does not charge-balance a case (Not run [QUICK-BALANCE]): set this to Off to run it once in quick mode."
+            >
+              Charge balance
+              <select
+                className="ss-input w-[112px]"
+                value={activeCase.chargeBalance == null ? "auto" : activeCase.chargeBalance ? "on" : "off"}
+                onChange={(e) =>
+                  setCaseField(activeCase.id, {
+                    chargeBalance: e.target.value === "auto" ? null : e.target.value === "on",
+                  })
+                }
+              >
+                <option value="auto">Auto</option>
+                <option value="on">On</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+          )}
+          {distanceTask && (
+            <CaseNumber
+              name="Laps"
+              title="The run ends after this many passes through the Driving Task's profile over distance (one pass: its first point to its last; tick its Repeat Profile to drive more than one). The Duration is then the time limit: a car that has not finished by then gets a warning. Empty = run the whole Duration."
+              def={LAPS}
+              value={activeCase.endLaps ?? null}
+              onChange={(v) => setCaseField(activeCase.id, { endLaps: v })}
+              onClear={() => setCaseField(activeCase.id, { endLaps: null })}
+            />
+          )}
+          {accel && (
+            <>
+              <CaseNumber
+                name="Distance (m)"
+                title="The run ends at this distance past the start line; the time is taken there (FS Rules 2026 v1.1 (FSG) D 5.1.1: 75 m)."
+                def={DISTANCE}
+                value={activeCase.endDistance ?? 75}
+                onChange={(v) => setCaseField(activeCase.id, { endDistance: v })}
+              />
+              <CaseNumber
+                name="Start line (m)"
+                title="The distance the car drives before the timer starts (FS Rules 2026 v1.1 (FSG) D 5.2.3 stages it 0.30 m behind the start line; FSUK and FSAE may differ). 0 = timed from rest. Simulations → Acceleration test adds its case with 0.30 m and a 25 s time limit; a case switched to Acceleration here keeps its own start line and duration."
+                def={START_LINE}
+                value={activeCase.startLine ?? 0}
+                onChange={(v) => setCaseField(activeCase.id, { startLine: v })}
+              />
+              <CaseNumber
+                name="Reference time (s)"
+                title="A time to compare with, for example last year's best run: the results show the gap (positive = slower). For the Formula Student Acceleration event it is the fastest team's time (Tmin), which the points are estimated against. Empty = none."
+                def={REFERENCE_TIME}
+                value={activeCase.referenceTime ?? null}
+                onChange={(v) => setCaseField(activeCase.id, { referenceTime: v })}
+                onClear={() => setCaseField(activeCase.id, { referenceTime: null })}
+              />
+            </>
+          )}
+          {(accel || lap || (activeCase.kind ?? "cycle") === "cycle") && (
+            <label
+              className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              title="The Formula Student dynamic event this case stands for: the run then reports the event's time as the rules take it, the rule checks (80 kW, 500 A, 600 V) and an estimate of the points against the reference values below. Acceleration needs an Acceleration case, the others a Lap case. Endurance also stops the car for the driver change at half distance; on a Cycle case (an imported lap, repeated) it gives the endurance energy and rule checks only. Scoring: FS Rules 2026 v1.1 (FSG) D 9; FSUK and FSAE score differently, check the current season's rules."
+            >
+              FS event
+              <select
+                className="ss-input w-[112px]"
+                value={activeCase.fsEvent ?? ""}
+                onChange={(e) => setCaseField(activeCase.id, { fsEvent: (e.target.value || null) as FsEvent | null })}
+              >
+                <option value="">None</option>
+                {FS_EVENTS.filter((ev) => accel || lap || ev === "endurance").map((ev) => (
+                  <option key={ev} value={ev}>
+                    {FS_EVENT_NAMES[ev]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {lap && activeCase.fsEvent && (
+            <CaseNumber
+              name="Reference time (s)"
+              title="The fastest team's time in this event (Tmin), for example from last season's results: the points are estimated against it (FS Rules 2026 v1.1 (FSG) D 9.1.1). Empty = no points."
+              def={REFERENCE_TIME}
+              value={activeCase.referenceTime ?? null}
+              onChange={(v) => setCaseField(activeCase.id, { referenceTime: v })}
+              onClear={() => setCaseField(activeCase.id, { referenceTime: null })}
+            />
+          )}
+          {lap && activeCase.fsEvent === "endurance" && (
+            <>
+              <CaseNumber
+                name="Reference energy (kWh)"
+                title="The endurance energy of the most efficient team, as the rules count it (regeneration × 0.9, D 7.9.5): with its time it sets EFmin = T² · E, which the efficiency points are estimated against (D 9.4). Empty = no efficiency points."
+                def={REFERENCE_ENERGY}
+                value={activeCase.referenceEnergy ?? null}
+                onChange={(v) => setCaseField(activeCase.id, { referenceEnergy: v })}
+                onClear={() => setCaseField(activeCase.id, { referenceEnergy: null })}
+              />
+              <CaseNumber
+                name="Its time (s)"
+                title="The endurance time of the most efficient team. Empty = the Reference time."
+                def={REFERENCE_ENERGY_TIME}
+                value={activeCase.referenceEnergyTime ?? null}
+                onChange={(v) => setCaseField(activeCase.id, { referenceEnergyTime: v })}
+                onClear={() => setCaseField(activeCase.id, { referenceEnergyTime: null })}
+              />
+            </>
+          )}
         </div>
+
+        <FsPoints />
+        {activeCase.fsEvent === "endurance" && <EnduranceStudy key={activeCase.id} simCase={activeCase} />}
+        <ExpectedValuesEditor c={activeCase} />
 
         {/* -- per-case overrides ------------------------------------------- */}
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
@@ -339,6 +681,8 @@ export function CasePanel() {
               const ed = elemById.get(elId);
               const pdef = ed?.def.parameters.find((p) => p.key === key);
               const name = `${ed?.el.label ?? elId} · ${pdef?.label ?? key}`;
+              const problem = pdef?.type === "number" ? rangeProblem(pdef, Number(value)) : null;
+              const problemId = `case-override-${elId}-${key}-problem`;
               return (
                 <li
                   key={`${elId}:${key}`}
@@ -348,11 +692,19 @@ export function CasePanel() {
                     {name}
                   </div>
                   <div className="mt-0.5 flex min-w-0 items-center gap-1">
-                    {pdef && ed ? (
+                    {pdef && ed && key === "cycle" ? (
+                      <CycleSelect
+                        value={String(value)}
+                        label={name}
+                        description={pdef.description}
+                        onChange={(v) => setDrivingCycle(elId, v, activeCase.id)}
+                      />
+                    ) : pdef && ed ? (
                       <ValueEditor
                         def={pdef}
                         value={value}
                         label={name}
+                        describedBy={problemId}
                         onChange={(v) => setCaseOverride(activeCase.id, elId, key, v)}
                       />
                     ) : (
@@ -371,6 +723,14 @@ export function CasePanel() {
                       <X size={13} />
                     </button>
                   </div>
+                  {pdef && problem && (
+                    <div id={problemId} className="ss-param-problem mt-0.5">
+                      {/* a lap case's Laps is also in the case settings, which announce it */}
+                      <span role={lap && elId === track?.id ? undefined : "alert"}>
+                        {paramName(pdef)} {problem}.
+                      </span>
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -469,55 +829,111 @@ export function CasePanel() {
             </select>
           </div>
           <div className="mb-1.5 flex flex-wrap items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]">
-            <span>From</span>
-            <input
-              type="number"
+            <select
               className="ss-input"
-              value={swStart}
-              step="any"
-              onChange={(e) => setSwStart(Number(e.target.value))}
-            />
-            <span>to</span>
-            <input
-              type="number"
-              className="ss-input"
-              value={swStop}
-              step="any"
-              onChange={(e) => setSwStop(Number(e.target.value))}
-            />
-            <span>in</span>
-            <input
-              type="number"
-              className="ss-input"
-              value={swSteps}
-              min={1}
-              max={16}
-              step={1}
-              onChange={(e) => setSwSteps(Math.max(1, Math.min(16, Math.round(Number(e.target.value) || 1))))}
-            />
-            <span>steps</span>
+              aria-label="Sweep values"
+              title="Even steps: the same difference between values. Log steps: the same factor (for values over decades). List: the values you type."
+              value={swSpacing}
+              onChange={(e) => pickSpacing(e.target.value as SweepSpacing)}
+            >
+              <option value="linear">Even steps</option>
+              <option value="log">Log steps</option>
+              <option value="list">List of values</option>
+            </select>
+            {swSpacing === "list" ? (
+              <textarea
+                className="ss-input min-h-[38px] w-full resize-y font-mono"
+                rows={2}
+                aria-label="Values to run"
+                aria-describedby={sweep.problem ? "sweep-values-problem" : undefined}
+                placeholder="1200, 1350, 1500"
+                title={`Separate the values with commas or spaces, with a point for decimals; at most ${MAX_SWEEP_POINTS}. They run in this order.`}
+                value={swList}
+                onChange={(e) => setSwList(e.target.value)}
+              />
+            ) : (
+              <>
+                <span>From</span>
+                <input
+                  type="number"
+                  className="ss-input"
+                  aria-label="From"
+                  value={swStart}
+                  step="any"
+                  onChange={(e) => setSwStart(Number(e.target.value))}
+                />
+                <span>to</span>
+                <input
+                  type="number"
+                  className="ss-input"
+                  aria-label="To"
+                  value={swStop}
+                  step="any"
+                  onChange={(e) => setSwStop(Number(e.target.value))}
+                />
+                <span>in</span>
+                <input
+                  type="number"
+                  className="ss-input"
+                  aria-label="Steps"
+                  value={swSteps}
+                  min={1}
+                  max={MAX_SWEEP_POINTS}
+                  step={1}
+                  onChange={(e) =>
+                    setSwSteps(Math.max(1, Math.min(MAX_SWEEP_POINTS, Math.round(Number(e.target.value) || 1))))
+                  }
+                />
+                <span>steps</span>
+              </>
+            )}
           </div>
-          {swParam && (
-            <div className="mb-1.5 flex flex-wrap gap-1">
-              {sweepValues.map((v, i) => (
+          {sweep.problem && (
+            <div id="sweep-values-problem" className="ss-param-problem mb-1.5">
+              <span role="alert">{sweep.problem}</span>
+            </div>
+          )}
+          {sweep.note && <div className="mb-1 text-[10px] text-[color:var(--ss-text-dim)]">{sweep.note}</div>}
+          {swParam && outside.length > 0 && (
+            <div className="ss-param-problem mb-1.5">
+              {paramName(swParam)} {rangeProblem(swParam, outside[0])}:{" "}
+              {outside.slice(0, 3).join(", ")}
+              {outside.length > 3 ? ` and ${outside.length - 3} more` : ""} {outside.length > 1 ? "are" : "is"} not.
+            </div>
+          )}
+          {swParam && sweep.values.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap gap-1" aria-label="Values the sweep runs">
+              {sweep.values.slice(0, SWEEP_CHIPS).map((v, i) => (
                 <span
                   key={i}
                   className="rounded bg-[color:var(--ss-accent-soft)] px-1.5 py-0.5 text-[10px] text-[color:var(--ss-text)]"
                 >
                   {v}
-                  {swParam.unit !== "-" ? ` ${swParam.unit}` : ""}
+                  {swUnit}
                 </span>
               ))}
+              {sweep.values.length > SWEEP_CHIPS && (
+                <span className="px-1 py-0.5 text-[10px] text-[color:var(--ss-text-dim)]">
+                  … and {sweep.values.length - SWEEP_CHIPS} more
+                </span>
+              )}
             </div>
           )}
-          <button
-            className="ss-toolbtn border border-[color:var(--ss-border)] disabled:opacity-40"
-            disabled={running || !swElDef || !swParam || sweepValues.length === 0}
-            onClick={startSweep}
-            title="Run the sweep"
-          >
-            <Play size={13} /> Run sweep ({sweepValues.length})
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              className="ss-toolbtn border border-[color:var(--ss-border)] disabled:opacity-40"
+              disabled={running || !swElDef || !swParam || sweep.values.length === 0 || Boolean(sweep.problem)}
+              onClick={startSweep}
+              title="Run the sweep"
+            >
+              <Play size={13} /> Run sweep ({sweep.values.length})
+            </button>
+            {progress && (
+              <span className="text-[11px] text-[color:var(--ss-accent)]" title="The points run side by side; the time left follows the pace of those that ended">
+                {progressText(progress, Math.max(now, progress.lastAt ?? 0))}
+              </span>
+            )}
+          </div>
         </div>
 
         <StudiesList />

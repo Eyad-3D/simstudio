@@ -2,36 +2,60 @@ import { useRef, useState } from "react";
 import {
   AArrowDown,
   AArrowUp,
+  Bot,
   CheckCircle2,
+  ClipboardCopy,
   Copy,
   Download,
   EyeOff,
+  FileDown,
+  FileInput,
   FilePlus2,
+  FileSpreadsheet,
+  FileUp,
   FolderOpen,
   Gauge,
   History,
+  Fuel,
+  IdCard,
   LayoutGrid,
   ListChecks,
   Moon,
+  Paperclip,
   Play,
   Plus,
   Redo2,
   RotateCcw,
   Save,
+  SaveAll,
   Settings2,
   Sliders,
   Square,
   Sun,
+  Timer,
+  Trophy,
+  Crosshair,
   Trash2,
   Undo2,
   Upload,
+  X,
 } from "lucide-react";
 import * as api from "../api";
 import type { Project } from "../types";
 import { resetDockLayout } from "./DockLayout";
+import { ExampleCardDialog } from "./ExampleCardEditor";
 import { useDismiss } from "./useDismiss";
+import { LapImportDialog } from "./LapImportDialog";
+import { CalibrateDialog } from "./CalibrateDialog";
+import { LabelEstimateDialog } from "./LabelEstimate";
+import { VehicleTestsDialog } from "./VehicleTests";
+import { TemplatesDialog } from "./TemplatesDialog";
+import { downloadParameterTemplate, useParameterSheet } from "./ParameterSheet";
 import { confirmDialog } from "../dialog";
+import { desktop } from "../desktop";
+import { HelpMenu } from "./HelpMenu";
 import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
+import { deleteSelection, useCanvasSelection } from "../store/canvasSelection";
 import {
   FONT_SCALE_MAX,
   FONT_SCALE_MIN,
@@ -44,6 +68,7 @@ import {
 // id/stub render remain) until it ships as a real feature. Parameters is real
 // (per-case overrides + sweeps, driven from the Cases & Parameters panel).
 const TABS: { id: RibbonTab; label: string }[] = [
+  { id: "start", label: "Start" },
   { id: "project", label: "Project" },
   { id: "home", label: "Home" },
   { id: "simulations", label: "Simulations" },
@@ -95,6 +120,15 @@ function BigButton({
   );
 }
 
+/** Open a project file the user picked or dropped as a new project: a zip
+ *  bundle (with its attached files) or a project's JSON. */
+export async function importFile(f: File): Promise<void> {
+  if (!(await confirmReplaceProject(`Importing '${f.name}'`))) return;
+  const store = useProjectStore.getState();
+  if (/\.zip$/i.test(f.name)) await store.importBundle(f);
+  else await store.importProject(await f.text());
+}
+
 /** A menu heading: the Open menu lists the user's projects and the examples
  *  apart. */
 function MenuHeading({ children }: { children: React.ReactNode }) {
@@ -138,9 +172,12 @@ function OpenProjectButton() {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState<api.ProjectEntry[]>([]);
   const [examples, setExamples] = useState<api.ExampleEntry[]>([]);
+  const [files, setFiles] = useState<api.RecentFile[]>([]);
   const ref = useRef<HTMLDivElement>(null);
   const button = useRef<HTMLButtonElement>(null);
   const openProject = useProjectStore((s) => s.openProject);
+  const openFile = useProjectStore((s) => s.openFile);
+  const forgetFile = useProjectStore((s) => s.forgetFile);
   const openExample = useProjectStore((s) => s.openExample);
   const hideExample = useProjectStore((s) => s.hideExample);
   const restoreExamples = useProjectStore((s) => s.restoreExamples);
@@ -179,6 +216,7 @@ function OpenProjectButton() {
               setProjects([]);
             }
             await listExamples();
+            setFiles((await api.listFiles().catch(() => [])) ?? []);
           }
           setOpen(!open);
         }}
@@ -189,6 +227,40 @@ function OpenProjectButton() {
           aria-label="Open project"
           className="absolute left-0 top-[54px] z-50 max-h-[60vh] w-[400px] overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
         >
+          {desktop() && (
+            <button
+              role="menuitem"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-medium hover:bg-[color:var(--ss-accent-soft)]"
+              onClick={() => choose("a project file", () => openFile())}
+            >
+              <FileInput size={14} /> Open file… <span className="ml-auto text-[10px] text-[color:var(--ss-text-dim)]">Ctrl+O</span>
+            </button>
+          )}
+          {files.length > 0 && (
+            <div role="group" aria-label="Recent files" className="border-b border-[color:var(--ss-border)]">
+              <MenuHeading>Recent files</MenuHeading>
+              {files.map((f) => (
+                <div key={f.id} className="flex items-stretch">
+                  <ProjectMenuItem
+                    entry={{ ...f, id: f.path, description: f.exists ? f.description : "File not found" }}
+                    onClick={() => f.exists && choose(f.name, () => openProject(f.id))}
+                  />
+                  <button
+                    role="menuitem"
+                    className="shrink-0 px-2 text-[color:var(--ss-text-dim)] hover:bg-[color:var(--ss-accent-soft)] hover:text-[color:var(--ss-text)]"
+                    title="Remove from Recent files (the file stays where it is)"
+                    aria-label={`Remove '${f.name}' from Recent files`}
+                    onClick={async () => {
+                      await forgetFile(f.id);
+                      setFiles((await api.listFiles().catch(() => [])) ?? []);
+                    }}
+                  >
+                    <X size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div role="group" aria-label="Your projects">
             <MenuHeading>Your projects</MenuHeading>
             {projects.length === 0 && <MenuNote>None saved yet</MenuNote>}
@@ -236,14 +308,24 @@ function OpenProjectButton() {
 
 function HomeTab() {
   const store = useProjectStore();
+  const selected = useCanvasSelection((s) => s.nodes.size + s.edges.size);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   return (
     <>
+      {templatesOpen && <TemplatesDialog onClose={() => setTemplatesOpen(false)} />}
       <RibbonGroup label="Project">
         <BigButton
           icon={FilePlus2}
           label="New"
-          onClick={() => void confirmReplaceProject("Creating a new project").then((ok) => ok && store.newProject())}
+          title="New project: from an example or blank (the Start page)"
+          onClick={() => useUIStore.getState().setRibbonTab("start")}
+        />
+        <BigButton
+          icon={LayoutGrid}
+          label="Templates"
+          title="Start from a pre-wired vehicle template with a short form, or save this model as a template"
+          onClick={() => setTemplatesOpen(true)}
         />
         <OpenProjectButton />
         <BigButton
@@ -252,31 +334,56 @@ function HomeTab() {
           title={store.exampleId ? "Save this copy of the example as a new project (the example stays as it is)" : "Save"}
           onClick={() => void store.saveRemote()}
         />
-        <BigButton icon={Download} label="Export" onClick={store.exportProject} title="Download project as JSON" />
-        <BigButton icon={Upload} label="Import" onClick={() => fileRef.current?.click()} title="Import project JSON" />
+        {desktop() && (
+          <BigButton
+            icon={SaveAll}
+            label="Save As…"
+            title={
+              store.readOnly
+                ? "This file is from a newer LightSim and opens read-only: install that version to save it"
+                : "Save the project as a .lightsim file in a folder you choose (Ctrl+Shift+S)"
+            }
+            disabled={Boolean(store.readOnly)}
+            onClick={() => void store.saveAs()}
+          />
+        )}
+        <BigButton
+          icon={Download}
+          label="Export"
+          onClick={() => void store.exportProject()}
+          title="Download the project as a .lightsim file (a .zip with its attached files, if it has any)"
+        />
+        <BigButton
+          icon={Upload}
+          label="Import"
+          onClick={() => fileRef.current?.click()}
+          title="Open a project file (.lightsim, .json or a .zip bundle) as a new project"
+        />
         <input
           ref={fileRef}
           type="file"
-          accept=".json,application/json"
+          accept=".lightsim,.json,.zip,application/json,application/zip"
           className="hidden"
           onChange={async (e) => {
             const input = e.target;
             const f = input.files?.[0];
             input.value = "";
             if (!f) return;
-            const text = await f.text();
-            if (await confirmReplaceProject(`Importing '${f.name}'`)) store.importProject(text);
+            await importFile(f);
           }}
         />
       </RibbonGroup>
       <RibbonGroup label="Edit">
         <BigButton icon={Undo2} label="Undo" onClick={store.undo} disabled={store.past.length === 0} />
         <BigButton icon={Redo2} label="Redo" onClick={store.redo} disabled={store.future.length === 0} />
+        {/* the whole selection on the diagram, parts and wires, in one undo
+            step, as the Delete key (UX-19) */}
         <BigButton
           icon={Trash2}
           label="Delete"
-          onClick={() => store.selectedElementId && store.removeElements([store.selectedElementId])}
-          disabled={!store.selectedElementId}
+          title="Delete the selected parts and wires (Del)"
+          onClick={() => deleteSelection()}
+          disabled={selected === 0 && !store.selectedElementId}
         />
       </RibbonGroup>
       <RibbonGroup label="Workspace">
@@ -303,8 +410,12 @@ function HomeTab() {
 
 function SimulationsTab() {
   const store = useProjectStore();
+  const [importing, setImporting] = useState(false);
+  const [calibrating, setCalibrating] = useState(false);
   const cases = store.project?.cases ?? [];
   const activeCase = cases.find((c) => c.id === store.activeCaseId);
+  const [labelOpen, setLabelOpen] = useState(false);
+  const [testsOpen, setTestsOpen] = useState(false);
   return (
     <>
       <RibbonGroup label="Cases">
@@ -312,6 +423,7 @@ function SimulationsTab() {
           <div className="flex items-center gap-1">
             <select
               className="ss-input w-[150px]"
+              aria-label="Case"
               value={store.activeCaseId ?? ""}
               onChange={(e) => store.setActiveCase(e.target.value)}
             >
@@ -344,9 +456,11 @@ function SimulationsTab() {
           <div className="flex items-center gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
             <span title="Solver settings for this case">
               {activeCase
-                ? `${activeCase.duration}s · step ${activeCase.timeStep}s${
-                    (activeCase.outputEvery ?? 1) > 1 ? ` · store ×${activeCase.outputEvery}` : ""
-                  }${(activeCase.realtimeFactor ?? 0) > 0 ? ` · ${activeCase.realtimeFactor}× pacing` : ""}`
+                ? activeCase.kind === "lap" // the Race Track sets a lap case's run
+                  ? `lap mode${(activeCase.outputEvery ?? 1) > 1 ? ` · store ×${activeCase.outputEvery}` : ""}`
+                  : `${activeCase.duration}s · step ${activeCase.timeStep}s${
+                      (activeCase.outputEvery ?? 1) > 1 ? ` · store ×${activeCase.outputEvery}` : ""
+                    }${(activeCase.realtimeFactor ?? 0) > 0 ? ` · ${activeCase.realtimeFactor}× pacing` : ""}`
                 : "—"}
             </span>
             <button
@@ -381,7 +495,55 @@ function SimulationsTab() {
           disabled={store.checking || !store.project}
           onClick={() => void store.runDataChecks()}
         />
+        <BigButton
+          icon={Timer}
+          label="Acceleration test"
+          title="Formula Student acceleration test: runs the first Acceleration case, or adds one (75 m, staged 0.30 m behind the start line, 25 s time limit) and runs it. FS Rules 2026 v1.1 (FSG): D 5.1.1 75 m, D 5.2.3 0.30 m staging, D 9.2.1 25 s (driverless runs only). FSUK and FSAE may differ: check the current season's rules."
+          disabled={store.running || !store.project}
+          onClick={() => void store.runAccelerationTest()}
+        />
+        <BigButton
+          icon={Trophy}
+          label="FS events"
+          title="Formula Student dynamic events: marks (or adds) an Acceleration, a Skidpad, an Autocross and an Endurance case (22 laps of the Autocross layout, about 22 km, with the driver change), runs the four and shows their points in Cases & Parameters → Formula Student points. Set each case's reference values (the best teams' time and energy) for the points. Scoring: FS Rules 2026 v1.1 (FSG) D 9, estimates, not official results; FSUK and FSAE score differently. Does not run in this version of LightSim yet: these cases fail with Not run [NEW-FS-EVENT] or [NEW-LAP]."
+          disabled={store.running || !store.project}
+          onClick={() => void store.runFsEvents()}
+        />
+        <BigButton
+          icon={FileUp}
+          label="Import lap"
+          title="Import a lap from a data logger or a lap simulator (CSV: speed against time or distance; layouts for GPS loggers, MoTeC i2, AiM Race Studio, OpenLAP and TUM laptime-simulation) and add it as a drive cycle case, optionally repeated to a 22 km endurance with a driver change stop. LightSim gives the energy and the loads for that speed."
+          disabled={store.running || !store.project}
+          onClick={() => setImporting(true)}
+        />
+        {importing && <LapImportDialog onClose={() => setImporting(false)} />}
+        <BigButton
+          icon={Crosshair}
+          label="Calibrate lap"
+          title="Calibrate lap mode on a logged lap: LightSim builds the track from the lap's speed and lateral acceleration, fits the tyres' grip scale and the downforce (CzA) to the logged speed, and checks the prediction on a second lap, blind (lap time, speed RMS and energy errors). The files stay on your computer. Does not run in this version of LightSim yet: it runs lap cases, which fail with Not run [NEW-LAP]."
+          disabled={store.running || !store.project}
+          onClick={() => setCalibrating(true)}
+        />
+        {calibrating && <CalibrateDialog onClose={() => setCalibrating(false)} />}
       </RibbonGroup>
+      <RibbonGroup label="Standard figures">
+        <BigButton
+          icon={Gauge}
+          label="Vehicle tests"
+          title="One-click vehicle tests: 0-100 and 80-120 km/h, top speed, consumption and range at constant speed, steepest grade, virtual coast-down"
+          disabled={store.running || !store.project}
+          onClick={() => setTestsOpen(true)}
+        />
+        <BigButton
+          icon={Fuel}
+          label="US label"
+          title="US window-sticker estimate (not certified): runs the model on EPA's city and highway cycles and shows each step to the label figures"
+          disabled={store.running || !store.project}
+          onClick={() => setLabelOpen(true)}
+        />
+      </RibbonGroup>
+      {labelOpen && <LabelEstimateDialog onClose={() => setLabelOpen(false)} />}
+      {testsOpen && <VehicleTestsDialog onClose={() => setTestsOpen(false)} />}
     </>
   );
 }
@@ -442,6 +604,7 @@ function ResultsTab() {
 }
 
 function ParametersTab() {
+  const sheet = useParameterSheet();
   const running = useProjectStore((s) => s.running);
   const run = useProjectStore((s) => s.run);
   const stopRun = useProjectStore((s) => s.stopRun);
@@ -490,6 +653,36 @@ function ParametersTab() {
           onClick={() => void run()}
         />
         <BigButton icon={Square} label="Stop" disabled={!running} onClick={stopRun} />
+      </RibbonGroup>
+      <RibbonGroup label="Parameter Sheet">
+        <BigButton
+          icon={FileDown}
+          label="Export sheet"
+          title="Every parameter of every part in one Excel workbook (.xlsx), tables and maps on sheets of their own"
+          disabled={!project}
+          onClick={sheet.exportXlsx}
+        />
+        <BigButton
+          icon={FileSpreadsheet}
+          label="Export CSV"
+          title="Every parameter in one CSV file (tables as text in their cell; use .xlsx to edit tables)"
+          disabled={!project}
+          onClick={sheet.exportCsv}
+        />
+        <BigButton
+          icon={FileUp}
+          label="Import sheet"
+          title="Read a parameter sheet back: you see every change before it is applied"
+          disabled={!project || running}
+          onClick={sheet.pickFile}
+        />
+        {sheet.elements}
+        <BigButton
+          icon={Download}
+          label="FS template"
+          title="The Formula Student example's parameter sheet, to fill in with your car's numbers"
+          onClick={downloadParameterTemplate}
+        />
       </RibbonGroup>
     </>
   );
@@ -591,10 +784,75 @@ function RestoreVersionButton() {
   );
 }
 
+/** Copy for AI (AI-30): a short Markdown summary of the model and its last
+ *  run on the clipboard, to paste into any chatbot. Nothing is sent. */
+function CopyForAi() {
+  const [hide, setHide] = useState(false);
+  const [done, setDone] = useState<string | null>(null);
+  const copy = async () => {
+    const s = useProjectStore.getState();
+    if (!s.project) return;
+    const finished = s.runs.filter((r) => r.status !== "running");
+    const run = finished.find((r) => r.id === s.activeRunId) ?? finished.find((r) => !r.sweepId);
+    try {
+      const { text, bytes } = await api.aiOverview(s.project, run, hide);
+      await copyText(text);
+      const kb = (bytes / 1024).toFixed(1);
+      setDone(`Copied (${kb} KB)`);
+      s.log("info", `Copy for AI: a ${kb} KB summary of the model${run ? ` and its run of '${run.caseName}'` : ""} is on the clipboard${hide ? ", numbers hidden" : ""}. Paste it into any chatbot; LightSim sent nothing.`);
+      window.setTimeout(() => setDone(null), 4000);
+    } catch (e) {
+      s.log("error", `Copy for AI failed: ${(e as Error).message ?? e}`);
+    }
+  };
+  return (
+    <div className="flex items-center gap-1">
+      <BigButton
+        icon={ClipboardCopy}
+        label={done ? "Copied" : "Copy for AI"}
+        title="Copy a short summary of the model and its last run, to paste into an AI chatbot (nothing is sent)"
+        onClick={() => void copy()}
+      />
+      <label className="flex flex-col items-start gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
+        <span className="flex items-center gap-1">
+          <input type="checkbox" checked={hide} onChange={(e) => setHide(e.target.checked)} />
+          Hide values
+        </span>
+        <span role="status" className="min-h-[14px]">{done ?? ""}</span>
+      </label>
+      <BigButton
+        icon={Bot}
+        label="Connect AI"
+        title="Connect an AI assistant (Claude, Copilot, Codex, Gemini, Cursor) to LightSim"
+        onClick={() => useUIStore.getState().setAiConnectOpen(true)}
+      />
+    </div>
+  );
+}
+
+/** The clipboard API, with the old copy command where it is not allowed. */
+async function copyText(text: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return;
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    if (!ok) throw new Error("the clipboard is not available");
+  }
+}
+
 function ProjectTab() {
   const project = useProjectStore((s) => s.project);
   const renameSystem = useProjectStore((s) => s.renameSystem);
   const root = project?.systems.find((s) => s.parentId === null);
+  const [cardOpen, setCardOpen] = useState(false);
   return (
     <>
       <RibbonGroup label="Project Settings">
@@ -602,6 +860,7 @@ function ProjectTab() {
           <span className="text-[11px] text-[color:var(--ss-text-dim)]">Project name</span>
           <input
             className="ss-input w-[220px]"
+            aria-label="Project name"
             value={project?.name ?? ""}
             onChange={(e) => root && renameSystem(root.id, e.target.value)}
           />
@@ -613,7 +872,164 @@ function ProjectTab() {
       <RibbonGroup label="Versions">
         <RestoreVersionButton />
       </RibbonGroup>
+      <RibbonGroup label="Example">
+        <BigButton
+          icon={IdCard}
+          label="Card…"
+          title="The project's card: the question it answers, its difficulty, what you learn, what happens when and how far its results are checked"
+          disabled={!project}
+          onClick={() => setCardOpen(true)}
+        />
+        {cardOpen && <ExampleCardDialog onClose={() => setCardOpen(false)} />}
+      </RibbonGroup>
+      <RibbonGroup label="Files">
+        <AttachmentsButton />
+      </RibbonGroup>
+      <ProjectFileNote />
+      <RibbonGroup label="AI assistants">
+        <CopyForAi />
+      </RibbonGroup>
     </>
+  );
+}
+
+/** Where the open project is saved, and whether it is read-only. */
+function ProjectFileNote() {
+  const filePath = useProjectStore((s) => s.filePath);
+  const readOnly = useProjectStore((s) => s.readOnly);
+  const revision = useProjectStore((s) => s.revision);
+  const exampleId = useProjectStore((s) => s.exampleId);
+  const where = filePath
+    ? filePath
+    : exampleId
+      ? "A copy of an example, not saved yet"
+      : revision
+        ? "LightSim's projects folder (File → Open Projects Folder)"
+        : "Not saved yet";
+  return (
+    <div className="flex max-w-[420px] flex-col justify-center gap-0.5 px-2 text-[11px] text-[color:var(--ss-text-dim)]">
+      <span>
+        Saved in: <span className="text-[color:var(--ss-text)] [overflow-wrap:anywhere]">{where}</span>
+      </span>
+      {readOnly && (
+        <span role="status" className="font-semibold text-[color:var(--ss-warn)]">
+          Read-only: {readOnly}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Files kept with the project (STD-02): FMUs, AI models, measured data. Each
+ *  is copied into the project's resources folder; the list shows whether a
+ *  file is missing or changed since it was attached. */
+function AttachmentsButton() {
+  const [open, setOpen] = useState(false);
+  const [onDisk, setOnDisk] = useState<api.AttachedFile[]>([]);
+  const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const project = useProjectStore((s) => s.project);
+  const offline = useProjectStore((s) => s.offline);
+  const readOnly = useProjectStore((s) => s.readOnly);
+  const attachFile = useProjectStore((s) => s.attachFile);
+  const detachFile = useProjectStore((s) => s.detachFile);
+  useDismiss(open, () => setOpen(false), ref, button);
+  const listed = project?.attachments ?? [];
+  const refresh = async () => {
+    if (project) setOnDisk((await api.listAttachments(project.id).catch(() => [])) ?? []);
+  };
+  const status = (path: string, sha256: string) => {
+    const file = onDisk.find((f) => f.path === path);
+    return !file ? "missing" : file.sha256 !== sha256 ? "changed since attached" : "";
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <BigButton
+        ref={button}
+        icon={Paperclip}
+        label="Attached"
+        title="Files kept with the project: other tools' models (FMUs), AI models, measured data"
+        disabled={!project || offline}
+        onClick={async () => {
+          if (!open) await refresh();
+          setOpen(!open);
+        }}
+      />
+      {open && (
+        <div
+          role="menu"
+          aria-label="Attached files"
+          className="absolute left-0 top-[54px] z-50 max-h-[60vh] w-[360px] overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
+        >
+          <MenuHeading>Attached files</MenuHeading>
+          {listed.length === 0 && (
+            <MenuNote>
+              None. An attached file is copied into the project&apos;s resources folder and goes with
+              the project when it is saved, exported or moved.
+            </MenuNote>
+          )}
+          {listed.map((a) => {
+            const problem = status(a.path, a.sha256);
+            return (
+              <div key={a.path} className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
+                <Paperclip size={12} className="shrink-0 text-[color:var(--ss-text-dim)]" />
+                <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                  {a.path.replace(/^resources\//, "")}
+                  <span className="ml-1 text-[10px] text-[color:var(--ss-text-dim)]">
+                    {Math.max(1, Math.round(a.bytes / 1024)).toLocaleString("en")} kB
+                  </span>
+                  {problem && <span className="ml-1 text-[10px] font-semibold text-[color:var(--ss-warn)]">{problem}</span>}
+                </span>
+                <button
+                  role="menuitem"
+                  className="shrink-0 px-1 text-[color:var(--ss-text-dim)] hover:text-[color:var(--ss-text)]"
+                  aria-label={`Remove '${a.path}'`}
+                  title="Remove it from the project and delete it from the resources folder"
+                  disabled={Boolean(readOnly)}
+                  onClick={async () => {
+                    const ok = await confirmDialog({
+                      title: "Remove the attached file?",
+                      message: `'${a.path}' is taken off the project and deleted from its resources folder.`,
+                      confirmLabel: "Remove",
+                      danger: true,
+                    });
+                    if (!ok) return;
+                    await detachFile(a.path);
+                    await refresh();
+                  }}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            );
+          })}
+          <button
+            role="menuitem"
+            className="mt-1 block w-full border-t border-[color:var(--ss-border)] px-3 py-1.5 text-left text-[12px] text-[color:var(--ss-accent)] hover:bg-[color:var(--ss-accent-soft)] disabled:opacity-40"
+            disabled={Boolean(readOnly)}
+            onClick={() => input.current?.click()}
+          >
+            Attach a file…
+          </button>
+          <input
+            ref={input}
+            type="file"
+            aria-label="Attach a file"
+            className="hidden"
+            onChange={async (e) => {
+              const el = e.target;
+              const f = el.files?.[0];
+              el.value = "";
+              if (!f) return;
+              await attachFile(f);
+              await refresh();
+            }}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -654,7 +1070,7 @@ function GlobalRunControl() {
       </select>
       {running ? (
         <button
-          className="flex items-center gap-1 rounded bg-red-600 px-2 py-[3px] text-[11px] font-semibold text-white hover:bg-red-700"
+          className="flex items-center gap-1 rounded bg-[color:var(--ss-err-fill)] px-2 py-[3px] text-[11px] font-semibold text-white hover:brightness-110"
           onClick={stopRun}
           title="Stop the running simulation"
         >
@@ -662,10 +1078,11 @@ function GlobalRunControl() {
         </button>
       ) : (
         <button
-          className="flex items-center gap-1 rounded bg-[color:var(--ss-accent)] px-2 py-[3px] text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-40"
+          className="flex items-center gap-1 rounded bg-[color:var(--ss-accent-fill)] px-2 py-[3px] text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-40"
           onClick={() => void run()}
           disabled={!project}
           title="Run the active case (Ctrl+Enter)"
+          data-tour="run"
         >
           <Play size={11} /> Run
         </button>
@@ -723,7 +1140,7 @@ export function Ribbon() {
   return (
     <div className="ss-zoom shrink-0 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-chrome)]">
       <div className="flex items-center gap-1 px-2 pt-1">
-        <div className="mr-1 flex items-center gap-1.5 rounded bg-[color:var(--ss-accent)] px-2 py-0.5 text-[12px] font-semibold text-white">
+        <div className="mr-1 flex items-center gap-1.5 rounded bg-[color:var(--ss-accent-fill)] px-2 py-0.5 text-[12px] font-semibold text-white">
           LightSim
         </div>
         {TABS.map((t) => (
@@ -735,6 +1152,7 @@ export function Ribbon() {
                 : "text-[color:var(--ss-text)] hover:bg-[color:var(--ss-hover)]"
             }`}
             onClick={() => setTab(t.id)}
+            data-tour={`tab-${t.id}`}
           >
             {t.label}
           </button>
@@ -748,6 +1166,7 @@ export function Ribbon() {
           </span>
           <div className="h-4 w-px bg-[color:var(--ss-border)]" />
           <FontSizeControl />
+          <HelpMenu />
           <button
             className="rounded p-1 hover:bg-[color:var(--ss-hover)]"
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
@@ -758,14 +1177,17 @@ export function Ribbon() {
           </button>
         </div>
       </div>
-      <div className="flex h-[72px] items-stretch border-t border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1">
-        {tab === "home" && <HomeTab />}
-        {tab === "simulations" && <SimulationsTab />}
-        {tab === "results" && <ResultsTab />}
-        {tab === "parameters" && <ParametersTab />}
-        {tab === "project" && <ProjectTab />}
-        {tab === "optimization" && <StubTab name="Optimization" />}
-      </div>
+      {/* the Start page has no commands of its own: no band */}
+      {tab !== "start" && (
+        <div className="flex h-[72px] items-stretch border-t border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1">
+          {tab === "home" && <HomeTab />}
+          {tab === "simulations" && <SimulationsTab />}
+          {tab === "results" && <ResultsTab />}
+          {tab === "parameters" && <ParametersTab />}
+          {tab === "project" && <ProjectTab />}
+          {tab === "optimization" && <StubTab name="Optimization" />}
+        </div>
+      )}
     </div>
   );
 }

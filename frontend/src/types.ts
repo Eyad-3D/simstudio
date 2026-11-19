@@ -45,13 +45,30 @@ export interface ParameterDef {
   /** Required; "-" marks dimensionless. For tables: unit of the dependent value. */
   unit: string;
   default: ParamValue;
-  type: "number" | "enum" | "boolean" | "string" | "code" | "table1d" | "table2d";
+  /** "file": the value names a file attached to the project
+   *  ("resources/<name>", STD-02); "" while none is chosen. */
+  type: "number" | "enum" | "boolean" | "string" | "code" | "table1d" | "table2d" | "file";
   options?: string[];
+  /** file parameters: the file extensions it takes, e.g. [".fmu"] */
+  accept?: string[] | null;
   /** table1d: one axis; table2d: [outer, inner]. */
   axes?: AxisDef[];
   /** FMI-style variability: "fixed" params are baked in at model build (live
    *  edits take effect on the next run); "tunable" (default) apply live. */
   variability?: "fixed" | "tunable";
+  /** Help (LRN-05): what it is in plain words, the usual values and where to
+   *  find the real number. */
+  description?: string | null;
+  typical?: string | null;
+  whereToFind?: string | null;
+  /** Hard limits of a number (JSON Schema names): outside them the field
+   *  turns red and Data Checks report an error. */
+  minimum?: number | null;
+  exclusiveMinimum?: number | null;
+  maximum?: number | null;
+  /** Shown only while another parameter of the part has one of these values
+   *  (a battery's cell fields when it is built from cells). */
+  showIf?: { key: string; values: ScalarValue[] } | null;
 }
 
 export interface ComponentDef {
@@ -65,6 +82,8 @@ export interface ComponentDef {
   parameters: ParameterDef[];
   /** Elements of this type may carry per-instance signal ports (Script, Monitor). */
   allowDynamicPorts?: boolean;
+  /** Sets of parameter values the Properties panel applies in one step. */
+  presets?: { name: string; values: Record<string, ParamValue>; note?: string }[];
 }
 
 export type PortSide = "left" | "right" | "top" | "bottom";
@@ -89,6 +108,25 @@ export interface ElementInstance {
   size?: { width: number; height: number } | null;
   isSubSystem?: boolean;
   subSystemId?: string | null;
+  /** A text component: the path of a file holding the part as one component
+   *  in the new engine's text format, built in the place of its built-in
+   *  definition (a path that is not absolute: from the projects folder). */
+  textFile?: string | null;
+  /** Where each parameter value comes from (CON-13), by parameter key. */
+  parameterSources?: Record<string, ParameterSource>;
+}
+
+/** The kinds of origin a parameter value can have (CON-13). */
+export type SourceKind = "measured" | "datasheet" | "estimated" | "library default" | "generated";
+
+/** Where a value comes from and how sure it is: confidence on ADVISOR's
+ *  scale, 0 not checked, 1 agrees with its source, 2 source and method
+ *  checked. */
+export interface ParameterSource {
+  source: string;
+  kind: SourceKind;
+  confidence: 0 | 1 | 2;
+  note?: string;
 }
 
 export interface Connection {
@@ -115,6 +153,9 @@ export interface SystemNode {
   connections: Connection[];
 }
 
+/** A Formula Student dynamic event (MOD-43). */
+export type FsEvent = "acceleration" | "skidpad" | "autocross" | "endurance";
+
 export interface SimCase {
   id: string;
   name: string;
@@ -129,9 +170,54 @@ export interface SimCase {
    * "performance": the Driver holds full throttle until the car reaches its
    * target (its PI holds the target after that), and the run reports the
    * time to the target and the maximum speed instead of judging the speed
-   * trace (a 0-100 km/h or top-speed test). Absent = "cycle".
+   * trace (a 0-100 km/h or top-speed test). "acceleration": the Driver holds
+   * full throttle for the whole run (its target is not read) and the run is
+   * timed from the start line to endDistance past it, with the duration as its
+   * time limit (a Formula Student 75 m acceleration run). "lap": the model's
+   * Race Track (its layout and laps, per case through parameterOverrides)
+   * sets the run: a quasi-steady-state lap solver finds the speed along it and
+   * the motors and battery drive that trace; duration, timeStep and
+   * realtimeFactor do not apply. Absent = "cycle".
    */
-  kind?: "cycle" | "performance";
+  kind?: "cycle" | "performance" | "acceleration" | "lap";
+  /** End the run when the vehicle has driven startLine + endDistance, m; null/0 = run the duration. */
+  endDistance?: number | null;
+  /**
+   * End the run after this many passes through the profile of the Driving
+   * Task the Driver follows, when its Profile Axis is "distance" (ENG-34);
+   * endDistance wins when both are set. null/0 = no lap count.
+   */
+  endLaps?: number | null;
+  /**
+   * Charge balancing (ENG-33): run the cycle again from the charge the battery
+   * ended with until its stored energy changes by less than 1 % of the fuel's
+   * energy. null/absent = on for a cycle case whose model has an engine and a
+   * battery (and is not paced).
+   */
+  chargeBalance?: boolean | null;
+  /**
+   * "quick": the new engine's fast mode (the cycle's speed prescribed, the
+   * Driver's pedal worked out back from it, limits flagged, not acted on):
+   * a cycle's totals, without the peaks, the verdict or the reports. A case
+   * it does not run runs in full, saying why. Absent = "full".
+   */
+  mode?: "full" | "quick";
+  /** Distance driven before the timer starts, m (FS Rules 2026 v1.1 (FSG) D 5.2.3: 0.30 m). */
+  startLine?: number;
+  /** A time to compare the acceleration test's time with, s; null = none. */
+  referenceTime?: number | null;
+  /** Build the run's energy report (RES-22); absent = on. */
+  energyReport?: boolean;
+  /**
+   * A Formula Student dynamic event this case stands for (MOD-43): the run
+   * reports the event's time, the points against referenceTime (the fastest
+   * team's time) and the rule checks; "endurance" stops the car for the
+   * driver change at half distance and reports the efficiency. Absent = none.
+   */
+  fsEvent?: FsEvent | null;
+  /** The most efficient team's endurance energy, kWh, and its time, s (null: referenceTime). */
+  referenceEnergy?: number | null;
+  referenceEnergyTime?: number | null;
   /**
    * Per-case parameter overrides: { elementId: { paramKey: value } }. Layered
    * on top of each element's own parameterOverrides at solve time, so a case
@@ -139,6 +225,43 @@ export interface SimCase {
    * shared topology.
    */
   parameterOverrides?: Record<string, Record<string, ParamValue>>;
+  /** Expected values (VAL-35): numbers the user trusts, each run graded
+   *  against them. */
+  references?: ReferenceValue[];
+}
+
+/** An expected value of a case (VAL-35): a summary value's label, the
+ *  number, its tolerance and where it comes from. */
+export interface ReferenceValue {
+  kpi: string;
+  value: number;
+  /** in % of the value when tolerancePct (the default), else in its unit */
+  tolerance: number;
+  tolerancePct?: boolean;
+  source?: string;
+}
+
+/** within: green (gap ≤ tolerance); near: amber (≤ 2 × tolerance);
+ *  outside: red; missing: the run has no such value; not valid: the run
+ *  rules the value out. */
+export type ReferenceGrade = "within" | "near" | "outside" | "missing" | "not valid";
+
+/** How far a run's value is from a reference or a hand calculation. */
+export interface ReferenceCheck {
+  label: string;
+  value?: number | null;
+  reference: number;
+  unit: string;
+  difference?: number | null;
+  differencePct?: number | null;
+  /** absolute, in the unit */
+  tolerance: number;
+  grade: ReferenceGrade;
+  source: string;
+  /** an automatic hand calculation, not a value the user typed */
+  automatic: boolean;
+  bound: "two-sided" | "at most" | "at least";
+  note?: string | null;
 }
 
 /** One swept parameter of a study, with its labels as they were when it ran
@@ -165,10 +288,13 @@ export interface StudyPoint {
   kpis: Record<string, number>;
   /** summary value label → why the run's checks rule that value out */
   notValid?: Record<string, string>;
+  /** the point's run's wall time, s (ENG-05) */
+  wallS?: number;
 }
 
-/** A parameter study saved with its project (STU-03): what was swept on which
- *  case, and its compact results table (it outlives the runs it came from). */
+/** A parameter study (STU-03): what was swept on which case, and its compact
+ *  results table (it outlives the runs it came from). Kept with the
+ *  project's runs, not in the model file (PLT-34). */
 export interface Study {
   id: string;
   /** epoch ms */
@@ -179,21 +305,84 @@ export interface Study {
   /** the table's KPI columns: run summary values */
   kpis: { label: string; unit: string }[];
   points: StudyPoint[];
+  /** how many points ran at once, and the study's wall time, s (ENG-05) */
+  workers?: number;
+  wallS?: number;
+}
+
+/** A file kept with the project (STD-02) in its resources folder; the hash
+ *  is the file's when it was attached, so a changed file is noticed. */
+export interface Attachment {
+  /** relative to the project: "resources/<name>" */
+  path: string;
+  sha256: string;
+  bytes: number;
 }
 
 export interface Project {
   id: string;
   name: string;
-  /** Project-file format version (files from before versioning are v1). */
+  /** Project-file format version (files from before versioning are v1); the
+   *  engine upgrades older files on load and sets it on save (PLT-07). */
   schemaVersion?: number;
+  /** The LightSim version that last saved the file. */
+  savedWith?: string | null;
   /** Short human-readable summary (example projects set this; usually omitted). */
   description?: string | null;
   systems: SystemNode[];
   dataBusConnections: DataBusConnection[];
   cases: SimCase[];
-  /** Parameter studies run on this project, oldest first. */
-  studies?: Study[];
+  /** An example's card (CON-15): what it answers and what to expect. */
+  card?: ExampleCard | null;
+  /** Files kept with the project: FMUs, AI models, measured data (STD-02). */
+  attachments?: Attachment[];
+  /** Drive cycles of the user's own, imported from a file (CON-11). */
+  cycles?: ProjectCycle[];
 }
+
+/** A drive cycle of the user's own, kept in the project file (CON-11): a
+ *  speed (km/h) and/or a road grade (%) at each point of `x`, the time in s
+ *  or, with axis "distance", the distance driven in m. A Driving Task or
+ *  Road Profile names it by id in its `cycle`, like a bundled cycle. */
+export interface ProjectCycle {
+  /** "own:" and up to 64 letters, digits, ".", "_" or "-" */
+  id: string;
+  name: string;
+  axis: "time" | "distance";
+  x: number[];
+  /** km/h, one per x; needed against time */
+  speed?: number[] | null;
+  /** %, one per x */
+  grade?: number[] | null;
+  /** where it came from, e.g. the file it was imported from */
+  source?: string;
+  note?: string;
+}
+
+/** What an example answers and what to expect from it (CON-15); its
+ *  expected results are its cases' reference values. */
+export interface ExampleCard {
+  question: string;
+  tags: string[];
+  difficulty: "beginner" | "intermediate" | "advanced";
+  /** about how long its cases take to run, s */
+  runTimeS?: number | null;
+  /** what you will learn */
+  learn: string[];
+  /** demo: shows the workflow; plausibility-checked: results in bands from
+   *  real cars; validated: compared with measurements of that car */
+  status: "demo" | "plausibility-checked" | "validated";
+  features: string[];
+  author: string;
+  version: string;
+  licence: string;
+  /** what happens when, step by step */
+  narrative: string[];
+}
+
+/** A project as a file from before 0.3.0 (format 1) may hold it: with its
+ *  studies, which now live with the runs (PLT-34). */
+export type LegacyProject = Project & { studies?: Study[] };
 
 export interface SimMessage {
   level: "info" | "warning" | "error";
@@ -207,14 +396,126 @@ export interface Channel {
   unit: string;
   /** value is null where the channel has no data yet (a gap, not a zero). */
   timeSeries: { t: number; value: number | null }[];
+  /**
+   * The lowest, highest and time-averaged value over the output interval that
+   * ends at each point, taken at every solver step (ENG-16), so a peak between
+   * two recorded points is kept; aligned with timeSeries. Absent when every
+   * point is one solver step, and in runs from before 0.3.
+   */
+  min?: (number | null)[];
+  max?: (number | null)[];
+  mean?: (number | null)[];
 }
 
 export interface SummaryValue {
+  /** Stable name of the figure ("distance_km", "el-battery.final_soc_pct"):
+   *  the same across labels, languages and versions (docs/spec/results.md).
+   *  Missing on runs stored before 0.3. Compare rows with sameFigure(). */
+  key?: string;
   label: string;
   value: number;
   unit: string;
   /** Why the run verdict says this number is not valid, e.g. "cycle not followed". */
   notValid?: string | null;
+  /** A check's limit, in the row's unit, and whether the value kept to it. */
+  limit?: number | null;
+  passed?: boolean | null;
+}
+
+/** One part's energy over a run (MOD-10), kWh; its duty values in kW.
+ *  energyIn − energyOut − losses − stored = 0 for every part. */
+export interface PartEnergyFlow {
+  /** null for a driveline's rotating parts */
+  elementId?: string | null;
+  label: string;
+  /** the component type ("motor.emotor"), or "driveline.inertia" */
+  part: string;
+  energyIn: number;
+  energyOut: number;
+  losses: number;
+  /** change in the energy it stores (+ when it fills) */
+  stored: number;
+  /** the part of energyIn that came back from the road side (regeneration) */
+  energyInReverse?: number;
+  /** its throughput power's peak, mean and RMS; null for wheels and rotating parts */
+  peakPower?: number | null;
+  meanPower?: number | null;
+  rmsPower?: number | null;
+  /** named parts of its losses or store, kWh (the Vehicle's air drag, …) */
+  terms?: Record<string, number>;
+}
+
+/** One row of the energy table (RES-22), kWh: in − out − lost − stored is 0
+ *  for a part that keeps its books. */
+export interface EnergyPart {
+  /** null for a row that is not one part (the driveline's gears together) */
+  elementId?: string | null;
+  label: string;
+  kind: string;
+  inKWh: number;
+  outKWh: number;
+  /** lost, or used by a consumer */
+  lostKWh: number;
+  /** the change of what it stores */
+  storedKWh: number;
+  /** its loss as a share of the sources' energy, % */
+  lostPct: number;
+}
+
+/** A band of the energy Sankey chart. */
+export interface EnergyFlow {
+  label: string;
+  kWh: number;
+  /** "source" or "released" on the left; "road", "stored", "brakes",
+   *  "losses", "loads" or "recovered" on the right */
+  group: string;
+  elementId?: string | null;
+}
+
+export interface EnergyReport {
+  parts: EnergyPart[];
+  sources: EnergyFlow[];
+  sinks: EnergyFlow[];
+  sourceKWh: number;
+  /** the sources less the sinks: what the books do not explain */
+  remainderKWh: number;
+  remainderPct: number;
+  /** the run's electrical energy balance error, % */
+  balanceErrorPct?: number | null;
+}
+
+/** A part's duty for one quantity (RES-39), over the run's solver steps. */
+export interface DutyRow {
+  quantity: string;
+  unit: string;
+  max: number;
+  min: number;
+  mean: number;
+  /** root-mean-square: the mean that sets heating */
+  rms: number;
+}
+
+export interface DutyPart {
+  elementId: string;
+  label: string;
+  kind: string;
+  rows: DutyRow[];
+}
+
+/** What held one driveline back (RES-38). */
+export interface LimitLane {
+  label: string;
+  elementIds: string[];
+  /** [t in s, index into LimitReport.states] from each change on */
+  changes: [number, number][];
+  /** seconds in each state */
+  seconds: Record<string, number>;
+}
+
+export interface LimitReport {
+  states: string[];
+  lanes: LimitLane[];
+  tEnd: number;
 }
 
 export interface SimResult {
@@ -224,15 +525,37 @@ export interface SimResult {
   messages: SimMessage[];
   channels: Channel[];
   summary: SummaryValue[];
+  /** where the energy went, part by part, from every part's own books (MOD-10);
+   *  absent in runs from before 0.3 */
+  partEnergy?: PartEnergyFlow[];
+  /** the run's reports (absent on older runs, failed ones and live runs until they end) */
+  energy?: EnergyReport | null;
+  duty?: DutyPart[];
+  limits?: LimitReport | null;
+  /** the case's expected values and the hand calculations, graded (absent
+   *  on runs from before 0.3) */
+  references?: ReferenceCheck[];
+  /** what ran it: the engine ("today" or "new"), its version and the solver
+   *  options it ran with (absent on runs from before 0.4) */
+  engine?: string | null;
+  engineVersion?: string | null;
+  solverOptions?: Record<string, number> | null;
+  /** the live edits the run made, each at the simulated time the run had
+   *  reached when the engine took it (absent on runs from before 0.4) */
+  liveEdits?: LiveEdit[];
 }
 
 /** A scalar parameter change sent to the engine while a run was going. */
 export interface LiveEdit {
-  /** simulated time the run had reached when the edit was sent, s */
+  /** simulated time the run had reached when the edit was sent (or, from
+   *  the result, when the engine took it), s */
   t: number;
   elementId: string;
   key: string;
   value: ScalarValue;
+  /** for an edit the run did not make (it takes effect on the next run):
+   *  the result's note of it, which says why, with its code */
+  note?: string | null;
 }
 
 /** What made a run (RES-09): enough to tell which model and settings
@@ -247,8 +570,14 @@ export interface RunSnapshot {
   /** SHA-256 of the project as canonical JSON, hex (absent where the
    *  browser offers no Web Crypto) */
   modelHash?: string;
-  /** scalar parameter edits made while it ran, in order */
+  /** scalar parameter edits made while it ran, in order: the engine's own
+   *  list, from the result, where it has one */
   liveEdits: LiveEdit[];
+  /** the engine that ran it, its version and its solver options, from the
+   *  result (absent on runs from before 0.4) */
+  engine?: string | null;
+  engineVersion?: string | null;
+  solverOptions?: Record<string, number> | null;
 }
 
 /** One recorded simulation run. Finished runs are stored on disk with their
@@ -274,6 +603,11 @@ export interface SimRun {
   /** The model, settings and version that made it; absent on runs stored
    *  before runs kept one. */
   snapshot?: RunSnapshot;
+  /** Its label in place of the clock time: what changed since the previous
+   *  run of its case ("Vehicle Mass 2,300 kg"), or what the user typed. */
+  name?: string;
+  /** The user's note about it. */
+  note?: string;
 }
 
 /** A project's stored run as the engine lists it: the run without its
@@ -289,7 +623,15 @@ export interface DataCheck {
   level: "info" | "warning" | "error";
   elementId?: string | null;
   elementLabel?: string | null;
+  /** Every part the check is about, elementId first (absent from engines
+   *  before 0.3). */
+  elementIds?: string[];
   text: string;
+  /** What to do about it, when the text does not say. */
+  fix?: string | null;
+  /** The case it is about (its own values or kind): it stops only that
+   *  case's runs. Absent or null: it is about the model and stops every run. */
+  caseId?: string | null;
 }
 
 export interface LogMessage {
@@ -297,3 +639,33 @@ export interface LogMessage {
   text: string;
   time: string; // HH:MM:SS
 }
+
+/** One dataset or method a run rests on (VAL-37). */
+export interface RunSource {
+  /** a data register row (DR-nn), "own" for the project's own values, or a reference */
+  id: string;
+  title: string;
+  source: string;
+  licence: string;
+  credit: string;
+  /** 0: source unknown; 1: known source, not validated; 2: validated */
+  confidence: number;
+  /** the parameters that use it: "Vehicle · Vehicle Mass" */
+  usedBy: string[];
+  kind: "data" | "method" | "own";
+}
+
+export interface RunSources {
+  sources: RunSource[];
+  /** the run rests on values whose source is unknown */
+  unknownProvenance: boolean;
+  /** attribution sentences the data's licences ask for */
+  credits: string[];
+  bibtex: string;
+  cslJson: Record<string, unknown>[];
+}
+
+/** Whether two summary rows (of two runs) are the same figure: by their
+ *  stable keys, or by label when a run stored before 0.3 has none. */
+export const sameFigure = (a: Pick<SummaryValue, "key" | "label">, b: Pick<SummaryValue, "key" | "label">): boolean =>
+  a.key && b.key ? a.key === b.key : a.label === b.label;

@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from typing import Callable
+from typing import Callable, Iterable
 
+from . import cycles
+from .fmu.block import COMPONENT_ID as FMU_COMPONENT
+from .fmu.block import problems as fmu_problems
 from .library import library_by_id
-from .schemas import DataCheck, ElementInstance, Project
+from .schemas import DataCheck, ElementInstance, ParameterDef, Project, SimCase
 from .solver import (
     Model,
     ModelError,
@@ -25,11 +28,13 @@ from .solver import (
     build_model,
     check_script,
     interp1,
+    lapsim,
     motor_max_rpm,
     parse_table1d,
     parse_table2d,
     profile_problems,
 )
+from .solver.battery import CELLS
 from .solver.maps import inner_range
 from .solver.network import (
     AXLE_GEAR_TYPES,
@@ -39,35 +44,13 @@ from .solver.network import (
     ROAD_LOAD_ABC,
     SIGNAL_BLOCK_TYPES,
     ports_of,
+    resolve_params,
 )
-from .solver.runtime import AMBIENT_C, AMBIENT_KPA, air_density
-
-# param key → (label, min exclusive, max inclusive)
-NUMERIC_RANGES: dict[str, tuple[str, float, float]] = {
-    "efficiency_pct": ("Efficiency", 0.0, 100.0),
-    "initial_soc_pct": ("Initial SOC", 0.0, 100.0),
-    "min_soc_pct": ("Minimum SOC", 0.0, 100.0),
-    "regen_weight_pct": ("Recuperation weight", -0.001, 100.0),
-    "q4_torque_scale_pct": ("Generator torque scale", -0.001, 200.0),
-    "vehicle_load_share_pct": ("Vehicle load share", 0.0, 100.0),
-    "torque_split_a_pct": ("Torque split", -0.001, 100.0),
-    "initial_fill_pct": ("Initial fill", -0.001, 100.0),
-    "coulombic_efficiency_pct": ("Coulombic efficiency", 0.0, 100.0),
-    "capacity_Ah": ("Charge capacity", -0.001, 1e5),
-    "temperature_C": ("Temperature", -273.15, 1000.0),
-    "max_speed_rpm": ("Maximum speed", -0.001, math.inf),
-    "road_load_a_N": ("Road load A", -math.inf, math.inf),
-    "road_load_b_N_per_kmh": ("Road load B", -math.inf, math.inf),
-    "road_load_c_N_per_kmh2": ("Road load C", -math.inf, math.inf),
-}
-
-POSITIVE_PARAMS = {
-    "capacity_kWh": "capacity",
-    "mass_kg": "mass",
-    "radius_m": "wheel radius",
-    "ratio": "transmission ratio",
-    "pressure_kPa": "pressure",
-}
+from .solver.profiles import distance_axis, parse_profile
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, GRAVITY, MAX_SUBSTEP, RPM, air_density, ocv_mean
+from .solver.scaling import VALID_RANGE, max_speed_rpm, scale_keys, scaled
+from .solver.stability import solver_step
+from .tyre import parse_tyre_code
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
 PROPULSION = {
@@ -96,16 +79,78 @@ Add = Callable[..., None]
 COARSE_SAMPLE_TIME_S = 0.1
 
 
+def _as_number(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _name(pdef: ParameterDef) -> str:
+    """A parameter's label without its note: 'Charge Capacity (0 = …)'."""
+    return pdef.label.split(" (")[0]
+
+
+def _number_problem(pdef: ParameterDef, value) -> str | None:
+    """What is wrong with a number parameter's value, in words, or None."""
+    v = _as_number(value)
+    if v is None:
+        return "is not a number"
+    problem = pdef.range_problem(v) if math.isfinite(v) else "must be a finite number"
+    return f"{problem} — got {v:g}" if problem else None
+
+
+def value_problems(project: Project, case_id: str) -> list[str]:
+    """The numbers a run of case ``case_id`` reads (each part's own value,
+    the case's own over it) that break their parameters' limits, in Data
+    Checks' words: what a single run is refused for, and what a study's
+    point, whose values Data Checks never see, can still hold."""
+    defs = library_by_id()
+    case = next((c for c in project.cases if c.id == case_id), None)
+    over = case.parameterOverrides if case else {}
+    out = []
+    for system in project.systems:
+        for el in system.elements:
+            cdef = defs.get(el.componentDefId)
+            for pdef in cdef.parameters if cdef else ():
+                value = over.get(el.id, {}).get(pdef.key, el.parameterOverrides.get(pdef.key, pdef.default))
+                if pdef.type == "number" and (problem := _number_problem(pdef, value)):
+                    out.append(f"{_name(pdef)} of '{el.label}' {problem}")
+    return out
+
+
+def run_blockers(checks: Iterable, case_id: str | None) -> list:
+    """The errors among ``checks`` that stop a run of case ``case_id``:
+    those about the model, and those about that case only (an error about
+    another case's own values or kind does not stop it). ``case_id`` None:
+    the model's errors only."""
+    return [c for c in checks if c.level == "error"
+            and (getattr(c, "caseId", None) is None or c.caseId == case_id)]
+
+
+CASE_KINDS = {"cycle": "Cycle", "performance": "Performance", "acceleration": "Acceleration",
+              "lap": "Lap"}
+
+
 def validate_project(project: Project) -> list[DataCheck]:
     checks: list[DataCheck] = []
     defs = library_by_id()
 
-    def add(level: str, text: str, el: ElementInstance | None = None) -> None:
+    def add(level: str, text: str, el: ElementInstance | None = None, *,
+            ids: Iterable[str | None] = (), fix: str | None = None,
+            case: SimCase | None = None) -> None:
+        # every part it is about, `el` first; `case`: the case it is about
+        # (it stops only that case's runs)
+        about = list(dict.fromkeys(i for i in (el.id if el else None, *ids) if i in all_elements))
+        first = el or (all_elements[about[0]] if about else None)
         checks.append(DataCheck(
             level=level,  # type: ignore[arg-type]
             text=text,
-            elementId=el.id if el else None,
-            elementLabel=el.label if el else None,
+            elementId=first.id if first else None,
+            elementLabel=first.label if first else None,
+            elementIds=about,
+            fix=fix,
+            caseId=case.id if case is not None else None,
         ))
 
     all_elements = {el.id: el for s in project.systems for el in s.elements}
@@ -144,38 +189,52 @@ def validate_project(project: Project) -> list[DataCheck]:
 
     for system in project.systems:
         for conn in system.connections:
+            # the diagram cannot draw such a wire, so it goes with a part at its end
+            ends = [all_elements[i] for i in (conn.sourceElementId, conn.targetElementId)
+                    if i in all_elements]
             for el_id, port_id in ((conn.sourceElementId, conn.sourcePortId),
                                    (conn.targetElementId, conn.targetPortId)):
                 if el_id not in all_elements:
-                    add("error", f"Connection '{conn.id}' references missing element '{el_id}'.")
+                    add("error", f"Connection '{conn.id}' references missing element '{el_id}'.",
+                        ids=(conn.sourceElementId, conn.targetElementId),
+                        fix=f"The diagram cannot show this wire: delete '{ends[0].label}' (the "
+                            "wire goes with it) and add it again." if ends else None)
                 elif port_of(el_id, port_id) is None:
                     add("error",
                         f"Connection '{conn.id}' references missing port '{port_id}' "
-                        f"on '{all_elements[el_id].label}'.")
+                        f"on '{all_elements[el_id].label}'.", all_elements[el_id],
+                        fix=f"The diagram cannot show this wire: delete '{all_elements[el_id].label}' "
+                            "(the wire goes with it) and add it again.")
             pa = port_of(conn.sourceElementId, conn.sourcePortId)
             pb = port_of(conn.targetElementId, conn.targetPortId)
             if pa and pb and pa.kind != pb.kind and "signal" not in (pa.kind, pb.kind):
                 add("error",
                     f"Connection between '{all_elements[conn.sourceElementId].label}' and "
                     f"'{all_elements[conn.targetElementId].label}' mixes incompatible port "
-                    f"kinds ({pa.kind} ↔ {pb.kind}).")
+                    f"kinds ({pa.kind} ↔ {pb.kind}).",
+                    ids=(conn.sourceElementId, conn.targetElementId))
             elif pa and pb and pa.kind == pb.kind and pa.kind in ("thermal", "fluid"):
                 add("warning",
                     f"Connection between '{all_elements[conn.sourceElementId].label}' and "
                     f"'{all_elements[conn.targetElementId].label}' is a {pa.kind} connection — "
-                    f"this version has no {pa.kind} solver, so it is ignored during simulation.")
+                    f"this version has no {pa.kind} solver, so it is ignored during simulation.",
+                    ids=(conn.sourceElementId, conn.targetElementId))
 
     for dbc in project.dataBusConnections:
         p1 = port_of(dbc.element1Id, dbc.port1Id)
         p2 = port_of(dbc.element2Id, dbc.port2Id)
         if p1 is None or p2 is None:
-            add("error", "Data bus connection references a missing element or port.")
+            add("error", "Data bus connection references a missing element or port.",
+                ids=(dbc.element1Id, dbc.element2Id),
+                fix="Remove it in Data Bus Connections and link the signal again.")
             continue
         if p1.direction == p2.direction and p1.direction in ("input", "output"):
             add("warning",
                 f"Data bus connection links two {p1.direction}s "
                 f"('{all_elements[dbc.element1Id].label}.{p1.name}' ↔ "
-                f"'{all_elements[dbc.element2Id].label}.{p2.name}') — no data will flow.")
+                f"'{all_elements[dbc.element2Id].label}.{p2.name}') — no data will flow.",
+                ids=(dbc.element1Id, dbc.element2Id),
+                fix="Remove it in Data Bus Connections: a link runs from an output to an input.")
 
     # -- signal fan-in: an input takes one source; the solver keeps the last ----
     sources_of: dict[tuple[str, str], list[tuple[str, str]]] = {}
@@ -214,6 +273,9 @@ def validate_project(project: Project) -> list[DataCheck]:
                 f"Remove all but one of them.",
                 all_elements[el_id])
 
+    # -- signal units (VAL-17): a wire that changes nothing about the number ----
+    _unit_checks(sources_of, all_elements, port_of, defs, add)
+
     # -- parameter sanity --------------------------------------------------------
     for el in all_elements.values():
         cdef = defs.get(el.componentDefId)
@@ -221,24 +283,9 @@ def validate_project(project: Project) -> list[DataCheck]:
             continue
         params = {p.key: p.default for p in cdef.parameters}
         params.update(el.parameterOverrides)
-        pdef_by_key = {p.key: p for p in cdef.parameters}
-
-        for key, (label, lo, hi) in NUMERIC_RANGES.items():
-            if key in params and pdef_by_key.get(key) and pdef_by_key[key].type == "number":
-                try:
-                    val = float(params[key])  # type: ignore[arg-type]
-                except (TypeError, ValueError):
-                    add("error", f"{label} of '{el.label}' is not a number.", el)
-                    continue
-                if not (lo < val <= hi):
-                    add("error", f"{label} of '{el.label}' must be in ({lo:g}, {hi:g}] — got {val:g}.", el)
-        for key, label in POSITIVE_PARAMS.items():
-            if key in params and pdef_by_key.get(key) and pdef_by_key[key].type == "number":
-                try:
-                    if float(params[key]) <= 0:  # type: ignore[arg-type]
-                        add("error", f"'{el.label}' has a non-positive {label}.", el)
-                except (TypeError, ValueError):
-                    add("error", f"'{el.label}': {label} is not a number.", el)
+        for pdef in cdef.parameters:  # number limits, from the catalogue
+            if pdef.type == "number" and (problem := _number_problem(pdef, params[pdef.key])):
+                add("error", f"{_name(pdef)} of '{el.label}' {problem}.", el)
 
         for pdef in cdef.parameters:
             value = params.get(pdef.key)
@@ -258,24 +305,33 @@ def validate_project(project: Project) -> list[DataCheck]:
                 except ScriptError as e:
                     add("error", str(e), el)
 
-        if cdef.id in ("signal.driving_task", "signal.road_profile"):
+        if cdef.id == FMU_COMPONENT:  # reads the FMU file; never runs it
+            for level, text, fix in fmu_problems(el.label, params, el.dynamicPorts):
+                add(level, text, el, fix=fix)
+
+        # a Driving Task or Road Profile on a drive cycle follows the cycle,
+        # not its typed profile; an unknown cycle is build_model's error (below)
+        if cdef.id in ("signal.road_profile", "signal.driving_task") and not params.get("cycle"):
             for level, text in profile_problems(str(params.get("profile", ""))):
                 add(level, f"'{el.label}' profile: {text}.", el)
-        if "sample_time_s" in pdef_by_key:
-            try:
-                ts = float(params.get("sample_time_s", 0) or 0)  # type: ignore[arg-type]
-            except (TypeError, ValueError):
-                add("error", f"Sample Time of '{el.label}' is not a number.", el)
-            else:
-                if not math.isfinite(ts):
-                    add("error", f"Sample Time of '{el.label}' must be a finite number — got {ts:g}.", el)
-                elif ts < 0:
-                    add("error", f"Sample Time of '{el.label}' must not be negative — got {ts:g} s.", el)
-                elif ts > COARSE_SAMPLE_TIME_S:
-                    add("warning",
-                        f"'{el.label}' runs only every {ts:g} s (its Sample Time); real vehicle "
-                        f"controllers run every 10-100 ms, so results may depend on this "
-                        f"setting.", el)
+        ts = _as_number(params.get("sample_time_s", 0))  # a wrong one is an error above
+        if ts is not None and COARSE_SAMPLE_TIME_S < ts < math.inf:
+            add("warning",
+                f"'{el.label}' runs only every {ts:g} s (its Sample Time); real vehicle "
+                f"controllers run every 10-100 ms, so results may depend on this "
+                f"setting.", el)
+
+    # a case's own values (Cases & Parameters) keep to the same limits
+    for case in project.cases:
+        for el_id, values in case.parameterOverrides.items():
+            el = all_elements.get(el_id)
+            cdef = defs.get(el.componentDefId) if el else None
+            for pdef in cdef.parameters if cdef else ():
+                if pdef.type == "number" and pdef.key in values \
+                        and (problem := _number_problem(pdef, values[pdef.key])):
+                    add("error", f"{_name(pdef)} of '{el.label}' in case '{case.name}' {problem}.",
+                        el, fix="Change or remove the override in Cases & Parameters.",
+                        case=case)
 
     # -- structural solvability (delegated to model extraction) ------------------
     model = None
@@ -283,12 +339,13 @@ def validate_project(project: Project) -> list[DataCheck]:
         model = build_model(project)
     except ModelError as e:
         for text in e.errors:
-            add("error", text)
+            add("error", text, ids=e.involved.get(text, ()), fix=_model_fix(text))
     if model is not None:
-        replaced = _drive_checks(project, model, add)
+        case_models = _case_models(project, model, add)
+        replaced = _drive_checks(project, model, case_models, add)
         for text in model.warnings:
             if text not in replaced:
-                add("warning", text)
+                add("warning", text, ids=model.involved.get(text, ()), fix=_model_fix(text))
 
         for el_id in model.floating_returns:
             el = all_elements.get(el_id)
@@ -300,29 +357,184 @@ def validate_project(project: Project) -> list[DataCheck]:
 
         _plausibility_checks(model, add)
         _map_checks(model, add)
+        _lap_checks(project, case_models, add)
+        _distance_checks(project, model, add)
+        _step_checks(project, model, case_models, add)
 
-        if not model.drivelines and not any(b.consumers for b in model.buses):
+        coasting = any(m is not None and _moves_unpowered(m)
+                       for m in (model, *case_models.values()))  # (a coast-down is something)
+        if not model.drivelines and not any(b.consumers for b in model.buses) and not coasting:
             add("info", "Model has no driveline and no electrical loads — nothing will happen.")
 
     if not any(s.elements for s in project.systems):
         add("info", "Model is empty — drag components from the library onto the canvas.")
     if not project.cases:
-        add("warning", "Project has no simulation case defined.")
+        add("warning", "Project has no simulation case defined.",
+            fix="On the Simulations tab, click + (Add case).")
 
     if not checks:
+        total, at_default = value_provenance(project, defs)
+        share = (f" {at_default} of the model's {total} values are still at their library "
+                 f"default with no source recorded (CON-13)." if total else "")
         add("info", "All data checks passed: wiring, power supply, drive path, command "
                     "signals and key parameter ranges were checked. Data Checks cannot tell "
-                    "whether the results will be plausible — review them after the run.")
+                    "whether the results will be plausible — review them after the run."
+                    + share)
     return checks
 
 
-def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
+def value_provenance(project: Project, defs: dict) -> tuple[int, int]:
+    """CON-13: how many number and table values the model's parts have, and
+    how many of them still hold the library default with no source recorded
+    (a part's parameterSources, which the UI keeps per parameter key)."""
+    total = at_default = 0
+    for system in project.systems:
+        for el in system.elements:
+            cdef = defs.get(el.componentDefId)
+            if cdef is None:
+                continue
+            sources = getattr(el, "parameterSources", None) or {}
+            for pdef in cdef.parameters:
+                if pdef.type not in ("number", "table1d", "table2d"):
+                    continue
+                if pdef.showIf is not None:  # only for another setting (MOD-08's cell values)
+                    shown = el.parameterOverrides.get(pdef.showIf.key, next(
+                        (q.default for q in cdef.parameters if q.key == pdef.showIf.key), None))
+                    if shown not in pdef.showIf.values:
+                        continue
+                total += 1
+                if pdef.key not in el.parameterOverrides and pdef.key not in sources:
+                    at_default += 1
+    return total, at_default
+# Inputs whose unit a block declares in a parameter (VAL-17): PID and Lookup
+# ports have no unit of their own, so the user says what they were written
+# for. "Not set" (or a missing value) means no check.
+DECLARED_UNIT = {
+    ("control.pid", "sig_setpoint_in"): "signal_unit",
+    ("control.pid", "sig_feedback_in"): "signal_unit",
+    ("signal.lookup", "sig_x_in"): "x_unit",
+    ("signal.lookup", "sig_y_in"): "y_unit",
+}
+UNDECLARED = ("No Unit", "Not set", "", None)
+
+
+def _unit_checks(sources_of, all_elements, port_of, defs, add: Add) -> None:
+    """Warn where a signal wire joins two different units (VAL-17): a SOC in
+    % into an input that expects 0-1, a speed into a rotational speed. A port
+    with no unit (No Unit, or a PID or Lookup unit left Not set) is not
+    judged. Nothing is converted; the warning says what arrives."""
+    def unit_of(el_id: str, port_id: str):
+        el = all_elements[el_id]
+        key = DECLARED_UNIT.get((el.componentDefId, port_id))
+        if key is not None:
+            cdef = defs.get(el.componentDefId)
+            pdef = next((p for p in cdef.parameters if p.key == key), None) if cdef else None
+            value = el.parameterOverrides.get(key, pdef.default if pdef else None)
+            return None if value in UNDECLARED else str(value)
+        port = port_of(el_id, port_id)
+        return None if port is None or port.unitGroup in UNDECLARED else port.unitGroup
+
+    for (dst_el, dst_port), srcs in sources_of.items():
+        dst_unit = unit_of(dst_el, dst_port)
+        for src_el, src_port in srcs:
+            src_unit = unit_of(src_el, src_port)
+            if dst_unit is None or src_unit is None or dst_unit == src_unit:
+                continue
+            src = f"'{all_elements[src_el].label}.{port_of(src_el, src_port).name}'"
+            dst = f"'{all_elements[dst_el].label}.{port_of(dst_el, dst_port).name}'"
+            if {src_unit, dst_unit} == {"Percent", "Fraction"}:
+                text = (f"{src} gives a value in {'% (0-100)' if src_unit == 'Percent' else '0-1'}"
+                        f" but {dst} expects {'0-1' if dst_unit == 'Fraction' else '% (0-100)'}: "
+                        f"the block gets a number {'100 times too large' if src_unit == 'Percent' else '100 times too small'}"
+                        f", and the run gives no message.")
+                fix = ("Divide by 100 in a Script between them (or multiply, the other way), "
+                       "or rescale the block's table or gains; then set its unit to match.")
+            else:
+                text = (f"{src} is a {src_unit} signal but {dst} expects {dst_unit}: the number "
+                        f"is passed on as it is, without converting it.")
+                fix = ("Check that this is the signal you meant; put a Script between them to "
+                       "convert it, or correct the input's unit.")
+            add("warning", text, all_elements[dst_el], ids=(src_el,), fix=fix)
+
+
+# what to do about build_model's (and lapsim.problems') messages, by words they contain
+# ponytail: word match; codes on the messages replace it with VAL-10
+MODEL_FIXES = {
+    "needs both outputs connected": "Connect a shaft or wheel to each of its outputs.",
+    "needs both flanges connected": "Connect both of its flanges to the driveline.",
+    "without a Fuel Tank": "Add a Fuel Tank from the library (ICE Powertrain).",
+    "without a Hydrogen Tank": "Add a Hydrogen Tank from the library (Fuel Cell).",
+    "element per model is supported": "Delete the extra ones.",
+    "Bus has two": "Keep one source per bus, or split the bus with a DC-DC Converter.",
+    "more than one primary source": "Keep one source per bus, or split the bus with a DC-DC "
+                                    "Converter.",
+    "which this version of LightSim does not include": "In Properties, choose a Drive Cycle "
+                                                       "from the list, or Custom profile.",
+    "which is not among this project's own cycles": "In Properties, choose a Drive Cycle from "
+                                                    "the list, or import the cycle again.",
+    "which cannot be driven": "Import the cycle again from its file (Drive Cycle → Import a "
+                              "cycle from a file…), or choose another.",
+    "which has a grade but no speed": "Choose a cycle with a speed for the Driving Task, and "
+                                      "this one for a Road Profile's Grade From Cycle.",
+    "A lap case needs a Vehicle": "Add a Vehicle from the library (Vehicle).",
+    "A lap case needs a Driver": "Add a Driver from the library (Vehicle).",
+    "A lap case needs an E-Motor": "Connect an E-Motor to the wheels' driveline.",
+    "drives E-Motors only": "Set the case's Kind to Cycle, or drive the wheels with E-Motors "
+                            "only.",
+    "does not run drivelines without wheels": "Set the case's Kind to Cycle, or remove the "
+                                              "parts that drive no wheels.",
+    "does not shift gears": "Set its Default Gear to the gear the lap should be driven in.",
+    "has no layout": "Choose a Layout from the list in Properties.",
+    "form a loop": "If a step's delay matters, break the loop: feed one of the blocks from a "
+                   "signal outside it, or merge the blocks into one Script.",
+}
+
+
+def _model_fix(text: str) -> str | None:
+    return next((fix for words, fix in MODEL_FIXES.items() if words in text), None)
+
+
+def _slope_can_pull(model: Model, src: str) -> bool:
+    """Can the signal block ``src``, wired to the Vehicle's Grade input, ever
+    be a downhill slope (a negative grade)? A Constant and a typed Road
+    Profile say; a Script, Lookup Table or FMU might, so it is assumed to."""
+    kind, p = model.cdef_of[src].id, model.params_of[src]
+    if kind == "signal.constant":
+        value = _as_number(p.get("value"))
+        return value is not None and value < 0
+    if kind == "signal.road_profile":
+        return any(grade < 0 for _, grade in parse_profile(str(p.get("profile", ""))))
+    return True
+
+
+def _moves_unpowered(model: Model) -> bool:
+    """Can the Vehicle move with nothing driving it? It does when it starts
+    with speed to coast down from (its Initial Speed) or when a slope that
+    can run downhill is wired to its Grade input. A vehicle at rest on the
+    level, or uphill, stays where it is."""
+    veh = model.vehicle
+    if veh is None:
+        return False
+    speed = _as_number(model.params_of[veh].get("initial_speed_kmh", 0))
+    if speed is not None and speed > 0:
+        return True
+    src = model.signal_route.get((veh, "sig_grade_in"))
+    return src is not None and _slope_can_pull(model, src[0])
+
+
+def _drive_checks(project: Project, model: Model, case_models: dict[str, Model | None],
+                  add: Add) -> set[str]:
     """Can this model do its job? Checks that a run would otherwise "pass"
     while the vehicle never moves or parts silently do nothing: unconnected
     parts, motors without an energy source, motors and engines that reach no
     wheel, open differentials with a free output, missing command signals,
     and a speed demand that reaches no motor or engine. Returns the model
-    advisories (build_model warnings) it reports as errors instead."""
+    advisories (build_model warnings) it reports as errors, or that do not
+    apply to the model, instead.
+
+    A vehicle with no motor or engine, or no wheels, is an error only where
+    nothing can move it (a coast-down starts with speed, a hill pulls); a
+    Driving Task that feeds another part (a gear schedule) needs no Driver."""
     elements, cdef_of, route = model.elements, model.cdef_of, model.signal_route
     replaced: set[str] = set()
 
@@ -332,11 +544,11 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     def of_type(*types: str) -> list[str]:
         return [e for e, c in cdef_of.items() if c.id in types]
 
-    def err(el_id: str, text: str) -> None:
-        add("error", text, elements[el_id])
+    def err(el_id: str, text: str, fix: str | None = None) -> None:
+        add("error", text, elements[el_id], fix=fix)
 
-    def warn(el_id: str, text: str) -> None:
-        add("warning", text, elements[el_id])
+    def warn(el_id: str, text: str, fix: str | None = None) -> None:
+        add("warning", text, elements[el_id], fix=fix)
 
     vehicle_model = model.vehicle is not None
     sources = of_type(*PROPULSION)
@@ -372,14 +584,18 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
             note = (" — it carries none of the vehicle's weight or rolling resistance"
                     if cdef.id == "propulsion.wheel" else "")
             warn(el_id, f"'{label}' is not connected to anything, so the simulation leaves "
-                        f"it out{note}.")
+                        f"it out{note}.",
+                 fix="Wire it into the model, or delete it.")
         elif plus:
             loose = [p.name for p in plus if (el_id, p.id) not in wired]
             if loose:
                 warn(el_id, f"'{label}' has nothing connected to its {' or '.join(loose)}, so "
-                            f"the simulation leaves it out.")
+                            f"the simulation leaves it out.",
+                     fix="Wire it to the electrical bus (a battery's + terminal or an Electric "
+                         "Node).")
         elif cdef.id == "electric.node" and not any(e == el_id for e, _ in wired):
-            warn(el_id, f"'{label}' is not connected to anything.")
+            warn(el_id, f"'{label}' is not connected to anything.",
+                 fix="Wire it into the bus, or delete it.")
 
     # -- energy: every E-Motor needs a source on its bus -------------------------
     fed_from = {d: bus for bus in model.buses for d in bus.dcdc_in}
@@ -393,48 +609,107 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     motor_on_bus = {m for bus in model.buses for m in bus.motors}
     for m in of_type("motor.emotor"):
         if m not in motor_on_bus:
-            err(m, f"E-Motor '{elements[m].label}' has no live electrical connection.")
+            err(m, f"E-Motor '{elements[m].label}' has no live electrical connection.",
+                fix="Wire its + terminal to a bus that has a battery, fuel cell or voltage source.")
     for bus in model.buses:
         primary = bus.battery or bus.vsource or bus.fuelcell
         if primary and not (bus.motors or bus.consumers or bus.dcdc_in):
             warn(primary, f"'{elements[primary].label}' supplies nothing: no E-Motor, load or "
-                          f"DC-DC converter is connected to its bus.")
+                          f"DC-DC converter is connected to its bus.",
+                 fix="Wire an E-Motor, a Power Consumer or a DC-DC Converter to its bus, or "
+                     "delete it.")
         if supplied(bus):
             continue
         for m in bus.motors:
             err(m, f"E-Motor '{elements[m].label}' has no power source: nothing on its "
                    f"electrical bus is a battery, fuel cell or voltage source, so it "
-                   f"produces no torque.")
+                   f"produces no torque.",
+                fix="Add a battery, fuel cell or voltage source to its bus, or feed the bus "
+                    "from one through a DC-DC Converter.")
         for c in bus.consumers:
             warn(c, f"'{elements[c].label}' is on an electrical bus with no power source — "
-                    f"its demand is not met.")
+                    f"its demand is not met.",
+                 fix="Add a battery, fuel cell or voltage source to its bus.")
+
+    # -- a vehicle nothing drives: a coast-down, or one that cannot move ---------
+    # (per case: a case can start the vehicle at speed, or on a slope, with its
+    # own values; a case whose values do not build is reported already)
+    runs = [(c, case_models.get(c.id)) for c in project.cases] or [(None, model)]
+    runs = [(c, m) for c, m in runs if m is not None]
+    at_rest = [c for c, m in runs if not _moves_unpowered(m)]
+    coasts = len(at_rest) < len(runs)
+
+    def stays_put(text: str, ids: Iterable[str | None], fix: str) -> None:
+        """``text`` as an error for the model when the vehicle cannot move in
+        any case, else for the cases it cannot move in."""
+        if runs and len(at_rest) == len(runs):
+            add("error", text, ids=ids, fix=fix)
+            return
+        for c in at_rest:
+            add("error", f"Case '{c.name}': {text.rstrip('.')}, as the vehicle starts at rest "
+                         f"with no slope to pull it.", ids=ids, fix=fix, case=c)
+
+    def coast_note(why: str) -> None:
+        """What the run will be, when the vehicle only coasts."""
+        veh = model.vehicle
+        label = elements[veh].label
+        if model.params_of[veh].get("road_load_mode") == ROAD_LOAD_ABC:
+            add("info", f"Vehicle '{label}' {why}: it coasts down from its Initial Speed or runs "
+                        f"down a slope against its road load. That is right for a coast-down "
+                        f"test.", elements[veh])
+        else:
+            add("warning",
+                f"Vehicle '{label}' {why}: it coasts down from its Initial Speed or runs down a "
+                f"slope, but the wheels carry the rolling resistance, so only the air drag "
+                f"slows it.", elements[veh],
+                fix="Set the Vehicle's Road Load From to Coefficients A/B/C (the measured road "
+                    "load stands in for the wheels), or connect wheels.")
 
     # -- drive path: motors and engines must reach the wheels ---------------------
     for text in model.warnings:
-        if text in (NO_VEHICLE, NO_WHEELS):
-            add("error", text)
+        if text == NO_VEHICLE:
+            add("error", text, ids=model.involved.get(text, ()),
+                fix="Add a Vehicle from the library (Vehicle group); it carries the wheels.")
             replaced.add(text)
+        elif text == NO_WHEELS:
+            stays_put(text, model.involved.get(text, ()), "Connect the wheels to the driveline.")
+            if coasts:
+                coast_note("has no connected wheels, so nothing drives or brakes it")
+            replaced.add(text)  # (it does not apply where the vehicle can coast)
     path_errors = False
     for src in sources:
         kind, label = PROPULSION[typ(src)][0], elements[src].label
         dl = dl_of.get(src)
         if dl is None:
             err(src, f"{kind} '{label}' is not mechanically connected — it cannot drive "
-                     f"anything.")
+                     f"anything.",
+                fix="Wire its shaft into the driveline that leads to the wheels.")
             path_errors = True
         elif (vehicle_model and not reaches_load(dl)
               and sum(1 for e in dl.element_group if typ(e) in PROPULSION) < 2):
             # (two sources on a wheel-less shaft are a generator set, which is fine)
             err(src, f"{kind} '{label}' is not connected to any wheel — it cannot move the "
-                     f"vehicle.")
+                     f"vehicle.",
+                fix="Connect its driveline to the wheels (through a Final Drive and "
+                    "Differential).")
             path_errors = True
     any_wheels = any(seg.wheels for dl in model.drivelines for seg in dl.segments)
     driven = any(reaches_load(dl) and any(typ(e) in PROPULSION for e in dl.element_group)
                  for dl in model.drivelines)
     if vehicle_model and any_wheels and not driven and not path_errors:
-        add("error", "No E-Motor or Engine is connected to the wheels — the vehicle cannot "
-                     "move." if sources else
-                     "The model has no E-Motor or Engine — nothing drives the wheels.")
+        if sources:
+            add("error", "No E-Motor or Engine is connected to the wheels — the vehicle cannot "
+                         "move.", ids=sources,
+                fix="Connect a motor or engine shaft through the driveline to the wheels.")
+        else:
+            stays_put("The model has no E-Motor or Engine — nothing drives the wheels.",
+                      [model.vehicle],
+                      "Add an E-Motor or Engine from the library and connect it to the wheels.")
+            if coasts:
+                add("info", f"The model has no E-Motor or Engine, so nothing drives the wheels: "
+                            f"Vehicle '{elements[model.vehicle].label}' coasts down from its "
+                            f"Initial Speed or runs down a slope. That is right for a "
+                            f"coast-down test.", elements[model.vehicle])
 
     def side_reaches_load(joint: str, port: str) -> bool:
         seen, stack = {joint}, list(mech_peers.get((joint, port), []))
@@ -466,11 +741,14 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
         for w, braked in wheels:
             if not braked:
                 warn(w, f"'{elements[w].label}' has no brake ({n_braked} of {len(wheels)} "
-                        f"wheels have one) — the Driver's brake command cannot slow it.")
+                        f"wheels have one) — the Driver's brake command cannot slow it.",
+                     fix="Add a Brake on this wheel's shaft.")
     for b in of_type("mech.brake"):
         if (b, "sig_demand_in") not in route:
             warn(b, f"Brake '{elements[b].label}' has no Brake Command signal — it will "
-                    f"never apply.")
+                    f"never apply.",
+                 fix=f"In Data Bus Connections, pick the Driver's Brake Command as the source "
+                     f"of {elements[b].label} · Brake Command.")
 
     # -- commands: a speed demand must reach the motors and engines ----------------
     fed_by: dict[str, list[tuple[str, str]]] = defaultdict(list)  # element → inputs it feeds
@@ -492,25 +770,50 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
     for src in sources:
         kind, port, name, effect = PROPULSION[typ(src)]
         if (src, port) not in route:
-            err(src, f"{kind} '{elements[src].label}' has no {name} signal — {effect}.")
+            err(src, f"{kind} '{elements[src].label}' has no {name} signal — {effect}.",
+                fix=f"In Data Bus Connections, pick a source for {elements[src].label} · {name} "
+                    f"(usually the Driver's Traction Command, or a controller's output).")
     tasks = of_type("signal.driving_task")
     drv = model.driver
     if drv is not None:
         label = elements[drv].label
-        if (drv, "sig_target_in") not in route:
-            err(drv, f"Driver '{label}' has no Target Speed signal — it will hold 0 km/h, "
-                     f"so the vehicle will not move.")
+        # an acceleration test holds full throttle and a lap case follows its
+        # Race Track: neither reads a target, so the error stops only the
+        # cases that do (one for the model when every case reads it)
+        readers = [c for c in project.cases if c.kind not in ("acceleration", "lap")]
+        if (drv, "sig_target_in") not in route and readers:
+            fix = (f"In Data Bus Connections, pick a Driving Task's Target Speed as the source "
+                   f"of {label} · Target Speed.")
+            if len(readers) == len(project.cases):
+                err(drv, f"Driver '{label}' has no Target Speed signal — it will hold 0 km/h, "
+                         f"so the vehicle will not move.", fix=fix)
+            for c in readers if len(readers) < len(project.cases) else ():
+                add("error", f"Driver '{label}' has no Target Speed signal, which case "
+                             f"'{c.name}' ({CASE_KINDS.get(c.kind, c.kind)}) reads — it will "
+                             f"hold 0 km/h, so the vehicle will not move.",
+                    elements[drv], fix=fix, case=c)
         if demands & route.keys() and not commanded(drv) & demands:
             err(drv, f"Driver '{label}' does not command any E-Motor or Engine — wire its "
                      f"Traction Command to them, directly or through a controller.")
         for t in tasks:
             if not fed_by.get(t):
                 warn(t, f"Driving Task '{elements[t].label}' is not wired to anything — its "
-                        f"speed profile is not used.")
+                        f"speed profile is not used.",
+                     fix=f"In Data Bus Connections, pick it as the source of {label} · "
+                         f"Target Speed.")
     elif vehicle_model and tasks and sources and not any(commanded(t) & demands for t in tasks):
-        err(tasks[0], f"No Driver follows the Driving Task '{elements[tasks[0]].label}' — add "
-                      f"a Driver, wire the task to its Target Speed and its Traction Command "
-                      f"to the powertrain.")
+        # a task that feeds a part other than a controller (a Gearbox's Gear Select, a
+        # Clutch's Engagement) is a schedule that needs no Driver; one that feeds
+        # nothing, or only controllers that go nowhere, is a speed profile that waits
+        # for one
+        idle = [t for t in tasks if all(typ(e) in CONTROLLER_TYPES for e, _ in commanded(t))]
+        if idle:
+            err(idle[0], f"No Driver follows the Driving Task '{elements[idle[0]].label}' — add "
+                         f"a Driver, wire the task to its Target Speed and its Traction Command "
+                         f"to the powertrain.")
+            replaced.add(NO_DRIVER)
+    if demands <= route.keys():
+        # (no Driver is needed where nothing is to be commanded or the demands are wired)
         replaced.add(NO_DRIVER)
 
     # -- actuator and block inputs that silently fall back to a fixed value --------
@@ -518,11 +821,15 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
         if g in dl_of and (g, "sig_gear_in") not in route:
             gear = model.params_of[g].get("default_gear", 1)
             warn(g, f"Gearbox '{elements[g].label}' has no Gear Select signal — it stays in "
-                    f"gear {gear} for the whole run.")
+                    f"gear {gear} for the whole run.",
+                 fix=f"In Data Bus Connections, pick a source for {elements[g].label} · Gear "
+                     f"Select (a Script, Lookup Table or Constant).")
     for c in of_type("mech.clutch"):
         if c in dl_of and (c, "sig_engage_in") not in route:
             warn(c, f"Clutch '{elements[c].label}' has no Engagement signal — it stays fully "
-                    f"engaged for the whole run.")
+                    f"engaged for the whole run.",
+                 fix=f"In Data Bus Connections, pick a source for {elements[c].label} · "
+                     f"Engagement, or leave it engaged.")
     for blk in model.signal_blocks:
         t = typ(blk)
         if t == "signal.road_profile":
@@ -535,8 +842,174 @@ def _drive_checks(project: Project, model: Model, add: Add) -> set[str]:
         if loose:
             names = ", ".join(f"'{n}'" for n in loose)
             warn(blk, f"'{elements[blk].label}' input{'s' if len(loose) > 1 else ''} {names} "
-                      f"{'are' if len(loose) > 1 else 'is'} not connected — it reads 0 there.")
+                      f"{'are' if len(loose) > 1 else 'is'} not connected — it reads 0 there.",
+                 fix=f"In Data Bus Connections, pick a source for each (search the list for "
+                     f"{elements[blk].label}).")
     return replaced
+
+
+# what to do about a case's own values that the model cannot be built with
+CASE_MODEL_FIXES = {
+    "which this version of LightSim does not include": "In Cases & Parameters, choose a Drive "
+                                                       "Cycle from the list for this case, or "
+                                                       "remove its own cycle.",
+    "which is not among this project's own cycles": "In Cases & Parameters, choose a Drive "
+                                                    "Cycle from the list for this case, or "
+                                                    "remove its own cycle.",
+}
+
+
+def _case_models(project: Project, model: Model, add: Add) -> dict[str, Model | None]:
+    """Each case's model, with its own values (Cases & Parameters) on top of
+    the parts' (``model`` when it has none); None for a case whose values
+    the model cannot be built with, reported as an error of that case (a
+    drive cycle this version does not have, a value the model refuses)."""
+    found: dict[str, Model | None] = {}
+    for case in project.cases:
+        if not case.parameterOverrides:
+            found[case.id] = model
+            continue
+        try:
+            found[case.id] = build_model(project, {}, case.parameterOverrides)
+        except ModelError as e:
+            found[case.id] = None
+            for text in e.errors:
+                fix = next((f for words, f in CASE_MODEL_FIXES.items() if words in text),
+                           None) or _model_fix(text)
+                add("error", f"Case '{case.name}': {text}", ids=e.involved.get(text, ()),
+                    fix=fix, case=case)
+    return found
+
+
+def _lap_checks(project: Project, case_models: dict[str, Model | None], add: Add) -> None:
+    """What a lap case refuses or does differently (lapsim.problems), for
+    the Race Track, layout and laps that case sets; each stops only that
+    case."""
+    for case in project.cases:
+        model = case_models.get(case.id)
+        if case.kind != "lap" or model is None:
+            continue  # (a model that does not build is reported already)
+        track = model.elements.get(model.track) if model.track else None
+        for level, text, parts in lapsim.problems(model, case.outputEvery):
+            add(level, f"Case '{case.name}': {text}", None if parts else track, ids=parts,
+                fix=_model_fix(text), case=case)
+
+
+def _step_checks(project: Project, base_model: Model, case_models: dict[str, Model | None],
+                 add: Add) -> None:
+    """The solver step each case will use (stability.solver_step, ENG-14):
+    a note when a part too stiff for the 10 ms step makes it smaller (the run
+    takes longer, but its results hold), a warning when one is too stiff even
+    for the smallest step."""
+    seen: set[str] = set()
+    base = None
+    for case in [None, *project.cases]:
+        if case is not None and (case.kind == "lap" or not case.parameterOverrides):
+            continue  # the lap solver steps along the track; no values of its own: as the model
+        model = base_model if case is None else case_models.get(case.id)
+        if model is None:
+            continue  # its values do not build: reported already
+        choice = solver_step(model)
+        if case is None:
+            base = choice
+        elif (choice.step, choice.warnings) == (base.step, base.warnings):
+            continue  # its own values change nothing here
+        where = f"In case '{case.name}', " if case is not None else ""
+        if choice.step < MAX_SUBSTEP:
+            text = (f"{where}{choice.reason} is too stiff for the solver's {MAX_SUBSTEP * 1000:g} ms "
+                    f"step: the run will use {choice.step * 1000:.3g} ms and take about "
+                    f"{MAX_SUBSTEP / choice.step:.3g} times as long.")
+            if text not in seen:
+                seen.add(text)
+                add("info", text, ids=choice.el_ids, case=case,
+                    fix="Nothing to do if the value is right; otherwise lower it (a tyre's Slip "
+                        "Stiffness is about 10 to 30).")
+        for text, ids in choice.warnings:  # (each one a part too stiff for any step)
+            if text in seen:
+                continue
+            seen.add(text)
+            add("warning", f"{where}{text}", ids=ids, case=case,
+                fix="Lower the value: the solver cannot step it reliably.")
+
+
+def _distance_checks(project: Project, model: Model, add: Add) -> None:
+    """A Driving Task whose Profile Axis is Distance (ENG-34), as the model
+    sets it and as each case's own values change it: it cannot drive a
+    standard (time-based) cycle, a 0 km/h point before its end stops the car
+    for good, and a case that ends after a number of laps needs one."""
+    tasks = [e for e, c in model.cdef_of.items() if c.id == "signal.driving_task"]
+    seen: set[str] = set()
+    catalogue = cycles.Catalogue.of(project)
+
+    def task_params(t: str, ov: dict | None) -> dict:
+        """A task's values as a run with the case's own values ``ov`` takes
+        them: from the part's own (not the model's, where its cycle has
+        replaced the profile), the case's profile beating the part's cycle,
+        and a cycle of the project's own against distance read against
+        distance, whatever the Profile Axis says (CON-11)."""
+        p = {**resolve_params(model.elements[t], model.cdef_of[t]), **(ov or {})}
+        if ov and "profile" in ov and "cycle" not in ov:  # a case's own profile wins
+            p["cycle"] = ""
+        cid = str(p.get("cycle") or "")
+        if cid and catalogue.is_own(cid) and catalogue.axis(cid) == "distance" \
+                and catalogue.has_speed(cid) and not catalogue.problems(cid):
+            return {**p, "cycle": "", "mode": "distance",
+                    "profile": catalogue.profile_text(cid)}
+        return p
+
+    def once(level: str, text: str, el_id: str, fix: str, case: SimCase | None) -> None:
+        if text not in seen:
+            seen.add(text)
+            add(level, text, model.elements[el_id], fix=fix, case=case)
+
+    variants = [(None, {})] + [(c, c.parameterOverrides) for c in project.cases]
+    for t in tasks:
+        label = model.elements[t].label
+        for case, overrides in variants:
+            ov = overrides.get(t)
+            if case is not None and not ov:
+                continue
+            p = task_params(t, ov)
+            if not distance_axis(p):
+                continue
+            where = f" in case '{case.name}'" if case is not None else ""
+            if p.get("cycle"):
+                name = catalogue.name(str(p["cycle"])) if catalogue.is_own(str(p["cycle"])) \
+                    else p["cycle"]
+                once("error", f"Driving Task '{label}'{where} drives the drive cycle "
+                              f"'{name}', a speed against time, but its Profile Axis is "
+                              f"Distance.", t,
+                     "Set its Profile Axis to Time, or pick Custom profile and type a speed "
+                     "against distance.", case)
+                continue
+            pts = parse_profile(str(p.get("profile", "")))
+            stops = [x for x, v in (pts if p.get("repeat") else pts[:-1]) if v <= 0]
+            if stops:
+                once("warning", f"Driving Task '{label}'{where} asks for 0 km/h at "
+                                f"{stops[0]:g} m: over distance the car stops there and does "
+                                f"not drive on (a stop with a waiting time is not modelled "
+                                f"yet).", t,
+                     "Give that point a small speed (for example 5 km/h); at a profile's "
+                     "start, the speed the car sets off towards.", case)
+    route = model.signal_route
+    src = route.get((model.driver, "sig_target_in")) if model.driver else None
+    for case in project.cases:
+        if not case.endLaps or case.endLaps <= 0 or case.endDistance \
+                or case.kind not in ("cycle", "performance"):
+            continue
+        p = task_params(src[0], case.parameterOverrides.get(src[0])) \
+            if src and src[0] in tasks else {}
+        if not distance_axis(p):
+            add("warning", f"Case '{case.name}' ends after {case.endLaps:g} laps, but the Driver "
+                           f"does not follow a Driving Task whose Profile Axis is Distance, so "
+                           f"the run lasts its duration.", case=case,
+                fix="Set the Driving Task's Profile Axis to Distance, or clear the case's Laps.")
+        elif case.endLaps > 1 and not p.get("repeat"):
+            add("warning", f"Case '{case.name}' ends after {case.endLaps:g} laps, but the Driving "
+                           f"Task '{model.elements[src[0]].label}' does not repeat its profile: "
+                           f"after the first lap the car holds the profile's last speed.",
+                el=model.elements[src[0]], case=case,
+                fix="Tick the Driving Task's Repeat Profile, or set the case's Laps to 1.")
 
 
 def _plausibility_checks(model: Model, add: Add) -> None:
@@ -550,6 +1023,12 @@ def _plausibility_checks(model: Model, add: Add) -> None:
     for el_id, cdef in model.cdef_of.items():
         p, el = model.params_of[el_id], model.elements[el_id]
         if cdef.id == "vehicle.body":
+            h, wheelbase = num(p, "cg_height_m"), num(p, "wheelbase_m")
+            if h is not None and wheelbase is not None and 0 < wheelbase < h:
+                add("warning", f"Vehicle '{el.label}' has a Centre of Gravity Height of {h:g} m, "
+                               f"above its Wheelbase of {wheelbase:g} m — check the value and "
+                               f"its unit (a car's is about a fifth to a quarter of its "
+                               f"wheelbase).", el)
             mass = num(p, "mass_kg")
             lo, hi = VEHICLE_MASS_KG
             if mass is not None and mass > 0 and not lo <= mass <= hi:
@@ -605,6 +1084,37 @@ def _plausibility_checks(model: Model, add: Add) -> None:
             if soc0 is not None and soc_min is not None and soc0 <= soc_min:
                 add("warning", f"'{el.label}' starts at {soc0:g} % SOC, at or below its "
                                f"minimum of {soc_min:g} % — it can deliver no energy.", el)
+            cells = p.get("pack_model") == CELLS
+            n_s = max(1, round(num(p, "series_cells") or 96)) if cells else 1
+            table = "cell_ocv_table" if cells else "ocv_table"
+            if cells:
+                _cell_pack_checks(p, el, add)
+            band = num(p, "soc_derate_band_pct") or 0.0
+            if (not cells and band > 0 and not num(p, "max_discharge_current_A")
+                    and not num(p, "min_voltage_V")):
+                try:  # the most current the pack gives where the band starts
+                    v = interp1(parse_table1d(p.get("ocv_table")), (soc_min or 0.0) + band)
+                    r0 = max(1e-6, num(p, "internal_resistance_ohm") or 0.08)
+                    amps = f" (about {v / (2.0 * r0):,.0f} A where the band starts)"
+                except TableError:
+                    amps = ""  # reported with the other parameters
+                add("info", f"'{el.label}' has a SOC Derating Band but no Max Discharge Current "
+                            f"or Minimum Pack Voltage: the band lowers the current at the pack's "
+                            f"maximum-power point{amps}, far more than most loads draw, so it "
+                            f"holds the motors back only close to the Minimum SOC. Set a Max "
+                            f"Discharge Current for a battery management system's taper.", el)
+            v_class = num(p, "voltage_class_V")
+            if v_class is not None and v_class > 0:
+                try:  # read at 100 % as the run reads it
+                    ocv = parse_table1d(p.get(table))
+                except TableError:
+                    ocv = []  # reported with the other parameters
+                linear = (el.tableOutside.get(table) or [""])[0] == "linear"
+                v_full = n_s * interp1(ocv, 100.0, linear) if ocv else 0.0
+                if v_full > v_class:
+                    add("warning", f"'{el.label}' reaches {v_full:g} V open-circuit at 100 % "
+                                   f"SOC, above its Voltage Class of {v_class:g} V — fewer cells "
+                                   f"in series, or check the class.", el)
         elif cdef.id == "electric.constant_drive" and model.vehicle is not None:
             kw = num(p, "power_kW")
             if kw is not None and kw > AUX_LOAD_MAX_KW:
@@ -612,6 +1122,13 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                                f"auxiliaries use about 0.3–5 kW (up to about 30 kW for a "
                                f"bus's heating and air conditioning). Check the value and "
                                f"its unit.", el)
+        elif cdef.id in ("motor.emotor", "engine.combustion") and any(
+                (num(p, k) or 100.0) != 100.0 for k in scale_keys(cdef.id)):
+            _scale_checks(cdef.id, p, el, add)
+        elif cdef.id == "electric.climate" and model.ambient is None:
+            add("info", f"'{el.label}' takes the outside temperature from an Ambient, and the "
+                        f"model has none: it runs at 20 °C, where it neither heats nor cools. "
+                        f"Add an Ambient (Boundaries) and set its Temperature.", el)
         elif cdef.id == "mech.final_drive":
             ratio = num(p, "ratio")
             if ratio is not None and ratio > FINAL_DRIVE_MAX_RATIO:
@@ -623,13 +1140,134 @@ def _plausibility_checks(model: Model, add: Add) -> None:
     if model.vehicle is not None and wheels and total <= 0:
         add("error", "Wheel load shares add up to 0 % — no wheel carries the vehicle's "
                      "weight, so it has no grip and cannot move. Give the wheels their share "
-                     "of the weight (together 100 %).")
+                     "of the weight (together 100 %).", ids=[w.el_id for w in wheels])
     elif model.vehicle is not None and wheels and abs(total - 100.0) > WHEEL_SHARE_TOL_PCT:
         split = ", ".join(f"'{model.elements[w.el_id].label}' {w.load_share * 1e4 / total:.3g} %"
                           for w in wheels)
         add("warning", f"Wheel load shares add up to {total:g} %, not 100 % — the solver scales "
                        f"them so the wheels carry the vehicle's whole weight: {split}. Set "
-                       f"them to add up to 100 % to choose the split yourself.")
+                       f"them to add up to 100 % to choose the split yourself.",
+            ids=[w.el_id for w in wheels])
+    _tyre_checks(model, wheels, add)
+    h = num(model.params_of[model.vehicle], "cg_height_m") if model.vehicle is not None else None
+    if wheels and h is not None and h > 0 and len({w.axle for w in wheels}) < 2:
+        veh, on = model.elements[model.vehicle], wheels[0].axle
+        fix = "Front on the front" if on == "Rear" else "Rear on the rear"
+        add("error", f"Vehicle '{veh.label}' has a Centre of Gravity Height of {h:g} m, but all "
+                     f"its wheels are on the {on} axle, so no load can shift between "
+                     f"axles. Set Axle to {fix} wheels.", veh, ids=[w.el_id for w in wheels])
+
+
+def _tyre_checks(model: Model, wheels: list, add: Add) -> None:
+    """Wheels with a Tyre Code (MOD-48): a code that is not one, a radius
+    far from the code's, and a wheel carrying more than its load index."""
+    total = sum(w.load_share for w in wheels)
+    mass = None
+    if model.vehicle is not None:
+        try:
+            mass = float(model.params_of[model.vehicle].get("mass_kg", 1800))
+        except (TypeError, ValueError):
+            mass = None
+    for w in wheels:
+        p, el = model.params_of[w.el_id], model.elements[w.el_id]
+        code = str(p.get("tyre_code", "") or "").strip()
+        if not code:
+            continue
+        spec = parse_tyre_code(code)
+        if spec is None:
+            add("warning", f"'{el.label}' has a Tyre Code '{code}' LightSim cannot read: write it "
+                           f"as on the sidewall, e.g. 205/55 R16 91V or 20.5x7.0-13.", el)
+            continue
+        try:
+            factor = float(p.get("rolling_radius_factor", 0.97))
+        except (TypeError, ValueError):
+            factor = 0.97
+        expected = spec.unloaded_radius_m * factor
+        if abs(w.radius - expected) > 0.03 * expected:
+            add("info", f"'{el.label}' has a Wheel Radius of {w.radius:g} m, but its tyre "
+                        f"{spec.code} rolls on about {expected:.3f} m — retype the code to fill "
+                        f"it in, or check the radius.", el)
+        max_load = spec.max_load_n
+        if max_load and mass and total > 0:
+            load = mass * GRAVITY * w.load_share / total
+            if load > max_load:
+                add("warning", f"'{el.label}' carries {load / GRAVITY:,.0f} kg standing still, more "
+                               f"than its tyre's load index {spec.load_index} allows "
+                               f"({max_load / GRAVITY:,.0f} kg): fit a tyre with a higher load "
+                               f"index, or check the Vehicle Mass and the load shares.", el)
+
+
+def _scale_checks(part: str, p: dict, el, add: Add) -> None:
+    """A resized motor or engine (MOD-47): the scaled machine next to the
+    original (info), and scales outside the range the rules hold for."""
+    lo, hi = VALID_RANGE
+    for key in scale_keys(part):
+        try:
+            k = float(p.get(key, 100)) / 100.0
+        except (TypeError, ValueError):
+            continue
+        if k > 0 and not lo <= k <= hi:
+            add("warning", f"'{el.label}' is scaled to {k * 100:g} % ({key.replace('_pct', '')}), "
+                           f"outside the {lo * 100:g}–{hi * 100:g} % the scaling rules are meant "
+                           f"for: a machine this much smaller or larger is built differently. "
+                           f"Use its own maps instead.", el)
+    try:
+        if part == "motor.emotor":
+            raw = parse_table2d(p.get("full_load_torque"))
+            new = scaled(part, "full_load_torque", raw, p)
+            peak = (max(t for _, row in raw for _, t in row), max(t for _, row in new for _, t in row))
+            power = tuple(max(t * n / RPM for _, row in fl for n, t in row) / 1000.0
+                          for fl in (raw, new))
+            n_top = (motor_max_rpm(raw, p.get("max_speed_rpm", 0)), motor_max_rpm(new, max_speed_rpm(p)))
+            add("info", f"'{el.label}' is resized: peak torque {peak[1]:,.0f} N·m (was "
+                        f"{peak[0]:,.0f}), maximum speed {n_top[1]:,.0f} 1/min (was "
+                        f"{n_top[0]:,.0f}), peak power {power[1]:,.0f} kW (was {power[0]:,.0f}); "
+                        f"its loss map, drag and inertia are scaled with it.", el)
+        else:
+            raw = parse_table1d(p.get("full_load_torque"))
+            new = scaled(part, "full_load_torque", raw, p)
+            power = tuple(max(t * n / RPM for n, t in fl) / 1000.0 for fl in (raw, new))
+            add("info", f"'{el.label}' is resized: peak torque {max(t for _, t in new):,.0f} N·m "
+                        f"(was {max(t for _, t in raw):,.0f}), peak power {power[1]:,.0f} kW "
+                        f"(was {power[0]:,.0f}); its fuel map, drag and inertia are scaled with "
+                        f"it, at the same fuel use per kWh.", el)
+    except (TableError, ValueError):
+        pass  # reported with the other parameters
+
+
+def _cell_pack_checks(p: dict, el, add: Add) -> None:
+    """A battery built from cells (MOD-08): what its layout gives (info),
+    and cell limits that leave the cells no room (warnings)."""
+    def num(key: str, default: float) -> float:
+        try:
+            return float(p.get(key, default))
+        except (TypeError, ValueError):
+            return default
+
+    n_s, n_p = max(1, round(num("series_cells", 96))), max(1, round(num("parallel_cells", 30)))
+    try:
+        ocv = parse_table1d(p.get("cell_ocv_table"))
+    except TableError:
+        return  # reported with the other parameters
+    cap = num("cell_capacity_Ah", 5.0)
+    r_pack = (n_s * num("cell_resistance_ohm", 0.02) / n_p + n_s * num("interconnect_resistance_ohm", 0.0002)
+              + num("contactor_resistance_ohm", 0.0005))
+    v_lo, v_hi = n_s * ocv[0][1], n_s * ocv[-1][1]
+    kwh = n_p * cap * n_s * ocv_mean(ocv) / 1000.0
+    mass = n_s * n_p * num("cell_mass_kg", 0.07) * max(1.0, num("packaging_factor", 1.4))
+    add("info", f"'{el.label}' is built from cells: {n_s}s{n_p}p of {cap:g} Ah gives "
+                f"{n_p * cap:g} Ah, {kwh:.1f} kWh, {v_lo:.0f}–{v_hi:.0f} V open-circuit, "
+                f"{r_pack * 1000:.1f} mΩ for a 10 s pulse at 25 °C and 50 % SOC, and about "
+                f"{mass:.0f} kg (an estimate; the Vehicle Mass is not changed).", el)
+    v_min, v_max = num("cell_min_voltage_V", 2.5), num("cell_max_voltage_V", 4.2)
+    if v_min > 0 and v_min >= ocv[-1][1]:
+        add("warning", f"'{el.label}' has a Cell Minimum Voltage of {v_min:g} V, at or above "
+                       f"the cell's open-circuit voltage when full ({ocv[-1][1]:g} V): it can "
+                       f"give no current. Check the value.", el)
+    if v_max > 0 and v_max <= ocv[0][1]:
+        add("warning", f"'{el.label}' has a Cell Maximum Voltage of {v_max:g} V, at or below "
+                       f"the cell's open-circuit voltage when empty ({ocv[0][1]:g} V): it can "
+                       f"take no charge. Check the value.", el)
 
 
 def _map_checks(model: Model, add: Add) -> None:
@@ -646,10 +1284,11 @@ def _map_checks(model: Model, add: Add) -> None:
     elements, params = model.elements, model.params_of
 
     def table(el_id: str, key: str, two_d: bool) -> list | None:
-        try:
-            return (parse_table2d if two_d else parse_table1d)(params[el_id][key])
+        try:  # as the run reads it: a resized machine's maps scaled (MOD-47)
+            pts = (parse_table2d if two_d else parse_table1d)(params[el_id][key])
         except (KeyError, TableError):
             return None
+        return scaled(model.cdef_of[el_id].id, key, pts, params[el_id])
 
     def num(el_id: str, key: str, default: float) -> float:
         try:
@@ -685,7 +1324,7 @@ def _map_checks(model: Model, add: Add) -> None:
             if not fl or not loss:
                 continue
             n_curve = motor_max_rpm(fl, 0)
-            n_max = motor_max_rpm(fl, params[el_id].get("max_speed_rpm", 0))
+            n_max = motor_max_rpm(fl, max_speed_rpm(params[el_id]))
             if n_max > n_curve:
                 add("warning", f"E-Motor '{label}': its Maximum Speed ({fmt(n_max)} 1/min) is "
                                f"beyond its full-load data, which ends at {fmt(n_curve)} 1/min — "
@@ -735,10 +1374,12 @@ def _map_checks(model: Model, add: Add) -> None:
         if src is None or not bus.motors:
             continue
         if bus.battery:
-            ocv = table(src, "ocv_table", False)
+            cells = params[src].get("pack_model") == CELLS
+            ocv = table(src, "cell_ocv_table" if cells else "ocv_table", False)
             if not ocv:
                 continue
-            volts = (min(v for _, v in ocv), max(v for _, v in ocv))
+            n_s = max(1, round(num(src, "series_cells", 96))) if cells else 1
+            volts = (n_s * min(v for _, v in ocv), n_s * max(v for _, v in ocv))
         elif bus.fuelcell:
             pol = table(src, "polarization", False)
             if not pol:

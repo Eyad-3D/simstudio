@@ -17,6 +17,7 @@ test("PLT-29: an earlier version opens as an unsaved copy and the file stays as 
   await openApp(page);
   await ribbonTab(page, "Home").click();
   await page.getByRole("button", { name: "New", exact: true }).click();
+  await page.getByRole("button", { name: /^Blank project/ }).click();
   await renameAndSave(page, `${name} v1`);
   await renameAndSave(page, `${name} v2`);
   await renameAndSave(page, `${name} v3`);

@@ -19,6 +19,15 @@ aim requests at loopback addresses. So every request is checked:
 
 Without LIGHTSIM_TOKEN (development, tests) there is no token check; the
 Host and Origin checks always apply.
+
+File paths (PLT-33): the page never names a file on disk. The routes that
+take a path (open a .lightsim file, save as one) answer only the desktop
+shell, which shows the system's file dialogs: it starts the engine with a
+second secret in LIGHTSIM_SHELL_TOKEN that it never gives the window, and
+sends it in the X-LightSim-Shell header (:func:`may_name_paths`). The page
+then refers to the file by the project id the engine gave it. In
+development, LIGHTSIM_DEV_FILE_PATHS=1 lets requests without a shell name
+paths (the browser tests use it); without either, those routes are refused.
 """
 from __future__ import annotations
 
@@ -33,6 +42,9 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from starlette.websockets import WebSocketClose
 
 TOKEN_ENV = "LIGHTSIM_TOKEN"
+SHELL_TOKEN_ENV = "LIGHTSIM_SHELL_TOKEN"
+DEV_PATHS_ENV = "LIGHTSIM_DEV_FILE_PATHS"
+SHELL_HEADER = "x-lightsim-shell"
 HOSTS_ENV = "LIGHTSIM_ALLOWED_HOSTS"
 COOKIE_NAME = "lightsim_token"
 
@@ -57,6 +69,17 @@ CONTENT_SECURITY_POLICY = (
 
 def launch_token() -> str | None:
     return os.environ.get(TOKEN_ENV) or None
+
+
+def may_name_paths(headers: Headers) -> bool:
+    """The request may name a file on disk: it comes from the desktop shell
+    (it carries the shell's secret), or this is a development engine that
+    allows paths from any local request."""
+    shell = os.environ.get(SHELL_TOKEN_ENV) or ""
+    if shell:
+        sent = headers.get(SHELL_HEADER, "")
+        return bool(sent) and hmac.compare_digest(sent.encode(), shell.encode())
+    return os.environ.get(DEV_PATHS_ENV) == "1"
 
 
 def allowed_hosts() -> tuple[str, ...]:

@@ -8,10 +8,11 @@ import {
   type Node,
 } from "@xyflow/react";
 import { AlertTriangle } from "lucide-react";
-import type { ComponentDef, ElementInstance, PortDef, PortSide } from "../../types";
+import type { ComponentDef, ElementInstance, PortDef, PortKind, PortSide } from "../../types";
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { componentIcon } from "../../icons";
+import { NodeMarks } from "./EnergyOverlay";
 
 export type ElementNodeData = {
   element: ElementInstance;
@@ -22,14 +23,16 @@ export type ElementFlowNode = Node<ElementNodeData, "element">;
 
 export const DEFAULT_NODE_WIDTH = 92;
 
-// Per-domain accent — mid-tone saturated colors that read on both the light
-// and dark node backgrounds (mirrors the edge KIND_COLOR palette).
-const DOMAIN_COLOR: Record<string, string> = {
-  electrical: "#e08600",
-  mechanical: "#64748b",
-  signal: "#0891b2",
-  thermal: "#dc2626",
-  fluid: "#2563eb",
+// One colour per domain for wires, node borders and icons, layer swatches and
+// port dots: the theme's --ss-kind-* tokens (index.css), each at least 3:1 on
+// the diagram in both themes (contrast.test.ts). CSS values, for styles only.
+export const KIND_COLOR: Record<PortKind, string> = {
+  electrical: "var(--ss-kind-electrical)",
+  mechanical: "var(--ss-kind-mechanical)",
+  signal: "var(--ss-kind-signal)",
+  thermal: "var(--ss-kind-thermal)",
+  fluid: "var(--ss-kind-fluid)",
+  power: "var(--ss-kind-electrical)",
 };
 
 // The one "headline" signal shown as a live chip on a node during/after a run.
@@ -184,7 +187,7 @@ function PhysicalPort({
           className="pointer-events-none absolute z-10 text-[10px] font-bold leading-none"
           style={{
             ...polarityGlyphStyle(side, offset),
-            color: port.polarity === "positive" ? "#dc2626" : "#2563eb",
+            color: port.polarity === "positive" ? "var(--ss-pole-positive)" : "var(--ss-pole-negative)",
           }}
         >
           {port.polarity === "positive" ? "+" : "−"}
@@ -202,7 +205,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
   const dataChecks = useProjectStore((s) => s.dataChecks);
   const boxRef = useRef<HTMLDivElement | null>(null);
 
-  const domainColor = DOMAIN_COLOR[def.domain] ?? "var(--ss-node-border)";
+  const domainColor = KIND_COLOR[def.domain] ?? "var(--ss-node-border)";
 
   // live headline value: subscribe narrowly so only this node re-renders when
   // its own signal ticks. Undefined until the run publishes it; persists after.
@@ -213,7 +216,8 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
 
   // surface data-check errors/warnings for this element right on the node
   const issue = useMemo(() => {
-    const forEl = dataChecks?.filter((c) => c.elementId === element.id) ?? [];
+    const forEl =
+      dataChecks?.filter((c) => c.elementId === element.id || c.elementIds?.includes(element.id)) ?? [];
     if (forEl.length === 0) return null;
     const worst = forEl.some((c) => c.level === "error") ? "error" : forEl.some((c) => c.level === "warning") ? "warning" : null;
     if (!worst) return null;
@@ -275,7 +279,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
         ref={boxRef}
         className={`group relative flex items-center justify-center rounded-md border-[1.5px] bg-[color:var(--ss-panel)] shadow-sm transition-shadow
           ${isSub ? "border-dashed border-[color:var(--ss-accent)] bg-[color:var(--ss-accent-soft)]" : ""}
-          ${selected ? "outline outline-2 outline-[color:var(--ss-accent)] shadow-md" : issue?.level === "error" ? "outline outline-2 outline-red-500" : issue?.level === "warning" ? "outline outline-1 outline-amber-500" : ""}`}
+          ${selected ? "outline outline-2 outline-[color:var(--ss-accent)] shadow-md" : issue?.level === "error" ? "outline outline-2 outline-[color:var(--ss-err)]" : issue?.level === "warning" ? "outline outline-1 outline-[color:var(--ss-warn)]" : ""}`}
         style={{ width, height, ...(isSub ? {} : { borderColor: domainColor }) }}
         title={isSub ? "Double-click to open sub-system" : `${def.name} — double-click for parameters`}
       >
@@ -293,10 +297,13 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
             {badge.unit ? ` ${badge.unit}` : ""}
           </div>
         )}
+        <NodeMarks elementId={element.id} />
+        {/* the status colour with the diagram's colour inside: at least 3:1
+            both ways in both themes (contrast.test.ts) */}
         {issue && (
           <span
-            className={`absolute -right-1.5 -top-1.5 z-20 flex h-3.5 w-3.5 items-center justify-center rounded-full text-white shadow ${
-              issue.level === "error" ? "bg-red-500" : "bg-amber-500"
+            className={`absolute -right-1.5 -top-1.5 z-20 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[color:var(--ss-panel)] shadow ${
+              issue.level === "error" ? "bg-[color:var(--ss-err)]" : "bg-[color:var(--ss-warn)]"
             }`}
             title={issue.text}
           >
@@ -332,7 +339,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
             />
           )),
         )}
-        <div className="pointer-events-none absolute left-1/2 top-full mt-1 w-[128px] -translate-x-1/2 text-center text-[11px] leading-tight">
+        <div className="ss-node-label pointer-events-none absolute left-1/2 top-full mt-1 w-[128px] -translate-x-1/2 text-center text-[11px] leading-tight">
           <span
             className={`rounded px-1 ${selected ? "font-semibold text-[color:var(--ss-accent)]" : "text-[color:var(--ss-node-icon)]"}`}
             style={{ background: "color-mix(in srgb, var(--ss-panel) 78%, transparent)" }}

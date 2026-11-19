@@ -1,8 +1,10 @@
 # LightSim: known issues and limits
 
 LightSim is still an early version. You can build, run and inspect models,
-but the component physics are simplified, **nothing has been validated
-against measured vehicles yet**, and some results are known to be wrong.
+but the component physics are simplified, **only the energy use of four
+electric cars on EPA's city and highway cycles has been compared with
+official test results** (within 8 %, see [What is validated](VALIDATION-STATUS.md)),
+and some results are known to be wrong.
 This page lists what we know, what you can do about it today, and which
 roadmap item tracks the fix.
 
@@ -16,8 +18,113 @@ how the example cars compare with real ones.
   that tracks the fix, so the release notes can say when it is resolved.
 - *Being fixed* means the work is under way for an upcoming release. Until
   the release notes say it is done, the problem and the workaround apply.
-- Last reviewed: 24 September 2026, for version 0.2.0. This page is updated
+- Last reviewed: 17 November 2026, for version 0.2.0. This page is updated
   with every release.
+
+## Does not run in this version
+
+LightSim runs every case on one simulation engine, the new engine (written
+in Rust). It replaced the older engine (written in Python) as the app's
+engine in this version, and nothing falls back to the older one: a case the
+new engine does not run fails at once, before any result, with an error
+that starts *Not run* and gives a reason code in brackets (for example
+`Not run [NEW-LAP]: lap cases do not run in this version of LightSim yet`).
+The older engine's code stays in the repository for developers and for the
+comparison of the two engines (`LIGHTSIM_ENGINE=today`, see the
+[README](../README.md)); the app does not run a case on it. Three features
+of the older engine are not ported to the new one yet. They do not run in
+this version, and the reason code names each:
+
+- **Lap cases** (`NEW-LAP`). A case of kind *Lap*: the Race Track's
+  quasi-steady-state lap (Autocross, Skidpad, a custom track), the
+  *Endurance energy* case and study that drive laps, and **Calibrate lap**.
+  The Formula Student Electric example's *Autocross* and *Endurance energy*
+  cases fail with it; its *Acceleration 75 m* case runs. The sections on lap
+  mode below describe the older engine's lap solver, which a later version
+  ports.
+- **Formula Student events** (`NEW-FS-EVENT`). A case with a Formula
+  Student event set (what the *FS events* button adds) and the *Formula
+  Student points* table that scores such runs: the points table lists only
+  runs that ended, so after a refused run it keeps showing the last
+  stored ones. A plain *Acceleration test* (a case of kind *Acceleration*
+  with no event) runs.
+- **A battery built from cells** (`NEW-CELLS`). A Battery with *Defined
+  By: Cells*. Set it to *Pack values* (and give the pack's own capacity,
+  open-circuit voltage and resistance) to run the case.
+
+Quick mode refuses in the same way what it cannot run (see *Quick mode
+gives a cycle's totals only* below): it does not run the case in full
+instead.
+
+### What else the new engine refuses or stops
+
+The cases below ran on the older engine and fail on the new one, or give
+other numbers. Each fails with *Not run* or the engine's own message and a
+code. A test in the repository records each as an expected failure
+(`backend/tests/engine_marks.py`) until it is fixed.
+
+- **A value outside its parameter's limits, typed in the case, is refused**
+  (`NEW-LIMITS`). Data Checks look at the model's own values and a study's
+  base project, not at the case's Ambient or Vehicle values. A case that
+  sets an Ambient temperature of -300 °C, a Vehicle wheelbase of 0 or a
+  battery margin over 100 % is refused with the limit it breaks, where the
+  older engine clamped the value and warned. Bring the value inside its
+  limits.
+- **A part connected to nothing can fail where the older engine left it
+  out.** The older engine builds no part with nothing connected to it (a
+  battery or Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft
+  drives nothing, a Climate Control on nothing) and runs the rest, with a
+  warning from Data Checks. The new engine builds it. A lone E-Motor fails
+  its start (`RUN-INIT`), a lone Climate Control the build (`STRUCT-OVER`),
+  and a lone Engine's, Fuel Cell Stack's or Battery's table with an axis
+  set to Error can stop the run (`RUN-TABLE`) where the table does not
+  cover where the part sits. Connect the part or delete it.
+- **A table set to Error stops the run in the engine's own words.** The
+  message names the table by its internal name and the time, not in the
+  older words, and a run it stops gives no partial result with its figures
+  marked not valid.
+- **Some notes and rows the older engine wrote are missing**: the note
+  that a motor at its maximum speed holds the car there, the time a Lookup
+  block spent outside its data on *Clamp* or *Linear*, the count of the
+  tables a run read past their data, the *regeneration not recovered* rows
+  behind a one-way DC-DC converter, and an early message that the car does
+  not move.
+- **Some figures differ from the older engine's by more than the band the
+  two engines are compared at, and no class of difference explains them
+  yet**: the energy of a gear shift, a clutch that never locks exactly,
+  the axle loads under load transfer, a car coasting up a grade (16.66
+  against 20.39 for the energy test's m g h), an idle car's final SOC
+  (89.9991 % against 90 %), the slip Traction Control holds after the
+  launch ramp (0.359 against under 0.3), the fuel an Engine coasting in
+  gear burns (1.9 g/s, where the older engine cuts it), a car at rest that
+  moves at 1e-14 m/s, and a propeller's books.
+- **A machine driven to its maximum speed can stop a run by switching
+  without end** (`RUN-EVENT-STORM`: the BEV's WLTC cycle on a 6 % downhill
+  grade with its Final Drive ratio x3, the hybrid's Mixed Cycle with its
+  gears x3), where the older engine warned or finished; and a motor driven
+  past its maximum speed in a top-speed test stops on its full-load map
+  (`RUN-TABLE`). See *A machine driven to its maximum speed can stop the
+  run* below.
+- **A battery driven to its limits, an empty battery's consumers and a
+  fuel cell behind a one-way DC-DC converter can fail at their start or at
+  t = 0** (`RUN-INIT` at about 2.2 s; `RUN-TABLE` at t = 0): the new engine
+  cannot start again from the state these cases reach.
+- **A model whose loss map has sheets of different range is refused**
+  (`BLOCK`): the older engine counted a read outside the narrowest range,
+  the new engine watches the widest.
+- **The reference suite's coast-down model is a loop the engine cannot solve
+  with its values** (`SINGULAR-LOOP`: the *Brake RL* and *Wheel RL* parts), so
+  the validation page's coast-down rows are not re-measured on the new
+  engine (see [What is validated](VALIDATION-STATUS.md)).
+- **A run the engine stops part-way fails with `Not run [NEW-FAILED]`**,
+  even after it showed points: the wording says *Not run* where the run
+  showed, say, 321 s.
+- **A table edited during a live run takes effect on the next run**, and a
+  block's value at an output point is the one after its tick (a Script, FMU
+  or Delay), where the older engine showed the one before. The *Live runs*
+  bullet below has the rest.
+- **The MCP server's answer for a run can pass the 20 kB it keeps to** (one
+  is 27 bytes over).
 
 ## Results that can be wrong today
 
@@ -83,41 +190,351 @@ either. Also:
   run reports its *Maximum speed* and the *Time to* the target's highest
   value, timed from t = 0. That is a standing start only: there is no
   rolling start, no time between two speeds (such as 80-120 km/h) and no
-  second timed speed in one run.
+  second timed speed in one run. An acceleration case can end at a
+  distance, but no case can end at a speed or a charge level.
+- A case of kind *Acceleration* (or Simulations → *Acceleration test*,
+  which adds a 75 m case staged 0.30 m behind the start line with a 25 s
+  limit) is not judged on the band either: the Driver holds full throttle
+  for the whole run and reads no target. The run ends at the end of the
+  solver step that crosses the line, so its channels go up to one solver
+  step (at most 10 ms, about 0.3 m) past it; the time and the speed at the
+  line are read inside that step. The case duration is the time limit,
+  counted from rest (so it includes the drive up to the start line): a car
+  that has not reached the line by then gets a warning and no time, so the
+  time's *pass* can never read *fail*. FS Rules 2026
+  v1.1 (FSG) D 9.2.1 disqualifies runs over 25 s in driverless runs only
+  (a manual run is capped by the scoring); FSUK and FSAE may differ, and
+  their staging distance was not checked. The results are estimates: the
+  wheel loads shift only with a Centre of Gravity Height set (one step
+  late, see below), the tyre's grip depends on its load only through a
+  Wheel's *Load Sensitivity*, and nothing limits wheelspin, so when the driven wheels are at their grip
+  limit the tyre still gives μ times its load but the battery power and
+  energy include the power that spins the wheels. The time at the grip
+  limit counts driven wheels only; there is no peak-slip figure. The time
+  and that share follow the solver step when a stiff tyre rings (see
+  *Stiff settings* below); the P2 Hybrid Car's 75 m takes 6.314 s at the
+  10 ms step and 6.309 s at 1 ms, never at the grip limit. A too-stiff tyre can even beat a slip-free car: the
+  Battery Electric Car at a *Slip Stiffness* of 1000 gives 5.015 s,
+  faster than a slip-free point mass's 5.172 s. Without a
+  Driver, or with a Script between the Driver and the motors, full
+  throttle is only what that model makes of an accelerator pedal of 1:
+  Data Checks do not check it.
 - A motor held back by its battery or fuel cell, or regeneration that a
   full or charge-limited battery refuses, makes the run a *warning* at the
   first touch, however brief; the figures stay valid, because the limit is
   part of the model. The summary says how long each motor was limited and
   how much regeneration was not recovered.
-- The tolerance (1 % of the run, at least 2 s) is LightSim's own choice:
-  test procedures such as WLTP set no allowance for a simulation.
+- The tolerance (1 % of the run, at least 2 s, outside the band in all)
+  is LightSim's own rule, and the run's message says so: the EPA accepts
+  speeds beyond its limits for up to 2.0 s on any one occasion (40 CFR
+  1066.425(b)(4)(i)), the WLTP for up to 1 s on any one occasion and ten
+  such a cycle (Regulation (EU) 2017/1151, Annex XXI, Sub-Annex 6,
+  2.6.8.3.1). The time outside is that of the line through the speed
+  trace's samples, taken every 0.1 s of solver time, exactly; a trace
+  judged against distance still counts whole samples.
+- The two automatic hand calculations under each run's expected values
+  (VAL-35) are bounds, not predictions: the top speed one reads the gear
+  ratio from the run at its fastest point, and the energy one sums the
+  road load over the recorded points (1 s by default) and allows 3 % for
+  that. Runs with a combustion engine skip the energy check.
 
 *Workaround:* read the Messages panel and the *not valid* notes in the
 summary table.
-*Roadmap:* VAL-08.
+*Roadmap:* VAL-08; CON-06 (rolling starts, ends at a speed or a charge
+level); MOD-16 (a tyre whose force drops past its peak, so wheelspin
+costs time); RES-38 (time per limiting regime and peak slip).
 
-### Only its internal resistance limits what a battery delivers
+### Battery limits are a battery management system's tables, not cell physics
 
 A battery delivers power up to its maximum-power point (the most its
-internal resistance lets through: about 420 kW for the default pack at 90 %
-charge) and takes back up to its *Max Charge Power*. There are no current or
-voltage limits, fuel cells have no ramp rate, and DC-DC converters have no
-power rating, so a model is never held back by these.
+resistance lets through: about 420 kW for the default pack at 90 %
+charge), or up to its *Output Power Limit* when one is set, and takes back
+up to its *Max Charge Power*. Since 0.3 it can also hold the current and
+voltage as a battery management system does: with *Defined By: Pack
+values*, a *Max Discharge Current*, *Max Charge Current* and minimum and
+maximum pack voltage (0 = none, as in every existing model); with
+*Defined By: Cells*, the cells' continuous and peak currents and their
+minimum and maximum voltage, for the weakest series group. These are the
+limits a BMS keeps (fidelity L1), with these simplifications:
 
-*Workaround:* check the battery's *Discharge Power* channel against what the
-real pack or its management system allows, and reduce the motor's torque
-map or add a limit in a Script if needed.
-*Roadmap:* ENG-02 (follow-up).
+- The resistance comes from tables (pulse length, SOC, temperature), not an
+  electrochemical model; the default tables are estimates. The pulse length
+  is the time the current has flowed one way, so the step after the current
+  reverses still uses the old pulse's resistance.
+- The cells are at the first Ambient's temperature: they do not warm up
+  under load (MOD-09). There is no hysteresis and no second RC pair
+  (MOD-51), and no ageing.
+- A cell's voltage limit is met at the start of each 10 ms step; the
+  open-circuit voltage then falls a little over the step, so a cell can end
+  it a few millivolts past its limit (at most 2 mV in the tests). The RC
+  pair's voltage counts against the limits too, shared evenly by the
+  series cells.
+- The weakest group stops the pack when it reaches the *Minimum SOC* (or
+  100 % when charging), as the same current flows through every group; the
+  pack's own SOC is then higher.
+- Without a current limit (*Pack values*), the *SOC Derating Band* lowers
+  the current at the pack's maximum-power point, far more than most loads
+  draw, so it holds the motors back only close to the *Minimum SOC*; Data
+  Checks say so. Set a *Max Discharge Current* for a taper.
+- The 2, 10 and 30 s power-limit channels are the state of power for a
+  pulse starting from the present state; the handshake holds the motors to
+  the limit of the pulse going on (the 2 s values at a pulse's start).
+- No pulse test has been compared with a published cell's data yet (that
+  needs a licence-clear cell data set, CON-19).
 
-### Signal units are not checked
+Fuel cells have no ramp rate, and DC-DC converters have no power rating.
 
-Data Checks now report two signals wired into the same input (UX-37), but
-units are not checked: a battery's *SOC* output is in % (0-100), and a
-Script, Lookup or PID block that expects 0-1 gets 0-100 without a warning.
+The Output Power Limit is ideal: it holds the terminal power (volts × amps)
+exactly at every solver step, with none of a real limiter's lag or
+overshoot, and it limits discharge only. Its check averages the solver
+step's power (10 ms) over the *Power Check Window*, with nothing before
+t = 0, not the samples of a competition's energy meter; a run that starts
+at speed was already drawing power before t = 0. FSAE's rule that 100 ms
+over the limit is a violation is not counted on its own (a window of 0
+gives a check at least as strict). The *Voltage Class* check compares the
+highest terminal voltage of a solver step, not a 500 ms average.
 
-*Workaround:* in the Data Bus panel, check that the units at both ends of
-each link match; divide percentages by 100 where a block expects 0-1.
-*Roadmap:* VAL-17.
+*Workaround:* for a real pack, fit the resistance tables to a pulse test
+(HPPC) of its cells.
+*Roadmap:* MOD-09 (cell temperature), MOD-51 (2RC and hysteresis), ENG-02
+(follow-up).
+
+### Lap mode is a quasi-steady-state estimate
+
+**This does not run in this version** (`NEW-LAP`, see [Does not run in this
+version](#does-not-run-in-this-version)); what follows describes the lap
+solver of the older engine, which a later version ports.
+
+A case of kind *Lap* finds the fastest speed along the Race Track's line
+about every metre, then drives that speed through the model's motors,
+gears, brakes and battery. It is not a driving simulation:
+
+- The driver is ideal: at the tyres' limit on the given line everywhere,
+  with no transients, suspension, yaw, tyre slip or slip-angle drag, and
+  an ideal brake balance (every tyre brakes at its limit). Regeneration
+  comes first when braking, up to the Driver's *Recuperation Weight* and
+  the driven wheels' braking grip; the drive cycles' Driver does not hold
+  regeneration to the grip. Lap times are usually optimistic: a user of
+  OpenLAP, a similar point-mass lap simulator, found its F1 example lap
+  7.5-8 % faster than the real car's. Calibrate the grip and the downforce
+  against a lap your car has driven (**Calibrate lap**, VAL-38) before
+  trusting a lap time.
+- The car follows the line as drawn, with no track width or racing line.
+  Where the curvature changes sign within a metre, as at the skidpad's
+  crossover, the speed rises by up to 3 % at that point: a real car cannot
+  turn from one circle into the other that quickly.
+- E-Motor cars only: a lap case refuses Combustion Engines and Clutches on
+  the wheels, and any engine, clutch or E-Motor on a shaft without wheels
+  (a series hybrid's generator set, which it would not run), holds
+  Gearboxes in their gear and commands every E-Motor
+  itself, with one demand for all, so Scripts or controllers between the
+  Driver and the motors (torque vectoring, traction control) do nothing.
+  With E-Motors on both axles, the driven wheels' grip is used together,
+  as if the torque went to whichever axle has grip to spare: a car whose
+  axles' torque does not match their grip can be slower than lap mode
+  says (with a 6.5 front and a 4.0 rear final drive a 600 m straight
+  took 3.7 % longer in the time domain, against 1.6 % with equal final
+  drives).
+- The powertrain's limit is read at each lap's start, with the battery's
+  charge and voltage then. Within a lap the motors can fall short of the
+  speed where the battery's voltage sags more than expected; the *Lap
+  energy balance error* shows it, and above 0.5 % the *Energy per lap* is
+  marked not valid, and so are the lap times when the motors gave less
+  than the speed asked for (or the battery reached its minimum SOC).
+  The braking is solved likewise: the friction brakes' Max Torque plus the
+  regeneration the battery could take at the lap's start; when the
+  brakes then cannot follow the speed (the battery filled, or a live edit
+  took regeneration away), the run warns and the lap times are marked not
+  valid.
+  The Output Power Limit is held at every point; the check window's
+  average is not used to let short peaks through.
+- Sideways load transfer is shared between the axles as the static weight
+  is (no roll stiffness or anti-roll bars), and each axle's wheels are
+  taken in pairs across the car, the same way in left and right corners:
+  give the left and right wheels the same load share.
+- Driving a lap's speed as a drive cycle gives other energy figures: the
+  drive cycles' Driver has no brake balance or ABS and can lock the driven
+  wheels when braking hard (a Formula Student-sized car driving its
+  Autocross lap's speed as a drive cycle used 62 % more energy and
+  recuperated 30 Wh instead of 110 Wh).
+- Live edits during a lap case reach the motors, gears and battery at
+  once, but the lap's speed, with the edited tyres, Vehicle and brakes,
+  is solved again only at the next lap's start.
+- A Custom track's curvature is used as entered: a logged lateral
+  acceleration / speed² is noisy and should be smoothed first. Data Checks
+  refuse a curvature above 0.5 1/m (a 2 m radius).
+- The Autocross, Skidpad and Acceleration 75 m layouts are LightSim's own
+  drawings after FS Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1,
+  not official layouts; FSUK and FSAE may differ, check the current
+  season's rules.
+
+*Workaround:* compare lap cases with each other rather than with a stop
+watch, and check the *Time limited by* rows and the Race Track's *Limit*
+channel for what holds the car back.
+*Roadmap:* VAL-38 (a published check on a real logged lap), MOD-34 (a dynamic
+lap model), STD-35 (tracks from GPS or OpenStreetMap), CON-11 (driving a lap's speed as a drive cycle), MOD-08 (state
+of power), MOD-09 (heat over an endurance).
+
+### Formula Student points are estimates
+
+The *FS event* rows and the *Formula Student points* table score a run
+with the formulas of FS Rules 2026 v1.1 (FSG) D 9. A case with an event set
+does not run in this version (`NEW-FS-EVENT`), so no new run gets these rows
+until it is ported. They are not official results:
+
+- Only FSG 2026 scoring is built in. FSUK and FSAE use other maximum
+  points and formulas, and a season's rules can change them.
+- The points need the other teams' results: the fastest time and the most
+  efficient energy, which you type in. No competition's results come with
+  LightSim.
+- Each event is one run, with no penalties (cones, off-course, flags) and
+  no second driver or second run.
+- The rule checks are simplified: the power is the highest 500 ms moving
+  average of the solver steps' power, as D 10.4.1 judges it, whatever the
+  battery's *Power Check Window*; the current is checked at its highest
+  over a solver step, not as a 500 ms average (stricter than D 10.4.1); the
+  voltage check takes the open-circuit voltage at full charge or the
+  highest terminal voltage. Any breach scores the event 0, where the rules
+  take away only the fastest run.
+- The endurance's driver change is a stop at the end of the lap at half
+  distance and a start from rest on the next one; the event time leaves
+  out that restart lap whole, but keeps the braking into the stop. The
+  3 min stop itself is not simulated (no battery recovery or cooling).
+- The skidpad time is the mean of the two circles of one lap of LightSim's
+  Skidpad layout; the rules time a second lap on each circle.
+
+- The endurance energy study varies only the capacity and the Output
+  Power Limit of the first battery (with the capacity, its *Charge
+  Capacity* in the same proportion, or for a pack built from cells, the
+  cell's capacity); it runs one endurance for each pair, a
+  4 × 4 grid in about 3 min, and a larger pack keeps the car's mass and
+  resistance (add the cells' mass to the Vehicle yourself). Grid studies of
+  other parameters are STU-06's work.
+
+*Workaround:* compare points between versions of your car, with the same
+references, rather than with a competition's results.
+*Roadmap:* MOD-43 (more competitions' scoring), MOD-44 (endurance energy
+strategy), MOD-09 (heat over an endurance).
+
+### Lift-and-coast is a simple driver strategy
+
+A Race Track's *Lift-and-Coast* and *Energy Target* (MOD-44) save energy
+only by coasting before the braking points:
+
+- The coast is a share of each stretch of acceleration that ends in
+  braking, from no slower than half the braking speed; it does not
+  regenerate while coasting and never lifts in corners.
+- The *Energy Target* picks each lap's share from an estimate of the
+  lap's energy that it corrects lap by lap. It met targets within 0.6 %
+  on the FS example; a target beyond what full lift-and-coast saves is
+  missed with a warning. It does not lower the power cap for you.
+- Battery temperature is not part of the strategy (no heat model yet).
+
+*Workaround:* combine it with the battery's *Output Power Limit*, and sweep
+both to find the pace you want.
+*Roadmap:* MOD-44 (power-cap search, regeneration level), MOD-09 (heat).
+
+### Imported laps are drive cycles against time
+
+**Import lap** (STD-35) makes a lap from a logger or lap simulator into a
+drive cycle, which runs as any cycle case does (the *Lap* case kind it can
+also make does not run in this version, `NEW-LAP`):
+
+- The Driving Task follows speed against time, so a trace against
+  distance is turned into time from its speed; driving it against
+  distance is ENG-34's work.
+- The logger layouts (MoTeC i2, AiM Race Studio, OpenLAP, TUM
+  laptime-simulation) are LightSim's reading of those tools, not checked
+  against teams' files.
+- Only one speed column is read: grade, elevation, GPS position and
+  lateral acceleration are not, so a lap on a hill is driven flat, and a
+  track cannot yet be built from the GPS trace.
+- Laps are split only by a lap number column, not by a GPS start line.
+- The trace is not smoothed: a spike in the speed is driven as it is
+  (LightSim warns about changes faster than 2.5 g). The drive cycles'
+  Driver has no brake balance, so hard braking can lock the driven wheels
+  (see *Lap mode is a quasi-steady-state estimate*).
+- The case keeps the speed trace, not the file; the file's SHA-256 is
+  written to *Messages* only. Saved import settings (presets of your own)
+  are not offered yet.
+
+*Workaround:* pick the columns by hand when a layout does not find them,
+and smooth a noisy speed in a spreadsheet first.
+*Roadmap:* STD-35 (GPS start line, grade, saved presets), ENG-34 (driving
+against distance), STD-02 (keeping the file in the project), STD-07
+(measured data).
+
+### The Traction Control block is a simple slip loop
+
+The *Traction Control* block (MOD-45) limits one demand for all the
+motors it feeds, from the larger of two wheels' slip:
+
+- It reads the slip one solver step late, so at the 10 ms step only low
+  gains are stable (its defaults); at a 1-2 ms step (case Step 0.002 s)
+  higher gains hold the slip within 0.005 of the target.
+- It has no feed-forward from the tyres' load and grip, and no limit per
+  motor: for hub motors, add one block for each motor and wire each its
+  own wheel.
+- LightSim's tyres keep their grip however much they slip, so holding the
+  slip at the peak gains no time yet (MOD-16), and wet grip is the μ you
+  set.
+
+*Workaround:* run launches at a 2 ms step; tune Kp and Ki on the Slip
+channel.
+*Roadmap:* MOD-45 (feed-forward from the wheel loads, the tyre's peak slip
+once MOD-16 exists), MOD-16.
+
+### Lap mode calibration fits two numbers on one lap
+
+**Calibrate lap** (VAL-38) runs lap cases, so it does not run in this
+version (`NEW-LAP`). It fits only a grip factor and the CzA:
+
+- Grip and downforce trade off on one lap, so the two values are not
+  reliable on their own; the check lap's errors are.
+- The track comes from the lateral acceleration over the speed squared:
+  no GPS position, elevation or track width, and lap mode's other limits
+  apply (ideal driver, no transients).
+- It searches a grid (grip 0.6-1.5, CzA 0-5 m²) and takes about 30 s;
+  values outside it are not found.
+- It has been checked on LightSim's own laps only. No accuracy is claimed
+  for a real car until a documented logged lap, with a licence that lets
+  LightSim publish the result, has been used.
+
+*Workaround:* fit on a lap with both slow and fast corners, check on a lap
+from another session, and compare the energy error too.
+*Roadmap:* VAL-38 (a published check on a real log), STD-35 (tracks from
+GPS).
+
+### Signal units are checked, not converted
+
+Data Checks warn when a signal wire joins two different units (VAL-17),
+such as a battery's *SOC* in % (0-100) into an input that expects 0-1, or a
+vehicle speed into a rotational speed. Only ports with a unit are judged:
+a Script's ports have one when you pick it next to the port's name, a PID's
+inputs when you set its *Setpoint & Feedback Unit*, a Lookup Table's when
+you set *Input X Unit* and *Input Y Unit*; a port left at *Not set* (No
+Unit) is not checked. The motors', brakes', engine's and clutch's commands
+are 0-1 (Fraction) in the library. Nothing is converted: the number on the
+wire arrives as it is, and the run gives no message.
+
+*Workaround:* set the units of your Script, PID and Lookup inputs, and read
+the warnings in Data Checks; divide by 100 in a Script where a block expects
+0-1.
+*Roadmap:* automatic conversion on wires is not planned yet.
+
+### An example's stored result holds a few signals
+
+An example opened from **Open** or the *Start* page shows its stored
+results (CON-15), named *Stored result*: the summary, the expected values
+and seven comparison signals (vehicle speed and target, battery SOC and
+power, motor speed and torque, engine fuel rate) every second. The other
+channels appear only after **Run**. The stored runs are not saved with the
+project and are not kept when LightSim restarts; the run lists call them
+*not stored on disk*. They were made by the older engine; **Run** gives the
+new engine's figures, which differ in the headline rows by well under 1 %
+(the BEV's WLTC consumption is 14.0456 kWh/100 km stored and 14.0532 run).
+
+*Workaround:* press **Run** for every channel.
 
 ### Computed values read 0 in the first result point
 
@@ -131,7 +548,8 @@ At later points these values come from the last solver step before the
 point, at most 10 ms earlier.
 
 *Workaround:* leave out point 0 of computed channels when you take a
-minimum or an average, for example from the CSV export.
+minimum or an average, for example from the CSV export, or put the
+*Results* chart's cursor A after t = 0.
 
 ### Component models with known errors
 
@@ -143,19 +561,61 @@ minimum or an average, for example from the CSV export.
   is open, as the P2 Hybrid Car example's script does.
   Turbo lag, restart cost and warm-up are not modelled either.
   *Roadmap:* MOD-13.
+- **A gear shift takes no time.** A Gearbox changes its ratio within one
+  solver step, as a rigid engagement with no slip: the speeds jump to the
+  new ratio keeping the driveline's angular momentum and, through tyres
+  that grip, the car's, and the kinetic energy that loses is booked as the
+  gearbox's *gear shifts* loss (the P2 Hybrid Car's 104 shifts on EPA city
+  lose 12.7 kJ). Real shifts take 0.2-0.5 s, with the torque interrupted
+  or a synchroniser slipping; here the car takes the gearbox input's
+  momentum at once (about 0.3 km/h at the P2 Hybrid Car's first upshift)
+  and loses no drive while shifting. A clutch in the driveline is not
+  rigid: it slips as its torque allows, so an engine behind a closed
+  clutch keeps its speed at the shift and the clutch takes up the
+  difference. *Roadmap:* ENG-04.
 - **Gear losses leave out inertia.** Each gear's loss now acts on the net
   power through it, in both directions, but the torque that accelerates the
   driveline's own inertia is not part of that net, and a locked clutch's
   torque is taken from the previous 10 ms step. *Roadmap:* MOD-03.
-- **Shaft and Final Drive power is the total of all motors and engines.**
-  Their *Transmitted Power* channel shows the summed mechanical power of
-  every motor and engine on the driveline, not the power through that part:
-  gear and clutch losses are left out, and every Shaft and Final Drive on
-  the driveline shows the same value. In the P2 Hybrid Car example's Mixed
-  Cycle with a Shaft added between the engine and the clutch, at t = 281 s
-  the engine delivers 9.8 kW and the motor takes 0.6 kW to charge the
-  battery, and the Shaft and the Final Drive both show 9.2 kW. Read the *Mechanical
-  Power* of each motor and engine instead. *Roadmap:* MOD-10.
+- **The energy breakdown leaves out inertia in the gears.** Each run lists
+  every part's energy in, out, lost and stored (*energy* in the run result;
+  the parts' *Losses*, *Input Power*, *Braking Power* and *Slip Losses*
+  channels). A gear's power is the motors', engines' and clutches' power
+  reaching it, so the torque that speeds up the driveline's own inertia
+  shows as the *Rotating parts*' store, not as a flow through each gear; a
+  locked differential splits by what each side carried. Every part books
+  what the solver's step did to it, each torque as the step applied it at
+  the step's mean speed, so the books of all parts together close to
+  rounding (the *Energy balance residual* is about 1e-11 % on the
+  examples). A motor's or engine's loss is therefore the electrical or
+  fuel power it took less the work its torque did over the step, which
+  differs from its loss map by the step's own error, the torque being read
+  at the step's start speed: about 3e-4 of the shaft power while a car
+  accelerates at 1 m/s² at the 10 ms step. Lap cases book the electrical
+  parts per part, and the mechanics (road load, brakes, gears) as one
+  Vehicle entry from the lap's own energy pass; they have no residual row
+  (see *Lap energy balance error*). *Roadmap:* MOD-03 (gear losses with
+  inertia), VAL-03 (energy audit table).
+- **Resized machines follow simple scaling rules.** An E-Motor's *Speed
+  Scale* treats the machine as rewound, with each point's loss that of the
+  matching point of the original, as if through an ideal gear: a real
+  faster-running rewind loses more in its iron at the higher frequency.
+  The *Torque Scale* scales every loss with the active length, so end
+  windings and bearings (which do not grow with it) are over-scaled for
+  long machines. The Engine Scale keeps the fuel use per kWh; small engines
+  really lose a little more to heat. Data Checks give the resized machine's
+  peak torque, speed and power, but no chart of the scaled map beside the
+  original yet. Use 50–200 %; beyond it, use the other machine's own maps.
+  *Roadmap:* MOD-12 (e-drive upgrade), MOD-13 (engine Willans line).
+- **A tyre code gives estimates, not the tyre's data.** The tyre estimates
+  a Tyre Code fills in are the same for every size: Rill's guess for a
+  passenger-car tyre on a dry road, scaled by its load index, with no speed
+  rating, pressure, compound or wear. Racing and Formula Student tyres grip
+  more (μ 1.4-1.7) and their codes carry no load index, so only their
+  radius is filled in. The overload check uses the static load standing
+  still, not the load transfer while braking or cornering. *Workaround:*
+  replace the estimates with your tyre's test data. *Roadmap:* MOD-16
+  (tyre model beyond μ and its load).
 - **The air is dry, still and the same along the road.** Air drag uses the
   density the Ambient block's temperature and pressure give (1.204 kg/m³,
   20 °C and 101.325 kPa, without an Ambient), but not the road's altitude
@@ -175,79 +635,603 @@ minimum or an average, for example from the CSV export.
   test-mass mode (equivalent test weight, × 1.015 for a two-wheel-drive
   dynamometer): enter the test mass as the Vehicle Mass. *Roadmap:* MOD-03
   (zero-load gear drag), VAL-05 (EPA reference tests).
-- **Wheel loads do not shift when braking, accelerating or cornering.**
-  Each wheel carries a fixed share of the vehicle weight (*Vehicle Load
-  Share*); the shares of the connected wheels are scaled to add up to
-  100 %, and Data Checks say when they had to be. *Roadmap:* MOD-16.
+- **Wheel loads shift one step late, and only between the axles.** With a
+  Vehicle *Centre of Gravity Height* and each Wheel's *Axle* set, load
+  moves between the axles by m·(a + g·sin θ)·h/L when the car accelerates,
+  brakes or stands on a slope, and a *Downforce Area* adds ½·ρ·CzA·v² split
+  by the *Front Aero Balance*. The acceleration a is the previous solver step's,
+  10 ms behind: exact while it is steady, off by its change over one step
+  while it changes (0.6-4 % where an FS car's motor reaches its power
+  limit, the whole transfer in a launch's first step). With the driven
+  front wheels spinning, the lag feeds back with a gain of μ × h/L per
+  step: at a real car's 0.2-0.4 the loads settle within a few steps, at
+  0.9 they still ring after 0.4 s, and above 1 the acceleration swings
+  from step to step and the run can warn of front wheels lifting that
+  would not. Drag is taken to act at ground height and moves no load (at
+  90 km/h an FS car's drag would move about 90 N, 5 % of its rear axle
+  load). An axle that would carry
+  less than nothing carries nothing and the run warns: the car does not
+  pitch, wheelie or tip over, and there is no suspension. In a drive cycle
+  load does not shift from side to side (a lap case shifts it), and grip
+  depends on load only with a Wheel's *Load Sensitivity* set. The static
+  split is the *Vehicle Load Share*; the shares
+  of the connected wheels are scaled to add up to 100 %, and Data Checks
+  say when they had to be. Wheels are on the Front axle unless set to
+  Rear: set the rear wheels before giving a CG height (Data Checks say
+  so). *Roadmap:* MOD-16 (a tyre model beyond μ and its load
+  sensitivity), MOD-34 (pitch and suspension).
 - **An engine behind a script-controlled clutch starts at rest.** A run that
   starts at speed starts every wheel, gear and motor at that speed, and an
   engine behind a closed clutch too; a clutch a Script controls counts as
   open at t = 0, so the engine behind it starts at rest. *Roadmap:* MOD-19.
-- **Stiff settings can cause short wheel-spin spikes at launch.** This is a
-  numerical effect of how the solver steps the tyres: a high tyre *Slip
-  Stiffness*, a very light inertia or a strong clutch can push the solver
-  past its stability limit, and nothing warns when that happens. Keep *Slip
-  Stiffness* near its default, and after changing these settings plot the
-  wheels' *Longitudinal Slip* at launch. A car braked to a stop can also
+- **Stiff settings make runs slower, and some effects remain.** Before a
+  run, LightSim checks whether the tyres' *Slip Stiffness* or a
+  propeller-type load is too stiff for its 10 ms solver step and, if so,
+  uses a smaller step (down to 0.5 ms) and says so in Data Checks and
+  *Messages* (ENG-14): a *Slip Stiffness* of 20 or 30 runs at 5 ms, 100 at
+  1.43 ms, 300 at 0.5 ms, each that many times slower (the FS Electric
+  example, at 20, runs at 5 ms). Beyond that the run warns that the value
+  is too stiff. The limit comes from the solver's stability grid (a launch
+  and a car held braked, `backend/tests/test_numerics.py`): stable up to
+  a gain of 2.94 on its scale, unstable from 3.92; LightSim keeps it at 3
+  or less, so other manoeuvres may still differ. A value edited during a
+  live run is not checked. Below the limit, the step still shows at
+  launch and at a stop. A car braked to a stop can also
   creep with the brake fully applied: under 0.2 km/h at the default *Slip
   Stiffness* of 10, about 2 km/h at 30 and up to 23 km/h at 300, at the
-  10 ms solver step. *Roadmap:* ENG-09, ENG-14.
-- **A closing clutch can ring at the 10 ms step.** While a clutch slips by
-  more than 0.5 rad/s the solver passes its full torque for the whole
-  step, and at 10 ms that overshoots the lock-up: the shaft on either side
-  can swing by several hundred 1/min from one step to the next (up to
-  770 1/min in the P2 Hybrid Car) for a few steps, now and then for a
-  second or two, before the clutch locks. Energy is still conserved, but
-  the fuel it costs follows the step: the P2 Hybrid Car's EPA city figure
-  reads 2.838 l/100 km at the shipped 10 ms step, 0.017 (0.6 %) above a
-  2.5 ms run (2.821), with the same engine starts; its highway and Mixed
-  Cycle figures are about 0.004 above. *Roadmap:* ENG-09.
+  10 ms solver step. When a car pulls away from rest faster than
+  μ × 0.5 m/s ÷ (*Slip Stiffness* × step), 5 m/s² at the defaults and the
+  10 ms step, its undriven wheels ring (their tyre force changes sign from
+  one step to the next) until it reaches 0.7-2.3 m/s (measured on a 300 kg
+  Formula Student car at μ 1-1.6); at a Formula Student launch this moves
+  the 75 m time by about 0.4 %. *Roadmap:* ENG-09.
+- **A clutch locks on a solver step.** A clutch slips at its whole torque
+  (engagement × *Max Torque*) while its two sides turn at different speeds,
+  and sticks once they meet, passing whatever keeps them together up to
+  that torque. The solver step in which its slip would pass through zero
+  ends with it locked: its torque over that step is the average that ends
+  the slip (60 N·m in a step spent half slipping at 100 N·m and half
+  locked at 16 N·m), so its *Torque* channel shows that average at the
+  lock-up and the lock-up is read up to one step (10 ms) late; the speeds,
+  the momentum and the energy lost are those of the exact lock-up.
+  *Roadmap:* ENG-09.
+- **The P2 Hybrid Car's engine starts can follow the step.** Its control
+  script starts the engine when that is asked for 0.2 s in a row, and near
+  its thresholds a step can tip one start: on EPA city the older engine
+  started the engine 31 times at the 10 ms step and 30 times at 2.5 ms (once
+  more at 1,299 s), 2.827 against 2.808 l/100 km (0.7 %); its highway
+  (3.228 and 3.228) and Mixed Cycle (2.870 at both) figures did not depend
+  on the step. The new engine, at the shipped 10 ms step, starts the engine
+  30 times on EPA city and gives 2.809 l/100 km. How its count changes with
+  a finer step has not been measured.
+  *Roadmap:* MOD-14.
 - **Fuel-cell hydrogen use is a fixed figure per kWh** (*Specific H₂
   Consumption*, 55 g/kWh by default), which overstates it at part load by up
   to about a third and understates it at full load.
   *Roadmap:* MOD-20.
 
+### Energy, duty and limit reports
+
+- **A lap case books its gears and friction brakes as the Vehicle's.** In
+  a cycle case every part keeps its own energy books and the *Energy* view
+  shows them part by part, each gear, clutch, brake and wheel included; its
+  *Not accounted for* is only where the books together do not close, the
+  summary's *Energy balance residual*: rounding, about 1e-11 % of the
+  sources on the examples. A lap case's mechanics come from the lap's own energy pass,
+  which gives one figure for all the gears and one for all the friction
+  brakes: they are in the Vehicle's row and named in the chart, not shared
+  out part by part. A driveline's spinning parts (motor rotors, gears,
+  shafts, wheels) are one *Rotating parts* row. *Roadmap:* MOD-10.
+- **The duty and the limit band come from the engine's integrals and a
+  0.1 s trace.** The duty is taken from the engine's integrals over every
+  step it takes, so its totals cover the whole run; the limit band is read
+  from a 0.1 s trace of the run, each change at the run's own event inside
+  it where there is one, so a state shorter than 0.1 s can be missed by
+  the band. (The older engine added up every fourth solver step, 40 ms at
+  the usual 10 ms.) *Roadmap:* ENG-16.
+- **The new engine judges a few checks its own way.** A battery's
+  averaged power peak is over every step the engine took; a motor's or
+  engine's time above its maximum speed is that of a 0.1 s trace of its
+  speed (0.01 s in an acceleration test); which supply limit held the car
+  back, or cut a consumer back, is read from the same trace, so a limit
+  met for less than its step can go unsaid, and a battery management
+  limit's note is not given. Its record of a table the older engine read
+  only in one branch of the part, or at another point (an E-Motor's drag
+  table while it is unpowered, its loss map and its full-load curve while
+  it is powered, an engine's drag table while it is not fired or its idle
+  governor brakes, its fuel map while it is fired, a Climate Control's
+  demand table while it asks for heat or cooling, a Fuel Cell Stack's
+  polarization curve at the current it gives, where the new engine also
+  reads it at its Maximum Current, its most power; a drag table that
+  reaches the machine's maximum speed is read at that speed above it,
+  which counts as over speed) is judged for the time the older engine's
+  read would be past the data on the run's 0.1 s trace (0.01 s in an
+  acceleration test; in quick mode the share of its points once a second),
+  and not at all, with a note with the code `NEW-TABLE-NOT-JUDGED`, when
+  there is none; a stretch in that branch shorter than the trace's step can
+  be missed. Every table the engine's parts read has a rule of where the
+  older engine read it: one of these, where the new engine reads it (a
+  battery's OCV table, a Lookup's), or nowhere past its data (an
+  engine's full-load curve, read between its own first and last speed); a
+  test holds the rules to the engine's reads. Where the engine reads a
+  table in several places (an engine's fuel map at three torques) its
+  time outside is the longest of those reads', which can be less than all
+  of them together. A part that has nothing connected to it (a battery or
+  Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft drives
+  nothing) has its tables noted, not judged, with the code
+  `NEW-TABLE-NOT-JUDGED`.
+  A table axis set to Error stops the run where the engine reads the table
+  past its data and uses the value (`NEW-FAILED`, the engine's `RUN-TABLE`,
+  naming the table and the time). A read whose value the engine does not
+  use does not stop it: an E-Motor's drag table while it is powered, an
+  Engine's fuel map while it is not fired, a Climate Control's demand table
+  while it is off. A read it uses does: an E-Motor's full-load map (the
+  Driver reads it, from 0 to the maximum speed, for the generator torque
+  it may brake with), its loss map at its command torque, and a Fuel Cell
+  Stack's curve at its Maximum Current. The E-Motor's loss map is read at
+  0 N·m wherever its supply holds it back (an acceleration test cut by its
+  battery's Output Power Limit); with that map's torque axis on Error and
+  its data starting above 0 N·m, a run in which the supply held a motor
+  back stops too (`NEW-FAILED`, quick mode `QUICK-FAILED`). An Engine's drag
+  table, which the engine reads in a variable of its own, still stops a
+  run where the engine is fired with the throttle on past the table's
+  speeds (the default, *Clamp*, does not stop it). The engine watches a
+  table at the edges of its own data, as the older engine did (it pads a
+  table only past an end its argument never reaches: a speed's 0, an
+  SOC's 0 and 100 %); a table of one point is a constant, and a point past
+  an edge by float noise (1e-9 of the larger end) is inside. A full run's
+  watch of an axis set to Error has no such margin, though: a motor held
+  exactly at the last speed of such an axis can stop the run
+  (`NEW-FAILED`). A 2-D table whose sheets do not all cover the same range
+  of their second axis is refused by the new engine's import (`BLOCK`,
+  shown as `NEW-FAILED`; quick mode `QUICK-FAILED`), as the older engine
+  counted a read outside the narrowest range and the engine's watch is at
+  the widest. A Driving Task's or a Road Profile's profile run past its
+  end is not judged, and a note with the code `NEW-TABLE-NOT-JUDGED` says
+  so.
+  Its Driver can ask a motor for more recuperation than its supply
+  takes, where the older engine's never asked it: the run then says the
+  charging was held back, or, on a fuel cell, which takes nothing back,
+  that it cannot take power back. It asks whether the car has driven by
+  60 s at every 0.1 s of its run, the older engine at the end of each
+  output step, so a cycle whose first 100 m end inside an output step can
+  warn on the new engine where the older engine, at that step, did not.
+  The older engine's load transfer followed the acceleration one solver
+  step behind, so at a standing start near the limit it could lift the
+  front wheels for a step (the Formula Student car with a 0.5 m Centre of
+  Gravity Height: at 0.01 s) where the new engine's, from the acceleration
+  now, keeps a load on them (87 N). A lift is said from the second point
+  of the 0.1 s trace (0.01 s in an acceleration test) on, or at the
+  Vehicle's own event after it, because the run's first point is the state
+  before the events of t = 0: the Vehicle at rest slides and sticks again
+  within microseconds, which moves a few N of load off a very light axle
+  for no time. A lift that begins and ends inside the first step goes
+  unsaid.
+  *Roadmap:* ENG-16.
+- **Live runs.** A live run streams each point as the engine records it,
+  and a live edit takes effect at the run's next output point, as an event
+  there. The engine runs up to two output points and the step it is taking
+  ahead of the view, so a Stop or an edit lands a few output points after
+  the point the view showed (on the BEV's city cycle, run as fast as it
+  goes, 3.5 to 5.7 s after it). A run's Stop and edits are read every 20 ms
+  of wall time, not at each output point as the older engine read them: a
+  script's run that is over sooner than that ends before a Stop sent to it
+  is read, and ends `success`. Some edits take effect on the next run: one
+  for which the engine builds another model (a Differential's lock, a
+  Driving Task's mode or repeat, a Climate Control's heat source), one the
+  checks after the run would read as it was at the start (the Ambient's
+  temperature or pressure, a battery's minimum SOC or charge power, an
+  E-Motor's maximum speed, a Vehicle's CG height or Downforce Area), and a
+  Sample Time that changes when a PID or Lookup block samples. Such an
+  edit, and one too late for the run, is listed in the run's live edits
+  with its note, code `NEW-LIVE-NEXT-RUN`; so is a structural parameter's
+  (an E-Motor's torque, speed or voltage scale among them). A table sent to
+  a live run (the app sends none) takes effect on the next run too, noted
+  in the run's log only. A live run the engine fails fails with its reason
+  code (`NEW-FAILED` for the engine's own refusal, `NEW-ERROR` for a fault
+  in the path after the run) and does not start again, with or without a
+  Stop or an edit read before it. A live edit that later moves the run past
+  a table's data does fail it. An acceleration test runs twice: first over
+  the case's whole duration, which the live view does not show, then again
+  to the moment it crosses the finish, which it shows; an edit made during
+  the second takes effect on the next run, and so does a performance or
+  cycle test that ends at a *Distance* or a lap count; the progress it
+  shows ends at the share of the whole duration (34 % for a performance
+  test of 300 m), not at 100 %. Making a run again from its snapshot (the
+  app's replay) gives the same result, live edits included; it runs the
+  case to its end, so a stopped run's replay is the whole run. A run stored
+  from the older engine is made again on the older engine, and one with live
+  edits is not made again (code `REPLAY-TODAY-LIVE-EDITS`). *Roadmap:*
+  ENG-16.
+- **Quick mode gives a cycle's totals only.** A case in quick mode (*Run
+  mode*: *Quick*) runs on the new engine's fast mode: the cycle's speed is
+  prescribed and the Driver's pedal worked out back from it, every 1 s, so
+  it gives the summary rows that add up over the run (energies, SOC,
+  consumptions, range, distance, each phase's), not the peaks, minima and
+  times at a limit, no verdict on the speed trace, no energy report, duty,
+  limit band or hand checks, and no live view (Stop, live edits and pacing
+  do nothing). Of a full run's run-time checks it makes the Ambient's (air
+  outside the usual) and the tables' (one read past its data, from its
+  points once a second, marks the consumptions not valid; one whose axis
+  is set to Error stops fast mode, `FAST-TABLE-ERROR`, and the case fails
+  with `QUICK-FAILED`, even where only a branch the run does not take
+  reads it); the wheels
+  lifting, an E-Motor with no live supply and the supply limits' warnings
+  are not told. A limit the car would have met is flagged as a warning, not
+  acted on, so the totals then take more than the car could give. On the
+  example cars' nine cycle cases the energy recuperated and the internal
+  losses come out up to 1.8 % and 1.4 % below the full run's (the charge
+  used within 0.2 %). A case it does not run fails with *Not run* and a code, and the
+  advice to set the case's mode to full: `QUICK-KIND` (no drive cycle: an acceleration, performance,
+  lap or Formula Student case), `QUICK-BALANCE` (a charge-balanced hybrid
+  case), `QUICK-END` (a case that ends at a Distance or a lap count),
+  `QUICK-SAMPLED` (a Script, FMU or Traction Control part, or a PID or
+  Lookup block with a Sample Time longer than the 10 ms solver step),
+  `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
+  `QUICK-FAILED` (fast mode's own refusal), `QUICK-TABLE-TIME` (a
+  table read past its data for a time within two of its steps a stretch
+  of what the run allows, too near to judge at its points),
+  `QUICK-NOT-FOUND`,
+  `QUICK-ERROR`. See [Run a cycle in quick mode](help/how-to/run-in-quick-mode.md).
+  *Roadmap:* ENG-16.
+- **Text components need a project file edit.** A part
+  can read its equations from a text file (its `textFile`, see [Write a
+  part as text](help/how-to/write-a-part-as-text.md)); there is no editor
+  for it in the app, and the file is not kept inside the project (it must be
+  inside the projects folder, links followed, or the run fails with
+  `NEW-TEXT`). One in a
+  case the engine does not run (a lap case, a battery built from cells) fails
+  with its code and `NEW-TEXT` rather than running the built-in part. A
+  Script, FMU or Traction Control part, and a sub-system's container, have
+  no text component. *Roadmap:* ENG-16.
+- **A `when` set exactly at a limit the model holds can stop the run.** In
+  a text component, a `when` that compares a value with exactly a limit the
+  model holds a value at (a counter of the battery's power above 80 kW
+  beside the Accumulator's 80 kW *Output Power Limit*) can stop the new
+  engine with an event storm: once the battery is held at its limit, its
+  power sits on the threshold and the condition changes on rounding alone.
+  Preparing the model warns of it with the code `WHEN-AT-LIMIT`, naming
+  the part with the `when`, the part that holds the value and the limit.
+  Set the threshold a little above or below the limit (79 999 W and
+  80 001 W count right). *Roadmap:* ENG-16.
+- **FMUs step at their own points.** An FMU is given its inputs at each
+  multiple of its Communication Step, steps to the next and is read there
+  (as FMPy and fmusim run it); the older engine stepped it to the end of
+  the solver step it was in, so an FMU's outputs differ from that engine's
+  by up to one solver step's change. An FMU's start values and its
+  Communication Step changed during a run take effect on the next run
+  (code `NEW-LIVE-NEXT-RUN`). *Roadmap:* ENG-16.
+- **A run the new engine cannot follow can take minutes to be refused, or
+  not end.**
+  A run has no time limit unless the caller
+  gives one (the app gives none; the Python module's `time_limit=` does,
+  and its `memory_limit=` is 4 GB when not given, counting the recorded
+  results and the events, not everything the run holds). A model the
+  integrator cannot follow (the gear example with its
+  `__LightSim_energy` line taken out, driven by a very large torque for
+  a 1 s run) is slow to be refused or is not refused: at a torque of
+  2777777777777777700 N.m the run stops after 60 to 100 s with the
+  integrator's own refusal (`RUN-INTEGRATOR`, "made no progress"); at
+  2.78e18 N.m it had reached t = 4.6e-5 s of 1 s after 1300 s and was
+  still running. With a time limit either stops sooner, with
+  `RUN-TIME-LIMIT`, saying how far it got. A variable that is not a number or is infinite at an output time
+  (an output that divides by zero, say) is never a result: the run stops
+  at that time with `RUN-NOT-FINITE`, naming the variable. *Roadmap:*
+  ENG-16.
+- **A PID's and a Lookup's Sample Time follow a 10 ms step.** The engine
+  runs a PID block, and a Lookup block with a Sample Time over 10 ms, at
+  the instants the older engine did: every 10 ms step while the Sample Time
+  is within it, otherwise the first step at or after each multiple of the
+  Sample Time, holding the output in between. The older engine took a
+  smaller step (10 ms divided by a whole number) on a stiff model; the new
+  engine's blocks keep 10 ms there, as its Script and Traction Control
+  blocks do, so on such a model a PID samples at 10 ms where the older
+  engine's sampled at 5 ms, and a Lookup with a Sample Time over 5 ms and
+  up to 10 ms is not held. Not measured. A PID's output that feeds the plant
+  restarts the integrator at each tick, as the hybrid's Script blocks do;
+  not measured on a project whose PID drives the car. A Script, Delay or
+  Traction Control block with a Sample Time on the output grid shows its value
+  just after the tick at an output point, where the older engine showed the
+  value before it. *Roadmap:* ENG-16.
+- **A machine driven to its maximum speed can stop the run.** A motor or
+  engine driven above its maximum speed by something else (a downhill
+  grade, an engine or another motor on its shaft) is not a case of the
+  table stopping the run: the engine reads the motor's full-load and loss
+  maps at its speed held to the maximum (above it the inverter is off and
+  they are not used), as the older engine did. It can still stop at the
+  limit itself (`NEW-FAILED`, `RUN-EVENT-STORM`): where the driver brakes
+  and gravity or another source drives the motor up to its maximum
+  speed, the brake works below it and not above, and the speed switches
+  about the limit without end, which the older engine, with a fixed step
+  that lets a machine carry past by a step, did not notice (a downhill
+  cycle run of the example BEV or aero car with its Final Drive ratio x3;
+  the hybrid with its ratio x3 on a 6 % downhill grade, where the Engine
+  switches between fired and not fired). The older engine finished the
+  run, or warned that the engine went past its maximum speed or the battery
+  was full. Such a run now fails with its code, and no longer starts again
+  on another engine. The hybrid on the highway cycle at that ratio
+  downhill does not switch so: it runs to its end and warns, as the older
+  engine did, but also gives the battery's "charging exceeds max charge
+  power" warning, which the older engine did not give (browser test ENG-34
+  records it). *Roadmap:* ENG-16.
+- **A Driver with no P gain can succeed.** A Driver whose *Kp* is 0
+  follows the cycle (on the BEV, within 1.6 km/h), where the older engine
+  lagged it by about 17 km/h and warned. The run shows success, not that
+  warning, because the two engines' Drivers differ. *Roadmap:* ENG-16.
+- **A value outside its limits is refused.** A study's point can hold a
+  value that Data Checks would refuse for a single run (a negative
+  pressure, a CG height below 0, a wheel's load share of 0), and so can a
+  case's own Ambient or Vehicle value: the older engine read many such
+  values clamped, the new engine refuses the run with the code
+  `NEW-LIMITS` and the limit it breaks. Inside the limits, the older
+  engine put a floor under some values that the new engine reads as typed,
+  among them the Ambient's temperature at -273 °C (its limit is above
+  -273.15 °C), a Vehicle's mass at 1 kg, a wheel's radius at 1 mm, a
+  battery's capacity at 1 Wh and its resistance at 1 µΩ. Only values below
+  such a floor run differently; the new engine's warning about the air
+  gives the density its own run used. *Roadmap:* ENG-16.
+- **Fuel energy is a heating value you set.** The fuel's energy is the
+  fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by
+  default; background knowledge, not checked against a source; a model
+  without a Fuel Tank uses that default), and hydrogen's is 119.96 MJ/kg
+  (33.3 kWh/kg). A diesel or other fuel's engine losses are off by the
+  difference until you enter its value. *Roadmap:* RES-22.
+- **A wheel's In and Out count both ways.** A wheel's *In* is what its axle
+  gave it while driving and what the car gave it while braking, its *Out*
+  the same the other way, so a wheel that drove and braked shows more than
+  either; its *Lost* (the tyre's slip) is what it lost in both.
+- **A motor's current is its DC current.** The *Duty* view's *DC current*
+  is the motor's electrical power over its bus voltage; the current in the
+  motor's windings (phase current), which sets the inverter's sizing, is
+  not modelled. *Time above* comes from the stored points, not the solver
+  steps. *Roadmap:* RES-39.
+- **The limit band is a rule of thumb.** Each step is named by the first
+  state that applies, in a fixed order: braking, tyre grip, set power
+  limit, battery or supply, motor or engine, coasting, demand met. *Motor
+  or engine* means the driver asked for at least 99.9 % of the torque, a
+  motor was within 2 % of its maximum speed, or an engine gave 99 % of its
+  full-load torque; a control script that asks for less than full torque
+  never shows it. The band is drawn only on a time axis. *Roadmap:* RES-38.
+- **Change marks compare with the run's stored model.** The dots and the
+  *These results are from before …* note compare the model on screen with
+  the copy the run kept: a run stored before 0.2.0 kept none and gets no
+  marks, edits made while a run was going are not counted, and a part or
+  wire you removed is counted in the note but has nothing to carry a dot.
+  *Roadmap:* UX-41.
+
+### The new engine on published hard problems
+
+The new engine was run on the 23
+problems of the IVP Test Set 2.4, each transcribed by script from its own
+Fortran and checked against it, at tolerances 1e-4 to 1e-10, and on six of
+SUNDIALS' own examples, transcribed from their C code
+(`benchmarks/hard`, 12 and 13 November 2026). What a model like them meets:
+
+- **Derivatives that appear only in a combination that cancels are
+  refused.** Where two equations hold the same derivatives with opposite
+  signs (the test set's transistor amplifier: a capacitor's `c (v1' - v2')`
+  in one node's equation and `-c (v1' - v2')` in the other's), the model
+  stops at preparation with `SINGULAR-LOOP` naming those derivatives,
+  though it is sound. Write the sum of the two equations out as one of
+  them.
+- **Some constrained mechanisms and networks stop when their states stop
+  working.** The slider-crank with an elastic rod, 20 particles held on a
+  sphere, a charge pump and a railway wheelset stop with
+  `RUN-STATE-SELECT`, at the start or when the states chosen at the start
+  no longer decide the rest.
+- **A large circuit and a network of water tubes are not initialised.**
+  The two bit adding unit (350 equations) and the water tube network (49)
+  stop with `RUN-INIT` even from their published consistent start.
+- **A quantity far below the absolute tolerance can turn a run wrong.**
+  Robertson's chemical reaction run with an absolute tolerance of 1e-4,
+  1e-6 or 1e-7 ends with concentrations of about -5.7e7, -4.8e7 or -3.6e7
+  and as much positive (their sum still 1): the first species, 2e-8 at
+  the end, went negative, and below zero the equations drift away without
+  bound (SUNDIALS' own CVODE does the same, and the test set's RADAU5 at
+  1e-5). Written with the third species worked out from the balance
+  y1 + y2 + y3 = 1 (as SUNDIALS' own Robertson DAE example writes it), it
+  ends at about -8.1e7, -4.8e7 or -4.7e7 at 1e-4, 1e-5 or 1e-6. The run
+  warns, naming the species, when a quantity ends a step clearly below
+  zero that the engine can prove the model's equations keep at or above
+  zero (a concentration, an amount, a loss counted up): its rate, where
+  it is zero, cannot be negative while the other such quantities are not
+  negative, nor any constant plus a weighted sum of them that the rate
+  reads (the third species above), as long as that sum has stayed at or
+  above zero. A quantity kept at or above zero only in some other way (a
+  balance that is not such a sum, a rate read through a variable the
+  engine solves by iteration) gets no warning, and nor does one that may
+  go negative. Keep the absolute tolerance below the smallest value that
+  matters.
+- **Very stiff chemistry over a very long time can stop.** The test set's
+  E5 problem (a reaction over 10¹³ s) stops with `RUN-INTEGRATOR` at every
+  tolerance.
+- **A run stops after 10 million steps.** It stops with `RUN-INTEGRATOR`
+  naming the limit of steps; the test set's beam problem, made to run
+  every block implicitly at a tolerance of 1e-10, reached it after about 8
+  minutes, 0.86 s into its 5 s.
+- **A constraint the model keeps only through its derivatives can drift
+  off without a warning.** A pendulum written with its rod's tension
+  worked out from the velocities (SUNDIALS' pendulum example) keeps the
+  rod's length only through its second derivative, so a small error in
+  the length grows. At a tolerance of 1e-5 over 30 s its 1 m pendulum
+  ended 95 m from the pivot, and the run said nothing. SUNDIALS' own CVODE
+  does the same: with the Adams method, fixed-point iteration and no
+  linear solver (how the engine runs Adams, its choice for a non-stiff
+  model) it ends 95 m off too. The engine's own run there starts on
+  Adams, changes to BDF at 27.1 s when Adams keeps failing to converge,
+  and ends 95 m off as well (the pendulum is already off the circle by
+  then); held to BDF from the start it stayed on the circle at this
+  tolerance. CVODE's own BDF method also leaves the circle at some
+  tolerances (with an absolute tolerance 100 times below the relative one
+  of 1e-5, it ends 55 m from the pivot).
+  The example keeps the length with a projection, which the engine does
+  not have. Write the constraint itself (x² + y² = L²): the engine then
+  keeps it. A run at tolerances ten times tighter (the accuracy check)
+  shows the drift: it moves the pendulum's end by 95 m.
+- **A variable worked out from the states is not under its own
+  tolerance.** Where the engine solves a variable explicitly from the
+  states (Robertson's third species as 1 minus the other two), its error is
+  theirs: about the relative tolerance times the largest of them, here 1 %
+  of a 0.01 threshold on it, which the run then crossed 1 % late. Give a
+  threshold that matters a margin, or tighten the tolerance.
+- **Fewer correct digits than implicit Runge-Kutta methods.** At the
+  same tolerance the engine's answers have about as many correct digits as
+  DASSL's (the same family of methods) and often one or two fewer than
+  RADAU5's or PSIDE's.
+
 ### Live edits, charts, sweeps and export
 
-- **Values between recorded points are not stored.** Charts keep the
-  highest and lowest value of each stretch they thin for drawing, but with
-  *Store every* above 1 the values in between recorded points are never
-  stored, so a short spike or dip between them does not show. Use *Store
-  every* 1 when peaks matter. *Roadmap:* RES-17, ENG-16.
-- **Stored values are rounded.** Every stored value is rounded to 5 decimal
-  places, so small values keep few digits (a tyre slip of 0.0018 keeps two).
-  The summary rounds energies to 1 Wh (battery losses to 0.1 Wh), fuel to
-  1 g and consumption to 0.01 per 100 km. CSV export has the same rounding. Treat smaller differences
-  between runs as noise; to compare two close variants, lengthen the run
-  (for example, repeat the cycle) so that the difference adds up.
-  *Roadmap:* ENG-16.
+- **Sweeps run side by side, but single runs do not.** A sweep's runs go
+  in worker processes, one per processor core less one (ENG-05; LightSim
+  counts logical processors, so on a computer with hyper-threading it may
+  start more than its physical cores less one), and fewer when half the
+  computer's memory would not hold them (250 MB each, plus 512 MB for a
+  model with Script blocks). Each worker starts the engine afresh for a
+  sweep (about a second) and builds the model again for every point. A
+  sweep's runs do not draw live, and they are stored on disk and read back
+  when the sweep ends, so a sweep larger than 20 points shows only its 20
+  newest runs in *Results* (its study table keeps every point). A single
+  run (**Run**) still goes in the app's engine process. A study varies one
+  parameter at a time from the app; the engine's `/api/studies` takes any
+  list of points. *Roadmap:* PLT-09 (single runs in a worker), STU-06
+  (studies of several parameters), AI-12 and PLT-25 (the command line and
+  clusters).
+- **A sweep's time left is an estimate.** It is worked out from the pace
+  of the points that have ended so far, which run side by side; it shows
+  only once a point has ended, and it grows when later points take longer
+  (a heavier car or a slower lap runs longer). *Roadmap:* STU-17.
+- **The Study view charts results against one swept value.** Each chart
+  has the first swept parameter on its x axis; the endurance energy
+  study's power limit is a line each, and a study of more parameters
+  cannot be made from the app yet. Its charts cannot be saved as a PNG
+  (download the study's table as CSV), and they draw the study's stored
+  summary numbers, not the runs' time traces. A sweep has at most 200
+  values from the app; the engine takes up to 2,000 points in one request
+  from a script. *Roadmap:* STU-06, STU-16.
+- **Peaks between recorded points are stored but not drawn.** Since 0.3
+  every stored point also keeps each channel's lowest, highest and
+  time-averaged value since the point before it, taken at every solver
+  step (ENG-16), so a regeneration burst between two points is in the run:
+  with *Store every* 10 on the Battery Electric Car's City Cycle, the
+  battery's recorded points go down to −9.56 kW and its stored lowest
+  value to −11.19 kW, the same as every solver step. The *Results* charts,
+  cursors and CSV export use the recorded points only and do not show
+  these values yet; runs stored by earlier versions do not have them.
+  Keeping them makes a run about 15 % slower (none are kept, at no cost,
+  when each point is one solver step: a *Step* of 0.01 s or less and
+  *Store every* 1) and its file about 5 times larger, so the runs of a
+  parameter sweep keep their recorded points only. *Roadmap:* RES-17.
+- **The Results page shows at most 3 decimals.** Since 0.3, stored values
+  and summary numbers keep full precision (ENG-16): one more kilogram on
+  the Battery Electric Car changes its City Cycle's consumption and final
+  SOC, and the energies equal the solver steps' sum to 1e-6; each part's
+  energy books, the *Energy* tab's numbers and the duty values keep every
+  digit too, so a gear shift's few joules show. The *Results*
+  page shows a number with at most 3 decimals, so a change smaller than
+  that reads +0.000 against the baseline; the run's file, its CSV and
+  .mat export and the study tables' CSV have every digit. *~ 0* now marks only runs stored by
+  earlier versions, which kept 5 decimals (2 to 4 in the summary), and
+  only a change under 0.5 %: the step is read from the values' digits,
+  and a value whose last digits were 0 reads up to 1000 steps coarser.
+- **Cursor integrals come from the recorded points.** The *Results*
+  chart's cursors integrate the stored points with the trapezoid rule, so
+  they differ a little from the summary's energies, which add up every
+  solver step: on the Battery Electric Car's City Cycle (a point every
+  1 s), the battery's power integrates to 0.8145 kWh over the run, and the
+  summary's energy delivered less energy recuperated is 0.811 kWh (0.4 %
+  less). Set the case's *Step* smaller and *Store every* to 1 when the two
+  must agree.
+  On the distance axis, the points of a stop share one distance: the up
+  and down arrows then step through them while the line stands still, and
+  an overlaid run that stopped where a line crosses it is read at the
+  start or the end of its stop.
+- **Long runs with many lines zoom less smoothly.** On a 1-hour run
+  (36,001 points) with 7 channels ticked and the baseline drawn faint as
+  well (14 lines), the mouse wheel zooms at 60 frames a second most of the
+  time, but about one step in 20 takes two frames (30-40 ms). Untick *Draw
+  the baseline faint on the chart*, or tick fewer channels, to zoom
+  smoothly.
 
 ## The examples
 
+- **Efficient Electric Sedan:** a Tesla Model 3 RWD class car with EPA's
+  test mass, road load, rated power and gearing, but the Battery Electric
+  Car's motor maps scaled to 192 kW, not the car's own (more efficient)
+  motor, and a 54 kWh battery from FASTSim's file, which gives no source.
+  Its city figure comes out about 2 % better and its highway figure about
+  4 % worse than EPA's tests of the car. Only one of the seven
+  question-led examples the roadmap plans ships so far (gear ratios,
+  diesel against petrol, a two-wheeler, a truck, a gear-by-battery study
+  and control recipes are still to come). *Roadmap:* CON-07.
 - **P2 Hybrid Car:** sized after the Hyundai Ioniq Hybrid, with its test
   mass and road load from EPA data (EPA's own coefficients A/B/C, with the
   axle's losses counted once), but its engine, motor and battery maps
   are generic, not the car's. With its charge-sustaining control script it
-  uses about 2.84 l/100 km on the EPA city cycle and 3.24 on the highway
+  uses about 2.81 l/100 km on the EPA city cycle and 3.23 on the highway
   cycle, against 2.91 and 2.94 for the real car in EPA's tests. The model
   has no cold start, engine warm-up or start-up fuel, so its city figure
   reads below EPA's, whose city test starts cold; on the highway, with its
   generic maps, it stays about 10 % above. Each case starts at the charge
-  the cycle ends with (as a preconditioning drive would leave it), so the
-  fuel figure needs no battery-charge correction; start it elsewhere and
-  the figure includes the charge the strategy restores. *Roadmap:* CON-14
-  (sourced maps).
+  the cycle ends with (as a preconditioning drive would leave it), and its
+  cases run charge-balanced, so started at any charge they give the
+  same fuel figure (see *Charge balancing repeats the whole run* below).
+  With *Charge balance* off, the summary's *Fuel consumption, charge-corrected*
+  estimates the balanced figure from one run by counting the battery's
+  energy at the engine's average efficiency. *Roadmap:* CON-14 (sourced maps).
 - **Battery Electric Car:** modelled on the 2021 Cupra Born with FASTSim's
-  values; about 14 kWh/100 km on WLTC at the battery (a car of this class is
-  rated about 15-16 kWh/100 km at the charging socket, charging losses
-  included), 18.9 with heating or air-conditioning on (the 2.5 kW case).
+  values; about 14 kWh/100 km on WLTC at the battery and 16.3 at the
+  charging socket with the default 86 % charger efficiency (a car of this
+  class is rated about 15-16 kWh/100 km at the socket), 18.9 at the battery
+  with a fixed 2.5 kW heating or air-conditioning load, and 23.8 on a
+  winter day (−7 °C) and 16.8 on a hot day (35 °C) with its Climate
+  Control, whose demand is the library's estimate for a compact car, not
+  this car's measured heating and air-conditioning power. The socket figure
+  rests on one charger efficiency for every charge; a real charger's
+  efficiency changes with its power and the battery's temperature.
   Its motor loss map is generic, not the car's measured map. The real car is
   rear-wheel drive and has an 11.5:1 reduction gear with an electronic
-  160 km/h limit; the example drives the front axle (only the load share
-  matters without weight transfer) and uses a 12.8 ratio so that the motor's
-  maximum speed sets the 160 km/h. An E-Motor's *Maximum Speed* could now
-  set that limit, but the example still sets it through the ratio.
+  160 km/h limit; the example drives the front axle (its CG height is 0,
+  so its loads do not shift and only the load share matters) and uses a
+  12.8 ratio so that the motor's maximum speed sets the 160 km/h. An
+  E-Motor's *Maximum Speed* could now set that limit, but the example
+  still sets it through the ratio.
   *Roadmap:* MOD-12.
+- **FS Electric (generic):** a typical Formula Student electric car, not a
+  real one: replace its values with your car's. Its 75 m time (3.75 s from
+  the start line) sits in the faster half of FS Czech Republic 2025's
+  3.51-6.44 s: the tyres keep their grip however much they slip (no peak
+  and drop), so wheelspin at the launch costs no time, and nothing limits
+  it (the example has no traction control; 49 % of the run is at the
+  tyres' grip limit). The *Traction Control* block (MOD-45) holds the
+  slip near a target, but cannot gain time until the tyres lose grip past
+  their peak (MOD-16).
+  So its 80 kW is reached at 0.37 s, while the rear wheels still spin: a
+  car with traction control reaches it later. Its tyres' *Slip Stiffness*
+  of 20 (not 10) makes LightSim run it at a 5 ms step instead of 10 ms
+  (ENG-14).
+  The *Autocross* and *Endurance energy* cases do not run in this
+  version (`NEW-LAP`). The *Endurance energy* case is lap mode at the tyres'
+  limit in every corner and under every braking, with no lift-and-coast and no driver
+  change (FS Rules 2026 v1.1 (FSG) D 7.5.4's 3 min); its energy follows the
+  Output Power Limit the case sets, 30 kW: 20 kW gives 4.14 kWh net, 40 kW
+  6.33 kWh with 7.9 % SOC left, and at 45 kW the pack runs out before the
+  last lap is done. The E-Motor's generator torque is held to 40 % for
+  drive cycles you add: their Driver has no brake balance or ABS, and at
+  full generator torque, braking hard from 100 km/h locks the rear wheels
+  and turns them backwards (at 40 % they still lock from about 45-60 km/h
+  in a hard stop, and turn backwards just before the car stops, which FS
+  Rules 2026 v1.1 (FSG) EV 2.2.4 forbids; at 20 % they lock only below
+  walking pace).
+  Lap mode holds regeneration to the rear tyres' grip, so the example's
+  own cases hardly depend on it. The 500 A current limit (EV 2.2.2) is
+  not set in the example (its cases stay under 160 A; the battery's preset
+  sets it), and its pack is defined by pack values, so the cells' own limits
+  are not checked:
+  recuperating into the full pack raises its cells to about 4.3 V (594 V),
+  which a real accumulator management system would not allow. A
+  two-motor variant is not shipped.
+  *Roadmap:* MOD-16 (tyre peak and drop), MOD-08 (pack from cells, current limit), CON-18 (templates,
+  two-motor variant).
 - **Runs made on an example stay with the copy you ran.** An example opens
   as an unsaved copy, and its runs are stored with that copy: they are
   listed while it stays open, also after a restart, but opening the example
@@ -259,18 +1243,64 @@ minimum or an average, for example from the CSV export.
 ## Not modelled yet
 
 - **No heat or cooling.** There is no thermal solver: temperatures do not
-  change and do not affect batteries, motors or engines. The Ambient
-  component sets only the air density (see above), and thermal or fluid
-  connections are ignored during a run.
+  change and do not affect motors or engines. The Ambient component sets
+  the air density (see above), the Climate Control's outside temperature
+  and the cell temperature of a battery built from cells, and thermal or
+  fluid connections are ignored during a run.
   *Roadmap:* MOD-09.
+- **Heating and air-conditioning are a steady-state estimate.** The
+  Climate Control draws the power its demand table gives at the outside
+  temperature from the first second: there is no cabin that warms up or
+  cools down, so a cold start's first minutes (when a heater runs at
+  5-7 kW) are missing and short trips use too little. Its default table
+  is an estimate for a compact car, not measured data, and it ignores the
+  sun's angle, humidity, speed and the number of people inside.
+  *Workaround:* fit the demand table to logged heater and
+  air-conditioning power for your car. *Roadmap:* MOD-46 (cabin model).
 - **Forward driving only.** No reverse, and no rolling back: a car on a steep
-  hill stays put even with no brakes. *Roadmap:* MOD-21, ENG-21.
-- **Longitudinal dynamics only.** No cornering and no weight transfer between
-  axles. Tyre force rises with slip and then stays flat (no peak and drop).
-  *Roadmap:* MOD-16.
+  hill stays put even with no brakes. (Going forwards, rolling resistance
+  acts in full to the stop and holds a car at rest until its tyres, less the
+  slope, push harder; a car that stops within a solver step stops in it.) *Roadmap:* MOD-21, ENG-21.
+- **Drive cycles are longitudinal only.** A drive cycle, performance or
+  acceleration case does not corner: weight shifts between the axles but
+  not from side to side. Lap cases corner, as a quasi-steady-state
+  estimate (see *Lap mode is a quasi-steady-state estimate*). Tyre force
+  rises with slip and then stays flat (no peak and drop). *Roadmap:*
+  MOD-16, MOD-34.
+- **Charge balancing repeats the whole run.** A hybrid's cycle case is run
+  again from the charge its battery ended with until the battery's stored
+  energy changes by less than 1 % of the fuel's energy (ENG-33): started
+  at 30, 50 or 70 %, the P2 Hybrid Car's Mixed Cycle gives 2.872 l/100 km
+  in 2 runs, against 2.8695 at its hand-set start. Each extra run takes as
+  long as the first, and the *Results* page shows only the last run (the
+  others are listed in *Messages*, not kept in the run history). A live run
+  shows the first run as it goes; later runs show only when they finish. A
+  parameter changed during a live run stops the balancing. The 1 % is
+  SAE J1711's criterion as we know it (background knowledge, not checked
+  against the standard), and the fuel's energy comes from the fuel tank's
+  *Lower Heating Value* (43 MJ/kg unless set). When the charge does not
+  settle in 5 runs, the run is a *warning* and the summary adds the fuel
+  figure corrected to no change of charge, from a straight line through
+  the runs. A model with several batteries balances each from its own end
+  charge. *Roadmap:* ENG-33 (the extra runs kept in the run history).
 - **A simple driver.** The Driver is a PI speed follower: it does not look
   ahead along the cycle or shift gears; gear and clutch logic comes from
   Script blocks. *Roadmap:* MOD-14.
+- **A speed against distance has no stops.** A Driving Task whose *Profile
+  Axis* is *Distance* gives the Driver the target speed at the distance
+  the car has driven. A point of 0 km/h stops the car there for good (Data
+  Checks warn): there is no stop with a waiting time, and a profile that
+  starts at 0 km/h never sets off, so start it at a small speed (for
+  example 5 km/h). The Driver does not brake ahead of a slower point; it
+  follows the target where the car is, so it reaches a slower point a
+  little late: on the Battery Electric Car at 100 km/h it starts braking
+  2.9 m after the profile starts to slow at its own 1,927 kg and 4.7 m
+  after at 2,500 kg. The case's *Duration* is
+  the time limit of a run that ends after a number of *Laps*. The trace is
+  judged against distance: each point's band spans the target's lowest and
+  highest value within the distance the car covers in ±1 s at the target
+  speed (at least ±2 m), widened by ±2 km/h. *Roadmap:* MOD-14 (stops and
+  look-ahead).
 - **Structural limits.** One battery or voltage source per electrical bus;
   DC-DC converters work in one direction only; one differential and one
   E-Motor per driveline (several independent drivelines, such as dual-motor
@@ -280,13 +1310,47 @@ minimum or an average, for example from the CSV export.
 - **Unfinished parts of the app.** The Optimization tab is hidden until it is
   implemented, and the canvas bookmark tool is disabled. *Roadmap:* STU-04.
 
+### Files in and out
+
+- **The .mat export is checked with SciPy and GNU Octave, not with MATLAB
+  itself yet.** The tests read every exported channel back through
+  SciPy's `loadmat` with the same values and units, and the files load in
+  Octave 8.4. Reading them in MATLAB, and `lightsim_run.m`, are a manual
+  check before each release; text with characters beyond ASCII (N·m, °C)
+  is stored as UTF-16, which MATLAB documents but which that check must
+  confirm. *Roadmap:* STD-09.
+- **No Parquet from the app, no HDF5.** The Python package writes
+  Parquet when pyarrow is installed (`Result.to_parquet`, `lightsim run -o
+  x.parquet`); the app and its engine write .mat, CSV and the run card
+  (JSON), because pyarrow is not bundled. *Roadmap:* STD-09.
+- **The table import reads values, not formulas or formats.** From an
+  `.xlsx` file it takes the value Excel saved with each formula; a
+  workbook saved by a program that does not store those values (some
+  scripts that write Excel files) gives empty cells. Dates and times are
+  read as Excel's day numbers. Old `.xls` and OpenDocument `.ods` files
+  must be saved as `.xlsx` or CSV first. *Roadmap:* STD-10.
+- **A unit LightSim does not know is refused.** The import converts the
+  common units of speed, rotational speed, torque, power, energy,
+  voltage, current, charge, mass, mass flow, distance, time, temperature,
+  force, pressure, curvature and resistance. Other units (for example
+  kg·m² written as g·cm²) must be converted in the file first. Milliwatts,
+  milliwatt-hours and millijoules (mW, mWh, mJ) are among them, and a
+  lower-case `mw` is refused rather than read as MW. A speed or
+  grade without a unit is guessed from its values, and the preview asks
+  you to confirm. *Roadmap:* STD-16.
+- **The parameter sheet does not hold scripts, case values or when a value
+  changed.** Script blocks stay in the project; a case's own values
+  (*Cases & Parameters*) are not in the sheet; the *Source* and *Notes*
+  columns are for your team and are not read back. *Roadmap:* STD-36,
+  UX-24.
+
 ## Using and installing the app
 
 - **Stored runs have a disk budget.** Finished runs are kept on disk with
   their project, up to 500 MB per project and 2 GB in all; past that the
   oldest are deleted (runs of projects that were never saved go first), and
   the app shows at most the 20 newest. Export runs you need to keep for
-  good to CSV. *Roadmap:* RES-02, RES-09.
+  good to CSV or as a MATLAB .mat file. *Roadmap:* RES-02, RES-09.
 - **Scripts run in a separate, locked-down process, but how locked-down
   depends on your system.** Script blocks hold Python code that comes with
   the project. LightSim checks that code first: Data Checks only compile it,
@@ -297,16 +1361,83 @@ minimum or an average, for example from the CSV export.
   process and the run fails, even for loops the first check cannot
   interrupt; a script that asks for too much memory hits a 512 MB cap.
   - *Linux 5.13 or newer:* the system also stops that process from opening
-    any file and from making or accepting TCP connections. Not blocked:
-    other network traffic (UDP) and local sockets. On older Linux, only the
-    memory cap and a limit that stops it writing data into files apply; it
-    could still delete files.
-  - *Windows:* the process has the memory cap and ends when LightSim ends,
-    but Windows has no simple way to block its files or network, so there
-    the first check is the main protection.
+    any file and starting programs; from Linux 6.7 on, also from making or
+    accepting TCP connections. Not blocked: other network traffic (UDP),
+    local sockets, and TCP before Linux 6.7. On older
+    Linux, only the memory cap and a limit that stops it writing data into
+    files apply; it could still delete files.
+  - *Windows:* the process has the memory cap, ends when LightSim ends,
+    cannot start programs and runs at Windows' low integrity level, so it
+    cannot change your files. It can still read files and use the network:
+    blocking that needs a more locked-down kind of process (an
+    AppContainer), not built yet.
+  - *macOS:* Apple's sandbox stops the process writing files, starting
+    programs and using the network; it can still read files. This is
+    tested on GitHub's Mac runners only, as there is no Mac release yet.
 
-  This makes a harmful script much harder to write, not impossible. Open
-  projects only from people you trust. *Roadmap:* PLT-02.
+  Scripts that came with a project from another computer run only after
+  you have seen their code and chosen **Run scripts**
+  ([how](help/how-to/open-a-project-with-scripts.md)). All this makes a
+  harmful script much harder to write, not impossible: approve scripts only
+  from people you trust. *Roadmap:* PLT-35 (Windows network and file
+  reading).
+- **FMU blocks are a first version.** An FMU block (a model from another
+  tool, see [Use a model from another tool](help/how-to/use-an-fmu.md))
+  runs Co-Simulation FMUs of FMI 2.0 and 3.0 only. Not yet:
+  - Model Exchange FMUs (they need LightSim's solver), FMI 1.0 FMUs, and
+    FMUs with source code only: LightSim does not compile them.
+  - Variables that are not single numbers: arrays, text, binary data and
+    clocks cannot be pins. Integers and on/off values pass as numbers.
+  - Units: a pin passes the number as it is, in the FMU's unit, as for any
+    signal (see *Signal units are not checked*).
+  - Changes during a live run: start values apply when the run starts.
+  - Iteration: values pass once per communication step, so a signal loop
+    through an FMU and back arrives one step late, as between Script
+    blocks.
+  - With a *Communication Step*, the FMU runs on only when it exchanges
+    values: it catches up to LightSim's time with the inputs of that
+    moment, and its outputs then hold, so they can be up to one
+    Communication Step old (never ahead of LightSim's time).
+  - Lap cases do not run signal blocks, FMUs included.
+
+  The FMU file is not saved inside the project yet: LightSim keeps a copy in
+  your LightSim folder (`fmus`, beside your projects) and the project
+  names it by its fingerprint. A path written in a project is never
+  opened. On another computer, import the FMU again. *Roadmap:*
+  STD-02.
+- **FMU support is a pack the installers carry.** It needs FMPy
+  (BSD-2-Clause) and its NumPy, lxml, attrs and lark; the desktop build
+  freezes it into the engine (`LIGHTSIM_FREEZE_FMU_PACK=1`). A copy built
+  from source without it runs every other model, and Data Checks say so.
+  lxml carries an LGPL-licensed part, GNU libiconv, linked into its
+  compiled modules; NumPy's Linux wheels carry another, libquadmath, which
+  its Windows wheels (the installer's) do not. Each ships unmodified inside
+  its package's own files, separate from LightSim's programs and
+  replaceable, and THIRD-PARTY-NOTICES.txt lists each with a link to its
+  source (the licence check reads each platform's wheels). A copy of
+  that source beside the installer download comes with the first release.
+  *Roadmap:* STD-01.
+- **FMUs run in a separate, locked-down process, but how locked-down
+  depends on your system.** An FMU is compiled code from another company or
+  tool. LightSim runs it only after you allow it on your computer (once per
+  FMU file), and never inside the engine: each FMU block gets a process of
+  its own that the engine stops if a step takes longer than 30 s, with a
+  2 GB memory cap. A crash ends that process and the run, not LightSim.
+  - *Linux 5.13 or newer:* the process can read only the FMU's own files
+    and the system libraries and writes no files; from Linux 6.7 on it also
+    makes no TCP connections. Not blocked: UDP, local sockets, and TCP
+    before Linux 6.7.
+  - *Windows:* the process has the memory cap, ends when LightSim ends,
+    cannot start programs and runs at Windows' low integrity level, as the
+    script process does, so it cannot change your files. It can still read
+    files and use the network.
+  - *macOS:* Apple's sandbox stops the process writing files, starting
+    programs and using the network, as for scripts; it can still read
+    files. FMUs are not tested on a Mac yet.
+  - *Older Linux:* only the memory cap and a limit that stops it writing
+    data into files apply.
+
+  Allow FMUs only from people you trust. *Roadmap:* PLT-02.
 - **Runs with Script blocks take longer than in 0.1.0.** Controllers and
   scripts now run every 10 ms, and every script step is a round trip to the
   script process. On a test machine the P2 Hybrid Car's Mixed Cycle takes
@@ -316,20 +1447,276 @@ minimum or an average, for example from the CSV export.
   goes at full speed, which makes that run about 20 % faster; a paced (live)
   run hardly uses it. A coarser case step does not make a run faster: the
   solver steps every 10 ms whatever it is. *Roadmap:* ENG-10.
-- **Some colours are too faint in the dark theme.** The ribbon title, the
-  Run button, the status bar's "backend connected" and "success" in the log
-  fall short of the WCAG AA contrast minimum. Switch to the light theme if
-  they are hard to read. *Roadmap:* GUI-02.
-- **Unsigned installers.** Windows SmartScreen warns on first launch (choose
-  *More info → Run anyway*). *Roadmap:* PLT-13.
-- **No macOS version.** Builds exist for Windows 10/11 (x64) and Linux (x64)
-  only. *Roadmap:* PLT-13.
-- **No automatic updates yet.** Download a newer version from the GitHub
-  Releases page and install it over the old one; your projects are kept.
-  *Roadmap:* PLT-18.
-- **Little help in the app.** There is no user manual, tutorial or
-  explanation of individual parameters yet; the README's quick start is the
-  only walk-through. *Roadmap:* LRN-04, LRN-05.
+- **Part names can overlap when the diagram is zoomed out.** Names keep
+  their 11 px on screen however far you zoom out, so neighbours' names run
+  into each other: on the Battery Electric Car, with Windows' font, one
+  pair at 53 %, seven at 39 % and all of them at the 15 % minimum; a wider
+  font, as on Linux, overlaps sooner. Zoom in, or use the minimap to find
+  a part. With a bottom panel open, two of the lowest names are cut off in
+  the smallest window (1024 × 700), and in a 1366 × 768 window when the
+  panel keeps the taller height an earlier build saved, because automatic
+  fits stop at 50 %: close the panel, zoom out or choose *Reset UI*.
+  *Roadmap:* GUI-10.
+- **Run warnings find their part by its name.** The Problems list shows the
+  latest run's warnings and errors, and a row selects the part whose name
+  the message quotes. A part renamed after the run is missed, parts that
+  share a name are all selected, and some messages name no part (*Cycle
+  not followed*). A run's rows stay until the next run, even once the
+  model is fixed. *Roadmap:* VAL-10.
+- **Signals: bulk links by type and name only.** *Connect several…* in
+  Data Bus Connections links one output to every part of a type, or inputs
+  to outputs of the same name, but takes no rules of your own (a prefix, a
+  mapping table), and signals are not drawn on the diagram: pick any other
+  input's source in its row (two clicks). In a 1366 × 768 window the
+  bottom panel shows two rows at a time; drag its top edge up to see more.
+  *Roadmap:* UX-15 (follow-up), UX-11.
+- **Weather presets set the air and the cabin's heating, not the
+  machines.** The Ambient's presets (cold, standard, hot and sunny, high
+  altitude) set its temperature and pressure: the air density follows
+  them, and so does a Climate Control's heating or air-conditioning
+  (MOD-41), as in the electric car's winter and hot-day cases. There is no
+  sun (a Climate Control's default demand allows about 1 kW for it above
+  24 °C), a pack-values battery and the engine do not get colder, and
+  engine power does not fall with altitude. Hourly weather files cannot be
+  loaded. *Roadmap:* MOD-09, CON-30 (second step).
+- **Templates: slots are names only.** A template's slots say which part
+  plays which role, but swapping a slot's part for another while keeping
+  its wiring, a shared signal naming convention across templates (so one
+  control script runs on several), two-motor, series-hybrid, fuel-cell,
+  petrol and two-wheeler templates, and a picture per template are not
+  there yet. *Roadmap:* CON-18 (follow-up), UX-33, UX-16.
+- **Value sources stop at the project file.** The sources and confidence
+  levels recorded for a part's values (CON-13) are saved with the project
+  but are not yet listed in result exports or run reports, carry no
+  uncertainty (±) a study could sample, and the Formula Student example's
+  values have none recorded yet. *Roadmap:* RES-14, STU-23, VAL-37.
+- **Vehicle tests leave out a few.** *Vehicle tests* has no hill start, no
+  range test that drives a battery down to empty over repeated cycles (the
+  summary's *Range at this consumption* estimates it from one cycle), and
+  no elasticity test held in one gear. A fuel-cell car's consumption is
+  its battery's share only, and it gets no range. *Roadmap:* CON-06
+  (follow-up), STU-39.
+- **US label estimate from two cycles only.** *Simulations → US label*
+  uses EPA's derived two-cycle method. The five-cycle tests (US06, SC03 at
+  35 °C, a cold FTP at −7 °C) need heat and climate models LightSim does
+  not have, and plug-in hybrids (charge-depleting runs and utility
+  factors) are not covered. Nor are fuel-cell cars: a model with a fuel
+  cell or a voltage source is refused, since EPA's hydrogen rule (a
+  kilogram counted as a gallon) is not built in. *Roadmap:* CON-21.
+- **27 standard drive cycles; cycles of your own have no phases.** The
+  Driving Task's *Drive Cycle* list has the WLTC (classes 1 to 3b, their
+  city cycles and phases), NEDC, the EPA cycles, two motorcycle cycles and
+  a long-haul truck route. A file of your own (CSV or Excel, against time
+  or distance) joins the list through *Import a cycle from a file…* and is
+  kept in the project, but without phases, so it gets no per-phase rows.
+  A project that uses a cycle of your own cannot run in a 0.3 build from
+  before CON-11 (it says the cycle is not included). Japan's JC08 and WLTC, China's CLTC and the Artemis
+  cycles are not included (CLTC and Artemis may never be, because their
+  terms do not allow LightSim to ship them). Only the long-haul route
+  carries a road grade. The FTP-75 and the motorcycle FTP leave out the
+  real test's 10-minute soak, and nothing models a cold start. A project that names a drive cycle, opened in
+  0.2.0, drives the typed profile instead, with no warning. *Roadmap:*
+  CON-34, STD-10, STD-35, PLT-07.
+- **Few starting points.** The *Start* page offers the examples that come
+  with LightSim and a blank project. Ready-made starting points for other
+  layouts (two motors, a fuel-cell car) and templates that ask a few
+  questions first are not there yet: start from the example closest to
+  your car and change it. *Roadmap:* CON-18, PLT-32.
+- **Project files outside the projects folder: what is missing.**
+  `.lightsim` files open from anywhere, but:
+  - Runs next to a `.lightsim` file count against the 500 MB per-project
+    budget but not the 2 GB total: delete runs you no longer need.
+  - LightSim notices a change on disk by looking every 4 s while its window
+    is in front, not at once.
+  - **Save As** a project that was already saved makes a copy with an id of
+    its own; its runs and studies stay with the original.
+  - Runs and backups always go next to the file; keeping them in the app's
+    own folder instead is not a setting yet. In a folder LightSim cannot
+    write to (a read-only course folder or share), an older file's
+    parameter studies are shown for the session only, and runs are not
+    stored on disk.
+  *Roadmap:* PLT-33.
+- **Attached files are kept, not used yet.** A project can carry files
+  (Project → Attached): they are copied into its resources folder, travel
+  with Save As, **Export** (a `.lightsim.zip`) and **Import**, and Data
+  Checks report one that is missing or changed. No part reads an attached
+  FMU, AI model or data file yet. A file is one level deep (no folders
+  inside resources) and at most 1 GB. *Roadmap:* STD-02, STD-08.
+- **The trust question for attached files protects runs in the app only.**
+  Before the first run of a project with attached FMUs, AI models or
+  programs, LightSim asks whether you trust it, and remembers the answer by
+  a fingerprint of those files as they are on disk (a file changed since
+  it was attached, by a teammate or a git pull, asks again). The question is
+  asked by the app's window; the engine itself does not refuse to run them
+  (an FMU block runs only an FMU you allowed on this computer). Script
+  blocks are not part of this question: their code is shown for you to
+  approve, and the engine refuses Script code you have not approved (see
+  the scripts entry above). *Roadmap:* STD-02, PLT-02.
+- **Study tables are keyed by the figure's name.** A study's results table
+  names each column by the summary figure's label; a figure renamed in a
+  later version starts a new column. *Roadmap:* PLT-34.
+- **Scripting LightSim from Python or a terminal: early version.** The
+  `lightsim` Python package and command-line tool (see *Python API* and
+  *Command-line tool* in the help) run from the `backend/` folder of the
+  repository, as the desktop engine's `lightsim-backend run …`, or as a
+  wheel you build with `scripts/build-wheel.py`; it is not on PyPI yet.
+  *Roadmap:* AI-02, AI-07.
+- **AI apps work hands-off; the trust list is not used.**
+  The connection for AI apps (the MCP server) never asks you to confirm (the
+  owner's decision, 1 November 2026): it reads, checks, runs a project and
+  saves an edit with no question. Safety is by design instead. It runs a
+  project with Script blocks or FMUs in an OS sandbox — file access to the
+  project's folder only, and the network held off as the *Scripts* and *FMU*
+  entries above set out (a Script can open no connection at all; an FMU's
+  native code is stopped by the OS, which on Linux blocks TCP from kernel 6.7
+  on but not UDP or local sockets, so attach only FMUs you trust). On
+  Windows the sandbox is an AppContainer with no capabilities, so no network:
+  its worker reads only what LightSim grants it (the runtime it needs, an
+  FMU's own folder) and what Windows lets every app container read (Windows'
+  own folders and Program Files), and writes nothing. Setting one up and
+  clearing it away takes a second or two each (LightSim grants the
+  container read access to the runtime's files, then takes it back), a few
+  seconds more each when LightSim runs from a Python virtual environment
+  that holds many packages (about 4 s each with 19 000 files), and runs at
+  once set theirs up one after another. When that sandbox
+  cannot be set up (Linux older than 5.13, or a Windows computer that cannot
+  make the AppContainer) the run is refused with the code
+  `sandbox_unavailable` rather than run less safely.
+  An edit it saves is recoverable (the previous version kept as a backup, an
+  example saved as a new project). Each edit it saves to a project, and each
+  `lightsim edit`, is one step in the project's history: the open LightSim
+  window shows it at once, and one click undoes it or the agent's whole
+  session. The window finds out within a second (it looks at the file every
+  second while it is in front), not at the same instant. An undo reverts
+  what that edit changed and leaves a value changed again since as it is;
+  where you and an agent changed the same value before you saved, the
+  window takes the agent's value and says so (Undo, Ctrl+Z, brings yours
+  back). A change made to the file by anything else (a text editor, a git
+  pull, an agent writing the file directly) is not in the history: the
+  window offers to reload it, as before. Python code that saves through
+  `AgentSession` or `Project.save()` writes the file directly, with no
+  history line. A `lightsim edit` that names no session (`--session`,
+  `LIGHTSIM_SESSION` or Claude Code's own) goes on with the session of the
+  file's last `lightsim edit` when that one named none either and was less
+  than 15 minutes ago with no other save between, so two agents editing
+  one file that way at once share a session (Undo session undoes both):
+  give each its own `LIGHTSIM_SESSION`. The history keeps its newest two
+  files of about 4 MB; a session whose first lines it has dropped is undone
+  from the copy of the file kept before the session's first save, together
+  with any save of yours made between those lines; if the file was changed
+  by something else since, the undo says so and names the copy. A file that
+  `lightsim run --out` (or `export`, `schema`, `notebook`) writes over with
+  no session named keeps its version from the start of each day, beside the
+  newest 20.
+  It does not read the trust list (`lightsim ai trust`): only Python code
+  that goes through `lightsim.ai_access.AgentSession` reads it, and
+  `lightsim run` and the `lightsim` package read no AI access setting at
+  all. The command-line tool (`lightsim run`, `lightsim-backend run`) is
+  hands-off too: it cannot tell an agent from a person, so every run of it
+  holds Script blocks and FMUs to the same sandbox with no approval, or is
+  refused; `LIGHTSIM_STRICT_SANDBOX=0` gives a person the app's rules
+  instead. LightSim's check of script code (the scripts entry above) is for a
+  run you start in the app; an AI app's run is made safe by the sandbox
+  instead, so a brand-new script the assistant writes runs without the
+  **Run scripts** approval (still only in the sandbox, or the run is
+  refused). `lightsim ai log` lists only the
+  calls made through `AgentSession`; an AI app's calls are in
+  `.ai/audit.jsonl` in your projects folder, and the *AI access* tab shows
+  both. That log leaves out a run sent as a task that LightSim refuses
+  before it starts, and a call LightSim cannot read, such as one of a tool
+  it does not have. *Roadmap:* AI-01.
+- **A few AI access settings are on the command line only.** *Connect AI →
+  AI access* turns AI access on and off, removes allowed folders (and adds
+  one with the desktop app's folder dialog), shows or hides the examples,
+  takes projects off the trust list, sets the run time cap and lists the
+  latest calls. Putting a project on the trust list
+  (`lightsim ai trust <file>`, the list only `AgentSession` reads) and
+  hiding one project from AI tools (`lightsim ai block <file>`) are done
+  on the command line. On Windows, a run you start in the app of a project
+  with Script blocks opens a private connection on 127.0.0.1 between the
+  engine and its script process for a moment (an AI agent's run talks to
+  its AppContainer over a pipe instead); on Linux it uses no network at all.
+  *Roadmap:* AI-01.
+- **Unsigned installers, until the owner buys a certificate.** The build
+  can sign every Windows file, but only once the owner has a code-signing
+  certificate. Until then Windows SmartScreen warns on first launch (choose
+  *More info → Run anyway*), company antivirus may treat the unsigned
+  engine (`lightsim-backend.exe`) with suspicion, and IT cannot allow
+  LightSim by its publisher. Each build is scanned with Microsoft Defender,
+  which finds nothing. *Roadmap:* PLT-32.
+- **No Linux or macOS version yet.** LightSim is built and tested for
+  Windows 10/11 (x64) only for now (the owner's decision of 10 October
+  2026): the installer build makes the Windows installers only. A Mac
+  version for Apple silicon would be published only once it can be signed
+  and notarised by Apple, which needs the owner's paid Apple Developer
+  account; there would be none for Intel Macs. *Roadmap:* PLT-13.
+- **Updates need a yes, and some installs only point to the download.**
+  LightSim checks for updates only after you agree (it asks the first time
+  it opens). MSI installs and unsigned Windows builds do
+  not install updates themselves: they open the download page. There is
+  one update channel (no beta) and no way back to an older version from the
+  app. *Roadmap:* PLT-18, PLT-31.
+- **The policy file has no Group Policy template.** IT fixes settings with a
+  `policy.json` file ([how](help/how-to/deploy-for-it.md)), not through
+  Group Policy's administrative templates (ADMX) or the registry. Its
+  `aiProviders` and `licenceFile` keys change nothing yet, and `"ai":
+  "off"` leaves *Copy for AI* on (it only copies text to the clipboard).
+  *Roadmap:* PLT-36.
+- **The help is a first draft.** F1, or the **?** menu at the top right,
+  opens LightSim's help in a panel inside the app, served from your
+  computer. If a page does not match what the app shows, the app is right.
+  The numbers the tutorials, lessons and example pages quote are checked
+  against the app by the automatic tests; the words around them and the
+  click paths are not, and there are no pictures of the app beyond the
+  quick start's. The help is not online yet. The Formula Student lessons
+  cannot export a design-review pack (RES-14); they say what to do
+  instead. *Roadmap:* LRN-04 (follow-up: online), LRN-12 (replaying
+  the tutorials' clicks in the browser tests).
+- **The first-steps tour is short.** It points at the screen's main parts
+  only; it does not walk you through a run, and its steps are not checked
+  against a band. The step bar's *Set values* ticks on any change of a
+  value of a part already in the model (adding or deleting a part does
+  not count; a case's own value does not either). Automated browsers get
+  neither the tour nor the bar.
+  *Roadmap:* UX-26, LRN-07.
+- **The parameter texts are first drafts.** Rest the pointer on a
+  parameter, or move to it with Tab, to see what it is, its usual values
+  and where to find the real number; each part's help page lists the same
+  texts. They follow what the solver does, but the usual values come from
+  general knowledge and no vehicle engineer has reviewed them yet: check a
+  value that matters against its source. *Roadmap:* LRN-05 (review),
+  CON-13 (where a value came from).
+- **Limits are checked one parameter at a time.** Data Checks and the form
+  check each number against its own limits only: a PID's Output Minimum
+  above its Output Maximum, or a Default Gear past the last gear, is not
+  flagged. The sweep form names its values outside the parameter's limits
+  but does not stop them; such a point fails when it runs, with the Data
+  Check's reason. An
+  acceleration case's Distance, Start line and Reference time
+  turn red as you type but are not Data Checks: a run ignores a value
+  outside them (no finish line, a 0 m start line, no reference gap).
+  Properties does not mark a value that differs from the library's default
+  and cannot reset it. *Roadmap:* UX-38 (the mark and reset).
+- **The AI connection is new and partly provisional.** The MCP server
+  follows the 28 July 2026 revision as the official MCP SDK (version 2.3)
+  implements it; its Tasks support (long runs) uses the task shapes of the
+  2025-11-25 revision, because the Tasks extension's own messages were not
+  available to check against, so an AI app may run cases without a task
+  and wait for them. A project with Script blocks or FMUs runs in an OS
+  sandbox, or the run is refused where that sandbox cannot be set up (see
+  the hands-off entry above); the
+  folders an assistant may see are set by Connect AI (the
+  projects folder) or on the command line (`lightsim ai allow`), not in
+  LightSim's settings; and one project is hidden by `"noAi": true` in its
+  file (`lightsim ai block`). A change an assistant saves to a project
+  that is open in LightSim does not show there until you open it again,
+  and a save from the app over it is refused as a conflict (the earlier
+  version stays in *Restore…*). Connect AI writes the AI apps' settings
+  files where those apps kept them in 2026; an app that moves its file
+  needs an update to LightSim. The
+  skill pack has not yet been measured with an AI benchmark. *Roadmap:*
+  AI-01 (settings, trusted projects), AI-04 (edits in an open window),
+  AI-16 (benchmark).
 - **Licence.** LightSim is proprietary (`LICENSE`). The desktop app is free
   for evaluation, learning, research and other non-commercial use under its
   end-user licence agreement (`EULA.txt`, installed with the app);
@@ -337,3 +1724,13 @@ minimum or an average, for example from the CSV export.
   these terms, and they may change in a later release. The open-source parts
   inside the app keep their own licences, listed in `THIRD-PARTY-NOTICES.txt`
   (*Help → Third-Party Notices*). *Roadmap:* BIZ-01, BIZ-03.
+- **Some licence questions have no clear answer yet.** The licence
+  agreement does not define "non-commercial", so it does not say clearly
+  whether a sponsored Formula Student team, a thesis written at a
+  company or an industry-funded university project is free. It allows
+  installs on "your own computers" only, so not on university lab PCs or
+  a company's software portal, and it has no trial for companies. Licence
+  questions go to a public GitHub issue: there is no private address
+  yet. A [draft FAQ](licensing/licence-faq.md) answers 20 cases and marks
+  the unclear ones *Ask*; a [proposed revision](licensing/EULA-proposal.md)
+  awaits the owner's approval. *Roadmap:* BIZ-29, BIZ-30.

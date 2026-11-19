@@ -286,7 +286,8 @@ def test_motor_steady_state_matches_road_load():
 
     v = 50 / 3.6
     mass = 1800.0
-    f_roll = 0.012 * mass * 9.81  # the two wheels' shares are scaled to carry it all
+    f_roll = 0.0085 * mass * 9.81  # the library's rolling resistance (CON-14); the two
+    # wheels' shares are scaled to carry it all
     f_aero = 0.5 * AIR_DENSITY * (0.28 * 2.2) * v * v  # Cd × frontal area
     wheel_torque = (f_roll + f_aero) * 0.33
     expected = wheel_torque / (9.7 * 0.97 * 0.98)

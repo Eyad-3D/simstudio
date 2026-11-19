@@ -12,8 +12,21 @@ export const THEME_KEY = "lightsim-theme";
 export const FONT_SCALE_KEY = "lightsim-font-scale";
 /** the dock layout (components/DockLayout.tsx) */
 export const LAYOUT_KEY = "lightsim-layout-v1";
+/** "1": skip the Start page and open the last project at start-up (store/uiStore.ts) */
+export const OPEN_LAST_KEY = "lightsim-open-last";
 /** the crash-recovery draft of the working project (persist.ts) */
 export const DRAFT_KEY = "lightsim-draft-v1";
+/** the Results page's plot choices, per project and case (store/uiStore.ts) */
+export const RESULTS_VIEW_KEY = "lightsim-results-view-v1";
+/** "1": open the Results page when a run or sweep ends (store/uiStore.ts) */
+export const RESULTS_AFTER_RUN_KEY = "lightsim-results-after-run";
+
+/** the app version that last ran, for What's new (help.ts) */
+export const LAST_VERSION_KEY = "lightsim-last-version";
+/** the first-steps tour and step bar: done, dismissed, steps ticked (tour.ts) */
+export const TOUR_KEY = "lightsim-tour-v1";
+/** the Help panel's width in px (components/HelpPanel.tsx) */
+export const HELP_WIDTH_KEY = "lightsim-help-width";
 
 const PREFIX = "lightsim-";
 const OLD_PREFIX = "simstudio-";

@@ -1,0 +1,94 @@
+# Today's engine (lightsim-py) on the reference problems: the ceiling of every
+# error (a share of its scale, see benchmarks/README.md), twice what was measured.
+# backend/tests/test_reference_problems.py fails when an error grows past its
+# ceiling. When the engine gets more accurate, regenerate this file with
+#   python -m benchmarks.run --skip-speed --write-baseline
+# and commit it. "never" marks an event the engine does not reach today.
+
+[batt_cc_rc."as stated"]
+V = 1.5e-06  # measured 7.07e-07
+SOC = 3.1e-07  # measured 1.54e-07
+I = 1e-09  # measured 2.37e-15
+v1 = 0.00012  # measured 5.83e-05
+E_chem = 1.6e-06  # measured 8.4e-07
+E_terminal = 2.1e-06  # measured 1.02e-06
+E_internal = 3.7e-07  # measured 1.82e-07
+closure = 1e-09  # measured 4.18e-15
+
+[batt_cp_rc."as stated"]
+I = 6.2e-05  # measured 3.08e-05
+V = 1.5e-05  # measured 7.35e-06
+SOC = 1.4e-06  # measured 6.95e-07
+E_chem = 1.4e-05  # measured 6.57e-06
+E_terminal = 1e-09  # measured 1.62e-13
+E_internal = 1.4e-05  # measured 6.57e-06
+closure = 1e-09  # measured 1.61e-13
+
+[batt_voltage_limit."as stated"]
+t_vmin = 3.1e-05  # measured 1.5e-05
+V = 1.9e-06  # measured 9.23e-07
+I = 8.2e-05  # measured 4.08e-05
+SOC = 4.3e-06  # measured 2.13e-06
+E_terminal = 1.3e-05  # measured 6.22e-06
+E_chem = 1.3e-05  # measured 6.33e-06
+E_internal = 2.2e-07  # measured 1.07e-07
+closure = 1e-09  # measured 2.15e-15
+
+[mech_clutch_lockup."as stated"]
+omega1 = 1e-09  # measured 1.78e-15
+omega2 = 1e-09  # measured 3.07e-15
+T_clutch = 0.88  # measured 0.44
+t_lock = 0.016  # measured 0.00764
+E_drive = 2.3e-05  # measured 1.13e-05
+E_clutch = 2.3e-05  # measured 1.13e-05
+E_kin = 1e-09  # measured 2.93e-15
+closure = 1e-09  # measured 1.1e-15
+
+[mech_gear_change."rotational load"]
+omega2 = 1e-09  # measured 6.64e-15
+omega1 = 1e-09  # measured 6.05e-15
+E_drive = 1e-09  # measured 1.28e-15
+E_kin = 1e-09  # measured 1.33e-14
+E_shift = 1e-09  # measured 7.15e-17
+closure = 1e-09  # measured 1.19e-14
+
+[mech_gear_change."vehicle load"]
+omega2 = 0.0003  # measured 0.00015
+omega1 = 0.0092  # measured 0.00456
+E_drive = 0.0055  # measured 0.00337
+E_kin = 0.00025  # measured 0.000122
+closure = 1e-09  # measured 8.64e-16
+
+[mech_inertia_coastdown."as stated"]
+omega = 0.00013  # measured 6.12e-05
+t_stop = 0.0002  # measured 9.9e-05
+E_viscous = 0.00011  # measured 5.19e-05
+E_coulomb = 5.5e-05  # measured 5.19e-05
+E_kin = 1e-09  # measured 0
+closure = 1e-09  # measured 3.88e-15
+
+[motor_dc_spinup_l0."as stated"]
+omega = 0.019  # measured 0.00941
+i = 0.11  # measured 0.0513
+t_event = 0.051  # measured 0.0252
+E_in = 0.00022  # measured 0.000107
+E_kin = 0.0002  # measured 9.63e-05
+closure = 1e-09  # measured 2.95e-16
+
+[veh_coastdown."as stated"]
+v = 4.2e-05  # measured 2.09e-05
+x = 9.4e-05  # measured 4.66e-05
+t_event = 0.00012  # measured 5.75e-05
+t_stop = 3.2e-05  # measured 1.58e-05
+E_aero = 4.8e-05  # measured 2.37e-05
+E_roll = 4.8e-05  # measured 2.37e-05
+E_kin = 1e-09  # measured 0
+closure = 1e-09  # measured 3.45e-15
+
+[veh_constant_power."as stated"]
+v = 0.0018  # measured 0.000855
+x = 0.002  # measured 0.00105
+t_event = 0.0042  # measured 0.00207
+E_supplied = 0.00021  # measured 0.000103
+E_kin = 0.0035  # measured 0.00174
+closure = 0.0036  # measured 0.00185

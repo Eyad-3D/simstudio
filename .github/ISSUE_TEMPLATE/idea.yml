@@ -1,0 +1,29 @@
+name: Idea
+description: Suggest a feature, an improvement, or a model or template to share.
+labels: [idea]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: LightSim version (optional)
+      description: Help → About shows it. Help → What Stopped You? fills it in.
+  - type: textarea
+    id: job
+    attributes:
+      label: What are you trying to do?
+      description: The task or question you have, for example "size the accumulator for our FS car". This matters more than a solution.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What stops you today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea (optional)
+      description: |
+        Describe it in words. Code cannot be accepted without a signed contributor licence agreement (CONTRIBUTING.md).
+        Sharing a model? Attach the project file and say whether others may reuse it with credit (CC BY 4.0).

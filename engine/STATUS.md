@@ -1,0 +1,944 @@
+# New engine: status of the work packages (15 October 2026)
+
+*Since 17 November 2026 the new engine is the app's engine, with no fall-back
+to today's: the last section, "The switch-over", says what was done, what is
+refused and what is open. The sections before it are dated records; where
+they say the new engine is opt-in, not in the installer, or that a case
+falls back to today's engine or is refused with `NEW-CASE-KIND`,
+`NEW-SAMPLED`, `NEW-LIVE-ERROR-AXIS`, `NEW-LIVE-PID` or `NEW-LIVE-RESTART`,
+that was the state at their date.*
+
+The six packages of DESIGN.md §16 are built on their own branches and
+merged as they finish. On 15 October 2026 all six were merged together
+(each package's latest round): every engine test passes (386), the
+golden comparison is unchanged (199 of 201 figures, 984 of 1038 channels,
+books closed to 1.5e-9), and the packages' meeting points were fixed
+(a table's derivative from WP2 declined by WP3's compiled books, and
+forwarded by WP6's `Started`). CI is green on the merged tree, Windows
+included, from dd8feb0 (run 38840409543). A review of the merge (16
+October) confirmed 38 findings; fixed so far: the prepared-model cache
+(it reused a state choice made at other parameter values; it now keys on
+every input), the start check of table derivatives, the interpolant's
+first derivatives at a NaN argument, and the stale statements in this
+file and DESIGN.md; then the native Script runner and the Python module
+(the app's own runner as the reference, as the app calls it; every call
+bounded in time, memory and stack depth; what cannot match is left to
+Python; three rounds of adversarial checks) and fast mode, which refuses
+a model whose sampled blocks have no hosts; then fast mode's mode switches
+at a trace's samples and a block's ticks (input events, with the solver
+work, 20 October), with the independent check's fixes (every bundled
+cycle on both battery-electric cars, strict `when`s, a mode set from zero
+settling those on it, the standing inverter, an emptied battery flagged).
+The app's new-engine path returns today's whole result, made by
+today's own code from the run's evidence (step 2's evidence part, 29
+October); its live runs, a study's Stop, a run's progress and live edits
+go through one control of the engine's run (step 2's item 4, 31 October:
+the stream the result's values to the bit, a live edit an event at the
+next output point, one the path's checks after the run would read as at
+its start taken on the next run with a coded note, a replay from the
+run's snapshot bit for bit); FMU parts run on the path through today's
+FMPy worker, stepped at their communication points as FMPy and fmusim
+step them, text components are read from the file a part names, and a
+case in quick mode runs on fast mode, its totals only, with today's checks
+of the Ambient and of the tables it read past their data (one that ends at
+a distance or a lap count runs in full: QUICK-END; a table axis set to
+Error read past its data stops fast mode as a full run, FAST-TABLE-ERROR,
+and the case runs in full with QUICK-FAILED) (step 2's item 5,
+1 November). Every table read in the engine's part equations has a rule
+on the path of where today's engine books that table (5 November: the
+reads `lightsim_engine.table_sites` lists, in every configuration, a test
+holding the rules to them; the engine's reads at a run's points from the
+model itself, `run.table_reads`): a table it reads only in one branch of
+its part (an E-Motor's drag table while unpowered, an engine's fuel map
+while fired), or at another point (a Fuel Cell Stack's curve at its
+current, not at its Maximum Current; a drag table that reaches the maximum
+speed, at that speed above it), is judged for the time today's read is
+past the data on the run's 0.1 s trace (in quick mode the share of its
+points once a second; a time there too near what the run allows to tell
+runs in full, QUICK-TABLE-TIME), and not at all when there is none, nor
+for a part today's engine leaves out (a battery or stack on no bus, a
+motor or engine in no driveline); a PID or Lookup block with a Sample
+Time longer than today's solver step runs on today's engine (NEW-SAMPLED,
+QUICK-SAMPLED), a run with a view (it cannot start again on today's
+engine once it has shown points) goes there before it starts where it
+could stop where today's does not: such a table with an axis on Error
+short of what its part reaches (NEW-LIVE-ERROR-AXIS, decided without a
+run), a PID the engine runs at every step (NEW-LIVE-PID), a run it stops after points with no Stop or edit read starts again on today's engine, the view told (NEW-LIVE-RESTART), and a run whose supply held an E-Motor back stops where
+its loss map's torque axis on Error does not reach 0 N·m, as today's (the
+mismatch sweep, 6 November: benchmarks/back_to_back/sweep.py); a Lookup's table is judged under today's name for it, its Table 1D
+or 2D. The engine watches a table at the edges of its own data (padded only
+past an end its argument never reaches), and at each event too, so a
+read an event moves past the data at once (a hybrid's control unit
+setting its E-Motor's torque at a tick) is booked or stops the run as
+today's; a table of one point is a
+constant and float noise at an edge is inside, as today's; a 2-D table
+whose sheets cover different ranges is refused (BLOCK). Script blocks run
+on the path in today's worker (and, as on today's engine, an AI agent's or
+a command-line run holds them and FMU parts to step 6's OS sandbox with no
+approval, or is refused: merged 10 November 2026); the choice of their runner is brought to the
+owner as evidence, with no switch (`docs/SCRIPT-RUNNER-DECISION.md`,
+6 November: the threat model, 5.4 million random scripts on the native runner
+and CPython 3.11 with no divergence left, the unsafe code the runner pulls
+in, the Windows worker's gap and what step 6's AppContainer changes). The
+shared types in `lsim-ir` are unified (`engine/ir-unify`, DESIGN.md
+§5.8); every package builds on them.
+
+Build setup for every package: its own target directory, and
+`CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only
+CARGO_PROFILE_TEST_DEBUG=line-tables-only`, `cargo -j 2`. A target
+directory shared between worktrees mixes their workspace crates silently.
+
+Target platform: Windows x86-64 only for now (the owner's decision, 10
+October 2026); macOS and Linux may come later. Development and most tests
+also run on Linux, but only Windows CI proves what ships.
+
+## Package by package
+
+| Package | Branch | State | Next |
+|---|---|---|---|
+| WP1 language, units | `wp1/language` (merged) | Done: parser and printer with plain errors and units checked at parse time; Base Modelica import (13 models match exact answers); 70 malformed inputs; round trip of the library, of every vehicle block in every combination of its on/off switches and in fast mode's inverse variants (376 builds, 248 distinct definitions) and of every definition the example projects import; `engine/docs/text-format.md`, every example of it run and checked against the numbers it states; unified shared types. The gear change in the text format (`lsim-lib/text/gear_change.mo`): the library's shifting gear as text runs bit for bit as the model built in Rust (momentum through the shift kept exactly, its 2797.77 J loss to 4e-14, booked to the gearbox); the same shift written with `reinit` matches to 8e-16, its loss the event's, not the gearbox's; `reinit` of a port's across quantity or a part's variable now reads; `stateSelect` read from the text format and Base Modelica (`StateSelect.never` … `.always`, anything else refused with a span) and printed back (the solver work, 21 October) | The app and Python do not read text components yet (WP6); a model with no state runs since WP4's eleventh round (`Examples.Divider` in the guide) |
+| WP2 preparation | `wp2/prep` (merged) | Done: index-2/3 models match exact answers to 1e-9 or better; tearing matches the brute-force minimum on 8 loops; 10⁵-equation networks prepare in 0.49–0.69 s; a test model per fault code; inverse models of stand-ins of the example cars; `reinit` as a when-assignment to a state's jump part (gear change exact to 2e-14, its loss booked to 4e-14); a start value carried from an alias to its representative (`wp4/solver`); index reduction through tables (1-D and 2-D, monotone cubic, bicubic and linear): a table read differentiates into reads of its partial derivatives, the interpolant's own (one implementation, moved to `lsim-ir`, for the interpreter, preparation, the generated code and the solver; the compiled code bitwise the interpreter), where a derivative jumps the cell the argument lies in, a table differentiated more often than it is smooth refused (`INDEX-TABLE-NOT-SMOOTH`), a table read along time whose read derivative jumps at its breakpoints stopped just before each and the integrator restarted there; index-2 models through tables match closed forms or quadrature to 1e-10 or better (a capacitor's current to 4e-16), index-3 pendulums whose length follows a 1-D or 2-D table match an independent integration to 1e-8 (their length held to 2e-10), the library's and the vehicle library's table blocks in constraints to 5e-11; the choice of states carried with the prepared model (`state_sets`, for the run to watch), `stateSelect` leading its pivots' preference (the solver work, 21 October; WP4's thirteenth round); the choice made again at a point of a run, by the same pivoting there (`prepare_choosing`, 23 October; WP4's fourteenth round); a table read at a state held in its cells by default wherever the read jumps, on either form (a linear table's slope, a clamped cubic's at its data's edges, a cubic's second derivative, a 2-D read's slopes; on the explicit form released where its jumps are within the tolerance, 1-D, or its crossings come too often, 1-D or 2-D; on the implicit form, where stepped over the runs stopped at a breakpoint, never released), the same reads in every choice of states of a model whose states a run chooses again, a read that only kinks stepped over (`TableCells::Auto`, `lsim_prep::hold`; WP4's fifteenth round and its six fix rounds, measured against exact answers) | A table given data after the build that its held read no longer suits (a linear table's data swapped for a monotone cubic's; a cubic held at its edges given linear data, or data not held there) is refused at the run's start: such a model must be built again. Found by the review of A3 (check 1), before it: a pendulum in x and y (index 3) with any table read at a varying argument in its equations (a drag `D(vx)`, `D(x)`, `D(time)`) is refused at preparation (`STATE-SELECT-SINGULAR`: the constraints singular for every choice of states), though the same function as an `if` expression runs (13 switches) and a read at a parameter runs; found by its second check: the bead on a wire `y = r(x)` with its wire written as `if` branches of the same cubic pieces is refused so too (the table form runs): both for the state selection's owner |
+| WP3 code generation | `wp3/codegen` (merged) | Done: one lowering into machine code or a tape (bitwise the same); coloured sparse Jacobians; Steffen 1-D and monotone bicubic 2-D tables (C¹, monotone where the data are); compiled modes, guards, `when`; the initialisation on tapes; condition kernels bitwise the interpreter (the golden comparison byte-identical with them on and off); 10 000 random expressions against the interpreter, every Jacobian against differences, the `when` semantics pinned; the cars compile in 23–32 ms of one thread, 10⁴ equations ready in 42–48 ms (tiered: tapes while the machine code compiles); the ISA's own calling convention everywhere (Windows x64 checked by cross-compiling); machine code not cached (measured: saves 9–16 ms a build); the per-call costs below those at the start (residual 513–560 ns against 565); after the review: machine code freed on drop, background compiles cancelled with their models and reporting how they end, tapes where executable memory is refused, the default floating-point environment for compiling and running, the same bits with and without FMA; one mathematical library, the engine's own (`lsim-math`: CORE-MATH's correctly rounded functions, vendored and built for CPUs with and without FMA, clang-cl on Windows), for every library call of the interpreter, the generated code, the tapes, the kernels, the books and SUNDIALS' own C code, so results are the same on every platform and CPU and the interval code's widening of library results (now one ulp) is a proof; clippy and a source test keep the platform's maths out; Windows CI green with it on the branch (DESIGN.md 7.1; the merged tree from dd8feb0); after the review: the vendored CORE-MATH patched (no `exit` on an unexpected case, no 32-bit `long` on Windows: every reference correctly rounded compiled with clang-cl's semantics) and its files hashed, the environment's C flags ignored and options that break correct rounding refused, the library checked on hard cases at its first call; the energy books' integrands compiled (tape at once, machine code on another thread, kept per spec), bitwise the interpreter (every example project's books, random books, edge cases with signed zeros, infinities and NaNs; golden comparison byte-identical with them on and off and with the code before): the BEV WLTC run 22.41 → 18.76 billion instructions, 4.4 → 3.4 s (about 410× → 525× real time, same machine); a step on which every condition's certificate holds cleared in one pass (the check 773 → 674 million instructions, the same counters) | The check is 3.6 % of the (now cheaper) BEV WLTC run's instructions, not 3 %: its floor without changing what it checks is about 3.5 % (DESIGN.md, WP3); diffsol (the cross-check backend) still calls the C runtime's `pow` and `cbrt` in its step control, so diffsol runs remain CPU- and platform-dependent (patched copies of diffsol, diffsol-nl and diffsol-la would fix it, DESIGN.md 7.1); the Script blocks' Python still computes with the C runtime's maths |
+| WP4 solver | `wp4/solver` (merged) | Done: SUNDIALS built with only a C compiler (Linux); SUNDIALS and diffsol backends agree within 4.2·rtol; faer sparse LU; events, initialisation, energy books, accuracy check, sweeps (3.44–4.09× on 4 cores). Second round: the run-loop fixes from WP5's golden comparison, exact time events, cheap restarts, the impulse projection that keeps the momentum at a gear shift (DESIGN.md 8.2). Third round, from the review: the projection only at declared engagements, in two physical stages with exact derivatives; event iteration after it; light restarts opt-in; time crossings re-armed, set to now or at a root's instant; strict `when` conditions; alias start conflicts told. Fourth round: tyres pass no impulse (their slip after a shift integrated, checked against a fully resolved two-axle car); links judged after the rigid stage; cascades of engagements projected to their end or stopped with a named event storm. Fifth round: the energy books' stored-energy rates exact (closure back to round-off), tables read along time stop the integrator at their breakpoints, both sides of an event at an output time recorded. Sixth round: blocks ticking at one instant tick in one event; the books read the model's tables; conditions on explicit functions of time found ahead and reached exactly (the rest warned about); left limits of the changed channels only. Seventh round: iteration variables solved again between the ticks of one instant; mixed conditions checked along every step's dense output; integer powers enclosed with a proven bound, the platform's libm tested; no run without the tables it reads; books without error control flagged. Eighth round: the driving cycle's conditions checked too, most steps cleared by a certificate (a window and a box of the states) and the rest along the dense output; 2-D tables enclosed by their cells; conditions moved only by `noEvent` comparisons left to root finding. Ninth round: Adams' order capped at 7; the mixed conditions checked on the integrator's own dense-output polynomial, bounded rigorously over each step on SUNDIALS (on diffsol up to an estimated round-off; no fitted polynomial, no sampled certificate check); the tables' breakpoints taken from the data the model interpolates (a compiled model's tables swapped after preparation); every table the run reads outside the compiled code checked at its start, and a warning where a model gives a table's values but not its breakpoints; a benchmark of the check's share of the run (`scan_share`); an automatic switch from Adams to BDF made before the next step, so the step that asked for it keeps its dense output (outputs, block ticks, books and the check inside it read it). Tenth round: an idle 10 ms block's tick made cheap (inputs read ahead across the step, bit for bit: the dense output across the ticks, a computed input's chain as a flat tape; idle ticks in a row, nothing allocated): 2.0 / 3.9 / 4.4 % of the 21-state run (discrete / state / computed input; from 13.0 / 16.9 / 25.0 %, and 19.5 % in the earlier measurement), under 3 % of the 101-state one; the recorder's channels each given their own storage (fewer page faults in sweeps); the Windows build and every engine test on MSVC proven by CI; the golden comparison the same to the last digit. Eleventh round (solver fundamentals, 16 October): a model with no state and no equation solved by iteration runs (an integrator of nothing but the books: outputs exact, its events where they are, its books to 1e-15; it stopped at its start before; one with such an equation runs on IDA, its outputs to the tolerance); IDAS decides an order decrease on the states' and the books' errors together (the vendored copy patched: a spin-up whose states are exactly linear took 6 406 / 63 715 / 636 288 steps at 1e-6 / 1e-8 / 1e-10 at order 1, the books 0.26·√rtol off; now 96 / 116 / 184 steps, the books 2e-10 / 1e-12 / 2e-14 off); where IDA's error test fails ten times at a kink the history cannot cross, IDA restarts there and goes on (CVODE, which stops at its seventh failure, lowering its order by one at each from the fourth and reloading its history only at order 1, out of its reach from order 4 or more, crosses such a kink alone and is not restarted since 24 October) (a gear whose torque starts a ramp at a table's breakpoint stopped with IDA's flag -3, now exact to 1e-15; the BEV's city cycle at 1e-9 likewise), and ten steps in a row that no longer move the time stop the run, naming the variable with the largest local error (at a jump without an event they went on without end); with the order fix the golden comparison moves by about the tolerance, every figure and channel on its side of its band (199 of 201, 984 of 1038; at most 0.16 × band), the books closed to 6.6e-10, no case slower. The outside judge (`engine/judge`, DESIGN.md §15: the Bari IVP Test Set's Andrews mechanism, car axis and Akzo Nobel problem against their published references, the IFToMM planar pendulum and multiple four-bar, the pendulum's closed form swinging and looping, the Reference FMUs' Stair and BouncingBall, SUNDIALS' own IDAS examples with quadratures, OpenModelica on the same models; rtol 1e-4 … 1e-10) judged the round: a model with no state (Stair) to the last digit (it failed at its start before); the IDAS patch reproduces none of LLNL's example outputs, which upstream 7.9.0 reproduces to the last digit (7.1.1 too, but for the slider-crank's quadrature in its 12th digit), because it changes more than the zero case: the quadratures come out closer to independent references (7.8e-7 off instead of 2.8e-6, 1.0e-10 instead of 2.5e-9), the steps 22 % fewer to 45 % more (for the same steps, on Akzo Nobel, 20 and 36 times as accurate at rtol 1e-6 and 1e-8, 1.1 and 1.6 times less at 1e-5 and 1e-7, 6 times less at 1e-9), and a patch for the zero case alone does not mend the engine's (DESIGN.md 8.1), so it stays; the run stopped where no step passes now says the model may be singular as well as not smooth (the judge's pendulums stop there at a singular state choice, not at a jump; before the round, a bare SUNDIALS flag −9 or no answer at all); `golden/results.json` recorded again with the order fix (its test failed on the stale record). Twelfth round (the outside judge's checks, 16 October): an independent check of the round found a `when` on a variable solved from an implicit equation firing two or three times for one crossing (8 of the judge's 28 such runs; OpenModelica once in all) and a mode on one staying off until the next step end (its integral 1.6e-2 short at rtol 1e-5): the condition is now held on its side, the mode met again (DESIGN.md 8.2; `lsim-solve/tests/implicit_conditions.rs`; a lone `when`: event iteration still read the conditions without the hold, so complementary `when`s on one variable fired at each other's crossings, until the step 1 review fixes of 24 October, below); the judge now scores by time, not by row (it had taken OpenModelica's event rows for grid points and scored its Stair 2.0 off, not the 1 its late events give), counts crossings against exact answers (`count-…`), and judges a closed-form run right only within 100 rtol of its reference over the run, fixed before scoring; the SUNDIALS, BouncingBall and OpenModelica figures above and in DESIGN.md corrected to what was measured; the golden comparison the same but for one mode of the formula student car, met 1.7e-7 s earlier (at most 6e-4 of a band). Thirteenth round (the solver work's state selection, detection, 21 October): index reduction's choice of states is carried with the prepared model and watched along every run, at its start (a parameter set on a built model, a cached model) and on `set_param`, which refuses values at whose start it does not work; where it degrades (a decided variable moving a hundred times as much as a state, or the chosen block's determinant changing sign inside a step) the run stops at the point the step's dense output shows, naming the constraint, the variables, the parts and what to do (`RUN-STATE-SELECT`), and any other failure of SUNDIALS is told with the equation and variable the run sees there, its words beside it (DESIGN.md §6 step 5); Modelica's `stateSelect`, read and ignored before, leads the pivots' preference (`STATE-SELECT-ALWAYS`, `-NEVER`, `-CONFLICT` told). The outside judge on it: of the pendulum's 2 198 runs released at every 0.01 rad, the 432 that ended wrong without a message and the 840 that stopped on a bare SUNDIALS flag (175) or with no step passing (665) are now 103 wrong and 1 169 stopped, naming the rod, where the states degrade (2.26 ms before the bottom: within 100 rtol seconds of the closed form's time at every tolerance); the IFToMM pendulum and the looping ones stop so at every tolerance (3 and 6 of their runs were wrong, 1 to 2 m off); the 103 still wrong are runs whose choice holds, over five periods, where the same pendulum in its angle (an ODE, no choice of states) is wrong in 1 096 of its 2 198 runs by the same criterion; with x marked `prefer` the pendulum released at 1.50 and 1.55 rad runs to its end (8.4e-8 and 2.7e-7 m off at 1e-10; OpenModelica's dynamic selection 9.8e-8 and 6.6e-8; before, every run stopped or ended 1 m off); no run of the judge ends on a bare SUNDIALS flag (182 before), and the long-haul cycle's full dynamic runs, which empty the battery (both battery-electric cars, the only two of fast mode's judge that stopped on one), name the E-Motor's equation that fits its torque to its supply; every other judge run is bitwise as before; MSL's PlanarFourbar (revolute1 `always`, met) to 3.1e-9 rad at 1e-10 (OpenModelica 1.9e-7); the golden comparison the same to the last digit, the books closed to 6.6e-10, the cars' CPU time the same within this machine's noise (89.9 → 90.5 s for the whole comparison, ±3 % from run to run; instructions +0.04 % on the BEV's WLTC, +0.45 % on the hybrid's mixed cycle), a mechanism paying more (+8.5 % on Andrews', +14 % on PlanarFourbar: the sines and cosines of its blocks' entries, evaluated at every step); the independent check of the round, fixed: the step after any event, and every step with a block's tick inside, went unwatched (released at 2.8 rad, a `when` that changed nothing 2.3 ms before the states degenerate, or a display block ticking every 3 to 10 ms, let the run pass the horizontal on the wrong branch and end 2.45e-2 m off without a word at rtol 1e-4, or stop up to 72 100 rtol seconds late): the points before and after every event are now checked as a step's end, and such runs stop where they stop without the event (the judge's new `pendulum-event-…` within 10 rtol seconds of the closed form at every tolerance; the check's sweep with an event 1 to 4 ms before each stop: 8 of its 882 runs passed the point, now all stop, within 206 rtol seconds of the run without the event); a choice `stateSelect` asks for is taken only where it starts within half the run's limit, at a factor of 50 (at the limit itself, atan 99, x marked `prefer` stopped at its far turning point at one tolerance and ended 297 to 3 664 rtol off without a word at the six others; now the mark is refused, and told, `STATE-SELECT-PREFER`, and the run stops near the bottom within 6 rtol seconds); every other run of the judge bitwise as before (4 557); the golden comparison the same to the last digit, the books closed to 6.6e-10, its CPU time the same (91.7 against 92.2 s, back to back), instructions +0.47 % on the hybrid's mixed cycle (its 56 218 events each checked on both sides), −0.14 % on the BEV's WLTC. Fourteenth round (the solver work's state selection, dynamic, 23 October): where the watched choice degrades past a threshold (3 times its factor where its fixed entries were last read, chosen on the judge's sweep against 1.125, 1.5, 2, 4 and 10; 50 while it keeps a column the model marks to be kept), the run chooses the states again there by preparation's own pivoting at that point (`lsim_prep::prepare_choosing`, `stateSelect` leading as at the start, `never` and `always` respected) and goes on: a new integrator on the new states from the solution at the step's end (or, where the step went past the point, where its dense output shows it), the energy integrals carried and the stored energy's change booked as an event's (the pendulum's books within 22 rtol across 17 switches), the recorded channels kept by name, an event recorded (`EventKind::States`); each choice compiled once and kept with the model; where no other choice works there, or the run cannot switch (diffsol, a model whose tables were swapped after it was built: compared as interpolants, to the bit, since the fix round), the run stops naming the constraint and why it did not choose the states again, as before (fast mode's inverse model is given no choices and never run by the run loop) (DESIGN.md §6 step 5, *the choice made again*). The pendulum released exactly level, refused at preparation before, prepares (an initialisation's explicit solution 0 / 0 keeps its guess; its Newton takes an exact root at a singular Jacobian) and runs. The outside judge on it: every one of its 4 592 runs ends; the release-angle sweep's 1 169 that stopped (from 1.48 rad) go to their end through 8 to 19 switches each, 146 of them right within 100 rtol and 1 023 not, where the same pendulum in its angle (an ODE, no choice of states) is right in 121 of the same runs and the x-y form's error is 1.21 times the angle form's (geometric mean): the problem's own sensitivity over its five periods, so the target of every run right is not met, by either form; at rtol 1e-10 3.2e-8 m released at 1.50 rad, 6.2e-9 at 1.55, 3.6e-8 the IFToMM pendulum, 2.6e-8 exactly level, 5.2e-7 at 3.00, 1.9e-5 at 3.13, 1.8e-7 … 6.7e-6 looping (OpenModelica's dynamic selection, the first verdict's runs: 9.8e-8, 6.6e-8, 8.6e-8, not run, 1.3e-5, 6.4e-4, 6.4e-7 … 2.0e-5; `omc` not run again); per tolerance, rtol 1e-4 … 1e-10, the sweep's runs right / wrong / stopped from 146/1/167 … 112/35/167 to 176/138/0 … 120/194/0 (DESIGN.md §15, the fifth verdict); every run that does not switch bitwise as before (3 360 of the judge's runs; Andrews', PlanarFourbar, the marked pendulums at 1.50 and 1.55 rad); the golden comparison the same to the last digit, and every other field of it, its CPU time the same (100.9 and 109.0 s before, 98.8 and 101.5 s after, back to back), instructions +0.3 % on the hybrid's mixed cycle (the look at each of its 571 511 step ends), none on the BEV's WLTC (no set moves), about 1 % of Andrews' and PlanarFourbar's runs (650 and 400 instructions a step); a switch costs about 0.25 ms on the pendulum (the model prepared again at the point), the first to a choice 4 to 8 ms more (its compilation). Fix round (the independent review of the fourteenth, 23 October): a model with two or more moving sets could not switch (two pendulums released at 1.50 and 1.80 rad stopped at 0.2135 s naming rod 1; every one of the judge's 35 new held-out runs of 2, 5 and 6 pendulums in one model stopped): the re-choice pivoted every set with the window of the one that degraded, held every set to the base threshold and raised the threshold of the set that asked; now only the set that degraded is chosen again (with its own other levels), every other set keeps its choice and its threshold and is held only to the run's limit, a refusal raises the threshold of the set that caused it, and a raised threshold comes back where the factor falls under it (hysteresis); each rod of the held-out models switches as often as alone and every run goes to its end, none of the 35 within 100 rtol (their angle forms 17): one rod's switches restart the integrator for all, and a pendulum near its top is that sensitive to any restart (DESIGN.md §6 step 5, §15 the sixth verdict); a run keeps up to 1 024 models (was 32: six such sets, 64 choices, refused every switch after the 32nd; the held-out six take 43); a model given other tables after it was built switched on the old data where a table changed only between or beyond its breakpoints (z 9.0963 where either table gives 7.5 or 10): tables are now compared as interpolants, to the bit; a start the initialisation's equations do not decide (a singular Jacobian at start values that solve them exactly) is told (a warning; where the integrator cannot start from it, the start's failure named, not IDA's flag −14), and the 0 / 0 guard that keeps a guess is told where it decides (`INIT-UNDECIDED`); a stop on diffsol or with the switch off said a re-choice had failed, though none was tried: it says why now; a switch is readied before the step is cut back to its point, so a refused one leaves the run as it was (before, the integrator restarted there from the step's dense output; at a step's end the holds, kink and stale-mode checks were skipped). The judge's 4 592 runs are bitwise as before but 8 of the sweep with a refused switch (6 nearer the closed form, 2 further; right at rtol 1e-4: 177, was 176), the golden comparison the same to the last digit and in every other field. Second fix round (the second independent review, 23 October): the prepared-model cache's key holds a digest of the preparation's code (lsim-prep, lsim-ir, lsim-math, `Cargo.lock`: `lsim-engine/build.rs`) and its format is `prepared-v5`: an entry written before dynamic state selection hit under the same key and read its sets' new fields as empty, and two pendulums built from such an entry stopped at 0.2135 s as before the fix round (those fields have no default now either: an entry without them is prepared again), and the library's shared enumeration types, which were not in the key (a library listing a type's options in another order hit the first library's entry, its option's value the first's); a choice a run holds a model for is not compiled again (a run of more than 64 choices compiled again those it held, 4 to 8 ms each); a kept set whose constraints are not apart is blamed at its own factor; the start's messages name an unlabelled equation by its text (`the model: x * x + y = 0`, not `the model`), and the switch-off reason is worded for users; the one refused switch that cannot leave the run as it was (a block's tick at exactly the point a step was cut back to, the switch readied again with the tick's discrete values and refused: the integrator restarts there from the step's dense output) is told in the run's notes, tested and measured (DESIGN.md §6 step 5); DESIGN's account of multi-set accuracy measured (each x-y rod 1.92 times as far off as the same pendulum alone, geometric mean: the restarts the other sets' switches force). The judge's 4 676 runs bitwise as in the fix round, the golden comparison the same to the last digit and in every other field (97.7 s user). Fifteenth round (the solver work's A3, 23 October: tables read at a state, DESIGN.md §8.2): measured first, against a decision rule written before the runs, on seven new cases of the outside judge with exact answers, each beside the same function written as `if` branches on its breakpoints (`kink-…` and `kink-…-located`, DESIGN.md §15, the seventh verdict): stepped over by error control, a jump read through index reduction (a gear whose ratio is a linear table of the load's speed, the one case measured before at 7e-11) was 9.7, 9.9, 23, 25, 28, 167 and 178 rtol off at rtol 1e-4 … 1e-10 where the located run is within 2.8, up to 5 261 in a sweep of a ratio held at its edges, and many kinks of a value read cost up to 5 or 6 times the located run's error (geometric means per tolerance over sweeps): not proportional. Now every table read at a state whose read kinks or jumps there is held in its cell during every step (Park and Barton's discontinuity locking: its cell's polynomial with discrete coefficients, the cell's edges zero crossings, each crossing an event where the integrator restarts in the next cell), and every judge case is its located run's (the ratio 1.00 at every tolerance; the gear 1.1 … 2.8 rtol, with 5 … 18 error-test failures where it took 17 … 75); every other judge run bitwise as before (399). The golden cars read their battery and motor maps, all linear tables, at states: every case of the golden comparison moved by the tolerance (at most 1.8e-3 of a band, but the hybrid's clutch losses, about 5e-10 kW at the band's floor of 1e-9, by 0.2 and 0.02 of it), none across its band, 199 of 201 figures and 984 of 1038 channels inside as before; their crossings are events (the BEV's WLTC 2 879, from 122; the hybrid's UDDS 126 830, from 118 072), steps +0.25 %, the books closed to 1.3e-9 (6.6e-10 before), the comparison's CPU time the same within noise (88.6 and 90.2 s before, 90.0 and 89.6 s after, back to back; the BEVs' runs 10 to 25 % longer, the hybrid's the same); their error against the same case at rtol 1e-9 falls with the tolerance as before (slopes 0.73 … 1.06 over the channels, 0.69 … 1.08 before but for the hybrid's HWFET, whose clutch losses at rtol 1e-4 were 2 200 bands off and are 0.4 now): their maps had cost them little stepped over (the BEV's WLTC at rtol 1e-6: 2 951 crossings in 868 of 213 215 steps, 7.6 % of its error-test failures there and in the two steps after). `golden/results.json` recorded again. Fix round after its review (24 October): holding every read that kinks cost a restart of the integrator at each crossing, about 0.1 to 4 rtol each, so a spring whose force is a linear table of 101 points was 3 107 rtol off at rtol 1e-6 held where stepping over gives 72, and the default table (a monotone cubic held at its edges, C¹ between its points) had every point an event; the decision rule could not see it (its control was the remedy itself, and two of its three tests compared sizes, not proportionality: the value reads had failed only those, the jumps the slope and growth tests). Now only the reads that jump are held (a cubic held at its edges, at its edges only), on the slope and growth tests and a work-precision comparison across table densities (DESIGN.md §8.2): a value read of 41 … 401 points held is 7 to 1 270 times as far off as stepped over at rtol 1e-4 … 1e-6, a jump stepped over 0.04 to 99 times as far off as held (six new judge cases, each beside its other way, with exact answers). The judge's runs bitwise as at e4ada13 but the two gears held (the linear one bitwise as held before; the clamped one, at its edges only, 1.1 … 12.5 rtol, stepped over 6.7 … 131); the golden comparison e4ada13's record in every field but the run times (nothing of the cars' is held: their maps are values of linear tables), `golden/results.json` and its README e4ada13's again. The books' closure, which had doubled at the BEV's city cycle when held (6.6e-10 → 1.3e-9), is the integration's error: it falls with the tolerance (slopes 0.9 … 1.4 on the BEVs), and the restarts moved it 0.034 to 52 times either way over ten cases and five tolerances (geometric mean 1.05; DESIGN.md §11). diffsol's root finder lost a crossing and panicked on a dense table held at rtol 1e-10 (a value held on its side, `f64::MIN_POSITIVE`, times one at its rounding level rounded to −0 in its sign test): the values it is given are floored at 1e-150, a panic in its step is the run's named failure. Second fix round (the review of A3, check 2): the default held a kind of read nobody had measured, a cubic's second derivative (the review's bead on a wire, 429 … 737 rtol off held where stepped over it is 10 … 187), and failed its own rule's 100 rtol clause on dense tables swung through (517 … 2 156 rtol held at 1e-4 against 40 … 55 stepped over; at the default 1e-6, 1 308 against 161 on 101 points); a third rule, written before its measurements, applied the second as written, with two releases of a held read tried first (at the start where its jumps are within the tolerance; during the run where its last 8 crossings came within 48 steps); no kind of read passed (a linear table's slope swung through 21 points 254 rtol at 1e-4 against 52, a single pass through 101 points let go of after 29 of its 82 crossings 108 against 54 at 1e-8; a clamped cubic's edges swung through 104 against 34), and nothing is held by default again (`TableCells::Off`: e4ada13's runs); `TableCells::Jumps` holds a slope that jumps on request, with the releases (not a cubic's second derivative, nor a 2-D read). Five new judge cases beside their other ways (`kink-osc-41`, `kink-osc-101`, `kink-edge-11`, `kink-bead-41`, against DOP853 per cell, the energy conserved to 2e-11), and four tests that fail on the default before; the judge's runs as at e4ada13 bitwise (448 runs of its 65 cases, and the dense and pass cases), a held run not released as held before bitwise (45 runs); the golden comparison e4ada13's record in every field but the run times (84.6 s user). Third fix round (the review of A3, check 3, 24 October): the implicit form had never been measured, and there stepping over a read that jumps stopped the run at its first breakpoint (the judge's gear with its torques written implicitly at t = 0.5088 s at every tolerance; the dense gear, a clamped cubic's edges, a cubic's second derivative and a 2-D read alike, or no answer within 120 s), while the releases turned held runs that completed into such stops. Rule v4, written before its measurements, adds to the third a clause for stepping over failing outright or being more than 100 times the held run's error, per form and kind: on the implicit form every read that jumps is held, through every crossing (no release there; a read released on the explicit form is held again where a change of the states chosen takes the run onto the implicit one); on the explicit form a linear table's slope, with the releases (the judge's gear 167 and 178 rtol stepped over at 1e-9 and 1e-10 against 1.2 and 1.7 held; the check's probes 2 163 and 14 109 against 2.2 and 25.5); a read that only kinks is stepped over on both (`TableCells::Auto`, the default; `BuildOptions::table_cells`, in the cache's key, and `table_cells=` of the Python `build`). A run that stops at a breakpoint of a read it steps over names the table, the read and the option that holds it; a run that fails after a release says so. Nineteen new judge cases (the gear, the dense gear and the swing written implicitly, each beside its other ways; `…-over` beside the five cases whose default now holds) and nine tests that fail before (`kinks.rs`); the judge's other runs as at 1d41c7d7 bitwise (591 of 637); the golden comparison e4ada13's record in every field but the run times (nothing of the cars' is held: values only). Fourth fix round (the review of A3, check 4, 24 October): a change of the states chosen between the forms was refused where the forms hold other reads (a gear whose ratio is a monotone cubic held at its edges, the rotor's speed preferred, stopped at t = 3.137 s where 1d41c7d7's run switched and went on): a model whose states a run chooses again now holds what either form holds in every choice, the explicit form releasing what only the implicit one holds (the gear 1.63, 3.56 and 358 rtol at 1e-4, 1e-7 and 1e-10, 1d41c7d7's run bitwise; a 2-D gear 3.1 … 137 and a bead 64.5 … 335 where they stopped too; a dense clamped gear switched onto the implicit form holds its edges again there, 3.24 … 21.7); and the explicit form's decision for a cubic's second derivative had rested on a bead whose `r''` does not jump: on one whose `r''` does (`kink-bead-sin-11`, -41: new judge cases) stepping over is 198 … 81 400 rtol off against 22 … 362 held, so rule v4 holds it there too (with the releases), at the price of the parabola bead (131 … 737 held, 10.5 … 187 stepped over). The judge's 770 runs before: their solution, steps and events as they were bitwise but the parabola bead's eight; the golden comparison e4ada13's record in every field but the run times. Fifth fix round (the review of A3, check 5, 24 October): on the explicit form rule v4 had stepped over a clamped cubic's slope at its edges and a 2-D read whose slopes jump, each decided on one or two cases; on simple variants of them its clause for stepping over being more than 100 times the held run's error triggers (5 of 12 sparse clamped gears leaving their data, 101 to 436 times at 1e-9 or 1e-10; 4 of 4 2-D gears, 101 to 1 209 times), so both are held there too, with the releases (which then weighed 1-D reads only: a 2-D read was held through every crossing, until the sixth fix round), and both forms hold every read that jumps, the same reads in every choice of states (`Holds::AUTO`; the union of the forms' holds and the release by form of the fourth fix round, inert now, removed; the cache's format `prepared-v11`). Ten new judge cases: two each beside `…-over`, `…-always` and `…-located`, `kink-gear-clamp-6` (a monotone cubic of 6 points that the speed leaves at 40 rad/s: stepped over 0.86 … 865 rtol, held 0.45 … 19.1, 4.07 at 1e-10) and `kink-gear-2d` (a bilinear ratio of the speed and a second state: stepped over 20.7 … 3 480, held 2.43 … 10.1, its located run's); `kink-gear-clamp-over` and `kink-edge-11-over`, the stepped-over runs of the two cases whose default changed (`kink-gear-clamp` 6.7 … 131 before, 1.1 … 12.5 now; `kink-edge-11` 34 … 342 before, 17 … 309 now, worse at 1e-4 and 1e-9, 104 against 34 and 267 against 61). The judge's 812 runs before: 784 the same in every field but timings, those two cases' 14 now their `…-held` runs bitwise, and 14 (the swings' `…-over`) telling the "read outside its data" warning once where they told it per table guard; the golden comparison e4ada13's record in every field but the run times (the cars hold nothing: values only). Sixth fix round (the review of A3, check 6, 24 October): the releases weighed 1-D reads only, so on the explicit form the default held a 2-D read crossed often through every crossing, silently: the judge's swings with their ratio read as a 2-D table, constant along its second argument, 631 and 1 480 rtol off at 1e-4 (41 and 101 points) where stepped over (85ae86e8's default) they are 66 and 48. The releases now weigh a 2-D read's crossings as a 1-D read's (`HeldRead::jumps` over every read that jumps; its jumps at the start stay unweighed; the cache's format `prepared-v12`): on 41 points 46.8, 449, 573, 465, 369, 320 and 499 rtol at 1e-4 … 1e-10 (let go of at 1e-4 and 1e-5), on 101 30.8, 138, 1 510, 1 590, 1 350, 916 and 1 030 (at 1e-4 … 1e-6), against 66.4 … 2 580 and 47.7 … 2 460 stepped over. Six new judge cases, `kink-osc2d-41` and `kink-osc2d-101` each beside `…-over` and `…-always`; the judge's 882 runs before and the check 5's 530 variant runs the same in every field but timings (the 2-D gear's crossings are few: nothing is released there); the golden comparison e4ada13's record in every field but the run times. Step 1's cost (24 October, the acceptance's fifth line): each round had measured its own cost as within noise, and together they made the hybrid car's steps dearer, +3.2 % instructions on its mixed cycle, +2.4 % on the HWFET, +0.5 % on the BEV's WLTC against 36c8a0d8 (cachegrind; the whole comparison 87.2 → 89.6 s). By function, on the HWFET (+5.8 G): the holds of a condition on an iteration variable (twelfth round) +3.9 G, every evaluation of the root functions mapped through the holds and every step's end scanning them for a release though the cars hold nothing; the watch on the choice of states (thirteenth and fourteenth rounds) +1.6 G, its look at every step's end and the channels sampled again at the point after each of the 77 005 events; IDAS's order decision (eleventh round) +0.9 G, the quadratures' error at order k−2 at every step (the steps as many to 0.06 % on the HWFET and the UDDS; 0.5 % more on the mixed cycle, 0.6 % across the order fix's own record); the run loop's body and copies +0.9 G; the mixed conditions' check, gone with the Driver's mode (D), −1.6 G. Recovered, every result the same to the bit (`run::ZeroSides`, `Loop::held`, `Loop::sampled_after`, `lsim.patch`): the values mapped through the holds only while one is held (else only exact zeros, looked for eight at a time) and releases looked for only then, −3.8 G; the k−2 error only where it can change the order, −1.1 G (0.2 G on the mixed cycle); the watch's channels after an event taken from the run's own sample, −0.5 G (0.35 G); and, offsetting what remains, the run loop's scans of every root function's scheduled time (88 entries on the hybrid, all of them NaN: it has no time crossing and no function of time searched ahead) three times a step, which 36c8a0d8 made too, now of the time crossings and searched functions alone, −4.9 G. Instructions now: the hybrid's mixed cycle 82.60 G against 36c8a0d8's 83.22 G (−0.75 %), its HWFET 232.99 G against 237.79 G (−2.0 %), the BEV's WLTC 18.48 G against 19.07 G (−3.1 %; counts vary by ±0.06 % from run to run, the model's tapes running until its machine code is in); the whole comparison's CPU time 83.7 s against 86.8 s back to back, pinned to one core, four alternations (each run ±1.3 %, every pair −1.8 … −4.3 %). What step 1 still costs, inherent to what it added: the watch, 0.64 G of the mixed cycle (0.77 %, about 1 100 instructions a step, measured with it switched off; nothing on the BEV's WLTC, whose sets do not move); the holds' bookkeeping at each event, 0.6 % of the mixed cycle and 0.2 % of the HWFET (the root functions evaluated again at the point the integrator had, the sides compared); the mixed cycle's 0.5 % more steps (0.6 % across the IDAS order fix's own record, not measured apart from the rest of step 1; the HWFET's and the UDDS's the same to 0.06 %); the Driver's back-calculation, 0.2 % of a residual evaluation. The golden comparison's 14 cases are the same as `golden/results.json` in every figure, channel and field but the run times, the judge's 751 cases (5 250 runs) in every field but timings, LLNL's two IDAS examples in every count at every tolerance; `check.sh` passes. Step 1's review fixes (two independent reviews of step 1, 24 October): event iteration read the conditions on an iteration variable without the holds, so complementary `when`s on one (`when x > 0.5` beside `when x < 0.5`, or an `elsewhen`'s two branches) fired at each other's crossings, the `elsewhen` left on its second branch for the rest of the run (4 of the review's 14 runs; on a peak 38 of 42), and an event whose own change nudged a held condition across by less than its hold fired its `when` there and again (11 of 14): event iteration now sees the conditions as the integrator does (`Loop::hold_conditions`, DESIGN.md 8.2; `implicit_conditions.rs`, which failed before), the probes wrong in 0 of 14 runs, the peaks in 3 of 42 (both crossings inside one step, the known limit), the judge's eight new `count-pair` and `count-peak` cases in 0 of 56 (33 before), a lone `when` (the 140 runs) and every run that was right the same to the bit; the restart after ten failures of the error test is IDA's alone (CVODE, restarted too until then, untested, stops at its seventh failure, lowering its order from the fourth; a new test that it crosses a kink in its forcing alone, Adams and BDF within 55 rtol of the exact answer; none of 132 probe runs, nor the judge or the golden comparison, reached its limit); a model with no state halves a step down to the run's resolution, not the time's (a jump at t = 0 took 1 071 steps, 48 now), its method named once; `SolverOptions::record` names the channels a run keeps (the same run to the bit: `state_choice.rs`), and fast mode's judge replays keeping only what it reads, so the long-haul cycle's two replays at the default 0.1 s, killed at 12.9 GB, peak at 0.96 and 1.03 GB (its other 76 rows the same in every field but times); debug builds check the speed work's conventions (`Loop::held` against the holds, the channels sampled after an event against the model's, scheduled crossings and searched functions among the live ones); the judge's `sundials` builds the patch on 7.9.0 too; both MSL references at one commit; the eleventh round's statements corrected (the patch on Akzo Nobel as measured ratios, its steps cycle by cycle, CVODE's limit). Instructions after them (cachegrind with `--fair-sched=yes`, under which the model's machine code, compiled on another thread, comes in at the same point of every run: two runs of the mixed cycle 0.0007 % apart, where under the default scheduling on a loaded machine the tapes ran up to 1.1 G longer): the hybrid's mixed cycle 82.64 G against 36c8a0d8's 83.17 G (−0.63 %; +0.06 % on 4e3afdd0's 82.60 G, the holds evaluated at events), its HWFET 233.05 G against 237.71 G (−1.96 %; +0.03 % on 4e3afdd0's 232.99 G), the BEV's WLTC 18.48 G against 19.07 G (−3.07 %; 4e3afdd0's to 0.01 %). The golden comparison the same as `golden/results.json` in every figure, channel and field but the run times (11 347 values, the books closed to 6.6e-10), the judge's 751 earlier cases (5 250 runs) in every field but timings but `fmu-stair`'s method's name, LLNL's two IDAS examples in every count on 7.1.1 and 7.9.0; `check.sh` passes. Step 1's recheck fixes (an independent recheck of the review fixes, 24 October): event iteration, and the hold the integrator gets after an event, told an event's own change from the integrator's inconsistency by the conditions at the point the integrator had with the new discrete values, where an iteration variable still has its value from before the event, so a condition an event moved across to within its hold was held where the integrator saw it (`x³ + x = 0.5 + 0.125 k`, k set at 1 s, moved x from 0.41 onto 0.5 and `when x >= 0.5` never fired; 116 of the recheck's 273 probe runs wrong, on every backend), a smaller nudge fired 3.6 rtol late, and where x rose on the `when` fired twice (4e3afdd) or not at all: the conditions are now evaluated too with the iteration variables solved for the discrete values before the event (`Loop::keep_unmoved`), and only a crossing the integrator located early is held; and a hold kept a function strictly short of its side only, so a `when x > 0.5` beside a mode on its relation fired again where the mode's crossing was met with x exactly 0.5 (1 of the recheck's 70 runs): a hold keeps an exact zero on its side now (DESIGN.md 8.2; two new tests in `implicit_conditions.rs`, which failed before, and the judge's seven `count-moved` cases, 0 of 49 runs wrong, 38 before); CVODE's error-test limit (its history reloaded only at order 1, out of reach from order 4 or more) and the Akzo Nobel ratio (36 times, not 37) stated as they are. The recheck's probes 0 of 273 runs wrong, its runs beside a mode 0 of 70; the judge's 759 other cases (5 306 runs) and the golden comparison the same to the bit; instructions (cachegrind, fair scheduling, both built on the same machine) the hybrid's mixed cycle 82.65 G against 36c8a0d8's 83.17 G (−0.63 %), its HWFET 233.04 G against 237.72 G (−1.97 %), the BEV's WLTC 18.49 G against 19.07 G (−3.05 %), d0a0b10's at most about 0.01 % fewer; `check.sh` passes. Step 1's second recheck fixes (an independent second recheck, 24 October): a hold was released only at a step's end that was no event, so a hold from a crossing located a little early still stood at an event shortly after, where the integrator had x past 0.5, and where the event put x back under, `when x < 0.5` never fired, nor `when x > 0.5` where x was lifted again (87 of the recheck's 515 IDA runs): one rule holds now wherever a hold is made, carried, applied or released. A hold stands only while the integrator's own solution, at every step's end and at every event's point (a root, a time event or crossing, a tick inside a step, a stale mode's settle; before event iteration reads a condition there), is still short of its side within the hold; one that went back past it crossed, and its `when` fires there whether or not the integrator reported it (diffsol, told it was held, did not); a hold still standing at an event's point is judged after the event's change as a new one is (`Loop::find_moved`). A probe of the family (181 440 runs: time events, state crossings and ticks inside a step 1e-6 … 1e-2 s after the crossing, putting x back, further on or nowhere, lone, complementary and mode conditions, on IDA's three forms, diffsol, CVODE and the stateless backend, rtol 1e-4 … 1e-10, against hand-worked counts and times): on IDA no run wrong but the named limits (an event closer to a crossing than its location tolerance; x left 5.7e-13 off its threshold, below what its solve resolves, 2 runs) and 87 event storms beside a mode on x, at rtol 1e-10 (without a state 1e-5 … 1e-10), which are no hold's and come from every commit since 4e3afdd (open: DESIGN.md 8.2), against 6 526 runs wrong at f29ed27; on diffsol 50 (46 crossings lost right after a restart, 4 with an extra pair of crossings within the location tolerance: the same runs wrong or within that limit at f29ed27 and 4e3afdd; 498 runs wrong at f29ed27). The judge's 766 earlier cases (5 355 runs), the golden comparison and the recheck's probe sets the same to the bit, its stale-hold probe 0 of 515 IDA runs wrong; eleven new `count-held-back` cases 0 of 77 runs wrong (14 at f29ed27); three new tests in `implicit_conditions.rs`, which failed at f29ed27; DESIGN.md 8.1's CVODE sentence stated as sundials.rs states it. Instructions (cachegrind, fair scheduling, built on this machine): the hybrid's mixed cycle 82.68 G against 36c8a0d8's 83.18 G (−0.60 %), its HWFET 233.09 G against 237.716 G (−1.95 %), the BEV's WLTC 18.49 G against 19.07 G (−3.06 %); +0.028 %, +0.018 % and +0.018 % on f29ed27's counts here; `check.sh` passes. Step 1's hold rule was accepted on 30 October 2026 with three recorded limits, none yet reachable by a user (below, and DESIGN.md 8.2): a hold timed again after a stop loses a later firing (534 of the holds suite's 364 770 counted runs), diffsol at a time event beside a `when` that slows x (5 runs right at 4d24528), and a threshold set at a value the model pins stops every build with an event storm (the 80 kW case, 0.706 s). Step 1 accepted on 30 October 2026 by its second acceptance pass (at fae1ba0): the judge's 5 250 runs of the first pass the same as at 8639421c (7 differ only in the name of their method), none of its 5 432 runs on a bare SUNDIALS flag, the golden comparison 0 differences in 11 347 values (books 6.6e-10), the golden cars 0.6 to 3.0 % fewer instructions than at 36c8a0d8, every engine change reviewed after its last change. | Tables read at a state (A3): each held crossing restarts the integrator at its lowest order, a roughly fixed error of one sign (0.1 … 3.6 rtol) that adds up over the crossings, so where crossings are many holding loses to stepping over where stepping over can go on (on CVODE the 101-point swing held through every crossing is 1 238 rtol off at 1e-4 against 55 stepped over; the releases let go of it there), and on the implicit form there is no other way (the swings held 502 … 2 910 rtol, stepped over no answer): a cheaper restart is the remedy to measure (on the 101-point swing at 1e-4 held on diffsol is 47 rtol off; or a one-step method's start), or, on the explicit form, a release that passes the rule (the two tried let go of the swings at loose tolerances, not of the 21-point swing at 1e-4, and of single passes mid-way where holding throughout was the better: 401 points at 1e-9, 229 rtol against 87 held throughout and 152 stepped over). A cubic whose second derivative does not really jump (the bead's wire, Steffen's cubic of a parabola) is held all the same on both forms, on CVODE 131 … 737 rtol off where stepped over it is 10.5 … 187, on IDA 391 … 541 against 13 … 137: the release at the start keeps it, its `r''` jumping to 0 at the data's edges, which the bead never reaches (a release that counted only the points within reach, measured, would let it go). Where the CVODE default is worse than 1d41c7d7's (stepped over) on the judge's cases: `kink-osc-101` at 1e-6 (1 308 against 161), `kink-osc-41` at 1e-5 (522 against 168), `kink-dense-gear-401` at 1e-4, 1e-5, 1e-9 and 1e-10 (4.7, 14.5, 164 and 368 against 1.9, 1.7, 152 and 158), `kink-dense-gear-41` at 1e-4 and 1e-5 (11.5 and 19 against 5.2 and 7.5), `kink-edge-11` at 1e-4 and 1e-9 (104 and 267 against 34 and 61), and the parabola bead. On the explicit form the releases weigh a 2-D read's crossings as a 1-D read's (the sixth fix round), not its jumps at the start (that test measures a 1-D read's two sides at its points); the 2-D swings are let go of where the 1-D ones are (41 points at 1e-4, 101 at 1e-4 and 1e-5); at 41 points 1e-5 and 101 points 1e-6, where the 1-D swings are held throughout, the 2-D ones are let go of at t = 10 s only, because c's one crossing of its point 0.5 adds a restart to a window just under the bar, and are then worse than stepped over (`kink-osc2d-41` 449 against 344, `kink-osc2d-101` 1 510 against 223); with c crossing none of its points they are held throughout there (640 and 1 610 rtol), and with c's point at 0.25 they are 428 and 685: those two figures depend on where c's point lies. For the state selection's owner: a choice kept near-singular, silently off, with no table to blame (the A3 check 5's `e1-24`, built by its `mk5.py`: the gear of the fourth check's `sw-k3`, a monotone cubic held at its edges, its data's upper edge at 24 rad/s, the rotor's speed preferred, on IDA; the pivot r + r' w2 falls to 0.056 at 3.0 s and 0.017 at 4.56 s without changing sign, and the run keeps w1 as the state until 4.33 s, where 1/P is 50: 16.6, 900 and 28 000 rtol off at 1e-4, 1e-7 and 1e-10, 30 128 steps at 1e-10, about the same in every table mode (stepped over 16.6, 900 and 28 000, 30 158 steps; held always 16.6, 890 and 28 000) and with the ratio as `if` branches (22.6, 890 and 28 000), at ade9eaa7 (3.1e4 at 1e-10) and 1d41c7d7 alike; the rotor's speed is marked `prefer`, and a choice that keeps a marked column is held to a factor of 50, which 1/P reaches only at 4.33 s: a threshold or a re-choice that weighs the error the choice has already let in is the remedy to measure). Also for the state selection's owner: a choice that decides a variable through a read whose slope in it changes sign at a breakpoint is singular there, and the watch stops the run, held or stepped over (the A3 check 4's first 2-D gear, c not marked `always`: taken at 0.92 s to the choice deciding c, stopped at c = 1.6 where r's slope in c turns from −0.33 to +0.44, "choosing the states again there gives the same states"; the same function as `if` branches runs, 2.13 … 4.96 rtol, only because its set is not watched); reading the held cells in the watch let the run go on in that choice, 4 600 rtol off at 1e-10 in 27 375 steps, so it was not done: choosing again without the column whose entry changes sign is the remedy to build. IDAS went through stepped over on the library's gear, on the dense gears after a change of states onto the implicit form and on the switching gears of the fourth check before their switch, and stopped on every judge case written implicitly: what makes a jump fatal there is not known ahead. On diffsol the held and the located runs of a dense table are not proportional (the 101-point spring held 105, 5 171 and 5 150 rtol at 1e-4, 1e-7 and 1e-10; the 101-point swing held 47, 2 249 and 2 296, located 52, 2 229 and 2 296; CVODE's flat): open on the cross-check backend. Before this round: holding a read that jumps costs about 0.45 rtol a crossing where crossings come faster than the integrator regains its order after each restart: a gear on a torsion spring whose ratio is a linear table of 101 or 401 points of its oscillating speed (2 847 and 11 448 crossings in 20 s) is 754 … 1 347 and 2 156 … 5 581 rtol off held, 55 … 341 and 40 … 324 stepped over at rtol 1e-4 … 1e-6 (held the better from 1e-7 with 101 points, 1e-9 with 401; with 6 points held is the better at every tolerance, with 21 at every one but 1e-4: 254 against 52), measured again in the second fix round, above. A 2-D read held for comparison on diffsol is 0.97 … 1.5 times its located run's error (the same run on CVODE's Adams and BDF; every 1-D case the same on diffsol): cause not found. Along time, restarting at a cubic's kinks (where its slope is read: held at its edges, it restarts at every point) measured more accurate than stopping only (a gear whose ratio is a cubic of time, 6 … 61 points: 0.6 … 6 rtol against 1.2 … 28), so a cubic continued linearly, whose slope read along time stops at its points without restarting, may be the better for restarting too: not measured. The smallest model with a computed input is at the 5 % target, not clearly under it when run at 10 ms (4.9 % median, noise ±2 %): about 160 instructions of bookkeeping a tick remain; sweeps 3.2–3.5× on 16 short runs (target 3.5×; this VM's noise ±15 %), the rest is fresh memory for each run's results (a change to `SimResult`'s layout, WP6); diffsol's events at 1e-10 within 34·rtol (its step error control; the cross-check only). Dynamic state selection (risk R3) runs every pendulum of the judge to its end, but from 1.48 rad most of its runs (1 022 of the 1 169; 147 right) are more than 100 rtol off the closed form, as the same pendulum in its angle is (1 048): the problem's own sensitivity over five periods, which no choice of states mends; it switches on SUNDIALS only (on diffsol, the cross-check, the run stops where the choice degrades, as before, saying so); in a model with several parts that switch on their own, each switch restarts the integrator for every part, which costs the others accuracy (the held-out multi-pendulum models, 119 rod-runs: each x-y rod 1.92 times as far off as the same pendulum alone and 3.25 times its angle form in the same model, geometric means, up to 20 and 49 times; none of their 35 runs within 100 rtol, the angle forms 17; the same angle forms given events that change nothing at the x-y switch instants lose 2.25 times, right in 9, and the x-y rods are 1.44 times those: the restarts, not the switches); a set whose fixed entries alone put its factor above the base threshold (a gear ratio's scale) cannot be chosen again, the re-choice being held to the base threshold: it keeps the detection (no golden case switches); each switch prepares the model again (0.25 ms on the pendulum; keeping the structure and pivoting alone at the point would be cheaper); two sets past their thresholds at one instant are chosen again one after the other, each with its own preparation and integrator start (26 such pairs among the 1 938 switches of the held-out multi-pendulum runs, mostly at rtol 1e-4 and 1e-5; one re-choice for both would save one of each); a switch refused after a block's tick at exactly the point its step was cut back to restarts the integrator there from the step's dense output, which costs accuracy (the pendulum at 1.50 rad, threshold 9.5: 1 209, 5 076 and 11 712 rtol off at rtol 1e-4 … 1e-6, where the same refusal at the step's look is 388, 267 and 92; reached only by such a coincidence: a cut itself is not rare, 215 of the judge's 20 641 switches (1.0 %, counted on 24 October; A3's dense-gear cases' 63 cut none) cut their step back, none at a tick, as the judge has no sampled blocks); the IFToMM four-bar does not prepare (`SINGULAR-LOOP` at its start values, the accelerations' and rod forces' block: not a choice of states; neither of OpenModelica's selections runs it). The runs still wrong below 1.48 rad, where the choice holds and nothing switches (103 of the 2 198, released at 0.72 to 1.47 rad, the error growing with the angle: 17 to 69 rtol up to 0.70 rad, 868 at 1.45 rad, rtol 1e-10) are the x-y form's own larger error under a choice that stays inside its window (the factor at the release at most 9.9): in its angle the pendulum is wrong in only 48 of its 1 029 runs up to 1.47 rad, and right in 66 of these 103 at the same angle and tolerance; per run the x-y form is up to 28.6 times the angle form's error (1.47 rad, rtol 1e-6), up to 6.0 times at 1e-10 from 1.31 rad; with `prefer` at 1.55 rad (a factor of 48 at the release, inside the 50 a marked choice may start at) 22 times the angle form's. Andrews' mechanism gets more significant correct digits than the test set's five solvers at the same tolerance (6.6 at 1e-7 against 3.5–5.4) in 8 to 20 times their steps. A known limit: a condition on the states alone, not on time, is left to root finding, which misses two crossings inside one step without a warning (the judge's `count-explicit-pulse` at four tolerances of seven, an oscillator's peaks at six; OpenModelica misses the peaks at five); checking such conditions along the step as the mixed ones are checked finds them all, but stops the hybrid's HWFET run as an event storm of its clutch's stick conditions and takes 12 to 13 times as long without compiled kernels for them (DESIGN.md 8.2): it waits for the clutch's switching and those kernels. Tables held in their cells (the fifteenth round): the cells' edges are left to root finding, so a pair of crossings inside one step (out of a cell and back) is missed, as for any condition on the states alone; held, the clamped spring of the judge is worse than stepped over at five tolerances of seven (10 … 1 370 rtol against 55 … 790: the run goes from Adams to BDF and back at each of its 30 events); a held table's data swapped after the build for data of a higher degree is refused, not held anew. Found by the round's measurement, not caused by it (they stop so before it too): at rtol 1e-9 the aero BEV's WLTC stops at t = 1 381.005 s, no step passing ('Brake FR'), and the hybrid's HWFET at 283.35 s (IDA's flag −3); at 1e-10 the aero BEV's HWFET stalls at 121.0128 s (steps of 1.7e-14 s, no cell changing there); the BEV's winter WLTC, which stopped at 1 381.008 s at 1e-9, runs to its end held |
+| WP5 library, import | `wp5/library` (merged) | Done: physical library and the 36 vehicle blocks; project importer; 199 of 201 golden figures inside their bands, 984 of 1038 channels; energy books closed to 1e-6 or better (1.5e-9 or better on every case). Triage of every difference outside (October 2026): all 2 figures and 54 channels are today's engine's error, one cause (it applies a gear's efficiency to, and reports as the gear's, the torque of the sources above it, the rotor's and gears' inertias not taken out; the new engine's gears lose it on, and report, the torque their teeth carry); shown by today's rule rebuilt from the new engine's run (`golden/definitions.py`: every channel to 0.17 × band or less), the same car without those inertias (every figure and channel inside), the inertias moved past the gear (the figure inside), an exact answer (`tests/gear_loss.rs`) and the wheels' momentum balance; none is the new engine's or a band's | The 2 figures (the BEV's city recuperation, 1.0039 × since IDAS's order fix, 1.0013 × before, converged 1.0044 ×) and 54 channels stay outside as compared: today's engine is not changed here (`lsim-project/golden/README.md`). Found on the way, for WP4, and fixed there (eleventh round): on IDA a model whose states are exactly polynomial in time stayed at order 1, so its books' quadratures set the step (9 336 steps for a 2 s spin-up at 1e-6, steps growing as 1/√rtol, the books off by about 0.26·√rtol); IDAS's order decrease is now decided on the books' errors too (96 steps, the books 2e-10 off) |
+| WP6 fast mode, Python | `wp6/fast-engine-python` (merged) | Rosenbrock-W fast stepper; limit flags match the forward run's limit hits; the example projects' drive-cycle cases in fast mode (`ImportOptions::inverse`, DESIGN.md §10: the cycle prescribed, the Driver's pedal freed, inverse variants of the Driver, body, wheels, brakes and e-motor; an acceleration test and the hybrid, whose Script reads the pedal, refused with their reasons; judged by `engine/judge/fast.py`); input events (FMI 3.0) at a trace's breakpoints and a block's ticks, every mode checked against its crossing after each step, strict `when`s fired as the forward run loop fires them, the modes and clauses on a mode set where its crossing leaves zero following at once (DESIGN.md §10); every bundled cycle runs on both battery-electric cars (54; 9 stopped on a singular Jacobian that named nothing before, 2 raised flags the car never reached): the inverse variants follow the pedal beyond full throttle and brake and have one root (no saturation leaves the pedal free, the tyre's slip held to its grip, a supply window flagged, not cut), the inverter draws nothing standing still, an emptied battery is flagged, every solve kept to the root that continues from its consistent point, a singular Jacobian names the variables it leaves free; fast mode's charge used within 1 % of the full dynamic run's on all 61 cases with a reference (−0.76 … +0.02 %; New York's city cycle was 1.43 % over without a flag, and on 7 of the 9 example cases 25 to 48 % short before the input events), −0.05 … +0.07 % on the speed the full dynamic run drove, a cycle changed at round-off level changing it by 1.5e-7 at most and no flag, its energy on EPA's four reference cars within 1.3 % of FASTSim 3.1.0's given the same cars (mean 0.92 %), samples added on a trace's lines changing nothing (a property test); engine facade, whose `Started` wrapper forwards every `ModelFunctions` method (a test fails if one is missed); the Python module `lightsim_engine` (build, simulate, set_params, sweep, diagnose, NumPy arrays, interpreter lock released, plain errors; bit for bit the golden comparison's run on the BEV and hybrid cases, DESIGN.md §13); Script blocks without Python (`lsim-script`: a strict subset of Python whose results are the app's Script runner's bit for bit, checked against that runner as the app calls it; anything outside the subset runs on Python, a case that meets it mid-run is run again on Python; each call held to the worker's 2 s and 512 MB (every heap block its values and code hold counted) and to half a MiB of stack; DESIGN.md §9); numbers in JSON read exactly (before, about one in eight came back off by a unit in the last place); the app's backend runs drive-cycle and acceleration cases on the new engine when `LIGHTSIM_ENGINE=new` is set (today's engine is the default and the fall-back; Script blocks still run in today's locked-down worker there; `backend/app/solver/new_engine.py`), every fall-back with a reason code, and `LIGHTSIM_ENGINE_STRICT=1` making each a coded failure instead; that path judged by step 2's both-engines diff (`python -m benchmarks.back_to_back`: both engines on every field, the planted-fault verdict matrix, the result schema, exact speed traces, streaming, stop, replay, mutation testing of the verdict), its baseline in `benchmarks/back_to_back/baseline/README.md`, measured
+before the wiring, after its evidence part, after that part's four fix rounds and after item 4
+(live runs, a study's Stop, progress and live edits through the run's control: S1 and S3 pass (S2, the stop's latency, was not measured on Windows CI:
+run 42709765031 stopped at a test_api.py failure; the acceptance's local
+p95 on a loaded machine was 0.283 s live and 0.752 s for the study), the
+stream equal to the result bit for bit, the stop's p95 0.18 s live and 0.55 s for a 16-point WLTC
+study on a shared Linux machine, the marks of 0.25 s and 1.0 s to be judged on Windows CI, a replay
+from the run's snapshot the same SHA-256, a live edit included; STATUS 7 of 11), and after
+item 5 (FMU parts, text components, quick mode: TEXT passes, 92 parts written as text the built-in
+parts' results to the SHA-256; QUICK fails on the energy recuperated and the internal losses, up to
+1.75 % from the full run's on 6 of the 9 cycle cases it runs, every other row within the 1 % band;
+FMU not measured on Linux, and not measured on Windows CI either; STATUS 7 of 11 as the
+acceptance of 9 and 10 November counted it) (the verdict, the
+energy report, part energies, duty, limits and references from the run's
+evidence: lsim-py's integrals, trace from the dense output, table records,
+per-part books and events; ANALYTIC and META pass, ENERGY's E1 and E2
+pass and its E3 is vacuous, so ENERGY is too: no registered case meets a
+limit on either side, and the one probe that does fails E3's mark while
+the forward car falls behind the cycle, which needs a pass mark of its
+own before such a case is registered; no planted fault hidden, 20 of them now a case's own value; a run reading a value outside its parameter's limits, which a study's point can hold, runs on today's engine with the code NEW-LIMITS, as do the 53 planted faults outside them); measured on one machine, release builds, against the start of this round: fast mode on the test car 16.6 → 6.0 ms (1.1·10⁵ → 3.0·10⁵× real time), its full dynamic run 1008 → 119 ms (the cycle read as a time table), the hybrid's UDDS 93 → 56 s, its mixed cycle 26 → 12 s (Script blocks without Python), the BEV's WLTC unchanged (2.7–2.8 s, about 650×); the golden comparison unchanged (199 of 201 figures, 984 of 1038 channels, books closed to 1.5e-9) | Speed against the average of comparable tools (the owner's goal since 15 October 2026, DESIGN.md §2; the fixed 10⁶× and 1000× targets are dropped): to measure. Today fast mode 3.0·10⁵× real time; full dynamic BEV WLTC 2.2 s on a 4-core VM after the merge with WP3's compiled books (about 820×), the hybrid's UDDS 42 s; the hybrid (33× real time on the UDDS since the merge; 25× before it) restarts the integrator at every controller output change (about 22 steps per 10 ms tick; going on without a restart is off by default for accuracy, WP4); Python 3.13 fails two of the backend's Script-safety tests (they pass on 3.11, CI's version, and failed before this work too); whether the app may run Script blocks on the native runner instead of the worker is the owner's call; on the new engine's path in the app, one planted fault today's engine warns on comes out a success (bev-car's Driver with no P gain: the new engine's PI, LimPID's back-calculation, follows the cycle within 1.6 km/h where today's lags 17 km/h; the Drivers' laws differ; the new Driver can also ask for more recuperation than the battery takes, where today's never asks it), 1 090 of the 1 917 differences against today's engine are unclassified (the acceptance of 9 and 10 November: the hybrid's channel minima, maxima, values and means; every battery-electric item's part energies in and out; the hybrid's peak powers and its energy in reverse. The tenth measurement had 852 of 1 498, from these causes: the channels' 270 of before; the gears' rule in the reports' gear rows; the wheels' and brakes' flows each way from a 0.1 s trace; the books' remainder of 1e-10 against today's 0; duty minima at the first instant; a checked battery limit's time over it, which today's counts in whole steps), its duty RMS rides on the integrator's steps (not error-controlled quadratures), a table guard counts a read in a branch the run does not take (the E-Motor's drag table while powered: the path judges such a record for the share of the output points in the branch today's engine reads it in, a stretch between two points missed; an axis set to Error there stops the run, which then runs on today's engine with NEW-FAILED), and FMU parts, text components and quick mode are wired on the new path (TEXT passes: 92 of 92 parts the same as the built-in parts; quick mode runs 9 of 16 cases and refuses 7 with listed codes, and QUICK fails its 1 % band; the FMU probe item runs, and FMU is not measured against the Reference FMUs), and so are live runs, a study's Stop, progress and live edits, through the run's control (stop latency not measured on Windows CI, whose run 42709765031 stopped at a test_api.py failure); Python API: fast mode for project files, FMU parts; wheels; fast mode for a car whose sampled controller reads the pedal (the hybrid: its supervisory controller would have to be inverted, or its outputs freed instead of the pedal); the full dynamic run of the 805 km long-haul cycle, which empties the battery, stops where the battery empties (14 881 s on the aerodynamic BEV, 14 541 s on the BEV), naming the E-Motor's equation that cuts its torque to what its supply gives (before, on a bare SUNDIALS flag −4; fast mode runs it and flags the battery from the second it is empty); the inverse model has no stiction and no slip below 0.5 m/s (on the driven speed fast mode is within 0.07 % of the full dynamic run) |
+
+## Run-loop issues from the golden comparison: resolved (`wp4/solver`)
+
+- A `when` condition made true by a sample tick's new outputs fires at the
+  tick (its value before the event is the one before the tick).
+- Mode changes a tick or a time event makes at its instant are scheduled,
+  not an event storm; the golden harness's allowance is gone.
+- A `when` condition already true at the start: decided as Modelica does
+  (nothing fires at the start; it fires once it has been false and becomes
+  true again), documented and tested.
+- Event iteration re-checks the conditions with the iteration variables
+  solved for the new discrete values.
+- A tick a few ulps before the end time is that instant (no "tout too
+  close to t0"); the output grid ends at the end time exactly.
+- A restart hands IDA y' in full (z' too), skips the second consistency
+  solve and sizes its first step from x''. Going on with the history after
+  a slight change (a light restart) is opt-in: its error accumulates over
+  a long run (the review: 57 tolerance units on a 10 000-tick ramp); a tick
+  whose outputs reach nothing integrated goes on exactly.
+  `suppress_algebraic_error` was measured and stays off (its errors grow up
+  to 8× on the exact-answer suite's DAEs).
+- A condition on time alone (`time >= c`) is an exact time event at c; its
+  right limit holds only while its time is still now (a timer re-armed at
+  its own instant, `t_last := time`), and a root SUNDIALS reports at a
+  scheduled time joins it.
+- A strict `when x > 0` from x = 0 fires as x leaves zero (Modelica).
+- A gear shift, declared by the gearbox as a rigid engagement, keeps the
+  momentum of everything the gears tie together, and that loss is the
+  gearbox's. A tyre passes no impulse (its force is bounded by its grip):
+  its slip relaxes after the shift through its own law, inside its grip
+  or sliding at it, integrated, passing the momentum on to the vehicle
+  over that time, its loss its own (today's engine relaxes a gripping
+  tyre's slip at once; a fully resolved two-axle car agrees with the new
+  engine, not with that). Couplings a model declares stiff and unbounded
+  still pass an impulse on, judged after the rigid stage. Nothing else
+  starts a projection, what a `reinit` set stays, and a cascade of
+  engagements at one instant is projected to its end or stops the run
+  naming it.
+- `Integrator::consistent_z` fails by default (a DAE backend cannot skip
+  it silently); the run report counts inert ticks apart from light
+  restarts.
+- The energy books take each stored energy's rate exactly (forward-mode
+  differentiation through the assignments; the model's x' on IDA): the
+  finite difference before it lost precision whenever an entry of the
+  state passed zero while moving, and the hybrid's books closed to only
+  1.6e-6; now 1.5e-9 or better on every golden case.
+- Tables read along time (a driving cycle) stop the integrator at their
+  breakpoints, so a condition they drive is not stepped over while
+  nothing integrated moves.
+- An output time at an event records both sides (`SimResult::left_limits`
+  beside the values after it, only the channels the event changed); the
+  golden comparison takes the side today's engine records.
+- Every sampled block due at an instant ticks in one event: an output
+  point there shows the values after all of them.
+- A declared stored energy or loss may read a table: the books read the
+  model's own interpolants (they were NaN, and the default run stopped at
+  its start), the rates through tables and time exact; a zero direction
+  has a zero rate (no `inf · 0`).
+- A condition on an explicit function of time (`sin(2π time / T) >
+  0.95`) is not stepped over while nothing integrated moves: its sign
+  changes are found ahead and reached exactly; one that also reads
+  states (a driving cycle's target against a speed, a motor's limits
+  from its 2-D maps) is checked on every step, by a certificate where
+  one holds and along the dense output elsewhere (the polynomial the
+  integrator interpolates with, bounded rigorously over the step on
+  SUNDIALS; on diffsol up to an estimated round-off), and
+  the step ends at a pulse root finding did not see; one moved only by `noEvent`
+  comparisons is left to root finding, as `noEvent` asks; what cannot be
+  searched is named in a warning.
+- Blocks ticking at one instant read the iteration variables as the
+  blocks before them left them (solved again when needed), and a
+  computed input at the instant it is read.
+- A model that does not give the tables its books, conditions, time
+  events or impulse projection read does not start; books computed
+  without error control are flagged.
+- The breakpoints of a table whose position moves are recomputed after
+  a discrete change (no stale stops).
+- A `when` on a variable solved from an implicit equation (`x > 0.5` with
+  `x³ + x = z`) fires once per crossing: where solving the iteration
+  variables again at the event put the condition back a little short of
+  zero, the restarted integrator saw it cross again and the `when` fired
+  two or three times (43 of 140 runs; OpenModelica: one at every
+  tolerance); the condition is now held on its side until it gets there.
+  A mode on one, which its relation set back at the event, stayed off
+  until the integrator's next step end (its integral 1.6e-2 short at
+  rtol 1e-5); the integrator now restarts there and meets the crossing
+  again (DESIGN.md 8.2, *Conditions on iteration variables*).
+  Complementary `when`s on one (`x > 0.5` beside `x < 0.5`, or an
+  `elsewhen`) fired at each other's crossings, event iteration reading
+  the conditions without the hold: since 24 October it reads them as
+  the integrator does, and each crossing fires its own direction's
+  clauses alone (both crossings inside one step stay a known limit).
+  A condition on one is held only where the crossing's early location
+  explains why it reads short, never where the event itself moved it
+  back (its own `when`, a sibling, a `reinit`, a value it froze, a
+  rounding wider than the solve's), read where the crossing really is;
+  and every hold has a time limit: the event that makes it works its
+  time out, and if x does not get across by itself in eight times what
+  its shortfall needs (at the speed x has after the event where the
+  condition is on the crossing's line, however it is written, else at
+  the speed it had), it is read as it is, and its opposite `when` fires
+  there; a later event works the time out again and can only shorten it
+  (step 3, 12 November). A hold that is wrong can so hide at most its
+  width of x, for no longer than x needs to cross that width at its
+  speed at the event that made it: within the solver's timing precision
+  where no event changes x's speed, K times that where the crossing's
+  own event slows x K times (round 4, the hold rule: DESIGN.md 8.2,
+  *Conditions on iteration variables*). On diffsol and the stateless
+  backend the opposite `when` of a crossing's own move now fires (it
+  never did). The holds suite (`engine/judge/holds.py`, 364 770 counted
+  runs of every shape the reviews and re-checks found, against
+  hand-worked counts and times), at step 3's engine: 352 626 right,
+  2 026 bounded (an extra or a lost pair of firings within the solver's
+  timing precision), 284 within the time limit where an event slows x, 1
+  within the known limit below, 7 801 within the other named limits,
+  2 032 wrong. Of those, 1 429 (1 345 solver stops, and 84 runs where
+  diffsol's own x drifts below the line it should stay above) are wrong
+  at 4d24528 too, and 603 are re-check 5's shapes (mostly diffsol never
+  reporting a crossing after a restart, at every build, no holds
+  included); one run right at 4d24528 is wrong (the chatter of the known
+  limit below). Step 3 (12 November) closed the first of the two holes
+  recorded on 30 October (a hold from a crossing that an event then
+  stopped just short of its line was timed again at a later event from
+  x's creep, and its back and the next forth were lost for good: 534
+  suite runs, now 0) and the second where a time crossing beside the
+  crossing changes nothing x reads (tev: 2 runs in the limit and a
+  chatter, now right). Known limits: (1) on diffsol only, a crossing it
+  reports at a `when time >= t2` that itself slows x gets the short
+  limit, and the slowed re-crossing is never reported (1 run in the
+  limit, 1 chattering; the rule cannot tell that slow from a stop, where
+  reading the crossing as its own made 135 suite runs wrong); (2) a
+  user's threshold set exactly at a value the model holds (a `when` on
+  battery power at 80 kW beside the Accumulator's 80 kW Output Power
+  Limit) stops the run with an event storm at rtol 1e-6 on every build,
+  no holds included (at 0.706 s here, and at 0.210 s at 1e-8); at 1e-4
+  it does not stop but counts 125 to 135 firings, by build (125 at 88b5e2f, 135 at 4d24528); since step 3 the model's preparation warns
+  of it (`WHEN-AT-LIMIT`, naming the `when`'s part, the part holding the
+  value and the limit). Neither reached a user then (20 October; since 17 November the new
+  engine is the app's and a text component is a project file edit away):
+  users ran today's Python engine, the new one was opt-in and not in the
+  installer, no library component has a `when` on a solved value, the golden cars make
+  no hold, diffsol is not selectable, and an equation-text part (step
+  2's text components, merged 10 November 2026) runs only on the new
+  engine, from a project file edit. Also known: a mode and a `when` on
+  one relation can read two values at one event (mode read), the event
+  storm beside a mode, and diffsol losing a crossing right after a
+  restart.
+
+## The vendored IDAS against SUNDIALS 7.9.0 (20 October 2026)
+
+The engine's IDAS is 7.1.1 with `sundials/lsim.patch` (an order decrease is
+decided on the states' and the books' errors together, DESIGN.md 8.1). It
+was checked against the 7.9.0 release; the vendored copy stays at 7.1.1
+(moving it moves every result, and is a separate decision).
+
+- The bug is still there: `IDAQuadTestError` is the same text in 7.1.1 and
+  7.9.0, its guard (`knew != kk`) included, and the changelog from 7.2.0 to
+  7.9.0 does not mention it. The patch applies to the 7.9.0 release as it
+  is (160 lines further down).
+- A short C program (IDAS, `y' = 1`, the quadrature `z' = y²` under error
+  control) takes 1 422 steps at rtol 1e-4 and 361 976 at 1e-10 on both
+  releases, never above order 2, with z off by 1.0e-3 and 1.1e-6; with the
+  patch it takes 42 or 43 steps at every tolerance and z is off by 9e-15 at
+  most. The program and a draft issue for LLNL are with the owner; nothing
+  is filed.
+- SUNDIALS' own `idasSlCrank_dns` and `idasAkzoNob_dns`, built from each
+  release: as released they reproduce the shipped outputs to the last
+  digit, but for 7.1.1's slider-crank G in its 12th digit (the build prints
+  3.3366160662909388, the value 7.9.0's `.out` has, against the shipped
+  3.3366160662934146). With the patch, on either release (the judge's
+  `sundials` builds it on both: every count of every row the same), they take other
+  steps (312 instead of 251, 473 instead of 500); every printed solution
+  digit of Akzo Nobel is the shipped one, 70 of the slider-crank's 78 are
+  (the rest one unit of the last digit away), and G is closer to its
+  independent value in both. A patch for the zero case alone (the decrease
+  is revisited only where the states' errors are all exactly zero) leaves
+  both outputs byte for byte and mends the program above, but not the
+  engine's cases whose states' errors are round-off rather than zero (8.1,
+  measured earlier), nor the same program with `y = t²`, whose states'
+  errors are round-off: as released and with that patch it never goes
+  above order 4 and takes 1 140 steps at rtol 1e-10, with the patch 93.
+- From 7.1.1 to 7.9.0 the order and error-test code of IDAS and CVODES is
+  unchanged, and the two releases agree on the steps and solutions of the
+  eight of SUNDIALS' examples we ran. Three changes can still move a
+  number: the quadrature's first derivative is set after `IDACalcIC` (7.8.0),
+  `TOO_CLOSE` is returned at more first calls (7.6.0), and the linear
+  solver's counters are reset at a restart (7.6.0; statistics only).
+
+## The library Driver's anti-windup (20 October 2026)
+
+The solver work's item D (the merge review's finding 37), judged from
+outside (`engine/judge`: `msl-pid-controller` and `driver.py`).
+
+- **The cause.** The Driver froze its integral while its command was held
+  at a limit it pushed against (conditional integration, as today's
+  engine does), written as a mode. A car held at full throttle that fell
+  behind and caught up met the mode's boundary with both sides driving it
+  back: frozen, the command falls below its limit; integrating, the
+  integral pushes it above. It slid along the boundary (Filippov sliding),
+  and the run loop, which switches a mode only at an event, stopped it as
+  an event storm (DESIGN.md 8.2): the Battery Electric Car at 6000 kg on
+  the WLTC at 961.83 s, at 19 270 kg on its city cycle at 2.64 s.
+- **The fix.** The anti-windup is Modelica `LimPID`'s back-calculation,
+  which has no mode: der(I) = err + (cmd − cmd_u)/(ki·Tt), Tt = Ni·Ti,
+  Ti = kp/ki, Ni = 0.9 (`blocks/vehicle.rs`). Inside the limits it is the
+  old equation. `lsim-project/tests/driver.rs`: a point car held at full
+  throttle follows back-calculation's closed form (speed and integral to
+  5e-9 and 8e-8 at rtol 1e-8; it stopped as a storm at 92 s before); the
+  review's two cars run to their ends, inside the speed-trace rule's band
+  wherever no pedal is fully down (both stopped as storms before).
+- **MSL's `PID_Controller`** with the Driver as its `LimPID`, against the
+  library's reference result (six signals, each relative to its largest
+  value): with the frozen integral 1.6 off at every tolerance, the limit
+  left 6.5e-2 s late; now 5.1e-3 at rtol 1e-4, 8.9e-5 at 1e-6 and 1.2e-4
+  at 1e-7 … 1e-10, where OpenModelica's run of the original example is
+  too: the reference's own accuracy (Dymola at tolerance 1e-6; its limit's
+  instants are 1.2e-6 s off both). Beside OpenModelica's run at the same
+  tolerance the engine's differs by 4.0e-3 at 1e-5, 1.3e-5 at 1e-8 and
+  1.6e-7 at 1e-10 (the spring's relative speed, the most sensitive signal;
+  the controller's integral by 5.3e-9), the limit's instants by 2.9e-10 s.
+- **The map** (`driver.py`): the Battery Electric Car at 1 to 25 t on the
+  27 bundled cycles and its own city cycle (19 270 kg too), 701 runs, each
+  driven trace judged by 40 CFR 1066.425(b) with its allowances. Before:
+  191 inside, 1 outside only where the car was too fast with its brakes
+  fully applied, 504 stopped as event storms of the frozen integral (the
+  first at 4 t, on the LA92 and the US06), 5 with a bare SUNDIALS flag
+  (long-haul at 1 to 5 t). After: 588 inside; 75 outside only at full
+  brake, the car unable to brake as the schedule asks (on 11 of the 28
+  columns, from 10 t on the LA92, 15 t on the US06, 18 to 23 t on the
+  other nine); 37 inside only by the rule's allowance for a car at its
+  maximum available power, standing at its empty battery on the two
+  long-haul cycles; 1 stopped with an event storm the run loop names (the
+  battery's minimum-SOC mode, 93 switches in 2.1 s as the car, coasting at
+  its empty battery, began to recuperate: long-haul at 11 t). None is
+  outside where the Driver could have helped, and none ends on a bare
+  flag. The 192 runs that ran before and after: 22 437 127 → 22 484 196
+  steps, 2 842 885 → 2 867 306 error-test failures, 20 927 → 20 033
+  events, 285 → 281 s of CPU.
+- **Found on the way and fixed**: the E-Motor at an empty battery. Its
+  supply's share was still solved while the inverter was off, and with
+  no room for the spin losses the share whose power fits is a generator
+  torque that grows as the rotor slows; below about 4 rad/s there is
+  none, and IDA stopped with a bare flag -4 (corrector convergence). With
+  the Driver's fix alone, 37 runs stopped so (long-haul at 24 of its 25
+  masses, long-haul-100km from 13 t) and one with the run loop's "no
+  progress" naming the share (long-haul at 11 t). The share is not solved
+  while the inverter is off now (DESIGN.md 12.2,
+  `lsim-project/tests/motor.rs`), and those 38 runs are the 37 and the 1
+  above.
+- **Today's engine beside the new one** on the heavy cars (6, 12 and 25 t
+  on the 26 bundled cycles but long-haul, and 6, 12, 19.27 and 25 t on the
+  city cycle; 82 runs, today at 10 ms): the same verdict in 78; in 4 (the
+  FTP-75, its motorcycle version, the UDDS and the US06 at 25 t) today's
+  engine has occasions the rule counts against its Driver where the new
+  engine's are all at full brake: on the same occasions its Driver lets
+  the brake up (to 0.94 … 0.99) for the last 0.1 to 0.3 s, the car still
+  0.2 to 0.7 km/h too fast. A frozen integral lets the command off its
+  limit while the error is still large; back-calculation pulls the
+  integral toward cmd_u = −1 + Ni·kp·err, beyond the limit until the
+  error is nearly gone. The consumptions differ by up to 1.4 % at 6 t,
+  1.6 % at 12 t (both the NYCC) and 2.0 % at 25 t. Some of that is
+  today's 10 ms step (at 1 ms today's engine moves by 0.03 to 0.8 %, most
+  on the NYCC); the rest is the anti-windup. Today's engine at 1 ms with
+  back-calculation in place of its frozen integral (`driver.py today
+  --back-calculation`: a check in one process, today's engine itself not
+  changed) agrees with the new engine in the five cases checked (the NYCC
+  at 6 and 12 t; the WLTC's medium phase, its city part and the US06 at
+  25 t) to 0.05 % in the energy its battery delivers, 0.13 % in
+  consumption and 0.03 % in distance, the recuperated energy to 0.54 %;
+  at 25 t its speed to 0.11 km/h and its pedal to 0.018, where the frozen
+  integral's pedal is up to 0.76 away; and its US06 at 25 t is then
+  outside only at full brake too. On the review's WLTC car at 6 t the new
+  engine's consumption is 0.02 % from today's at 1 ms.
+- **The golden comparison** (14 cases): one moved, the hybrid's UDDS, by
+  at most 1.6e-5 of a band (12 figures, 73 channels, none across its
+  band; steps 3 022 879 → 3 022 291, events 118 074 → 118 072). No
+  golden car is held at its Driver's limit (a build with the mode taken
+  out and nothing in its place reproduces every case to the last digit);
+  the integral's equation now reads the command before and after its
+  limits, which is the same to the bit inside them, but the Newton
+  matrix is not (the integral reads itself through the command), and in
+  the hybrid's 118 000 events the rounding of its solves moves a clutch
+  event 2.7e-10 s at 163.05 s. Every other case is the same to the last
+  digit, the books closed to 6.6e-10; the E-Motor's fix moves none. Not
+  slower: the whole comparison took 101.0 and 102.7 s of CPU against
+  103.0 and 102.7 s for cb76842's build, the two alternating
+  (`lsim-project/golden/README.md`).
+- **Left**: the battery's minimum-SOC storm above (the battery's, not the
+  Driver's); the 75 runs at full brake are the car's (its brakes sized
+  for 1.9 t), not the Driver's. The library's PID block (`control.pid`)
+  keeps today's conditional integration as a mode (the app documents
+  that its sum stops growing at a limit), so a loop that slides along
+  its limit stops there as a named storm (fixed on 17 November: the PID is now
+  today's discrete controller, see "The switch-over"). Only the Battery Electric Car
+  was mapped. The rule is read on a 0.1 s output grid (an occasion's
+  length known to a step; 1 s on the 83 042 s long-haul cycle). SAE
+  J2951's drive-quality metrics, which 1066.425(j) asks for, are not
+  computed: the standard is paid for.
+
+## Known issues left at the end of step 2 (9 November 2026)
+
+The owner's decision of 9 November: the problems the mismatch sweep's last
+re-check (re-check 5, at 55e293f) left open are recorded here as known
+issues, not fixed now. Step 2's acceptance was run on 9 and 10 November
+at 1debfc4 and did not pass (see the section below).
+
+- **A case handed back before its first point turns success into a
+  warning.** The note of a fall-back before any point (and quick mode's
+  for a case run in full) is a warning, so a run today's engine finishes
+  with success shows a warning: 241 of the sweep's app-style runs.
+  55e293f left these out of the sweep's compare and its `[sweep]` measure
+  after the measured run. The 9 November entry in `acceptance.toml`'s
+  `[[changes]]` records that afterwards and names them known issue (a),
+  to be reported with their count. `sweep.compare` itself counts them as
+  hand-backs; the count of (a) (241) comes from the acceptance's recount
+  of the raw records, a script outside the repository. A likely fix: those notes at level info, with their codes, as
+  `NEW-LIVE-RESTART`'s and the refusal before a run already are.
+  (`docs/KNOWN-LIMITS.md` says so.)
+- **A restart after `NEW-ERROR` counts as a hand-back.** `sweep.compare`
+  counts a run restarted on today's engine after a path fault as a
+  `NEW-LIVE-RESTART` hand-back, where a fall-back or a strict run with the
+  same `NEW-ERROR` is a mismatch.
+- **Two of the sweep's round-5 changes have no test:** `frontend/src/api.ts`
+  passing the `restart` event to `onRestart` (without it the chart adds
+  today's points from t = 0 after the new engine's), and `run_fault`
+  giving the `live` setting a view on a case that is not live.
+- **`overspeed:hybrid-car/case-hwfet:down` still differs:** the new engine
+  adds the battery's "charging exceeds max charge power" warning (2 runs,
+  1 fault), the 9 November entry in `acceptance.toml`'s `[[changes]]` excuses them
+  as known issue (b), to be reported with its count, so the sweep line passes.
+  `sweep.compare` itself reports them as its 2 mismatched runs; the same
+  recount names them (b). (`docs/KNOWN-LIMITS.md` says so.)
+- **Two Reference FMUs fail the FMU line's test, on Linux and on
+  Windows.** With Reference FMUs 0.0.41 and fmusim 0.7.0,
+  `test_new_engine_fmu.py`'s line test has 14 FMUs. On Linux (since 12
+  November, fix round 3) 11 pass, 2 fail and 1 is skipped. Pass:
+  2.0/BouncingBall, 2.0/Dahlquist, 2.0/Feedthrough, 2.0/Resource,
+  2.0/VanDerPol, 3.0/BouncingBall, 3.0/Dahlquist, 3.0/Feedthrough,
+  3.0/Resource, 3.0/Roberts and 3.0/VanDerPol. Fail: 2.0/Stair and
+  3.0/Stair, where the new path stops the run with `RUN-BLOCK` when the
+  FMU asks to stop the simulation at t = 8.8 s (2.0: `fmi2DoStep`
+  returns discard). Skipped: 3.0/StateSpace, whose outputs are arrays, so
+  it has no output LightSim can pin and nothing is compared. The 2
+  failures are marked as expected failures (strict), see the step 2 close
+  below. Windows CI run 43116535929 (989204b, the line's first run there)
+  gave 10 pass and 3 fail, 3.0/BouncingBall the third: that was a defect
+  of the test, not of the engine. The test asked fmusim for every output
+  by name, `h_ft` too, which the FMU declares as an FMI 3 alias of `h`,
+  and fmusim 0.7.0 refuses an alias by name (on Linux: "The requested
+  output variable "h_ft" does not exist"; CI does not print fmusim's
+  error text). The test now asks fmusim once per value and reads `h_ft`
+  from `h`'s column (`fmusim_columns`, with a test), and 3.0/BouncingBall
+  passes on Linux to the last digit against FMPy and fmusim. Windows CI
+  has not run since that fix.
+- **Docs:** `docs/spec/api.md` has no `restart` event (no fields: drop the
+  points shown, the run starts again at t = 0), and
+  the `sweep.md` that the sweep writes in its output folder
+  (`sweep.summarise`) calls the app-style runs strict ("8052 strict runs
+  compared", 2 684 of them app-style); there is no such file in the
+  repository.
+- **Fixed but not re-checked:** the judge's fix round 5 (2ef9b76, 95b945d,
+  baseline-6 at e0b81e5) and the live runs' fix round 2 (0d74737) fixed the
+  defects their last re-checks found, each with tests that fail without the
+  fix, but no independent re-check ran after them.
+
+## Step 2 closed without acceptance (10 November 2026)
+
+Step 2's acceptance ran on 9 and 10 November 2026 on `work/step2` at
+1debfc4, and an independent audit of it agrees on all 15 line states.
+**Step 2 was not accepted:** of the 15 lines in its acceptance file, 6 pass,
+7 fail and 2 could not be measured. The owner decided on 10 November to
+close step 2 with the failed and unmeasured lines recorded as known issues,
+to be taken up in later steps. `acceptance.toml` is unchanged: the marks of
+the lines stay as written. The acceptance report is kept in the project's
+private workspace.
+
+The installed engine module was found out of date (installed before the
+motor fix of 7 November, 955a90c). It was rebuilt from 1debfc4 for the
+measurement; every raw record names the build it ran on.
+
+Passed: SCHEMA, META, ANALYTIC, TEXT, SCRIPTS and SWEEP (SWEEP under the 9
+November change: 2 684 faults, 241 runs of known issue (a), 2 of known issue
+(b), 0 other mismatches).
+
+Failed or not measured, with the numbers:
+
+- **B2B fails.** 25 of 26 items are as expected; `probe/bev-performance`, a
+  0 to 100 km/h performance case, is refused with `NEW-CASE-KIND` where it
+  should run. 1 917 differences against today's engine: class a 0, class b
+  147, class c 680, unclassified 1 090. Every item's ledger balances. The
+  unclassified differences are the hybrid's channel minima, maxima, values
+  and means; every battery-electric item's part energies in and out; and
+  the hybrid's peak powers and its energy in reverse.
+- **STRICT fails.** 114 refusals, all with listed codes (`NEW-LIMITS` 53,
+  `NEW-FAILED` 36, `NEW-BUILD` 16, `NEW-BALANCE` 3, `NEW-LAP` 2,
+  `NEW-CASE-KIND`, `NEW-CELLS`, `NEW-FS-EVENT` and `NEW-MISSING` 1 each),
+  0 `NEW-ERROR`; 1 item refused that should run, the same performance
+  case.
+- **FAULTS fails.** 288 faults measured: 1 violation,
+  `bev-car:el-driver.driver_kp:zero`, where today's engine warns and the
+  new path says success; 0 hidden, 0 flips. Mutation testing of the
+  verdict (mutmut 3.8.1): 1 391 mutants, 965 killed, 412 survived with no
+  written reason (`survivors.toml` is empty), 14 with no tests. A class does
+  not excuse a FAULTS violation: it needs a fix or the owner's dated
+  decision on the pass mark.
+- **ENERGY fails.** E1 passes (17 of 17) and E2 passes (5.4313902456001095
+  kW against 5.431390245600108 exact), but E3 is vacuous: its 8 items meet
+  no limit on either side, and a vacuous E3 is not a pass (29 October). It
+  needs a registered case that meets a limit, with a pass mark for the
+  forward car falling behind the cycle.
+- **QUICK fails.** 16 cases: 9 run, 7 are refused with listed codes
+  (`QUICK-KIND` 3, `QUICK-BALANCE` 3, `QUICK-SAMPLED` 1), 0 flagged. 11 rows
+  are outside the 1 % band, on 6 of the 9 cases that run (aero-bev UDDS and
+  WLTC, bev-car WLTC, hvac, winter and summer): energy recuperated up to
+  -1.750 % (bev-car WLTC winter) and internal losses up to -1.395 %
+  (bev-car WLTC).
+- **NOSKIP fails** (its part c). a: 170 tests, 0 skipped besides the 2
+  Windows-only ones, 0 failed. b: with the module hidden, 7 fail and none
+  is skipped. c: `ci.yml`'s `engine-windows` job builds the wheel and runs
+  the tests with `LIGHTSIM_REQUIRE_NEW_ENGINE=1`, but on run 42709765031
+  that step was skipped, so the tests did not run on Windows CI at 1debfc4.
+  The line's wording is ambiguous: read as the CI configuration, c is
+  yes; read as the tests running on Windows CI, c is no and the line fails.
+  The acceptance kept the second reading.
+- **STATUS fails.** The harness counts 7 of 11 present (the energy report,
+  part energies, duty, limits, references, live streaming and text
+  components). Missing: the verdict (FAULTS), study stop and progress
+  (STREAM S2), FMU parts (not measured) and quick mode (QUICK fails). The
+  audit notes that a more literal count of what runs on the new path gives
+  more than 7, and that the line fails under both counts.
+- **STREAM: S2 not measured.** S1 passes (601 of 601 points equal on both
+  live items, both engines) and S3 passes (5 replays with the same
+  SHA-256, a live edit included; engine, version and solver options
+  recorded). S2 is on Windows CI, and the Windows CI run 42709765031 never
+  reached `test_stop_latency.py`. Local indication only, on a shared,
+  heavily loaded machine: the new engine's live p95 0.283 s (over the 0.25
+  s mark) and study p95 0.752 s; today's engine 0.246 s and 0.790 s. At
+  the merge of 10 November (also local and loaded): the new engine's live
+  p95 0.233 s, but its study p95 rose to 0.975 s, 2.5 % under the 1.0 s
+  mark. **Measured on Windows CI for the first time** (run 43116535929,
+  989204b, 11 November): the live stop fails, p95 0.296 s against the 0.25
+  s mark (20 stops, all shown; median 0.176 s, maximum 0.308 s, 3 stops
+  over 0.25 s); the study stop passes. S2 is a known issue (the owner's
+  decision of 10 November).
+  **The study stop at its mark (Windows CI, 12 to 16 November):** p95
+  1.024 s (a02d591; it passed on a rerun) and 1.226 s (d19c5e7: 18 of 20
+  stops shown, median 0.468 s, 6 of the 18 over 0.9 s). Measured on Linux
+  on 16 November, on a shared machine (an indication; Windows CI is the
+  judge): the phases of a point before the engine runs (today's model, the
+  engine's build, the second model build of the live edits) take 0.02 s of
+  a 1.7 s point (0.1 s in a worker's first), and in 20 stopped studies none
+  of the 78 points that were running was in one when the stop came; a
+  running point read the stop within 0.02 s and gave its result back within
+  0.02 to 0.35 s. What the study waited for was its own loop: after a stop
+  the wait set held the stop's finished future, so the loop spun, 5 000 to
+  20 000 passes a second until the last point was back, and starved the
+  pool's threads that hand the results on and feed the points it had
+  already queued (up to the workers plus one, which cannot be cancelled and
+  end at once), which then came back 0.2 to 0.5 s apart. Fixed in
+  `studies.run_study` (the stop's future leaves the wait once it is set; the
+  test counts the loop's passes, it does not time them). Same tree, same
+  load, 20 stops of the new engine: p95 0.71 and 0.98 s before, 0.43 and
+  0.43 s after (median 0.40 and 0.31 s before, 0.19 and 0.15 s after);
+  today's engine, 10 stops: 0.74 s before, 0.43 s after. The phases before
+  the engine run were not changed. The CI step now prints a stop test's
+  result line when it passes and its reason when it is an expected failure
+  (`-rsxP`). **On Windows CI after the fix** (run 43947526693, 58f952a):
+  the study stop passes with p95 0.913 s (20 of 20 stops shown, median
+  0.359 s, maximum 1.060 s, 3 stops over 0.9 s; the unstopped study 21.95
+  s). That is one run, and the run before the fix (dd35ac4) passed too, so
+  it does not show that the fix helped on Windows: the wait there still
+  sits near its mark.
+- **FMU: not measured** at 1debfc4. Not run locally (`LIGHTSIM_REFERENCE_FMUS` and
+  `LIGHTSIM_FMUSIM` not set, and the line's FMUs are x86_64-windows), and
+  on Windows CI `test_new_engine_fmu.py` never ran. At the merge of 10
+  November it ran on Linux with the Linux build of the same FMUs, and on
+  Windows CI run 43116535929 (989204b) for the first time: on both, 10
+  pass, 3 fail (2.0/Stair, 3.0/Stair, 3.0/BouncingBall) and 3.0/StateSpace
+  is skipped (see the known issues above). 3.0/BouncingBall's failure was
+  a defect of the test, fixed on 12 November (fix round 3): on Linux the
+  line is now 11 pass, 2 fail (the two Stair FMUs), 1 skipped. The line
+  fails; a known issue (the owner's decision of 10 November).
+
+**Expected failures in CI** (since 12 November). So that CI shows new
+failures again without hiding these, the 3 tests that fail on Windows CI
+run 43116535929 for the known issues above report XFAIL (an expected
+failure) naming the known issue, each only for its own failure; any other
+failure of the same test still fails (since 12 November, fix round 2: at
+first each matched only the error's type, so another assertion in a
+Stair case, or a live stop where nothing was measured, would have been
+hidden as an expected failure). A fourth, 3.0/BouncingBall, is no longer
+one: its failure was the test's own, and is fixed (fix round 3).
+
+- `test_new_engine_fmu.py`, the FMU line's 2.0/Stair and 3.0/Stair:
+  marked **strict**. Each fails the same way on every run, on Linux and
+  on Windows CI (the same `RUN-BLOCK` text, word for word, in run
+  43116535929's log); a fix makes the test pass, and strict turns that
+  pass into a CI failure until the mark is removed, so a fix shows. A
+  failure counts as expected only when its message holds the run's whole
+  `RUN-BLOCK` refusal (`KNOWN_FMU_FAILURES`).
+- `test_stop_latency.py::test_a_live_run_stops_within_its_mark` (S2's
+  live stop): **not strict**, and no mark: the test calls `pytest.xfail`
+  itself. It is a timing near its mark (0.296 s on Windows CI, 0.233 s
+  locally), so some runs pass; a pass must not turn CI red. Only a
+  measured run over its mark by no more than the known issue's size
+  (state `fail`, p95 at most 0.4 s, `KNOWN_LIVE_P95_S`) reports XFAIL,
+  with its p95; a larger p95 is a new slowdown and fails (since 12
+  November, fix round 3: before, any p95 over 0.25 s gave XFAIL, 5 s
+  too), and so does a run where nothing was measured (`not measured`).
+- `test_stop_latency.py::test_a_study_stops_within_its_mark` (S2's study
+  stop): the same rule since 17 November, with the ceiling 1.5 s
+  (`KNOWN_STUDY_P95_S`). Four Windows CI runs of 17 November gave p95 0.729,
+  0.754, 0.988 and 1.088 s (the last one failed) while the unstopped study
+  took 11.7, 15.3, 22.3 and 22.3 s and the module's own tests 224, 244, 340
+  and 364 s: the wait follows the speed of the runner, not the change under
+  test (the last run's change was to the Engine block; the battery electric
+  car has none, and one run of its WLTC took 1.52 s before and after on one
+  machine). The mark stays 1.0 s; what the stopped study waits for is not
+  changed (point 1 of step 3's list below).
+
+The same run's two licence failures are fixed (12 November): FMPy 0.3.32
+declares no licence in its metadata, so `scripts/licenses/clarifications.json`
+now records it from its licence file (BSD-2-Clause, and BSD-3-Clause for the
+FMI schema files frozen with it); and on Windows `test_licence_policy.py`
+checked its Linux NumPy example against NumPy's Windows entry (the Windows
+wheel's licence file does name the GCC runtime library; the test now checks
+the example as Linux).
+
+Why the Windows CI run failed (run 42709765031, `workflow_dispatch`, at
+1debfc4; the branch's first run, before run 43116535929 above): "Engine (Rust) on Windows"
+stopped at "Python module (tests)" in
+`test_api.py::test_table_sites_lists_every_table_read_of_the_blocks`, which
+still expects an entry for the E-Motor's power loss that 955a90c removed
+when motor.rs began reading its maps at the speed held to the maximum. The
+steps after it, among them the stop-latency, FMU and live tests of the new
+engine in the app, were skipped. Three other jobs failed too: the Linux
+backend and the Windows backend (`test_ai_skills.py`, whose generated
+references are out of date; on Windows also `test_licence_policy.py`), and
+the third-party licences check (`libzstd.so.1` belongs to no known project
+and FMPy 0.3.32 declares no licence).
+
+To be taken up in later steps: update that test and regenerate the skill pack (both done at
+the merge of 10 November: the test now expects the loss map read at the
+held speed, and test_ai_skills passes);
+review the licence entries; then run `ci.yml` again on the fixed commit
+and read the stop-latency and FMU results there. Class with evidence, or
+fix, the 1 090 unclassified differences, and make `probe/bev-performance`
+run. Fix the Driver with no P gain, or have the owner decide the pass mark
+with a dated reason. Write a reason for each of the 412 surviving mutants or
+add tests that kill them. Register a case that meets a limit for ENERGY's
+E3. Fix fast mode's recuperation and losses, or have the owner decide the
+band with a dated reason.
+
+## Step 3, hard problems, phase 1 (12 and 13 November 2026)
+
+`benchmarks/hard` (its manifest pre-registered before any run, 6be3f87;
+later changes dated in it), one command: `hard.py all CACHE WORK`. The IVP
+Test Set 2.4's 23 problems transcribed by script from their Fortran
+(`fortran.py` runs each `feval` on symbols) and checked against the
+gfortran-built originals at eight points to 1e-13 of each row's largest
+term: all 23 match (the wheelset after a transcriber fix: an arm setting a
+positive IERR is the model's, not a step rejection). Step 1's three hand
+transcriptions match. SUNDIALS 7.1.1's six serial dense examples print
+their `.out` files' numbers and counts line for line built against
+upstream (cvPendulum's header prints its tolerances in another format) and
+against the engine's own copy (lsim-sundials-sys's static library
+`sundials_c`), except idasAkzoNob's steps and counts there, which the
+engine's IDAS patch changes by design (it decides the order on the states
+and the error-controlled quadrature together); its printed states are the
+same. The same six examples transcribed from their C code (`csun.py`, each
+checked against its C functions to the bit) and run on the engine at their
+own tolerances: on IDA (every block implicit) all but cvRoberts print what
+their `.out` prints within 100 rtol plus atol; cvRoberts misses at
+t = 4e10 on every backend, where the `.out`'s own y1 (6.9e-8) is 33 % off
+the exact value (2083/t = 5.2e-8) and the engine's is nearer, and at
+t = 4e9 on the default path, where the `.out`'s y2 (2.1034e-12) is 1.0 %
+above the exact value (2.0833e-12: the default path at rtol 1e-10 and
+1e-11 agree to 7 digits) and the engine's (2.0702e-12) 0.6 % below: the two
+errors together exceed the allowance. On the
+default path idaRoberts' root comes 1 % late (y3 solved from the states
+carries their error), idaSlCrank misses once by 1.4e-5 where y1 crosses
+zero, and cvPendulum ends 95 m off its 1 m circle at 1e-5, with no
+warning: its rod's length is kept only through its second derivative.
+The engine's default run there (rtol = atol = 1e-5) starts on Adams with
+fixed-point iteration and no linear solver, changes to BDF at t = 27.1 s
+after repeated convergence failures, takes 1 645 steps and ends 95.7 m
+from the pivot; held to Adams it takes 12 897 steps and ends 95.7 m off
+too; held to BDF it takes 1 549 steps and stays on the circle (radius
+0.9997). Upstream CVODE with Adams, fixed-point iteration and no linear
+solver (how the engine runs its Adams method) ends 95 m off as well, in
+12 939 steps: that run belongs beside the engine held to Adams (12 897
+steps), not beside the default run, which changes method on the way.
+Upstream's BDF leaves the circle too at some tolerances (55 m at rtol
+1e-5 with atol 1e-7), so whether a run keeps it is the luck of the
+method. RADAU5, DASSL and
+PSIDE ran beside the engine's IDA (every block implicit), its default path
+and diffsol at rtol = atol 1e-4 to 1e-10. What users of such models meet is
+in `docs/KNOWN-LIMITS.md` (*The new engine on published hard problems*).
+
+Engine changes from it (13 November): the run loop counts its steps
+against `max_steps` (SUNDIALS counts its limit per call, and the run calls
+it a step at a time, so the limit never ended a run: beam with every block
+implicit at 1e-10 ran for hours, and now stops after 10 000 000 steps); a
+state the equations keep at or above zero (an interval proof over the
+assignments, made only when a step ends with one clearly below zero, and a
+step an event cut back (a hold expiring, a pulse inside it, a state switch, a
+clock tick that changes an output) is judged at the cut, not at the end the
+integrator had reached) that a run takes below it is named in a run warning
+(Robertson's blow-up at a loose absolute tolerance, which upstream CVODE
+shares, was silent). Fix
+round 2: a variable the model sets to a constant plus a weighted sum of
+the states (Robertson's third species as 1 - y1 - y2, SUNDIALS'
+idaRoberts form, whose blow-up stayed silent) joins the proof as not
+negative while every step ends with it at or above zero (up to the
+rounding of its sum, not the tolerance: a first try with the tolerance
+told the ring modulator's y2 falsely, its rate being such a sum over
+1.6e-8), and leaves it for the rest of the run once one does not; the
+warning says the
+result may be wrong from that step, not that it is. Integration is
+unchanged (`tests/solver_guards.rs`).
+
+## Step 3: fuzzing the engine's inputs (16 November 2026)
+
+The plan is `benchmarks/fuzz/PLAN.md`, committed before the first run (a7c91b8); the targets are in `engine/fuzz`. Four targets feed the engine with machine-made inputs: `text` (the text format), `basemodelica` (the Base Modelica importer, which exists although the brief said it did not), `project` (edited example projects) and `params` (extreme parameter values). The one rule: every input ends in a result or a coded refusal within 30 s and 1.5 GB, never a panic, an abort, a hang, or a NaN or infinity reported as a result. Every run inside the harness is under a 10 s time limit and a 256 MB memory limit.
+
+**Time spent, by the plan's rule.** At least 4 h of wall time per target; if the coverage count still grew in the last hour, 2 h more, up to 12 h. Rounds M1 to M4 took 9.05 h per target. In M4's last hour `text`, `basemodelica` and `project` still grew (+71, +1 261 and +90 edges) and `params` did not (+0), so the plan called for more, and the first report stopped there against its own rule. M5 (2 h) and M6 (1 h, up to the cap) followed on the final code. Result: `text` 12.07 h, `basemodelica` 12.06 h, `project` 12.03 h, `params` 9.05 h (replayed once on the final build, clean). At the cap coverage still grew a little in the last hour (+59, +56 and +7 edges): these hours did not exhaust the targets.
+
+| target | executions | coverage (edges) | corpus (after merging) |
+|---|---|---|---|
+| `text` | 10 555 376 | 49 255 | 3 435 |
+| `basemodelica` | 146 553 300 | 40 174 | 4 661 |
+| `project` | 187 730 | 57 391 | 2 533 |
+| `params` | 99 615 | 50 943 | 1 195 |
+
+**What it found, all fixed at the root with a test that fails without the fix:**
+
+1. A Base Modelica function with no output panicked: now the coded refusal `FUNCTION`.
+2. Units whose exponents leave -128 to 127 panicked in the unit parser, the equation checks (`dims.rs`, `units_check.rs`), the derivative's unit (`system.rs`) and the Base Modelica importer's unit inference. The independent check found the last one after the first fix. `Dim`'s `*` and `/` no longer exist: only `checked_mul`, `checked_div` and `checked_pow` remain for a model's units, which return nothing on overflow (`Dim::pow`, which panics, stays for the dimensions the code names: no model input reaches it), and a name whose inferred unit would overflow keeps none.
+3. A variable that is NaN or infinite was reported as a result: now `RUN-NOT-FINITE`, at the first output point it shows (and for a minimum, maximum or mean at the run's end).
+4. A model that holds a part of its own kind overflowed the stack: now `COMPONENT-CYCLE`, naming the cycle. The test uses the input the fuzzer found.
+
+The time and memory limits (`RUN-TIME-LIMIT`, `RUN-MEMORY-LIMIT`) came with it; `docs/KNOWN-LIMITS.md` says what they cover.
+
+**Failures since the last fix (98975bc), and the bound they allow.** The three extended targets had no panic, abort, out-of-memory or NaN result in M5 and M6. Every slow input or timeout the fuzzers wrote (144 files: 78 in M5, 66 in M6) ran again alone without failure: the slow ones take 20 s (two harness runs, each stopped by the 10 s limit), and the timeouts come from WSL's clock stepping back, which libFuzzer reads as an endless unit. With no failure in N executions, the failure rate per input is probably (95 %) below 3/N: `text` N = 3 329 814 (below 9.0e-7), `basemodelica` N = 30 897 730 (below 9.7e-8), `project` N = 56 351 (below 5.3e-5), `params` N = 22 469 (below 1.3e-4 counting its last fuzzing run, 21 205 executions made on 6b62cae before the fix in item 2, and the 1 264-input corpus replay after it; params does not run the Base Modelica importer that fix changed, but on the replay alone the bound is 2.4e-3). These bounds hold for what these generators reach, not for every input.
+
+**Open.** A 1 s run of the gear example with its `__LightSim_energy` line taken out (the fuzzer's input; the example itself runs to the end in 0.001 s at 2.78e18 N.m) at the fuzzer's exact torque, 2777777777777777700 N.m, takes 60 to 100 s before the integrator refuses it (`RUN-INTEGRATOR`, "made no progress"); at 2.78e18 N.m the same model had reached t = 4.6e-5 s of 1 s after 1300 s and was still running (the second check's run). The app sets no time limit. Inside the harness's 10 s budget both are a coded refusal, but for a person the first is slow and the second does not end (see `docs/KNOWN-LIMITS.md`). The fuzzing ran on Linux only; the Windows CI has not run on this branch.
+
+## Step 3 closed (16 November 2026): what stays open
+
+Step 3's four pieces are merged: the hard problems, the below-zero watch at a cut step, the fuzzing of the engine's inputs and the study stop's wait. None of the points below blocked a merge; each is a thing known and not done.
+
+1. **The study stop on Windows still sits near its mark.** After the loop fix its one Windows CI run gave p95 0.913 s against 1.0 s (the paragraph on the study stop above). On Linux the same fix halved it (an independent check, the two versions run in turn on one build: p95 0.69 to 0.95 s before, 0.33 to 0.43 s after). What a stopped study still waits for: each running point's result up to where it stopped (0.006 to 0.3 s to assemble, more the further the run got), its dump and its decoding on the server, and one round trip for each point the pool had already queued. None of these was changed. The CI log now holds the number on every run, so the next runs say whether Windows needs more.
+2. **The live stop** is still the known issue of 10 November (an expected failure on Windows CI).
+3. **The below-zero watch at a cut step.** Four planted changes to it (the recorded low, the largest value seen, a member leaving the watched set, the state handed over at a clock tick) are caught by no test, and no model was found in which they change a run's output. Its tests reach their case only through the steps CVODE takes on the machine they were written on; each test's comment names what to turn if a new CVODE moves them. With the diffsol integrator and the stateless one there is no error estimate, so the watch's floor stays at the start values.
+4. **`DESIGN.md` has no section** on the below-zero warning or on the step limit counted over a run.
+5. **A run the integrator cannot follow** can take minutes to be refused, or not end, and the app sets no time limit (the fuzzing section's last paragraph; `docs/KNOWN-LIMITS.md`).
+6. **The fuzzing ran on Linux only**, and its hours did not exhaust three of the four targets (coverage still grew a little at the 12 h cap).
+
+## The switch-over: the new engine is the app's engine (17 November 2026)
+
+The owner decided on 20 October, 7 November and 16 November 2026: the new
+engine becomes the app's engine with no fall-back to today's. Three features
+stay refused, each with its code and a message, until they are ported: lap
+cases (`NEW-LAP`), Formula Student events (`NEW-FS-EVENT`) and a battery
+built from cells (`NEW-CELLS`). A fourth, a hybrid's charge-balanced case,
+was refused (`NEW-BALANCE`) until charge balancing was ported on 17 November
+2026 (the owner's yes of that day); it runs on the new engine now, and
+`NEW-BALANCE` no longer exists. Today's code stays in the repository (the new path uses its
+model builder and its result-judging code; `LIGHTSIM_ENGINE=today` runs it
+for developers and for the both-engines comparison; a replay of a run stored
+from it runs on it) but no run of the app uses it. There is no public
+release: the lane ends with a Windows installer the owner tries. The work
+was one lane, `work/switch`, in five pieces (the sixth, an independent check,
+comes after this one).
+
+**1. The installer holds the engine** (`fba6de6`, `45494dd`, `75723a2`). The
+build compiles the Rust module `lightsim_engine` with maturin, installs it
+and freezes it into the backend (`LIGHTSIM_FREEZE_ENGINE=1` stops the freeze
+when it is missing); the notices list the module as LightSim's own file with
+163 third-party Rust crates, SUNDIALS 7.1.1, CORE-MATH and musl's fma (all
+permissive). Windows: the installer build, its silent and MSI installs, the
+click-through and the smoke test (engine `new` on every run) passed on the
+first dispatch (run 43960421157); the build went from 16 to 22 minutes and
+the installer artifact from 269.9 to 309.6 MB.
+
+**2. Performance cases run on the new path** (`d9b818f`, `2df6e3b`,
+`899ecea`). The library Driver has a performance variant: full throttle
+until the speed first reaches the target, then its PI command (the integral
+frozen while the throttle is forced; one line, an error of 1e-9 m/s, both
+forces the throttle and latches the target as reached, because a split line
+chatters into a `RUN-EVENT-STORM`). The probe's time to 100 km/h is 7.123 s
+against today's 7.126 s (1 ms step; 7.102 s at 10 ms); 14 of 15 performance
+cases agree within the band of today's own 10 ms and 1 ms runs, and the
+hybrid's 80 to 120 km/h test (12.36 s against 10.41 s) was an initial-state
+difference of the Engine, fixed on the main work branch (an engine's clutch that a
+controller commands starts open: 10.420 s). A found defect was fixed with it:
+the new path ignored a case's end Distance and Laps for every kind but
+acceleration (a city cycle to 3000 m ran 7.29 km and 600 s; now 3.0 km and
+195.009 s, today's 195.01 s). The back-to-back harness has a probe for it.
+
+**3. PID and Lookup blocks, tables in unused branches** (`ac48390`,
+`db66884`, `2450432`). The cause of `NEW-LIVE-PID` was the block: a continuous
+PID whose anti-windup was a mode that drove the state onto its own boundary,
+which the run loop can switch only at an event (an event storm at 309.4 s on
+the BEV's city case). The PID is now today's discrete controller (a sampled
+sub-block, 10 ms or its Sample Time), and a Lookup with a Sample Time over
+10 ms holds its inputs at today's instants, sampling 1 ns after each so that
+an output point holds the value before the tick, as today's. An axis set to
+Error now stops a run only where the branch that reads the table is taken
+(`RunInfo.table_when`, `Loop::read_in_use`): the E-Motor's drag table, the
+Engine's three fuel-map reads and the Climate's demand table. Both-engines
+sweeps: 105 sampled faults and 772 Error-axis faults, 0 mismatched runs;
+the 173 runs where today's succeeds and the new one stops are all parts
+connected to nothing, which today's engine leaves out. Golden comparison 0
+differences in 11,347 values throughout.
+
+**4. The default** (`b28c855` and the commits after it). With the variable
+unset every case runs on the new engine; a case it does not run, or that it
+refuses or stops, fails with *Not run* and its code, and nothing falls back.
+`LIGHTSIM_ENGINE_STRICT`, the fall-back branches, the restart of a live run
+and the AI tools' `progress_only` emit were removed. Quick mode refuses what
+it cannot run instead of running it in full. Windows CI is true and green on
+it (run 44161342487, every job; the installer build 44161347642): Linux
+backend 2389 passed, 29 skipped, 82 expected failures; Windows 2339 passed,
+80 skipped, 81 expected failures; the browser tests 196 passed and 9 marked
+as expected failures; the smoke test reports engine `new` on every run.
+Before the flip the suite, on today's engine, was 2445 passed, 1 failed (the
+known Reference-FMUs version test), 15 skipped, 2 expected failures; the
+first run after it 352 failed and 206 errors, sorted by cause into
+`backend/tests/engine_marks.py`: 179 tests of the four features and 58 of
+today's own workings run on today's engine (the reference for the port), 40
+expected values replaced after each was checked to lie inside the two engines'
+band (`scratch/lanes/switch-expected-changes.md`), 83 defects of the new path
+recorded as strict expected failures with their codes. Two root fixes with
+the flip: the lab and fuel rows ignored a case's own battery and tank values
+(a 50 % charger gave 12.92 kWh/100 km instead of 22.23), and a scaled or
+repeated bundled cycle got phase rows it should not have.
+
+**5. The documents** (this piece). Merged first: the main work branch's 10
+newer commits (the Driver's wired inputs in an acceleration test, a DC-DC
+converter feeding a battery bus, the Engine's rev limiter held in a band, the
+study-stop ceiling), no conflicted file; 11 of the expected failures they
+fixed pass now and their marks are removed (6 acceleration tests, 2 fuel cell
+tests, the hybrid's low-battery test, the rev limiter test, one limiter test);
+the reasons of six others they changed are updated, and one test, which reads today's
+integrator row, moved to the group that runs on today's engine. The pages that say
+what runs: `docs/KNOWN-LIMITS.md` (a section "Does not run in this version",
+the refusals and defects below, the bullets the PID, Sample Time, table and
+performance work removed), its copy in the AI pack, the README (how a
+developer builds the module, `LIGHTSIM_ENGINE=today`), CONTRIBUTING, the help
+pages and the in-app texts of the four features, the validation page (the new
+engine's eight gaps, mean 4.1 %, largest 7.5 %; its exact-answer tier does
+not run), the release notes, `DESIGN.md` §13's account of the app and the
+back-to-back harness's documents.
+
+**What is refused.** The three features above (lap cases, Formula Student events, a battery built from cells); `NEW-LIMITS` (a value outside
+its parameter's limits, a study's point or a case's own Ambient or Vehicle
+value, which today's engine clamped and Data Checks never see); the engine's
+own refusals and stops (`NEW-FAILED` with its codes); quick mode's
+`QUICK-*` codes. Two refusals beyond the owner's four, an acceleration test of a car whose
+Driver has Target Speed linked (`PORT-NOT-MAPPED`) and a DC-DC converter
+feeding a battery bus (`BLOCK`), were fixed on the main work branch.
+
+**What is open** (each with its evidence in the piece's notes; none blocked
+the switch):
+
+- The expected failures of `backend/tests/engine_marks.py` that remain: the Engine's fired switch and a machine at its maximum speed (a
+  `RUN-TABLE` stop now), tables stopping in the engine's own words and
+  giving no partial result, the reference suite's coast-down model
+  (`SINGULAR-LOOP`: the validation page's exact-answer tier), a battery driven
+  to its limits and an empty battery's consumers (`RUN-INIT`), notes and rows
+  today's engine wrote and the new path does not, and 26 tests whose numbers no
+  class explains (gear shifts, load transfer, coasting up a grade, a clutch
+  that never locks exactly, Traction Control, an Engine coasting in gear).
+- `NEW-LIMITS` as an input guard, or clamping as today's engine did: the
+  owner's call. So is a part connected to nothing, which today's engine leaves
+  out and the new one builds (a lone E-Motor fails `RUN-INIT`, a lone Climate
+  Control `STRUCT-OVER`).
+- The three remaining features' screens are unchanged (a Lap case kind, the
+  FS events button and points table, the endurance study, Pack model
+  *Cells*, lap calibration): hiding or greying them is the owner's choice;
+  they carry a sentence saying they do not run yet. Charge balancing, whose
+  screen (Charge balance) was one of the four, was ported on 17 November 2026
+  (the owner's yes of that day): the P2 Hybrid example's three cycle cases run
+  charge-balanced, each settling in 1 run. Quick mode refuses a case it cannot run
+  where it used to run it in full: the owner may prefer the run in full.
+- Stored results of the examples and the six Results screenshot baselines show
+  today's engine's runs; storing and regenerating them from the new engine is
+  the lead's call (the regeneration commits from the CI runner without the
+  lane's trailer line).
+- The Engine's drag table is read in a variable of its own, so with its axis on
+  Error it still stops a run where the engine is fired past the table's
+  speeds; putting the read in its branch moves the hybrid's golden values by
+  rounding (169 per case, about 1e-8): a re-baseline decision. The performance
+  Driver's 1e-9 m/s line is a difference in kind from today's exact
+  comparison. On a stiff model today's engine steps at 10/n ms; the new
+  engine's PID and Lookup sampling stay at 10 ms (not measured). A live edit
+  of a Traction Control or Script block's parameters is reported as made and
+  never read by its host (found by reading, not run). The 1 ns sampling that
+  makes an output point show the value before a tick covers the PID and the
+  held Lookup only: a Script or Traction Control block with a Sample Time on
+  the output grid shows the value after.
+- A case that ends at a Distance runs to the whole duration first and again to
+  the finish (up to twice the time; live, the second only, its progress ending
+  at the share of the duration). Nine runs of the hard harness (`ivp-emep`)
+  stop with `RUN-NOT-FINITE` since the per-point not-a-number stop of the
+  fuzz lane; the same stop could refuse an app run whose unused branch is
+  infinite at an output time. A run the engine stops after streaming points
+  says *Not run*.
+- Build and CI: the Rust build of the module (6, 5 and 3 minutes in three
+  jobs) is not cached; the committed `THIRD-PARTY-NOTICES.txt` lacks six
+  native-library entries that CI's Linux Python has (the licences job warns
+  and every desktop build rewrites the file); NumPy 2.5.5 on Python 3.12 fails
+  the notices check; maturin's bill of materials puts the build machine's
+  paths in the wheel; the engine's and the notices' licence lists differ on
+  MIT-0 and BSL-1.0; the notices file grew from 438 KB to 1.2 MB; the local
+  build scripts were not run on Windows. The study-stop test on Windows ran
+  at p95 0.78 to 1.23 s against its 1.0 s mark (a known issue with the
+  ceiling 1.5 s). `scripts/mcp/launcher.js` and `matlab/lightsim_run.m` read
+  `LIGHTSIM_ENGINE` as the path of an installed engine, a name clash that is
+  harmless (any value but `today` means the new engine).

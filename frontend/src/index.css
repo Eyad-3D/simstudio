@@ -3,7 +3,9 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --ss-accent: #2f6fb3;
+  --ss-accent: #2b67a8;
+  /* a filled button or badge under white text, in both themes */
+  --ss-accent-fill: #2b67a8;
   --ss-accent-soft: #dce9f7;
   --ss-chrome: #eceff3;
   --ss-border: #c9cfd8;
@@ -12,17 +14,56 @@
   --ss-hover: #e3eaf2;
   --ss-active: #d3deea;
   --ss-text: #24292f;
-  --ss-text-dim: #6b7280;
+  --ss-text-dim: #5b6370;
+  /* status text; each is at least 4.5:1 on chrome, panel, alt, hover and soft */
+  --ss-ok: #05704f;
+  --ss-warn: #a14a07;
+  --ss-err: #c81e1e;
+  /* a status's own tint behind its text (badges, message rows), and cyan for
+     a script's inputs; each status text is at least 4.5:1 on its tint */
+  --ss-ok-soft: #e5f5eb;
+  --ss-warn-soft: #fdf1e2;
+  --ss-err-soft: #fde8e8;
+  --ss-info: #0e7490;
+  --ss-info-soft: #e0f2f7;
+  /* a filled status badge under white text, in both themes */
+  --ss-warn-fill: #b45309;
+  --ss-err-fill: #c81e1e;
+  /* the border of a text field or select: at least 3:1 on chrome, panel, alt */
+  --ss-field-border: #7a8494;
   --ss-node-border: #8b94a3;
   --ss-node-icon: #3c4654;
   --ss-td-border: #eef0f3;
   --ss-scrollbar: #c2c8d2;
   --ss-scrollbar-hover: #9aa2af;
+  /* one colour per domain for wires, part borders and icons, layer swatches
+     and pins: each at least 3:1 on the diagram (the panel colour) */
+  --ss-kind-electrical: #c26400;
+  --ss-kind-mechanical: #7a8494;
+  --ss-kind-signal: #0e7490;
+  --ss-kind-thermal: #c2410c;
+  --ss-kind-fluid: #2563eb;
+  /* pins: an outline at least 3:1 on the diagram around a light fill */
+  --ss-pin-electrical: #d97706;
+  --ss-pin-electrical-fill: #fde68a;
+  --ss-pin-mechanical: #4b5563;
+  --ss-pin-mechanical-fill: #d1d5db;
+  --ss-pin-thermal: #b91c1c;
+  --ss-pin-thermal-fill: #fecaca;
+  /* a battery pin's + and − marks: text, at least 4.5:1 on a part */
+  --ss-pole-positive: #dc2626;
+  --ss-pole-negative: #2563eb;
+  /* the diagram's grid lines and its overview map */
+  --ss-grid-line: #eceff3;
+  --ss-minimap-bg: #f2f4f8;
+  --ss-minimap-node: #7e8ca0;
+  --ss-minimap-node-border: #5b6472;
+  --ss-minimap-mask: rgba(47, 111, 179, 0.09);
   font-size: 13px;
 }
 
 .dark {
-  --ss-accent: #5b9bd5;
+  --ss-accent: #6aa6dc;
   --ss-accent-soft: #1d3350;
   --ss-chrome: #14171c;
   --ss-border: #363c46;
@@ -31,12 +72,31 @@
   --ss-hover: #2a303a;
   --ss-active: #333a46;
   --ss-text: #d6dae1;
-  --ss-text-dim: #8a919c;
-  --ss-node-border: #5a6472;
+  --ss-text-dim: #99a0ab;
+  --ss-ok: #34d399;
+  --ss-warn: #fbbf24;
+  --ss-err: #f87171;
+  --ss-ok-soft: #12352a;
+  --ss-warn-soft: #3a2a10;
+  --ss-err-soft: #3d1f22;
+  --ss-info: #5ec8de;
+  --ss-info-soft: #11313a;
+  --ss-field-border: #6b7584;
+  --ss-node-border: #7a8494;
   --ss-node-icon: #aeb6c2;
   --ss-td-border: #2a2f37;
   --ss-scrollbar: #3a414c;
   --ss-scrollbar-hover: #4d5663;
+  /* (the domain colours are the light theme's) */
+  --ss-pin-mechanical: #a3abb8;
+  --ss-pin-thermal: #f87171;
+  --ss-pole-positive: #f87171;
+  --ss-pole-negative: #60a5fa;
+  --ss-grid-line: #262b33;
+  --ss-minimap-bg: #1b1f26;
+  --ss-minimap-node: #55606f;
+  --ss-minimap-node-border: #8a95a5;
+  --ss-minimap-mask: rgba(90, 150, 210, 0.12);
 }
 
 html,
@@ -56,6 +116,46 @@ body,
    pointer math assumes an unscaled ancestor — see uiStore/DockLayout). */
 .ss-zoom {
   zoom: var(--ss-ui-scale, 1);
+}
+
+/* ---- charts (uPlot, RES-05). The axes are drawn on a canvas, in the token
+   colours Plot.tsx reads; these style the parts uPlot keeps in the page. ---- */
+.uplot {
+  font-family: inherit;
+  /* the chart's width from the start (uPlot's min-content is its unsized
+     root's), so Plot.tsx measures the legend under it right, drawing once */
+  width: 100%;
+}
+.u-legend {
+  font-size: 11px;
+  color: var(--ss-text);
+}
+.u-legend th {
+  font-weight: 400;
+}
+/* the channel checkboxes stay the only way to show or hide a line */
+.u-legend .u-series {
+  pointer-events: none;
+}
+.u-legend .u-series > * {
+  padding: 1px 4px;
+}
+/* a value keeps its width as the pointer moves, so the legend does not jump */
+.u-legend .u-value {
+  min-width: 9ch;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.u-select {
+  background: color-mix(in srgb, var(--ss-accent) 18%, transparent);
+}
+.u-hz .u-cursor-x,
+.u-hz .u-cursor-y {
+  border-color: var(--ss-accent);
+}
+.uplot:focus-visible {
+  outline: 2px solid var(--ss-accent);
+  outline-offset: -2px;
 }
 
 /* ---- scrollbars (dense engineering-tool look) ---- */
@@ -134,7 +234,7 @@ body,
   border-radius: 3px;
   order: 2;
 }
-/* problem count on the Messages / Data Checks tabs (DockLayout SsTab), drawn
+/* problem count on the Problems tab (DockLayout SsTab), drawn
    between the title and the close button */
 .dockview-theme-ss .dv-default-tab[data-badge]::after {
   content: attr(data-badge);
@@ -144,7 +244,7 @@ body,
   margin-right: 2px;
   padding: 0 4px;
   border-radius: 8px;
-  background: #b45309;
+  background: var(--ss-warn-fill);
   color: #fff;
   font-size: 10px;
   font-weight: 600;
@@ -152,7 +252,7 @@ body,
   text-align: center;
 }
 .dockview-theme-ss .dv-default-tab[data-badge-level="error"]::after {
-  background: #c81e1e;
+  background: var(--ss-err-fill);
 }
 /* The Home dock under the Results page (App.tsx). dockview forces its views
    back to `visibility: visible` (.dv-view.visible), so hiding the wrapper
@@ -180,20 +280,26 @@ body,
   border-radius: 2px;
 }
 .react-flow__handle.ss-handle-electrical {
-  border-color: #d97706;
-  background: #fde68a;
+  border-color: var(--ss-pin-electrical);
+  background: var(--ss-pin-electrical-fill);
   border-radius: 50%;
 }
 .react-flow__handle.ss-handle-mechanical {
-  border-color: #4b5563;
-  background: #d1d5db;
+  border-color: var(--ss-pin-mechanical);
+  background: var(--ss-pin-mechanical-fill);
 }
 .react-flow__handle.ss-handle-thermal {
-  border-color: #b91c1c;
-  background: #fecaca;
+  border-color: var(--ss-pin-thermal);
+  background: var(--ss-pin-thermal-fill);
 }
 .react-flow__edge-path {
   stroke-width: 1.6;
+}
+/* part names keep at least their 11 px on screen when the diagram is zoomed
+   out: TopologyCanvas keeps the zoom in --ss-zoom */
+.ss-node-label {
+  scale: max(1, calc(1 / var(--ss-zoom, 1)));
+  transform-origin: top center;
 }
 /* node resize handles (visible on the selected node) */
 .react-flow__resize-control.handle.ss-resize-handle {
@@ -225,10 +331,14 @@ body,
   outline-offset: -2px;
 }
 .ss-input {
-  @apply rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1.5 py-0.5 text-[12px] text-[color:var(--ss-text)] outline-none focus:border-[color:var(--ss-accent)];
+  @apply rounded border border-[color:var(--ss-field-border)] bg-[color:var(--ss-panel)] px-1.5 py-0.5 text-[12px] text-[color:var(--ss-text)] outline-none focus:border-[color:var(--ss-accent)];
 }
 .ss-input[aria-invalid="true"] {
-  border-color: #dc2626;
+  border-color: var(--ss-err);
+}
+/* the red border hides the focus colour: a thicker red one shows focus */
+.ss-input[aria-invalid="true"]:focus {
+  box-shadow: inset 0 0 0 1px var(--ss-err);
 }
 /* numbers line up right-aligned in equal-width digits, and a field grows to
    show every digit of its value rather than clipping it (no fixed width) */
@@ -255,6 +365,11 @@ body,
 }
 .ss-th {
   @apply border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1 text-left text-[11px] font-semibold text-[color:var(--ss-text-dim)];
+}
+/* (this unlayered rule beats Tailwind's text-right: a numeric column's head
+   sits over its right-aligned numbers) */
+.ss-th.text-right {
+  text-align: right;
 }
 .ss-td {
   @apply border-b border-[color:var(--ss-td-border)] px-2 py-1 text-[12px];
@@ -283,6 +398,37 @@ body,
    text is in its tooltip and its open list) */
 .ss-param-grid select {
   width: 5.5rem;
+}
+/* a parameter's help card (UX-10): a popover in the top layer, so no panel
+   clips it, beside the row it explains (left of it, or where there is room) */
+.ss-help-card {
+  inset: auto;
+  margin: 0 6px;
+  position-area: left span-bottom;
+  position-try-fallbacks: flip-inline, flip-block;
+  width: 290px;
+  max-height: 60vh;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--ss-border);
+  border-radius: 6px;
+  background: var(--ss-panel);
+  color: var(--ss-text);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+:is(.ss-help-card, .ss-param-help) p + p,
+.ss-help-card div + p {
+  margin-top: 4px;
+}
+/* why a value is outside its limits (UX-10): a line under the field, across
+   the whole row of the parameter grid */
+.ss-param-problem {
+  grid-column: 1 / -1;
+  font-size: 10.5px;
+  text-align: left;
+  color: var(--ss-err);
 }
 
 /* ---- Excel-like spreadsheet grid (table editors) ---- */
@@ -362,14 +508,14 @@ body,
 }
 /* text being typed that will be rejected (red) or needs a second look (amber) */
 .ss-grid td.ss-cell-error {
-  outline: 2px solid #dc2626;
+  outline: 2px solid var(--ss-err);
   outline-offset: -2px;
 }
 .ss-grid td.ss-cell-error .ss-cell-input {
-  background: color-mix(in srgb, #dc2626 10%, var(--ss-panel));
+  background: color-mix(in srgb, var(--ss-err) 10%, var(--ss-panel));
 }
 .ss-grid td.ss-cell-warning {
-  outline: 2px solid #d97706;
+  outline: 2px solid var(--ss-warn);
   outline-offset: -2px;
 }
 .ss-grid-frame {
@@ -379,4 +525,11 @@ body,
   overflow: auto;
   max-height: 320px;
   background: var(--ss-panel);
+}
+
+/* The first-steps tour's dimmed overlay lets clicks through to the window
+   (tour.ts: a press outside the popover closes the tour and still acts). */
+.driver-overlay,
+.driver-overlay * {
+  pointer-events: none !important;
 }

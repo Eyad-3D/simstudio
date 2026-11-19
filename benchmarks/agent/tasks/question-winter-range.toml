@@ -1,0 +1,38 @@
+id = "question-winter-range"
+kind = "question"
+version = 1
+title = "Range and heating energy on a cold day"
+statement = """
+car.json models our electric hatchback with the large 70 kWh battery and a heat
+pump. On its case "WLTC, winter day (−7 °C, heating on)": how far would the
+car go on a full battery at that case's consumption (LightSim's range figure,
+in km, which counts the energy down to the battery's minimum charge), and how
+much energy does the climate system use over the drive, in kWh?
+
+End your reply with one line in exactly this form, numbers only:
+ANSWER: <range>; <climate energy>
+"""
+
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Hatchback, 70 kWh with heat pump"
+ops = [
+  { op = "set", element = "HV Battery Pack", param = "capacity_kWh", value = 70 },
+  { op = "set", element = "Vehicle", param = "mass_kg", value = 2010 },
+  { op = "set", element = "Climate Control", param = "heat_source", value = "Heat pump" },
+]
+
+# The 62 kWh car with the resistive heater, as the example is.
+[wrong]
+answer = "ANSWER: 251.8; 2.125"
+
+[[answer]]
+value = 337.26
+rtol = 0.015
+figure = { file = "car.json", case = "WLTC, winter day (−7 °C, heating on)", key = "range_km" }
+
+[[answer]]
+value = 1.1855
+rtol = 0.03
+figure = { file = "car.json", case = "WLTC, winter day (−7 °C, heating on)", key = "*.energy_used_kwh" }

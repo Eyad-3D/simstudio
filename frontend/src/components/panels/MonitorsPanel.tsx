@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Gauge } from "lucide-react";
 import { portsOf, useActiveRun, useProjectStore } from "../../store/projectStore";
+import { useUIStore } from "../../store/uiStore";
 import type { Channel } from "../../types";
 
 /** Tiny inline sparkline over a channel's recent history. */
@@ -102,6 +103,30 @@ export function MonitorsPanel() {
           input ports in its Properties, and wire signals into them — live readouts
           appear here during a run.
         </div>
+        <button
+          className="ss-toolbtn border border-[color:var(--ss-field-border)] px-3"
+          onClick={(e) => {
+            // show the diagram. A click arms click-to-place: the next click puts
+            // it there. Enter / Space adds it in the middle, as the library
+            // does, once the diagram is measured again (two frames), and moves
+            // the keyboard onto it.
+            const ui = useUIStore.getState();
+            ui.focusPanel("topology");
+            if (e.detail !== 0) return ui.setPlacingComponent("signal.monitor");
+            ui.setPlacingComponent(null);
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                if (!useUIStore.getState().insertComponent?.("signal.monitor")) return;
+                const id = useProjectStore.getState().selectedElementId;
+                requestAnimationFrame(() =>
+                  document.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`)?.focus(),
+                );
+              }),
+            );
+          }}
+        >
+          Place a Monitor
+        </button>
       </div>
     );
   }
@@ -121,7 +146,7 @@ export function MonitorsPanel() {
             <Gauge size={12} />
             {element.label}
             {running && (
-              <span className="ml-auto flex items-center gap-1 text-[9px] font-semibold uppercase text-emerald-700">
+              <span className="ml-auto flex items-center gap-1 text-[9px] font-semibold uppercase text-[color:var(--ss-ok)]">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
                 live
               </span>

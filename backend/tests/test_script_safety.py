@@ -87,6 +87,17 @@ ESCAPES = {
     "patch math": ("math.sqrt = abs\n", "changing '.sqrt' is not allowed"),
     # .mro() reaches BaseException, which could catch the time limit
     "mro": ("BE = ValueError.mro()[-2]\n", "'.mro' is not allowed"),
+    # a format field reads attributes and items past the checks above: the
+    # worker's module paths and arguments as text (found for the Script
+    # decision record, docs/SCRIPT-RUNNER-DECISION.md)
+    "format field": ("s = '{0.__globals__[sys].path}'.format(clamp)\n",
+                     "a '.format' field that reads an attribute or an item"),
+    "format item": ("s = '{0[0]}'.format([1])\n", "a '.format' field that reads an attribute or an item"),
+    "format spec field": ("s = '{0:{1.real}}'.format(1, 2)\n",
+                          "a '.format' field that reads an attribute or an item"),
+    "format_map": ("s = '{a.b}'.format_map({})\n", "a '.format_map' field that reads an attribute or an item"),
+    "format on a name": ("f = 'x'\ns = f.format(1)\n", "'.format' is allowed in scripts only on a string written"),
+    "str.format": ("s = str.format('{0.real}', 1)\n", "'.format' is allowed in scripts only on a string written"),
 }
 
 
@@ -135,6 +146,7 @@ def test_ordinary_scripts_keep_working():
         "    state['n'] = state.get('n', 0) + 1\n"
         "    pos = max(helper(inputs.get('cmd_in', 0.0)))\n"
         "    lut = interp({'0': 0, '1': 1}, 0.5)\n"
+        "    label = '{:.2f} {}'.format(pos, 1) + '{0:{1}}'.format(pos, 6)\n"
         "    out = clamp(pos + ratio + math.sin(0) + root(0) + lut * 0, -1, 0.25)\n"
         "    return {'cmd_out': out}\n"
     )

@@ -9,6 +9,7 @@ import type {
   SimResult,
   SimRun,
   StoredRunInfo,
+  Study,
 } from "../types";
 
 // The store talks to the engine only through api.ts; every call is mocked so
@@ -16,6 +17,7 @@ import type {
 vi.mock("../api", () => ({
   fetchLibrary: vi.fn(),
   fetchVersion: vi.fn(),
+  listCycles: vi.fn(),
   fetchDemoProject: vi.fn(),
   fetchProject: vi.fn(),
   fetchExample: vi.fn(),
@@ -25,11 +27,29 @@ vi.mock("../api", () => ({
   validateProject: vi.fn(),
   runSimulation: vi.fn(),
   runSimulationLive: vi.fn(),
+  runStudyLive: vi.fn(),
   listRuns: vi.fn(),
   fetchRun: vi.fn(),
   storeRun: vi.fn(),
   deleteRun: vi.fn(),
   deleteRuns: vi.fn(),
+  listStudies: vi.fn(),
+  storeStudy: vi.fn(),
+  deleteStudy: vi.fn(),
+  upgradeProject: vi.fn(),
+  importBundle: vi.fn(),
+  exportBundle: vi.fn(),
+  fetchRevision: vi.fn(),
+  rebaseProject: vi.fn(),
+  undoChange: vi.fn(),
+  fetchHistory: vi.fn(),
+  listFiles: vi.fn(),
+  forgetFile: vi.fn(),
+  uploadAttachment: vi.fn(),
+  deleteAttachment: vi.fn(),
+  listAttachments: vi.fn(),
+  isTrusted: vi.fn(),
+  trustFingerprint: vi.fn(),
 }));
 
 const library = libraryJson as unknown as {
@@ -42,6 +62,8 @@ let api: MockedObject<typeof import("../api")>;
 let persist: typeof import("../persist");
 let useProjectStore: typeof import("./projectStore").useProjectStore;
 let confirmReplaceProject: typeof import("./projectStore").confirmReplaceProject;
+let previousRunOf: typeof import("./projectStore").previousRunOf;
+let stopRechecks: typeof import("./projectStore").stopRechecks | undefined;
 let useUIStore: typeof import("./uiStore").useUIStore;
 const store = () => useProjectStore.getState();
 
@@ -118,6 +140,80 @@ function engineFinishesRuns() {
   }));
 }
 
+/** The engine's study runner (ENG-05) as the mocks see it: each point is run
+ *  through the runSimulationLive mock, one after another, stored in `disk`
+ *  as a run of the project and reported as it ends; a stop cancels the
+ *  running point and leaves the rest not run. */
+let storedAt = 0;
+function engineRunsStudies() {
+  api.runStudyLive.mockImplementation((req, callbacks = {}) => {
+    let stopped = false;
+    let current: { cancel: () => void } | null = null;
+    const done = (async () => {
+      callbacks.onStarted?.(2);
+      for (const [index, pt] of req.points.entries()) {
+        if (stopped) {
+          callbacks.onPoint?.({ index, values: pt.values, status: "not run" });
+          continue;
+        }
+        const project = structuredClone(req.project);
+        const simCase = project.cases.find((c) => c.id === req.caseId)!;
+        simCase.parameterOverrides = { ...(simCase.parameterOverrides ?? {}) };
+        for (const [elId, values] of Object.entries(pt.overrides)) {
+          simCase.parameterOverrides[elId] = { ...(simCase.parameterOverrides[elId] ?? {}), ...values };
+        }
+        const handle = api.runSimulationLive(project, req.caseId, {});
+        current = handle;
+        if (stopped) handle.cancel();
+        const result = await handle.done;
+        const at = result.messages.find((m) => /cancel/i.test(m.text))?.text.match(/t = ([^ ]+ s)/);
+        const incomplete =
+          result.status === "failed" ? "failed" : result.status === "cancelled" ? `stopped at t = ${at?.[1]}` : undefined;
+        const runId = `run-${req.sweepId}-${index}`;
+        const run: SimRun = {
+          id: runId,
+          caseId: req.caseId,
+          caseName: pt.label ?? simCase.name,
+          startedAt: Date.now() + ++storedAt,
+          status: result.status,
+          result,
+          sweepId: req.sweepId,
+          sweepParam: req.sweepParam ?? undefined,
+          sweepValue: pt.values[0],
+          sweepUnit: req.sweepUnit ?? undefined,
+          ...(incomplete ? { incomplete } : {}),
+          snapshot: { project, case: simCase, appVersion: "0.1.0", liveEdits: [] },
+        };
+        folder(req.project.id).set(runId, run);
+        callbacks.onPoint?.({
+          index,
+          values: pt.values,
+          status: result.status,
+          runId,
+          ...(incomplete ? { incomplete } : {}),
+          summary: result.summary,
+        });
+      }
+      return { workers: 2, wallS: 1, pointWallS: 2, speedup: 2 };
+    })();
+    return {
+      cancel: () => {
+        stopped = true;
+        current?.cancel();
+      },
+      done,
+    };
+  });
+}
+
+// the store schedules a real-time re-check of the model after every change:
+// stop this test's store before the next one makes a fresh instance, so its
+// timer cannot fire later and call the shared api.validateProject mock
+afterEach(() => {
+  stopRechecks?.();
+  stopRechecks = undefined;
+});
+
 beforeEach(async () => {
   // fresh module instances per test: the store keeps module-level state
   // (undo coalescing, the active run) that must not leak between tests
@@ -125,7 +221,7 @@ beforeEach(async () => {
   localStorage.clear();
   api = vi.mocked(await import("../api"));
   persist = await import("../persist");
-  ({ useProjectStore, confirmReplaceProject } = await import("./projectStore"));
+  ({ useProjectStore, confirmReplaceProject, previousRunOf, stopRechecks } = await import("./projectStore"));
   useUIStore = (await import("./uiStore")).useUIStore;
 
   api.fetchLibrary.mockResolvedValue({
@@ -134,10 +230,26 @@ beforeEach(async () => {
     offline: false,
   });
   api.fetchVersion.mockResolvedValue("0.1.0");
+  api.listCycles.mockResolvedValue([
+    {
+      id: "wltc-3b",
+      name: "WLTC class 3b",
+      region: "Europe / UN (WLTP)",
+      register: "DR-25",
+      phases: [],
+      duration_s: 1800,
+      distance_km: 23.266,
+      vmax_kmh: 131.3,
+    },
+  ]);
   api.fetchDemoProject.mockResolvedValue({ project: fixture(), offline: false });
   api.saveProject.mockResolvedValue({ saved: "fixture" });
+  // by default a change on disk is one the history cannot explain (a git pull)
+  api.rebaseProject.mockRejectedValue(Object.assign(new Error("409 changed outside"), { status: 409 }));
+  api.fetchHistory.mockResolvedValue([]);
 
   disk = new Map();
+  engineRunsStudies();
   api.listRuns.mockImplementation(async (projectId) =>
     [...folder(projectId).values()].sort((a, b) => b.startedAt - a.startedAt).map(info),
   );
@@ -159,6 +271,18 @@ beforeEach(async () => {
     folder(projectId).clear();
     return { deleted, stored: 0 };
   });
+  // studies live with the runs (PLT-34); imports are upgraded by the engine
+  api.listStudies.mockResolvedValue([]);
+  api.storeStudy.mockImplementation(async (_projectId, study) => ({ saved: study.id }));
+  api.deleteStudy.mockImplementation(async (_projectId, studyId) => ({ deleted: studyId }));
+  api.upgradeProject.mockImplementation(async (raw) => {
+    const { studies, ...project } = raw as Project & { studies?: Study[] };
+    return { project, studies: studies ?? [], upgradedFrom: null, readOnly: null };
+  });
+  api.fetchRevision.mockResolvedValue(null);
+  api.isTrusted.mockResolvedValue(false);
+  api.trustFingerprint.mockResolvedValue({ trusted: true });
+  api.listAttachments.mockResolvedValue([]);
 });
 
 describe("start-up", () => {
@@ -241,6 +365,25 @@ describe("start-up", () => {
     expect(api.fetchProject).not.toHaveBeenCalled();
     expect(store().project?.name).toBe("Kept copy");
     expect(messages().some((m) => m.startsWith("warning: Backend not reachable"))).toBe(true);
+  });
+
+  it("starts on the Start page, but on Home when it restores unsaved work (UX-16)", async () => {
+    await store().init();
+    expect(useUIStore.getState().ribbonTab).toBe("start");
+    persist.saveDraft(fixture({ name: "Edited" }));
+    await store().init();
+    expect(useUIStore.getState().ribbonTab).toBe("home");
+  });
+
+  it("skips the Start page once the user chose to, and leaves it for a panel asked for (UX-16)", async () => {
+    useUIStore.getState().focusPanel("messages"); // an error logged, a run blocked
+    expect(useUIStore.getState().ribbonTab).toBe("home");
+    useUIStore.getState().setOpenLastAtStart(true);
+    vi.resetModules();
+    expect((await import("./uiStore")).useUIStore.getState()).toMatchObject({
+      ribbonTab: "home",
+      openLastAtStart: true,
+    });
   });
 
   it("offline with no draft: the bundled demo opens as a copy", async () => {
@@ -340,7 +483,7 @@ describe("examples", () => {
     api.fetchExample.mockResolvedValue(example());
     for (const other of [
       () => store().newProject(),
-      () => store().importProject(JSON.stringify(fixture({ id: "imported" }))),
+      () => void store().importProject(JSON.stringify(fixture({ id: "imported" }))),
       () => store().openAsCopy(fixture(), "Copy", "Opened a copy."),
       () => store().openProject("fixture"),
     ]) {
@@ -476,7 +619,7 @@ describe("project lifecycle", () => {
     const file = fixture({ id: "imported", name: "Imported" }) as Partial<Project>;
     delete file.dataBusConnections;
     delete file.cases;
-    store().importProject(JSON.stringify(file));
+    await store().importProject(JSON.stringify(file));
     expect(store().project?.id).toBe("imported");
     expect(store().project?.dataBusConnections).toEqual([]);
     expect(store().project?.cases).toEqual([]);
@@ -504,8 +647,8 @@ describe("project lifecycle", () => {
 
   it("Import rejects files that are not projects and keeps the current one", async () => {
     await start();
-    store().importProject("{broken");
-    store().importProject(JSON.stringify({ name: "no id or systems" }));
+    await store().importProject("{broken");
+    await store().importProject(JSON.stringify({ name: "no id or systems" }));
     expect(store().project?.id).toBe("fixture");
     expect(store().dirty).toBe(false);
     expect(messages().filter((m) => m.startsWith("error: Import failed"))).toHaveLength(2);
@@ -576,6 +719,34 @@ describe("undo / redo", () => {
     expect(store().dirty).toBe(true);
     store().undo();
     expect(findElement("el-bat")?.tableOutside).toBeUndefined();
+  });
+
+  it("a preset's values are one edit that one undo takes back", async () => {
+    await start();
+    const past = store().past.length;
+    store().setParameters("el-bat", { output_power_limit_kW: 80, voltage_class_V: 600 });
+    expect(findElement("el-bat")?.parameterOverrides).toEqual({
+      output_power_limit_kW: 80,
+      voltage_class_V: 600,
+    });
+    expect(store().past).toHaveLength(past + 1);
+    store().undo();
+    expect(findElement("el-bat")?.parameterOverrides).toEqual({});
+  });
+
+  it("an imported parameter sheet is one edit across parts that one undo takes back (STD-36)", async () => {
+    await start();
+    const past = store().past.length;
+    store().applyParameterChanges([
+      { elementId: "el-bat", key: "voltage_class_V", value: 600 },
+      { elementId: "el-node", key: "anything", value: 1 },
+    ]);
+    expect(findElement("el-bat")?.parameterOverrides).toEqual({ voltage_class_V: 600 });
+    expect(findElement("el-node")?.parameterOverrides).toEqual({ anything: 1 });
+    expect(store().past).toHaveLength(past + 1);
+    store().undo();
+    expect(findElement("el-bat")?.parameterOverrides).toEqual({});
+    expect(findElement("el-node")?.parameterOverrides).toEqual({});
   });
 
   it("a new edit after undo discards the redo branch", async () => {
@@ -793,6 +964,38 @@ describe("elements and wiring", () => {
     ]);
   });
 
+  it("refuses a signal link between two inputs or two outputs and says why (UX-15)", async () => {
+    await start();
+    store().addElement("mech.brake", { x: 0, y: 0 });
+    const brake = findElement(store().selectedElementId!)!;
+    store().addDataBus("el-motor", "sig_demand_in", brake.id, "sig_demand_in");
+    store().addDataBus("el-const", "sig_out", "el-bat", "sig_soc");
+    expect(store().project!.dataBusConnections).toEqual([]);
+    const why = "a signal runs from an output to an input, so no data would flow. Not connected.";
+    expect(messages()).toContain(
+      `error: 'Motor · Traction Command' and '${brake.label} · Brake Command' are both inputs: ${why}`,
+    );
+    expect(messages()).toContain(`error: 'Demand · Output' and 'Battery · SOC' are both outputs: ${why}`);
+  });
+
+  it("swaps an input's source in one undo step; picking its source again changes nothing (UX-15)", async () => {
+    await start();
+    store().addDataBus("el-const", "sig_out", "el-motor", "sig_demand_in");
+    const [link] = store().project!.dataBusConnections;
+    const steps = store().past.length;
+    store().addDataBus("el-bat", "sig_soc", "el-motor", "sig_demand_in", link.id);
+    expect(store().project!.dataBusConnections).toEqual([
+      expect.objectContaining({ element1Id: "el-bat", port1Id: "sig_soc", element2Id: "el-motor" }),
+    ]);
+    expect(store().past).toHaveLength(steps + 1);
+    expect(messages()).toContain("info: Data bus: Battery · SOC → Motor · Traction Command connected.");
+    store().undo();
+    expect(store().project!.dataBusConnections).toEqual([link]);
+    store().addDataBus("el-motor", "sig_demand_in", "el-const", "sig_out", link.id);
+    expect(store().project!.dataBusConnections).toEqual([link]);
+    expect(store().past).toHaveLength(steps);
+  });
+
   it("removes wires and data-bus links by id, undoably", async () => {
     await start();
     store().addConnection("el-const", "sig_out", "el-motor", "sig_demand_in");
@@ -816,7 +1019,8 @@ describe("data checks gate", () => {
     expect(checks).toEqual([error]);
     expect(store().dataChecks).toEqual([error]);
     expect(store().checking).toBe(false);
-    expect(messages()).toContain("error: Data checks: 1 error(s), 0 warning(s).");
+    // a summary, not a problem: the problems are in the Problems list
+    expect(messages()).toContain("info: Data checks: 1 error, 0 warnings.");
   });
 
   it("an error-level check blocks the run before it reaches the engine", async () => {
@@ -825,7 +1029,22 @@ describe("data checks gate", () => {
     await store().run();
     expect(api.runSimulationLive).not.toHaveBeenCalled();
     expect(store().running).toBe(false);
-    expect(messages()).toContain("error: Run blocked — fix 1 data-check error(s) first.");
+    expect(messages()).toContain("error: Run blocked — fix 1 data-check error first.");
+  });
+
+  it("an error about another case's own values does not block this case", async () => {
+    await start();
+    engineFinishesRuns();
+    const other: DataCheck = { level: "error", text: "Case 'Lap': A lap case needs a Race Track.", caseId: "case-lap" };
+    api.validateProject.mockResolvedValue([other]);
+    await store().run();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    expect(messages()).not.toContain("error: Run blocked — fix 1 data-check error first.");
+    // the same error about the case being run blocks it
+    api.validateProject.mockResolvedValue([{ ...other, caseId: store().activeCaseId }]);
+    await store().run();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    expect(messages()).toContain("error: Run blocked — fix 1 data-check error first.");
   });
 });
 
@@ -835,7 +1054,7 @@ describe("data checks follow the model", () => {
     vi.useRealTimers();
   });
 
-  it("once checked, the model is re-checked quietly 600 ms after the last edit", async () => {
+  it("the model is re-checked quietly 600 ms after the last edit", async () => {
     vi.useFakeTimers();
     await start();
     api.validateProject.mockResolvedValue([error]);
@@ -859,7 +1078,7 @@ describe("data checks follow the model", () => {
     let reply!: (checks: DataCheck[]) => void;
     api.validateProject.mockReturnValueOnce(new Promise((resolve) => (reply = resolve)));
     const checking = store().runDataChecks();
-    store().renameElement("el-bat", "Pack"); // not checked yet: no re-check of its own
+    store().renameElement("el-bat", "Pack");
     reply([error]);
     await checking;
     api.validateProject.mockResolvedValue([]);
@@ -869,16 +1088,26 @@ describe("data checks follow the model", () => {
     expect(store().dataChecks).toEqual([]);
   });
 
-  it("leaves a model nobody checked alone, and waits for a run to end", async () => {
+  it("checks an opened model and every edit quietly, and waits for a run to end", async () => {
     vi.useFakeTimers();
+    api.validateProject.mockResolvedValue([error]);
     await start();
-    store().renameElement("el-bat", "Pack");
-    await vi.advanceTimersByTimeAsync(1000);
     expect(api.validateProject).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(600);
+    // nobody pressed Data Checks
+    expect(api.validateProject).toHaveBeenCalledTimes(1);
+    expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
+    expect(store().dataChecks).toEqual([error]);
+    api.validateProject.mockResolvedValue([]);
+    store().renameElement("el-bat", "Pack");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(api.validateProject).toHaveBeenCalledTimes(2);
+    expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
+    expect(store().dataChecks).toEqual([]);
+    expect(messages().filter((m) => m.includes("Data checks"))).toEqual([]); // quietly
 
     // a run the test ends: its gate checks the model
     let finish!: () => void;
-    api.validateProject.mockResolvedValue([]);
     api.runSimulationLive.mockImplementation((_project, caseId) => ({
       setParam: vi.fn(),
       cancel: vi.fn(),
@@ -891,11 +1120,83 @@ describe("data checks follow the model", () => {
     expect(store().running).toBe(true);
     store().renameElement("el-bat", "Pack 2");
     await vi.advanceTimersByTimeAsync(2000);
-    expect(api.validateProject).toHaveBeenCalledTimes(1); // the gate only
+    expect(api.validateProject).toHaveBeenCalledTimes(3); // and the gate only
     finish();
     await run;
     await vi.advanceTimersByTimeAsync(600);
-    expect(api.validateProject).toHaveBeenCalledTimes(2);
+    expect(api.validateProject).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("the Problems list", () => {
+  const check = (level: DataCheck["level"], text: string, elementIds?: string[]): DataCheck => ({
+    level,
+    text,
+    elementId: elementIds?.[0],
+    elementIds,
+  });
+  const run = (status: SimRun["status"], messages: SimResult["messages"]): SimRun => ({
+    id: "run-1",
+    caseId: "case-1",
+    caseName: "City",
+    startedAt: 1000,
+    status,
+    result: { caseId: "case-1", status: "success", messages, channels: [], summary: [] },
+  });
+
+  it("lists the checks and the latest finished run's warnings and errors, errors first", async () => {
+    const { problemsOf, problemCounts } = await import("./projectStore");
+    const project = fixture();
+    const checks = [
+      check("warning", "Only the first Ambient sets the air density.", ["el-bat", "el-gone"]),
+      check("info", "'Battery' has an unconnected negative (−) terminal.", ["el-bat"]),
+      { level: "error", text: "Old engine: one part.", elementId: "el-motor" } as DataCheck,
+    ];
+    const finished = run("warning", [
+      { level: "info", text: "Run finished." },
+      { level: "warning", text: "Battery 'Battery' reached minimum SOC at t = 97 s." },
+      { level: "error", text: "'Motor.torque' left its map." },
+      { level: "warning", text: "Cycle not followed." },
+    ]);
+    const problems = problemsOf(checks, finished, project);
+    expect(problems.map((p) => [p.level, p.text, p.elementIds, p.source === "check" ? "check" : "run"])).toEqual([
+      ["error", "Old engine: one part.", ["el-motor"], "check"],
+      ["error", "'Motor.torque' left its map.", ["el-motor"], "run"],
+      ["warning", "Only the first Ambient sets the air density.", ["el-bat"], "check"], // a part no longer there is left out
+      ["warning", "Battery 'Battery' reached minimum SOC at t = 97 s.", ["el-bat"], "run"],
+      ["warning", "Cycle not followed.", [], "run"],
+      ["info", "'Battery' has an unconnected negative (−) terminal.", ["el-bat"], "check"],
+    ]);
+    expect(problems[1].source).toEqual({ caseName: "City", startedAt: 1000 });
+    // the counters count the same rows
+    expect(problemCounts({ dataChecks: checks, runs: [finished] })).toEqual({ errors: 2, warnings: 3 });
+    // a run still going has not finished: the one before it counts
+    expect(problemsOf(checks, run("running", [{ level: "error", text: "x" }]), project)).toHaveLength(3);
+    expect(problemCounts({ dataChecks: checks, runs: [run("running", [{ level: "error", text: "x" }]), finished] })).toEqual({
+      errors: 2,
+      warnings: 3,
+    });
+    expect(problemCounts({ dataChecks: null, runs: [] })).toEqual({ errors: 0, warnings: 0 });
+  });
+
+  it("lists a model warning the run repeats once", async () => {
+    const { problemsOf, problemCounts } = await import("./projectStore");
+    const twice = "Only the first Ambient ('Ambient 1') sets the air density.";
+    const checks = [check("warning", twice)];
+    const finished = run("warning", [{ level: "warning", text: twice }]);
+    expect(problemsOf(checks, finished, fixture()).map((p) => p.source)).toEqual(["check"]);
+    expect(problemCounts({ dataChecks: checks, runs: [finished] })).toEqual({ errors: 0, warnings: 1 });
+    // once the model is fixed, the run's copy is what is left
+    expect(problemCounts({ dataChecks: [], runs: [finished] })).toEqual({ errors: 0, warnings: 1 });
+  });
+
+  it("lists a lap case's warning the run repeats once", async () => {
+    const { problemsOf, problemCounts } = await import("./projectStore");
+    const text = "Gearbox 'Gearbox' stays in gear 1 for the whole lap: a lap case does not shift gears.";
+    const checks = [check("warning", `Case 'City': ${text}`), check("warning", `Case 'Other': ${text}`)];
+    const finished = run("warning", [{ level: "warning", text }]);
+    expect(problemsOf(checks, finished, fixture()).map((p) => p.source)).toEqual(["check", "check"]);
+    expect(problemCounts({ dataChecks: checks, runs: [finished] })).toEqual({ errors: 0, warnings: 2 });
   });
 });
 
@@ -927,6 +1228,76 @@ describe("run history", () => {
     engineFinishesRuns();
     const ids = await runTimes(22);
     expect(store().runs.map((r) => r.id)).toEqual(ids.slice(2).reverse());
+  });
+
+  it("the acceleration test adds its case once, then reruns it", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().runAccelerationTest();
+    const accel = store().project!.cases.filter((c) => c.kind === "acceleration");
+    expect(accel).toEqual([
+      {
+        id: expect.any(String),
+        name: "Acceleration 75 m",
+        duration: 25,
+        timeStep: 0.01,
+        kind: "acceleration",
+        endDistance: 75,
+        startLine: 0.3,
+      },
+    ]);
+    expect(store().activeCaseId).toBe(accel[0].id);
+    expect(api.runSimulationLive.mock.lastCall![1]).toBe(accel[0].id);
+
+    store().setActiveCase("case-1");
+    await store().runAccelerationTest();
+    expect(store().project!.cases).toHaveLength(2);
+    expect(store().activeCaseId).toBe(accel[0].id);
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(2);
+    expect(api.runSimulationLive.mock.lastCall![1]).toBe(accel[0].id);
+  });
+
+  it("a new run keeps the runs the user overlaid (RES-19)", async () => {
+    await start();
+    engineFinishesRuns();
+    const [first] = await runTimes(2);
+    store().toggleOverlayRun(first);
+    await store().run();
+    expect(store().overlayRunIds).toEqual([first]);
+  });
+
+  it("a run that drops out of the 20 kept is no longer overlaid, so the colours stay in step", async () => {
+    await start();
+    engineFinishesRuns();
+    const [oldest, middle] = await runTimes(3);
+    store().toggleOverlayRun(oldest);
+    store().toggleOverlayRun(middle);
+    await runTimes(20 - 2); // the store keeps 20 runs
+    const ids = store().runs.map((r) => r.id);
+    expect(ids).toHaveLength(20);
+    expect(ids).not.toContain(oldest);
+    expect(store().overlayRunIds).toEqual([middle]);
+  });
+
+  it("the previous run of a case is its newest finished run before, sweep points included (RES-10, RES-19)", () => {
+    const run = (id: string, startedAt: number, extra: Partial<SimRun> = {}) =>
+      ({ id, caseId: "c", startedAt, status: "success", ...extra }) as SimRun;
+    const runs = [
+      run("now", 9, { status: "running" }),
+      run("other-case", 8, { caseId: "x" }),
+      run("stopped", 7, { status: "cancelled", incomplete: "stopped at t = 3 s" }),
+      run("failed", 6, { status: "failed" }),
+      run("lost", 5, { status: "failed", incomplete: "connection lost" }),
+      run("point", 4, { sweepId: "sw", sweepValue: 2 }),
+      run("warning", 3, { status: "warning" }),
+      run("oldest", 1),
+    ];
+    const previous = (before?: number) => previousRunOf("c", runs, before)?.id;
+    expect(previous()).toBe("point"); // the newest finished one (not the running one)
+    expect(previous(4)).toBe("warning"); // a warning is finished
+    expect(previous(3)).toBe("oldest");
+    expect(previous(1)).toBeUndefined();
+    expect(previousRunOf("x", runs, 8)).toBeUndefined();
   });
 
   it("removing the active run falls back to the newest one left; Clear empties the history", async () => {
@@ -1179,6 +1550,52 @@ describe("run snapshots", () => {
     expect(snap.project.systems[0].elements.find((e) => e.id === "el-shaft")?.parameterOverrides).toEqual({});
   });
 
+  it("the snapshot keeps what ran the run, and the engine's own list of its live edits", async () => {
+    await start();
+    let finish!: () => void;
+    const handle = { setParam: vi.fn(), cancel: vi.fn(), done: undefined as unknown as Promise<SimResult> };
+    api.validateProject.mockResolvedValue([]);
+    const taken = { t: 12.37, elementId: "el-shaft", key: "efficiency_pct", value: 90 };
+    api.runSimulationLive.mockImplementation((_project, caseId) => {
+      handle.done = new Promise((resolve) => {
+        finish = () =>
+          resolve({
+            caseId, status: "success", messages: [], channels: [], summary: [],
+            engine: "new", engineVersion: "0.1.0", solverOptions: { rtol: 1e-6, atol: 1e-8 },
+            liveEdits: [taken],
+          });
+      });
+      return handle;
+    });
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
+    useProjectStore.setState({ liveT: 12 });
+    store().setParameter("el-shaft", "efficiency_pct", 90);
+    store().setParameter("el-shaft", "ratio", 3); // (one the engine did not make)
+    finish();
+    await running;
+    const snap = store().runs[0].snapshot!;
+    expect(snap.liveEdits).toEqual([taken]); // the engine's times, not the app's guess
+    expect(snap.engine).toBe("new");
+    expect(snap.engineVersion).toBe("0.1.0");
+    expect(snap.solverOptions).toEqual({ rtol: 1e-6, atol: 1e-8 });
+    expect(api.storeRun.mock.calls[0][1].snapshot).toEqual(snap);
+  });
+
+  it("a live edit outside its limits is kept in the model but not sent to the run", async () => {
+    await start();
+    const { handle, finish } = liveRun();
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
+    store().setParameter("el-shaft", "efficiency_pct", 150);
+    expect(findElement("el-shaft")?.parameterOverrides.efficiency_pct).toBe(150);
+    store().setParameter("el-shaft", "efficiency_pct", 95);
+    finish();
+    await running;
+    expect(handle.setParam.mock.calls).toEqual([["el-shaft", "efficiency_pct", 95]]);
+    expect(store().runs[0].snapshot!.liveEdits.map((e) => e.value)).toEqual([95]);
+  });
+
   it("each sweep point's snapshot holds its swept value", async () => {
     await start();
     engineFinishesRuns();
@@ -1190,15 +1607,15 @@ describe("run snapshots", () => {
     expect(store().project!.cases[0].parameterOverrides).toBeUndefined(); // the project is untouched
   });
 
-  it("the model left out of a snapshot is only the project's saved studies", async () => {
+  it("a snapshot keeps the model as it ran, and studies are not in it", async () => {
     await start();
     engineFinishesRuns();
     await store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values: [80] });
-    expect(store().project!.studies).toHaveLength(1);
+    expect(store().studies).toHaveLength(1);
     await store().run();
-    const { studies: _studies, ...model } = store().project!;
+    const model = store().project!;
     expect(store().runs[0].snapshot!.project).toEqual(model);
-    expect(store().runs[0].snapshot!.project.studies).toBeUndefined();
+    expect("studies" in store().runs[0].snapshot!.project).toBe(false);
     expect(api.runSimulationLive.mock.lastCall![0]).toEqual(model); // what the engine ran
   });
 
@@ -1221,6 +1638,20 @@ describe("run snapshots", () => {
     expect(messages().some((m) => m.startsWith("info: Opened the model of run 'Case 2'"))).toBe(true);
   });
 
+  it("a run's model opened says how many live edits the run made, not those it left for the next run", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    const run = store().runs[0];
+    const made = { t: 3, elementId: "el-shaft", key: "efficiency_pct", value: 90 };
+    const later = { ...made, key: "ratio", value: 3, note: "… on the next run [NEW-LIVE-NEXT-RUN]." };
+    useProjectStore.setState({
+      runs: [{ ...run, snapshot: { ...run.snapshot!, liveEdits: [made, later] } }],
+    });
+    store().openRunModel(run.id);
+    expect(messages().some((m) => m.includes("the 1 live edit(s) made during the run"))).toBe(true);
+  });
+
   it("a run stored before runs kept a snapshot cannot be opened as a model", async () => {
     folder("fixture").set("old", {
       id: "old",
@@ -1234,6 +1665,103 @@ describe("run snapshots", () => {
     await settled();
     store().openRunModel("old");
     expect(store().project?.id).toBe("fixture");
+  });
+
+  it("a re-run is named by what changed since the previous run of its case, and stored with it (RES-10)", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    expect(store().runs[0].name).toBeUndefined(); // nothing to compare with: its clock time
+    store().setParameter("el-shaft", "efficiency_pct", 90);
+    await store().run();
+    expect(store().runs[0].name).toBe("Mechanical Efficiency 90 %");
+    expect(api.storeRun.mock.lastCall![1].name).toBe("Mechanical Efficiency 90 %");
+    await store().run();
+    expect(store().runs[0].name).toBeUndefined(); // the same model again
+  });
+
+  it("sweep points keep their swept value; a stopped run is not the one a re-run is named against (RES-10)", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    await store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values: [80, 90] });
+    expect(store().runs.filter((r) => r.sweepId).map((r) => r.name)).toEqual([undefined, undefined]);
+    // after the sweep, a run compares with its last point (90 %)
+    await store().run();
+    expect(store().runs[0].name).toBe("Mechanical Efficiency 100 %");
+
+    // a run the engine cut short
+    api.runSimulationLive.mockImplementation((_project, caseId) => ({
+      setParam: vi.fn(),
+      cancel: vi.fn(),
+      done: Promise.resolve({
+        caseId,
+        status: "cancelled" as const,
+        messages: [{ level: "info" as const, text: "Simulation cancelled by user at t = 7 s." }],
+        channels: [],
+        summary: [],
+      }),
+    }));
+    store().setParameter("el-shaft", "efficiency_pct", 50);
+    await store().run();
+    expect(store().runs[0].incomplete).toBe("stopped at t = 7 s");
+    engineFinishesRuns();
+    store().setParameter("el-shaft", "efficiency_pct", 100);
+    await store().run();
+    expect(store().runs[0].name).toBeUndefined(); // as the complete run before the stopped one
+  });
+
+  it("a run's name and note are edited and stored again; empty removes them; not while running (RES-10)", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    const id = store().runs[0].id;
+    store().editRun(id, { name: "  Heavier  ", note: "n" });
+    expect(store().runs[0]).toMatchObject({ name: "Heavier", note: "n" });
+    expect(api.storeRun.mock.lastCall![1]).toMatchObject({ id, name: "Heavier", note: "n" });
+    const stores = api.storeRun.mock.calls.length;
+    store().editRun(id, { name: "Heavier" }); // no change: not stored again
+    expect(api.storeRun.mock.calls.length).toBe(stores);
+    store().editRun(id, { name: "" });
+    expect(store().runs[0].name).toBeUndefined();
+    expect(store().runs[0].note).toBe("n");
+    expect("name" in api.storeRun.mock.lastCall![1]).toBe(false);
+
+    const { finish } = liveRun();
+    const running = store().run();
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalledTimes(2));
+    store().editRun(id, { note: "while running" });
+    expect(store().runs.find((r) => r.id === id)!.note).toBe("n");
+    finish();
+    await running;
+  });
+});
+
+describe("Results plot choices (RES-19)", () => {
+  it("are kept per project and case in localStorage, and read back at start-up", async () => {
+    const ui = useUIStore.getState();
+    ui.setPlotView("p1", "case-1", { channels: ["el-bat:sig_soc"], view: "table" });
+    ui.setPlotView("p1", "case-1", { xKey: "el-bat:sig_soc", baselineRunId: null });
+    ui.setComparePrevious("p1", false);
+    vi.resetModules();
+    const again = (await import("./uiStore")).useUIStore.getState();
+    expect(again.resultsViews).toEqual({
+      p1: {
+        comparePrevious: false,
+        cases: { "case-1": { channels: ["el-bat:sig_soc"], view: "table", xKey: "el-bat:sig_soc", baselineRunId: null } },
+      },
+    });
+  });
+
+  it("keep the 50 projects changed last", () => {
+    const ui = useUIStore.getState();
+    for (let i = 0; i <= 50; i++) ui.setPlotView(`p${i}`, "c", { view: "table" });
+    ui.setComparePrevious("p1", false);
+    const ids = Object.keys(useUIStore.getState().resultsViews);
+    expect(ids).toHaveLength(50);
+    expect(ids[0]).toBe("p2");
+    expect(ids.at(-1)).toBe("p1");
+    expect(JSON.parse(localStorage.getItem("lightsim-results-view-v1")!).p0).toBeUndefined();
   });
 });
 
@@ -1259,11 +1787,12 @@ describe("studies", () => {
     });
   }
 
-  it("a finished sweep is saved with the project as a study with its results table", async () => {
+  it("a finished sweep is kept with the runs as a study with its results table", async () => {
     await start();
     engineAnswers();
+    const before = store().project;
     await sweep([80, 95]);
-    const [study] = store().project!.studies!;
+    const [study] = store().studies;
     const runIds = store()
       .runs.slice()
       .reverse()
@@ -1297,20 +1826,20 @@ describe("studies", () => {
       ],
     });
     expect(study.id).toBe(store().runs[0].sweepId);
-    // part of the project, so it is saved (and kept in the recovery draft) with it
-    expect(store().dirty).toBe(true);
-    expect(store().past).toHaveLength(0); // not an edit to undo
-    await store().saveRemote();
-    expect(api.saveProject.mock.calls[0][0].studies).toEqual([study]);
+    // PLT-34: stored with the runs; the model is untouched, so nothing to save
+    expect(api.storeStudy).toHaveBeenCalledWith("fixture", study);
+    expect(store().project).toBe(before);
+    expect(store().dirty).toBe(false);
+    expect(store().past).toHaveLength(0);
   });
 
   it("a second 16-point sweep leaves the first study's table intact", async () => {
     await start();
     engineAnswers();
     await sweep(range(16, 60));
-    const first = structuredClone(store().project!.studies![0]);
+    const first = structuredClone(store().studies[0]);
     await sweep(range(16, 80));
-    const studies = store().project!.studies!;
+    const studies = store().studies;
     expect(studies).toHaveLength(2);
     expect(studies[0]).toEqual(first);
     expect(studies[1].points.map((p) => p.kpis.Energy)).toEqual(range(16, 80).map((v) => v * 2));
@@ -1340,7 +1869,7 @@ describe("studies", () => {
     await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
     store().stopRun();
     await running;
-    expect(store().project!.studies![0].points).toEqual([
+    expect(store().studies[0].points).toEqual([
       expect.objectContaining({ values: [80], status: "cancelled", incomplete: "stopped at t = 3 s" }),
       { values: [90], status: "not run", kpis: {} },
       { values: [95], status: "not run", kpis: {} },
@@ -1386,7 +1915,7 @@ describe("studies", () => {
       }),
     }));
     await sweep([80]);
-    expect(store().project!.studies![0].points[0].kpis).toEqual({ Energy: 1 });
+    expect(store().studies[0].points[0].kpis).toEqual({ Energy: 1 });
   });
 
   it("undo and redo leave studies alone; a study can be deleted", async () => {
@@ -1394,25 +1923,605 @@ describe("studies", () => {
     engineAnswers();
     store().renameElement("el-bat", "Pack");
     await sweep([80, 90]);
-    const studies = store().project!.studies;
+    const studies = store().studies;
     store().undo();
     expect(findElement("el-bat")?.label).toBe("Battery");
-    expect(store().project!.studies).toBe(studies);
+    expect(store().studies).toBe(studies);
     store().redo();
-    expect(store().project!.studies).toBe(studies);
+    expect(store().studies).toBe(studies);
 
-    store().removeStudy(studies![0].id);
-    expect(store().project!.studies).toEqual([]);
+    store().removeStudy(studies[0].id);
+    expect(store().studies).toEqual([]);
+    expect(api.deleteStudy).toHaveBeenCalledWith("fixture", studies[0].id);
     expect(store().runs).toHaveLength(2); // its runs stay in the history
   });
 
-  it("a study saved with a project comes back when it is opened again", async () => {
+  it("a project's studies come back from the run store when it is opened again", async () => {
     await start();
     engineAnswers();
     await sweep([80, 90]);
     const saved = store().project!;
+    const studies = structuredClone(store().studies);
     api.fetchProject.mockResolvedValue(structuredClone(saved));
+    api.listStudies.mockResolvedValue(studies);
     await store().openProject(saved.id);
-    expect(store().project!.studies).toEqual(saved.studies);
+    await vi.waitFor(() => expect(store().studies).toEqual(studies));
+  });
+
+  it("studies in an old file or draft move to the run store (PLT-34)", async () => {
+    await start();
+    const old = { ...fixture({ id: "old" }), studies: [{ id: "s-old", startedAt: 1, caseId: "case-1", caseName: "C", factors: [], kpis: [], points: [] }] };
+    api.upgradeProject.mockImplementation(async (raw) => {
+      const { studies, ...project } = raw as typeof old;
+      return { project, studies, upgradedFrom: 1, readOnly: null };
+    });
+    await store().importProject(JSON.stringify(old));
+    expect("studies" in store().project!).toBe(false);
+    expect(store().studies.map((s) => s.id)).toEqual(["s-old"]);
+    expect(api.storeStudy).toHaveBeenCalledWith("old", old.studies[0]);
+  });
+});
+
+describe("drive cycles (CON-16)", () => {
+  const withTask = (...extra: ElementInstance[]) =>
+    fixture({
+      systems: [
+        {
+          id: "sys-root",
+          name: "F",
+          parentId: null,
+          elements: [el("t1", "signal.driving_task", "Task"), ...extra],
+          connections: [],
+        },
+      ],
+      cases: [
+        { id: "c1", name: "City", duration: 600, timeStep: 1 },
+        { id: "c2", name: "Own profile", duration: 300, timeStep: 1, parameterOverrides: { t1: { profile: "0:0; 300:0" } } },
+        { id: "c3", name: "Launch", duration: 20, timeStep: 1, kind: "performance" },
+        { id: "c4", name: "75 m", duration: 25, timeStep: 0.01, kind: "acceleration", endDistance: 75 },
+        { id: "c5", name: "Autocross", duration: 600, timeStep: 1, kind: "lap" },
+      ],
+    });
+  async function open(project = withTask()) {
+    await store().init();
+    api.fetchProject.mockResolvedValueOnce(project);
+    await store().openProject("fixture");
+  }
+  const durations = () => store().project!.cases.map((c) => c.duration);
+
+  it("a cycle on the part sets the length of the cycle cases that drive it, in one undo step", async () => {
+    await open();
+    expect(store().cycles.map((c) => c.id)).toEqual(["wltc-3b"]);
+    store().setDrivingCycle("t1", "wltc-3b");
+    expect(findElement("t1")!.parameterOverrides.cycle).toBe("wltc-3b");
+    // the case with its own profile and the performance, acceleration and
+    // lap cases keep theirs
+    expect(durations()).toEqual([1800, 300, 20, 25, 600]);
+    expect(messages().at(-1)).toBe("info: 'City' now runs 1,800 s, the length of WLTC class 3b.");
+    store().undo();
+    expect(findElement("t1")!.parameterOverrides.cycle).toBeUndefined();
+    expect(durations()).toEqual([600, 300, 20, 25, 600]);
+  });
+
+  it("a case's own cycle changes only that case", async () => {
+    await open();
+    store().setDrivingCycle("t1", "wltc-3b", "c2");
+    expect(store().project!.cases[1].parameterOverrides!.t1).toEqual({ profile: "0:0; 300:0", cycle: "wltc-3b" });
+    expect(findElement("t1")!.parameterOverrides.cycle).toBeUndefined();
+    expect(durations()).toEqual([600, 1800, 20, 25, 600]);
+  });
+
+  it("back to the typed profile keeps the case lengths", async () => {
+    await open();
+    store().setDrivingCycle("t1", "wltc-3b");
+    store().setDrivingCycle("t1", "");
+    expect(findElement("t1")!.parameterOverrides.cycle).toBe("");
+    expect(durations()).toEqual([1800, 300, 20, 25, 600]);
+  });
+
+  it("with two Driving Tasks the case lengths stay, since a case may drive the other", async () => {
+    await open(withTask(el("t2", "signal.driving_task", "Other task")));
+    store().setDrivingCycle("t1", "wltc-3b");
+    expect(findElement("t1")!.parameterOverrides.cycle).toBe("wltc-3b");
+    expect(durations()).toEqual([600, 300, 20, 25, 600]);
+  });
+});
+
+describe("project files (PLT-07, PLT-33, STD-02)", () => {
+  /** Answer the open confirm dialog. */
+  async function answer(title: RegExp, yes: boolean) {
+    await vi.waitFor(() => expect(useUIStore.getState().dialog?.title).toMatch(title));
+    useUIStore.getState().dialog!.resolve(yes);
+    useUIStore.getState().closeDialog(); // as DialogHost does
+  }
+
+  it("a newer LightSim's file opens read-only and Save refuses", async () => {
+    await store().init();
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1", readOnly: "Saved by LightSim 0.9.0." });
+    await store().openProject("fixture");
+    expect(store().readOnly).toBe("Saved by LightSim 0.9.0.");
+    expect("readOnly" in store().project!).toBe(false);
+    store().renameElement("el-bat", "Pack");
+    await store().saveRemote();
+    expect(api.saveProject).not.toHaveBeenCalled();
+    expect(messages()).toContain("error: Not saved: Saved by LightSim 0.9.0.");
+  });
+
+  it("a file outside the projects folder says where it is and is saved there", async () => {
+    await store().init();
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1", filePath: "/repo/car.lightsim", upgradedFrom: 1 });
+    await store().openProject("fixture");
+    expect(store().filePath).toBe("/repo/car.lightsim");
+    expect(messages().some((m) => m.includes("older file format (1)"))).toBe(true);
+    api.saveProject.mockResolvedValueOnce({ saved: "fixture", revision: "r2" });
+    store().renameElement("el-bat", "Pack");
+    await store().saveRemote();
+    expect(api.saveProject.mock.lastCall![0]).not.toHaveProperty("filePath");
+    expect(messages()).toContain("info: Project 'Fixture' saved to /repo/car.lightsim.");
+  });
+
+  it("keeps an old file's studies for the session when they cannot be stored with its runs", async () => {
+    await store().init();
+    const study = { id: "sweep-1", startedAt: 1, caseId: "c", factors: [], kpis: [], points: [] } as unknown as Study;
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1", upgradedFrom: 1, unstoredStudies: [study] });
+    await store().openProject("fixture");
+    expect(store().studies.map((s) => s.id)).toEqual(["sweep-1"]);
+    expect(store().project).not.toHaveProperty("unstoredStudies");
+    expect(messages().some((m) => m.startsWith("warning: 1 parameter study of 'Fixture' could not be stored"))).toBe(true);
+  });
+
+  it("Save As saves under the id the shell gives and points at the new file", async () => {
+    await start();
+    const saveFileAs = vi.fn().mockResolvedValue({ id: "fixture-a1b2c3", path: "/repo/copy.lightsim", name: "copy" });
+    window.lightsimDesktop = { openFile: vi.fn(), saveFileAs, openDroppedFile: vi.fn(), showFile: vi.fn() };
+    try {
+      api.saveProject.mockResolvedValueOnce({ saved: "fixture-a1b2c3", revision: "r9" });
+      expect(await store().saveAs()).toBe(true);
+      expect(saveFileAs).toHaveBeenCalledWith("fixture", "Fixture");
+      expect(api.saveProject).toHaveBeenCalledWith(expect.objectContaining({ id: "fixture-a1b2c3" }));
+      expect(store()).toMatchObject({ filePath: "/repo/copy.lightsim", revision: "r9", dirty: false });
+      expect(store().project!.id).toBe("fixture-a1b2c3");
+      saveFileAs.mockResolvedValueOnce(null); // cancelled
+      expect(await store().saveAs()).toBe(false);
+      // a file from a newer LightSim is read-only: no Save As either
+      saveFileAs.mockClear();
+      useProjectStore.setState({ readOnly: "This project was saved by LightSim 9.0.0." });
+      expect(await store().saveAs()).toBe(false);
+      expect(saveFileAs).not.toHaveBeenCalled();
+      expect(messages()).toContain("error: Not saved: This project was saved by LightSim 9.0.0.");
+    } finally {
+      delete window.lightsimDesktop;
+    }
+  });
+
+  it("a change on disk offers a reload, once per version", async () => {
+    await store().init();
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    await store().openProject("fixture");
+    api.fetchRevision.mockResolvedValue("r1");
+    await store().checkDisk();
+    expect(useUIStore.getState().dialog).toBeNull();
+    api.fetchRevision.mockResolvedValue("r2"); // a git pull
+    api.fetchProject.mockResolvedValueOnce({ ...fixture({ name: "Pulled" }), revision: "r2" });
+    const check = store().checkDisk();
+    await answer(/changed on disk/, true);
+    await check;
+    expect(store().project!.name).toBe("Pulled");
+    expect(store().revision).toBe("r2");
+    api.fetchRevision.mockResolvedValue("r3");
+    const again = store().checkDisk();
+    await answer(/changed on disk/, false);
+    await again;
+    await store().checkDisk(); // not asked twice about r3
+    expect(useUIStore.getState().dialog).toBeNull();
+  });
+
+  it("attached code from outside is run only once the user trusts it, and asked about once", async () => {
+    await store().init();
+    // an attached FMU (Script blocks have their own review, PLT-35)
+    const attachments = [{ path: "resources/motor.fmu", sha256: "a".repeat(64), bytes: 2048 }];
+    api.fetchProject.mockResolvedValueOnce({ ...fixture({ attachments }), revision: "r1" });
+    await store().openProject("fixture");
+    engineFinishesRuns();
+    const run = store().run();
+    await answer(/Run this project's code/, false);
+    await run;
+    expect(api.runSimulationLive).not.toHaveBeenCalled();
+    const again = store().run();
+    await answer(/Run this project's code/, true);
+    await again;
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    expect(api.trustFingerprint).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f]{64}$/));
+    // the user's own edits to a trusted project run without asking
+    store().renameElement("el-bat", "Pack");
+    await store().run();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(2);
+    expect(useUIStore.getState().dialog).toBeNull();
+  });
+
+  it("an attached file replaced on disk asks again, even in a trusted project", async () => {
+    await store().init();
+    const attachments = [{ path: "resources/motor.fmu", sha256: "a".repeat(64), bytes: 2048 }];
+    const onDisk = (sha256: string) => [{ path: "resources/motor.fmu", name: "motor.fmu", sha256, bytes: 2048, kind: "fmu" }];
+    api.listAttachments.mockResolvedValue(onDisk("a".repeat(64)));
+    api.fetchProject.mockResolvedValueOnce({ ...fixture({ attachments }), revision: "r1" });
+    await store().openProject("fixture");
+    engineFinishesRuns();
+    const first = store().run();
+    await answer(/Run this project's code/, true);
+    await first;
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    const trusted = api.trustFingerprint.mock.calls[0][0];
+    // a git pull replaces motor.fmu; the project file still records the old one
+    api.listAttachments.mockResolvedValue(onDisk("b".repeat(64)));
+    const second = store().run();
+    await vi.waitFor(() => expect(useUIStore.getState().dialog?.message).toMatch(/motor\.fmu \(changed since it was attached\)/));
+    await answer(/Run this project's code/, false);
+    await second;
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+    const third = store().run();
+    await answer(/Run this project's code/, true);
+    await third;
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(2);
+    expect(api.trustFingerprint.mock.calls.at(-1)![0]).not.toBe(trusted);
+  });
+
+  it("asks, rather than runs, when no fingerprint can be made", async () => {
+    await store().init();
+    const attachments = [{ path: "resources/motor.fmu", sha256: "a".repeat(64), bytes: 2048 }];
+    api.fetchProject.mockResolvedValueOnce({ ...fixture({ attachments }), revision: "r1" });
+    await store().openProject("fixture");
+    engineFinishesRuns();
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValue(new Error("no Web Crypto"));
+    try {
+      const run = store().run();
+      await answer(/Run this project's code/, false);
+      await run;
+      expect(api.runSimulationLive).not.toHaveBeenCalled();
+      expect(api.trustFingerprint).not.toHaveBeenCalled();
+    } finally {
+      digest.mockRestore();
+    }
+  });
+
+  it("a project without code, or an example, runs without asking", async () => {
+    await start();
+    engineFinishesRuns();
+    await store().run();
+    expect(api.isTrusted).not.toHaveBeenCalled();
+    expect(api.runSimulationLive).toHaveBeenCalledTimes(1);
+  });
+
+  it("an attached file is listed in the project; removing it deletes the file", async () => {
+    await start();
+    api.uploadAttachment.mockResolvedValue({ path: "resources/motor.fmu", name: "motor.fmu", sha256: "a".repeat(64), bytes: 2048, kind: "fmu" });
+    api.deleteAttachment.mockResolvedValue({ deleted: "motor.fmu" });
+    const path = await store().attachFile(new File(["x"], "motor.fmu"));
+    expect(path).toBe("resources/motor.fmu");
+    expect(store().project!.attachments).toEqual([{ path: "resources/motor.fmu", sha256: "a".repeat(64), bytes: 2048 }]);
+    expect(store().dirty).toBe(true);
+    await store().detachFile("resources/motor.fmu");
+    expect(store().project!.attachments).toEqual([]);
+    expect(api.deleteAttachment).toHaveBeenCalledWith("fixture", "motor.fmu");
+  });
+});
+
+describe("the end of a run or sweep (UX-21, STU-16, STU-17)", () => {
+  const tab = () => useUIStore.getState().ribbonTab;
+  const sweep = (values: number[]) =>
+    store().runSweep({ caseId: "case-1", elementId: "el-shaft", paramKey: "efficiency_pct", values });
+  /** The engine ends every run with `status` (and the message a stop gives). */
+  function engineEnds(status: SimResult["status"]) {
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId) => ({
+      setParam: vi.fn(),
+      cancel: vi.fn(),
+      done: Promise.resolve({
+        caseId,
+        status,
+        messages: status === "cancelled" ? [{ level: "info" as const, text: "Simulation cancelled by user at t = 7 s." }] : [],
+        channels: [],
+        summary: [{ label: "Energy", value: 1, unit: "kWh" }],
+      }),
+    }));
+  }
+
+  it("a run leaves the page as it is and says how it ended; its button opens Results", async () => {
+    const { followNotice } = await import("./projectStore");
+    await start();
+    engineFinishesRuns();
+    useUIStore.getState().setRibbonTab("home");
+    await store().run();
+    expect(tab()).toBe("home");
+    expect(store().finishNotice).toMatchObject({ level: "info", text: "'Case 1' finished: success.", show: "results" });
+    followNotice("show");
+    expect(tab()).toBe("results");
+    expect(store().finishNotice).toBeNull();
+  });
+
+  it("opens Results by itself when the user asked for that, and keeps a run started there on it", async () => {
+    await start();
+    engineFinishesRuns();
+    useUIStore.getState().setRibbonTab("simulations");
+    useUIStore.getState().setResultsAfterRun(true);
+    expect(localStorage.getItem("lightsim-results-after-run")).toBe("1");
+    await store().run();
+    expect(tab()).toBe("results");
+    expect(store().finishNotice?.text).toBe("'Case 1' finished: success."); // said, with the setting to turn off
+    useUIStore.getState().setResultsAfterRun(false);
+    await store().run(); // started on Results: stays there, the run in view
+    expect(tab()).toBe("results");
+    expect(store().finishNotice).toBeNull();
+  });
+
+  it("a stopped, a warning and a failed run say so; a failure does not leave the Results page", async () => {
+    await start();
+    useUIStore.getState().setRibbonTab("simulations");
+    engineEnds("cancelled");
+    await store().run();
+    expect(store().finishNotice).toMatchObject({ level: "warning", text: "'Case 1' stopped at t = 7 s.", show: "results" });
+    engineEnds("warning");
+    await store().run();
+    expect(store().finishNotice).toMatchObject({ level: "warning", text: "'Case 1' finished with warnings." });
+    engineEnds("failed");
+    useUIStore.getState().setRibbonTab("results");
+    await store().run();
+    expect(store().finishNotice).toMatchObject({ level: "error", text: "'Case 1' failed: see Messages.", show: "messages" });
+    expect(tab()).toBe("results");
+    // its button goes to Messages, on the model's page
+    const { followNotice } = await import("./projectStore");
+    followNotice("show");
+    expect(tab()).toBe("home");
+  });
+
+  it("the next run, going to Results and another project put a notice away", async () => {
+    await start();
+    engineFinishesRuns();
+    useUIStore.getState().setRibbonTab("home");
+    await store().run();
+    const first = store().finishNotice!;
+    const { finish } = (() => {
+      let done!: () => void;
+      api.runSimulationLive.mockImplementation((_project, caseId) => ({
+        setParam: vi.fn(),
+        cancel: vi.fn(),
+        done: new Promise<SimResult>((resolve) => {
+          done = () => resolve({ caseId, status: "success", messages: [], channels: [], summary: [] });
+        }),
+      }));
+      return { finish: () => done() };
+    })();
+    const running = store().run();
+    expect(store().finishNotice).toBeNull(); // as the next run starts
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalledTimes(2));
+    finish();
+    await running;
+    expect(store().finishNotice!.seq).toBeGreaterThan(first.seq); // a new notice, said again
+    useUIStore.getState().setRibbonTab("results");
+    expect(store().finishNotice).toBeNull();
+
+    useUIStore.getState().setRibbonTab("home");
+    engineFinishesRuns();
+    await store().run();
+    expect(store().finishNotice).not.toBeNull();
+    api.fetchProject.mockResolvedValueOnce(fixture({ id: "other", name: "Other" }));
+    await store().openProject("other");
+    expect(store().finishNotice).toBeNull();
+  });
+
+  it("a sweep shows its progress, stays on the page and offers its results and its study's charts", async () => {
+    const { followNotice } = await import("./projectStore");
+    await start();
+    engineFinishesRuns();
+    useUIStore.getState().setRibbonTab("home");
+    const seen: [number, number][] = [];
+    const unsub = useProjectStore.subscribe((s) => {
+      const p = s.sweepProgress;
+      if (p && seen.at(-1)?.[0] !== p.done) seen.push([p.done, p.total]);
+    });
+    await sweep([80, 90, 95]);
+    unsub();
+    expect(seen).toEqual([
+      [0, 3],
+      [1, 3],
+      [2, 3],
+      [3, 3],
+    ]);
+    expect(store().sweepProgress).toBeNull();
+    expect(tab()).toBe("home");
+    const studyId = store().studies[0].id;
+    expect(store().finishNotice).toMatchObject({
+      level: "info",
+      text: "Sweep finished: 3 of 3 points complete.",
+      show: "results",
+      studyId,
+    });
+    // the family is overlaid, ready on the Results page
+    expect(store().overlayRunIds).toHaveLength(2);
+    // the newest study is the one the Study view shows
+    expect(useUIStore.getState().resultsViews.fixture.study).toBe(studyId);
+
+    followNotice("study");
+    expect(tab()).toBe("results");
+    const caseId = store().runs.find((r) => r.id === store().activeRunId)!.caseId;
+    expect(useUIStore.getState().resultsViews.fixture.cases?.[caseId]?.view).toBe("study");
+    // a new run of the case is shown as a chart
+    await store().run();
+    expect(useUIStore.getState().resultsViews.fixture.cases?.[caseId]?.view).toBe("chart");
+  });
+
+  it("a stopped sweep says how many points are complete", async () => {
+    await start();
+    api.validateProject.mockResolvedValue([]);
+    api.runSimulationLive.mockImplementation((_project, caseId) => {
+      let stop!: () => void;
+      const done = new Promise<SimResult>((resolve) => {
+        stop = () =>
+          resolve({
+            caseId,
+            status: "cancelled",
+            messages: [{ level: "info", text: "Simulation cancelled by user at t = 3 s." }],
+            channels: [],
+            summary: [],
+          });
+      });
+      return { setParam: vi.fn(), cancel: vi.fn(() => stop()), done };
+    });
+    const running = sweep([80, 90, 95]);
+    await vi.waitFor(() => expect(api.runSimulationLive).toHaveBeenCalled());
+    store().stopRun();
+    await running;
+    expect(store().finishNotice).toMatchObject({ level: "warning", text: "Sweep stopped: 0 of 3 points complete." });
+  });
+
+  it("a sweep that cannot start says so and leads to Messages", async () => {
+    await start();
+    engineFinishesRuns();
+    api.runStudyLive.mockImplementationOnce(() => ({
+      cancel: vi.fn(),
+      done: Promise.reject(new Error("Study connection failed — is the backend running?")),
+    }));
+    await sweep([80, 90]);
+    expect(store().finishNotice).toMatchObject({ level: "error", text: "Sweep failed: see Messages.", show: "messages" });
+    expect(store().sweepProgress).toBeNull();
+    expect(store().running).toBe(false);
+  });
+});
+
+describe("an AI agent's edits in the open window (step 6)", () => {
+  const agentEntry = {
+    id: "h1",
+    t: 1,
+    by: "agent" as const,
+    tool: "model_edit",
+    client: "claude-code",
+    session: "s1",
+    reason: "heavier pack",
+    changes: ['"Pack": Mass 300 kg'],
+    to: "r2",
+  };
+  const conflict409 = () => Object.assign(new Error("409 changed"), { status: 409 });
+
+  async function openSaved(): Promise<void> {
+    await store().init();
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    await store().openProject("fixture");
+  }
+
+  /** The window's copy with the agent's change laid over it, as the engine returns it. */
+  function merged(label: string): Project {
+    const p = structuredClone(store().project!);
+    p.systems[0].elements.find((e) => e.id === "el-bat")!.label = label;
+    p.name = "Renamed by the agent";
+    return p;
+  }
+
+  it("an agent's save shows at once, over the window's unsaved change, with no dialog", async () => {
+    await openSaved();
+    store().renameElement("el-bat", "Mine");
+    const before = store().project!;
+    api.fetchRevision.mockResolvedValue("r2");
+    api.rebaseProject.mockResolvedValueOnce({ project: merged("Mine"), revision: "r2", entries: [agentEntry], conflicts: [] });
+    await store().checkDisk();
+    expect(api.rebaseProject).toHaveBeenCalledWith(before, "r1");
+    expect(useUIStore.getState().dialog).toBeNull();
+    expect(store()).toMatchObject({ revision: "r2", dirty: true });
+    expect(store().project!.name).toBe("Renamed by the agent");
+    expect(store().project!.systems[0].elements.find((e) => e.id === "el-bat")!.label).toBe("Mine");
+    expect(store().past[store().past.length - 1]).toBe(before); // one undo step in the window
+    expect(store().agentChange).toMatchObject({ projectId: "fixture", entry: { id: "h1" }, sessionCount: 1 });
+    expect(messages()).toContain("info: AI change by claude-code: heavier pack");
+  });
+
+  it("a save refused because an agent saved first lays that save over the copy and saves again", async () => {
+    await openSaved();
+    store().renameElement("el-bat", "Mine");
+    api.saveProject.mockRejectedValueOnce(conflict409()).mockResolvedValueOnce({ saved: "fixture", revision: "r3" });
+    api.rebaseProject.mockResolvedValueOnce({ project: merged("Mine"), revision: "r2", entries: [agentEntry], conflicts: [] });
+    await store().saveRemote();
+    expect(useUIStore.getState().dialog).toBeNull();
+    expect(api.saveProject).toHaveBeenCalledTimes(2);
+    const [second, base] = api.saveProject.mock.calls[1];
+    expect(base).toBe("r2");
+    expect(second.name).toBe("Renamed by the agent"); // the agent's change is kept
+    expect(second.systems[0].elements.find((e) => e.id === "el-bat")!.label).toBe("Mine"); // and so is mine
+    expect(store()).toMatchObject({ revision: "r3", dirty: false });
+  });
+
+  it("a value both changed is shown as the file has it and not saved over unasked", async () => {
+    await openSaved();
+    store().renameElement("el-bat", "Mine");
+    api.saveProject.mockRejectedValueOnce(conflict409());
+    api.rebaseProject.mockResolvedValueOnce({
+      project: merged("Agent's"),
+      revision: "r2",
+      entries: [agentEntry],
+      conflicts: ["systems/sys-root/elements/el-bat/label"],
+    });
+    await store().saveRemote();
+    expect(api.saveProject).toHaveBeenCalledTimes(1);
+    expect(store()).toMatchObject({ revision: "r2", dirty: true });
+    expect(messages().some((m) => m.startsWith("warning: 1 value(s) you had changed"))).toBe(true);
+    store().undo(); // brings the window's own value back
+    expect(store().project!.systems[0].elements.find((e) => e.id === "el-bat")!.label).toBe("Mine");
+  });
+
+  it("a project an agent changed while it was not open offers the same undo when opened", async () => {
+    await store().init();
+    api.fetchHistory.mockResolvedValueOnce([
+      { ...agentEntry, id: "h3", to: "r1" },
+      { ...agentEntry, id: "h2", to: "r0" },
+      { ...agentEntry, id: "h0", session: "older", to: "r-1" },
+    ]);
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    await store().openProject("fixture");
+    await vi.waitFor(() => expect(store().agentChange).not.toBeNull());
+    expect(store().agentChange).toMatchObject({ entry: { id: "h3" }, sessionCount: 2 });
+    // one the window saved over, or undone, is not offered
+    api.fetchHistory.mockResolvedValueOnce([{ ...agentEntry, id: "h4", to: "r1", undone: true }]);
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    useProjectStore.setState({ agentChange: null });
+    await store().openProject("fixture");
+    await settled();
+    expect(store().agentChange).toBeNull();
+  });
+
+  it("a project an agent made (an edit of an example) offers no undo the engine would refuse", async () => {
+    await store().init();
+    api.fetchHistory.mockResolvedValueOnce([{ ...agentEntry, id: "h9", to: "r1", from: null, undoable: false, undone: false }]);
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    await store().openProject("fixture");
+    await settled();
+    expect(store().agentChange).toBeNull();
+    // a later change of the same session is offered, counting only what can be undone
+    api.fetchHistory.mockResolvedValueOnce([
+      { ...agentEntry, id: "h10", to: "r1", undoable: true },
+      { ...agentEntry, id: "h9", to: "r0", from: null, undoable: false },
+    ]);
+    api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1" });
+    await store().openProject("fixture");
+    await vi.waitFor(() => expect(store().agentChange).not.toBeNull());
+    expect(store().agentChange).toMatchObject({ entry: { id: "h10" }, sessionCount: 1 });
+  });
+
+  it("one click undoes the agent's change, or its whole session, in the file", async () => {
+    await openSaved();
+    api.fetchRevision.mockResolvedValue("r2");
+    api.rebaseProject.mockResolvedValueOnce({ project: merged("Pack"), revision: "r2", entries: [agentEntry], conflicts: [] });
+    await store().checkDisk();
+    api.undoChange.mockResolvedValue({ revision: "r3", undid: ["h1"], conflicts: [] });
+    api.fetchRevision.mockResolvedValue("r3");
+    api.rebaseProject.mockResolvedValueOnce({
+      project: fixture(),
+      revision: "r3",
+      entries: [{ ...agentEntry, id: "h2", by: "app", tool: "undo", reason: "Undo: heavier pack", to: "r3" }],
+      conflicts: [],
+    });
+    await store().undoAgentChange("session");
+    expect(api.undoChange).toHaveBeenCalledWith("fixture", { session: "s1" });
+    expect(store().agentChange).toBeNull();
+    expect(store()).toMatchObject({ revision: "r3", dirty: false });
+    expect(store().project!.name).toBe("Fixture");
+    expect(messages()).toContain("info: Undone in the file: 1 change(s) by claude-code.");
   });
 });

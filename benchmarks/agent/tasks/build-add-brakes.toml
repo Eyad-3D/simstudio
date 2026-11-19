@@ -1,0 +1,68 @@
+id = "build-add-brakes"
+kind = "build"
+version = 1
+title = "Fit friction brakes to a hatchback model and set the regeneration share"
+statement = """
+car.json models our electric hatchback, but the friction brakes were left out
+of it: the four wheels have none, and the driver's brake command goes
+nowhere. Fit them and save the model in car.json:
+
+- one LightSim Brake part on each of the four wheels, each driven by the
+  driver's brake command, and each on the same shaft as its wheel (the
+  front wheels hang off the nodes after the differential; the rear wheels
+  are not driven);
+- this version has no regenerative braking: set the driver's regeneration
+  share to 0 %, so that the friction brakes do all the braking;
+- brakes of LightSim's default size.
+
+Change nothing else. The model must pass LightSim's Data Checks with no errors
+or warnings. The case "City Cycle" shows the result.
+"""
+
+# The Battery Electric Car example without its four brakes (their wires and
+# signals go with them); its driver regenerates with a 98 % share.
+[[start]]
+file = "car.json"
+from = "example:bev-car"
+name = "Compact hatchback"
+ops = [
+  { op = "remove", element = "Brake FL" },
+  { op = "remove", element = "Brake FR" },
+  { op = "remove", element = "Brake RL" },
+  { op = "remove", element = "Brake RR" },
+]
+
+[reference]
+file = "car.json"
+ops = [
+  { op = "add", type = "mech.brake", label = "Brake FL" },
+  { op = "add", type = "mech.brake", label = "Brake FR" },
+  { op = "add", type = "mech.brake", label = "Brake RL" },
+  { op = "add", type = "mech.brake", label = "Brake RR" },
+  { op = "connect", from = "Node FL:f2", to = "Brake FL:flange" },
+  { op = "connect", from = "Node FR:f2", to = "Brake FR:flange" },
+  { op = "connect", from = "Brake RL:flange", to = "Wheel RL:shaft" },
+  { op = "connect", from = "Brake RR:flange", to = "Wheel RR:shaft" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FL:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake FR:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake RL:sig_demand_in" },
+  { op = "connect", from = "Driver:sig_brake_cmd", to = "Brake RR:sig_demand_in" },
+  { op = "set", element = "Driver", param = "regen_weight_pct", value = 0 },
+]
+
+# Brakes fitted, the driver left regenerating.
+[wrong]
+file = "car.json"
+base = "reference"
+ops = [{ op = "set", element = "Driver", param = "regen_weight_pct", value = 98 }]
+
+[check]
+file = "car.json"
+case = "City Cycle"
+params = [{ type = "driver.driver", key = "regen_weight_pct", value = 0 }]
+figures = [
+  { key = "distance_km", rtol = 0.005 },
+  { key = "consumption_kwh_per_100km", rtol = 0.01 },
+  { key = "*.energy_recuperated_kwh", atol = 0.005 },
+  { key = "*.final_soc_pct", atol = 0.1 },
+]

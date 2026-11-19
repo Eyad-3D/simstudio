@@ -26,7 +26,7 @@ jobs:
     name: Backend (lint + tests)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -37,13 +37,42 @@ jobs:
         working-directory: backend
         run: python -m pip install -r requirements-dev.txt ruff
 
+      # The optional FMU pack (STD-01) and the Modelica Association's
+      # Reference FMUs (BSD-2-Clause), which tests/test_fmu.py runs against
+      # FMPy's own results.
+      - name: Install the FMU pack and the Reference FMUs
+        working-directory: backend
+        run: |
+          python -m pip install -r requirements-fmu.txt
+          python -m pip install --no-deps "fmpy==0.3.32"
+          curl -fsSL -o "$RUNNER_TEMP/reference-fmus.zip" \
+            https://github.com/modelica/Reference-FMUs/releases/download/v0.0.39/Reference-FMUs-0.0.39.zip
+          python -m zipfile -e "$RUNNER_TEMP/reference-fmus.zip" "$RUNNER_TEMP/reference-fmus"
+          echo "LIGHTSIM_REFERENCE_FMUS=$RUNNER_TEMP/reference-fmus" >> "$GITHUB_ENV"
+
       - name: Lint
         working-directory: backend
         run: ruff check .
 
-      # scripts/ has no ruff settings of its own: hold it to the backend's.
+      # scripts/ and benchmarks/ have no ruff settings of their own: hold
+      # them to the backend's.
       - name: Lint scripts
-        run: ruff check --config backend/pyproject.toml scripts/
+        run: ruff check --config backend/pyproject.toml scripts/ benchmarks/
+
+      # The new engine's module (the Rust module lightsim_engine), built
+      # as the desktop build does (desktop-build.yml): the app runs every
+      # case on it, with no fall-back, so the tests need it.
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
 
       - name: Tests
         working-directory: backend
@@ -51,6 +80,15 @@ jobs:
         env:
           GOLDEN_REPORT: ${{ runner.temp }}/golden-report.md
         run: python -m pytest tests/ -q
+
+      # LightSim's own CI uses its command-line tool (AI-02): every example
+      # passes its Data Checks, and the electric car's City Cycle is a valid
+      # run (exit 0; 1 checks failed, 2 run not valid, 3 usage error).
+      - name: Command-line tool on the examples
+        working-directory: backend
+        run: |
+          for p in projects/*.json; do python -m lightsim check "$p"; done
+          python -m lightsim run projects/bev-car.json --case "City Cycle" --json -o "$RUNNER_TEMP/city.mat" > "$RUNNER_TEMP/city.json"
 
       # What the golden fixtures saw on this run: which headline numbers and
       # channels moved, old -> new and against which band
@@ -64,14 +102,16 @@ jobs:
               || echo "No report: the tests did not reach the golden fixtures."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Script blocks run in a worker process that Windows starts its own way (a
-  # loopback socket pair, and a job object the engine holds). Run the worker's
-  # tests and the example cars, whose hybrid has a Script block, there too.
+  # LightSim targets Windows only for now (the owner's decision, 10 October
+  # 2026), so every backend test runs on Windows too: Script blocks run in a
+  # worker process that Windows starts its own way (a loopback socket pair, a
+  # job object the engine holds, low integrity), and a pipe gets the ANSI
+  # code page.
   backend-windows:
-    name: Backend on Windows (script process)
+    name: Backend on Windows (all tests)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -82,9 +122,185 @@ jobs:
         working-directory: backend
         run: python -m pip install -r requirements-dev.txt
 
+      # FMUs run in a worker process too (STD-01): the Reference FMUs' Windows
+      # code through that worker, against FMPy's own results.
+      - name: Install the FMU pack and the Reference FMUs
+        working-directory: backend
+        shell: bash
+        run: |
+          python -m pip install -r requirements-fmu.txt
+          python -m pip install --no-deps "fmpy==0.3.32"
+          curl -fsSL -o "$RUNNER_TEMP/reference-fmus.zip" \
+            https://github.com/modelica/Reference-FMUs/releases/download/v0.0.39/Reference-FMUs-0.0.39.zip
+          python -m zipfile -e "$RUNNER_TEMP/reference-fmus.zip" "$RUNNER_TEMP/reference-fmus"
+          echo "LIGHTSIM_REFERENCE_FMUS=$RUNNER_TEMP/reference-fmus" >> "$GITHUB_ENV"
+
+      # The new engine's module (the Rust module lightsim_engine), built
+      # as the desktop build does (desktop-build.yml): the app runs every
+      # case on it, with no fall-back, so the tests need it, and the frozen engine below
+      # carries it.
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
+
       - name: Tests
         working-directory: backend
-        run: python -m pytest tests/test_script_sandbox.py tests/test_script_safety.py tests/test_examples_plausible.py -q
+        run: python -m pytest tests/ -q
+
+      # The installed app's engine is frozen (PyInstaller), and an agent's
+      # Script or FMU worker is then the engine executable again, inside an
+      # AppContainer (app/solver/win_sandbox.py). The tests above run from
+      # source and cannot see that: freeze the engine, with the module, and
+      # run a script nobody approved through its command line, which allows
+      # it only in that sandbox.
+      - name: The frozen engine's sandbox
+        working-directory: backend
+        shell: bash
+        env:
+          LIGHTSIM_FROZEN_ENGINE: dist/lightsim-backend/lightsim-backend.exe
+          LIGHTSIM_FREEZE_ENGINE: "1"
+        run: |
+          python -m pip install -r requirements-build.txt
+          python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
+          python -m pytest tests/test_agent_sandbox.py -q -k frozen_engine_runs
+
+  # The new engine (engine/, Rust) on Windows, the only target: SUNDIALS
+  # built with MSVC by the cc crate, the generated code called through the
+  # Windows calling convention, and every test of the workspace
+  # (engine/DESIGN.md, risks R2 and R12). engine/check.sh's gate, step by
+  # step; cargo-deny runs where it is installed.
+  engine-windows:
+    name: Engine (Rust) on Windows
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: engine
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      # engine/rust-toolchain.toml pins the release; rustup installs it here
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+          cargo clippy --version
+
+      # lsim-math compiles CORE-MATH with clang-cl (MSVC's cl lacks
+      # __int128): the cc crate takes Visual Studio's (VC\Tools\Llvm\x64),
+      # else one on PATH. Their versions, so that a run says which compiler
+      # built the engine's mathematical library (a diagnostic: never fails)
+      - name: C compiler of the mathematical library
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $vsclang = if ($vs) { Join-Path $vs 'VC\Tools\Llvm\x64\bin\clang-cl.exe' }
+          if ($vsclang -and (Test-Path $vsclang)) {
+            "Visual Studio's clang-cl: $vsclang"
+            & $vsclang --version
+          } else {
+            "no clang-cl in Visual Studio ($vs)"
+          }
+          Get-Command clang-cl -All -ErrorAction SilentlyContinue | ForEach-Object {
+            "clang-cl on PATH: $($_.Source)"
+            & $_.Source --version
+          }
+          exit 0
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      # the Script parity test (lsim-script) runs the app's own Script
+      # runner, which types a Script's parameters with pydantic
+      - name: The backend's requirements
+        run: python -m pip install -r ../backend/requirements.txt
+
+      - name: Lints (warnings are errors)
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # every crate's tests, even after one fails, so a run shows them all;
+      # the Script parity test runs the Python the backend's requirements
+      # went into (a `python3` on PATH may be another one)
+      - name: Tests
+        env:
+          LSIM_PYTHON: python
+        run: cargo test --workspace --locked --no-fail-fast
+
+      - name: Licences of every third-party crate
+        run: python scripts/licences.py
+
+      # The Python module (engine/DESIGN.md section 13): built into a wheel
+      # with maturin, installed, and its tests run. Two of them run the
+      # golden comparison's path through cargo (the Rust example dump_case)
+      # and compare it bit by bit with the module's runs; the Script block
+      # tests use the app's Script runner (the backend's requirements,
+      # installed above).
+      - name: Python module (build the wheel)
+        run: |
+          python -m pip install maturin numpy pytest
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
+
+      - name: Python module (tests)
+        run: python -m pytest crates/lsim-py/tests/test_api.py -v
+
+      # The app's path to the new engine and the both-engines diff's own
+      # tests, with the module built above (review finding 18): with
+      # LIGHTSIM_REQUIRE_NEW_ENGINE=1 a missing module fails them instead
+      # of skipping them. The live runs' tests and the stop-latency tests' pass marks
+      # (step 2's STREAM S2) are judged here.
+      # Step 2's FMU line (benchmarks/back_to_back/acceptance.toml): the
+      # Reference FMUs v0.0.41 on the new path against fmusim v0.7.0 run
+      # alone and FMPy 0.3.32, each download checked against the SHA-256
+      # the acceptance file pins
+      - name: The FMU pack, the Reference FMUs and fmusim
+        working-directory: backend
+        shell: bash
+        run: |
+          python -m pip install -r requirements-fmu.txt
+          python -m pip install --no-deps "fmpy==0.3.32"
+          get() {
+            curl -fsSL -o "$RUNNER_TEMP/$1" "$2"
+            echo "$3  $RUNNER_TEMP/$1" | sha256sum -c -
+            python -m zipfile -e "$RUNNER_TEMP/$1" "$RUNNER_TEMP/${1%.zip}"
+          }
+          get reference-fmus-0.0.41.zip \
+            https://github.com/modelica/Reference-FMUs/releases/download/v0.0.41/Reference-FMUs.zip \
+            62babca76b9c23a51c3096be4bb5930ff8b4388659056be3c0c4ef7a3aeb5403
+          get fmusim-0.7.0.zip \
+            https://github.com/modelica/fmusim/releases/download/v0.7.0/fmusim-x86_64-windows.zip \
+            bcabfa115022805e66d2815666b5970d4f911f894e53f035502580ed7be000aa
+          echo "LIGHTSIM_REFERENCE_FMUS=$RUNNER_TEMP/reference-fmus-0.0.41" >> "$GITHUB_ENV"
+          echo "LIGHTSIM_FMUSIM=$RUNNER_TEMP/fmusim-0.7.0/fmusim.exe" >> "$GITHUB_ENV"
+
+      - name: The new engine in the app (backend tests)
+        working-directory: backend
+        env:
+          LIGHTSIM_REQUIRE_NEW_ENGINE: "1"
+        run: |
+          python -m pip install -r requirements-dev.txt
+          # -rP prints what a passing test printed: the stop probes' result lines (p95, shown) are in the log on a pass too
+          python -m pytest tests/test_new_engine_flag.py tests/test_new_engine_live.py tests/test_stop_latency.py tests/test_new_engine_fmu.py tests/test_new_engine_quick.py tests/test_new_engine_text.py -v -rsxP
+
+      - name: The both-engines diff (its own tests)
+        working-directory: .
+        env:
+          LIGHTSIM_REQUIRE_NEW_ENGINE: "1"
+        run: python -m pytest benchmarks/back_to_back/tests -v -rs
 
   # Fails when the example runs get more than 10 % slower than on the commit
   # this change starts from, timed on the same runner in alternating fresh
@@ -96,7 +312,7 @@ jobs:
     if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v7
@@ -108,6 +324,18 @@ jobs:
       - name: Install
         working-directory: backend
         run: python -m pip install -r requirements-dev.txt
+
+      # The new engine's module: the app's engine (no fall-back)
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
 
       # After a force push the previous tip may not exist any more: then the
       # test below finds no LIGHTSIM_PERF_BASE and skips.
@@ -130,7 +358,7 @@ jobs:
     name: Frontend (lint + typecheck + build)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
@@ -162,11 +390,13 @@ jobs:
     # Playwright bump whose screenshots change regenerates the PNGs on the new
     # image in the same PR.
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # About 170 tests, one at a time on one engine (playwright.config.ts),
+    # take some 25 minutes with setup; 15 stopped the suite two thirds in.
+    timeout-minutes: 40
     # The screenshots job below replaces this run when regenerating baselines.
     if: ${{ !inputs.update-screenshots }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -181,6 +411,25 @@ jobs:
       - name: Install the engine
         working-directory: backend
         run: python -m pip install -r requirements.txt
+
+      # The new engine's module: the app's engine (no fall-back)
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
+
+      # So e2e/std01-fmu.spec.ts can drop an FMU (it skips without the pack)
+      - name: Install the FMU pack
+        working-directory: backend
+        run: |
+          python -m pip install -r requirements-fmu.txt
+          python -m pip install --no-deps "fmpy==0.3.32"
 
       - name: Install and build the UI
         working-directory: frontend
@@ -198,7 +447,7 @@ jobs:
         working-directory: frontend
         run: npm run test:e2e
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
@@ -221,7 +470,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -236,6 +485,18 @@ jobs:
       - name: Install the engine
         working-directory: backend
         run: python -m pip install -r requirements.txt
+
+      # The new engine's module: the app's engine (no fall-back)
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
 
       - name: Install and build the UI
         working-directory: frontend
@@ -264,17 +525,19 @@ jobs:
           git push
 
   # The shell's own logic that runs without Electron (src/old-projects.js):
-  # plain Node, no npm ci. Windows too, for its file-system rules.
+  # plain Node, no npm ci, on Windows (the only target for now).
   desktop:
     name: Desktop shell (unit tests)
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with: { node-version: "22" }
+      # src/updates.js loads electron-updater only once checks are on, so
+      # the tests need no npm ci
       - name: Unit tests
         working-directory: desktop
         run: npm test
@@ -283,16 +546,19 @@ jobs:
     name: Version manifests in sync
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with: { node-version: "22" }
       - run: node scripts/sync-version.mjs --check
+      # a name Windows refuses stops every Windows job at its checkout
+      - name: Every file name valid on Windows
+        run: node scripts/check-paths.mjs
 
   licences:
     name: Third-party licences
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -313,10 +579,30 @@ jobs:
           npm ci --prefix desktop
 
       # What the engine ships is whatever PyInstaller collects, so freeze it
-      # the way the desktop build does and read the result.
+      # the way the desktop build does (the new engine's module and the FMU
+      # pack in) and read the result. The module is built here as in
+      # desktop-build.yml; cargo stays for the check below, which lists the
+      # Rust crates compiled into it.
+      - name: The new engine's module (Rust build)
+        working-directory: engine
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+          python -m pip install "maturin>=1.7,<2" numpy
+          maturin build --release -m crates/lsim-py/Cargo.toml --out wheels
+          python -m pip install --no-index --find-links wheels lightsim-engine
+
       - name: Freeze the engine
         working-directory: backend
-        run: python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
+        env:
+          LIGHTSIM_FREEZE_ENGINE: "1"
+          LIGHTSIM_FREEZE_FMU_PACK: "1"
+        run: |
+          python -m pip install -r requirements-fmu.txt
+          python -m pip install --no-deps "fmpy==0.3.32"
+          python -m PyInstaller --noconfirm --distpath dist --workpath build lightsim-backend.spec
 
       # Fails on any shipped component whose licence is unknown or not in
       # scripts/licenses/allowed.txt (GPL, AGPL, SSPL and EUPL never are).

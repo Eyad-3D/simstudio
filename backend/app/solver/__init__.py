@@ -2,10 +2,11 @@
 
 Public surface:
 - simulate(project, case_id, emit=None, control=None) → SimResult
+- replay(snapshot) → SimResult (the run a RunSnapshot keeps, made again)
 - build_model / ModelError (used by validation)
 - map & profile helpers (shared interpolation)
 """
-from .core import simulate
+from .core import replay, simulate
 from .maps import (
     Map,
     MapUse,
@@ -23,6 +24,7 @@ from .scripting import ScriptError, check_script, compile_script
 
 __all__ = [
     "simulate",
+    "replay",
     "build_model",
     "Model",
     "ModelError",

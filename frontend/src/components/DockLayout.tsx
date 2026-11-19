@@ -9,9 +9,11 @@ import {
   type IDockviewPanelHeaderProps,
   type IDockviewPanelProps,
 } from "dockview-react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, CircleHelp } from "lucide-react";
+import { openHelp, PANEL_HELP } from "../help";
+import { hintFor } from "../tour";
 import { LAYOUT_KEY } from "../storageKeys";
-import { useProjectStore } from "../store/projectStore";
+import { problemCounts, useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
 import { ComponentsPanel } from "./panels/ComponentsPanel";
 import { ElementsPanel } from "./panels/ElementsPanel";
@@ -39,11 +41,13 @@ const ssTheme: DockviewTheme = {
 // the topology canvas does so — React Flow's pointer math assumes an unscaled
 // ancestor (CSS zoom would offset drags); every other panel scales via .ss-zoom.
 const wrap = (Component: React.ComponentType, opts: { zoom?: boolean } = {}) => {
-  const Panel = (_props: IDockviewPanelProps) => (
+  // data-help-panel: F1 inside the panel opens its help page (App.tsx)
+  const Panel = (props: IDockviewPanelProps) => (
     <div
       className={`h-full w-full overflow-hidden bg-[color:var(--ss-panel)]${
         opts.zoom === false ? "" : " ss-zoom"
       }`}
+      data-help-panel={PANEL_HELP[props.api.id]}
     >
       <Component />
     </div>
@@ -54,19 +58,14 @@ const wrap = (Component: React.ComponentType, opts: { zoom?: boolean } = {}) => 
   return Panel;
 };
 
-/** Warnings + errors waiting in Messages or the last Data Checks, as
- *  "level:count" ("" when there are none) so the tab re-renders only when the
- *  badge changes. */
+/** Warnings + errors in the Problems list, for its tab, as "level:count" (""
+ *  when there are none) so the tab re-renders only when the badge changes.
+ *  Messages is the log and has no badge: the problems the model has now are
+ *  in Problems. */
 function useAttention(panelId: string): string {
   return useProjectStore((s) => {
-    const items =
-      panelId === "messages" ? s.messages : panelId === "data-checks" ? (s.dataChecks ?? []) : [];
-    let errors = 0;
-    let warnings = 0;
-    for (const m of items) {
-      if (m.level === "error") errors++;
-      else if (m.level === "warning") warnings++;
-    }
+    if (panelId !== "data-checks") return "";
+    const { errors, warnings } = problemCounts(s);
     return errors + warnings ? `${errors ? "error" : "warning"}:${errors + warnings}` : "";
   });
 }
@@ -95,9 +94,9 @@ const FULL_TITLES: Record<string, string> = { cases: "Cases & Parameters" };
 
 // Panel tabs, drawn with dockview's default-tab markup and styles. dockview's
 // own tab element (the "tab" in each group's tab list) is named after the
-// panel title; name it in full instead, with the problem count that Messages /
-// Data Checks also show as a badge (drawn by CSS from data-badge) so problems
-// show while the tray is collapsed. dockview names its tab element after the
+// panel title; name it in full instead, with the problem count that Problems
+// also shows as a badge (drawn by CSS from data-badge) so problems show while
+// the tray is collapsed. dockview names its tab element after the
 // panel title when it creates it (a moved panel gets a new one) and again when
 // the title changes; both are followed by a layout change, so the full name is
 // set again after every layout change. The close X is a plain span, as in
@@ -151,6 +150,46 @@ function SsTab(props: IDockviewPanelHeaderProps) {
           <path d="M2.1 27.3L0 25.2L11.55 13.65L0 2.1L2.1 0L13.65 11.55L25.2 0L27.3 2.1L15.75 13.65L27.3 25.2L25.2 27.3L13.65 15.75L2.1 27.3Z" />
         </svg>
       </span>
+    </div>
+  );
+}
+
+const HELP_BUTTON_MIN_WIDTH = 230;
+
+// A "?" for the group's active panel, which opens that panel's help page
+// (LRN-09), and the bottom tray's open/close control.
+function HeaderActions(props: IDockviewHeaderActionsProps) {
+  const { group } = props;
+  const [panelId, setPanelId] = useState(() => group.activePanel?.id);
+  useEffect(() => {
+    const d = group.api.onDidActivePanelChange((e) => {
+      setPanelId(e.panel?.id);
+      if (e.panel) hintFor(e.panel.id); // the panel's first-use hint, once
+    });
+    return () => d.dispose();
+  }, [group]);
+  // only where the tabs keep their room (the narrow library column at
+  // 1366 px has none); F1 inside the panel opens the same page
+  const [roomy, setRoomy] = useState(() => group.api.width >= HELP_BUTTON_MIN_WIDTH);
+  useEffect(() => {
+    const d = group.api.onDidDimensionsChange((e) => setRoomy(e.width >= HELP_BUTTON_MIN_WIDTH));
+    return () => d.dispose();
+  }, [group]);
+  const page = panelId && roomy ? PANEL_HELP[panelId] : undefined;
+  const title = (panelId && (FULL_TITLES[panelId] ?? group.activePanel?.title)) || "this panel";
+  return (
+    <div className="flex items-center">
+      {page && (
+        <button
+          className="ss-toolbtn mx-0.5"
+          title={`Help on ${title} (F1)`}
+          aria-label={`Help on ${title}`}
+          onClick={() => openHelp(page)}
+        >
+          <CircleHelp size={12} />
+        </button>
+      )}
+      <TrayToggle {...props} />
     </div>
   );
 }
@@ -215,6 +254,80 @@ function clampTray(api: DockviewApi) {
   tray.setSize({ height: max });
 }
 
+// Every panel: its tab title, its narrowest width and where it lives (the
+// left, middle or right column, or the bottom tray). The default arrangement
+// is built from this, and a panel the user closed goes back to its place.
+type Column = "left" | "centre" | "right" | "tray";
+const PANELS: Record<string, { title: string; column: Column; minimumWidth?: number }> = {
+  components: { title: "Components", column: "left", minimumWidth: 160 },
+  elements: { title: "Elements", column: "left", minimumWidth: 160 },
+  topology: { title: "Topology", column: "centre", minimumWidth: 320 },
+  monitors: { title: "Monitors", column: "centre", minimumWidth: 320 },
+  properties: { title: "Properties", column: "right", minimumWidth: 200 },
+  cases: { title: "Cases", column: "right", minimumWidth: 200 },
+  messages: { title: "Messages", column: "tray" },
+  "data-checks": { title: "Problems", column: "tray" },
+  "layer-config": { title: "Layer Configurations", column: "tray" },
+  "data-bus": { title: "Data Bus Connections", column: "tray" },
+  "mini-chart": { title: "Signal Plot", column: "tray" },
+};
+const panelSpec = (id: string) => ({
+  id,
+  component: id,
+  title: PANELS[id].title,
+  minimumWidth: PANELS[id].minimumWidth,
+});
+
+const sideWidth = (column: Column, width: number) =>
+  column === "left" ? clamp(Math.round(width * 0.13), 200, 300) : clamp(Math.round(width * 0.15), 240, 360);
+
+// Bottom tray. Clicking a tab opens it; the Signal Plot opens by itself on
+// the session's first run (see DockLayout). It opens at 22 % of the dock
+// (139 px at 1366x768), so the diagram keeps 40 % of the window; its sash
+// drags it up to TRAY_MAX_SHARE.
+function addTray(api: DockviewApi, height: number) {
+  return api.addEdgeGroup("bottom", {
+    id: "tray",
+    initialSize: clamp(Math.round(height * 0.22), TRAY_MIN, 360),
+    minimumSize: TRAY_MIN,
+    collapsed: true,
+  });
+}
+
+/** Put a panel the user closed back in its place: in a group of its own
+ *  column, or, when the whole column was closed, as that column again beside
+ *  its neighbour. False for a panel that is not one of the workspace's. */
+function reopenPanel(api: DockviewApi, id: string): boolean {
+  const home = PANELS[id];
+  if (!home) return false;
+  if (api.getPanel(id)) return true;
+  if (home.column === "tray") {
+    const tray = api.getEdgeGroup("bottom") ?? addTray(api, api.height || window.innerHeight);
+    api.addPanel({ ...panelSpec(id), position: { referenceGroup: tray.id } });
+    return true;
+  }
+  const open = (column: Column) => Object.keys(PANELS).find((k) => PANELS[k].column === column && api.getPanel(k));
+  const mate = open(home.column);
+  if (mate) {
+    api.addPanel({ ...panelSpec(id), position: { referencePanel: mate, direction: "within" } });
+    return true;
+  }
+  // the whole column was closed: beside the nearest column still there
+  const order: Column[] =
+    home.column === "left" ? ["centre", "right"] : home.column === "right" ? ["centre", "left"] : ["left", "right"];
+  const near = open(order[0]);
+  const reference = near ?? open(order[1]);
+  const direction = home.column === "left" ? "left" : home.column === "right" ? "right" : near ? "right" : "left";
+  const added = api.addPanel({
+    ...panelSpec(id),
+    ...(reference ? { position: { referencePanel: reference, direction } } : {}),
+  });
+  if (home.column !== "centre" && reference) {
+    added.api.setSize({ width: sideWidth(home.column, api.width || window.innerWidth) });
+  }
+  return true;
+}
+
 // Default arrangement, built so the diagram gets most of the window at every
 // size: the library (left) and properties (right) columns take a share of the
 // width with a floor, and the log, checks, layers, data bus and signal plot
@@ -225,74 +338,26 @@ function buildDefaultLayout(api: DockviewReadyEvent["api"]) {
   // close enough stand-in for proportioning the default layout
   const width = api.width || window.innerWidth;
   const height = api.height || window.innerHeight;
-  const leftWidth = clamp(Math.round(width * 0.13), 200, 300);
-  const rightWidth = clamp(Math.round(width * 0.15), 240, 360);
 
-  const componentsPanel = api.addPanel({
-    id: "components",
-    component: "components",
-    title: "Components",
-    minimumWidth: 160,
-  });
-  api.addPanel({
-    id: "elements",
-    component: "elements",
-    title: "Elements",
-    position: { referencePanel: "components", direction: "within" },
-    minimumWidth: 160,
-  });
-  api.addPanel({
-    id: "topology",
-    component: "topology",
-    title: "Topology",
-    position: { referencePanel: "components", direction: "right" },
-    minimumWidth: 320,
-  });
-  api.addPanel({
-    id: "monitors",
-    component: "monitors",
-    title: "Monitors",
-    position: { referencePanel: "topology", direction: "within" },
-    minimumWidth: 320,
-  });
+  const componentsPanel = api.addPanel(panelSpec("components"));
+  api.addPanel({ ...panelSpec("elements"), position: { referencePanel: "components", direction: "within" } });
+  api.addPanel({ ...panelSpec("topology"), position: { referencePanel: "components", direction: "right" } });
+  api.addPanel({ ...panelSpec("monitors"), position: { referencePanel: "topology", direction: "within" } });
   const propertiesPanel = api.addPanel({
-    id: "properties",
-    component: "properties",
-    title: "Properties",
+    ...panelSpec("properties"),
     position: { referencePanel: "topology", direction: "right" },
-    minimumWidth: 200,
   });
-  api.addPanel({
-    id: "cases",
-    component: "cases",
-    title: "Cases",
-    position: { referencePanel: "properties", direction: "within" },
-    minimumWidth: 200,
-  });
+  api.addPanel({ ...panelSpec("cases"), position: { referencePanel: "properties", direction: "within" } });
 
-  // Bottom tray. Clicking a tab opens it; the Signal Plot opens by itself on
-  // the session's first run (see DockLayout). A failed restore can leave an
-  // (emptied) tray behind: start from a fresh one.
+  // A failed restore can leave an (emptied) tray behind: start from a fresh one.
   if (api.getEdgeGroup("bottom")) api.removeEdgeGroup("bottom");
-  api.addEdgeGroup("bottom", {
-    id: "tray",
-    initialSize: clamp(Math.round(height * 0.3), 180, 360),
-    minimumSize: TRAY_MIN,
-    collapsed: true,
-  });
-  const tray = [
-    ["messages", "Messages"],
-    ["data-checks", "Data Checks"],
-    ["layer-config", "Layer Configurations"],
-    ["data-bus", "Data Bus Connections"],
-    ["mini-chart", "Signal Plot"],
-  ];
-  for (const [id, title] of tray) {
-    api.addPanel({ id, component: id, title, position: { referenceGroup: "tray" }, inactive: true });
+  addTray(api, height);
+  for (const id of Object.keys(PANELS).filter((k) => PANELS[k].column === "tray")) {
+    api.addPanel({ ...panelSpec(id), position: { referenceGroup: "tray" }, inactive: true });
   }
 
-  componentsPanel.api.setSize({ width: leftWidth });
-  propertiesPanel.api.setSize({ width: rightWidth });
+  componentsPanel.api.setSize({ width: sideWidth("left", width) });
+  propertiesPanel.api.setSize({ width: sideWidth("right", width) });
 
   api.getPanel("components")?.api.setActive();
   api.getPanel("messages")?.api.setActive();
@@ -313,7 +378,7 @@ export function resetDockLayout() {
 
 function onReady(event: DockviewReadyEvent) {
   const api = event.api;
-  useUIStore.getState().setDockApi(api);
+  useUIStore.getState().setDockApi(api, (id) => reopenPanel(api, id));
 
   // restore the user's saved arrangement; fall back to the default on any
   // failure (missing/renamed panels, corrupt data, or a version bump).
@@ -326,6 +391,7 @@ function onReady(event: DockviewReadyEvent) {
         api.fromJSON(saved.layout as Parameters<typeof api.fromJSON>[0]);
         // a layout saved before GUI-34 titles the tab in full
         api.getPanel("cases")?.api.setTitle("Cases");
+        api.getPanel("data-checks")?.api.setTitle("Problems"); // "Data Checks" before 0.3
         restored = api.panels.length > 0;
       }
     }
@@ -417,7 +483,7 @@ export function DockLayout() {
       <DockviewReact
         components={components}
         defaultTabComponent={SsTab}
-        rightHeaderActionsComponent={TrayToggle}
+        rightHeaderActionsComponent={HeaderActions}
         onReady={onReady}
         theme={ssTheme}
       />

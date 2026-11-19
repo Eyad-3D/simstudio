@@ -41,10 +41,50 @@ def test_trace_band_allows_one_second_of_lag_but_not_two():
     assert close.outside_wltp_s == 0.0
     late = trace_metrics(ts, target, lagging(2.5))
     assert late.max_err_kmh == pytest.approx(-5.0)  # 3 km/h beyond the 1 s band
-    assert late.outside_wltp_s == pytest.approx(29.0)  # t = 2.5 … 31 s
+    # from t = 2 s (the band's lower edge 2 (t - 1) - 2 rises above the
+    # standing car) to 31.5 s (the speed 2 (t - 2.5) reaches the plateau's
+    # 60 - 2), exactly: before, each 0.5 s sample outside counted its step
+    # (29.0 s, from 2.5 to 31 s)
+    assert late.outside_wltp_s == pytest.approx(29.5, abs=1e-12)
     assert late.outside_epa_s == 0.0  # 3 km/h off is inside the wider ±2 mph band
     assert late.cycle_km == pytest.approx(close.cycle_km)
     assert close.cycle_km == pytest.approx((30 * 30 + 60 * 30) / 3600)  # ramp + plateau
+
+
+def test_the_time_outside_the_band_is_exact_on_the_samples_lines():
+    """The time outside each band is that of the lines through the trace's
+    samples, exactly (40 CFR 1066.425(b)(1)-(2), WLTP 2.6.8.3.1: at each
+    instant the band spans the target's lowest and highest point within 1 s
+    of it): 50 km/h held, the speed rising at 1 km/h/s from 10 s to 56 km/h,
+    held, falling back from 20 s. Above 52 km/h from 12 to 24 s; above 50 +
+    3.218688 (2 mi/h) from 13.218688 to 22.781312 s. Before, each 0.1 s
+    sample outside counted its whole step (EPA: 9.6 s)."""
+    ts = [k / 10 for k in range(601)]
+    target = [50.0] * len(ts)
+    speed = [50.0 + max(0.0, min(6.0, t - 10.0, 26.0 - t)) for t in ts]
+    m = trace_metrics(ts, target, speed)
+    assert m.outside_wltp_s == pytest.approx(12.0, abs=1e-9)
+    assert m.outside_epa_s == pytest.approx(9.562624, abs=1e-9)
+    # a lag on a ramp, the band's edge moving: the target 0 to 60 km/h from 10
+    # to 40 s, the speed 3 s behind it. The lower edge, 2 (t - 11) - 2, rises
+    # above the standing car at 12 s; the speed, 2 (t - 13), stays below it
+    # until the edge holds at 58 km/h (from 41 s) and the speed reaches 58 at
+    # 42 s: 30 s
+    target = [min(60.0, max(0.0, 2.0 * (t - 10.0))) for t in ts]
+    speed = [min(60.0, max(0.0, 2.0 * (t - 13.0))) for t in ts]
+    m = trace_metrics(ts, target, speed)
+    assert m.outside_wltp_s == pytest.approx(30.0, abs=1e-9)
+
+
+def test_the_cycle_not_followed_message_says_whose_rule_its_allowance_is():
+    """The 1 % (at least 2 s) allowed outside the band is LightSim's own
+    rule, not the EPA's (2.0 s on any one occasion, 40 CFR
+    1066.425(b)(4)(i)) nor the WLTP's (1 s on any one occasion, ten a cycle,
+    2.6.8.3.1): the message says so."""
+    result = simulate(bev_axle(profile="0:0; 3:200; 30:200"), "case")
+    text = next(m.text for m in result.messages if m.text.startswith("Cycle not followed"))
+    assert "LightSim's own rule" in text
+    assert "40 CFR 1066.425(b)(4)(i)" in text and "2.6.8.3.1" in text
 
 
 def test_following_the_cycle_is_a_success():
@@ -105,6 +145,23 @@ def test_a_car_that_does_not_move_fails_and_says_so_early():
     first = next(i for i, ev in enumerate(streamed)
                  if ev["type"] == "message" and ev["text"].startswith("No distance covered after"))
     assert next(ev["t"] for ev in streamed[first:] if ev["type"] == "step") == 60.0
+
+
+def test_the_check_that_the_car_drove_by_60_s_on_a_finished_trace():
+    """verdict.first_not_driven, the new engine's path's walk of its trace:
+    the target's distance by the trapezoid rule (0 to 14 km/h over 60 s:
+    117 m, not the 175 m or 58 m of either rectangle), from 60 s on, at the
+    first traced point that meets it, in today's words (not_driven, which
+    today's CycleTrace asks too)."""
+    from app.solver.verdict import Trace, first_not_driven, not_driven
+    trace = Trace(ctx=None, times=[0.0, 30.0, 60.0, 60.1], target=[0.0, 7.0, 14.0, 14.0],
+                  speed=[0.0] * 4, dist=[0.0, 0.0, 0.0, 0.0])
+    assert first_not_driven(trace) == not_driven(60.0, 116.67, 0.0) == (
+        "No distance covered after 60 s although the drive cycle asks for 0.12 km so far — check that "
+        "a motor or engine drives the wheels and gets a command.")
+    trace.dist = [0.0, 0.0, 5.9, 6.0]  # 5 % of 117 m driven: none
+    assert first_not_driven(trace) is None
+    assert not_driven(59.9, 500.0, 0.0) is None and not_driven(60.0, 100.0, 0.0) is None
 
 
 def test_an_empty_battery_flags_the_consumption():
@@ -285,3 +342,39 @@ def test_bundled_examples_follow_their_cycles():
         assert result.status != "failed", pid
         assert not any(m.text.startswith("Cycle not followed") for m in result.messages), pid
         assert _summary(result)["Distance driven"].value > 7.0
+
+
+def test_the_time_outside_the_band_is_the_same_with_and_without_numpy(monkeypatch):
+    """band_outside proves most pieces add nothing with NumPy where it is
+    there (the new engine's module brings it) before working out the rest
+    one by one: the same bits as working out every piece, on traces that
+    follow their target and leave the band, with a not-a-number and signed
+    zeros in them."""
+    import math
+    import random
+    import sys
+
+    from app.solver import verdict
+
+    rnd = random.Random(7)
+    traces = []
+    for n in (2, 3, 60, 700):
+        ts = [0.0]
+        for _ in range(n - 1):
+            ts.append(ts[-1] + rnd.choice((0.1, 0.1, 0.05, 0.3, 1e-9)))
+        tgt = [max(0.0, 50.0 + 30.0 * math.sin(t / 7.0) + rnd.uniform(-1, 1)) for t in ts]
+        spd = [g + (rnd.uniform(-6.0, 6.0) if rnd.random() < 0.1 else rnd.uniform(-0.5, 0.5)) for g in tgt]
+        traces.append((ts, tgt, spd))
+    ts, tgt, spd = (list(x) for x in traces[2])
+    tgt[10], spd[20], tgt[0], spd[1] = float("nan"), -0.0, -0.0, 0.0
+    traces.append((ts, tgt, spd))
+    tols = (verdict.WLTP_TOL_KMH, verdict.EPA_TOL_KMH)
+
+    def bits(rows):
+        return [[float.hex(x) for x in r] for r in rows]
+
+    fast = bits(verdict.band_outside(*tr, tols) for tr in traces)
+    assert any(x != "0x0.0p+0" for r in fast for x in r)  # (some time outside)
+    monkeypatch.setitem(sys.modules, "numpy", None)  # (import numpy fails)
+    assert verdict._zero_pieces(*traces[3], tols, [0.0, 1.0], verdict._RangeMinMax(traces[3][1])) is None
+    assert bits(verdict.band_outside(*tr, tols) for tr in traces) == fast

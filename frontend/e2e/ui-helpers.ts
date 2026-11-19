@@ -9,7 +9,9 @@ import { expect, type Page } from "@playwright/test";
  *  (the canvas re-fits 400 and 900 ms after it mounts). */
 export async function openApp(page: Page): Promise<void> {
   // a new browser context opens the example as a new copy, with an id of its
-  // own and so an empty run history (runs are stored per project, RES-02)
+  // own and so an empty run history (runs are stored per project, RES-02);
+  // as a returning user who skips the Start page (ux16-start.spec.ts)
+  await page.addInitScript(() => localStorage.setItem("lightsim-open-last", "1"));
   await page.goto("/");
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
   await page.waitForTimeout(1200);
@@ -87,9 +89,10 @@ export async function ribbonButton(page: Page, label: string): Promise<void> {
   await page.locator("button", { hasText: new RegExp(`^${label}$`) }).first().click();
 }
 
-/** Ribbon > New. */
+/** Ribbon > New, then Blank project on the Start page. */
 export async function newProject(page: Page): Promise<void> {
   await ribbonButton(page, "New");
+  await page.getByRole("button", { name: /^Blank project/ }).click();
   await discardIfAsked(page);
   await expect(page.locator(".react-flow__node")).toHaveCount(0);
   await page.waitForTimeout(300);

@@ -13,6 +13,13 @@ licence and licence text:
   table of contents: Python packages (licences read with pip-licenses), the
   Python runtime, the PyInstaller bootloader and native libraries
   (scripts/licenses/bundled-runtime.json);
+- what is compiled into the new engine's module, lightsim_engine (LightSim's
+  own file, so only its parts are listed): the Rust crates of its normal
+  dependency tree for the Windows target, read from `cargo metadata` of
+  engine/ (so cargo is needed here), each with the licence files its source
+  ships, and the vendored C code (SUNDIALS, CORE-MATH, musl's fma;
+  scripts/licenses/compiled-in.json). The frozen engine must hold the module:
+  a build without it fails here;
 - third-party data in the example projects whose licence asks for credit or
   a NOTICE (scripts/licenses/bundled-data.json, kept in step with
   docs/data-register.csv).
@@ -58,9 +65,11 @@ LICENSE_CHECKER = ROOT / "desktop" / "node_modules" / "license-checker-rseidelso
 # Dev dependencies whose own code still ends up in the UI bundle: Tailwind's
 # base styles, Vite's module-preload polyfill and Rolldown's runtime helpers.
 UI_BUILD_OUTPUT = ["tailwindcss", "vite", "rolldown"]
-# LightSim's own files inside the frozen engine.
-OWN_FILES = [ROOT / "backend" / "app", ROOT / "backend" / "projects",
-             ROOT / "backend" / "run_backend.py", ROOT / "VERSION"]
+# LightSim's own files inside the frozen engine (backend/lightsim is the
+# command-line tool and Python API, which the engine bundles too).
+OWN_FILES = [ROOT / "backend" / "app", ROOT / "backend" / "lightsim",
+             ROOT / "backend" / "projects", ROOT / "backend" / "run_backend.py",
+             ROOT / "VERSION"]
 # PyInstaller table-of-contents entries that are files in the bundle.
 FILE_KINDS = {"PYMODULE", "PYSOURCE", "EXTENSION", "BINARY", "DATA", "EXECUTABLE"}
 
@@ -92,6 +101,15 @@ CLASSIFIERS = {
 UI, SHELL, ENGINE = "User interface", "Desktop shell", "Simulation engine"
 DATA = "Example data"
 
+# The new engine's module: the Python distribution maturin builds from
+# engine/crates/lsim-py (the module is lightsim_engine), the Rust package it
+# is built from, and the one target LightSim ships its crates for.
+ENGINE_MODULE = "lightsim-engine"
+ENGINE_DIR = ROOT / "engine"
+ENGINE_CRATE = "lsim-py"
+CARGO_TARGET = "x86_64-pc-windows-msvc"
+OWN_TERMS = "LightSim's own terms (LICENSE and EULA.txt)"
+
 
 @dataclass
 class Component:
@@ -112,9 +130,22 @@ class Component:
     native: bool = False
     # The licence terms LightSim uses it under, set by check().
     terms: list[str] = field(default_factory=list)
+    # LightSim's own file (the module lightsim_engine): listed to hold what is
+    # compiled into it, not judged against allowed.txt.
+    own: bool = False
+    # Compiled into that module (a Rust crate, vendored C code): judged on its
+    # own, not against the Python packages' entries in clarifications.json
+    # (a crate may share a Python package's name, such as numpy).
+    compiled: bool = False
+    # Licence files it ships that are the standard text of these terms word for
+    # word: left out of its texts, and the standard text is in the appendix.
+    omitted: list[str] = field(default_factory=list)
     # Data rather than software: its texts are the NOTICE the source asks
     # to reproduce, and the licence itself is the standard text.
     data: bool = False
+    # Its LGPL parts (clarifications.json "lgpl"), set by check(): each a
+    # dict with the part's name, licence, files and source.
+    lgpl: list[dict] = field(default_factory=list)
 
     @property
     def label(self) -> str:
@@ -122,7 +153,7 @@ class Component:
 
     @property
     def needs_standard_text(self) -> bool:
-        return self.native or self.data or not self.texts
+        return not self.own and (self.native or self.data or not self.texts)
 
 
 # --- SPDX expressions --------------------------------------------------------
@@ -242,11 +273,16 @@ def load_policy() -> tuple[dict[str, str], dict, dict, list[str]]:
     return allowed, clarified, runtime, problems
 
 
-def check(components: list[Component], allowed: dict[str, str], clarified: dict) -> list[str]:
+def check(components: list[Component], allowed: dict[str, str], clarified: dict,
+          system: str = sys.platform) -> list[str]:
+    """The problems of ``components``' licences; ``system`` (sys.platform's
+    words) picks an entry's "platforms" words where its wheels differ."""
     problems = []
     for c in components:
         rule = clarified.get(c.name)
         if rule:
+            # a package whose wheels hold other parts on another platform
+            rule = {**rule, **rule.get("platforms", {}).get(system, {})}
             if rule["expect"] not in "\n".join(text for _, text in c.texts):
                 problems.append(f"{c.label}: its licence file no longer contains "
                                 f"\"{rule['expect']}\"; review its entry in clarifications.json")
@@ -262,6 +298,14 @@ def check(components: list[Component], allowed: dict[str, str], clarified: dict)
             problems.append(f"{c.label} ({c.part.lower()}): {c.license} is not allowed "
                             "(scripts/licenses/allowed.txt)")
             continue
+        # an LGPL part ships only as a separate file, listed with its source
+        lgpl = (rule or {}).get("lgpl") or []
+        if any(t.startswith("LGPL-") for t in chosen):
+            if not lgpl or not all(p.get(k) for p in lgpl for k in ("name", "license", "files", "source")):
+                problems.append(f"{c.label} ({c.part.lower()}): an LGPL part needs its entry in "
+                                "clarifications.json (lgpl: its name, licence, files and source)")
+                continue
+            c.lgpl = lgpl
         c.terms = chosen
     return problems
 
@@ -421,6 +465,174 @@ def dist_texts(dist: metadata.Distribution) -> list[tuple[str, str]]:
     return texts
 
 
+# --- what is compiled into the new engine's module ------------------------------
+
+def crates_in(meta: dict) -> list[Component]:
+    """The third-party Rust crates compiled into lightsim_engine, from
+    `cargo metadata` output made with --filter-platform: those reached from
+    its package through normal dependencies only. A dev-only or build-only
+    crate (the cc crate that compiles the vendored C code, the test crates)
+    never ends up in the module, so it is left out. A procedural-macro crate
+    is a normal dependency and stays in."""
+    packages = {p["id"]: p for p in meta["packages"]}
+    nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
+    members = set(meta["workspace_members"])
+    root = next((p["id"] for p in meta["packages"]
+                 if p["id"] in members and p["name"] == ENGINE_CRATE), None)
+    if root is None:
+        sys.exit(f"cargo metadata of {ENGINE_DIR.name}/ has no package {ENGINE_CRATE}")
+    seen: set[str] = set()
+    todo = [root]
+    while todo:
+        package = todo.pop()
+        if package in seen:
+            continue
+        seen.add(package)
+        todo += [d["pkg"] for d in nodes[package]["deps"]
+                 if any(k["kind"] is None for k in d["dep_kinds"])]
+    crates = []
+    for package in sorted(seen - members, key=lambda i: (packages[i]["name"], packages[i]["version"])):
+        p = packages[package]
+        # older crates write "MIT/Apache-2.0" for "MIT OR Apache-2.0"
+        declared = re.sub(r"\s*/\s*", " OR ", p.get("license") or "")
+        texts, omitted = crate_texts(Path(p["manifest_path"]).parent)
+        authors = ", ".join(a.split("<")[0].strip() for a in p.get("authors") or [])
+        note = ""
+        if not texts and not omitted:
+            note = (f"Ships no licence file; its authors: {authors}." if authors
+                    else "Ships no licence file.")
+        crates.append(Component(ENGINE, p["name"], p["version"], declared,
+                                url=p.get("repository") or p.get("homepage") or "",
+                                purl=f"pkg:cargo/{p['name']}@{p['version']}", texts=texts,
+                                note=note, within=ENGINE_MODULE, compiled=True, omitted=omitted))
+    return crates
+
+
+def squeeze(text: str) -> str:
+    return " ".join(text.split())
+
+
+def crate_texts(folder: Path) -> tuple[list[tuple[str, str]], list[str]]:
+    """The licence and notice files at the top of a crate's source folder as
+    (name, text); a file that is the standard text of an allowed licence word
+    for word (an Apache-2.0 LICENSE-APACHE, say) is left out, and its terms
+    are returned as the second value: the appendix has that text once."""
+    standard = {f.stem: f.read_text(encoding="utf-8", errors="replace")
+                for f in (POLICY / "texts").glob("*.txt")}
+    texts, omitted = [], []
+    for f in sorted(folder.iterdir(), key=lambda p: p.name):
+        if not (f.is_file() and LICENSE_FILE.match(f.name)):
+            continue
+        text = read(f)
+        term = standard_term(text, standard)
+        if term:
+            omitted.append(term)
+        else:
+            texts.append((f.name, text))
+    return texts, omitted
+
+
+APACHE_END = "END OF TERMS AND CONDITIONS"
+
+
+def standard_term(text: str, standard: dict[str, str]) -> str | None:
+    """The licence whose standard text (scripts/licenses/texts) ``text`` is,
+    word for word, else None. An Apache-2.0 file counts when its terms are
+    the standard ones and whatever follows them names no copyright holder
+    (the template appendix, with its "[yyyy] [name of copyright owner]",
+    or nothing): a filled-in notice is the crate's own and stays."""
+    squeezed = squeeze(text)
+    for stem, standard_text in standard.items():
+        if squeezed == squeeze(standard_text):
+            return stem
+    apache = standard.get("Apache-2.0", "")
+    if APACHE_END in text and APACHE_END in apache:
+        head, tail = text.split(APACHE_END, 1)
+        if (squeeze(head) == squeeze(apache.split(APACHE_END, 1)[0])
+                and all("[" in line for line in re.findall(r"Copyright[^\n]*", tail))):
+            return "Apache-2.0"
+    return None
+
+
+def cargo_crates() -> list[Component]:
+    cargo = shutil.which("cargo")
+    if cargo is None:
+        sys.exit("cargo not found: the notices list the Rust crates compiled into the new "
+                 "engine's module, read with `cargo metadata`. Install the Rust release "
+                 "engine/rust-toolchain.toml names (rustup).")
+    # run in engine/ so that rustup picks the release rust-toolchain.toml names
+    run = subprocess.run([cargo, "metadata", "--format-version", "1", "--locked",
+                          "--filter-platform", CARGO_TARGET, "--manifest-path",
+                          str(ENGINE_DIR / "crates" / ENGINE_CRATE / "Cargo.toml")],
+                         cwd=ENGINE_DIR, capture_output=True, text=True, encoding="utf-8",
+                         check=False)
+    if run.returncode != 0:
+        sys.exit(f"cargo metadata failed in {ENGINE_DIR.name}/:\n{run.stderr[-2000:]}")
+    return crates_in(json.loads(run.stdout))
+
+
+def vendored_components(problems: list[str]) -> list[Component]:
+    """The C code vendored into the module's crates, with the licence files
+    that come with it (scripts/licenses/compiled-in.json)."""
+    listed = json.loads((POLICY / "compiled-in.json").read_text(encoding="utf-8"))
+    components = []
+    for v in listed["vendored"]:
+        missing = [f for f in v["files"] if not (ROOT / f).is_file()]
+        if missing:
+            problems.append(f"{v['name']}: compiled-in.json names licence files that are gone: "
+                            f"{', '.join(missing)}")
+            continue
+        components.append(Component(ENGINE, v["name"], v["version"], v["license"], url=v["url"],
+                                    purl=v["purl"], note=v["note"], within=ENGINE_MODULE,
+                                    compiled=True,
+                                    texts=[(Path(f).name, read(ROOT / f)) for f in v["files"]]))
+    return components
+
+
+def module_components(dist: metadata.Distribution, version: str,
+                      problems: list[str]) -> list[Component]:
+    """lightsim_engine itself (LightSim's own file) and what is compiled into
+    it. Maturin also embeds a bill of materials of its own in the wheel
+    (PEP 770, .dist-info/sboms/, from cargo-cyclonedx), but it lists every
+    crate of every target, build tools and LightSim's own crates included,
+    and no licence texts: so the list comes from cargo, and the embedded one
+    only has to hold every crate listed (a module built from another
+    Cargo.lock than this tree's is a problem)."""
+    crates = cargo_crates()
+    embedded = {(c.name, c.version) for c in embedded_sbom(dist, ENGINE)}
+    if embedded:
+        absent = [c.label for c in crates if (c.name, c.version) not in embedded]
+        if absent:
+            problems.append(f"the installed {ENGINE_MODULE} was not built from this tree's "
+                            f"engine/Cargo.lock: its own bill of materials lacks "
+                            f"{', '.join(absent[:6])}"
+                            + (f" and {len(absent) - 6} more" if len(absent) > 6 else ""))
+    own = Component(ENGINE, ENGINE_MODULE, version, OWN_TERMS,
+                    purl=f"pkg:pypi/{ENGINE_MODULE}@{version}", own=True,
+                    note="LightSim's own file: the module lightsim_engine, built from engine/ of "
+                         "this repository. What is compiled into it is listed here, the Rust "
+                         "crates as built for Windows.")
+    return [own, *crates, *vendored_components(problems)]
+
+
+def module_problem(shipped: dict[tuple, list[str]]) -> str | None:
+    """Why the frozen engine does not hold a working new engine, or None.
+    ``shipped`` maps each Python distribution that has files in the bundle,
+    as (name, version, vendored in), to the names of those files. The app
+    runs every case on the module, so a bundle without it, or without the
+    NumPy it needs, must not ship."""
+    module = [k for k in shipped if canonical(k[0]) == ENGINE_MODULE and not k[2]]
+    if not any(re.search(r"lightsim_engine[^\\/]*\.(so|pyd)$", n) for k in module for n in shipped[k]):
+        return (f"the frozen engine holds no {ENGINE_MODULE} module, the new engine the app "
+                "runs every case on: build and install it (maturin build --release -m "
+                "engine/crates/lsim-py/Cargo.toml, pip install the wheel), then freeze with "
+                "LIGHTSIM_FREEZE_ENGINE=1")
+    if not any(canonical(k[0]) == "numpy" for k in shipped):
+        return (f"the frozen engine holds the {ENGINE_MODULE} module but not NumPy, which it "
+                "needs (freeze with LIGHTSIM_FREEZE_ENGINE=1)")
+    return None
+
+
 def embedded_sbom(dist: metadata.Distribution, part: str) -> list[Component]:
     """Components a package declares as statically linked into it, from the
     CycloneDX files in its .dist-info/sboms/ (PEP 770; for example the Rust
@@ -523,11 +735,17 @@ def engine_components(work: Path, runtime: dict, problems: list[str]) -> list[Co
             problems.append(f"engine file {name} (from {src}) belongs to no known project: "
                             "add it to scripts/licenses/bundled-runtime.json")
 
-    found = pip_licenses(sorted({key[0] for key in shipped if not key[2]}))
+    module = [k for k in shipped if canonical(k[0]) == ENGINE_MODULE and not k[2]]
+    if problem := module_problem(shipped):
+        problems.append(problem)
+    found = pip_licenses(sorted({key[0] for key in shipped if not key[2] and key not in module}))
     components = []
     for key in sorted(shipped, key=lambda k: (canonical(k[0]), k[2])):
         name, version, within = key
         dist = owners.dists[key]
+        if key in module:
+            components += module_components(dist, version, problems)
+            continue
         info = found.get(canonical(name)) if not within else None
         if info is None:  # vendored copies are invisible to pip-licenses
             meta = dist.metadata
@@ -606,6 +824,16 @@ def render(components: list[Component]) -> str:
         "Do not edit by hand.",
         "",
     ]
+    lgpl = [(c, p) for c in components for p in c.lgpl]
+    if lgpl:
+        lines += ["Parts under the GNU Lesser General Public License (LGPL). Each is",
+                  "unmodified, inside the files of the package named, which are separate",
+                  "from LightSim's own programs and can be replaced; its source is at the",
+                  "link given:", ""]
+        for c, p in lgpl:
+            lines += [f"  {p['name']} — {p['license']}, inside {c.label}",
+                      f"      Files: {p['files']}", f"      Source: {p['source']}"]
+        lines.append("")
     for part in (UI, SHELL, ENGINE, DATA):
         members = [c for c in top if c.part == part]
         if not members:
@@ -620,6 +848,10 @@ def render(components: list[Component]) -> str:
     for c in components:
         if c.needs_standard_text:
             standard += [t for t in c.terms if t not in standard]
+        standard += [t for t in c.omitted if t not in standard]
+        # (an LGPL part's licence goes with it in full, whatever texts its
+        # package ships)
+        standard += [p["license"] for p in c.lgpl if p["license"] not in standard]
 
     for c in top:
         lines += ["", RULE, c.label, f"Licence: {c.license}"]
@@ -628,6 +860,9 @@ def render(components: list[Component]) -> str:
         lines.append(f"Used in: {c.part.lower()}")
         if c.note:
             lines.append(c.note)
+        for p in c.lgpl:
+            lines.append(f"LGPL part: {p['name']} ({p['license']}), in {p['files']}; "
+                         f"source: {p['source']}")
         lines.append(THIN)
         for heading, text in c.texts:
             lines += ["", f"[{heading}]", "", text]
@@ -637,16 +872,26 @@ def render(components: list[Component]) -> str:
                            "is in the appendix.")]
         subs = inside.get(c.name, [])
         for s in (s for s in subs if s.texts):
-            lines += ["", THIN, f"{s.label}, vendored inside {c.name}",
-                      f"Licence: {s.license}", THIN]
+            lines += ["", THIN, f"{s.label}, inside {c.name}", f"Licence: {s.license}"]
+            if s.url:
+                lines.append(f"Source: {s.url}")
+            if s.note:
+                lines.append(s.note)
+            lines.append(THIN)
             for heading, text in s.texts:
                 lines += ["", f"[{heading}]", "", text]
+            if s.omitted:
+                lines += ["", f"Its licence file of {' and '.join(s.omitted)} is that licence's "
+                              "standard text, which is in the appendix."]
         linked = [s for s in subs if not s.texts]
         if linked:
-            lines += ["", THIN, f"Built into {c.name} (from the SBOM it ships). These parts",
-                      "ship no licence files of their own; the standard texts of their",
-                      "licences are in the appendix.", THIN, ""]
-            lines += [f"  {s.label} — {s.license}" for s in linked]
+            lines += ["", THIN, f"Built into {c.name}. These parts ship no licence file of",
+                      "their own that differs from the standard text; the standard texts of",
+                      "their licences are in the appendix.", THIN, ""]
+            for s in linked:
+                lines.append(f"  {s.label} — {s.license}" + (f"  {s.url}" if s.url else ""))
+                if s.note:
+                    lines.append(f"      {s.note}")
 
     lines += ["", RULE, "APPENDIX: STANDARD LICENCE TEXTS", RULE]
     files = {path for term in standard for path in standard_text_files(term)}
@@ -665,7 +910,8 @@ def bill_of_materials(components: list[Component]) -> dict:
             item["version"] = c.version
         if c.purl:
             item["purl"] = c.purl
-        item["licenses"] = [{"expression": c.license}]
+        item["licenses"] = ([{"license": {"name": c.license}}] if c.own
+                            else [{"expression": c.license}])
         if c.url:
             item["externalReferences"] = [{"type": "website", "url": c.url}]
         item["properties"] = [{"name": "lightsim:part", "value": c.part}]
@@ -710,7 +956,10 @@ def main() -> int:
     components = (npm_components() + engine_components(args.work, runtime, problems)
                   + data_components())
     problems += check([c for c in components if c.part in (UI, SHELL)], allowed, clarified["npm"])
-    problems += check([c for c in components if c.part == ENGINE], allowed, clarified["python"])
+    problems += check([c for c in components if c.part == ENGINE and not c.compiled and not c.own],
+                      allowed, clarified["python"])
+    # the module's crates and vendored code: no Python package's entry applies
+    problems += check([c for c in components if c.compiled], allowed, {})
     problems += check([c for c in components if c.part == DATA], allowed, {})
 
     counts: dict[str, int] = {}

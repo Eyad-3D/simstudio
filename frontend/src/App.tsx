@@ -1,11 +1,18 @@
 import { useEffect } from "react";
 import { DockLayout } from "./components/DockLayout";
+import { AiConnectDialog } from "./components/AiConnectDialog";
 import { DialogHost } from "./components/DialogHost";
 import { ParameterDialog } from "./components/ParameterDialog";
 import { Ribbon } from "./components/Ribbon";
+import { StartPage } from "./components/StartPage";
 import { StatusBar } from "./components/StatusBar";
 import { ResultsPanel } from "./components/panels/ResultsPanel";
-import { useProjectStore } from "./store/projectStore";
+import { FirstSteps } from "./components/FirstSteps";
+import { HelpPanel } from "./components/HelpPanel";
+import { importFile } from "./components/Ribbon";
+import { desktop } from "./desktop";
+import { componentHelpPage, openHelp, whatsNewOnce } from "./help";
+import { confirmReplaceProject, useProjectStore } from "./store/projectStore";
 import { useUIStore } from "./store/uiStore";
 import { saveDraft } from "./persist";
 
@@ -22,12 +29,21 @@ export default function App() {
   const loaded = useProjectStore((s) => s.loaded);
   const ribbonTab = useUIStore((s) => s.ribbonTab);
   const onResultsPage = ribbonTab === "results";
+  const onStartPage = ribbonTab === "start";
 
   useEffect(() => {
     if (!initStarted) {
       initStarted = true;
       void useProjectStore.getState().init();
     }
+  }, []);
+
+  // What's new: the release notes, once, on the first start after an update
+  useEffect(() => {
+    const show = (v: string | null) => v !== null && (whatsNewOnce(v), true);
+    if (show(useProjectStore.getState().appVersion)) return;
+    const unsub = useProjectStore.subscribe((s) => show(s.appVersion) && unsub());
+    return unsub;
   }, []);
 
   // autosave the working project to localStorage (debounced) and flush on
@@ -87,14 +103,111 @@ export default function App() {
       await useProjectStore.getState().saveRemote();
       return !useProjectStore.getState().dirty;
     };
+    // the desktop shell's File menu, a double-clicked .lightsim file (PLT-33)
+    window.lightsimSaveAs = () => useProjectStore.getState().saveAs();
+    window.lightsimOpenFile = async () => {
+      if (!(await confirmReplaceProject("Opening a project file"))) return false;
+      await useProjectStore.getState().openFile();
+      return true;
+    };
+    window.lightsimOpenProjectId = async (id) => {
+      // a file double-clicked to start the app waits for start-up to finish
+      await new Promise<void>((resolve) => {
+        if (useProjectStore.getState().loaded) return resolve();
+        const unsub = useProjectStore.subscribe((s) => {
+          if (s.loaded) {
+            unsub();
+            resolve();
+          }
+        });
+      });
+      if (!(await confirmReplaceProject("Opening a project file"))) return false;
+      await useProjectStore.getState().openProject(id);
+      useUIStore.getState().setRibbonTab("home");
+      return useProjectStore.getState().project?.id === id;
+    };
     return () => {
       window.removeEventListener("beforeunload", onBeforeUnload);
       delete window.lightsimSave;
+      delete window.lightsimSaveAs;
+      delete window.lightsimOpenFile;
+      delete window.lightsimOpenProjectId;
     };
   }, []);
 
+  // a project file changed on disk: an AI agent's edit (or another window's
+  // save) shows at once, laid over this window's unsaved changes (step 6); a
+  // change LightSim did not make (a git pull) offers a reload (PLT-33). Look
+  // every second while the window is in front
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState === "visible") void useProjectStore.getState().checkDisk();
+    };
+    const timer = setInterval(check, 1000);
+    window.addEventListener("focus", check);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", check);
+    };
+  }, []);
+
+  // a project file dropped on the window opens: a .lightsim file by its
+  // place on disk in the desktop app, else as an imported copy
+  useEffect(() => {
+    const isFileDrag = (e: DragEvent) => Boolean(e.dataTransfer?.types.includes("Files"));
+    const onDragOver = (e: DragEvent) => {
+      if (isFileDrag(e)) e.preventDefault();
+    };
+    const onDrop = async (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      const f = e.dataTransfer?.files[0];
+      if (!f || !/\.(lightsim|json|zip)$/i.test(f.name)) return;
+      const shell = desktop();
+      if (shell && /\.lightsim$/i.test(f.name)) {
+        if (!(await confirmReplaceProject(`Opening '${f.name}'`))) return;
+        try {
+          const picked = await shell.openDroppedFile(f);
+          if (picked) await useProjectStore.getState().openProject(picked.id);
+        } catch (err) {
+          useProjectStore.getState().log("error", `Could not open '${f.name}': ${(err as Error).message}`);
+        }
+      } else {
+        await importFile(f);
+      }
+      useUIStore.getState().setRibbonTab("home");
+    };
+    window.addEventListener("dragover", onDragOver);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragover", onDragOver);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, []);
+
+  // the window's title names the project and its file
+  const title = useProjectStore((s) =>
+    s.project ? `${s.dirty ? "• " : ""}${s.project.name}${s.filePath ? ` — ${s.filePath}` : ""}${s.readOnly ? " (read-only)" : ""} — LightSim` : "LightSim",
+  );
+  useEffect(() => {
+    document.title = title;
+  }, [title]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (e.key === "F1") {
+        // the parameter in the open help card, else the focused parameter's
+        // help, else the selected part's help page, else the help of the
+        // panel or page the focus is in, else the help's front page
+        e.preventDefault();
+        const { project, selectedElementId } = useProjectStore.getState();
+        const el = project?.systems.flatMap((s) => s.elements).find((x) => x.id === selectedElementId);
+        const at = document.querySelector(".ss-help-card:popover-open") ?? (e.target instanceof Element ? e.target : null);
+        const param = at?.closest("[data-help]")?.getAttribute("data-help");
+        const panel = at?.closest("[data-help-panel]")?.getAttribute("data-help-panel");
+        openHelp(param ?? (el ? componentHelpPage(el.componentDefId) : (panel ?? undefined)));
+        return;
+      }
       const meta = e.ctrlKey || e.metaKey;
       if (!meta) return;
       const target = e.target as HTMLElement;
@@ -110,9 +223,17 @@ export default function App() {
         if (target.tagName === "TEXTAREA" || target.isContentEditable) return;
         e.preventDefault();
         if (!store.running) void store.run();
+      } else if (e.key.toLowerCase() === "s" && e.shiftKey && desktop()) {
+        e.preventDefault();
+        void store.saveAs();
       } else if (e.key.toLowerCase() === "s") {
         e.preventDefault();
         void store.saveRemote();
+      } else if (e.key.toLowerCase() === "o" && desktop()) {
+        e.preventDefault();
+        void confirmReplaceProject("Opening a project file").then((ok) => {
+          if (ok) void store.openFile();
+        });
       } else if (!typing && e.key.toLowerCase() === "z" && !e.shiftKey) {
         e.preventDefault();
         store.undo();
@@ -128,19 +249,26 @@ export default function App() {
   return (
     <div className="flex h-full flex-col">
       <Ribbon />
-      <div className="relative min-h-0 flex-1 p-1">
+      <FirstSteps />
+      <div className="flex min-h-0 flex-1">
+      <div className="relative min-h-0 min-w-0 flex-1 p-1">
         {loaded ? (
           <>
             {/* Home / model workspace — kept mounted (hidden on the Results
-                page) so its dock layout and live state survive tab switches.
-                It stays laid out while hidden, so it follows window resizes;
-                `inert` keeps clicks, focus and screen readers out of it. */}
+                and Start pages) so its dock layout and live state survive tab
+                switches. It stays laid out while hidden, so it follows window
+                resizes; `inert` keeps clicks, focus and screen readers out. */}
             <div
-              className={`absolute inset-1${onResultsPage ? " ss-dock-hidden" : ""}`}
-              inert={onResultsPage}
+              className={`absolute inset-1${onResultsPage || onStartPage ? " ss-dock-hidden" : ""}`}
+              inert={onResultsPage || onStartPage}
             >
               <DockLayout />
             </div>
+            {onStartPage && (
+              <div className="ss-zoom absolute inset-1 overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
+                <StartPage />
+              </div>
+            )}
             {onResultsPage && (
               <div className="ss-zoom absolute inset-1 overflow-hidden rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
                 <ResultsPanel />
@@ -153,9 +281,12 @@ export default function App() {
           </div>
         )}
       </div>
+      <HelpPanel />
+      </div>
       <StatusBar />
       <ParameterDialog />
       <DialogHost />
+      <AiConnectDialog />
     </div>
   );
 }

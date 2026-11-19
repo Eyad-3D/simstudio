@@ -1,0 +1,59 @@
+id = "compare-heat-pump"
+kind = "compare"
+version = 1
+title = "Pick the heating system for a winter day"
+statement = """
+We are choosing the heating system of our hatchback. car-a.json is design A,
+with a resistive (PTC) heater. car-b.json is design B, with the cheaper heat
+pump, which works down to -5 °C outside. car-c.json is design C, with the
+heat pump that works down to -10 °C. Everything else is the same. Which design
+uses the least energy per 100 km at the battery on the case "WLTC winter, first
+600 s" (a winter day, -7 °C), and how much is that, in kWh per 100 km?
+
+End your reply with one line in exactly this form:
+ANSWER: <A, B or C>; <consumption>
+"""
+
+[[start]]
+file = "car-a.json"
+from = "example:bev-car"
+name = "Hatchback, PTC heater"
+ops = [
+  { op = "set", element = "Climate Control", param = "heat_source", value = "PTC heater" },
+  { op = "add_case", name = "WLTC winter, first 600 s", id = "case-winter-600", copy_of = "case-wltc-winter", duration = 600 },
+]
+
+[[start]]
+file = "car-b.json"
+from = "example:bev-car"
+name = "Hatchback, heat pump to -5 C"
+ops = [
+  { op = "set", element = "Climate Control", param = "heat_source", value = "Heat pump" },
+  { op = "set", element = "Climate Control", param = "heat_pump_min_C", value = -5 },
+  { op = "add_case", name = "WLTC winter, first 600 s", id = "case-winter-600", copy_of = "case-wltc-winter", duration = 600 },
+]
+
+[[start]]
+file = "car-c.json"
+from = "example:bev-car"
+name = "Hatchback, heat pump to -10 C"
+ops = [
+  { op = "set", element = "Climate Control", param = "heat_source", value = "Heat pump" },
+  { op = "set", element = "Climate Control", param = "heat_pump_min_C", value = -10 },
+  { op = "add_case", name = "WLTC winter, first 600 s", id = "case-winter-600", copy_of = "case-wltc-winter", duration = 600 },
+]
+
+# At -7 °C the cheaper heat pump is below its working range: it heats like the
+# resistive heater.
+[wrong]
+answer = "ANSWER: B; 33.6"
+
+[[answer]]
+choice = "C"
+options = { A = "car-a.json", B = "car-b.json", C = "car-c.json" }
+best = { case = "WLTC winter, first 600 s", key = "consumption_kwh_per_100km", pick = "min" }
+
+[[answer]]
+value = 23.486
+rtol = 0.02
+figure = { file = "car-c.json", case = "WLTC winter, first 600 s", key = "consumption_kwh_per_100km" }

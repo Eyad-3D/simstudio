@@ -1,0 +1,167 @@
+# Use an AI assistant with LightSim
+
+There are two ways to get help from an AI assistant (a chatbot such as
+Claude, ChatGPT, Copilot or Gemini) with your model. Neither sends anything
+from LightSim by itself.
+
+## Paste a summary into any chatbot
+
+1. Open your project and run the case you want to ask about.
+2. On the *Project* tab, click **Copy for AI**. LightSim puts a short
+   summary on the clipboard (under 8 KB): the parts and how they are
+   wired, every value you changed from the library defaults, the cases,
+   the last run's key results with any *not valid* notes, the Data Check
+   messages, and a line saying how far the results are validated (only
+   four electric cars' energy on EPA's two test cycles is).
+3. Paste it into the chatbot, then ask your question.
+
+To keep your numbers private, tick **Hide values** before you click:
+every number in values and results becomes `[hidden]`.
+
+*Messages* says what was copied. The button works without any setup and
+with no internet connection: you decide what you paste, and where.
+
+## Connect an assistant on this computer
+
+An AI app installed on this computer (Claude Desktop, Claude Code, VS Code
+with GitHub Copilot, the GitHub Copilot CLI, OpenAI Codex, Gemini CLI or
+Cursor) can work with LightSim directly: list your projects, outline a
+model, run its Data Checks and cases, and read and compare the results. It
+uses the Model Context Protocol (MCP), the standard way AI apps connect to
+tools.
+
+1. On the *Project* tab, click **Connect AI**.
+2. Click **Add** next to your AI app. LightSim adds itself to that app's
+   settings and keeps a copy of the file as it was
+   (`<file>.lightsim-backup`).
+3. Restart the AI app. Ask it, for example: "Open the Battery Electric Car
+   example in LightSim, run the City Cycle and tell me the final state of
+   charge and the consumption."
+
+**Remove** takes LightSim out of the app's settings again. The window also
+says when an assistant last used LightSim.
+
+You can do the same in a terminal, with the command the window shows:
+
+```
+lightsim-backend mcp install --client claude
+lightsim-backend mcp uninstall --client claude
+lightsim-backend mcp status
+```
+
+`--client` is one of `claude`, `claude-code`, `vscode`, `copilot`,
+`codex`, `gemini` or `cursor`. Add `--allow-folder <folder>` to let the
+assistant also open project files in that folder, or `--read-only` to
+refuse every change.
+
+### What the assistant may do
+
+- It starts LightSim's engine itself and talks to it directly. Nothing
+  opens a network port.
+- It sees your saved projects and the examples, and the folders you
+  allowed. A project file that contains `"noAi": true` stays hidden, and
+  so does a link in an allowed folder to a file outside them.
+  An AI agent works hands-off: the connection never asks you to confirm (the
+  owner's decision, 1 November 2026). Safety comes from the design instead.
+- It can read, check and compare models, and run a project, with no question
+  to you. It can propose changes as a dry run; with the dry run off, an edit
+  is saved straight away, and is recoverable: an example is never changed
+  (the edit is saved as a new project), and LightSim keeps the previous
+  version of a project as a backup, as for every save. For a file in a
+  folder you allowed, the backups are kept beside it, in a folder named
+  after it (`car.json-backups`, which git ignores).
+- Each edit it saves to a project is one step in the project's history,
+  with the reason the assistant gives, which AI app made it and in which
+  session: the open LightSim window shows it at once, and one click undoes
+  it or the agent's whole session. The edit appears over any changes you
+  have not saved yet, and your next Save keeps both: neither overwrites the
+  other. Where you and the assistant changed the same value, the window
+  shows the assistant's value and says so; **Undo** (Ctrl+Z) brings yours
+  back. The notice at the bottom left names the AI app and its reason,
+  with **Undo** (this change) and **Undo session** (every change of that
+  connection). An undo leaves a value that was changed again since as it
+  is, and says which. A project the assistant changed while it was not open
+  offers the same notice when you open it. The history is the file
+  `history.jsonl` in the project's backups folder.
+- A project with Script blocks (Python code) or FMUs runs in an OS sandbox:
+  access to the project's folder only, and no network — a Script can open
+  none, and an FMU's native code is held off by the OS (see
+  [Known issues](../../KNOWN-LIMITS.md) for what that covers on each
+  platform; on Windows the sandbox is an AppContainer). When that sandbox
+  cannot be set up — on Linux older than 5.13, or on a Windows computer
+  that cannot make the AppContainer — the run is refused with the code
+  `sandbox_unavailable` rather than run less safely.
+- A brand-new Script block the assistant writes runs in that sandbox
+  straight away, with no **Run scripts** approval — the sandbox is the
+  safety, not an approval. (A run you start yourself in LightSim still asks
+  you to approve new script code the first time, see
+  [Open a project with scripts](open-a-project-with-scripts.md); that guards
+  your own runs, not an assistant's.)
+- The command-line tool (`lightsim run`) runs every project the same way,
+  with no approval: it cannot tell an agent from a person
+  ([Command-line tool](../reference/command-line.md#ai-access)).
+- A run started by an assistant stops after 5 minutes, or sooner if you
+  set a shorter cap under **AI access**. Its runs are kept apart from yours
+  (the newest 20 per project).
+- LightSim writes each tool call an assistant makes, done or not, to a log
+  on this computer, `.ai/audit.jsonl` in your projects folder. It leaves
+  out a run sent as a task that LightSim refuses before it starts, and a
+  call LightSim cannot read, such as one of a tool it does not have. The log
+  is never uploaded.
+- On a computer your organisation manages, its policy file can turn AI
+  access off (`"ai": "off"`, see [Install LightSim for a lab or
+  a company](deploy-for-it.md)). The window then says so and cannot add
+  LightSim to an AI app, and an assistant already connected can use none of
+  LightSim's tools.
+
+### Set what AI tools may see and do
+
+The **AI access** tab of the *Connect AI* window shows the settings AI
+tools work under. An AI app you connected reads them before every tool
+call, and Python code that goes through `lightsim.ai_access.AgentSession`
+reads them when it starts a session. Other Python code (`import lightsim`,
+`lightsim run`) does not read them. They are the same settings as the
+`lightsim ai …` commands
+([Command-line tool](../reference/command-line.md#ai-access)), kept in
+`ai-access.json` in LightSim's settings folder:
+
+- **Let AI tools use LightSim**: AI access is off until you tick this or
+  add LightSim to an AI app. Off, every tool call from an AI tool is
+  refused; a connected AI app can still read the skill pack and the part
+  library that come with LightSim.
+- **Folders AI tools may see**: an AI tool can list and open the projects
+  in these folders. Adding LightSim to an AI app allows your projects
+  folder. **Add folder…** opens the system's folder dialog (in the desktop
+  app); **Remove** takes a folder off the list.
+- **AI tools may open the examples that come with LightSim.**
+- **Trusted projects (Python package only)**: a project you trusted with
+  `lightsim ai trust <file>`. Only Python code that uses `AgentSession`
+  reads this list, to decide which projects' Script blocks it may run. The
+  connection for AI apps does not read it: an assistant runs any project's
+  Script blocks in the sandbox, whether a project is on the list or not and
+  whether or not the code has been approved. **Untrust** takes the project off
+  the list; a project whose scripts changed since is marked, as its trust no
+  longer holds. Trust can only be given on the command line.
+- **Stop an AI tool's run after** a number of seconds (5 minutes unless you
+  change it).
+- **Latest calls from AI tools**: what they asked, when, and whether it
+  was done (not the calls the log leaves out, above), from the logs kept
+  on this computer: the AI apps' log
+  (`.ai/audit.jsonl` in your projects folder) and the Python package's
+  (`ai-audit.jsonl` beside `ai-access.json`).
+
+To hide one project from AI tools, run `lightsim ai block <file>`. When
+your organisation's policy turns AI access off, the tab says so and AI
+access cannot be turned on.
+
+An assistant can still misread a result. Check the numbers it reports
+against the run in LightSim, and read [Known issues](../../KNOWN-LIMITS.md).
+
+## Teach the assistant LightSim
+
+LightSim comes with a skill pack: short guides, in the open Agent Skills
+format, on building a car, wiring rules, units, Script blocks, checking a
+model and reading *not valid* results. A connected assistant reads them
+from LightSim when it needs them. To use them in an app that loads skills
+from a folder, copy them from `resources/backend/_internal/app/ai/skills/`
+in LightSim's install folder.

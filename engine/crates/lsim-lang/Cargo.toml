@@ -1,0 +1,23 @@
+[package]
+name = "lsim-lang"
+description = "The text format of components (Modelica syntax, units checked at parse time): parser with spans and plain-words errors, printer, Base Modelica import"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license-file.workspace = true
+repository.workspace = true
+
+[dependencies]
+lsim-ir.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+lsim-lib.workspace = true
+# to simulate imported Base Modelica models in the tests
+lsim-prep.workspace = true
+lsim-codegen.workspace = true
+lsim-solve.workspace = true
+
+[lints]
+workspace = true

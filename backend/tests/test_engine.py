@@ -77,10 +77,18 @@ def test_rev_limiter_cuts_fuel_and_torque():
     fuel = [p["value"] for p in series(result, "eng", "sig_fuel_rate")]
     torque = [p["value"] for p in series(result, "eng", "sig_torque")]
     assert 6000 < max(rpm) < 6100
-    # a point's fuel and torque are its step's, set at the speed it began at
-    for n, f, tq in zip(rpm, fuel[1:], torque[1:]):
-        if n > 6000:
-            assert f == 0.0 and tq < 0.0
+    # at the limiter (from 2 s) it fires a share of the time: today's engine
+    # fires and cuts step by step, its speed a saw-tooth just above 6000 (6 1/min
+    # wide at a 1 ms step); the new one settles in its 0.1 % band above 6000
+    # (at 6004) with their average. Either way its mean torque is
+    # what holds the speed (the bare shaft takes none, against ~130 N·m full
+    # load) and its mean fuel a share of full load's just below the limit
+    # (1 ms step: today 7.202 kg/h, the new engine 7.204 kg/h)
+    full = [f for n, f in zip(rpm, fuel) if n < 5900][-1]
+    held = [(f, tq) for p, f, tq in zip(series(result, "eng", "sig_speed"), fuel, torque)
+            if p["t"] >= 2.0]
+    assert abs(sum(tq for _, tq in held) / len(held)) < 1.0
+    assert 0.0 < sum(f for f, _ in held) / len(held) < 0.5 * full
     # reaching the limiter is info (MOD-18): the run is judged on how long it
     # stays there, and overshooting it by a step is not counted as over speed
     assert [m.level for m in result.messages if "rev limiter" in m.text] == ["info"]

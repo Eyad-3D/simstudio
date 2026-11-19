@@ -2,22 +2,38 @@
 
 The user's projects live in :func:`app.paths.projects_dir`, a per-user
 app-data folder in the packaged desktop app and ``backend/dev-projects``
-during development. The examples are read straight from the app's own
-read-only copy (:data:`app.paths.EXAMPLES_DIR`) and never written: the UI
-opens one as an unsaved copy with an id of its own, so saving it makes a new
-project, and each update of the app brings its new and corrected examples to
-every install. Examples the user does not want in the Open menu are hidden,
-not deleted; ``.hidden-examples`` in the projects folder lists them.
+during development. A project can also be a ``.lightsim`` file anywhere on
+disk that the user opened or saved through the desktop app (PLT-33,
+:mod:`app.files`); :func:`location` says where each project's file, runs,
+backups and attached files are. The examples are read straight from the
+app's own read-only copy (:data:`app.paths.EXAMPLES_DIR`) and never written:
+the UI opens one as an unsaved copy with an id of its own, so saving it
+makes a new project, and each update of the app brings its new and
+corrected examples to every install. Examples the user does not want in the
+Open menu are hidden, not deleted; ``.hidden-examples`` in the projects
+folder lists them.
+
+Every file read is upgraded to the current format (:mod:`app.migrations`,
+PLT-07); every save writes the current format and the app version. A file
+from a newer LightSim opens read-only and cannot be saved over, so nothing
+it holds that this build does not understand is lost. The first save over a
+file in an older format also keeps it as ``pre-migration-v<n>`` in the
+project's backups, for good.
 
 Saves are all-or-nothing: the new file is written next to the old one and
 swapped in with an atomic rename, and the version it replaces is kept as
-``<id>.json.bak``. That version is also added to the project's backups in
-``.backups/<id>/``, which keep the last :data:`KEEP_BACKUPS` versions for
-the UI to restore (as a copy: a restore never writes the project file).
-Each file version has a *revision* (a hash of its bytes);
-a save can name the revision it was based on and is refused with
-:class:`ConflictError` if the file changed since, so two windows (or another
-program) never silently overwrite each other.
+``<id>.json.bak`` (projects folder only). That version is also added to the
+project's backups (``.backups/<id>/``, or ``<name>.lightsim-backups/``),
+which keep the last :data:`KEEP_BACKUPS` versions for the UI to restore (as
+a copy: a restore never writes the project file). Each file version has a
+*revision* (a hash of its bytes); a save can name the revision it was based
+on and is refused with :class:`ConflictError` if the file changed since, so
+two windows (or another program, or a git pull) never silently overwrite
+each other. Every save takes the project's lock (:func:`project_lock`: a
+thread lock and an OS file lock, so an AI agent's process and the app
+cannot interleave) and adds a line to the project's history
+(:mod:`app.history`), which the window reads to show an agent's edits as
+they happen (:func:`rebase`) and to undo them (:func:`undo`).
 """
 from __future__ import annotations
 
@@ -26,28 +42,30 @@ import hashlib
 import json
 import os
 import re
-import secrets
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import files, history
+from .fileio import SAFE_ID, safe_id, write_atomic
+from .migrations import CURRENT_VERSION, NewerFileError, file_version, migrate
 from .paths import EXAMPLES_DIR, projects_dir
 from .schemas import Project
+from .version import VERSION
 
 # one save at a time, so the revision check and the write cannot interleave
 _save_lock = threading.Lock()
 # hiding and restoring examples read and rewrite one file
 _examples_lock = threading.Lock()
 
+# kept under their old names for the modules that import them from here
+_write_atomic = write_atomic
+__all__ = ["SAFE_ID", "safe_id"]
+
 
 class ConflictError(Exception):
     """The file on disk is not the version the save was based on."""
-
-
-#: A project or run id: it names a file or folder, so it is a plain name of
-#: at most 128 characters that does not start or end with a dot (that rules
-#: out "." and "..", and names Windows would shorten).
-SAFE_ID = re.compile(r"[A-Za-z0-9_-](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?")
 
 
 #: Earlier versions kept per project, and the name of their folder (hidden,
@@ -56,12 +74,8 @@ KEEP_BACKUPS = 20
 _BACKUPS = ".backups"
 #: A backup's id: when it was taken (epoch ms) and the revision it holds.
 BACKUP_ID = re.compile(r"(\d{13})-([0-9a-f]{16})")
-
-
-def safe_id(value: str, what: str) -> str:
-    if not isinstance(value, str) or not SAFE_ID.fullmatch(value):
-        raise ValueError(f"Invalid {what} id: {value!r}")
-    return value
+#: Ignores the folder it is in (runs and backups beside a .lightsim file).
+_GITIGNORE = "# Made by LightSim: run results and backups stay out of git.\n*\n"
 
 
 def _safe_name(project_id: str) -> str:
@@ -74,17 +88,72 @@ def user_dir() -> Path:
     return projects_dir()
 
 
+@dataclass(frozen=True)
+class Location:
+    """Where one project's files are."""
+
+    id: str
+    #: the project file
+    file: Path
+    #: its run history and study tables (app.run_store)
+    runs: Path
+    #: earlier versions of the file
+    backups: Path
+    #: attached files (app.attachments)
+    resources: Path
+    #: a .lightsim file the user picked, outside the projects folder
+    external: bool = False
+
+    def make_dir(self, folder: Path) -> Path:
+        """Create `folder` (its runs or backups folder). Beside a .lightsim
+        file the folder gets a .gitignore that keeps it out of git."""
+        folder.mkdir(parents=True, exist_ok=True)
+        if self.external and folder in (self.runs, self.backups):
+            ignore = folder / ".gitignore"
+            if not ignore.exists():
+                with contextlib.suppress(OSError):
+                    ignore.write_text(_GITIGNORE, encoding="utf-8")
+        return folder
+
+
+def location(project_id: str) -> Location:
+    """Where the project's file, runs, backups and attached files are: beside
+    its .lightsim file if the user opened or saved it as one, else in the
+    projects folder."""
+    pid = _safe_name(project_id)
+    path = files.lookup(pid)
+    if path is not None:
+        return Location(
+            id=pid,
+            file=path,
+            runs=path.with_name(path.name + "-runs"),
+            backups=path.with_name(path.name + "-backups"),
+            resources=path.with_name(path.name + "-resources"),
+            external=True,
+        )
+    folder = user_dir()
+    return Location(
+        id=pid,
+        file=folder / f"{pid}.json",
+        runs=folder / "runs" / pid,
+        backups=folder / _BACKUPS / pid,
+        resources=folder / "resources" / pid,
+    )
+
+
 def project_path(project_id: str) -> Path:
-    return user_dir() / f"{_safe_name(project_id)}.json"
+    return location(project_id).file
 
 
 def list_projects() -> list[dict]:
-    """The user's projects (the examples are listed by :func:`list_examples`)."""
+    """The user's projects in the projects folder (the examples are listed by
+    :func:`list_examples`, the .lightsim files by :func:`list_files`)."""
     return _listing(user_dir())
 
 
 def _listing(folder: Path) -> list[dict]:
-    """Id, name and description of each project file in `folder`."""
+    """Id, name and description of each project file in `folder`, and for
+    the Start page when it was saved, its number of parts and a sketch."""
     out = []
     for f in sorted(folder.glob("*.json")):
         try:
@@ -96,9 +165,50 @@ def _listing(folder: Path) -> list[dict]:
                 "id": project_id,
                 "name": raw.get("name", f.stem),
                 "description": raw.get("description"),
+                "modified": f.stat().st_mtime_ns // 1_000_000,
+                **_size_and_sketch(raw),
             })
         except (json.JSONDecodeError, OSError, AttributeError):
             continue
+    return out
+
+
+def list_files() -> list[dict]:
+    """The .lightsim files the user opened or saved (Recent files), most
+    recently opened first: each one's id, path and, while the file can be
+    read, what :func:`list_projects` gives for a project."""
+    out = []
+    for entry in files.recent():
+        item: dict = {"id": entry.id, "path": str(entry.path), "opened": entry.openedAt,
+                      "exists": False, "name": entry.path.stem, "description": None}
+        try:
+            raw = json.loads(entry.path.read_bytes())
+            item.update({
+                "exists": True,
+                "modified": entry.path.stat().st_mtime_ns // 1_000_000,
+                "name": raw.get("name") if isinstance(raw.get("name"), str) else entry.path.stem,
+                "description": raw.get("description"),
+                **_size_and_sketch(raw),
+            })
+        except (OSError, ValueError, AttributeError):
+            pass
+        out.append(item)
+    return out
+
+
+def _size_and_sketch(raw: dict) -> dict:
+    """The number of parts in all systems, and the positions of the top
+    system's parts (at most 300) for a thumbnail. What a malformed file
+    does not give is left out rather than dropping it from the list."""
+    out: dict = {"elements": None, "thumb": []}
+    try:
+        systems = raw.get("systems") or []
+        out["elements"] = sum(len(s.get("elements") or []) for s in systems)
+        top = next(s for s in systems if s.get("parentId") is None)
+        out["thumb"] = [[round(e["position"]["x"]), round(e["position"]["y"])]
+                        for e in (top.get("elements") or [])[:300]]
+    except (AttributeError, KeyError, TypeError, ValueError, OverflowError, StopIteration):
+        pass
     return out
 
 
@@ -116,11 +226,11 @@ def example_path(example_id: str) -> Path:
 
 
 def load_example(example_id: str) -> Project:
-    """An example as the app ships it."""
+    """An example as the app ships it, in the current format."""
     path = example_path(example_id)
     if not path.is_file():
         raise FileNotFoundError(example_id)
-    return Project.model_validate_json(path.read_bytes())
+    return read_project(path.read_bytes()).project
 
 
 def list_examples() -> list[dict]:
@@ -182,7 +292,7 @@ def _write_hidden(hidden: set[str]) -> None:
     folder = user_dir()
     folder.mkdir(parents=True, exist_ok=True)
     data = json.dumps({"hidden": sorted(hidden)}, indent=2) + "\n"
-    _write_atomic(folder / _HIDDEN, data.encode("utf-8"))
+    write_atomic(folder / _HIDDEN, data.encode("utf-8"))
 
 
 def revision_of(data: bytes) -> str:
@@ -190,83 +300,268 @@ def revision_of(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()[:16]
 
 
-def load_project_file(project_id: str) -> tuple[Project, str]:
-    """The project and the revision of the file it was read from."""
-    path = project_path(project_id)
-    if not path.exists():
+@dataclass
+class ReadProject:
+    """A project file read and upgraded to the current format."""
+
+    project: Project
+    #: the format version the file was in (CURRENT_VERSION: nothing to upgrade)
+    from_version: int = CURRENT_VERSION
+    #: studies an upgrade took out of the file, for the run store (PLT-34)
+    studies: list[dict] = field(default_factory=list)
+    #: why the project cannot be saved (a file from a newer LightSim), or None
+    read_only: str | None = None
+
+    @property
+    def upgraded_from(self) -> int | None:
+        """The older format the file was upgraded from, or None."""
+        return self.from_version if self.from_version < CURRENT_VERSION else None
+
+
+def read_project(data: bytes | str | dict) -> ReadProject:
+    """Parse a project file's bytes (or its parsed JSON), upgrading it to the
+    current format. A file from a newer LightSim is read as it is, marked
+    read-only; one this build cannot make sense of raises NewerFileError.
+    Raises ValueError (pydantic's ValidationError is one) for anything that
+    is not a project."""
+    raw = data if isinstance(data, dict) else json.loads(data)
+    try:
+        migrated = migrate(raw)
+    except NewerFileError as newer:
+        try:
+            project = Project.model_validate(raw)
+        except ValueError:
+            raise newer from None
+        return ReadProject(project, newer.version, read_only=str(newer))
+    project = Project.model_validate(migrated.data)
+    return ReadProject(project, migrated.from_version, migrated.studies)
+
+
+@dataclass
+class LoadedProject(ReadProject):
+    revision: str = ""
+    location: Location | None = None
+
+
+def load_project_file(project_id: str) -> LoadedProject:
+    """The project (upgraded to the current format) and the revision of the
+    file it was read from."""
+    loc = location(project_id)
+    if not loc.file.exists():
         raise FileNotFoundError(project_id)
-    data = path.read_bytes()
-    return Project.model_validate_json(data), revision_of(data)
+    data = loc.file.read_bytes()
+    read = read_project(data)
+    if loc.external and read.project.id != loc.id:
+        # a copy of a file that is open under its own id: this one goes by
+        # the id it was given when opened (written into it on the next save)
+        read.project.id = loc.id
+    return LoadedProject(read.project, read.from_version, read.studies, read.read_only,
+                         revision=revision_of(data), location=loc)
 
 
 def load_project(project_id: str) -> Project:
-    return load_project_file(project_id)[0]
+    return load_project_file(project_id).project
 
 
-def _replace(src: str, dst: Path) -> None:
-    # Windows refuses the rename while another process (a virus scanner, a
-    # sync client) briefly holds the target open; give it a moment.
-    for attempt in range(5):
-        try:
-            os.replace(src, dst)
-            return
-        except PermissionError:
-            if attempt == 4:
-                raise
-            time.sleep(0.05 * (attempt + 1))
-
-
-def _write_atomic(path: Path, data: bytes) -> None:
-    """Write `path` so that it holds either its old or its new bytes, never a
-    mix: write a temp file beside it, flush it to disk, then rename it over."""
-    tmp = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+def current_revision(project_id: str) -> str | None:
+    """The revision of the project's file as it is on disk now (None: no file).
+    The window asks every second: a save LightSim made (another window, an
+    AI agent, ``lightsim edit``) it lays over its copy (:func:`rebase`); a
+    change from outside (a git pull, an editor) it offers to reload."""
     try:
-        with open(tmp, "xb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-        _replace(str(tmp), path)
-    except BaseException:
-        with contextlib.suppress(OSError):
-            tmp.unlink()
-        raise
+        return revision_of(location(project_id).file.read_bytes())
+    except FileNotFoundError:
+        return None
+
+
+def _format_of(data: bytes) -> tuple[int, str | None]:
+    """The format version and app version a file's bytes say (1, None when
+    it says neither or cannot be read)."""
+    try:
+        raw = json.loads(data)
+        saved_with = raw.get("savedWith")
+        return file_version(raw), saved_with if isinstance(saved_with, str) else None
+    except (ValueError, AttributeError):
+        return 1, None
+
+
+def newer_file(project_id: str) -> NewerFileError | None:
+    """Why the project's file on disk is read-only here (it is from a newer
+    LightSim), or None."""
+    try:
+        version, saved_with = _format_of(location(project_id).file.read_bytes())
+    except OSError:
+        return None
+    return NewerFileError(version, saved_with) if version > CURRENT_VERSION else None
 
 
 def save_project(
-    project: Project, expected_revision: str | None = None, create_only: bool = False
+    project: Project, expected_revision: str | None = None, create_only: bool = False,
+    meta: dict | None = None,
 ) -> str:
     """Save atomically and return the new revision.
 
     `expected_revision` is the revision the caller's copy was loaded from
     ("*" = any, the file must just exist); `create_only` refuses to replace an
     existing file. Either raises ConflictError when the file on disk does not
-    match. With neither, the save overwrites unconditionally.
+    match. With neither, the save overwrites unconditionally. A file on disk
+    from a newer LightSim is never replaced (NewerFileError). `meta` says who
+    saved and why, for the project's history (:mod:`app.history`).
     """
-    path = project_path(project.id)
+    project.schemaVersion = CURRENT_VERSION
+    project.savedWith = VERSION
     data = project.model_dump_json(indent=2).encode("utf-8")
-    with _save_lock:
-        path.parent.mkdir(parents=True, exist_ok=True)
+    return write_file(location(project.id), data, expected_revision, create_only, meta)
+
+
+@contextlib.contextmanager
+def project_lock(loc: Location):
+    """Hold the project's save lock: one save at a time in this process, and
+    an OS lock on ``.lock`` in its backups folder, so the app and an AI
+    agent's process (the MCP server, the command line) cannot interleave a
+    revision check and a write either. The OS frees the lock when a process
+    dies, so a crash leaves none behind."""
+    folder = loc.make_dir(loc.backups)
+    with _save_lock, open(folder / ".lock", "a+b") as f:
+        if os.name == "nt":
+            import msvcrt
+
+            deadline = time.monotonic() + 30
+            while True:
+                try:
+                    f.seek(0)
+                    msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(0.02)
+            try:
+                yield
+            finally:
+                f.seek(0)
+                msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(f, fcntl.LOCK_EX)
+            yield  # closing the file frees it
+
+
+def write_file(loc: Location, data: bytes, expected_revision: str | None = None,
+               create_only: bool = False, meta: dict | None = None) -> str:
+    """Replace the project file at ``loc`` with ``data`` the safe way every
+    save goes: under :func:`project_lock`, checking the revision (see
+    :func:`save_project`), keeping the version it replaces in the backups,
+    and adding a line to the project's history. Returns the new revision."""
+    path = loc.file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with project_lock(loc):
         current = path.read_bytes() if path.exists() else None
         if create_only and current is not None:
-            raise ConflictError(f"A project with id '{project.id}' already exists on disk.")
+            raise ConflictError(f"A project with id '{loc.id}' already exists on disk.")
         if expected_revision is not None:
             if current is None:
                 raise ConflictError(
-                    f"Project '{project.id}' was deleted on disk after it was loaded.")
+                    f"Project '{loc.id}' was deleted on disk after it was loaded.")
             if expected_revision != "*" and revision_of(current) != expected_revision:
                 raise ConflictError(
-                    f"Project '{project.id}' changed on disk after it was loaded "
+                    f"Project '{loc.id}' changed on disk after it was loaded "
                     f"(another window or program saved it).")
         if current is not None:
-            _write_atomic(path.with_name(path.name + ".bak"), current)
+            version, saved_with = _format_of(current)
+            if version > CURRENT_VERSION:
+                raise NewerFileError(version, saved_with)
+            if version < _format_of(data)[0]:  # this save upgrades the file
+                _keep_pre_migration(loc, version, current)
+            if not loc.external:
+                write_atomic(path.with_name(path.name + ".bak"), current)
             if current != data:
-                _keep_backup(project.id, path, current)
-        _write_atomic(path, data)
+                _keep_backup(loc, path, current)
+                if (meta or {}).get("by") == "agent" and (meta or {}).get("session"):
+                    _keep_session_start(loc, str(meta["session"]), current)
+        write_atomic(path, data)
+        if current != data:
+            with contextlib.suppress(OSError):  # the save stands without its line
+                history.record(loc.backups, current, data, revision_of, meta)
     return revision_of(data)
 
 
-def _backups_dir(project_id: str) -> Path:
-    return user_dir() / _BACKUPS / _safe_name(project_id)
+def kept_by_lightsim(path: Path) -> bool:
+    """True when ``path`` is in a folder LightSim keeps for a project, which
+    only LightSim writes: a file's backups and history, runs or resources
+    (``<file>-backups``, ``-runs``, ``-resources``), a projects folder's
+    (``.backups``, ``runs``, ``resources``) or the AI log (``.ai``). An agent's
+    write there could wipe the history it is undone by, or plant a backup."""
+    real = Path(path).resolve()
+    for folder in real.parents:
+        name = folder.name
+        if name in (_BACKUPS, ".ai"):
+            return True
+        if name in ("runs", "resources") and (
+                (folder.parent / _BACKUPS).is_dir() or folder.parent == user_dir().resolve()):
+            return True
+        for suffix in ("-backups", "-runs", "-resources"):
+            if name.endswith(suffix) and folder.with_name(name[: -len(suffix)]).is_file():
+                return True
+    return False
+
+
+def location_of_file(path: Path) -> Location:
+    """Where the app keeps the backups and history of the project file at
+    ``path``: as the project of the projects folder it is, as the .lightsim
+    file the app knows it as, or beside it (``<file>-backups``), so an AI
+    agent's save of a file lands in the same history the open window reads."""
+    real = Path(path).resolve()
+    with contextlib.suppress(OSError, ValueError):
+        known = next((f.id for f in files.recent() if f.path.resolve() == real), None)
+        if known is not None:
+            return location(known)
+    # a project of a projects folder (the app's, or the desktop app's when a
+    # command line names its file): <id>.json with its backups in .backups/<id>
+    folder, pid = real.parent, real.stem
+    with contextlib.suppress(OSError):
+        if real.suffix == ".json" and SAFE_ID.fullmatch(pid) and (
+                (folder / _BACKUPS / pid).is_dir() or folder == user_dir().resolve()):
+            return Location(id=pid, file=real, runs=folder / "runs" / pid,
+                            backups=folder / _BACKUPS / pid, resources=folder / "resources" / pid)
+    return Location(
+        id=real.stem, file=real,
+        runs=real.with_name(real.name + "-runs"),
+        backups=real.with_name(real.name + "-backups"),
+        resources=real.with_name(real.name + "-resources"),
+        external=True,
+    )
+
+
+def _keep_pre_migration(loc: Location, version: int, previous: bytes) -> None:
+    """Keep the file as it was before its first save in the current format,
+    for good (it is not one of the KEEP_BACKUPS that rotate out)."""
+    keep = loc.make_dir(loc.backups) / f"pre-migration-v{version}.json"
+    if not keep.exists():
+        write_atomic(keep, previous)
+
+
+def _session_start(loc: Location, session: str) -> Path:
+    """Where the file as it was before an agent session's first save is kept."""
+    return loc.backups / f"pre-session-{hashlib.sha256(session.encode()).hexdigest()[:16]}.json"
+
+
+def _keep_session_start(loc: Location, session: str, previous: bytes) -> None:
+    """Keep the file as it was before an AI agent session's first save, apart
+    from the KEEP_BACKUPS that rotate out, so a session that saves many times
+    can still be put back to the exact bytes it started from
+    (``pre-session-<hash of the session>.json``). The starts of the newest
+    KEEP_BACKUPS sessions are kept. Call with _save_lock held."""
+    folder = loc.make_dir(loc.backups)
+    keep = _session_start(loc, session)
+    if keep.exists():
+        return
+    write_atomic(keep, previous)
+    starts = sorted(folder.glob("pre-session-*.json"), key=lambda f: f.stat().st_mtime_ns)
+    for old in starts[: max(0, len(starts) - KEEP_BACKUPS)]:
+        with contextlib.suppress(OSError):
+            old.unlink()
 
 
 def _backup_files(folder: Path) -> list[Path]:
@@ -274,20 +569,19 @@ def _backup_files(folder: Path) -> list[Path]:
     return sorted(f for f in folder.glob("*.json") if BACKUP_ID.fullmatch(f.stem))
 
 
-def _keep_backup(project_id: str, path: Path, previous: bytes) -> None:
+def _keep_backup(loc: Location, path: Path, previous: bytes) -> None:
     """Add `previous`, the version at `path` a save is about to replace, to
     the project's backups and drop all but the newest KEEP_BACKUPS. The copy
     keeps the file's time, so it is listed by when that version was saved.
     Call with _save_lock held."""
-    folder = _backups_dir(project_id)
-    folder.mkdir(parents=True, exist_ok=True)
+    folder = loc.make_dir(loc.backups)
     kept = _backup_files(folder)
     revision = revision_of(previous)
     if kept and kept[-1].stem.endswith(revision):
         return  # the newest backup holds these bytes already
     saved_ns = path.stat().st_mtime_ns
     backup = folder / f"{time.time_ns() // 1_000_000:013d}-{revision}.json"
-    _write_atomic(backup, previous)
+    write_atomic(backup, previous)
     os.utime(backup, ns=(saved_ns, saved_ns))
     for old in kept[: max(0, len(kept) + 1 - KEEP_BACKUPS)]:
         with contextlib.suppress(OSError):
@@ -298,7 +592,7 @@ def list_backups(project_id: str) -> list[dict]:
     """The project's backups, newest first: each one's id, when that version
     was saved (epoch ms), its revision and size, and the project name and
     element count it holds (None where the file cannot be read)."""
-    folder = _backups_dir(project_id)
+    folder = location(project_id).backups
     out = []
     for f in reversed(_backup_files(folder)) if folder.is_dir() else []:
         st = f.stat()
@@ -321,18 +615,137 @@ def list_backups(project_id: str) -> list[dict]:
 
 
 def load_backup(project_id: str, backup_id: str) -> Project:
-    """One earlier version of the project, as it was saved."""
+    """One earlier version of the project, as it was saved (upgraded to the
+    current format; its studies, if an old version had any, are left out:
+    they are kept with the project's runs)."""
     if not isinstance(backup_id, str) or not BACKUP_ID.fullmatch(backup_id):
         raise ValueError(f"Invalid backup id: {backup_id!r}")
-    path = _backups_dir(project_id) / f"{backup_id}.json"
+    path = location(project_id).backups / f"{backup_id}.json"
     if not path.is_file():
         raise FileNotFoundError(backup_id)
-    return Project.model_validate_json(path.read_bytes())
+    return read_project(path.read_bytes()).project
 
 
 def delete_project(project_id: str) -> bool:
-    path = project_path(project_id)
-    if path.exists():
-        path.unlink()
+    """Delete a project in the projects folder. A .lightsim file elsewhere is
+    the user's own: the app takes it off Recent files instead
+    (:func:`app.files.forget`) and never deletes it."""
+    loc = location(project_id)
+    if loc.external:
+        raise ValueError(
+            f"'{loc.file.name}' is a file of yours outside the projects folder; "
+            "LightSim does not delete it (remove it from Recent files instead).")
+    if loc.file.exists():
+        loc.file.unlink()
         return True
     return False
+
+
+# -- the project's history (app.history) ------------------------------------
+
+def project_history(project_id: str, limit: int = 50) -> list[dict]:
+    """The newest ``limit`` saves of the project, newest first, without
+    their diffs: who saved, why, what changed, and whether it was undone."""
+    lines = history.entries(location(project_id).backups)
+    gone = history.undone(lines)
+    return [history.summary(e) | {"undone": e["id"] in gone} for e in reversed(lines[-limit:])]
+
+
+def rebase(project_id: str, revision: str, ours: dict) -> dict:
+    """Lay the saves made since ``revision`` (by an AI agent, the command
+    line or another window) over ``ours``, the window's copy with its unsaved
+    changes. Returns the merged project, the file's revision now, the saves
+    laid over it and the values both sides changed (the save wins there).
+    Raises ConflictError when the history does not lead from ``revision`` to
+    the file on disk (it was changed by something else, such as a git pull)."""
+    loc = location(project_id)
+    def read() -> tuple:
+        try:
+            now = revision_of(loc.file.read_bytes())
+        except FileNotFoundError:
+            raise ConflictError(f"Project '{project_id}' was deleted on disk.") from None
+        return now, ([] if now == revision else history.entries(loc.backups))
+
+    # under the lock: a save replaces the file before it adds its history
+    # line, so read between the two the file would look changed by something else.
+    # No backups folder, or one the lock file cannot be opened in (a read-only or read-only-mounted
+    # project folder): LightSim cannot save there, so there is no save to wait
+    # for, and a git pull must still say conflict, not fail.
+    try:
+        with project_lock(loc) if loc.backups.is_dir() else contextlib.nullcontext():
+            now, lines = read()
+    except OSError:
+        now, lines = read()
+    steps = [] if now == revision else history.chain(lines, revision, now)
+    if steps is None:
+        raise ConflictError(f"Project '{project_id}' was changed on disk by something other "
+                            "than LightSim (its history does not say how).")
+    doc = Project.model_validate(ours).model_dump(mode="json")
+    clashes: list[dict] = []
+    for step in steps:
+        clashes += history.apply(doc, step["diff"])
+    project = read_project(doc).project
+    return {"project": project.model_dump(mode="json"), "revision": now,
+            "entries": [history.summary(e) for e in steps],
+            "conflicts": [history.describe(c) for c in clashes]}
+
+
+def undo(project_id: str, entry: str | None = None, session: str | None = None) -> dict:
+    """Undo one save of the history (``entry``), or every save of an agent's
+    ``session`` not undone yet, newest first, by reverting what each one
+    changed. Values changed again since are left as they are and listed in
+    ``conflicts``. The undo is itself a save, with its own history line, so
+    it can be undone too. Raises LookupError when there is nothing to undo."""
+    loc = location(project_id)
+    for attempt in range(3):
+        with project_lock(loc):  # the file and its history as one save left them
+            data = loc.file.read_bytes()
+            lines = history.entries(loc.backups)
+        gone = history.undone(lines)
+        picked = [e for e in lines if e["id"] not in gone and (
+            e["id"] == entry if entry else
+            bool(session) and e.get("session") == session and e.get("by") == "agent")]
+        picked = [e for e in picked if isinstance(e.get("diff"), list)]
+        if not picked:
+            raise LookupError("Nothing to undo: that change was undone already, or it made "
+                              "the project (a new project is not unmade).")
+        notes: list[str] = []
+        ours = [e for e in lines if e.get("session") == session and e.get("by") == "agent"]
+        start = _session_start(loc, session) if session else None
+        if start is not None and start.is_file() and ours and \
+                ours[0].get("from") != revision_of(start.read_bytes()):
+            # the session's first saves are out of the history (it started
+            # afresh twice since): undo them from the copy of its start
+            then = json.loads(data)
+            steps = history.chain(lines, ours[0].get("from"), revision_of(data))
+            for step in reversed(steps or []):
+                history.apply(then, step["diff"], revert=True)
+            if steps is None:
+                notes.append("The first saves of this session are no longer in the project's "
+                             f"history; the project as it was before the session is kept in {start}.")
+            else:
+                picked.insert(0, {"id": None, "diff": history.diff(
+                    json.loads(start.read_bytes()), then)})
+        doc = json.loads(data)
+        clashes: list[dict] = []
+        for e in reversed(picked):
+            clashes += history.apply(doc, e["diff"], revert=True)
+        if doc == json.loads(data):  # every value was changed again since
+            return {"revision": revision_of(data), "undid": [],
+                    "conflicts": [history.describe(c) for c in clashes] + notes}
+        project = read_project(doc).project
+        project.id = loc.id
+        who = picked[-1].get("client") or "an agent"
+        meta = {"by": "app", "tool": "undo", "undoes": [e["id"] for e in picked if e["id"]],
+                "reason": f"Undo {len(picked)} change(s) by {who}" if session
+                else f"Undo: {picked[0].get('reason') or 'a change by ' + who}",
+                "changes": [f"Undone: {c}" for e in picked for c in e.get("changes") or []]}
+        try:
+            revision = save_project(project, revision_of(data), meta=meta)
+        except ConflictError:
+            if attempt == 2:
+                raise
+            continue
+        return {"revision": revision, "undid": meta["undoes"],
+                "conflicts": [history.describe(c) for c in clashes] + notes}
+    raise AssertionError("the loop returns or raises")

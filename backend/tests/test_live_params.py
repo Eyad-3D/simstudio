@@ -180,3 +180,13 @@ def test_drivelines_shift_in_the_same_step():
         whl = {round(p["t"], 2): p["value"] for p in series(result, f"w{ax}", "sig_speed")}
         assert mot[0.5] / whl[0.5] == pytest.approx(3.0, rel=0.01), ax
         assert mot[0.51] / whl[0.51] == pytest.approx(1.5, rel=0.01), ax
+
+
+def test_the_result_lists_the_live_edits_it_made():
+    """Today's engine lists each live edit it applied, at the simulated time
+    the run had reached when it applied it (here before its first step), and
+    not one it deferred; the result says it ran on today's engine."""
+    applied = _run_with_edit("drv", "driver_kp", 0.5)
+    assert [(e.t, e.elementId, e.key, e.value) for e in applied.liveEdits] == [(0.0, "drv", "driver_kp", 0.5)]
+    assert applied.engine == "today" and applied.solverOptions["timeStep"] > 0
+    assert _run_with_edit("fd", "ratio", 5.0).liveEdits == []

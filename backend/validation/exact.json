@@ -1,0 +1,24 @@
+{
+  "about": "The exact-answer tier: LightSim against closed-form solutions, the same engine the vehicle cases use. backend/tests/test_numerics.py holds more of these.",
+  "tolerance_pct": 0.5,
+  "cases": [
+    {
+      "id": "coast-air-drag-only",
+      "name": "Coast-down under air drag alone",
+      "formula": "v(t) = v0 / (1 + k v0 t), k = C x 12.96 / m (C in N/(km/h)^2, v in m/s)",
+      "mass_kg": 1500, "v0_kmh": 120, "c_N_per_kmh2": 0.03, "t_s": 60
+    },
+    {
+      "id": "coast-constant-force",
+      "name": "Coast-down against a constant force",
+      "formula": "v(t) = v0 - A t / m",
+      "mass_kg": 1500, "v0_kmh": 100, "a_N": 300, "t_s": 30
+    },
+    {
+      "id": "coast-full-abc",
+      "name": "Coast-down against A + B v + C v^2, solved to the time it takes from 100 to 20 km/h",
+      "formula": "t = m x integral from 20 to 100 km/h of dv / F(v) (numerical quadrature)",
+      "mass_kg": 1800, "v0_kmh": 100, "v1_kmh": 20, "a_N": 150, "b_N_per_kmh": 1.2, "c_N_per_kmh2": 0.035
+    }
+  ]
+}

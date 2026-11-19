@@ -29,9 +29,37 @@ sections.
 | The P2 Hybrid Car example takes its road load as EPA's own coefficients (A 68.64 N, B 0.9093 N/(km/h), C 0.025078 N/(km/h)²) with *Coefficients Include Driveline Losses* ticked, so the driveline drag they hold is no longer counted again in its final drive (98 %); its cases start at re-balanced charges (UDDS 56.74 %, HWFET 58.87 %, Mixed 51.92 %) | EPA city (UDDS) 2.94 → 2.84, highway (HWFET) 3.29 → 3.23, Mixed Cycle 2.93 → 2.88 l/100 km, against EPA's 2.91 and 2.94. The city figure is now below EPA's: the model has no cold start | MOD-11 |
 | The P2 Hybrid Car's control script starts or stops the engine only when asked for 0.2 s in a row (at standstill it still stops at once), so one step's reading of the input shaft, which rings for a few steps as the clutch closes, no longer switches it; its cases start at re-balanced charges (UDDS 56.34 %, HWFET 58.92 %, Mixed 51.96 %) | EPA city (UDDS) 2.84 l/100 km unchanged, with 30 engine starts instead of 32; highway (HWFET) 3.23 → 3.24, Mixed Cycle 2.88 l/100 km unchanged. The engine's starts no longer change with small changes to the model or the step (fuel still moves by up to about 0.004 l/100 km at the 10 ms step): with the example as MOD-18 left it, a brake inertia of 0.14 kg·m² or less added an engine start at the 10 ms step only | MOD-18 |
 | The E-Motor's and Engine's Speed, a clutch's Slip Speed and the battery's Terminal Voltage hold the state at their own time, as 0.2.0 promised for every channel (before: the state one solver step, 10 ms, earlier); a clutch that starts open shows its slip from t = 0 on, and a clutch's Torque now includes the part the solver adds as the clutch locks | These channels move by one solver step: a motor spun up from rest no longer reads 0 1/min at t = 0.01 s, and a battery's RC-branch voltage (and the open-circuit voltage's fall with SOC) shows in the step it happens instead of one step later; the R0 drop already did. Scripts and PIDs that read them get the current value, so the hybrid example's channels move slightly. No figure changes: the BEV's, and the hybrid's EPA city (2.84 l/100 km), highway (3.24) and Mixed Cycle (2.88), with the same engine starts | ENG-03 |
+| Shaft and Final Drive *Transmitted Power* is the power through that part (its input), not the total of every motor and engine on the driveline; Gearboxes, Differentials and Transfer Cases get the same channel, and each of them a *Losses* channel | In the P2 Hybrid Car's Mixed Cycle with a Shaft between the engine and the clutch, at t = 281 s the Shaft shows the engine's 9.75 kW and the Final Drive 8.88 kW, where both showed 9.2 kW; the Battery Electric Car's Final Drive shows what it did (one motor, no gears before it). No summary figure changes | MOD-10 |
+| A battery's *internal losses* include the loss in its RC pair (current × the RC pair's voltage), as well as in R0 | Only batteries with an RC pair change: their internal losses rise by about the RC pair's share of the voltage drop. The examples have none | MOD-10 |
+| Stored values, summary numbers, each part's energy books (*Energy* tab) and the duty values keep every digit: 0.2.0 rounded each stored value to 5 decimals and the summary to 1 Wh, 1 g and 0.01 per 100 km | No result moves by more than that rounding, but small differences now show: one more kilogram on the Battery Electric Car takes its City Cycle from 11.1207 to 11.1240 kWh/100 km and its final SOC from 88.7640 to 88.7636 % (both read 11.12 kWh/100 km and 88.76 % before). The *Results* page shows at most 3 decimals; run files, study tables and their CSV have every digit | ENG-16 |
+| A hybrid's *Cycle* cases run charge-balanced (see *New*) | A hybrid case that starts at a charge its cycle does not end with now reports the fuel of a charge-neutral run: the P2 Hybrid Car's Mixed Cycle started at 30 % gives 2.872 l/100 km instead of the single run's 4.036 (which held the fuel spent recharging the battery). The examples' cases already start balanced and keep their figures (one run); their summaries gain three rows and *Messages* one line | ENG-33 |
+| The solver step gets smaller when the tyres' *Slip Stiffness* (or a propeller-type load) is too stiff for 10 ms | Models with stiff tyres no longer give numerical nonsense, and run slower: 5 ms from a *Slip Stiffness* of 20 (with the default share of weight on each wheel), 0.5 ms at 300. The FS Electric example (20) now runs at 5 ms: its 75 m time 3.744 → 3.751 s, 0-100 km/h 2.93 → 2.95 s, time held at 80 kW 3.77 → 3.62 s, 4.22 → 4.23 s at a 40 kW limit; its lap cases do not change. The Battery Electric and P2 Hybrid Cars keep 10 ms | ENG-14 |
+| New library defaults with a source (CON-14): a Power Consumer draws 0.25 kW (was 2.5 kW, a heating level; FASTSim's auxiliary load for electric cars), a Wheel's rolling resistance is 0.0085 (was 0.012; the middle of EU tyre label class C, Regulation (EU) 2020/740), and the Engine's fuel map is a synthetic map with a best-efficiency region (best 221 g/kWh at 2,500 1/min; was a map of unknown origin, 277 g/kWh at 2,000 1/min and 100 N·m, now 227) | Models that keep these defaults use less energy: the Battery Electric Car with every value at its default takes 13.32 kWh/100 km on WLTC class 3b instead of 19.98 (the example itself, 14.05, does not change), and a default engine burns about 18 % less fuel at part load. The examples set their own values and do not change | CON-14 |
+| Signal blocks (Script, PID, Lookup, Road Profile) that read the output of a signal loop now run after the loop's blocks; before, every block from the loop on ran in the order of its internal id, so such a block could read a value one solver step (10 ms) old | Only models with a loop of signal blocks change, by at most one step's delay on the blocks after the loop; Data Checks name the loop's blocks, their order and the value that arrives a step late. The examples have no loop and do not change | VAL-17 |
+| A gear shift is a rigid, instantaneous engagement: the speeds jump to the new ratio keeping the driveline's angular momentum (and, through tyres that grip, the car's), and the kinetic energy that loses is the gearbox's loss, its new *gear shifts* term. Before, one part kept its speed and the others followed the ratio, which made or destroyed energy the books did not see (a load on a shaft jumped from 67.5 to 115.8 rad/s; on the hybrid's EPA city cycle the rotating parts' books ended at +18.9 kJ for a car at rest) | Models with a Gearbox change at each shift. The P2 Hybrid Car's upshifts hand the gearbox input's momentum to the car instead of losing it: EPA city 2.838 → 2.829 l/100 km, highway 3.236 → 3.235, Mixed Cycle 2.878 → 2.875; its 104 shifts on EPA city lose 12.7 kJ. Cars without a gearbox do not change | ENG-04 |
+| Every part's energy books hold what the solver's step did: each torque as the step applied it, at the step's mean speed (before: the speed the step started with, while the step moved the speed to its end). A motor spinning up an inertia gave it T²·dt²/2J more per step than its books said | The *Energy balance residual* falls to rounding (about 1e-11 %; it was 0.011 % on the Battery Electric Car's City Cycle, 0.019 % on the hybrid's Mixed Cycle, 0.23 % on its EPA city cycle, 1.3 % for a motor spinning up a light inertia at 10 ms). A motor's or engine's shaft energy and loss move by the step's own error (the E-Motor's loss on the City Cycle 308.4 → 308.2 kJ); no speed, current or fuel figure changes | MOD-10 |
+| A car that coasts comes to a stop and stays there: rolling resistance acts in full to the stop (it faded out below 0.3 m/s, so a coasting car's speed decayed for ever and on a gentle downhill a car crept on, 0.53 km/h on 0.5 %); a car whose speed would pass through zero within a solver step stops in that step, and at rest the rolling resistance holds it until the tyres, less the slope, push harder. The distance driven is the trapezoid of each step's speeds | A coast-down from 108 km/h stops at 193.18 s, as the closed form says (it never stopped). At its stops the Battery Electric Car now stands exactly still, so its Driver's command is 0 and the inverter is off instead of burning the E-Motor's spin losses: City Cycle 11.121 → 11.114 kWh/100 km, WLTC 14.053 → 14.046; its 75 m from rest 5.527 → 5.533 s. The hybrid, the Efficient Electric Sedan and the FS Electric car move by under 0.05 % | ENG-09 |
+| A clutch is dry friction: it slips at its whole torque while its sides turn at different speeds, sticks in the solver step its slip would pass through zero, and once stuck holds its sides together (solved with the driveline) up to that torque, with no slip and no loss. It was a smooth band of 0.5 rad/s, explicit while slipping, so at the 10 ms step it could overshoot lock-up and ring, and locked it still slipped and lost a little | A clutch closing at the 10 ms step no longer rings (the benchmarks' lock-up: speeds exact to 2e-15 after it, its torque the 16 N·m it must pass, where it read −100 N·m one step after lock-up), and Data Checks no longer note that a clutch can ring. The P2 Hybrid Car: Mixed Cycle 2.875 → 2.870 l/100 km, now the same at the 10 and 5 ms steps; EPA city 2.829 → 2.827 (one more engine start at the 10 ms step than at 2.5 ms, see Known issues), highway 3.235 → 3.228; its 75 m from rest 6.314 s at 10 ms against 6.309 s at 1 ms (it was 6.474 against 6.344 s, with the clutch ringing in second gear) | ENG-09 |
+| Every case now runs on the new simulation engine, written in Rust, which replaces the older engine (written in Python): the app, the command line, studies, the AI tools and quick mode all use it, and nothing falls back to the older one. A case it cannot run fails at once with *Not run* and a reason code in brackets | The figures move a little, each inside the band of the older engine's own 10 ms and 1 ms runs: the Battery Electric Car's WLTC consumption 14.046 → 14.053 kWh/100 km and its final SOC 84.926 → 84.923 %, the Efficient Electric Sedan's UDDS 9.50 → 9.52 and WLTC 11.78 → 11.79 kWh/100 km, the P2 Hybrid Car's EPA city consumption 2.83 → 2.81 l/100 km (the older engine's own 1 ms run gives 2.81 too), FS Electric's 75 m time 3.751 → 3.754 s, its time to 100 km/h 2.945 → 2.963 s and its time held at the 80 kW limit 3.62 → 3.80 s (the older engine's own 1 ms run gives 2.963 s and 3.79 s: its 10 ms step was the outlier). On the reference suite the eight gaps to EPA are +5.3, +7.4, +0.9, +7.5, −1.0, +4.1, −6.6 and 0.0 % (mean 4.1 %, largest 7.5 %). A PID block now runs as a discrete controller, as the older engine's did, and no longer stops a run at its limit; a performance case (0-100 km/h) runs on it too, and a case that ends at a distance or a lap count ends where it should. **Three features do not run in this version yet** and are refused with their codes: lap cases (`NEW-LAP`: the Race Track, Autocross, Skidpad, the endurance study and *Calibrate lap*), Formula Student events (`NEW-FS-EVENT`) and a battery built from cells (`NEW-CELLS`: set *Defined By* to *Pack values*). A hybrid's charge-balanced case runs on it, as on the older engine: the P2 Hybrid Car's three cycle cases run and each settles in 1 run. A value outside its parameter's limits in a case, which the older engine clamped with a warning, is refused (`NEW-LIMITS`); a part with nothing connected to it is built, not left out, and can fail the run; quick mode refuses a case it cannot run instead of running it in full. [Known issues](KNOWN-LIMITS.md#does-not-run-in-this-version) lists each, with the other differences | ENG-16 |
 
 ### New
 
+- Models from other tools: drop an FMU file (a Co-Simulation FMU of FMI
+  2.0 or 3.0, exported from Simulink, Dymola, GT-SUITE or a supplier) on
+  the diagram and it runs with the rest of the car as an *FMU* block. Its
+  *Properties* show the FMI version, kind, the tool that made it, a badge
+  for where it runs (*Runs here*, *Windows only*, *Source only*) and the
+  problems FMPy's checks find, in plain words; *Variables and pins* ticks
+  the FMU's variables into pins and changes start values. LightSim asks
+  once for each FMU whether it may run, and runs it in a separate,
+  locked-down process, so a crashing or hanging FMU stops the run, not the
+  app. It needs the optional FMU pack (FMPy); see [Use a model from another
+  tool](help/how-to/use-an-fmu.md) and *Known issues* for what it does not
+  do yet. In the automatic tests, 12 of the FMI standard's 14 Reference
+  FMUs (version 0.0.39) give the same results as FMPy's own runner, to
+  1e-6; the other two need what this version does not do (StateSpace has
+  array signals, Clocks is a Scheduled Execution FMU).
+  *Roadmap:* STD-01.
 - Battery: *Charge Capacity* (Ah) and *Coulombic Efficiency (charging)*.
   Left at 0, the Charge Capacity comes from the Usable Capacity. Coulombic
   efficiency defaults to 100 %, not the 99 % first proposed: Li-ion cells
@@ -91,9 +119,1049 @@ sections.
   a negative coefficient A or C (a warning: it pushes the car along); a
   road-load coefficient that is not a number or a negative Maximum Speed
   (errors).
+- Battery: *Output Power Limit* (kW at the terminals, volts × amps, as a
+  Formula Student energy meter measures it), with a *Power Limit Margin*
+  (0 to 100 %: the motors are held to the limit less it, and Messages and
+  the summary name the margin),
+  a *Power Check Window*, *Hold Power to Limit* (untick it to only check
+  the limit) and a *Voltage Class* (V); 0 turns the limit and the class
+  off, as in every existing model. The limit caps discharge only: the
+  motors get what is left after the other loads, and recuperation is not
+  limited. Being held at it is an *info* message, not a warning, so such
+  a run can be a *success*. The run summary then gives the peak terminal
+  power, the peak averaged over the window (checked against the limit),
+  the time held at (or over) the limit, the highest pack voltage
+  (open-circuit at 100 % SOC, or at the terminals while recuperating;
+  checked against the class), the lowest pack voltage and the usable
+  energy left (it fails when the battery reached its minimum SOC). A
+  failed check is a warning. Data Checks warn when the open-circuit
+  voltage at 100 % SOC is above the Voltage Class. On the Battery Electric
+  Car, an 80 kW limit takes its 0-100 km/h from 7.10 to 12.76 s.
+- Summary rows can carry a limit and a *pass* or *fail* marker.
+- Presets: the battery's *Apply preset: Formula Student Electric* sets
+  80 kW, a 0.5 s window, 600 V, Hold Power to Limit and a 500 A *Max
+  Discharge Current* in one step (one undo). Its values come from FS Rules
+  2026 v1.1 (FSG) EV 2.2.1, EV 2.2.2, EV 4.1.1 and D 10.4.1, checked
+  against FSUK 2026 Rules V1.0 and FSAE Rules 2025 V1.0, which differ in
+  detail.
+  Check the current season's rules before relying on them.
+- Load transfer and downforce: the Vehicle gets a *Centre of Gravity
+  Height*, a *Wheelbase*, a *Downforce Area (CzA)* (negative for lift) and
+  a *Front Aero Balance*, and each Wheel an *Axle* (Front or Rear).
+  Accelerating, braking and standing on a slope move m·(a + g·sin θ)·h/L
+  between the axles, from the previous 10 ms step's acceleration, and
+  downforce adds ½·ρ·CzA·v² at the Ambient's air density, split by the
+  aero balance; it also adds to the wheels' rolling resistance (not to
+  coefficient A). An axle that would carry less than nothing lifts: it
+  carries nothing, the other axle the rest, and the run warns. New
+  channels: each Wheel's *Normal Load* and the Vehicle's *Front Axle Load*
+  and *Rear Axle Load*. With its rear wheels spinning on μ 1, a
+  rear-driven Formula Student-sized car (300 kg, CG 0.3 m high, 1.55 m
+  wheelbase) now accelerates at 6.45 m/s² instead of 5.24. With a CG
+  height and a downforce area of 0, the defaults, no result changes; the
+  examples keep 0 and have their wheels tagged Front and Rear.
+- Acceleration test: a case *Kind* of *Acceleration*, with a *Distance*,
+  a *Start line* and a *Reference time*. The Driver holds full throttle
+  the whole run with no target, and the run ends at the end of the solver
+  step that reaches the line; Data Checks ask for a Target Speed only
+  when a case reads one, and a missing one stops only the cases that read
+  it. The summary
+  leads with *Time to 75 m* (from the start line, with *pass* and the case
+  duration as its limit), *Speed at 75 m*, *Gap to reference time*,
+  *Time to 100 km/h* (from t = 0), each battery's peak and mean terminal
+  power, and the share of the run a driven wheel spent at the tyres' grip
+  limit; the time and speed are read inside the step that crossed the
+  line, so the output step does not change them. A car that misses the
+  line within the duration gets a warning. The results are marked as
+  estimates (Messages, Run info and the summary header say why), and a
+  model whose batteries have no Output Power Limit is told how to check
+  one. Simulations → *Acceleration test* runs the first acceleration case
+  in one click, or adds one first: 75 m, staged 0.30 m behind the start
+  line, 25 s time limit (FS Rules 2026 v1.1 (FSG) D 5.1.1, D 5.2.3, and
+  D 9.2.1, which applies the 25 s to driverless runs only; FSUK and FSAE
+  may differ, check the current season's rules). On the Battery Electric
+  Car it gives 5.216 s and 86.3 km/h at the line (5.533 s from rest). No
+  existing case changes.
+- Lap mode: a case *Kind* of *Lap* drives the model's *Race Track*
+  (Driver & Signals), with its *Track layout* and *Laps* set in the case.
+  Layouts drawn for LightSim after FS Rules 2026 v1.1 (FSG) D 4.1,
+  D 5.1.1, D 6.1 and D 7.1 (FSUK and FSAE may differ, check the current
+  season's rules): Autocross, a 979 m closed lap with a slalom, a hairpin
+  and a chicane; Skidpad, the right and left circles on the lane centre
+  (9.125 m); Acceleration 75 m; or Custom, from curvature and elevation
+  tables pasted into the track (its starter table is a closed 40 m radius
+  circle; Data Checks warn when a Closed Circuit does not end where it
+  starts, heading the same way, as a circuit or a figure eight does). A
+  quasi-steady-state lap solver finds the
+  fastest speed about every metre from the tyres' grip (downforce, load
+  transfer along and across the car, load sensitivity, friction ellipse)
+  and the powertrain (the E-Motors' full-load curves through the gears,
+  cut to the battery's deliverable power and Output Power Limit; when
+  braking, the friction brakes' Max Torque and the regeneration the
+  driven tyres and the battery can take); the
+  motors, gears, brakes and battery then drive that speed with the drive
+  cycles' own models, so the energy, the power limit checks and the
+  channels are theirs. The summary leads with the lap, lap 1, total and
+  sector times, average speed, energy per lap, RMS battery power, the time
+  limited by cornering grip, traction grip, motor, battery, power cap and
+  braking, and the lap energy balance error; the Race Track's channels
+  give the lap distance, curvature, longitudinal and lateral acceleration
+  (in g, a new unit), what limited the car and a map, for the X-Y view.
+  Data Checks refuse a lap case without a Race Track, Driver or E-Motor,
+  with an engine or clutch on the wheels, an engine, clutch or E-Motor
+  on a shaft without wheels (a series hybrid's generator set, which lap
+  mode does not run) or with all wheels on one axle,
+  and a Custom curvature above 0.5 1/m. Such an error stops only that
+  case, as does any Data Check about a case's own values (its text names
+  the case, and the other cases still run). The results are estimates, and say so.
+  A Formula Student-sized car (280 kg, 96 kW, μ 1.5) laps the Autocross
+  in 61.2 s (62.9 s from a standing start), solved in about 0.15 s.
+- Formula Student events and points (MOD-43): **FS events** (Simulations
+  tab) marks or adds an Acceleration, a Skidpad, an Autocross and an
+  Endurance case, runs the four (about 9 s for the FS example) and shows
+  *Formula Student points* in the *Cases* tab. A case's new *FS event*
+  setting (Acceleration or Lap cases) adds the event's time as the rules
+  take it, the rule checks (80 kW EV 2.2.1 on a 500 ms average as D 10.4.1
+  judges it, whatever the battery's *Power Check Window*, 500 A EV 2.2.2,
+  600 V EV 4.1.1, and whether the endurance finished on its energy) and an estimate of its
+  points from the case's *Reference time* (the fastest team's time) and,
+  for the endurance, *Reference energy* (the most efficient team's), with
+  the scoring of FS Rules 2026 v1.1 (FSG) table 3, D 9.1.1, table 11 and
+  D 9.4. A broken rule scores 0 (D 10.4.2). An Endurance case stops for
+  the driver change at half distance and restarts from rest (D 7.2.3,
+  D 7.5); its event time leaves out the restart lap (D 7.2.5) and its
+  energy counts regeneration at 90 % (D 7.9.5). The points are estimates,
+  not official results; FSUK and FSAE score differently. Batteries now
+  record their highest current and terminal voltage for these checks.
+  No existing case changes.
+- Endurance energy strategy (MOD-44): the Race Track gets *Lift-and-Coast*
+  (%), the share of each stretch of acceleration before braking that the
+  driver coasts (no drive, no brakes), and *Energy Target* (kWh), the net
+  energy the laps may take; above 0, lap mode picks each lap's
+  lift-and-coast so the laps end near the target. Both are in a lap case's
+  settings too. On the FS example's *Endurance energy* case (30 kW), 20 %
+  lift-and-coast takes 12 % less energy (0.203 instead of 0.232 kWh a lap)
+  for 0.4 % more time; a 5.0 kWh target ends 0.54 % under it, 4.5 kWh
+  0.22 % under. The summary adds *Time limited by lift-and-coast*,
+  *Lift-and-coast, mean share*, *Energy target* and *Energy used against
+  the target*, and the Race Track's Limit channel the code 7, only in runs
+  that coast; a run with neither set does not change. Sweep *Lift-and-Coast*
+  for the lap time against the energy.
+- Import a lap from a data logger or lap simulator (STD-35): **Import lap**
+  (Simulations tab) reads a CSV with a lap's speed against time or
+  distance, with layouts for a generic file, GPS loggers, MoTeC i2, AiM
+  Race Studio, OpenLAP and TUM laptime-simulation (LightSim's reading of
+  those tools, not yet checked against teams' files), a column picker, the
+  speed unit, the lap to take (the fastest full lap by default), a preview
+  and warnings for gaps, spikes and rows left out. It adds a *Cycle* case
+  that drives the lap, optionally repeated to a 22 km endurance with a
+  driver change stop, and adds a Driving Task wired to the Driver if the
+  car has none. A trace against distance is turned into time (t = ∫ ds / v)
+  and keeps its distance within 0.5 %; the resampled trace ends at the
+  file's own last point, so a 75 m run keeps its 75 m.
+- Endurance energy study (STU-38): an endurance case (a Lap case, or a
+  Cycle case from an imported lap repeated to 22 km) reports the net
+  battery energy, the lowest pack voltage and, from a trace, the RMS
+  battery power, with the endurance energy and rule checks (a Cycle case
+  gets no points). Its *Cases* tab offers a grid of the accumulator's
+  capacity (its *Charge Capacity*, or a cell pack's cell capacity, scaled
+  with it) and Output Power Limit (up to 6 × 6) that runs as one saved
+  study and shows a map, marking the pairs that run out of energy *DNF*.
+  Saved studies with two factors name both.
+- A *Traction Control* block (Driver & Signals, MOD-45): wired between the
+  Driver's Traction Command and the E-Motors, with the driven wheels' Slip
+  and the Vehicle's Speed, it ramps the demand up from rest (*Launch Ramp
+  Time*, *Launch Torque*) and then holds the slip at a *Target Slip* (0.1)
+  with a PI loop, below the *Minimum Speed* leaving only the ramp. On the
+  FS example's 75 m case at a 2 ms step (Kp 1, Ki 20 1/s) it holds the
+  slip at 0.095-0.100 until the 80 kW limit takes over, where the slip
+  otherwise reaches 7; the 75 m time does not change (3.756 s against
+  3.754 s), because LightSim's tyres keep their grip past the peak. Its
+  defaults (Kp 0.5, Ki 10 1/s) also stay stable at the 10 ms step. No
+  model changes unless you add the block.
+- Calibrate lap mode on a logged lap (VAL-38): **Calibrate lap**
+  (Simulations tab) builds the track from a logged lap's speed and lateral
+  acceleration, fits one factor on every tyre's grip and the Vehicle's
+  CzA to the logged speed against distance (least squares), and checks
+  the prediction blind on a second lap: lap time error, speed RMS error
+  and, with the pack power logged, energy error. **Apply to the model**
+  puts the fit in the car. Checked on LightSim's own laps only (blind lap
+  time −0.5 %, energy +0.6 %); no real log is bundled.
+- Wheel: *Lateral Friction μ_y* (0: the same as μ), *Load Sensitivity
+  dμ/dFz* (per kN), *Nominal Load Fz0* (0: the wheel's static load) and
+  *Friction Ellipse Exponent* (lap cases). The load sensitivity also acts
+  on the tyre force of drive cycles and acceleration tests; at its default
+  of 0 no result changes. Vehicle: *Front Track Width* and *Rear Track
+  Width*, for the sideways load transfer of lap cases.
+- A third example, *FS Electric (generic)*: a typical Formula Student
+  electric car to make your own (280 kg, one rear E-Motor through a 4.4
+  chain drive and an open differential, a 138s4p 7.2 kWh accumulator with
+  the battery's Formula Student Electric preset, load transfer, downforce
+  and load-sensitive tyres). Its cases: *Acceleration 75 m* (3.75 s from
+  the start line, 119 km/h at the line), *Autocross (flying lap)* (57.7 s
+  on LightSim's layout) and *Endurance energy* (23 laps, 22.5 km, with the
+  Output Power Limit at a 30 kW endurance setting: 5.33 kWh net at the
+  accumulator, 25 % charge left). Its Open-menu entry names each rule value
+  with FS Rules 2026 v1.1 (FSG) (FSUK and FSAE may differ, check the
+  current season's rules), compares the results with FS Czech Republic
+  2025 (acceleration 3.51–6.44 s, median 3.91 s; efficiency 3.19–6.15 kWh,
+  median 5.25 kWh) and gives a sweep to try: the Output Power Limit from
+  40 to 80 kW on the 75 m case (4.23 to 3.75 s). The other examples do not
+  change.
+- The diagram's toolbar shows the zoom in % and offers Fit, 50, 100 and
+  200 %. It floats over the diagram's top edge, and the bottom panels open
+  at 22 % of the workspace instead of 30 % (drag their edge for more), so
+  on a 1366 × 768 screen the diagram keeps 40 % of the window with a panel
+  open (was 33 %). LightSim remembers the height of a bottom panel you
+  opened in an earlier build; choose Reset UI to get the new layout.
+  (GUI-03)
+- A *Problems* tab (was *Data Checks*) lists every problem the model has
+  now: the Data Checks, which run by themselves a moment after a project
+  opens and after every change (before, only once you had run them), and
+  the latest run's warnings and errors. Each row names its parts and says
+  how to fix it. A click, or Enter, selects the part and zooms the diagram
+  to it, opening the sub-system it is in; a check about the whole model,
+  such as two Vehicles or wheel load shares, selects every part involved
+  (before, it named none). The Problems tab carries the count; Messages is
+  the log and no longer does, so an error that is not about the model,
+  such as a save that fails, brings Messages to the front. (UX-09)
+- Data Bus Connections lists one row per signal input: pick the output
+  that feeds it in a box you can type in, which offers outputs only, those
+  that share a word with the input's name first (Brake Command: Driver ·
+  Brake Command), then those with its unit. The list opens over the
+  diagram with about ten outputs in view. A link takes two clicks (the
+  Battery Electric Car's 13 links: 26 clicks, with no scrolling, before
+  65). It has a search box,
+  *Unconnected inputs* and *Selected part* filters, and a part's
+  right-click menu has *Signals…*, which opens the panel on that part.
+  (UX-15)
+- A Driving Task can drive a standard cycle picked from a list: WLTC
+  class 3b, EPA city (UDDS) and EPA highway (HWFET), grouped by region,
+  each with its duration and distance, or *Custom profile* for the typed
+  points. Properties sketches the speed over time, with the cycle's phases
+  marked, and gives its duration, distance and top speed; a typed profile
+  gets the same sketch. Choosing a cycle sets the length of the cases that
+  drive it, in one undo step, and Messages says which (when the model has
+  one Driving Task, or for the case it is picked in). A case can pick its
+  own cycle among its overrides. Searching the component library for a
+  cycle's name, such as *udds*, lists it: activate it to add a Driving Task
+  that drives it. The three cycles are the ones the examples used; their
+  figures are within 0.04 % of the published ones. (CON-16)
+- The drive-cycle library has 27 cycles (it had 3): the WLTC of classes 1,
+  2, 3a and 3b, their city cycles and each class 3 phase on its own, typed
+  from the EU's Regulation 2017/1151 on EUR-Lex; the NEDC from UN
+  Regulation No 83 as the EU published it; EPA's FTP-75, US06, SC03, LA92,
+  New York City cycle and motorcycle FTP from EPA's schedule files; the
+  WMTC motorcycle cycle and its parts, and a long-haul truck route with its
+  road grade (804.6 km, and its first 100 km), from FASTSim. Each cycle
+  names its source and the reason LightSim may ship it under its sketch,
+  and carries a fingerprint (the sum of its 1 Hz speeds and a SHA-256 of
+  its file) that the tests check, so no trace can change unseen. The
+  WLTC class 3b, UDDS and HWFET files the examples use did not change:
+  they equal the EU and EPA tables value for value. (CON-04, CON-31)
+- Road Profile: *Grade From Cycle* takes the road's grade from a cycle that
+  carries one (the long-haul route), placed along the distance the cycle
+  covers, so one cycle gives both the speed and the hills. (CON-11)
+- Data register: every row now says why LightSim may ship the data (its
+  *reuse basis*), and DATA-REGISTER.md lists, in order, where data may come
+  from and the sources it must never come from, such as the UNECE website,
+  ev-database.org and EUPL files; the tests fail on a row that names one.
+  (CON-31)
+- A run on a typed profile instead of a standard cycle says so in its
+  messages: its figures cannot be compared with published ones. So does a
+  run on a cycle scaled away from 100 %, repeated past its end or read
+  against distance, which then has no per-phase figures. The
+  examples' *City Cycle* and *Mixed Cycle* are such hand-made demo profiles,
+  and their descriptions now say so; the Properties sketch of a typed
+  profile reads *Custom profile (not a standard cycle)*. The examples'
+  Monitor and Hybrid Control Unit ports show the unit of the signal they
+  are wired to (km/h, N·m, %, V, A, 1/min) instead of bare numbers, and the
+  Battery Electric Car's description no longer names an inverter it does
+  not have (the motor's loss map holds the inverter's losses). No result
+  changes. (CON-26)
+- Run summary, consumption as labs report it: for an electric car the
+  energy at the charging socket (*Consumption at the socket (AC)*, from the
+  battery's new *Charger Efficiency*, 86 % by default as in FASTSim), the
+  US *fuel-economy equivalent* in MPGe (33.705 kWh a gallon) and the *range*
+  the battery's usable energy gives at that consumption; for a hybrid
+  case with *Charge balance* off the battery's energy change as a share of
+  the fuel's and a *charge-corrected* fuel consumption from that one run
+  (with it on, the default for a hybrid's cycle, charge balancing gives
+  them: see ENG-33); for a case on a cycle with phases each phase's
+  distance and consumption (the WLTC's four phases add up to the whole;
+  class 1's second Low phase is *Low (repeat)*, so each row has its name);
+  and for the FTP-75 the bags weighted as EPA does. Help: *Consumption
+  figures* gives every formula. The Battery Electric Car on WLTC class 3b:
+  14.05 kWh/100 km at the battery, 16.34 at the socket, 128.2 MPGe, 426 km;
+  its phases 10.63 / 11.27 / 12.91 / 17.94 kWh/100 km. No existing figure
+  changes. (CON-05)
+- **Simulations → US label**: a US window-sticker estimate, marked *not
+  certified*. It runs the model on EPA's city (UDDS) and highway (HWFET)
+  cycles and shows each step from the lab figures to the label ones, by
+  EPA's derived five-cycle equations (2008 or 2017 coefficients), as
+  FASTSim's label module computes them (the tests hold LightSim within
+  0.5 % of FASTSim's formulas): city, highway and combined MPGe and
+  kWh/100 mi and the range for an electric car, mpg and l/100 km for a car
+  with an engine. The Battery Electric Car gets 104 MPGe combined and 213
+  miles; the P2 Hybrid Car 56 city, 48 highway and 52 combined mpg (the
+  real car's label: 58, 60 and 59). A model with a fuel cell or a voltage
+  source gets no label: their energy is in neither figure. A case of the
+  project's own that scales, repeats or cuts short UDDS or HWFET is passed
+  over with a note, and a live case runs without waiting for the clock.
+  (CON-32)
+- Weather presets on the Ambient: *Cold day (−7 °C)* (EPA's cold FTP and
+  the EU's low-temperature test), *Standard day (23 °C)* (WLTP),
+  *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High
+  altitude (1,500 m)* (the standard atmosphere: 84.56 kPa, 5.25 °C, air
+  about 14 % thinner than at sea level), each
+  with its source. The air density follows the weather, and so does a
+  Climate Control's heating or air-conditioning (MOD-41, below). The
+  Battery Electric Car has an Ambient (at its defaults, the air it had
+  before), a Climate Control (off at 20 °C) and two new cases: *WLTC,
+  winter day (−7 °C, heating on)* at 23.76 kWh/100 km, its PTC heater
+  drawing 4.25 kW, and *WLTC, hot day (35 °C, air-con on)* at 16.77, its
+  air-conditioning drawing 1.39 kW, against 14.05 at 20 °C; their expected
+  values are hand calculations that show the arithmetic. No existing case
+  changes. (CON-30)
+- **Simulations → Vehicle tests**: one-click 0-100 and 80-120 km/h, top
+  speed (the speed held over the last 10 s of 120 s at full throttle) with
+  what limits it, or *not settled* and the highest speed reached when the
+  speed still changes at the end (the hybrid's fading battery boost: 204
+  km/h at 68 s, falling), consumption and range at 50, 90 and 120 km/h,
+  the steepest grade held at 30 km/h and a virtual coast-down that returns
+  the road-load coefficients A, B and C, each from runs of the model as it
+  is. The Battery Electric Car: 0-100 km/h in 7.12 s, 80-120 in 4.98 s,
+  160 km/h limited by its motor's maximum speed, 9.4 / 14.1 / 19.6 kWh/100
+  km at 50 / 90 / 120 km/h. The hybrid's coast-down gives back its EPA
+  coefficients within 2 %. With a fuel cell or a voltage source the
+  consumption is the battery's share only and no range is given. A test
+  whose run fails shows no figure and the run's error. (CON-06)
+- Value sources: every number and table of a part can carry its source, a
+  kind (measured, datasheet, estimated, generated or library default) and
+  a confidence (0 not checked, 1 agrees with its source, 2 source and
+  method checked, ADVISOR's scale). Properties tags each value that has one
+  and counts the values still at their library default; *Value sources*
+  records, changes or forgets one. The Battery Electric Car's and P2 Hybrid
+  Car's values all carry theirs, from the data register. Data Checks' all
+  clear now says how many of the model's values are still at their library
+  default with no source. Saved in the project file as each part's
+  `parameterSources`; older versions keep it untouched. (CON-13)
+- **Home → Templates**: start a project from a pre-wired vehicle template
+  with a short form (*Electric car, one motor*, *P2 hybrid car*, *Formula
+  Student electric*), each with named slots (Battery, E-Drive 1, Engine,
+  Driveline, Chassis, ...); or save any model as a template of your own,
+  choosing which values its form asks. Your templates are files in the
+  projects folder (`templates/`), versioned, and a project records the
+  template and version it came from. (CON-18)
+- A fourth example, *Efficient Electric Sedan*, sized after the 2022 Tesla
+  Model 3 RWD from EPA's 2022 Test Car List (test mass, road load, rated
+  power, gearing), asks what low drag buys you: on WLTC it takes 11.8
+  kWh/100 km against the Battery Electric Car's 14.1. On EPA's city and
+  highway cycles it gives 190 and 163 MPGe at the socket, against 185.3 and
+  170.1 in EPA's own tests of the car; the tests hold it within 5 %. The
+  FASTSim vehicle file's mass and motor power, which it cites from
+  evspecifications.com, were not used. (CON-07)
+- Help: press F1, or open the **?** menu at the top right, to read
+  LightSim's help in a panel beside your work. It comes with the app and
+  needs no internet connection: tutorials, how-to guides, a page for every
+  part with its ports and parameters, the drive cycles, the keyboard
+  shortcuts, the Script API and the documents that come with each release
+  (known issues, release notes, what is validated, data sources), with a
+  search box. F1 opens the page of what you are on: the parameter in the
+  field or card, else the selected part, else the panel the focus is in;
+  each panel's **?** next to its tabs opens its how-to page. The panel
+  goes back, home and to your web browser (for tabs and bookmarks), and
+  can be made wider; links out of the help open in the browser. The **?**
+  menu, and the desktop app's *Help* menu, list the main pages, *Report a
+  problem…* and the first-steps tour; in the desktop app *Help →
+  Documentation* opens the front page and *Help → Known Limits* the known
+  issues, in the panel (in the system browser if the window cannot show
+  them). After an update, the release notes open once by themselves.
+  (LRN-04, LRN-09)
+- New help pages: *Your first electric car*, a 15-minute tutorial that
+  runs the example on the WLTC and builds a small car of your own, with a
+  check after each step; three Formula Student lessons (the 75 m time,
+  endurance energy, the accumulator's size); a lesson page for each
+  example with what happens when, its reference results and exercises
+  with answers; a *Script cookbook* of ten control recipes (rate limiter,
+  PI controller, table lookup, hysteresis switch, gear shifts,
+  regenerative braking by speed, low-pass filter, power limiter, launch
+  control, timer); *Results summary values*, which says what every summary
+  number means and how it is worked out; *Why a result differs from the
+  official figure*; and a glossary of 76 terms, each with a link of its
+  own. The automatic tests run every number these pages quote and every
+  recipe, and fail when one no longer matches the app. (LRN-07, LRN-10,
+  LRN-12, LRN-15, LRN-16, LRN-26)
+- On *Results*, rest the pointer on a row of *All summary values* to read
+  what it means; **what they mean** in the table's header opens the page
+  that defines them all. (LRN-10)
+- First steps for new users: a short tour of the screen on the first
+  start (skip it with **×** or Esc; the **?** menu shows it again), and a
+  slim bar under the ribbon with five steps (*Build*, *Set values*,
+  *Choose tests*, *Run*, *Read results*) that tick themselves off as you
+  do them; click a step to go to the panel that does it, or hide the bar
+  with its **×**. Data Bus Connections, Cases and Results each explain
+  themselves in one line the first time you open them. (UX-26)
+- A *Start* page opens when LightSim starts and when you press **New**:
+  continue with the open project, start from one of the examples (its card
+  says what results to expect) or a blank project, or reopen one of the 8
+  projects you saved last, each shown with when it was saved, its number
+  of parts and a sketch of its diagram. From the first launch to a
+  finished run of an example takes two clicks, the example and **Run**.
+  Tick *Skip this page: open my last project at start-up* to open straight
+  into your last project, as before; work you had not saved always opens
+  straight away. The status bar's **+** still makes a blank project in one
+  click. Empty panels now offer the next step: an empty diagram *Add a
+  part* and *Start from an example*, an empty Monitors panel *Place a
+  Monitor*, and an empty Results page a button that names the case it
+  runs. (UX-16)
+- Every parameter explains itself: rest the pointer on it in *Properties*
+  or the parameter dialog, or move to it with Tab, and a card says what it
+  is, its usual values (for a Formula Student car, a small car, a mid-size
+  EV or a van where that matters), where to find the real number, its
+  default and what is allowed. **More in the help (F1)** in the card, or
+  F1 in the field, opens the parameter on its part's help page, which
+  carries the same texts. In the dialog, tables, scripts and profiles show
+  them above their editor. The texts are first drafts. (UX-10, LRN-05)
+- A number outside what its parameter allows turns red as you type, with
+  a line under it that says what is allowed, such as *Initial SOC must be
+  above 0 and at most 100 %.* Data Checks read the same limits, from the
+  component library, and say the same. A case's own values in *Cases &
+  Parameters* are checked the same way, and so is a lap case's *Laps*,
+  which the form no longer quietly changes. An acceleration case's
+  *Distance*, *Start line* and *Reference time* turn red as you type, but
+  are not yet Data Checks: a run ignores a value outside them. (UX-10)
+- Charts zoom and pan: on the *Results* chart, the X-Y view and the
+  *Signal Plot*, roll the mouse wheel to zoom in or out around the pointer,
+  drag a box to zoom in on it, Shift+drag to move the view, and
+  double-click to see the whole run again; a chart with the keyboard focus
+  takes +, −, the left and right arrows and 0. The zoom stays when you
+  tick another channel and while a run is still adding points. Charts now
+  draw every stored point (the highest and lowest of each pixel column, so
+  no peak is lost), so zooming in shows each one, and their y axes fit the
+  data in view instead of starting at 0. The values under the pointer show
+  in the legend under the chart instead of in a pop-up (in the *Signal
+  Plot*, in its toolbar). On a 1-hour run (36,001 points), ticking a
+  channel redraws in about 25 ms (40 ms with the baseline drawn faint as
+  well) instead of 50-110 ms. The **PNG** picture
+  shows the view you zoomed to. A screen reader names what each chart
+  shows and its time range. The charts are drawn with uPlot (MIT licence)
+  instead of Recharts. (RES-05)
+- Chart axes fit the data: a y axis spans its unit's data plus 5 %, at
+  round ends, and takes in 0 only when that range comes near it, so on the
+  Battery Electric Car's City Cycle the SOC (88.76 to 90 %) and the
+  terminal voltage fill 88 % and 90 % of the plot (1 % and 2 % on 0.2.0's
+  axes from 0). A trace that barely changes fills the plot too: **Axes**,
+  above the chart and X-Y view, starts a unit's axis at 0 or sets its
+  ends. The sweep view fits its axis the same way and opens on the run's
+  first headline number (a test's time, the fuel or the energy
+  consumption) instead of the final SOC. The **Time · auto** list reads
+  the time in s, min or h (automatic: s up to an hour, min up to 3 hours)
+  or plots the run against the distance driven (the Vehicle's *Distance*,
+  in m below 1 km, in km above; a stop draws as a vertical line). Ticks
+  fall on round steps of the axis's unit at any zoom; the legend reads
+  values to 4 significant digits and the time or distance to the samples'
+  step, with the time too on a distance axis; and the **CSV** starts with
+  `t_s` as before, or with the x axis picked for the chart: `t_min`,
+  `t_h`, or `distance_m` or `distance_km` followed by `t_s`. A screen
+  reader names each axis's range. (RES-18)
+- The *Results* page leads with the run's headline numbers, in a strip
+  above the chart: consumption (or fuel consumption and CO₂), distance, the
+  final charge and the energy the battery gave and took back; a test's
+  time, speed at the line or top speed; a lap case's lap time. A failed
+  check comes first. Each keeps its *pass* or *fail* marker, limit and
+  *not valid* reason, and the strip says when the results are estimates.
+  At 1366 × 768 all of them are in view (before, *Distance driven* and
+  *Consumption* were the 5th and 6th rows of a 4-row box). The full table
+  folds under *All summary values*, which opens by itself when runs are
+  overlaid, and the chart gains 59 px. The plot of a first run opens on
+  the target against the actual speed (did the car follow its cycle?),
+  the target dashed and drawn on top, with the battery's SOC and power.
+  (RES-30)
+- Measurement cursors: **Cursors** above the *Results* chart (or C) puts
+  two lines, A and B, on it. Type a time into the A or B field under the
+  chart, step one stored point at a time with the up and down arrows (ten
+  with Page Up and Page Down), or drag a line; the cursors always sit on a
+  stored point. A table then gives each plotted signal's value at A and B,
+  the difference, and between them its minimum, maximum, mean, RMS (root
+  mean square) and integral: kWh from kW, Ah from A, m from km/h, kg from
+  kg/h and revolutions from 1/min (mean, RMS and integral weighted by time,
+  with the trapezoid rule). On the Battery Electric Car's City Cycle, the
+  battery gave 0.4236 kWh from 150 to 300 s. *Time to reach* places A and
+  B where a signal first reaches one value and then another, so the time
+  between them reads as Δt (0 to 50 km/h: 31 s). The lines follow zoom and
+  the distance axis and are in the **PNG**. Each run keeps its cursors
+  while you switch views, overlay runs (they are measured at the same
+  times, or on the distance axis where the lines cross them) or leave the
+  page, until LightSim closes; they are not saved.
+  Moving a cursor on a 1-hour run (36,001 points) with 10 signals plotted
+  takes about 2 ms. (RES-06)
+- The *Results* page keeps each case's choices: the ticked channels, the
+  view, the x axis and y axes, the chart's zoom, the X-Y view's X channel
+  and the sweep's figure stay for its next runs, when you go to another
+  page and back, and when LightSim is opened again (they are kept in the
+  app's own storage, not in the project). Before, they went back to the
+  defaults every time the page was left. A new run no longer clears the
+  runs you overlaid, nor the ones a sweep overlaid: **Clear** in the
+  *Overlay* box removes them. (RES-19)
+- A run is compared with a baseline, the previous run of its case unless
+  you pick another (or *None*) in the new **Baseline** list: the baseline
+  is drawn faint and dashed with the run (**Draw the baseline faint on
+  the chart** turns that off), each headline number gets a line such as
+  *+1.22 (+11.0 %) vs baseline*, and the full summary gets *Baseline*,
+  *Change* and *% change* columns, with changes of 1 % or more in bold
+  and *~ 0* where a change of a run stored by 0.2 is within its rounding
+  and under 0.5 %. *What changed*
+  lists what differs between the two runs' models: parameters old → new
+  with their units, maps and scripts edited, parts added or removed,
+  wires and Data Bus links, the case's settings and both runs' live edits;
+  a click on a part shows it on the diagram. A run is named after what
+  changed since the previous run of its case (*City Cycle · Vehicle Mass
+  2,300 kg* instead of the clock time) in the run lists, legends and
+  summary; *Run info* edits the name and keeps a note, both stored with
+  the run. (RES-10)
+- A *Climate Control* part (Base Electric) for heating and
+  air-conditioning: its *Heating/Cooling Demand* table turns the first
+  Ambient's temperature into the heat the cabin needs, and a *PTC heater*
+  (an electric resistance heater, 1 kW of heat per kW) or a *Heat pump*
+  turns that into electrical power on its bus. The heat pump's coefficient
+  of performance (COP, heat moved per kW of electricity) is a share of the
+  ideal (Carnot) value, about 1.9 at −7 °C; below its *Minimum Outside
+  Temperature* (−10 °C) the PTC heater takes over, and cooling always runs
+  the air-conditioning compressor (COP about 2.2 at 35 °C). Its channels
+  are *Drawn Power*, *Heat to Cabin* and *COP*, and the summary gives the
+  energy it used and the heating or cooling it delivered. The default
+  demand is an estimate for a compact car kept at 21 °C, steady state with
+  no warm-up. The Battery Electric Car has one, with a PTC heater, for its
+  winter and hot-day cases (CON-30): it takes the WLTC from 14.00
+  kWh/100 km at 23 °C to 23.76 at −7 °C (1.70 times, close to the 41 %
+  range loss AAA measured at −6.7 °C with the heating on, a figure we have
+  not checked at its source), 19.72 with a heat pump instead, and 16.77 at
+  35 °C. Data Checks say when a model has no Ambient, where it sits at
+  20 °C and does nothing. Other models do not change. (MOD-41)
+- Every run books where the energy goes, part by part: for each battery,
+  voltage source, fuel tank, engine, fuel cell, E-Motor, DC-DC converter,
+  consumer, clutch, gear, differential, brake, propeller, wheel and the
+  Vehicle, the energy that went in, came out and was lost and the change
+  in what it stores, so that in − out − lost − stored is 0 for each. It is in the run
+  result as *partEnergy* (kWh), with each part's peak, mean and RMS power (kW;
+  RMS power is what sizes an inverter's or motor's cooling) and the
+  Vehicle's air drag, rolling resistance, climbing and acceleration. New
+  channels: *Losses* on batteries, engines, fuel cells, Shafts, Final
+  Drives, Gearboxes, Differentials and Transfer Cases; *Fuel Power* on
+  engines; *Braking Power* on brakes; *Slip Losses* on wheels and clutches;
+  *Air Drag Power*, *Rolling Resistance Power*, *Climbing Power* and
+  *Acceleration Power* on the Vehicle. The summary's new *Energy balance
+  residual* says how far the parts' books together are from closing, as a
+  share of the energy the sources gave: 0.01 % (BEV City Cycle), 0.08 %
+  (WLTC), 0.02 % (hybrid Mixed Cycle), 0.24 % (hybrid UDDS, with 30 engine starts), 0.39 % (FS 75 m acceleration). The
+  Fuel Tank gets a *Fuel Heating Value* (42.9 MJ/kg, petrol) for the fuel's
+  energy; it does not change the fuel used. On the Battery Electric Car's
+  City Cycle the battery gave 0.881 kWh, the E-Motor lost 0.086, the Final
+  Drive 0.017, the tyres' slip 0.004, air drag 0.242, rolling resistance
+  0.421 and the 0.25 kW consumer 0.042 kWh. Results → **Energy** (RES-22)
+  draws the car's energy as flows; an energy audit table is VAL-03. Bookkeeping
+  every part every solver step costs about 3-6 % of a run's time. (MOD-10)
+- Battery: *Defined By* *Pack values* (as before) or *Cells*. With *Cells*
+  you enter a cell datasheet (capacity, open-circuit voltage curve, minimum
+  and maximum voltage, DC resistance, continuous and peak currents, mass)
+  and a layout (*Cells in Series* × *Cells in Parallel*, e.g. 96s30p), and
+  LightSim builds the pack: its charge capacity, voltage and resistance
+  (with interconnect and contactor resistance), and an estimate of its mass
+  (cells × cell mass × a *Packaging Factor*), all given in Data Checks
+  before the run and in the summary after it. The resistance rises with the
+  pulse length (2 to 120 s, as VECTO's tables do), at low charge and in the
+  cold (*Cell Resistance Factor* and *Cell Temperature Factor*, estimates by
+  default; the cells are at the Ambient's temperature), so the pack sags in
+  long pulses and in winter: the Battery Electric Car built from 96s30p
+  21700-type cells takes 7.32 s to 100 km/h at −7 °C against 7.09 s at
+  20 °C. The battery management system's limits hold: the current never
+  exceeds the cells' continuous or, for pulses up to the *Peak Duration*,
+  peak current, no cell goes below its minimum or above its maximum
+  voltage (with an RC pair's voltage too), and an optional *Weakest Group*
+  (less capacity, more resistance) sets them and stops the pack when it
+  reaches the *Minimum SOC*, as the weakest module does in a real string. New channels:
+  *Discharge* and *Charge Power Limit* for 2, 10 and 30 s (the state of
+  power), *Discharge* and *Charge Current Limit*, *Lowest* and *Highest
+  Cell Voltage*; the summary gives the time held at each limit and the
+  lowest and highest cell voltage. With *Pack values*, a *Max Discharge
+  Current*, *Max Charge Current*, *Minimum* and *Maximum Pack Voltage* (0 =
+  none) do the same for the whole pack: at 300 A the Battery Electric Car
+  takes 10.02 s to 100 km/h instead of 7.10. A *SOC Derating Band* (both
+  modes) lowers the limits linearly to 0 near empty and full, as FASTSim's
+  buffers do (without a current limit, the maximum-power-point current,
+  which Data Checks point out). The Formula Student car built from 138s4p cells with a 30 A
+  peak (120 A) takes 3.886 s over 75 m instead of 3.744. The parameter
+  dialog shows only the fields of the mode chosen. Existing models and the
+  examples do not change. (MOD-08)
+- E-Motor: *Torque Scale*, *Speed Scale* and *Voltage Scale*; Combustion
+  Engine: *Engine Scale* (all 100 % by default). They resize the machine
+  with its maps, so a sizing sweep stays realistic: torque × k_T with the
+  loss at that torque × k_T and the drag and rotor inertia × k_T (a longer
+  machine); every speed × k_n and torque ÷ k_n at the same power and the
+  loss of the matching point, the Maximum Speed × k_n (a rewound machine);
+  the full-load map's voltage axis × k_V; an engine's torque, drag, inertia
+  and fuel flow × k at the same fuel use per kWh (EPA ALPHA's engine
+  scaling, without its small-engine fuel adjustment). Data Checks show the
+  resized machine next to the original (*peak torque 465 N·m (was 310),
+  maximum speed 16,000 1/min, peak power 225 kW (was 150)*), check the
+  scaled maps against the bus voltage and the maximum speed as for any
+  map, and warn outside 50–200 %. All four can be swept in a study. The
+  Battery Electric Car's motor at 150 % torque takes it to 100 km/h in
+  5.59 s instead of 7.10. Existing models do not change. (MOD-47)
+- Wheel: *Tyre Code*. Typing a tyre's size code, such as `205/55 R16 91V`
+  (also `P…`, `…ZR…`, `XL`, `LT…`, `…C 107/105R`, or a Formula Student
+  `20.5x7.0-13`), fills in the *Wheel Radius* (the unloaded radius, rim ÷ 2
+  + width × aspect ratio = 315.95 mm here, × a new *Rolling Radius Factor*
+  of 0.97 = 0.3065 m) and, with a load index, estimates of the *Slip
+  Stiffness* (18.4), *μ* (1.13), *Lateral Friction μ_y* (1.00), *Nominal
+  Load* (half the load-index capacity: 3,017 N for load index 91, 615 kg)
+  and *Load Sensitivity* (−0.013 per kN), after Rill's "engineer's guess"
+  for a passenger-car tyre as Project Chrono's TMeasy tyre implements it
+  (BSD-3-Clause, credited in Help > Third-Party Notices). One undo step
+  takes it all back, and the form says what the code means. A *Rolling
+  Resistance Label Class* (A to E, EU Regulation 2020/740) sets the *Rolling
+  Resistance* to 0.0060-0.0110. Data Checks warn when a wheel carries more
+  than its load index allows standing still, when a code cannot be read,
+  and (info) when the Wheel Radius is more than 3 % from the code's.
+  Existing models do not change. (MOD-48)
+- Driving Task: *Profile Axis*, *Time* (as before, the default) or
+  *Distance*. Over distance the profile's points are 'distance:speed'
+  pairs in m and km/h, and the Driver gets the target speed at the
+  distance the car has driven, as lap simulators, track maps, loggers and
+  truck missions describe a route: a heavier or weaker car slows for a
+  corner at the same place, only later in time. The profile table's x
+  axis says *Distance (m)*. A case of kind *Cycle* or *Performance* then
+  has a **Laps** field: with *Repeat Profile* ticked, the run ends after
+  that many passes through the profile (one pass is its first point to
+  its last), with the *Duration* as its time limit (a warning when time
+  runs out first). The trace is judged against distance (±2 km/h within
+  ±1 s of travel at the target speed). Data Checks refuse a standard drive
+  cycle on the distance axis, and warn about a 0 km/h point before the
+  end (the car stops there for good) and about Laps with no Driving Task
+  over distance. On the Battery Electric Car, a 1,500 m lap with a 100 km/h
+  straight starts braking 2.9 m after the profile slows at its 1,927 kg
+  and 4.7 m after at 2,500 kg. Existing projects drive over time, as
+  before. (ENG-34)
+- Each stored point keeps each channel's lowest, highest and
+  time-averaged value since the point before it, taken at every solver
+  step, so a short peak between two recorded points (a regeneration burst,
+  a torque spike) is in the run file: with *Store every* 10 on the Battery
+  Electric Car's City Cycle, the battery power's recorded points go down
+  to −9.56 kW and the stored lowest value to −11.19 kW, as at every solver
+  step. The battery's energies equal the sum over the solver steps of the
+  stored mean power to 1e-6. The charts do not draw these values yet.
+  Runs take about 15 % longer for it, except when each point is one solver
+  step. (ENG-16)
+- Before a run, LightSim checks the solver step against the stiffest
+  parts of the model: the tyres' *Slip Stiffness* (with the share of the
+  weight each wheel carries) and propeller-type loads. When one is too
+  stiff for the 10 ms step, the run uses a smaller step (to 0.5 ms at
+  least) instead of giving numerical nonsense, and Data Checks and
+  *Messages* say which part asked for it and how much longer the run
+  takes; a part too stiff even for 0.5 ms is a warning. On the Battery
+  Electric Car's City Cycle a *Slip Stiffness* of 300 gave a tyre slip of
+  14 (1,400 %) at 10 ms with no message; it now runs at 0.5 ms with a slip
+  under 0.001. (A clutch needs no smaller step: it sticks in the step its
+  slip passes through zero, see *Your results will change*.) The Battery Electric
+  and P2 Hybrid Cars keep the 10 ms step; the FS Electric example (*Slip
+  Stiffness* 20) runs at 5 ms. (ENG-14)
+- Charge-balanced hybrid runs: a case of kind *Cycle* whose model has an
+  engine, a battery and an E-Motor runs the cycle again from the charge the battery
+  ended with, until its stored energy changes by less than 1 % of the
+  fuel's energy (at most 5 runs), so its fuel figure holds no energy the
+  battery gave or took, and the start charge no longer needs setting by
+  hand. *Charge balance* in the case settings (Auto, On, Off) turns it on
+  or off; Auto leaves out paced runs. The summary gives the start SOC it
+  found, the battery's energy change as a share of the fuel's and the
+  number of runs, and *Messages* each run's start and end charge. When it
+  does not settle, the run is a *warning* and the summary adds *Fuel
+  consumption, charge-corrected* from a straight line through the runs.
+  Fuel tank: *Lower Heating Value* (MJ/kg, 43 by default). Started at 30,
+  50 or 70 %, the P2 Hybrid Car's Mixed Cycle now gives 2.878 l/100 km in
+  2 runs (2.8777 from its hand-set start, in 1). (ENG-33)
+- Parameter sweeps run side by side on the computer's processor cores:
+  the engine runs a sweep's points in worker processes (one per core less
+  one, fewer when memory is short; each Script block keeps its own
+  locked-down worker), stores each as a run of the project as it ends and
+  sends back only its summary, so the app and the engine stay responsive.
+  A 16-point mass sweep of the Battery Electric Car's 600 s City Cycle took
+  48.6 s with 3 workers on a 4-processor machine, against 127.3 s one run
+  after another (2.6× faster), with the same results to the last digit;
+  while it ran, the engine answered in 1.5 ms (median; 2.5 ms for 95 % of
+  requests, up to 55 ms as a point's run was stored). A sweep can now have
+  up to 200 points (was 16). **Stop** stops the running points and leaves
+  the rest *not run*. The saved study records how many points ran at once,
+  each point's run time and the sweep's wall time, and its line in *Saved
+  studies* shows the speed-up. For scripts: `POST /api/studies` runs any
+  list of points of a case and answers with each point's summary (the
+  WebSocket `/api/studies/run` streams them). (ENG-05)
+- Results → **Energy**: where the battery's, fuel's or hydrogen's energy
+  went, as a Sankey chart (bands as wide as the energy they carry) from
+  the sources through groups (air and rolling, speed and height kept,
+  friction brakes, losses in parts, loads, charged back) to each place,
+  with what the books cannot place as its own band, *Not accounted for*,
+  beside the run's electrical energy balance error; and a table of each
+  part's energy in, out, lost and stored change, in kWh and as a share of
+  the sources. **CSV** and **SVG** save them. The table is every part's
+  own energy books (MOD-10, above): each gear, differential, clutch, brake
+  and wheel has a row of its own, a driveline's spinning parts one
+  *Rotating parts* row, and *Not accounted for* is only where the parts'
+  books together do not close, the run's *Energy balance residual*. On the
+  Battery Electric Car's City Cycle the battery gives 0.887 kWh, air drag
+  takes 27.3 %, rolling resistance 47.5 %, the E-Motor 9.7 % and the Final
+  Drive 1.9 %, and −0.01 % is not accounted for. A case's **Energy
+  report** (Cases tab, on by default) turns it off. The diagram's
+  lightning button labels each part with its energy and opens a bar chart
+  of the losses with a **Hide below** slider; a click on a bar selects the
+  part. (RES-22)
+- A band along the bottom of the Results chart says what held the car
+  back at every moment: braking, tyre grip, a set power limit, the battery
+  or supply, the motor or engine, coasting, or nothing (the driver's
+  demand met), one strip per driveline, with the time in each under the
+  chart. The Formula Student car's 75 m acceleration: tyre grip for 1.92 s,
+  then the 80 kW limit for 2.05 s. (RES-38)
+- Results → **Duty**: each E-Motor's, battery's, engine's, fuel cell's and
+  DC-DC converter's highest, lowest, mean and RMS (the mean that sets
+  heating) power, torque and current over the run, from the solver's own
+  steps, with the time spent above a power you type and CSV export. Each
+  part's RMS power and current and peak power are also columns of a
+  parameter study. (RES-39)
+- Parts and wires you change after a run get a dot on the diagram (an
+  edited case one in the Cases tab), and Results says *These results are
+  from before 3 changes to the model*, with **Re-run** and **Show
+  changes** (part, parameter, old → new). The marks clear when the next
+  run finishes. (UX-41)
+- These reports change no result: the summary and the channels are as
+  before. Runs stored before this version have no Energy, Duty or limit
+  band; run their case again.
+- Data Checks catch signal wires that give wrong numbers without a
+  message (VAL-17): a percentage into an input that expects 0-1 (a
+  battery's *SOC* in %, 0-100, into a Script, PID or Lookup Table input set
+  to *Fraction*, or into a motor's or brake's command), the other way
+  round, and any two different units on one wire (a vehicle speed into a
+  rotational speed). A Script's ports get a unit list next to their names,
+  a PID a *Setpoint & Feedback Unit* and a Lookup Table an *Input X Unit*
+  and *Input Y Unit*; left at *Not set*, a port is not checked. The library
+  gives the 0-1 commands (Driver outputs, motor, brake, throttle and
+  clutch inputs) the new unit *Fraction* and the road grade *Percent*.
+  A loop of signal blocks is named with its blocks only, the order they
+  run in each step and the value that arrives one step late.
+- Expected values (VAL-35): each case can hold numbers you trust for its
+  results (a maker's 0-100 km/h time, last year's measured 75 m time, a
+  hand calculation), each with a tolerance in % or in its unit and a
+  source, under *Expected values* in the *Cases* tab. After every run the
+  *Results* page shows the run's value, the expected value, the gap and a
+  coloured grade: *within* the tolerance (green), *near*, within twice it
+  (amber), or *outside* (red). *Run info* lists them with the run, and a
+  saved study's table shows the gap of each point. Every run also gets two
+  automatic hand calculations: its top speed against what each E-Motor's
+  maximum speed allows through the gears, and the energy its batteries
+  gave against the least the car's motion, climb and road load need.
+  [How to](help/how-to/check-against-expected-values.md).
+- A reference suite of real cars (VAL-05): four 2022 electric cars
+  (Tesla Model 3 RWD, Chevrolet Bolt EUV, Nissan Leaf 40 kWh, MINI Cooper
+  SE) built from EPA's Test Car List and FASTSim's vehicle files (the
+  Model 3's motor power is EPA's rated 257 hp: FASTSim's 239 kW comes from
+  a website LightSim may not use), with no
+  input tuned to the results, drive EPA's city and highway cycles on every
+  change. Their energy at the wall is within 8 % of EPA's unadjusted
+  figures on all eight (4.1 % on average); a virtual coast-down gives back
+  EPA's road load within 0.02 %, and an exact-answer tier of three
+  coast-downs is within 0.005 %. [What is validated](VALIDATION-STATUS.md)
+  has the table and what it does not show. The files are in
+  `backend/validation/` and do not ship in the installer.
+- Sources & credits (VAL-37): *Run info* lists the data and methods each
+  run rests on, from the [data register](DATA-REGISTER.md): its drive cycle
+  and the regulation behind it, the example's values and maps, the
+  library's defaults and the values typed into the project, each with its
+  licence, required credit and a trust level (source unknown, known source,
+  validated), and warns when the run uses values whose source is unknown.
+  **BibTeX** and **CSL-JSON** save the citations, starting with LightSim
+  and its version; each source's author is its organisation and the BibTeX
+  is escaped for LaTeX. The Formula Student rules are cited only for a run
+  that uses a track layout, the FS example or the battery's FS preset.
+  [How to](help/how-to/cite-your-sources.md).
+- Example cards and stored results (CON-15): each example carries a card
+  (Project → **Card…**): the question it answers, its difficulty and run
+  time, what you learn, what happens when, the features it uses, its
+  status (demo, plausibility-checked or validated), author, version and
+  licence; its expected results are its cases' expected values, each with
+  a band and a source (the bands of the plausibility tests, EPA's figures
+  for the hybrid, FS Czech Republic 2025 for the FS car). An example opened
+  from **Open** or the *Start* page shows its stored results in *Results*
+  at once, named *Stored result* (only the comparison signals: speed,
+  target, battery SOC and power, motor speed and torque, fuel rate); **Run**
+  recomputes them and compares with the stored run. CI checks every example
+  has a card and expected values, lands within them, and still gives its
+  stored results, which change only with a note in
+  `backend/tests/golden/CHANGES.md`. No result changes.
+- Results for MATLAB and Python: **MATLAB** on the *Results* page saves the
+  run as a `.mat` file (MATLAB and SciPy read it), with a struct per part
+  holding `t` and its channels, and `meta` with every channel's unit and
+  the run's details (project, case, app version, model fingerprint,
+  status, summary, the parameters that differ from the defaults, live
+  edits and the figures that are not valid). `matlab/lightsim_run.m` runs
+  a case from a MATLAB script and returns a table, and the engine runs a
+  case from the command line (`lightsim-backend run project.json --case
+  "WLTC Class 3b" --out wltc.mat`). CSV files from *Results* and from
+  studies start with a byte-order mark, so Excel shows N·m and °C as
+  written. (STD-09)
+- **Import from file…** under every table, map and drive profile reads it
+  from a CSV file (any separator; a decimal comma or point and thousands
+  written 1.000 or 1,000 as the other numbers show, and a question when
+  they do not) or an Excel workbook: it
+  finds the headers and axes, reads the units written in them and
+  converts them (rpm, W, m/s, mph, the FASTSim cycle layout and loggers'
+  unit rows), shows the curve or map before anything changes, and names
+  the row and cell of anything it refuses. The import is one undo step.
+  (STD-10)
+- The *Parameters* tab exports every parameter of the model to one Excel
+  workbook (tables and maps on sheets of their own) or CSV file, and
+  **Import sheet** reads it back with a list of every change before it is
+  applied as one undo step; rows with a wrong unit, an unknown part or
+  key, or a value the parameter cannot hold are refused with their row
+  numbers. **FS template** saves the Formula Student example's sheet to
+  fill in. (STD-36)
+- Projects can live in any folder as `.lightsim` files: **File → Open…**,
+  **File → Open Recent**, **Save As…** (also on the Home tab), a
+  double-click on the file (Windows) or a drop on the window.
+  Runs, backups and attached files sit next to the file, the runs and
+  backups in folders git ignores. *Recent files* is listed in **Home →
+  Open** and on the *Start* page. LightSim looks at the open file every
+  few seconds and offers to reload it when it changed on disk (a git pull,
+  another window). The window can never name a file itself: only the
+  desktop app's own Open and Save dialogs, a double-click or a drop can.
+  (PLT-33)
+- Project files record their format version and the LightSim that saved
+  them. Older files are upgraded step by step as they open; the first save
+  keeps the old file as `pre-migration-v1.json` in the project's backups. A
+  file from a newer LightSim opens read-only, says which version to
+  install, and is never saved over or saved as a copy. (PLT-07)
+- Running a sweep no longer changes the project: studies (what was swept
+  and the results table) are kept with the project's runs, as
+  `studies/<id>.json`, so git shows only model edits and two people's
+  sweeps never collide. (PLT-34)
+- Files can be attached to a project (**Project → Attached**): models from
+  other tools (FMUs), AI models (ONNX) and measured data are copied into
+  the project's resources folder, listed with their size and a fingerprint
+  (SHA-256 hash) so a missing or changed file shows in the list and in
+  Data Checks. **Export** of a project with attached files saves a
+  `.lightsim.zip` with all of them, and **Import** opens one. Parameters
+  of the new *file* type pick an attached file. A project carrying
+  attached code (FMUs, AI models, programs) asks once whether you trust it
+  before its first run; its Script blocks get the code review instead
+  (PLT-35). (STD-02)
+- **Export** saves `<id>.lightsim` (it was `<id>.json`); **Import** takes
+  `.lightsim`, `.json` and `.zip` files.
+- Run LightSim models without the app. The `lightsim` Python package runs
+  a case in your own Python process (`import lightsim as ls;
+  r = ls.run("bev-car", case="City Cycle")`), gives the summary figures by
+  stable key, the channels, CSV, MATLAB MAT-file and JSON export and a
+  pandas table, and lets a script change values (units are checked:
+  `p.set("Vehicle.mass_kg", "1.9 t")`), add and wire parts, add cases,
+  check and save. The `lightsim` command (`python -m lightsim` in
+  `backend/`, or the desktop engine `lightsim-backend`) has `run`,
+  `check`, `export`, `show`, `params`, `parts`, `examples`, `schema`,
+  `notebook` and `version`, each with `--json`, and fixed exit codes for
+  CI pipelines: 0 done, 1 Data Checks failed, 2 run not valid, 3 usage or
+  file error. `run --set` changes a value for that run, also where the
+  case sets its own. A live case (paced for watching in the app) runs
+  without waiting, with the app's figures. Help → *Python API* and
+  *Command-line tool*. (AI-02)
+- Every run summary figure has a stable key next to its label, such as
+  `distance_km` or `el-battery.final_soc_pct` (a part's figures are named
+  after the part's id, so renaming the part keeps them); runs keep it,
+  and the Results page compares a run with its baseline by it. Results
+  are unchanged. (AI-07)
+- LightSim's file formats are published: a written specification of the
+  project file, the runs folder, results, studies and the engine's API
+  and live-run messages, with JSON Schemas generated from the engine
+  (`docs/spec/`, and in the help under *Reference*). Its licence, CC BY
+  4.0 for the formats only, awaits the owner's confirmation. The engine's
+  API reference at `/docs` no longer loads anything from the internet.
+  (AI-07)
+- AI access rules for the AI assistant connection: off by default; only
+  projects in folders you allow, and not marked `"noAi"`; it works
+  hands-off: it never asks you to confirm, running a project with Script
+  blocks or FMUs in an OS sandbox or refusing the run where that sandbox
+  cannot be set up (Python code that uses `AgentSession` also needs the
+  project on the trust list, `lightsim ai trust`; the connection for AI
+  apps does not read that list); runs stop after 300 s; the calls are
+  logged on your computer. Set with `lightsim ai …`. (AI-01)
+- *What LightSim reads and writes* (Help → *Reference*) lists the file
+  formats that work today, each with the test that checks it, those
+  planned and those built only on request. (STD-34)
+- **Copy for AI** (*Project* tab): copies a short Markdown summary of the
+  model and its last run to the clipboard, to paste into any chatbot: the
+  parts and wiring, every value changed from the library defaults (with
+  units), the cases, the run's key results with their *not valid* notes,
+  the Data Check messages, the version and a line saying the results are
+  not validated. The examples' summaries are 4.9 to 6.2 KB (the target is
+  under 8 KB). **Hide values** replaces the values and results with `[hidden]`.
+  LightSim sends nothing. (AI-30)
+- **AI assistants can use LightSim** over the Model Context Protocol (MCP):
+  `lightsim-backend mcp` is a local server that an AI app starts and talks
+  to over stdin and stdout, with no network port. Nine tools list the
+  projects, outline a model (the Copy for AI text), read a part, run the
+  Data Checks, run a case, query a run's channels (minimum, maximum, mean,
+  end value and a thinned series of at most 500 points), compare two runs,
+  explain a message and edit a model. Answers stay under 20 KB. It follows
+  the MCP revision of 28 July 2026 (stateless, long runs as Tasks) and
+  still answers apps that use the older handshake. It works hands-off: it
+  never asks you to confirm. An edit is saved straight away and is
+  recoverable (the version it replaces is kept as a backup, beside a file
+  in an allowed folder in `<file>-backups`); a project with Script blocks
+  or FMUs runs in an OS sandbox (an AppContainer on Windows), or the run is
+  refused where that sandbox cannot be set up. The command-line tool's
+  `run` follows the same rules for every run. A project file with `"noAI": true`
+  stays hidden; an assistant's run stops after 5 minutes; its tool calls go
+  into a local log, `.ai/audit.jsonl` in the projects folder (*Known
+  issues* lists the calls it leaves out). (AI-03)
+- **A skill pack for AI assistants**: nine short guides in the open Agent
+  Skills format (build a BEV, build a P2 hybrid, wiring rules, units and
+  parameters, Script blocks, verifying a model, *not valid* flags, what
+  LightSim cannot do, explaining a result). Their component reference and
+  known-limits summary are generated from the app. A connected assistant
+  reads them from LightSim. (AI-08)
+- **Connect AI** (*Project* tab) adds LightSim to Claude Desktop, Claude
+  Code, VS Code (GitHub Copilot), the GitHub Copilot CLI, OpenAI Codex,
+  Gemini CLI or Cursor with one click, keeping a backup of the app's
+  settings file, and shows when an assistant last used LightSim. In a
+  terminal: `lightsim-backend mcp install --client <app>`, `uninstall`
+  and `status`. `scripts/mcp/build-mcpb.py` builds an MCP Bundle (.mcpb)
+  for one-click installs; it runs the installed LightSim or says where to
+  get it. (AI-29) See *Use an AI assistant with LightSim* in the help.
+
+- Scripts from someone else are shown before they run. Opening or
+  importing a project whose Script blocks hold code you have not approved
+  on this computer shows that code with **Run scripts** and **Open without
+  running scripts**, and **Run** asks again; the engine itself refuses to
+  run such code in a run started in the app or from Python (the
+  command-line tool and AI apps hold it to the OS sandbox instead, with no
+  approval, as the entries above say). Code you type, the examples' code
+  and the scripts of the projects you had already saved count as approved;
+  approvals are kept in your own LightSim folder, not the projects folder,
+  and an approval holds for that exact code
+  ([how](help/how-to/open-a-project-with-scripts.md)). (PLT-35)
+- The script process is locked down further: on Windows it runs at the low
+  integrity level, so it cannot change your files, and it cannot start
+  programs. On macOS, Apple's sandbox stops it writing files, starting
+  programs and using the network. (PLT-35)
+- Update checks that ask first. The desktop app asks once whether to check
+  for updates once a day (**Help → Updates** changes the answer); a check
+  sends only the version and platform. A new version shows what it changes
+  in your results and offers *Install on quit*, *Skip this version* or
+  *Later*; nothing installs without asking. Releases reach users in stages
+  ([how](help/how-to/check-for-updates.md)). (PLT-18)
+- For labs and company IT: the setup program installs silently for all
+  users (`/S /allusers`), a new MSI package installs and upgrades with
+  `msiexec /quiet`, and a machine-wide `policy.json` fixes update checks,
+  the script prompt, the examples, the projects folder and whether AI apps
+  may use LightSim, for every user and also for the engine an AI app
+  starts ([how](help/how-to/deploy-for-it.md)). (PLT-36)
+- The build can sign every Windows file (the app, the engine, their
+  libraries, the installers and the MSI) and builds a signed, notarised
+  macOS version for Apple silicon, once the owner's certificates are set
+  up; this release is unsigned and has no Mac version unless its download
+  page says otherwise. Every Windows build is scanned with Microsoft
+  Defender and test-installed. (PLT-32, PLT-13)
+- **Help → What Stopped You?…** in the desktop app opens LightSim's Idea
+  form on GitHub in your browser, with your version in the link, so you
+  can say what kept you from finishing a task. GitHub sees that visit,
+  and nothing you write is sent until you submit the form. (BIZ-35)
+- How to help, and how to report a security problem privately:
+  `CONTRIBUTING.md` and `SECURITY.md` in the repository (DRAFT: its
+  private route, GitHub's private vulnerability reporting, works once the
+  owner turns it on), with bug and idea
+  forms for GitHub issues. Code contributions need a signed contributor
+  licence agreement, which is not ready yet. (BIZ-13)
+- A draft licence FAQ, *Can I use LightSim for …?*
+  (`docs/licensing/licence-faq.md`), answers 20 everyday cases, such as
+  Formula Student teams, theses, lab PCs and company trials. It is a draft
+  and the end-user licence agreement still decides. (BIZ-29)
+
+- A run or a sweep no longer takes you to the *Results* page when it
+  ends: the page stays as it is, and a notice at the bottom right says how
+  it ended (*finished: success*, *finished with warnings*, *stopped at
+  t = …*, *failed*) with **Show results**, or **Show messages** after a
+  failure. A sweep's notice says how many points are complete and offers
+  **Study charts**. Tick **Always open Results** in the notice to have the
+  page open by itself after each run and sweep, as before; the choice is
+  kept. A run started on the *Results* page stays there, drawn as it goes,
+  and a failed run no longer leaves that page. (UX-21)
+- Results → **Study**: a chart for each chosen result of a saved study
+  against the swept value. It reads the study kept with the project's
+  runs, so it still draws after the project is opened again and after the
+  study's runs leave the history (an empty *Results* page shows it too).
+  It opens on the study of the run shown, else the newest, and on its
+  headline numbers; **Figures** picks up to 12. A value the run's checks
+  rule *not valid* is drawn hollow, points that stopped, failed or did not
+  run are left out and counted, log-spaced values get a log axis, and the
+  endurance energy study draws a line per power limit. Each saved study in
+  *Cases & Parameters* has a button that opens its charts. (STU-16)
+- The sweep form takes **Log steps** (the same factor between values: 10,
+  100, 1000) and a typed **List of values** (`1200, 1350, 1500`, run in
+  the order typed; a repeated value runs once) besides even steps, up to
+  200 values, and names values outside the parameter's limits. While a
+  sweep or an endurance energy study runs, the status bar and the sweep
+  form say how many points are done and about how long is left. (STU-17)
+- The diagram's keys work while the diagram has the keyboard: once you
+  click it (a part, a wire or the empty diagram), and while the pointer is
+  over it, but not while you type in a field. Before, copy, paste and
+  duplicate worked only with the pointer over the diagram. New keys:
+  Ctrl+A selects every part, Ctrl+X cuts the selection (copies it, then
+  deletes it), F2 renames the selected part and Enter puts the keyboard in
+  its name in *Properties*. The part menu has *Cut*, and in the *Elements*
+  list Delete and F2 work on the part picked there. (UX-19)
+- Data Bus Connections → *Connect several…*: link one output to the same
+  input on every part of a type (the Driver's Brake Command to every
+  Brake), or each input with no source to the output of the same name (a
+  Script's *vehicle_speed* takes *Vehicle · Vehicle Speed*). A list shows
+  the links before they are made and the inputs left alone, with the
+  reason; one Undo takes them all back. (UX-15)
+- *Connect AI* has an *AI access* tab: turn AI access on or off, see and
+  remove the folders AI tools may see (add one with the folder dialog in
+  the desktop app), show or hide the examples, take a project off the
+  trust list that Python code using `AgentSession` reads, set the run time
+  cap, and see the latest calls AI tools made.
+  When your organisation's policy turns AI access off, the tab says so and
+  access cannot be turned on. The run time cap now also stops runs of AI
+  apps connected to LightSim. (AI-01)
+
+- Drive cycles of your own: *Drive Cycle → Import a cycle from a file…*
+  reads a CSV or Excel file with a time or distance column and a speed
+  column, a road-grade column or both. Units in the headers are converted.
+  It shows what it read and keeps the cycle in the project file, listed
+  under *This project* in every Drive Cycle list. A cycle against distance
+  (a logged lap, a route) is driven against the distance the car has
+  driven, and one with a grade can feed a Road Profile. *This project's
+  cycles…* renames them and removes unused ones. A LightSim without this
+  feature keeps such a cycle in the file but will not run a part that
+  names it. (CON-11)
+- The AI skill pack lists the sources LightSim never takes data from,
+  with why and what to use instead. It is generated from the same list the
+  data register's test checks, so an assistant does not suggest data from
+  them. (CON-31)
+- `lightsim_run.m` is installed with the app, in `resources/matlab` next
+  to the engine, and runs that engine first. The Python package writes
+  results as Parquet (`Result.to_parquet`, `lightsim run -o x.parquet`)
+  when pyarrow is installed; LightSim does not include pyarrow. (STD-09)
 
 ### Fixed
 
+- Data Checks no longer stop a coast-down or a gear schedule. A Vehicle
+  with no wheels, or with wheels and no E-Motor or Engine, is an error only
+  when nothing can move it: with an *Initial Speed* above 0 (also one a
+  case sets), or a Grade input that can run downhill, the run goes ahead
+  and Problems say it only coasts (with the default road load, which leaves
+  the rolling resistance to the wheels, a warning says only the air drag
+  slows it). A Driving Task that feeds a Gearbox, Clutch or Brake needs no
+  Driver; one that feeds nothing still does. The "No Driver element"
+  warning is dropped when every E-Motor and Engine has its command wired. The
+  run's own warnings agree: a coast-down run no longer warns that its
+  Vehicle "will not move", and none says "No Driver element" where every
+  E-Motor and Engine has its command wired.
 - A battery's SOC can be compared with measured SOC: a constant 1C
   discharge now empties it in one hour whatever the shape of its OCV
   table (before, 3,611 s on the default table and 3,666 s on a steeper
@@ -151,12 +1219,94 @@ sections.
   Checks, instead of every error ever logged, which never cleared. Once a
   model has been checked, its checks, the error count and the red badges
   on parts follow it as you edit. (UX-09)
+- The Data Checks summary in Messages is information, not an error, and
+  reads "1 error, 0 warnings" instead of "1 error(s), 0 warning(s)"; before,
+  Messages kept counting it after the model was fixed. (UX-09)
+- A signal link between two inputs or two outputs is refused with the
+  reason; before, it was added with a warning and passed no data. Links
+  are logged as "from → to" instead of "↔". (UX-15)
 - The Signal Plot below the diagram follows a paced (live) run while it
   runs; before, it stayed on the run's first point until the run ended.
   (RES-03)
+- Text, field borders, wires and chart lines meet the WCAG AA contrast
+  minimum in both themes (4.5:1 for text, 3:1 for the rest). Before, grey,
+  amber and red status text in the light theme, the white-on-blue LightSim
+  title, Run and Save buttons and the green and red status text in the
+  dark theme, text fields' borders, the electrical wires on white, the
+  mechanical wires on the dark diagram and three of the ten chart colours
+  on dark charts were too faint. Status colours, the accent and field
+  borders now have a shade per theme, and wires, part outlines, layer
+  swatches and port dots share one set of domain colours. Chart legends
+  and the Results summary's run columns show names in plain text next to
+  a mark in the series colour. (GUI-02)
+- Part names are never smaller than 11 px on screen, whatever the zoom;
+  before, they shrank with the diagram (7 px when a 1366 × 768 window was
+  fitted, under 2 px zoomed all the way out). Until you zoom or pan, the
+  diagram also re-fits when a bottom panel closes or the window grows;
+  before, it re-fitted only when it got smaller. Fits leave room for the
+  names under the lowest parts. (GUI-03)
+- Delete or Backspace on the Results page no longer deletes the part
+  selected on the diagram hidden behind it. (UX-16)
+- Data Checks refuse 40 values that cannot be right. A negative inertia,
+  drag coefficient, frontal area, initial speed, driver gain, battery
+  resistance or time constant, maximum charge power, brake, clutch or
+  propeller torque, friction coefficient μ, rolling resistance, cycle
+  scale, re-entry speed, CO₂ factor or H₂ consumption is an error, and so
+  is a zero or negative voltage, slip stiffness, propeller reference
+  speed, idle speed, tank capacity, fuel density or fuel-cell current, and
+  a default gear below 1. Before, these ran without a word (a Driver I
+  Gain of −1 ended in "did not drive the cycle"), or the solver quietly
+  used another value (0 for a negative μ, 0.1 for a slip stiffness of 0
+  or less, 1 1/min for an idle speed of 0). (UX-10)
+- A case could run with its own values out of range, such as an Initial
+  SOC of 150 %: Data Checks did not look at them. They now do, and name
+  the case. (UX-10)
+- Data Checks name a parameter as the app labels it and say what is
+  allowed in words: *Coulombic Efficiency of 'HV Battery Pack' must be
+  above 0 and at most 100 % — got 0.* instead of *Coulombic efficiency
+  … must be in (0, 100]*. Text or an infinite value in any number
+  parameter is now an error, not only in those that had a range, and a
+  value just below 0, such as −0.0005 %, no longer passes where 0 is the
+  least allowed. (UX-10)
+- Clearing a number in *Cases & Parameters* stored 0; the field now keeps
+  its value until you type a number, as in *Properties*. A red field's
+  border was too faint on the dark theme (3.4:1); it now uses the theme's
+  error colour. (UX-10)
+- Time read-outs on the charts showed raw floats, such as
+  0.30000000000000004 s at a 0.1 s step, and so did the CSV's time column;
+  and the sweep view opened on the final SOC, drawn flat on a 0-100 axis.
+  (RES-18)
+- The summary's scroll box could not be reached with the keyboard. (RES-30)
+
+- The desktop app fetched spell-check dictionaries from Google's servers
+  when it started on Linux, and looked for a network proxy on Windows,
+  though LightSim promises to contact nothing outside your computer. Both
+  are off; a test of every packaged build now fails on any request beyond
+  the computer. (PLT-18)
+
+- The ribbon's **Delete** deletes everything selected on the diagram,
+  parts and wires, in one undo step, as the Delete key does; before, it
+  deleted only the part shown in *Properties*. Delete and Backspace no
+  longer delete the parts selected on the diagram after you click another
+  panel. (UX-19)
+- The warning badge on a part, and in the dark theme the outlines of
+  mechanical and thermal pins and the + and − marks on battery pins, meet
+  the WCAG AA contrast minimum; before, the badge was white on amber
+  (2.2:1), and in the dark theme the pin outlines were 2.2:1 and 2.6:1 and
+  the marks 3.4:1 and 3.2:1. Badges, message rows, pins and the diagram's
+  grid and overview map take their colours from the theme, with a shade
+  for each theme. (GUI-14)
 
 ### Upgrading from a 0.2.0 build
 
+- Every run is now made by the new engine (see the first row of *Your
+  results will change*). Cases of the three features that do not run yet
+  (lap cases, Formula Student events, a battery built from cells) now fail
+  with *Not run* and a code, where 0.2.0 ran them: open
+  [Known issues](KNOWN-LIMITS.md#does-not-run-in-this-version) for what to
+  set to run a case once (a battery's *Defined By* to *Pack values*). A
+  hybrid's charge-balanced case runs. Runs stored by 0.2.0 keep their
+  figures and say which engine made them.
 - A battery without a Charge Capacity gets it from its Usable Capacity ÷
   the OCV table's mean voltage (the Battery Electric Car's 62 kWh on the
   default table = 179.7 Ah), so it still gives out its Usable Capacity from
@@ -177,13 +1327,52 @@ sections.
 - Vehicles keep taking their road load from drag and rolling resistance.
   An Ambient already in a 0.2.0 project now sets the air density; a
   project with several Ambients runs, with a warning, on the first one.
+- Wheels in 0.2.0 projects are on the Front axle, so their Rear Axle Load
+  reads 0 and nothing shifts. Set *Axle* to Rear on the rear wheels before
+  giving the Vehicle a CG height; Data Checks refuse a CG height while all
+  the wheels are on one axle.
 - Runs you stopped in 0.2.0 keep their *warning* status and their
   *stopped at t = …* note. Cases load as kind *Cycle*.
+- The *Data Checks* tab is now *Problems*; a saved layout keeps it where it
+  was. A signal link between two inputs or two outputs saved by an earlier
+  build still loads: Data Bus Connections shows it in amber with a remove
+  button, and Data Checks still report it. So does a link to a part or port
+  that is gone.
+- LightSim opens on the *Start* page, and **New** on the Home tab opens
+  it too: choose *Blank project* there for the empty project **New** made
+  before. Tick *Skip this page* on it to open your last project at
+  start-up, as before.
+- The examples' WLTC, UDDS and HWFET cases name their drive cycle
+  instead of carrying its points, and give exactly the same results. A
+  case of yours that carries its own points keeps them, and they still
+  win over a cycle picked on the part. 0.2.0 does not know drive cycles:
+  opened there, a Driving Task or case that names one drives the typed
+  profile instead, with no warning.
+- A project that holds one of the 40 values Data Checks now refuse (see
+  Fixed) stops before the run with an error that names the part and what
+  is allowed; set the value inside the limits. The examples hold none.
+  So does a case whose own value is out of range: change or remove it in
+  *Cases & Parameters*. A stored value out of range shows red in its field
+  as soon as the project opens.
+- Project files are now in format 2 (PLT-07). A 0.2.0 file opens as
+  before: its studies move out of the file into the project's runs folder
+  (they stay listed under *Saved studies*), and the first save keeps the
+  file as it was in **Project → Restore…**'s folder as
+  `pre-migration-v1.json`. No results change.
+- Going back to 0.2.0: it opens format 2 files, but shows no studies (they
+  are next to the runs now) and keeps attached files only as a list.
+- The first start of 0.3.0 counts the scripts in the projects already in
+  your projects folder as approved, once, and only in your own projects
+  folder (not one a policy file puts on a shared drive). A project you
+  receive later asks before its scripts run.
+- The desktop app asks once whether to check for updates; until you say
+  yes it checks nothing.
 - Going back to 0.2.0: it cannot open a project with a study point that
   says *cancelled*. It still lists and opens stored runs that say
   *cancelled*, but drops them from the list if it has to rebuild its run
   index.
   A case's Kind is kept but ignored.
+  A run's name and note are kept but ignored.
 
 ## 0.2.0 — not published: its changes ship in 0.3.0
 
@@ -192,8 +1381,9 @@ The app is renamed from SimStudio to LightSim; your projects come along
 
 This release is about trust: results that no longer depend on hidden
 settings, a run status you can rely on, and example cars that behave like
-real ones. It is still an early version: nothing is validated against
-measured vehicles yet (see [What is validated](VALIDATION-STATUS.md)), and
+real ones. It is still an early version: nothing in 0.2.0 was validated
+against measured vehicles (0.3.0 adds a first comparison, see
+[What is validated](VALIDATION-STATUS.md)), and
 [Known issues and limits](KNOWN-LIMITS.md) lists what is still wrong.
 
 ### Your results will change — here is why

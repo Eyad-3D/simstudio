@@ -48,7 +48,12 @@ def test_after_25_saves_the_last_20_versions_can_be_restored(projects):
     assert len(listed) == storage.KEEP_BACKUPS == 20
     # newest first: the version each of the last 20 saves replaced
     assert [b["name"] for b in listed] == [f"Version {i}" for i in range(24, 4, -1)]
-    assert len(list((projects / ".backups" / "bev-car").glob("*.json"))) == 20
+    kept = sorted(p.name for p in (projects / ".backups" / "bev-car").glob("*.json"))
+    # the 20 that rotate, and the file as it was before its first save in
+    # the current format, kept for good (PLT-07)
+    assert len(kept) == 21 and kept[-1] == "pre-migration-v1.json"
+    assert (projects / ".backups" / "bev-car" / "pre-migration-v1.json").read_bytes() == (
+        EXAMPLES_DIR / "bev-car.json").read_bytes()
     for b in listed:
         back = client.get(f"/api/projects/bev-car/backups/{b['id']}")
         assert back.status_code == 200, back.text

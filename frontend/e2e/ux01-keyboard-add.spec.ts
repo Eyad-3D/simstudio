@@ -22,6 +22,11 @@ test("UX-01: every library part can be added with the keyboard alone", async ({ 
   while ((await focused()).text !== "New" && tabs++ < 80) await page.keyboard.press("Tab");
   expect(tabs, "Tab never reached New").toBeLessThan(80);
   await page.keyboard.press("Enter");
+  // New shows the Start page: Tab on to Blank project
+  tabs = 0;
+  while (!(await focused()).text.startsWith("Blank project") && tabs++ < 40) await page.keyboard.press("Tab");
+  expect(tabs, "Tab never reached Blank project").toBeLessThan(40);
+  await page.keyboard.press("Enter");
   await expect(nodes(page)).toHaveCount(0);
 
   // Tab on into the library
