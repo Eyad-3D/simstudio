@@ -69,11 +69,6 @@ for (const theme of THEMES) {
       test.use({ viewport });
 
       test(`topology, parameter window and Results (${theme}, ${size})`, async ({ page }) => {
-        test.fail(
-          true,
-          "The Results baselines show today's engine's run; the new engine's differs in 1-2 % of the pixels " +
-            "(its figures and channels): regenerate them with ci.yml's update-screenshots (it commits from the runner)",
-        );
         await page.clock.setFixedTime(new Date("2026-01-05T09:30:00Z")); // log and run times
         await page.addInitScript((t) => localStorage.setItem("lightsim-theme", t), theme);
         await openApp(page);
