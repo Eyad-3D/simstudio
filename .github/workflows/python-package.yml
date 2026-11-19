@@ -2,7 +2,12 @@
 # request that touches the engine; uploaded to PyPI for a version tag, but
 # only once the owner has added the PYPI_API_TOKEN secret (an API token of
 # the PyPI account that holds the "lightsim" name). Without it the upload
-# step is skipped and says so.
+# step is skipped and says so. Every case runs on the new engine's module
+# (the Rust module lightsim_engine, wheel "lightsim-engine"), which the
+# lightsim wheel requires: each OS builds it here, as ci.yml does, and pip
+# takes it from the built file (--find-links). The upload sends those
+# engine wheels too; a first upload would still need a wheel tag PyPI
+# accepts for Linux (manylinux) and a Windows wheel of the same version.
 name: Python package
 
 on:
@@ -10,7 +15,7 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
-    paths: ["backend/**", "scripts/build-wheel.py", "VERSION", ".github/workflows/python-package.yml"]
+    paths: ["backend/**", "engine/**", "scripts/build-wheel.py", "VERSION", ".github/workflows/python-package.yml"]
   workflow_dispatch:
 
 jobs:
@@ -26,6 +31,20 @@ jobs:
         with:
           python-version: "3.11"
 
+      # The engine module's wheel, built as ci.yml and desktop-build.yml do
+      # (the Rust release engine/rust-toolchain.toml pins), next to the
+      # lightsim wheel
+      - name: Build the engine module
+        working-directory: engine
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version
+          python -m pip install "maturin>=1.7,<2"
+          maturin build --release -m crates/lsim-py/Cargo.toml --out ../dist-wheel
+
       - name: Build
         run: python scripts/build-wheel.py --out dist-wheel
 
@@ -35,7 +54,9 @@ jobs:
         run: |
           python -m venv "$RUNNER_TEMP/venv"
           if [ -x "$RUNNER_TEMP/venv/bin/python" ]; then PY="$RUNNER_TEMP/venv/bin/python"; else PY="$RUNNER_TEMP/venv/Scripts/python.exe"; fi
-          "$PY" -m pip install dist-wheel/*.whl
+          # the lightsim wheel requires lightsim-engine==<its version>: pip finds
+          # it among the wheels built above, never on an index
+          "$PY" -m pip install --find-links dist-wheel dist-wheel/lightsim-*.whl
           cd "$RUNNER_TEMP"
           "$PY" -m lightsim run bev-car --case "City Cycle"
           # Script blocks: every command-line run holds them to the strict OS
@@ -49,7 +70,13 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         with:
           name: lightsim-wheel
-          path: dist-wheel/*.whl
+          path: dist-wheel/lightsim-*.whl
+          retention-days: 30
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: engine-wheel-${{ matrix.os }}
+          path: dist-wheel/lightsim_engine-*.whl
           retention-days: 30
 
   publish:
@@ -60,7 +87,8 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: lightsim-wheel
+          pattern: "*wheel*"
+          merge-multiple: true
           path: dist-wheel
       - name: Upload
         env:
