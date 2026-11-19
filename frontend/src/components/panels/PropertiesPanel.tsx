@@ -865,7 +865,7 @@ export function ElementForm({
   element: ElementInstance;
   def: ComponentDef;
   /** In the narrow Properties panel, table/code/profile params collapse to an
-   *  "Edit…" button that opens the roomier parameter dialog. */
+   *  "Edit…" button that opens the part's parameter window at it. */
   compact?: boolean;
 }) {
   const setParameter = useProjectStore((s) => s.setParameter);
@@ -1149,13 +1149,13 @@ export function ElementForm({
               className="ss-toolbtn justify-between border border-[color:var(--ss-border)] px-2 py-1"
               aria-description={p.description ?? undefined}
               onClick={() => {
-                // the card is not wanted back when the dialog closes
+                // the card is not wanted back when the window closes
                 setHelp(null);
                 setPointed(null);
                 setFocused(null);
                 openParamDialog(element.id, p.key);
               }}
-              title={p.description ? undefined : `${isProfile(p) ? "Profile" : p.label}: open the full editor in a dialog`}
+              title={p.description ? undefined : `${isProfile(p) ? "Profile" : p.label}: open the full editor in the part's window`}
             >
               <span className="flex min-w-0 items-center gap-1.5">
                 {p.type === "code" ? <Pencil size={12} /> : <Table2 size={12} />}

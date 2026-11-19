@@ -44,6 +44,12 @@ sections.
 
 ### New
 
+- A double-click on a part opens its parameters in a window of their own,
+  one per part: resize it, minimise it, move it to another screen and keep
+  several open. Edits there are in the project at once, and the window
+  shows every change made elsewhere (undo, an AI assistant's edit, an
+  import); it is named after the part and closes when the part is deleted.
+  In a browser that blocks pop-ups the parameters open in a dialog instead.
 - Models from other tools: drop an FMU file (a Co-Simulation FMU of FMI
   2.0 or 3.0, exported from Simulink, Dymola, GT-SUITE or a supplier) on
   the diagram and it runs with the rest of the car as an *FMU* block. Its

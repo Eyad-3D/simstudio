@@ -36,8 +36,14 @@ selection as the Delete key.
 | Shift+drag on empty diagram | Draw a box to select the parts in it |
 | Shift+click a pin | Move the pin to the next side of its part |
 | Shift+drag a pin | Slide the pin along the part's edges |
-| Double-click a part | Open its parameters in a dialog (a sub-system: go inside) |
-| Esc | Cancel click-to-place; close a menu or the parameter dialog |
+| Double-click a part | Open its parameters in a window of their own (a sub-system: go inside); again, bring that window to the front |
+| Esc | Cancel click-to-place; close a menu, or a help card or import preview in a parameter window |
+
+A part's parameter window is an ordinary window: resize it, minimise it or
+move it to another screen, and keep several open. What you type there is in
+the project at once (there is no Apply), and Ctrl+Z, Ctrl+Y and Ctrl+S work
+there as in the main window. Close it with its own close button; it also
+closes when its part is deleted or another project is opened.
 
 A right-click on a part opens its menu: *Parameters*, *Rename…*,
 *Signals…*, *Duplicate*, *Copy*, *Cut* and *Delete*. On the empty diagram it
