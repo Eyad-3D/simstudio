@@ -574,26 +574,61 @@ function handleFileRequests() {
   });
 }
 
+const ICON = path.join(__dirname, "..", "build", "icon.png");
+
+/** The window.open handler of a page in a window of kind `from` ("main",
+ *  "param" or "help"): the rule is src/windows.js. */
+function openHandler(from) {
+  return (details) => {
+    const action = windows.windowOpenAction(details, appOrigin, from);
+    if (action === "param") return { action: "allow", overrideBrowserWindowOptions: windows.paramWindowOptions(ICON) };
+    // the Help window is the app's, not the parameter window's it was asked
+    // from: it stays when that closes, and closes with the main window
+    if (action === "help") {
+      return { action: "allow", outlivesOpener: true, overrideBrowserWindowOptions: windows.paramWindowOptions(ICON) };
+    }
+    if (action === "external") shell.openExternal(details.url);
+    return { action: "deny" };
+  };
+}
+
 /**
  * A parameter window stays the blank page the main window draws into: it
- * opens nothing and goes nowhere (an http(s) link goes to the browser), it
- * has no menu (whose Reload would blank it), and a place remembered on a
- * monitor that has gone is moved back onto a screen.
+ * goes nowhere (an http(s) link goes to the browser) and opens only the Help
+ * window. The Help window shows the app's help pages and nothing else: a
+ * link out of them goes to the browser, and it opens no window of its own.
+ * Neither has a menu (whose Reload would blank a parameter window), and a
+ * place remembered on a monitor that has gone is moved back onto a screen.
  */
 function guardParamWindow(child, name) {
+  const help = name === windows.HELP_NAME;
   paramWindows.set(name, child);
   child.on("closed", () => {
     if (paramWindows.get(name) === child) paramWindows.delete(name);
   });
   child.removeMenu();
-  child.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
-    return { action: "deny" };
-  });
+  child.webContents.setWindowOpenHandler(openHandler(help ? "help" : "param"));
+  child.webContents.on("did-create-window", (next, { frameName }) => guardParamWindow(next, frameName));
   child.webContents.on("will-navigate", (event, url) => {
+    if (help && windows.isHelpUrl(url, appOrigin)) return;
     event.preventDefault();
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
   });
+  if (help) {
+    if (mainWindow) mainWindow.once("closed", () => child.isDestroyed() || child.close());
+    // Back and Forward as in a browser (the window has no toolbar): the
+    // mouse's side buttons, Alt+Left and Alt+Right
+    const pages = child.webContents.navigationHistory;
+    const step = (back) => (back ? pages.canGoBack() && pages.goBack() : pages.canGoForward() && pages.goForward());
+    child.on("app-command", (_event, command) => {
+      if (command === "browser-backward" || command === "browser-forward") step(command === "browser-backward");
+    });
+    child.webContents.on("before-input-event", (event, input) => {
+      if (input.type !== "keyDown" || !input.alt || !["ArrowLeft", "ArrowRight"].includes(input.key)) return;
+      event.preventDefault();
+      step(input.key === "ArrowLeft");
+    });
+  }
   const home = mainWindow && !mainWindow.isDestroyed() ? screen.getDisplayMatching(mainWindow.getBounds()) : screen.getPrimaryDisplay();
   const moved = windows.onScreen(child.getBounds(), screen.getAllDisplays().map((d) => d.workArea), home.workArea);
   if (moved) child.setBounds(moved);
@@ -622,16 +657,11 @@ async function createWindow() {
   askBeforeUnsavedUnload(mainWindow);
 
   // Keep external links in the user's browser rather than inside the app.
-  // The one window the page may open is a part's parameter window: a blank
-  // page under its own name, with this window's safety (src/windows.js).
-  // It closes with this window (Electron's default for a page's window).
-  const icon = path.join(__dirname, "..", "build", "icon.png");
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    const action = windows.windowOpenAction(details);
-    if (action === "param") return { action: "allow", overrideBrowserWindowOptions: windows.paramWindowOptions(icon) };
-    if (action === "external") shell.openExternal(details.url);
-    return { action: "deny" };
-  });
+  // The windows the page may open are a part's parameter window (a blank
+  // page under its own name) and the Help window, with this window's safety
+  // (src/windows.js). A parameter window closes with this window (Electron's
+  // default for a page's window); the Help window is closed with it.
+  mainWindow.webContents.setWindowOpenHandler(openHandler("main"));
   mainWindow.webContents.on("did-create-window", (child, { frameName }) => guardParamWindow(child, frameName));
   // The window only ever shows the engine's UI; a link or a dropped file
   // that would navigate it elsewhere opens in the browser, or not at all.

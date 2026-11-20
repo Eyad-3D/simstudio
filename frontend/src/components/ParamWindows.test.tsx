@@ -1,10 +1,13 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { onAppKey } from "../appKeys";
+import { closeHelp, openHelpWindow, useHelpStore } from "../help";
 import { useParamWindows } from "../paramWindows";
 import { useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
 import type { ComponentDef, Project } from "../types";
+import { ParameterDialog } from "./ParameterDialog";
 import { ParamWindows } from "./ParamWindows";
 
 // tells React the updates below run inside act() on purpose
@@ -82,6 +85,9 @@ afterEach(() => {
   for (const w of useParamWindows.getState().windows) w.win.close();
   useParamWindows.setState({ windows: [] });
   useUIStore.getState().closeParamDialog();
+  // (the main window's pagehide forgets the Help window)
+  window.dispatchEvent(new Event("pagehide"));
+  closeHelp();
   document.body.innerHTML = "";
   localStorage.clear();
 });
@@ -250,4 +256,130 @@ test("a blocked pop-up falls back to the dialog in the main window, said once in
   expect(useUIStore.getState()).toMatchObject({ paramDialogId: "m2", paramDialogKey: "power" });
   const said = useProjectStore.getState().messages.filter((m) => /blocked the parameter window/.test(m.text));
   expect(said).toHaveLength(1);
+});
+
+// ---- help from a part's window: the Help window --------------------------
+
+/** The Help window a browser opened: one window, shown a page by its location. */
+function fakeHelpWindow() {
+  const help = {
+    closed: false,
+    location: { href: "" },
+    focus: vi.fn(),
+    close: vi.fn(() => {
+      help.closed = true;
+    }),
+  };
+  return help;
+}
+const helpButton = (win: Window) => [...win.document.querySelectorAll("button")].find((b) => b.textContent === "Help")!;
+const f1 = (el: Element) => el.dispatchEvent(new KeyboardEvent("keydown", { key: "F1", bubbles: true }));
+
+test("the Help button opens the part's page in the Help window, the same window for every part", () => {
+  // the second part is another kind of part, with a page of its own
+  const p = project();
+  p.systems[0].elements[1].componentDefId = "test.battery";
+  const batteryDef = { ...motorDef, id: "test.battery", name: "Test Battery" } as ComponentDef;
+  useProjectStore.setState({ project: p, libraryById: { "test.motor": motorDef, "test.battery": batteryDef } });
+  fakeOpen();
+  open("m1");
+  open("m2");
+  const [a, b] = opened;
+  const help = fakeHelpWindow();
+  // (the window the user clicked in opens it: a browser lets only that one)
+  a.open = vi.fn(() => help as unknown as Window);
+  b.open = vi.fn(() => null);
+  act(() => helpButton(a).click());
+  expect(a.open).toHaveBeenCalledWith(
+    expect.stringMatching(/\/help\/reference\/components\/test\.motor\.html$/),
+    "lightsim-help",
+    expect.stringMatching(/^popup,/),
+  );
+  expect(help.focus).toHaveBeenCalledTimes(1);
+  // the other part's Help: the same window shows its page, and comes to the front
+  act(() => helpButton(b).click());
+  expect(b.open).not.toHaveBeenCalled();
+  expect(help.location.href).toMatch(/\/help\/reference\/components\/test\.battery\.html$/);
+  expect(help.focus).toHaveBeenCalledTimes(2);
+  // the main window's Help panel is left alone
+  expect(useHelpStore.getState().page).toBeNull();
+  // closed by the user: the next Help opens it again
+  help.closed = true;
+  act(() => helpButton(b).click());
+  expect(b.open).toHaveBeenCalledTimes(1);
+});
+
+test("F1 in a part's window: the focused parameter's place on the part's page, else the page", () => {
+  fakeOpen();
+  open("m1");
+  const win = opened[0];
+  const help = fakeHelpWindow();
+  win.open = vi.fn(() => help as unknown as Window);
+  act(() => f1(powerInput(win)!));
+  expect(win.open).toHaveBeenCalledWith(expect.stringMatching(/test\.motor\.html#power$/), "lightsim-help", expect.any(String));
+  act(() => f1(win.document.querySelector("h1")!));
+  expect(help.location.href).toMatch(/test\.motor\.html$/);
+  // (the focus on the window's page itself, outside the form)
+  act(() => f1(win.document.body));
+  expect(help.location.href).toMatch(/test\.motor\.html$/);
+  expect(win.open).toHaveBeenCalledTimes(1);
+  expect(useHelpStore.getState().page).toBeNull();
+});
+
+test("a parameter's help card leads to its place in the Help window", () => {
+  fakeOpen();
+  open("m1");
+  const win = opened[0];
+  const help = fakeHelpWindow();
+  win.open = vi.fn(() => help as unknown as Window);
+  act(() => powerInput(win)!.focus());
+  const more = [...win.document.querySelectorAll("button")].find((b) => b.textContent === "More in the help (F1)")!;
+  act(() => more.click());
+  expect(win.open).toHaveBeenCalledWith(expect.stringMatching(/test\.motor\.html#power$/), "lightsim-help", expect.any(String));
+});
+
+test("a refused Help window: the page shows in the main window's Help panel", () => {
+  fakeOpen();
+  open("m1");
+  opened[0].open = vi.fn(() => null);
+  act(() => helpButton(opened[0]).click());
+  expect(useHelpStore.getState().page).toBe("reference/components/test.motor.html");
+});
+
+test("the dialog's Help: the Help window, or the Help panel with the dialog out of its way", () => {
+  vi.spyOn(window, "open").mockReturnValue(null); // pop-ups blocked: the dialog
+  const dialogRoot = createRoot(document.body.appendChild(document.createElement("div")));
+  act(() => dialogRoot.render(<ParameterDialog />));
+  window.addEventListener("keydown", onAppKey); // as the app does
+  try {
+    open("m1");
+    expect(useUIStore.getState().paramDialogId).toBe("m1");
+    // F1 in the dialog: the part's page, asked of the Help window
+    act(() => f1(document.querySelector('input[aria-label="Peak Power"]')!));
+    expect(window.open).toHaveBeenLastCalledWith(expect.stringMatching(/test\.motor\.html#power$/), "lightsim-help", expect.any(String));
+    // refused, so the Help panel shows it, and the dialog closes (it would cover it)
+    expect(useHelpStore.getState().page).toBe("reference/components/test.motor.html#power");
+    expect(useUIStore.getState().paramDialogId).toBeNull();
+    // where the Help window opens, the dialog stays
+    act(() => closeHelp());
+    const help = fakeHelpWindow();
+    // (still no parameter window: only the Help window opens)
+    vi.spyOn(window, "open").mockImplementation((_url, name) => (name === "lightsim-help" ? (help as unknown as Window) : null));
+    open("m1");
+    act(() => helpButton(window).click());
+    expect(window.open).toHaveBeenLastCalledWith(expect.stringMatching(/test\.motor\.html$/), "lightsim-help", expect.any(String));
+    expect(useUIStore.getState().paramDialogId).toBe("m1");
+    expect(useHelpStore.getState().page).toBeNull();
+  } finally {
+    window.removeEventListener("keydown", onAppKey);
+    act(() => dialogRoot.unmount());
+  }
+});
+
+test("the Help window closes with the main window", () => {
+  const help = fakeHelpWindow();
+  vi.spyOn(window, "open").mockReturnValue(help as unknown as Window);
+  openHelpWindow("index.html");
+  window.dispatchEvent(new Event("pagehide"));
+  expect(help.close).toHaveBeenCalled();
 });
