@@ -48,7 +48,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import files, history
-from .fileio import SAFE_ID, safe_id, write_atomic
+from .fileio import SAFE_ID, read_bytes, safe_id, write_atomic
 from .migrations import CURRENT_VERSION, NewerFileError, file_version, migrate
 from .paths import EXAMPLES_DIR, projects_dir
 from .schemas import Project
@@ -182,7 +182,7 @@ def list_files() -> list[dict]:
         item: dict = {"id": entry.id, "path": str(entry.path), "opened": entry.openedAt,
                       "exists": False, "name": entry.path.stem, "description": None}
         try:
-            raw = json.loads(entry.path.read_bytes())
+            raw = json.loads(read_bytes(entry.path))
             item.update({
                 "exists": True,
                 "modified": entry.path.stat().st_mtime_ns // 1_000_000,
@@ -230,7 +230,7 @@ def load_example(example_id: str) -> Project:
     path = example_path(example_id)
     if not path.is_file():
         raise FileNotFoundError(example_id)
-    return read_project(path.read_bytes()).project
+    return read_project(read_bytes(path)).project
 
 
 def list_examples() -> list[dict]:
@@ -270,7 +270,7 @@ def _hidden_examples() -> set[str]:
     """
     folder = user_dir()
     try:
-        raw = json.loads((folder / _HIDDEN).read_bytes())
+        raw = json.loads(read_bytes(folder / _HIDDEN))
     except FileNotFoundError:
         raw = None
     except (OSError, ValueError):
@@ -349,7 +349,7 @@ def load_project_file(project_id: str) -> LoadedProject:
     loc = location(project_id)
     if not loc.file.exists():
         raise FileNotFoundError(project_id)
-    data = loc.file.read_bytes()
+    data = read_bytes(loc.file)
     read = read_project(data)
     if loc.external and read.project.id != loc.id:
         # a copy of a file that is open under its own id: this one goes by
@@ -369,7 +369,7 @@ def current_revision(project_id: str) -> str | None:
     AI agent, ``lightsim edit``) it lays over its copy (:func:`rebase`); a
     change from outside (a git pull, an editor) it offers to reload."""
     try:
-        return revision_of(location(project_id).file.read_bytes())
+        return revision_of(read_bytes(location(project_id).file))
     except FileNotFoundError:
         return None
 
@@ -389,7 +389,7 @@ def newer_file(project_id: str) -> NewerFileError | None:
     """Why the project's file on disk is read-only here (it is from a newer
     LightSim), or None."""
     try:
-        version, saved_with = _format_of(location(project_id).file.read_bytes())
+        version, saved_with = _format_of(read_bytes(location(project_id).file))
     except OSError:
         return None
     return NewerFileError(version, saved_with) if version > CURRENT_VERSION else None
@@ -457,7 +457,7 @@ def write_file(loc: Location, data: bytes, expected_revision: str | None = None,
     path = loc.file
     path.parent.mkdir(parents=True, exist_ok=True)
     with project_lock(loc):
-        current = path.read_bytes() if path.exists() else None
+        current = read_bytes(path) if path.exists() else None
         if create_only and current is not None:
             raise ConflictError(f"A project with id '{loc.id}' already exists on disk.")
         if expected_revision is not None:
@@ -605,7 +605,7 @@ def list_backups(project_id: str) -> list[dict]:
             "elements": None,
         }
         try:
-            raw = json.loads(f.read_bytes())
+            raw = json.loads(read_bytes(f))
             entry["name"] = raw["name"] if isinstance(raw.get("name"), str) else None
             entry["elements"] = sum(len(s["elements"]) for s in raw["systems"])
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -623,7 +623,7 @@ def load_backup(project_id: str, backup_id: str) -> Project:
     path = location(project_id).backups / f"{backup_id}.json"
     if not path.is_file():
         raise FileNotFoundError(backup_id)
-    return read_project(path.read_bytes()).project
+    return read_project(read_bytes(path)).project
 
 
 def delete_project(project_id: str) -> bool:
@@ -661,7 +661,7 @@ def rebase(project_id: str, revision: str, ours: dict) -> dict:
     loc = location(project_id)
     def read() -> tuple:
         try:
-            now = revision_of(loc.file.read_bytes())
+            now = revision_of(read_bytes(loc.file))
         except FileNotFoundError:
             raise ConflictError(f"Project '{project_id}' was deleted on disk.") from None
         return now, ([] if now == revision else history.entries(loc.backups))
@@ -699,7 +699,7 @@ def undo(project_id: str, entry: str | None = None, session: str | None = None) 
     loc = location(project_id)
     for attempt in range(3):
         with project_lock(loc):  # the file and its history as one save left them
-            data = loc.file.read_bytes()
+            data = read_bytes(loc.file)
             lines = history.entries(loc.backups)
         gone = history.undone(lines)
         picked = [e for e in lines if e["id"] not in gone and (
@@ -713,7 +713,7 @@ def undo(project_id: str, entry: str | None = None, session: str | None = None) 
         ours = [e for e in lines if e.get("session") == session and e.get("by") == "agent"]
         start = _session_start(loc, session) if session else None
         if start is not None and start.is_file() and ours and \
-                ours[0].get("from") != revision_of(start.read_bytes()):
+                ours[0].get("from") != revision_of(read_bytes(start)):
             # the session's first saves are out of the history (it started
             # afresh twice since): undo them from the copy of its start
             then = json.loads(data)
@@ -725,7 +725,7 @@ def undo(project_id: str, entry: str | None = None, session: str | None = None) 
                              f"history; the project as it was before the session is kept in {start}.")
             else:
                 picked.insert(0, {"id": None, "diff": history.diff(
-                    json.loads(start.read_bytes()), then)})
+                    json.loads(read_bytes(start)), then)})
         doc = json.loads(data)
         clashes: list[dict] = []
         for e in reversed(picked):
