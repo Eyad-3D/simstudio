@@ -454,8 +454,8 @@ pub(crate) fn same_instant(a: f64, b: f64) -> bool {
 
 /// The mode a cycle of event iteration at one instant turns on: `trail`,
 /// the discrete values the rounds went through (`ends`: the ones a round
-/// ended with, and the start), and `d`, the values a round ends with now.
-/// Where `d` is values a round ended with before (or the start), the rounds
+/// ended with), and `d`, the values a round ends with now. Where `d` is
+/// values a round ended with before, the rounds
 /// repeat for ever, the states held; `Some(k)` where mode `k`'s value is the
 /// only one that changes along the repeat ([`Loop::decide_mode`]).
 fn cycling_mode(info: &RunInfo, trail: &[Vec<f64>], ends: &[usize], d: &[f64]) -> Option<usize> {
@@ -2940,12 +2940,13 @@ impl Loop<'_> {
         // the held table reads moved at this instant, per axis
         // (crate::held::place)
         let mut moved = vec![[false; 2]; info.held.len()];
-        // the discrete values the rounds went through since the last mode
-        // decided here, and which of them a round ended with (the first: the
-        // values the rounds start from), for a cycle ([`cycling_mode`]); the
+        // the discrete values the rounds went through since the first round
+        // that asked for another ended (or the last mode decided here), and
+        // which of them a round ended with, for a cycle ([`cycling_mode`];
+        // empty until then: most events settle in their first round); the
         // modes decided ([`Loop::decide_mode`]), with their values
-        let mut trail: Vec<Vec<f64>> = vec![d.clone()];
-        let mut ends: Vec<usize> = vec![0];
+        let mut trail: Vec<Vec<f64>> = vec![];
+        let mut ends: Vec<usize> = vec![];
         let mut decided: Vec<(usize, f64)> = vec![];
         loop {
             if any_fired {
@@ -2957,13 +2958,17 @@ impl Loop<'_> {
                 *d = d_new;
                 fired.fill(0.0);
                 any_fired = false;
-                trail.push(d.clone());
+                if !trail.is_empty() {
+                    trail.push(d.clone());
+                }
             }
             // every mode from its relation with the new discrete values
             self.solve_z(integ, t, y, d, z_for)?;
             if self.modes_from_relations(t, y, d, &decided)? {
                 self.solve_z(integ, t, y, d, z_for)?;
-                trail.push(d.clone());
+                if !trail.is_empty() {
+                    trail.push(d.clone());
+                }
             }
             if self.roots.is_empty() {
                 break;
