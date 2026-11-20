@@ -92,3 +92,36 @@ fn a_hybrid_charged_past_full_runs_on() {
     let books = r.energy.as_ref().unwrap().relative_closure;
     assert!(books < 1.5e-9, "the books close to {books:e}");
 }
+
+/// At a hundred times its mass (147 t) the hybrid empties its battery,
+/// whose window its 12 V loads then take whole, and slows to a crawl, its
+/// E-Motor asking for nothing to the solver's noise (±1e-9 W). Its inverter
+/// was off where its window did not cover its spin losses, and its bus
+/// handed it an open window (1e30 W) for a request below zero and its share
+/// of no room for one above: the inverter switched on and off on that
+/// noise's sign (an event storm at 558.48 s). Its window is continuous in
+/// its request now, and a short supply cuts its torque, down to its shaft
+/// feeding its spin losses: it runs to the end, the battery within its
+/// minimum, the books closed.
+#[test]
+fn a_heavy_hybrid_at_its_empty_battery_runs_on() {
+    let mut project = hybrid();
+    let veh = project["systems"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .flat_map(|s| s["elements"].as_array_mut().unwrap())
+        .find(|e| e["id"] == "el-vehicle")
+        .unwrap();
+    assert_eq!(veh["parameterOverrides"]["mass_kg"], json!(1474));
+    veh["parameterOverrides"]["mass_kg"] = json!(147_400.0);
+    let run = udds(project, 1369.0);
+    let r = &run.result;
+    assert_eq!(r.times.last().copied(), Some(1369.0), "it ran to its end");
+    let soc = r.channel("el_battery.soc").expect("soc");
+    let low = soc.iter().copied().fold(f64::INFINITY, f64::min);
+    println!("lowest SOC {low}");
+    assert!((0.10 - 1e-9..=0.10 + 1e-4).contains(&low), "at its minimum, not below: {low}");
+    let books = r.energy.as_ref().unwrap().relative_closure;
+    assert!(books < 1.5e-9, "the books close to {books:e}");
+}
