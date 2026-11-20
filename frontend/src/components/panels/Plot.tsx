@@ -448,7 +448,12 @@ export function Plot({
         plugins: [...(options.plugins ?? []), gestures(label, (u, r, reset) => zoomed(u, r, reset)), sharp()],
       },
       latest.current,
-      el,
+      // a function, not the element: uPlot tests an element with the main
+      // window's HTMLElement, which an element of a parameter window is not
+      (chart, init) => {
+        el.appendChild(chart.root);
+        init();
+      },
     );
     restore(u, kept);
     // the legend sits under the plot, inside the parent's height (only on a
