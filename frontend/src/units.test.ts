@@ -90,9 +90,15 @@ test("the chosen unit of a number, an axis and a table's values; anything unknow
 
 test("a table's axis or values map on their own, at any number of axes", () => {
   const t3 = { "1": { "10": { "100": 1, "200": 2 } }, "2": { "10": { "100": 3, "200": 4 } } };
-  expect(mapTable(t3, 2, (n) => n / 100)).toEqual({ "1": { "10": { "1": 1, "2": 2 } }, "2": { "10": { "1": 3, "2": 4 } } });
+  expect(mapTable(t3, 2, (n) => n / 100)).toEqual({
+    "1": { "10": { "1": 1, "2": 2 } },
+    "2": { "10": { "1": 3, "2": 4 } },
+  });
   expect(mapTable(t3, 0, (n) => n * 10)).toEqual({ "10": t3["1"], "20": t3["2"] });
-  expect(mapTable(t3, "value", (n) => -n)).toEqual({ "1": { "10": { "100": -1, "200": -2 } }, "2": { "10": { "100": -3, "200": -4 } } });
+  expect(mapTable(t3, "value", (n) => -n)).toEqual({
+    "1": { "10": { "100": -1, "200": -2 } },
+    "2": { "10": { "100": -3, "200": -4 } },
+  });
 });
 
 test("'the number is in another unit' keeps the numbers on screen and changes the values", () => {

@@ -721,6 +721,61 @@ describe("undo / redo", () => {
     expect(findElement("el-bat")?.tableOutside).toBeUndefined();
   });
 
+  it("showing a parameter in another unit writes no value, and one undo takes the choice back", async () => {
+    await start();
+    store().setParameter("el-motor", "max_speed_rpm", 12000);
+    const before = structuredClone(findElement("el-motor")!.parameterOverrides);
+    store().setDisplayUnit("el-motor", "max_speed_rpm", "value", "rad/s");
+    store().setDisplayUnit("el-motor", "drag_torque", 0, "rad/s");
+    expect(findElement("el-motor")?.displayUnits).toEqual({
+      max_speed_rpm: { value: "rad/s" },
+      drag_torque: { axes: ["rad/s"] },
+    });
+    expect(findElement("el-motor")!.parameterOverrides).toEqual(before);
+    store().undo();
+    expect(findElement("el-motor")?.displayUnits).toEqual({ max_speed_rpm: { value: "rad/s" } });
+    // back to the library's unit leaves nothing behind: as a file from before
+    store().setDisplayUnit("el-motor", "max_speed_rpm", "value", null);
+    expect(findElement("el-motor")?.displayUnits).toBeUndefined();
+    expect(findElement("el-motor")!.parameterOverrides).toEqual(before);
+  });
+
+  it("'the number is in another unit' changes the value and the unit in one undo step", async () => {
+    await start();
+    store().setParameter("el-motor", "max_speed_rpm", 1000);
+    store().setDisplayUnit("el-motor", "max_speed_rpm", "value", "rad/s", 9549.29658551);
+    expect(findElement("el-motor")?.parameterOverrides.max_speed_rpm).toBe(9549.29658551);
+    expect(findElement("el-motor")?.displayUnits).toEqual({ max_speed_rpm: { value: "rad/s" } });
+    store().undo();
+    expect(findElement("el-motor")?.parameterOverrides.max_speed_rpm).toBe(1000);
+    expect(findElement("el-motor")?.displayUnits).toBeUndefined();
+    store().redo();
+    expect(findElement("el-motor")?.parameterOverrides.max_speed_rpm).toBe(9549.29658551);
+    expect(findElement("el-motor")?.displayUnits).toEqual({ max_speed_rpm: { value: "rad/s" } });
+    // a table's second axis, with the first left as the library's
+    store().setDisplayUnit("el-motor", "full_load_torque", 1, "rad/s");
+    expect(findElement("el-motor")?.displayUnits?.full_load_torque).toEqual({ axes: [null, "rad/s"] });
+  });
+
+  it("the chosen units are saved with the project, opened with it and copied with the part", async () => {
+    await start();
+    store().setDisplayUnit("el-motor", "full_load_torque", "value", "lbf·ft");
+    await store().saveRemote();
+    const saved = api.saveProject.mock.calls[0][0];
+    expect(saved.systems[0].elements.find((e) => e.id === "el-motor")?.displayUnits).toEqual({
+      full_load_torque: { value: "lbf·ft" },
+    });
+    // opened: as saved; a file without any opens as before
+    const withUnits = fixture();
+    withUnits.systems[0].elements[2].displayUnits = { max_speed_rpm: { value: "rad/s" } };
+    api.fetchProject.mockResolvedValueOnce(withUnits);
+    await store().openProject("fixture");
+    expect(findElement("el-motor")?.displayUnits).toEqual({ max_speed_rpm: { value: "rad/s" } });
+    expect(findElement("el-bat")?.displayUnits).toBeUndefined();
+    const ids = store().duplicateElements(["el-motor"]);
+    expect(findElement(ids[0])?.displayUnits).toEqual({ max_speed_rpm: { value: "rad/s" } });
+  });
+
   it("a preset's values are one edit that one undo takes back", async () => {
     await start();
     const past = store().past.length;

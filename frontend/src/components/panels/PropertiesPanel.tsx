@@ -11,6 +11,18 @@ import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
 import { SourceBadge, ValueSources } from "./ValueSources";
 import { ImportFromFileButton, type ImportTarget } from "../ImportTableDialog";
+import { TableUnits, UnitButton, UnitChooser, type UnitColumn } from "../UnitChooser";
+import {
+  alternatives,
+  cellReader,
+  convertProse,
+  reinterpret,
+  shownUnit,
+  showNumber,
+  tableNumbers,
+  toStored,
+  type UnitSlot,
+} from "../../units";
 import { FmuPanel } from "./FmuPanel";
 import { FMU_DEF_ID, FMU_FILE_KEYS } from "../../fmu";
 import type {
@@ -89,12 +101,28 @@ function pastedAxisIssue(name: string, cells: string[], existing: number): GridI
   return null;
 }
 
+/** How a table's numbers are shown: the unit of each axis and of the values,
+ *  and how to keep a choice (with the table's new value when the numbers
+ *  were in another unit). The table itself is always in the library's units. */
+interface TableShown {
+  axes: string[];
+  value: string;
+  set: (slot: UnitSlot, unit: string, table?: unknown) => void;
+}
+
+/** A stored key or value as its cell shows it: in the library's unit as it
+ *  is (a key as written), else converted (units.ts). */
+function cellText(stored: string | number, lib: string, unit: string): string {
+  return unit === lib ? String(stored) : showNumber(Number(stored), lib, unit);
+}
+
 /** Excel-style editable grid for a 1D lookup table {x: y}. */
 function Table1DEditor({
   value,
   axis,
   valueLabel,
   valueUnit,
+  units,
   onChange,
   importTarget,
   onImport,
@@ -103,14 +131,29 @@ function Table1DEditor({
   axis: AxisDef;
   valueLabel: string;
   valueUnit: string;
+  units: TableShown;
   onChange: (v: Table1D) => void;
   /** offers "Import from file…" for this parameter (STD-10) */
   importTarget?: ImportTarget;
   onImport?: (v: Table1D | Table2D | string) => void;
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
+  const [unitOpen, setUnitOpen] = useState<UnitSlot | null>(null);
   const keys = sortedNumericKeys(value);
-  const pairs: [string, string][] = keys.map((k) => [k, String(value[k])]);
+  // what the cells show, and how their text reads back (units.ts)
+  const xUnit = units.axes[0] ?? axis.unit;
+  const yUnit = units.value;
+  const pairs: [string, string][] = keys.map((k) => [
+    cellText(k, axis.unit, xUnit),
+    cellText(value[k], valueUnit, yUnit),
+  ]);
+  const shownKeys = pairs.map((p) => p[0]);
+  const readX = cellReader(keys.map(Number), axis.unit, xUnit);
+  const readY = cellReader(Object.values(value), valueUnit, yUnit);
+  const columns: UnitColumn[] = [
+    { slot: 0, label: axis.name, what: `the ${axis.name} axis`, lib: axis.unit, unit: xUnit },
+    { slot: "value", label: valueLabel, what: `the ${valueLabel} values`, lib: valueUnit, unit: yUnit },
+  ];
 
   const rebuild = (rows: [string, string][]): Table1D => {
     const obj: Table1D = {};
@@ -119,15 +162,15 @@ function Table1DEditor({
       const nx = Number(xs);
       if (xs === "" || !Number.isFinite(nx)) continue;
       const ny = Number(String(y).trim());
-      obj[String(nx)] = Number.isFinite(ny) ? ny : 0;
+      obj[String(readX(xs))] = Number.isFinite(ny) ? readY(y) : 0;
     }
     return obj;
   };
 
   const matrix: GridCell[][] = [
     [
-      { text: `${axis.name} (${axis.unit})`, kind: "colHeader", readOnly: true },
-      { text: `${valueLabel} (${valueUnit})`, kind: "colHeader", readOnly: true },
+      { text: `${axis.name} (${xUnit})`, kind: "colHeader", readOnly: true },
+      { text: `${valueLabel} (${yUnit})`, kind: "colHeader", readOnly: true },
     ],
     ...pairs.map(
       ([x, y]): GridCell[] => [
@@ -136,10 +179,17 @@ function Table1DEditor({
       ],
     ),
   ];
+  // a double-click (or Enter, F2) on a header with a unit opens its chooser
+  const openHeader = (r: number, c: number) => {
+    const col = columns[c];
+    if (r !== 0 || !col || alternatives(col.lib).length === 0) return false;
+    setUnitOpen(col.slot);
+    return true;
+  };
 
   const validate = (r: number, c: number, text: string): GridIssue | null => {
     if (r === 0) return null;
-    if (c === 0) return axisIssue(axis.name, "row", text, keys, r - 1);
+    if (c === 0) return axisIssue(axis.name, "row", text, shownKeys, r - 1);
     if (text.trim() === "") return { level: "error", text: `Enter a ${valueLabel} value (Delete sets 0).` };
     return numberIssue(text);
   };
@@ -203,6 +253,9 @@ function Table1DEditor({
 
   return (
     <div className="flex flex-col gap-1">
+      {columns.some((c) => alternatives(c.lib).length > 0) && (
+        <TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />
+      )}
       <SpreadsheetGrid
         matrix={matrix}
         onCommit={commit}
@@ -210,6 +263,7 @@ function Table1DEditor({
         onClearRange={clearRange}
         onSelectionChange={setSelRange}
         validate={validate}
+        onHeaderOpen={openHeader}
       />
       <div className="flex items-center gap-1">
         <button className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px]" onClick={addRow}>
@@ -242,6 +296,7 @@ function Table2DEditor({
   axes,
   valueLabel,
   valueUnit,
+  units,
   onChange,
   importTarget,
 }: {
@@ -249,40 +304,57 @@ function Table2DEditor({
   axes: [AxisDef, AxisDef];
   valueLabel: string;
   valueUnit: string;
+  units: TableShown;
   onChange: (v: Table2D) => void;
   importTarget?: ImportTarget;
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
+  const [unitOpen, setUnitOpen] = useState<UnitSlot | null>(null);
   const outerKeys = sortedNumericKeys(value);
   const innerSet = new Set<string>();
   for (const ok of outerKeys) for (const ik of Object.keys(value[ok] ?? {})) innerSet.add(ik);
   const innerKeys = [...innerSet].sort((a, b) => Number(a) - Number(b));
+  // what the cells show, and how their text reads back (units.ts)
+  const [cUnit, rUnit] = [units.axes[0] ?? axes[0].unit, units.axes[1] ?? axes[1].unit];
+  const showC = (k: string) => cellText(k, axes[0].unit, cUnit);
+  const showR = (k: string) => cellText(k, axes[1].unit, rUnit);
+  const showV = (v: number | undefined) => (v === undefined ? "" : cellText(v, valueUnit, units.value));
+  const readC = cellReader(outerKeys.map(Number), axes[0].unit, cUnit);
+  const readR = cellReader(innerKeys.map(Number), axes[1].unit, rUnit);
+  const readV = cellReader(tableNumbers(value, "value"), valueUnit, units.value);
+  const columns: UnitColumn[] = [
+    { slot: 0, label: `Columns: ${axes[0].name}`, what: `the ${axes[0].name} axis`, lib: axes[0].unit, unit: cUnit },
+    { slot: 1, label: `Rows: ${axes[1].name}`, what: `the ${axes[1].name} axis`, lib: axes[1].unit, unit: rUnit },
+    {
+      slot: "value",
+      label: `Values: ${valueLabel}`,
+      what: `the ${valueLabel} values`,
+      lib: valueUnit,
+      unit: units.value,
+    },
+  ];
 
   /** Current grid as strings: row 0 = ["", ...outer], each row = [inner, ...values]. */
   const gridText = (): string[][] => {
-    const g: string[][] = [["", ...outerKeys]];
-    for (const ik of innerKeys) {
-      g.push([ik, ...outerKeys.map((ok) => {
-        const v = value[ok]?.[ik];
-        return v === undefined ? "" : String(v);
-      })]);
-    }
+    const g: string[][] = [["", ...outerKeys.map(showC)]];
+    for (const ik of innerKeys) g.push([showR(ik), ...outerKeys.map((ok) => showV(value[ok]?.[ik]))]);
     return g;
   };
 
   const parseGrid = (g: string[][]): Table2D => {
-    const asKeys = (raw: string[]): number[] => {
+    // (a breakpoint left empty is numbered on from the largest, as shown)
+    const asKeys = (raw: string[], read: (t: string) => number): number[] => {
       let max = Math.max(0, ...raw.map((s) => Number(String(s).trim())).filter(Number.isFinite));
       return raw.map((s) => {
         const t = String(s).trim();
         const n = Number(t);
-        if (t !== "" && Number.isFinite(n)) return n;
+        if (t !== "" && Number.isFinite(n)) return read(t);
         max += 1;
-        return max;
+        return read(String(max));
       });
     };
-    const outer = asKeys((g[0] ?? []).slice(1));
-    const inner = asKeys(g.slice(1).map((row) => row[0] ?? ""));
+    const outer = asKeys((g[0] ?? []).slice(1), readC);
+    const inner = asKeys(g.slice(1).map((row) => row[0] ?? ""), readR);
     const result: Table2D = {};
     outer.forEach((ok) => (result[String(ok)] ??= {}));
     inner.forEach((ik, i) => {
@@ -290,8 +362,7 @@ function Table2DEditor({
         const cell = g[i + 1]?.[j + 1];
         const t = cell === undefined ? "" : String(cell).trim();
         if (t === "") return;
-        const v = Number(t);
-        if (Number.isFinite(v)) result[String(ok)][String(ik)] = v;
+        if (Number.isFinite(Number(t))) result[String(ok)][String(ik)] = readV(t);
       });
     });
     return result;
@@ -299,21 +370,18 @@ function Table2DEditor({
 
   const corner: GridCell = { text: `${axes[1].name}\\${axes[0].name}`, kind: "corner", readOnly: true };
   const matrix: GridCell[][] = [
-    [corner, ...outerKeys.map((k): GridCell => ({ text: k, kind: "colHeader" }))],
+    [corner, ...outerKeys.map((k): GridCell => ({ text: showC(k), kind: "colHeader" }))],
     ...innerKeys.map((ik): GridCell[] => [
-      { text: ik, kind: "rowHeader" },
-      ...outerKeys.map((ok): GridCell => {
-        const v = value[ok]?.[ik];
-        return { text: v === undefined ? "" : String(v), kind: "body" };
-      }),
+      { text: showR(ik), kind: "rowHeader" },
+      ...outerKeys.map((ok): GridCell => ({ text: showV(value[ok]?.[ik]), kind: "body" })),
     ]),
   ];
 
   // a body cell may be left empty (no value at that point, like Delete)
   const validate = (r: number, c: number, text: string): GridIssue | null => {
     if (r === 0 && c === 0) return null;
-    if (r === 0) return axisIssue(axes[0].name, "column", text, outerKeys, c - 1);
-    if (c === 0) return axisIssue(axes[1].name, "row", text, innerKeys, r - 1);
+    if (r === 0) return axisIssue(axes[0].name, "column", text, outerKeys.map(showC), c - 1);
+    if (c === 0) return axisIssue(axes[1].name, "row", text, innerKeys.map(showR), r - 1);
     return text.trim() === "" ? null : numberIssue(text);
   };
 
@@ -388,10 +456,7 @@ function Table2DEditor({
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="text-[10px] text-[color:var(--ss-text-dim)]">
-        Columns: {axes[0].name} ({axes[0].unit}) · Rows: {axes[1].name} ({axes[1].unit}) · Values:{" "}
-        {valueLabel} ({valueUnit})
-      </div>
+      <TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />
       <SpreadsheetGrid
         matrix={matrix}
         onCommit={commit}
@@ -477,11 +542,13 @@ function ProfileGridEditor({
   value,
   defId,
   mode,
+  units,
   onChange,
 }: {
   value: string;
   defId: string;
   mode: string | undefined;
+  units: TableShown;
   onChange: (s: string) => void;
 }) {
   const { x, yLabel, yUnit } = profileAxes(defId, mode);
@@ -491,6 +558,8 @@ function ProfileGridEditor({
       axis={x}
       valueLabel={yLabel}
       valueUnit={yUnit}
+      // a profile is stored as text: "the numbers are in another unit" stores it so
+      units={{ ...units, set: (slot, unit, t) => units.set(slot, unit, t && tableToProfile(t as Table1D)) }}
       onChange={(t) => onChange(tableToProfile(t))}
       importTarget={{ componentDefId: defId, paramKey: "profile", mode }}
       onImport={(v) => onChange(String(v))}
@@ -503,13 +572,16 @@ function ProfileGridEditor({
  *  stored value back. With `def`, a number outside its limits turns it red as
  *  it is typed (it is still stored, so Data Checks say the same); the reason
  *  is shown by the caller, in the element `describedBy` names. With `onClear`,
- *  an empty field is allowed and means none (`value` null). */
+ *  an empty field is allowed and means none (`value` null). With `unit`
+ *  (another than `def`'s), the value is shown and typed in that unit, and
+ *  stored in `def`'s: a field left alone writes nothing (units.ts). */
 export function NumberInput({
   value,
   onChange,
   onClear,
   label,
   def,
+  unit,
   describedBy,
 }: {
   value: number | null;
@@ -517,19 +589,23 @@ export function NumberInput({
   onClear?: () => void;
   label?: string;
   def?: ParameterDef;
+  unit?: string;
   describedBy?: string;
 }) {
-  const stored = value == null ? "" : String(value);
+  const lib = def?.unit ?? "";
+  const shownIn = unit ?? lib;
+  const read = (t: string) => toStored(Number(t), lib, shownIn);
+  const stored = value == null ? "" : showNumber(value, lib, shownIn);
   const [text, setText] = useState(stored);
-  const [shown, setShown] = useState(value);
-  // the stored value changed elsewhere (undo, another view): show it
-  if (!Object.is(value, shown)) {
-    setShown(value);
-    if (Number(text) !== value || text.trim() === "") setText(stored);
+  const [shown, setShown] = useState(stored);
+  // the stored value (or its unit) changed elsewhere (undo, another view): show it
+  if (stored !== shown) {
+    setShown(stored);
+    if (read(text) !== value || text.trim() === "") setText(stored);
   }
   const empty = text.trim() === "";
   const invalid = empty ? !onClear : !Number.isFinite(Number(text));
-  const outside = !invalid && !empty && def ? rangeProblem(def, Number(text)) : null;
+  const outside = !invalid && !empty && def ? rangeProblem(def, read(text)) : null;
   return (
     <input
       type="number"
@@ -545,7 +621,7 @@ export function NumberInput({
         setText(e.target.value);
         const t = e.target.value.trim();
         if (t === "") onClear?.();
-        else if (Number.isFinite(Number(t))) onChange(Number(t));
+        else if (Number.isFinite(Number(t))) onChange(read(t));
       }}
       onBlur={() => invalid && setText(stored)}
     />
@@ -555,11 +631,14 @@ export function NumberInput({
 function ParameterInput({
   def,
   value,
+  unit,
   onChange,
   describedBy,
 }: {
   def: ParameterDef;
   value: ParamValue;
+  /** a number's shown unit */
+  unit?: string;
   onChange: (v: ParamValue) => void;
   describedBy?: string;
 }) {
@@ -593,7 +672,14 @@ function ParameterInput({
       );
     case "number":
       return (
-        <NumberInput value={Number(value)} onChange={onChange} label={def.label} def={def} describedBy={describedBy} />
+        <NumberInput
+          value={Number(value)}
+          onChange={onChange}
+          label={def.label}
+          def={def}
+          unit={unit}
+          describedBy={describedBy}
+        />
       );
     case "file":
       return <FileInput def={def} value={String(value ?? "")} onChange={onChange} />;
@@ -825,13 +911,13 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
 // compact scalar table.
 /** A parameter's help texts (LRN-05): what it is, typical values and where
  *  to find the real number. */
-function ParamHelp({ def }: { def: ParameterDef }) {
+function ParamHelp({ def, unit = def.unit }: { def: ParameterDef; unit?: string }) {
   return (
     <>
       <p>{def.description}</p>
       {def.typical && (
         <p>
-          <b>Typical:</b> {def.typical}
+          <b>Typical:</b> {convertProse(def.typical, def.unit, unit)}
         </p>
       )}
       {def.whereToFind && (
@@ -843,11 +929,13 @@ function ParamHelp({ def }: { def: ParameterDef }) {
   );
 }
 
-/** "Default 100 % · allowed: at least 0 and at most 200 %" */
-function defaultText(def: ParameterDef): string | null {
-  const unit = def.unit === "-" ? "" : ` ${def.unit}`;
-  const limits = limitsText(def);
-  if (def.type === "number") return `Default ${def.default}${unit}${limits ? ` · allowed: ${limits}` : ""}`;
+/** "Default 100 % · allowed: at least 0 and at most 200 %", in the unit the
+ *  parameter is shown in */
+function defaultText(def: ParameterDef, shownIn = def.unit): string | null {
+  const unit = shownIn === "-" ? "" : ` ${shownIn}`;
+  const limits = limitsText(def, shownIn);
+  if (def.type === "number")
+    return `Default ${cellText(Number(def.default), def.unit, shownIn)}${unit}${limits ? ` · allowed: ${limits}` : ""}`;
   if (def.type === "enum") return `Default ${def.default}`;
   if (def.type === "boolean") return def.default ? "Ticked by default" : "Not ticked by default";
   return null;
@@ -930,7 +1018,28 @@ export function ElementForm({
     }
     setParameter(element.id, key, v);
   };
-  const problemOf = (p: ParameterDef) => (p.type === "number" ? rangeProblem(p, Number(valueOf(p))) : null);
+  // the unit each value is shown in (U1-U4): the part's choice, kept in the
+  // project with it; the values themselves stay in the library's units
+  const setDisplayUnit = useProjectStore((s) => s.setDisplayUnit);
+  const unitOf = (p: ParameterDef, slot: UnitSlot = "value") =>
+    shownUnit(element, p.key, slot, slot === "value" ? p.unit : (p.axes?.[slot]?.unit ?? ""));
+  const keepUnit = (key: string, lib: string, slot: UnitSlot, unit: string, value?: ParamValue) =>
+    setDisplayUnit(element.id, key, slot, unit === lib ? null : unit, value);
+  const tableShown = (p: ParameterDef, axes = p.axes ?? [], valueLib = p.unit): TableShown => ({
+    axes: axes.map((a, i) => shownUnit(element, p.key, i, a.unit)),
+    value: shownUnit(element, p.key, "value", valueLib),
+    set: (slot, unit, table) =>
+      keepUnit(p.key, slot === "value" ? valueLib : axes[slot].unit, slot, unit, table as ParamValue | undefined),
+  });
+  // the number whose unit chooser is open, and the unit controls to go back to
+  const [unitOpen, setUnitOpen] = useState<string | null>(null);
+  const unitButtons = useRef(new Map<string, HTMLButtonElement | null>());
+  const closeUnits = (key: string) => {
+    setUnitOpen(null);
+    unitButtons.current.get(key)?.focus();
+  };
+  const problemOf = (p: ParameterDef) =>
+    p.type === "number" ? rangeProblem(p, Number(valueOf(p)), unitOf(p)) : null;
   // the dialog and Properties can show the same part: ids must not clash
   const formId = useId();
 
@@ -965,6 +1074,8 @@ export function ElementForm({
     if (!helpDef) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // an open unit chooser takes its own Esc
+      if ((e.target as Element | null)?.closest?.(".ss-unit-chooser")) return;
       e.stopPropagation();
       setHelp(null);
       setPointed(null);
@@ -991,6 +1102,7 @@ export function ElementForm({
   const profile = drivingTask ? profileToTable(String(valueOf(def.parameters.find(isProfile)!))) : {};
   // (a Road Profile from a file older than CON-11 has a catalogue with it)
   const cycleDef = def.parameters.find((p) => p.key === "cycle")!;
+  const profileMode = String(valueOfKey("mode") ?? "");
 
   return (
     <div className="flex flex-col gap-2 p-2">
@@ -1062,6 +1174,8 @@ export function ElementForm({
           <tbody>
             {scalarParams.map((p) => {
               const problem = problemOf(p);
+              const unit = unitOf(p);
+              const choosable = p.type === "number" && alternatives(p.unit).length > 0;
               return (
                 <Fragment key={p.key}>
                   <tr {...helpProps(p)}>
@@ -1082,12 +1196,45 @@ export function ElementForm({
                       <ParameterInput
                         def={p}
                         value={valueOf(p)}
+                        unit={unit}
                         describedBy={`${formId}${p.key}-problem`}
                         onChange={(v) => change(p.key, v)}
                       />
                     </td>
-                    <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">{p.unit}</td>
+                    <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">
+                      {choosable ? (
+                        <UnitButton
+                          what={paramName(p)}
+                          unit={unit}
+                          open={unitOpen === p.key}
+                          onOpen={() => setUnitOpen(p.key)}
+                          buttonRef={(el) => void unitButtons.current.set(p.key, el)}
+                        />
+                      ) : (
+                        p.unit
+                      )}
+                    </td>
                   </tr>
+                  {choosable && unitOpen === p.key && (
+                    <tr>
+                      <td className="ss-td ss-unit-row">
+                        <UnitChooser
+                          what={paramName(p)}
+                          lib={p.unit}
+                          unit={unit}
+                          onShow={(u) => {
+                            keepUnit(p.key, p.unit, "value", u);
+                            closeUnits(p.key);
+                          }}
+                          onReinterpret={(u) => {
+                            keepUnit(p.key, p.unit, "value", u, reinterpret(Number(valueOf(p)), p.unit, unit, u));
+                            closeUnits(p.key);
+                          }}
+                          onClose={() => closeUnits(p.key)}
+                        />
+                      </td>
+                    </tr>
+                  )}
                   {problem && (
                     // why the value is outside its limits, across the whole row
                     <tr>
@@ -1161,7 +1308,7 @@ export function ElementForm({
                 {p.type === "code" ? <Pencil size={12} /> : <Table2 size={12} />}
                 <span className="truncate">{isProfile(p) ? "Profile" : p.label}</span>
                 {p.type !== "code" && !isProfile(p) ? (
-                  <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">({p.unit})</span>
+                  <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">({unitOf(p)})</span>
                 ) : null}
               </span>
               <span className="shrink-0 text-[10px] text-[color:var(--ss-accent)]">Edit…</span>
@@ -1174,14 +1321,14 @@ export function ElementForm({
         <div key={p.key} data-param={p.key}>
           <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
             {isProfile(p) ? "Profile" : p.label}
-            {!isProfile(p) && p.type !== "code" ? ` (${p.unit})` : ""}
+            {!isProfile(p) && p.type !== "code" ? ` (${unitOf(p)})` : ""}
             {running && !isProfile(p) && (
               <span className="ml-1 font-normal italic">— applies on next run</span>
             )}
           </div>
           {p.description && (
             <div className="ss-param-help mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
-              <ParamHelp def={p} />
+              <ParamHelp def={p} unit={unitOf(p)} />
             </div>
           )}
           {p.axes?.some((a) => a.outside) && <OutsideSettings element={element} param={p} />}
@@ -1189,7 +1336,8 @@ export function ElementForm({
             <ProfileGridEditor
               value={String(valueOf(p))}
               defId={def.id}
-              mode={String(element.parameterOverrides.mode ?? def.parameters.find((q) => q.key === "mode")?.default ?? "")}
+              mode={profileMode}
+              units={tableShown(p, [profileAxes(def.id, profileMode).x], profileAxes(def.id, profileMode).yUnit)}
               onChange={(v) => setParameter(element.id, p.key, v)}
             />
           ) : p.type === "table1d" && p.axes?.length === 1 ? (
@@ -1198,6 +1346,7 @@ export function ElementForm({
               axis={p.axes[0]}
               valueLabel={p.label}
               valueUnit={p.unit}
+              units={tableShown(p)}
               onChange={(v) => setParameter(element.id, p.key, v)}
               importTarget={{ componentDefId: def.id, paramKey: p.key }}
             />
@@ -1207,6 +1356,7 @@ export function ElementForm({
               axes={[p.axes[0], p.axes[1]]}
               valueLabel={p.label}
               valueUnit={p.unit}
+              units={tableShown(p)}
               onChange={(v) => setParameter(element.id, p.key, v)}
               importTarget={{ componentDefId: def.id, paramKey: p.key }}
             />
@@ -1260,10 +1410,12 @@ export function ElementForm({
           <>
             <div className="font-semibold">
               {helpDef.label}
-              {helpDef.unit !== "-" && <span className="font-normal"> [{helpDef.unit}]</span>}
+              {helpDef.unit !== "-" && <span className="font-normal"> [{unitOf(helpDef)}]</span>}
             </div>
-            <ParamHelp def={helpDef} />
-            {defaultText(helpDef) && <p className="text-[color:var(--ss-text-dim)]">{defaultText(helpDef)}</p>}
+            <ParamHelp def={helpDef} unit={unitOf(helpDef)} />
+            {defaultText(helpDef, unitOf(helpDef)) && (
+              <p className="text-[color:var(--ss-text-dim)]">{defaultText(helpDef, unitOf(helpDef))}</p>
+            )}
             <p>
               <button className="text-[color:var(--ss-accent)] underline" onClick={() => openHelp(helpPage(helpDef))}>
                 More in the help (F1)

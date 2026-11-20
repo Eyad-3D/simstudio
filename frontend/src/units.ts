@@ -97,7 +97,8 @@ export function mapTable<T>(t: T, slot: UnitSlot, fn: (n: number) => number, dep
   if (typeof t === "number") return (slot === "value" ? fn(t) : t) as T;
   if (!t || typeof t !== "object") return t;
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(t)) out[slot === depth ? String(fn(Number(k))) : k] = mapTable(v, slot, fn, depth + 1);
+  for (const [k, v] of Object.entries(t))
+    out[slot === depth ? String(fn(Number(k))) : k] = mapTable(v, slot, fn, depth + 1);
   return out as T;
 }
 

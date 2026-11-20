@@ -430,6 +430,58 @@ body,
   text-align: left;
   color: var(--ss-err);
 }
+/* a unit that can be shown or typed in another: the unit text, as a control
+   that opens its chooser */
+.ss-unit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  border-radius: 3px;
+  color: inherit;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+.ss-unit-button:hover,
+.ss-unit-button[aria-expanded="true"] {
+  background: var(--ss-hover);
+  color: var(--ss-text);
+}
+.ss-unit-button:focus-visible,
+.ss-unit-chooser button:focus-visible {
+  outline: 2px solid var(--ss-accent);
+  outline-offset: 1px;
+}
+/* the chooser: under the parameter, across its whole row (or under a
+   table's units) */
+.ss-unit-row {
+  grid-column: 1 / -1;
+}
+.ss-unit-chooser {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border: 1px solid var(--ss-border);
+  border-radius: 4px;
+  background: var(--ss-panel-alt);
+  color: var(--ss-text);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.ss-unit-chooser button {
+  padding: 1px 6px;
+  border: 1px solid var(--ss-border);
+  border-radius: 3px;
+  background: var(--ss-panel);
+  color: var(--ss-text);
+}
+.ss-unit-chooser button:hover {
+  background: var(--ss-hover);
+}
+.ss-unit-chooser button[aria-pressed="true"] {
+  border-color: var(--ss-accent);
+  font-weight: 600;
+}
 
 /* ---- Excel-like spreadsheet grid (table editors) ---- */
 .ss-grid {
