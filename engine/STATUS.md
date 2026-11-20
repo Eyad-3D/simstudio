@@ -3,7 +3,8 @@
 *Since 17 November 2026 the new engine is the app's engine, with no fall-back
 to today's: the section "The switch-over" says what was done, what is
 refused and what is open; step 4 (speed) follows it, then three defects
-its acceptance found (20 November 2026). The sections before
+its acceptance found and the battery's window at its SOC limits (20
+November 2026). The sections before
 it are dated records; where they say the new engine is opt-in, not in
 the installer, or that a case
 falls back to today's engine or is refused with `NEW-CASE-KIND`,
@@ -1117,8 +1118,8 @@ instrumentation (not committed; kept as a patch outside the repository).
   `lsim-solve/tests/implicit_conditions.rs` (a read 1.85e-6 past its edge
   at an event, its band 1.01e-6), `lsim-project/tests/motor.rs` (the car
   above, to the end of its city cycle).
-- **Not fixed: the hybrid's HV Battery at its minimum SOC** (and at full
-  charge in `db-2`). Measured on `hybrid-car:el-wheel-l.radius_m:x100` at
+- **Not fixed here: the hybrid's HV Battery at its minimum SOC** (and at
+  full charge in `db-2`; fixed the same day, the next section). Measured on `hybrid-car:el-wheel-l.radius_m:x100` at
   547.19 s: the SOC is a state, its window closed it rises at 4.3e-5 /s,
   open it falls at 5.4e-5 /s; the integrator meets the crossing each way
   every 1e-11 to 1e-10 s, and the run stops with an event storm. This is
@@ -1154,3 +1155,82 @@ loss map before); `hybrid-car:db-3` runs with warnings (minimum SOC,
 cycle not followed); the nine hybrid runs at the minimum SOC and `db-2`
 at full charge, `el-wheel-l.radius_m:x100` among them, are refused at the
 same instants as in the acceptance's record (not fixed, above).
+
+## The battery's window closes continuously at its SOC limits (20 November 2026)
+
+The defect left open above. The battery's window (the power it gives,
+`p_deliver`, and takes, `p_absorb`) closed at a jump at its minimum SOC
+and at 100 %, a mode switched by the SOC; a car that both draws and
+charges there (a hybrid whose engine charges its empty battery while its
+motors draw) drove the SOC back to the limit from each side, and the run
+stopped with an event storm. Today's engine never had the jump: it limits
+the current to what reaches the limit within its 10 ms step. The lead's
+decision: the window closes continuously, as that rule does, not a run
+loop that follows sliding motions (a real battery management system
+tapers too, and as the taper steepens its limit is the sliding motion
+itself).
+
+- **The change** (`lsim-lib/src/blocks/battery.rs`, DESIGN.md 8.2): the
+  window lets through at most the current that would take the charge left
+  above the minimum SOC (or up to full, over the charging efficiency) in
+  `TAU_SOC` = 10 ms, a model constant; with a derating band the smaller of
+  the two limits holds. No mode switches at the limits. Those currents are
+  the battery's variables `i_floor` and `i_full`, and the app's new-engine
+  path reads them to say which limit held the motors as today's engine
+  does (a BEV run empty had gained a wrong "motor torque limited at the
+  maximum power point" warning before that; its messages are main's
+  again).
+- **The time constant, on evidence**: of the ten hybrid fault runs that
+  stormed at a SOC limit, 10 ms runs seven to their ends, 1 ms and 100 ms
+  six (at a hundredth of the engine's scale the re-initialisation at 1038
+  s fails at 1 ms; the inverter switch below chatters at 957 s at 100 ms).
+  The long-haul cycle at 11 t on the BEV, the Driver map's one storm,
+  runs to its end at all three (books 4.5e-10; before: stopped at 6193 s).
+- **Still refused, not the battery's**: `hybrid-car:el-vehicle.mass_kg:x100`
+  (558.48 s) and `el-wheel-l.radius_m:x100` (620.32 s) meet the E-Motor's
+  inverter switch: at an empty battery whose window the 12 V loads take
+  whole (0.41 W of their 500 W), the motor's request is the solver's noise
+  about zero (±1e-9 W), and the bus hands it an open window (1e30 W) when
+  that is below zero and its share of no room when above, so the
+  inverter's "spin losses fit" condition switches on the noise's sign.
+  `hybrid-car:db-9` (the gear command's link cut) reaches the motor's
+  maximum speed and stops (`RUN-INTEGRATOR`) at its full-load map's last
+  breakpoint, 628.3 rad/s. Open.
+- **A regression, open**: the same inverter switch now stops a car that
+  main runs, a battery and a motor with no other load run to its minimum
+  SOC (the backend's `test_solver.py::test_battery_min_soc_blocks_discharge`,
+  refused at 3.4 s; main warns "reached minimum SOC" and runs). A smooth
+  taper reaches zero only gradually, so the window passes through the
+  motor's spin losses: on, the SOC falls and the window drops below them;
+  off, the coasting motor slows and its spin losses drop below the window.
+  The jump window went straight to zero, and today's 10 ms rule takes the
+  SOC to its minimum in one step. To decide: the inverter's switch
+  continuous in its window, or a taper that reaches zero in a finite time.
+- **What users see** (the fault runs through the backend): the seven
+  hybrid runs finish with warnings ("reached minimum SOC (10 %) at t =
+  …", the 12 V loads cut back, the cycle not followed; `db-2` "is full —
+  regenerative torque limited"), where they were refused.
+- **Tests**: `lsim-project/tests/soc_limits.rs`: the hybrid with a
+  hundredth of its battery's capacity, charged at its minimum SOC
+  (stopped at 207.38 s), and the hybrid whose control unit is not told the
+  SOC, charged past full on the whole UDDS (stopped at 368.68 s), run to
+  their ends, the SOC within its limits but for rounding, sitting at them,
+  the books closed.
+- **Golden comparison**: only the formula student car's acceleration run
+  moves (its Accumulator starts full, and its charge window, held shut by
+  a mode until the SOC left 1, opens with the SOC): 141 values, by at most
+  3.2e-4 × band and 1.2e-5 of their value; steps 796 → 779, events 10 →
+  8, its books 1.2e-10 → 1.9e-10. The other thirteen cases are the same to
+  the bit; 199 of 201 figures and 984 of 1038 channels inside, the worst
+  closure 1.274e-9, as before. The record (`results.json`, `results.md`)
+  has that case again.
+- **Checks**: `engine/check.sh` passes (626 tests). Speed, best of seven in
+  alternating fresh processes against main built the same way on this
+  PC: the hybrid's UDDS 19.29 s against 19.24 s, the BEV's WLTC 1.109 s
+  against 1.137 s, the CI performance test's slices 0.990 × (BEV city)
+  and 1.005 × (hybrid mixed), all within the runs' spread. The backend
+  suite with this module: 2 428 passed, 2 failed (the Reference FMUs'
+  version on this PC, as on main's module, and the regression above), 15
+  skipped, 73 expected failures; lsim-py's tests pass with the edit asked
+  for at 0.5 s on the formula student car made at 0.51 s (its first step
+  at or after 0.5 s now ends at 0.502 s).

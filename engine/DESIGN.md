@@ -2163,14 +2163,48 @@ the command was held at a limit it pushed against, made a heavy car that
 fell behind and caught up slide along full throttle (the Battery Electric
 Car at 6000 kg on the WLTC, stopped at 961.83 s). Its anti-windup is now
 `LimPID`'s back-calculation, which has no mode (section 12.2,
-`blocks/vehicle.rs`). One such storm is left on that car's map (section
-15): its battery at its minimum SOC, whose delivering mode switched 93
-times in 2.1 s as the car, coasting at its empty battery, began to
-recuperate (the long-haul cycle at 11 t). The hybrid's HV Battery does
-the same at its minimum SOC in nine of the acceptance's hybrid fault runs
-(20 November 2026: the SOC is a state, its window off it rises at 4.3e-5
-/s, on it falls at 5.4e-5 /s, and the integrator steps 1e-11 to 1e-10 s
-between crossings), and at full charge in one (`db-2`).
+`blocks/vehicle.rs`). The battery did the same at its SOC limits until
+20 November 2026: its window (the power it gives and takes) closed at a
+jump at its minimum SOC and at 100 %, a mode switched by the SOC, and a
+car that both draws and charges there drove the SOC back to the limit
+from each side. That car's map had one such storm (section 15: its
+delivering mode switched 93 times in 2.1 s as the car, coasting at its
+empty battery, began to recuperate, the long-haul cycle at 11 t); the
+hybrid's HV Battery had it in nine of the acceptance's hybrid fault runs
+(the SOC a state, its window shut it rose at 4.3e-5 /s, open it fell at
+5.4e-5 /s, the integrator stepping 1e-11 to 1e-10 s between crossings)
+and at full charge in one (`db-2`). The window now closes continuously:
+it lets through at most the current that would take the charge left
+above the minimum SOC (or up to full) in 10 ms (`TAU_SOC` in
+`blocks/battery.rs`), today's engine's "within the step" rule in
+continuous time, with no switch at the limits. As that time constant
+goes to zero its limit is the sliding motion itself, the SOC held at the
+limit while the battery gives or takes what keeps it there; at 10 ms the
+SOC stays within the taper of its limit (on the hybrid at a hundredth of
+its capacity, 8e-10 above its minimum). The 11 t run and seven of the ten
+hybrid runs now go to their ends (the BEV's books at 4.5e-10, standing at
+its empty battery). Of the other three, two meet the next switch along: at
+an empty battery whose window its consumers take whole, the E-Motor's
+inverter, off where not even its spin losses fit its window, switches on
+the sign of a request that is the solver's noise about zero (±1e-9 W),
+as the bus hands it an open window (1e30 W) for a request below zero and
+its share of no room for one above; the third (the gear command's link
+cut) reaches the motor's maximum speed and stops at its full-load map's
+last breakpoint there. Neither is the battery's; both are open. The
+same inverter switch now stops a car the jump left alone: a battery and a
+motor with no other load, run to its minimum SOC (the backend's
+`test_battery_min_soc_blocks_discharge`), refused at 3.4 s. A taper that
+closes smoothly reaches zero only gradually, and the window passes
+through the motor's spin losses: on, the SOC falls and the window drops
+below them; off, the coasting motor slows and its spin losses drop below
+the window, a sliding motion at the inverter's switch. The jump window
+went straight to zero; today's 10 ms rule takes the SOC to its minimum in
+one step, so its window is exactly zero after it. Open: the inverter's
+switch continuous in its window, or a taper that reaches zero in a finite
+time. The time
+constant was chosen on those runs: 1 ms and 100 ms run six of the ten (at
+a hundredth of the engine's scale the run's re-initialisation fails at 1
+ms, the inverter switch chatters at 100 ms), 10 ms seven.
 
 *A mode that event iteration sets on and off without end* (20 November
 2026, `Loop::decide_mode`). Where a mode's own value moves its condition
@@ -2214,8 +2248,8 @@ goes on. At a hundred times its cg height the axle-lift mode's condition
 is +3.3e-6 N off and -8.8e-6 N on (band 2.3e-3 N), rising off at 4.8e3
 N/s and falling on at 1.3e4 N/s: it would slide along the lift point,
 and the run stops there, saying so. A sliding motion at a state's
-boundary (the battery above) never repeats at one instant, and is
-unchanged.
+boundary (the battery's, before its window closed continuously) never
+repeats at one instant, and is not this rule's.
 
 *A read on its edge* (20 November 2026, `Loop::on_the_edge`). A table
 read whose argument sits on the edge of its data on an axis that allows
@@ -4052,7 +4086,7 @@ against exact answers from `benchmarks/`.
 
 | today | new composition (sketch) |
 |---|---|
-| `battery.generic` | OCV(SOC, T) table source + R0(SOC, T) + up to two RC pairs + SOC integrator (∫i dt / capacity) + cell-limit outputs; thermal port |
+| `battery.generic` | OCV(SOC, T) table source + R0(SOC, T) + up to two RC pairs + SOC integrator (∫i dt / capacity) + cell-limit outputs; its power window closes continuously at its minimum SOC and at full (the current that takes the charge left in 10 ms, section 8.2); thermal port |
 | `motor.emotor` | ideal machine (torque = demand × available torque at speed and voltage, `limit` on full-load curve) + loss map table → electrical power = mechanical + loss; with its bus's supply window, the torque cut to the share of the command whose power fits, the inverter off where not even the spin losses fit (its torque the drag; the share is then not solved: at an empty battery it would have none, and IDA stopped with flag -4); its full-load and loss maps are read at the speed held to its maximum speed (above it the inverter is off and they are not used, so a table that ends there is never read past its data) |
 | `engine.combustion` | torque source with full-load and fuel maps (tables), fuel port, idle/on logic as modes |
 | `fuelcell.stack`, `fuel.h2_tank`, `fuel.tank` | polarisation table source; tanks as fuel-port reservoirs (mass state) |
@@ -4166,7 +4200,11 @@ against exact answers from `benchmarks/`.
   cell whose Hydrogen Tank the run drains holds the motors back at its
   maximum power in today's words, as today's, which holds it to the
   hydrogen left; one empty from the start says the tank is empty); a
-  battery reaching its minimum SOC is said at the run's event; a Script
+  battery reaching its minimum SOC is said at the run's event, and its
+  minimum SOC or its full charge holds the motors where the current that
+  limit allows (`i_floor`, `i_full`, which taper as the SOC nears it) is
+  below the maximum-power point's or holds the charge below its Max
+  Charge Power, as today's says it; a Script
   output with no port is today's warning too. A run that reads a value
   outside its parameter's limits (a study's point: Data Checks check only
   the study's base project) is not run (`NEW-LIMITS`, in Data Checks'
@@ -4776,7 +4814,9 @@ events name the modes that chatter.
   a car at its maximum available power, standing at its empty battery on
   the two long-haul cycles (they stopped with a bare flag -4 until the
   E-Motor's fix, section 12.2), and one stops with an event storm the
-  run loop names (the battery's minimum-SOC mode, long-haul at 11 t).
+  run loop names (the battery's minimum-SOC mode, long-haul at 11 t;
+  it runs to its end since the battery's window closes continuously,
+  20 November 2026, section 8.2).
   None is outside where the Driver could have helped. On the heavy cars
   today's engine differs from the new one by up to 2 % in consumption,
   and by 0.13 % or less once its frozen integral is replaced by
