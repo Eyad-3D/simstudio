@@ -3,8 +3,10 @@
 Some parameters are tables: a value against one input, such as a motor's
 drag torque against its speed, or against several inputs, such as a
 motor's power loss against its speed and torque (a map). Drive profiles
-are tables too. Each input is an *axis*, and the numbers along it, where
-the table has a value, are its *breakpoints*. Double-click a part to open
+are tables too, and so are a Map block's outputs
+([Use a Map block](use-a-map-block.md)). Each input is an *axis*, and the
+numbers along it, where the table has a value, are its *breakpoints*. A
+table can have any number of axes. Double-click a part to open
 its parameters in a window of their own: every table there is a grid,
 with a toolbar above it and a plot under it.
 
@@ -66,13 +68,31 @@ each axis and its unit.
 **Hide plot** folds the plot away, for more room; **Show plot** brings it
 back.
 
+## Tables of three or more axes
+
+The grid shows two axes at a time, and every other axis is held at one of
+its breakpoints, so the grid is one *slice* of the table:
+
+1. Pick the axes in **Rows** and **Columns** above the grid.
+2. Each other axis has a list above the grid, named with its unit: pick
+   the breakpoint to hold it at. The grid, the plot and **Copy** and
+   **Paste** all work on that slice.
+3. To add a breakpoint on a held axis, click **Add** beside its list, type
+   the value in the unit shown and press **Enter**. Its slice starts as a
+   copy of the nearest breakpoint's, and the line under the lists says
+   which. **Remove** removes the breakpoint shown and its slice.
+
+**Add** *axis* and **Row(s)**, **Col(s)** in the toolbar add and delete
+breakpoints of the axes shown, in every slice: a new one copies the last.
+Every cell of such a table has a value: **Delete** sets the cells to 0.
+
 ## Units
 
 The line joined to the top of the grid gives the unit of each axis and of
 the values. Click a unit for its chooser. In a one-axis table you can
 also double-click a column's header (or select it and press Enter); in a
 map, the top-left cell names the values and their unit, and opens their
-chooser the same way. See [Work in other units](work-in-other-units.md).
+chooser the same way. A held axis has its unit in the units line too. See [Work in other units](work-in-other-units.md).
 
 To read a whole table from a CSV, text or Excel file, see
 [Import a table from a file](import-a-table-from-a-file.md).

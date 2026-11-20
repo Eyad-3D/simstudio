@@ -649,7 +649,7 @@ Parameters:
 
 Category: Driver & Signals. Domain: signal.
 
-Applies a 1D or 2D lookup table to its input signal(s) — no-code signal shaping (e.g. pedal maps, recuperation weighting).
+Reads its output from a curve over Input X (mode 1D) or a map over Input X and Input Y (mode 2D): no-code signal shaping, such as a pedal map or a recuperation weighting. For a map over more inputs, or with several outputs, each input and output named and given a unit by you, use the Map block.
 
 Ports:
 - `sig_x_in`: Input X (signal input, -)
@@ -663,17 +663,6 @@ Parameters:
 - `x_unit`: Input X Unit, default `Not set`; one of Not set, Power, Voltage, Current, Velocity, Temperature, Torque, Rotational Speed, Force, Distance, Mass, Mass Flow, Percent, Acceleration, Curvature, Fraction
 - `y_unit`: Input Y Unit, default `Not set`; one of Not set, Power, Voltage, Current, Velocity, Temperature, Torque, Rotational Speed, Force, Distance, Mass, Mass Flow, Percent, Acceleration, Curvature, Fraction
 - `sample_time_s`: Sample Time (0 = solver step) [s], default 0 s; ≥ 0
-
-## Map (`signal.map`)
-
-Category: Driver & Signals. Domain: signal.
-
-A map with your own inputs and outputs: name each input and give it a unit, and it becomes an axis of the map; each output reads its own table over those axes, and all outputs share one grid of breakpoints. Any number of inputs and outputs. Between breakpoints it follows straight lines along each axis; past an axis's data it holds the edge value, unless that input's outside-the-data setting says otherwise. This version's engine does not run it yet: a case with a Map block is refused (NEW-TABLE-AXES).
-
-Ports: none until you add signal ports to the part.
-
-Parameters:
-- `maps`: Maps, default table
 
 ## Road Profile (`signal.road_profile`)
 
@@ -717,3 +706,14 @@ Parameters:
 - `elevation_table`: Elevation (Custom) [m], default table
 - `closed`: Closed Circuit (Custom), default on
 - `sector_ends`: Sector Ends (Custom, m; …), default ``
+
+## Map (`signal.map`)
+
+Category: Driver & Signals. Domain: signal.
+
+A map with your own inputs and outputs: name each input and give it a unit, and it becomes an axis of the map; each output reads its own table over those axes, and all outputs share one grid of breakpoints. Any number of inputs and outputs. Between breakpoints it follows straight lines along each axis; past an axis's data it holds the edge value, unless that input's outside-the-data setting says otherwise. This version's engine does not run it yet: a case with a Map block is refused (NEW-TABLE-AXES).
+
+Ports: none until you add signal ports to the part.
+
+Parameters:
+- `maps`: Maps, default table

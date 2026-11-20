@@ -3937,7 +3937,7 @@
       "name": "Lookup Table",
       "icon": "table",
       "domain": "signal",
-      "description": "Applies a 1D or 2D lookup table to its input signal(s) — no-code signal shaping (e.g. pedal maps, recuperation weighting).",
+      "description": "Reads its output from a curve over Input X (mode 1D) or a map over Input X and Input Y (mode 2D): no-code signal shaping, such as a pedal map or a recuperation weighting. For a map over more inputs, or with several outputs, each input and output named and given a unit by you, use the Map block.",
       "ports": [
         {
           "id": "sig_x_in",
@@ -4032,29 +4032,6 @@
           "description": "How often the block reads its table; its output holds in between, as in a real controller. 0, or any time shorter than the solver step (at most 10 ms), reads it every solver step.",
           "typical": "0 for most models; 0.01–0.1 s to copy a real controller's cycle time (above 0.1 s Data Checks warn).",
           "whereToFind": "The real controller's cycle time."
-        }
-      ]
-    },
-    {
-      "id": "signal.map",
-      "category": "Driver & Signals",
-      "name": "Map",
-      "icon": "map",
-      "domain": "signal",
-      "allowDynamicPorts": true,
-      "description": "A map with your own inputs and outputs: name each input and give it a unit, and it becomes an axis of the map; each output reads its own table over those axes, and all outputs share one grid of breakpoints. Any number of inputs and outputs. Between breakpoints it follows straight lines along each axis; past an axis's data it holds the edge value, unless that input's outside-the-data setting says otherwise. This version's engine does not run it yet: a case with a Map block is refused (NEW-TABLE-AXES).",
-      "ports": [],
-      "parameters": [
-        {
-          "key": "maps",
-          "variability": "fixed",
-          "label": "Maps",
-          "unit": "-",
-          "type": "maps",
-          "default": {},
-          "description": "The table of each output over the inputs, in the inputs' order: one breakpoint per input on every axis at first, then as many as you add. Edit them in the block's parameter window, one output and one slice of the other inputs at a time.",
-          "typical": "A motor or engine map: 10-30 speed points by 10-20 torque points, with temperature or voltage as a third input.",
-          "whereToFind": "Measured or supplier data, pasted from a spreadsheet slice by slice, or imported with the parameter sheet as a long list (one column per input and per output)."
         }
       ]
     },
@@ -4299,6 +4276,31 @@
           "description": "Where each sector of the Custom track ends, in m from the start, separated by ';'; the last sector ends at the finish. The summary gives each sector's time on the fastest lap. Empty: one sector.",
           "typical": "Empty, or two or three ends such as '280; 630' (the Autocross layout's).",
           "whereToFind": "The timing points of your event or circuit."
+        }
+      ]
+    }
+  ],
+  "awaitingEngine": [
+    {
+      "id": "signal.map",
+      "category": "Driver & Signals",
+      "name": "Map",
+      "icon": "map",
+      "domain": "signal",
+      "allowDynamicPorts": true,
+      "description": "A map with your own inputs and outputs: name each input and give it a unit, and it becomes an axis of the map; each output reads its own table over those axes, and all outputs share one grid of breakpoints. Any number of inputs and outputs. Between breakpoints it follows straight lines along each axis; past an axis's data it holds the edge value, unless that input's outside-the-data setting says otherwise. This version's engine does not run it yet: a case with a Map block is refused (NEW-TABLE-AXES).",
+      "ports": [],
+      "parameters": [
+        {
+          "key": "maps",
+          "variability": "fixed",
+          "label": "Maps",
+          "unit": "-",
+          "type": "maps",
+          "default": {},
+          "description": "The table of each output over the inputs, in the inputs' order: one breakpoint per input on every axis at first, then as many as you add. Edit them in the block's parameter window, one output and one slice of the other inputs at a time.",
+          "typical": "A motor or engine map: 10-30 speed points by 10-20 torque points, with temperature or voltage as a third input.",
+          "whereToFind": "Measured or supplier data, pasted from a spreadsheet slice by slice, or imported with the parameter sheet as a long list (one column per input and per output)."
         }
       ]
     }

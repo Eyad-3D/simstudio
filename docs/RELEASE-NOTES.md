@@ -44,6 +44,15 @@ sections.
 
 ### New
 
+- A table can have any number of axes, and the new **Map** block (in
+  *Driver & Signals*) reads one or more outputs from tables over inputs you
+  name and give units, any number of each. A table of three or more axes,
+  and a Map block's tables, are edited two axes at a time with the others
+  held at a breakpoint you pick; the parameter sheet holds them as a long
+  list. **This version's engine does not run them yet**: a case with a Map
+  block is refused (`NEW-TABLE-AXES`)
+  ([Use a Map block](help/how-to/use-a-map-block.md),
+  [Tables and the Map block](spec/tables.md)).
 - Every table, map and drive profile has a plot under its grid that
   follows each edit, paste and undo, in the units shown (a map: a curve
   per row or per column, your choice), and **Copy** and **Paste** buttons

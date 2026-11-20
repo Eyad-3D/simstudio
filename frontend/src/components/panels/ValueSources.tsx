@@ -7,7 +7,8 @@ export const CONFIDENCE = ["0 · not checked", "1 · agrees with its source", "2
 
 /** Values that can carry a source: numbers and tables (settings, text and
  *  scripts are choices, not data). */
-export const sourced = (p: ParameterDef) => p.type === "number" || p.type === "table1d" || p.type === "table2d";
+export const sourced = (p: ParameterDef) =>
+  p.type === "number" || p.type === "table1d" || p.type === "table2d" || p.type === "table";
 
 /** A short tag for a recorded source, its full text in the tooltip. */
 export function SourceBadge({ src }: { src?: ParameterSource }) {

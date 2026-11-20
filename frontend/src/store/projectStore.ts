@@ -18,6 +18,7 @@ import type {
   LegacyProject,
   LiveEdit,
   LogMessage,
+  MapBlockState,
   OutsidePolicy,
   ParamValue,
   ParameterSource,
@@ -482,7 +483,7 @@ export interface ProjectState {
    *  null for the library's; with `value`, the parameter's new value too
    *  ("the number is in another unit"), as one undo step. */
   setDisplayUnit: (elementId: string, key: string, slot: UnitSlot, unit: string | null, value?: ParamValue) => void;
-  setDynamicPorts: (elementId: string, ports: PortDef[]) => void;
+  setDynamicPorts: (elementId: string, ports: PortDef[], map?: MapBlockState) => void;
   setPortSide: (elementId: string, portId: string, side: PortSide) => void;
   setPortPlacement: (
     elementId: string,
@@ -1605,7 +1606,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         }
       }),
 
-    setDynamicPorts: (elementId, ports) =>
+    setDynamicPorts: (elementId, ports, map) =>
       updateProject((draft) => {
         let el: (typeof draft.systems)[number]["elements"][number] | undefined;
         for (const s of draft.systems) {
@@ -1613,6 +1614,23 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         }
         if (!el) return;
         el.dynamicPorts = ports;
+        if (map) {
+          // a Map block: its tables and per-input settings change with its ports
+          // in the same step (docs/spec/tables.md)
+          el.parameterOverrides.maps = map.maps;
+          const outside = { ...el.tableOutside };
+          if (map.outside.some((o) => o && o !== "clamp")) outside.maps = map.outside.map((o) => o ?? "clamp");
+          else delete outside.maps;
+          if (Object.keys(outside).length) el.tableOutside = outside;
+          else delete el.tableOutside;
+          const units = { ...el.displayUnits };
+          const axes = map.units.axes.some(Boolean) ? map.units.axes.map((u) => u ?? null) : undefined;
+          const outputs = Object.keys(map.units.outputs).length ? map.units.outputs : undefined;
+          if (axes || outputs) units.maps = { ...(axes && { axes }), ...(outputs && { outputs }) };
+          else delete units.maps;
+          if (Object.keys(units).length) el.displayUnits = units;
+          else delete el.displayUnits;
+        }
         // drop connections that reference removed ports
         const validIds = new Set(ports.map((p) => p.id));
         draft.dataBusConnections = draft.dataBusConnections.filter((d) => {

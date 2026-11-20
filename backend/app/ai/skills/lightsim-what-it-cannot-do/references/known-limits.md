@@ -9,6 +9,8 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 - **Lap cases** (`NEW-LAP`).
 - **Formula Student events** (`NEW-FS-EVENT`).
 - **A battery built from cells** (`NEW-CELLS`).
+- **A Map block** , at any number of inputs and outputs, even one input: every case of a project that has one fails with `Not run [NEW-TABLE-AXES]: 'Map 1' (a Map block) does not run in this version of LightSim yet`.
+- **A table parameter of three or more axes.** No part of the library has one yet; the format and the editor take them (Tables and the Map block).
 
 ### What else the new engine refuses or stops
 

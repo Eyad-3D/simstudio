@@ -141,7 +141,11 @@ a Data Check error.
 
 The Map block (library id `signal.map`, name *Map*, category *Driver &
 Signals*) reads one or more output signals from tables over one or more
-input signals. The user names its inputs and outputs, gives each a unit
+input signals. Until the engine runs it, its entry in
+`backend/app/library/components.json` is in the list `awaitingEngine`,
+beside `components`: the app's library (`GET /api/library`) holds both
+lists, and the engine, which embeds that file and counts its parts, reads
+`components` alone. The engine side moves the entry into `components`. The user names its inputs and outputs, gives each a unit
 and fills in the tables; its pins are wired like any signal block's. The
 older *Lookup Table* block (`signal.lookup`, one or two inputs, one
 output) stays as it is for the projects that use it.
@@ -315,7 +319,10 @@ checked and saved as any other.
    and two axes today.
 2. Reading a library table of type `table`, and `table1d`/`table2d`, by
    its number of axes, from the stored form above.
-3. The Map block, `signal.map`: its inputs and outputs from
+3. The Map block, `signal.map`: its entry moved from `awaitingEngine`
+   into `components` of `backend/app/library/components.json` (the
+   engine's tests that count the library's parts, 36 today, then count
+   37); its inputs and outputs from
    `dynamicPorts` (inputs in order are the axes), units from the
    library's `unitGroups`, one table per output from `maps`, the per-input
    `tableOutside.maps`; each output read at the inputs' values every step

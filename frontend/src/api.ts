@@ -81,9 +81,10 @@ export async function fetchLibrary(): Promise<{
     const data = await request<LibraryPayload>("/library");
     return { components: data.components, unitGroups: data.unitGroups ?? {}, offline: false };
   } catch {
-    const bundled = fallbackLibrary as LibraryPayload;
+    const bundled = fallbackLibrary as LibraryPayload & { awaitingEngine?: ComponentDef[] };
     return {
-      components: bundled.components,
+      // (the parts whose engine side is still to come are in a list of their own)
+      components: [...bundled.components, ...(bundled.awaitingEngine ?? [])],
       unitGroups: bundled.unitGroups ?? {},
       offline: true,
     };

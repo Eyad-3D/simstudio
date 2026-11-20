@@ -52,6 +52,26 @@ this version, and the reason code names each:
   By: Cells*. Set it to *Pack values* (and give the pack's own capacity,
   open-circuit voltage and resistance) to run the case.
 
+Two new things of this version are built in the app but not yet in its
+engine, and are refused the same way (`NEW-TABLE-AXES`):
+
+- **A Map block**, at any number of inputs and outputs, even one input:
+  every case of a project that has one fails with
+  `Not run [NEW-TABLE-AXES]: 'Map 1' (a Map block) does not run in this
+  version of LightSim yet`. You can add one, fill in its tables, check,
+  save and export it; it runs once the engine has it. Until then, a
+  *Lookup Table* block reads one or two inputs, and a Script block can
+  read a table of any size ([Script cookbook](help/reference/script-cookbook.md#table-lookup)).
+- **A table parameter of three or more axes.** No part of the library has
+  one yet; the format and the editor take them
+  ([Tables and the Map block](spec/tables.md)).
+
+In the parameter window, **Import from file…** reads tables of one and two
+axes only. A Map block's tables, and a table of three or more axes, come
+from a spreadsheet through the parameter sheet (one column per axis and
+per output: [Edit parameters in a spreadsheet](help/how-to/edit-parameters-in-a-spreadsheet.md)),
+or slice by slice with **Paste**.
+
 Quick mode refuses in the same way what it cannot run (see *Quick mode
 gives a cycle's totals only* below): it does not run the case in full
 instead.
@@ -878,7 +898,8 @@ minimum or an average, for example from the CSV export, or put the
   case), `QUICK-END` (a case that ends at a Distance or a lap count),
   `QUICK-SAMPLED` (a Script, FMU or Traction Control part, or a PID or
   Lookup block with a Sample Time longer than the 10 ms solver step),
-  `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
+  `QUICK-CELLS`, `QUICK-TABLE-AXES` (a Map block, or a table of three or
+  more axes), `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
   `QUICK-FAILED` (fast mode's own refusal), `QUICK-TABLE-TIME` (a
   table read past its data for a time within two of its steps a stretch
   of what the run allows, too near to judge at its points),
