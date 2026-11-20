@@ -17,4 +17,6 @@ contextBridge.exposeInMainWorld("lightsimDesktop", {
   showFile: (projectId) => ipcRenderer.invoke("lightsim:show-file", String(projectId)),
   // AI-01: the system's folder dialog; the engine is told the folder, the page gets the settings
   allowAiFolder: () => ipcRenderer.invoke("lightsim:ai-allow-folder"),
+  // a part's parameter window (frontend/src/paramWindows.ts) to the front
+  raiseWindow: (name) => ipcRenderer.invoke("lightsim:raise-window", String(name)),
 });

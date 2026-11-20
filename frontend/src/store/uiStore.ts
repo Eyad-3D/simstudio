@@ -200,11 +200,16 @@ interface UIState {
   showLiveValues: boolean;
   toggleLiveValues: () => void;
 
-  /** Element whose parameters are open in the modal dialog (double-click),
-   *  and the table it opens at (a narrow panel's table button). */
+  /** Open a part's parameters (double-click, its menu, a narrow panel's
+   *  table button, at that table): in a window of their own
+   *  (components/ParamWindows.tsx registers `paramWindowOpener`), else, when
+   *  the browser blocks the pop-up, in the modal dialog in this window,
+   *  whose part and table are `paramDialogId` and `paramDialogKey`. */
+  openParamDialog: (elementId: string, paramKey?: string) => void;
+  paramWindowOpener: ((elementId: string, paramKey?: string) => boolean) | null;
+  setParamWindowOpener: (fn: ((elementId: string, paramKey?: string) => boolean) | null) => void;
   paramDialogId: string | null;
   paramDialogKey: string | null;
-  openParamDialog: (elementId: string, paramKey?: string) => void;
   closeParamDialog: () => void;
 
   /** The Connect an AI assistant window (AI-29) is open. */
@@ -313,8 +318,12 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   paramDialogId: null,
   paramDialogKey: null,
-  openParamDialog: (elementId, paramKey) =>
-    set({ paramDialogId: elementId, paramDialogKey: paramKey ?? null }),
+  openParamDialog: (elementId, paramKey) => {
+    if (get().paramWindowOpener?.(elementId, paramKey)) return;
+    set({ paramDialogId: elementId, paramDialogKey: paramKey ?? null });
+  },
+  paramWindowOpener: null,
+  setParamWindowOpener: (fn) => set({ paramWindowOpener: fn }),
   closeParamDialog: () => set({ paramDialogId: null, paramDialogKey: null }),
 
   aiConnectOpen: false,

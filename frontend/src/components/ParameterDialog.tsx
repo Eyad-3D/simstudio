@@ -5,7 +5,9 @@ import { useUIStore } from "../store/uiStore";
 import { componentIcon } from "../icons";
 import { ElementForm } from "./panels/PropertiesPanel";
 
-/** Modal parameter editor opened by double-clicking an element on the canvas. */
+/** A part's parameters in a modal dialog inside the main window: only when
+ *  the browser blocked the parameter window (ParamWindows.tsx), which is
+ *  how a double-click on a part opens them. */
 export function ParameterDialog() {
   const paramDialogId = useUIStore((s) => s.paramDialogId);
   const paramDialogKey = useUIStore((s) => s.paramDialogKey);

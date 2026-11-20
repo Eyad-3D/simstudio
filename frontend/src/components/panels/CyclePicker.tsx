@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { X } from "lucide-react";
 import * as api from "../../api";
+import { OwnerWindow, useOwnerWindow } from "../../ownerWindow";
 import { useProjectStore } from "../../store/projectStore";
 import {
   addProjectCycle,
@@ -30,9 +31,10 @@ const MANAGE = "\u0000manage";
 
 /** Show a dialog in a React tree of its own, so its focus and key events
  *  do not reach the panel the list sits in (whose help card would take
- *  Esc); `close` removes it. */
-function openDetached(render: (close: () => void) => ReactNode): void {
-  const host = document.body.appendChild(document.createElement("div"));
+ *  Esc); `close` removes it. It opens in `doc`, the list's window (the main
+ *  one or a parameter window). */
+function openDetached(doc: Document, render: (close: () => void) => ReactNode): void {
+  const host = doc.body.appendChild(doc.createElement("div"));
   const root = createRoot(host);
   let open = true;
   const close = () => {
@@ -43,7 +45,7 @@ function openDetached(render: (close: () => void) => ReactNode): void {
       host.remove();
     });
   };
-  root.render(render(close));
+  root.render(<OwnerWindow.Provider value={doc.defaultView ?? window}>{render(close)}</OwnerWindow.Provider>);
 }
 
 /** The Driving Task's Drive Cycle field (CON-16): the bundled standard cycles
@@ -87,8 +89,9 @@ export function CycleSelect({
       value={value}
       onChange={(e) => {
         const v = e.target.value;
+        const doc = e.target.ownerDocument;
         if (v === IMPORT)
-          openDetached((close) => (
+          openDetached(doc, (close) => (
             <ImportCycleDialog
               onClose={close}
               onAdd={(cycle) => {
@@ -99,7 +102,7 @@ export function CycleSelect({
               }}
             />
           ));
-        else if (v === MANAGE) openDetached((close) => <ProjectCyclesDialog onClose={close} />);
+        else if (v === MANAGE) openDetached(doc, (close) => <ProjectCyclesDialog onClose={close} />);
         else onChange(v);
       }}
     >
@@ -146,15 +149,16 @@ export function CycleSelect({
 function ProjectCyclesDialog({ onClose }: { onClose: () => void }) {
   const project = useProjectStore((s) => s.project);
   const titleId = useId();
+  const win = useOwnerWindow();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    win.addEventListener("keydown", onKey);
+    return () => win.removeEventListener("keydown", onKey);
+  }, [onClose, win]);
   const list = ownCycleInfos(project);
   return (
     <div
-      // over a parameter dialog, Esc closes this one only (ParameterDialog)
+      // over the parameter dialog, Esc closes this one only (ParameterDialog)
       className="ss-import-dialog fixed inset-0 z-[110] flex items-center justify-center bg-black/35"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >

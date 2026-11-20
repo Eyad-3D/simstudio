@@ -135,7 +135,7 @@ of its full-load curve): its drive torque falls to zero over the last 2 %
 below it, and above it the inverter is off. A car with a 300 km/h target
 now tops out at 152 km/h with its motor at 11,921 of 12,000 rpm, and
 Messages names the maximum speed. Each table axis has an *outside the data*
-setting, shown in the table editor of the parameter dialog: *Error* stops
+setting, shown in the table editor of the parameter window: *Error* stops
 the run with a message naming the table, the axis, the value, the data's
 range and the time; *Clamp* holds the edge value (what every table did
 before 0.3); *Linear* extends the edge slope. The speed and torque axes of

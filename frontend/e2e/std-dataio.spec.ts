@@ -2,27 +2,27 @@
 // Excel files, and the whole parameter set out to one spreadsheet and back.
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
-import { openApp, ribbonTab, runActiveCase, selectElement } from "./app";
+import { openApp, paramWindow, ribbonTab, runActiveCase, selectElement } from "./app";
 
 test("STD-10: a table imports from a CSV file with a preview, converted units and one undo", async ({ page }) => {
   await openApp(page);
   await selectElement(page, "HV Battery Pack");
-  await page.getByRole("button", { name: /Open-Circuit Voltage/ }).first().click();
-  const dialog = page.locator("[data-param='ocv_table']");
+  const win = await paramWindow(page, () => page.getByRole("button", { name: /Open-Circuit Voltage/ }).first().click());
+  const dialog = win.locator("[data-param='ocv_table']");
   await expect(dialog).toBeVisible();
 
   // a file with a text cell is refused with its row and cell
-  const input = page.getByLabel("Table file to import").first();
+  const input = win.getByLabel("Table file to import").first();
   await input.setInputFiles({
     name: "bad.csv",
     mimeType: "text/csv",
     buffer: Buffer.from("SOC [%];OCV [kV]\n0;0,3\n50;abc\n100;0,4\n"),
   });
-  const preview = page.getByRole("dialog", { name: /Import .* from bad\.csv/ });
+  const preview = win.getByRole("dialog", { name: /Import .* from bad\.csv/ });
   await expect(preview.getByText("Row 3: 'abc' in cell B3")).toBeVisible();
   await expect(preview.getByRole("button", { name: /^Apply/ })).toBeDisabled();
-  // Esc closes the preview only, not the parameter dialog under it
-  await page.keyboard.press("Escape");
+  // Esc closes the preview only, not the parameter window under it
+  await win.keyboard.press("Escape");
   await expect(preview).toBeHidden();
   await expect(dialog).toBeVisible();
 
@@ -32,16 +32,17 @@ test("STD-10: a table imports from a CSV file with a preview, converted units an
     mimeType: "text/csv",
     buffer: Buffer.from("SOC [%];OCV [kV]\n0;0,3\n50;0,35\n100;0,4\n"),
   });
-  const good = page.getByRole("dialog", { name: /from ocv\.csv/ });
+  const good = win.getByRole("dialog", { name: /from ocv\.csv/ });
   await expect(good.getByText("decimal comma", { exact: false })).toBeVisible();
   await good.getByRole("button", { name: "Apply (3 points)" }).click();
   await expect(good).toBeHidden();
   await expect(dialog.getByRole("row", { name: "50 350" })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("Control+z");
-  await page.getByRole("button", { name: /Open-Circuit Voltage/ }).first().click();
-  await expect(page.locator("[data-param='ocv_table']").getByRole("row").nth(1)).toBeVisible();
-  await expect(page.locator("[data-param='ocv_table']").getByRole("row", { name: "50 350" })).toHaveCount(0);
+  // one undo step, typed in the window (away from any field): the table
+  // there shows it at once
+  await win.locator("h1").click();
+  await win.keyboard.press("Control+z");
+  await expect(dialog.getByRole("row").nth(1)).toBeVisible();
+  await expect(dialog.getByRole("row", { name: "50 350" })).toHaveCount(0);
 });
 
 test("STD-09: the Results page saves the run as a MATLAB .mat file", async ({ page }) => {

@@ -1,5 +1,5 @@
 // Screenshot baselines: three key screens (the topology workspace, a parameter
-// dialog and the Results page after a run) at three window sizes in both
+// window and the Results page after a run) at three window sizes in both
 // themes, 18 images. They catch what the other tests cannot see: dark-mode
 // leaks, stray dividers, and clipped or overlapping panels.
 //
@@ -19,7 +19,7 @@
 // (or a newer Playwright) means regenerating all 18.
 import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
-import { openApp, runActiveCase, runButton } from "./app";
+import { openApp, paramWindow, runActiveCase, runButton } from "./app";
 
 const SIZES = [
   { width: 1280, height: 800 },
@@ -68,12 +68,7 @@ for (const theme of THEMES) {
     test.describe(`${theme}, ${size}`, () => {
       test.use({ viewport });
 
-      test(`topology, parameter dialog and Results (${theme}, ${size})`, async ({ page }) => {
-        test.fail(
-          true,
-          "The Results baselines show today's engine's run; the new engine's differs in 1-2 % of the pixels " +
-            "(its figures and channels): regenerate them with ci.yml's update-screenshots (it commits from the runner)",
-        );
+      test(`topology, parameter window and Results (${theme}, ${size})`, async ({ page }) => {
         await page.clock.setFixedTime(new Date("2026-01-05T09:30:00Z")); // log and run times
         await page.addInitScript((t) => localStorage.setItem("lightsim-theme", t), theme);
         await openApp(page);
@@ -88,11 +83,12 @@ for (const theme of THEMES) {
         const motor = page.locator(".react-flow__node", { hasText: "E-Motor" }).first();
         await motor.click();
         await expect(motor).toHaveClass(/\bselected\b/);
-        await motor.dblclick();
-        const close = page.getByTitle("Close (Esc)");
-        await expect(close).toBeVisible();
-        await expect(page).toHaveScreenshot(`parameter-dialog-${theme}-${size}.png`, SHOT);
-        await close.click();
+        // its parameter window, at the window's own default size (the same
+        // at every main window size)
+        const win = await paramWindow(page, () => motor.dblclick());
+        await win.setViewportSize({ width: 460, height: 640 });
+        await expect(win).toHaveScreenshot(`parameter-window-${theme}-${size}.png`, SHOT);
+        await win.close();
 
         await runActiveCase(page);
         await expect(page.getByText("1 stored run", { exact: true })).toBeVisible();

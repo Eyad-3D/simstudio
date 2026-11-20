@@ -27,6 +27,8 @@ export const LAST_VERSION_KEY = "lightsim-last-version";
 export const TOUR_KEY = "lightsim-tour-v1";
 /** the Help panel's width in px (components/HelpPanel.tsx) */
 export const HELP_WIDTH_KEY = "lightsim-help-width";
+/** the size and place of the parameter window closed last (paramWindows.ts) */
+export const PARAM_WINDOW_KEY = "lightsim-param-window";
 
 const PREFIX = "lightsim-";
 const OLD_PREFIX = "simstudio-";
