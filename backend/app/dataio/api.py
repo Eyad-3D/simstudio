@@ -7,6 +7,9 @@ sheets (STD-09, STD-10, STD-36). Mounted by app.main.
                                the same for a run sent in the body
   POST /api/import/table       read a table, map or profile from a CSV or .xlsx
                                file: the values, ready to apply, or why not
+  POST /api/import/data        read a table of any number of axes, or a Map
+                               block's tables, from a file or pasted text, in
+                               any layout layouts.py recognises
   POST /api/import/cycle       read a drive cycle of one's own (speed and grade
                                against time or distance) from a CSV or .xlsx file
   POST /api/params/export      every parameter of a project as .xlsx or CSV
@@ -27,7 +30,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .. import run_store, storage
 from ..schemas import Project, StoredRun
-from . import cycle_import, params, results, tables
+from . import cycle_import, layouts, params, results, tables
 from .sheets import MAX_BYTES, SheetError, read_file
 
 router = APIRouter()
@@ -155,6 +158,71 @@ def import_table(req: TableImportRequest) -> dict:
     return {**res.as_dict(), "sheets": [{"name": s.name, "rows": len(s.rows), "cols": s.width}
                                         for s in sheets],
             "cells": cells, "target": target.label}
+
+
+class MapPort(BaseModel):
+    id: str = Field(max_length=200)
+    name: Optional[str] = Field(None, max_length=200)
+    direction: Literal["input", "output"]
+    unitGroup: Optional[str] = Field(None, max_length=100)
+    unitText: Optional[str] = Field(None, max_length=100)
+
+
+class DataImportRequest(BaseModel):
+    #: a file (its name and bytes, base64), or pasted text
+    filename: str = Field("Pasted text", max_length=500)
+    data: Optional[str] = None
+    text: Optional[str] = Field(None, max_length=MAX_BYTES)
+    componentDefId: str = Field(max_length=200)
+    paramKey: str = Field(max_length=200)
+    #: a Map block's ports (its inputs are the axes, its outputs the tables)
+    ports: Optional[list[MapPort]] = Field(None, max_length=500)
+    #: a sheet's name, or "*" for every sheet
+    sheet: Optional[str] = Field(None, max_length=200)
+    #: which of several unlabelled tables
+    block: Optional[int] = Field(None, ge=0, le=10000)
+    #: {field index: "axis:<i>" | "value:<i>" | "skip"}, as the user matched them
+    fields: Optional[dict[str, str]] = None
+    #: {field index: the unit to read it in}
+    units: Optional[dict[str, str]] = None
+    decimal: Optional[Literal["comma", "point"]] = None
+    fill: Optional[Literal["refuse", "nearest"]] = None
+    #: a Map block: set its inputs and outputs from the data
+    build: Optional[bool] = None
+
+
+@router.post("/api/import/data",
+             responses={400: {"description": "Unreadable data or unknown parameter",
+                              "content": _ERROR}})
+def import_data(req: DataImportRequest) -> dict:
+    """Read a table of any number of axes, or a Map block's tables, from a
+    file or from pasted text, in any layout layouts.py recognises: what was
+    found, how it was matched to the table's axes and values, the problems
+    with their cells, and the tables in the stored units (``ok``)."""
+    try:
+        target = layouts.data_target(req.componentDefId, req.paramKey,
+                                     [p.model_dump() for p in req.ports or []])
+    except KeyError:
+        raise HTTPException(status_code=400,
+                            detail=f"'{req.componentDefId}' has no parameter '{req.paramKey}'")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if req.text is not None and not req.text.strip():
+        raise HTTPException(status_code=400, detail="Nothing to read: the text is empty.")
+    raw = req.text.encode("utf-8") if req.text is not None else _decode(req.data or "")
+    try:
+        sheets = read_file(raw, "Pasted text.txt" if req.text is not None else req.filename,
+                           req.decimal)
+    except SheetError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    opts = req.model_dump(include={"sheet", "block", "fields", "units", "fill", "build"},
+                          exclude_none=True)
+    res = layouts.read_data(sheets, target, opts)
+    first = next((s for s in sheets if s.name == res.get("sheet")), sheets[0])
+    return {**res, "source": "text" if req.text is not None else "file",
+            "read": first.notes, "decimal": first.decimal, "decimalQuestion": first.question,
+            "cells": [[c for c in r[:_PREVIEW_COLS]] for r in first.rows[:_PREVIEW_ROWS]],
+            "target": target.label}
 
 
 class CycleImportRequest(BaseModel):
