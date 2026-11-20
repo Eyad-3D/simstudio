@@ -2,8 +2,10 @@ import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
+import { componentHelpPage, useHelpStore } from "../help";
 import { componentIcon } from "../icons";
 import { ElementForm } from "./panels/PropertiesPanel";
+import { PartHelpButton } from "./ParamWindows";
 
 /** A part's parameters in a modal dialog inside the main window: only when
  *  the browser blocked the parameter window (ParamWindows.tsx), which is
@@ -29,6 +31,16 @@ export function ParameterDialog() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+  }, [paramDialogId, closeParamDialog]);
+
+  // help shown in the Help panel (the browser refused the Help window, or
+  // the desktop menu asked) would sit greyed out behind the dialog: the
+  // dialog makes way. Its edits are already in the project.
+  useEffect(() => {
+    if (!paramDialogId) return;
+    return useHelpStore.subscribe((s) => {
+      if (s.page) closeParamDialog();
+    });
   }, [paramDialogId, closeParamDialog]);
 
   const element = project?.systems
@@ -63,14 +75,18 @@ export function ParameterDialog() {
         closeParamDialog();
       }}
     >
-      <div className="flex max-h-[82vh] w-[440px] flex-col overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl">
+      <div
+        className="flex max-h-[82vh] w-[440px] flex-col overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl"
+        data-help-part={componentHelpPage(def.id)}
+      >
         <div className="flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-3 py-2">
           {/* eslint-disable-next-line react-hooks/static-components -- componentIcon picks from a fixed module-level registry, so Icon is the same component every render */}
           <Icon size={16} className="text-[color:var(--ss-accent)]" />
-          <span className="text-[13px] font-semibold">{element.label}</span>
-          <span className="text-[11px] text-[color:var(--ss-text-dim)]">— {def.name}</span>
+          <span className="min-w-0 truncate text-[13px] font-semibold">{element.label}</span>
+          <span className="min-w-0 truncate text-[11px] text-[color:var(--ss-text-dim)]">— {def.name}</span>
+          <PartHelpButton defId={def.id} from={window} />
           <button
-            className="ss-toolbtn ml-auto"
+            className="ss-toolbtn"
             title="Close (Esc)"
             onClick={closeParamDialog}
           >

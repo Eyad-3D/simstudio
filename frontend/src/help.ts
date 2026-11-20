@@ -63,6 +63,32 @@ export function openHelpInBrowser(page = "index.html"): void {
   window.open(new URL(helpUrl(page), window.location.href).href, "_blank", "noopener");
 }
 
+/** The Help window's name: one window for the app's help, reused. The
+ *  desktop shell lets a page open a window under this name only at the
+ *  app's own help pages (desktop/src/windows.js). */
+export const HELP_WINDOW_NAME = "lightsim-help";
+let helpWindow: Window | null = null;
+
+/** Open a help page in the Help window, a real window of its own beside a
+ *  part's parameter window (help asked from there), or show it there and
+ *  bring the window to the front if it is open. `from` is the window the
+ *  user asked in: a browser lets only that window open a pop-up. Where the
+ *  pop-up is refused, the page shows in the Help panel instead. */
+export function openHelpWindow(page: string, from: Window = window): void {
+  const url = new URL(helpUrl(page), window.location.href).href;
+  if (helpWindow && !helpWindow.closed) {
+    helpWindow.location.href = url;
+  } else {
+    helpWindow = from.open(url, HELP_WINDOW_NAME, "popup,width=820,height=860");
+    if (!helpWindow) return openHelp(page);
+  }
+  if (window.lightsimDesktop?.raiseWindow) void window.lightsimDesktop.raiseWindow(HELP_WINDOW_NAME);
+  else helpWindow.focus();
+}
+
+// the Help window belongs to the main window: it closes (or reloads) with it
+window.addEventListener("pagehide", () => helpWindow?.close());
+
 /** Show the release notes once after an update (What's new): `version` is
  *  the app's; a first launch only remembers it. Returns whether it opened. */
 export function whatsNewOnce(version: string, storage: Storage = window.localStorage): boolean {

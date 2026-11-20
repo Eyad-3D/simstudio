@@ -2,7 +2,7 @@
 // window and in every part's parameter window (components/ParamWindows.tsx),
 // so an undo typed in a parameter window undoes the project's last change.
 import { desktop } from "./desktop";
-import { componentHelpPage, openHelp } from "./help";
+import { componentHelpPage, openHelp, openHelpWindow } from "./help";
 import { confirmReplaceProject, useProjectStore } from "./store/projectStore";
 
 export function onAppKey(e: KeyboardEvent): void {
@@ -12,7 +12,8 @@ export function onAppKey(e: KeyboardEvent): void {
   if (e.key === "F1") {
     // the parameter in the open help card, else the focused parameter's
     // help, else the selected part's help page, else the help of the
-    // panel or page the focus is in, else the help's front page
+    // panel or page the focus is in, else the help's front page; in a
+    // part's own window, that part's page
     e.preventDefault();
     const { project, selectedElementId } = useProjectStore.getState();
     const el = project?.systems.flatMap((s) => s.elements).find((x) => x.id === selectedElementId);
@@ -20,6 +21,13 @@ export function onAppKey(e: KeyboardEvent): void {
     const at = doc.querySelector(".ss-help-card:popover-open") ?? (typeof target.closest === "function" ? target : null);
     const param = at?.closest("[data-help]")?.getAttribute("data-help");
     const panel = at?.closest("[data-help-panel]")?.getAttribute("data-help-panel");
+    // in a part's parameter window (or its dialog): that part's page, in the
+    // Help window, as the window's Help button does
+    const part = at?.closest("[data-help-part]") ?? (doc === document ? null : doc.querySelector("[data-help-part]"));
+    if (part) {
+      openHelpWindow(param ?? part.getAttribute("data-help-part")!, doc.defaultView ?? window);
+      return;
+    }
     openHelp(param ?? (el ? componentHelpPage(el.componentDefId) : (panel ?? undefined)));
     return;
   }

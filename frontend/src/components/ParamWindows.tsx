@@ -1,5 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { CircleHelp } from "lucide-react";
+import { componentHelpPage, openHelpWindow } from "../help";
 import { componentIcon } from "../icons";
 import { OwnerWindow } from "../ownerWindow";
 import {
@@ -66,6 +68,21 @@ export function ParamWindows() {
     );
 }
 
+/** The Help button of a part's window (and of its dialog): the part's help
+ *  page, in the Help window. `from` is the window it is drawn in. */
+export function PartHelpButton({ defId, from }: { defId: string; from: Window }) {
+  return (
+    <button
+      className="ss-toolbtn ml-auto shrink-0"
+      title="Open this part's help page in the Help window (F1)"
+      onClick={() => openHelpWindow(componentHelpPage(defId), from)}
+    >
+      <CircleHelp size={14} aria-hidden />
+      Help
+    </button>
+  );
+}
+
 function ParamWindowContent({ entry }: { entry: ParamWindow }) {
   const element = useProjectStore((s) =>
     s.project?.systems.flatMap((x) => x.elements).find((e) => e.id === entry.id),
@@ -99,12 +116,13 @@ function ParamWindowContent({ entry }: { entry: ParamWindow }) {
   if (gone) return null;
   const Icon = componentIcon(def.icon);
   return (
-    <div className="flex h-full flex-col bg-[color:var(--ss-panel)]">
+    <div className="flex h-full flex-col bg-[color:var(--ss-panel)]" data-help-part={componentHelpPage(def.id)}>
       <header className="ss-zoom flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-3 py-2">
         {/* eslint-disable-next-line react-hooks/static-components -- componentIcon picks from a fixed module-level registry, so Icon is the same component every render */}
         <Icon size={16} className="text-[color:var(--ss-accent)]" aria-hidden />
-        <h1 className="text-[13px] font-semibold">{element.label}</h1>
-        <span className="text-[11px] text-[color:var(--ss-text-dim)]">— {def.name}</span>
+        <h1 className="min-w-0 truncate text-[13px] font-semibold">{element.label}</h1>
+        <span className="min-w-0 truncate text-[11px] text-[color:var(--ss-text-dim)]">— {def.name}</span>
+        <PartHelpButton defId={def.id} from={entry.win} />
       </header>
       <main ref={body} className="min-h-0 flex-1 overflow-y-auto">
         <div className="ss-zoom">

@@ -6,7 +6,7 @@ On a Mac, use Cmd where this page says Ctrl.
 
 | Keys | What they do |
 |---|---|
-| F1 | Open this help beside your work: the page of the parameter you are in, the selected part or the panel you are working in, or the front page |
+| F1 | Open this help beside your work: the page of the parameter you are in, the selected part or the panel you are working in, or the front page. In a part's parameter window: that part's page, at the parameter you are in, in the Help window |
 | Ctrl+Enter | Run the active case (not while you type in a script) |
 | Ctrl+S | Save the project |
 | Ctrl+Z | Undo (not while you type in a field) |
@@ -44,7 +44,10 @@ A part's parameter window is an ordinary window: resize it, minimise it or
 move it to another screen, and keep several open. What you type there is in
 the project at once (there is no Apply), and Ctrl+Z, Ctrl+Y and Ctrl+S work
 there as in the main window. Close it with its own close button; it also
-closes when its part is deleted or another project is opened.
+closes when its part is deleted or another project is opened. Its **Help**
+button, and F1, open the part's help page in the Help window, a window of
+its own that every part's Help reuses; Alt+Left and Alt+Right go back and
+forward there in the desktop app.
 
 A right-click on a part opens its menu: *Parameters*, *Rename…*,
 *Signals…*, *Duplicate*, *Copy*, *Cut* and *Delete*. On the empty diagram it

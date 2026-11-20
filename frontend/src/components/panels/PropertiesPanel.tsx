@@ -2,7 +2,7 @@ import { Fragment, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Box, Columns3, CornerDownRight, Pencil, Plus, Radio, Rows3, Table2, Trash2 } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
-import { componentHelpPage, openHelp } from "../../help";
+import { componentHelpPage, openHelp, openHelpWindow } from "../../help";
 import { useOwnerWindow } from "../../ownerWindow";
 import { limitsText, paramName, rangeProblem } from "../../paramRules";
 import { LABEL_RRC, describeTyre, parseTyreCode, tyreValues } from "../../tyre";
@@ -1459,7 +1459,11 @@ export function ElementForm({
               <p className="text-[color:var(--ss-text-dim)]">{defaultText(helpDef, unitOf(helpDef))}</p>
             )}
             <p>
-              <button className="text-[color:var(--ss-accent)] underline" onClick={() => openHelp(helpPage(helpDef))}>
+              <button
+                className="text-[color:var(--ss-accent)] underline"
+                // the Properties panel's in the Help panel; a part's window's in the Help window
+                onClick={() => (compact ? openHelp(helpPage(helpDef)) : openHelpWindow(helpPage(helpDef), win))}
+              >
                 More in the help (F1)
               </button>
             </p>
