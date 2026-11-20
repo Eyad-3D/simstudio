@@ -202,7 +202,8 @@ for (page of pages) {
 <title>${esc(title(page.md))} · LightSim ${VERSION} help</title><link rel="stylesheet" href="${up}help.css"></head><body>
 <a class="skip" href="#main">Skip to the page</a>
 <nav aria-label="Help pages"><p class="brand"><a href="${up}index.html">LightSim ${VERSION} help</a></p>
-<div role="search"><label for="q">Search the help</label><input id="q" type="search" autocomplete="off"><ul id="hits" aria-live="polite"></ul></div>${nav}</nav>
+<div role="search"><label for="q">Search the help</label><input id="q" type="search" autocomplete="off"><ul id="hits" aria-live="polite"></ul></div>
+<details id="toc" open><summary>All help pages</summary>${nav}</details></nav>
 <main id="main"><h1 id="${h1}">${esc(title(page.md))}</h1>
 ${body}</main>
 <footer>LightSim ${VERSION}</footer><script src="${up}search-index.js"></script><script src="${up}help.js"></script></body></html>
