@@ -3117,7 +3117,14 @@ round).**
   (a variable several of them share once; the steps that do not move
   along a step enclosed once while the discrete values keep theirs), not
   expanded into one expression: a motor's limits read 45 and 49 of them,
-  which expanded ran to 160,000 and 250,000 characters. Both checks read
+  which expanded ran to 160,000 and 250,000 characters. Nor is it
+  expanded to classify it: whether it reads continuous variables is read
+  through the same definitions (`time_functions`), and only a pure
+  function is expanded and held to 20,000 nodes. (Until 20 November 2026
+  the expansion was sized before that question: a DC-DC converter's
+  condition, which reads a motor's electrical power, expanded to 54,592
+  nodes once that read the motor's supply window, and was left to root
+  finding without the pulse check, with a warning.) Both checks read
   the integrator's dense output over the step as the polynomial it
   interpolates with (`Integrator::dense_output`: CVODE's Nordsieck array
   and IDA's divided differences as they hold them, through two more C

@@ -362,7 +362,11 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         ));
     } else if cfg.windowed {
         vars.push(guess("frac", "1", c(1.0), "the share of the command its supply allows"));
-        let l0 = loss_at(c(0.0) * n("unit_N_m"));
+        // its spin losses (the loss map at zero torque), one variable: the
+        // code computes every branch of an `if` and does not share lookups
+        vars.push(var("l0", "W", "its spin losses: its loss map at zero torque"));
+        eqs.push(eq(n("l0"), loss_at(c(0.0) * n("unit_N_m")), "its spin losses at its speed"));
+        let l0 = n("l0");
         // a short supply cuts its torque, down to its shaft feeding its spin
         // losses (below), and does not switch the inverter off: off on a
         // window that did not cover its spin losses, it switched on and off
