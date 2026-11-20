@@ -194,6 +194,7 @@ Point 0 of every run is the initial state at t = 0.
   depends on your system.** An FMU is compiled code from another company or tool.
 - **Runs with Script blocks take longer than in 0.1.0.** Controllers and scripts now run every 10 ms, and every script step is a round trip to the script process.
 - **Part names can overlap when the diagram is zoomed out.** Names keep their 11 px on screen however far you zoom out, so neighbours' names run into each other: on the Battery Electric Car, with Windows' font, one pair at 53 %, seven at 39 % and all of them at the 15 % minimum; a wider font, as on Linux, overlaps soon…
+- **The Help window has no buttons of its own.** Help opened from a part's parameter window shows in a window with the page and nothing else: no Back button, no way to the Help panel.
 - **Run warnings find their part by its name.** The Problems list shows the latest run's warnings and errors, and a row selects the part whose name the message quotes.
 - **Signals: bulk links by type and name only.** *Connect several…* in Data Bus Connections links one output to every part of a type, or inputs to outputs of the same name, but takes no rules of your own (a prefix, a mapping table), and signals are not drawn on the diagram: pick any other input's source in …
 - **Weather presets set the air and the cabin's heating, not the

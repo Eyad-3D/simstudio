@@ -476,6 +476,27 @@ def test_two_processes_saving_at_once_lose_nothing(folder):
     assert len(lines) == 46 and history.chain(lines, lines[1]["from"], lines[-1]["to"])
 
 
+def test_a_read_refused_while_another_process_renames_is_tried_again(folder, monkeypatch):
+    """Windows refuses a read in the instant another process renames a new
+    version over the file (seen on CI in the test above, once in many
+    runs); the read is tried again, as the rename is."""
+    from pathlib import Path
+
+    storage.save_project(_bev())
+    path = storage.project_path("car")
+    real, refused = Path.read_bytes, []
+
+    def refused_twice(self):
+        if self == path and len(refused) < 2:
+            refused.append(self)
+            raise PermissionError(13, "Permission denied", str(self))
+        return real(self)
+
+    monkeypatch.setattr(Path, "read_bytes", refused_twice)
+    assert storage.load_project_file("car").project.id == "car"
+    assert len(refused) == 2
+
+
 def test_undoing_a_remove_keeps_the_order_of_a_cases_overrides(folder):
     """A case overriding the removed part: the file after the undo is the
     same bytes, not only the same JSON (the dict keys keep their places)."""

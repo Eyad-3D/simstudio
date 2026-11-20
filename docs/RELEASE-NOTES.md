@@ -60,6 +60,12 @@ sections.
   shows every change made elsewhere (undo, an AI assistant's edit, an
   import); it is named after the part and closes when the part is deleted.
   In a browser that blocks pop-ups the parameters open in a dialog instead.
+- A part's parameter window has a **Help** button that opens the part's
+  help page in a Help window of its own, beside it (F1 there opens it at
+  the parameter you are typing in); every part reuses that one window. The
+  help pages fold their list of pages away in a narrow window, keep a
+  table's column names in view, and mark the parameter you came for
+  ([Opening this help](help/index.md#opening-this-help)).
 - Models from other tools: drop an FMU file (a Co-Simulation FMU of FMI
   2.0 or 3.0, exported from Simulink, Dymola, GT-SUITE or a supplier) on
   the diagram and it runs with the rest of the car as an *FMU* block. Its

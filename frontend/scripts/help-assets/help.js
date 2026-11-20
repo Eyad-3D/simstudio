@@ -27,3 +27,11 @@ q.addEventListener("input", () => {
     hits.append(li);
   }
 });
+// The list of every page folds away in a narrow window (the Help window, the
+// Help panel), so a page starts at its own text; in a wide one it is the
+// side bar, always open.
+const toc = document.getElementById("toc");
+const narrow = window.matchMedia("(max-width: 900px)");
+const fold = () => (toc.open = !narrow.matches);
+fold();
+narrow.addEventListener("change", fold);

@@ -20,17 +20,30 @@ def safe_id(value: str, what: str) -> str:
     return value
 
 
-def replace(src: str, dst: Path) -> None:
-    # Windows refuses the rename while another process (a virus scanner, a
-    # sync client) briefly holds the target open; give it a moment.
+def _retried(action):
+    """`action()`, tried again for a moment when Windows refuses it: a file
+    another process briefly holds open, or is renaming a new version over,
+    is refused with a PermissionError there."""
     for attempt in range(5):
         try:
-            os.replace(src, dst)
-            return
+            return action()
         except PermissionError:
             if attempt == 4:
                 raise
             time.sleep(0.05 * (attempt + 1))
+
+
+def replace(src: str, dst: Path) -> None:
+    # Windows refuses the rename while another process (a virus scanner, a
+    # sync client, a reader) briefly holds the target open; give it a moment.
+    _retried(lambda: os.replace(src, dst))
+
+
+def read_bytes(path: Path) -> bytes:
+    """The file's bytes. Every store here writes by renaming a new file over
+    the old one (:func:`write_atomic`); on Windows a read in that instant is
+    refused, so it is tried again, as the rename is."""
+    return _retried(path.read_bytes)
 
 
 def write_atomic(path: Path, data: bytes) -> None:
