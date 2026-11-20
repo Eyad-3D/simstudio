@@ -391,9 +391,20 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
     // the SOC limits: at most the current that would take the charge left
     // above the minimum SOC (or up to full) in TAU_SOC, today's "within the
     // step" rule in continuous time ([`TAU_SOC`])
-    let i_floor = max(c(0.0) * n("unit_A"), (n("soc") - n("min_soc_pct")) * n("Q") / n("tau_soc"));
-    let i_full =
-        max(c(0.0) * n("unit_A"), (c(1.0) - n("soc")) * n("Q") / (n("tau_soc") * n("eta_c")));
+    // (variables of their own: the app says which limit held the motors)
+    vars.push(var("i_floor", "A", "the discharge current its minimum SOC allows"));
+    vars.push(var("i_full", "A", "the charge current its full charge allows"));
+    eqs.push(eq(
+        n("i_floor"),
+        max(c(0.0) * n("unit_A"), (n("soc") - n("min_soc_pct")) * n("Q") / n("tau_soc")),
+        "it gives at most what takes the charge above its minimum SOC in tau_soc",
+    ));
+    eqs.push(eq(
+        n("i_full"),
+        max(c(0.0) * n("unit_A"), (c(1.0) - n("soc")) * n("Q") / (n("tau_soc") * n("eta_c"))),
+        "it takes at most what fills it in tau_soc",
+    ));
+    let (i_floor, i_full) = (n("i_floor"), n("i_full"));
     let i_d = min(min(n("i_mpp"), n("i_dis_lim")), i_floor);
     eqs.push(eq(
         n("p_deliver"),
