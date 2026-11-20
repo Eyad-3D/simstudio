@@ -336,7 +336,7 @@ Channels: 65 of 65 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-hwfet (EPA highway (HWFET))
 
-New engine: build 0.01 s, run 8.72 s (903552 steps, 76965 events); today: 22.1 s at 10 ms, 260.6 s at 1 ms. Energy books: closure 9.0e-12 of the throughput, 0.0002 kWh lost at events (16 gear shifts: 0.000206 kWh as the gears engaged; today's gearbox term 0.000337 kWh).
+New engine: build 0.01 s, run 9.86 s (903552 steps, 76965 events); today: 22.1 s at 10 ms, 260.6 s at 1 ms. Energy books: closure 9.0e-12 of the throughput, 0.0002 kWh lost at events (16 gear shifts: 0.000206 kWh as the gears engaged; today's gearbox term 0.000337 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -354,7 +354,7 @@ Channels: 88 of 88 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-mixed (Mixed Cycle)
 
-New engine: build 0.01 s, run 3.53 s (296432 steps, 56212 events); today: 43.4 s at 10 ms, 211.6 s at 1 ms. Energy books: closure 1.9e-12 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
+New engine: build 0.01 s, run 3.97 s (296432 steps, 56212 events); today: 43.4 s at 10 ms, 211.6 s at 1 ms. Energy books: closure 1.9e-12 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -381,7 +381,7 @@ Channels: 82 of 88 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-mixed-live (Mixed Cycle (live, 10×))
 
-New engine: build 0.01 s, run 3.53 s (296432 steps, 56212 events); today: 58.3 s at 10 ms, 189.7 s at 1 ms. Energy books: closure 1.9e-12 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
+New engine: build 0.01 s, run 3.86 s (296432 steps, 56212 events); today: 58.3 s at 10 ms, 189.7 s at 1 ms. Energy books: closure 1.9e-12 of the throughput, 0.0001 kWh lost at events (10 gear shifts: 0.000145 kWh as the gears engaged; today's gearbox term 0.000262 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
@@ -408,7 +408,7 @@ Channels: 82 of 88 inside their bands (RMS of the difference to today's 1 ms run
 
 ## hybrid-car/case-udds (EPA city (UDDS))
 
-New engine: build 0.01 s, run 15.13 s (1648592 steps, 118138 events); today: 41.3 s at 10 ms, 333.7 s at 1 ms. Energy books: closure 3.1e-11 of the throughput, 0.0017 kWh lost at events (104 gear shifts: 0.001663 kWh as the gears engaged; today's gearbox term 0.003503 kWh).
+New engine: build 0.01 s, run 16.77 s (1648592 steps, 118138 events); today: 41.3 s at 10 ms, 333.7 s at 1 ms. Energy books: closure 3.1e-11 of the throughput, 0.0017 kWh lost at events (104 gear shifts: 0.001663 kWh as the gears engaged; today's gearbox term 0.003503 kWh).
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|

@@ -968,3 +968,12 @@ share of their value at most 1.2e-5 (the gap to the reference time,
 1.2e-10 → 1.9e-10; 19 of 19 figures and 65 of 65 channels inside, as
 before. Every other case is the same to the bit (the record's other
 cases are kept as they were, run times included).
+
+With the E-Motor continuous in its window the same day (a short supply
+cuts its torque instead of switching its inverter off, and each motor's
+window from its bus is continuous in its request), the hybrid's four
+cases have two output channels of its E-Motor, its electrical power and
+losses, one unit in the last place apart at some output points (their RMS
+by 1.7e-13 to 1.0e-10 of their value), evaluated in another order; every
+state, step and event, and every other value, are the same to the bit.
+Those four cases are this run's.
