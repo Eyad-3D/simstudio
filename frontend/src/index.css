@@ -482,65 +482,141 @@ body,
 }
 
 /* ---- Excel-like spreadsheet grid (table editors) ---- */
+/* the toolbar over a table: Copy, Paste, then the editor's own buttons */
+.ss-table-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.ss-table-tools .ss-toolbtn {
+  min-height: 24px;
+  padding: 2px 7px;
+  border: 1px solid var(--ss-border);
+  background: var(--ss-panel);
+  font-size: 11px;
+}
+.ss-table-tools .ss-toolbtn:hover:not(:disabled) {
+  background: var(--ss-hover);
+}
+.ss-table-tools-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--ss-border);
+}
+/* the units line and the grid read as one table: one box, as wide as the
+   wider of the two, the grid at least as wide as the line */
+.ss-table-box {
+  display: flex;
+  flex-direction: column;
+  width: fit-content;
+  max-width: 100%;
+}
+.ss-grid-caption {
+  padding: 3px 8px;
+  border: 1px solid var(--ss-border);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: var(--ss-chrome);
+}
 .ss-grid {
+  min-width: 100%;
   border-collapse: separate;
   border-spacing: 0;
   user-select: none;
   font-variant-numeric: tabular-nums;
 }
 .ss-grid td {
-  border-right: 1px solid var(--ss-border);
-  border-bottom: 1px solid var(--ss-border);
+  border-right: 1px solid var(--ss-td-border);
+  border-bottom: 1px solid var(--ss-td-border);
   padding: 0;
-  height: 22px;
+  height: 26px;
   position: relative;
+  background: var(--ss-panel);
 }
-/* left/top outer borders come from the wrapping frame */
+/* the outer edge is the frame's */
+.ss-grid td:last-child {
+  border-right: none;
+}
+.ss-grid tr:last-child td {
+  border-bottom: none;
+}
+.ss-grid tr:nth-child(even) td.ss-td-body {
+  background: var(--ss-panel-alt);
+}
 .ss-grid .ss-cell {
-  padding: 2px 6px;
-  font-size: 11.5px;
-  line-height: 16px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 18px;
   white-space: nowrap;
   cursor: cell;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* numbers line up on the right, the headers that hold numbers too */
 .ss-grid .ss-cell-body {
   text-align: right;
-  min-width: 58px;
+  min-width: 64px;
+  color: var(--ss-text);
 }
 .ss-grid .ss-cell-colhead,
 .ss-grid .ss-cell-rowhead,
 .ss-grid .ss-cell-corner {
-  background: var(--ss-panel-alt);
-  color: var(--ss-text-dim);
+  color: var(--ss-text);
   font-weight: 600;
-  text-align: center;
+  text-align: right;
   cursor: default;
 }
-.ss-grid .ss-cell-rowhead {
-  text-align: right;
+/* the headers: a band of their own, kept in view as the grid scrolls */
+.ss-grid td.ss-td-colHeader,
+.ss-grid td.ss-td-rowHeader,
+.ss-grid td.ss-td-corner {
+  background: var(--ss-chrome);
+}
+.ss-grid td.ss-td-colHeader,
+.ss-grid td.ss-td-corner {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  border-bottom: 1px solid var(--ss-field-border);
+}
+.ss-grid td.ss-td-rowHeader,
+.ss-grid td.ss-td-corner {
   position: sticky;
   left: 0;
+  border-right: 1px solid var(--ss-field-border);
+}
+.ss-grid td.ss-td-rowHeader {
   z-index: 1;
 }
+.ss-grid td.ss-td-corner {
+  z-index: 3;
+}
 .ss-grid .ss-cell-corner {
-  position: sticky;
-  left: 0;
-  z-index: 2;
-  font-weight: 700;
-  color: var(--ss-text);
+  text-align: left;
 }
 .ss-grid td.ss-selected .ss-cell {
-  background: color-mix(in srgb, var(--ss-accent) 16%, transparent);
+  background: color-mix(in srgb, var(--ss-accent) 18%, transparent);
 }
 .ss-grid td.ss-active {
   outline: 2px solid var(--ss-accent);
   outline-offset: -2px;
-  z-index: 3;
+  z-index: 4;
+}
+/* the selection stays in sight, quieter, while another control has the focus */
+.ss-grid-frame:not(:focus-within) td.ss-active {
+  outline-color: var(--ss-field-border);
 }
 .ss-grid td.ss-active .ss-cell {
-  background: color-mix(in srgb, var(--ss-accent) 8%, transparent);
+  background: color-mix(in srgb, var(--ss-accent) 10%, transparent);
+}
+/* the cell being typed in: lifted out of the grid */
+.ss-grid td.ss-editing {
+  outline: 2px solid var(--ss-accent);
+  outline-offset: -1px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ss-accent) 30%, transparent);
+  z-index: 5;
 }
 .ss-grid .ss-cell-input {
   width: 100%;
@@ -550,9 +626,10 @@ body,
   outline: none;
   background: var(--ss-panel);
   color: var(--ss-text);
-  padding: 2px 6px;
-  font-size: 11.5px;
-  line-height: 16px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 600;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -560,6 +637,7 @@ body,
 .ss-grid td.ss-cell-error {
   outline: 2px solid var(--ss-err);
   outline-offset: -2px;
+  box-shadow: none;
 }
 .ss-grid td.ss-cell-error .ss-cell-input {
   background: color-mix(in srgb, var(--ss-err) 10%, var(--ss-panel));
@@ -567,14 +645,34 @@ body,
 .ss-grid td.ss-cell-warning {
   outline: 2px solid var(--ss-warn);
   outline-offset: -2px;
+  box-shadow: none;
 }
 .ss-grid-frame {
-  border-top: 1px solid var(--ss-border);
-  border-left: 1px solid var(--ss-border);
-  border-radius: 3px;
+  border: 1px solid var(--ss-border);
+  border-radius: 4px;
   overflow: auto;
-  max-height: 320px;
+  max-height: 340px;
   background: var(--ss-panel);
+  outline: none;
+}
+.ss-grid-frame-captioned {
+  border-radius: 0 0 4px 4px;
+}
+.ss-grid-frame:focus-visible {
+  border-color: var(--ss-accent);
+  box-shadow: 0 0 0 1px var(--ss-accent);
+}
+/* the plot under a table; the selected cell's ring has no legend entry
+   (the line under the plot names it) */
+.ss-table-plot-chart {
+  height: 240px;
+  padding: 4px;
+  border: 1px solid var(--ss-border);
+  border-radius: 4px;
+  background: var(--ss-panel);
+}
+.ss-table-plot-chart .u-legend .u-series:last-child {
+  display: none;
 }
 
 /* The first-steps tour's dimmed overlay lets clicks through to the window
