@@ -34,3 +34,20 @@ checked before it lands (by tests, or by a review on the most capable
 model); otherwise use the most capable model. If a mid-tier agent comes back
 stuck, or its work fails review, hand the task to the most capable model
 rather than retrying on the same one.
+
+## Regenerate the generated copies before you push
+
+Some files are generated from others, and a test fails when one is stale.
+Those tests sit in the full backend suite, which takes about an hour on
+CI, so a stale copy costs a whole round. After changing anything under
+`docs/`, the component library or the project model, run from `backend/`:
+
+- `python -m app.ai.skillpack --write` (the AI skill pack's copies of the
+  docs);
+- `python -m app.sources` (the shipped copy of `docs/data-register.csv`);
+- `python -m lightsim schema --out ../docs/spec/schemas` (the project
+  file's schemas);
+
+then the tests that guard them, which take seconds:
+
+`python -m pytest -q tests/test_ai_skills.py tests/test_sources.py tests/test_data_register.py tests/test_spec.py tests/test_docs.py`
