@@ -12,8 +12,8 @@ module so behavior cannot drift between components.
 from __future__ import annotations
 
 from bisect import bisect_left
-from math import isfinite
 from dataclasses import dataclass
+from math import isfinite
 from operator import itemgetter
 from typing import Optional
 
