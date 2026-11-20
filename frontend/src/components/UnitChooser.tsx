@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useId, useRef } from "react";
-import { ChevronDown } from "lucide-react";
 import { alternatives, mapTable, reinterpret, type UnitSlot } from "../units";
 
-/** A parameter's unit, as a control that opens its unit chooser. */
+/** A parameter's unit, as a control that opens its unit chooser: the unit's
+ *  text alone (underlined, index.css), so the Unit column is no wider than
+ *  the text and a narrow panel's value fields keep their room (GUI-34). */
 export function UnitButton({
   what,
   unit,
@@ -28,7 +29,6 @@ export function UnitButton({
       onClick={onOpen}
     >
       {unit}
-      <ChevronDown size={10} aria-hidden />
     </button>
   );
 }

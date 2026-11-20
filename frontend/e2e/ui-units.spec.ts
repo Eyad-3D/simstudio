@@ -38,7 +38,7 @@ test("a number and a table axis in a unit of the user's choice; stored in the li
     .getByRole("button", { name: "rad/s", exact: true })
     .first()
     .click();
-  await expect(table.getByText("Speed (rad/s)")).toBeVisible();
+  await expect(table.locator(".ss-cell-colhead", { hasText: "Speed (rad/s)" })).toBeVisible();
   const last = table.locator(".ss-grid tr").last().locator("td").first();
   await last.click();
   await win.keyboard.type("2000");
@@ -53,10 +53,13 @@ test("a number and a table axis in a unit of the user's choice; stored in the li
 
   // after a reload the same choice, and the same numbers on screen
   await win.close();
+  page.on("dialog", (d) => d.accept()); // the browser's leave-page prompt
   await page.reload();
   win = await openParams(page, "E-Motor");
   await expect(win.getByRole("button", { name: "rad/s, unit of Maximum Speed" })).toBeVisible();
   await expect(win.getByRole("spinbutton", { name: /^Maximum Speed/ })).toHaveValue("1000");
-  await expect(win.locator('[data-param="drag_torque"]').getByText("Speed (rad/s)")).toBeVisible();
+  await expect(
+    win.locator('[data-param="drag_torque"]').locator(".ss-cell-colhead", { hasText: "Speed (rad/s)" }),
+  ).toBeVisible();
   await expect(win.locator('[data-param="drag_torque"]').getByText("2000", { exact: true }).first()).toBeVisible();
 });

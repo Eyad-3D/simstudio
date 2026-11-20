@@ -433,10 +433,8 @@ body,
 /* a unit that can be shown or typed in another: the unit text, as a control
    that opens its chooser */
 .ss-unit-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 1px;
   border-radius: 3px;
+  cursor: pointer;
   color: inherit;
   text-decoration: underline dotted;
   text-underline-offset: 2px;
