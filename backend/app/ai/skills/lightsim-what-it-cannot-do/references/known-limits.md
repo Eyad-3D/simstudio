@@ -74,6 +74,10 @@ The *Traction Control* block (MOD-45) limits one demand for all the motors it fe
 
 Data Checks warn when a signal wire joins two different units (VAL-17), such as a battery's *SOC* in % (0-100) into an input that expects 0-1, or a vehicle speed into a rotational speed.
 
+### A unit chosen for a part shows in its parameters only
+
+A part's parameters, tables, help card and limit messages show the unit chosen for them (Work in other units).
+
 ### An example's stored result holds a few signals
 
 An example opened from **Open** or the *Start* page shows its stored results (CON-15), named *Stored result*: the summary, the expected values and seven comparison signals (vehicle speed and target, battery SOC and power, motor speed and torque, engine fuel rate) every second.

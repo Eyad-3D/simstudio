@@ -44,6 +44,11 @@ sections.
 
 ### New
 
+- Any value with a unit, and each axis and the values of a table, can be
+  shown and typed in another unit of its kind (mph, rad/s, hp, °F, …), or
+  marked as typed in the wrong unit; the project keeps every value in the
+  library's unit and remembers the unit chosen per part
+  ([Work in other units](help/how-to/work-in-other-units.md)).
 - A double-click on a part opens its parameters in a window of their own,
   one per part: resize it, minimise it, move it to another screen and keep
   several open. Edits there are in the project at once, and the window

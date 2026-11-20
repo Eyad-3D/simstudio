@@ -25,6 +25,11 @@ text with that unit ("150 kW"); a text in another unit is refused, never
 converted. Write the decimal sign as a dot ("1.5 kg"): a comma only groups
 thousands ("1,500 kg"), and "1,5 kg" is refused.
 
+The app can show a value to its user in another unit (a part's
+`displayUnits` in the project file); that is display only. Values in the
+file, in `element_read` and in `model_edit` are always in the parameter's
+own unit.
+
 ## Kinds of value
 
 - **number**: with limits (`minimum`, `exclusiveMinimum`, `maximum`); a

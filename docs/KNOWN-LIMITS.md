@@ -522,6 +522,17 @@ the warnings in Data Checks; divide by 100 in a Script where a block expects
 0-1.
 *Roadmap:* automatic conversion on wires is not planned yet.
 
+### A unit chosen for a part shows in its parameters only
+
+A part's parameters, tables, help card and limit messages show the unit
+chosen for them ([Work in other units](help/how-to/work-in-other-units.md)).
+A case's own values, sweeps, the parameter sheet's file, Data Checks and
+run messages give the library's unit, and say which. A unit with no other
+of its kind in LightSim's list, such as % or a gain in 1/s, cannot be
+changed.
+
+*Workaround:* read the unit next to the number there.
+
 ### An example's stored result holds a few signals
 
 An example opened from **Open** or the *Start* page shows its stored
