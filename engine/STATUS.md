@@ -2,7 +2,8 @@
 
 *Since 17 November 2026 the new engine is the app's engine, with no fall-back
 to today's: the section "The switch-over" says what was done, what is
-refused and what is open; step 4 (speed) follows it. The sections before
+refused and what is open; step 4 (speed) follows it, then three defects
+its acceptance found (20 November 2026). The sections before
 it are dated records; where they say the new engine is opt-in, not in
 the installer, or that a case
 falls back to today's engine or is refused with `NEW-CASE-KIND`,
@@ -1066,3 +1067,90 @@ Measured on the change (work/speed-errtest):
     (`lsim-solve/src/run.rs`, `Loop::sync_guards`) takes one ulp past the
     edge as outside; the same refusal ends
     `hybrid-car:el-wheel-l.radius_m:x100` on main.
+
+## Step 4: three defects the speed change's acceptance found (20 November 2026)
+
+The acceptance of the speed change (the section before) found six fault
+runs failing differently on main and on the change, from three defects
+that exist on both. Each was reproduced on the run of the golden
+comparison's path (`lsim-project`'s `dump_case`, the same instants and
+messages as the acceptance's records) and measured with throwaway
+instrumentation (not committed; kept as a patch outside the repository).
+
+- **A mode that its own event iteration sets on and off at one instant**
+  (fixed: `Loop::decide_mode`, DESIGN.md 8.2, *A mode that event
+  iteration sets on and off without end*). On the formula student car at
+  a hundredth of its mass, the Accumulator's "time held at its Output
+  Power Limit" mode flipped 101 times at 0.0638 s. Solved for each of its
+  two values its condition is the same, -2.9e-11 W (its rounding bound
+  7.3e-10 W, its band 0.87 W): the mode does not move it, and the event
+  loop's own solves put it at +1.7e-10 W with the mode off and below zero
+  with it on, round after round. At a hundred times its cg height (and a
+  hundredth of its wheelbase) the Vehicle's axle-lift mode does move its
+  condition, +3.3e-6 N off and -8.8e-6 N on (band 2.3e-3 N), and each of
+  its values drives it back (rising at 4.8e3 N/s off, falling at 1.3e4 N/s
+  on). Event iteration now sees a round end where an earlier one did, and
+  decides the one mode that changes along the repeat from its condition
+  and its rate at each value: at zero to the tolerances, the value its
+  condition has just after the instant; where each value drives it back,
+  or where its own value moves it beyond the tolerances, the run stops
+  there, saying which. The first runs to its end; the other two stop at
+  the same instant as before, saying that the axle-lift mode would slide
+  along its switching point. Tests: three in
+  `lsim-solve/tests/implicit_conditions.rs` (a mode moving its own
+  condition within the tolerance, sliding, and beyond it), each an event
+  storm before.
+- **A table read one rounding step past its edge** (fixed:
+  `Loop::on_the_edge`, DESIGN.md 8.2, *A read on its edge*). On the
+  Battery Electric Car with a hundredth of its final drive's ratio, and
+  at rtol 1e-8 with a hundred times its mass or a hundredth of its motor's
+  torque scale, the car stands at full load and the motor reads its loss
+  map at its full-load torque, the map's last torque point. Its torque is
+  the share of the command its supply allows times the command's, and
+  the share's equation where the supply does not cut it, share = 1, is
+  met to the integrator's tolerance: 1.000000001 at 22.76 s, the torque
+  310.00000031 N·m against 310. The guard of a read on an axis that
+  allows no values outside now takes a read past its edge by no more than
+  what the iteration variables' tolerances allow in it (4 bands) as on the
+  edge, held there. Changing the block instead moved the energy books
+  past the comparison's 1.5e-9 (three forms measured, DESIGN.md). Tests:
+  `lsim-solve/tests/implicit_conditions.rs` (a read 1.85e-6 past its edge
+  at an event, its band 1.01e-6), `lsim-project/tests/motor.rs` (the car
+  above, to the end of its city cycle).
+- **Not fixed: the hybrid's HV Battery at its minimum SOC** (and at full
+  charge in `db-2`). Measured on `hybrid-car:el-wheel-l.radius_m:x100` at
+  547.19 s: the SOC is a state, its window closed it rises at 4.3e-5 /s,
+  open it falls at 5.4e-5 /s; the integrator meets the crossing each way
+  every 1e-11 to 1e-10 s, and the run stops with an event storm. This is
+  the sliding at a state's boundary that DESIGN.md 8.2 records the run
+  loop as not following (it stops and names the mode); it is not the
+  one-instant repeat above, which a mode at a state's boundary never
+  makes. Removing it at its cause is one of two things, each a change of
+  what users see, not made here: the run loop following the slide (the
+  mode a share between its values, held where the SOC stays at its
+  minimum: preparation, code generation and the run loop), or the
+  battery's window closing continuously at its minimum SOC, as today's
+  engine's 10 ms rule does (a library change that moves every result of a
+  car that reaches its minimum SOC).
+
+What holds on the branch: the golden comparison's record is the same to
+the bit (0 of 11 347 values move; the books close to 1.27e-9 or better);
+`engine/check.sh` passes (627 tests); the hybrid's whole UDDS 18.89 s
+and the BEV's WLTC 1.097 s, the same steps and events as origin/main built
+the same way on this PC (18.96 s and 1.098 s; the best of seven runs each,
+the two alternating in fresh processes); the backend suite with this
+branch's module, 2 427 passed, 1 failed, 15 skipped, 73 expected failures
+(the one failure the Reference FMUs' version on this PC, as on main's
+module), and lsim-py's 59 tests pass.
+The fault runs, through the backend as the acceptance runs them:
+`fs-electric:el-vehicle.mass_kg:div100` runs to its end (refused before);
+`…cg_height_m:x100` and `…wheelbase_m:div100` are refused at the same
+instant, now saying the axle-lift mode would slide along its switching
+point; `bev-car:el-final-drive.ratio:div100` and the rtol 1e-8 runs with
+a hundred times the BEV's mass or a hundredth of its motor's torque scale
+run and fail as the car cannot move ("did not drive the cycle: 0.00 of
+7.29 km", as on main before step 4's speed change; refused reading the
+loss map before); `hybrid-car:db-3` runs with warnings (minimum SOC,
+cycle not followed); the nine hybrid runs at the minimum SOC and `db-2`
+at full charge, `el-wheel-l.radius_m:x100` among them, are refused at the
+same instants as in the acceptance's record (not fixed, above).
