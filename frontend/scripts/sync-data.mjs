@@ -18,6 +18,10 @@ const pairs = [
     join(here, "..", "src", "data", "tyres.json"),
   ],
   [
+    join(repoRoot, "backend", "app", "dataio", "units.json"),
+    join(here, "..", "src", "data", "units.json"),
+  ],
+  [
     join(repoRoot, "backend", "projects", "bev-car.json"),
     join(here, "..", "src", "data", "demoProject.json"),
   ],

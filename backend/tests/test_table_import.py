@@ -109,6 +109,21 @@ def test_unit_conversions():
         units.convert(1, "kg", "m")
 
 
+def test_unit_table_covers_the_library_units_with_alternatives():
+    """units.json, which the frontend's unit chooser reads too: the quantities
+    added for it convert, and a group's first unit is the library's."""
+    assert units.convert(1, "lbf/mph²", "N/(km/h)²") == pytest.approx(1.717468, rel=1e-6)
+    assert units.convert(1, "N/(m/s)", "N/(km/h)") == pytest.approx(1 / 3.6)
+    assert units.convert(1, "lb·ft²", "kg·m²") == pytest.approx(0.0421401)
+    assert units.convert(1, "ft²", "m²") == pytest.approx(0.09290304)
+    assert units.convert(1, "lb/(hp·h)", "g/kWh") == pytest.approx(608.2774, rel=1e-6)
+    assert units.convert(1, "kWh/kg", "MJ/kg") == pytest.approx(3.6)
+    assert units.convert(745, "kg/m³", "kg/l") == pytest.approx(0.745)
+    assert units.alternatives("km/h") == ["km/h", "m/s", "mph"]
+    for first in ("km/h", "1/min", "N·m", "kW", "kWh", "°C", "kg·m²", "m²", "kg/l"):
+        assert units.alternatives(first)[0] == first
+
+
 # ---- files ----------------------------------------------------------------------
 
 def test_csv_dialects_are_recognised():
