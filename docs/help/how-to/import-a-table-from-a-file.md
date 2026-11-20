@@ -50,7 +50,8 @@ units under the headers (as data loggers write them) or a name such as
 `speed_meters_per_second` (the FASTSim drive-cycle layout). A single
 letter (`t`, `v`, `s`) and `min` are read as names, not units. It converts the numbers to the unit the table is stored in, for
 example W to kW or rpm (1/min) to 1/min. A unit of the wrong kind, such as
-kg for a speed, is refused.
+kg for a speed, is refused. The table then shows the numbers in the units
+chosen for it ([Work in other units](work-in-other-units.md)).
 
 A column without a unit is read in the table's own unit, except:
 

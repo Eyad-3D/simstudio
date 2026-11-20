@@ -1,0 +1,31 @@
+{
+ "_about": "Units LightSim converts between, by quantity: unit -> [scale, offset], so that value_in_first_unit = value * scale + offset. The first unit of each quantity is the one the component library stores. Read by backend/app/dataio/units.py (imports) and, as frontend/src/data/units.json (copied by frontend/scripts/sync-data.mjs), by the unit chooser next to each parameter, which offers a quantity's units only for a parameter in its first unit (a gain in 1/s is not a rotational speed).",
+ "groups": {
+  "speed": {"km/h": [0.2777777777777778, 0], "m/s": [1, 0], "mph": [0.44704, 0]},
+  "rotational speed": {"1/min": [1, 0], "rad/s": [9.549296585513721, 0], "1/s": [60, 0]},
+  "torque": {"N·m": [1, 0], "kN·m": [1000, 0], "lbf·ft": [1.3558179483314003, 0]},
+  "power": {"kW": [1, 0], "W": [0.001, 0], "MW": [1000.0, 0], "hp": [0.745699872, 0], "PS": [0.73549875, 0]},
+  "energy": {"kWh": [1, 0], "Wh": [0.001, 0], "MWh": [1000.0, 0], "J": [2.7777777777777776e-07, 0], "kJ": [0.0002777777777777778, 0], "MJ": [0.2777777777777778, 0]},
+  "voltage": {"V": [1, 0], "kV": [1000.0, 0], "mV": [0.001, 0]},
+  "current": {"A": [1, 0], "kA": [1000.0, 0], "mA": [0.001, 0]},
+  "charge": {"Ah": [1, 0], "mAh": [0.001, 0], "C": [0.0002777777777777778, 0]},
+  "mass": {"kg": [1, 0], "g": [0.001, 0], "t": [1000.0, 0], "lb": [0.45359237, 0]},
+  "mass flow": {"kg/h": [1, 0], "kg/s": [3600, 0], "g/s": [3.6, 0], "g/h": [0.001, 0]},
+  "distance": {"m": [1, 0], "km": [1000.0, 0], "mm": [0.001, 0], "cm": [0.01, 0], "mi": [1609.344, 0], "ft": [0.3048, 0]},
+  "time": {"s": [1, 0], "min": [60, 0], "h": [3600, 0], "ms": [0.001, 0]},
+  "temperature": {"°C": [1, 0], "K": [1, -273.15], "°F": [0.5555555555555556, -17.77777777777778]},
+  "force": {"N": [1, 0], "kN": [1000.0, 0], "lbf": [4.4482216152605, 0]},
+  "pressure": {"kPa": [1, 0], "Pa": [0.001, 0], "bar": [100, 0], "MPa": [1000.0, 0], "psi": [6.894757293168361, 0]},
+  "curvature": {"1/m": [1, 0], "1/km": [0.001, 0]},
+  "resistance": {"Ω": [1, 0], "mΩ": [0.001, 0]},
+  "ratio": {"%": [1, 0]},
+  "none": {"-": [1, 0]},
+  "area": {"m²": [1, 0], "cm²": [0.0001, 0], "ft²": [0.09290304, 0]},
+  "moment of inertia": {"kg·m²": [1, 0], "g·cm²": [1e-07, 0], "lb·ft²": [0.042140110093804806, 0]},
+  "speed-proportional force": {"N/(km/h)": [1, 0], "N/(m/s)": [0.2777777777777778, 0], "lbf/mph": [2.763996768410296, 0]},
+  "speed-squared force": {"N/(km/h)²": [1, 0], "N/(m/s)²": [0.07716049382716049, 0], "lbf/mph²": [1.7174679673272437, 0]},
+  "specific consumption": {"g/kWh": [1, 0], "kg/kWh": [1000, 0], "lb/(hp·h)": [608.2773875010133, 0]},
+  "specific energy": {"MJ/kg": [1, 0], "kWh/kg": [3.6, 0], "kJ/kg": [0.001, 0], "BTU/lb": [0.002326, 0]},
+  "density": {"kg/l": [1, 0], "kg/m³": [0.001, 0], "g/cm³": [1, 0]}
+ }
+}

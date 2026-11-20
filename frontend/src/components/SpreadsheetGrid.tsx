@@ -67,6 +67,7 @@ export function SpreadsheetGrid({
   onSelectionChange,
   validate,
   columnClass,
+  onHeaderOpen,
 }: {
   matrix: GridCell[][];
   onCommit: (r: number, c: number, text: string) => void;
@@ -77,6 +78,9 @@ export function SpreadsheetGrid({
   validate?: (r: number, c: number, text: string) => GridIssue | null;
   /** optional per-column className (by column index) for width control */
   columnClass?: (c: number) => string | undefined;
+  /** a double-click, Enter or F2 on a read-only cell (a header with a unit):
+   *  true when it opened something (its unit chooser) */
+  onHeaderOpen?: (r: number, c: number) => boolean;
 }) {
   const rows = matrix.length;
   const cols = matrix[0]?.length ?? 0;
@@ -123,7 +127,10 @@ export function SpreadsheetGrid({
   const focusGrid = () => containerRef.current?.focus();
 
   const startEdit = (r: number, c: number, seed?: string) => {
-    if (!isEditable(r, c)) return;
+    if (!isEditable(r, c)) {
+      if (seed === undefined && cellAt(r, c)) onHeaderOpen?.(r, c);
+      return;
+    }
     setNotice(null);
     setEditing({ r, c, value: seed ?? cellAt(r, c)?.text ?? "", typed: seed !== undefined });
   };
@@ -202,7 +209,7 @@ export function SpreadsheetGrid({
       case "Enter":
         e.preventDefault();
         if (isEditable(sel.active.r, sel.active.c)) startEdit(sel.active.r, sel.active.c);
-        else moveActive(1, 0, false);
+        else if (!onHeaderOpen?.(sel.active.r, sel.active.c)) moveActive(1, 0, false);
         return;
       case "Tab":
         e.preventDefault();

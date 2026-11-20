@@ -142,6 +142,25 @@ def test_outside_the_data_settings_are_saved_and_typed(tmp_path):
     assert client.put(f"/api/projects/{body['id']}", json=body).status_code == 422
 
 
+def test_the_units_a_part_is_shown_in_are_kept_and_change_no_value(tmp_path):
+    """The unit chooser's displayUnits: kept through a save as the UI sent
+    them, and nothing the engine reads changes with them."""
+    plain = Project.model_validate(_example("bev-car")).model_dump(mode="json")
+    plain["id"] = "roundtrip"
+    body = copy.deepcopy(plain)
+    motor = next(e for e in body["systems"][0]["elements"] if e["componentDefId"] == "motor.emotor")
+    motor["displayUnits"] = {"max_speed_rpm": {"value": "rad/s"},
+                             "full_load_torque": {"value": "lbf·ft", "axes": [None, "rad/s"]}}
+    assert _roundtrip(body) == body
+    on_disk = json.loads((tmp_path / "roundtrip.json").read_text(encoding="utf-8"))
+    saved = next(e for e in on_disk["systems"][0]["elements"] if e["id"] == motor["id"])
+    assert saved["displayUnits"] == motor["displayUnits"]
+    assert saved["parameterOverrides"] == next(
+        e for e in plain["systems"][0]["elements"] if e["id"] == motor["id"])["parameterOverrides"]
+    assert validate_project(storage.load_project("roundtrip")) == validate_project(
+        Project.model_validate(plain))
+
+
 def _study(study_id: str, values: list[float]) -> dict:
     """A finished one-factor study as the UI saves it (STU-03)."""
     return {

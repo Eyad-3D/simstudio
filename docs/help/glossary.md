@@ -170,7 +170,9 @@ engine's clutch and the gearbox, so the motor can drive the car with the
 engine stopped.
 
 **Parameter**: one value of a part, such as a Vehicle's mass or a
-battery's capacity, with its unit. *Properties* shows them.
+battery's capacity, with its unit. *Properties* shows them, each in the
+unit you choose ([Work in other units](how-to/work-in-other-units.md));
+the project keeps the library's.
 
 **Performance case**: a case of kind *Performance*, for 0-100 km/h and top
 speed. The Driver holds full throttle until the car reaches the target

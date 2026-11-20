@@ -14,6 +14,7 @@ datas = [
     ("app/library/tracks.json", "app/library"),  # the Race Track's layouts
     ("app/library/tyres.json", "app/library"),  # the Wheel's tyre codes (MOD-48)
     ("app/library/sources.json", "app/library"),  # the data register, per run (VAL-37)
+    ("app/dataio/units.json", "app/dataio"),  # the units imports and the unit chooser convert
     ("app/cycles/*", "app/cycles"),  # the drive-cycle library (CON-16)
     ("app/templates/*", "app/templates"),  # the built-in vehicle templates (CON-18)
     ("projects/*.json", "projects"),  # not projects/runs/: a dev's stored runs

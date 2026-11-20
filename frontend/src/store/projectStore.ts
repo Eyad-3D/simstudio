@@ -35,6 +35,7 @@ import type {
   SystemNode,
 } from "../types";
 import { rangeProblem } from "../paramRules";
+import type { UnitSlot } from "../units";
 import { FS_EVENT_NAMES, FS_EVENTS, packOverrides, type FsEvent } from "../fsEvents";
 import { codeOf, fingerprintOf } from "../trust";
 import { pointComplete, type SweepProgress } from "../sweep";
@@ -477,6 +478,10 @@ export interface ProjectState {
   applyParameterChanges: (changes: { elementId: string; key: string; value: ParamValue }[]) => void;
   /** A table's outside-the-data settings, one per axis (applies on the next run). */
   setTableOutside: (elementId: string, key: string, policies: OutsidePolicy[]) => void;
+  /** The unit a parameter's values (or a table's axis `slot`) are shown in,
+   *  null for the library's; with `value`, the parameter's new value too
+   *  ("the number is in another unit"), as one undo step. */
+  setDisplayUnit: (elementId: string, key: string, slot: UnitSlot, unit: string | null, value?: ParamValue) => void;
   setDynamicPorts: (elementId: string, ports: PortDef[]) => void;
   setPortSide: (elementId: string, portId: string, side: PortSide) => void;
   setPortPlacement: (
@@ -669,6 +674,19 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         ? { past: [...past.slice(-(HISTORY_LIMIT - 1)), project], future: [] }
         : {}),
     });
+  }
+
+  /** A scalar edit streams into a running simulation (tables and code apply
+   *  on the next run); a number outside its limits waits for one inside
+   *  (Data Checks refuse it). */
+  function streamLive(elementId: string, key: string, value: ParamValue) {
+    if (!activeRun || typeof value === "object") return;
+    const { project, libraryById } = get();
+    const el = project?.systems.flatMap((s) => s.elements).find((e) => e.id === elementId);
+    const pdef = el && libraryById[el.componentDefId]?.parameters.find((p) => p.key === key);
+    if (pdef?.type === "number" && rangeProblem(pdef, Number(value))) return;
+    activeRun.setParam(elementId, key, value);
+    logLiveEdit({ t: get().liveT, elementId, key, value });
   }
 
   /** Lay the saves made to the open project's file since this copy's
@@ -1493,16 +1511,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         true,
         `param:${elementId}:${key}`,
       );
-      // scalar edits stream into a running simulation (tables/code apply next run)
-      if (activeRun && typeof value !== "object") {
-        // a number outside its limits waits for one inside (Data Checks refuse it)
-        const { project, libraryById } = get();
-        const el = project?.systems.flatMap((s) => s.elements).find((e) => e.id === elementId);
-        const pdef = el && libraryById[el.componentDefId]?.parameters.find((p) => p.key === key);
-        if (pdef?.type === "number" && rangeProblem(pdef, Number(value))) return;
-        activeRun.setParam(elementId, key, value);
-        logLiveEdit({ t: get().liveT, elementId, key, value });
-      }
+      streamLive(elementId, key, value);
     },
 
     // presets set "fixed" parameters only, so nothing streams into a live run
@@ -1547,6 +1556,34 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         true,
         `outside:${elementId}:${key}`,
       ),
+
+    setDisplayUnit: (elementId, key, slot, unit, value) => {
+      updateProject((draft) => {
+        for (const s of draft.systems) {
+          const el = s.elements.find((e) => e.id === elementId);
+          if (!el) continue;
+          if (value !== undefined) el.parameterOverrides[key] = value;
+          const all = { ...el.displayUnits };
+          const d = { ...all[key] };
+          if (slot === "value") {
+            if (unit) d.value = unit;
+            else delete d.value;
+          } else {
+            const axes = [...(d.axes ?? [])];
+            axes[slot] = unit;
+            while (axes.length && !axes[axes.length - 1]) axes.pop();
+            if (axes.length) d.axes = Array.from(axes, (a) => a ?? null);
+            else delete d.axes;
+          }
+          // nothing chosen is no entry: such a file is as one from before
+          if (Object.keys(d).length) all[key] = d;
+          else delete all[key];
+          if (Object.keys(all).length) el.displayUnits = all;
+          else delete el.displayUnits;
+        }
+      });
+      if (value !== undefined) streamLive(elementId, key, value);
+    },
 
     setPortSide: (elementId, portId, side) =>
       updateProject((draft) => {

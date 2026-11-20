@@ -74,6 +74,7 @@ NOT_DATA = [
 SHIPPED = [
     "backend/projects/*", "backend/app/library/*", "backend/app/cycles/*", "backend/app/templates/*",
     "frontend/src/data/*", "frontend/public/*", "desktop/src/*",
+    "backend/app/dataio/units.json",  # lightsim-backend.spec ships it
 ]
 
 _SKIP_DIRS = {".git", "node_modules", "dist", "build", "release", "__pycache__",

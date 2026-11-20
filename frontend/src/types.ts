@@ -103,6 +103,11 @@ export interface ElementInstance {
   /** Per-instance outside-the-data settings: table key → one per axis,
    *  overriding the library's (AxisDef.outside). */
   tableOutside?: Record<string, OutsidePolicy[]>;
+  /** The unit the user chose to work in, by parameter key: for its value
+   *  (or a table's values) and per axis of a table (null: the library's).
+   *  Only how values are shown and typed: every value stays in the
+   *  library's unit, in the file and for the engine. */
+  displayUnits?: Record<string, DisplayUnits>;
   /** Per-instance canvas node size in flow units (drag a node's edges to resize);
    *  the engine sends null for elements left at the default size. */
   size?: { width: number; height: number } | null;
@@ -114,6 +119,12 @@ export interface ElementInstance {
   textFile?: string | null;
   /** Where each parameter value comes from (CON-13), by parameter key. */
   parameterSources?: Record<string, ParameterSource>;
+}
+
+/** The units one parameter is shown in (ElementInstance.displayUnits). */
+export interface DisplayUnits {
+  value?: string;
+  axes?: (string | null)[];
 }
 
 /** The kinds of origin a parameter value can have (CON-13). */
