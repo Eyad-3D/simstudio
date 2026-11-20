@@ -10,8 +10,10 @@
 //! Exactly today's equations (`battery.py`, `domains.py`), in continuous
 //! time: the RC pair's implicit-Euler update is the ODE it discretises; the
 //! "within the step" SOC limits (a current that would cross the minimum
-//! SOC within one 10 ms step) become their limit, a window that closes
-//! at the minimum SOC and at 100 %.
+//! SOC, or reach 100 %, within one 10 ms step) are a current that would
+//! take the charge left above the minimum SOC (or up to full) in 10 ms
+//! ([`TAU_SOC`]): a window that closes continuously as the SOC reaches its
+//! limit, with no switch there.
 //!
 //! The OCV table is runtime data (the parameter `ocv_table`, linear as
 //! today); the definition depends only on the structural choices (an RC
@@ -29,6 +31,15 @@ use lsim_ir::ParamValue;
 const ID: &str = "battery.generic";
 /// "infinite" power or current for a limit that is not set
 const BIG: f64 = 1e30;
+/// The SOC limits' time constant, s: the window lets through at most the
+/// current that would take the charge left above the minimum SOC (or up
+/// to full) in this time, so it closes continuously as the SOC reaches the
+/// limit. Today's engine's rule with its 10 ms step: the current that
+/// reaches the limit within one step. A window that closed at a jump there
+/// switched at the SOC: a hybrid whose engine charges it while its motors
+/// draw drove the SOC back to the limit from each side, and the run
+/// stopped with an event storm (DESIGN.md 8.2).
+const TAU_SOC: f64 = 0.01;
 
 /// Pack-level limits (Pack values with a current or voltage limit or a
 /// derating band; today's `CellPack` in PACK mode).
@@ -192,6 +203,7 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
             min(max(n("coulombic_efficiency_pct"), c(1e-3)), c(1.0)),
             "the share of the charging current stored",
         ),
+        p("tau_soc", "s", TAU_SOC, "the SOC limits' time constant (a model constant)"),
         pe(
             "p_cap",
             "W",
@@ -376,26 +388,35 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         if lim.i_ch || lim.v_max || lim.band { n("i_ch_lim") } else { c(0.0) * n("unit_A") },
         "the charge current limit (0 without one)",
     ));
-    let i_d = min(n("i_mpp"), n("i_dis_lim"));
+    // the SOC limits: at most the current that would take the charge left
+    // above the minimum SOC (or up to full) in TAU_SOC, today's "within the
+    // step" rule in continuous time ([`TAU_SOC`])
+    // (variables of their own: the app says which limit held the motors)
+    vars.push(var("i_floor", "A", "the discharge current its minimum SOC allows"));
+    vars.push(var("i_full", "A", "the charge current its full charge allows"));
+    eqs.push(eq(
+        n("i_floor"),
+        max(c(0.0) * n("unit_A"), (n("soc") - n("min_soc_pct")) * n("Q") / n("tau_soc")),
+        "it gives at most what takes the charge above its minimum SOC in tau_soc",
+    ));
+    eqs.push(eq(
+        n("i_full"),
+        max(c(0.0) * n("unit_A"), (c(1.0) - n("soc")) * n("Q") / (n("tau_soc") * n("eta_c"))),
+        "it takes at most what fills it in tau_soc",
+    ));
+    let (i_floor, i_full) = (n("i_floor"), n("i_full"));
+    let i_d = min(min(n("i_mpp"), n("i_dis_lim")), i_floor);
     eqs.push(eq(
         n("p_deliver"),
-        ite(
-            gt(n("soc"), n("min_soc_pct")),
-            min(i_d.clone() * (n("a_volt") - n("r0") * i_d), n("p_cap")),
-            c(0.0) * n("unit_W"),
-        ),
+        min(i_d.clone() * (n("a_volt") - n("r0") * i_d), n("p_cap")),
         "it delivers up to its maximum-power point, its limits and its Output Power Limit, \
-         down to its minimum SOC",
+         less as it nears its minimum SOC",
     ));
-    let i_c = n("i_ch_lim");
+    let i_c = min(n("i_ch_lim"), i_full);
     eqs.push(eq(
         n("p_absorb"),
-        ite(
-            lt(n("soc"), c(1.0)),
-            min(n("max_charge_power_kW"), i_c.clone() * (n("a_volt") + n("r0") * i_c)),
-            c(0.0) * n("unit_W"),
-        ),
-        "it takes up to its Max Charge Power and charge limits, until full",
+        min(n("max_charge_power_kW"), i_c.clone() * (n("a_volt") + n("r0") * i_c)),
+        "it takes up to its Max Charge Power and charge limits, less as it nears full",
     ));
     if cfg.inverse {
         vars.push(var("soc_in", "1", "its state of charge, within its minimum SOC … full"));

@@ -75,7 +75,7 @@ relaxes after a shift is in their own slip losses (below).
 | bev-car/case-wltc-hvac | 19/19 | 65/70 | 4.9e-10 | — | — | 136825 | 122 | 0.81 |
 | bev-car/case-wltc-summer | 20/20 | 65/70 | 1.6e-10 | — | — | 135776 | 122 | 0.82 |
 | bev-car/case-wltc-winter | 20/20 | 65/70 | 6.0e-10 | — | — | 136116 | 122 | 0.81 |
-| fs-electric/case-accel-75m | 19/19 | 65/65 | 1.2e-10 | — | — | 796 | 10 | 0.03 |
+| fs-electric/case-accel-75m | 19/19 | 65/65 | 1.9e-10 | — | — | 779 | 8 | 0.03 |
 | hybrid-car/case-hwfet | 9/9 | 88/88 | 9.0e-12 | 16 | 0.0002062 (0.0003367) | 903552 | 76965 | 8.72 |
 | hybrid-car/case-mixed | 9/9 | 82/88 | 1.9e-12 | 10 | 0.0001447 (0.0002622) | 296432 | 56212 | 3.53 |
 | hybrid-car/case-mixed-live | 9/9 | 82/88 | 1.9e-12 | 10 | 0.0001447 (0.0002622) | 296432 | 56212 | 3.53 |
@@ -951,3 +951,29 @@ measured the same day on 59d4d72) moves 2 106 values and loses three of
 the formula student car's rows (its last recorded distance 1.8e-7 m short
 of the 75.3 m line, which the time to 75 m reads), and its books close
 up to 270 times worse (the BEV's city cycle 2.2e-8): it stays off.
+
+## The battery's window closing continuously at its SOC limits (20 November 2026)
+
+The battery's window (the power it gives and takes) closed at a jump at
+its minimum SOC and at 100 %, a mode switched by the SOC; it now lets
+through at most the current that would take the charge left above the
+minimum (or up to full) in 10 ms, today's "within the step" rule in
+continuous time (`lsim-lib/src/blocks/battery.rs`, `TAU_SOC`; DESIGN.md
+8.2). Only the formula student car's acceleration run moves: its
+Accumulator starts full, and its charge window, which the full charge
+held shut by a mode until the SOC left 1 (two events at the start), now
+opens with the SOC. Its 141 values move by at most 3.2e-4 × band, as a
+share of their value at most 1.2e-5 (the gap to the reference time,
+−0.15633233 → −0.15633041 s); steps 796 → 779, events 10 → 8, its books
+1.2e-10 → 1.9e-10; 19 of 19 figures and 65 of 65 channels inside, as
+before. Every other case is the same to the bit (the record's other
+cases are kept as they were, run times included).
+
+With the E-Motor continuous in its window the same day (a short supply
+cuts its torque instead of switching its inverter off, and each motor's
+window from its bus is continuous in its request), the hybrid's four
+cases have two output channels of its E-Motor, its electrical power and
+losses, one unit in the last place apart at some output points (their RMS
+by 1.7e-13 to 1.0e-10 of their value), evaluated in another order; every
+state, step and event, and every other value, are the same to the bit.
+Those four cases are this run's.

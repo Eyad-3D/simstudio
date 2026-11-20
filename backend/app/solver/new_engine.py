@@ -1083,7 +1083,8 @@ class _Plan:
         # demand
         self.supply = {el: {v: var(el, v) for v in vs} for el, vs in (
             *((m, ("t_limited", "e_regen_lost")) for m in ctx.motors),
-            *((b, ("soc", "i_mpp", "i_dis_lim", "p_absorb", "t_held")) for b in ctx.batteries),
+            *((b, ("soc", "i_mpp", "i_dis_lim", "i_ch_lim", "i_floor", "i_full", "p_absorb",
+                   "t_held")) for b in ctx.batteries),
             *((c, ("served", "p_dem")) for c, cd in model.cdef_of.items() if cd.id in CONSUMER_TYPES))}
         # what each table rule of today's reads (BRANCH_READS' uses), on the
         # trace: its time past the data counted there (_branch_share)
@@ -1097,6 +1098,17 @@ class _Plan:
         self.windows = {f"{b.el_id}:sig_power": b.check.window_s for b in ctx.batteries.values()
                         if b.check is not None and b.check.limit_w > 0
                         and f"{b.el_id}:sig_power" in have}
+
+
+def _full(b, at, k: int) -> bool:
+    """Battery ``b`` too full to take its Max Charge Power at trace point
+    ``k`` (today's ``battery_full``): the current its full charge allows is
+    below its charge current limit and holds what it takes below that
+    power."""
+    i_full, i_ch = at(b.el_id, "i_full", k), at(b.el_id, "i_ch_lim", k)
+    taken = at(b.el_id, "p_absorb", k)
+    return (i_full is not None and i_ch is not None and taken is not None and i_full < i_ch
+            and taken < b.max_charge_w * (1.0 - 1e-6))
 
 
 def _finite(x) -> bool:
@@ -1956,14 +1968,18 @@ def _supply(ctx, plan: _Plan, run) -> list[str]:
             soc = at(b.el_id, "soc", k)
             if discharge:
                 i_mpp, i_lim = at(b.el_id, "i_mpp", k), at(b.el_id, "i_dis_lim", k)
+                # (its minimum SOC holds it where the current that SOC allows
+                # is below the maximum-power point's, as today's says it)
+                i_floor = at(b.el_id, "i_floor", k)
                 if ((b.check is not None and b.check.enforced and grew(b.el_id, "t_held", k))
                         or (soc is not None and soc <= b.min_soc + 1e-9)
-                        or (i_mpp is not None and i_lim is not None and i_lim < i_mpp)):
+                        or (i_mpp is not None and i_lim is not None and i_lim < i_mpp)
+                        or (i_mpp is not None and i_floor is not None and i_floor < i_mpp)):
                     return
                 out.setdefault(f"maxp:{b.el_id}", (
                     f"Battery '{label}' demand exceeds its deliverable power — motor torque "
                     f"limited at the maximum power point."))
-            elif soc is not None and soc >= 1.0 - 1e-9:
+            elif (soc is not None and soc >= 1.0 - 1e-9) or _full(b, at, k):
                 out.setdefault(f"full:{b.el_id}",
                                f"Battery '{label}' is full — regenerative torque limited.")
             elif (at(b.el_id, "p_absorb", k) or 0.0) >= b.max_charge_w * (1.0 - 1e-6):
