@@ -3151,9 +3151,22 @@ round).**
   and keeps every other iteration variable in it. A dummy derivative is
   the derivative of what is integrated, solved again from the states at
   every step: its own local error carries nothing into the solution. But
-  a controller's tick jumps it with the torque it commands, and tested, it
-  kept the hybrid's steps at 0.3 to 3 ms (in 98 % of its steps one of its
-  two dummy derivatives had the largest weighted error). IDA reads its id
+  its local error estimate, the gap between the step's prediction and its
+  correction, is one order in the step worse than the states': it is the
+  error of a derivative, O(h^k) against O(h^(k+1)) (measured with the
+  step capped and halved: it fell one power of h more slowly than the
+  states'). Tested, it was 2 600 times the largest state's on the BEV's
+  WLTC and 25 000 times on the hybrid's first 120 s, and it set 79 % and
+  98.5 % of their steps. On the cruising hybrid the uniform absolute floor
+  (atol 1e-8 × nominal 1, whatever the unit) binds besides: an
+  acceleration of 1e-5 rad/s² held to 1e-8 rad/s². A looser floor alone
+  does not cure it (scaled ×1e6, a relative-only test, the BEV still took
+  11 % more steps than with the dummy derivatives out), and SUNDIALS'
+  IDAS guide encourages `IDASetSuppressAlg` for systems of index 2 or
+  more, whose higher-index components these are (Brenan, Campbell and
+  Petzold, pp. 146-147). Out of the test a dummy derivative is held only
+  by its equations: at a standstill on 0.3 s order-5 steps it moved by
+  ±3e-9 rad/s² from step to step, against ±1e-12 tested. IDA reads its id
   vector for two things only, `IDACalcIC` (1 a state, 0 an iteration
   variable) and, under `IDASetSuppressAlg`, as the error test's mask: the
   run hands it a mask with 0 at the dummy derivatives for every step and

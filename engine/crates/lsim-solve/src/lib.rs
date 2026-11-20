@@ -316,14 +316,19 @@ pub struct SolverOptions {
     /// a final drive's output acceleration `der(fd.w_out)`), and keep every
     /// other iteration variable in it. On by default: their own error has
     /// no use (a dummy derivative is the derivative of what is integrated,
-    /// and it is solved again from the states at every step), and
-    /// tested, the jumps a controller's tick puts into them kept the
-    /// hybrid's steps at 0.3 to 3 ms (its UDDS: 3.02 million steps and
-    /// 26.9 s, 1.65 million and 18.5 s without; DESIGN.md §8.2, *The error
-    /// test leaves out the dummy derivatives*). Off, with [`SolverOptions::suppress_algebraic_error`] off:
-    /// every iteration variable is tested (the default before 19 November
-    /// 2026). CVODE has no iteration variables; diffsol has its own error
-    /// control and reads neither option
+    /// and it is solved again from the states at every step), and its
+    /// local error estimate is one order in the step worse than the
+    /// states' (the error of a derivative), so tested, it set the step:
+    /// 79 % of the BEV WLTC's steps and 98.5 % of the hybrid's, near zero
+    /// acceleration held to the absolute floor (1e-8) besides (the
+    /// hybrid's UDDS: 3.02 million steps and 26.9 s, 1.65 million and
+    /// 18.5 s without; SUNDIALS' IDAS guide encourages leaving such
+    /// higher-index components out; DESIGN.md §8.2, *The error test leaves
+    /// out the dummy derivatives*). Off, with
+    /// [`SolverOptions::suppress_algebraic_error`] off: every iteration
+    /// variable is tested (the default before 19 November 2026). CVODE has
+    /// no iteration variables; diffsol has its own error control and reads
+    /// neither option
     pub suppress_dummy_derivative_error: bool,
     /// at a rigid engagement a part declares (a gear shift), move the
     /// states to keep the momentum of everything the engagement ties
