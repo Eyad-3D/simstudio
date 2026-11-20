@@ -452,6 +452,22 @@ pub(crate) fn same_instant(a: f64, b: f64) -> bool {
     (a - b).abs() <= 16.0 * f64::EPSILON * a.abs().max(b.abs())
 }
 
+/// The mode a cycle of event iteration at one instant turns on: `trail`,
+/// the discrete values the rounds went through (`ends`: the ones a round
+/// ended with), and `d`, the values a round ends with now. Where `d` is
+/// values a round ended with before, the rounds
+/// repeat for ever, the states held; `Some(k)` where mode `k`'s value is the
+/// only one that changes along the repeat ([`Loop::decide_mode`]).
+fn cycling_mode(info: &RunInfo, trail: &[Vec<f64>], ends: &[usize], d: &[f64]) -> Option<usize> {
+    let &from = ends.iter().find(|&&e| trail[e] == d)?;
+    let mut changed = (0..d.len()).filter(|&i| trail[from..].iter().any(|v| v[i] != d[i]));
+    let i = changed.next()?;
+    if changed.next().is_some() {
+        return None;
+    }
+    info.modes.iter().position(|m| m.discrete == i)
+}
+
 /// A new hold's width W ([`Loop::update_sides`]), in bands: what the
 /// iteration variables' tolerances allow in its function ([`Loop::band`]).
 /// It bounds the location error a hold may cover: the holds suite's
@@ -1693,7 +1709,51 @@ impl Loop<'_> {
     fn may_hold_root(&self, c: usize) -> bool {
         !(self.mode_of_root.get(c).is_some_and(|m| m.is_some())
             || self.timed(c)
-            || self.held_root.get(c).copied().unwrap_or(false))
+            || self.held_root.get(c).copied().unwrap_or(false)
+            || self.error_guard(c))
+    }
+
+    /// Whether root function `c` is the guard of a table read on an axis
+    /// that allows no values outside (its hold: [`Loop::on_the_edge`]).
+    fn error_guard(&self, c: usize) -> bool {
+        let nr = self.model.layout().n_roots;
+        c >= nr
+            && self
+                .model
+                .table_guard_list()
+                .get(c - nr)
+                .is_some_and(|g| g.outside == lsim_ir::table::Outside::Error)
+    }
+
+    /// Whether table guard `k`, which `self.raw` (at `(t, y, d)`) has past
+    /// its edge on an axis that allows no values outside, is on the edge
+    /// to what the iteration variables' tolerances allow in it
+    /// ([`CELL_HOLD`] bands, as a held read's cell edge): a read whose
+    /// argument the integrator holds only to their tolerance can come out
+    /// that far past an edge it sits on (a motor at its full-load torque
+    /// reads its loss map at the map's last torque point, the torque the
+    /// share of the command its supply allows, solved to its tolerance,
+    /// times the command's). Such a guard is held inside within that width
+    /// ([`Loop::hold_cells`]' kind of hold, no time limit): the integrator
+    /// maps it inside there and reports a crossing beyond it, where the run
+    /// stops. A read past its edge that no iteration variable moves is
+    /// outside.
+    fn on_the_edge(&mut self, t: f64, y: &[f64], d: &[f64], k: usize) -> bool {
+        let c = self.model.layout().n_roots + k;
+        if self.model.layout().n_z == 0 {
+            return false;
+        }
+        let after = self.raw.clone();
+        let band = self.band(t, y, d, &after, &[c]);
+        self.raw = after;
+        let h = CELL_HOLD * band[c];
+        if h > 0.0 && self.raw[c] >= -h {
+            self.sides[c] = 1.0;
+            self.hold[c] = self.hold[c].max(h);
+            self.held = true;
+            return true;
+        }
+        false
     }
 
     /// The side the integrator saw root function `c` on at an event's
@@ -2158,12 +2218,14 @@ impl Loop<'_> {
     }
 
     /// Sets every mode from its relation (`ModelFunctions::modes`, which
-    /// decides the value exactly at zero), recording the flips.
+    /// decides the value exactly at zero), recording the flips; the modes
+    /// decided at this instant ([`Loop::decide_mode`]) keep their values.
     fn modes_from_relations(
         &mut self,
         t: f64,
         y: &[f64],
         d: &mut [f64],
+        decided: &[(usize, f64)],
     ) -> Result<bool, SolveError> {
         if self.info.modes.is_empty() {
             return Ok(false);
@@ -2172,6 +2234,9 @@ impl Loop<'_> {
         let inp = EvalInput { t, y, p: &self.info.params, d: &before, u: self.u };
         self.model.modes(&inp, &mut self.work, d);
         self.right_limits(t, y, d);
+        for &(k, v) in decided {
+            d[self.info.modes[k].discrete] = v;
+        }
         let mut changed = false;
         for k in 0..self.info.modes.len() {
             let i = self.info.modes[k].discrete;
@@ -2181,6 +2246,86 @@ impl Loop<'_> {
             }
         }
         Ok(changed)
+    }
+
+    /// Mode `k`, which event iteration at `t` sets on and off without end:
+    /// its condition holds while it is off and fails while it is on
+    /// ([`cycling_mode`]). Decided once, from its condition g and g's rate
+    /// with the iteration variables solved for each of its two values
+    /// ([`Loop::rates_after`]):
+    ///
+    /// * where at both values g is within the hold width of zero
+    ///   ([`HOLD`] bands, what the iteration variables' tolerances leave
+    ///   undecided; the solves' rounding where that is larger), the
+    ///   condition is at zero, and the mode takes the value its condition
+    ///   has just after the instant, as a time crossing's mode does
+    ///   ([`Loop::right_limits`]): on where, on, g does not fall; off where,
+    ///   off, g does not rise; of two such values, the one it has. Where
+    ///   neither is (on, g falls; off, it rises), the motion would slide
+    ///   along the switching point, which the run loop does not follow: the
+    ///   run stops, naming the mode;
+    /// * beyond that width, the mode's own value moves its condition across
+    ///   zero and no value of it holds: the run stops, naming the mode and
+    ///   both values of its condition.
+    ///
+    /// `None` where the iteration variables cannot be solved for both
+    /// values: the iteration goes on as it was.
+    fn decide_mode(
+        &mut self,
+        integ: &mut dyn Integrator,
+        t: f64,
+        y: &[f64],
+        d: &[f64],
+        k: usize,
+    ) -> Result<Option<f64>, SolveError> {
+        let info = self.info;
+        let m = &info.modes[k];
+        let c = m.crossing;
+        let (mut g, mut width, mut rate) = ([0.0; 2], [0.0; 2], [f64::NAN; 2]);
+        for v in 0..2 {
+            let mut dv = d.to_vec();
+            dv[m.discrete] = v as f64;
+            let mut yv = y.to_vec();
+            if integ.consistent_z_aside(t, &mut yv, &dv).is_err() {
+                return Ok(None);
+            }
+            self.eval_raw(t, &yv, &dv);
+            g[v] = self.raw[c];
+            let after = self.raw.clone();
+            let band = self.band(t, &yv, &dv, &after, &[c])[c];
+            width[v] = (HOLD * band).max(self.rounding(t, &yv, &dv, &[c])[c]);
+            rate[v] = self.rates_after(t, &yv, &dv).map_or(f64::NAN, |r| r[c]);
+        }
+        let label = m.label.clone();
+        let stop = |message: String| {
+            Err(SolveError::EventStorm { t, message, parts: vec![label.clone()] })
+        };
+        if g[0].abs() > width[0] || g[1].abs() > width[1] {
+            return stop(format!(
+                "{label} has no value that holds at this instant: off, its condition is \
+                 {:+.3e}, which turns it on; on, {:+.3e}, which turns it off (beyond the \
+                 {:.3e} the solver's tolerances resolve). Its own switching moves the \
+                 condition it switches on: check the part's parameters.",
+                g[0],
+                g[1],
+                width[0].max(width[1])
+            ));
+        }
+        // (a rate not known holds the value)
+        let on = rate[1].is_nan() || rate[1] >= 0.0;
+        let off = rate[0].is_nan() || rate[0] <= 0.0;
+        match (off, on) {
+            (true, true) => Ok(Some(d[m.discrete])),
+            (false, true) => Ok(Some(1.0)),
+            (true, false) => Ok(Some(0.0)),
+            (false, false) => stop(format!(
+                "{label} is at its switching point, and each of its values drives its \
+                 condition back there (off, it rises at {:.3e}/s; on, it falls at {:.3e}/s): \
+                 the motion would slide along the switching point, which the run does not \
+                 follow. Check the part's parameters.",
+                rate[0], rate[1]
+            )),
+        }
     }
 
     /// The modes of time crossings whose time is this instant take their
@@ -2468,8 +2613,10 @@ impl Loop<'_> {
     /// once (a sampled block's tick, a `when`), and the integrator, which
     /// watches the guards between events, never sees it cross.
     /// An `Error` axis outside its data stops the run where its read's
-    /// value is used ([`Loop::read_in_use`], at `(t, y, d)`); elsewhere it is
-    /// looked at again after each event.
+    /// value is used ([`Loop::read_in_use`], at `(t, y, d)`), but where it
+    /// is on the edge to its iteration variables' tolerances
+    /// ([`Loop::on_the_edge`]: held inside there); elsewhere it is looked at
+    /// again after each event.
     fn sync_guards(
         &mut self,
         t: f64,
@@ -2486,7 +2633,7 @@ impl Loop<'_> {
             }
             let a = self.raw.get(nr + k).copied().unwrap_or(0.0);
             if a < 0.0 && error {
-                if self.read_in_use(k, t, y, d) {
+                if self.read_in_use(k, t, y, d) && !self.on_the_edge(t, y, d, k) {
                     self.leave_table(k, t, g)?;
                 }
             } else if a < 0.0 && self.outside_since[k].is_none() {
@@ -2772,7 +2919,9 @@ impl Loop<'_> {
     /// `skip`: clauses the first round does not check (decided already).
     /// The conditions as the integrator sees them, held where it saw them
     /// at the event (`seen`: iterated from where it located the event;
-    /// [`Loop::hold_conditions`]).
+    /// [`Loop::hold_conditions`]). A mode the rounds set on and off without
+    /// end, the discrete values repeating, is decided once
+    /// ([`Loop::decide_mode`]) and keeps its value at this instant.
     #[allow(clippy::too_many_arguments)]
     fn rounds(
         &mut self,
@@ -2791,6 +2940,14 @@ impl Loop<'_> {
         // the held table reads moved at this instant, per axis
         // (crate::held::place)
         let mut moved = vec![[false; 2]; info.held.len()];
+        // the discrete values the rounds went through since the first round
+        // that asked for another ended (or the last mode decided here), and
+        // which of them a round ended with, for a cycle ([`cycling_mode`];
+        // empty until then: most events settle in their first round); the
+        // modes decided ([`Loop::decide_mode`]), with their values
+        let mut trail: Vec<Vec<f64>> = vec![];
+        let mut ends: Vec<usize> = vec![];
+        let mut decided: Vec<(usize, f64)> = vec![];
         loop {
             if any_fired {
                 self.solve_z(integ, t, y, d, z_for)?;
@@ -2801,11 +2958,17 @@ impl Loop<'_> {
                 *d = d_new;
                 fired.fill(0.0);
                 any_fired = false;
+                if !trail.is_empty() {
+                    trail.push(d.clone());
+                }
             }
             // every mode from its relation with the new discrete values
             self.solve_z(integ, t, y, d, z_for)?;
-            if self.modes_from_relations(t, y, d)? {
+            if self.modes_from_relations(t, y, d, &decided)? {
                 self.solve_z(integ, t, y, d, z_for)?;
+                if !trail.is_empty() {
+                    trail.push(d.clone());
+                }
             }
             if self.roots.is_empty() {
                 break;
@@ -2832,7 +2995,9 @@ impl Loop<'_> {
                 }
             }
             for (k, m) in info.modes.iter().enumerate() {
-                if self.now.get(m.crossing).copied().unwrap_or(false) {
+                if self.now.get(m.crossing).copied().unwrap_or(false)
+                    || decided.iter().any(|x| x.0 == k)
+                {
                     continue;
                 }
                 let g = self.roots[m.crossing];
@@ -2865,6 +3030,25 @@ impl Loop<'_> {
             }
             if !again {
                 break;
+            }
+            // a round that ends where an earlier one did repeats for ever:
+            // where one mode alone changes along the repeat, it is decided
+            // once and keeps its value at this instant
+            if let Some(k) = cycling_mode(info, &trail, &ends, d)
+                && let Some(v) = self.decide_mode(integ, t, y, d, k)?
+            {
+                let i = info.modes[k].discrete;
+                if d[i] != v {
+                    d[i] = v;
+                    self.record(t, EventKind::Mode(k))?;
+                }
+                decided.push((k, v));
+                self.solve_z(integ, t, y, d, z_for)?;
+                trail = vec![d.clone()];
+                ends = vec![0];
+            } else {
+                trail.push(d.clone());
+                ends.push(trail.len() - 1);
             }
             iterations += 1;
             if iterations > self.opts.max_event_iterations {
