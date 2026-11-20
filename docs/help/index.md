@@ -48,6 +48,8 @@ says what the automatic tests check.
 - Press **F1** in LightSim. It opens the page of what you are on: the
   parameter you are typing in, else the part selected on the diagram, else
   the panel you are working in; otherwise this page.
+- Click **Help** at the top of a part's parameter window for that part's
+  page; F1 there opens it at the parameter you are typing in.
 - Click **?** next to a panel's tabs for that panel's page.
 - Open the **?** menu at the top right of the window, next to the text
   size buttons, for the main pages. In the desktop app, the **Help** menu
@@ -56,7 +58,11 @@ says what the automatic tests check.
 The help opens in a panel on the right of the window, beside your work.
 Its buttons go back, to this front page and to your web browser (**Open
 in browser**), where you can keep pages open in tabs and bookmark them;
-drag its left edge to make it wider, and press Esc in it to close it. LightSim
+drag its left edge to make it wider, and press Esc in it to close it. Help
+asked from a part's parameter window opens in a Help window of its own
+instead, so it is not hidden behind that window: one Help window for all
+parts, which comes to the front each time and closes with LightSim (Alt+Left
+goes back a page). If your browser blocks pop-ups, it opens in the panel. LightSim
 serves the help from your computer: it needs no internet connection. To
 find a page, type any words from it into **Search the help** at the top
 left of the page.

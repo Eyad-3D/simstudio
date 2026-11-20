@@ -1474,6 +1474,12 @@ SUNDIALS' own examples, transcribed from their C code
   panel keeps the taller height an earlier build saved, because automatic
   fits stop at 50 %: close the panel, zoom out or choose *Reset UI*.
   *Roadmap:* GUI-10.
+- **The Help window has no buttons of its own.** Help opened from a part's
+  parameter window shows in a window with the page and nothing else: no
+  Back button, no way to the Help panel. Go back with Alt+Left or the
+  mouse's back button, or follow the links in the page; the help front
+  page is the link at the top. The Help window keeps no size or place of
+  its own: it opens at 820 × 860 each time.
 - **Run warnings find their part by its name.** The Problems list shows the
   latest run's warnings and errors, and a row selects the part whose name
   the message quotes. A part renamed after the run is missed, parts that
