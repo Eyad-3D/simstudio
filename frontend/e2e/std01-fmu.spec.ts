@@ -10,7 +10,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { openApp, runActiveCase, showPanel } from "./app";
+import { openApp, paramWindow, runActiveCase, showPanel } from "./app";
 
 const backend = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "backend");
 const python = process.env.LIGHTSIM_PYTHON || (process.platform === "win32" ? "python" : "python3");
@@ -56,15 +56,15 @@ test("STD-01: a dropped FMU runs with the car", async ({ page }) => {
   await expect(page.getByText("Allowed to run on this computer")).toBeVisible();
 
   // its variables: change the gain's start value, and watch the FMU's own clock
-  await page.getByRole("button", { name: /Variables and pins/ }).click();
-  const table = page.getByRole("table", { name: "FMU variables" });
+  const win = await paramWindow(page, () => page.getByRole("button", { name: /Variables and pins/ }).click());
+  const table = win.getByRole("table", { name: "FMU variables" });
   await expect(table.getByRole("checkbox", { name: "Pin for u" })).toBeChecked();
   await expect(table.getByRole("checkbox", { name: "Pin for k" })).toBeDisabled();
   const k = table.getByRole("textbox", { name: "Start value of k" });
   await k.fill("3");
   await k.press("Enter");
   await expect(k).toHaveValue("3");
-  await page.keyboard.press("Escape");
+  await win.close();
 
   // wire its input to the vehicle's speed on the Data Bus
   await showPanel(page, "Data Bus Connections");

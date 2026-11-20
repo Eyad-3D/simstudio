@@ -10,8 +10,9 @@ own, kept in the project: see
 [Use a cycle of your own](pick-a-drive-cycle.md#use-a-cycle-of-your-own).
 It reads the file the way this page describes.
 
-1. Select the part and open its table: double-click the part on the
-   diagram, or click the table's **Edit…** in *Properties*.
+1. Open the part's table: double-click the part on the diagram (its
+   parameters open in a window of their own), or click the table's
+   **Edit…** in *Properties*, which opens that window at the table.
 2. Click **Import from file…** under the table and choose the file.
 3. Check the preview: the curve (or the map's first rows and columns), how
    many points, and the unit each column was read in.

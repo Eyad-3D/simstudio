@@ -3,6 +3,7 @@ import { DockLayout } from "./components/DockLayout";
 import { AiConnectDialog } from "./components/AiConnectDialog";
 import { DialogHost } from "./components/DialogHost";
 import { ParameterDialog } from "./components/ParameterDialog";
+import { ParamWindows } from "./components/ParamWindows";
 import { Ribbon } from "./components/Ribbon";
 import { StartPage } from "./components/StartPage";
 import { StatusBar } from "./components/StatusBar";
@@ -11,7 +12,9 @@ import { FirstSteps } from "./components/FirstSteps";
 import { HelpPanel } from "./components/HelpPanel";
 import { importFile } from "./components/Ribbon";
 import { desktop } from "./desktop";
-import { componentHelpPage, openHelp, whatsNewOnce } from "./help";
+import { whatsNewOnce } from "./help";
+import { onAppKey } from "./appKeys";
+import { paramWindowShown } from "./paramWindows";
 import { confirmReplaceProject, useProjectStore } from "./store/projectStore";
 import { useUIStore } from "./store/uiStore";
 import { saveDraft } from "./persist";
@@ -138,10 +141,10 @@ export default function App() {
   // a project file changed on disk: an AI agent's edit (or another window's
   // save) shows at once, laid over this window's unsaved changes (step 6); a
   // change LightSim did not make (a git pull) offers a reload (PLT-33). Look
-  // every second while the window is in front
+  // every second while the window, or a part's parameter window, is on screen
   useEffect(() => {
     const check = () => {
-      if (document.visibilityState === "visible") void useProjectStore.getState().checkDisk();
+      if (document.visibilityState === "visible" || paramWindowShown()) void useProjectStore.getState().checkDisk();
     };
     const timer = setInterval(check, 1000);
     window.addEventListener("focus", check);
@@ -193,57 +196,10 @@ export default function App() {
     document.title = title;
   }, [title]);
 
+  // the app's shortcuts (appKeys.ts); each parameter window listens too
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "F1") {
-        // the parameter in the open help card, else the focused parameter's
-        // help, else the selected part's help page, else the help of the
-        // panel or page the focus is in, else the help's front page
-        e.preventDefault();
-        const { project, selectedElementId } = useProjectStore.getState();
-        const el = project?.systems.flatMap((s) => s.elements).find((x) => x.id === selectedElementId);
-        const at = document.querySelector(".ss-help-card:popover-open") ?? (e.target instanceof Element ? e.target : null);
-        const param = at?.closest("[data-help]")?.getAttribute("data-help");
-        const panel = at?.closest("[data-help-panel]")?.getAttribute("data-help-panel");
-        openHelp(param ?? (el ? componentHelpPage(el.componentDefId) : (panel ?? undefined)));
-        return;
-      }
-      const meta = e.ctrlKey || e.metaKey;
-      if (!meta) return;
-      const target = e.target as HTMLElement;
-      const typing =
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT" ||
-        target.isContentEditable;
-      const store = useProjectStore.getState();
-      if (e.key === "Enter") {
-        // Ctrl/Cmd+Enter runs the active case from anywhere (except while
-        // editing multi-line code, where Enter belongs to the editor).
-        if (target.tagName === "TEXTAREA" || target.isContentEditable) return;
-        e.preventDefault();
-        if (!store.running) void store.run();
-      } else if (e.key.toLowerCase() === "s" && e.shiftKey && desktop()) {
-        e.preventDefault();
-        void store.saveAs();
-      } else if (e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        void store.saveRemote();
-      } else if (e.key.toLowerCase() === "o" && desktop()) {
-        e.preventDefault();
-        void confirmReplaceProject("Opening a project file").then((ok) => {
-          if (ok) void store.openFile();
-        });
-      } else if (!typing && e.key.toLowerCase() === "z" && !e.shiftKey) {
-        e.preventDefault();
-        store.undo();
-      } else if (!typing && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) {
-        e.preventDefault();
-        store.redo();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onAppKey);
+    return () => window.removeEventListener("keydown", onAppKey);
   }, []);
 
   return (
@@ -284,6 +240,7 @@ export default function App() {
       <HelpPanel />
       </div>
       <StatusBar />
+      <ParamWindows />
       <ParameterDialog />
       <DialogHost />
       <AiConnectDialog />

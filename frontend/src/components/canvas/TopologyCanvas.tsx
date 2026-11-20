@@ -886,7 +886,7 @@ function TopologyCanvasInner() {
           // Coordinate hit-test: the second click of a double-click can land
           // on the pane while React re-renders the selection, so relying on
           // onNodeDoubleClick alone is not enough. Containers drill in;
-          // everything else opens the parameter dialog.
+          // everything else opens its parameter window.
           if (!system) return;
           const pos = screenToFlowPosition({ x: e.clientX, y: e.clientY });
           const hit = system.elements.find((el) => {

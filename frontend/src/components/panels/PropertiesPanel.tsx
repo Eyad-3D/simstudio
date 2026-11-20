@@ -3,6 +3,7 @@ import { Box, Columns3, CornerDownRight, Pencil, Plus, Radio, Rows3, Table2, Tra
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { componentHelpPage, openHelp } from "../../help";
+import { useOwnerWindow } from "../../ownerWindow";
 import { limitsText, paramName, rangeProblem } from "../../paramRules";
 import { LABEL_RRC, describeTyre, parseTyreCode, tyreValues } from "../../tyre";
 import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
@@ -864,7 +865,7 @@ export function ElementForm({
   element: ElementInstance;
   def: ComponentDef;
   /** In the narrow Properties panel, table/code/profile params collapse to an
-   *  "Edit…" button that opens the roomier parameter dialog. */
+   *  "Edit…" button that opens the part's parameter window at it. */
   compact?: boolean;
 }) {
   const setParameter = useProjectStore((s) => s.setParameter);
@@ -948,6 +949,7 @@ export function ElementForm({
     return () => clearTimeout(t);
   }, [want, help, focused]);
   const card = useRef<HTMLDivElement>(null);
+  const win = useOwnerWindow();
   // a dialog over Properties hides its card (the focus can stay behind it)
   const covered = useUIStore((s) => compact && (s.paramDialogId !== null || s.dialog !== null));
   const helpDef = covered ? undefined : def.parameters.find((p) => p.key === help && p.description);
@@ -968,9 +970,9 @@ export function ElementForm({
       setPointed(null);
       setFocused(null);
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [helpDef]);
+    win.addEventListener("keydown", onKey, true);
+    return () => win.removeEventListener("keydown", onKey, true);
+  }, [helpDef, win]);
   const helpPage = (p: ParameterDef) => `${componentHelpPage(def.id)}#${p.key}`;
   // a different anchor for the dialog's card and the Properties panel's
   const anchor = compact ? "--ss-help-panel" : "--ss-help-dialog";
@@ -1147,13 +1149,13 @@ export function ElementForm({
               className="ss-toolbtn justify-between border border-[color:var(--ss-border)] px-2 py-1"
               aria-description={p.description ?? undefined}
               onClick={() => {
-                // the card is not wanted back when the dialog closes
+                // the card is not wanted back when the window closes
                 setHelp(null);
                 setPointed(null);
                 setFocused(null);
                 openParamDialog(element.id, p.key);
               }}
-              title={p.description ? undefined : `${isProfile(p) ? "Profile" : p.label}: open the full editor in a dialog`}
+              title={p.description ? undefined : `${isProfile(p) ? "Profile" : p.label}: open the full editor in the part's window`}
             >
               <span className="flex min-w-0 items-center gap-1.5">
                 {p.type === "code" ? <Pencil size={12} /> : <Table2 size={12} />}

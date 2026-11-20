@@ -5,18 +5,14 @@
   "results-light": [
     "label-title-only  select \"Active simulation case\""
   ],
-  "parameter-dialog-light": [
-    "label-title-only  select \"Active simulation case\""
-  ],
+  "parameter-window-light": [],
   "topology-dark": [
     "label-title-only  select \"Active simulation case\""
   ],
   "results-dark": [
     "label-title-only  select \"Active simulation case\""
   ],
-  "parameter-dialog-dark": [
-    "label-title-only  select \"Active simulation case\""
-  ],
+  "parameter-window-dark": [],
   "help-light": [],
   "help-dark": [],
   "start-light": [

@@ -12,6 +12,20 @@ export async function openApp(page: Page): Promise<void> {
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
 }
 
+/** A part's parameters open in a window of their own, a pop-up page:
+ *  `ask` is what asks for it (a double-click on the part, a table's Edit…
+ *  button, Enter on it). Returns the window once its form is drawn. */
+export async function paramWindow(page: Page, ask: () => Promise<unknown>): Promise<Page> {
+  const [win] = await Promise.all([page.waitForEvent("popup"), ask()]);
+  await expect(win.getByRole("textbox", { name: "Name", exact: true })).toBeVisible();
+  return win;
+}
+
+/** Double-click part `label` on the diagram: its parameter window. */
+export function openParams(page: Page, label: string): Promise<Page> {
+  return paramWindow(page, () => page.locator(".react-flow__node", { hasText: label }).first().dblclick());
+}
+
 /** A ribbon tab: Project, Home, Simulations, Parameters, Results. */
 export function ribbonTab(page: Page, name: string): Locator {
   return page.getByRole("button", { name, exact: true });

@@ -81,15 +81,16 @@ function contactedHosts(file) {
 
 const LOCAL = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
 
-/** Evaluate an expression in the page over the devtools protocol. */
-function evaluate(page, expression) {
+/** Evaluate an expression in the page over the devtools protocol; with
+ *  `userGesture` it runs as if the user had clicked (a pop-up needs that). */
+function evaluate(page, expression, userGesture = false) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(page.webSocketDebuggerUrl);
     const timer = setTimeout(() => reject(new Error("devtools evaluate timed out")), 30_000);
     ws.onopen = () => ws.send(JSON.stringify({
       id: 1,
       method: "Runtime.evaluate",
-      params: { expression, returnByValue: true },
+      params: { expression, returnByValue: true, userGesture },
     }));
     ws.onerror = () => { clearTimeout(timer); reject(new Error("devtools socket failed")); };
     ws.onmessage = (e) => {
@@ -136,6 +137,30 @@ try {
   const help = await fetch(new URL("/help/index.html", page.url));
   if (!help.ok) fail(`the help pages are missing: /help/index.html answered ${help.status}`);
   console.log("✓ help pages served");
+
+  // A double-click on a part opens its parameters in a window of their own:
+  // the one window the shell lets the page open (desktop/src/windows.js).
+  const clicked = await evaluate(page, `(() => {
+    const nodes = [...document.querySelectorAll('.react-flow__node')];
+    const node = nodes.find((n) => /Motor/.test(n.textContent)) ?? nodes[0];
+    node?.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    return node?.textContent ?? null;
+  })()`, true);
+  let paramWindow = null;
+  for (let i = 0; i < 20 && !paramWindow; i++) {
+    await sleep(500);
+    const targets = await (await fetch(`http://127.0.0.1:${DEBUG_PORT}/json/list`)).json();
+    paramWindow = targets.find((t) => t.type === "page" && t.id !== page.id);
+  }
+  if (!paramWindow) fail(`a double-click on '${clicked}' opened no parameter window`);
+  const form = JSON.parse(await evaluate(paramWindow, `JSON.stringify({
+    title: document.title,
+    name: document.querySelector('input[aria-label="Name"]')?.value ?? null,
+  })`));
+  if (!form.name || form.title !== form.name) {
+    fail(`the parameter window shows no part's form: ${JSON.stringify(form)}`);
+  }
+  console.log(`✓ parameter window opened for '${form.title}'`);
 
   // Nothing beyond this computer, though the app has been open for a while
   // and (on a fresh install) is showing its update question.

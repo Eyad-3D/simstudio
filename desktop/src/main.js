@@ -9,7 +9,7 @@
  * frontend's relative `/api` calls work untouched.
  */
 
-const { app, BrowserWindow, Menu, dialog, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, Menu, dialog, ipcMain, screen, session, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const net = require("node:net");
@@ -20,6 +20,7 @@ const { copyOldProjects } = require("./old-projects");
 const { EngineFiles, isProjectFile, projectFilesIn, suggestedName, withSuffix } = require("./project-files");
 const { readPolicy, expandPath, engineEnv } = require("./policy");
 const { initUpdates } = require("./updates");
+const windows = require("./windows");
 
 const HEALTH_TIMEOUT_MS = 40_000;
 const isWindows = process.platform === "win32";
@@ -49,6 +50,9 @@ const pendingFiles = [];
 let windowReady = false;
 /** Help → Updates (PLT-18); set once the app is ready. */
 let updates = null;
+/** The open parameter windows by their window name (src/windows.js). */
+/** @type {Map<string, BrowserWindow>} */
+const paramWindows = new Map();
 
 // The window only talks to the engine on 127.0.0.1, so it needs no proxy,
 // and looking one up (WPAD on Windows) is a query on the network: none from
@@ -554,11 +558,45 @@ function handleFileRequests() {
     if (canceled || !filePaths[0]) return null;
     return engineFiles.allowAiFolder(filePaths[0]);
   });
+  // a part's parameter window asked for again: to the front, even from the taskbar
+  ipcMain.handle("lightsim:raise-window", (event, name) => {
+    if (!fromApp(event)) return;
+    const child = paramWindows.get(String(name));
+    if (!child || child.isDestroyed()) return;
+    if (child.isMinimized()) child.restore();
+    child.show();
+    child.focus();
+  });
   ipcMain.handle("lightsim:show-file", async (event, projectId) => {
     if (!fromApp(event) || !engineFiles) return;
     const file = (await engineFiles.recent()).find((f) => f.id === projectId);
     if (file) shell.showItemInFolder(file.path);
   });
+}
+
+/**
+ * A parameter window stays the blank page the main window draws into: it
+ * opens nothing and goes nowhere (an http(s) link goes to the browser), it
+ * has no menu (whose Reload would blank it), and a place remembered on a
+ * monitor that has gone is moved back onto a screen.
+ */
+function guardParamWindow(child, name) {
+  paramWindows.set(name, child);
+  child.on("closed", () => {
+    if (paramWindows.get(name) === child) paramWindows.delete(name);
+  });
+  child.removeMenu();
+  child.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  child.webContents.on("will-navigate", (event, url) => {
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+  });
+  const home = mainWindow && !mainWindow.isDestroyed() ? screen.getDisplayMatching(mainWindow.getBounds()) : screen.getPrimaryDisplay();
+  const moved = windows.onScreen(child.getBounds(), screen.getAllDisplays().map((d) => d.workArea), home.workArea);
+  if (moved) child.setBounds(moved);
 }
 
 async function createWindow() {
@@ -584,10 +622,17 @@ async function createWindow() {
   askBeforeUnsavedUnload(mainWindow);
 
   // Keep external links in the user's browser rather than inside the app.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:\/\//i.test(url)) shell.openExternal(url);
+  // The one window the page may open is a part's parameter window: a blank
+  // page under its own name, with this window's safety (src/windows.js).
+  // It closes with this window (Electron's default for a page's window).
+  const icon = path.join(__dirname, "..", "build", "icon.png");
+  mainWindow.webContents.setWindowOpenHandler((details) => {
+    const action = windows.windowOpenAction(details);
+    if (action === "param") return { action: "allow", overrideBrowserWindowOptions: windows.paramWindowOptions(icon) };
+    if (action === "external") shell.openExternal(details.url);
     return { action: "deny" };
   });
+  mainWindow.webContents.on("did-create-window", (child, { frameName }) => guardParamWindow(child, frameName));
   // The window only ever shows the engine's UI; a link or a dropped file
   // that would navigate it elsewhere opens in the browser, or not at all.
   mainWindow.webContents.on("will-navigate", (event, url) => {

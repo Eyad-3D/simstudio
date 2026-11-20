@@ -11,6 +11,7 @@ import {
   expectProject,
   openApp,
   openFromMenu,
+  openParams,
   ribbonTab,
   runActiveCase,
   selectElement,
@@ -52,21 +53,20 @@ test("RES-04: no hidden splitter lies on top of the Results page", async ({ page
   }
 });
 
-test("UX-05: Esc while editing a map cell keeps the parameter dialog open", async ({ page }) => {
+test("UX-05: Esc while editing a map cell keeps the parameter window open", async ({ page }) => {
   await openApp(page);
-  await page.locator(".react-flow__node", { hasText: "E-Motor" }).first().dblclick();
-  const close = page.getByTitle("Close (Esc)");
-  await expect(close).toBeVisible();
+  const win = await openParams(page, "E-Motor");
 
-  const cell = page.locator(".ss-grid .ss-cell-body").first();
+  const cell = win.locator(".ss-grid .ss-cell-body").first();
   const before = await cell.innerText();
   await cell.dblclick();
-  await expect(page.locator(".ss-cell-input")).toBeVisible();
-  await page.keyboard.press("Escape");
+  await expect(win.locator(".ss-cell-input")).toBeVisible();
+  await win.keyboard.press("Escape");
 
-  await expect(page.locator(".ss-cell-input")).toHaveCount(0); // the edit is cancelled…
-  await expect(close).toBeVisible(); // …but the dialog stays
-  await expect(page.locator(".ss-grid .ss-cell-body").first()).toHaveText(before);
+  await expect(win.locator(".ss-cell-input")).toHaveCount(0); // the edit is cancelled…
+  expect(win.isClosed()).toBe(false); // …but the window stays
+  await expect(win.getByRole("heading", { name: "E-Motor" })).toBeVisible();
+  await expect(win.locator(".ss-grid .ss-cell-body").first()).toHaveText(before);
 });
 
 test("UX-04: a number field can be cleared and retyped", async ({ page }) => {
