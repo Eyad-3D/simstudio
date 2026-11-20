@@ -1135,7 +1135,7 @@ instrumentation (not committed; kept as a patch outside the repository).
 
 What holds on the branch: the golden comparison's record is the same to
 the bit (0 of 11 347 values move; the books close to 1.27e-9 or better);
-`engine/check.sh` passes (627 tests); the hybrid's whole UDDS 18.89 s
+`engine/check.sh` passes (624 tests); the hybrid's whole UDDS 18.89 s
 and the BEV's WLTC 1.097 s, the same steps and events as origin/main built
 the same way on this PC (18.96 s and 1.098 s; the best of seven runs each,
 the two alternating in fresh processes); the backend suite with this
