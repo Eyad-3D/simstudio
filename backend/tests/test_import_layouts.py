@@ -5,12 +5,13 @@ import base64
 import itertools
 import random
 
+from fastapi.testclient import TestClient
+
 from app.dataio import layouts
 from app.dataio.layouts import DataTarget, data_target, parse_label, read_data, split_title
 from app.dataio.params import _long_rows
 from app.dataio.sheets import OutSheet, read_csv, read_file, xlsx_bytes
 from app.solver.maps import parse_grid
-from fastapi.testclient import TestClient
 
 LOSS = ("motor.emotor", "power_loss")  # Speed [1/min] x Torque [N·m] -> kW
 
