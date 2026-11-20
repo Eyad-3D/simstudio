@@ -38,7 +38,7 @@ selection as the Delete key.
 | Shift+drag a pin | Slide the pin along the part's edges |
 | Double-click a part | Open its parameters in a window of their own (a sub-system: go inside); again, bring that window to the front |
 | Esc | Cancel click-to-place; close a menu, or a help card, unit chooser or import preview in a parameter window |
-| Enter on a table's header | Choose the unit of that column ([Work in other units](../how-to/work-in-other-units.md)) |
+| Enter on a table's header (a map's top-left cell) | Choose the unit of that column (of the map's values) ([Work in other units](../how-to/work-in-other-units.md)) |
 
 A part's parameter window is an ordinary window: resize it, minimise it or
 move it to another screen, and keep several open. What you type there is in
@@ -108,7 +108,7 @@ point). [How to measure between two times](../how-to/measure-between-two-times.m
 | Delete or Backspace | Clear the selected cells |
 | Esc | Cancel the edit |
 | Ctrl+A | Select every cell |
-| Ctrl+C, Ctrl+V | Copy and paste cells, also from and to a spreadsheet |
+| Ctrl+C, Ctrl+V | Copy and paste cells, also from and to a spreadsheet; the **Copy** and **Paste** buttons above the grid do the same ([Edit a table or a map](../how-to/edit-a-table.md)) |
 
 ## In a source box of Data Bus Connections
 
