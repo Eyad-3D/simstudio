@@ -47,12 +47,8 @@ export default function TablePlotChart({ slice }: { slice: TableSlice }) {
       // can have many curves); the line under it reads the pointer
       legend: { show: false },
       focus: { alpha: 0.35 },
-      cursor: {
-        // no zoom box: uPlot ends a drag on the main window's page, not on a
-        // parameter window's (the wheel, the keys and a double-click still zoom)
-        drag: { x: false, y: false },
-        focus: { prox: 24 },
-      },
+      // a drag draws a zoom box, in a parameter window too (Plot's endDragOn)
+      cursor: { focus: { prox: 24 } },
       hooks: {
         setCursor: [(u) => setHover((h) => (h.idx === (u.cursor.idx ?? null) ? h : { ...h, idx: u.cursor.idx ?? null }))],
         setSeries: [(_u, i) => setHover((h) => ({ ...h, series: i ?? null }))],

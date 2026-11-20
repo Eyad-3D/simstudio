@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import * as api from "../api";
+import { failureText, isNotFound } from "../errorText";
+import { changesSince } from "../staleness";
 import { confirmDialog, scriptTrustDialog, unsavedChangesDialog } from "../dialog";
 import { desktop } from "../desktop";
 import { loadDraft } from "../persist";
@@ -417,6 +419,10 @@ export interface ProjectState {
 
   messages: LogMessage[];
   dataChecks: DataCheck[] | null;
+  /** why the latest Data Checks could not run (the engine refused the model or
+   *  could not be reached); null once they run again. `dataChecks` keeps the
+   *  last ones that ran. */
+  checksError: string | null;
   /** the project's newest runs (newest first, at most MAX_RUNS) */
   runs: SimRun[];
   /** how many runs of the open project are stored on disk */
@@ -737,7 +743,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     if (res.conflicts.length)
       log(
         "warning",
-        `${res.conflicts.length} value(s) you had changed were changed in the file too; the window shows the ` +
+        `${countOf(res.conflicts.length, "value")} you had changed ${res.conflicts.length === 1 ? "was" : "were"} changed in the file too; the window shows the ` +
           `file's value (Undo brings yours back): ${res.conflicts.slice(0, 5).join(", ")}`,
       );
     return res.conflicts.length ? "conflicts" : "merged";
@@ -841,7 +847,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     merge(true);
     const unreadable = toRead.filter((e) => !loaded.has(e.id)).length;
     if (unreadable > 0 && current()) {
-      get().log("warning", `${unreadable} stored run(s) could not be read and are not listed.`);
+      get().log("warning", `${countOf(unreadable, "stored run")} could not be read and ${unreadable === 1 ? "is" : "are"} not listed.`);
     }
   }
 
@@ -922,6 +928,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       ...NO_FILE,
       readOnly,
       dataChecks: null,
+      checksError: null,
       dirty: true,
     });
     get().log("info", note);
@@ -1002,7 +1009,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         log(
           "warning",
           `Stored runs of this project reached the ${Math.round(reply.budget / 2 ** 20)} MB disk budget: ` +
-            `deleted the ${reply.pruned.length} oldest run(s).`,
+            `deleted the ${reply.pruned.length === 1 ? "oldest run" : `${reply.pruned.length} oldest runs`}.`,
         );
       }
     } catch (e) {
@@ -1215,6 +1222,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     future: [],
     messages: [],
     dataChecks: null,
+    checksError: null,
     runs: [],
     storedRunCount: 0,
     runsLoading: false,
@@ -1244,7 +1252,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         log(
           res.undid.length ? "info" : "warning",
           res.undid.length
-            ? `Undone in the file: ${res.undid.length} change(s) by ${change.entry.client || "the AI agent"}.`
+            ? `Undone in the file: ${countOf(res.undid.length, "change")} by ${change.entry.client || "the AI agent"}.`
             : "Nothing was undone: every value it changed was changed again since.",
         );
         if (res.conflicts.length)
@@ -1856,6 +1864,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         runsLoading: false,
         ...NO_FILE,
         dataChecks: null,
+        checksError: null,
         dirty: false,
       });
       trustedProject = project.id;
@@ -1886,6 +1895,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           runsLoading: false,
           ...NO_FILE,
           dataChecks: null,
+          checksError: null,
           dirty: false,
         });
         set({ filePath, readOnly, studies: unstoredStudies });
@@ -1923,6 +1933,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         storedRunCount: 0,
         runsLoading: false,
         dataChecks: null,
+        checksError: null,
         dirty: true,
       });
       get().log("info", message);
@@ -1954,6 +1965,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         runsLoading: false,
         ...NO_FILE,
         dataChecks: null,
+        checksError: null,
         dirty: false,
       });
       trustedProject = project.id; // shipped with the app
@@ -2012,7 +2024,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     restoreExamples: async () => {
       try {
         const { restored } = await api.restoreExamples();
-        get().log("info", `${restored.length} hidden example(s) are back in the Open menu.`);
+        get().log("info", `${countOf(restored.length, "hidden example")} ${restored.length === 1 ? "is" : "are"} back in the Open menu.`);
       } catch (e) {
         get().log("error", `Could not restore the examples: ${(e as Error).message}`);
       }
@@ -2263,7 +2275,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         return;
       }
       const n = reply.project.attachments?.length ?? 0;
-      openImported(reply.project, reply.studies, reply.readOnly, `Project '${reply.project.name}' imported with ${n} attached file(s).`);
+      openImported(reply.project, reply.studies, reply.readOnly, `Project '${reply.project.name}' imported with ${countOf(n, "attached file")}.`);
       noteFormat(reply.project.name, reply.upgradedFrom, reply.readOnly);
     },
 
@@ -2301,7 +2313,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         await api.deleteAttachment(project.id, path.replace(/^resources\//, ""));
         log("info", `Removed '${path}' from the project and its resources folder.`);
       } catch (e) {
-        if (!(e as Error).message.startsWith("404"))
+        if (!isNotFound(e))
           log("warning", `'${path}' is off the project's list, but the file could not be deleted: ${(e as Error).message}`);
       }
     },
@@ -2325,6 +2337,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         runsLoading: false,
         ...NO_FILE,
         dataChecks: null,
+        checksError: null,
         dirty: true,
       });
       get().log("info", note);
@@ -2453,12 +2466,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({ checking: true });
       try {
         const checks = await api.validateProject(project);
-        set({ dataChecks: checks, checking: false });
+        set({ dataChecks: checks, checking: false, checksError: null });
         if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error").length;
         const warnings = checks.filter((c) => c.level === "warning").length;
         // a summary, not a problem: the problems are in the Problems list
-        log("info", `Data checks: ${countOf(errors, "error")}, ${countOf(warnings, "warning")}.`);
+        log("info", `Data Checks: ${countOf(errors, "error")}, ${countOf(warnings, "warning")}.`);
         {
           const ui = useUIStore.getState();
           if (ui.ribbonTab === "results") ui.setRibbonTab("home");
@@ -2466,8 +2479,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         }
         return checks;
       } catch (e) {
-        set({ checking: false });
-        log("error", `Data checks failed: ${(e as Error).message}`);
+        set({ checking: false, checksError: failureText(e) });
+        log("error", `The Data Checks could not run: ${failureText(e)}`);
         return [];
       }
     },
@@ -2512,7 +2525,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         } else {
           log(
             result.status === "warning" ? "warning" : "info",
-            `Simulation finished with status '${result.status}'. ${result.channels.length} channels available in Results.`,
+            `Simulation finished with status '${result.status}'. ${countOf(result.channels.length, "channel")} available in Results.`,
           );
           const stopped = incompleteReason(result);
           tell(
@@ -2876,7 +2889,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // only its summary comes back here
       log(
         "info",
-        `Sweep: ${el?.label ?? elementId} · ${paramLabel} over ${values.length} value(s) …`,
+        `Sweep: ${el?.label ?? elementId} · ${paramLabel} over ${countOf(values.length, "value")} …`,
       );
       const byIndex = new Map<number, StudyPoint>();
       let totals: api.StudyTotals | undefined;
@@ -2923,7 +2936,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
                 if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
               if (e.status === "failed") log("error", `Sweep point ${paramLabel}=${e.values[0]}${unit} failed.`);
               if (e.pruned?.length) {
-                log("warning", `Stored runs reached the disk budget: deleted the ${e.pruned.length} oldest run(s).`);
+                log("warning", `Stored runs reached the disk budget: deleted the ${e.pruned.length === 1 ? "oldest run" : `${e.pruned.length} oldest runs`}.`);
               }
               pointEnded(byIndex.size);
             },
@@ -2957,7 +2970,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         ];
         log(
           notes.length ? "warning" : "info",
-          `Sweep finished — ${complete.length} of ${values.length} point(s) complete` +
+          `Sweep finished — ${complete.length} of ${countOf(values.length, "point")} complete` +
             (notes.length ? ` (${notes.join("; ")}). Incomplete points are left out of the sweep chart and table.` : "."),
         );
         // save the study with the project (unless another one was opened
@@ -3018,7 +3031,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set((s) => ({ studies: s.studies.filter((st) => st.id !== studyId) }));
       if (!project) return;
       api.deleteStudy(project.id, studyId)?.catch?.((e: Error) => {
-        if (!e.message.startsWith("404")) log("error", `Could not delete the study: ${e.message}`);
+        if (!isNotFound(e)) log("error", `Could not delete the study: ${e.message}`);
       });
     },
 
@@ -3032,7 +3045,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
       try {
         const checks = await api.validateProject(project);
-        set({ dataChecks: checks });
+        set({ dataChecks: checks, checksError: null });
         if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = runBlockers(checks, caseId);
         if (errors.length > 0) {
@@ -3044,7 +3057,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         }
       } catch (e) {
         // backend unreachable — the run's own connection will surface the failure
-        log("warning", `Pre-flight data checks unavailable (${(e as Error).message}); running anyway.`);
+        set({ checksError: failureText(e) });
+        log("warning", `The Data Checks could not run before the run (${failureText(e)}); running anyway.`);
       }
       return get().reviewScripts("run");
     },
@@ -3141,7 +3155,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (get().project?.id === project.id) set({ storedRunCount: reply.stored });
       } catch (e) {
         // 404: the run was never stored (its store failed), so it is gone already
-        if (!(e as Error).message.startsWith("404")) {
+        if (!isNotFound(e)) {
           log("error", `Could not delete the stored run: ${(e as Error).message}`);
         }
       }
@@ -3159,7 +3173,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         `${snap.project.name} (run of ${when})`,
         `Opened the model of run '${run.caseName}' (${when}) as an unsaved copy; the project it came from is unchanged.` +
           (edits
-            ? ` It is the model as the run started: the ${edits} live edit(s) made during the run are listed in its Run info.`
+            ? ` It is the model as the run started: the ${countOf(edits, "live edit")} made during the run ${edits === 1 ? "is" : "are"} listed in its Run info.`
             : ""),
       );
       if (snap.project.cases.some((c) => c.id === run.caseId)) set({ activeCaseId: run.caseId });
@@ -3188,7 +3202,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (!project) return;
       try {
         const reply = await api.deleteRuns(project.id);
-        log("info", `Deleted ${reply.deleted} stored run(s) of '${project.name}'.`);
+        log("info", `Deleted ${countOf(reply.deleted, "stored run")} of '${project.name}'.`);
       } catch (e) {
         log("error", `Could not delete the stored runs: ${(e as Error).message}`);
         await loadRunHistory(project.id);
@@ -3234,9 +3248,10 @@ async function recheck(): Promise<void> {
   try {
     const checks = await api.validateProject(project);
     // an edit made meanwhile has a re-check of its own coming
-    if (useProjectStore.getState().project === project) useProjectStore.setState({ dataChecks: checks });
-  } catch {
-    /* engine unreachable: keep the last checks */
+    if (useProjectStore.getState().project === project) useProjectStore.setState({ dataChecks: checks, checksError: null });
+  } catch (e) {
+    // keep the last checks that ran, and say why these could not
+    if (useProjectStore.getState().project === project) useProjectStore.setState({ checksError: failureText(e) });
   }
 }
 
@@ -3277,8 +3292,10 @@ export interface Problem {
   fix?: string | null;
   /** the parts it is about (in the open project) */
   elementIds: string[];
-  /** Data Checks, or the run it came from */
-  source: "check" | { caseName: string; startedAt: number };
+  /** Data Checks, or the run it came from; `changedSince` counts the changes
+   *  made to the model since that run (its rows may be fixed already, or not:
+   *  only the next run can say) */
+  source: "check" | { caseName: string; startedAt: number; changedSince: number };
 }
 
 /** The latest run that has finished (runs are newest first). */
@@ -3307,7 +3324,12 @@ function runProblemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefined) 
 
 /** Every current problem: the latest Data Checks, then the warnings and
  *  errors of the latest finished run. Errors first. */
-export function problemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefined, project: Project | null): Problem[] {
+export function problemsOf(
+  dataChecks: DataCheck[] | null,
+  run: SimRun | undefined,
+  project: Project | null,
+  lib: Record<string, ComponentDef> = {},
+): Problem[] {
   const elements = project?.systems.flatMap((s) => s.elements) ?? [];
   const ids = new Set(elements.map((e) => e.id));
   const out: Problem[] = (dataChecks ?? []).map((c) => ({
@@ -3319,7 +3341,7 @@ export function problemsOf(dataChecks: DataCheck[] | null, run: SimRun | undefin
     source: "check" as const,
   }));
   if (run) {
-    const source = { caseName: run.caseName, startedAt: run.startedAt };
+    const source = { caseName: run.caseName, startedAt: run.startedAt, changedSince: changesSince(run, project, lib).changes.length };
     for (const m of runProblemsOf(dataChecks, run)) {
       out.push({ level: m.level, text: m.text, elementIds: partsNamed(m.text, elements), source });
     }
@@ -3332,7 +3354,8 @@ export function useProblems(): Problem[] {
   const dataChecks = useProjectStore((s) => s.dataChecks);
   const run = useProjectStore((s) => lastRunOf(s.runs));
   const project = useProjectStore((s) => s.project);
-  return useMemo(() => problemsOf(dataChecks, run, project), [dataChecks, run, project]);
+  const lib = useProjectStore((s) => s.libraryById);
+  return useMemo(() => problemsOf(dataChecks, run, project, lib), [dataChecks, run, project, lib]);
 }
 
 /** Errors and warnings in the Problems list, for the status bar and the tab

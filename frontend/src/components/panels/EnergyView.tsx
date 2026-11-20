@@ -4,6 +4,7 @@ import { useMemo, useRef } from "react";
 import { Download, ImageIcon } from "lucide-react";
 import { downloadText, energyCsv, sankeyLayout, type SankeyNode } from "../../reports";
 import { useUIStore } from "../../store/uiStore";
+import { fmtPct } from "./chartUtils";
 import type { SimRun } from "../../types";
 
 const W = 1040; // the chart's drawing width; it scales to the panel
@@ -94,12 +95,12 @@ export function EnergyView({ run }: { run: SimRun }) {
         <span className={remainderBig ? "text-[color:var(--ss-warn)]" : ""} title={REMAINDER_HINT}>
           Not accounted for (energy balance residual){" "}
           <b className="font-mono">
-            {kwhSmall(e.remainderKWh)} kWh ({e.remainderPct.toFixed(2)} %)
+            {kwhSmall(e.remainderKWh)} kWh ({fmtPct(e.remainderPct)} %)
           </b>
         </span>
         {e.balanceErrorPct != null && (
           <span title="The summary's Electrical energy balance error: energy no electrical source supplied or took. Above 0.1 % the run's energy figures are marked not valid.">
-            Electrical energy balance error <b className="font-mono">{e.balanceErrorPct} %</b>
+            Electrical energy balance error <b className="font-mono">{fmtPct(e.balanceErrorPct)} %</b>
           </span>
         )}
         <div className="ml-auto flex items-center gap-1">

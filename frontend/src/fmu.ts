@@ -3,6 +3,7 @@
 // The engine does the reading (app/fmu); nothing here runs the FMU.
 
 import { confirmDialog } from "./dialog";
+import { responseText } from "./errorText";
 import { useProjectStore } from "./store/projectStore";
 import type { ElementInstance, PortDef } from "./types";
 
@@ -61,15 +62,7 @@ export interface FmuFile {
 
 async function post<T>(path: string, body: BodyInit, contentType: string): Promise<T> {
   const res = await fetch(`/api${path}`, { method: "POST", headers: { "Content-Type": contentType }, body });
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      detail = (await res.json()).detail ?? detail;
-    } catch {
-      /* keep statusText */
-    }
-    throw new Error(detail);
-  }
+  if (!res.ok) throw new Error(await responseText(res));
   return res.json() as Promise<T>;
 }
 

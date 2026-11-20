@@ -49,7 +49,7 @@ test("UX-27: a closed tray panel comes back too", async ({ page }) => {
   await close(page, "Problems");
   // Simulations → Checks runs the Data Checks and shows their list
   await ribbonTab(page, "Simulations").click();
-  await page.getByRole("button", { name: "Checks", exact: true }).click();
+  await page.getByRole("button", { name: "Data Checks", exact: true }).click();
   await expect(tab(page, "Problems")).toBeVisible();
   await expect(page.getByRole("button", { name: "Run Data Checks" })).toBeVisible();
 });

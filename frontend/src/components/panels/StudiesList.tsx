@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Download, FlaskConical, LayoutGrid, X } from "lucide-react";
 import { confirmDialog } from "../../dialog";
-import { openStudyCharts, useProjectStore } from "../../store/projectStore";
+import { countOf, openStudyCharts, useProjectStore } from "../../store/projectStore";
 import type { Study, StudyPoint } from "../../types";
 import { checkReference, gapText } from "../../references";
 import { csvBlob } from "./csv";
@@ -111,7 +111,7 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
       {open && (
         <div className="border-t border-[color:var(--ss-border)] px-1.5 py-1">
           <div className="mb-1 text-[10px] text-[color:var(--ss-text-dim)]">
-            Case '{study.caseName}' · {factor.values.length} value(s)
+            Case '{study.caseName}' · {countOf(factor.values.length, "value")}
             {study.workers && study.wallS != null && (
               <>
                 {" "}

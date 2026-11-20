@@ -1,9 +1,10 @@
 import { useId, useMemo } from "react";
 import { FolderInput } from "lucide-react";
 import { diffSnapshots } from "../../provenance";
-import { confirmReplaceProject, useProjectStore } from "../../store/projectStore";
+import { confirmReplaceProject, countOf, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { SimRun } from "../../types";
+import { fmtNum } from "./chartUtils";
 import { ReferenceList } from "./ExpectedValues";
 import { RunSourcesView } from "./RunSourcesView";
 
@@ -30,7 +31,7 @@ export function runLabel(r: SimRun): string {
 export function runShort(r: SimRun): string {
   const mark = r.incomplete ? " (incomplete)" : "";
   if (r.sweepValue !== undefined)
-    return `${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}${mark}`;
+    return `${fmtNum(r.sweepValue)}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}${mark}`;
   return `${r.name ?? runTime(r)}${mark}`;
 }
 
@@ -140,7 +141,7 @@ export function RunInfo({ run }: { run: SimRun }) {
         <dd>{overrides.length > 0 ? overrides.join("; ") : "none"}</dd>
         <dt>Model</dt>
         <dd title={snap.modelHash ? `SHA-256 ${snap.modelHash}` : undefined}>
-          {snap.project.name} · {elementCount} element(s)
+          {snap.project.name} · {countOf(elementCount, "part")}
           {snap.modelHash && <span className="font-mono text-[color:var(--ss-text-dim)]"> · #{snap.modelHash.slice(0, 12)}</span>}
         </dd>
         <dt>Version</dt>

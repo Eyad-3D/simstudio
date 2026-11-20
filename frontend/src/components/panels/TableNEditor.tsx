@@ -426,9 +426,9 @@ export function TableNEditor({
                 className="ss-toolbtn"
                 disabled={colKeys.length <= 1}
                 onClick={() => selRange && removeOn(colAxis, between(selRange.c0, selRange.c1, colKeys))}
-                title="Delete the selected column(s), in every slice"
+                title="Delete the selected columns, in every slice"
               >
-                <Trash2 size={12} aria-hidden /> Col(s)
+                <Trash2 size={12} aria-hidden /> Columns
               </button>
             )}
             <button
@@ -436,9 +436,9 @@ export function TableNEditor({
               className="ss-toolbtn"
               disabled={rowKeys.length <= 1}
               onClick={() => selRange && removeOn(rowAxis, between(selRange.r0, selRange.r1, rowKeys))}
-              title="Delete the selected row(s), in every slice"
+              title="Delete the selected rows, in every slice"
             >
-              <Trash2 size={12} aria-hidden /> Row(s)
+              <Trash2 size={12} aria-hidden /> Rows
             </button>
             {tools}
           </>

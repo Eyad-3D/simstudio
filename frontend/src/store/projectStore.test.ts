@@ -506,7 +506,7 @@ describe("examples", () => {
 
     api.restoreExamples.mockResolvedValue({ restored: ["bev-car"] });
     await store().restoreExamples();
-    expect(messages()).toContain("info: 1 hidden example(s) are back in the Open menu.");
+    expect(messages()).toContain("info: 1 hidden example is back in the Open menu.");
 
     api.hideExample.mockRejectedValue(new Error("500 disk full"));
     expect(await store().hideExample("bev-car", "BEV example")).toBe(false);
@@ -1075,7 +1075,7 @@ describe("data checks gate", () => {
     expect(store().dataChecks).toEqual([error]);
     expect(store().checking).toBe(false);
     // a summary, not a problem: the problems are in the Problems list
-    expect(messages()).toContain("info: Data checks: 1 error, 0 warnings.");
+    expect(messages()).toContain("info: Data Checks: 1 error, 0 warnings.");
   });
 
   it("an error-level check blocks the run before it reaches the engine", async () => {
@@ -1124,7 +1124,30 @@ describe("data checks follow the model", () => {
     expect(api.validateProject).toHaveBeenCalledTimes(2);
     expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
     expect(store().dataChecks).toEqual([]);
-    expect(messages().filter((m) => m.includes("Data checks"))).toHaveLength(1); // no log line of its own
+    expect(messages().filter((m) => m.includes("Data Checks"))).toHaveLength(1); // no log line of its own
+  });
+
+  it("says why the Data Checks could not run, keeps the last ones, and clears that when they run again", async () => {
+    vi.useFakeTimers();
+    await start();
+    api.validateProject.mockResolvedValue([error]);
+    await store().runDataChecks();
+    expect(store().checksError).toBeNull();
+    api.validateProject.mockRejectedValue(new TypeError("Failed to fetch"));
+    store().renameElement("el-bat", "Pack");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(store().checksError).toBe("the engine could not be reached");
+    expect(store().dataChecks).toEqual([error]); // the last ones that ran
+    // pressed by hand: the engine's own words, in Messages too
+    api.validateProject.mockRejectedValue(new Error("name: Field required"));
+    await store().runDataChecks();
+    expect(store().checksError).toBe("name: Field required");
+    expect(messages()).toContain("error: The Data Checks could not run: name: Field required");
+    api.validateProject.mockResolvedValue([]);
+    store().renameElement("el-bat", "Pack 2");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(store().checksError).toBeNull();
+    expect(store().dataChecks).toEqual([]);
   });
 
   it("re-checks an edit made while the first Data Checks were waiting for the engine", async () => {
@@ -1159,7 +1182,7 @@ describe("data checks follow the model", () => {
     expect(api.validateProject).toHaveBeenCalledTimes(2);
     expect(api.validateProject).toHaveBeenLastCalledWith(store().project);
     expect(store().dataChecks).toEqual([]);
-    expect(messages().filter((m) => m.includes("Data checks"))).toEqual([]); // quietly
+    expect(messages().filter((m) => m.includes("Data Checks"))).toEqual([]); // quietly
 
     // a run the test ends: its gate checks the model
     let finish!: () => void;
@@ -1222,7 +1245,7 @@ describe("the Problems list", () => {
       ["warning", "Cycle not followed.", [], "run"],
       ["info", "'Battery' has an unconnected negative (−) terminal.", ["el-bat"], "check"],
     ]);
-    expect(problems[1].source).toEqual({ caseName: "City", startedAt: 1000 });
+    expect(problems[1].source).toEqual({ caseName: "City", startedAt: 1000, changedSince: 0 });
     // the counters count the same rows
     expect(problemCounts({ dataChecks: checks, runs: [finished] })).toEqual({ errors: 2, warnings: 3 });
     // a run still going has not finished: the one before it counts
@@ -1407,7 +1430,7 @@ describe("stored runs", () => {
     await start();
     await settled();
     expect(shownIds()).toEqual(["run-2", "run-0"]);
-    expect(messages()).toContain("warning: 1 stored run(s) could not be read and are not listed.");
+    expect(messages()).toContain("warning: 1 stored run could not be read and is not listed.");
   });
 
   it("a project whose runs cannot be listed opens without them, with a warning", async () => {
@@ -1442,7 +1465,7 @@ describe("stored runs", () => {
     expect(shownIds()).toEqual([store().activeRunId, "run-1"]);
     expect(store().storedRunCount).toBe(2);
     expect(messages()).toContain(
-      "warning: Stored runs of this project reached the 500 MB disk budget: deleted the 1 oldest run(s).",
+      "warning: Stored runs of this project reached the 500 MB disk budget: deleted the oldest run.",
     );
   });
 
@@ -1498,7 +1521,7 @@ describe("stored runs", () => {
     expect(folder("fixture").size).toBe(0);
     expect(store().runs).toEqual([]);
     expect(store().storedRunCount).toBe(0);
-    expect(messages()).toContain("info: Deleted 3 stored run(s) of 'Fixture'.");
+    expect(messages()).toContain("info: Deleted 3 stored runs of 'Fixture'.");
 
     stored("fixture", history(2));
     api.deleteRuns.mockRejectedValueOnce(new Error("500 file locked"));
@@ -1704,7 +1727,7 @@ describe("run snapshots", () => {
       runs: [{ ...run, snapshot: { ...run.snapshot!, liveEdits: [made, later] } }],
     });
     store().openRunModel(run.id);
-    expect(messages().some((m) => m.includes("the 1 live edit(s) made during the run"))).toBe(true);
+    expect(messages().some((m) => m.includes("the 1 live edit made during the run is listed"))).toBe(true);
   });
 
   it("a run stored before runs kept a snapshot cannot be opened as a model", async () => {
@@ -2516,7 +2539,7 @@ describe("an AI agent's edits in the open window (step 6)", () => {
     await store().saveRemote();
     expect(api.saveProject).toHaveBeenCalledTimes(1);
     expect(store()).toMatchObject({ revision: "r2", dirty: true });
-    expect(messages().some((m) => m.startsWith("warning: 1 value(s) you had changed"))).toBe(true);
+    expect(messages().some((m) => m.startsWith("warning: 1 value you had changed was changed"))).toBe(true);
     store().undo(); // brings the window's own value back
     expect(store().project!.systems[0].elements.find((e) => e.id === "el-bat")!.label).toBe("Mine");
   });
@@ -2577,6 +2600,6 @@ describe("an AI agent's edits in the open window (step 6)", () => {
     expect(store().agentChange).toBeNull();
     expect(store()).toMatchObject({ revision: "r3", dirty: false });
     expect(store().project!.name).toBe("Fixture");
-    expect(messages()).toContain("info: Undone in the file: 1 change(s) by claude-code.");
+    expect(messages()).toContain("info: Undone in the file: 1 change by claude-code.");
   });
 });

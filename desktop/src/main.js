@@ -379,17 +379,9 @@ function buildMenu() {
     },
     {
       label: "View",
-      submenu: [
-        { role: "reload" },
-        { role: "forceReload" },
-        { role: "toggleDevTools" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
-      ],
+      // the panels, layout and theme; Reload and the developer tools only
+      // when run from the sources
+      submenu: windows.viewMenu({ dev: !app.isPackaged, call: inWindow }),
     },
     {
       label: "Help",
