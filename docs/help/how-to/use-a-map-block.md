@@ -21,9 +21,10 @@ usual, and run once the engine has it
 2. Double-click the block. Its parameter window opens at *Inputs* and
    *Outputs*.
 3. Click **Add input** for each input. Type its name over *Input 1*, pick
-   its unit in the list beside it (*Rotational Speed (1/min)*,
-   *Temperature (°C)* …) and, in the next list, what a run does past its
-   data: hold the edge value, extend the edge slope, or stop the run.
+   its unit in the list beside it (the units are grouped by quantity:
+   *1/min* or *rad/s* under *Rotational Speed*, *°C* under
+   *Temperature* …) and, in the next list, what a run does past its data:
+   hold the edge value, extend the edge slope, or stop the run.
 4. Click **Add output** for each output, and name it and pick its unit
    the same way.
 
@@ -31,14 +32,24 @@ The inputs are the map's axes, in their order. A new input starts with one
 breakpoint, 0, so the values you had become that slice. To remove an
 input, click its bin and pick the breakpoint whose values the map keeps.
 An output's bin removes its table; the last output stays while the block
-has inputs, since the grid is kept in the tables. Renaming a port removes
-its wires.
+has inputs, since the grid is kept in the tables. A new name keeps the
+port's wires and its table.
 
-The numbers are in the unit you pick for the port, and so is the signal
-wired to it: nothing is converted on the wire, as for every signal block
-(Data Checks warn when a wire joins two different units). To see the
-numbers in another unit of the same kind, click the unit in the line above
-the grid ([Work in other units](work-in-other-units.md)).
+A signal is wired in and out in the unit of its quantity that LightSim
+uses for signals (1/min for a rotational speed, kW for a power): nothing
+is converted on the wire, as for every signal block (Data Checks warn
+when a wire joins two different units). Pick another unit of the same
+quantity, such as rad/s, and the port's numbers are shown and typed in it
+at once; the signal stays in 1/min. Picking a unit of another quantity
+keeps the numbers as they are and reads them in the new unit. You can
+also change how the numbers are shown by clicking the unit in the line
+above the grid ([Work in other units](work-in-other-units.md)).
+
+A unit of a quantity LightSim does not use for signals (kWh, bar), or
+one you type after **Another unit: type it…**, is shown with the
+port's numbers, in the plot and on its pin, as it is: LightSim cannot
+convert it, and other places (*Data Bus Connections*, Data Checks)
+show the port as having no unit.
 
 ## Fill in the tables
 

@@ -34,8 +34,8 @@ test("a Map block: three inputs, two outputs, a value edited on a slice, saved a
   for (let i = 0; i < 3; i++) await map.getByRole("button", { name: "Add input" }).click();
   await map.getByRole("button", { name: "Add output" }).click();
   await map.getByRole("button", { name: "Add output" }).click();
-  await map.getByRole("combobox", { name: "Unit of Input 1" }).selectOption("Temperature");
-  await map.getByRole("combobox", { name: "Unit of Output 1" }).selectOption("Power");
+  await map.getByRole("combobox", { name: "Unit of Input 1" }).selectOption("Temperature|°C");
+  await map.getByRole("combobox", { name: "Unit of Output 1" }).selectOption("Power|kW");
 
   // a second Input 1 breakpoint (held above the grid) copies the first's slice, and is shown
   await map.locator(".ss-table-held").getByRole("button", { name: "Add" }).click();

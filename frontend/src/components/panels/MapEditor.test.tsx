@@ -50,12 +50,12 @@ const cells: ComponentDef = {
   ],
 };
 
-function open(element: Partial<ElementInstance> & { componentDefId: string }) {
+function open(element: Partial<ElementInstance> & { componentDefId: string }, dataBusConnections: unknown[] = []) {
   const def = [...lib.components, cells].find((c) => c.id === element.componentDefId)!;
   const el = { id: "p", label: "Part", position: { x: 0, y: 0 }, parameterOverrides: {}, ...element };
   useProjectStore.setState({
     project: {
-      id: "x", name: "X", cases: [], dataBusConnections: [],
+      id: "x", name: "X", cases: [], dataBusConnections,
       systems: [{ id: "root", name: "Root", parentId: null, connections: [], elements: [el] }],
     } as unknown as Project,
     libraryById: { [def.id]: def },
@@ -121,7 +121,8 @@ test("a Map block: inputs and outputs added share one grid, one breakpoint per i
   expect(Object.keys(maps())).toEqual(["output_1"]);
 });
 
-/** A Map block of three inputs (2, 2 and 2 breakpoints) and two outputs. */
+/** A Map block of three inputs (2, 2 and 2 breakpoints) and two outputs,
+ *  its output Eff wired to another part's input. */
 function mapOf3() {
   const t = (base: number): Grid => ({
     "0": { "0": { "0": base, "100": base + 1 }, "50": { "0": base + 2, "100": base + 3 } },
@@ -137,7 +138,7 @@ function mapOf3() {
       { id: "eff", name: "Eff", direction: "output", kind: "signal", unitGroup: "Percent" },
     ],
     parameterOverrides: { maps: { loss: t(0), eff: t(100) } },
-  });
+  }, [{ id: "w", element1Id: "p", port1Id: "eff", element2Id: "other", port2Id: "sig_in" }]);
 }
 
 test("the grid shows a slice: rows and columns two inputs, the third held; a pasted value lands in it", async () => {
@@ -207,14 +208,20 @@ test("removing an input keeps the slice chosen; outputs renamed and removed take
   await press(button("Remove", form().querySelector('section[aria-label="Inputs"]')!));
   expect(part().dynamicPorts!.filter((p) => p.direction === "input").map((p) => p.id)).toEqual(["speed", "torque"]);
   expect(maps().loss).toEqual({ "0": { "0": 4, "100": 5 }, "50": { "0": 6, "100": 7 } });
-  // a renamed output keeps its table under its new id
+  // a renamed output keeps its id, so its table and its wire
+  const eff = maps().eff;
   const name = form().querySelector<HTMLInputElement>('input[aria-label="Name of output Eff"]')!;
   act(() => name.focus());
   setValue(name, "Efficiency");
   act(() => name.blur());
-  expect(Object.keys(maps())).toEqual(["loss", "efficiency"]);
+  expect(part().dynamicPorts!.find((p) => p.id === "eff")?.name).toBe("Efficiency");
+  expect(maps().eff).toEqual(eff);
+  expect(useProjectStore.getState().project!.dataBusConnections.map((d) => d.port1Id)).toEqual(["eff"]);
+  expect(cell(0, 0).textContent).toBe("Loss (kW)");
+  choose("Output", "eff");
+  expect(cell(0, 0).textContent).toBe("Efficiency (%)");
   await press(form().querySelector<HTMLButtonElement>('[aria-label="Remove output Loss"]')!);
-  expect(Object.keys(maps())).toEqual(["efficiency"]);
+  expect(Object.keys(maps())).toEqual(["eff"]);
   // the last output stays while there are inputs (the grid is in it)
   expect(form().querySelector<HTMLButtonElement>('[aria-label="Remove output Efficiency"]')!.disabled).toBe(true);
 });
@@ -235,6 +242,45 @@ test("units per input and per output: shown in another unit, stored as they are"
   await press(button(/^W\b/));
   expect(part().displayUnits?.maps?.outputs).toEqual({ loss: "W" });
   expect(cell(2, 2).textContent).toBe("3000");
+});
+
+test("a port's unit is picked from the units: the same quantity shows it, another keeps the numbers", () => {
+  mapOf3();
+  const port = (id: string) => part().dynamicPorts!.find((p) => p.id === id)!;
+  const loss = maps().loss;
+  // rad/s for Speed: still a rotational speed in 1/min, shown in rad/s at once
+  choose("Unit of Speed", "Rotational Speed|rad/s");
+  expect(port("speed").unitGroup).toBe("Rotational Speed");
+  expect(part().displayUnits?.maps?.axes).toEqual([null, "rad/s", null]);
+  expect(maps().loss).toEqual(loss);
+  expect(cell(0, 2).textContent).toBe("5.23598775598");
+  // W for Loss: shown in W
+  choose("Unit of Loss", "Power|W");
+  expect(part().displayUnits?.maps?.outputs).toEqual({ loss: "W" });
+  expect(cell(2, 2).textContent).toBe("3000");
+  // back to 1/min: the display unit goes
+  choose("Unit of Speed", "Rotational Speed|1/min");
+  expect(part().displayUnits?.maps?.axes).toBeUndefined();
+  // another quantity keeps the numbers, read in the new unit: a force in N
+  choose("Unit of Torque", "Force|N");
+  expect(port("torque").unitGroup).toBe("Force");
+  expect(maps().loss).toEqual(loss);
+  // a unit with no unit group of its own is kept as text, shown as it is
+  choose("Unit of Temp", "|kWh");
+  expect(port("temp")).toMatchObject({ unitGroup: "No Unit", unitText: "kWh" });
+  expect(form().querySelector(".ss-table-held")?.textContent).toContain("Temp (kWh)");
+  // and one the app does not know is typed
+  choose("Unit of Temp", "other");
+  const text = form().querySelector<HTMLInputElement>('input[aria-label="Unit text of Temp"]')!;
+  act(() => text.focus());
+  setValue(text, "bar·s");
+  act(() => text.blur());
+  expect(port("temp").unitText).toBe("bar·s");
+  expect(form().querySelector(".ss-table-held")?.textContent).toContain("Temp (bar·s)");
+  expect(gridKeys(maps().loss, 3)[0]).toEqual(["0", "10"]);
+  // the plot names it too
+  down(cell(1, 1));
+  expect(form().querySelector("[data-plot-mark]")?.textContent).toMatch(/^Marked: Temp 0 bar·s, /);
 });
 
 test("a library table of three axes: the same grid, its units per axis and for the values", async () => {

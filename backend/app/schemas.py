@@ -41,6 +41,10 @@ class PortDef(BaseModel):
     # Electrical polarity: positive (supply/+) or negative (return/−).
     # Neutral junctions (node, ground) leave this unset.
     polarity: Optional[Literal["positive", "negative"]] = None
+    # A Map block port's unit when the app has no unit group for it (its
+    # unitGroup "No Unit"): shown with its numbers and on its pin, never
+    # converted (docs/spec/tables.md)
+    unitText: Optional[str] = None
 
 
 # What a table does outside its data on one axis: stop the run, hold the edge

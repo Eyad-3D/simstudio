@@ -179,7 +179,7 @@ function PhysicalPort({
         className={`${handleClass(port.kind)} nokey`}
         isConnectableStart
         isConnectableEnd
-        title={`${port.name} (${port.kind}) — Shift+click: move to the next side · Shift+drag: move along the node's edges`}
+        title={`${port.name}${port.unitText ? ` [${port.unitText}]` : ""} (${port.kind}) — Shift+click: move to the next side · Shift+drag: move along the node's edges`}
         onMouseDownCapture={startShiftDrag}
       />
       {port.polarity && (

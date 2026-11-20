@@ -435,6 +435,18 @@
           ],
           "default": null,
           "title": "Polarity"
+        },
+        "unitText": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unittext"
         }
       },
       "required": [

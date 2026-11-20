@@ -28,6 +28,9 @@ export interface PortDef {
   side?: "left" | "right"; // canvas layout hint
   /** Electrical polarity: positive (supply/+) or negative (return/−). */
   polarity?: "positive" | "negative";
+  /** A Map port's unit when the app has no unit group for it (unitGroup
+   *  "No Unit"): shown with its numbers and on its pin, never converted. */
+  unitText?: string;
 }
 
 /** What a table does outside its data on one axis: stop the run, hold the

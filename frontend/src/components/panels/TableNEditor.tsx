@@ -30,6 +30,9 @@ export interface ShownQuantity {
   name: string;
   lib: string;
   unit: string;
+  /** a unit the app does not know (a Map port's unit text): shown, never
+   *  converted, and no unit chooser (lib and unit are that text) */
+  fixed?: boolean;
 }
 
 /** One table of the grid: a library table's own ("value"), or a Map
@@ -239,10 +242,16 @@ export function TableNEditor({
       slot: j,
       label: j === rowAxis ? `Rows: ${a.name}` : j === colAxis ? `Columns: ${a.name}` : a.name,
       what: `the ${a.name} axis`,
-      lib: a.lib,
+      lib: a.fixed ? "" : a.lib,
       unit: a.unit,
     })),
-    { slot: "value", label: `Values: ${out.name}`, what: `the ${out.name} values`, lib: out.lib, unit: out.unit },
+    {
+      slot: "value",
+      label: `Values: ${out.name}`,
+      what: `the ${out.name} values`,
+      lib: out.fixed ? "" : out.lib,
+      unit: out.unit,
+    },
   ];
   const storeUnit = (slot: UnitSlot, unit: string, again?: unknown) => {
     if (again === undefined) return setUnit(slot, out.key, unit);

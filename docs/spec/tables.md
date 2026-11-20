@@ -161,16 +161,31 @@ The Map block's library entry has no ports of its own
 - **Outputs** are its `dynamicPorts` with `direction: "output"`, one
   table each.
 - Every port has `kind: "signal"`. Its `name` is what the user typed
-  (shown on the diagram and as the axis's or table's name), its `id` a
-  lower-case word made from the name (`Motor Speed` → `motor_speed`),
-  unique on the part.
-- A port's `unitGroup` is its unit: the library's `unitGroups` maps it to
-  the unit the numbers are stored in (`Rotational Speed` → `1/min`,
+  (shown on the diagram and as the axis's or table's name). Its `id` is
+  made once, when the port is added, from its first name (`Input 1` →
+  `input_1`), unique on the part, and never changes: a rename changes the
+  `name` only, so the port's wires, its table under `maps` and its display
+  unit stay where they are. Nothing refers to a Map port by its name.
+- A port's `unitGroup` is its quantity: the library's `unitGroups` maps it
+  to the unit the numbers are stored in (`Rotational Speed` → `1/min`,
   `Power` → `kW`; `No Unit`, or none, → `-`). An input's breakpoints are
-  stored in its unit and an output's values in its. The signal wired in is
-  read in that unit and the outputs are given in theirs: nothing is
-  converted on the wire, as for every signal block (Data Checks warn when a
-  wire joins two different units).
+  stored in its group's unit and an output's values in its. The signal
+  wired in is read in that unit and the outputs are given in theirs:
+  nothing is converted on the wire, as for every signal block (Data Checks
+  warn when a wire joins two different units).
+- The user picks a **unit**, not a quantity: the editor lists every unit
+  the app knows (`backend/app/dataio/units.json`), grouped by quantity.
+  Picking a unit of one of the library's unit groups sets the port's
+  `unitGroup` to that group and, when the unit is not the one the group
+  stores, the port's display unit (`displayUnits.maps.axes[i]` for input
+  `i`, `displayUnits.maps.outputs[id]` for an output), so a port given
+  rad/s shows and takes rad/s at once while its numbers stay in 1/min.
+- `unitText` (optional text) is a port's unit when the app has no unit
+  group for it: a unit the app knows of another quantity (kWh, bar) or one
+  the user types. The port's `unitGroup` is then `No Unit`. The text is
+  shown with the port's numbers (the grid's headers and units line, the
+  plot) and on its pin's tooltip, and is never converted. It means nothing
+  on a port of another unit group.
 
 ### Parameters
 
@@ -235,11 +250,13 @@ These are the app's rules, so that a file it writes keeps the shared grid:
 - **Adding an output** adds a table of the shared grid filled with 0.
   **Removing an output** removes its table; the last output of a block
   with inputs cannot be removed, since the grid lives in the tables.
-- **Renaming** a port changes its id with its name: an output's table and
-  display unit move to the new id. Wires to a renamed port are removed, as
-  for a Script block's.
-- **Changing a port's unit** keeps its numbers (they are read in the new
-  unit) and drops its display unit.
+- **Renaming** a port changes its `name` only (its id stays): its wires,
+  table and display unit are untouched.
+- **Changing a port's unit to another quantity** (another unit group, or
+  a unit text) keeps its numbers (they are read in the new unit) and drops
+  its display unit. **Picking another unit of the same quantity** changes
+  only its display unit: the numbers stay as stored and are shown
+  converted, as the unit chooser's *Show in another unit* does.
 - **Adding a breakpoint** on any axis adds it to every output; the new
   points are filled by copying the nearest breakpoint's values (for a
   library table of three or more axes the same, on its one table).
@@ -344,3 +361,5 @@ checked and saved as any other.
   neighbours use, and any other unit of the same kind is a display unit.
 - The display units of a Map block's outputs need a place of their own,
   `displayUnits.maps.outputs`, since one block has several value units.
+- A port's unit that has no unit group is kept as `unitText` on the port;
+  only the Map block's editor, its plot and the pin's tooltip show it.

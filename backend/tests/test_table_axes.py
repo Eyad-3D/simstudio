@@ -94,6 +94,14 @@ def test_a_map_block_at_any_depth_survives_the_project_file(depth):
     assert _errors(again) == []
 
 
+def test_a_port_s_unit_text_survives_the_project_file():
+    el = _map(1)
+    el.dynamicPorts[0].unitGroup, el.dynamicPorts[0].unitText = "No Unit", "bar·s"
+    again = Project.model_validate_json(_with(el).model_dump_json())
+    port = next(e for e in again.systems[0].elements if e.id == "el-map").dynamicPorts[0]
+    assert (port.unitGroup, port.unitText) == ("No Unit", "bar·s")
+
+
 def test_data_checks_name_what_is_wrong_with_a_map_block():
     assert any("has no input" in e for e in _errors(_with(_map(0, maps={"out0": 1.0, "out1": 2.0}))))
     assert any("has no output" in e for e in _errors(_with(_map(2, 0, maps={}))))

@@ -1,8 +1,11 @@
 // The Map block's own editor (docs/spec/tables.md): its inputs (the axes of
 // its tables, in order, each with a unit and an outside-the-data rule), its
 // outputs (a table each, all on one grid) and the tables. Every change to
-// the ports changes the tables with them, in one undo step.
+// the ports changes the tables with them, in one undo step. A port's id is
+// made once, when it is added: a rename changes its name only, so its wires,
+// its table and its display unit stay where they are.
 import { useState } from "react";
+import unitsTable from "../../data/units.json";
 import { Plus, Trash2 } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import { alternatives } from "../../units";
@@ -12,6 +15,42 @@ import { OUTSIDE_LABELS, cellText, slugify } from "./gridRules";
 import { TableNEditor, type SetGridUnit } from "./TableNEditor";
 
 export const MAP_DEF_ID = "signal.map";
+
+const QUANTITIES = (unitsTable as unknown as { groups: Record<string, Record<string, unknown>> }).groups;
+const WITHOUT = ["Fraction", "No Unit"];
+const OTHER = "other";
+
+/** The units a Map port can take, grouped by quantity: those of the
+ *  library's unit groups first ("<group>|<unit>": the group stored, the unit
+ *  shown), then every other unit the app knows, which the port keeps as its
+ *  unit text, shown and never converted ("|<unit>"), then none. */
+function unitOptions(unitGroups: Record<string, string>) {
+  const taken = new Set<string>();
+  const out: { label: string; options: { value: string; text: string }[] }[] = [];
+  for (const [group, lib] of Object.entries(unitGroups)) {
+    if (WITHOUT.includes(group)) continue;
+    const units = alternatives(lib).length ? alternatives(lib) : [lib];
+    units.forEach((u) => taken.add(u));
+    out.push({ label: group, options: units.map((u) => ({ value: `${group}|${u}`, text: u })) });
+  }
+  for (const [quantity, units] of Object.entries(QUANTITIES)) {
+    const rest = Object.keys(units).filter((u) => !taken.has(u) && u !== "-");
+    if (rest.length)
+      out.push({
+        label: `${quantity[0].toUpperCase()}${quantity.slice(1)} (not converted)`,
+        options: rest.map((u) => ({ value: `|${u}`, text: u })),
+      });
+  }
+  out.push({
+    label: "No unit",
+    options: [
+      { value: "Fraction|-", text: "Fraction (0-1)" },
+      { value: "No Unit|-", text: "No unit" },
+      { value: OTHER, text: "Another unit: type it…" },
+    ],
+  });
+  return out;
+}
 
 export function MapEditor({ element }: { element: ElementInstance }) {
   const setDynamicPorts = useProjectStore((s) => s.setDynamicPorts);
@@ -32,11 +71,14 @@ export function MapEditor({ element }: { element: ElementInstance }) {
   const shownOf = (lib: string, u: string | null | undefined) => (u && alternatives(lib).includes(u) ? u : lib);
   const save = (next: PortDef[], change: Partial<MapBlockState> = {}) =>
     setDynamicPorts(element.id, next, { ...state, ...change });
-  const freshId = (name: string, except?: string) => {
-    let id = slugify(name);
-    while (ports.some((p) => p.id === id && p.id !== except)) id += "_";
-    return id;
-  };
+  const options = unitOptions(unitGroups);
+  const known = new Set(options.flatMap((g) => g.options.map((o) => o.value)));
+  /** A port's numbers as the editor shows them: in its group's unit or the
+   *  one chosen to show them in, or in the unit text typed for it, as it is. */
+  const quantity = (p: PortDef, chosen?: string | null) =>
+    p.unitText
+      ? { lib: p.unitText, unit: p.unitText, fixed: true }
+      : { lib: libOf(p), unit: shownOf(libOf(p), chosen) };
   const keys = gridKeys(outputs[0] ? (state.maps[outputs[0].id] ?? {}) : {}, inputs.length);
   const tables = (fn: (t: Grid) => Grid) =>
     Object.fromEntries(Object.entries(state.maps).map(([k, t]) => [k, fn(t)])) as MapBlockState["maps"];
@@ -78,27 +120,41 @@ export function MapEditor({ element }: { element: ElementInstance }) {
     delete units[id];
     save(ports.filter((p) => p.id !== id), { maps, units: { ...state.units, outputs: units } });
   };
+  // the name only: the id, and so the wires, the table and the display unit, stay
   const rename = (port: PortDef, name: string) => {
     const typed = name.trim();
     if (!typed || typed === port.name) return;
-    const id = freshId(typed, port.id);
-    const next = ports.map((p) => (p.id === port.id ? { ...p, id, name: typed } : p));
-    if (port.direction !== "output" || id === port.id) return save(next);
-    const maps: MapBlockState["maps"] = {};
-    for (const [k, t] of Object.entries(state.maps)) maps[k === port.id ? id : k] = t;
-    const units = { ...state.units.outputs };
-    if (units[port.id]) units[id] = units[port.id];
-    delete units[port.id];
-    save(next, { maps, units: { ...state.units, outputs: units } });
+    save(ports.map((p) => (p.id === port.id ? { ...p, name: typed } : p)));
   };
-  // a new unit keeps the numbers (they are read in it) and drops the unit chosen to show them in
-  const regroup = (port: PortDef, group: string) => {
-    const next = ports.map((p) => (p.id === port.id ? { ...p, unitGroup: group } : p));
+  /** A unit picked for a port: another quantity keeps the numbers (they are
+   *  read in it); a unit of the same quantity is only how they are shown, as
+   *  the unit chooser's "Show in another unit". */
+  const pickUnit = (port: PortDef, value: string) => {
+    const [g, u] = value === OTHER ? ["No Unit", ""] : value.split("|");
+    const group = g || "No Unit";
+    // (a typed unit starts empty, unless the port already has one of its own)
+    const own = port.unitText !== undefined && !known.has(`|${port.unitText}`) ? port.unitText : "";
+    const text = value === OTHER ? own : g ? undefined : u;
+    const lib = unitGroups[group] ?? "-";
+    const display = text === undefined && u && u !== lib ? u : null;
+    const same = group === (port.unitGroup ?? "No Unit") && port.unitText === undefined && text === undefined;
+    const next = ports.map((p) => {
+      if (p.id !== port.id) return p;
+      const q: PortDef = { ...p, unitGroup: group };
+      if (text === undefined) delete q.unitText;
+      else q.unitText = text;
+      return q;
+    });
     const k = inputs.indexOf(port);
     const outs = { ...state.units.outputs };
-    delete outs[port.id];
-    save(next, { units: { axes: state.units.axes.map((u, i) => (i === k ? null : u)), outputs: outs } });
+    if (k < 0 && display) outs[port.id] = display;
+    else delete outs[port.id];
+    const axes = state.units.axes.map((x, i) => (i === k ? display : x));
+    save(same ? ports : next, { units: { axes, outputs: outs } });
   };
+  const setUnitText = (port: PortDef, text: string) =>
+    text.trim() !== port.unitText &&
+    save(ports.map((p) => (p.id === port.id ? { ...p, unitText: text.trim() } : p)));
   const setOutside = (k: number, o: OutsidePolicy) =>
     save(ports, { outside: state.outside.map((x, i) => (i === k ? o : x)) });
 
@@ -112,28 +168,53 @@ export function MapEditor({ element }: { element: ElementInstance }) {
     save(ports, { units, ...(again && { maps: { ...state.maps, ...again } as MapBlockState["maps"] }) });
   };
 
-  const groupSelect = (p: PortDef) => (
-    <select
-      className="ss-input w-[130px] text-[11px]"
-      aria-label={`Unit of ${p.name}`}
-      title="The unit its numbers are in, and of the signal wired to it: nothing is converted on the wire"
-      value={p.unitGroup ?? "No Unit"}
-      onChange={(e) => regroup(p, e.target.value)}
-    >
-      {Object.entries(unitGroups).map(([group, unit]) => (
-        <option key={group} value={group}>
-          {group === "No Unit" ? "No unit" : unit === "-" || unit === group ? group : `${group} (${unit})`}
-        </option>
-      ))}
-    </select>
-  );
+  const unitSelect = (p: PortDef, chosen: string | null | undefined) => {
+    const value =
+      p.unitText !== undefined
+        ? known.has(`|${p.unitText}`)
+          ? `|${p.unitText}`
+          : OTHER
+        : `${p.unitGroup ?? "No Unit"}|${shownOf(libOf(p), chosen)}`;
+    return (
+      <>
+        <select
+          className="ss-input w-[110px] text-[11px]"
+          aria-label={`Unit of ${p.name}`}
+          title="The unit of its numbers and of the signal wired to it (nothing is converted on the wire). Another unit of the same quantity only changes how the numbers are shown"
+          value={value}
+          onChange={(e) => pickUnit(p, e.target.value)}
+        >
+          {options.map((g) => (
+            <optgroup key={g.label} label={g.label}>
+              {g.options.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.text}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        {value === OTHER && (
+          <input
+            className="ss-input w-[70px] text-[11px]"
+            aria-label={`Unit text of ${p.name}`}
+            placeholder="unit"
+            title="A unit LightSim does not know: shown with the numbers, never converted"
+            defaultValue={p.unitText}
+            onBlur={(e) => setUnitText(p, e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+          />
+        )}
+      </>
+    );
+  };
   const nameInput = (p: PortDef, what: string) => (
     <input
       key={p.id}
       className="ss-input min-w-0 flex-1 text-[11px]"
       aria-label={`Name of ${what} ${p.name}`}
       defaultValue={p.name}
-      title="Its name, on the diagram and on its axis or table (renaming removes its wires)"
+      title="Its name, on the diagram and on its axis or table (a new name keeps its wires)"
       onBlur={(e) => rename(p, e.target.value)}
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
     />
@@ -156,7 +237,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
         {inputs.map((p, k) => (
           <div key={p.id} className="flex flex-wrap items-center gap-1 py-0.5">
             {nameInput(p, "input")}
-            {groupSelect(p)}
+            {unitSelect(p, state.units.axes[k])}
             <select
               className="ss-input text-[11px]"
               aria-label={`Outside the ${p.name} data`}
@@ -181,7 +262,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
                   >
                     {keys[k].map((key) => (
                       <option key={key} value={key}>
-                        {p.name} {cellText(key, libOf(p), shownOf(libOf(p), state.units.axes[k]))}
+                        {p.name} {cellText(key, quantity(p).lib, quantity(p, state.units.axes[k]).unit)}
                       </option>
                     ))}
                   </select>
@@ -222,7 +303,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
         {outputs.map((p) => (
           <div key={p.id} className="flex items-center gap-1 py-0.5">
             {nameInput(p, "output")}
-            {groupSelect(p)}
+            {unitSelect(p, state.units.outputs[p.id])}
             <button
               type="button"
               className="ss-toolbtn"
@@ -243,13 +324,8 @@ export function MapEditor({ element }: { element: ElementInstance }) {
       {inputs.length > 0 && outputs.length > 0 ? (
         <TableNEditor
           key={inputs.length}
-          axes={inputs.map((p, k) => ({ name: p.name, lib: libOf(p), unit: shownOf(libOf(p), state.units.axes[k]) }))}
-          outputs={outputs.map((p) => ({
-            key: p.id,
-            name: p.name,
-            lib: libOf(p),
-            unit: shownOf(libOf(p), state.units.outputs[p.id]),
-          }))}
+          axes={inputs.map((p, k) => ({ name: p.name, ...quantity(p, state.units.axes[k]) }))}
+          outputs={outputs.map((p) => ({ key: p.id, name: p.name, ...quantity(p, state.units.outputs[p.id]) }))}
           tables={state.maps as Record<string, Grid>}
           onChange={(maps) => save(ports, { maps: maps as MapBlockState["maps"] })}
           setUnit={setUnit}

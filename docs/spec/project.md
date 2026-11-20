@@ -178,6 +178,7 @@ block's inputs are the axes of its tables, in their order.
 | `unitGroup` | text or null | The quantity of a signal (`Power`, `Velocity` …); the library's `unitGroups` maps it to a unit |
 | `side` | `left`, `right` or null | Where the pin is drawn by default |
 | `polarity` | `positive`, `negative` or null | An electrical terminal's polarity |
+| `unitText` | text or null | A Map block port's unit when the app has no unit group for it (its `unitGroup` is then `No Unit`): shown with its numbers and on its pin, never converted ([Tables and the Map block](tables.md#ports)) |
 
 ## Wire
 

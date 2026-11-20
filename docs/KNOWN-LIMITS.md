@@ -66,6 +66,11 @@ engine, and are refused the same way (`NEW-TABLE-AXES`):
   one yet; the format and the editor take them
   ([Tables and the Map block](spec/tables.md)).
 
+A Map port's unit that LightSim has no signal unit for (an energy, a
+pressure, or a unit you type) is shown only in the Map block's editor, its
+plot and its pin's tooltip; *Data Bus Connections*, the run's channels and
+the Data Checks' unit warnings treat the port as having no unit.
+
 In the parameter window, **Import from file…** reads tables of one and two
 axes only. A Map block's tables, and a table of three or more axes, come
 from a spreadsheet through the parameter sheet (one column per axis and
