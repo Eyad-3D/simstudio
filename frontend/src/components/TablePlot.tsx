@@ -31,10 +31,12 @@ export interface TableSlice {
   mark: { curve: number; index: number } | null;
 }
 
-const title = (name: string, unit: string) => (unit ? `${name} (${unit})` : name);
+// "-" is no unit: it is not written after a number or a name
+const named = (unit: string) => (unit && unit !== "-" ? unit : "");
+const title = (name: string, unit: string) => (named(unit) ? `${name} (${unit})` : name);
 // a breakpoint as its cell shows it, or (a curve's name) to 4 digits
 const keyText = (a: ShownAxis, i: number, show = showNumber) =>
-  `${show(Number(a.keys[i]), a.lib, a.unit)}${a.unit ? ` ${a.unit}` : ""}`;
+  `${show(Number(a.keys[i]), a.lib, a.unit)}${named(a.unit) ? ` ${a.unit}` : ""}`;
 
 /** The table's entry at one breakpoint of each axis (keys in axis order). */
 const entryAt = (table: unknown, keys: string[]): unknown =>
@@ -95,7 +97,8 @@ export function markText(
     table,
     axes.map((a, j) => a.keys[mark[j]]),
   );
-  const shown = typeof v === "number" ? `${showNumber(v, value.lib, value.unit)}${value.unit ? ` ${value.unit}` : ""}` : "no value";
+  const shown =
+    typeof v === "number" ? `${showNumber(v, value.lib, value.unit)}${named(value.unit) ? ` ${value.unit}` : ""}` : "no value";
   return `${axes.map((a, j) => `${a.name} ${keyText(a, mark[j])}`).join(", ")}: ${value.name} ${shown}`;
 }
 
@@ -106,18 +109,22 @@ export function TablePlot({
   axes,
   value,
   mark,
+  fixed,
 }: {
   table: unknown;
   axes: ShownAxis[];
   value: { name: string; lib: string; unit: string };
   /** the selected cell's index on each axis, or null */
   mark: number[] | null;
+  /** the breakpoint (index) each axis is held at when it is neither along x
+   *  nor the curves': the slice the editor shows (default the first) */
+  fixed?: number[];
 }) {
   const win = useOwnerWindow();
   const [open, setOpen] = useState(true);
   const [alongPick, setAlong] = useState<number | null>(null);
   const along = alongPick !== null && alongPick < axes.length ? alongPick : defaultAlong(axes.length);
-  const slice = tableSlice(table, axes, value, along, { mark });
+  const slice = tableSlice(table, axes, value, along, { mark, fixed });
   const marked = markText(table, axes, value, mark);
   // a window without a layout (a test DOM) draws no chart
   const canDraw = "ResizeObserver" in win;

@@ -52,6 +52,49 @@ this version, and the reason code names each:
   By: Cells*. Set it to *Pack values* (and give the pack's own capacity,
   open-circuit voltage and resistance) to run the case.
 
+Two new things of this version are built in the app but not yet in its
+engine, and are refused the same way (`NEW-TABLE-AXES`):
+
+- **A Map block**, at any number of inputs and outputs, even one input:
+  every case of a project that has one fails with
+  `Not run [NEW-TABLE-AXES]: 'Map 1' (a Map block) does not run in this
+  version of LightSim yet`. You can add one, fill in its tables, check,
+  save and export it; it runs once the engine has it. Until then, a
+  *Lookup Table* block reads one or two inputs, and a Script block can
+  read a table of any size ([Script cookbook](help/reference/script-cookbook.md#table-lookup)).
+- **A table parameter of three or more axes.** No part of the library has
+  one yet; the format and the editor take them
+  ([Tables and the Map block](spec/tables.md)).
+
+A Map port's unit that LightSim has no signal unit for (an energy, a
+pressure, or a unit you type) is shown only in the Map block's editor, its
+plot and its pin's tooltip; *Data Bus Connections*, the run's channels and
+the Data Checks' unit warnings treat the port as having no unit.
+
+**What the table import does not recognise**
+([Import a table from a file](help/how-to/import-a-table-from-a-file.md#layouts)):
+
+- **Data laid out across rows** (an axis along row 1 and its values along
+  row 2) instead of down columns: transpose it in Excel first.
+- **Several tables without labels**: they are not put together; the
+  preview reads one at a time. Give each a label such as `T = 25 °C`.
+- **Two tables touching** with no empty row or column between them are
+  read as one; a list whose columns have an empty column between them is
+  read as two tables.
+- **Labels written otherwise** than *name = value unit*, *name [unit]:
+  value*, *value unit* or *name value unit* (for example `at 25 degrees`),
+  and a breakpoint in a sheet's name without its unit (`T25`, `Sheet 25`):
+  read as titles, not labels.
+- **A matrix whose first row is not in order** (its breakpoints neither
+  rising nor falling) is read as a list.
+- **Profiles and the command line**: a Driving Task's or Road Profile's
+  **Import from file…**, `lightsim-backend import-table` and a table on
+  its own sheet of the parameter sheet read two columns or a single matrix
+  only, as before.
+- **Without the engine** (the app running on its bundled data) the import
+  and its preview are not available; a plain block of numbers still pastes
+  into the cells.
+
 Quick mode refuses in the same way what it cannot run (see *Quick mode
 gives a cycle's totals only* below): it does not run the case in full
 instead.
@@ -887,7 +930,8 @@ minimum or an average, for example from the CSV export, or put the
   case), `QUICK-END` (a case that ends at a Distance or a lap count),
   `QUICK-SAMPLED` (a Script, FMU or Traction Control part, or a PID or
   Lookup block with a Sample Time longer than the 10 ms solver step),
-  `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
+  `QUICK-CELLS`, `QUICK-TABLE-AXES` (a Map block, or a table of three or
+  more axes), `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
   `QUICK-FAILED` (fast mode's own refusal), `QUICK-TABLE-TIME` (a
   table read past its data for a time within two of its steps a stretch
   of what the run allows, too near to judge at its points),

@@ -13,7 +13,9 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from dataclasses import dataclass
+from math import isfinite
 from operator import itemgetter
+from typing import Optional
 
 Points1D = list[tuple[float, float]]
 Sheets2D = list[tuple[float, Points1D]]
@@ -59,6 +61,128 @@ def parse_table2d(raw: object) -> Sheets2D:
         if xa == xb:
             raise TableError(f"table2d has duplicate outer key {xa:g}")
     return sheets
+
+
+def _fmt(x: float) -> str:
+    return f"{x:g}"
+
+
+def parse_grid(raw: object, depth: int, names: tuple[str, ...] | list[str] = ()
+               ) -> tuple[list[list[float]], list[float]]:
+    """A table of depth axes that is a full grid (docs/spec/tables.md):
+    its breakpoints per axis, increasing, and its values row-major with the
+    first axis outermost. names name the axes in the messages."""
+    if depth < 1:
+        raise TableError("a table needs at least one axis")
+    axes: list[Optional[list[float]]] = [None] * depth
+    values: list[float] = []
+
+    def name(level: int) -> str:
+        return names[level] if level < len(names) else f"axis {level + 1}"
+
+    def where(path: list[str]) -> str:
+        return " at " + ", ".join(path) if path else ""
+
+    def walk(node: object, level: int, path: list[str]) -> None:
+        if not isinstance(node, dict) or not node:
+            raise TableError(f"the table must be nested one level per axis, with at least one "
+                             f"{name(level)} breakpoint{where(path)}")
+        keys: list[tuple[float, str]] = []
+        for k in node:
+            try:
+                x = float(k)
+            except (TypeError, ValueError):
+                raise TableError(f"the {name(level)} breakpoint '{k}'{where(path)} is not a number")
+            if not isfinite(x):
+                raise TableError(f"the {name(level)} breakpoint '{k}'{where(path)} is not a number")
+            keys.append((x, k))
+        keys.sort(key=_X)
+        for (xa, _), (xb, _) in zip(keys, keys[1:]):
+            if xa == xb:
+                raise TableError(f"{name(level)} {_fmt(xa)} is there twice{where(path)}")
+        xs = [x for x, _ in keys]
+        if axes[level] is None:
+            axes[level] = xs
+        elif axes[level] != xs:
+            raise TableError(f"it is not a full grid: the {name(level)} breakpoints{where(path)} are "
+                             f"{', '.join(map(_fmt, xs))}, elsewhere "
+                             f"{', '.join(map(_fmt, axes[level]))}")
+        for x, k in keys:
+            here = [*path, f"{name(level)} {_fmt(x)}"]
+            if level < depth - 1:
+                walk(node[k], level + 1, here)
+                continue
+            v = node[k]
+            try:
+                if isinstance(v, (dict, list)):
+                    raise ValueError
+                y = float(v)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                raise TableError(f"the value{where(here)} is not a number")
+            if not isfinite(y):
+                raise TableError(f"the value{where(here)} is not a number")
+            values.append(y)
+
+    walk(raw, 0, [])
+    return [a or [] for a in axes], values
+
+
+def depth_of(raw: object) -> int:
+    """How many levels a nested table has, along its first keys."""
+    n = 0
+    while isinstance(raw, dict) and raw:
+        raw, n = next(iter(raw.values())), n + 1
+    return n
+
+
+MAP_BLOCK = "signal.map"  # the Map block (docs/spec/tables.md)
+
+
+def map_problems(label: str, ports: list, maps: object) -> list[str]:
+    """What is wrong with a Map block's ports and tables: no input or no
+    output, a port that is not a signal input or output, a table missing or
+    of no output, a table that is not a full grid over the inputs, or
+    tables whose grids differ."""
+    out: list[str] = []
+    inputs = [p for p in ports if p.direction == "input"]
+    outputs = [p for p in ports if p.direction == "output"]
+    for p in ports:
+        if p.direction not in ("input", "output"):
+            out.append(f"'{label}': its port '{p.name}' must be an input or an output.")
+    if not inputs:
+        out.append(f"'{label}' has no input: add one in its parameters (each input is an axis of "
+                   f"its tables).")
+    if not outputs:
+        out.append(f"'{label}' has no output: add one in its parameters (each output has a table).")
+    tables = maps if isinstance(maps, dict) else {}
+    if not isinstance(maps, dict):
+        out.append(f"'{label}': its Maps must be an object of a table per output.")
+    ids = [p.id for p in outputs]
+    for i in ids:
+        if i not in tables:
+            out.append(f"'{label}' has no table for its output '{i}'.")
+    for k in tables:
+        if k not in ids:
+            out.append(f"'{label}' has a table for '{k}', which is not one of its outputs.")
+    if not inputs:
+        return out
+    names = [p.name for p in inputs]
+    grid, first = None, None
+    for o in outputs:
+        if o.id not in tables:
+            continue
+        try:
+            axes, _ = parse_grid(tables[o.id], len(inputs), names)
+        except TableError as e:
+            out.append(f"'{label}', output '{o.name}': {e}.")
+            continue
+        if grid is None:
+            grid, first = axes, o.name
+        elif axes != grid:
+            axis = next(n for n, a, b in zip(names, axes, grid) if a != b)
+            out.append(f"'{label}': the outputs '{first}' and '{o.name}' have different {axis} "
+                       f"breakpoints; a Map block's outputs share one grid.")
+    return out
 
 
 def interp1(points: Points1D, x: float, linear: bool = False) -> float:

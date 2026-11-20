@@ -104,6 +104,8 @@ for (const f of readdirSync(join(root, "backend", "projects")).filter((f) => f.e
   existsSync(join(root, own)) ? own : `backend/projects/${f}`);
 }
 const lib = JSON.parse(read("backend/app/library/components.json"));
+// the parts whose engine side is still to come (the Map block) have pages too
+lib.components = [...lib.components, ...(lib.awaitingEngine ?? [])];
 for (const c of lib.components) {
   const ports = c.ports.map((p) => `| ${cell(p.name)} | ${p.direction} | ${p.kind} | ${cell(p.unitGroup)} (${cell(lib.unitGroups[p.unitGroup] ?? "-")}) |`);
   // the Meaning column shows once the catalogue explains a parameter (LRN-05)
@@ -111,7 +113,7 @@ for (const c of lib.components) {
     p.typical && `Typical: ${p.typical}`, p.whereToFind && `Where to find it: ${p.whereToFind}`].filter(Boolean).join(" "));
   const meaning = texts.some(Boolean);
   const params = c.parameters.map((p, i) => {
-    const def = p.type.startsWith("table") ? "a table" : p.type === "code" ? "a script" : cell(p.default === "" ? "(none)" : p.default);
+    const def = p.type.startsWith("table") ? "a table" : p.type === "maps" ? "a table per output" : p.type === "code" ? "a script" : cell(p.default === "" ? "(none)" : p.default);
     return `| <span id="${p.key}"></span>${cell(p.label)} | ${cell(p.unit)} | ${def} |${meaning ? ` ${cell(texts[i])} |` : ""}`;
   });
   add("Reference", `reference/components/${c.id}.md`,

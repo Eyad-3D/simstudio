@@ -18,7 +18,12 @@ def _load_raw() -> dict:
 
 @lru_cache(maxsize=1)
 def load_library() -> list[ComponentDef]:
-    return [ComponentDef.model_validate(c) for c in _load_raw()["components"]]
+    """Every part of the library: ``components``, and ``awaitingEngine``, the
+    parts the app has whose engine side is still to come (the Map block,
+    docs/spec/tables.md). The engine embeds this file and reads
+    ``components`` alone; a part moves there when the engine runs it."""
+    raw = _load_raw()
+    return [ComponentDef.model_validate(c) for c in raw["components"] + raw.get("awaitingEngine", [])]
 
 
 @lru_cache(maxsize=1)

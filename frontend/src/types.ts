@@ -4,7 +4,10 @@ export type ScalarValue = number | string | boolean;
 // Tabular parameter data keyed by the independent variable (numeric text keys).
 export type Table1D = Record<string, number>;
 export type Table2D = Record<string, Record<string, number>>;
-export type ParamValue = ScalarValue | Table1D | Table2D;
+/** A table of any number of axes: one level per axis, numbers at the bottom
+ *  (docs/spec/tables.md); a Map block's maps: output port id → its table. */
+export type TableN = { [key: string]: number | TableN };
+export type ParamValue = ScalarValue | TableN;
 
 export type PortKind =
   | "power"
@@ -25,6 +28,9 @@ export interface PortDef {
   side?: "left" | "right"; // canvas layout hint
   /** Electrical polarity: positive (supply/+) or negative (return/−). */
   polarity?: "positive" | "negative";
+  /** A Map port's unit when the app has no unit group for it (unitGroup
+   *  "No Unit"): shown with its numbers and on its pin, never converted. */
+  unitText?: string;
 }
 
 /** What a table does outside its data on one axis: stop the run, hold the
@@ -47,11 +53,12 @@ export interface ParameterDef {
   default: ParamValue;
   /** "file": the value names a file attached to the project
    *  ("resources/<name>", STD-02); "" while none is chosen. */
-  type: "number" | "enum" | "boolean" | "string" | "code" | "table1d" | "table2d" | "file";
+  type: "number" | "enum" | "boolean" | "string" | "code" | "table1d" | "table2d" | "table" | "maps" | "file";
   options?: string[];
   /** file parameters: the file extensions it takes, e.g. [".fmu"] */
   accept?: string[] | null;
-  /** table1d: one axis; table2d: [outer, inner]. */
+  /** A table's axes, outermost first: table1d one, table2d two, table any
+   *  number (code reads the number of axes, never the type name). */
   axes?: AxisDef[];
   /** FMI-style variability: "fixed" params are baked in at model build (live
    *  edits take effect on the next run); "tunable" (default) apply live. */
@@ -121,10 +128,21 @@ export interface ElementInstance {
   parameterSources?: Record<string, ParameterSource>;
 }
 
+/** A Map block's tables (output port id → its table over the inputs, or a
+ *  number while it has no input) and per-input settings, which change with
+ *  its ports in one step (docs/spec/tables.md). */
+export interface MapBlockState {
+  maps: TableN;
+  outside: (OutsidePolicy | null)[];
+  units: { axes: (string | null)[]; outputs: Record<string, string> };
+}
+
 /** The units one parameter is shown in (ElementInstance.displayUnits). */
 export interface DisplayUnits {
   value?: string;
   axes?: (string | null)[];
+  /** a Map block's maps: output port id → the unit its values are shown in */
+  outputs?: Record<string, string>;
 }
 
 /** The kinds of origin a parameter value can have (CON-13). */

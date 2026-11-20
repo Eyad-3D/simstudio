@@ -19,7 +19,7 @@ test("STD-10: a table imports from a CSV file with a preview, converted units an
     buffer: Buffer.from("SOC [%];OCV [kV]\n0;0,3\n50;abc\n100;0,4\n"),
   });
   const preview = win.getByRole("dialog", { name: /Import .* from bad\.csv/ });
-  await expect(preview.getByText("Row 3: 'abc' in cell B3")).toBeVisible();
+  await expect(preview.getByText("Cell B3: 'abc' is not a number.")).toBeVisible();
   await expect(preview.getByRole("button", { name: /^Apply/ })).toBeDisabled();
   // Esc closes the preview only, not the parameter window under it
   await win.keyboard.press("Escape");

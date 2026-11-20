@@ -9,16 +9,22 @@ from __future__ import annotations
 from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
+from typing_extensions import TypeAliasType
 
 from .migrations import CURRENT_VERSION
 
 ScalarValue = Union[bool, int, float, str]
 # Tabular parameter data is a dict keyed by the independent variable
-# (JSON object keys are strings; they hold numeric text, e.g. "1500").
-# table1d: {x: value}; table2d: {x_outer: {x_inner: value}}.
+# (JSON object keys are strings; they hold numeric text, e.g. "1500"), one
+# level per axis, numbers at the bottom (docs/spec/tables.md): table1d
+# {x: value}, table2d {x_outer: {x_inner: value}}, a table of N axes N
+# levels deep. A Map block's maps is {output port id: table}.
 Table1D = dict[str, float]
 Table2D = dict[str, dict[str, float]]
-ParamValue = Union[ScalarValue, Table2D, Table1D]
+Table = TypeAliasType("Table", "dict[str, Union[float, Table]]")
+ParamValue = Union[ScalarValue, Table]
+# the parameter types that are tables; the number of axes is len(axes)
+TABLE_TYPES = ("table1d", "table2d", "table")
 
 # Project-file models keep unknown fields (canvas layout, newer UI data) on a
 # load → save round trip instead of silently dropping them.
@@ -35,6 +41,10 @@ class PortDef(BaseModel):
     # Electrical polarity: positive (supply/+) or negative (return/−).
     # Neutral junctions (node, ground) leave this unset.
     polarity: Optional[Literal["positive", "negative"]] = None
+    # A Map block port's unit when the app has no unit group for it (its
+    # unitGroup "No Unit"): shown with its numbers and on its pin, never
+    # converted (docs/spec/tables.md)
+    unitText: Optional[str] = None
 
 
 # What a table does outside its data on one axis: stop the run, hold the edge
@@ -66,11 +76,16 @@ class ParameterDef(BaseModel):
     default: ParamValue
     # "file": the value names a file attached to the project
     # ("resources/<name>", STD-02); "" while none is chosen
-    type: Literal["number", "enum", "boolean", "string", "code", "table1d", "table2d", "file"]
+    # table1d, table2d and table are one model (docs/spec/tables.md): code
+    # reads the number of axes from axes. "maps": a Map block's tables, one
+    # per output port, over its input ports
+    type: Literal["number", "enum", "boolean", "string", "code", "table1d", "table2d", "table",
+                  "maps", "file"]
     options: Optional[list[str]] = None
     # file parameters: the file extensions it takes, e.g. [".fmu"]
     accept: Optional[list[str]] = None
-    # table1d: exactly one axis; table2d: [outer, inner] axes.
+    # A table's axes, outermost first: table1d exactly one, table2d two,
+    # table any number.
     axes: Optional[list[AxisDef]] = None
     # FMI-style variability: "fixed" parameters are baked in at model build
     # (a live edit takes effect on the next run); "tunable" ones apply live.

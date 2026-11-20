@@ -3,7 +3,7 @@ import { FileUp, X } from "lucide-react";
 import * as api from "../api";
 import { useProjectStore } from "../store/projectStore";
 import type { ParamValue, Project } from "../types";
-import { showNumber, shownUnit } from "../units";
+import { showNumber, shownUnit, tableNumbers } from "../units";
 
 /** A value in the change list: numbers and text as they are (a number in
  *  `unit`, the one its part shows it in, from the library's `lib`), a table
@@ -11,7 +11,7 @@ import { showNumber, shownUnit } from "../units";
 function shown(v: ParamValue, lib = "", unit = lib): string {
   if (typeof v === "number") return showNumber(v, lib, unit);
   if (v && typeof v === "object") {
-    const n = Object.values(v).reduce<number>((k, x) => k + (x && typeof x === "object" ? Object.keys(x).length : 1), 0);
+    const n = tableNumbers(v, "value").length; // (at any depth)
     return `table (${n} points)`;
   }
   if (typeof v === "string" && v.includes(":") && v.includes(";")) return `profile (${v.split(";").length} points)`;
