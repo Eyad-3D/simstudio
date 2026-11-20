@@ -1835,9 +1835,19 @@ fn time_functions(
             if crossings.get(k).is_some_and(|c| c.is_some()) || held.contains(&k) {
                 return None;
             }
-            let (time, _) = r.reads(&z.expr, 0);
+            // (what it reads through its definitions: a mixed function is
+            // scanned on its own expression and chain, so the size of its
+            // definitions resolved, which only a pure function uses, does
+            // not bound it)
+            let (time, cont) = r.reads(&z.expr, 0);
             if !time {
                 return None;
+            }
+            if cont {
+                return match r.chain_of(&z.expr) {
+                    Some(chain) => Some(TimeFunction::Mixed { chain, g: z.expr.clone() }),
+                    None => Some(TimeFunction::Unhandled),
+                };
             }
             let Some(g) = r.resolve(&z.expr, 0) else {
                 return Some(TimeFunction::Unhandled);
@@ -1847,14 +1857,7 @@ fn time_functions(
             if nodes > MAX_NODES {
                 return Some(TimeFunction::Unhandled);
             }
-            let (_, cont) = r.reads(&g, 0);
-            if !cont {
-                return Some(TimeFunction::Pure(g));
-            }
-            match r.chain_of(&z.expr) {
-                Some(chain) => Some(TimeFunction::Mixed { chain, g: z.expr.clone() }),
-                None => Some(TimeFunction::Unhandled),
-            }
+            Some(TimeFunction::Pure(g))
         })
         .collect()
 }

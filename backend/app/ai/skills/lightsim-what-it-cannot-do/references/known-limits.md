@@ -22,6 +22,8 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
   yet** : the energy of a gear shift, a clutch that never locks exactly, the axle loads under load transfer, a car coasting up a grade (16.66 against 20.39 for the energy test's m g h), an idle car's final SOC (89.9991 % against 90 %), the slip Traction Control holds…
 - **A machine driven to its maximum speed can stop a run by switching
   without end** (`RUN-EVENT-STORM`: the BEV's WLTC cycle on a 6 % downhill grade with its Final Drive ratio x3, the hybrid's Mixed Cycle with its gears x3), where the older engine warned or finished; and a motor driven past its maximum speed in a top-speed test stops on its …
+- **An E-Motor on an empty battery feeds its own spin losses from the
+  shaft.** Where its supply cannot cover even the losses of its spinning rotor, the motor takes what the supply gives, and the rest of those losses brakes the shaft (as its *Drag Torque* does with the inverter off).
 - **A battery driven to its limits, an empty battery's consumers and a
   fuel cell behind a one-way DC-DC converter can fail at their start or at
   t = 0** (`RUN-INIT` at about 2.2 s; `RUN-TABLE` at t = 0): the new engine cannot start again from the state these cases reach.

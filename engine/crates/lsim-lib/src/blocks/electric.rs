@@ -339,7 +339,8 @@ pub fn climate(cfg: &ClimateConfig) -> ComponentDef {
 /// takes plus what the consumers use. Its inputs: the source's window
 /// (`p_deliver`, `p_absorb`), each consumer's demand `p_dem<k>`, each
 /// motor's request `p_req<m>`; its outputs: the consumers' share `served`
-/// and each motor's window `p_hi<m>`, `p_lo<m>` (±1e30 W when open).
+/// and each motor's window `p_hi<m>`, `p_lo<m>` (its share where they are
+/// cut back, else its request and the room left).
 pub fn bus_manager(motors: usize, consumers: usize) -> ComponentDef {
     bus_manager_fed(motors, consumers, 0, 0)
 }
@@ -358,7 +359,6 @@ pub fn bus_manager_fed(
     inflows: usize,
     uses: usize,
 ) -> ComponentDef {
-    let big = || c(BIG_W) * n("unit_W");
     let zero = || c(0.0) * n("unit_W");
     let mut ports = vec![
         input("p_deliver", "W", "the most its source gives now"),
@@ -448,15 +448,30 @@ pub fn bus_manager_fed(
             "the share of their feedback the recuperating motors get",
         ),
     ];
+    // each motor's window is continuous in its request: cut back, its share
+    // of the room (of what the source takes); else its request and all the
+    // room left (the room alone for a motor that asks for nothing). (It
+    // was open, 1e30 W, for a request on the other side of zero: at an
+    // empty battery a request that was the solver's noise about zero
+    // switched a motor's window between open and nothing by its sign.)
+    let total = || n("pos") + n("neg");
     for m in 1..=motors {
         eqs.push(eq(
             n(&format!("p_hi{m}")),
-            ite(noev(and(gt(n("cut_hi"), c(0.5)), gt(req(m), zero()))), n("k_hi") * req(m), big()),
+            ite(
+                noev(gt(n("cut_hi"), c(0.5))),
+                n("k_hi") * max(req(m), zero()),
+                max(req(m), zero()) + max(n("hi") - total(), zero()),
+            ),
             "its share of the room",
         ));
         eqs.push(eq(
             n(&format!("p_lo{m}")),
-            ite(noev(and(gt(n("cut_lo"), c(0.5)), lt(req(m), zero()))), n("k_lo") * req(m), -big()),
+            ite(
+                noev(gt(n("cut_lo"), c(0.5))),
+                n("k_lo") * min(req(m), zero()),
+                min(req(m), zero()) - max(total() - n("lo"), zero()),
+            ),
             "its share of what the source takes",
         ));
     }

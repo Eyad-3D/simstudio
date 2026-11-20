@@ -1086,3 +1086,62 @@ fn conditions_on_functions_of_time_are_found_in_a_prepared_model() {
     assert!((ch("k.above") - held).abs() < 1e-6 * held);
     assert!(run.report.warnings.is_empty(), "{:?}", run.report.warnings);
 }
+
+/// A condition that reads time and a state through a chain of 16
+/// definitions, each reading the one before twice (`v_k = v_k-1 + 0.5
+/// sin(v_k-1)`, its zero where v0's is): expanded into one expression it
+/// runs to 2^16 nodes, but it is a mixed function, scanned through its
+/// chain, and its expansion is no measure of it. It was sized against the
+/// pure functions' 20,000 nodes before it was asked whether it reads a
+/// state, left to root finding without the pulse check, and warned of
+/// (a DC-DC converter's condition, which reads a motor's electrical power,
+/// when that read the motor's supply window). It fires at 0.5 s, unwarned.
+#[test]
+fn a_mixed_condition_is_not_sized_by_its_expansion() {
+    use lsim_ir::component::build::{discrete, eq, param, state, var};
+    use lsim_ir::expr::{Builtin, CmpOp, c, call, cmp, der, name as n};
+    use lsim_ir::{ComponentDef, Equation, EquationDecl, WhenAction};
+    let mut vars = vec![state("x", "1", 0.0, ""), discrete("hit", "s", 0.0, "")];
+    let mut equations = vec![
+        eq(der("x"), n("rate"), "x rises"),
+        eq(n("v0"), n("x") + n("rate") * Expr::Time - c(1.0), "zero at 0.5 s"),
+    ];
+    vars.push(var("v0", "1", ""));
+    for k in 1..=16 {
+        let prev = || n(&format!("v{}", k - 1));
+        vars.push(var(&format!("v{k}"), "1", ""));
+        equations.push(eq(
+            n(&format!("v{k}")),
+            prev() + c(0.5) * call(Builtin::Sin, vec![prev()]),
+            "its zero where the one before has it",
+        ));
+    }
+    equations.push(EquationDecl {
+        eq: Equation::When {
+            condition: cmp(CmpOp::Gt, n("v16"), c(0.0)),
+            actions: vec![WhenAction::Assign { var: "hit".into(), value: Expr::Time }],
+        },
+        label: Some("v16 above 0".into()),
+    });
+    let m = ComponentDef {
+        name: "Test.DeepChain".into(),
+        params: vec![param("rate", "1/s", 1.0, "")],
+        vars,
+        equations,
+        ..Default::default()
+    };
+    let built = common::build(&common::library(), &m, false);
+    let opts = SolverOptions { rtol: 1e-8, atol: 1e-10, ..Default::default() };
+    let run = simulate(
+        &built.jit,
+        &built.info,
+        &opts,
+        OutputGrid { t0: 0.0, t_end: 1.0, dt: 0.1 },
+        &mut [],
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert!(run.report.warnings.is_empty(), "{:?}", run.report.warnings);
+    let k = run.names.iter().position(|x| x == "hit").expect("hit");
+    let hit = *run.values[k].last().unwrap();
+    assert!((hit - 0.5).abs() < 1e-9, "fired at {hit}");
+}

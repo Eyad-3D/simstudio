@@ -132,12 +132,6 @@ XFAIL = {
     "test_lab_figures.py::test_ftp_bags_are_weighted_as_epa_does": (
         "the new path gives no 'FTP weighted fuel consumption' row: the engine's figures have each bag, today's "
         "lab_rows weights them (open)"),
-    "test_gear_losses.py::test_gear_losses_act_on_the_power_through_the_gears[motor-0.0]": (
-        "NEW-FAILED (STATE-SELECT-SINGULAR): a P2 car driven by its E-Motor, its Engine off behind an open Clutch, is refused at "
-        "the start (the Clutch's constraints; the test's own model, not the example) (open)"),
-    "test_gear_losses.py::test_gear_losses_act_on_the_power_through_the_gears[motor--4.0]": (
-        "NEW-FAILED (STATE-SELECT-SINGULAR): a P2 car driven by its E-Motor, its Engine off behind an open Clutch, is refused at "
-        "the start (the Clutch's constraints; the test's own model, not the example) (open)"),
     "test_acceleration.py::test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step": PORT + (
         "; it still differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
     "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": PORT + (
