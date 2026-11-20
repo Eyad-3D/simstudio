@@ -48,6 +48,6 @@ CI, so a stale copy costs a whole round. After changing anything under
 - `python -m lightsim schema --out ../docs/spec/schemas` (the project
   file's schemas);
 
-then the tests that guard them, which take seconds:
+then the tests that guard them, which take about six minutes:
 
 `python -m pytest -q tests/test_ai_skills.py tests/test_sources.py tests/test_data_register.py tests/test_spec.py tests/test_docs.py`
