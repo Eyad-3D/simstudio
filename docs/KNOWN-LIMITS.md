@@ -1156,6 +1156,12 @@ SUNDIALS' own examples, transcribed from their C code
   and down arrows then step through them while the line stands still, and
   an overlaid run that stopped where a line crosses it is read at the
   start or the end of its stop.
+- **A table's plot does not zoom with a drag.** The plot under a table or
+  map in a part's parameter window zooms with the mouse wheel and the + and
+  − keys, and a double-click shows the whole table again; dragging a box
+  to zoom, as on the *Results* charts, is off there, because the chart
+  would not see the mouse button come up in a window of its own.
+  *Workaround:* zoom with the wheel.
 - **Long runs with many lines zoom less smoothly.** On a 1-hour run
   (36,001 points) with 7 channels ticked and the baseline drawn faint as
   well (14 lines), the mouse wheel zooms at 60 frames a second most of the

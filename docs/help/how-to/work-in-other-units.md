@@ -26,11 +26,13 @@ the arrow, such as % or a number with no unit, has no other unit to show.
 
 ## Tables
 
-Above a table's grid, each axis and the values have their unit: click
-one, or double-click a column's header in a one-axis table (or select it
-and press Enter), for the same chooser, for the whole axis or all the
-values. The cells show, take and copy numbers in the units shown: what
-you copy is what you see, and a block pasted from Excel is read in them.
+Joined to the top of a table's grid, each axis and the values have their
+unit: click one, or double-click a column's header in a one-axis table
+(or select it and press Enter), or the top-left cell of a map for its
+values, for the same chooser, for the whole axis or all the values. The
+cells and the plot under them show, take and copy numbers in the units
+shown: what you copy is what you see, and a block pasted from Excel is
+read in them ([Edit a table or a map](edit-a-table.md)).
 
 ## What is kept
 

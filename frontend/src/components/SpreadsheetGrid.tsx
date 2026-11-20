@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { ClipboardPaste, Copy } from "lucide-react";
 import { useOwnerWindow } from "../ownerWindow";
 
 export type CellKind = "corner" | "colHeader" | "rowHeader" | "body";
@@ -52,12 +53,24 @@ export function parseClipboardMatrix(text: string): string[][] {
   return cleaned.split("\n").map((row) => row.split("\t"));
 }
 
+/** The cells of `range` as clipboard text (TSV rows), as Excel copies them. */
+export function matrixText(matrix: GridCell[][], range: GridRange): string {
+  const lines: string[] = [];
+  for (let r = range.r0; r <= range.r1; r++) {
+    const row: string[] = [];
+    for (let c = range.c0; c <= range.c1; c++) row.push(matrix[r]?.[c]?.text ?? "");
+    lines.push(row.join("\t"));
+  }
+  return lines.join("\n");
+}
+
 /**
  * Excel-like grid over a matrix of cells. Supports single/range selection
  * (click, shift-click, drag, arrow keys), block copy (Ctrl+C → TSV) and
  * block paste (Ctrl+V from Excel), in-cell editing, and Delete to clear.
- * Text that `validate` rejects is never committed: the cell turns red and a
- * message under the grid says why, so no value is dropped silently.
+ * Copy and Paste are buttons too, above the grid, beside the editor's own
+ * `tools`. Text that `validate` rejects is never committed: the cell turns
+ * red and a message under the grid says why, so no value is dropped silently.
  */
 export function SpreadsheetGrid({
   matrix,
@@ -68,6 +81,8 @@ export function SpreadsheetGrid({
   validate,
   columnClass,
   onHeaderOpen,
+  tools,
+  caption,
 }: {
   matrix: GridCell[][];
   onCommit: (r: number, c: number, text: string) => void;
@@ -81,6 +96,10 @@ export function SpreadsheetGrid({
   /** a double-click, Enter or F2 on a read-only cell (a header with a unit):
    *  true when it opened something (its unit chooser) */
   onHeaderOpen?: (r: number, c: number) => boolean;
+  /** the editor's own buttons, in the toolbar after Copy and Paste */
+  tools?: ReactNode;
+  /** a line joined to the top of the grid (the table's units) */
+  caption?: ReactNode;
 }) {
   const rows = matrix.length;
   const cols = matrix[0]?.length ?? 0;
@@ -95,7 +114,7 @@ export function SpreadsheetGrid({
     editRef.current = e;
     setEditingState(e);
   };
-  const [notice, setNotice] = useState<GridIssue | null>(null);
+  const [notice, setNotice] = useState<GridIssue | { level: "info"; text: string } | null>(null);
   const dragging = useRef(false);
 
   const range = normRange(sel);
@@ -241,23 +260,30 @@ export function SpreadsheetGrid({
 
   const onCopy = (e: React.ClipboardEvent) => {
     if (editing) return;
-    const lines: string[] = [];
-    for (let r = range.r0; r <= range.r1; r++) {
-      const row: string[] = [];
-      for (let c = range.c0; c <= range.c1; c++) row.push(cellAt(r, c)?.text ?? "");
-      lines.push(row.join("\t"));
-    }
-    e.clipboardData.setData("text/plain", lines.join("\n"));
+    e.clipboardData.setData("text/plain", matrixText(matrix, range));
     e.preventDefault();
   };
 
   const onPaste = (e: React.ClipboardEvent) => {
     if (editing) return;
     const text = e.clipboardData.getData("text/plain");
-    const block = parseClipboardMatrix(text);
-    if (block.length === 0) return;
+    if (parseClipboardMatrix(text).length === 0) return;
     e.preventDefault();
-    const { r, c } = sel.active;
+    pasteText(text);
+  };
+
+  /** Clipboard text in at the active cell. A copy of this whole table (it
+   *  starts with the table's own top-left header) goes back where it came
+   *  from: at the top-left, less a header row no number can go in. */
+  const pasteText = (text: string) => {
+    let block = parseClipboardMatrix(text);
+    let { r, c } = sel.active;
+    const corner = cellAt(0, 0);
+    if (corner?.readOnly && block[0]?.[0] === corner.text) {
+      [r, c] = [0, 0];
+      if (matrix[0].every((cell) => cell.readOnly)) [block, r] = [block.slice(1), 1];
+    }
+    if (block.length === 0) return;
     if (block.length === 1 && block[0].length === 1) {
       if (!isEditable(r, c)) return;
       const issue = issueFor({ r, c, value: block[0][0] });
@@ -271,6 +297,39 @@ export function SpreadsheetGrid({
       const problem = onPasteBlock(r, c, block);
       setNotice(problem ? { level: "error", text: problem } : null);
     }
+  };
+
+  // the buttons: the selection when it is more than one cell, else the whole table
+  const several = range.r0 !== range.r1 || range.c0 !== range.c1;
+  const copyButton = async () => {
+    const all = { r0: 0, c0: 0, r1: rows - 1, c1: cols - 1 };
+    try {
+      // the window the table is in: the clipboard is only the focused window's
+      await win.navigator.clipboard.writeText(matrixText(matrix, several ? range : all));
+      setNotice({ level: "info", text: several ? "Copied the selected cells." : "Copied the whole table." });
+    } catch {
+      setNotice({
+        level: "error",
+        text: "Could not copy: the clipboard is not available. Select the cells and press Ctrl+C instead.",
+      });
+    }
+  };
+  const pasteButton = async () => {
+    let text: string;
+    try {
+      text = await win.navigator.clipboard.readText();
+    } catch {
+      setNotice({
+        level: "error",
+        text: "Could not read the clipboard: permission refused. Click a cell and press Ctrl+V instead.",
+      });
+      return;
+    }
+    if (parseClipboardMatrix(text).length === 0) {
+      setNotice({ level: "info", text: "Nothing to paste: the clipboard has no text." });
+      return;
+    }
+    pasteText(text);
   };
 
   const liveIssue = issueFor(editing);
@@ -291,96 +350,123 @@ export function SpreadsheetGrid({
 
   return (
     <>
-      <div
-        // nokey: Delete and Backspace here clear cells, and must not reach
-        // React Flow, which would delete the part selected on the diagram
-        className="ss-grid-frame nokey"
-        ref={containerRef}
-        tabIndex={0}
-        onKeyDown={onKeyDown}
-        onCopy={onCopy}
-        onPaste={onPaste}
-        style={{ outline: "none" }}
-      >
-        <table className="ss-grid">
-          <tbody>
-            {matrix.map((row, r) => (
-              <tr key={r}>
-                {row.map((cell, c) => {
-                  const active = sel.active.r === r && sel.active.c === c;
-                  const isEditingCell = editing?.r === r && editing?.c === c;
-                  return (
-                    <td
-                      key={c}
-                      className={`${inRange(r, c) ? "ss-selected " : ""}${active ? "ss-active " : ""}${
-                        isEditingCell && liveIssue ? `ss-cell-${liveIssue.level} ` : ""
-                      }${columnClass?.(c) ?? ""}`}
-                      onMouseDown={(e) => {
-                        if (isEditingCell) return;
-                        e.preventDefault();
-                        focusGrid();
-                        if (e.shiftKey) setSel((prev) => ({ ...prev, active: { r, c } }));
-                        else {
-                          setSel({ anchor: { r, c }, active: { r, c } });
-                          dragging.current = true;
-                        }
-                      }}
-                      onMouseEnter={() => {
-                        if (dragging.current) setSel((prev) => ({ ...prev, active: { r, c } }));
-                      }}
-                      onDoubleClick={() => startEdit(r, c)}
-                    >
-                      {isEditingCell ? (
-                        <input
-                          className="ss-cell-input"
-                          autoFocus
-                          value={editing.value}
-                          title={liveIssue?.text}
-                          aria-invalid={liveIssue?.level === "error" || undefined}
-                          onChange={(e) => setEditing({ ...editing, value: e.target.value })}
-                          onFocus={(e) => {
-                            // keep a typed first character: caret after it, not selected
-                            const end = e.target.value.length;
-                            if (editing.typed) e.target.setSelectionRange(end, end);
-                            else e.target.select();
-                          }}
-                          onBlur={() => commitEdit("blur")}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              e.preventDefault();
-                              commitEdit("down");
-                            } else if (e.key === "Tab") {
-                              e.preventDefault();
-                              commitEdit("right");
-                            } else if (e.key === "Escape") {
-                              // cancel this edit only; the dialog must not see the key
-                              e.preventDefault();
-                              e.stopPropagation();
-                              cancelEdit();
-                            } else {
-                              e.stopPropagation();
-                            }
-                          }}
-                        />
-                      ) : (
-                        <div className={cellClass(cell)} title={cell.text}>
-                          {cell.text || " "}
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div role="group" aria-label="Table tools" className="ss-table-tools">
+        <button
+          type="button"
+          className="ss-toolbtn"
+          onClick={() => void copyButton()}
+          title="Copy the selected cells, or the whole table when one cell or none is selected (Ctrl+C). Pastes into Excel."
+        >
+          <Copy size={12} aria-hidden /> Copy
+        </button>
+        <button
+          type="button"
+          className="ss-toolbtn"
+          onClick={() => void pasteButton()}
+          title="Paste cells copied here or from Excel, from the selected cell on (Ctrl+V). A whole table copied here goes back in place."
+        >
+          <ClipboardPaste size={12} aria-hidden /> Paste
+        </button>
+        {tools}
+      </div>
+      <div className="ss-table-box">
+        {caption && <div className="ss-grid-caption">{caption}</div>}
+        <div
+          // nokey: Delete and Backspace here clear cells, and must not reach
+          // React Flow, which would delete the part selected on the diagram
+          className={`ss-grid-frame nokey${caption ? " ss-grid-frame-captioned" : ""}`}
+          ref={containerRef}
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          onCopy={onCopy}
+          onPaste={onPaste}
+        >
+          <table className="ss-grid">
+            <tbody>
+              {matrix.map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => {
+                    const active = sel.active.r === r && sel.active.c === c;
+                    const isEditingCell = editing?.r === r && editing?.c === c;
+                    return (
+                      <td
+                        key={c}
+                        className={`${inRange(r, c) ? "ss-selected " : ""}${active ? "ss-active " : ""}${
+                          isEditingCell ? "ss-editing " : ""
+                        }ss-td-${cell.kind} ${
+                          isEditingCell && liveIssue ? `ss-cell-${liveIssue.level} ` : ""
+                        }${columnClass?.(c) ?? ""}`}
+                        onMouseDown={(e) => {
+                          if (isEditingCell) return;
+                          e.preventDefault();
+                          focusGrid();
+                          if (e.shiftKey) setSel((prev) => ({ ...prev, active: { r, c } }));
+                          else {
+                            setSel({ anchor: { r, c }, active: { r, c } });
+                            dragging.current = true;
+                          }
+                        }}
+                        onMouseEnter={() => {
+                          if (dragging.current) setSel((prev) => ({ ...prev, active: { r, c } }));
+                        }}
+                        onDoubleClick={() => startEdit(r, c)}
+                      >
+                        {isEditingCell ? (
+                          <input
+                            className="ss-cell-input"
+                            autoFocus
+                            value={editing.value}
+                            title={liveIssue?.text}
+                            aria-invalid={liveIssue?.level === "error" || undefined}
+                            onChange={(e) => setEditing({ ...editing, value: e.target.value })}
+                            onFocus={(e) => {
+                              // keep a typed first character: caret after it, not selected
+                              const end = e.target.value.length;
+                              if (editing.typed) e.target.setSelectionRange(end, end);
+                              else e.target.select();
+                            }}
+                            onBlur={() => commitEdit("blur")}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                commitEdit("down");
+                              } else if (e.key === "Tab") {
+                                e.preventDefault();
+                                commitEdit("right");
+                              } else if (e.key === "Escape") {
+                                // cancel this edit only; the dialog must not see the key
+                                e.preventDefault();
+                                e.stopPropagation();
+                                cancelEdit();
+                              } else {
+                                e.stopPropagation();
+                              }
+                            }}
+                          />
+                        ) : (
+                          <div className={cellClass(cell)} title={cell.text}>
+                            {cell.text || " "}
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
       {shownNotice && (
         <div
           data-grid-notice
           role={shownNotice.level === "error" ? "alert" : "status"}
-          className={`text-[10px] leading-tight ${
-            shownNotice.level === "error" ? "text-[color:var(--ss-err)]" : "text-[color:var(--ss-warn)]"
+          className={`text-[11px] leading-tight ${
+            shownNotice.level === "error"
+              ? "text-[color:var(--ss-err)]"
+              : shownNotice.level === "warning"
+                ? "text-[color:var(--ss-warn)]"
+                : "text-[color:var(--ss-text-dim)]"
           }`}
         >
           {shownNotice.text}
