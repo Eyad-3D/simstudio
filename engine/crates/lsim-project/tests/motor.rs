@@ -1,5 +1,6 @@
 //! The E-Motor at an empty battery: its inverter off, the motor unpowered
-//! and dragging, and the car coasting to rest with the accelerator down.
+//! and dragging, and the car coasting to rest with the accelerator down;
+//! and at its full-load torque, the last torque point of its loss map.
 
 use serde_json::json;
 use std::path::PathBuf;
@@ -97,4 +98,59 @@ fn a_car_whose_battery_is_empty_coasts_to_rest() {
     assert!(v[rest..].iter().all(|x| x.abs() < 1e-9), "{:?}", &v[rest..rest + 3]);
     let books = r.energy.as_ref().unwrap().relative_closure;
     assert!(books < 1e-6, "the books close to {books:e}");
+}
+
+/// The Battery Electric Car with its final drive's ratio a hundredth of its
+/// own (0.128 for 12.8): its motor at full load cannot move it, and it
+/// stands with the accelerator down, the motor at its full-load torque,
+/// 310 N·m, which is the last torque point of its loss map (an axis that
+/// allows no values outside). The motor's torque was the share of the
+/// command its supply allows times the command's torque; where the supply
+/// does not cut it the share's equation is "the share is 1", which the
+/// integrator meets only to its tolerance: at 22.76 s the share was
+/// 1.000000001 and the torque 310.00000031 N·m, and the loss map, read at
+/// that torque, was read past its data and the run stopped. Where the
+/// supply does not cut it the torque is the command's (the share not
+/// used): it never exceeds the command's, the loss map is read inside its
+/// data, and the car stands to the end.
+#[test]
+fn a_motor_at_its_full_load_reads_its_loss_map_inside_its_data() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut project: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("../../../backend/projects/bev-car.json")).unwrap(),
+    )
+    .unwrap();
+    let fd = project["systems"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .flat_map(|s| s["elements"].as_array_mut().unwrap())
+        .find(|e| e["id"] == "el-final-drive")
+        .unwrap();
+    assert_eq!(fd["parameterOverrides"]["ratio"], json!(12.8));
+    fd["parameterOverrides"]["ratio"] = json!(12.8 / 100.0);
+    let opts = lsim_solve::SolverOptions { rtol: 1e-6, atol: 1e-8, ..Default::default() };
+    let run = lsim_project::golden::run_case(&project, "case-city", &opts, None)
+        .unwrap_or_else(|e| panic!("{e}"));
+    let r = &run.result;
+    assert_eq!(r.times.last().copied(), Some(600.0), "it ran to its end");
+    let ch = |name: &str| r.channel(name).unwrap_or_else(|| panic!("no channel {name}"));
+    let (torque, t_cmd, on) = (ch("el_motor.T"), ch("el_motor.t_cmd"), ch("el_motor.on"));
+    let mut full = 0;
+    for k in 0..r.times.len() {
+        if on[k] == 1.0 {
+            assert!(
+                torque[k].abs() <= t_cmd[k].abs(),
+                "at {} s the torque {} exceeds the command's {}",
+                r.times[k],
+                torque[k],
+                t_cmd[k]
+            );
+            full += usize::from(t_cmd[k] == 310.0);
+        }
+    }
+    assert!(full > 10, "{full} points at full load");
+    let dist = ch("el_vehicle.sig_distance");
+    println!("distance {} m", dist.last().unwrap());
+    assert!(dist.iter().all(|s| s.abs() < 1.0), "it does not drive");
 }

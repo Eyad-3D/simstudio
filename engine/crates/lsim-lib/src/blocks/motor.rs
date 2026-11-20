@@ -384,9 +384,22 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             "the torque is cut to the largest share of the command whose power fits its supply \
              (off, the whole command: it is not used)",
         ));
+        // where the supply does not cut the torque it is the command's, the
+        // share not used: the share's equation there (share = 1) holds only
+        // to the integrator's tolerance, and a share a little above 1 took
+        // the torque past the command's, at full load past the loss map's
+        // last torque point (a read outside its data)
         eqs.push(eq(
             n("T"),
-            ite(gt(n("on"), c(0.5)), n("frac") * n("t_cmd"), unpowered),
+            ite(
+                gt(n("on"), c(0.5)),
+                ite(
+                    noev(or(gt(n("p_req"), n("p_hi")), lt(n("p_req"), n("p_lo")))),
+                    n("frac") * n("t_cmd"),
+                    n("t_cmd"),
+                ),
+                unpowered,
+            ),
             "powered, the allowed torque; unpowered, its drag against the motion",
         ));
         eqs.push(eq(
