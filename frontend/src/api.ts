@@ -14,6 +14,7 @@ import type {
   StoredRunInfo,
   Table1D,
   Table2D,
+  TableN,
   Study,
 } from "./types";
 import fallbackLibrary from "./data/componentLibrary.json";
@@ -1016,6 +1017,120 @@ export function importTableFile(
     method: "POST",
     body: JSON.stringify({ filename: file.name, data: file.data, ...target, ...options }),
   });
+}
+
+/** An axis or a column of values found in imported data (layouts.py). */
+export interface DataField {
+  index: number;
+  /** as written ("Speed [rpm]"), "" when nothing names it */
+  title: string;
+  name: string;
+  /** "column B", "row 3", "the labels" */
+  where: string;
+  role: "axis" | "value";
+  /** the layout says what it is (a matrix's axes, a label) */
+  fixed: boolean;
+  unit: string | null;
+  written: string | null;
+  /** breakpoints, for an axis */
+  count: number | null;
+  /** "axis:<i>", "value:<i>" or "skip" */
+  slot: string;
+  /** how it was matched: "order" when nothing in the data said (the preview
+   *  asks), "only" when the target has one such slot */
+  how?: "name" | "unit" | "name and unit" | "order" | "only" | "chosen" | "build";
+  target?: string;
+  options?: string[];
+  /** the unit its numbers were read in, and the one they are stored in */
+  used?: string;
+  stored?: string;
+  /** no unit in the data: read in the stored one */
+  assumed?: boolean;
+  /** its unit does not fit (a problem says why) */
+  bad?: boolean;
+}
+
+export interface DataProblem {
+  text: string;
+  level: "error" | "warning" | "question";
+  cell?: string;
+  sheet?: string;
+}
+
+/** A Map block port the import would set (with the unit to show it in). */
+export interface DataPort {
+  id: string;
+  name: string;
+  direction: "input" | "output";
+  kind: "signal";
+  unitGroup: string;
+  unitText?: string;
+  display: string | null;
+}
+
+/** What the engine found in a file or pasted text for a table of any number
+ *  of axes or a Map block's tables, and how it fits (POST /import/data). */
+export interface DataImport {
+  ok: boolean;
+  /** "A matrix (pivot table) (A2:D9)" */
+  layout: string;
+  fields: DataField[];
+  notes: string[];
+  problems: DataProblem[];
+  points: number;
+  /** points missing from the grid, and how many were filled */
+  holes: number;
+  filled: number;
+  targetAxes: { name: string; unit: string }[];
+  targetValues: { key: string; name: string; unit: string }[];
+  /** the axes as imported (in the stored units) */
+  axes?: { name: string; unit: string; count: number; min: number; max: number }[];
+  /** ready to store, by value: "value" for a library table, an output's id for a Map block */
+  tables?: Record<string, TableN>;
+  sheets?: { name: string; tables: number }[];
+  /** the sheet read, or "*" for every sheet */
+  sheet: string | null;
+  blocks: { sheet: string; range: string; kind: string; label: string | null }[];
+  /** which of several unlabelled tables was read */
+  block: number | null;
+  sheetLabels: boolean;
+  /** a Map block: the import can set its inputs and outputs, and does when `build` */
+  canBuild?: boolean;
+  build: boolean;
+  ports: DataPort[] | null;
+  source: "file" | "text";
+  /** how the text was read ("tab-separated, UTF-8, decimal comma") */
+  read: string[];
+  decimal: "comma" | "point" | null;
+  decimalQuestion: string | null;
+  cells: (number | string | null)[][];
+  target: string;
+}
+
+export interface DataImportOptions {
+  sheet?: string;
+  block?: number;
+  fields?: Record<string, string>;
+  units?: Record<string, string>;
+  decimal?: "comma" | "point";
+  fill?: "refuse" | "nearest";
+  build?: boolean;
+}
+
+export interface DataTargetRef {
+  componentDefId: string;
+  paramKey: string;
+  /** a Map block's ports */
+  ports?: { id: string; name: string; direction: "input" | "output"; unitGroup?: string; unitText?: string }[];
+}
+
+export function importData(
+  source: { file: { name: string; data: string } } | { text: string },
+  target: DataTargetRef,
+  options: DataImportOptions = {},
+): Promise<DataImport> {
+  const from = "text" in source ? { text: source.text } : { filename: source.file.name, data: source.file.data };
+  return request("/import/data", { method: "POST", body: JSON.stringify({ ...from, ...target, ...options }) });
 }
 
 /** A drive cycle of one's own as read from a CSV or Excel file (CON-11):

@@ -11,6 +11,7 @@ import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
 import { SourceBadge, ValueSources } from "./ValueSources";
 import { ImportFromFileButton, type ImportTarget } from "../ImportTableDialog";
+import { useTableImport } from "../ImportDataDialog";
 import { TableUnits, UnitButton, UnitChooser, type UnitColumn } from "../UnitChooser";
 import { TablePlot } from "../TablePlot";
 import {
@@ -41,6 +42,7 @@ import {
   type TableShown,
 } from "./gridRules";
 import { FMU_DEF_ID, FMU_FILE_KEYS } from "../../fmu";
+import type { DataTargetRef } from "../../api";
 import type {
   AxisDef,
   ComponentDef,
@@ -54,6 +56,17 @@ import type {
   Table2D,
   TableN,
 } from "../../types";
+
+/** A library table of three or more axes: its grid, with the import. */
+function LibraryTableN({ target, ...props }: Parameters<typeof TableNEditor>[0] & { target: DataTargetRef }) {
+  const importer = useTableImport(target, (r) => props.onChange(r.tables));
+  return (
+    <>
+      <TableNEditor {...props} tools={importer.tools} onImportText={importer.onImportText} />
+      {importer.dialog}
+    </>
+  );
+}
 
 /** Excel-style editable grid for a 1D lookup table {x: y}. */
 function Table1DEditor({
@@ -78,6 +91,11 @@ function Table1DEditor({
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
   const [unitOpen, setUnitOpen] = useState<UnitSlot | null>(null);
+  // a table's import (any layout, from a file or pasted); a profile keeps its own
+  const importer = useTableImport(
+    importTarget && importTarget.paramKey !== "profile" ? importTarget : null,
+    (r) => onChange(r.tables.value as Table1D),
+  );
   const keys = sortedNumericKeys(value);
   // what the cells show, and how their text reads back (units.ts)
   const xUnit = units.axes[0] ?? axis.unit;
@@ -145,6 +163,9 @@ function Table1DEditor({
     const rows = pairs.map((p) => [...p] as [string, string]);
     const startRow = r <= 0 ? 0 : r - 1;
     const startCol = Math.min(1, Math.max(0, c));
+    const width = Math.max(...block.map((b) => b.length));
+    if (startCol + width > 2)
+      return `Paste not applied: the clipboard has ${width} columns, and from here the table has ${2 - startCol}.`;
     block.forEach((brow, bi) => {
       brow.forEach((val, bj) => {
         const tc = startCol + bj;
@@ -200,6 +221,7 @@ function Table1DEditor({
         onSelectionChange={setSelRange}
         validate={validate}
         onHeaderOpen={openHeader}
+        onImportText={importer.onImportText}
         caption={
           columns.some((c) => alternatives(c.lib).length > 0) && (
             <TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />
@@ -220,12 +242,14 @@ function Table1DEditor({
             >
               <Trash2 size={12} aria-hidden /> Delete row(s)
             </button>
-            {importTarget && (
+            {importer.tools}
+            {importTarget?.paramKey === "profile" && (
               <ImportFromFileButton target={importTarget} onApply={onImport ?? ((v) => onChange(v as Table1D))} />
             )}
           </>
         }
       />
+      {importer.dialog}
       <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
       <TablePlot
         table={value}
@@ -261,6 +285,7 @@ function Table2DEditor({
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
   const [unitOpen, setUnitOpen] = useState<UnitSlot | null>(null);
+  const importer = useTableImport(importTarget ?? null, (r) => onChange(r.tables.value as Table2D));
   const outerKeys = sortedNumericKeys(value);
   const innerSet = new Set<string>();
   for (const ok of outerKeys) for (const ik of Object.keys(value[ok] ?? {})) innerSet.add(ik);
@@ -425,6 +450,7 @@ function Table2DEditor({
         onSelectionChange={setSelRange}
         validate={validate}
         onHeaderOpen={openCorner}
+        onImportText={importer.onImportText}
         caption={<TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />}
         tools={
           <>
@@ -453,10 +479,11 @@ function Table2DEditor({
             >
               <Trash2 size={12} aria-hidden /> Row(s)
             </button>
-            {importTarget && <ImportFromFileButton target={importTarget} onApply={(v) => onChange(v as Table2D)} />}
+            {importer.tools}
           </>
         }
       />
+      {importer.dialog}
       <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
       <TablePlot
         table={value}
@@ -1328,7 +1355,8 @@ export function ElementForm({
             />
           ) : isTable(p) && (p.axes?.length ?? 0) > 2 ? (
             // a table of three or more axes: one grid, two axes shown (docs/spec/tables.md)
-            <TableNEditor
+            <LibraryTableN
+              target={{ componentDefId: def.id, paramKey: p.key }}
               axes={p.axes!.map((a, i) => ({ name: a.name, lib: a.unit, unit: unitOf(p, i) }))}
               outputs={[{ key: "value", name: p.label, lib: p.unit, unit: unitOf(p) }]}
               tables={{ value: valueOf(p) as TableN }}

@@ -49,6 +49,7 @@ def test_titles_say_names_and_units_the_way_people_write_them():
     assert split_title("Speed in rad/s") == ("Speed", "rad/s", "rad/s")
     assert split_title("Torque_Nm") == ("Torque", "N·m", "Nm")
     assert split_title("T [degC]")[1] == "°C"
+    assert split_title("Loss map (supplier data)") == ("Loss map (supplier data)", None, None)
 
 
 def test_labels_in_three_spellings_and_with_two_axes():
@@ -283,6 +284,8 @@ def test_a_map_block_is_built_from_the_data_with_the_user_s_yes():
     empty = data_target("signal.map", "maps", [])
     res = run(text, empty)
     assert not res["ok"] and res["canBuild"]
+    assert errors(res) == ["The Map block has no inputs yet: let the import set its inputs (3) "
+                           "and outputs (3) from the data."]
     res = run(text, empty, build=True)
     assert res["ok"], res["problems"]
     ports = res["ports"]

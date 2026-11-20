@@ -190,7 +190,10 @@ def split_title(title: str) -> tuple[str, Optional[str], Optional[str]]:
     m = _NAME_SLASH.match(t)
     if m and U.canonical(m.group(2)):
         return m.group(1), U.canonical(m.group(2)), m.group(2)
-    return U.split_header(t)
+    name, unit, written = U.split_header(t)
+    if unit is None and written and " " in written.strip():
+        return t, None, None  # words in brackets: "Loss map (supplier data)"
+    return name, unit, written
 
 
 def parse_label(text: str) -> Optional[list[tuple[str, float, Optional[str], Optional[str]]]]:
@@ -735,8 +738,15 @@ def read_data(sheets: list[Sheet], target: DataTarget, opts: Optional[dict] = No
         v_map = {i: (j, "build") for j, i in enumerate(value_fields)}
         a_left: list[int] = []
         v_left: list[int] = []
+    elif target.map and not target.axes:
+        tgt = target
+        a_map, v_map, a_left, v_left = {}, {}, [], []
+        problems.append(Problem(
+            f"The Map block has no inputs yet: let the import set its inputs ({len(axis_fields)}) "
+            f"and outputs ({len(value_fields)}) from the data."))
     else:
         tgt = target
+
         def chosen(role: str, n: int) -> dict[int, Optional[int]]:
             out: dict[int, Optional[int]] = {}
             for i, w in roles.items():
@@ -804,7 +814,8 @@ def read_data(sheets: list[Sheet], target: DataTarget, opts: Optional[dict] = No
         j, how = slot_of
         s = (tgt.axes if f.role == "axis" else tgt.values)[j]
         info["slot"] = f"{f.role}:{j}"
-        info["how"] = how
+        slots = tgt.axes if f.role == "axis" else tgt.values
+        info["how"] = "only" if how == "order" and len(slots) == 1 else how
         info["target"] = s.name
         chosen_unit = (opts.get("units") or {}).get(str(i))
         used = U.canonical(chosen_unit) if chosen_unit else f.unit
@@ -817,6 +828,7 @@ def read_data(sheets: list[Sheet], target: DataTarget, opts: Optional[dict] = No
         if chosen_unit and used is None:
             problems.append(Problem(f"{what}: '{chosen_unit}' is not a unit LightSim knows."))
             conv[i] = None
+            info["bad"] = True
         elif not s.convert or s.unit == "-":
             conv[i] = lambda v: v
             used = used or s.unit
@@ -827,6 +839,7 @@ def read_data(sheets: list[Sheet], target: DataTarget, opts: Optional[dict] = No
             problems.append(Problem(f"{what}: the unit '{f.written}' is not one LightSim knows. "
                                     f"Choose its unit below ({', '.join(info['options'])})."))
             conv[i] = None
+            info["bad"] = True
         elif used is None:
             used = s.unit
             info["assumed"] = True
@@ -837,6 +850,7 @@ def read_data(sheets: list[Sheet], target: DataTarget, opts: Optional[dict] = No
                 f"{s.name} ({', '.join(info['options'])}). Choose the right column or its unit "
                 "below."))
             conv[i] = None
+            info["bad"] = True
         else:
             sc, of = U.factor(used, s.unit)
             conv[i] = (lambda v: v) if (sc, of) == (1.0, 0.0) else (

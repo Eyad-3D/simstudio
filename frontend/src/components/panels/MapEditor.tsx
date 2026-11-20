@@ -13,6 +13,7 @@ import { addAxis, dropAxis, filled, gridKeys, unitGrid, type Grid } from "../../
 import type { ElementInstance, MapBlockState, OutsidePolicy, PortDef } from "../../types";
 import { OUTSIDE_LABELS, cellText, slugify } from "./gridRules";
 import { TableNEditor, type SetGridUnit } from "./TableNEditor";
+import { useTableImport, type DataApply } from "../ImportDataDialog";
 
 export const MAP_DEF_ID = "signal.map";
 
@@ -155,6 +156,35 @@ export function MapEditor({ element }: { element: ElementInstance }) {
   const setUnitText = (port: PortDef, text: string) =>
     text.trim() !== port.unitText &&
     save(ports.map((p) => (p.id === port.id ? { ...p, unitText: text.trim() } : p)));
+  /** An import: the tables on the block's own ports, or (built from the
+   *  data) new ports, their tables and the units to show them in. */
+  const applyImport = (r: DataApply) => {
+    if (!r.ports) return save(ports, { maps: r.tables as MapBlockState["maps"] });
+    const next: PortDef[] = r.ports.map(({ display: _shown, ...p }) => p);
+    const ins = r.ports.filter((p) => p.direction === "input");
+    const outs = Object.fromEntries(
+      r.ports.filter((p) => p.direction === "output" && p.display).map((p) => [p.id, p.display!]),
+    );
+    save(next, {
+      maps: r.tables as MapBlockState["maps"],
+      outside: ins.map((p) => state.outside[inputs.findIndex((q) => q.id === p.id)] ?? null),
+      units: { axes: ins.map((p) => p.display), outputs: outs },
+    });
+  };
+  const importer = useTableImport(
+    {
+      componentDefId: MAP_DEF_ID,
+      paramKey: "maps",
+      ports: ports.map((p) => ({
+        id: p.id,
+        name: p.name,
+        direction: p.direction as "input" | "output",
+        unitGroup: p.unitGroup,
+        ...(p.unitText !== undefined && { unitText: p.unitText }),
+      })),
+    },
+    applyImport,
+  );
   const setOutside = (k: number, o: OutsidePolicy) =>
     save(ports, { outside: state.outside.map((x, i) => (i === k ? o : x)) });
 
@@ -222,6 +252,13 @@ export function MapEditor({ element }: { element: ElementInstance }) {
   const head = "mb-1 flex items-center gap-2 text-[11px] font-semibold text-[color:var(--ss-text-dim)]";
   return (
     <div className="flex flex-col gap-2" data-map-editor>
+      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+        {importer.tools}
+        <span className="text-[color:var(--ss-text-dim)]">
+          a map from Excel, CSV or text, in any layout; it can set the inputs and outputs too
+        </span>
+      </div>
+      {importer.dialog}
       <section aria-label="Inputs">
         <div className={head}>
           Inputs (the axes, in order)
@@ -329,6 +366,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
           tables={state.maps as Record<string, Grid>}
           onChange={(maps) => save(ports, { maps: maps as MapBlockState["maps"] })}
           setUnit={setUnit}
+          onImportText={importer.onImportText}
         />
       ) : (
         <p className="text-[11px] text-[color:var(--ss-text-dim)]">

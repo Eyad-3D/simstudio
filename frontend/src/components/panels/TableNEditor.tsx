@@ -55,6 +55,7 @@ export function TableNEditor({
   onChange,
   setUnit,
   tools,
+  onImportText,
 }: {
   axes: ShownQuantity[];
   outputs: GridOutput[];
@@ -62,6 +63,8 @@ export function TableNEditor({
   onChange: (tables: Record<string, Grid>) => void;
   setUnit: SetGridUnit;
   tools?: ReactNode;
+  /** pasted text the grid cannot take as it is goes to the import's preview */
+  onImportText?: (text: string, why: string) => void;
 }) {
   const depth = axes.length;
   const [outPick, setOut] = useState<string | null>(null);
@@ -179,7 +182,10 @@ export function TableNEditor({
 
   const pasteBlock = (r: number, c: number, block: string[][]): string | void => {
     const g = shownText();
-    const width = colAxis === null ? 2 : Math.max(g[0].length, c + Math.max(...block.map((b) => b.length)));
+    const wide = c + Math.max(...block.map((b) => b.length));
+    if (colAxis === null && wide > 2)
+      return `Paste not applied: the clipboard has ${wide - c} columns, and from here the table has ${2 - c}.`;
+    const width = colAxis === null ? 2 : Math.max(g[0].length, wide);
     while (g.length < r + block.length) g.push([""]);
     for (const row of g) while (row.length < width) row.push("");
     block.forEach((brow, bi) =>
@@ -391,6 +397,7 @@ export function TableNEditor({
         onSelectionChange={setSelRange}
         validate={validate}
         onHeaderOpen={openHeader}
+        onImportText={onImportText}
         caption={<TableUnits columns={columns} table={table} open={unitOpen} setOpen={setUnitOpen} set={storeUnit} />}
         tools={
           <>
