@@ -44,6 +44,11 @@ sections.
 
 ### New
 
+- Every table, map and drive profile has a plot under its grid that
+  follows each edit, paste and undo, in the units shown (a map: a curve
+  per row or per column, your choice), and **Copy** and **Paste** buttons
+  above it that work with Excel; the grid itself is easier to read
+  ([Edit a table or a map](help/how-to/edit-a-table.md)).
 - Any value with a unit, and each axis and the values of a table, can be
   shown and typed in another unit of its kind (mph, rad/s, hp, °F, …), or
   marked as typed in the wrong unit; the project keeps every value in the

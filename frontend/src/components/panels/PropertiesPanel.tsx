@@ -12,6 +12,7 @@ import { CyclePreview, CycleSelect } from "./CyclePicker";
 import { SourceBadge, ValueSources } from "./ValueSources";
 import { ImportFromFileButton, type ImportTarget } from "../ImportTableDialog";
 import { TableUnits, UnitButton, UnitChooser, type UnitColumn } from "../UnitChooser";
+import { TablePlot } from "../TablePlot";
 import {
   alternatives,
   cellReader,
@@ -50,7 +51,11 @@ function nextAxisKey(keys: string[], fallback: number): number {
   return last + (step || fallback);
 }
 
-const GRID_HINT = "Click a cell to edit · drag or Shift+click to select a range · Ctrl+C / Ctrl+V to copy & paste from Excel";
+const GRID_HINT =
+  "Type or double-click to edit a cell · drag or Shift+click to select a range · Copy and Paste (Ctrl+C, Ctrl+V) work with Excel";
+
+/** Whether a grid selection is one cell. */
+const oneCell = (r: GridRange | null) => !!r && r.r0 === r.r1 && r.c0 === r.c1;
 
 /** Why `text` cannot be stored as a number, or null when it can. */
 function numberIssue(text: string): GridIssue | null {
@@ -253,9 +258,6 @@ function Table1DEditor({
 
   return (
     <div className="flex flex-col gap-1">
-      {columns.some((c) => alternatives(c.lib).length > 0) && (
-        <TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />
-      )}
       <SpreadsheetGrid
         matrix={matrix}
         onCommit={commit}
@@ -264,24 +266,39 @@ function Table1DEditor({
         onSelectionChange={setSelRange}
         validate={validate}
         onHeaderOpen={openHeader}
+        caption={
+          columns.some((c) => alternatives(c.lib).length > 0) && (
+            <TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />
+          )
+        }
+        tools={
+          <>
+            <span className="ss-table-tools-sep" aria-hidden />
+            <button type="button" className="ss-toolbtn" onClick={addRow} title={`Add a ${axis.name} row at the end`}>
+              <Plus size={12} aria-hidden /> Add row
+            </button>
+            <button
+              type="button"
+              className="ss-toolbtn"
+              disabled={pairs.length <= 1}
+              onClick={deleteRows}
+              title="Delete the selected row(s)"
+            >
+              <Trash2 size={12} aria-hidden /> Delete row(s)
+            </button>
+            {importTarget && (
+              <ImportFromFileButton target={importTarget} onApply={onImport ?? ((v) => onChange(v as Table1D))} />
+            )}
+          </>
+        }
       />
-      <div className="flex items-center gap-1">
-        <button className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px]" onClick={addRow}>
-          <Plus size={12} /> Add row
-        </button>
-        <button
-          className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px] disabled:opacity-30"
-          disabled={pairs.length <= 1}
-          onClick={deleteRows}
-          title="Delete the selected row(s)"
-        >
-          <Trash2 size={12} /> Delete row(s)
-        </button>
-        {importTarget && (
-          <ImportFromFileButton target={importTarget} onApply={onImport ?? ((v) => onChange(v as Table1D))} />
-        )}
-      </div>
       <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
+      <TablePlot
+        table={value}
+        axes={[{ name: axis.name, lib: axis.unit, unit: xUnit, keys }]}
+        value={{ name: valueLabel, lib: valueUnit, unit: yUnit }}
+        mark={oneCell(selRange) && selRange!.r0 >= 1 ? [selRange!.r0 - 1] : null}
+      />
     </div>
   );
 }
@@ -368,7 +385,14 @@ function Table2DEditor({
     return result;
   };
 
-  const corner: GridCell = { text: `${axes[1].name}\\${axes[0].name}`, kind: "corner", readOnly: true };
+  // the corner names what the body cells hold; like a 1D table's headers, a
+  // double-click (or Enter, F2) on it opens their unit's chooser
+  const corner: GridCell = { text: `${valueLabel} (${units.value})`, kind: "corner", readOnly: true };
+  const openCorner = (r: number, c: number) => {
+    if (r !== 0 || c !== 0 || alternatives(valueUnit).length === 0) return false;
+    setUnitOpen("value");
+    return true;
+  };
   const matrix: GridCell[][] = [
     [corner, ...outerKeys.map((k): GridCell => ({ text: showC(k), kind: "colHeader" }))],
     ...innerKeys.map((ik): GridCell[] => [
@@ -454,9 +478,11 @@ function Table2DEditor({
     onChange(next);
   };
 
+  // the selected cell: a value, at a column (axis 0) and a row (axis 1)
+  const one = oneCell(selRange) && selRange!.r0 >= 1 && selRange!.c0 >= 1;
+  const mark = one ? [selRange!.c0 - 1, selRange!.r0 - 1] : null;
   return (
     <div className="flex flex-col gap-1">
-      <TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />
       <SpreadsheetGrid
         matrix={matrix}
         onCommit={commit}
@@ -464,33 +490,49 @@ function Table2DEditor({
         onClearRange={clearRange}
         onSelectionChange={setSelRange}
         validate={validate}
+        onHeaderOpen={openCorner}
+        caption={<TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />}
+        tools={
+          <>
+            <span className="ss-table-tools-sep" aria-hidden />
+            <button type="button" className="ss-toolbtn" onClick={addColumn} title={`Add a ${axes[0].name} column`}>
+              <Columns3 size={12} aria-hidden /> Add {axes[0].name}
+            </button>
+            <button type="button" className="ss-toolbtn" onClick={addRow} title={`Add a ${axes[1].name} row`}>
+              <Rows3 size={12} aria-hidden /> Add {axes[1].name}
+            </button>
+            <button
+              type="button"
+              className="ss-toolbtn"
+              disabled={outerKeys.length <= 1}
+              onClick={deleteCols}
+              title="Delete the selected column(s)"
+            >
+              <Trash2 size={12} aria-hidden /> Col(s)
+            </button>
+            <button
+              type="button"
+              className="ss-toolbtn"
+              disabled={innerKeys.length <= 1}
+              onClick={deleteRows}
+              title="Delete the selected row(s)"
+            >
+              <Trash2 size={12} aria-hidden /> Row(s)
+            </button>
+            {importTarget && <ImportFromFileButton target={importTarget} onApply={(v) => onChange(v as Table2D)} />}
+          </>
+        }
       />
-      <div className="flex flex-wrap items-center gap-1">
-        <button className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px]" onClick={addColumn} title={`Add a ${axes[0].name} column`}>
-          <Columns3 size={12} /> Add {axes[0].name}
-        </button>
-        <button className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px]" onClick={addRow} title={`Add a ${axes[1].name} row`}>
-          <Rows3 size={12} /> Add {axes[1].name}
-        </button>
-        <button
-          className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px] disabled:opacity-30"
-          disabled={outerKeys.length <= 1}
-          onClick={deleteCols}
-          title="Delete the selected column(s)"
-        >
-          <Trash2 size={12} /> Col(s)
-        </button>
-        <button
-          className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px] disabled:opacity-30"
-          disabled={innerKeys.length <= 1}
-          onClick={deleteRows}
-          title="Delete the selected row(s)"
-        >
-          <Trash2 size={12} /> Row(s)
-        </button>
-        {importTarget && <ImportFromFileButton target={importTarget} onApply={(v) => onChange(v as Table2D)} />}
-      </div>
       <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
+      <TablePlot
+        table={value}
+        axes={[
+          { name: axes[0].name, lib: axes[0].unit, unit: cUnit, keys: outerKeys },
+          { name: axes[1].name, lib: axes[1].unit, unit: rUnit, keys: innerKeys },
+        ]}
+        value={{ name: valueLabel, lib: valueUnit, unit: units.value }}
+        mark={mark}
+      />
     </div>
   );
 }

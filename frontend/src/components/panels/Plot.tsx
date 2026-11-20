@@ -149,12 +149,14 @@ function gestures(label: string, onZoom: (u: uPlot, r: Range | null, reset?: boo
           panBy(u, k, (px * (from[i].max! - from[i].min!)) / size, from[i]);
         }),
       );
+    // the page the chart is on (a parameter window has its own)
+    const page = u.root.ownerDocument;
     const up = () => {
-      document.removeEventListener("mousemove", move);
-      document.removeEventListener("mouseup", up);
+      page.removeEventListener("mousemove", move);
+      page.removeEventListener("mouseup", up);
     };
-    document.addEventListener("mousemove", move);
-    document.addEventListener("mouseup", up);
+    page.addEventListener("mousemove", move);
+    page.addEventListener("mouseup", up);
   };
   return {
     opts: (_u, o) => ({
@@ -446,7 +448,12 @@ export function Plot({
         plugins: [...(options.plugins ?? []), gestures(label, (u, r, reset) => zoomed(u, r, reset)), sharp()],
       },
       latest.current,
-      el,
+      // a function, not the element: uPlot tests an element with the main
+      // window's HTMLElement, which an element of a parameter window is not
+      (chart, init) => {
+        el.appendChild(chart.root);
+        init();
+      },
     );
     restore(u, kept);
     // the legend sits under the plot, inside the parent's height (only on a
@@ -459,7 +466,8 @@ export function Plot({
     };
     fit();
     // and again when the legend gains a row (values fill in under the pointer)
-    const ro = new ResizeObserver(fit);
+    // the window the chart is in: a parameter window lays out its own page
+    const ro = new (el.ownerDocument.defaultView ?? window).ResizeObserver(fit);
     ro.observe(el);
     const legendEl = u.root.querySelector(".u-legend");
     if (legendEl) ro.observe(legendEl);
