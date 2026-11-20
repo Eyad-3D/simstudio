@@ -8,9 +8,19 @@ run.
 
 ## Read the list
 
+If the Data Checks could not run (the engine refused the model, or could
+not be reached), the top of *Problems* says so and why, and the status bar
+says *Data Checks could not run*: the list then shows the last checks that
+ran, or nothing if none has. They run again by themselves after your next
+change, or click **Run Data Checks**.
+
+A row from the latest run says *Last run* and the case. Once you change the
+model it also says *model changed since: run again to check*: the change
+may have fixed it, or not, and only the next run can tell.
+
 *Problems* is a tab in the panel under the diagram. A badge on the tab
 counts the errors and warnings, and the status bar at the bottom of the
-window counts the errors (click it to open *Problems*). Each row gives:
+window counts them too (click it to open *Problems*). Each row gives:
 
 - the level: an **error** stops the run, a **warning** lets it run but
   says a result may be off, an **info** is a note (an error that starts
@@ -36,7 +46,7 @@ the row goes away once the problem is gone.
 many to fix first. Warnings do not stop a run.
 
 To check again by hand, click **Run Data Checks** in the *Problems* tab, or
-**Checks** on the *Simulations* tab.
+**Data Checks** on the *Simulations* tab.
 
 ## Good to know
 

@@ -67,7 +67,7 @@ each axis and its unit.
 - The point of the selected cell has a ring around it, and the line under
   the plot names it with its value.
 - Point at a curve: the other curves fade, and a line under the plot
-  gives its value at that place along x. The mouse wheel zooms, a double-click shows the whole table again, and with
+  gives its value at that place along x. Drag a box to zoom into it, or turn the mouse wheel; a double-click shows the whole table again, and with
   the plot selected the + and − keys zoom and the arrow keys move along x.
 
 **Hide plot** folds the plot away, for more room; **Show plot** brings it

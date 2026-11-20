@@ -2,9 +2,10 @@
 
 **This does not run in this version of LightSim yet.** The events are lap
 cases and cases with an event set, which the app's engine does not run yet:
-**FS events** adds the cases, and running one fails with `Not run
-[NEW-FS-EVENT]` or `Not run [NEW-LAP]`. Only the plain 75 m *Acceleration
-test* runs. A later version ports them; the page describes how the events
+the **FS events** button and the endurance energy study's **Run** are shown
+but cannot be pressed, and a case with an event set, or a Lap case, fails
+with `Not run [NEW-FS-EVENT]` or `Not run [NEW-LAP]`. Only the plain 75 m
+*Acceleration test* runs. A later version ports them; the page describes how the events
 work then, as they worked on the older engine.
 
 LightSim can run the four dynamic events of an electric Formula Student
