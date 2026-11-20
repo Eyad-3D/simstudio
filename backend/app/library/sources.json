@@ -924,6 +924,28 @@
       "licence": "LightSim's own (LICENSE)",
       "credit": "None required (created for LightSim)",
       "cleared": "pending"
+    },
+    {
+      "id": "DR-105",
+      "file": "backend/app/dataio/units.json",
+      "dataset": "*",
+      "kind": "table",
+      "description": "Units LightSim converts between, by quantity (speed, rotational speed, torque, power, energy, voltage, current, charge, mass, mass flow, distance, time, temperature, force, pressure, curvature, resistance, ratio, area, rotational inertia, road-load coefficients, specific consumption, specific energy, density): each unit's scale and offset to the quantity's first unit. Read by the imports (backend/app/dataio/units.py) and, through its copy DR-106, by the unit chooser next to each parameter.",
+      "source": "Definitions of the units (exact factors such as 1 mph = 1.609344 km/h, 1 lb = 0.45359237 kg, 1 lbf = 4.4482216152605 N, 1 hp = 0.745699872 kW, 1 BTU/lb = 2.326 kJ/kg), arranged for LightSim",
+      "licence": "Facts (unit definitions); the arrangement is LightSim's own (LICENSE)",
+      "credit": "None required (facts and LightSim's own arrangement)",
+      "cleared": "pending"
+    },
+    {
+      "id": "DR-106",
+      "file": "frontend/src/data/units.json",
+      "dataset": "*",
+      "kind": "generated-copy",
+      "description": "Copy of backend/app/dataio/units.json that frontend/scripts/sync-data.mjs makes before every build; inlined in the UI bundle, where the unit chooser converts with it.",
+      "source": "Copy of DR-105",
+      "licence": "Same as DR-105",
+      "credit": "Same as DR-105",
+      "cleared": "pending"
     }
   ]
 }
