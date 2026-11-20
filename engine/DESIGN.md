@@ -590,8 +590,10 @@ pub trait InitFunctions: Send + Sync {   // Newton on w, then y0
 buffers, so one compiled model serves any number of simultaneous runs.
 `TableGuard { table, axis, outside }` names one watched table axis: its
 guard is `min(a - lo, hi - a)` of the axis argument, positive inside the
-data; an `Error` axis stops the run where its guard falls through zero,
-the others are booked as time spent outside. A guard is watched between
+data; an `Error` axis stops the run where its guard falls through zero
+(by more than what the iteration variables' tolerances allow in it, where
+they move it: section 8.2, *A read on its edge*), the others are booked
+as time spent outside. A guard is watched between
 events by the integrator and, after each event, at the event itself
 (`Loop::sync_guards`): an event that moves a read's argument past the
 data at once (a sampled block's tick, a `when`) is booked, or stops the
@@ -2164,7 +2166,81 @@ Car at 6000 kg on the WLTC, stopped at 961.83 s). Its anti-windup is now
 `blocks/vehicle.rs`). One such storm is left on that car's map (section
 15): its battery at its minimum SOC, whose delivering mode switched 93
 times in 2.1 s as the car, coasting at its empty battery, began to
-recuperate (the long-haul cycle at 11 t).
+recuperate (the long-haul cycle at 11 t). The hybrid's HV Battery does
+the same at its minimum SOC in nine of the acceptance's hybrid fault runs
+(20 November 2026: the SOC is a state, its window off it rises at 4.3e-5
+/s, on it falls at 5.4e-5 /s, and the integrator steps 1e-11 to 1e-10 s
+between crossings), and at full charge in one (`db-2`).
+
+*A mode that event iteration sets on and off without end* (20 November
+2026, `Loop::decide_mode`). Where a mode's own value moves its condition
+(through the iteration variables, solved again for each value), its
+condition can hold while it is off and fail while it is on: event
+iteration set it on and off at one instant until the run stopped with an
+event storm (the formula student car at a hundredth of its mass, at its
+Accumulator's Output Power Limit; at a hundred times its cg height, its
+axle-lift mode). A round that ends with discrete values an earlier round
+of the same instant ended with repeats for ever, the states held
+(`cycling_mode`; nothing is kept before a round asks for another, so an
+event that settles in its first round costs nothing more); where one
+mode alone changes along the
+repeat, it is decided once, from its condition g and g's rate
+(`Loop::rates_after`), with the iteration variables solved for each of its
+two values:
+- at both values within the hold width of zero (`HOLD` bands, what the
+  iteration variables' tolerances leave undecided, or the solves'
+  rounding where that is larger), the condition is at zero, and the mode
+  takes the value its condition has just after the instant, as a time
+  crossing's mode does: on where, on, g does not fall; off where, off, g
+  does not rise; of two such values, the one it has. Where neither is
+  (each value drives g back to zero), the motion would slide along the
+  switching point, which the run loop does not follow: the run stops
+  there with an event storm that names the mode and says so;
+- beyond that width the mode's own value moves its condition across
+  zero, and no value of it holds: the run stops with an event storm that
+  names the mode and both values of its condition.
+
+The mode keeps the decided value for the rest of the instant
+(`Loop::modes_from_relations` and the rounds leave it). The integrator,
+restarted, may find its crossing again a moment later, where the
+condition, a little short at the event, reaches its side; nothing is
+held for it. Where event iteration settles, as on every golden case,
+nothing of this runs. Measured on the formula student car at a hundredth
+of its mass: the Accumulator's condition, solved for each value, is
+-2.9e-11 W at both (its rounding bound 7.3e-10 W, its band 0.87 W), where
+the event loop's own solves had put it at +1.7e-10 W off and below zero
+on, round after round; it rises at 1.2e6 W/s, the mode is on, and the run
+goes on. At a hundred times its cg height the axle-lift mode's condition
+is +3.3e-6 N off and -8.8e-6 N on (band 2.3e-3 N), rising off at 4.8e3
+N/s and falling on at 1.3e4 N/s: it would slide along the lift point,
+and the run stops there, saying so. A sliding motion at a state's
+boundary (the battery above) never repeats at one instant, and is
+unchanged.
+
+*A read on its edge* (20 November 2026, `Loop::on_the_edge`). A table
+read whose argument sits on the edge of its data on an axis that allows
+no values outside (an E-Motor at its full-load torque reads its loss map
+at the map's last torque point) has that argument only to the
+integrator's tolerance where iteration variables make it: the motor's
+torque is the share of the command its supply allows times the
+command's, and where the supply does not cut it the share's equation,
+share = 1, is met to the tolerance. On the Battery Electric Car with a
+hundredth of its final drive's ratio, standing at full load, the share
+was 1.000000001 at 22.76 s, the torque 310.00000031 N·m against the map's
+310, and the guard stopped the run. A read past its edge by no more than
+what the iteration variables' tolerances allow in its guard
+(`CELL_HOLD` bands, as a held read's cell edge) is on the edge: the
+guard is held inside within that width, with no time limit
+(`Loop::error_guard` keeps it out of the conditions' holds), the
+integrator maps it inside there and reports a crossing beyond it, where
+the run stops as before; a read past its edge that no iteration variable
+moves is outside, as before. In the block, the fix moved the energy
+books instead: each form of it puts a step or a corner at share = 1,
+where the share sits to the solver's noise (the torque the command's
+where the supply does not cut it closed the 19 270 kg BEV's city cycle to
+3.6e-9 against 6.6e-10; `min(share, 1)` the golden BEV city to 2.8e-9;
+the map read at the torque held to the command's the 6000 kg BEV's WLTC
+to 1.6e-9; each against the comparison's 1.5e-9).
 
 **Run-loop fixes after the golden comparison (work package 4, second
 round).**
@@ -2315,7 +2391,11 @@ round).**
   conditions' scan does not look at a held condition
   (`Loop::scan_mixed`). A mode's function is never held: its relation
   decides at the event, and where that sets it back the integrator
-  restarts and meets the crossing again (`Loop::undone`). A held table
+  restarts and meets the crossing again (`Loop::undone`); where it sets
+  it on and off at one instant without end, it is decided once (above,
+  *A mode that event iteration sets on and off without end*). A guard of
+  a read on an axis that allows no values outside is held as a cell edge
+  is, where the read is on its edge (*A read on its edge*). A held table
   read's cell edges keep their own hold, 4 bands of their argument, with
   no time limit (`Loop::hold_cells`). With no hold before an event and
   none after it, nothing of this runs beyond a flag; the golden models
