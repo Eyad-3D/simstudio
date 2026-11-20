@@ -109,10 +109,11 @@ fn a_car_whose_battery_is_empty_coasts_to_rest() {
 /// does not cut it the share's equation is "the share is 1", which the
 /// integrator meets only to its tolerance: at 22.76 s the share was
 /// 1.000000001 and the torque 310.00000031 N·m, and the loss map, read at
-/// that torque, was read past its data and the run stopped. Where the
-/// supply does not cut it the torque is the command's (the share not
-/// used): it never exceeds the command's, the loss map is read inside its
-/// data, and the car stands to the end.
+/// that torque, was read past its data and the run stopped. A read past its
+/// edge by no more than what the iteration variables' tolerances allow in
+/// it is on the edge (the run loop's table guard holds it there): the car
+/// stands to the end at full load, its torque the command's to the
+/// integrator's tolerance.
 #[test]
 fn a_motor_at_its_full_load_reads_its_loss_map_inside_its_data() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -140,8 +141,8 @@ fn a_motor_at_its_full_load_reads_its_loss_map_inside_its_data() {
     for k in 0..r.times.len() {
         if on[k] == 1.0 {
             assert!(
-                torque[k].abs() <= t_cmd[k].abs(),
-                "at {} s the torque {} exceeds the command's {}",
+                (torque[k] - t_cmd[k]).abs() <= 1e-6 * t_cmd[k].abs(),
+                "at {} s the torque {} against the command's {}",
                 r.times[k],
                 torque[k],
                 t_cmd[k]

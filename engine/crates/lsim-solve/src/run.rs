@@ -1709,7 +1709,51 @@ impl Loop<'_> {
     fn may_hold_root(&self, c: usize) -> bool {
         !(self.mode_of_root.get(c).is_some_and(|m| m.is_some())
             || self.timed(c)
-            || self.held_root.get(c).copied().unwrap_or(false))
+            || self.held_root.get(c).copied().unwrap_or(false)
+            || self.error_guard(c))
+    }
+
+    /// Whether root function `c` is the guard of a table read on an axis
+    /// that allows no values outside (its hold: [`Loop::on_the_edge`]).
+    fn error_guard(&self, c: usize) -> bool {
+        let nr = self.model.layout().n_roots;
+        c >= nr
+            && self
+                .model
+                .table_guard_list()
+                .get(c - nr)
+                .is_some_and(|g| g.outside == lsim_ir::table::Outside::Error)
+    }
+
+    /// Whether table guard `k`, which `self.raw` (at `(t, y, d)`) has past
+    /// its edge on an axis that allows no values outside, is on the edge
+    /// to what the iteration variables' tolerances allow in it
+    /// ([`CELL_HOLD`] bands, as a held read's cell edge): a read whose
+    /// argument the integrator holds only to their tolerance can come out
+    /// that far past an edge it sits on (a motor at its full-load torque
+    /// reads its loss map at the map's last torque point, the torque the
+    /// share of the command its supply allows, solved to its tolerance,
+    /// times the command's). Such a guard is held inside within that width
+    /// ([`Loop::hold_cells`]' kind of hold, no time limit): the integrator
+    /// maps it inside there and reports a crossing beyond it, where the run
+    /// stops. A read past its edge that no iteration variable moves is
+    /// outside.
+    fn on_the_edge(&mut self, t: f64, y: &[f64], d: &[f64], k: usize) -> bool {
+        let c = self.model.layout().n_roots + k;
+        if self.model.layout().n_z == 0 {
+            return false;
+        }
+        let after = self.raw.clone();
+        let band = self.band(t, y, d, &after, &[c]);
+        self.raw = after;
+        let h = CELL_HOLD * band[c];
+        if h > 0.0 && self.raw[c] >= -h {
+            self.sides[c] = 1.0;
+            self.hold[c] = self.hold[c].max(h);
+            self.held = true;
+            return true;
+        }
+        false
     }
 
     /// The side the integrator saw root function `c` on at an event's
@@ -2569,8 +2613,10 @@ impl Loop<'_> {
     /// once (a sampled block's tick, a `when`), and the integrator, which
     /// watches the guards between events, never sees it cross.
     /// An `Error` axis outside its data stops the run where its read's
-    /// value is used ([`Loop::read_in_use`], at `(t, y, d)`); elsewhere it is
-    /// looked at again after each event.
+    /// value is used ([`Loop::read_in_use`], at `(t, y, d)`), but where it
+    /// is on the edge to its iteration variables' tolerances
+    /// ([`Loop::on_the_edge`]: held inside there); elsewhere it is looked at
+    /// again after each event.
     fn sync_guards(
         &mut self,
         t: f64,
@@ -2587,7 +2633,7 @@ impl Loop<'_> {
             }
             let a = self.raw.get(nr + k).copied().unwrap_or(0.0);
             if a < 0.0 && error {
-                if self.read_in_use(k, t, y, d) {
+                if self.read_in_use(k, t, y, d) && !self.on_the_edge(t, y, d, k) {
                     self.leave_table(k, t, g)?;
                 }
             } else if a < 0.0 && self.outside_since[k].is_none() {

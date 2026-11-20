@@ -2080,3 +2080,56 @@ fn a_mode_whose_own_value_moves_its_condition_across_stops_the_run_there() {
         other => panic!("not an event storm: {other}"),
     }
 }
+
+/// A table on 0…1 whose axis allows no values outside, read at x, where
+/// x³ + x = 2 + e sin(w t): x sits on the table's last point, 1, and goes
+/// e/4 either side of it; an event at 0.03 s (`when time >= 0.03`), where
+/// x is past the edge by 0.23 e.
+fn at_the_edge(e: f64) -> ComponentDef {
+    use lsim_ir::table::{Outside, TableData};
+    let mut data = TableData::new_1d(vec![0.0, 1.0], vec![0.0, 1.0]);
+    data.outside = [Outside::Error, Outside::Error];
+    data.axis_units = ["1".into(), "1".into()];
+    ComponentDef {
+        name: "Test.AtTheEdge".into(),
+        params: vec![
+            param("e", "1", e, "how far x goes past the edge, ×4"),
+            param("w", "rad/s", 40.0, "how fast"),
+            lsim_lib::table::table_param("f", "1", data, "the table"),
+        ],
+        vars: vec![
+            VarDecl { start: Some(c(1.0)), ..x_var() },
+            var("y", "1", "the table at x"),
+            discrete("n", "1", 0.0, "the event at 0.03 s"),
+        ],
+        equations: vec![
+            eq(
+                cubed(n("x")) + n("x"),
+                c(2.0) + n("e") * call(Builtin::Sin, vec![n("w") * Expr::Time]),
+                "x, on the table's last point",
+            ),
+            eq(n("y"), lsim_ir::expr::table("f", vec![n("x")]), "the table read at x"),
+            counting(cmp(CmpOp::Ge, Expr::Time, c(0.03)), vec![]),
+        ],
+        ..Default::default()
+    }
+}
+
+/// x past the table's edge by up to 2e-6 (1.85e-6 at the event), inside
+/// what its tolerance leaves undecided (its band 1.01e-6 at rtol 1e-6, the
+/// hold 4 bands): the read is on the edge, and the run goes to its end (it
+/// stopped at the event before). By up to 2.5e-3 it is outside, and the
+/// run stops, as before.
+#[test]
+fn a_read_past_its_edge_within_the_tolerance_is_on_the_edge() {
+    let on = simulate_at(&at_the_edge(8e-6), 1e-6).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(on.times.last().copied(), Some(T_END), "it ran to its end");
+    assert_eq!(last(&on, "n"), 1.0, "the event at 0.03 s");
+    let x = &on.values[on.names.iter().position(|k| k == "x").expect("x")];
+    let past = x.iter().filter(|v| **v > 1.0).count();
+    println!("x past 1 at {past} of {} points", on.times.len());
+    match simulate_at(&at_the_edge(1e-2), 1e-6).expect_err("outside") {
+        lsim_solve::SolveError::TableOutside { t, .. } => assert!(t < 0.1, "{t}"),
+        other => panic!("not outside the table: {other}"),
+    }
+}
