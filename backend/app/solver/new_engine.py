@@ -18,8 +18,9 @@ fails with a stable reason code in brackets (``[NEW-LAP]``; CODES lists
 them, and benchmarks/back_to_back counts them): nothing runs on today's
 engine instead. Three features are not ported yet and are refused so: lap
 cases (NEW-LAP), Formula Student events (NEW-FS-EVENT) and a battery built
-from cells (NEW-CELLS). A hybrid's charge-balanced case runs as today's
-does (balance.py): run after run on the new engine, each from the charge
+from cells (NEW-CELLS); a Map block or a table of three or more axes is
+refused too (NEW-TABLE-AXES, docs/spec/tables.md). A hybrid's
+charge-balanced case runs as today's does (balance.py): run after run on the new engine, each from the charge
 the last ended with. ``LIGHTSIM_ENGINE=today`` runs today's engine instead, for
 developers and the both-engines comparison (benchmarks/back_to_back); a
 replay of a run stored from today's engine runs on it whatever the
@@ -55,8 +56,8 @@ from types import SimpleNamespace
 from typing import Callable, NamedTuple, Optional
 
 from .. import cycles, script_trust
-from ..library import unit_groups
-from ..schemas import Channel, LiveEdit, Project, SimMessage, SimResult, SummaryValue
+from ..library import library_by_id, unit_groups
+from ..schemas import TABLE_TYPES, Channel, LiveEdit, Project, SimMessage, SimResult, SummaryValue
 from . import balance
 from .battery import CELLS
 from .domains import FMU_COMPONENT, ModelInitError, RunContext
@@ -64,7 +65,7 @@ from .energy import BookFlow, energy_flows
 from .evidence import Evidence
 from .keys import fill_keys
 from .labfig import lab_base
-from .maps import interp1
+from .maps import MAP_BLOCK, interp1
 from .network import CONSUMER_TYPES, ModelError, build_model
 from .profiles import distance_axis
 from .references import check_references, hand_checks
@@ -91,6 +92,7 @@ CODES = {
     "NEW-LAP": "a lap case",
     "NEW-FS-EVENT": "a Formula Student event case",
     "NEW-CELLS": "a battery built from cells",
+    "NEW-TABLE-AXES": "a Map block, or a table of three or more axes (docs/spec/tables.md)",
     "NEW-LIMITS": "a value outside its parameter's limits (a study's point can hold one)",
     "NEW-MISSING": "the module lightsim_engine is not installed",
     "NEW-BUILD": "today's model builder refused the model",
@@ -104,6 +106,7 @@ CODES = {
     "QUICK-SAMPLED": "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control, a "
                      "PID, a Lookup with a Sample Time longer than today's solver step)",
     "QUICK-CELLS": "quick mode: a battery built from cells",
+    "QUICK-TABLE-AXES": "quick mode: a Map block, or a table of three or more axes",
     "QUICK-LIMITS": "quick mode: a value outside its parameter's limits",
     "QUICK-MISSING": "quick mode: the module lightsim_engine is not installed",
     "QUICK-BALANCE": "quick mode: a hybrid's charge-balanced case",
@@ -302,6 +305,8 @@ def quick_unsupported(project: Project, case_id: str) -> Optional[Refusal]:
         return Refusal("QUICK-END", "it runs the cycle's whole duration, not to a case's Distance "
                                     "or Laps (from its Start line)")
     elements = [el for s in project.systems for el in s.elements]
+    if (axes := table_axes(project)) is not None:
+        return Refusal("QUICK-TABLE-AXES", axes)
     if balance.applies(project, case):
         return Refusal("QUICK-BALANCE", "it does not charge-balance a hybrid's case (set Charge "
                                         "balance off to run it once)")
@@ -503,6 +508,26 @@ def refused(case_id: str, why: Refusal, detail: str = "") -> SimResult:
         level="error", text=f"Not run [{why.code}]: {why.why}{more}.")])
 
 
+def table_axes(project: Project) -> Optional[str]:
+    """Why the engine cannot take the project's tables yet, naming the parts:
+    a Map block, or a table parameter of three or more axes
+    (docs/spec/tables.md); None when it can."""
+    lib = library_by_id()
+    parts = []
+    for el in (el for s in project.systems for el in s.elements):
+        cdef = lib.get(el.componentDefId)
+        if el.componentDefId == MAP_BLOCK:
+            parts.append(f"{el.label!r} (a Map block)")
+        elif cdef is not None:
+            parts += [f"'{el.label}.{p.label}' (a table of {len(p.axes or [])} axes)"
+                      for p in cdef.parameters if p.type in TABLE_TYPES and len(p.axes or []) > 2]
+    if not parts:
+        return None
+    more = f" and {len(parts) - 1} more" if len(parts) > 1 else ""
+    return (f"{parts[0]}{more} {'do' if more else 'does'} not run in this version of LightSim yet: "
+            f"its engine runs tables of one and two axes and no Map block yet")
+
+
 def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     """Why the new engine does not run this case, or None when it does."""
     case = next((c for c in project.cases if c.id == case_id), None)
@@ -514,6 +539,8 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
         return Refusal("NEW-CASE-KIND", f"{case.kind} cases do not run in this version of LightSim yet")
     if case.fsEvent:
         return Refusal("NEW-FS-EVENT", "Formula Student event cases do not run in this version of LightSim yet")
+    if (axes := table_axes(project)) is not None:
+        return Refusal("NEW-TABLE-AXES", axes)
     elements = [el for s in project.systems for el in s.elements]
     overrides = getattr(case, "parameterOverrides", None) or {}
     if any(el.componentDefId == "battery.generic"

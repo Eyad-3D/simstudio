@@ -204,7 +204,7 @@ class Project:
         elif pdef.type in ("string", "code"):
             if not isinstance(value, str):
                 raise LightSimError(f"'{pdef.label}' takes text.")
-        elif pdef.type in ("table1d", "table2d"):
+        elif pdef.type in engine("schemas").TABLE_TYPES or pdef.type == "maps":
             if not isinstance(value, dict):
                 raise LightSimError(f"'{pdef.label}' takes a table: a dict keyed by the axis "
                                     f"value, as in the project file.")

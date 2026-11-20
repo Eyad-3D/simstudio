@@ -19,7 +19,7 @@ from . import cycles
 from .fmu.block import COMPONENT_ID as FMU_COMPONENT
 from .fmu.block import problems as fmu_problems
 from .library import library_by_id
-from .schemas import DataCheck, ElementInstance, ParameterDef, Project, SimCase
+from .schemas import TABLE_TYPES, DataCheck, ElementInstance, ParameterDef, Project, SimCase
 from .solver import (
     Model,
     ModelError,
@@ -35,7 +35,7 @@ from .solver import (
     profile_problems,
 )
 from .solver.battery import CELLS
-from .solver.maps import inner_range
+from .solver.maps import MAP_BLOCK, inner_range, map_problems, parse_grid
 from .solver.network import (
     AXLE_GEAR_TYPES,
     NO_DRIVER,
@@ -289,14 +289,15 @@ def validate_project(project: Project) -> list[DataCheck]:
 
         for pdef in cdef.parameters:
             value = params.get(pdef.key)
-            if pdef.type == "table1d":
+            if pdef.type in TABLE_TYPES:  # by its number of axes (docs/spec/tables.md)
+                axes = pdef.axes or []
                 try:
-                    parse_table1d(value)
-                except TableError as e:
-                    add("error", f"'{el.label}.{pdef.label}': {e}", el)
-            elif pdef.type == "table2d":
-                try:
-                    parse_table2d(value)
+                    if len(axes) == 1:
+                        parse_table1d(value)
+                    elif len(axes) == 2:
+                        parse_table2d(value)
+                    else:
+                        parse_grid(value, len(axes), [a.name for a in axes])
                 except TableError as e:
                     add("error", f"'{el.label}.{pdef.label}': {e}", el)
             elif pdef.type == "code":
@@ -304,6 +305,10 @@ def validate_project(project: Project) -> list[DataCheck]:
                     check_script(str(value or ""), el.label)
                 except ScriptError as e:
                     add("error", str(e), el)
+
+        if cdef.id == MAP_BLOCK:
+            for text in map_problems(el.label, el.dynamicPorts, params.get("maps")):
+                add("error", text, el)
 
         if cdef.id == FMU_COMPONENT:  # reads the FMU file; never runs it
             for level, text, fix in fmu_problems(el.label, params, el.dynamicPorts):
@@ -395,7 +400,7 @@ def value_provenance(project: Project, defs: dict) -> tuple[int, int]:
                 continue
             sources = getattr(el, "parameterSources", None) or {}
             for pdef in cdef.parameters:
-                if pdef.type not in ("number", "table1d", "table2d"):
+                if pdef.type != "number" and pdef.type not in TABLE_TYPES:
                     continue
                 if pdef.showIf is not None:  # only for another setting (MOD-08's cell values)
                     shown = el.parameterOverrides.get(pdef.showIf.key, next(

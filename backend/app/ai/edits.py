@@ -32,6 +32,7 @@ from typing import Any, Optional
 
 from ..library import library_by_id
 from ..schemas import (
+    TABLE_TYPES,
     ComponentDef,
     Connection,
     DataBusConnection,
@@ -172,10 +173,12 @@ def _parse_value(cdef: ComponentDef, key: str, value: Any) -> tuple[Any, str]:
     elif pdef.type == "enum":
         if value not in (pdef.options or []):
             raise EditError(f"{pdef.label} must be one of: {', '.join(pdef.options or [])}.")
-    elif pdef.type in ("table1d", "table2d"):
+    elif pdef.type in TABLE_TYPES or pdef.type == "maps":
         if not isinstance(value, dict) or not value:
+            levels = len(pdef.axes or [])
             raise EditError(f"{pdef.label} is a table: give it as {{x: value}}"
-                            + (" nested one level" if pdef.type == "table2d" else "") + ".")
+                            + (f" nested one level per axis ({levels} levels)" if levels > 1 else "")
+                            + (" per output port id" if pdef.type == "maps" else "") + ".")
     elif not isinstance(value, str):
         raise EditError(f"{pdef.label} is text.")
     return value, f"{pdef.label} {fmt_value(value, pdef.unit)}"

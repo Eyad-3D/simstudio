@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ..library import library_by_id
+from ..schemas import TABLE_TYPES
 from . import units as U
 from .sheets import Cell, Sheet, cell_name, column_letter
 
@@ -81,12 +82,15 @@ def target_for(component_def_id: str, param_key: str, mode: str | None = None) -
             return Target("profile", [axis], _q("Grade", "%"), True, "Road Profile")
         return Target("profile", [_q("Time", "s")], _q("Target Speed", "km/h"), True,
                       "Driving Task profile")
-    if p.type == "table1d" and p.axes and len(p.axes) == 1:
+    if p.type in TABLE_TYPES and p.axes and len(p.axes) == 1:
         return Target("table1d", [_q(p.axes[0].name, p.axes[0].unit)], _q(p.label, p.unit),
                       label=p.label)
-    if p.type == "table2d" and p.axes and len(p.axes) == 2:
+    if p.type in TABLE_TYPES and p.axes and len(p.axes) == 2:
         return Target("table2d", [_q(a.name, a.unit) for a in p.axes], _q(p.label, p.unit),
                       label=p.label)
+    if p.type in TABLE_TYPES or p.type == "maps":
+        raise ValueError(f"'{p.label}' has {len(p.axes or [])} axes: import it with the parameter "
+                         "sheet, as a long list, or paste it slice by slice")
     raise ValueError(f"'{p.label}' is not a table, map or profile")
 
 
