@@ -1160,9 +1160,8 @@ SUNDIALS' own examples, transcribed from their C code
   map in a part's parameter window zooms with the mouse wheel and the + and
   − keys, and a double-click shows the whole table again; dragging a box
   to zoom, as on the *Results* charts, is off there, because the chart
-  would not see the mouse button come up in a window of its own. Pointing
-  at the plot reads the values at that place in its legend, not at the
-  nearest point. *Workaround:* zoom with the wheel.
+  would not see the mouse button come up in a window of its own.
+  *Workaround:* zoom with the wheel.
 - **Long runs with many lines zoom less smoothly.** On a 1-hour run
   (36,001 points) with 7 channels ticked and the baseline drawn faint as
   well (14 lines), the mouse wheel zooms at 60 frames a second most of the

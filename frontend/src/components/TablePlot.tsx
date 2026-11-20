@@ -24,6 +24,8 @@ export interface ShownAxis {
 export interface TableSlice {
   x: { title: string; values: number[] };
   yTitle: string;
+  /** the values' unit, for a read-out */
+  yUnit: string;
   curves: { label: string; y: (number | null)[] }[];
   /** the point of the selected cell: its curve and its index along x */
   mark: { curve: number; index: number } | null;
@@ -75,6 +77,7 @@ export function tableSlice(
   return {
     x: { title: title(xa.name, xa.unit), values: xa.keys.map((k) => convert(Number(k), xa.lib, xa.unit)) },
     yTitle: title(value.name, value.unit),
+    yUnit: value.unit,
     curves,
     mark: inSlice && m ? { curve: by === null ? 0 : m[by], index: m[along] } : null,
   };

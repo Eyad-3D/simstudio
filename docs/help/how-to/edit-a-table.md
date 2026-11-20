@@ -56,11 +56,11 @@ each axis and its unit.
 - A map is a curve per breakpoint of one axis. **Along x** chooses the
   axis that runs along the plot's x axis; the curves are the breakpoints
   of another axis, each named in the legend under the plot by its value
-  and unit (*Speed 3000 1/min*). The legend scrolls when there are many.
+  and unit (*Speed 3000 1/min*).
 - The point of the selected cell has a ring around it, and the line under
   the plot names it with its value.
-- Point at the plot to read the values at that place in the legend. The
-  mouse wheel zooms, a double-click shows the whole table again, and with
+- Point at a curve: the other curves fade, and a line under the plot
+  gives its value at that place along x. The mouse wheel zooms, a double-click shows the whole table again, and with
   the plot selected the + and − keys zoom and the arrow keys move along x.
 
 **Hide plot** folds the plot away, for more room; **Show plot** brings it

@@ -664,27 +664,46 @@ body,
   border-color: var(--ss-accent);
   box-shadow: 0 0 0 1px var(--ss-accent);
 }
-/* the plot under a table; the legend (a curve per row or column of a map)
-   takes three lines at most and scrolls past them, so the plot keeps its
-   room; the selected cell's ring has no entry (the line under the plot
-   names it) */
+/* the plot under a table: the chart, then its curves as a list that wraps
+   (a map can have many: the box grows, the chart keeps its height), then
+   the values under the pointer */
 .ss-table-plot-chart {
-  height: 300px;
-  padding: 4px;
+  padding: 4px 6px;
   border: 1px solid var(--ss-border);
   border-radius: 4px;
   background: var(--ss-panel);
 }
-.ss-table-plot-chart .u-legend {
-  display: block;
-  max-height: 64px;
-  overflow-y: auto;
+.ss-table-plot-area {
+  height: 230px;
 }
-.ss-table-plot-chart .u-legend .u-value {
-  min-width: 6ch;
+.ss-table-plot-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 11px;
+  color: var(--ss-text);
 }
-.ss-table-plot-chart .u-legend .u-series:last-child {
-  display: none;
+.ss-table-plot-legend li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.ss-table-plot-legend li.ss-near {
+  font-weight: 600;
+}
+.ss-table-plot-legend span {
+  width: 12px;
+  height: 3px;
+  border-radius: 1px;
+}
+.ss-table-plot-readout {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--ss-text);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The first-steps tour's dimmed overlay lets clicks through to the window
