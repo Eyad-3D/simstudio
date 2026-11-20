@@ -895,7 +895,10 @@ def test_an_acceleration_test_streams_its_last_run_and_takes_no_change_in_it():
 
     changed = fs.simulate(edits=[(0.5, {"el_vehicle.cd": 1.0})])
     (e,) = changed.report["edits"]
-    assert changed.report["reran_to_finish"] and e["at"] == 0.51
+    # taken at the end of the first step at or after 0.5 s (0.512 s since
+    # the dummy derivatives left the error test and the steps grew; 0.509 s
+    # before), made at the next output time
+    assert changed.report["reran_to_finish"] and e["at"] == 0.52
     assert changed.times[-1] != fs.simulate().times[-1]  # (another drag: another finish)
     again = fs.simulate(edits=[(e["t"], e["params"])])
     assert _bits(again.times) == _bits(changed.times)

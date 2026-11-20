@@ -360,6 +360,9 @@ pub struct Sundials<'m> {
     yp: N_Vector,
     tmp: N_Vector,
     id: N_Vector,
+    /// IDA's error test's mask where it leaves out the dummy derivatives
+    /// alone (1, 0 at each one); null otherwise ([`Sundials::set_id`])
+    mask: N_Vector,
     atol: N_Vector,
     ele: N_Vector,
     ewt: N_Vector,
@@ -728,6 +731,19 @@ impl<'m> Sundials<'m> {
                 slice(atol, n)[i] = opts.atol * info.y_nominal[i];
                 slice(id, n)[i] = if i < layout.n_x { 1.0 } else { 0.0 };
             }
+            // the dummy derivatives alone out of the error test: its mask
+            let mask = if !opts.suppress_algebraic_error
+                && opts.suppress_dummy_derivative_error
+                && info.y_dummy.iter().any(|&d| d)
+            {
+                let m = vec();
+                for i in 0..n {
+                    slice(m, n)[i] = if info.y_dummy[i] { 0.0 } else { 1.0 };
+                }
+                m
+            } else {
+                ptr::null_mut()
+            };
             let jac = &prob.jac;
             let a = match lin {
                 Lin::Dense => SUNDenseMatrix(len, len, ctx),
@@ -753,6 +769,7 @@ impl<'m> Sundials<'m> {
                 yp,
                 tmp,
                 id,
+                mask,
                 atol,
                 ele,
                 ewt,
@@ -825,7 +842,7 @@ impl<'m> Sundials<'m> {
                     if opts.max_step > 0.0 {
                         s.check(IDASetMaxStep(s.mem, opts.max_step), "IDASetMaxStep", t0)?;
                     }
-                    if opts.suppress_algebraic_error {
+                    if opts.suppress_algebraic_error || !s.mask.is_null() {
                         s.check(IDASetSuppressAlg(s.mem, 1), "IDASetSuppressAlg", t0)?;
                     }
                     if n_q > 0 {
@@ -1041,6 +1058,7 @@ impl<'m> Sundials<'m> {
             match h0 {
                 None => {
                     let h = (1e-3 * (self.t_end - t).abs()).max(1e-9);
+                    self.set_id(false, t)?;
                     let calc = self.check(
                         IDACalcIC(self.mem, IDA_YA_YDP_INIT, t + h),
                         "the consistent initialisation (IDACalcIC)",
@@ -1078,6 +1096,7 @@ impl<'m> Sundials<'m> {
                         "IDAGetConsistentIC",
                         t,
                     )?;
+                    self.set_id(true, t)?;
                 }
                 Some(h) => {
                     let pr = &mut *self.prob;
@@ -1103,6 +1122,22 @@ impl<'m> Sundials<'m> {
         }
         self.fresh = true;
         Ok(outcome.describe())
+    }
+
+    /// IDA's id vector, which `IDACalcIC` reads to tell the states (1)
+    /// from the iteration variables (0) and the error test reads as its
+    /// mask under `IDASetSuppressAlg` (and nothing else in IDAS reads):
+    /// where the dummy derivatives alone are left out of the test
+    /// (`mask`), the mask (`masked`) stands in for the id at every step and
+    /// the true id only for `IDACalcIC`.
+    fn set_id(&mut self, masked: bool, t: f64) -> Result<(), SolveError> {
+        if self.mask.is_null() {
+            return Ok(());
+        }
+        let v = if masked { self.mask } else { self.id };
+        // SAFETY: `mem` is a live IDA memory; `v` one of our vectors of n
+        // values (IDASetId copies it).
+        unsafe { self.check(IDASetId(self.mem, v), "IDASetId", t).map(|_| ()) }
     }
 
     fn counters(&self) -> SolverStats {
@@ -1807,7 +1842,7 @@ impl Drop for Sundials<'_> {
             for v in [self.y, self.yp, self.tmp, self.id, self.atol, self.ele, self.ewt] {
                 N_VDestroy(v);
             }
-            for v in [self.yq, self.tq] {
+            for v in [self.yq, self.tq, self.mask] {
                 if !v.is_null() {
                     N_VDestroy(v);
                 }

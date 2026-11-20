@@ -46,7 +46,9 @@ use std::path::{Path, PathBuf};
 /// every read that jumps (a clamped cubic's slope at its edges and a 2-D
 /// read on the explicit form too), and `HeldRead::explicit` is gone. v12:
 /// a 2-D read that jumps is one the releases weigh (`HeldRead::jumps`).
-const FORMAT: &str = "prepared-v12";
+/// v13: the dummy derivatives are listed
+/// (`PreparedModel::dummy_derivatives`, no default).
+const FORMAT: &str = "prepared-v13";
 
 /// The digest of the code that prepares a model (`build.rs`).
 const PREPARATION: &str = env!("LSIM_PREPARATION_DIGEST");
