@@ -95,6 +95,8 @@
     "DR-100": ["LicenseRef-LightSim"],
     "DR-101": ["LicenseRef-LightSim"],
     "DR-103": ["LicenseRef-LightSim"],
-    "DR-104": ["LicenseRef-LightSim"]
+    "DR-104": ["LicenseRef-LightSim"],
+    "DR-105": ["LicenseRef-Facts", "LicenseRef-LightSim"],
+    "DR-106": ["LicenseRef-Facts", "LicenseRef-LightSim"]
   }
 }

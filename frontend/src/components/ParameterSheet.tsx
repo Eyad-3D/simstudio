@@ -2,11 +2,14 @@ import { useEffect, useId, useRef, useState } from "react";
 import { FileUp, X } from "lucide-react";
 import * as api from "../api";
 import { useProjectStore } from "../store/projectStore";
-import type { ParamValue } from "../types";
+import type { ParamValue, Project } from "../types";
+import { showNumber, shownUnit } from "../units";
 
-/** A value in the change list: numbers and text as they are, a table as its
- *  number of points. */
-function shown(v: ParamValue): string {
+/** A value in the change list: numbers and text as they are (a number in
+ *  `unit`, the one its part shows it in, from the library's `lib`), a table
+ *  as its number of points. */
+function shown(v: ParamValue, lib = "", unit = lib): string {
+  if (typeof v === "number") return showNumber(v, lib, unit);
   if (v && typeof v === "object") {
     const n = Object.values(v).reduce<number>((k, x) => k + (x && typeof x === "object" ? Object.keys(x).length : 1), 0);
     return `table (${n} points)`;
@@ -14,6 +17,12 @@ function shown(v: ParamValue): string {
   if (typeof v === "string" && v.includes(":") && v.includes(";")) return `profile (${v.split(";").length} points)`;
   if (typeof v === "boolean") return v ? "on" : "off";
   return String(v);
+}
+
+/** The unit a change's part shows its parameter in (the sheet's is the library's). */
+function unitOfChange(project: Project | null, c: api.ParameterChange): string {
+  const el = project?.systems.flatMap((s) => s.elements).find((e) => e.id === c.elementId);
+  return el ? shownUnit(el, c.key, "value", c.unit) : c.unit;
 }
 
 async function download(get: () => Promise<{ blob: Blob; name: string }>) {
@@ -84,6 +93,7 @@ function SheetPreview({
   onClose: () => void;
 }) {
   const apply = useProjectStore((s) => s.applyParameterChanges);
+  const project = useProjectStore((s) => s.project);
   const titleId = useId();
   const applyRef = useRef<HTMLButtonElement>(null);
   const n = result.changes.length;
@@ -156,22 +166,26 @@ function SheetPreview({
                 </tr>
               </thead>
               <tbody>
-                {result.changes.map((c) => (
-                  <tr key={`${c.elementId}.${c.key}`}>
-                    <td className="px-1 align-top text-[color:var(--ss-text-dim)]">
-                      {c.sheet && c.sheet !== "Parameters" && !c.sheet.endsWith(".csv") ? `'${c.sheet}'` : c.row}
-                    </td>
-                    <td className="px-1 align-top">
-                      {c.element} · {c.parameter}
-                    </td>
-                    <td className="px-1 align-top">
-                      {shown(c.old)} {c.unit !== "-" && typeof c.old !== "object" ? c.unit : ""}
-                    </td>
-                    <td className="px-1 align-top font-semibold">
-                      {shown(c.new)} {c.unit !== "-" && typeof c.new !== "object" ? c.unit : ""}
-                    </td>
-                  </tr>
-                ))}
+                {result.changes.map((c) => {
+                  // in the unit the part shows the parameter in
+                  const unit = unitOfChange(project, c);
+                  return (
+                    <tr key={`${c.elementId}.${c.key}`}>
+                      <td className="px-1 align-top text-[color:var(--ss-text-dim)]">
+                        {c.sheet && c.sheet !== "Parameters" && !c.sheet.endsWith(".csv") ? `'${c.sheet}'` : c.row}
+                      </td>
+                      <td className="px-1 align-top">
+                        {c.element} · {c.parameter}
+                      </td>
+                      <td className="px-1 align-top">
+                        {shown(c.old, c.unit, unit)} {unit !== "-" && typeof c.old !== "object" ? unit : ""}
+                      </td>
+                      <td className="px-1 align-top font-semibold">
+                        {shown(c.new, c.unit, unit)} {unit !== "-" && typeof c.new !== "object" ? unit : ""}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

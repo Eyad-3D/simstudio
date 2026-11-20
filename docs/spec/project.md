@@ -127,6 +127,7 @@ from the library's defaults, in `parameterOverrides`.
 | `portSides` | object | Port id → `left`, `right`, `top` or `bottom`: where a pin is drawn |
 | `portOffsets` | object | Port id → 0 to 1: where along its side a pin is drawn |
 | `tableOutside` | object | Table parameter key → one of `error`, `clamp`, `linear` per axis: what the run does outside the table's data, overriding the library's setting |
+| `displayUnits` | object | Parameter key → `{value, axes}`: the unit the app shows and takes the value in (`value`) and each axis of a table in (`axes`, one per axis, null for the library's), one of `backend/app/dataio/units.json`'s units of the same kind. Display only: every value in `parameterOverrides` stays in the parameter's own unit. Absent when nothing was chosen |
 | `size` | `{width, height}` or null | Its size on the diagram; null for the default |
 | `isSubSystem` | true or false | true when the part opens a sub-system |
 | `subSystemId` | text or null | The system it opens |

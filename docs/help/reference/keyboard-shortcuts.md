@@ -37,7 +37,8 @@ selection as the Delete key.
 | Shift+click a pin | Move the pin to the next side of its part |
 | Shift+drag a pin | Slide the pin along the part's edges |
 | Double-click a part | Open its parameters in a window of their own (a sub-system: go inside); again, bring that window to the front |
-| Esc | Cancel click-to-place; close a menu, or a help card or import preview in a parameter window |
+| Esc | Cancel click-to-place; close a menu, or a help card, unit chooser or import preview in a parameter window |
+| Enter on a table's header | Choose the unit of that column ([Work in other units](../how-to/work-in-other-units.md)) |
 
 A part's parameter window is an ordinary window: resize it, minimise it or
 move it to another screen, and keep several open. What you type there is in

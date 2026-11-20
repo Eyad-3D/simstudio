@@ -30,7 +30,10 @@ it into a copy of that example (Start page → *FS Electric (generic)*).
 Change numbers in the *Value* column, or on a table's sheet. Keep *Part
 ID*, *Key* and *Unit* as they are: LightSim finds each row by its part id
 and key, and refuses a row whose unit is not the parameter's (write the
-value in the unit the row names). On/off values are `TRUE` or `FALSE`;
+value in the unit the row names: the library's, whatever unit a part
+shows it in, see [Work in other units](work-in-other-units.md)). The
+list of changes before **Apply** shows each value in the unit its part
+shows it in. On/off values are `TRUE` or `FALSE`;
 choices must be written as one of the options LightSim offers.
 
 ## Import it back
