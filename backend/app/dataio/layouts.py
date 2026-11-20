@@ -715,13 +715,16 @@ def read_data(sheets: list[Sheet], target: DataTarget, opts: Optional[dict] = No
         axis_fields = [i for i in axis_fields if len(distinct(i)) > 1 or len(axis_fields) == 1]
         slots_a, slots_v = [], []
         taken: set[str] = set()
+        # a port the block has, by the same name: its id, so its wires stay
+        had = {**{("input", q.name.lower()): q.key for q in target.axes},
+               **{("output", q.name.lower()): q.key for q in target.values}}
         for n, i in enumerate(axis_fields + value_fields):
             f = fields[i]
             unit = (opts.get("units") or {}).get(str(i)) or f.unit
             unit = U.canonical(unit) or unit if unit else None
             inp = n < len(axis_fields)
             name = f.name or (f"Input {n + 1}" if inp else f"Output {n - len(axis_fields) + 1}")
-            pid, m = _slugify(name), 2
+            pid, m = had.get(("input" if inp else "output", name.lower()), _slugify(name)), 2
             while pid in taken:
                 pid, m = f"{_slugify(name)}_{m}", m + 1
             taken.add(pid)

@@ -43,10 +43,15 @@ paste.
   selection is: copy a table, change it in Excel, copy it there and click
   **Paste**.
 
-A paste with text that is not a number, or a breakpoint twice, changes
-nothing, and the line under the grid says which cell is wrong. If
-LightSim is not allowed to read the clipboard, **Paste** says so under
-the grid: click a cell and press Ctrl+V instead.
+Cells with titles or units, numbers written with a decimal comma, a table
+with its own axes, or a block that does not fit the table shown are not
+pasted into the cells: the import's preview opens instead, says why, and
+shows how LightSim reads them, in any layout
+([Import a table from a file](import-a-table-from-a-file.md#by-pasting)).
+A plain block with a breakpoint twice changes nothing, and the line under
+the grid says which cell is wrong. If LightSim is not allowed to read the
+clipboard, **Paste** says so under the grid: click a cell and press
+Ctrl+V instead.
 
 ## Read the plot
 
@@ -94,5 +99,5 @@ also double-click a column's header (or select it and press Enter); in a
 map, the top-left cell names the values and their unit, and opens their
 chooser the same way. A held axis has its unit in the units line too. See [Work in other units](work-in-other-units.md).
 
-To read a whole table from a CSV, text or Excel file, see
-[Import a table from a file](import-a-table-from-a-file.md).
+To read a whole table from an Excel, CSV or text file, click **Import…**
+in the toolbar: see [Import a table from a file](import-a-table-from-a-file.md).

@@ -71,11 +71,29 @@ pressure, or a unit you type) is shown only in the Map block's editor, its
 plot and its pin's tooltip; *Data Bus Connections*, the run's channels and
 the Data Checks' unit warnings treat the port as having no unit.
 
-In the parameter window, **Import from file…** reads tables of one and two
-axes only. A Map block's tables, and a table of three or more axes, come
-from a spreadsheet through the parameter sheet (one column per axis and
-per output: [Edit parameters in a spreadsheet](help/how-to/edit-parameters-in-a-spreadsheet.md)),
-or slice by slice with **Paste**.
+**What the table import does not recognise**
+([Import a table from a file](help/how-to/import-a-table-from-a-file.md#layouts)):
+
+- **Data laid out across rows** (an axis along row 1 and its values along
+  row 2) instead of down columns: transpose it in Excel first.
+- **Several tables without labels**: they are not put together; the
+  preview reads one at a time. Give each a label such as `T = 25 °C`.
+- **Two tables touching** with no empty row or column between them are
+  read as one; a list whose columns have an empty column between them is
+  read as two tables.
+- **Labels written otherwise** than *name = value unit*, *name [unit]:
+  value*, *value unit* or *name value unit* (for example `at 25 degrees`),
+  and a breakpoint in a sheet's name without its unit (`T25`, `Sheet 25`):
+  read as titles, not labels.
+- **A matrix whose first row is not in order** (its breakpoints neither
+  rising nor falling) is read as a list.
+- **Profiles and the command line**: a Driving Task's or Road Profile's
+  **Import from file…**, `lightsim-backend import-table` and a table on
+  its own sheet of the parameter sheet read two columns or a single matrix
+  only, as before.
+- **Without the engine** (the app running on its bundled data) the import
+  and its preview are not available; a plain block of numbers still pastes
+  into the cells.
 
 Quick mode refuses in the same way what it cannot run (see *Quick mode
 gives a cycle's totals only* below): it does not run the case in full

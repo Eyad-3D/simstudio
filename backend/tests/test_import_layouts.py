@@ -297,6 +297,12 @@ def test_a_map_block_is_built_from_the_data_with_the_user_s_yes():
         ("loss", "output", "Power", None, None),
         ("efficiency", "output", "Percent", None, None),
         ("note", "output", "No Unit", "bar", None)]
+    # a port the block had by the same name keeps its id, and so its wires
+    had = data_target("signal.map", "maps", [
+        {"id": "input_1", "name": "Speed", "direction": "input", "unitGroup": "No Unit"},
+        {"id": "output_1", "name": "Loss", "direction": "output", "unitGroup": "No Unit"}])
+    assert [p["id"] for p in run(text, had, build=True)["ports"]] == [
+        "temperature", "input_1", "torque", "output_1", "efficiency", "note"]
     # rad/s stored as 1/min, shown in rad/s
     assert list(res["tables"]["loss"]["25"]) == ["954.929658551", "1909.8593171"]
     assert res["tables"]["note"]["50"]["954.929658551"]["20"] == 2.0

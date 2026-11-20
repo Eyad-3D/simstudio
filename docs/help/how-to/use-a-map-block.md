@@ -65,6 +65,18 @@ For a large map, export the parameter sheet: the Map block's sheet is a
 long list, a column per input and per output and a row per point
 ([Edit parameters in a spreadsheet](edit-parameters-in-a-spreadsheet.md)).
 
+## Import the map
+
+Click **Import…** above the inputs and choose an Excel, CSV or text file,
+or paste the cells into the grid: a list, a matrix, a matrix for each
+temperature and the other layouts in
+[Import a table from a file](import-a-table-from-a-file.md#layouts). The
+data's axes and value columns are matched to the block's inputs and
+outputs by name and unit. Tick **Set the Map block's inputs and outputs
+from the data** to make an input of each axis and an output of each value
+column instead, named and with units from the titles: a new block can be
+set up from a file in one step, and Undo takes it back in one step.
+
 ## Wire it
 
 Wire its inputs and outputs in *Data Bus Connections*, as for any signal
