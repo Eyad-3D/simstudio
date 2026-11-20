@@ -1987,3 +1987,96 @@ fn a_crossing_beside_an_unrelated_time_crossing_is_its_own() {
     }
     assert!(bad.is_empty(), "{} of {runs} wrong:\n{}", bad.len(), bad.join("\n"));
 }
+
+/// A mode whose own value moves its condition: `der(w) = if x > 0.5 then 1
+/// else 0` with `x³ + x = z - δ (if x > 0.5 then 1 else 0)`. Where z has
+/// just passed 0.625 by less than δ, x is above 0.5 while the mode is off and
+/// below it while it is on: event iteration set it on and off at one instant
+/// until the run stopped with an event storm. `slides`: z rises while the
+/// mode is off and falls while it is on, so each value drives the condition
+/// back to its switching point.
+fn self_moving(delta: f64, slides: bool) -> ComponentDef {
+    let on =
+        || Expr::If(Box::new(cmp(CmpOp::Gt, n("x"), c(0.5))), Box::new(c(1.0)), Box::new(c(0.0)));
+    ComponentDef {
+        name: "Test.SelfMoving".into(),
+        params: vec![param("delta", "1", delta, "how far the mode moves x³ + x")],
+        vars: vec![state("z", "1", 0.0, ""), state("w", "s", 0.0, ""), x_var()],
+        equations: vec![
+            eq(der("z"), if slides { c(1.0) - c(2.0) * on() } else { c(1.0) }, "a ramp"),
+            eq(cubed(n("x")) + n("x"), n("z") - n("delta") * on(), "x, moved by the mode"),
+            eq(der("w"), on(), "the time x spends above 0.5"),
+        ],
+        ..Default::default()
+    }
+}
+
+fn simulate_at(m: &ComponentDef, rtol: f64) -> Result<SimResult, lsim_solve::SolveError> {
+    let built = common::build(&common::library(), m, false);
+    let opts = SolverOptions { rtol, atol: 1e-2 * rtol, ..Default::default() };
+    simulate(&built.jit, &built.info, &opts, OutputGrid { t0: 0.0, t_end: T_END, dt: 0.1 }, &mut [])
+}
+
+/// δ within what the iteration variables' tolerances resolve (4 rtol in z,
+/// 2.3 rtol in x, against a hold width of 4.1 rtol): x is at 0.5 to that
+/// tolerance, and rising whichever value the mode has; the mode takes the
+/// value its condition has just after the instant, on, and keeps it.
+#[test]
+fn a_mode_that_moves_its_own_condition_within_the_tolerance_takes_its_value_after_the_instant() {
+    let mut bad = vec![];
+    for rtol in [1e-5, 1e-6, 1e-8] {
+        let delta = 4.0 * rtol;
+        match simulate_at(&self_moving(delta, false), rtol) {
+            Err(e) => bad.push(format!("rtol {rtol:e}: {e}")),
+            Ok(r) => {
+                let w = last(&r, "w");
+                let modes =
+                    r.events.iter().filter(|e| matches!(e.kind, EventKind::Mode(_))).count();
+                println!("rtol {rtol:e}: w(2) = {w}, {modes} mode events");
+                // on from 0.625 (to δ): w(2) = 1.375
+                if (w - 1.375).abs() > delta + 10.0 * rtol || modes > 8 {
+                    bad.push(format!(
+                        "rtol {rtol:e}: w(2) = {w} (exact 1.375), {modes} mode events"
+                    ));
+                }
+            }
+        }
+    }
+    assert!(bad.is_empty(), "{}", bad.join("\n"));
+}
+
+/// Each value of the mode drives its condition back to its switching point
+/// (off, z and x rise; on, they fall): the motion would slide along it,
+/// which the run loop does not follow. The run stops there, at the first
+/// instant, saying so and naming the mode.
+#[test]
+fn a_mode_that_would_slide_on_its_own_switching_point_stops_the_run_there() {
+    let rtol = 1e-6;
+    let e = simulate_at(&self_moving(4.0 * rtol, true), rtol).expect_err("it slides");
+    println!("{e}");
+    match e {
+        lsim_solve::SolveError::EventStorm { t, message, parts } => {
+            assert!((0.625..0.626).contains(&t), "{t}");
+            assert!(message.contains("slide"), "{message}");
+            assert_eq!(parts.len(), 1, "{parts:?}");
+        }
+        other => panic!("not an event storm: {other}"),
+    }
+}
+
+/// δ far beyond the tolerances (0.1): no value of the mode holds while z is
+/// within 0.1 past 0.625. The run stops at the first instant, naming the
+/// mode and both values of its condition.
+#[test]
+fn a_mode_whose_own_value_moves_its_condition_across_stops_the_run_there() {
+    let e = simulate_at(&self_moving(0.1, false), 1e-6).expect_err("no value holds");
+    println!("{e}");
+    match e {
+        lsim_solve::SolveError::EventStorm { t, message, parts } => {
+            assert!((0.625..0.626).contains(&t), "{t}");
+            assert!(message.contains("no value"), "{message}");
+            assert_eq!(parts.len(), 1, "{parts:?}");
+        }
+        other => panic!("not an event storm: {other}"),
+    }
+}
