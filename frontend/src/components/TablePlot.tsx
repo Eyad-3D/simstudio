@@ -5,7 +5,7 @@
 import { lazy, Suspense, useState } from "react";
 import { ChartSpline } from "lucide-react";
 import { useOwnerWindow } from "../ownerWindow";
-import { convert, showNumber } from "../units";
+import { convert, roundText, showNumber } from "../units";
 
 // uPlot is loaded with the chart, not with the form: it needs a real browser
 // (a test DOM has no canvas), and a form shown without a plot never loads it
@@ -30,7 +30,9 @@ export interface TableSlice {
 }
 
 const title = (name: string, unit: string) => (unit ? `${name} (${unit})` : name);
-const keyText = (a: ShownAxis, i: number) => `${showNumber(Number(a.keys[i]), a.lib, a.unit)}${a.unit ? ` ${a.unit}` : ""}`;
+// a breakpoint as its cell shows it, or (a curve's name) to 4 digits
+const keyText = (a: ShownAxis, i: number, show = showNumber) =>
+  `${show(Number(a.keys[i]), a.lib, a.unit)}${a.unit ? ` ${a.unit}` : ""}`;
 
 /** The table's entry at one breakpoint of each axis (keys in axis order). */
 const entryAt = (table: unknown, keys: string[]): unknown =>
@@ -61,7 +63,7 @@ export function tableSlice(
     axes.map((a, j) => a.keys[j === along ? i : j === by ? curve : (opts.fixed?.[j] ?? 0)]);
   const curveCount = by === null ? 1 : axes[by].keys.length;
   const curves = Array.from({ length: curveCount }, (_, k) => ({
-    label: by === null ? value.name : `${axes[by].name} ${keyText(axes[by], k)}`,
+    label: by === null ? value.name : `${axes[by].name} ${keyText(axes[by], k, roundText)}`,
     y: xa.keys.map((_, i) => {
       const v = entryAt(table, at(i, k));
       return typeof v === "number" ? convert(v, value.lib, value.unit) : null;

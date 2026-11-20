@@ -593,8 +593,10 @@ body,
 .ss-grid td.ss-td-corner {
   z-index: 3;
 }
+/* a long name keeps the row headers narrow: cut short, whole in its tooltip */
 .ss-grid .ss-cell-corner {
   text-align: left;
+  max-width: 14em;
 }
 .ss-grid td.ss-selected .ss-cell {
   background: color-mix(in srgb, var(--ss-accent) 18%, transparent);
@@ -662,14 +664,24 @@ body,
   border-color: var(--ss-accent);
   box-shadow: 0 0 0 1px var(--ss-accent);
 }
-/* the plot under a table; the selected cell's ring has no legend entry
-   (the line under the plot names it) */
+/* the plot under a table; the legend (a curve per row or column of a map)
+   takes three lines at most and scrolls past them, so the plot keeps its
+   room; the selected cell's ring has no entry (the line under the plot
+   names it) */
 .ss-table-plot-chart {
-  height: 240px;
+  height: 300px;
   padding: 4px;
   border: 1px solid var(--ss-border);
   border-radius: 4px;
   background: var(--ss-panel);
+}
+.ss-table-plot-chart .u-legend {
+  display: block;
+  max-height: 64px;
+  overflow-y: auto;
+}
+.ss-table-plot-chart .u-legend .u-value {
+  min-width: 6ch;
 }
 .ss-table-plot-chart .u-legend .u-series:last-child {
   display: none;

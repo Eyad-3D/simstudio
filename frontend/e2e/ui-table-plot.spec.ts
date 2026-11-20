@@ -40,7 +40,7 @@ test("the plot under a table follows an edit; Copy then Paste through the button
   await expect(table.locator("[data-plot-mark]")).toHaveText(/^Marked: Speed .+ 50 N·m$/);
 
   // Copy with one cell selected takes the whole table, headers and all
-  await table.getByRole("button", { name: "Copy", exact: true }).click();
+  await table.getByRole("button", { name: /^Copy/ }).click();
   await expect(table.getByText("Copied the whole table.")).toBeVisible();
   const copied = await win.evaluate(() => navigator.clipboard.readText());
   expect(copied.split("\n")[0]).toBe(`Speed (1/min)\t${Y}`);
@@ -51,7 +51,7 @@ test("the plot under a table follows an edit; Copy then Paste through the button
   await win.keyboard.type("7");
   await win.keyboard.press("Enter");
   await expect.poll(async () => Object.values((await draftDragTorque(page)) ?? {}).at(-1)).toBe(7);
-  await table.getByRole("button", { name: "Paste", exact: true }).click();
+  await table.getByRole("button", { name: /^Paste/ }).click();
   await expect(last).toHaveText("50");
   await expect.poll(async () => Object.values((await draftDragTorque(page)) ?? {}).at(-1)).toBe(50);
   await expect.poll(async () => (await yRange(chart, Y))[1]).toBeGreaterThanOrEqual(50);
