@@ -2978,11 +2978,14 @@ impl Loop<'_> {
         };
         let rms = |s: f64, k: usize| if k == 0 { 0.0 } else { (s / k as f64).sqrt() };
         let dx = rms((0..n_x).map(|i| lsim_ir::math::powi((f1[i] - f0[i]) * w(i), 2)).sum(), n_x);
-        let dz = if self.opts.suppress_algebraic_error {
-            0.0
-        } else {
-            rms((n_x..n).map(|i| lsim_ir::math::powi((y[i] - y_old[i]) * w(i), 2)).sum(), n - n_x)
+        let tested = |i: &usize| {
+            !(self.opts.suppress_algebraic_error
+                || self.opts.suppress_dummy_derivative_error && self.info.y_dummy[*i])
         };
+        let dz = rms(
+            (n_x..n).filter(tested).map(|i| lsim_ir::math::powi((y[i] - y_old[i]) * w(i), 2)).sum(),
+            (n_x..n).filter(tested).count(),
+        );
         if !(h * dx <= 0.1 && dz <= 0.1) {
             return Ok(false);
         }

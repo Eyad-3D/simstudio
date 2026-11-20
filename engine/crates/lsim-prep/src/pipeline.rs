@@ -1372,6 +1372,7 @@ pub fn run(
         warnings: vec![],
         state_sets,
         held: vec![],
+        dummy_derivatives: map.dummies.clone(),
     };
     if spec.is_none() {
         crate::hold::apply(&mut model, settings.table_cells);

@@ -565,6 +565,11 @@ pub struct RunInfo {
     pub params: Vec<f64>,
     /// each entry of y by name (states, then iteration variables)
     pub y_names: Vec<String>,
+    /// each entry of y: whether it is a dummy derivative (an iteration
+    /// variable index reduction made, [`lsim_ir::PreparedModel::
+    /// dummy_derivatives`]), which the error test leaves out by default
+    /// ([`crate::SolverOptions::suppress_dummy_derivative_error`])
+    pub y_dummy: Vec<bool>,
     /// for each residual g: the equation it is, naming the part
     pub residual_labels: Vec<String>,
     /// the modes
@@ -1237,6 +1242,7 @@ impl RunInfo {
             when_strict: vec![],
             params,
             y_names: (0..n_y).map(|i| format!("y{i}")).collect(),
+            y_dummy: vec![false; n_y],
             residual_labels: vec![],
             modes: vec![],
             time_events: vec![],
@@ -1378,6 +1384,16 @@ impl RunInfo {
             when_strict: m.whens.iter().map(|w| w.strict).collect(),
             params: flat.params.iter().map(|p| p.value).collect(),
             y_names,
+            y_dummy: m
+                .states
+                .iter()
+                .map(|_| false)
+                .chain(
+                    m.algebraics
+                        .iter()
+                        .map(|s| matches!(s, Slot::Var(v) if m.dummy_derivatives.contains(v))),
+                )
+                .collect(),
             residual_labels: m.residuals.iter().map(|r| equation(&r.origin)).collect(),
             modes: m
                 .modes

@@ -529,6 +529,14 @@ pub struct PreparedModel {
     /// a model an older engine prepared, which stepped over its tables'
     /// breakpoints, is prepared again)
     pub held: Vec<HeldRead>,
+    /// the dummy derivatives: the flat variables index reduction made for
+    /// the derivative of an unknown it did not keep as a state (`der(…)`;
+    /// neither a state's derivative nor an input's). Those among the
+    /// iteration variables are left out of the integrator's error test by
+    /// default (`lsim_solve::SolverOptions::suppress_dummy_derivative_error`).
+    /// No default: a model an older engine prepared, which did not list
+    /// them, is prepared again
+    pub dummy_derivatives: Vec<VarId>,
 }
 
 impl PreparedModel {
@@ -586,6 +594,7 @@ mod tests {
             warnings: vec![],
             state_sets: vec![],
             held: vec![],
+            dummy_derivatives: vec![],
         };
         assert_eq!(m.input_names(), ["body.v", "der(body.v)"]);
         assert!(m.init.is_empty());

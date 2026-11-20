@@ -1,9 +1,10 @@
 # New engine: status of the work packages (15 October 2026)
 
 *Since 17 November 2026 the new engine is the app's engine, with no fall-back
-to today's: the last section, "The switch-over", says what was done, what is
-refused and what is open. The sections before it are dated records; where
-they say the new engine is opt-in, not in the installer, or that a case
+to today's: the section "The switch-over" says what was done, what is
+refused and what is open; step 4 (speed) follows it. The sections before
+it are dated records; where they say the new engine is opt-in, not in
+the installer, or that a case
 falls back to today's engine or is refused with `NEW-CASE-KIND`,
 `NEW-SAMPLED`, `NEW-LIVE-ERROR-AXIS`, `NEW-LIVE-PID` or `NEW-LIVE-RESTART`,
 that was the state at their date.*
@@ -942,3 +943,126 @@ the switch):
   ceiling 1.5 s). `scripts/mcp/launcher.js` and `matlab/lightsim_run.m` read
   `LIGHTSIM_ENGINE` as the path of an installed engine, a name clash that is
   harmless (any value but `today` means the new engine).
+
+## Step 4, speed: the dummy derivatives out of the error test (19 November 2026)
+
+Step 4's first change, from the diagnosis of the same day (where the new
+engine spends its time on the P2 Hybrid Car): in 98 % of the hybrid's
+steps the step was set by the error test on two iteration variables index
+reduction made, the final drive's and a brake's accelerations
+(`der(el_fd.w_out)`, `der(el_brake_l.s)`).
+
+Why, as measured (throwaway instrumentation, not committed): such a
+variable is the derivative of a quantity the solver integrates, and the
+error test's estimate for a derivative is one order in the step worse
+than for the integrated quantity itself. With the step capped and halved
+its estimate fell one power of h more slowly than the states' (on the BEV
+at order 3 to 4 by 2^2.0 to 2^3.3 per halving, the states by 2^3.2 to
+2^4.4), at 2 600 (BEV WLTC) and 25 000 (hybrid) times the largest state's;
+it set 79 % and 98.5 % of their steps. On the cruising hybrid the uniform
+absolute floor (atol 1e-8 × nominal 1, whatever the unit) binds besides:
+an acceleration of about 1e-5 rad/s² held to 1e-8. The weights are not
+wrong for these models (every nominal is 1; a dummy derivative copies its
+integral's), and a looser floor alone does not cure the BEV (scaled ×1e6,
+a relative-only test, 150 602 steps against 135 991 with the dummy
+derivatives out). SUNDIALS' IDAS guide encourages `IDASetSuppressAlg`
+for systems of index 2 or more, whose higher-index components these are.
+Nothing jumps but at the controller's ticks, which the restarts handle.
+
+IDA's error test now leaves out
+the dummy derivatives by default and keeps every other iteration variable
+in it (`SolverOptions::suppress_dummy_derivative_error`; preparation lists
+them, `PreparedModel::dummy_derivatives`, and the prepared-model cache
+went to `prepared-v13`; DESIGN.md 8.2, *The error test leaves out the
+dummy derivatives*). With both options off every iteration variable is
+tested as before; `suppress_algebraic_error` keeps its meaning and stays
+off.
+
+Three variants were measured first, on 59d4d72 (this PC, 8 CPUs, the
+least of three runs; the UDDS one run with charge balance off):
+
+| | every iteration variable tested (before) | every one left out | the dummy derivatives left out (now) |
+|---|---|---|---|
+| hybrid UDDS | 26.91 s, 3 022 291 steps | 11.40 s, 682 894 | 18.53 s, 1 648 592 |
+| hybrid mixed cycle, first 120 s | 1.83 s | 1.06 s | 1.24 s |
+| BEV WLTC | 1.44 s | 0.67 s | 1.04 s |
+| golden comparison: worst books closure | 6.6e-10 | 2.2e-8 | 1.27e-9 |
+
+Leaving every iteration variable out is faster, but the energy books read
+iteration variables the test then no longer holds (a bus's current): the
+BEV's city cycle closes to 2.2e-8 of its throughput, past the golden
+comparison's 1.5e-9, and three of the formula student car's rows are lost.
+The dummy derivatives alone were chosen.
+
+Measured on the change (work/speed-errtest):
+
+- **Speed** (the least of three): the hybrid's UDDS 18.09 s, the BEV's
+  WLTC 1.047 s (pass marks 20 s and 1.1 s). The CI performance test's two
+  slices, main's module against this one in alternating fresh processes,
+  best of five each: the BEV's city cycle 0.965 × main's time, the
+  hybrid's mixed cycle (charge-balanced, as shipped) 0.692 ×. That test
+  itself cannot see an engine change: base and head share the one
+  installed module.
+- **Golden comparison** against the record before (59d4d72): 2 109 of
+  11 347 values move, none across its band; as a share of its value at
+  most 3.8e-5 (the hybrid's UDDS bag 2 fuel consumption, 2.4569287 →
+  2.4570230 l/100 km; its fuel 2.8088985 → 2.8089691 l/100 km), but the
+  books' closures and a closed clutch's losses, whose RMS is round-off
+  (7e-11 to 6e-10 W). The books close to 1.27e-9 or better (6.6e-10
+  before), inside 1.5e-9; steps 7 427 371 → 3 998 129 over the fourteen
+  cases. The record is `lsim-project/golden/results.json` (0237851); the
+  README's last section has the detail.
+- **Tests**: `engine/check.sh` passes (619 tests). Two tests in
+  `lsim-solve/tests/error_test.rs` assumed `der(fd.w_out)` is
+  error-tested: the restart at a kink and the stop at a jump with no
+  event now happen where it is (the option off), and by default the run
+  passes the jump to the exact answer (6.6e-16) and crosses the kink
+  without a restart at rtol 1e-8 (at 1e-10 the states' own test restarts
+  it there too). A new test fails if the default goes back. Two expected
+  values moved: lsim-project's `tests/golden.rs` reads the BEV city
+  cycle's recuperation from the record (0.070016062 → 0.070015942 kWh),
+  and lsim-py's edit asked for at 0.5 s is made at 0.52 s instead of 0.51
+  s (taken at the end of the first step after 0.5 s, now 0.512 s); no
+  tolerance changed. The backend suite with the module built from this
+  branch: 2 427 passed, 1 failed, 15 skipped, 73 expected failures (the
+  one failure the Reference FMUs' version on this PC, 0.0.41, the same
+  with main's module); CI on main: 2 415 passed, 0 failed.
+- **Both-engines acceptance** (`benchmarks/back_to_back all`, the head
+  2e7340b and main 59d4d72 run here one after the other): every one of
+  the 14 lines in the same state on both (B2B, FAULTS, QUICK and STATUS
+  fail on both, as on main's record; ENERGY vacuous and FMU not measured
+  on both; the rest pass). Inside them: B2B's differences 2 659 → 2 650;
+  STRICT's refusals 109 → 112; FAULTS' new path success 124 → 123,
+  warning 31 → 32. Six fault-sweep runs, each a case planted to fail,
+  changed how they fail:
+  - `fs-electric:el-vehicle.mass_kg:div100` runs on main and is refused
+    on the head: at 0.0638 s, where the Accumulator reaches its Output
+    Power Limit, the mode counting the time held there flips 101 times at
+    one instant. Its crossing, evaluated with the mode off, is +1.7e-10 W
+    (on 78 kW: round-off) and turns it on; its relation, evaluated again
+    with the mode on, turns it off. The event iteration has no rule for a
+    mode that holds when off and not when on; main has the same at one
+    instant in `fs-electric:case/el-vehicle.cg_height_m:x100` and
+    `…wheelbase_m:div100` (101 events within 0 s, on both). Where it
+    would be fixed: `lsim-solve/src/run.rs`, `Loop::rounds` and
+    `Loop::modes_from_relations`.
+  - `hybrid-car:db-3` is refused on main (101 events within 6.6e-9 s:
+    the HV Battery at its minimum SOC, delivering and not on alternate
+    steps of 1e-10 s, a chatter at a limit) and runs on the head with
+    warnings. `hybrid-car:el-wheel-l.radius_m:x100` goes the other way:
+    refused on main reading `el_motor.power_loss` outside its torque axis,
+    on the head by the same minimum-SOC chatter. That chatter refuses nine
+    hybrid fault runs on each side.
+  - `bev-car:el-final-drive.ratio:div100` and, at rtol 1e-8 (META),
+    `bev-car:el-vehicle.mass_kg:x100` and `el-motor.torque_scale_pct:div100`
+    fail on main because the car cannot move (0.00 of 7.29 km) and are
+    refused on the head reading `el_motor.power_loss` outside its torque
+    axis by one unit of round-off (2^-44 with the motor's torque scale
+    at 1, 2^-51 at a hundredth: the read sits on the map's torque edge,
+    which scales with it), while the car stands. Which of the motor's
+    four reads of that map it is was not traced. The motor holds the
+    speed it reads its maps at to its maximum speed, not the torque
+    (`lsim-lib/src/blocks/motor.rs`), and the table guard
+    (`lsim-solve/src/run.rs`, `Loop::sync_guards`) takes one ulp past the
+    edge as outside; the same refusal ends
+    `hybrid-car:el-wheel-l.radius_m:x100` on main.
