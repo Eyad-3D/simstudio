@@ -90,8 +90,15 @@ function loadTheme(): Theme {
   return "light";
 }
 
+/** Show the theme, and save it, also at start: the help pages read it there
+ *  (scripts/help-assets/theme.js) and follow it. */
 function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle("dark", theme === "dark");
+  try {
+    window.localStorage.setItem(THEME_KEY, theme);
+  } catch {
+    /* storage unavailable */
+  }
 }
 
 function clampScale(n: number): number {
@@ -337,11 +344,6 @@ export const useUIStore = create<UIState>((set, get) => ({
   toggleTheme: () => {
     const next: Theme = get().theme === "dark" ? "light" : "dark";
     applyTheme(next);
-    try {
-      window.localStorage.setItem(THEME_KEY, next);
-    } catch {
-      /* storage unavailable */
-    }
     set({ theme: next });
   },
 

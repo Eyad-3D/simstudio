@@ -1,8 +1,10 @@
-/* The help pages (LRN-04): light or dark as the system is set. */
-:root { color-scheme: light dark; --bg: #fff; --fg: #1f2328; --dim: #57606a; --line: #d0d7de; --accent: #2458a6; --code: #f3f4f6; --mark: #fff4c2; }
+/* The help pages (LRN-04): light or dark as the app is (theme.js sets
+   data-theme), or as the system is set when the app's theme is not known. */
+:root { color-scheme: light; --bg: #fff; --fg: #1f2328; --dim: #57606a; --line: #d0d7de; --accent: #2458a6; --code: #f3f4f6; --mark: #fff4c2; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #16191e; --fg: #e6e8eb; --dim: #a3abb5; --line: #343b45; --accent: #7fb0ff; --code: #22272e; --mark: #3d3514; }
+  :root:not([data-theme="light"]) { color-scheme: dark; --bg: #16191e; --fg: #e6e8eb; --dim: #a3abb5; --line: #343b45; --accent: #7fb0ff; --code: #22272e; --mark: #3d3514; }
 }
+:root[data-theme="dark"] { color-scheme: dark; --bg: #16191e; --fg: #e6e8eb; --dim: #a3abb5; --line: #343b45; --accent: #7fb0ff; --code: #22272e; --mark: #3d3514; }
 * { box-sizing: border-box; }
 body { margin: 0; display: grid; grid-template-columns: 260px minmax(0, 1fr); font: 15px/1.55 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
 nav { position: sticky; top: 0; height: 100vh; overflow: auto; padding: 16px; border-right: 1px solid var(--line); font-size: 14px; }

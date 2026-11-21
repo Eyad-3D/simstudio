@@ -61,7 +61,8 @@ Select the block. *Properties* shows:
    An input with no source reads 0.
 2. Link the block's outputs to the inputs that need them.
 3. *Communication Step* in *Properties* sets how often LightSim and the FMU
-   exchange values. At 0 they do so every solver step (at most 10 ms). If
+   exchange values. At 0 they do so every 10 ms; any step above 0 is used
+   as it is, one shorter than 10 ms too. If
    the FMU is slow, use the step the FMU suggests (shown under its details).
    In between, the FMU's outputs hold: they can be up to one Communication
    Step old.
