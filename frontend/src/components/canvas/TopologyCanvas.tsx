@@ -110,7 +110,7 @@ function MenuBtn({
     >
       <Icon size={13} className="shrink-0" />
       <span className="flex-1">{label}</span>
-      {kbd && <span className="text-[10px] text-[color:var(--ss-text-dim)]">{kbd}</span>}
+      {kbd && <span className="text-meta text-[color:var(--ss-text-dim)]">{kbd}</span>}
     </button>
   );
 }
@@ -122,7 +122,7 @@ function ZoomMenu({ onFit }: { onFit: () => void }) {
   const { zoomTo } = useReactFlow();
   return (
     <select
-      className="ss-input w-[64px] py-[3px] text-[11px]"
+      className="ss-input w-[64px] py-[3px] text-meta"
       aria-label="Zoom"
       title="Zoom"
       value="now"
@@ -475,7 +475,7 @@ function TopologyCanvasInner() {
           ? {
               label: "●",
               ariaLabel: "Wire added since the results shown",
-              labelStyle: { fill: "var(--ss-accent)", fontSize: 11 },
+              labelStyle: { fill: "var(--ss-accent)", fontSize: 12 },
               labelBgStyle: { fill: "var(--ss-panel)" },
               labelBgPadding: [2, 0] as [number, number],
             }
@@ -760,7 +760,7 @@ function TopologyCanvasInner() {
           diagram gets the panel's full height; in a narrow panel the tools
           wrap onto a second row */}
       <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-1.5">
-        <div className="pointer-events-auto flex min-w-0 items-center gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 text-[12px] shadow-sm empty:hidden">
+        <div className="pointer-events-auto flex min-w-0 items-center gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 text-body shadow-sm empty:hidden">
           {breadcrumb.map((sys, i) => (
             <span key={sys.id} className="flex min-w-0 items-center gap-0.5">
               {i > 0 && <ChevronRight size={12} className="shrink-0 text-[color:var(--ss-text-dim)]" />}
@@ -1051,7 +1051,7 @@ function TopologyCanvasInner() {
         {placingDef && (
           <div
             role="status"
-            className="pointer-events-none absolute left-1/2 top-12 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-[color:var(--ss-accent)] bg-[color:var(--ss-panel)] px-2.5 py-1 text-[12px] text-[color:var(--ss-text)] shadow-sm"
+            className="pointer-events-none absolute left-1/2 top-12 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-[color:var(--ss-accent)] bg-[color:var(--ss-panel)] px-2.5 py-1 text-body text-[color:var(--ss-text)] shadow-sm"
           >
             Click the diagram to place <span className="font-semibold">{placingDef.name}</span> · Esc
             to cancel
@@ -1061,14 +1061,14 @@ function TopologyCanvasInner() {
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-6">
             <div className="max-w-[340px] rounded-lg border border-dashed border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]/70 px-6 py-5 text-center">
               <PackagePlus size={30} className="mx-auto text-[color:var(--ss-accent)]" />
-              <div className="mt-2 text-[13px] font-semibold text-[color:var(--ss-text)]">
+              <div className="mt-2 text-title font-semibold text-[color:var(--ss-text)]">
                 Build your topology
               </div>
-              <p className="mt-1 text-[12px] leading-relaxed text-[color:var(--ss-text-dim)]">
+              <p className="mt-1 text-body leading-relaxed text-[color:var(--ss-text-dim)]">
                 Add components from the <span className="font-medium">Components</span> panel: drag
                 one here, double-click it or press Enter on it. Then wire matching ports together.
               </p>
-              <ul className="mt-3 space-y-1 text-left text-[11px] text-[color:var(--ss-text-dim)]">
+              <ul className="mt-3 space-y-1 text-left text-meta text-[color:var(--ss-text-dim)]">
                 <li className="flex items-center gap-1.5">
                   <MousePointerClick size={12} className="shrink-0" />
                   Double-click a node to edit its parameters
@@ -1084,7 +1084,7 @@ function TopologyCanvasInner() {
               {!placingDef && (
                 <div className="pointer-events-auto mt-3 flex flex-wrap justify-center gap-2">
                   <button
-                    className="rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--ss-accent)]"
+                    className="rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-body font-semibold text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--ss-accent)]"
                     onClick={() => {
                       useUIStore.getState().focusPanel("components");
                       requestAnimationFrame(() =>

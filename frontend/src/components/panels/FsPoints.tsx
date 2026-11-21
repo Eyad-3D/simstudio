@@ -22,7 +22,7 @@ export function FsPoints() {
   const max = rows.reduce((a, r) => a + r.maxPoints, 0);
   return (
     <section className="mb-4" aria-label="Formula Student points">
-      <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+      <div className="mb-1 flex items-center gap-2 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
         Formula Student points
         <button
           className="ss-toolbtn ml-auto border border-[color:var(--ss-border)] normal-case"
@@ -33,7 +33,7 @@ export function FsPoints() {
           <Trophy size={12} /> Run events
         </button>
       </div>
-      <table className="w-full border-collapse text-[11px]" aria-label="Formula Student points table">
+      <table className="w-full border-collapse text-meta" aria-label="Formula Student points table">
         <thead>
           <tr className="text-left text-[color:var(--ss-text-dim)]">
             <th className="py-0.5 pr-2 font-normal">Event</th>
@@ -47,7 +47,7 @@ export function FsPoints() {
               <td className="py-0.5 pr-2" title={r.caseName ? `Case '${r.caseName}'` : undefined}>
                 {FS_EVENT_NAMES[r.event]}
                 {(r.note || r.breach) && (
-                  <div className="text-[10px] text-[color:var(--ss-text-dim)]">
+                  <div className="text-meta text-[color:var(--ss-text-dim)]">
                     {r.breach ? `Rule broken: ${r.breach}. ` : ""}
                     {r.note}
                   </div>
@@ -68,7 +68,7 @@ export function FsPoints() {
           </tr>
         </tbody>
       </table>
-      <p className="mt-1 text-[10px] text-[color:var(--ss-text-dim)]">
+      <p className="mt-1 text-meta text-[color:var(--ss-text-dim)]">
         Estimates from the scoring formulas of FS Rules 2026 v1.1 (FSG) D 9, not official results. Each event uses the
         newest finished run of its case; set each case&apos;s reference values (the best teams&apos; time and energy).
         FSUK and FSAE score differently: check the current season&apos;s rules.

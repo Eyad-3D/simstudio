@@ -208,7 +208,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
     return (
       <>
         <select
-          className="ss-input w-[110px] text-[11px]"
+          className="ss-input w-[110px] text-meta"
           aria-label={`Unit of ${p.name}`}
           title="The unit of its numbers and of the signal wired to it (nothing is converted on the wire). Another unit of the same quantity only changes how the numbers are shown"
           value={value}
@@ -226,7 +226,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
         </select>
         {value === OTHER && (
           <input
-            className="ss-input w-[70px] text-[11px]"
+            className="ss-input w-[70px] text-meta"
             aria-label={`Unit text of ${p.name}`}
             placeholder="unit"
             title="A unit LightSim does not know: shown with the numbers, never converted"
@@ -241,7 +241,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
   const nameInput = (p: PortDef, what: string) => (
     <input
       key={p.id}
-      className="ss-input min-w-0 flex-1 text-[11px]"
+      className="ss-input min-w-0 flex-1 text-meta"
       aria-label={`Name of ${what} ${p.name}`}
       defaultValue={p.name}
       title="Its name, on the diagram and on its axis or table (a new name keeps its wires)"
@@ -249,10 +249,10 @@ export function MapEditor({ element }: { element: ElementInstance }) {
       onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
     />
   );
-  const head = "mb-1 flex items-center gap-2 text-[11px] font-semibold text-[color:var(--ss-text-dim)]";
+  const head = "mb-1 flex items-center gap-2 text-meta font-semibold text-[color:var(--ss-text-dim)]";
   return (
     <div className="flex flex-col gap-2" data-map-editor>
-      <div className="flex flex-wrap items-center gap-2 text-[11px]">
+      <div className="flex flex-wrap items-center gap-2 text-meta">
         {importer.tools}
         <span className="text-[color:var(--ss-text-dim)]">
           a map from Excel, CSV or text, in any layout; it can set the inputs and outputs too
@@ -267,7 +267,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
           </button>
         </div>
         {inputs.length === 0 && (
-          <p className="text-[11px] italic text-[color:var(--ss-text-dim)]">
+          <p className="text-meta italic text-[color:var(--ss-text-dim)]">
             No input yet: each input is an axis of the map.
           </p>
         )}
@@ -276,7 +276,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
             {nameInput(p, "input")}
             {unitSelect(p, state.units.axes[k])}
             <select
-              className="ss-input text-[11px]"
+              className="ss-input text-meta"
               aria-label={`Outside the ${p.name} data`}
               title={`What the run does past the ${p.name} data`}
               value={state.outside[k] ?? "clamp"}
@@ -289,11 +289,11 @@ export function MapEditor({ element }: { element: ElementInstance }) {
               ))}
             </select>
             {dropping?.id === p.id ? (
-              <span className="flex items-center gap-1 text-[11px]">
+              <span className="flex items-center gap-1 text-meta">
                 <label className="flex items-center gap-1">
                   Keep the values at
                   <select
-                    className="ss-input text-[11px]"
+                    className="ss-input text-meta"
                     value={dropping.keep}
                     onChange={(e) => setDropping({ id: p.id, keep: e.target.value })}
                   >
@@ -335,7 +335,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
           </button>
         </div>
         {outputs.length === 0 && (
-          <p className="text-[11px] italic text-[color:var(--ss-text-dim)]">No output yet: each output has a table.</p>
+          <p className="text-meta italic text-[color:var(--ss-text-dim)]">No output yet: each output has a table.</p>
         )}
         {outputs.map((p) => (
           <div key={p.id} className="flex items-center gap-1 py-0.5">
@@ -369,7 +369,7 @@ export function MapEditor({ element }: { element: ElementInstance }) {
           onImportText={importer.onImportText}
         />
       ) : (
-        <p className="text-[11px] text-[color:var(--ss-text-dim)]">
+        <p className="text-meta text-[color:var(--ss-text-dim)]">
           Add at least one input and one output to fill in the map.
         </p>
       )}

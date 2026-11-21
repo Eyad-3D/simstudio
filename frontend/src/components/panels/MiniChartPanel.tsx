@@ -63,7 +63,7 @@ export function MiniChartPanel() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-[color:var(--ss-text-dim)]">
         <LineChartIcon size={26} strokeWidth={1} />
-        <div className="text-[12px]">Run a simulation to watch a signal here.</div>
+        <div className="text-body">Run a simulation to watch a signal here.</div>
       </div>
     );
   }
@@ -73,7 +73,7 @@ export function MiniChartPanel() {
       <div className="ss-panel-toolbar">
         <LineChartIcon size={13} className="shrink-0 text-[color:var(--ss-text-dim)]" />
         <select
-          className="ss-input min-w-0 flex-1 py-0.5 text-[11px]"
+          className="ss-input min-w-0 flex-1 py-0.5 text-meta"
           value={sel}
           onChange={(e) => setPicked(e.target.value)}
           title="Channel to plot"
@@ -89,18 +89,18 @@ export function MiniChartPanel() {
           })}
         </select>
         {hovered ? (
-          <span className="shrink-0 whitespace-nowrap font-mono text-[11px] text-[color:var(--ss-text)]">
+          <span className="shrink-0 whitespace-nowrap font-mono text-meta text-[color:var(--ss-text)]">
             t = {fmtX(x, hovered.t)} · {fmtNum(hovered.value)} {unit}
           </span>
         ) : (
           typeof last === "number" && (
-            <span className="shrink-0 whitespace-nowrap font-mono text-[11px] text-[color:var(--ss-text)]">
+            <span className="shrink-0 whitespace-nowrap font-mono text-meta text-[color:var(--ss-text)]">
               {fmtNum(last)} {unit}
             </span>
           )
         )}
         <button
-          className="ss-toolbtn shrink-0 text-[11px]"
+          className="ss-toolbtn shrink-0 text-meta"
           title="Open the full Results page"
           onClick={() => setRibbonTab("results")}
         >
@@ -111,7 +111,7 @@ export function MiniChartPanel() {
         {channel && channel.timeSeries.length > 0 && hasSize ? (
           <Plot options={options} data={data} label="Signal Plot" />
         ) : (
-          <div className="flex h-full items-center justify-center px-3 text-center text-[11px] text-[color:var(--ss-text-dim)]">
+          <div className="flex h-full items-center justify-center px-3 text-center text-meta text-[color:var(--ss-text-dim)]">
             {channels.length === 0
               ? "Waiting for run data…"
               : "Pick a channel to plot it here."}

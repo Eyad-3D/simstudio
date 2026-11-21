@@ -308,10 +308,10 @@ export function TableNEditor({
         a === rowAxis ? selRange!.r0 - 1 : a === colAxis ? selRange!.c0 - 1 : keys[a].indexOf(heldKey(a)),
       )
     : null;
-  const pick = "ss-input py-0.5 text-[11px]";
+  const pick = "ss-input py-0.5 text-meta";
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[color:var(--ss-text-dim)]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-[color:var(--ss-text-dim)]">
         {outputs.length > 1 && (
           <label className="flex items-center gap-1">
             Output
@@ -364,7 +364,7 @@ export function TableNEditor({
         )}
       </div>
       {hidden.length > 0 && (
-        <div className="ss-table-held flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]" aria-label="Held axes">
+        <div className="ss-table-held flex flex-wrap items-center gap-x-3 gap-y-1 text-meta" aria-label="Held axes">
           {hidden.map((j) => (
             <span key={j} className="flex items-center gap-1">
               <label className="flex items-center gap-1">
@@ -379,7 +379,7 @@ export function TableNEditor({
               </label>
               {adding?.axis === j ? (
                 <input
-                  className="ss-input w-[70px] py-0.5 text-[11px]"
+                  className="ss-input w-[70px] py-0.5 text-meta"
                   aria-label={`New ${axes[j].name} breakpoint`}
                   autoFocus
                   value={adding.text}
@@ -414,7 +414,7 @@ export function TableNEditor({
         </div>
       )}
       {note && (
-        <p role="status" className="text-[11px] text-[color:var(--ss-text-dim)]">
+        <p role="status" className="text-meta text-[color:var(--ss-text-dim)]">
           {note}
         </p>
       )}
@@ -477,7 +477,7 @@ export function TableNEditor({
           </>
         }
       />
-      <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">
+      <p className="text-meta leading-tight text-[color:var(--ss-text-dim)]">
         {GRID_HINT}
         {hidden.length > 0 && " · Copy and Paste work on the slice shown"}
       </p>

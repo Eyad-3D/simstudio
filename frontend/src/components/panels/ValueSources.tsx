@@ -18,7 +18,7 @@ export function SourceBadge({ src }: { src?: ParameterSource }) {
   }`;
   return (
     <span
-      className="ml-1 shrink-0 rounded border border-[color:var(--ss-border)] px-1 text-[9px] leading-3 text-[color:var(--ss-text-dim)]"
+      className="ml-1 shrink-0 rounded border border-[color:var(--ss-border)] px-1 text-meta leading-3 text-[color:var(--ss-text-dim)]"
       title={tip}
       aria-label={`Source: ${tip}`}
       data-testid="source-badge"
@@ -68,7 +68,7 @@ export function ValueSources({ element, def }: { element: ElementInstance; def: 
     setConfidence(src?.confidence ?? 0);
   };
   return (
-    <details className="text-[11px]" data-testid="value-sources">
+    <details className="text-meta" data-testid="value-sources">
       <summary className="cursor-pointer text-[color:var(--ss-text-dim)]">
         Value sources: {withSource} of {total} recorded, {atDefault} at the library default
       </summary>

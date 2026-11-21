@@ -78,7 +78,7 @@ function StudyChart({ study, figure }: { study: Study; figure: string }) {
   const hasValues = data.lines.some((l) => l.y.some((v) => v != null) || l.notValid.some((v) => v != null));
   return (
     <figure className="m-0 flex min-w-0 flex-col rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
-      <figcaption className="truncate px-1.5 pt-1 text-[11px] font-semibold" title={figure}>
+      <figcaption className="truncate px-1.5 pt-1 text-meta font-semibold" title={figure}>
         {figure}
         {unit && <span className="font-normal text-[color:var(--ss-text-dim)]"> [{unit}]</span>}
         {data.notValid > 0 && (
@@ -92,7 +92,7 @@ function StudyChart({ study, figure }: { study: Study; figure: string }) {
         {hasValues && hasSize ? (
           <Plot options={options} data={cols} label="Study chart" />
         ) : (
-          <div className="flex h-full items-center justify-center text-[11px] text-[color:var(--ss-text-dim)]">
+          <div className="flex h-full items-center justify-center text-meta text-[color:var(--ss-text-dim)]">
             {hasValues ? "" : "No complete point has this result."}
           </div>
         )}
@@ -123,7 +123,7 @@ function FiguresMenu({ study, figures, onChange }: { study: Study; figures: stri
         <div
           role="group"
           aria-label="Figures to chart"
-          className="absolute left-0 top-full z-50 mt-1 flex max-h-[300px] w-[300px] flex-col overflow-y-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-1 text-[11px] shadow-lg"
+          className="absolute left-0 top-full z-50 mt-1 flex max-h-[300px] w-[300px] flex-col overflow-y-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-1 text-meta shadow-lg"
         >
           {study.kpis.map((k) => {
             const on = figures.includes(k.label);
@@ -159,7 +159,7 @@ export function StudyView({ runSweepId, caseId }: { runSweepId?: string; caseId?
   const study = studyToShow(studies, choice?.study, runSweepId, caseId);
   if (!study) {
     return (
-      <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--ss-text-dim)]">
+      <div className="flex h-full items-center justify-center px-4 text-center text-body text-[color:var(--ss-text-dim)]">
         No saved studies yet: run a parameter sweep from Cases &amp; Parameters.
       </div>
     );
@@ -171,9 +171,9 @@ export function StudyView({ runSweepId, caseId }: { runSweepId?: string; caseId?
   const left = study.points.length - complete;
   return (
     <section aria-label="Study charts" className="flex min-h-0 flex-col gap-1.5">
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[color:var(--ss-text-dim)]">
+      <div className="flex flex-wrap items-center gap-1.5 text-meta text-[color:var(--ss-text-dim)]">
         <select
-          className="ss-input min-w-0 max-w-[420px] flex-1 py-0.5 text-[11px]"
+          className="ss-input min-w-0 max-w-[420px] flex-1 py-0.5 text-meta"
           aria-label="Study"
           title="A saved study (Cases & Parameters → Saved studies)"
           value={study.id}
@@ -194,7 +194,7 @@ export function StudyView({ runSweepId, caseId }: { runSweepId?: string; caseId?
           <Download size={12} /> Table CSV
         </button>
       </div>
-      <div className="text-[11px] text-[color:var(--ss-text-dim)]">
+      <div className="text-meta text-[color:var(--ss-text-dim)]">
         {complete} of {study.points.length} point{study.points.length === 1 ? "" : "s"} complete
         {left > 0 && <span className="text-[color:var(--ss-warn)]"> · {left} left out (stopped, failed or not run)</span>}
         {" · "}from the saved study, kept with the project&apos;s runs

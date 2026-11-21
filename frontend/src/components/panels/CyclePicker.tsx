@@ -169,14 +169,14 @@ function ProjectCyclesDialog({ onClose }: { onClose: () => void }) {
         className="flex max-h-[86vh] w-[min(560px,calc(100vw-32px))] flex-col overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl"
       >
         <div className="flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-3 py-2">
-          <span id={titleId} className="text-[13px] font-semibold">
+          <span id={titleId} className="text-title font-semibold">
             This project's drive cycles
           </span>
           <button className="ss-toolbtn ml-auto" title="Close (Esc)" aria-label="Close the dialog" onClick={onClose}>
             <X size={14} />
           </button>
         </div>
-        <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-[12px]">
+        <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-body">
           {list.length === 0 && (
             <li className="text-[color:var(--ss-text-dim)]">The project has no cycles of its own.</li>
           )}
@@ -206,7 +206,7 @@ function ProjectCyclesDialog({ onClose }: { onClose: () => void }) {
                     Remove
                   </button>
                 </div>
-                <span className="text-[11px] text-[color:var(--ss-text-dim)]">
+                <span className="text-meta text-[color:var(--ss-text-dim)]">
                   {c.axis === "distance" ? "Against distance" : "Against time"}: {cycleFigures(c)}
                   {c.source ? ` · from ${c.source}` : ""}
                   {users.length ? ` · used by ${users.join(", ")}` : " · not used"}
@@ -326,7 +326,7 @@ export function CyclePreview({
           vectorEffect="non-scaling-stroke"
         />
       </svg>
-      <figcaption className="mt-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
+      <figcaption className="mt-0.5 text-meta text-[color:var(--ss-text-dim)]">
         {own
           ? `${own.name} (this project's own, against ${own.axis === "distance" ? "distance" : "time"}): `
           : info

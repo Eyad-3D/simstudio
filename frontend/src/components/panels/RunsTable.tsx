@@ -71,12 +71,12 @@ export function RunsTable({
 
   return (
     <div className="shrink-0 border-b border-[color:var(--ss-border)]">
-      <div className="flex items-center gap-1 px-2 py-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
+      <div className="flex items-center gap-1 px-2 py-0.5 text-meta text-[color:var(--ss-text-dim)]">
         <span>{rows.length === 1 ? "1 run" : `${rows.length} runs`}</span>
         <div className="ml-auto flex items-center gap-1">{tools}</div>
       </div>
       <div className="max-h-[118px] overflow-auto" role="region" aria-label="Runs" tabIndex={-1}>
-        <table className="w-full border-collapse text-[11px]">
+        <table className="w-full border-collapse text-meta">
           <thead className="sticky top-0 z-10">
             <tr>
               <th className="ss-th w-[38px]">

@@ -249,7 +249,7 @@ export default function App() {
             )}
           </>
         ) : (
-          <div className="flex h-full items-center justify-center text-[13px] text-[color:var(--ss-text-dim)]">
+          <div className="flex h-full items-center justify-center text-body text-[color:var(--ss-text-dim)]">
             Loading LightSim…
           </div>
         )}

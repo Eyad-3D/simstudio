@@ -82,7 +82,7 @@ function RibbonGroup({ label, children }: { label: string; children: React.React
   return (
     <div className="flex flex-col border-r border-[color:var(--ss-border)] px-2 last:border-r-0">
       <div className="flex flex-1 items-center gap-1">{children}</div>
-      <div className="pb-0.5 text-center text-[10px] leading-3 text-[color:var(--ss-text-dim)]">
+      <div className="pb-0.5 text-center text-meta leading-3 text-[color:var(--ss-text-dim)]">
         {label}
       </div>
     </div>
@@ -112,7 +112,7 @@ function BigButton({
   return (
     <button
       ref={ref}
-      className={`flex h-[52px] w-[58px] flex-col items-center justify-center gap-0.5 rounded text-[11px] leading-tight
+      className={`flex h-[52px] w-[58px] flex-col items-center justify-center gap-0.5 rounded text-meta leading-tight
         ${accent ? "text-[color:var(--ss-accent)]" : ""}
         hover:bg-[color:var(--ss-hover)] active:bg-[color:var(--ss-active)] disabled:opacity-40 disabled:hover:bg-transparent`}
       onClick={onClick}
@@ -163,7 +163,7 @@ function PanelsButton() {
             <button
               key={p.id}
               role="menuitem"
-              className="flex w-full px-3 py-1.5 text-left text-[12px] hover:bg-[color:var(--ss-accent-soft)]"
+              className="flex w-full px-3 py-1.5 text-left text-body hover:bg-[color:var(--ss-accent-soft)]"
               onClick={() => {
                 setOpen(false);
                 useUIStore.getState().focusPanel(p.id);
@@ -180,14 +180,14 @@ function PanelsButton() {
 
 function MenuHeading({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+    <div className="px-3 pb-1 pt-1.5 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
       {children}
     </div>
   );
 }
 
 function MenuNote({ children }: { children: React.ReactNode }) {
-  return <div className="px-3 py-1.5 text-[12px] text-[color:var(--ss-text-dim)]">{children}</div>;
+  return <div className="px-3 py-1.5 text-body text-[color:var(--ss-text-dim)]">{children}</div>;
 }
 
 /** A project or example in the Open menu: its name, id and description. */
@@ -199,11 +199,11 @@ function ProjectMenuItem({ entry, onClick }: { entry: api.ProjectEntry; onClick:
       onClick={onClick}
     >
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-[12px] font-medium text-[color:var(--ss-text)]">{entry.name}</span>
-        <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">{entry.id}</span>
+        <span className="text-body font-medium text-[color:var(--ss-text)]">{entry.name}</span>
+        <span className="shrink-0 text-meta text-[color:var(--ss-text-dim)]">{entry.id}</span>
       </div>
       {entry.description && (
-        <p className="mt-0.5 whitespace-pre-line text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
+        <p className="mt-0.5 whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)]">
           {entry.description}
         </p>
       )}
@@ -277,10 +277,10 @@ function OpenProjectButton() {
           {desktop() && (
             <button
               role="menuitem"
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-medium hover:bg-[color:var(--ss-accent-soft)]"
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-body font-medium hover:bg-[color:var(--ss-accent-soft)]"
               onClick={() => choose("a project file", () => openFile())}
             >
-              <FileInput size={14} /> Open file… <span className="ml-auto text-[10px] text-[color:var(--ss-text-dim)]">Ctrl+O</span>
+              <FileInput size={14} /> Open file… <span className="ml-auto text-meta text-[color:var(--ss-text-dim)]">Ctrl+O</span>
             </button>
           )}
           {files.length > 0 && (
@@ -337,7 +337,7 @@ function OpenProjectButton() {
             {hidden > 0 && (
               <button
                 role="menuitem"
-                className="block w-full px-3 py-1.5 text-left text-[12px] text-[color:var(--ss-accent)] hover:bg-[color:var(--ss-accent-soft)]"
+                className="block w-full px-3 py-1.5 text-left text-body text-[color:var(--ss-accent)] hover:bg-[color:var(--ss-accent-soft)]"
                 onClick={async () => {
                   await restoreExamples();
                   await listExamples();
@@ -501,7 +501,7 @@ function SimulationsTab() {
               <Trash2 size={14} />
             </button>
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
+          <div className="flex items-center gap-2 text-meta text-[color:var(--ss-text-dim)]">
             <span title="Solver settings for this case">
               {activeCase
                 ? activeCase.kind === "lap" // the Race Track sets a lap case's run
@@ -512,7 +512,7 @@ function SimulationsTab() {
                 : "—"}
             </span>
             <button
-              className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px]"
+              className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta"
               title="Edit duration, step, decimation and pacing in the Cases & Parameters panel"
               onClick={() => useUIStore.getState().focusPanel("cases")}
             >
@@ -615,7 +615,7 @@ function ResultsTab() {
         <BigButton icon={Square} label="Stop" disabled={!running} onClick={stopRun} />
       </RibbonGroup>
       <RibbonGroup label="Results">
-        <div className="flex h-full flex-col justify-center gap-1 px-2 text-[11px] text-[color:var(--ss-text-dim)]">
+        <div className="flex h-full flex-col justify-center gap-1 px-2 text-meta text-[color:var(--ss-text-dim)]">
           <span className="flex items-center gap-1" title="Runs are stored on disk with the project">
             <Gauge size={13} />
             {stored > 0
@@ -623,10 +623,10 @@ function ResultsTab() {
               : shown > 0
                 ? `${shown} run${shown > 1 ? "s" : ""} (not stored on disk)`
                 : "No stored runs yet"}
-            {stored > shown && shown > 0 && <span className="text-[10px]">· newest {shown} shown</span>}
+            {stored > shown && shown > 0 && <span className="text-meta">· newest {shown} shown</span>}
           </span>
           <button
-            className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px] disabled:opacity-40"
+            className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta disabled:opacity-40"
             disabled={(stored === 0 && shown === 0) || running}
             onClick={() => {
               const n = Math.max(stored, shown);
@@ -677,7 +677,7 @@ function ParametersTab() {
               </option>
             ))}
           </select>
-          <span className="text-[11px] text-[color:var(--ss-text-dim)]">
+          <span className="text-meta text-[color:var(--ss-text-dim)]">
             {overrideCount === 0
               ? "No overrides — base parameters"
               : `${overrideCount} override${overrideCount > 1 ? "s" : ""} active`}
@@ -796,11 +796,11 @@ function RestoreVersionButton() {
           aria-label="Earlier versions"
           className="absolute left-0 top-[54px] z-50 max-h-[60vh] w-[320px] overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
         >
-          <div className="px-3 pb-1 pt-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+          <div className="px-3 pb-1 pt-0.5 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
             Earlier versions, newest first
           </div>
           {items.length === 0 && (
-            <div className="px-3 py-1.5 text-[12px] text-[color:var(--ss-text-dim)]">
+            <div className="px-3 py-1.5 text-body text-[color:var(--ss-text-dim)]">
               None yet. Each save over this project keeps the version it replaces (the last 20).
             </div>
           )}
@@ -812,14 +812,14 @@ function RestoreVersionButton() {
               onClick={() => void restore(b)}
             >
               <div className="flex items-baseline justify-between gap-2">
-                <span className="text-[12px] font-medium text-[color:var(--ss-text)]">
+                <span className="text-body font-medium text-[color:var(--ss-text)]">
                   {new Date(b.savedAt).toLocaleString()}
                 </span>
-                <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">
+                <span className="shrink-0 text-meta text-[color:var(--ss-text-dim)]">
                   {Math.max(1, Math.round(b.bytes / 1024))} kB
                 </span>
               </div>
-              <p className="mt-0.5 text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
+              <p className="mt-0.5 text-meta leading-snug text-[color:var(--ss-text-dim)]">
                 {b.name === null ? "Unreadable file" : `${b.name} · ${countOf(b.elements ?? 0, "part")}`}
               </p>
             </button>
@@ -859,7 +859,7 @@ function CopyForAi() {
         title="Copy a short summary of the model and its last run, to paste into an AI chatbot (nothing is sent)"
         onClick={() => void copy()}
       />
-      <label className="flex flex-col items-start gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
+      <label className="flex flex-col items-start gap-0.5 text-meta text-[color:var(--ss-text-dim)]">
         <span className="flex items-center gap-1">
           <input type="checkbox" checked={hide} onChange={(e) => setHide(e.target.checked)} />
           Hide values
@@ -903,14 +903,14 @@ function ProjectTab() {
     <>
       <RibbonGroup label="Project Settings">
         <div className="flex items-center gap-2 px-1 py-2">
-          <span className="text-[11px] text-[color:var(--ss-text-dim)]">Project name</span>
+          <span className="text-meta text-[color:var(--ss-text-dim)]">Project name</span>
           <input
             className="ss-input w-[220px]"
             aria-label="Project name"
             value={project?.name ?? ""}
             onChange={(e) => root && renameSystem(root.id, e.target.value)}
           />
-          <span className="text-[11px] text-[color:var(--ss-text-dim)]">
+          <span className="text-meta text-[color:var(--ss-text-dim)]">
             {project ? `${countOf(project.systems.length, "system")}, ${countOf(project.cases.length, "case")}` : ""}
           </span>
         </div>
@@ -953,7 +953,7 @@ function ProjectFileNote() {
         ? "LightSim's projects folder (File → Open Projects Folder)"
         : "Not saved yet";
   return (
-    <div className="flex max-w-[420px] flex-col justify-center gap-0.5 px-2 text-[11px] text-[color:var(--ss-text-dim)]">
+    <div className="flex max-w-[420px] flex-col justify-center gap-0.5 px-2 text-meta text-[color:var(--ss-text-dim)]">
       <span>
         Saved in: <span className="text-[color:var(--ss-text)] [overflow-wrap:anywhere]">{where}</span>
       </span>
@@ -1019,14 +1019,14 @@ function AttachmentsButton() {
           {listed.map((a) => {
             const problem = status(a.path, a.sha256);
             return (
-              <div key={a.path} className="flex items-center gap-2 px-3 py-1.5 text-[12px]">
+              <div key={a.path} className="flex items-center gap-2 px-3 py-1.5 text-body">
                 <Paperclip size={12} className="shrink-0 text-[color:var(--ss-text-dim)]" />
                 <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
                   {a.path.replace(/^resources\//, "")}
-                  <span className="ml-1 text-[10px] text-[color:var(--ss-text-dim)]">
+                  <span className="ml-1 text-meta text-[color:var(--ss-text-dim)]">
                     {Math.max(1, Math.round(a.bytes / 1024)).toLocaleString("en")} kB
                   </span>
-                  {problem && <span className="ml-1 text-[10px] font-semibold text-[color:var(--ss-warn)]">{problem}</span>}
+                  {problem && <span className="ml-1 text-meta font-semibold text-[color:var(--ss-warn)]">{problem}</span>}
                 </span>
                 <button
                   role="menuitem"
@@ -1053,7 +1053,7 @@ function AttachmentsButton() {
           })}
           <button
             role="menuitem"
-            className="mt-1 block w-full border-t border-[color:var(--ss-border)] px-3 py-1.5 text-left text-[12px] text-[color:var(--ss-accent)] hover:bg-[color:var(--ss-accent-soft)] disabled:opacity-40"
+            className="mt-1 block w-full border-t border-[color:var(--ss-border)] px-3 py-1.5 text-left text-body text-[color:var(--ss-accent)] hover:bg-[color:var(--ss-accent-soft)] disabled:opacity-40"
             disabled={Boolean(readOnly)}
             onClick={() => input.current?.click()}
           >
@@ -1081,7 +1081,7 @@ function AttachmentsButton() {
 
 function StubTab({ name }: { name: string }) {
   return (
-    <div className="flex items-center gap-2 px-3 text-[12px] text-[color:var(--ss-text-dim)]">
+    <div className="flex items-center gap-2 px-3 text-body text-[color:var(--ss-text-dim)]">
       <CheckCircle2 size={14} />
       {name} is not part of LightSim v1 — this ribbon tab is a visual stub.
     </div>
@@ -1102,7 +1102,7 @@ function GlobalRunControl() {
   return (
     <div className="flex items-center gap-1">
       <select
-        className="ss-input max-w-[150px] py-[3px] text-[11px]"
+        className="ss-input max-w-[150px] py-[3px] text-meta"
         value={activeCaseId ?? ""}
         onChange={(e) => setActiveCase(e.target.value)}
         title="Active simulation case"
@@ -1116,7 +1116,7 @@ function GlobalRunControl() {
       </select>
       {running ? (
         <button
-          className="flex items-center gap-1 rounded bg-[color:var(--ss-err-fill)] px-2 py-[3px] text-[11px] font-semibold text-white hover:brightness-110"
+          className="flex items-center gap-1 rounded bg-[color:var(--ss-err-fill)] px-2 py-[3px] text-meta font-semibold text-white hover:brightness-110"
           onClick={stopRun}
           title="Stop the running simulation"
         >
@@ -1124,7 +1124,7 @@ function GlobalRunControl() {
         </button>
       ) : (
         <button
-          className="flex items-center gap-1 rounded bg-[color:var(--ss-accent-fill)] px-2 py-[3px] text-[11px] font-semibold text-white hover:brightness-110 disabled:opacity-40"
+          className="flex items-center gap-1 rounded bg-[color:var(--ss-accent-fill)] px-2 py-[3px] text-meta font-semibold text-white hover:brightness-110 disabled:opacity-40"
           onClick={() => void run()}
           disabled={!project}
           title="Run the active case (Ctrl+Enter)"
@@ -1155,7 +1155,7 @@ function FontSizeControl() {
         <AArrowDown size={14} />
       </button>
       <button
-        className="min-w-[38px] rounded px-1 py-0.5 text-center text-[11px] tabular-nums hover:bg-[color:var(--ss-hover)]"
+        className="min-w-[38px] rounded px-1 py-0.5 text-center text-meta tabular-nums hover:bg-[color:var(--ss-hover)]"
         title="Reset interface size to 100%"
         aria-label={`Interface size ${Math.round(fontScale * 100)} percent. Activate to reset to 100 percent.`}
         onClick={() => setScale(1)}
@@ -1186,13 +1186,13 @@ export function Ribbon() {
   return (
     <div className="ss-zoom shrink-0 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-chrome)]">
       <div className="flex items-center gap-1 px-2 pt-1">
-        <div className="mr-1 flex items-center gap-1.5 rounded bg-[color:var(--ss-accent-fill)] px-2 py-0.5 text-[12px] font-semibold text-white">
+        <div className="mr-1 flex items-center gap-1.5 rounded bg-[color:var(--ss-accent-fill)] px-2 py-0.5 text-body font-semibold text-white">
           LightSim
         </div>
         {TABS.map((t) => (
           <button
             key={t.id}
-            className={`rounded-t px-3 py-1 text-[12px] ${
+            className={`rounded-t px-3 py-1 text-body ${
               tab === t.id
                 ? "border border-b-0 border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] font-semibold text-[color:var(--ss-accent)]"
                 : "text-[color:var(--ss-text)] hover:bg-[color:var(--ss-hover)]"
@@ -1203,7 +1203,7 @@ export function Ribbon() {
             {t.label}
           </button>
         ))}
-        <div className="ml-auto flex items-center gap-2 pr-1 text-[11px] text-[color:var(--ss-text-dim)]">
+        <div className="ml-auto flex items-center gap-2 pr-1 text-meta text-[color:var(--ss-text-dim)]">
           <GlobalRunControl />
           <div className="h-4 w-px bg-[color:var(--ss-border)]" />
           <span className="max-w-[160px] truncate">

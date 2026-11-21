@@ -135,7 +135,7 @@ function SummaryMark({ sv, why }: { sv?: SummaryValue; why?: boolean }) {
     <>
       {sv.passed != null && (
         <span
-          className={`ml-1 rounded border px-1 font-sans text-[10px] font-semibold ${
+          className={`ml-1 rounded border px-1 font-sans text-meta font-semibold ${
             sv.passed
               ? "border-[color:var(--ss-ok)] text-[color:var(--ss-ok)]"
               : "border-[color:var(--ss-err)] text-[color:var(--ss-err)]"
@@ -145,10 +145,10 @@ function SummaryMark({ sv, why }: { sv?: SummaryValue; why?: boolean }) {
         </span>
       )}
       {sv.limit != null && (
-        <div className="font-sans text-[10px] text-[color:var(--ss-text-dim)]">≤ {sv.limit.toLocaleString()}</div>
+        <div className="font-sans text-meta text-[color:var(--ss-text-dim)]">≤ {sv.limit.toLocaleString()}</div>
       )}
       {sv.notValid && (
-        <div className="truncate font-sans text-[10px] text-[color:var(--ss-warn)]" title={`Not valid: ${sv.notValid}`}>
+        <div className="truncate font-sans text-meta text-[color:var(--ss-warn)]" title={`Not valid: ${sv.notValid}`}>
           not valid{why && `: ${sv.notValid}`}
         </div>
       )}
@@ -192,7 +192,7 @@ function AxesMenu({
         <div
           role="group"
           aria-label="Y axes"
-          className="absolute right-0 top-full z-50 mt-1 flex w-[250px] flex-col gap-1.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-[11px] shadow-lg"
+          className="absolute right-0 top-full z-50 mt-1 flex w-[250px] flex-col gap-1.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-meta shadow-lg"
         >
           {units.map((u, i) => {
             const cfg = value[u] ?? {};
@@ -867,7 +867,7 @@ export function ResultsPanel() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-[color:var(--ss-text-dim)]">
         <LineChartIcon size={36} strokeWidth={1} />
-        <div className="text-[13px]">
+        <div className="text-body">
           Loading {storedRunCount} stored run{storedRunCount > 1 ? "s" : ""}…
         </div>
       </div>
@@ -878,7 +878,7 @@ export function ResultsPanel() {
     const empty = (
       <div className="flex flex-col items-center justify-center gap-3 py-6 text-[color:var(--ss-text-dim)]">
         <LineChartIcon size={36} strokeWidth={1} />
-        <div className="text-[13px]">No results yet — run a simulation case first.</div>
+        <div className="text-body">No results yet — run a simulation case first.</div>
         <button
           className="ss-toolbtn border border-[color:var(--ss-border)] px-3"
           disabled={running}
@@ -922,7 +922,7 @@ export function ResultsPanel() {
         <div className="flex min-h-0 flex-col gap-1.5 overflow-y-auto border-b [&>*]:shrink-0 border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] p-1.5">
           <div className="flex items-center gap-1">
             <span
-              className="min-w-0 flex-1 truncate px-1 text-[11px] font-semibold"
+              className="min-w-0 flex-1 truncate px-1 text-meta font-semibold"
               title={`${activeRun ? `${runTitle(activeRun)} — ` : ""}the run shown (it drives the channel list, table and summary)`}
             >
               {activeRun ? runLabel(activeRun) : "—"}
@@ -962,7 +962,7 @@ export function ResultsPanel() {
           {otherRuns.length > 0 && activeRun && (
             <>
               <div className="flex items-center gap-1">
-                <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">Baseline</span>
+                <span className="shrink-0 text-meta text-[color:var(--ss-text-dim)]">Baseline</span>
                 <select
                   className="ss-input min-w-0 flex-1"
                   aria-label="Baseline run"
@@ -984,7 +984,7 @@ export function ResultsPanel() {
               {baseline && (
                 <>
                   <label
-                    className="flex cursor-pointer items-center gap-1.5 text-[11px]"
+                    className="flex cursor-pointer items-center gap-1.5 text-meta"
                     title="Draw the baseline run's lines on the chart, dashed and faint, with this run's"
                   >
                     <input
@@ -1003,7 +1003,7 @@ export function ResultsPanel() {
           <div className="flex items-center gap-1 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1.5">
             <Search size={12} className="shrink-0 text-[color:var(--ss-text-dim)]" />
             <input
-              className="w-full bg-transparent py-1 text-[12px] outline-none"
+              className="w-full bg-transparent py-1 text-body outline-none"
               placeholder="Search channels…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -1017,13 +1017,13 @@ export function ResultsPanel() {
         </div>
         <div className="min-h-[132px] flex-1 overflow-y-auto py-1">
           {byElement.length === 0 && (
-            <div className="px-3 py-2 text-[11px] italic text-[color:var(--ss-text-dim)]">
+            <div className="px-3 py-2 text-meta italic text-[color:var(--ss-text-dim)]">
               No channels match “{search}”.
             </div>
           )}
           {byElement.map(([element, channels]) => (
             <div key={element}>
-              <div className="px-2 py-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
+              <div className="px-2 py-1 text-meta font-semibold text-[color:var(--ss-text-dim)]">
                 {element}
               </div>
               {channels.map((c) => {
@@ -1044,7 +1044,7 @@ export function ResultsPanel() {
                       style={{ background: selectedKeys.has(key) ? channelColor(key) : "#d0d5dd" }}
                     />
                     <span className="truncate">{c.label.split(" · ")[1] ?? c.label}</span>
-                    <span className="ml-auto pr-1 text-[10px] text-[color:var(--ss-text-dim)]">
+                    <span className="ml-auto pr-1 text-meta text-[color:var(--ss-text-dim)]">
                       {c.unit}
                     </span>
                   </label>
@@ -1062,7 +1062,7 @@ export function ResultsPanel() {
         {/* (a container: in a narrow one, as at a large interface size, the
             last three buttons show only their icons, so the row stays one line) */}
         <div className="ss-panel-toolbar @container">
-          <span className="text-[11px] text-[color:var(--ss-text-dim)]">
+          <span className="text-meta text-[color:var(--ss-text-dim)]">
             {view === "study" ? (
               <>Study charts</>
             ) : view === "sweep" ? (
@@ -1109,7 +1109,7 @@ export function ResultsPanel() {
           <div className="ml-auto flex items-center gap-1">
             {view === "sweep" && incompleteCount > 0 && (
               <label
-                className="flex items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]"
+                className="flex items-center gap-1 text-meta text-[color:var(--ss-text-dim)]"
                 title="Show stopped or failed sweep points as hollow markers (their numbers are partial)"
               >
                 <input
@@ -1122,7 +1122,7 @@ export function ResultsPanel() {
             )}
             {view === "sweep" && sweepMetrics.length > 0 && (
               <select
-                className="ss-input max-w-[190px] py-0.5 text-[11px]"
+                className="ss-input max-w-[190px] py-0.5 text-meta"
                 aria-label="Sweep metric"
                 value={sweepMetric}
                 onChange={(e) => savePlot({ sweepMetric: e.target.value })}
@@ -1137,7 +1137,7 @@ export function ResultsPanel() {
             )}
             {view === "xy" && shownKeys.length > 0 && (
               <select
-                className="ss-input max-w-[200px] py-0.5 text-[11px]"
+                className="ss-input max-w-[200px] py-0.5 text-meta"
                 value={xyXKey}
                 onChange={(e) => savePlot({ xKey: e.target.value })}
                 title="Channel to plot on the X axis (the other ticked channels become Y series)"
@@ -1156,7 +1156,7 @@ export function ResultsPanel() {
             )}
             {view === "chart" && (
               <select
-                className="ss-input py-0.5 text-[11px]"
+                className="ss-input py-0.5 text-meta"
                 aria-label="X axis"
                 value={xMode}
                 // (a zoom in s is no zoom in m: it is dropped)
@@ -1186,7 +1186,7 @@ export function ResultsPanel() {
             )}
             <div className="flex overflow-hidden rounded border border-[color:var(--ss-border)]">
               <button
-                className={`flex items-center gap-1 whitespace-nowrap px-2 py-1 text-[11px] ${
+                className={`flex items-center gap-1 whitespace-nowrap px-2 py-1 text-meta ${
                   view === "chart" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
                 aria-pressed={view === "chart"}
@@ -1196,7 +1196,7 @@ export function ResultsPanel() {
                 <LineChartIcon size={12} /> Chart
               </button>
               <button
-                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
+                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-meta ${
                   view === "table" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
                 aria-pressed={view === "table"}
@@ -1206,7 +1206,7 @@ export function ResultsPanel() {
                 <Table2 size={12} /> Table
               </button>
               <button
-                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] disabled:opacity-40 ${
+                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-meta disabled:opacity-40 ${
                   view === "xy" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
                 aria-pressed={view === "xy"}
@@ -1221,7 +1221,7 @@ export function ResultsPanel() {
                 <ChartScatter size={12} /> X-Y
               </button>
               <button
-                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] disabled:opacity-40 ${
+                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-meta disabled:opacity-40 ${
                   view === "sweep" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
                 aria-pressed={view === "sweep"}
@@ -1234,7 +1234,7 @@ export function ResultsPanel() {
               {/* (once the project has a saved study: a sweep's, kept with its runs) */}
               {studyCount > 0 && (
                 <button
-                  className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
+                  className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-meta ${
                     view === "study" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                   }`}
                   aria-pressed={view === "study"}
@@ -1245,7 +1245,7 @@ export function ResultsPanel() {
                 </button>
               )}
               <button
-                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
+                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-meta ${
                   view === "energy" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
                 aria-pressed={view === "energy"}
@@ -1255,7 +1255,7 @@ export function ResultsPanel() {
                 <Zap size={12} /> <span className="@max-[880px]:sr-only">Energy</span>
               </button>
               <button
-                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-[11px] ${
+                className={`flex items-center gap-1 whitespace-nowrap border-l border-[color:var(--ss-border)] px-2 py-1 text-meta ${
                   view === "duty" ? "bg-[color:var(--ss-active)] font-semibold" : "hover:bg-[color:var(--ss-hover)]"
                 }`}
                 aria-pressed={view === "duty"}
@@ -1367,14 +1367,14 @@ export function ResultsPanel() {
                     className="min-w-[128px] flex-1 rounded border border-[color:var(--ss-border)] px-2 py-0.5"
                     title={s.label}
                   >
-                    <dt className="truncate text-[10px] text-[color:var(--ss-text-dim)]">{s.label}</dt>
+                    <dt className="truncate text-meta text-[color:var(--ss-text-dim)]">{s.label}</dt>
                     <dd className="m-0">
-                      <span className="font-mono text-[15px] font-semibold">{s.value.toLocaleString()}</span>{" "}
-                      <span className="text-[11px] text-[color:var(--ss-text-dim)]">{s.unit}</span>
+                      <span className="ss-figure text-figure font-semibold leading-tight">{s.value.toLocaleString()}</span>{" "}
+                      <span className="text-meta text-[color:var(--ss-text-dim)]">{s.unit}</span>
                       <SummaryMark sv={s} why />
                       {ch && (
                         <div
-                          className={`truncate text-[10px] ${changeClass(ch)}`}
+                          className={`truncate text-meta ${changeClass(ch)}`}
                           title={
                             ch.noise
                               ? NOISE
@@ -1390,7 +1390,7 @@ export function ResultsPanel() {
               })}
             </dl>
             {estimate && (
-              <span className="shrink-0 px-1 text-[10px] text-[color:var(--ss-text-dim)]" title={ESTIMATE}>
+              <span className="shrink-0 px-1 text-meta text-[color:var(--ss-text-dim)]" title={ESTIMATE}>
                 estimates
               </span>
             )}
@@ -1452,7 +1452,7 @@ export function ResultsPanel() {
                 </tbody>
               </table>
             ) : (
-              <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--ss-text-dim)]">
+              <div className="flex h-full items-center justify-center text-body text-[color:var(--ss-text-dim)]">
                 Tick channels on the left to tabulate them.
               </div>
             )}
@@ -1466,7 +1466,7 @@ export function ResultsPanel() {
             {sweepData.length > 0 && hasSize ? (
               <Plot key="sweep" options={sweepOptions} data={sweepCols} label="Sweep chart" ref={plotRef} />
             ) : (
-              <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--ss-text-dim)]">
+              <div className="flex h-full items-center justify-center text-body text-[color:var(--ss-text-dim)]">
                 {family.length < 2
                   ? "Run a parameter sweep to see metric-vs-value here."
                   : "This metric has no values across the family."}
@@ -1478,7 +1478,7 @@ export function ResultsPanel() {
             {xyData.length > 1 && hasSize ? (
               <Plot key="xy" options={xyOptions} data={xyData} label="X-Y chart" ref={plotRef} />
             ) : (
-              <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[color:var(--ss-text-dim)]">
+              <div className="flex h-full items-center justify-center px-4 text-center text-body text-[color:var(--ss-text-dim)]">
                 {shownKeys.length < 2
                   ? "Tick at least two channels on the left — one becomes the X axis, the rest are plotted against it."
                   : "No samples to plot for this pair."}
@@ -1500,7 +1500,7 @@ export function ResultsPanel() {
                 onXRangeChange={(r) => savePlot({ zoom: r ? { kind: xAxis.kind, ...r } : undefined })}
               />
             ) : (
-              <div className="flex h-full items-center justify-center text-[12px] text-[color:var(--ss-text-dim)]">
+              <div className="flex h-full items-center justify-center text-body text-[color:var(--ss-text-dim)]">
                 Tick channels on the left to plot them.
               </div>
             )}
@@ -1534,7 +1534,7 @@ export function ResultsPanel() {
             open={multiRun}
             className="shrink-0 border-t border-[color:var(--ss-border)]"
           >
-            <summary className="cursor-pointer px-2 py-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
+            <summary className="cursor-pointer px-2 py-0.5 text-meta text-[color:var(--ss-text-dim)]">
               All summary values ({result.summary.length})
             </summary>
             <div className="max-h-[130px] overflow-auto" tabIndex={0} role="region" aria-label="Summary">
@@ -1592,7 +1592,7 @@ export function ResultsPanel() {
                         {/* the reason under the label, where there is room; the
                             value cells keep a short marker (reason in its tooltip) */}
                         {s.notValid && (
-                          <div className="text-[10px] text-[color:var(--ss-warn)]">not valid: {s.notValid}</div>
+                          <div className="text-meta text-[color:var(--ss-warn)]">not valid: {s.notValid}</div>
                         )}
                       </td>
                       {columns.map(({ run: r }, ci) => {

@@ -26,7 +26,7 @@ export function FirstSteps() {
   if (off) return null;
   const all = STEPS.every((s) => done[s.id]);
   return (
-    <div className="ss-zoom border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] text-[11px]">
+    <div className="ss-zoom border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] text-meta">
       <nav className="flex flex-wrap items-center gap-1 px-2 py-0.5" aria-label="First steps" data-tour="steps">
         <span className="mr-1 font-semibold text-[color:var(--ss-text-dim)]">First steps</span>
         {STEPS.map((s, i) => (
@@ -40,7 +40,7 @@ export function FirstSteps() {
             onClick={() => doStep(s.id)}
           >
             <span
-              className={`inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] ${
+              className={`inline-flex h-4 w-4 items-center justify-center rounded-full border text-meta ${
                 done[s.id]
                   ? "border-[color:var(--ss-ok)] bg-[color:var(--ss-ok)] text-white"
                   : "border-[color:var(--ss-field-border)]"

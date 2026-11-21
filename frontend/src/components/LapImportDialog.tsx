@@ -31,10 +31,10 @@ function Preview({ points }: { points: [number, number][] }) {
       aria-label="Speed of the imported lap against time"
     >
       <path d={d} fill="none" stroke="var(--ss-accent)" strokeWidth={1.2} />
-      <text x={2} y={10} fontSize={9} fill="var(--ss-text-dim)">
+      <text x={2} y={10} fontSize={12} fill="var(--ss-text-dim)">
         {Math.round(vMax)} km/h
       </text>
-      <text x={398} y={122} fontSize={9} textAnchor="end" fill="var(--ss-text-dim)">
+      <text x={398} y={122} fontSize={12} textAnchor="end" fill="var(--ss-text-dim)">
         {Math.round(tMax)} s
       </text>
     </svg>
@@ -102,7 +102,7 @@ export function LapImportDialog({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   const note = presets.find((p) => p.name === preset)?.note;
-  const row = "flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]";
+  const row = "flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]";
   return (
     <div
       className="fixed inset-0 z-[110] flex items-center justify-center bg-black/35"
@@ -113,11 +113,11 @@ export function LapImportDialog({ onClose }: { onClose: () => void }) {
         aria-label="Import a lap"
         className="max-h-[92vh] w-[520px] max-w-[94vw] overflow-y-auto rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl"
       >
-        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-[13px] font-semibold">
+        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-title font-semibold">
           Import a lap from a logger or lap simulator
         </div>
         <div className="grid gap-2 px-4 py-3">
-          <p className="text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
+          <p className="text-meta leading-snug text-[color:var(--ss-text-dim)]">
             Pick a CSV file with a lap&apos;s speed against time or distance. LightSim drives that speed as a drive
             cycle and gives the energy, battery and motor loads for it; it does not work out the cornering speed (use a
             Lap case for that). The file stays on your computer.
@@ -132,14 +132,14 @@ export function LapImportDialog({ onClose }: { onClose: () => void }) {
               ))}
             </select>
           </label>
-          {note && <p className="text-[10px] text-[color:var(--ss-text-dim)]">{note}</p>}
+          {note && <p className="text-meta text-[color:var(--ss-text-dim)]">{note}</p>}
           <label className={row}>
             File
             <input
               type="file"
               accept=".csv,.txt,text/csv"
               aria-label="Lap file"
-              className="text-[11px]"
+              className="text-meta"
               onChange={async (e) => {
                 const f = e.target.files?.[0];
                 if (!f) return;
@@ -226,7 +226,7 @@ export function LapImportDialog({ onClose }: { onClose: () => void }) {
                 )}
               </label>
               <Preview points={result.preview} />
-              <p className="text-[11px]">
+              <p className="text-meta">
                 {result.lap != null ? `Lap ${result.lap}: ` : ""}
                 {result.duration_s.toLocaleString("en", {
                   maximumFractionDigits: 1,
@@ -241,7 +241,7 @@ export function LapImportDialog({ onClose }: { onClose: () => void }) {
                   : ""}
               </p>
               {result.warnings.map((w) => (
-                <p key={w} className="text-[11px] text-[color:var(--ss-warn)]">
+                <p key={w} className="text-meta text-[color:var(--ss-warn)]">
                   {w}
                 </p>
               ))}
@@ -252,7 +252,7 @@ export function LapImportDialog({ onClose }: { onClose: () => void }) {
             </>
           )}
           {error && (
-            <p role="alert" className="text-[11px] text-[color:var(--ss-err)]">
+            <p role="alert" className="text-meta text-[color:var(--ss-err)]">
               {error}
             </p>
           )}

@@ -80,7 +80,7 @@ export function LimitLegend({ run, onTime }: { run: SimRun; onTime: boolean }) {
     <div
       role="region"
       aria-label="What limits the car"
-      className="flex shrink-0 flex-col gap-0.5 border-t border-[color:var(--ss-border)] px-2 py-1 text-[11px]"
+      className="flex shrink-0 flex-col gap-0.5 border-t border-[color:var(--ss-border)] px-2 py-1 text-meta"
     >
       <button
         className="flex items-center gap-1.5 self-start rounded px-0.5 text-[color:var(--ss-text-dim)] hover:bg-[color:var(--ss-hover)]"
@@ -90,7 +90,7 @@ export function LimitLegend({ run, onTime }: { run: SimRun; onTime: boolean }) {
       >
         <span
           aria-hidden="true"
-          className={`inline-block h-3 w-3 rounded-sm border border-[color:var(--ss-border)] text-center text-[9px] leading-[10px] ${show ? "bg-[color:var(--ss-accent-fill)] text-white" : ""}`}
+          className={`inline-block h-4 w-4 rounded-sm border border-[color:var(--ss-border)] text-center text-meta leading-[14px] ${show ? "bg-[color:var(--ss-accent-fill)] text-white" : ""}`}
         >
           {show ? "✓" : ""}
         </span>
