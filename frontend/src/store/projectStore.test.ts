@@ -1423,6 +1423,46 @@ describe("stored runs", () => {
     expect(store().runsLoading).toBe(false);
   });
 
+  it("an older stored run is listed for the table, read when ticked and let go when unticked", async () => {
+    stored("fixture", history(22));
+    await start();
+    await settled();
+    // every stored run is listed, with its figures, the oldest two unread
+    expect(store().runIndex.map((e) => e.id)).toEqual(history(22).reverse().map((r) => r.id));
+    expect(api.fetchRun).not.toHaveBeenCalledWith("fixture", "run-0");
+    expect(await store().loadStoredRun("run-0")).toBe(true);
+    expect(api.fetchRun).toHaveBeenCalledWith("fixture", "run-0");
+    store().toggleOverlayRun("run-0");
+    expect(shownIds().at(-1)).toBe("run-0");
+    // read once: a second tick finds it in memory
+    expect(await store().loadStoredRun("run-0")).toBe(true);
+    expect(api.fetchRun).toHaveBeenCalledTimes(21);
+    // unticked, it leaves memory; the newest 20 stay
+    store().toggleOverlayRun("run-0");
+    expect(shownIds()).toEqual(history(22).slice(2).reverse().map((r) => r.id));
+    // shown, it stays while it is shown
+    await store().loadStoredRun("run-1");
+    store().setActiveRun("run-1");
+    expect(shownIds()).toContain("run-1");
+    store().setActiveRun("run-21");
+    expect(shownIds()).not.toContain("run-1");
+    // a run that cannot be read is not drawn, and says why
+    expect(await store().loadStoredRun("run-gone")).toBe(false);
+    expect(messages().at(-1)).toMatch(/^warning: The stored run could not be read: 404/);
+  });
+
+  it("a new run joins the list of stored runs; a deleted one leaves it", async () => {
+    stored("fixture", history(2));
+    await start();
+    await settled();
+    engineFinishesRuns();
+    await store().run();
+    const fresh = store().activeRunId!;
+    expect(store().runIndex.map((e) => e.id)).toEqual([fresh, "run-1", "run-0"]);
+    await store().removeRun("run-0");
+    expect(store().runIndex.map((e) => e.id)).toEqual([fresh, "run-1"]);
+  });
+
   it("a stored run that cannot be read is left out and reported", async () => {
     stored("fixture", history(3));
     api.fetchRun.mockImplementation(async (_projectId, runId) => {
