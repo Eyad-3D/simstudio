@@ -2,7 +2,16 @@
 // when a key belongs to the diagram rather than to what has the focus.
 // Plain functions, so they unit-test without a browser.
 
-export type CanvasAction = "selectAll" | "copy" | "cut" | "paste" | "duplicate" | "delete" | "rename" | "properties";
+export type CanvasAction =
+  | "selectAll"
+  | "copy"
+  | "cut"
+  | "paste"
+  | "duplicate"
+  | "delete"
+  | "rename"
+  | "properties"
+  | "addPart";
 
 type Keys = Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">;
 
@@ -30,6 +39,10 @@ export function canvasAction(e: Keys): CanvasAction | null {
     case "Delete":
     case "Backspace":
       return "delete";
+    case "A":
+    case "a":
+      // Shift+A: the add-a-part box (Blender's key for adding), at the pointer
+      return e.shiftKey ? "addPart" : null;
     case "F2":
       return e.shiftKey ? null : "rename";
     case "Enter":

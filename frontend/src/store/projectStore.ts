@@ -479,7 +479,13 @@ export interface ProjectState {
   setActiveSystem: (systemId: string) => void;
 
   // topology editing
-  addElement: (defId: string, position: { x: number; y: number }) => void;
+  /** Add a part; with `wire`, also a wire from another part's port to its
+   *  port `toPortId`, in the same undo step (a part added from a dragged wire). */
+  addElement: (
+    defId: string,
+    position: { x: number; y: number },
+    wire?: { elementId: string; portId: string; toPortId: string },
+  ) => void;
   moveElement: (id: string, position: { x: number; y: number }) => void;
   resizeElement: (id: string, size: { width: number; height: number }) => void;
   beginHistory: () => void;
@@ -1380,10 +1386,16 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     setActiveSystem: (systemId) =>
       set({ activeSystemId: systemId, selectedElementId: null }),
 
-    addElement: (defId, position) => {
+    addElement: (defId, position, wire) => {
       const { libraryById, activeSystemId, project } = get();
       const def = libraryById[defId];
       if (!def || !project || !activeSystemId) return;
+      // a wire from another part's port to one of this part's: only between
+      // two ports of the same kind, and not a signal (wired on the Data Bus)
+      const from = wire && project.systems.flatMap((s) => s.elements).find((e) => e.id === wire.elementId);
+      const fromKind = from && libraryById[from.componentDefId]?.ports.find((p) => p.id === wire!.portId)?.kind;
+      const toKind = wire && def.ports.find((p) => p.id === wire.toPortId)?.kind;
+      const wired = !!fromKind && fromKind === toKind && fromKind !== "signal";
       const count = project.systems.reduce(
         (n, s) => n + s.elements.filter((e) => e.componentDefId === defId).length,
         0,
@@ -1411,6 +1423,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             connections: [],
           });
         }
+        // (in the same change as the part: one undo step takes both away)
+        if (wired)
+          system.connections.push({
+            id: uid("c"),
+            sourceElementId: wire!.elementId,
+            sourcePortId: wire!.portId,
+            targetElementId: elId,
+            targetPortId: wire!.toPortId,
+          });
       });
       set({ selectedElementId: elId });
     },
