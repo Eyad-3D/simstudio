@@ -1462,4 +1462,21 @@ today's numerics; `NEW-CELLS` and `QUICK-CELLS` are gone.
   1.3e-7 J of 1.2e7 J): a motor held by its supply window closes its books
   worse, with pack values too (a 60 A charge limit on the same WLTC:
   1.16e-8, before this piece).
-- **Checks**: CHECKS
+- **Checks**: `engine/check.sh` passes (633 tests, one new: a pack built
+  from cells against its hand values). Golden: 0 differences over 11 347
+  values, steps 3 998 112 and events 308 453 unchanged, worst closure
+  1.274e-9. The backend suite with this module
+  (`LIGHTSIM_REQUIRE_NEW_ENGINE=1`): 2 481 passed, 1 failed (the Reference
+  FMUs' version on this PC, as before), 15 skipped, 72 expected failures;
+  `test_battery_cells.py`, today's engine its oracle until now, runs on the
+  new engine (15 pass, the live table edit an expected failure,
+  `NEW-LIVE-NEXT-RUN`); lsim-py's 59 pass; `ruff check .` clean; the
+  frontend's unit tests 510 pass. Speed, best of seven in alternating fresh
+  processes against the engine-naxis module (venv-speed's): the hybrid's
+  UDDS 18.17 against 17.83 s, the BEV's WLTC 1.021 against 0.996 s, the
+  steps and events the same; the base built again now from e08dd46 runs
+  the hybrid's UDDS in 18.610 s against this branch's 18.608 s and the
+  BEV's WLTC (the engine's own run) in 0.779 against 0.786 s, so most of
+  that gap is between two builds of the same base; the CI performance
+  test's slices 0.079 against 0.085 s (BEV city) and 2.490 against
+  2.498 s (hybrid mixed).
