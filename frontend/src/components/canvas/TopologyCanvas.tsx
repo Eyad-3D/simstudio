@@ -50,7 +50,9 @@ import {
 import { useUIStore } from "../../store/uiStore";
 import { useDismiss } from "../useDismiss";
 import { dropFmuFile } from "../../fmu";
-import type { PortKind } from "../../types";
+import type { ComponentDef, PortDef, PortKind } from "../../types";
+import { AddPartBox } from "./AddPartBox";
+import { partSpot, wirePort } from "./addPart";
 import { ElementNode, KIND_COLOR, type ElementFlowNode } from "./ElementNode";
 import { EnergyBars } from "./EnergyOverlay";
 import { useReportsStore } from "../../store/reportsStore";
@@ -204,6 +206,17 @@ function TopologyCanvasInner() {
   const pointer = useRef<{ x: number; y: number } | null>(null);
   // whether the last click was on the diagram (its toolbar and menu count)
   const clickedHere = useRef(false);
+  // the pointer on the screen, for Shift+A
+  const pointerAt = useRef<{ x: number; y: number } | null>(null);
+  const library = useProjectStore((s) => s.library);
+  // the add-a-part box: where it is (in the diagram, and on it), and the
+  // port of a wire let go there
+  const [adding, setAdding] = useState<{
+    x: number;
+    y: number;
+    at: { x: number; y: number };
+    from?: { elementId: string; port: PortDef };
+  } | null>(null);
 
   // (a part selected elsewhere, in Properties, Elements or Problems, becomes
   // the selection in canvasSelection.ts)
@@ -612,6 +625,35 @@ function TopologyCanvasInner() {
     [store],
   );
 
+  // the add-a-part box at a spot on the screen (a double-click on empty
+  // space, Shift+A, or a wire let go there)
+  const openAdd = useCallback(
+    (clientX: number, clientY: number, from?: { elementId: string; port: PortDef }) => {
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenu(null);
+      setAdding({ x: clientX - rect.left, y: clientY - rect.top, at: screenToFlowPosition({ x: clientX, y: clientY }), from });
+    },
+    [screenToFlowPosition],
+  );
+  const closeAdd = useCallback(() => setAdding(null), []);
+  // the part chosen goes where the box opened (on the grid when Snap is on),
+  // and a dragged wire to its fitting port, in one undo step
+  const placeChosen = (def: ComponentDef) => {
+    if (!adding) return;
+    const to = adding.from ? wirePort(def, adding.from.port) : null;
+    store
+      .getState()
+      .addElement(
+        def.id,
+        partSpot(adding.at, snap ? GRID : null),
+        adding.from && to ? { elementId: adding.from.elementId, portId: adding.from.port.id, toPortId: to } : undefined,
+      );
+    setAdding(null);
+    const id = store.getState().selectedElementId;
+    if (id) selectNew([id]);
+  };
+
   // reconnect an existing edge to a different port (same kind only)
   const onReconnect = useCallback(
     (oldEdge: Edge, conn: RFConnection) => {
@@ -721,12 +763,22 @@ function TopologyCanvasInner() {
         case "properties":
           done = focusProperties();
           break;
+        case "addPart": {
+          // at the pointer when it is over the diagram, else in its middle
+          const rect = wrapperRef.current?.getBoundingClientRect();
+          const p = hovered.current && pointerAt.current ? pointerAt.current : rect && { x: rect.left + rect.width / 2, y: rect.top + rect.height / 3 };
+          if (p && !placingId) {
+            openAdd(p.x, p.y);
+            done = true;
+          }
+          break;
+        }
       }
       if (done) e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedNodes, store, selectNew]);
+  }, [selectedNodes, store, selectNew, openAdd, placingId]);
 
   // "." frames the selection (the whole model when nothing is selected)
   useEffect(() => {
@@ -877,6 +929,7 @@ function TopologyCanvasInner() {
         onMouseLeave={() => (hovered.current = false)}
         onMouseMove={(e) => {
           pointer.current = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          pointerAt.current = { x: e.clientX, y: e.clientY };
         }}
         onDoubleClick={(e) => {
           // Coordinate hit-test: the second click of a double-click can land
@@ -895,7 +948,14 @@ function TopologyCanvasInner() {
               pos.y <= el.position.y + h + 6
             );
           });
-          if (!hit) return;
+          if (!hit) {
+            // empty space: the add-a-part box opens there (not on the toolbar,
+            // the minimap or a wire)
+            const t = e.target as Element;
+            if (!placingId && t.closest?.(".react-flow__pane") && !t.closest(".react-flow__minimap"))
+              openAdd(e.clientX, e.clientY);
+            return;
+          }
           if (hit.isSubSystem && hit.subSystemId) {
             store.getState().setActiveSystem(hit.subSystemId);
           } else {
@@ -910,6 +970,16 @@ function TopologyCanvasInner() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onConnectEnd={(event, state) => {
+            // a wire let go over empty space: the box opens there, with the
+            // parts it may connect to
+            if (state.isValid || state.toNode || !state.fromNode || !state.fromHandle?.id) return;
+            if (!(event.target as Element | null)?.closest?.(".react-flow__pane")) return;
+            const port = portOf(state.fromNode.id, state.fromHandle.id);
+            if (!port || port.kind === "signal") return;
+            const pt = "changedTouches" in event ? event.changedTouches[0] : event;
+            openAdd(pt.clientX, pt.clientY, { elementId: state.fromNode.id, port });
+          }}
           onReconnect={onReconnect}
           isValidConnection={isValidConnection}
           onNodeDragStart={() => store.getState().beginHistory()}
@@ -1048,6 +1118,16 @@ function TopologyCanvasInner() {
           )}
         </ReactFlow>
         <EnergyBars />
+        {adding && (
+          <AddPartBox
+            x={adding.x}
+            y={adding.y}
+            library={library}
+            from={adding.from?.port}
+            onPick={placeChosen}
+            onClose={closeAdd}
+          />
+        )}
         {placingDef && (
           <div
             role="status"
@@ -1066,7 +1146,8 @@ function TopologyCanvasInner() {
               </div>
               <p className="mt-1 text-[12px] leading-relaxed text-[color:var(--ss-text-dim)]">
                 Add components from the <span className="font-medium">Components</span> panel: drag
-                one here, double-click it or press Enter on it. Then wire matching ports together.
+                one here, double-click it or press Enter on it. Or double-click here and type a name.
+                Then wire matching ports together.
               </p>
               <ul className="mt-3 space-y-1 text-left text-[11px] text-[color:var(--ss-text-dim)]">
                 <li className="flex items-center gap-1.5">

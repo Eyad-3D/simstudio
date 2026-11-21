@@ -44,6 +44,12 @@ sections.
 
 ### New
 
+- **Add a part on the diagram**: double-click an empty spot (or press
+  Shift+A), type part of its name and press Enter, and the part goes
+  there. Drag a wire from a port and let go on an empty spot to get the
+  same box with only the parts that port can be wired to: Enter places the
+  part already wired, in one undo step
+  ([Your first electric car](help/tutorials/first-electric-car.md#3-start-a-blank-project-and-add-the-parts)).
 - A **battery built from cells** (*Defined By: Cells*) runs on the new
   engine, in a full run and in quick mode: the pack from a cell and its
   Ns × Np layout, the cell's resistance by pulse length, charge and
