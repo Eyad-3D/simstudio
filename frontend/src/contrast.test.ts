@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { KIND_COLOR } from "./components/canvas/ElementNode";
 import { PALETTE } from "./components/panels/chartUtils";
 import { SHADE_ALPHA, viridis } from "./components/gridTools";
+import { SHOWN_ROW, STATUS_COLOR } from "./components/panels/runRows";
 import css from "./index.css?raw";
 
 /** The --ss-* colours set in one rule of index.css (":root" or ".dark"). */
@@ -83,6 +84,14 @@ for (const [theme, t] of Object.entries(THEMES)) {
     // a battery pin's + and − are text
     it.each(["pole-positive", "pole-negative"])("%s marks are at least 4.5:1 on a part", (c) =>
       expect(contrast(t[c], t.panel)).toBeGreaterThanOrEqual(4.5),
+    );
+    // the runs table's status cell on a plain, a hovered and the shown row
+    it.each(
+      Object.entries(STATUS_COLOR).flatMap(([s, c]) =>
+        ["var(--ss-panel)", "var(--ss-hover)", SHOWN_ROW].map((bg) => [s, c, bg]),
+      ),
+    )("a run's status %s (%s) on %s is at least 4.5:1", (_, c, bg) =>
+      expect(contrast(resolve(c, t), resolve(bg, t))).toBeGreaterThanOrEqual(4.5),
     );
     it.each(PALETTE)("chart line %s is at least 3:1", (c) => expect(contrast(c, t.panel)).toBeGreaterThanOrEqual(3));
     // a table's cells shaded by value (gridTools.ts): the number stays

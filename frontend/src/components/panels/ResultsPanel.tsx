@@ -6,7 +6,6 @@ import {
   Gauge,
   Image as ImageIcon,
   Info,
-  Layers,
   LayoutGrid,
   LineChart as LineChartIcon,
   Play,
@@ -29,6 +28,8 @@ import { useDismiss } from "../useDismiss";
 import {
   PALETTE,
   channelKey,
+  comparedPair,
+  differenceOf,
   defaultChannelKeys,
   distanceOf,
   fmtNum,
@@ -49,8 +50,11 @@ import {
 } from "./chartUtils";
 import { csvBlob } from "./csv";
 import { MeasurePanel, cursorsIn, measurePlugin } from "./Measure";
-import { Plot, axisStyle, type PlotHandle, type PlotOptions } from "./Plot";
+import { Plot, axisStyle, syncX, type PlotHandle, type PlotOptions } from "./Plot";
 import { RunChanges, RunInfo, runLabel, runShort, runTime } from "./RunInfo";
+import { RunsTable } from "./RunsTable";
+import { runRows, type RunRow } from "./runRows";
+import { DiffStrip, type DiffLook } from "./DiffStrip";
 import { DutyView } from "./DutyView";
 import { EnergyView } from "./EnergyView";
 import { LimitLegend, limitsPlugin } from "./LimitBand";
@@ -72,6 +76,10 @@ const ESTIMATE = "An acceleration test's and a lap case's results are estimates:
 const TABLE_ROW_H = 26; // px
 const TABLE_PAGE_ROWS = 80; // drawn before the first scroll event
 const TABLE_OVERSCAN = 10;
+
+/** A run in the difference strip's caption: its short name, or its full
+ *  label when the other run has the same short name. */
+const stripName = (r: SimRun, other: SimRun) => (runShort(r) === runShort(other) ? runLabel(r) : runShort(r));
 
 /** A run's label for tooltips: a named run's clock time too. */
 const runTitle = (r: SimRun) => (r.name ? `${runLabel(r)} · started ${runTime(r)}` : runLabel(r));
@@ -282,6 +290,8 @@ export function ResultsPanel() {
   const setOverlayRuns = useProjectStore((s) => s.setOverlayRuns);
   const clearOverlays = useProjectStore((s) => s.clearOverlays);
   const removeRun = useProjectStore((s) => s.removeRun);
+  const runIndex = useProjectStore((s) => s.runIndex);
+  const loadStoredRun = useProjectStore((s) => s.loadStoredRun);
   const storedRunCount = useProjectStore((s) => s.storedRunCount);
   const runsLoading = useProjectStore((s) => s.runsLoading);
   const running = useProjectStore((s) => s.running);
@@ -312,6 +322,11 @@ export function ResultsPanel() {
   const comparePrevious = resultsView?.comparePrevious ?? true;
   const [search, setSearch] = useState("");
   const [showRunInfo, setShowRunInfo] = useState(false);
+  // every stored run, a row each; runs being read from disk for a tick
+  const rows = useMemo(() => runRows(runs, runIndex), [runs, runIndex]);
+  const [reading, setReading] = useState<Set<string>>(() => new Set());
+  // the chart and the difference strip under it zoom and read out as one
+  const syncKey = `results-${useId()}`;
   const { ref: chartHost, hasSize } = useHasSize<HTMLDivElement>();
   const plotRef = useRef<PlotHandle>(null);
   // the primary run's measurement cursors (RES-06); their positions live in
@@ -376,8 +391,13 @@ export function ResultsPanel() {
   const pick = plot?.baselineRunId;
   const picked = pick ? runs.find((r) => r.id === pick && r.id !== activeRun?.id) : undefined;
   const baseline = pick === null ? undefined : (picked ?? previous);
-  // drawn faint with the lines, unless it is overlaid already (RES-19)
-  const ghost = comparePrevious && baseline && !overlayRunIds.includes(baseline.id) ? baseline : undefined;
+  // drawn faint with the lines, unless it is overlaid already (RES-19) or two
+  // runs are compared: the strip under the chart is about those two, and a
+  // third set of lines would belong to neither
+  const ghost =
+    comparePrevious && baseline && !overlayRunIds.includes(baseline.id) && !comparedPair(plotRuns, view)
+      ? baseline
+      : undefined;
   const drawnRuns = useMemo(() => (ghost ? [...plotRuns, ghost] : plotRuns), [plotRuns, ghost]);
   const headline = useMemo(() => headlineRows(result?.summary ?? []), [result]);
   const estimate = activeRun?.snapshot?.case.kind === "acceleration" || activeRun?.snapshot?.case.kind === "lap";
@@ -468,6 +488,32 @@ export function ResultsPanel() {
     const merged = mergeRows(series);
     return Object.assign([merged.x, ...merged.cols] as uPlot.AlignedData, { t: merged.t });
   }, [seriesDefs, view, xAxis.kind]);
+  // the difference while exactly two runs are drawn: the second less the
+  // first, on the chart's x values (the first run's samples; the second is
+  // read between its own), for each channel both runs have
+  const pair = comparedPair(plotRuns, view);
+  const diff = useMemo((): { data: uPlot.AlignedData; looks: DiffLook[] } | null => {
+    if (!pair || seriesDefs.length === 0) return null;
+    const [a, b] = pair;
+    const x = chartData[0];
+    const distB = xAxis.kind === "distance" ? distanceOf(b) : null;
+    const cols: (number | null)[][] = [];
+    const looks: DiffLook[] = [];
+    seriesDefs.forEach((d, j) => {
+      // (the target speed is the cycle's, not what a comparison is about)
+      if (d.run !== a || d.channel.portId === "sig_demand") return;
+      const key = channelKey(d.channel);
+      const other = seriesDefs.find((e) => e.run === b && channelKey(e.channel) === key);
+      if (!other) return;
+      const { t, y } = columnsOf(other.channel.timeSeries);
+      const xb = distB ? t.map((_, k) => distB[k + distB.length - t.length]) : t;
+      cols.push(differenceOf(x, chartData[j + 1] as (number | null)[], xb, y));
+      looks.push({ legend: d.channel.label.split(" · ")[1] ?? d.channel.label, unit: d.unit, color: channelColor(key) });
+    });
+    return cols.length > 0 ? { data: [x, ...cols] as uPlot.AlignedData, looks } : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pair?.[0], pair?.[1], seriesDefs, chartData, xAxis.kind]);
+  const chartUnits = useMemo(() => [...new Set(seriesDefs.map((d) => d.unit))], [seriesDefs]);
   // what the series and axes look like, as strings: a live run replaces its
   // channel objects on every flush, and options built from them would rebuild
   // the chart (and drop a zoom box being drawn) ten times a second
@@ -532,9 +578,10 @@ export function ResultsPanel() {
           grid: { ...axis.grid, show: i === 0 },
         })),
       ],
-      plugins: [measurePlugin(x.kind), limitsPlugin(x.kind)],
+      plugins: [measurePlugin(x.kind), limitsPlugin(x.kind), syncX(syncKey)],
       cursor: {
         drag: { x: true, y: false },
+        sync: { key: syncKey, setSeries: false },
         // runs on other time grids have gaps in the merged columns: read the
         // nearest sample of the series, but none before its first or after
         // its last (a shorter run has ended there)
@@ -543,7 +590,7 @@ export function ResultsPanel() {
     };
     // (the limit band is drawn from the store: a switch redraws it)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seriesLook, xLook, yLook, theme, showLimits]);
+  }, [seriesLook, xLook, yLook, theme, showLimits, syncKey]);
 
   // table shows only the active run (aligned time grid), every sample; only
   // the rows scrolled into view are drawn (see onTableScroll)
@@ -777,6 +824,40 @@ export function ResultsPanel() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  /** Read a run that is only listed on disk, marked as being read meanwhile. */
+  const read = async (r: RunRow) => {
+    if (r.loaded) return true;
+    setReading((s) => new Set(s).add(r.id));
+    const ok = await loadStoredRun(r.id);
+    setReading((s) => {
+      const next = new Set(s);
+      next.delete(r.id);
+      return next;
+    });
+    return ok;
+  };
+  // a tick draws the run with the one shown; unticking the run shown shows
+  // the next one drawn in its place
+  const tickRun = async (r: RunRow, on: boolean) => {
+    if (r.id === activeRun?.id) {
+      if (on || overlayRunIds.length === 0) return;
+      const [next, ...rest] = overlayRunIds;
+      setActiveRun(next);
+      setOverlayRuns(rest);
+      return;
+    }
+    if (on && !(await read(r))) return;
+    if (on !== useProjectStore.getState().overlayRunIds.includes(r.id)) toggleOverlayRun(r.id);
+  };
+  // a click shows the run first: a drawn one changes places with the run
+  // shown (so the difference turns round); another replaces it
+  const showRun = async (r: RunRow) => {
+    if (!(await read(r))) return;
+    const { activeRunId: prev, overlayRunIds: drawn } = useProjectStore.getState();
+    setActiveRun(r.id);
+    if (prev && drawn.includes(r.id)) setOverlayRuns(drawn.map((id) => (id === r.id ? prev : id)));
+  };
+
   const toggle = (key: string) => {
     const cur = savedChannels ?? defaultKeys;
     savePlot({ channels: cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key] });
@@ -840,19 +921,12 @@ export function ResultsPanel() {
             channel list too little room, as at a large interface size) */}
         <div className="flex min-h-0 flex-col gap-1.5 overflow-y-auto border-b [&>*]:shrink-0 border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] p-1.5">
           <div className="flex items-center gap-1">
-            <select
-              className="ss-input min-w-0 flex-1"
-              aria-label="Primary run"
-              value={activeRun?.id ?? ""}
-              onChange={(e) => setActiveRun(e.target.value)}
-              title={`${activeRun ? `${runTitle(activeRun)}${activeRun.incomplete || activeRun.status !== "success" ? "" : " · success"} — ` : ""}primary run (drives the channel list, table and summary)`}
+            <span
+              className="min-w-0 flex-1 truncate px-1 text-[11px] font-semibold"
+              title={`${activeRun ? `${runTitle(activeRun)} — ` : ""}the run shown (it drives the channel list, table and summary)`}
             >
-              {runs.map((r) => (
-                <option key={r.id} value={r.id} title={runTitle(r)}>
-                  {runLabel(r)}
-                </option>
-              ))}
-            </select>
+              {activeRun ? runLabel(activeRun) : "—"}
+            </span>
             <button
               className="ss-toolbtn"
               title="Delete this run (also from disk)"
@@ -925,64 +999,6 @@ export function ResultsPanel() {
               )}
             </>
           )}
-
-          {/* overlay set */}
-          <div className="rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
-            <div className="flex items-center gap-1 px-1.5 py-1 text-[10px] text-[color:var(--ss-text-dim)]">
-              <Layers size={11} /> Overlay ({overlayRuns.length})
-              {family.length >= 2 && (
-                <button
-                  className="ml-auto rounded px-1 hover:bg-[color:var(--ss-hover)]"
-                  title={
-                    incompleteCount > 0
-                      ? "Overlay every complete run in this sweep family (stopped or failed points are left out)"
-                      : "Overlay every run in this sweep family"
-                  }
-                  onClick={() =>
-                    setOverlayRuns(completeFamily.filter((r) => r.id !== activeRun?.id).map((r) => r.id))
-                  }
-                >
-                  Overlay family
-                </button>
-              )}
-              {overlayRuns.length > 0 && (
-                <button
-                  className={`rounded px-1 hover:bg-[color:var(--ss-hover)] ${family.length >= 2 ? "" : "ml-auto"}`}
-                  onClick={clearOverlays}
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-            {otherRuns.length === 0 ? (
-              <div className="px-1.5 pb-1 text-[10px] italic text-[color:var(--ss-text-dim)]">
-                Only one run — overlay appears once you have more.
-              </div>
-            ) : (
-              <div className="max-h-[104px] overflow-y-auto border-t border-[color:var(--ss-border)]">
-                {otherRuns.map((r) => (
-                  <label
-                    key={r.id}
-                    className="flex cursor-pointer items-center gap-1.5 px-1.5 py-0.5 text-[11px] hover:bg-[color:var(--ss-hover)]"
-                    title={runTitle(r)}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={overlayRunIds.includes(r.id)}
-                      onChange={() => toggleOverlayRun(r.id)}
-                    />
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ background: overlayRunIds.includes(r.id) ? overlayColorOf(r.id) : "#c0c6d0" }}
-                    />
-                    <span className="truncate">
-                      {r.sweepValue !== undefined ? runShort(r) : `${r.caseName} · ${r.name ?? runTime(r)}`}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
 
           <div className="flex items-center gap-1 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1.5">
             <Search size={12} className="shrink-0 text-[color:var(--ss-text-dim)]" />
@@ -1300,6 +1316,42 @@ export function ResultsPanel() {
           </div>
         </div>
 
+        <RunsTable
+          rows={rows}
+          shownId={activeRun?.id ?? null}
+          drawnIds={overlayRunIds}
+          colorOf={overlayColorOf}
+          reading={reading}
+          onTick={(r, on) => void tickRun(r, on)}
+          onShow={(r) => void showRun(r)}
+          tools={
+            <>
+              {family.length >= 2 && (
+                <button
+                  className="rounded px-1 hover:bg-[color:var(--ss-hover)]"
+                  title={
+                    incompleteCount > 0
+                      ? "Draw every complete run in this sweep family (stopped or failed points are left out)"
+                      : "Draw every run in this sweep family"
+                  }
+                  onClick={() => setOverlayRuns(completeFamily.filter((r) => r.id !== activeRun?.id).map((r) => r.id))}
+                >
+                  Overlay family
+                </button>
+              )}
+              {overlayRuns.length > 0 && (
+                <button
+                  className="rounded px-1 hover:bg-[color:var(--ss-hover)]"
+                  title="Draw only the run shown"
+                  onClick={clearOverlays}
+                >
+                  Clear
+                </button>
+              )}
+            </>
+          }
+        />
+
         {/* the model has changed since this run (UX-41) */}
         {activeRun && <StaleBanner run={activeRun} />}
 
@@ -1453,6 +1505,18 @@ export function ResultsPanel() {
               </div>
             )}
           </div>
+        )}
+
+        {diff && pair && hasSize && (
+          <DiffStrip
+            data={diff.data}
+            looks={diff.looks}
+            units={chartUnits}
+            x={xAxis}
+            theme={theme}
+            syncKey={syncKey}
+            caption={`Difference: ${stripName(pair[1], pair[0])} minus ${stripName(pair[0], pair[1])}`}
+          />
         )}
 
         {view === "chart" && activeRun && <LimitLegend run={activeRun} onTime={xAxis.kind === "t"} />}

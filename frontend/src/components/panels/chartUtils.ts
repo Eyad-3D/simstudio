@@ -312,7 +312,7 @@ export function defaultChannelKeys(channels: Channel[]): string[] {
 // Summary rows shown as headline numbers, in this order, when the run has
 // them (labels as the engine writes them: backend/app/solver/core.py,
 // verdict.py, lapsim.py)
-const HEADLINE = [
+export const HEADLINE = [
   /^Time to /, // a test's time: to 100 km/h, or over its distance (Time to 75 m)
   /^Speed at \d/, // an acceleration test's speed at the line
   /^Maximum speed$/,
@@ -340,3 +340,42 @@ export function headlineRows<T extends { label: string; passed?: boolean | null 
 /** The summary figure a sweep opens on: the first headline number it has
  *  (a test's time, fuel or energy consumption), else its first. */
 export const pickSweepMetric = (labels: string[]) => headlineRows(labels.map((label) => ({ label })))[0]?.label ?? "";
+
+// ---- the difference between two runs ----
+
+/** The second run's values less the first's, on the first run's x values
+ *  (its times, or the distance on a distance axis): the second is read
+ *  linearly between its samples, only where both runs have data (null
+ *  elsewhere). Each x must rise or stay equal; on a shared grid no value is
+ *  interpolated at all. */
+export function differenceOf(
+  xA: ArrayLike<number>,
+  yA: ArrayLike<number | null>,
+  xB: ArrayLike<number>,
+  yB: ArrayLike<number | null>,
+): (number | null)[] {
+  const out = new Array<number | null>(xA.length).fill(null);
+  const n = xB.length;
+  if (n === 0) return out;
+  for (let i = 0, j = 0; i < xA.length; i++) {
+    const x = xA[i];
+    const a = yA[i];
+    if (a == null || x < xB[0] || x > xB[n - 1]) continue;
+    // the last sample of B at or before x (x rises, so j only moves on)
+    while (j + 1 < n && xB[j + 1] <= x) j++;
+    let b: number | null;
+    if (xB[j] === x || j + 1 === n) b = yB[j];
+    else {
+      const lo = yB[j];
+      const hi = yB[j + 1];
+      b = lo == null || hi == null ? null : lo + ((hi - lo) * (x - xB[j])) / (xB[j + 1] - xB[j]);
+    }
+    if (b != null) out[i] = b - a;
+  }
+  return out;
+}
+
+/** The two runs a difference is drawn for, the first and the second, while
+ *  exactly two are drawn on the time chart; else null. */
+export const comparedPair = <T>(runs: T[], view: string): [T, T] | null =>
+  view === "chart" && runs.length === 2 ? [runs[0], runs[1]] : null;

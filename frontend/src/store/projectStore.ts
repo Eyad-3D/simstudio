@@ -210,6 +210,14 @@ const LIVE_FLUSH_MS = 120;
 // finished run is also stored on disk with its project; older ones stay there.
 const MAX_RUNS = 20;
 
+/** The runs kept in memory: the newest MAX_RUNS, and an older one read for
+ *  the table of runs while it is shown or ticked. */
+function keepRuns(runs: SimRun[], activeRunId: string | null, overlayRunIds: string[]): SimRun[] {
+  if (runs.length <= MAX_RUNS) return runs;
+  const keep = new Set([activeRunId, ...overlayRunIds]);
+  return runs.filter((r, i) => i < MAX_RUNS || keep.has(r.id));
+}
+
 /** A parameter sweep: run `caseId` once per value, overriding one element param. */
 export interface SweepConfig {
   caseId: string;
@@ -431,6 +439,9 @@ export interface ProjectState {
   runs: SimRun[];
   /** how many runs of the open project are stored on disk */
   storedRunCount: number;
+  /** every stored run of the open project as the engine lists it (summary
+   *  values, no channel data), newest first: the table of runs lists them */
+  runIndex: StoredRunInfo[];
   /** true while the open project's stored runs are being read */
   runsLoading: boolean;
   activeCaseId: string | null;
@@ -647,6 +658,9 @@ export interface ProjectState {
   clearOverlays: () => void;
   /** Delete a run from the history and from disk. */
   removeRun: (runId: string) => Promise<void>;
+  /** Read a stored run that is not in memory (older than the newest
+   *  MAX_RUNS) into `runs`; false when it could not be read. */
+  loadStoredRun: (runId: string) => Promise<boolean>;
   /** Delete every stored run of the open project. */
   clearRuns: () => Promise<void>;
   /** Open the model a run was made with (its snapshot) as an unsaved copy. */
@@ -791,6 +805,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       runs,
       activeRunId: s.activeRunId && gone.has(s.activeRunId) ? (runs[0]?.id ?? null) : s.activeRunId,
       overlayRunIds: s.overlayRunIds.filter((id) => !gone.has(id)),
+      runIndex: s.runIndex.filter((e) => !gone.has(e.id)),
     };
   }
 
@@ -818,7 +833,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       return;
     }
     if (!current()) return;
-    set({ storedRunCount: index.length, runsLoading: true });
+    set({ storedRunCount: index.length, runIndex: index, runsLoading: true });
     const shown = index.slice(0, MAX_RUNS);
     const onDisk = new Set(index.map((e) => e.id));
     const inMemory = new Set(get().runs.map((r) => r.id));
@@ -934,6 +949,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       future: [],
       runs: [],
       storedRunCount: 0,
+      runIndex: [],
       runsLoading: false,
       ...NO_FILE,
       readOnly,
@@ -1014,7 +1030,14 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     try {
       const reply = await api.storeRun(projectId, run);
       if (get().project?.id !== projectId) return;
-      set((s) => ({ storedRunCount: reply.stored, ...dropRuns(s, reply.pruned) }));
+      // listed as the engine would list it, so the table keeps it once it
+      // is no longer among the runs in memory (a rename stores it again)
+      const { result, snapshot: _snapshot, ...rest } = run;
+      const info: StoredRunInfo = { ...rest, status: result.status, summary: result.summary, bytes: reply.bytes };
+      set((s) => ({
+        storedRunCount: reply.stored,
+        ...dropRuns({ ...s, runIndex: [info, ...s.runIndex.filter((e) => e.id !== run.id)] }, reply.pruned),
+      }));
       if (reply.pruned.length > 0) {
         log(
           "warning",
@@ -1235,6 +1258,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     checksError: null, refused: null,
     runs: [],
     storedRunCount: 0,
+    runIndex: [],
     runsLoading: false,
     activeCaseId: null,
     activeRunId: null,
@@ -1890,6 +1914,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         future: [],
         runs: [],
         storedRunCount: 0,
+        runIndex: [],
         runsLoading: false,
         ...NO_FILE,
         dataChecks: null,
@@ -1921,6 +1946,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           future: [],
           runs: [],
           storedRunCount: 0,
+          runIndex: [],
           runsLoading: false,
           ...NO_FILE,
           dataChecks: null,
@@ -1960,6 +1986,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         future: [],
         runs: [],
         storedRunCount: 0,
+        runIndex: [],
         runsLoading: false,
         dataChecks: null,
         checksError: null, refused: null,
@@ -1991,6 +2018,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         future: [],
         runs: [],
         storedRunCount: 0,
+        runIndex: [],
         runsLoading: false,
         ...NO_FILE,
         dataChecks: null,
@@ -2162,7 +2190,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           readOnly: null,
           exampleId: null,
           dirty: s.project !== project,
-          ...(sameProject ? {} : { runs: [], storedRunCount: 0, studies: [], activeRunId: null, overlayRunIds: [] }),
+          ...(sameProject ? {} : { runs: [], storedRunCount: 0, runIndex: [], studies: [], activeRunId: null, overlayRunIds: [] }),
         }));
         if (trustedProject === project.id) trustedProject = picked.id;
         log(
@@ -2363,6 +2391,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         future: [],
         runs: [],
         storedRunCount: 0,
+        runIndex: [],
         runsLoading: false,
         ...NO_FILE,
         dataChecks: null,
@@ -3178,22 +3207,40 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     setActiveRun: (runId) =>
       // a run can't overlay itself — drop it from the overlay set if selected
-      set((s) => ({
-        activeRunId: runId,
-        overlayRunIds: s.overlayRunIds.filter((id) => id !== runId),
-      })),
+      set((s) => {
+        const overlayRunIds = s.overlayRunIds.filter((id) => id !== runId);
+        return { activeRunId: runId, overlayRunIds, runs: keepRuns(s.runs, runId, overlayRunIds) };
+      }),
     toggleOverlayRun: (runId) =>
       set((s) => {
         if (runId === s.activeRunId) return {};
-        return {
-          overlayRunIds: s.overlayRunIds.includes(runId)
-            ? s.overlayRunIds.filter((id) => id !== runId)
-            : [...s.overlayRunIds, runId],
-        };
+        const overlayRunIds = s.overlayRunIds.includes(runId)
+          ? s.overlayRunIds.filter((id) => id !== runId)
+          : [...s.overlayRunIds, runId];
+        return { overlayRunIds, runs: keepRuns(s.runs, s.activeRunId, overlayRunIds) };
       }),
     setOverlayRuns: (runIds) =>
-      set((s) => ({ overlayRunIds: runIds.filter((id) => id !== s.activeRunId) })),
-    clearOverlays: () => set({ overlayRunIds: [] }),
+      set((s) => {
+        const overlayRunIds = runIds.filter((id) => id !== s.activeRunId);
+        return { overlayRunIds, runs: keepRuns(s.runs, s.activeRunId, overlayRunIds) };
+      }),
+    clearOverlays: () => set((s) => ({ overlayRunIds: [], runs: keepRuns(s.runs, s.activeRunId, []) })),
+    loadStoredRun: async (runId) => {
+      const { project, runs, log } = get();
+      if (runs.some((r) => r.id === runId)) return true;
+      if (!project) return false;
+      try {
+        const run = await api.fetchRun(project.id, runId);
+        if (get().project?.id !== project.id) return false;
+        set((s) =>
+          s.runs.some((r) => r.id === runId) ? {} : { runs: [...s.runs, run].sort((a, b) => b.startedAt - a.startedAt) },
+        );
+        return true;
+      } catch (e) {
+        log("warning", `The stored run could not be read: ${(e as Error).message}`);
+        return false;
+      }
+    },
     removeRun: async (runId) => {
       const { project, log } = get();
       runHistorySeq++; // a load still in flight must not list the run again
@@ -3247,7 +3294,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     clearRuns: async () => {
       const { project, log } = get();
       runHistorySeq++; // a load still in flight must not list the runs again
-      set({ runs: [], activeRunId: null, overlayRunIds: [], storedRunCount: 0, runsLoading: false });
+      set({ runs: [], activeRunId: null, overlayRunIds: [], storedRunCount: 0, runIndex: [], runsLoading: false });
       if (!project) return;
       try {
         const reply = await api.deleteRuns(project.id);
