@@ -391,8 +391,13 @@ export function ResultsPanel() {
   const pick = plot?.baselineRunId;
   const picked = pick ? runs.find((r) => r.id === pick && r.id !== activeRun?.id) : undefined;
   const baseline = pick === null ? undefined : (picked ?? previous);
-  // drawn faint with the lines, unless it is overlaid already (RES-19)
-  const ghost = comparePrevious && baseline && !overlayRunIds.includes(baseline.id) ? baseline : undefined;
+  // drawn faint with the lines, unless it is overlaid already (RES-19) or two
+  // runs are compared: the strip under the chart is about those two, and a
+  // third set of lines would belong to neither
+  const ghost =
+    comparePrevious && baseline && !overlayRunIds.includes(baseline.id) && !comparedPair(plotRuns, view)
+      ? baseline
+      : undefined;
   const drawnRuns = useMemo(() => (ghost ? [...plotRuns, ghost] : plotRuns), [plotRuns, ghost]);
   const headline = useMemo(() => headlineRows(result?.summary ?? []), [result]);
   const estimate = activeRun?.snapshot?.case.kind === "acceleration" || activeRun?.snapshot?.case.kind === "lap";
