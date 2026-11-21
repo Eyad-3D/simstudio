@@ -49,7 +49,7 @@ it("shows what this version does not run, but a press does nothing and it says w
   const runFsEvents = vi.fn(async () => {});
   useProjectStore.setState({ runFsEvents });
   const host = await ribbon("simulations");
-  for (const name of ["FS events", "Calibrate lap"]) {
+  for (const name of ["FS events"]) {
     const b = buttonNamed(host, name)!;
     expect(b, name).toBeTruthy();
     expect(b.disabled).toBe(false); // it can take focus and be read
@@ -59,7 +59,10 @@ it("shows what this version does not run, but a press does nothing and it says w
     await click(b);
   }
   expect(runFsEvents).not.toHaveBeenCalled();
-  expect(document.querySelector("[role=dialog]")).toBeNull(); // no Calibrate dialog
+  // Calibrate lap runs on the new engine's lap profile: it can be pressed
+  const calibrate = buttonNamed(host, "Calibrate lap")!;
+  expect(calibrate.getAttribute("aria-disabled")).toBeNull();
+  expect(calibrate.getAttribute("data-not-yet")).toBeNull();
   // the checks have one name: the Data Checks
   expect(buttonNamed(host, "Data Checks")).toBeTruthy();
   expect(buttonNamed(host, "Checks")).toBeUndefined();

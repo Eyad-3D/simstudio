@@ -1422,6 +1422,27 @@ impl LapModel {
         Ok(Some(d))
     }
 
+    /// Each element id's instance name in the model (engine names are
+    /// `instance.parameter`).
+    #[getter]
+    fn instances(&self) -> BTreeMap<String, String> {
+        self.built.rep.instances.clone()
+    }
+
+    /// The parameters' values now (SI), by engine name: those set and the
+    /// model's own; an unknown name is a ValueError.
+    fn values(&self, names: Vec<String>) -> PyResult<BTreeMap<String, f64>> {
+        let st = self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
+        let flat = &self.built.model.prepared.flat;
+        names
+            .into_iter()
+            .map(|n| match flat.find_param(&n) {
+                Some(id) => Ok((n, st.values[id.0 as usize])),
+                None => Err(PyValueError::new_err(format!("no parameter '{n}'"))),
+            })
+            .collect()
+    }
+
     fn __repr__(&self) -> String {
         format!("LapModel({:?})", self.built.case_id)
     }

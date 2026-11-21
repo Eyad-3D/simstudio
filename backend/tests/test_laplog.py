@@ -4,6 +4,7 @@ The files here are made up in the layouts the presets expect (no team's
 file is bundled); the lap simulator's trace is LightSim's own lap of the
 test FS car, so its distance is known."""
 import math
+import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,7 +19,11 @@ from app.storage import load_example
 def _lap_trace():
     """(distance m, time s, speed m/s) every metre of the test car's
     Autocross lap, from lap mode."""
-    r = simulate(fs_car("Autocross", 1), "case")
+    os.environ["LIGHTSIM_ENGINE"] = "today"  # (input data: today's lap mode, see test_calibrate)
+    try:
+        r = simulate(fs_car("Autocross", 1), "case")
+    finally:
+        os.environ.pop("LIGHTSIM_ENGINE", None)
     d = [p["value"] for p in series(r, "trk", "sig_lap_distance")]
     v = [p["value"] / 3.6 for p in series(r, "veh", "sig_speed")]
     t = [p["t"] for p in series(r, "veh", "sig_speed")]

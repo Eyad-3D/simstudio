@@ -31,8 +31,6 @@ STORED = ("(ii) the examples' stored results are runs of today's engine (their s
 
 TODAY_FILES = {
     "test_lapsim.py": LAP,
-    "test_calibrate.py": "(i) the lap calibration runs lap cases (NEW-LAP): not ported yet",
-    "test_laplog.py": "(i) a logged lap runs as a lap case (NEW-LAP): not ported yet",
 }
 
 TODAY = {
