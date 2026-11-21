@@ -252,12 +252,13 @@ def _cells(project):
 
 # the features the new engine does not run yet (the owner, 16 November; a
 # hybrid's charge-balanced case runs since its port, 17 November, a battery
-# built from cells since its port, 21 November): each case fails with its
+# built from cells since its port, 21 November, the Formula Student events
+# scored without a lap since theirs, 21 November): each case fails with its
 # code and says so; its tests run today's engine (the marker todays_engine)
 # as the oracle for the port
 NOT_YET = {
     "NEW-LAP": lambda: (load_example("fs-electric"), "case-autocross"),
-    "NEW-FS-EVENT": lambda: (_changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
+    "NEW-FS-EVENT": lambda: (_changed("fs-electric", "case-autocross", fsEvent="autocross"), "case-autocross"),
 }
 
 
@@ -296,6 +297,17 @@ def test_a_battery_built_from_cells_is_not_refused():
     assert "NEW-CELLS" not in new_engine.CODES and "QUICK-CELLS" not in new_engine.CODES
 
 
+def test_a_formula_student_event_without_a_lap_is_not_refused():
+    """Their port (test_fs_events.py): the 75 m acceleration and an
+    endurance driven from a speed trace run on the path; an event on a lap
+    case is refused with NEW-FS-EVENT until lap cases are ported."""
+    why = new_engine.unsupported(
+        _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m")
+    assert why is None or why.code == "NEW-MISSING"
+    why = new_engine.unsupported(_changed("bev-car", WLTC, fsEvent="endurance"), WLTC)
+    assert why is None or why.code == "NEW-MISSING"
+
+
 def _changed(name: str, case_id: str, **case):
     project = load_example(name)
     c = next(c for c in project.cases if c.id == case_id)
@@ -320,7 +332,7 @@ def test_every_refusal_has_its_code():
         # (a kind the schema does not have yet: the four it has are all handled above it)
         "NEW-CASE-KIND": new_engine.unsupported(_changed("bev-car", WLTC, kind="drift"), WLTC),
         "NEW-FS-EVENT": new_engine.unsupported(
-            _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m"),
+            _changed("fs-electric", "case-autocross", fsEvent="autocross"), "case-autocross"),
         "NEW-LIMITS": new_engine.unsupported(studies._point_project(
             load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),
         # quick mode's (a case's mode "quick")

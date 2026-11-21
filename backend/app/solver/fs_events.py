@@ -34,6 +34,8 @@ import math
 from dataclasses import dataclass
 from typing import Optional
 
+from ..schemas import SummaryValue
+
 RULES = "FS Rules 2026 v1.1 (FSG)"
 EVENTS = ("acceleration", "skidpad", "autocross", "endurance")
 NAMES = {"acceleration": "Acceleration", "skidpad": "Skidpad", "autocross": "Autocross",
@@ -281,6 +283,32 @@ def event_rows(case, ctx, lap, summary: list, finished: bool) -> tuple[list[tupl
                          f"{RULES} (D 9), not an official result; FSUK and FSAE score "
                          f"differently. Check the current season's rules."))
     return rows, msgs
+
+
+def add_event_rows(case, ctx, lap, summary: list, finished: bool,
+                   points: bool = True) -> list[tuple[str, str]]:
+    """A case's event rows put first in its ``summary`` (SummaryValues),
+    and the messages (level, text) to give, for a case with an fsEvent (none
+    without one): the rows of event_rows(), or, when the case's kind is not
+    the event's, a note that it has none. Both engines' runs call it with
+    their RunContext (its batteries' figures filled from the run) and, for
+    a lap case, the LapRun; ``points``: the run recorded any (no event
+    rows without)."""
+    event = case.fsEvent
+    if not event:
+        return []
+    if case.kind != ("acceleration" if event == "acceleration" else "lap") \
+            and not (event == "endurance" and case.kind == "cycle"):
+        return [("info", f"The case stands for the Formula Student {NAMES[event]} event, but its "
+                         f"kind is {case.kind.capitalize()}: the event is scored from "
+                         f"{'an Acceleration' if event == 'acceleration' else 'a Lap'} case only, "
+                         f"so this run has no event rows.")]
+    if not points:
+        return []
+    rows, msgs = event_rows(case, ctx, lap, summary, finished)
+    summary[:0] = [SummaryValue(label=label, value=v, unit=u, limit=lim, passed=ok, notValid=nv)
+                   for label, v, u, lim, ok, nv in rows]
+    return msgs
 
 
 def lap_check(case, laps: int, lap_m: float) -> list[tuple[str, str]]:

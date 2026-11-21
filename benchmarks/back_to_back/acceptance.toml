@@ -146,7 +146,7 @@ expect = "run"
 id = "probe/fs-event-acceleration"
 base = "fs-electric/case-accel-75m"
 change = "fsEvent = acceleration"
-expect = "refuse:NEW-FS-EVENT"
+expect = "run"
 [[item]]
 id = "probe/bev-cells"
 base = "bev-car/case-city"
