@@ -472,6 +472,9 @@ export interface ProjectState {
   moveElement: (id: string, position: { x: number; y: number }) => void;
   resizeElement: (id: string, size: { width: number; height: number }) => void;
   beginHistory: () => void;
+  /** End the edit in progress: the next change to the same field is an undo
+   *  step of its own, not merged with this one (a table tool, a paste). */
+  endEdit: () => void;
   /** Delete parts (with every wire on them) and the given wires, as one undo step. */
   removeElements: (ids: string[], connectionIds?: string[]) => void;
   copyElements: (ids: string[]) => void;
@@ -1414,6 +1417,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (!project) return;
       lastEdit = null; // a drag/resize burst is its own history entry
       set({ past: [...past.slice(-(HISTORY_LIMIT - 1)), project], future: [] });
+    },
+
+    endEdit: () => {
+      lastEdit = null;
     },
 
     removeElements: (ids, connectionIds = []) => {

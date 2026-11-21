@@ -6,7 +6,9 @@ import { componentHelpPage, openHelp, openHelpWindow } from "../../help";
 import { useOwnerWindow } from "../../ownerWindow";
 import { limitsText, paramName, rangeProblem } from "../../paramRules";
 import { LABEL_RRC, describeTyre, parseTyreCode, tyreValues } from "../../tyre";
-import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
+import { SpreadsheetGrid, type GridCell, type GridIssue, type GridLine, type GridRange } from "../SpreadsheetGrid";
+import { continueKeys, newBreakpoint } from "../gridTools";
+import { insertBreakpoint, removeBreakpoint } from "../../tableN";
 import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
 import { SourceBadge, ValueSources } from "./ValueSources";
@@ -94,6 +96,7 @@ function Table1DEditor({
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
   const [unitOpen, setUnitOpen] = useState<UnitSlot | null>(null);
+  const [focusCell, setFocusCell] = useState<{ r: number; c: number } | null>(null);
   // a table's import (any layout, from a file or pasted); a profile keeps its own
   const importer = useTableImport(
     importTarget && importTarget.paramKey !== "profile" ? importTarget : null,
@@ -134,7 +137,7 @@ function Table1DEditor({
     ],
     ...pairs.map(
       ([x, y]): GridCell[] => [
-        { text: x, kind: "body" },
+        { text: x, kind: "body", axis: true },
         { text: y, kind: "body" },
       ],
     ),
@@ -174,13 +177,13 @@ function Table1DEditor({
         const tc = startCol + bj;
         if (tc > 1) return;
         const tr = startRow + bi;
-        while (rows.length <= tr) {
-          const lastX = rows.length ? Number(rows[rows.length - 1][0]) : 0;
-          rows.push([String((Number.isFinite(lastX) ? lastX : 0) + 1), "0"]);
-        }
+        while (rows.length <= tr) rows.push(["", "0"]);
         rows[tr][tc] = val;
       });
     });
+    // a breakpoint a paste past the end did not give continues the last step
+    const xs = continueKeys(rows.map((row) => row[0]));
+    rows.forEach((row, i) => i >= pairs.length && (row[0] = xs[i]));
     const problem =
       pastedAxisIssue(axis.name, rows.map((row) => row[0]), rows.length) ??
       rows
@@ -213,6 +216,14 @@ function Table1DEditor({
     if (rows.length === 0) return;
     onChange(rebuild(rows));
   };
+  // a right-click on a breakpoint: a row inserted midway (its value
+  // interpolated, so the curve is the same) or past an end, or rows deleted
+  const insertAt = (_line: GridLine, at: number, where: "before" | "after") =>
+    onChange(insertBreakpoint(value, 0, newBreakpoint(keys, at - 1, where)) as Table1D);
+  const deleteAt = (_line: GridLine, at: number[]) => {
+    const rows = pairs.filter((_, i) => !at.includes(i + 1));
+    if (rows.length > 0) onChange(rebuild(rows));
+  };
 
   return (
     <div className="flex flex-col gap-1">
@@ -225,6 +236,10 @@ function Table1DEditor({
         validate={validate}
         onHeaderOpen={openHeader}
         onImportText={importer.onImportText}
+        shade="curve"
+        onInsert={insertAt}
+        onDelete={deleteAt}
+        focusCell={focusCell}
         caption={
           columns.some((c) => alternatives(c.lib).length > 0) && (
             <TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />
@@ -259,6 +274,7 @@ function Table1DEditor({
         axes={[{ name: axis.name, lib: axis.unit, unit: xUnit, keys }]}
         value={{ name: valueLabel, lib: valueUnit, unit: yUnit }}
         mark={oneCell(selRange) && selRange!.r0 >= 1 ? [selRange!.r0 - 1] : null}
+        onPick={(idx) => setFocusCell({ r: idx[0] + 1, c: 1 })}
       />
     </div>
   );
@@ -288,6 +304,7 @@ function Table2DEditor({
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
   const [unitOpen, setUnitOpen] = useState<UnitSlot | null>(null);
+  const [focusCell, setFocusCell] = useState<{ r: number; c: number } | null>(null);
   const importer = useTableImport(importTarget ?? null, (r) => onChange(r.tables.value as Table2D));
   const outerKeys = sortedNumericKeys(value);
   const innerSet = new Set<string>();
@@ -321,17 +338,9 @@ function Table2DEditor({
   };
 
   const parseGrid = (g: string[][]): Table2D => {
-    // (a breakpoint left empty is numbered on from the largest, as shown)
-    const asKeys = (raw: string[], read: (t: string) => number): number[] => {
-      let max = Math.max(0, ...raw.map((s) => Number(String(s).trim())).filter(Number.isFinite));
-      return raw.map((s) => {
-        const t = String(s).trim();
-        const n = Number(t);
-        if (t !== "" && Number.isFinite(n)) return read(t);
-        max += 1;
-        return read(String(max));
-      });
-    };
+    // (a breakpoint left empty, past the end, continues the last step, as shown)
+    const asKeys = (raw: string[], read: (t: string) => number): number[] =>
+      continueKeys(raw.map((s) => String(s))).map((t) => read(t.trim()));
     const outer = asKeys((g[0] ?? []).slice(1), readC);
     const inner = asKeys(g.slice(1).map((row) => row[0] ?? ""), readR);
     const result: Table2D = {};
@@ -440,6 +449,21 @@ function Table2DEditor({
     onChange(next);
   };
 
+  // a right-click on a header: a breakpoint inserted midway (its points
+  // interpolated, so the map is the same) or past an end, or some deleted
+  const insertAt = (line: GridLine, at: number, where: "before" | "after") =>
+    onChange(
+      (line === "col"
+        ? insertBreakpoint(value, 0, newBreakpoint(outerKeys, at - 1, where))
+        : insertBreakpoint(value, 1, newBreakpoint(innerKeys, at - 1, where))) as Table2D,
+    );
+  const deleteAt = (line: GridLine, at: number[]) => {
+    const [axis, list] = line === "col" ? [0, outerKeys] : [1, innerKeys];
+    const drop = at.map((i) => list[i - 1]).filter((k) => k !== undefined);
+    if (drop.length > 0 && drop.length < list.length)
+      onChange(drop.reduce<Table2D>((t, k) => removeBreakpoint(t, axis, k) as Table2D, value));
+  };
+
   // the selected cell: a value, at a column (axis 0) and a row (axis 1)
   const one = oneCell(selRange) && selRange!.r0 >= 1 && selRange!.c0 >= 1;
   const mark = one ? [selRange!.c0 - 1, selRange!.r0 - 1] : null;
@@ -454,6 +478,10 @@ function Table2DEditor({
         validate={validate}
         onHeaderOpen={openCorner}
         onImportText={importer.onImportText}
+        shade="map"
+        onInsert={insertAt}
+        onDelete={deleteAt}
+        focusCell={focusCell}
         caption={<TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />}
         tools={
           <>
@@ -496,6 +524,7 @@ function Table2DEditor({
         ]}
         value={{ name: valueLabel, lib: valueUnit, unit: units.value }}
         mark={mark}
+        onPick={(idx) => setFocusCell({ r: idx[1] + 1, c: idx[0] + 1 })}
       />
     </div>
   );

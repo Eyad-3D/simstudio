@@ -634,6 +634,11 @@ body,
 .ss-table-tools .ss-toolbtn:hover:not(:disabled) {
   background: var(--ss-hover);
 }
+/* a switch that is on (Shade): pressed in, as the unit chooser marks its pick */
+.ss-table-tools .ss-toolbtn[aria-pressed="true"] {
+  border-color: var(--ss-accent);
+  background: var(--ss-accent-soft);
+}
 .ss-table-tools-sep {
   width: 1px;
   height: 16px;
