@@ -210,7 +210,8 @@ export function setWindowTitle(win: Window, title: string): void {
  *  opened the window at it): in view (a table from its top, a value's row in
  *  the middle) and marked a moment so the eye finds it. */
 export function showParam(form: HTMLElement | null, key: string): void {
-  const el = form?.querySelector<HTMLElement>(`[data-param="${key}"]`);
+  // (compared, not put into a selector: a key from a damaged file may hold a quote)
+  const el = [...(form?.querySelectorAll<HTMLElement>("[data-param]") ?? [])].find((e) => e.dataset.param === key);
   if (!el) return;
   // (in a folded section: unfold it)
   const section = el.closest("details");
