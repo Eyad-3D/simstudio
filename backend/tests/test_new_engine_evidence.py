@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import math
 import os
+import re
 
 import pytest
 from helpers import dbc, el, sig_port
@@ -485,10 +486,14 @@ def test_a_battery_check_with_no_window_is_a_plain_result(new):
                for t in _texts(result, "info"))
 
 
-def test_a_limit_change_is_at_the_run_s_own_event(new):
-    """What held the driveline back changes at the engine's own events: the
-    BEV with a tiny battery is held by its supply from the moment its
-    battery's window closes, an event of the run."""
+def test_a_limit_change_is_where_the_battery_reaches_its_minimum(new):
+    """What held the driveline back changes where it happens: the BEV with a
+    tiny battery is held by its supply from where its battery reaches its
+    minimum SOC. Its window closes continuously there (since 20 November
+    2026; it closed at a jump, an event of the run, before), so the change
+    takes the start of the traced stretch where the supply first holds the
+    motor (no event of the run is near), in the second the run says the
+    battery reached its minimum SOC."""
     proj = load_example("bev-car")
     bat = next(e for e in proj.systems[0].elements if e.id == "el-battery")
     bat.parameterOverrides["capacity_kWh"] = float(bat.parameterOverrides.get("capacity_kWh", 75)) / 100
@@ -496,9 +501,10 @@ def test_a_limit_change_is_at_the_run_s_own_event(new):
     lane = result.limits.lanes[0]
     supply = [t for t, s in lane.changes if result.limits.states[int(s)] == "supply"]
     assert supply
-    run = lightsim_engine.build(proj.model_dump_json(), "case-city").simulate()
-    events = [e["t"] for e in run.events]
-    assert any(abs(supply[0] - round(t, 4)) < 1e-9 for t in events), (supply, events[:20])
+    said = [m.text for m in result.messages if "reached minimum SOC" in m.text]
+    assert said, [m.text for m in result.messages]
+    t_min = float(re.search(r"at t = ([0-9.]+) s", said[0]).group(1))
+    assert abs(supply[0] - t_min) <= 1.0, (supply, said)
     assert lane.seconds["supply"] + lane.seconds["demand"] == pytest.approx(600.0, abs=1e-6)
 
 

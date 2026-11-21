@@ -155,6 +155,15 @@ code. A test in the repository records each as an expected failure
   past its maximum speed in a top-speed test stops on its full-load map
   (`RUN-TABLE`). See *A machine driven to its maximum speed can stop the
   run* below.
+- **An E-Motor on an empty battery feeds its own spin losses from the
+  shaft.** Where its supply cannot cover even the losses of its spinning
+  rotor, the motor takes what the supply gives, and the rest of those
+  losses brakes the shaft (as its *Drag Torque* does with the inverter
+  off). Near standstill, below about 1 1/min, where the shaft cannot feed
+  them, the losses the supply cannot pay are left out of the motor's
+  losses. A battery near its *Minimum SOC* or full gives and takes less as
+  it nears the limit (within about 10 ms of charge), as the older engine
+  did over its step.
 - **A battery driven to its limits, an empty battery's consumers and a
   fuel cell behind a one-way DC-DC converter can fail at their start or at
   t = 0** (`RUN-INIT` at about 2.2 s; `RUN-TABLE` at t = 0): the new engine

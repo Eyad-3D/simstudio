@@ -14,8 +14,13 @@
 //! * with a supply window from its bus (`p_lo`, `p_hi`: what the source can
 //!   give and take after the other loads), the torque is cut to the largest
 //!   share of the command whose electrical power fits — today's bisection,
-//!   here solved exactly — and when not even the spin losses fit, the
-//!   inverter is off.
+//!   here solved exactly — and when not even the spin losses fit, it takes
+//!   its whole window and its shaft feeds the rest of its spin losses (a
+//!   torque against the motion, fading below 0.1 rad/s as the drag does and
+//!   at most its generator torque limit; below that the losses its window
+//!   cannot pay are not paid). A short supply does not switch the inverter
+//!   off: off on such a window, it switched on and off without end as a
+//!   battery's window tapered through its spin losses.
 //!
 //! The rotor's inertia is the block's own (scaled with the Torque Scale);
 //! the maps carry today's scale factors (MOD-47). The maps are runtime
@@ -322,6 +327,8 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
     let elec = |p: Expr| {
         if cfg.inverse { ite(idle.clone(), c(0.0) * n("unit_W"), p) } else { p }
     };
+    // (the windowed motor's short supply, for its electrical power below)
+    let mut short_of: Option<Expr> = None;
     if cfg.windowed && cfg.inverse {
         eqs.push(eq(n("on"), n("alive"), "it runs whenever it may"));
         eqs.push(eq(
@@ -355,40 +362,75 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         ));
     } else if cfg.windowed {
         vars.push(guess("frac", "1", c(1.0), "the share of the command its supply allows"));
-        let l0 = loss_at(c(0.0) * n("unit_N_m"));
+        // its spin losses (the loss map at zero torque), one variable: the
+        // code computes every branch of an `if` and does not share lookups
+        vars.push(var("l0", "W", "its spin losses: its loss map at zero torque"));
+        eqs.push(eq(n("l0"), loss_at(c(0.0) * n("unit_N_m")), "its spin losses at its speed"));
+        let l0 = n("l0");
+        // a short supply cuts its torque, down to its shaft feeding its spin
+        // losses (below), and does not switch the inverter off: off on a
+        // window that did not cover its spin losses, it switched on and off
+        // without end as a battery's window tapered through them; and a
+        // switch near standstill, where the shaft cannot feed them, did too
+        // in a hybrid whose engine keeps the shaft turning. Near standstill
+        // the losses its window cannot pay are not paid (the feeding torque
+        // fades below w_slow, as the drag does)
         eqs.push(eq(
             n("on"),
-            ite(
-                and(gt(n("alive"), c(0.5)), and(le(l0.clone(), n("p_hi")), ge(l0, n("p_lo")))),
-                c(1.0),
-                c(0.0),
-            ),
-            "with no room even for its spin losses, the inverter is off",
+            ite(gt(n("alive"), c(0.5)), c(1.0), c(0.0)),
+            "it runs whenever it may (a short supply cuts its torque)",
         ));
+        // short: its window does not cover even its spin losses
+        let short = || noev(and(gt(n("p_req"), n("p_hi")), lt(n("p_hi"), l0.clone())));
         let p_of = n("frac") * n("t_cmd") * n("w") + loss_at(noev(abs(n("frac") * n("t_cmd"))));
-        // off, the share is not used and is held at 1: its equation need
-        // have no root then (with no room for the spin losses, a share
-        // whose power fits is a generator torque that grows as the rotor
-        // slows, and below some speed there is none)
+        // off, the share is not used and is held at 1 (its equation need
+        // have no root then). Short, it blends the command's torque into the
+        // torque that feeds the spin losses from the shaft: 1 where the
+        // command just fits its window (the torque the command's, as uncut),
+        // 0 where the window reaches the spin losses (as the cut leaves it),
+        // continuous between (a request at its window hovers by the solver's
+        // noise; its window is below the spin losses throughout)
+        let blend = min(c(1.0), max(c(0.0), (l0.clone() - n("p_req")) / (l0.clone() - n("p_hi"))));
         eqs.push(eq(
             c(0.0),
             ite(
-                and(gt(n("on"), c(0.5)), noev(gt(n("p_req"), n("p_hi")))),
-                p_of.clone() - n("p_hi"),
+                and(gt(n("on"), c(0.5)), short()),
+                (n("frac") - blend) * n("unit_W"),
                 ite(
-                    and(gt(n("on"), c(0.5)), noev(lt(n("p_req"), n("p_lo")))),
-                    p_of - n("p_lo"),
-                    (n("frac") - c(1.0)) * n("unit_W"),
+                    and(gt(n("on"), c(0.5)), noev(gt(n("p_req"), n("p_hi")))),
+                    p_of.clone() - n("p_hi"),
+                    ite(
+                        and(gt(n("on"), c(0.5)), noev(lt(n("p_req"), n("p_lo")))),
+                        p_of - n("p_lo"),
+                        (n("frac") - c(1.0)) * n("unit_W"),
+                    ),
                 ),
             ),
             "the torque is cut to the largest share of the command whose power fits its supply \
              (off, the whole command: it is not used)",
         ));
+        // the torque that feeds the spin losses its supply does not cover:
+        // against the motion, (l0 - p_hi)/|w|, fading below w_slow as the
+        // drag does, at most its generator torque limit
+        let t_feed = -(min(
+            (l0.clone() - n("p_hi")) / max(n("wa"), n("w_slow")),
+            n("t_fl") * n("q4_torque_scale_pct"),
+        ) * noev(n("w") / max(noev(abs(n("w"))), n("w_slow"))));
         eqs.push(eq(
             n("T"),
-            ite(gt(n("on"), c(0.5)), n("frac") * n("t_cmd"), unpowered),
-            "powered, the allowed torque; unpowered, its drag against the motion",
+            ite(
+                gt(n("on"), c(0.5)),
+                ite(
+                    short(),
+                    n("frac") * n("t_cmd") + (c(1.0) - n("frac")) * t_feed,
+                    n("frac") * n("t_cmd"),
+                ),
+                unpowered,
+            ),
+            "powered, the allowed torque (short of even its spin losses, the shaft feeds \
+             them); unpowered, its drag against the motion",
         ));
+        short_of = Some(short());
         eqs.push(eq(
             der("t_limited"),
             ite(
@@ -443,9 +485,14 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
              unpowered or idle, nothing",
         )
     } else {
+        // short, it takes its whole window
+        let powered = match short_of {
+            Some(s) => ite(s, n("p_hi"), elec(p_shaft_loss)),
+            None => elec(p_shaft_loss),
+        };
         eq(
             n("p_elec"),
-            ite(gt(n("on"), c(0.5)), elec(p_shaft_loss), c(0.0) * n("unit_W")),
+            ite(gt(n("on"), c(0.5)), powered, c(0.0) * n("unit_W")),
             if cfg.inverse {
                 "powered: shaft power plus the loss map; unpowered or idle: nothing"
             } else {

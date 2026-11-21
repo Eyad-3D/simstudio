@@ -1256,7 +1256,7 @@
       "name": "E-Motor",
       "icon": "fan",
       "domain": "electrical",
-      "description": "Electric machine with voltage-dependent full-load torque map, power-loss map (motor + inverter) and drag torque. The loss map covers every loss while the inverter is powered, spin losses at zero torque included; the drag torque applies only when the motor coasts unpowered (zero command or no supply). Motoring and generating (recuperation) quadrants; generator limit mirrors the full-load map scaled by the Q4 scale parameter. Traction command input is a normalized demand in [-1, 1]. Maximum Speed (0 = the full-load curve's last speed point): the drive torque falls to zero over the last 2 % below it, and above it the inverter is off, so the motor gives no drive torque and no recuperation. Each table axis has an outside-the-data setting: Error stops the run, Clamp holds the edge value, Linear extends the edge slope.",
+      "description": "Electric machine with voltage-dependent full-load torque map, power-loss map (motor + inverter) and drag torque. The loss map covers every loss while the inverter is powered, spin losses at zero torque included; the drag torque applies only when the motor coasts with its inverter off (a Traction Command of exactly 0, a dead supply below 1 V, or above its Maximum Speed). With a supply too short for even its spin losses (an empty battery) the inverter stays on: the motor takes what the supply gives and its shaft feeds the rest of its spin losses, a torque against the motion. Motoring and generating (recuperation) quadrants; generator limit mirrors the full-load map scaled by the Q4 scale parameter. Traction command input is a normalized demand in [-1, 1]. Maximum Speed (0 = the full-load curve's last speed point): the drive torque falls to zero over the last 2 % below it, and above it the inverter is off, so the motor gives no drive torque and no recuperation. Each table axis has an outside-the-data setting: Error stops the run, Clamp holds the edge value, Linear extends the edge slope.",
       "ports": [
         {
           "id": "pos",
@@ -1430,7 +1430,7 @@
             "9000": 1.0,
             "12000": 1.2
           },
-          "description": "The torque that brakes the shaft while the motor coasts with its inverter off (a Traction Command of exactly 0, no supply, or above its Maximum Speed): bearing, air and magnet losses. The motor then draws nothing.",
+          "description": "The torque that brakes the shaft while the motor coasts with its inverter off (a Traction Command of exactly 0, a dead supply below 1 V, or above its Maximum Speed): bearing, air and magnet losses. The motor then draws nothing.",
           "typical": "About 0.1–2 N·m for car motors, growing with speed (the BEV example 0.46–0.9 N·m).",
           "whereToFind": "A spin-down test with the inverter off, or the no-load loss from the datasheet: loss (W) ÷ speed (rad/s)."
         },

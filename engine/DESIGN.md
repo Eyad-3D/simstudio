@@ -2163,14 +2163,64 @@ the command was held at a limit it pushed against, made a heavy car that
 fell behind and caught up slide along full throttle (the Battery Electric
 Car at 6000 kg on the WLTC, stopped at 961.83 s). Its anti-windup is now
 `LimPID`'s back-calculation, which has no mode (section 12.2,
-`blocks/vehicle.rs`). One such storm is left on that car's map (section
-15): its battery at its minimum SOC, whose delivering mode switched 93
-times in 2.1 s as the car, coasting at its empty battery, began to
-recuperate (the long-haul cycle at 11 t). The hybrid's HV Battery does
-the same at its minimum SOC in nine of the acceptance's hybrid fault runs
-(20 November 2026: the SOC is a state, its window off it rises at 4.3e-5
-/s, on it falls at 5.4e-5 /s, and the integrator steps 1e-11 to 1e-10 s
-between crossings), and at full charge in one (`db-2`).
+`blocks/vehicle.rs`). The battery did the same at its SOC limits until
+20 November 2026: its window (the power it gives and takes) closed at a
+jump at its minimum SOC and at 100 %, a mode switched by the SOC, and a
+car that both draws and charges there drove the SOC back to the limit
+from each side. That car's map had one such storm (section 15: its
+delivering mode switched 93 times in 2.1 s as the car, coasting at its
+empty battery, began to recuperate, the long-haul cycle at 11 t); the
+hybrid's HV Battery had it in nine of the acceptance's hybrid fault runs
+(the SOC a state, its window shut it rose at 4.3e-5 /s, open it fell at
+5.4e-5 /s, the integrator stepping 1e-11 to 1e-10 s between crossings)
+and at full charge in one (`db-2`). The window now closes continuously:
+it lets through at most the current that would take the charge left
+above the minimum SOC (or up to full) in 10 ms (`TAU_SOC` in
+`blocks/battery.rs`), today's engine's "within the step" rule in
+continuous time, with no switch at the limits. As that time constant
+goes to zero its limit is the sliding motion itself, the SOC held at the
+limit while the battery gives or takes what keeps it there; at 10 ms the
+SOC stays within the taper of its limit (on the hybrid at a hundredth of
+its capacity, 8e-10 above its minimum). The time constant was chosen on
+the ten hybrid runs: 1 ms and 100 ms ran six to their ends, 10 ms seven
+(at a hundredth of the engine's scale the run's re-initialisation fails
+at 1 ms; the E-Motor's inverter switch chattered at 100 ms).
+
+A smooth taper reaches zero only gradually, so the window passes through
+every consumer's own threshold, and the E-Motor had one: its inverter was
+off where its window did not cover its spin losses (the loss map at zero
+torque). On a battery and a motor alone, run to its minimum SOC, that
+switch slid as the battery's had (on, the SOC falls and the window drops
+below the spin losses; off, the coasting motor slows and its spin losses
+drop below the window); on the hybrid at a hundred times its mass, its
+bus handed the motor an open window (1e30 W) for a request below zero and
+its share of no room for one above, and with a request that was the
+solver's noise about zero (±1e-9 W) the switch went on and off on that
+noise's sign. So (the lead's decision, 20 November 2026) a short supply
+cuts the motor's torque and does not switch its inverter off
+(`blocks/motor.rs`): where its window does not cover even its spin losses
+it takes its whole window, and its shaft feeds the rest, a torque against
+the motion, (l0 − window)/|w|, fading below 0.1 rad/s as the drag does
+and at most its generator torque limit. Where its own command just fits
+the window the torque is the command's, so it blends from the command's
+torque into that one (by (l0 − request)/(l0 − window), held to 0 … 1),
+and its share of the command moves with it: both are continuous where a
+request at its window hovers by the solver's noise. Near standstill the
+spin losses its window cannot pay are not paid: an inverter off below the
+speed where its generator could feed them, the other way measured, slid
+in seven of the ten hybrid runs, whose engine keeps the shaft turning
+while that switch reads the window and the battery's voltage. And each
+motor's window from its bus is continuous in its request (its share where
+the motors are cut back, else its request and all the room left: never
+open). The ten hybrid runs: nine go to their ends with the minimum-SOC
+warnings (one full at its end, `db-2`); the long-haul at 11 t goes to its
+end (books 4.6e-10), and the battery and motor alone too, its minimum-SOC
+warning as before. The tenth (`db-9`, the gear command's link cut) is not
+the battery's: its shaft settles at 6000 1/min, the Engine's speed and a
+breakpoint of the E-Motor's full-load map, with the motor regenerating at
+its full generator torque, and the integrator cannot get past a point
+that is not smooth there (holding table reads in their cells does not
+help); open.
 
 *A mode that event iteration sets on and off without end* (20 November
 2026, `Loop::decide_mode`). Where a mode's own value moves its condition
@@ -2214,8 +2264,8 @@ goes on. At a hundred times its cg height the axle-lift mode's condition
 is +3.3e-6 N off and -8.8e-6 N on (band 2.3e-3 N), rising off at 4.8e3
 N/s and falling on at 1.3e4 N/s: it would slide along the lift point,
 and the run stops there, saying so. A sliding motion at a state's
-boundary (the battery above) never repeats at one instant, and is
-unchanged.
+boundary (the battery's, before its window closed continuously) never
+repeats at one instant, and is not this rule's.
 
 *A read on its edge* (20 November 2026, `Loop::on_the_edge`). A table
 read whose argument sits on the edge of its data on an axis that allows
@@ -3067,7 +3117,14 @@ round).**
   (a variable several of them share once; the steps that do not move
   along a step enclosed once while the discrete values keep theirs), not
   expanded into one expression: a motor's limits read 45 and 49 of them,
-  which expanded ran to 160,000 and 250,000 characters. Both checks read
+  which expanded ran to 160,000 and 250,000 characters. Nor is it
+  expanded to classify it: whether it reads continuous variables is read
+  through the same definitions (`time_functions`), and only a pure
+  function is expanded and held to 20,000 nodes. (Until 20 November 2026
+  the expansion was sized before that question: a DC-DC converter's
+  condition, which reads a motor's electrical power, expanded to 54,592
+  nodes once that read the motor's supply window, and was left to root
+  finding without the pulse check, with a warning.) Both checks read
   the integrator's dense output over the step as the polynomial it
   interpolates with (`Integrator::dense_output`: CVODE's Nordsieck array
   and IDA's divided differences as they hold them, through two more C
@@ -3816,12 +3873,14 @@ save most of those 10 ms in every run, sequential or not (a change to
   dynamic run drove, every 0.1 s, which takes the driver's tracking out,
   −0.05 … +0.07 %; perturbed, at most 1.5e-7 apart, no flag either way.
   The long-haul cycle (805 km) empties both batteries: fast mode flags
-  them from the second they reach their minimum SOC, and the full
-  dynamic runs stop about 200 s later, where the battery is empty
+  them from the second they reach their minimum SOC. The full dynamic
+  runs once stopped about 200 s later, where the battery is empty
   (14 881 s on the aerodynamic BEV, 14 541 s on the BEV), naming the
-  E-Motor's equation that cuts its torque to what its supply gives (the
-  forward run's, outside fast mode; before the solver work's state
-  selection round, on a bare SUNDIALS flag −4). On EPA's four reference cars (UDDS,
+  E-Motor's equation that cuts its torque to what its supply gives
+  (before the solver work's state selection round, on a bare SUNDIALS
+  flag −4); since the E-Motor's fix (section 12.2) they run to the
+  cycle's end, the car standing at its empty battery (measured 20
+  November 2026: 342.7 km on the aerodynamic BEV, 333.8 km on the BEV). On EPA's four reference cars (UDDS,
   HWFET), fast mode's energy at the wall is within 0.02 … 0.17 % of the
   full dynamic run's and within 1.3 % of FASTSim 3.1.0's given the same
   cars (mean 0.92 %; today's engine is within 1.3 % too,
@@ -4052,8 +4111,8 @@ against exact answers from `benchmarks/`.
 
 | today | new composition (sketch) |
 |---|---|
-| `battery.generic` | OCV(SOC, T) table source + R0(SOC, T) + up to two RC pairs + SOC integrator (∫i dt / capacity) + cell-limit outputs; thermal port |
-| `motor.emotor` | ideal machine (torque = demand × available torque at speed and voltage, `limit` on full-load curve) + loss map table → electrical power = mechanical + loss; with its bus's supply window, the torque cut to the share of the command whose power fits, the inverter off where not even the spin losses fit (its torque the drag; the share is then not solved: at an empty battery it would have none, and IDA stopped with flag -4); its full-load and loss maps are read at the speed held to its maximum speed (above it the inverter is off and they are not used, so a table that ends there is never read past its data) |
+| `battery.generic` | OCV(SOC, T) table source + R0(SOC, T) + up to two RC pairs + SOC integrator (∫i dt / capacity) + cell-limit outputs; its power window closes continuously at its minimum SOC and at full (the current that takes the charge left in 10 ms, section 8.2); thermal port |
+| `motor.emotor` | ideal machine (torque = demand × available torque at speed and voltage, `limit` on full-load curve) + loss map table → electrical power = mechanical + loss; with its bus's supply window, the torque cut to the share of the command whose power fits, where not even the spin losses fit, its whole window taken and its shaft feeding the rest of them, a torque against the motion that fades below 0.1 rad/s (until 20 November 2026 the inverter was off there, which slid as a battery's tapering window passed through the spin losses, section 8.2; before that the share was solved there too and had no root at an empty battery, IDA stopping with flag -4); the inverter off only at a command of exactly 0, a dead supply or above its maximum speed; its full-load and loss maps are read at the speed held to its maximum speed (above it the inverter is off and they are not used, so a table that ends there is never read past its data) |
 | `engine.combustion` | torque source with full-load and fuel maps (tables), fuel port, idle/on logic as modes |
 | `fuelcell.stack`, `fuel.h2_tank`, `fuel.tank` | polarisation table source; tanks as fuel-port reservoirs (mass state) |
 | `controller.dcdc` | average-model converter with efficiency, power conserved minus loss |
@@ -4166,7 +4225,11 @@ against exact answers from `benchmarks/`.
   cell whose Hydrogen Tank the run drains holds the motors back at its
   maximum power in today's words, as today's, which holds it to the
   hydrogen left; one empty from the start says the tank is empty); a
-  battery reaching its minimum SOC is said at the run's event; a Script
+  battery reaching its minimum SOC is said at the run's event, and its
+  minimum SOC or its full charge holds the motors where the current that
+  limit allows (`i_floor`, `i_full`, which taper as the SOC nears it) is
+  below the maximum-power point's or holds the charge below its Max
+  Charge Power, as today's says it; a Script
   output with no port is today's warning too. A run that reads a value
   outside its parameter's limits (a study's point: Data Checks check only
   the study's base project) is not run (`NEW-LIMITS`, in Data Checks'
@@ -4776,7 +4839,9 @@ events name the modes that chatter.
   a car at its maximum available power, standing at its empty battery on
   the two long-haul cycles (they stopped with a bare flag -4 until the
   E-Motor's fix, section 12.2), and one stops with an event storm the
-  run loop names (the battery's minimum-SOC mode, long-haul at 11 t).
+  run loop names (the battery's minimum-SOC mode, long-haul at 11 t;
+  it runs to its end since the battery's window closes continuously,
+  20 November 2026, section 8.2).
   None is outside where the Driver could have helped. On the heavy cars
   today's engine differs from the new one by up to 2 % in consumption,
   and by 0.13 % or less once its frozen integral is replaced by
