@@ -35,13 +35,16 @@
 //! function of time; the peak current's duration running out is then a
 //! time the run reaches exactly (an event), with no switch back until the
 //! current reverses. An optional weak series element has its own SOC
-//! (a share of the capacity) and a multiple of the resistance: it sags the
-//! pack, its cell voltage limits hold the current, and it stops the string
-//! at the minimum SOC or full by the same continuous rule as the pack's
-//! ([`TAU_SOC`]). The cells' current and voltage limits and the derating
-//! band are today's, in continuous time (the RC pair met as it is now, as
-//! for pack limits). Outputs: the lowest and highest cell voltage, and the
-//! state of power for 2, 10 and 30 s pulses.
+//! (a share of the capacity) and a multiple of the resistance (its factor
+//! read at its own SOC): it sags the pack, its cell voltage limits hold the
+//! current, and it stops the string at the minimum SOC or full by the same
+//! continuous rule as the pack's ([`TAU_SOC`]). The cells' current and
+//! voltage limits and the derating band are today's, in continuous time
+//! (the RC pair met as it is now, as for pack limits); the band reads the
+//! lower of the pack's and the weak element's SOC for discharging, the
+//! higher for charging (it empties and fills first). Outputs: the lowest
+//! and highest cell voltage, and the state of power for 2, 10 and 30 s
+//! pulses.
 
 use super::*;
 use crate::table::{Outside, Table1, Table2, UnitCarriers, table_param};
@@ -516,7 +519,9 @@ fn cells_part(
     let zero_a = || c(0.0) * ua.clone();
     let big_a = || c(BIG) * ua.clone();
     let v1 = if rc { n("v1") } else { c(0.0) * uv.clone() };
-    let rf = |pulse: Expr| lsim_ir::expr::table("cell_resistance_factor", vec![pulse, n("soc_c")]);
+    let rf = |pulse: Expr, soc: &str| {
+        lsim_ir::expr::table("cell_resistance_factor", vec![pulse, n(soc)])
+    };
     // the pulse going on: since the current last changed direction
     vars.push(discrete("t0", "s", 0.0, "when the pulse going on started"));
     vars.push(discrete(
@@ -559,13 +564,13 @@ fn cells_part(
     vars.push(var("r_pulse", "Ohm", "a cell's resistance in the pulse going on"));
     eqs.push(eq(
         n("r_pulse"),
-        n("dcr") * rf(pulse.clone()) * n("f_t"),
+        n("dcr") * rf(pulse.clone(), "soc_c") * n("f_t"),
         "the DC resistance × its factors for the pulse going on and the temperature",
     ));
     vars.push(var("r_cell0", "Ohm", "a cell's resistance in a pulse starting now"));
     eqs.push(eq(
         n("r_cell0"),
-        n("dcr") * rf(c(0.0) * us.clone()) * n("f_t"),
+        n("dcr") * rf(c(0.0) * us.clone(), "soc_c") * n("f_t"),
         "the DC resistance × its factors for a pulse starting now and the temperature",
     ));
     vars.push(var("r_cell", "Ohm", "a cell's resistance now"));
@@ -580,8 +585,10 @@ fn cells_part(
         lsim_ir::expr::table("cell_ocv_table", vec![n("soc_c")]),
         "the cell's OCV at the SOC",
     ));
-    // (cell, its resistance multiple): the normal cells, and the weak element
-    let mut kinds = vec![(n("v_cell"), None)];
+    // (cell, its resistance multiple, the SOC its resistance factor is read
+    // at, its resistance now and in a pulse starting now): the normal cells,
+    // and the weak element
+    let mut kinds = vec![(n("v_cell"), None, "soc_c", "r_cell", "r_cell0")];
     if cc.weak {
         let mut sw = state("soc_w", "1", 0.9, "the weak element's state of charge");
         sw.start = Some(n("initial_soc_pct"));
@@ -601,16 +608,44 @@ fn cells_part(
             lsim_ir::expr::table("cell_ocv_table", vec![n("soc_wc")]),
             "the cell's OCV at the weak element's SOC",
         ));
-        kinds.push((n("v_weak"), Some(n("weak_res"))));
+        // its resistance: the normal cell's, its factor read at its own SOC
+        // (before its multiple)
+        vars.push(var("r_pulse_w", "Ohm", "the weak cell's resistance in the pulse going on"));
+        eqs.push(eq(
+            n("r_pulse_w"),
+            n("dcr") * rf(pulse.clone(), "soc_wc") * n("f_t"),
+            "the DC resistance × its factors for the pulse going on at its SOC and the temperature",
+        ));
+        vars.push(var("r_cell0_w", "Ohm", "the weak cell's resistance in a pulse starting now"));
+        eqs.push(eq(
+            n("r_cell0_w"),
+            n("dcr") * rf(c(0.0) * us.clone(), "soc_wc") * n("f_t"),
+            "the DC resistance × its factors for a pulse starting now at its SOC and the temperature",
+        ));
+        vars.push(var("r_cell_w", "Ohm", "the weak cell's resistance now (before its multiple)"));
+        eqs.push(eq(
+            n("r_cell_w"),
+            ite(noev(gt(n("dir") * n("dir"), c(0.5))), n("r_pulse_w"), n("r_cell0_w")),
+            "in the pulse going on (none yet: one starting now)",
+        ));
+        kinds.push((n("v_weak"), Some(n("weak_res")), "soc_wc", "r_cell_w", "r_cell0_w"));
     }
-    let k_res = if cc.weak { n("ns") - c(1.0) + n("weak_res") } else { n("ns") };
-    let pack_r = |r_cell: Expr| k_res.clone() * r_cell / n("np") + n("ns") * n("r_ic") + n("r_ct");
+    // R0 from a normal cell's resistance and the weak cell's (before its
+    // multiple; none without a weak element)
+    let weak = cc.weak;
+    let pack_r = |r_cell: Expr, r_weak: Option<Expr>| {
+        let series = match r_weak {
+            Some(rw) if weak => (n("ns") - c(1.0)) * r_cell + n("weak_res") * rw,
+            _ => n("ns") * r_cell,
+        };
+        series / n("np") + n("ns") * n("r_ic") + n("r_ct")
+    };
     vars.push(var("r0", "Ohm", "R0 now"));
     eqs.push(eq(
         n("r0"),
-        pack_r(n("r_cell")),
-        "Ns series elements of Np cells (the weak one × its multiple), their interconnects and \
-         the contactors",
+        pack_r(n("r_cell"), cc.weak.then(|| n("r_cell_w"))),
+        "Ns series elements of Np cells (the weak one × its multiple, at its SOC), their \
+         interconnects and the contactors",
     ));
     // the cells' current limits: continuous, or the peak for a pulse up to
     // its duration (a pulse the other way: one starting now); 0 = none
@@ -647,36 +682,41 @@ fn cells_part(
     // the cells' voltage limits, behind each cell's resistance in the pulse
     // that way and its share of the RC pair's voltage, for the normal cells
     // and the weak element
-    let r_dis = ite(noev(gt(n("dir"), c(0.5))), n("r_cell"), n("r_cell0"));
-    let r_ch = ite(noev(lt(n("dir"), c(-0.5))), n("r_cell"), n("r_cell0"));
+    let r_dis = |now: &str, start: &str| ite(noev(gt(n("dir"), c(0.5))), n(now), n(start));
+    let r_ch = |now: &str, start: &str| ite(noev(lt(n("dir"), c(-0.5))), n(now), n(start));
     let v_rc_cell = v1.clone() / n("ns");
     let times = |r: Expr, k: &Option<Expr>| match k {
         Some(k) => r * k.clone(),
         None => r,
     };
     let (mut dis, mut ch) = (n("i_dis_cur"), n("i_ch_cur"));
-    for (v_ocv, k) in &kinds {
+    for (v_ocv, k, _, now, start) in &kinds {
         let v_src = v_ocv.clone() - v_rc_cell.clone();
         if cc.v_min {
             dis = min(
                 dis,
                 max(
                     zero_a(),
-                    (v_src.clone() - n("cell_min_voltage_V")) * n("np") / times(r_dis.clone(), k),
+                    (v_src.clone() - n("cell_min_voltage_V")) * n("np")
+                        / times(r_dis(now, start), k),
                 ),
             );
         }
         if cc.v_max {
             ch = min(
                 ch,
-                max(zero_a(), (n("cell_max_voltage_V") - v_src) * n("np") / times(r_ch.clone(), k)),
+                max(
+                    zero_a(),
+                    (n("cell_max_voltage_V") - v_src) * n("np") / times(r_ch(now, start), k),
+                ),
             );
         }
     }
     // the derating band's factors (the weak element's SOC, if lower, for
-    // discharging)
+    // discharging; if higher, for charging: it empties and fills first)
     if band {
         let soc_d = if cc.weak { min(n("soc"), n("soc_w")) } else { n("soc") };
+        let soc_ch = if cc.weak { max(n("soc"), n("soc_w")) } else { n("soc") };
         vars.push(var("k_dis", "1", "the derating band's discharge factor"));
         vars.push(var("k_ch", "1", "the derating band's charge factor"));
         eqs.push(eq(
@@ -686,7 +726,7 @@ fn cells_part(
         ));
         eqs.push(eq(
             n("k_ch"),
-            clamp((c(1.0) - n("soc")) / n("soc_derate_band_pct"), c(0.0), c(1.0)),
+            clamp((c(1.0) - soc_ch) / n("soc_derate_band_pct"), c(0.0), c(1.0)),
             "1 below the band, falling to 0 at full",
         ));
     }
@@ -701,8 +741,8 @@ fn cells_part(
         } else {
             (c(0.0) * uv.clone(), c(0.0) * uohm.clone())
         };
-        let rc_d = n("dcr") * rf(ds.clone()) * n("f_t");
-        let r_tot = pack_r(rc_d.clone()) + r_rc.clone();
+        let rc_d = |soc: &str| n("dcr") * rf(ds.clone(), soc) * n("f_t");
+        let r_tot = pack_r(rc_d("soc_c"), cc.weak.then(|| rc_d("soc_wc"))) + r_rc.clone();
         let a_d = n("ocv") - v_keep.clone();
         let i_mpp = max(a_d.clone(), c(0.0) * uv.clone()) / (c(2.0) * r_tot.clone());
         let within = le(ds.clone(), n("peak_s"));
@@ -716,9 +756,9 @@ fn cells_part(
             cur_d(cc.i_dis, cc.i_dis_peak, "cell_max_discharge_A", "cell_peak_discharge_A");
         let mut ch_d = cur_d(cc.i_ch, cc.i_ch_peak, "cell_max_charge_A", "cell_peak_charge_A");
         let r_rc_cell = r_rc.clone() * n("np") / n("ns");
-        for (v_ocv, k) in &kinds {
+        for (v_ocv, k, soc, _, _) in &kinds {
             let v_src = v_ocv.clone() - v_keep.clone() / n("ns");
-            let r_e = times(rc_d.clone(), k) + r_rc_cell.clone();
+            let r_e = times(rc_d(soc), k) + r_rc_cell.clone();
             if cc.v_min {
                 dis_d = min(
                     dis_d,
@@ -764,10 +804,10 @@ fn cells_part(
     }
     // the lowest and highest cell voltage
     let i_cell = n("i") / n("np");
-    let v_of = |v_ocv: &Expr, k: &Option<Expr>| {
-        v_ocv.clone() - v_rc_cell.clone() - i_cell.clone() * times(n("r_cell"), k)
+    let v_of = |v_ocv: &Expr, k: &Option<Expr>, now: &str| {
+        v_ocv.clone() - v_rc_cell.clone() - i_cell.clone() * times(n(now), k)
     };
-    let vs: Vec<Expr> = kinds.iter().map(|(v, k)| v_of(v, k)).collect();
+    let vs: Vec<Expr> = kinds.iter().map(|(v, k, _, now, _)| v_of(v, k, now)).collect();
     let (lo, hi) = match vs.as_slice() {
         [a, b] => (min(a.clone(), b.clone()), max(a.clone(), b.clone())),
         [a] => (a.clone(), a.clone()),

@@ -11,8 +11,9 @@ Ns cells in series and Np in parallel (96s30p):
   cell temperature, per series element ÷ Np, plus each series element's
   interconnect and the contactors;
 - an optional weak series element (a share of the capacity and a multiple of
-  the resistance): it empties first and sags most, so the pack's limits
-  follow it, as the weakest module limits a string in VECTO and Modelica;
+  the resistance, its factor read at its own SOC): it empties and fills
+  first and sags most, so the pack's limits follow it, as the weakest module
+  limits a string in VECTO and Modelica;
 - mass Ns × Np × the cell's × a packaging factor (an estimate).
 
 Limits, in both modes (*Pack values* sets them for the pack, 0 = none): the
@@ -23,9 +24,11 @@ evenly over the series cells); the charge current likewise against the
 maximum. A weak element stops the string when it reaches the minimum SOC
 or 100 %, as the same current flows through every series element. A
 derating band above the minimum SOC and below 100 % lowers both linearly
-to 0 there, as FASTSim's buffers do: the current limits, or without one
-the maximum-power-point current (discharge) and the current at the Max
-Charge Power (charge). The source-limit handshake holds the motors to them.
+to 0 there (at the lower of the pack's and a weak element's SOC for
+discharging, the higher for charging), as FASTSim's buffers do: the
+current limits, or without one the maximum-power-point current
+(discharge) and the current at the Max Charge Power (charge). The
+source-limit handshake holds the motors to them.
 
 Until LightSim has a thermal model (MOD-09), the cells are at the first
 Ambient's temperature (20 °C without one).
@@ -73,6 +76,7 @@ class CellPack:
     pulse_sign: int = 0
     pulse_s: float = 0.0
     r_cell_now: float = 0.0  # this step's cell resistance (CELLS)
+    r_weak_now: float = 0.0  # and the weak cell's, at its own SOC, before its multiple
     bound_dis: str | None = None
     bound_ch: str | None = None
     v_cell: tuple[float, float] = (0.0, 0.0)  # lowest and highest cell voltage now
@@ -89,10 +93,19 @@ class CellPack:
         """A normal cell's resistance, Ω (CELLS)."""
         return (self.dcr * self.r_factor.at(pulse_s, soc_pct) * self.t_factor.at(t_c))
 
-    def r_pack(self, r_cell: float) -> float:
-        """The pack's resistance with this cell resistance, Ω (CELLS)."""
-        return ((self.ns - 1 + self.weak_res) * r_cell / self.np + self.ns * self.r_ic
-                + self.r_contactor)
+    def r_weak(self, t_c: float, pulse_s: float) -> float:
+        """The weak cell's resistance before its multiple: the normal cell's
+        at the weak element's SOC, Ω (CELLS)."""
+        return self.r_cell(max(0.0, min(1.0, self.soc_weak)) * 100.0, t_c, pulse_s)
+
+    def r_pack(self, r_cell: float, r_weak: float = 0.0) -> float:
+        """The pack's resistance with this cell resistance and, with a weak
+        element, the weak cell's (r_weak(): before its multiple), Ω (CELLS)."""
+        if self.weak:
+            series = (self.ns - 1) * r_cell + self.weak_res * r_weak
+        else:
+            series = (self.ns - 1 + self.weak_res) * r_cell
+        return series / self.np + self.ns * self.r_ic + self.r_contactor
 
     def ocv_cells(self, soc: float) -> tuple[float, float]:
         """(a normal cell's, the weak cell's) open-circuit voltage (CELLS)."""
@@ -109,12 +122,15 @@ class CellPack:
         return w - v
 
     def derate(self, soc: float, min_soc: float) -> tuple[float, float]:
-        """(discharge, charge) factors of the derating band, 0-1."""
+        """(discharge, charge) factors of the derating band, 0-1: at the
+        lower of the pack's and a weak element's SOC for discharging, the
+        higher for charging (it empties and fills first)."""
         if self.band <= 0:
             return 1.0, 1.0
         soc_d = min(soc, self.soc_weak) if self.weak else soc
+        soc_c = max(soc, self.soc_weak) if self.weak else soc
         return (max(0.0, min(1.0, (soc_d - min_soc) / self.band)),
-                max(0.0, min(1.0, (1.0 - soc) / self.band)))
+                max(0.0, min(1.0, (1.0 - soc_c) / self.band)))
 
     def currents(self, soc: float, min_soc: float, t_c: float, pulse_dis: float,
                  pulse_ch: float, ocv_pack: float, r0: float, v_rc: float = 0.0,
@@ -148,15 +164,17 @@ class CellPack:
             # the RC pair's share per cell: its voltage, and its resistance
             # as the pack current meets it (× Np for the cell's own current)
             v_rc_cell, r_rc_np = v_rc / self.ns, r_rc * self.np / self.ns
-            for v_ocv, k in ((v_n, 1.0), (v_w, self.weak_res)):
+            # (the normal cells at the pack's SOC, the weak one at its own)
+            soc_w = max(0.0, min(1.0, self.soc_weak))
+            for v_ocv, k, s_r in ((v_n, 1.0, soc), (v_w, self.weak_res, soc_w)):
                 v_src = v_ocv - v_rc_cell  # the cell's voltage behind its resistance
                 if self.v_min > 0:
-                    r_e = self.r_cell(soc * 100.0, t_c, pulse_dis) * k + r_rc_np
+                    r_e = self.r_cell(s_r * 100.0, t_c, pulse_dis) * k + r_rc_np
                     i_v = max(0.0, (v_src - self.v_min) * self.np / r_e)
                     if i_v < dis:
                         dis, why_dis = i_v, "cell voltage"
                 if self.v_max > 0:
-                    r_e = self.r_cell(soc * 100.0, t_c, pulse_ch) * k + r_rc_np
+                    r_e = self.r_cell(s_r * 100.0, t_c, pulse_ch) * k + r_rc_np
                     i_v = max(0.0, (self.v_max - v_src) * self.np / r_e)
                     if i_v < ch:
                         ch, why_ch = i_v, "cell voltage"
@@ -218,7 +236,8 @@ class CellPack:
         i_cell = current / self.np
         v_rc_cell = v_rc / self.ns
         vn = v - v_rc_cell - i_cell * self.r_cell_now
-        vw = w - v_rc_cell - i_cell * self.r_cell_now * self.weak_res
+        r_w = self.r_weak_now if self.weak else self.r_cell_now
+        vw = w - v_rc_cell - i_cell * r_w * self.weak_res
         return min(vn, vw), max(vn, vw)
 
 
@@ -244,7 +263,7 @@ def sop(cp: CellPack, soc: float, min_soc: float, t_c: float, ocv_pack: float,
     for d in SOP_PULSES:
         v_keep, r_rc = rc_horizon(v_rc, r1, tau, math.exp(-d / tau) if tau > 0 else 1.0)
         a_volt = ocv_pack - v_keep
-        r = cp.r_pack(cp.r_cell(soc * 100.0, t_c, d))
+        r = cp.r_pack(cp.r_cell(soc * 100.0, t_c, d), cp.r_weak(t_c, d) if cp.weak else 0.0)
         i_mpp = max(0.0, a_volt) / (2.0 * (r + r_rc))
         i_dis, _, i_ch, _ = cp.currents(soc, min_soc, t_c, d, d, ocv_pack, r, v_keep, r_rc,
                                         (i_mpp, math.inf))

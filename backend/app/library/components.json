@@ -1256,7 +1256,7 @@
               "Cells"
             ]
           },
-          "description": "One series group's capacity as a share of the others' (an aged or weak group). It empties first, so the pack's limits follow it. 100 % = all groups alike.",
+          "description": "One series group's capacity as a share of the others' (an aged or weak group). It empties and fills first, so the pack's limits and its derating band follow it. 100 % = all groups alike.",
           "typical": "100 % for a new pack (the default) · 90–97 % for an aged one.",
           "whereToFind": "The battery management system's lowest group capacity, or cell-matching data."
         },
@@ -1276,7 +1276,7 @@
               "Cells"
             ]
           },
-          "description": "One series group's resistance as a share of the others'. It sags most under load, so the pack's voltage limit follows it. 100 % = all groups alike.",
+          "description": "One series group's resistance as a share of the others', at its own state of charge. It sags most under load, so the pack's voltage limit follows it. 100 % = all groups alike.",
           "typical": "100 % for a new pack (the default) · 110–150 % for an aged or poorly cooled group.",
           "whereToFind": "The battery management system's group resistance readings, or cell-matching data."
         },

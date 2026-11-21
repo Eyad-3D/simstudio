@@ -1235,6 +1235,12 @@ sections.
 
 ### Fixed
 
+- A battery built from cells with a weakest group, on both engines: the
+  derating band's charge factor follows the group when it is fuller than
+  the pack (a group with less capacity fills first, as it empties first),
+  and the group's resistance is read at its own state of charge (both read
+  the pack's). Packs without a weakest group do not change; the examples
+  have none.
 - A Road Profile set to a drive cycle, and the DC-DC converter, on the new
   engine. A Road Profile that takes its grade from a cycle against time
   meets each hill at the distance where the cycle has it, read against the

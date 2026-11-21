@@ -343,3 +343,90 @@ fn a_cells_pack_with_only_peak_currents_in_its_derating_band() {
     assert!((got - want).abs() < 1e-9 * want, "past the peak's duration: {got} against {want}");
     books_close(&res, 1e-8);
 }
+
+/// A pack built from cells with a weak group (half the capacity, 1.5 × the
+/// resistance) and a 20 % derating band, at a constant current `i_load`
+/// (A, negative charging) from `soc0`: the run and the cells.
+fn weak_pack(
+    i_load: f64,
+    soc0: f64,
+) -> (lsim_solve::SimResult, lsim_lib::blocks::battery::CellsConfig) {
+    use lsim_lib::blocks::battery::CellsConfig;
+    let cells = CellsConfig { weak: true, ..CellsConfig::default() };
+    let cfg = BatteryConfig {
+        ocv: cells.pack_ocv(),
+        cells: Some(cells.clone()),
+        cells_band: true,
+        ..BatteryConfig::default()
+    };
+    let (lib, def) = lib_with(&cfg);
+    let temp = lsim_lib::signal::constant("K").name;
+    let bat = [
+        ("initial_soc_pct", soc0),
+        ("min_soc_pct", 0.05),
+        ("soc_derate_band_pct", 0.2),
+        ("weak_cell_capacity_pct", 0.5),
+        ("weak_cell_resistance_pct", 1.5),
+    ];
+    let top = ComponentDef {
+        name: "Weak".into(),
+        components: vec![
+            part("bat", &def, &bat),
+            part("load", "Electrical.ConstantCurrent", &[("I", i_load)]),
+            part("gnd", "Electrical.Ground", &[]),
+            part("temp", &temp, &[("k", 298.15)]),
+        ],
+        connections: vec![
+            connect("bat.pos", "load.p"),
+            connect("load.n", "bat.neg"),
+            connect("bat.neg", "gnd.p"),
+            connect("temp.y", "bat.T_cell"),
+        ],
+        ..Default::default()
+    };
+    let (_m, res) = run(&lib, &top, 150.0, 0.5, RTOL);
+    books_close(&res, 1e-8);
+    (res, cells)
+}
+
+/// The weak group fills first (half the capacity: twice as fast), so the
+/// derating band's charge factor reads the higher of its SOC and the
+/// pack's, as the discharge factor reads the lower. Charging at 300 A from
+/// 70 %, the group reaches the band (80 %) when the pack is at 75 %.
+#[test]
+fn a_weak_groups_charge_band_reads_the_higher_soc() {
+    let (res, _) = weak_pack(-300.0, 0.7);
+    let q = 30.0 * 5.0 * 3600.0;
+    for t in [30.0, 90.0, 150.0] {
+        let soc = 0.7 + 300.0 * t / q;
+        let soc_w = 0.7 + 300.0 * t / (0.5 * q);
+        assert!((at(&res, "bat.soc", t) - soc).abs() < 1e-9, "SOC at {t}");
+        assert!((at(&res, "bat.soc_w", t) - soc_w).abs() < 1e-9, "the group's SOC at {t}");
+        let k = ((1.0 - soc_w) / 0.2).clamp(0.0, 1.0);
+        let got = at(&res, "bat.k_ch", t);
+        assert!((got - k).abs() < 1e-8, "the charge factor at {t}: {got} against {k}");
+    }
+    assert!(at(&res, "bat.k_ch", 150.0) < 0.7, "inside the band while the pack is below it");
+}
+
+/// The weak group's resistance is the cell's DC resistance × its factor at
+/// the group's own SOC × its multiple; the normal cells keep the pack's
+/// SOC. Discharging at 300 A from 30 %, the group (half the capacity) is at
+/// 13 % when the pack is at 22 %, where the long-pulse factor is 1.85
+/// against 1.65.
+#[test]
+fn a_weak_groups_resistance_is_read_at_its_own_soc() {
+    let (res, cells) = weak_pack(300.0, 0.3);
+    let q = 30.0 * 5.0 * 3600.0;
+    for t in [5.0, 60.0, 150.0] {
+        let (soc, soc_w) = (0.3 - 300.0 * t / q, 0.3 - 300.0 * t / (0.5 * q));
+        let pulse = t - 1e-3;
+        let r = |s: f64| 0.02 * cells.r_factor.eval(pulse, s) * cells.t_factor.eval(298.15);
+        let r0 = (95.0 * r(soc) + 1.5 * r(soc_w)) / 30.0 + 96.0 * 0.0002 + 0.0005;
+        let got = at(&res, "bat.r0", t);
+        assert!((got - r0).abs() < 1e-9 * r0, "R0 at {t}: {got} against {r0} by hand");
+        let v_w = cells.ocv.eval(soc_w) - 300.0 / 30.0 * r(soc_w) * 1.5;
+        let got = at(&res, "bat.sig_v_cell_min", t);
+        assert!((got - v_w).abs() < 1e-9, "the weak cell's voltage at {t}: {got} against {v_w}");
+    }
+}

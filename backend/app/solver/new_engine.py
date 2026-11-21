@@ -1640,7 +1640,7 @@ BRANCH_READS = {
     ("battery.generic", "cell_resistance_factor"): Reads(
         "nowhere: it books no read of a cell's resistance factors",
         ((("time - t0", "0 * unit_s", "2 * unit_s", "10 * unit_s", "30 * unit_s"), NEVER),
-         (("soc_c",), NEVER))),
+         (("soc_c", "soc_wc"), NEVER))),
     ("battery.generic", "cell_temperature_factor"): Reads(
         "nowhere: it books no read of a cell's resistance factors", ((("T_cell",), NEVER),)),
     ("motor.emotor", "full_load_torque"): Reads(

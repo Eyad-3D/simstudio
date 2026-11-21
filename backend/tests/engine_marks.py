@@ -28,6 +28,9 @@ POLLS = ("(ii) its Stop lands mid-run only on today's engine, which reads the st
 STORED = ("(ii) the examples' stored results are runs of today's engine (their snapshot says so): a fresh run on "
           "today's engine gives them; storing new ones from the new engine is for the owner")
 
+WEAK = ("(ii) today's engine's own copy of the weakest group, changed with the new engine's (its charge "
+        "factor and its resistance; the both-engines comparison holds the two models together)")
+
 TODAY_FILES = {
     "test_lapsim.py": LAP,
     "test_fs_events.py": FS,
@@ -110,6 +113,9 @@ TODAY = {
         "(ii) the validation page records today's engine's measurement (20 October 2026)"),
     "test_docs.py::test_everything_that_says_how_far_lightsim_is_validated_gives_the_suites_figure": (
         "(ii) the validation page records today's engine's measurement (20 October 2026)"),
+    # (ii) today's engine's own battery model, changed with the new engine's (one model in both)
+    "test_battery_cells.py::test_a_weak_group_fills_first_and_the_charge_band_follows_it[today]": WEAK,
+    "test_battery_cells.py::test_a_weak_groups_resistance_is_read_at_its_own_soc[today]": WEAK,
 }
 
 PORT = ("an acceleration case of a car whose Driver has Target Speed or Actual Speed linked was refused "
