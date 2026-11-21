@@ -495,10 +495,15 @@ body,
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: -8px -8px 0;
-  padding: 8px;
+  margin-top: -8px;
+  padding: 8px 0;
   background: var(--ss-panel);
   border-bottom: 1px solid var(--ss-border);
+}
+/* the window's sections: one value and one unit column for all of them
+   (ElementForm sets the widths), so values line up from section to section */
+.ss-param-sections .ss-param-grid {
+  grid-template-columns: minmax(72px, 1fr) var(--ss-value-col) var(--ss-unit-col);
 }
 /* the window's sections: a plain heading, folded or open */
 .ss-param-section {

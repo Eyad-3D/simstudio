@@ -1486,7 +1486,25 @@ export function ElementForm({
         </div>
       ))}
       {sections ? (
-        sections.map(section)
+        // one value and one unit column for every section, so they line up
+        // down the window: as wide as the longest value and unit shown
+        <div
+          className="ss-param-sections flex flex-col gap-2"
+          style={
+            {
+              "--ss-value-col": `max(5.5rem, calc(${Math.max(
+                0,
+                ...scalarParams.map((p) => {
+                  const v = valueOf(p);
+                  return p.type === "number" && typeof v === "number" ? showNumber(v, p.unit, unitOf(p)).length : 0;
+                }),
+              )}ch + 24px))`,
+              "--ss-unit-col": `calc(${Math.max(1, ...scalarParams.map((p) => unitOf(p).length))}ch + 26px)`,
+            } as React.CSSProperties
+          }
+        >
+          {sections.map(section)}
+        </div>
       ) : (
         scalarTable(scalarParams.filter(matches))
       )}
