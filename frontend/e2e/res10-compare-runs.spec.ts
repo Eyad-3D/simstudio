@@ -4,11 +4,20 @@
 // changed part is one click from the diagram. Names and notes are edited in
 // Run info and stored with the run.
 import { expect, test, type Page } from "@playwright/test";
-import { expectProject, headlineTile, openApp, openSummary, ribbonTab, runActiveCase, selectElement, showPanel } from "./app";
+import {
+  expectProject,
+  headlineTile,
+  openApp,
+  openSummary,
+  ribbonTab,
+  runActiveCase,
+  runNames,
+  runRow,
+  selectElement,
+  showPanel,
+} from "./app";
 import { importProject } from "./ui-helpers";
 
-const primary = (page: Page) => page.getByRole("combobox", { name: "Primary run" });
-const options = (page: Page) => primary(page).locator("option").allTextContents();
 /** A summary row's cells: label, this run, baseline, change, % change, unit. */
 const row = (page: Page, label: string) =>
   page.getByRole("region", { name: "Summary" }).getByRole("row", { name: new RegExp(`^${label}`) }).getByRole("cell");
@@ -32,7 +41,7 @@ test("RES-10: a re-run is named by its change and compared with the run before",
   await runActiveCase(page);
 
   // named by the change; the first run keeps its clock time
-  expect(await options(page)).toEqual(["City Cycle · Vehicle Mass 2,300 kg", expect.stringMatching(/^City Cycle · \d/)]);
+  expect(await runNames(page)).toEqual(["City Cycle · Vehicle Mass 2,300 kg", expect.stringMatching(/^City Cycle · \d/)]);
   const baseline = page.getByRole("combobox", { name: "Baseline run" });
   await expect(baseline).toHaveValue("");
   await expect(baseline.locator("option").first()).toHaveText(/^Previous run of this case \(\d/);
@@ -70,12 +79,12 @@ test("RES-10: a re-run is named by its change and compared with the run before",
   await expect(info.getByRole("textbox", { name: "Note" })).toBeFocused();
   await page.keyboard.type("battery upgrade");
   await page.keyboard.press("Tab");
-  await expect(primary(page).locator("option").first()).toHaveText("City Cycle · Heavier car");
+  await expect(runRow(page, 0).show).toHaveAccessibleName("Show City Cycle · Heavier car");
   await expect
     .poll(async () => (await (await page.request.get(`/api/projects/${id}/runs`)).json())[0])
     .toMatchObject({ name: "Heavier car", note: "battery upgrade" });
   // the first run, with no name and no note, keeps one Name field when named
-  await primary(page).selectOption({ index: 1 });
+  await runRow(page, 1).show.click();
   await nameBox.fill("Lighter car");
   await page.keyboard.press("Enter");
   await expect(nameBox).toHaveCount(1);
@@ -84,7 +93,7 @@ test("RES-10: a re-run is named by its change and compared with the run before",
     .toBe("Lighter car");
   await page.reload();
   await ribbonTab(page, "Results").click();
-  await expect(primary(page).locator("option")).toHaveText(["City Cycle · Heavier car", "City Cycle · Lighter car"]);
+  await expect.poll(() => runNames(page)).toEqual(["City Cycle · Heavier car", "City Cycle · Lighter car"]);
 
   // no baseline: no change columns or change lines
   await page.getByRole("combobox", { name: "Baseline run" }).selectOption("none");
