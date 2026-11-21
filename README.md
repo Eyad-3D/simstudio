@@ -399,15 +399,15 @@ The backend runs every case on the new engine (the Rust module
 with no fall-back to today's engine. A case it does not run fails with an
 error that starts *Not run* and gives a reason code in brackets (`[NEW-LAP]`,
 `[NEW-FAILED]`; the list is in `benchmarks/back_to_back/acceptance.toml`).
-Four features do not run in this version yet and are refused so: lap cases
-(`NEW-LAP`), Formula Student event cases (`NEW-FS-EVENT`), a hybrid's
-charge-balanced case (`NEW-BALANCE`; set the case's *Charge balance* off to
-run it once) and a battery built from cells (`NEW-CELLS`). What else
+Two features do not run in this version yet and are refused so: lap cases
+(`NEW-LAP`) and Formula Student event cases (`NEW-FS-EVENT`); a hybrid's
+charge-balanced case and a battery built from cells, refused until they were
+ported, run on it. What else
 differs is in [Known issues and limits](docs/KNOWN-LIMITS.md). A developer
 builds the module as in *Developing* above (a source checkout has none until
 then) and can ask for today's engine, the old Python one, with
 `LIGHTSIM_ENGINE=today`: the both-engines comparison, `python -m
-benchmarks.back_to_back`, does so, and tests of the four features, which
+benchmarks.back_to_back`, does so, and tests of the two features, which
 the new engine does not run yet, use it as their reference. A replay of a
 run stored from today's engine runs on today's engine. The app itself never
 runs a case on it.

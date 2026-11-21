@@ -1810,9 +1810,9 @@ def test_the_sweep_counts_a_live_run_the_new_path_fails_as_a_mismatch(tmp_path):
     (d,) = sweep.compare("table:x", "live", ok, live_failed)["diffs"]
     assert d.startswith("verdict: today success, live failed")
     assert sweep.compare("table:x", "live", ok, ok | {"warnings": ["w"]})["diffs"]  # (not only its verdict)
-    refused = ok | {"status": "failed", "refused": "NEW-CELLS",
-                    "first": "Not run [NEW-CELLS]: a battery built from cells ..."}
-    assert sweep.compare("table:x", "live", ok, refused) == {"handed": "NEW-CELLS"}
+    refused = ok | {"status": "failed", "refused": "NEW-LAP",
+                    "first": "Not run [NEW-LAP]: lap cases do not run ..."}
+    assert sweep.compare("table:x", "live", ok, refused) == {"handed": "NEW-LAP"}
     (d,) = sweep.compare("table:x", "live", ok, refused | {"refused": "NEW-ERROR"})["diffs"]
     assert "not a listed hand-back" in d
     for fid in ("table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:error",

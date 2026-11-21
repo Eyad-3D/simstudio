@@ -63,8 +63,9 @@ it("shows what this version does not run, but a press does nothing and it says w
   // the checks have one name: the Data Checks
   expect(buttonNamed(host, "Data Checks")).toBeTruthy();
   expect(buttonNamed(host, "Checks")).toBeUndefined();
-  // a list choice this version does not run is shown, and not offered
-  expect(optionLabel("pack_model", "Cells")).toEqual({ label: "Cells (not in this version yet)", notYet: true });
+  // every list choice runs in this version: a Battery's Defined By: Cells
+  // is offered as it is (it was marked "not in this version yet")
+  expect(optionLabel("pack_model", "Cells")).toEqual({ label: "Cells", notYet: false });
   expect(optionLabel("pack_model", "Pack values")).toEqual({ label: "Pack values", notYet: false });
 });
 

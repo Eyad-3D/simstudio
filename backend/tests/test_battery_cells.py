@@ -5,7 +5,8 @@ Metric: a 96s2p pack built from a cell reproduces the hand-calculated
 capacity, resistance and mass within 0.5 %; the 2/10/30 s power signals
 match the closed-form limits within 0.5 %; pack current and cell voltages
 never exceed their limits. (The pulse test against a published cell set is
-not here: no licence-clear set is bundled yet, see CON-19.)
+not here: no licence-clear set is bundled yet, see CON-19.) They ran on
+today's engine as the oracle for the port; they run on the new engine.
 """
 from __future__ import annotations
 
@@ -298,6 +299,30 @@ def test_a_live_edit_of_the_cell_voltage_curve_applies():
                     {"type": "set_param", "elementId": "batt", "key": "ocv_table",
                      "value": {"0": 100, "100": 100}}])
     v = series(r, "batt", "sig_voltage")
-    assert v[0]["value"] > 96 * 3.9  # the default curve at 80 %
+    # the default curve at 80 % (3.98 V a cell) less R0's drop at the load
+    # (about 12 V: the first point carries the load's current)
+    assert v[0]["value"] > 96 * 3.8
     assert 96 * 3.5 - 20 < v[-1]["value"] < 96 * 3.5  # the cells' new one, less the drop
     assert any("not used by a battery built from cells" in m.text for m in r.messages)
+
+
+def test_quick_mode_runs_a_pack_built_from_cells():
+    """Quick mode (the engine's fast mode) runs a battery built from cells: the
+    BEV's city cycle on the library's cells ends within 0.01 SOC points and
+    0.2 % of the energy delivered of the full run (it ran 88.6056 % and
+    0.87987 kWh against 88.6051 % and 0.88034 kWh)."""
+    def run(mode: str):
+        p = load_example("bev-car")
+        case = next(c for c in p.cases if c.id == "case-city")
+        case.mode = mode
+        for e in p.systems[0].elements:
+            if e.id == "el-battery":
+                e.parameterOverrides["pack_model"] = CELLS
+        r = simulate(p, "case-city")
+        assert r.status in ("success", "warning"), [m.text for m in r.messages]
+        return {s.key: s.value for s in r.summary}
+
+    full, quick = run("full"), run("quick")
+    assert quick["el-battery.final_soc_pct"] == pytest.approx(full["el-battery.final_soc_pct"], abs=0.01)
+    assert quick["el-battery.energy_delivered_kwh"] == pytest.approx(
+        full["el-battery.energy_delivered_kwh"], rel=2e-3)
