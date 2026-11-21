@@ -83,6 +83,21 @@ export function headlineTile(page: Page, label: string): Locator {
   return page.getByLabel("Headline results").getByTitle(label, { exact: true });
 }
 
+/** Row `i` of the table of runs in Results (newest first until a heading is
+ *  clicked): its tick, which draws the run, and the button that shows it first. */
+export function runRow(page: Page, i: number): { row: Locator; tick: Locator; show: Locator } {
+  const row = page.getByRole("region", { name: "Runs" }).locator("tbody tr").nth(i);
+  return { row, tick: row.getByRole("checkbox"), show: row.getByRole("button", { name: /^Show / }) };
+}
+
+/** The runs in the table, as their show buttons name them ("City Cycle · 09:12:30"). */
+export function runNames(page: Page): Promise<string[]> {
+  return page
+    .getByRole("region", { name: "Runs" })
+    .getByRole("button", { name: /^Show / })
+    .evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label")!.replace(/^Show /, "")));
+}
+
 /** The global Run button in the ribbon header (runs the active case). */
 export function runButton(page: Page): Locator {
   return page.getByTitle(/^Run the active case/);

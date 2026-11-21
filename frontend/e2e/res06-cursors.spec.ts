@@ -8,7 +8,7 @@
 // into the PNG; the cursors are kept per run.
 import { readFile } from "node:fs/promises";
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { headlineTile, openApp, ribbonTab, runActiveCase, runButton, showResults, xRange } from "./app";
+import { headlineTile, openApp, ribbonTab, runActiveCase, runButton, runRow, showResults, xRange } from "./app";
 
 /** Export the CSV and read it: its header and its rows as numbers. */
 async function csv(page: Page): Promise<{ header: string[]; rows: number[][] }> {
@@ -239,27 +239,26 @@ test("RES-06: cursors per run, on overlays, time to reach, and a move in under 8
   await runActiveCase(page);
   await runButton(page).click();
   await expect(page.getByText("2 stored runs", { exact: true })).toBeVisible({ timeout: 60_000 });
-  // the new run is the primary one
-  const primary = page.getByRole("combobox", { name: "Primary run" });
-  const second = await primary.inputValue();
-  const ids = await primary.locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
-  const first = ids.find((id) => id !== second)!;
+  // the new run is the one shown, first in the table of runs
+  const second = runRow(page, 0);
+  const first = runRow(page, 1);
+  await expect(second.row).toHaveAttribute("aria-current", "true");
 
   await page.getByRole("button", { name: "Cursors" }).click();
   await field(page, "A").fill("100");
   await page.keyboard.press("Enter");
 
   // the first run overlaid: measured at the same times, a row for each series
-  await page.getByRole("checkbox", { name: /^City Cycle ·/ }).check();
+  await first.tick.check();
   await expect(field(page, "A")).toHaveValue("100");
   await expect(page.getByRole("region", { name: "Cursor measurements" }).getByRole("row")).toHaveCount(1 + 2 * 4);
   await page.getByRole("button", { name: "Clear", exact: true }).click();
 
   // each run has cursors of its own
-  await primary.selectOption(first);
+  await first.show.click();
   await expect(page.getByRole("button", { name: "Cursors" })).toHaveAttribute("aria-pressed", "false");
   await expect(field(page, "A")).toHaveCount(0);
-  await primary.selectOption(second);
+  await second.show.click();
   await expect(field(page, "A")).toHaveValue("100");
 
   // time to reach: 0 to 50 km/h puts A and B on the first samples there
@@ -313,7 +312,7 @@ test("RES-06: on the distance axis an overlaid run is read where the lines cross
   await showResults(page);
   await expect(headlineTile(page, "Time to 75 m")).toBeVisible();
   await page.getByRole("checkbox", { name: /^Vehicle Speed/ }).check();
-  await page.getByRole("checkbox", { name: /^City Cycle ·/ }).check();
+  await runRow(page, 1).tick.check();
   await xAxis.selectOption("distance");
   const accel = await csv(page);
   await page.getByRole("button", { name: "Cursors" }).click();
