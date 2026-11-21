@@ -73,7 +73,7 @@ test("STU-16: a list sweep's study charts each result against the swept value, a
   expect(count).toBeGreaterThanOrEqual(2);
   const consumption = page.getByRole("img", { name: /^Study chart: Consumption;/ });
   await expect(consumption).toHaveAccessibleName(/Vehicle Mass \[kg\] 1,200 to 1,800$/);
-  await expect(page.getByText("3 of 3 points complete")).toBeVisible();
+  await expect(page.getByText(/^3 of 3 points complete · /)).toBeVisible();
 
   // another figure from the study's columns
   await page.getByRole("button", { name: /^Figures \(\d+\)$/ }).click();
