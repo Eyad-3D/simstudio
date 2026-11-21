@@ -4,7 +4,7 @@ place that says so (conftest.py applies it at collection).
 TODAY: tests that run today's engine (LIGHTSIM_ENGINE=today, the marker
 ``todays_engine``), each with its reason:
   (i) a feature the new engine does not run yet and refuses with its code
-      (lap cases NEW-LAP, Formula Student events NEW-FS-EVENT): their tests
+      (lap cases NEW-LAP, the Formula Student events scored from a lap NEW-FS-EVENT): their tests
       are the oracle for the port (a battery built from cells, ported, runs
       its tests on the new engine);
   (ii) today's engine's own workings (its fixed-step integrator, its
@@ -17,7 +17,8 @@ that matches no collected test of a collected file fails the run.
 """
 
 LAP = "(i) a lap case (NEW-LAP): not ported yet, today's engine is the oracle"
-FS = "(i) a Formula Student event (NEW-FS-EVENT) or lap case (NEW-LAP): not ported yet, today's engine is the oracle"
+FS_LAP = ("(i) a Formula Student event scored from a lap case (NEW-FS-EVENT, NEW-LAP): not ported yet, today's "
+          "engine is the oracle (the acceleration and an endurance from a speed trace run on the new engine)")
 INTEGRATOR = ("(ii) today's engine's own integrator check (its Energy balance residual and Electrical energy "
               "balance error rows; the new engine closes its energy books instead: classes.toml "
               "today-integrator-checks)")
@@ -28,14 +29,24 @@ POLLS = ("(ii) its Stop lands mid-run only on today's engine, which reads the st
 STORED = ("(ii) the examples' stored results are runs of today's engine (their snapshot says so): a fresh run on "
           "today's engine gives them; storing new ones from the new engine is for the owner")
 
+WEAK = ("(ii) today's engine's own copy of the weakest group, changed with the new engine's (its charge "
+        "factor and its resistance; the both-engines comparison holds the two models together)")
+
 TODAY_FILES = {
     "test_lapsim.py": LAP,
-    "test_fs_events.py": FS,
     "test_calibrate.py": "(i) the lap calibration runs lap cases (NEW-LAP): not ported yet",
     "test_laplog.py": "(i) a logged lap runs as a lap case (NEW-LAP): not ported yet",
 }
 
 TODAY = {
+    "test_fs_events.py::test_four_events_score_on_the_fs_example_in_time": FS_LAP,
+    "test_fs_events.py::test_endurance_stops_for_the_driver_change": FS_LAP,
+    "test_fs_events.py::test_a_rule_breach_scores_nothing": FS_LAP,
+    "test_fs_events.py::test_running_out_of_energy_does_not_finish": FS_LAP,
+    "test_fs_events.py::test_lift_and_coast_trades_lap_time_for_energy": FS_LAP,
+    "test_fs_events.py::test_an_energy_target_is_met_within_2_percent": FS_LAP,
+    "test_fs_events.py::test_an_energy_target_out_of_reach_says_so": FS_LAP,
+    "test_fs_events.py::test_a_lap_endurance_reports_net_energy_and_lowest_voltage": FS_LAP,
     # (i) the three features
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[build-fs-powertrain]": LAP,
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-aero]": LAP,
@@ -110,6 +121,9 @@ TODAY = {
         "(ii) the validation page records today's engine's measurement (20 October 2026)"),
     "test_docs.py::test_everything_that_says_how_far_lightsim_is_validated_gives_the_suites_figure": (
         "(ii) the validation page records today's engine's measurement (20 October 2026)"),
+    # (ii) today's engine's own battery model, changed with the new engine's (one model in both)
+    "test_battery_cells.py::test_a_weak_group_fills_first_and_the_charge_band_follows_it[today]": WEAK,
+    "test_battery_cells.py::test_a_weak_groups_resistance_is_read_at_its_own_soc[today]": WEAK,
 }
 
 PORT = ("an acceleration case of a car whose Driver has Target Speed or Actual Speed linked was refused "

@@ -24,7 +24,9 @@ test("BEV example: data checks, run, results channels and CSV export", async ({ 
   // Results lists the run's channels, some ticked and drawn by default
   const channels = page.getByRole("checkbox");
   expect(await channels.count()).toBeGreaterThan(10);
-  const ticked = await page.getByRole("checkbox", { checked: true }).count();
+  // (the channel list's ticks: the table of runs ticks the run shown too)
+  const runTicks = page.getByRole("region", { name: "Runs" }).getByRole("checkbox", { checked: true });
+  const ticked = (await page.getByRole("checkbox", { checked: true }).count()) - (await runTicks.count());
   expect(ticked).toBeGreaterThan(0);
   await expect(drawnLines(page).first()).toBeVisible();
 

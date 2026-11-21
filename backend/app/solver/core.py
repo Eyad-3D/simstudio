@@ -665,21 +665,10 @@ def run_case(
                                       f"{error:+.2f} %, more than {lapsim.BALANCE_PCT:g} %"
                                       f"{short_text}. The Energy per lap is not valid.")
         not_valid_last(ev, verdict, summary, not_valid, edge_rows, lab_base, lap_rows)
-        event = case.fsEvent
-        if event and case.kind != ("acceleration" if event == "acceleration" else "lap") \
-                and not (event == "endurance" and case.kind == "cycle"):
-            rt.message("info", f"The case stands for the Formula Student "
-                               f"{fs_events.NAMES[event]} event, but its kind is "
-                               f"{case.kind.capitalize()}: the event is scored from "
-                               f"{'an Acceleration' if event == 'acceleration' else 'a Lap'} "
-                               f"case only, so this run has no event rows.")
-        elif event and times:
-            rows_ev, msgs_ev = fs_events.event_rows(
-                case, ctx, lap, summary, finished=not stopped and failed_at is None)
-            summary[:0] = [SummaryValue(label=label, value=v, unit=u, limit=lim, passed=ok,
-                                        notValid=nv) for label, v, u, lim, ok, nv in rows_ev]
-            for level, text in msgs_ev:
-                rt.message(level, text)
+        for level, text in fs_events.add_event_rows(
+                case, ctx, lap, summary, finished=not stopped and failed_at is None,
+                points=bool(times)):
+            rt.message(level, text)
 
         status = status_of(rt.messages, stopped)
         rec_note = f", stored every {output_every}" if output_every > 1 else ""

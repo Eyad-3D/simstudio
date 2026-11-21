@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { DockviewApi } from "dockview-react";
 import type { XAxisMode, YAxisCfg } from "../components/panels/chartUtils";
-import { FONT_SCALE_KEY, OPEN_LAST_KEY, RESULTS_AFTER_RUN_KEY, RESULTS_VIEW_KEY, THEME_KEY } from "../storageKeys";
+import { FONT_SCALE_KEY, OPEN_LAST_KEY, RESULTS_AFTER_RUN_KEY, RESULTS_VIEW_KEY, TABLE_SHADE_KEY, THEME_KEY } from "../storageKeys";
 
 export type RibbonTab =
   | "start"
@@ -163,6 +163,19 @@ function loadResultsAfterRun(): boolean {
   }
 }
 
+/** Whether table cells are shaded by value: for a single curve (its plot
+ *  already shows it: off at first) and for tables of two or more axes (on). */
+export type TableShade = { curve: boolean; map: boolean };
+
+function loadTableShade(): TableShade {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(TABLE_SHADE_KEY) ?? "{}") as Partial<TableShade>;
+    return { curve: saved.curve === true, map: saved.map !== false };
+  } catch {
+    return { curve: false, map: true };
+  }
+}
+
 interface UIState {
   ribbonTab: RibbonTab;
   setRibbonTab: (tab: RibbonTab) => void;
@@ -173,6 +186,9 @@ interface UIState {
    *  where the user is and a notice offers the results (UX-21). */
   resultsAfterRun: boolean;
   setResultsAfterRun: (on: boolean) => void;
+  /** Table cells shaded by value, per kind of table, kept per user. */
+  tableShade: TableShade;
+  setTableShade: (kind: keyof TableShade, on: boolean) => void;
 
   dockApi: DockviewApi | null;
   /** `reopen` puts a closed panel back in its place (DockLayout knows where) */
@@ -278,6 +294,16 @@ export const useUIStore = create<UIState>((set, get) => ({
       /* storage unavailable: this session only */
     }
     set({ resultsAfterRun: on });
+  },
+  tableShade: loadTableShade(),
+  setTableShade: (kind, on) => {
+    const next = { ...get().tableShade, [kind]: on };
+    try {
+      window.localStorage.setItem(TABLE_SHADE_KEY, JSON.stringify(next));
+    } catch {
+      /* storage unavailable: this session only */
+    }
+    set({ tableShade: next });
   },
 
   dockApi: null,

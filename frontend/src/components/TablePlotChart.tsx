@@ -1,16 +1,28 @@
 // The chart of a table plot (TablePlot.tsx), on the charts' own uPlot
 // wrapper. Loaded only when a plot is drawn.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import { useUIStore } from "../store/uiStore";
 import { PALETTE, fmtNum, yRange } from "./panels/chartUtils";
 import { Plot, axisStyle, type PlotOptions } from "./panels/Plot";
-import type { TableSlice } from "./TablePlot";
+import { nearestCurve, type TableSlice } from "./TablePlot";
 
 const colour = (i: number) => PALETTE[i % PALETTE.length];
 
-export default function TablePlotChart({ slice }: { slice: TableSlice }) {
+export default function TablePlotChart({
+  slice,
+  onPick,
+}: {
+  slice: TableSlice;
+  /** a click on the plot: the point under it, by its curve and its index along x */
+  onPick?: (curve: number, index: number) => void;
+}) {
   const theme = useUIStore((s) => s.theme);
+  // (read by the click, which the chart keeps from when it was built)
+  const live = useRef({ slice, onPick });
+  useEffect(() => {
+    live.current = { slice, onPick };
+  });
   // the pointer's place along x, and the curve nearest to it
   const [hover, setHover] = useState<{ idx: number | null; series: number | null }>({ idx: null, series: null });
   // a new chart only when what it is labelled with changes (a unit, the
@@ -50,6 +62,25 @@ export default function TablePlotChart({ slice }: { slice: TableSlice }) {
       // a drag draws a zoom box, in a parameter window too (Plot's endDragOn)
       cursor: { focus: { prox: 24 } },
       hooks: {
+        // a click (not a drag, which zooms) selects the cell of the point under it
+        ready: [
+          (u) => {
+            let down: { x: number; y: number } | null = null;
+            u.over.addEventListener("mousedown", (e) => (down = { x: e.clientX, y: e.clientY }));
+            u.over.addEventListener("click", (e) => {
+              const moved = down ? Math.hypot(e.clientX - down.x, e.clientY - down.y) : 0;
+              const { slice: s, onPick: pick } = live.current;
+              if (!pick || moved > 4) return;
+              // where the click is, in the plot's own pixels (the UI scale zooms it)
+              const r = u.over.getBoundingClientRect();
+              const k = r.width / (u.over.clientWidth || r.width || 1);
+              const idx = u.posToIdx((e.clientX - r.left) / k);
+              if (idx == null || idx < 0 || idx >= s.x.values.length) return;
+              const curve = nearestCurve(s, idx, u.posToVal((e.clientY - r.top) / k, "y"));
+              if (curve !== null) pick(curve, idx);
+            });
+          },
+        ],
         setCursor: [(u) => setHover((h) => (h.idx === (u.cursor.idx ?? null) ? h : { ...h, idx: u.cursor.idx ?? null }))],
         setSeries: [(_u, i) => setHover((h) => ({ ...h, series: i ?? null }))],
       },

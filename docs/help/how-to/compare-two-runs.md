@@ -21,6 +21,32 @@ reads 12.34 kWh/100 km, *+1.22 (+11.0 %) vs baseline*.
 
 Click a line in *What changed* to show that part selected on the diagram.
 
+## Pick runs in the table of runs
+
+Above the chart, the table of runs has a row for every stored run: when it
+ran, its name, its case, how it ended and its main figures, such as
+*Consumption* and *Distance driven*.
+
+- Click a column heading to sort by it; click it again for the other way.
+- Click a row to show that run. The run shown is highlighted; its channels,
+  table and summary are the ones on the page.
+- Tick a row to draw that run on the chart with the run shown. A run older
+  than the newest 20 is read from disk when you tick it.
+
+## See the difference between two runs
+
+Tick one row besides the run shown. A thin strip under the chart then draws
+the second run minus the first for each channel on the chart, in the
+chart's units, with zero marked by a dashed line. Its label says which run
+is subtracted from which, for example *Difference: Vehicle Mass 2,300 kg
+minus Vehicle Mass 1,927 kg*. The strip zooms and reads out with the chart.
+
+- The first run is the run shown. To turn the difference round, click the
+  other ticked row.
+- Runs sampled at other times are compared at the first run's times; the
+  strip is empty where either run has no data.
+- With one run, or three or more, drawn, there is no strip.
+
 ## Read the changes
 
 - **All summary values** under the chart has four columns for each value:
@@ -38,7 +64,7 @@ Click a line in *What changed* to show that part selected on the diagram.
 
 ## Pick another baseline
 
-1. Open the **Baseline** list on the left, under the run list.
+1. Open the **Baseline** list on the left.
 2. Choose a run, or *None* to compare with nothing.
 
 The case keeps your choice for its next runs. *Previous run of this case*
@@ -46,8 +72,8 @@ is always the run of the same case before the one shown, left out when it
 was stopped or failed.
 
 Untick **Draw the baseline faint on the chart** to hide the baseline's
-lines; the numbers still compare with it. A run you tick under *Overlay*
-is drawn in full colour instead.
+lines; the numbers still compare with it. A run you tick in the table of
+runs is drawn in full colour instead.
 
 ## Name a run and keep a note
 
@@ -56,7 +82,7 @@ example *Vehicle Mass 2,300 kg*, or *Vehicle Mass 2,300 kg +1 more* when
 two things changed. A run with nothing changed keeps its clock time, and a
 sweep's runs are named by their swept value.
 
-1. Click **ⓘ** (*Run info*) next to the run list.
+1. Click **ⓘ** (*Run info*) next to the run's name on the left.
 2. Type a name in **Name** and press Enter.
 3. Type anything you want to remember about the run in **Note**.
 
@@ -86,5 +112,5 @@ longer matches it:
   units; click a part to show it on the diagram), or **Re-run** to run the
   case again.
 
-The marks clear when the new run finishes. Picking an older run in the run
-list compares the model with that run instead.
+The marks clear when the new run finishes. Showing an older run in the
+table of runs compares the model with that run instead.

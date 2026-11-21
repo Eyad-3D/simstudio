@@ -4,7 +4,7 @@
 // drawn on top. The full summary is one keypress away, and opens by itself
 // when runs are overlaid.
 import { expect, test } from "@playwright/test";
-import { openApp, runActiveCase, runButton } from "./app";
+import { openApp, runActiveCase, runButton, runRow } from "./app";
 
 test.use({ viewport: { width: 1366, height: 768 } });
 
@@ -42,6 +42,6 @@ test("RES-30: headline numbers in view at 1366×768, plot opens on target vs act
   // overlaying a run opens it: its columns are the runs side by side
   await runButton(page).click();
   await expect(page.getByText("2 stored runs", { exact: true })).toBeVisible({ timeout: 60_000 });
-  await page.getByRole("checkbox", { name: /^City Cycle ·/ }).check();
+  await runRow(page, 1).tick.check();
   await expect(duration).toBeVisible();
 });

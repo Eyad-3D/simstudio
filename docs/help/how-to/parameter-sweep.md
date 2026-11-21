@@ -56,7 +56,7 @@ after each run and sweep.
   point whose run stopped or failed is left out, or drawn hollow with
   **Show incomplete** ticked.
 - To compare the runs over time, click **Chart**, then **Overlay family**
-  in the *Overlay* box on the left: every run of the sweep is drawn.
+  above the table of runs: every run of the sweep is drawn.
 - The sweep is also kept as a study, under *Saved studies* at the bottom
   of the *Cases* tab: a table with a row per value, the run's status and
   every summary figure. Click the study's name to show or hide its table;

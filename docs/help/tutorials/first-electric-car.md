@@ -55,7 +55,11 @@ save**.
 
 The *Components* panel on the left is the library. To add a part, type its
 name in **Search components…**, then double-click it in the list (or move
-to it with the arrow keys and press Enter). Add these seven:
+to it with the arrow keys and press Enter). You can also add a part on the
+diagram itself: double-click an empty spot (or press Shift+A with the
+pointer over it), type part of the name and press Enter. The part goes
+where you double-clicked, and Esc closes the box without adding anything.
+Add these seven:
 
 | Part | What it is here |
 |---|---|
@@ -90,6 +94,14 @@ its name.
 4. The final drive's **Flange Out** to *Wheel 1*'s **Mechanical Shaft**.
 
 The Vehicle needs no wire: the wheels push it along.
+
+A part that is not on the diagram yet can come with its wire. Drag from a
+port and let go on an empty spot: the same box opens, listing only the
+parts that port can be wired to, each with the port the wire goes to.
+Enter places the part there, already wired. A port of the same name is
+chosen when the part has one, so the battery's negative terminal goes to
+the motor's negative terminal; otherwise it is the part's first port of
+that kind. One Undo takes away both the part and its wire.
 
 **Check:** *Problems* now lists 2 errors, both about missing signals,
 such as *Driver 'Driver 1' has no Target Speed signal*.

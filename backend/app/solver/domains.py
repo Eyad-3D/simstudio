@@ -221,7 +221,9 @@ class RunContext:
                         cells.soc_weak = b.soc
                         if cells.cells:  # the resistance of a pulse starting now
                             cells.r_cell_now = cells.r_cell(b.soc_pct(), self.ambient_c(), 0.0)
-                            b.r0 = cells.r_pack(cells.r_cell_now)
+                            if cells.weak:
+                                cells.r_weak_now = cells.r_weak(self.ambient_c(), 0.0)
+                            b.r0 = cells.r_pack(cells.r_cell_now, cells.r_weak_now)
                             cells.v_cell = (min(cells.ocv_cells(b.soc)), max(cells.ocv_cells(b.soc)))
                     # read without the Error check: the first step stops the
                     # run, with its time, if the SOC is outside an Error axis
@@ -1395,8 +1397,11 @@ class RunContext:
             pulse_dis = cp.pulse_s if cp.pulse_sign > 0 else 0.0
             pulse_ch = cp.pulse_s if cp.pulse_sign < 0 else 0.0
             if cp.cells:  # the resistance of the pulse going on (of one starting now at rest)
-                cp.r_cell_now = cp.r_cell(b.soc_pct(), t_c, cp.pulse_s if cp.pulse_sign else 0.0)
-                b.r0 = cp.r_pack(cp.r_cell_now)
+                pulse = cp.pulse_s if cp.pulse_sign else 0.0
+                cp.r_cell_now = cp.r_cell(b.soc_pct(), t_c, pulse)
+                if cp.weak:
+                    cp.r_weak_now = cp.r_weak(t_c, pulse)
+                b.r0 = cp.r_pack(cp.r_cell_now, cp.r_weak_now)
             # the voltage limits hold at the step's end, with the RC pair as
             # the step leaves it; with no current limit the derating band
             # lowers the maximum-power-point current and the current at the

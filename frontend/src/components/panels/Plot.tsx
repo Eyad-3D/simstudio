@@ -396,6 +396,27 @@ async function exportPng(u: uPlot, options: PlotOptions, bg: string, name: strin
   }, "image/png");
 }
 
+/** Charts stacked on one x axis: a zoom or pan of one moves the others (its
+ *  charts also share `cursor.sync.key`, which draws one cursor in them all). */
+export function syncX(key: string): uPlot.Plugin {
+  const follow = (u: uPlot) => {
+    const { min, max } = u.scales.x;
+    if (min == null || max == null) return;
+    for (const p of uPlot.sync(key).plots)
+      if (p !== u && (p.scales.x.min !== min || p.scales.x.max !== max)) p.setScale("x", { min, max });
+  };
+  return {
+    hooks: {
+      // a chart that comes later opens on the others' view
+      ready: (u) => {
+        const other = uPlot.sync(key).plots.find((p) => p !== u && p.scales.x.min != null);
+        if (other) follow(other);
+      },
+      setScale: (u, k) => k === "x" && follow(u),
+    },
+  };
+}
+
 /** How long a zoom or pan must rest before the page keeps it. */
 const ZOOM_SETTLE_MS = 300;
 

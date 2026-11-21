@@ -60,6 +60,35 @@ export function addBreakpoint(t: Grid, axis: number, key: string): Grid {
   });
 }
 
+/** (1 − w)·a + w·b, entry by entry; where one side has no entry, the other's. */
+function blend(a: Grid | undefined, b: Grid | undefined, w: number): Grid | undefined {
+  if (a === undefined || b === undefined) return structuredClone(a ?? b);
+  if (typeof a === "number" && typeof b === "number") return a === b ? a : Number((a + (b - a) * w).toPrecision(12));
+  if (typeof a !== "object" || typeof b !== "object") return structuredClone(a);
+  const out: TableN = {};
+  for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const v = blend(a[k], b[k], w);
+    if (v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
+/** A new breakpoint `key` on axis `axis` that leaves the table meaning the
+ *  same: its points are interpolated linearly between its neighbours, or
+ *  past an end copy the edge's, in every slice. */
+export function insertBreakpoint(t: Grid, axis: number, key: string): Grid {
+  const n = Number(key);
+  return atLevel(t, axis, (node) => {
+    const keys = Object.keys(node).sort(byNumber);
+    if (keys.length === 0 || keys.some((k) => Number(k) === n)) return node;
+    const lo = keys.filter((k) => Number(k) < n).pop();
+    const hi = keys.find((k) => Number(k) > n);
+    const w = lo !== undefined && hi !== undefined ? (n - Number(lo)) / (Number(hi) - Number(lo)) : 0;
+    const v = blend(lo === undefined ? undefined : node[lo], hi === undefined ? undefined : node[hi], w);
+    return v === undefined ? node : { ...node, [key]: v };
+  });
+}
+
 /** The table without breakpoint `key` of axis `axis` (its slices go). */
 export function removeBreakpoint(t: Grid, axis: number, key: string): Grid {
   return atLevel(t, axis, (node) => {

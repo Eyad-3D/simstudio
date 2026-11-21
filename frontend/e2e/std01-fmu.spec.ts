@@ -76,6 +76,7 @@ test("STD-01: a dropped FMU runs with the car", async ({ page }) => {
   // it runs with the rest of the model, and its outputs are results
   await runActiveCase(page);
   await page.getByPlaceholder("Search channels…").fill("LightSimTest");
-  await expect(page.getByText("success", { exact: true })).toBeVisible();
+  // the status line (the table of runs says "success" too)
+  await expect(page.locator("b").filter({ hasText: /^success$/ })).toBeVisible();
   for (const output of ["y", "t_fmu"]) await expect(page.getByText(output, { exact: true })).toBeVisible();
 });

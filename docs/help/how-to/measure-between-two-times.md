@@ -37,7 +37,7 @@ value says so next to the button, and the cursors stay where they were.
 A row for each plotted signal, with its unit: when runs are overlaid, a
 row for each run too, all read at the same times. On the distance axis,
 the other runs are read where the lines cross them: where each had driven
-as far as the primary run at A and at B.
+as far as the run shown at A and at B.
 
 | Column | What it is |
 |---|---|

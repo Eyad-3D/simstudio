@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import * as api from "../api";
-import { failureText, isNotFound } from "../errorText";
+import { failureText, isNotFound, type Refusal } from "../errorText";
 import { changesSince } from "../staleness";
 import { confirmDialog, scriptTrustDialog, unsavedChangesDialog } from "../dialog";
 import { desktop } from "../desktop";
@@ -209,6 +209,14 @@ const LIVE_FLUSH_MS = 120;
 // Runs held in memory and listed in Results (holds a full sweep family). Every
 // finished run is also stored on disk with its project; older ones stay there.
 const MAX_RUNS = 20;
+
+/** The runs kept in memory: the newest MAX_RUNS, and an older one read for
+ *  the table of runs while it is shown or ticked. */
+function keepRuns(runs: SimRun[], activeRunId: string | null, overlayRunIds: string[]): SimRun[] {
+  if (runs.length <= MAX_RUNS) return runs;
+  const keep = new Set([activeRunId, ...overlayRunIds]);
+  return runs.filter((r, i) => i < MAX_RUNS || keep.has(r.id));
+}
 
 /** A parameter sweep: run `caseId` once per value, overriding one element param. */
 export interface SweepConfig {
@@ -423,10 +431,17 @@ export interface ProjectState {
    *  could not be reached); null once they run again. `dataChecks` keeps the
    *  last ones that ran. */
   checksError: string | null;
+  /** the rows of a project the engine refused to read (a value it cannot
+   *  take, one row each), from the latest Data Checks or run; null once the
+   *  engine reads it again. While set, Problems lists these rows only. */
+  refused: Refusal[] | null;
   /** the project's newest runs (newest first, at most MAX_RUNS) */
   runs: SimRun[];
   /** how many runs of the open project are stored on disk */
   storedRunCount: number;
+  /** every stored run of the open project as the engine lists it (summary
+   *  values, no channel data), newest first: the table of runs lists them */
+  runIndex: StoredRunInfo[];
   /** true while the open project's stored runs are being read */
   runsLoading: boolean;
   activeCaseId: string | null;
@@ -464,10 +479,19 @@ export interface ProjectState {
   setActiveSystem: (systemId: string) => void;
 
   // topology editing
-  addElement: (defId: string, position: { x: number; y: number }) => void;
+  /** Add a part; with `wire`, also a wire from another part's port to its
+   *  port `toPortId`, in the same undo step (a part added from a dragged wire). */
+  addElement: (
+    defId: string,
+    position: { x: number; y: number },
+    wire?: { elementId: string; portId: string; toPortId: string },
+  ) => void;
   moveElement: (id: string, position: { x: number; y: number }) => void;
   resizeElement: (id: string, size: { width: number; height: number }) => void;
   beginHistory: () => void;
+  /** End the edit in progress: the next change to the same field is an undo
+   *  step of its own, not merged with this one (a table tool, a paste). */
+  endEdit: () => void;
   /** Delete parts (with every wire on them) and the given wires, as one undo step. */
   removeElements: (ids: string[], connectionIds?: string[]) => void;
   copyElements: (ids: string[]) => void;
@@ -478,6 +502,9 @@ export interface ProjectState {
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
   /** Several parameters at once (a component preset), as one undo step. */
   setParameters: (elementId: string, values: Record<string, ParamValue>) => void;
+  /** Put a parameter back to the library's value (its override goes), as one
+   *  undo step. */
+  resetParameter: (elementId: string, key: string) => void;
   /** Record where a parameter value comes from (CON-13); null forgets it. */
   setParameterSource: (elementId: string, key: string, source: ParameterSource | null) => void;
   /** Values for parameters of several parts (an imported parameter sheet,
@@ -637,6 +664,9 @@ export interface ProjectState {
   clearOverlays: () => void;
   /** Delete a run from the history and from disk. */
   removeRun: (runId: string) => Promise<void>;
+  /** Read a stored run that is not in memory (older than the newest
+   *  MAX_RUNS) into `runs`; false when it could not be read. */
+  loadStoredRun: (runId: string) => Promise<boolean>;
   /** Delete every stored run of the open project. */
   clearRuns: () => Promise<void>;
   /** Open the model a run was made with (its snapshot) as an unsaved copy. */
@@ -781,6 +811,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       runs,
       activeRunId: s.activeRunId && gone.has(s.activeRunId) ? (runs[0]?.id ?? null) : s.activeRunId,
       overlayRunIds: s.overlayRunIds.filter((id) => !gone.has(id)),
+      runIndex: s.runIndex.filter((e) => !gone.has(e.id)),
     };
   }
 
@@ -808,7 +839,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       return;
     }
     if (!current()) return;
-    set({ storedRunCount: index.length, runsLoading: true });
+    set({ storedRunCount: index.length, runIndex: index, runsLoading: true });
     const shown = index.slice(0, MAX_RUNS);
     const onDisk = new Set(index.map((e) => e.id));
     const inMemory = new Set(get().runs.map((r) => r.id));
@@ -924,11 +955,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       future: [],
       runs: [],
       storedRunCount: 0,
+      runIndex: [],
       runsLoading: false,
       ...NO_FILE,
       readOnly,
       dataChecks: null,
-      checksError: null,
+      checksError: null, refused: null,
       dirty: true,
     });
     get().log("info", note);
@@ -1004,7 +1036,14 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     try {
       const reply = await api.storeRun(projectId, run);
       if (get().project?.id !== projectId) return;
-      set((s) => ({ storedRunCount: reply.stored, ...dropRuns(s, reply.pruned) }));
+      // listed as the engine would list it, so the table keeps it once it
+      // is no longer among the runs in memory (a rename stores it again)
+      const { result, snapshot: _snapshot, ...rest } = run;
+      const info: StoredRunInfo = { ...rest, status: result.status, summary: result.summary, bytes: reply.bytes };
+      set((s) => ({
+        storedRunCount: reply.stored,
+        ...dropRuns({ ...s, runIndex: [info, ...s.runIndex.filter((e) => e.id !== run.id)] }, reply.pruned),
+      }));
       if (reply.pruned.length > 0) {
         log(
           "warning",
@@ -1222,9 +1261,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     future: [],
     messages: [],
     dataChecks: null,
-    checksError: null,
+    checksError: null, refused: null,
     runs: [],
     storedRunCount: 0,
+    runIndex: [],
     runsLoading: false,
     activeCaseId: null,
     activeRunId: null,
@@ -1346,10 +1386,16 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     setActiveSystem: (systemId) =>
       set({ activeSystemId: systemId, selectedElementId: null }),
 
-    addElement: (defId, position) => {
+    addElement: (defId, position, wire) => {
       const { libraryById, activeSystemId, project } = get();
       const def = libraryById[defId];
       if (!def || !project || !activeSystemId) return;
+      // a wire from another part's port to one of this part's: only between
+      // two ports of the same kind, and not a signal (wired on the Data Bus)
+      const from = wire && project.systems.flatMap((s) => s.elements).find((e) => e.id === wire.elementId);
+      const fromKind = from && libraryById[from.componentDefId]?.ports.find((p) => p.id === wire!.portId)?.kind;
+      const toKind = wire && def.ports.find((p) => p.id === wire.toPortId)?.kind;
+      const wired = !!fromKind && fromKind === toKind && fromKind !== "signal";
       const count = project.systems.reduce(
         (n, s) => n + s.elements.filter((e) => e.componentDefId === defId).length,
         0,
@@ -1377,6 +1423,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
             connections: [],
           });
         }
+        // (in the same change as the part: one undo step takes both away)
+        if (wired)
+          system.connections.push({
+            id: uid("c"),
+            sourceElementId: wire!.elementId,
+            sourcePortId: wire!.portId,
+            targetElementId: elId,
+            targetPortId: wire!.toPortId,
+          });
       });
       set({ selectedElementId: elId });
     },
@@ -1407,6 +1462,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (!project) return;
       lastEdit = null; // a drag/resize burst is its own history entry
       set({ past: [...past.slice(-(HISTORY_LIMIT - 1)), project], future: [] });
+    },
+
+    endEdit: () => {
+      lastEdit = null;
     },
 
     removeElements: (ids, connectionIds = []) => {
@@ -1521,6 +1580,21 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         `param:${elementId}:${key}`,
       );
       streamLive(elementId, key, value);
+    },
+
+    // back to the library's value: an undo step of its own, never merged with
+    // the edit just before it
+    resetParameter: (elementId, key) => {
+      let def: ParamValue | undefined;
+      updateProject((draft) => {
+        for (const s of draft.systems) {
+          const el = s.elements.find((e) => e.id === elementId);
+          if (!el) continue;
+          delete el.parameterOverrides[key];
+          def = get().libraryById[el.componentDefId]?.parameters.find((p) => p.key === key)?.default;
+        }
+      });
+      if (def !== undefined) streamLive(elementId, key, def);
     },
 
     // presets set "fixed" parameters only, so nothing streams into a live run
@@ -1861,10 +1935,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         future: [],
         runs: [],
         storedRunCount: 0,
+        runIndex: [],
         runsLoading: false,
         ...NO_FILE,
         dataChecks: null,
-        checksError: null,
+        checksError: null, refused: null,
         dirty: false,
       });
       trustedProject = project.id;
@@ -1892,10 +1967,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           future: [],
           runs: [],
           storedRunCount: 0,
+          runIndex: [],
           runsLoading: false,
           ...NO_FILE,
           dataChecks: null,
-          checksError: null,
+          checksError: null, refused: null,
           dirty: false,
         });
         set({ filePath, readOnly, studies: unstoredStudies });
@@ -1931,9 +2007,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         future: [],
         runs: [],
         storedRunCount: 0,
+        runIndex: [],
         runsLoading: false,
         dataChecks: null,
-        checksError: null,
+        checksError: null, refused: null,
         dirty: true,
       });
       get().log("info", message);
@@ -1962,10 +2039,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         future: [],
         runs: [],
         storedRunCount: 0,
+        runIndex: [],
         runsLoading: false,
         ...NO_FILE,
         dataChecks: null,
-        checksError: null,
+        checksError: null, refused: null,
         dirty: false,
       });
       trustedProject = project.id; // shipped with the app
@@ -2133,7 +2211,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           readOnly: null,
           exampleId: null,
           dirty: s.project !== project,
-          ...(sameProject ? {} : { runs: [], storedRunCount: 0, studies: [], activeRunId: null, overlayRunIds: [] }),
+          ...(sameProject ? {} : { runs: [], storedRunCount: 0, runIndex: [], studies: [], activeRunId: null, overlayRunIds: [] }),
         }));
         if (trustedProject === project.id) trustedProject = picked.id;
         log(
@@ -2334,10 +2412,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         future: [],
         runs: [],
         storedRunCount: 0,
+        runIndex: [],
         runsLoading: false,
         ...NO_FILE,
         dataChecks: null,
-        checksError: null,
+        checksError: null, refused: null,
         dirty: true,
       });
       get().log("info", note);
@@ -2466,7 +2545,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({ checking: true });
       try {
         const checks = await api.validateProject(project);
-        set({ dataChecks: checks, checking: false, checksError: null });
+        set({ dataChecks: checks, checking: false, checksError: null, refused: null });
         if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = checks.filter((c) => c.level === "error").length;
         const warnings = checks.filter((c) => c.level === "warning").length;
@@ -2474,8 +2553,12 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         log("info", `Data Checks: ${countOf(errors, "error")}, ${countOf(warnings, "warning")}.`);
         return checks;
       } catch (e) {
-        set({ checking: false, checksError: failureText(e) });
-        log("error", `The Data Checks could not run: ${failureText(e)}`);
+        const refused = refusalsOf(e);
+        set({ checking: false, ...checkFailure(e) });
+        if (refused) {
+          log("error", refusedLine(refused));
+          useUIStore.getState().focusPanel("data-checks");
+        } else log("error", `The Data Checks could not run: ${failureText(e)}`);
         return [];
       } finally {
         // the Problems list forward: the problems, or why they could not be checked
@@ -2538,6 +2621,13 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         }
       } catch (e) {
         set({ running: false });
+        const refused = refusalsOf(e);
+        if (refused) {
+          set({ refused });
+          log("error", refusedLine(refused));
+          useUIStore.getState().focusPanel("data-checks");
+          return;
+        }
         log("error", `Simulation failed: ${(e as Error).message}`);
         revealMessages();
         tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
@@ -3045,7 +3135,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
       try {
         const checks = await api.validateProject(project);
-        set({ dataChecks: checks, checksError: null });
+        set({ dataChecks: checks, checksError: null, refused: null });
         if (get().project !== project) scheduleRecheck(); // edited while it checked
         const errors = runBlockers(checks, caseId);
         if (errors.length > 0) {
@@ -3056,8 +3146,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           return false;
         }
       } catch (e) {
+        const refused = refusalsOf(e);
+        set(checkFailure(e));
+        if (refused) {
+          // the run would be refused the same way: it does not start
+          log("error", refusedLine(refused));
+          const ui = useUIStore.getState();
+          if (ui.ribbonTab === "results") ui.setRibbonTab("home");
+          ui.focusPanel("data-checks");
+          return false;
+        }
         // backend unreachable — the run's own connection will surface the failure
-        set({ checksError: failureText(e) });
         log("warning", `The Data Checks could not run before the run (${failureText(e)}); running anyway.`);
       }
       return get().reviewScripts("run");
@@ -3129,22 +3228,40 @@ export const useProjectStore = create<ProjectState>((set, get) => {
 
     setActiveRun: (runId) =>
       // a run can't overlay itself — drop it from the overlay set if selected
-      set((s) => ({
-        activeRunId: runId,
-        overlayRunIds: s.overlayRunIds.filter((id) => id !== runId),
-      })),
+      set((s) => {
+        const overlayRunIds = s.overlayRunIds.filter((id) => id !== runId);
+        return { activeRunId: runId, overlayRunIds, runs: keepRuns(s.runs, runId, overlayRunIds) };
+      }),
     toggleOverlayRun: (runId) =>
       set((s) => {
         if (runId === s.activeRunId) return {};
-        return {
-          overlayRunIds: s.overlayRunIds.includes(runId)
-            ? s.overlayRunIds.filter((id) => id !== runId)
-            : [...s.overlayRunIds, runId],
-        };
+        const overlayRunIds = s.overlayRunIds.includes(runId)
+          ? s.overlayRunIds.filter((id) => id !== runId)
+          : [...s.overlayRunIds, runId];
+        return { overlayRunIds, runs: keepRuns(s.runs, s.activeRunId, overlayRunIds) };
       }),
     setOverlayRuns: (runIds) =>
-      set((s) => ({ overlayRunIds: runIds.filter((id) => id !== s.activeRunId) })),
-    clearOverlays: () => set({ overlayRunIds: [] }),
+      set((s) => {
+        const overlayRunIds = runIds.filter((id) => id !== s.activeRunId);
+        return { overlayRunIds, runs: keepRuns(s.runs, s.activeRunId, overlayRunIds) };
+      }),
+    clearOverlays: () => set((s) => ({ overlayRunIds: [], runs: keepRuns(s.runs, s.activeRunId, []) })),
+    loadStoredRun: async (runId) => {
+      const { project, runs, log } = get();
+      if (runs.some((r) => r.id === runId)) return true;
+      if (!project) return false;
+      try {
+        const run = await api.fetchRun(project.id, runId);
+        if (get().project?.id !== project.id) return false;
+        set((s) =>
+          s.runs.some((r) => r.id === runId) ? {} : { runs: [...s.runs, run].sort((a, b) => b.startedAt - a.startedAt) },
+        );
+        return true;
+      } catch (e) {
+        log("warning", `The stored run could not be read: ${(e as Error).message}`);
+        return false;
+      }
+    },
     removeRun: async (runId) => {
       const { project, log } = get();
       runHistorySeq++; // a load still in flight must not list the run again
@@ -3198,7 +3315,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     clearRuns: async () => {
       const { project, log } = get();
       runHistorySeq++; // a load still in flight must not list the runs again
-      set({ runs: [], activeRunId: null, overlayRunIds: [], storedRunCount: 0, runsLoading: false });
+      set({ runs: [], activeRunId: null, overlayRunIds: [], storedRunCount: 0, runIndex: [], runsLoading: false });
       if (!project) return;
       try {
         const reply = await api.deleteRuns(project.id);
@@ -3238,6 +3355,25 @@ export function stopRechecks(): void {
   unsubscribeRechecks();
 }
 
+/** The rows of a project the engine refused to read, when `e` is that refusal
+ *  (an ApiError's; read by its field, as tests stand in their own errors). */
+function refusalsOf(e: unknown): Refusal[] | null {
+  const rows = (e as { refusals?: Refusal[] | null } | null)?.refusals;
+  return rows?.length ? rows : null;
+}
+
+/** The store after Data Checks that failed: the rows of a refused project,
+ *  or why the checks could not run (the last checks that ran are kept). */
+function checkFailure(e: unknown): Pick<ProjectState, "checksError" | "refused"> | Pick<ProjectState, "checksError"> {
+  const refused = refusalsOf(e);
+  return refused ? { checksError: null, refused } : { checksError: failureText(e) };
+}
+
+/** Messages' one line for a refused project: the rows are in Problems. */
+function refusedLine(refused: Refusal[]): string {
+  return `The engine refused the model: ${countOf(refused.length, "problem")}, listed in Problems.`;
+}
+
 async function recheck(): Promise<void> {
   const { project, running } = useProjectStore.getState();
   if (!project || rechecksStopped) return;
@@ -3248,10 +3384,10 @@ async function recheck(): Promise<void> {
   try {
     const checks = await api.validateProject(project);
     // an edit made meanwhile has a re-check of its own coming
-    if (useProjectStore.getState().project === project) useProjectStore.setState({ dataChecks: checks, checksError: null });
+    if (useProjectStore.getState().project === project) useProjectStore.setState({ dataChecks: checks, checksError: null, refused: null });
   } catch (e) {
     // keep the last checks that ran, and say why these could not
-    if (useProjectStore.getState().project === project) useProjectStore.setState({ checksError: failureText(e) });
+    if (useProjectStore.getState().project === project) useProjectStore.setState(checkFailure(e));
   }
 }
 
@@ -3292,10 +3428,17 @@ export interface Problem {
   fix?: string | null;
   /** the parts it is about (in the open project) */
   elementIds: string[];
+  /** the parameter it is about (its key), of the first part: a click opens
+   *  the part's window at it */
+  paramKey?: string | null;
+  /** the case it is about (a case's own value): a click makes it active */
+  caseId?: string | null;
+  /** the engine's own words for it (codes, paths), for a report */
+  code?: string;
   /** Data Checks, or the run it came from; `changedSince` counts the changes
    *  made to the model since that run (its rows may be fixed already, or not:
    *  only the next run can say) */
-  source: "check" | { caseName: string; startedAt: number; changedSince: number };
+  source: "check" | "refused" | { caseName: string; startedAt: number; changedSince: number };
 }
 
 /** The latest run that has finished (runs are newest first). */
@@ -3329,15 +3472,29 @@ export function problemsOf(
   run: SimRun | undefined,
   project: Project | null,
   lib: Record<string, ComponentDef> = {},
+  refused: Refusal[] | null = null,
 ): Problem[] {
   const elements = project?.systems.flatMap((s) => s.elements) ?? [];
   const ids = new Set(elements.map((e) => e.id));
+  if (refused) {
+    // the engine cannot read the model: nothing else about it is current
+    return refused.map((r) => ({
+      level: "error" as const,
+      text: r.text,
+      elementIds: r.elementId && ids.has(r.elementId) ? [r.elementId] : [],
+      paramKey: r.paramKey,
+      code: r.code,
+      source: "refused" as const,
+    }));
+  }
   const out: Problem[] = (dataChecks ?? []).map((c) => ({
     level: c.level,
     text: c.text,
     fix: c.fix,
     // engines before 0.3 name one part at most
     elementIds: (c.elementIds?.length ? c.elementIds : c.elementId ? [c.elementId] : []).filter((id) => ids.has(id)),
+    paramKey: c.paramKey,
+    caseId: c.caseId,
     source: "check" as const,
   }));
   if (run) {
@@ -3355,12 +3512,16 @@ export function useProblems(): Problem[] {
   const run = useProjectStore((s) => lastRunOf(s.runs));
   const project = useProjectStore((s) => s.project);
   const lib = useProjectStore((s) => s.libraryById);
-  return useMemo(() => problemsOf(dataChecks, run, project, lib), [dataChecks, run, project, lib]);
+  const refused = useProjectStore((s) => s.refused);
+  return useMemo(() => problemsOf(dataChecks, run, project, lib, refused), [dataChecks, run, project, lib, refused]);
 }
 
 /** Errors and warnings in the Problems list, for the status bar and the tab
  *  badge. */
-export function problemCounts(s: Pick<ProjectState, "dataChecks" | "runs">): { errors: number; warnings: number } {
+export function problemCounts(
+  s: Pick<ProjectState, "dataChecks" | "runs"> & { refused?: Refusal[] | null },
+): { errors: number; warnings: number } {
+  if (s.refused) return { errors: s.refused.length, warnings: 0 };
   let errors = 0;
   let warnings = 0;
   for (const m of [...(s.dataChecks ?? []), ...runProblemsOf(s.dataChecks, lastRunOf(s.runs))]) {

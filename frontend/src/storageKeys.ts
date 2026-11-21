@@ -21,6 +21,9 @@ export const RESULTS_VIEW_KEY = "lightsim-results-view-v1";
 /** "1": open the Results page when a run or sweep ends (store/uiStore.ts) */
 export const RESULTS_AFTER_RUN_KEY = "lightsim-results-after-run";
 
+/** whether table cells are shaded by value, for curves and for maps (store/uiStore.ts) */
+export const TABLE_SHADE_KEY = "lightsim-table-shade";
+
 /** the app version that last ran, for What's new (help.ts) */
 export const LAST_VERSION_KEY = "lightsim-last-version";
 /** the first-steps tour and step bar: done, dismissed, steps ticked (tour.ts) */
@@ -29,6 +32,9 @@ export const TOUR_KEY = "lightsim-tour-v1";
 export const HELP_WIDTH_KEY = "lightsim-help-width";
 /** the size and place of the parameter window closed last (paramWindows.ts) */
 export const PARAM_WINDOW_KEY = "lightsim-param-window";
+/** the parameter window's sections a user opened or folded, by "part id/section"
+ *  (components/panels/PropertiesPanel.tsx) */
+export const PARAM_SECTIONS_KEY = "lightsim-param-sections";
 
 const PREFIX = "lightsim-";
 const OLD_PREFIX = "simstudio-";
