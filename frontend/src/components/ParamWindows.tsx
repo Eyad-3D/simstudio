@@ -126,7 +126,7 @@ function ParamWindowContent({ entry }: { entry: ParamWindow }) {
         <span className="min-w-0 truncate text-[11px] text-[color:var(--ss-text-dim)]">— {def.name}</span>
         <PartHelpButton defId={def.id} from={entry.win} />
       </header>
-      <main ref={body} className="min-h-0 flex-1 overflow-y-auto">
+      <main ref={body} className="ss-param-scroll min-h-0 flex-1 overflow-y-auto">
         <div className="ss-zoom">
           <ElementForm element={element} def={def} />
         </div>

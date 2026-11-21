@@ -500,6 +500,13 @@ body,
   background: var(--ss-panel);
   border-bottom: 1px solid var(--ss-border);
 }
+/* the form under that row (the window's and the dialog's scroll area): what
+   is scrolled into view (a unit chooser opening, a parameter Problems opens
+   the window at, a click's target) lands below the row, never under it; the
+   row is as tall as its field, and grows with the A+ text size */
+.ss-param-scroll {
+  scroll-padding-top: calc(48px * var(--ss-ui-scale, 1));
+}
 /* the window's sections: one value and one unit column for all of them
    (ElementForm sets the widths), so values line up from section to section */
 .ss-param-sections .ss-param-grid {

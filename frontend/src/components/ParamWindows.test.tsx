@@ -113,6 +113,8 @@ test("a part's parameters open in a window of their own, one per part", () => {
   expect(opened[0].document.title).toBe("Motor A");
   expect(opened[1].document.title).toBe("Motor B");
   expect(powerInput(opened[0])).not.toBeNull();
+  // the search row at the top of the window's scroll area, which keeps room for it
+  expect(opened[0].document.querySelector("main.ss-param-scroll .ss-param-tools")).not.toBeNull();
 });
 
 test("the form is drawn once the window has its stylesheet", async () => {

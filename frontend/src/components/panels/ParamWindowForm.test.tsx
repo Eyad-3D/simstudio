@@ -197,3 +197,26 @@ test("the active case's own value shows under the parameter, in the unit shown, 
   act(() => useProjectStore.setState({ activeCaseId: null }));
   expect(host.querySelector(".ss-case-link")).toBeNull();
 });
+
+test("a unit chooser opened under its row is not covered by the row's help card", () => {
+  show("v");
+  const speed = host.querySelector<HTMLInputElement>('tr[data-param="initial_speed_kmh"] input')!;
+  const card = () => host.querySelector(".ss-help-card")!.textContent;
+  // the focus in the row: its help card
+  act(() => speed.focus());
+  expect(card()).toContain("Initial Speed");
+  // its unit chooser opened: the card steps aside (in a narrow window it
+  // had no room beside the row and lay over the chooser)
+  act(() => host.querySelector<HTMLButtonElement>('[aria-label="km/h, unit of Initial Speed"]')!.click());
+  expect(host.querySelector('[role="group"]')).not.toBeNull();
+  expect(card()).toBe("");
+});
+
+test("the form scrolls with room for the sticky search row, so nothing scrolled into view lies under it", async () => {
+  const css = (await import("../../index.css?raw")).default;
+  const rule = (selector: string) => css.split(`\n${selector} {`)[1]?.split("}")[0] ?? "";
+  expect(rule(".ss-param-tools")).toMatch(/position: sticky;/);
+  // at least as tall as the row: 8 px padding, a 13 px field, 8 px padding, its border
+  const pad = /scroll-padding-top: calc\((\d+)px \* var\(--ss-ui-scale, 1\)\);/.exec(rule(".ss-param-scroll"));
+  expect(Number(pad?.[1])).toBeGreaterThanOrEqual(44);
+});
