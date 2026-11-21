@@ -65,8 +65,8 @@ export function keyBelongsToTarget(target: Element | null, action: CanvasAction)
 }
 
 /** True when the diagram has the keyboard: the focus is in it, or nowhere
- *  (the page itself) while the diagram was the last place clicked or the
- *  pointer is over it. */
+ *  (the page itself, or a box that holds the diagram) while the diagram was
+ *  the last place clicked or the pointer is over it. */
 export function diagramHasKeys(
   root: Element | null,
   focused: Element | null,
@@ -75,6 +75,8 @@ export function diagramHasKeys(
   hovered: boolean,
 ): boolean {
   if (!root) return false;
-  if (focused && focused !== body) return root.contains(focused);
+  if (focused && focused !== body && !focused.contains(root)) return root.contains(focused);
+  // the focus nowhere, or on a box around the diagram (a click on empty
+  // diagram space leaves it on the dock panel that holds the diagram)
   return lastClickInside || hovered;
 }
