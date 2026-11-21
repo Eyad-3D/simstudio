@@ -1,12 +1,15 @@
 # Score the Formula Student dynamic events
 
-**This does not run in this version of LightSim yet.** The events are lap
-cases and cases with an event set, which the app's engine does not run yet:
-the **FS events** button and the endurance energy study's **Run** are shown
-but cannot be pressed, and a case with an event set, or a Lap case, fails
-with `Not run [NEW-FS-EVENT]` or `Not run [NEW-LAP]`. Only the plain 75 m
-*Acceleration test* runs. A later version ports them; the page describes how the events
-work then, as they worked on the older engine.
+**Three of the four events do not run in this version of LightSim yet.**
+The skidpad, the autocross and the endurance are scored from Lap cases,
+which the app's engine does not run yet: the **FS events** button and the
+endurance energy study's **Run** are shown but cannot be pressed, and a Lap
+case fails with `Not run [NEW-FS-EVENT]` (with an event set) or
+`Not run [NEW-LAP]`. The acceleration runs and scores: see
+[Score the acceleration](#score-the-acceleration). An endurance driven from
+an imported lap (a Cycle case) also runs and gives its energy and rule
+checks. A later version ports the lap events; what the page says about them
+is how they worked on the older engine.
 
 LightSim can run the four dynamic events of an electric Formula Student
 car and estimate their points, so you can judge a design change in
@@ -35,6 +38,15 @@ season's rules.
    the efficiency points and the total.
 
 Marking the cases is one step: **Undo** takes it back.
+
+## Score the acceleration
+
+1. In the *Cases* tab, pick an Acceleration case in the **Case** list (the
+   example's *Acceleration 75 m*, or the one **Acceleration test** adds).
+2. Set **FS event** to *Acceleration*.
+3. Type the fastest team's time in **Reference time (s)**.
+4. Click **Run case**. The summary starts with the *Acceleration time*, the
+   three rule checks below and the *Acceleration points (estimate)*.
 
 ## Give the points a reference
 

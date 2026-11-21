@@ -1597,3 +1597,79 @@ a test that failed on main's module and passes now.
   folder) runs that in 0.832 s against the first build's 0.811 s, this
   branch's 0.840 s, its slices 0.947 × and 1.010 ×: most of the gap is
   between two builds of the same code.
+
+## Formula Student scoring without a lap runs on the new engine (21 November 2026)
+
+Stage 1 of the lap and Formula Student port (the design note
+`engine-lap-design.md`, decided by the lead): the Formula Student events
+that need no lap run and score on the new engine. These are the 75 m
+acceleration (an Acceleration case with *FS event* Acceleration) and an
+endurance driven from a speed trace (a Cycle case with *FS event*
+Endurance). `NEW-FS-EVENT` now refuses only a Lap case with an event set.
+
+- **The scoring layer is shared.** `fs_events.add_event_rows`, used by
+  both engines' runs, holds today's block from `core.py` (the event rows,
+  or the note that the case's kind has none). The new path fills today's
+  `BatteryState` figures from the run, which `fs_events` reads:
+  - the peak current, and the highest and lowest terminal voltage (the
+    integrals' max and min over every point the integrator visited);
+  - ∫P² dt, for the RMS power;
+  - the rules' 500 ms moving average of the power (D 10.4.1).
+- **No engine change.** The engine keeps any list of (channel, span)
+  windows. The battery's own check keeps its window on the channel
+  `el:sig_power`, and the rule's 500 ms window is asked for on the same
+  variable's engine name, `inst.sig_power`. So the second window per
+  channel the design note expected needed no change to the engine or to
+  `lsim-py`.
+- **Both engines.** `probe/fs-event-acceleration` goes from
+  `refuse:NEW-FS-EVENT` to `run` (acceptance.toml). It runs on both
+  engines with the same 15 unclassified rows as its base case and no
+  others: the event adds no difference.
+
+  | Row (the FS example's 75 m) | New | Today, 1 ms | Today, 10 ms |
+  |---|---|---|---|
+  | Acceleration time | 3.75372 s | 3.75393 s | 3.75066 s |
+  | Current | 150.2027 A | 150.2022 A | |
+  | Power (500 ms average) | 80.0 kW | 80.0 kW | |
+  | Voltage | 579.6 V | 579.6 V | |
+  | Points | 50 | 50 | |
+
+  The trace endurance (a MoTeC lap repeated to 5 km) against today's 10 ms
+  run:
+
+  | Row | New | Today, 10 ms |
+  |---|---|---|
+  | Endurance energy | 0.64938 kWh | 0.64617 kWh |
+  | Current | 149.74 A | 149.71 A |
+  | Voltage | 589.43 V | 590.14 V |
+  | Power (500 ms average) | 80.0 kW | 80.0 kW |
+- **Tests.** `test_fs_events.py`'s nine tests that need no lap run on the
+  new engine (engine_marks.py: the file's today mark becomes one per lap
+  test):
+  - the scoring formulas;
+  - the 500 ms power rule whatever the check window;
+  - the trace endurance;
+  - an event on the wrong kind of case;
+  - the 22 km laps.
+
+  The eight lap ones stay on today's engine, the oracle.
+  `test_new_engine_flag.py` refuses `NEW-FS-EVENT` on a Lap case with an
+  event (it refused the acceleration before), and checks that the
+  acceleration and a trace endurance are not refused.
+- **Closure.** The acceleration with its event: 1.9e-10 (779 steps, 8
+  events). The trace endurance: 9.9e-12.
+- **The app.** The per-case *FS event* control was never dimmed. The
+  ribbon's *FS events* button stays dimmed: it marks and runs all four
+  events, three of them on Lap cases. `mod43-fs-events.spec.ts` says so,
+  and a new test there sets an Acceleration case's *FS event*. It is
+  checked with eslint and tsc; no browser runs in WSL, so GitHub's checks
+  run it.
+- **Texts.** KNOWN-LIMITS (the `NEW-FS-EVENT` bullet and the points
+  section), the Help page *Score the Formula Student dynamic events* (a
+  *Score the acceleration* section), and RELEASE-NOTES (the refusal's
+  words and a *New* bullet). The skill pack's copy is regenerated.
+- **Checks.** `engine/check.sh` passes (634 tests). Golden: 0
+  differences over 11 347 values, steps and events as before, the worst
+  closure 1.274e-9; the engine is unchanged, so every other case runs the
+  same module as main. The guard, FS and engine-flag tests pass (247), as
+  do `benchmarks/back_to_back/tests` (157); `ruff check .` is clean.
