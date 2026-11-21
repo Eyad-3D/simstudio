@@ -192,15 +192,18 @@ Resistance* not at 100 %, one series group differs from the others:
   its SOC moves faster.
 - Its open-circuit voltage stands in for one cell's: OCV = (Ns − 1)·v_cell
   + v_weak, with v_weak the cell table at its own SOC.
-- Its resistance is R_cell × its resistance share (at least 50 %), so
-  R0 = (Ns − 1 + k)·R_cell ÷ Np + Ns·R_ic + R_ct, k that share.
+- Its resistance is k·R_cell,w, with k its resistance share (at least
+  50 %) and R_cell,w the cell resistance with f read at the group's own
+  SOC; the normal cells' R_cell is read at the pack's SOC. So
+  R0 = ((Ns − 1)·R_cell + k·R_cell,w) ÷ Np + Ns·R_ic + R_ct.
 - Its cell voltage limits hold the current too, worked out with v_weak and
-  k·R_cell.
+  k·R_cell,w.
 - The pack stops discharging when the pack's SOC or the group's reaches
   *Minimum SOC*, and stops charging when either reaches 100 % (the same
   10 ms rule as above).
-- The derating band's discharge factor uses the lower of the two SOCs; its
-  charge factor uses the pack's SOC.
+- The derating band's discharge factor uses the lower of the two SOCs and
+  its charge factor the higher: a group with less capacity empties first
+  and fills first.
 - The *State of Charge* output is the pack's (the normal groups') SOC.
 
 **The outputs only Cells has.**
@@ -210,15 +213,16 @@ Resistance* not at 100 %, one series group differs from the others:
 - *Discharge Power Limit* and *Charge Power Limit*, each for 2 s, 10 s and
   30 s (the state of power): the most power the pack can give or take in a
   pulse of that length d starting now. The cell resistance is read at a
-  pulse of d; the RC pair's voltage now fades to U₁·e^(−d/τ) and the RC
-  pair adds R1·(1 − e^(−d/τ)) to R0; the peak currents count when d is no
-  longer than *Peak Duration*, else the continuous ones; the cell voltage
-  limits and the derating band count, and the discharge value is at most
-  the maximum-power point's. With A_d = OCV − U₁·e^(−d/τ), R_d that
-  resistance and I the current allowed: P_dis = I·(A_d − R_d·I) and P_ch =
-  I·(A_d + R_d·I). They leave out the *Minimum SOC*, *Max Charge Power* and
-  the *Output Power Limit*. A charge value is 0 when no charge current or
-  voltage limit applies to that pulse length.
+  pulse of d (the weakest group's at its own SOC); the RC pair's voltage
+  now fades to U₁·e^(−d/τ) and the RC pair adds R1·(1 − e^(−d/τ)) to R0;
+  the peak currents count when d is no longer than *Peak Duration*, else
+  the continuous ones; the cell voltage limits and the derating band
+  count, and the discharge value is at most the maximum-power point's.
+  With A_d = OCV − U₁·e^(−d/τ), R_d that resistance and I the current
+  allowed: P_dis = I·(A_d − R_d·I) and P_ch = I·(A_d + R_d·I). They leave
+  out the *Minimum SOC*, *Max Charge Power* and the *Output Power Limit*.
+  A charge value is 0 when no charge current or voltage limit applies to
+  that pulse length.
 - A Battery with *Pack values* does not have these eight outputs. If you
   link one, the run is refused: "Port '…' of '…' is linked, but its block
   has no such signal port."
