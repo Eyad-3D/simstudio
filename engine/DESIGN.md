@@ -273,7 +273,8 @@ same trait.**
 | `lsim-solve` | `Integrator` trait, SUNDIALS backend (+ in-tree `lsim-sundials-sys`), diffsol backend, run loop, events, initialisation and homotopy, sampled blocks, recorder, energy quadratures, solver report, sweeps | WP4 |
 | `lsim-lib` | connectors, physical primitives, signal blocks, the vehicle blocks | WP5 |
 | `lsim-project` | today's project JSON → IR, block mappings, channel map, golden-comparison harness | WP5 |
-| `lsim-fast` | fast mode: the inverse-model stepper and limit flags | WP6 |
+| `lsim-fast` | fast mode: the inverse-model stepper and limit flags; one instant at a time (`PointSolver`, a lap's points) | WP6 |
+| `lsim-lap` | a lap case's speed profile (quasi-steady: cornering speeds, forward and backward passes) from the inverse model one instant at a time (section 10.1) | lap port |
 | `lsim-engine` | the front door: build (with cache), set parameters, simulate, fast mode, sweep | WP6 |
 | `lsim-py` | the Python module `lightsim_engine` (PyO3, maturin) | WP6 |
 | `lsim-math` | the engine's mathematical library: CORE-MATH's correctly rounded functions, vendored and built for CPUs with and without FMA; the only transcendental functions the engine calls (section 7.1) | WP3 |
@@ -4053,6 +4054,72 @@ save most of those 10 ms in every run, sequential or not (a change to
   `engine/judge/fast.py` is the outside judge of these runs (its README:
   the full dynamic run of each case, the battery-electric cars on every
   bundled cycle, and FASTSim on EPA's reference cars).
+
+### 10.1 A lap's speed profile (lsim-lap)
+
+A lap case is quasi-steady: today's method (backend `lapsim.py`: each
+point's cornering speed, a forward pass at full acceleration and a
+backward pass at full braking, Heun's method over each metre) on the
+engine's own model of the car, not a second copy. The case is imported as
+its lap model (`ImportOptions::lap`): fast mode's inverse model (the
+vehicle's speed prescribed, the Driver's pedal freed, no Driving Task) with
+the lap variants of three parts, each structural, so that no other case's
+model changes (the stage's evidence: the model text of every example case,
+full and fast, the same before and after):
+
+* the Race Track: the curvature and grade of the point being solved, two
+  parameters the lap solver sets (`kappa_now`, `grade_now`);
+* the Vehicle body: the lateral acceleration v²·κ, its load transfer from
+  the inner to the outer wheel of each axle's pairs (today's
+  `lateral_load_shift`: m·|a_y|·h shared as the static weight, over each
+  axle's track), and the share of the tyres' grip the corner leaves,
+  today's friction ellipse on the whole car, (1 − u^n)^(1/n) with u =
+  m·|a_y| over the wheels' lateral grip Σ μ_y·N and n their mean exponent
+  (a constant of the build: `pow` takes a constant exponent);
+* the Wheel: its lateral grip μ_y·N, its side of the pair, and its
+  longitudinal grip that share of μ·N.
+
+`lsim_fast::PointSolver` (`Model::point_solver`) solves the inverse model
+at one instant at a time: the states held where it started (the battery's
+charge does not move within a point), the stepper's Newton on the
+iteration variables (Broyden updates, fresh derivatives where it converges
+slowly, a mode change keeping them) from the last point's answer, once more
+from the consistent start where that fails, the modes set from their
+relations; a point that does not solve is an error, never a value. Every
+limit site's value and bounds are read there. `lsim-lap` asks of them:
+
+* the cornering speed: the highest v at a = 0 with every wheel inside its
+  grip;
+* the most acceleration: the highest a with no wheel pushing past its grip,
+  the pedal at most full throttle, no motor past its supply;
+* the most deceleration: the lowest a with no wheel braking past its grip
+  and the pedal at least full brake, the brakes as the car's are set (their
+  Max Torque front and rear, recuperation on the driven axle first), so the
+  first axle to reach its grip sets it;
+* where no acceleration is inside (the corner takes all the grip),
+  coasting's: the pedal at 0 (today's grip term, left × grip, is 0 there).
+
+Each search brackets its root from the last point's answer (0.5 m/s²,
+doubling) and closes it by regula falsi with Illinois' step; a probe the
+model has no answer at counts as outside. The car is solved no slower than
+0.5 m/s (at rest the pedal moves nothing). The lap is held below the
+highest speed the model solves at on the level, the motors' top speed in
+their gear; a stretch the motors hold at full load in their last 2 %,
+where their torque fades out, is named top speed. Each stretch's limit is
+today's code with a finer cause: which axle (braking, traction), the
+brakes' torque, and for a motor held by its supply the battery's power cap
+(its window at its Output Power Limit less its margin) or which part of
+its window (maximum-power point, current or voltage limits, minimum SOC:
+`battery_cause`).
+
+The profile differs from today's where the parts do, on purpose: the
+brake split (today's backward pass brakes with ideal balance) and the open
+differential (today's pools the driven wheels' grip). On the FS example
+the autocross from rest takes 62.2 s against today's 59.1 s, 87 % of the
+difference on braking stretches, the skidpad 1.7 % longer; the cornering
+speeds are 0.3 to 6.3 % lower, increasingly with speed (STATUS.md, the lap
+port's stage 2). Lap cases' energy pass (fast mode along the profile) is
+the port's stage 3.
 
 ## 11. Outputs, energy books and accuracy reports
 

@@ -44,6 +44,18 @@ sections.
 
 ### New
 
+- **Calibrate lap runs again**, on the new engine: the fit and the check lap
+  use the engine's own lap profile of the car (the method of the older lap
+  mode: cornering speeds, a forward pass at full acceleration and a
+  backward pass at full braking, each point from the engine's model of the
+  car). Its lap brakes as the car's brakes are set and drives through the
+  differential as modelled (open), so on the FS Electric example the lap
+  is slower than the older lap mode's: the autocross from rest 62.2 s
+  against 59.1 s (+5.2 %; 2.7 s of it braking, where the rear tyres reach
+  their grip first under its 62.5 % front brake bias), the skidpad +1.7 %
+  (the open differential's unloaded inner wheel). The check lap's energy
+  error, and lap cases themselves, wait for the next step of the port
+  (`NEW-LAP`).
 - **Formula Student scoring without a lap** runs on the new engine: an
   Acceleration case with its *FS event* set gets the event time, the rule
   checks (80 kW on the rules' 500 ms average, 500 A, 600 V) and the points

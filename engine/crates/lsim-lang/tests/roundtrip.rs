@@ -458,8 +458,22 @@ fn every_block_variant() -> Vec<ComponentDef> {
         v.push(motor::emotor(&motor::MotorConfig { windowed: s[0], ..Default::default() }));
         let inverse = motor::MotorConfig { windowed: s[0], inverse: true, ..Default::default() };
         v.push(motor::emotor(&inverse));
-        v.push(vehicle::wheel(vehicle::WheelConfig { on_vehicle: s[0], prescribed: false }));
-        v.push(vehicle::wheel(vehicle::WheelConfig { on_vehicle: s[0], prescribed: true }));
+        v.push(vehicle::wheel(vehicle::WheelConfig {
+            on_vehicle: s[0],
+            prescribed: false,
+            lap: false,
+        }));
+        v.push(vehicle::wheel(vehicle::WheelConfig {
+            on_vehicle: s[0],
+            prescribed: true,
+            lap: false,
+        }));
+        // a lap case's
+        v.push(vehicle::wheel(vehicle::WheelConfig {
+            on_vehicle: s[0],
+            prescribed: true,
+            lap: true,
+        }));
     }
     for s in switches(2) {
         v.push(driveline::split(driveline::SplitConfig { transfer_case: s[0], locked: s[1] }));
@@ -530,8 +544,19 @@ fn every_block_variant() -> Vec<ComponentDef> {
                 single_front: s[2],
                 grade_wired: s[3],
                 prescribed,
+                ..Default::default()
             }));
         }
+        // a lap case's (its ellipse exponent a constant of the build)
+        v.push(vehicle::body(vehicle::BodyConfig {
+            abc: s[0],
+            two_axles: s[1],
+            single_front: s[2],
+            grade_wired: s[3],
+            prescribed: true,
+            lap: true,
+            n_ell: 1.8,
+        }));
     }
     for source in [None, Some(0), Some(2)] {
         v.push(electric::electric_node(source));
