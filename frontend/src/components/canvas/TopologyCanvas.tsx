@@ -17,7 +17,6 @@ import {
   type Viewport,
 } from "@xyflow/react";
 import {
-  Bookmark,
   BoxSelect,
   Cable,
   ChevronRight,
@@ -847,9 +846,6 @@ function TopologyCanvasInner() {
             onClick={() => setShowMiniMap((v) => !v)}
           >
             <Map size={14} />
-          </button>
-          <button className="ss-toolbtn" title="Bookmarks (not in v1)" disabled>
-            <Bookmark size={14} />
           </button>
         </div>
       </div>

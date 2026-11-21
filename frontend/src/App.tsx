@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { DockLayout } from "./components/DockLayout";
+import { DockLayout, resetDockLayout } from "./components/DockLayout";
 import { AiConnectDialog } from "./components/AiConnectDialog";
 import { DialogHost } from "./components/DialogHost";
 import { ParameterDialog } from "./components/ParameterDialog";
@@ -108,6 +108,20 @@ export default function App() {
     };
     // the desktop shell's File menu, a double-clicked .lightsim file (PLT-33)
     window.lightsimSaveAs = () => useProjectStore.getState().saveAs();
+    // the desktop shell's View menu
+    window.lightsimShowPanel = (id) => {
+      useUIStore.getState().focusPanel(id);
+      return true;
+    };
+    window.lightsimResetLayout = () => {
+      resetDockLayout();
+      return true;
+    };
+    window.lightsimSetTheme = (theme) => {
+      const ui = useUIStore.getState();
+      if (ui.theme !== theme) ui.toggleTheme();
+      return true;
+    };
     window.lightsimOpenFile = async () => {
       if (!(await confirmReplaceProject("Opening a project file"))) return false;
       await useProjectStore.getState().openFile();
@@ -133,6 +147,9 @@ export default function App() {
       window.removeEventListener("beforeunload", onBeforeUnload);
       delete window.lightsimSave;
       delete window.lightsimSaveAs;
+      delete window.lightsimShowPanel;
+      delete window.lightsimResetLayout;
+      delete window.lightsimSetTheme;
       delete window.lightsimOpenFile;
       delete window.lightsimOpenProjectId;
     };

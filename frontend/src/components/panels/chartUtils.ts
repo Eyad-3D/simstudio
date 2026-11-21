@@ -50,10 +50,45 @@ export function useHasSize<T extends HTMLElement>() {
 
 const sig4 = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 4 });
 const whole = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+/** Below this a read-out is the solver's rounding, not a value: a car at
+ *  rest reads 0 km/h, not -0.00000000000001773. */
+const NOISE = 1e-9;
 /** A value read out under the pointer: 4 significant digits (whole numbers
- *  from 10,000 up), so the stored rounding's last digits do not show; -0 reads 0. */
+ *  from 10,000 up), so the stored rounding's last digits do not show; -0
+ *  and rounding noise (below 1e-9) read 0. */
 export const fmtNum = (v: number | null | undefined) =>
-  v == null ? "—" : (Math.abs(v) >= 1e4 ? whole : sig4).format(v + 0);
+  v == null ? "—" : (Math.abs(v) >= 1e4 ? whole : sig4).format(Math.abs(v) < NOISE ? 0 : v + 0);
+
+/** A percentage a person reads, without its "%": 3 significant digits;
+ *  "< 0.001" for a nonzero value too small to matter (an energy balance's
+ *  rounding error, 1.27e-7), never an exponent. */
+export function fmtPct(v: number): string {
+  if (v === 0) return "0";
+  if (Math.abs(v) < 0.001) return v < 0 ? "> −0.001" : "< 0.001";
+  return v.toLocaleString(undefined, { maximumSignificantDigits: 3 });
+}
+
+/** A chart column as uPlot holds it: runs on other time grids leave gaps
+ *  (undefined) in the merged columns; null is a sample with no value. */
+export type LegendColumn = ArrayLike<number | null | undefined>;
+
+/** The sample of `col` a cursor or legend reads, for the merged x column
+ *  `xs`: at the pointer's index `i`, the line's nearest sample along x (none
+ *  before its first or after its last: a shorter run has ended there); with
+ *  the pointer off the chart (`i` null), the line's last sample, so the
+ *  legend shows where each line ended instead of a dash. */
+export function legendIdx(col: LegendColumn, xs: ArrayLike<number>, i: number | null | undefined): number | null {
+  if (i == null) {
+    for (let k = col.length - 1; k >= 0; k--) if (col[k] !== undefined) return k;
+    return null;
+  }
+  let lo = i;
+  let hi = i;
+  while (lo >= 0 && col[lo] === undefined) lo--;
+  while (hi < col.length && col[hi] === undefined) hi++;
+  if (lo < 0 || hi >= col.length) return null;
+  return xs[i] - xs[lo] <= xs[hi] - xs[i] ? lo : hi;
+}
 
 export type XAxisMode = "auto" | "s" | "min" | "h" | "distance";
 /** The time or distance axis, as plain data (charts memoise their options on

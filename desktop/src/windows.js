@@ -102,4 +102,52 @@ function onScreen(bounds, workAreas, fallback) {
   };
 }
 
-module.exports = { PARAM_PREFIX, HELP_NAME, isHelpUrl, windowOpenAction, paramWindowOptions, onScreen };
+/** The app's panels by id and tab title, as the page's DockLayout lists them
+ *  (PANELS in frontend/src/components/DockLayout.tsx; a test keeps the two
+ *  the same). */
+const PANELS = [
+  ["components", "Components"],
+  ["elements", "Elements"],
+  ["topology", "Topology"],
+  ["monitors", "Monitors"],
+  ["properties", "Properties"],
+  ["cases", "Cases"],
+  ["messages", "Messages"],
+  ["data-checks", "Problems"],
+  ["layer-config", "Layer Configurations"],
+  ["data-bus", "Data Bus Connections"],
+  ["mini-chart", "Signal Plot"],
+];
+
+/**
+ * The View menu: every panel by name (one that was closed comes back), the
+ * layout and the theme, the zoom and full screen. Reload and the developer
+ * tools only when the app runs from its sources (`dev`, not packaged): in the
+ * released app Reload would throw away the page's unsaved state. `call` runs
+ * a script in the main window's page.
+ */
+function viewMenu({ dev, call }) {
+  const page = (script) => () => call(script);
+  return [
+    {
+      label: "Panels",
+      submenu: PANELS.map(([id, title]) => ({
+        label: title,
+        click: page(`window.lightsimShowPanel ? window.lightsimShowPanel(${JSON.stringify(id)}) : false`),
+      })),
+    },
+    { label: "Reset Layout", click: page("window.lightsimResetLayout ? window.lightsimResetLayout() : false") },
+    { type: "separator" },
+    { label: "Light Theme", click: page('window.lightsimSetTheme ? window.lightsimSetTheme("light") : false') },
+    { label: "Dark Theme", click: page('window.lightsimSetTheme ? window.lightsimSetTheme("dark") : false') },
+    { type: "separator" },
+    { role: "resetZoom" },
+    { role: "zoomIn" },
+    { role: "zoomOut" },
+    { type: "separator" },
+    { role: "togglefullscreen" },
+    ...(dev ? [{ type: "separator" }, { role: "reload" }, { role: "forceReload" }, { role: "toggleDevTools" }] : []),
+  ];
+}
+
+module.exports = { PARAM_PREFIX, HELP_NAME, PANELS, isHelpUrl, windowOpenAction, paramWindowOptions, onScreen, viewMenu };

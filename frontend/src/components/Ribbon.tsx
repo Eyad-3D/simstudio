@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import {
+  PanelsTopLeft,
   AArrowDown,
   AArrowUp,
   Bot,
@@ -42,7 +43,7 @@ import {
 } from "lucide-react";
 import * as api from "../api";
 import type { Project } from "../types";
-import { resetDockLayout } from "./DockLayout";
+import { PANEL_LIST, resetDockLayout } from "./DockLayout";
 import { ExampleCardDialog } from "./ExampleCardEditor";
 import { useDismiss } from "./useDismiss";
 import { LapImportDialog } from "./LapImportDialog";
@@ -54,7 +55,7 @@ import { downloadParameterTemplate, useParameterSheet } from "./ParameterSheet";
 import { confirmDialog } from "../dialog";
 import { desktop } from "../desktop";
 import { HelpMenu } from "./HelpMenu";
-import { confirmReplaceProject, useProjectStore } from "../store/projectStore";
+import { confirmReplaceProject, countOf, useProjectStore } from "../store/projectStore";
 import { deleteSelection, useCanvasSelection } from "../store/canvasSelection";
 import {
   FONT_SCALE_MAX,
@@ -63,6 +64,7 @@ import {
   useUIStore,
   type RibbonTab,
 } from "../store/uiStore";
+import { notYet } from "../notYet";
 
 // Optimization is not implemented yet — kept out of the ribbon (its RibbonTab
 // id/stub render remain) until it ships as a real feature. Parameters is real
@@ -95,6 +97,7 @@ function BigButton({
   accent,
   title,
   ref,
+  notYetRun,
 }: {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   label: string;
@@ -103,6 +106,8 @@ function BigButton({
   accent?: boolean;
   title?: string;
   ref?: React.Ref<HTMLButtonElement>;
+  /** this version does not run it: shown, not pressable, says so (notYet) */
+  notYetRun?: boolean;
 }) {
   return (
     <button
@@ -111,8 +116,9 @@ function BigButton({
         ${accent ? "text-[color:var(--ss-accent)]" : ""}
         hover:bg-[color:var(--ss-hover)] active:bg-[color:var(--ss-active)] disabled:opacity-40 disabled:hover:bg-transparent`}
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled && !notYetRun}
       title={title ?? label}
+      {...(notYetRun ? notYet(label) : {})}
     >
       <Icon size={20} />
       <span>{label}</span>
@@ -131,6 +137,47 @@ export async function importFile(f: File): Promise<void> {
 
 /** A menu heading: the Open menu lists the user's projects and the examples
  *  apart. */
+/** Panels: every panel by name, so one that was closed comes back with one
+ *  click (in its place; Reset UI is for the whole arrangement). */
+function PanelsButton() {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  useDismiss(open, () => setOpen(false), ref, button);
+  return (
+    <div className="relative" ref={ref}>
+      <BigButton
+        ref={button}
+        icon={PanelsTopLeft}
+        label="Panels"
+        title="Show a panel, also one that was closed"
+        onClick={() => setOpen(!open)}
+      />
+      {open && (
+        <div
+          role="menu"
+          aria-label="Panels"
+          className="absolute left-0 top-[54px] z-50 w-[220px] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
+        >
+          {PANEL_LIST.map((p) => (
+            <button
+              key={p.id}
+              role="menuitem"
+              className="flex w-full px-3 py-1.5 text-left text-[12px] hover:bg-[color:var(--ss-accent-soft)]"
+              onClick={() => {
+                setOpen(false);
+                useUIStore.getState().focusPanel(p.id);
+              }}
+            >
+              {p.title}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MenuHeading({ children }: { children: React.ReactNode }) {
   return (
     <div className="px-3 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
@@ -387,6 +434,7 @@ function HomeTab() {
         />
       </RibbonGroup>
       <RibbonGroup label="Workspace">
+        <PanelsButton />
         <BigButton
           icon={Settings2}
           label="Properties"
@@ -490,8 +538,8 @@ function SimulationsTab() {
         />
         <BigButton
           icon={ListChecks}
-          label="Checks"
-          title="Run Data Checks"
+          label="Data Checks"
+          title="Run Data Checks: check the model now (they also run by themselves after every change)"
           disabled={store.checking || !store.project}
           onClick={() => void store.runDataChecks()}
         />
@@ -505,9 +553,8 @@ function SimulationsTab() {
         <BigButton
           icon={Trophy}
           label="FS events"
-          title="Formula Student dynamic events: marks (or adds) an Acceleration, a Skidpad, an Autocross and an Endurance case (22 laps of the Autocross layout, about 22 km, with the driver change), runs the four and shows their points in Cases & Parameters → Formula Student points. Set each case's reference values (the best teams' time and energy) for the points. Scoring: FS Rules 2026 v1.1 (FSG) D 9, estimates, not official results; FSUK and FSAE score differently. Does not run in this version of LightSim yet: these cases fail with Not run [NEW-FS-EVENT] or [NEW-LAP]."
-          disabled={store.running || !store.project}
-          onClick={() => void store.runFsEvents()}
+          title="Formula Student dynamic events: marks (or adds) an Acceleration, a Skidpad, an Autocross and an Endurance case (22 laps of the Autocross layout, about 22 km, with the driver change), runs the four and shows their points in Cases & Parameters → Formula Student points. Set each case's reference values (the best teams' time and energy) for the points. Scoring: FS Rules 2026 v1.1 (FSG) D 9, estimates, not official results; FSUK and FSAE score differently."
+          notYetRun // NEW-FS-EVENT, NEW-LAP
         />
         <BigButton
           icon={FileUp}
@@ -520,9 +567,8 @@ function SimulationsTab() {
         <BigButton
           icon={Crosshair}
           label="Calibrate lap"
-          title="Calibrate lap mode on a logged lap: LightSim builds the track from the lap's speed and lateral acceleration, fits the tyres' grip scale and the downforce (CzA) to the logged speed, and checks the prediction on a second lap, blind (lap time, speed RMS and energy errors). The files stay on your computer. Does not run in this version of LightSim yet: it runs lap cases, which fail with Not run [NEW-LAP]."
-          disabled={store.running || !store.project}
-          onClick={() => setCalibrating(true)}
+          title="Calibrate lap mode on a logged lap: LightSim builds the track from the lap's speed and lateral acceleration, fits the tyres' grip scale and the downforce (CzA) to the logged speed, and checks the prediction on a second lap, blind (lap time, speed RMS and energy errors). The files stay on your computer."
+          notYetRun // NEW-LAP
         />
         {calibrating && <CalibrateDialog onClose={() => setCalibrating(false)} />}
       </RibbonGroup>
@@ -774,7 +820,7 @@ function RestoreVersionButton() {
                 </span>
               </div>
               <p className="mt-0.5 text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
-                {b.name === null ? "Unreadable file" : `${b.name} · ${b.elements} element(s)`}
+                {b.name === null ? "Unreadable file" : `${b.name} · ${countOf(b.elements ?? 0, "part")}`}
               </p>
             </button>
           ))}
@@ -865,7 +911,7 @@ function ProjectTab() {
             onChange={(e) => root && renameSystem(root.id, e.target.value)}
           />
           <span className="text-[11px] text-[color:var(--ss-text-dim)]">
-            {project ? `${project.systems.length} system(s), ${project.cases.length} case(s)` : ""}
+            {project ? `${countOf(project.systems.length, "system")}, ${countOf(project.cases.length, "case")}` : ""}
           </span>
         </div>
       </RibbonGroup>

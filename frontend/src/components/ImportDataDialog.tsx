@@ -308,7 +308,8 @@ export function ImportDataDialog({
                 <label className="flex items-start gap-1.5 rounded border border-[color:var(--ss-border)] px-2 py-1">
                   <input
                     type="checkbox"
-                    checked={build}
+                    // the user's choice at once; the preview follows when the engine answers
+                    checked={options.build ?? build}
                     onChange={(e) => setOptions((o) => ({ ...o, build: e.target.checked, fields: undefined, units: undefined }))}
                   />
                   <span>

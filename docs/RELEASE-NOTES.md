@@ -1202,6 +1202,25 @@ sections.
 
 ### Fixed
 
+- The interface's loose ends. An error the engine sends back reads as
+  sentences naming the part and the parameter (it read *[object Object]*).
+  *Problems* and the status bar say when the Data Checks could not run, and
+  why, instead of *0 errors*; the status bar counts warnings too; a row from
+  the latest run says when the model has changed since it. Numbers such as
+  the energy balance error read as numbers (*< 0.001 %*, not
+  *1.27e-7 %*), and counts as words (*1 message*, not *1 message(s)*).
+  Buttons for what this version does not run (*FS events*, *Calibrate
+  lap*, the endurance energy study) are shown but cannot be pressed, and
+  say why; *Bookmarks* is gone. Every panel can be shown again by name, also
+  one you closed: **Home → Panels**, and in the desktop app a real **View**
+  menu (panels, layout, theme, zoom) without Reload and the developer tools.
+  The checks have one name, *Data Checks* (the ribbon's *Checks*). The
+  status bar names the open project and **New project** for what it does.
+  The Results legend reads where each line ended when the pointer is off
+  the chart, and the faint baseline in its channel's own row; a table's
+  plot in a part's window zooms with a dragged box; the Results page's
+  first-use hint goes away with the page.
+
 - Data Checks no longer stop a coast-down or a gear schedule. A Vehicle
   with no wheels, or with wheels and no E-Motor or Engine, is an error only
   when nothing can move it: with an *Initial Speed* above 0 (also one a

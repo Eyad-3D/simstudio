@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { AlertCircle, AlertTriangle, Ban, Info } from "lucide-react";
-import { useProjectStore } from "../../store/projectStore";
+import { countOf, useProjectStore } from "../../store/projectStore";
 
 /** The level's icon, named for screen readers. */
 export function levelIcon(level: "info" | "warning" | "error", size = 13) {
@@ -27,7 +27,7 @@ export function MessagesPanel() {
     <div className="flex h-full flex-col">
       <div className="ss-panel-toolbar">
         <span className="text-[11px] text-[color:var(--ss-text-dim)]">
-          {messages.length} message(s)
+          {countOf(messages.length, "message")}
         </span>
         <button className="ss-toolbtn ml-auto" onClick={clear} title="Clear messages">
           <Ban size={12} /> Clear

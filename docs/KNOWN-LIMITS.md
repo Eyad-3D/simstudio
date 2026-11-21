@@ -35,6 +35,13 @@ comparison of the two engines (`LIGHTSIM_ENGINE=today`, see the
 of the older engine are not ported to the new one yet. They do not run in
 this version, and the reason code names each:
 
+The buttons for them (*FS events*, *Calibrate lap*, the endurance energy
+study's *Run*) are shown dimmed and cannot be pressed, and say so on hover
+and focus; a Battery's *Defined By: Cells* is listed with *(not in this
+version yet)* and cannot be picked (a project that already has it keeps it,
+and its runs are refused with the code). A *Lap* case can still be set up:
+its runs are refused, and the *Cases* panel says so under its kind.
+
 - **Lap cases** (`NEW-LAP`). A case of kind *Lap*: the Race Track's
   quasi-steady-state lap (Autocross, Skidpad, a custom track), the
   *Endurance energy* case and study that drive laps, and **Calibrate lap**.
@@ -1195,12 +1202,6 @@ SUNDIALS' own examples, transcribed from their C code
   and down arrows then step through them while the line stands still, and
   an overlaid run that stopped where a line crosses it is read at the
   start or the end of its stop.
-- **A table's plot does not zoom with a drag.** The plot under a table or
-  map in a part's parameter window zooms with the mouse wheel and the + and
-  − keys, and a double-click shows the whole table again; dragging a box
-  to zoom, as on the *Results* charts, is off there, because the chart
-  would not see the mouse button come up in a window of its own.
-  *Workaround:* zoom with the wheel.
 - **Long runs with many lines zoom less smoothly.** On a 1-hour run
   (36,001 points) with 7 channels ticked and the baseline drawn faint as
   well (14 lines), the mouse wheel zooms at 60 frames a second most of the

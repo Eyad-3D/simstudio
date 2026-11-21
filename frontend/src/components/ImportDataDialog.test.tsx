@@ -195,9 +195,13 @@ test("a Map block is set from a file: its inputs, outputs, units and tables in o
   expect(importData.mock.calls[0][0]).toEqual({ file: { name: "map.csv", data: expect.any(String) } });
   expect(importData.mock.calls[0][1]).toEqual({ componentDefId: "signal.map", paramKey: "maps", ports: [] });
   expect(applyButton().disabled).toBe(true);
-  // the user's yes
-  importData.mockResolvedValue(built);
-  await act(async () => preview()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  // the user's yes: the box is ticked at once, before the engine has answered
+  let answer!: (r: DataImport) => void;
+  importData.mockReturnValue(new Promise<DataImport>((r) => (answer = r)));
+  const box = () => preview()!.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  await act(async () => box().click());
+  expect(box().checked).toBe(true);
+  await act(async () => answer(built));
   await settle();
   expect(importData).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), { build: true, fields: undefined, units: undefined });
   expect(preview()!.textContent).toContain("(2 inputs, 2 outputs, named and with units from the titles)");

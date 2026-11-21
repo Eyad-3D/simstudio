@@ -67,7 +67,7 @@ same.
 - Each axis fits its data, so a small change fills the plot: the SOC axis
   runs from 88.7 to 90.1 %.
 - Rest the pointer on the chart: the legend under it reads the values at
-  that time. Roll the mouse wheel over the chart to zoom in on a moment;
+  that time (with the pointer off the chart, where each line ended). Roll the mouse wheel over the chart to zoom in on a moment;
   a double-click shows the whole run again
   ([all the chart's keys](../reference/keyboard-shortcuts.md#on-a-chart)).
 - Under the numbers, a line compares *Consumption* with the value the

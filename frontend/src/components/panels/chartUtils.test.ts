@@ -262,3 +262,56 @@ describe("measurement cursors (RES-06)", () => {
     expect(times[5]).toBeLessThan(8);
   });
 });
+
+describe("numbers and legends a person reads", () => {
+  it("a read-out of the solver's rounding noise reads 0", async () => {
+    const { fmtNum } = await import("./chartUtils");
+    expect(fmtNum(-1.773e-14)).toBe("0");
+    expect(fmtNum(-0)).toBe("0");
+    expect(fmtNum(0.0001234)).toBe("0.0001234");
+    expect(fmtNum(88.7612)).toBe("88.76");
+  });
+
+  it("a tiny percentage reads as one, never in exponent form", async () => {
+    const { fmtPct } = await import("./chartUtils");
+    expect(fmtPct(1.2740478785764536e-7)).toBe("< 0.001");
+    expect(fmtPct(-3e-9)).toBe("> −0.001");
+    expect(fmtPct(0)).toBe("0");
+    expect(fmtPct(0.0123456)).toBe("0.0123");
+    expect(fmtPct(12.3456)).toBe("12.3");
+    for (const v of [1e-7, 2.5e-12, 123456.7]) expect(fmtPct(v)).not.toMatch(/e[-+]?\d/i);
+  });
+
+  it("the legend reads each line's last sample with the pointer off the chart, not a dash", async () => {
+    const { legendIdx } = await import("./chartUtils");
+    const xs = [0, 1, 2, 3, 4];
+    expect(legendIdx([1, 2, 3, null, undefined], xs, null)).toBe(3); // a null sample is the line's; a gap is not
+    expect(legendIdx([5, undefined, 7, undefined, undefined], xs, null)).toBe(2);
+    expect(legendIdx([undefined, undefined], [0, 1], null)).toBeNull();
+    // at the pointer: the nearest sample along x, none past the line's ends
+    expect(legendIdx([5, undefined, undefined, 8, undefined], xs, 1)).toBe(0);
+    expect(legendIdx([5, undefined, undefined, 8, undefined], xs, 2)).toBe(3);
+    expect(legendIdx([5, undefined, undefined, 8, undefined], xs, 4)).toBeNull();
+  });
+
+  it("a zoom box drawn in another window ends on that window's mouseup", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    const { endDragOn } = await import("./Plot");
+    const frame = document.body.appendChild(document.createElement("iframe"));
+    const page = frame.contentDocument!;
+    const ups: MouseEvent[] = [];
+    const onUp = (e: MouseEvent) => ups.push(e);
+    document.addEventListener("mouseup", onUp);
+    endDragOn(page);
+    page.dispatchEvent(new (frame.contentWindow as unknown as typeof window).MouseEvent("mouseup", { clientX: 120, clientY: 40, button: 0 }));
+    expect(ups).toHaveLength(1);
+    expect([ups[0].clientX, ups[0].clientY, ups[0].button]).toEqual([120, 40, 0]);
+    page.dispatchEvent(new MouseEvent("mouseup", { clientX: 1 })); // only the drag's own mouseup
+    expect(ups).toHaveLength(1);
+    endDragOn(document); // the main window's page: uPlot hears it already
+    document.dispatchEvent(new MouseEvent("mouseup"));
+    expect(ups).toHaveLength(2);
+    document.removeEventListener("mouseup", onUp);
+    frame.remove();
+  });
+});

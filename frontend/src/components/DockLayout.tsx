@@ -271,6 +271,10 @@ const PANELS: Record<string, { title: string; column: Column; minimumWidth?: num
   "data-bus": { title: "Data Bus Connections", column: "tray" },
   "mini-chart": { title: "Signal Plot", column: "tray" },
 };
+/** Every panel by its tab title, in the order the panel lists (the ribbon's
+ *  Panels menu, the desktop app's View → Panels) show them. */
+export const PANEL_LIST = Object.entries(PANELS).map(([id, { title }]) => ({ id, title }));
+
 const panelSpec = (id: string) => ({
   id,
   component: id,

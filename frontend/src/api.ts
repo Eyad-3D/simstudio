@@ -19,6 +19,7 @@ import type {
 } from "./types";
 import fallbackLibrary from "./data/componentLibrary.json";
 import fallbackProject from "./data/demoProject.json";
+import { detailText, responseText } from "./errorText";
 
 const BASE = "/api";
 
@@ -32,6 +33,7 @@ export class ApiError extends Error {
     super(message);
   }
 }
+
 
 /** A project as read from disk, with bookkeeping that is not part of the
  *  project: `revision` names that version of the file (for conflict-checked
@@ -54,16 +56,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? JSON.stringify(body);
-    } catch {
-      /* keep statusText */
-    }
-    throw new ApiError(res.status, `${res.status} ${detail}`);
-  }
+  if (!res.ok) throw new ApiError(res.status, await responseText(res, init?.body));
   return res.json() as Promise<T>;
 }
 
@@ -381,7 +374,7 @@ export async function exportBundle(project: Project): Promise<Blob> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ project }),
   });
-  if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`);
+  if (!res.ok) throw new ApiError(res.status, await responseText(res, { project }));
   return res.blob();
 }
 
@@ -585,7 +578,7 @@ export function runSimulationLive(
         break;
       case "error":
         settled = true;
-        rejectDone(new Error(String(msg.detail ?? "simulation error")));
+        rejectDone(new Error(detailText(msg.detail) || "The simulation stopped with an error the engine did not describe."));
         ws.close();
         break;
     }
@@ -702,7 +695,7 @@ export function runStudyLive(
         ws.close();
         break;
       case "error":
-        fail(String(msg.detail ?? "study error"));
+        fail(detailText(msg.detail) || "The study stopped with an error the engine did not describe.");
         ws.close();
         break;
     }
@@ -921,15 +914,7 @@ function fileNameOf(res: Response, fallback: string): string {
 
 async function fetchFile(path: string, init?: RequestInit, fallback = "lightsim"): Promise<{ blob: Blob; name: string }> {
   const res = await fetch(`${BASE}${path}`, { headers: { "Content-Type": "application/json" }, ...init });
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      detail = (await res.json()).detail ?? detail;
-    } catch {
-      /* keep statusText */
-    }
-    throw new ApiError(res.status, `${res.status} ${detail}`);
-  }
+  if (!res.ok) throw new ApiError(res.status, await responseText(res, init?.body));
   return { blob: await res.blob(), name: fileNameOf(res, fallback) };
 }
 
