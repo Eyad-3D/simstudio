@@ -31,7 +31,7 @@ pub mod reference;
 use lsim_ir::units::parse_unit;
 
 pub use import::{
-    BlockMapping, Channel, ImportOptions, ImportReport, Mapped, Prescribed, Registry, RunSettings,
+    BlockMapping, Channel, ImportOptions, ImportReport, LapParts, Mapped, Prescribed, Registry, RunSettings,
     SampledSpec, import, import_case, standard_registry,
 };
 

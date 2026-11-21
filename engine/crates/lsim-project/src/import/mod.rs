@@ -265,9 +265,28 @@ pub struct ImportReport {
     pub run: RunSettings,
     /// element id → instance name
     pub instances: BTreeMap<String, String>,
+    /// a lap case's model ([`ImportOptions::lap`]): the parts the lap
+    /// solver reads
+    pub lap: Option<LapParts>,
     /// fast mode's inverse model ([`ImportOptions::inverse`]): what it
     /// prescribes and frees, and the cycle
     pub inverse: Option<Prescribed>,
+}
+
+/// The parts of a lap case's model the lap solver (lsim-lap) reads, by
+/// instance name.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LapParts {
+    /// the Race Track
+    pub track: String,
+    /// the Driver
+    pub driver: String,
+    /// each wheel on the Vehicle, and whether it is on the front axle
+    pub wheels: Vec<(String, bool)>,
+    /// the E-Motors
+    pub motors: Vec<String>,
+    /// the batteries
+    pub batteries: Vec<String>,
 }
 
 /// What fast mode's inverse model of a drive-cycle case prescribes and
@@ -310,6 +329,12 @@ pub struct ImportOptions {
     /// against the prescribed motion ([`ImportReport::inverse`] says what
     /// is prescribed and freed, and gives the cycle as a trace)
     pub inverse: bool,
+    /// a lap case's model (lsim-lap): fast mode's inverse model (the
+    /// vehicle's speed prescribed, the Driver's pedal freed), with no
+    /// Driving Task, and the lap variants of the Race Track (the curvature
+    /// and grade at the point being solved), the Vehicle (the lateral load
+    /// transfer, the friction ellipse) and its wheels (their lateral grip)
+    pub lap: bool,
 }
 
 /// The repository's folder of bundled drive cycles.
@@ -438,10 +463,11 @@ pub fn import_case(
         ),
     };
     let run = run_settings(case);
-    if run.kind == CaseKind::Lap {
+    if run.kind == CaseKind::Lap && !opts.lap {
         return Err(vec![err(
             "LAP-CASE",
-            "Lap cases run in today's lap solver (quasi-steady, not a time simulation).",
+            "A lap case is solved point by point by the lap solver (quasi-steady, not a time \
+             simulation): build its lap model (ImportOptions::lap).",
         )]);
     }
     let dir = opts.cycles_dir.clone().unwrap_or_else(bundled_cycles_dir);
@@ -458,9 +484,10 @@ pub fn import_case(
     };
     let mut facts = facts::read(project, case, &cycles)
         .map_err(|e| e.into_iter().map(|m| err("PROJECT", m)).collect::<Vec<_>>())?;
-    facts.full_throttle = run.kind == CaseKind::Acceleration;
-    facts.performance = run.kind == CaseKind::Performance;
-    facts.inverse = opts.inverse;
+    facts.full_throttle = run.kind == CaseKind::Acceleration && !opts.lap;
+    facts.performance = run.kind == CaseKind::Performance && !opts.lap;
+    facts.inverse = opts.inverse || opts.lap;
+    facts.lap = opts.lap;
     if opts.inverse && (facts.full_throttle || facts.performance) {
         return Err(vec![err(
             "FAST-NO-CYCLE",
@@ -746,6 +773,14 @@ impl<'a> Builder<'a> {
 
     fn links(&mut self) {
         for (from, to) in self.facts.links.clone() {
+            // a lap case: the Race Track sets the slope, the Road Grade
+            // input is not read (today's lap mode says so)
+            if self.facts.lap
+                && Some(&to.0) == self.facts.vehicle.as_ref()
+                && to.1 == "sig_grade_in"
+            {
+                continue;
+            }
             let (pf, pt) = (self.port(&from.0, &from.1), self.port(&to.0, &to.1));
             let (Some(uf), Some(ut)) =
                 (self.signal_unit(&from.0, &pf), self.signal_unit(&to.0, &pt))
@@ -829,6 +864,35 @@ impl<'a> Builder<'a> {
             let front = facts.wheels.get(w).is_none_or(|s| s.front);
             let df = if front { "df_front" } else { "df_rear" };
             self.link(format!("{vi}.{df}"), format!("{wi}.df"));
+        }
+        if facts.lap {
+            // the Race Track's curvature and grade, the lateral load
+            // transfer to each wheel, the share of grip the corner leaves,
+            // and the wheels' lateral grip back to the Vehicle
+            if let Some(t) = facts.of_kind("track.lap").next().map(|t| t.id.clone()) {
+                let ti = self.inst(&t);
+                self.link(format!("{ti}.kappa"), format!("{vi}.kappa"));
+                self.link(format!("{ti}.grade"), format!("{vi}.grade_lap"));
+            }
+            let on: Vec<String> =
+                wheels.iter().filter(|w| self.has_port(w, "dlat")).cloned().collect();
+            for w in &on {
+                let wi = self.inst(w);
+                let front = facts.wheels.get(w).is_none_or(|s| s.front);
+                let d = if front { "dlat_front" } else { "dlat_rear" };
+                self.link(format!("{vi}.{d}"), format!("{wi}.dlat"));
+                self.link(format!("{vi}.left"), format!("{wi}.left"));
+            }
+            if on.is_empty() {
+                self.constant_into(format!("{vi}.lat_grip"), "N", 0.0);
+            } else {
+                let add = lsim_lib::signal::add("N", on.len());
+                let h = self.helper("sum_lat", add, &[]);
+                for (k, w) in on.iter().enumerate() {
+                    self.link(format!("{}.f_lat", self.inst(w)), format!("{h}.u{}", k + 1));
+                }
+                self.link(format!("{h}.y"), format!("{vi}.lat_grip"));
+            }
         }
         if self.has_port(&v, "f_rr") {
             let on: Vec<String> =
@@ -917,6 +981,42 @@ impl<'a> Builder<'a> {
     fn prescription(&mut self) {
         let facts = self.facts;
         if !facts.inverse {
+            return;
+        }
+        if facts.lap {
+            // the lap solver sets the speed and its derivative point by point
+            let (Some(d), Some(veh)) = (facts.driver.clone(), facts.vehicle.clone()) else {
+                return self.errors.push(err(
+                    "LAP-PARTS",
+                    "A lap case needs a Vehicle and a Driver.".to_string(),
+                ));
+            };
+            if facts.of_kind("track.lap").next().is_none() {
+                return self.errors.push(err(
+                    "LAP-PARTS",
+                    "A lap case needs a Race Track.".to_string(),
+                ));
+            }
+            let spec = lsim_ir::InverseSpec {
+                prescribed: vec![format!("{}.v", self.inst(&veh))],
+                freed: vec![format!("{}.sig_cmd_in", self.inst(&d))],
+            };
+            self.report.inverse = Some(Prescribed { spec, t: vec![0.0, 1.0], v: vec![0.0, 0.0] });
+            let track = facts.of_kind("track.lap").next().map(|t| t.id.clone()).unwrap_or_default();
+            let insts = |kind: &str| -> Vec<String> {
+                facts.of_kind(kind).map(|e| e.id.clone()).collect::<Vec<_>>()
+            };
+            let wheels = facts
+                .of_kind("propulsion.wheel")
+                .filter_map(|w| facts.wheels.get(&w.id).map(|s| (w.id.clone(), s.front)))
+                .collect::<Vec<_>>();
+            self.report.lap = Some(LapParts {
+                track: self.inst(&track),
+                driver: self.inst(&d),
+                wheels: wheels.into_iter().map(|(w, f)| (self.inst(&w), f)).collect(),
+                motors: insts("motor.emotor").iter().map(|m| self.inst(m)).collect(),
+                batteries: insts("battery.generic").iter().map(|b| self.inst(b)).collect(),
+            });
             return;
         }
         let fail = |b: &mut Self, m: String| b.errors.push(err("FAST-NO-CYCLE", m));
@@ -1426,6 +1526,25 @@ fn finish_line() -> ComponentDef {
 
 // ---- the mappings ------------------------------------------------------
 
+/// A wheel's side in a lap case: its axle's wheels in project order, the
+/// first half each pair's outer wheel (+1: it takes the load), the second
+/// half the inner ones (−1), a wheel left in the middle neither (today's
+/// LapRun pairs).
+fn lap_side(id: &str, f: &Facts) -> f64 {
+    let Some(me) = f.wheels.get(id) else { return 0.0 };
+    let axle: Vec<&str> = f
+        .of_kind("propulsion.wheel")
+        .filter(|w| f.wheels.get(&w.id).is_some_and(|s| s.front == me.front))
+        .map(|w| w.id.as_str())
+        .collect();
+    let k = axle.len() / 2;
+    match axle.iter().position(|w| *w == id) {
+        Some(i) if i < k => 1.0,
+        Some(i) if i >= axle.len() - k => -1.0,
+        _ => 0.0,
+    }
+}
+
 fn wired(el: &Element, f: &Facts, port: &str) -> bool {
     f.is_wired(&el.id, port)
 }
@@ -1583,19 +1702,37 @@ pub fn standard_registry() -> Registry {
     add!("vehicle.body", |el: &Element, f: &Facts| {
         let front = f.wheels.values().any(|w| w.front);
         let rear = f.wheels.values().any(|w| !w.front);
+        // a lap case: the wheels' mean friction-ellipse exponent (today's
+        // LapRun.n_ell), and each axle's wheel pairs
+        let on: Vec<&Element> =
+            f.of_kind("propulsion.wheel").filter(|w| f.wheels.contains_key(&w.id)).collect();
+        let n_ell = if on.is_empty() {
+            2.0
+        } else {
+            on.iter().map(|w| w.num("friction_ellipse_exponent", 2.0).max(1.0)).sum::<f64>()
+                / on.len() as f64
+        };
         let cfg = vehicle::BodyConfig {
             abc: text(el, "road_load_mode", "") == "Coefficients A/B/C",
             two_axles: front && rear,
             single_front: !rear,
             grade_wired: wired(el, f, "sig_grade_in"),
             prescribed: f.inverse,
+            lap: f.lap,
+            n_ell: if f.lap { n_ell } else { 2.0 },
         };
         let share =
             |fr: bool| f.wheels.values().filter(|w| w.front == fr).map(|w| w.share).sum::<f64>();
-        Ok(Mapped::of(vehicle::body(cfg)).with(vec![
+        let mut values = vec![
             ("share_front".into(), ParamValue::Real(c(share(true)))),
             ("share_rear".into(), ParamValue::Real(c(share(false)))),
-        ]))
+        ];
+        if f.lap {
+            let pairs = |fr: bool| (f.wheels.values().filter(|w| w.front == fr).count() / 2) as f64;
+            values.push(("k_front".into(), ParamValue::Real(c(pairs(true)))));
+            values.push(("k_rear".into(), ParamValue::Real(c(pairs(false)))));
+        }
+        Ok(Mapped::of(vehicle::body(cfg)).with(values))
     });
     add!("propulsion.wheel", |el: &Element, f: &Facts| {
         let on_vehicle = f.vehicle.is_some() && f.wheels.contains_key(&el.id);
@@ -1608,9 +1745,14 @@ pub fn standard_registry() -> Registry {
                 ("fz_static".into(), ParamValue::Real(c(s.share * mass * vehicle::GRAVITY))),
             ]);
         }
+        let lap = f.lap && on_vehicle;
+        if lap {
+            values.push(("side".into(), ParamValue::Real(c(lap_side(&el.id, f)))));
+        }
         Ok(Mapped::of(vehicle::wheel(vehicle::WheelConfig {
             on_vehicle,
             prescribed: f.inverse && on_vehicle,
+            lap,
         }))
         .with(values))
     });
@@ -1782,7 +1924,9 @@ pub fn standard_registry() -> Registry {
             .collect();
         Ok(Mapped::of(signals::monitor(&inputs)))
     });
-    add!("track.lap", |_: &Element, _: &Facts| Ok(Mapped::of(signals::race_track())));
+    add!("track.lap", |_: &Element, f: &Facts| {
+        Ok(Mapped::of(if f.lap { signals::race_track_lap() } else { signals::race_track() }))
+    });
     // a sub-system's container has no physics: its parts are imported in
     // its place (facts::read skips it)
     add!("container.system", |_: &Element, _: &Facts| Ok(Mapped::of(signals::system())));

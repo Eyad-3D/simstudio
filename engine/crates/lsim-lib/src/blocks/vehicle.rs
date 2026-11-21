@@ -43,6 +43,19 @@
 //! instant: Filippov sliding), which the run loop stopped as an event
 //! storm.
 //!
+//! **In a lap case's model** (`lap` below: fast mode's inverse model, at
+//! one instant of the lap at a time) the body also takes the Race Track's
+//! curvature κ and grade: its lateral acceleration v²·κ moves load from the
+//! inner to the outer wheels of each axle (today's lateral_load_shift: the
+//! cornering moment m·|a_y|·h shared by the axles as the static weight is,
+//! over each axle's track width, between each axle's wheel pairs), and the
+//! share of the tyres' grip the corner leaves for driving and braking is
+//! today's friction ellipse on the whole car: (1 − u^n)^(1/n), u = m·|a_y|
+//! over the wheels' lateral grip Σ μ_y·N, n their mean ellipse exponent
+//! (a constant of the build). Each wheel's longitudinal grip is that share
+//! of μ·N. A wheel pair's outer wheel takes what its inner one gives (its
+//! own load before the corner at most, as today for a symmetric pair).
+//!
 //! **In fast mode's inverse model** (`prescribed` / `inverse` below) the
 //! vehicle's speed follows the drive cycle exactly: the driver keeps only
 //! its pedal map, its pedal command an input the inverse model solves for
@@ -81,6 +94,11 @@ pub struct BodyConfig {
     pub grade_wired: bool,
     /// fast mode's inverse model: its speed is prescribed
     pub prescribed: bool,
+    /// a lap case's model (with `prescribed`): the Race Track's curvature
+    /// and grade, the lateral load transfer and the friction ellipse
+    pub lap: bool,
+    /// a lap case's friction-ellipse exponent: the wheels' mean (at least 1)
+    pub n_ell: f64,
 }
 
 impl Default for BodyConfig {
@@ -91,6 +109,8 @@ impl Default for BodyConfig {
             single_front: true,
             grade_wired: false,
             prescribed: false,
+            lap: false,
+            n_ell: 2.0,
         }
     }
 }
@@ -136,8 +156,22 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
     ]);
     let mut ports =
         vec![lsim_ir::component::build::port("road", "TFlange", "where the wheels push it")];
-    if cfg.grade_wired {
+    if cfg.grade_wired && !cfg.lap {
         ports.push(inp(id, "sig_grade_in"));
+    }
+    if cfg.lap {
+        ports.extend([
+            input("kappa", "1/m", "the Race Track's curvature here (a lap case)"),
+            input("grade_lap", "1", "the Race Track's grade here (a lap case)"),
+            input("lat_grip", "N", "the wheels' lateral grip: Σ μ_y × normal load"),
+            output("dlat_front", "N", "the load each front wheel pair moves to its outer wheel"),
+            output("dlat_rear", "N", "the load each rear wheel pair moves to its outer wheel"),
+            output("left", "1", "the share of the tyres' grip the corner leaves"),
+        ]);
+        params.extend([
+            p("k_front", "1", 1.0, "the front axle's wheel pairs (a lap case)"),
+            p("k_rear", "1", 1.0, "the rear axle's wheel pairs (a lap case)"),
+        ]);
     }
     ports.push(input("rho", "kg/m3", "the air density (from the Ambient)"));
     if !cfg.abc {
@@ -204,7 +238,13 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
             n("f_rr"),
         )
     };
-    let grade = if cfg.grade_wired { n("sig_grade_in") } else { c(0.0) };
+    let grade = if cfg.lap {
+        n("grade_lap")
+    } else if cfg.grade_wired {
+        n("sig_grade_in")
+    } else {
+        c(0.0)
+    };
     // rolling resistance as a Coulomb friction with stiction: it holds the
     // vehicle at rest until the drive overcomes it, and stops it when it
     // comes to rest (the shared friction logic). With the speed prescribed
@@ -268,6 +308,48 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
         eq(n("sig_p_accel"), n("mass_kg") * n("acc") * n("v"), "acceleration power"),
     ];
     eqs.extend(friction);
+    if cfg.lap {
+        vars.extend([
+            var("ay", "m/s2", "lateral acceleration v²·κ"),
+            var("lat_use", "1", "the share of the lateral grip the corner takes"),
+        ]);
+        let ne = cfg.n_ell.max(1.0);
+        let moment = n("mass_kg") * noev(abs(n("ay"))) * max(n("cg_height_m"), c(0.0) * n("cg_height_m"));
+        let axle = |share: Expr, track: &str, k: &str| {
+            ite(
+                noev(and(gt(n(track), c(0.0) * n(track)), gt(n(k), c(0.5)))),
+                share * moment.clone() / (n(track) * n(k)),
+                c(0.0) * n("unit_N"),
+            )
+        };
+        eqs.extend([
+            eq(n("ay"), n("v") * n("v") * n("kappa"), "lateral acceleration v²·κ"),
+            eq(
+                n("lat_use"),
+                n("mass_kg") * noev(abs(n("ay"))) / max(n("lat_grip"), c(1e-9) * n("unit_N")),
+                "m·|a_y| over the wheels' lateral grip",
+            ),
+            eq(
+                n("left"),
+                ite(
+                    noev(lt(n("lat_use"), c(1.0))),
+                    pow(c(1.0) - pow(n("lat_use"), ne), 1.0 / ne),
+                    c(0.0),
+                ),
+                "the friction ellipse: (1 − u^n)^(1/n) of the grip left, none past it",
+            ),
+            eq(
+                n("dlat_front"),
+                axle(n("share_front"), "track_front_m", "k_front"),
+                "the front axle's share of m·|a_y|·h over its track, per wheel pair",
+            ),
+            eq(
+                n("dlat_rear"),
+                axle(n("share_rear"), "track_rear_m", "k_rear"),
+                "the rear axle's share of m·|a_y|·h over its track, per wheel pair",
+            ),
+        ]);
+    }
     let bal = clamp(n("aero_balance_front_pct"), c(0.0), c(1.0));
     if cfg.two_axles {
         let wf = n("share_front") * n("w_n");
@@ -328,7 +410,8 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
                 cfg.grade_wired as u8 as f64,
             ]
             .into_iter()
-            .chain(cfg.prescribed.then_some(1.0)),
+            .chain(cfg.prescribed.then_some(1.0))
+            .chain(cfg.lap.then_some([2.0, cfg.n_ell]).into_iter().flatten()),
         ),
         doc: doc(id),
         ports,
@@ -357,29 +440,35 @@ pub struct WheelConfig {
     /// `v_eps`); the force is whatever its torques leave, flagged beyond
     /// its grip
     pub prescribed: bool,
+    /// a lap case's model (with `prescribed`): its pair's lateral load
+    /// transfer, its lateral grip, and the share of its grip the corner
+    /// leaves for driving and braking
+    pub lap: bool,
 }
 
 impl Default for WheelConfig {
     fn default() -> Self {
-        WheelConfig { on_vehicle: true, prescribed: false }
+        WheelConfig { on_vehicle: true, prescribed: false, lap: false }
     }
 }
 
 /// The wheel.
 pub fn wheel(cfg: WheelConfig) -> ComponentDef {
     let id = "propulsion.wheel";
-    let mut params = cps(
-        id,
-        &[
-            "radius_m",
-            "inertia_kgm2",
-            "mu",
-            "slip_stiffness",
-            "rolling_resistance",
-            "mu_load_sensitivity_per_kN",
-            "mu_nominal_load_N",
-        ],
-    );
+    let mut keys = vec![
+        "radius_m",
+        "inertia_kgm2",
+        "mu",
+        "slip_stiffness",
+        "rolling_resistance",
+        "mu_load_sensitivity_per_kN",
+        "mu_nominal_load_N",
+    ];
+    let lap = cfg.lap && cfg.on_vehicle;
+    if lap {
+        keys.push("mu_lateral");
+    }
+    let mut params = cps(id, &keys);
     params.extend([
         p(
             "share",
@@ -395,6 +484,7 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
         ),
         p("fz_static", "N", 0.0, "its share of the weight on level ground"),
         p("w0", "rad/s", 0.0, "its speed at the start"),
+        p("side", "1", 0.0, "a lap case: +1 its pair's outer wheel, −1 its inner one, 0 none"),
         pe("r", "m", max(n("radius_m"), c(1e-3)), "rolling radius, at least 1 mm"),
         pe("c_slip", "1", max(n("slip_stiffness"), c(0.1)), "slip stiffness, at least 0.1"),
         pe("mu0", "1", max(n("mu"), c(0.0)), "friction coefficient"),
@@ -411,6 +501,11 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
         ));
         ports.push(input("w_n", "N", "the vehicle's weight normal to the road"));
         ports.push(input("df", "N", "the load moved onto its axle"));
+    }
+    if lap {
+        ports.push(input("dlat", "N", "the load its pair moves to its outer wheel"));
+        ports.push(input("left", "1", "the share of its grip the corner leaves"));
+        ports.push(output("f_lat", "N", "its lateral grip: μ_y × normal load"));
     }
     for q in
         ["sig_speed", "sig_slip", "sig_force", "sig_torque", "sig_normal_load", "sig_slip_losses"]
@@ -451,6 +546,8 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             var("at_grip", "1", "1 while its force is at the tyre's grip limit"),
         ]);
         let fz0 = ite(gt(n("mu_nominal_load_N"), c(0.0)), n("mu_nominal_load_N"), n("fz_static"));
+        // a lap case: the share of the grip the corner leaves
+        let grip = if lap { n("mu_eff") * n("N") * n("left") } else { n("mu_eff") * n("N") };
         let (slip, force) = if cfg.prescribed {
             vars.push(var("F_grip", "N", "the tyre's force, within its grip"));
             (
@@ -469,8 +566,13 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
                 ),
                 eq(
                     n("F_grip"),
-                    limit(n("F"), -n("mu_eff") * n("N"), n("mu_eff") * n("N")),
-                    "the force its torques leave, up to μ × load (fast mode flags it beyond)",
+                    limit(n("F"), -grip.clone(), grip.clone()),
+                    if lap {
+                        "the force its torques leave, up to μ × load × the corner's share \
+                         (fast mode flags it beyond)"
+                    } else {
+                        "the force its torques leave, up to μ × load (fast mode flags it beyond)"
+                    },
                 ),
             )
         } else {
@@ -495,13 +597,47 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
                 "it rolls with the prescribed speed, without slip",
             ));
         }
+        if lap {
+            vars.extend([
+                var("N0", "N", "its normal load before the corner"),
+                var("mu_y", "1", "its lateral friction coefficient at this load"),
+            ]);
+            eqs.extend([
+                eq(
+                    n("N0"),
+                    max(n("share") * n("w_n") + n("axle_part") * n("df"), c(0.0) * n("unit_N")),
+                    "its share of the weight and of its axle's load transfer, never below 0",
+                ),
+                eq(
+                    n("mu_y"),
+                    max(
+                        c(0.0),
+                        ite(gt(n("mu_lateral"), c(0.0)), n("mu_lateral"), n("mu0"))
+                            + n("mu_load_sensitivity_per_kN") * (n("N") - fz0.clone()),
+                    ),
+                    "its lateral μ (its μ without one) with its load sensitivity",
+                ),
+                eq(n("f_lat"), n("mu_y") * n("N"), "its lateral grip"),
+            ]);
+        }
         eqs.extend([
             eq(n("v"), n("road.v"), "the vehicle's speed"),
-            eq(
-                n("N"),
-                max(n("share") * n("w_n") + n("axle_part") * n("df"), c(0.0) * n("unit_N")),
-                "its share of the weight and of its axle's load transfer, never below 0",
-            ),
+            if lap {
+                eq(
+                    n("N"),
+                    max(
+                        n("N0") + n("side") * min(n("dlat"), n("N0")),
+                        c(0.0) * n("unit_N"),
+                    ),
+                    "its load before the corner, and what its pair moves to its outer wheel",
+                )
+            } else {
+                eq(
+                    n("N"),
+                    max(n("share") * n("w_n") + n("axle_part") * n("df"), c(0.0) * n("unit_N")),
+                    "its share of the weight and of its axle's load transfer, never below 0",
+                )
+            },
             eq(
                 n("mu_eff"),
                 max(c(0.0), n("mu0") + n("mu_load_sensitivity_per_kN") * (n("N") - fz0)),
@@ -552,7 +688,10 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
         name: variant(
             "Blocks.Wheel",
             cfg == WheelConfig::default(),
-            [cfg.on_vehicle as u8 as f64].into_iter().chain(cfg.prescribed.then_some(1.0)),
+            [cfg.on_vehicle as u8 as f64]
+                .into_iter()
+                .chain(cfg.prescribed.then_some(1.0))
+                .chain(lap.then_some(2.0)),
         ),
         doc: doc(id),
         ports,

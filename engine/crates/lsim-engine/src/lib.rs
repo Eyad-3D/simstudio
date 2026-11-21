@@ -692,6 +692,44 @@ impl Model {
         Ok(lsim_fast::run(&prob, blocks)?)
     }
 
+    /// One instant of this inverse model at a time (a lap case's
+    /// `point()`, lsim-lap): a solver started at the model's consistent
+    /// start with the prescribed variables at `start` (value, slope; the
+    /// states held there for every point it solves), with parameters
+    /// `params`.
+    pub fn point_solver(
+        &self,
+        params: &[f64],
+        start: &[(f64, f64)],
+    ) -> Result<lsim_fast::PointSolver<'_>, RunError> {
+        if self.inverse.is_none() {
+            return Err(RunError::Mode(
+                "this model was built for full dynamic runs; build its inverse model".into(),
+            ));
+        }
+        if params.len() != self.info.params.len() {
+            return Err(RunError::Param("wrong number of parameter values".into()));
+        }
+        let traces = start
+            .iter()
+            .map(|&(v, s)| Trace::new(vec![0.0, 1.0], vec![v, v + s]))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| RunError::Fast(FastError::Inputs(e.to_string())))?;
+        let o = FastOptions::default();
+        let (y0, d0) = self.fast_start(params, &traces, &o)?;
+        Ok(lsim_fast::PointSolver::new(
+            &self.jit,
+            params,
+            y0,
+            d0,
+            &self.info.y_nominal,
+            &self.inputs,
+            &self.limits,
+            &self.ders,
+            o.newton_tol,
+        ))
+    }
+
     /// Full dynamic runs for several parameter sets, in parallel on up to
     /// `threads` threads, sharing the compiled model.
     pub fn sweep(
