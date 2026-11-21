@@ -1,6 +1,20 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ClipboardPaste, Copy } from "lucide-react";
+import { ClipboardPaste, Copy, Palette } from "lucide-react";
 import { useOwnerWindow } from "../ownerWindow";
+import { useUIStore, type TableShade } from "../store/uiStore";
+import { useProjectStore } from "../store/projectStore";
+
+/** `fn` as an undo step of its own: not merged with a value typed just
+ *  before it, nor with the next edit (the store merges quick edits of one
+ *  field, as typing does). */
+function ownStep<T>(fn: () => T): T {
+  useProjectStore.getState().endEdit();
+  const out = fn();
+  useProjectStore.getState().endEdit();
+  return out;
+}
+import { GridMenu, type GridMenuItem } from "./GridMenu";
+import { interpolateBlock, offsetBlock, scaleBlock, shadeStyle, type Block } from "./gridTools";
 
 export type CellKind = "corner" | "colHeader" | "rowHeader" | "body";
 
@@ -8,7 +22,13 @@ export interface GridCell {
   text: string;
   kind: CellKind;
   readOnly?: boolean;
+  /** a breakpoint in a body column (a single curve's first column): not a
+   *  value, and its right-click inserts or deletes its row */
+  axis?: boolean;
 }
+
+/** A row or a column of the grid, as the right-click on its header names it. */
+export type GridLine = "row" | "col";
 
 export interface GridRange {
   r0: number;
@@ -98,6 +118,14 @@ export function matrixText(matrix: GridCell[][], range: GridRange): string {
  * Copy and Paste are buttons too, above the grid, beside the editor's own
  * `tools`. Text that `validate` rejects is never committed: the cell turns
  * red and a message under the grid says why, so no value is dropped silently.
+ *
+ * The table tools: the values can be shaded low to high (`shade`, a switch
+ * in the toolbar); a right-click on selected values (or Shift+F10) sets,
+ * multiplies, offsets or interpolates them, and typing a value and
+ * Ctrl+Enter sets every selected value to it; a right-click on a row or
+ * column header inserts or deletes one (`onInsert`, `onDelete`). Every
+ * change goes through `onPasteBlock` as one block, so it is one undo step
+ * and is read in the units shown, as a typed value is.
  */
 export function SpreadsheetGrid({
   matrix,
@@ -111,6 +139,10 @@ export function SpreadsheetGrid({
   tools,
   caption,
   onImportText,
+  shade,
+  onInsert,
+  onDelete,
+  focusCell,
 }: {
   matrix: GridCell[][];
   onCommit: (r: number, c: number, text: string) => void;
@@ -131,11 +163,23 @@ export function SpreadsheetGrid({
   /** pasted text that is not a plain block of numbers fitting here: opens
    *  the import's preview with it, and why (ImportDataDialog) */
   onImportText?: (text: string, why: string) => void;
+  /** what kind of table this is, for the shading switch (kept per kind) */
+  shade?: keyof TableShade;
+  /** a new row or column before or after the one at grid index `at` */
+  onInsert?: (line: GridLine, at: number, where: "before" | "after") => void;
+  /** the rows or columns at these grid indices go */
+  onDelete?: (line: GridLine, at: number[]) => void;
+  /** select this cell (a point clicked on the plot); a new object each time */
+  focusCell?: { r: number; c: number } | null;
 }) {
   const rows = matrix.length;
   const cols = matrix[0]?.length ?? 0;
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
   const win = useOwnerWindow();
+  const shadeOn = useUIStore((s) => (shade ? s.tableShade[shade] : false));
+  const setShade = useUIStore((s) => s.setTableShade);
+  const [menu, setMenu] = useState<{ x: number; y: number; r: number; c: number } | null>(null);
   const [sel, setSel] = useState<Sel>({ anchor: { r: 1, c: 0 }, active: { r: 1, c: 0 } });
   const [editing, setEditingState] = useState<Edit | null>(null);
   // mirrors `editing` so a blur that fires as the editor goes away sees the
@@ -168,13 +212,213 @@ export function SpreadsheetGrid({
     c: Math.min(cols - 1, Math.max(0, c)),
   });
 
+  // a line saying what an action did ("Multiplied 4 cells by 2.") goes when
+  // the table changes another way (Undo, another window), so it never names
+  // a change that is no longer there; `ownChange` lets the action's own through
+  const sig = matrix.map((row) => row.map((cell) => cell.text).join("\t")).join("\n");
+  const [shownSig, setShownSig] = useState(sig);
+  const [ownChange, setOwnChange] = useState(false);
+  if (sig !== shownSig) {
+    setShownSig(sig);
+    if (ownChange) setOwnChange(false);
+    else if (notice?.level === "info") setNotice(null);
+  }
+  const say = (text: string) => {
+    setNotice({ level: "info", text });
+    setOwnChange(true);
+  };
+
   const cellAt = (r: number, c: number): GridCell | undefined => matrix[r]?.[c];
   const isEditable = (r: number, c: number) => {
     const cell = cellAt(r, c);
     return cell && !cell.readOnly;
   };
 
-  const focusGrid = () => containerRef.current?.focus();
+  // (without scrolling: a grid half in view would jump to its top under the
+  // pointer, and the press that began a selection would end it elsewhere)
+  const focusGrid = () => containerRef.current?.focus({ preventScroll: true });
+
+  // a point clicked on the plot selects its cell, scrolled into view
+  const [focused, setFocused] = useState<typeof focusCell>(null);
+  if (focusCell !== focused) {
+    setFocused(focusCell);
+    if (focusCell) setSel({ anchor: focusCell, active: focusCell });
+  }
+  useEffect(() => {
+    if (focusCell)
+      containerRef.current?.querySelector<HTMLElement>("td.ss-active")?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [focusCell]);
+
+  // ---- the table tools ----------------------------------------------------
+  /** A cell that holds one of the table's values (not a breakpoint). */
+  const isValue = (r: number, c: number) => {
+    const cell = cellAt(r, c);
+    return !!cell && cell.kind === "body" && !cell.axis && !cell.readOnly;
+  };
+  /** The header of a row or a column, as its right-click names it. */
+  const lineOf = (r: number, c: number): GridLine | null => {
+    const cell = cellAt(r, c);
+    if (!cell || cell.readOnly) return null;
+    if (cell.kind === "rowHeader" || cell.axis) return "row";
+    return cell.kind === "colHeader" ? "col" : null;
+  };
+  /** The values in the selection: the rows and columns of it that hold any. */
+  const selectedValues = () => {
+    const rs: number[] = [];
+    const cs: number[] = [];
+    for (let r = range.r0; r <= range.r1; r++) for (let c = range.c0; c <= range.c1; c++)
+      if (isValue(r, c)) {
+        if (!rs.includes(r)) rs.push(r);
+        if (!cs.includes(c)) cs.push(c);
+      }
+    return { rs, cs };
+  };
+  const numberAt = (r: number, c: number) => {
+    const t = cellAt(r, c)?.text.trim() ?? "";
+    return t === "" || !Number.isFinite(Number(t)) ? null : Number(t);
+  };
+  /** Where a row and a column sit on their axes (their breakpoints as
+   *  shown), for interpolating; their places in order when not numbers. */
+  const coords = (idx: number[], at: (i: number) => GridCell | undefined) => {
+    const n = idx.map((i) => Number(at(i)?.text.trim() || "x"));
+    return n.every(Number.isFinite) ? n : idx.map((_, k) => k);
+  };
+  const rowCoords = (rs: number[]) =>
+    coords(rs, (r) => matrix[r]?.find((cell) => cell.kind === "rowHeader" || cell.axis));
+  const colCoords = (cs: number[]) => coords(cs, (c) => (cellAt(0, c)?.kind === "colHeader" ? cellAt(0, c) : undefined));
+
+  /** Write cells as one block (one change, one undo step); `done` says what
+   *  happened when it went in. */
+  const writeCells = (changes: { r: number; c: number; text: string }[], done: string) => {
+    if (changes.length === 0) return;
+    const r0 = Math.min(...changes.map((x) => x.r));
+    const c0 = Math.min(...changes.map((x) => x.c));
+    const r1 = Math.max(...changes.map((x) => x.r));
+    const c1 = Math.max(...changes.map((x) => x.c));
+    const block = Array.from({ length: r1 - r0 + 1 }, (_, i) =>
+      Array.from({ length: c1 - c0 + 1 }, (_, j) => cellAt(r0 + i, c0 + j)?.text ?? ""),
+    );
+    for (const x of changes) block[x.r - r0][x.c - c0] = x.text;
+    const problem = ownStep(() => onPasteBlock(r0, c0, block));
+    if (problem) setNotice({ level: "error", text: problem.replace(/^Paste not applied/, "Not applied") });
+    else say(done);
+  };
+  /** Every selected value set to `text` (typed in the unit shown). */
+  const fillWith = (text: string): string | void => {
+    const { rs, cs } = selectedValues();
+    const t = text.trim();
+    if (t === "") return "Enter a value.";
+    const bad = rs.length ? validate?.(rs[0], cs[0], t) : null;
+    if (bad?.level === "error") return bad.text;
+    const cells = rs.flatMap((r) => cs.filter((c) => isValue(r, c)).map((c) => ({ r, c, text: t })));
+    writeCells(cells, `Set ${cells.length} cells to ${t}.`);
+  };
+  /** The selected values through `fn` (empty cells stay empty). */
+  const mapValues = (fn: (b: Block) => Block | string, done: string): string | void => {
+    const { rs, cs } = selectedValues();
+    const out = fn(rs.map((r) => cs.map((c) => numberAt(r, c))));
+    if (typeof out === "string") return out.charAt(0).toUpperCase() + out.slice(1);
+    const cells = rs.flatMap((r, i) =>
+      cs.flatMap((c, j) => {
+        const v = out[i][j];
+        return v === null || v === numberAt(r, c) || !isValue(r, c) ? [] : [{ r, c, text: String(v) }];
+      }),
+    );
+    if (cells.length === 0) return;
+    writeCells(cells, done.replace("{n}", String(cells.length)));
+  };
+  const numberOrSay = (t: string, what: string): number | string =>
+    t !== "" && Number.isFinite(Number(t)) ? Number(t) : `Enter a ${what} as a number (a point for decimals).`;
+
+  /** The menu at the pointer (or under the cell, from the keyboard), for the
+   *  cell right-clicked: a header's or the selected values'. The cell is
+   *  selected first when it is outside the selection, as in a spreadsheet. */
+  const openMenu = (r: number, c: number, at?: { x: number; y: number }) => {
+    const line = lineOf(r, c);
+    if (line ? !onInsert && !onDelete : !isValue(r, c)) return;
+    const box = boxRef.current?.getBoundingClientRect();
+    const cellBox = containerRef.current
+      ?.querySelector<HTMLElement>(`tr:nth-child(${r + 1}) > td:nth-child(${c + 1})`)
+      ?.getBoundingClientRect();
+    const p = at ?? { x: (cellBox?.left ?? 0) + 8, y: cellBox?.bottom ?? 0 };
+    const inSel = line === "row" ? r >= range.r0 && r <= range.r1 : line === "col" ? c >= range.c0 && c <= range.c1 : inRange(r, c);
+    if (!inSel) setSel({ anchor: { r, c }, active: { r, c } });
+    setMenu({ x: Math.max(0, p.x - (box?.left ?? 0)), y: Math.max(0, p.y - (box?.top ?? 0)), r, c });
+  };
+  const closeMenu = (refocus: boolean) => {
+    setMenu(null);
+    if (refocus) setTimeout(focusGrid, 0);
+  };
+  /** The open menu's items, for the selection as it is now. */
+  const menuItems = (r: number, c: number): { label: string; items: GridMenuItem[] } => {
+    const line = lineOf(r, c);
+    if (line) {
+      // row 0 holds the column headers and column 0 the row headers: the lines start at 1
+      const at = line === "row" ? r : c;
+      const [lo, hi] = line === "row" ? [range.r0, range.r1] : [range.c0, range.c1];
+      const drop = at >= lo && at <= hi ? Array.from({ length: hi - Math.max(lo, 1) + 1 }, (_, k) => Math.max(lo, 1) + k) : [at];
+      const word = line === "row" ? "row" : "column";
+      const items: GridMenuItem[] = [];
+      if (onInsert)
+        items.push(
+          { label: line === "row" ? "Insert row above" : "Insert column to the left", run: () => ownStep(() => onInsert(line, at, "before")) },
+          { label: line === "row" ? "Insert row below" : "Insert column to the right", run: () => ownStep(() => onInsert(line, at, "after")) },
+        );
+      if (onDelete)
+        items.push({
+          label: drop.length > 1 ? `Delete ${drop.length} ${word}s` : `Delete ${word}`,
+          // a table keeps at least one breakpoint on every axis
+          disabled: drop.length >= (line === "row" ? rows : cols) - 1,
+          run: () => ownStep(() => onDelete(line, drop)),
+        });
+      return { label: line === "row" ? "Row actions" : "Column actions", items };
+    }
+    const { rs, cs } = selectedValues();
+    return {
+      label: "Cell actions",
+      items: [
+        { label: "Set to…", ask: "Set the selected cells to", run: fillWith },
+        {
+          label: "Multiply by…",
+          ask: "Multiply the selected cells by",
+          run: (t) => {
+            const f = numberOrSay(t, "factor");
+            return typeof f === "string" ? f : mapValues((b) => scaleBlock(b, f), `Multiplied {n} cells by ${f}.`);
+          },
+        },
+        {
+          label: "Add…",
+          ask: "Add to the selected cells",
+          run: (t) => {
+            const d = numberOrSay(t, "value to add");
+            return typeof d === "string" ? d : mapValues((b) => offsetBlock(b, d), `Added ${d} to {n} cells.`);
+          },
+        },
+        {
+          label: "Interpolate between the edges",
+          disabled: rs.length < 3 && cs.length < 3,
+          run: () => {
+            const bad = mapValues(
+              (b) => interpolateBlock(b, rowCoords(rs), colCoords(cs)),
+              "Interpolated {n} cells between the edges of the selection.",
+            );
+            if (bad) setNotice({ level: "error", text: `Not interpolated: ${bad.charAt(0).toLowerCase()}${bad.slice(1)}` });
+          },
+        },
+      ],
+    };
+  };
+
+  // the values' lowest and highest, for their shades
+  let lo = Infinity;
+  let hi = -Infinity;
+  if (shadeOn)
+    matrix.forEach((row, r) =>
+      row.forEach((_, c) => {
+        const v = isValue(r, c) ? numberAt(r, c) : null;
+        if (v !== null) [lo, hi] = [Math.min(lo, v), Math.max(hi, v)];
+      }),
+    );
 
   const startEdit = (r: number, c: number, seed?: string) => {
     if (!isEditable(r, c)) {
@@ -194,7 +438,7 @@ export function SpreadsheetGrid({
   /** Finish the edit in progress. Rejected text keeps the editor open when
    *  the edit ends from the keyboard; when focus leaves the cell instead, the
    *  old value stays and the message says so. */
-  const commitEdit = (how: "down" | "right" | "blur") => {
+  const commitEdit = (how: "down" | "right" | "stay" | "blur") => {
     const edit = editRef.current;
     if (!edit) return;
     const { r, c, value } = edit;
@@ -212,8 +456,23 @@ export function SpreadsheetGrid({
     setNotice(issue);
     setEditing(null);
     if (how === "blur") return; // focus has already gone elsewhere
-    const n = how === "down" ? clamp(r + 1, c) : clamp(r, c + 1);
-    setSel({ anchor: n, active: n });
+    if (how !== "stay") {
+      const n = how === "down" ? clamp(r + 1, c) : clamp(r, c + 1);
+      setSel({ anchor: n, active: n });
+    }
+    setTimeout(focusGrid, 0);
+  };
+
+  /** Ctrl+Enter: the typed value goes into every selected value, as in
+   *  Excel; with one cell selected, it is kept and the cell stays selected. */
+  const fillFromEdit = () => {
+    const edit = editRef.current;
+    if (!edit) return;
+    const { rs, cs } = selectedValues();
+    if (rs.length * cs.length <= 1 || !isValue(edit.r, edit.c)) return commitEdit("stay");
+    const bad = fillWith(edit.value);
+    if (bad) return setNotice({ level: "error", text: bad });
+    setEditing(null);
     setTimeout(focusGrid, 0);
   };
 
@@ -232,6 +491,12 @@ export function SpreadsheetGrid({
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (editing) return;
+    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      // the right-click menu from the keyboard, under the active cell
+      e.preventDefault();
+      openMenu(sel.active.r, sel.active.c);
+      return;
+    }
     const meta = e.ctrlKey || e.metaKey;
     if (meta && (e.key === "a" || e.key === "A")) {
       e.preventDefault();
@@ -330,17 +595,28 @@ export function SpreadsheetGrid({
         setNotice({ level: "error", text: `Paste not applied: ${issue.text}` });
         return;
       }
-      if (cellAt(r, c)?.text !== block[0][0]) onCommit(r, c, block[0][0]);
+      if (cellAt(r, c)?.text !== block[0][0]) ownStep(() => onCommit(r, c, block[0][0]));
       setNotice(issue);
     } else {
-      const problem = onPasteBlock(r, c, block);
+      const problem = ownStep(() => onPasteBlock(r, c, block));
       if (problem && onImportText && !own) {
         // a block that does not fit here: the preview shows how it can be read
         setNotice(null);
         onImportText(text, `${problem.replace(/^Paste not applied: /, "").replace(/\.?$/, ".")}`);
         return;
       }
-      setNotice(problem ? { level: "error", text: problem } : null);
+      // a paste past the end grows the table (one change, one undo step), and says so
+      const more = (n: number, word: string) => (n > 0 ? [`${n} ${word}${n > 1 ? "s" : ""}`] : []);
+      const added = [
+        ...more(r + block.length - rows, "row"),
+        ...more(c + Math.max(...block.map((b) => b.length)) - cols, "column"),
+      ];
+      if (problem) setNotice({ level: "error", text: problem });
+      else if (added.length)
+        say(
+          `The paste went past the end of the table: added ${added.join(" and ")}. A breakpoint the paste did not give continues the last step.`,
+        );
+      else setNotice(null);
     }
   };
 
@@ -413,8 +689,20 @@ export function SpreadsheetGrid({
           <ClipboardPaste size={12} aria-hidden /> Paste
         </button>
         {tools}
+        {shade && (
+          <button
+            type="button"
+            className="ss-toolbtn"
+            aria-pressed={shadeOn}
+            onClick={() => setShade(shade, !shadeOn)}
+            title={`${shadeOn ? "Stop shading" : "Shade"} the cells by value, from purple for the lowest to yellow for the highest. Kept for every ${shade === "curve" ? "single curve" : "table of two or more axes"}.`}
+          >
+            <Palette size={12} aria-hidden /> Shade
+          </button>
+        )}
       </div>
-      <div className="ss-table-box">
+      <div className="ss-table-box relative" ref={boxRef}>
+        {menu && <GridMenu x={menu.x} y={menu.y} {...menuItems(menu.r, menu.c)} onClose={closeMenu} />}
         {caption && <div className="ss-grid-caption">{caption}</div>}
         <div
           // nokey: Delete and Backspace here clear cells, and must not reach
@@ -433,9 +721,30 @@ export function SpreadsheetGrid({
                   {row.map((cell, c) => {
                     const active = sel.active.r === r && sel.active.c === c;
                     const isEditingCell = editing?.r === r && editing?.c === c;
+                    const v = shadeOn && isValue(r, c) ? numberAt(r, c) : null;
+                    // a block selected has a line round it, so it shows on any shade
+                    const edge =
+                      several && inRange(r, c)
+                        ? [
+                            r === range.r0 && "inset 0 2px 0 0",
+                            r === range.r1 && "inset 0 -2px 0 0",
+                            c === range.c0 && "inset 2px 0 0 0",
+                            c === range.c1 && "inset -2px 0 0 0",
+                          ]
+                            .filter(Boolean)
+                            .map((s) => `${s} var(--ss-accent)`)
+                            .join(", ")
+                        : "";
                     return (
                       <td
                         key={c}
+                        style={{ ...(v === null ? {} : shadeStyle(v, lo, hi)), ...(edge ? { boxShadow: edge } : {}) }}
+                        onContextMenu={(e) => {
+                          if (isEditingCell) return;
+                          e.preventDefault();
+                          focusGrid();
+                          openMenu(r, c, { x: e.clientX, y: e.clientY });
+                        }}
                         className={`${inRange(r, c) ? "ss-selected " : ""}${active ? "ss-active " : ""}${
                           isEditingCell ? "ss-editing " : ""
                         }ss-td-${cell.kind} ${
@@ -445,6 +754,8 @@ export function SpreadsheetGrid({
                           if (isEditingCell) return;
                           e.preventDefault();
                           focusGrid();
+                          // a right-click keeps the selection: its menu acts on it
+                          if (e.button === 2) return;
                           if (e.shiftKey) setSel((prev) => ({ ...prev, active: { r, c } }));
                           else {
                             setSel({ anchor: { r, c }, active: { r, c } });
@@ -472,7 +783,11 @@ export function SpreadsheetGrid({
                             }}
                             onBlur={() => commitEdit("blur")}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") {
+                              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                fillFromEdit();
+                              } else if (e.key === "Enter") {
                                 e.preventDefault();
                                 commitEdit("down");
                               } else if (e.key === "Tab") {

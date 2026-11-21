@@ -44,6 +44,15 @@ sections.
 
 ### New
 
+- **Table tools**, in every table and map: cells shaded from low to high
+  (**Shade** in the toolbar), a click on a point of the plot selects its
+  cell, and a right-click on selected cells sets, multiplies, offsets or
+  interpolates them (or type a value and Ctrl+Enter). A right-click on a
+  row or column header inserts a breakpoint midway, interpolated so the
+  table means the same, or deletes one; in a table of three or more axes
+  in every slice. Each action, and each paste, is one undo step; a
+  breakpoint a paste past the end did not give continues the last step
+  ([Edit a table](help/how-to/edit-a-table.md#change-many-cells-at-once)).
 - A **battery built from cells** (*Defined By: Cells*) runs on the new
   engine, in a full run and in quick mode: the pack from a cell and its
   Ns × Np layout, the cell's resistance by pulse length, charge and

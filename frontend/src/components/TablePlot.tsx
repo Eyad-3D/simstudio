@@ -85,6 +85,23 @@ export function tableSlice(
   };
 }
 
+/** The curve whose point at `idx` is nearest to `y` (none has a value: null). */
+export function nearestCurve(slice: TableSlice, idx: number, y: number): number | null {
+  let best: number | null = null;
+  slice.curves.forEach((c, k) => {
+    const v = c.y[idx];
+    if (v != null && (best === null || Math.abs(v - y) < Math.abs(slice.curves[best].y[idx]! - y))) best = k;
+  });
+  return best;
+}
+
+/** A point of the plot (its curve and its index along x) as the index of
+ *  its breakpoint on every axis: the slice's held ones for the rest. */
+export function pointCell(axes: number, along: number, curve: number, index: number, fixed?: number[]): number[] {
+  const by = defaultBy(axes, along);
+  return Array.from({ length: axes }, (_, j) => (j === along ? index : j === by ? curve : (fixed?.[j] ?? 0)));
+}
+
 /** The selected cell in words: its breakpoints and its value, as the cells show them. */
 export function markText(
   table: unknown,
@@ -110,6 +127,7 @@ export function TablePlot({
   value,
   mark,
   fixed,
+  onPick,
 }: {
   table: unknown;
   axes: ShownAxis[];
@@ -119,6 +137,8 @@ export function TablePlot({
   /** the breakpoint (index) each axis is held at when it is neither along x
    *  nor the curves': the slice the editor shows (default the first) */
   fixed?: number[];
+  /** a point clicked on the plot: its index on each axis (its cell is selected) */
+  onPick?: (cell: number[]) => void;
 }) {
   const win = useOwnerWindow();
   const [open, setOpen] = useState(true);
@@ -160,13 +180,18 @@ export function TablePlot({
       {open && canDraw && (
         <div className="ss-table-plot-chart">
           <Suspense fallback={null}>
-            <Chart slice={slice} />
+            <Chart
+              slice={slice}
+              onPick={onPick && ((curve, index) => onPick(pointCell(axes.length, along, curve, index, fixed)))}
+            />
           </Suspense>
         </div>
       )}
       {open && (
         <figcaption data-plot-mark className="text-[11px] text-[color:var(--ss-text-dim)]">
-          {marked ? `Marked: ${marked}` : "Select a cell to mark its point. Point at the plot to read its values."}
+          {marked
+            ? `Marked: ${marked}`
+            : `Select a cell to mark its point. Point at the plot to read its values${onPick ? ", click a point to select its cell" : ""}.`}
         </figcaption>
       )}
     </figure>
