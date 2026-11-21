@@ -1140,9 +1140,11 @@ describe("data checks follow the model", () => {
     expect(store().dataChecks).toEqual([error]); // the last ones that ran
     // pressed by hand: the engine's own words, in Messages too
     api.validateProject.mockRejectedValue(new Error("name: Field required"));
+    const forward = vi.spyOn(useUIStore.getState(), "focusPanel");
     await store().runDataChecks();
     expect(store().checksError).toBe("name: Field required");
     expect(messages()).toContain("error: The Data Checks could not run: name: Field required");
+    expect(forward).toHaveBeenLastCalledWith("data-checks"); // the notice that says why is in Problems
     api.validateProject.mockResolvedValue([]);
     store().renameElement("el-bat", "Pack 2");
     await vi.advanceTimersByTimeAsync(600);

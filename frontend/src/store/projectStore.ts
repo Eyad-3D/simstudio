@@ -2472,16 +2472,16 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         const warnings = checks.filter((c) => c.level === "warning").length;
         // a summary, not a problem: the problems are in the Problems list
         log("info", `Data Checks: ${countOf(errors, "error")}, ${countOf(warnings, "warning")}.`);
-        {
-          const ui = useUIStore.getState();
-          if (ui.ribbonTab === "results") ui.setRibbonTab("home");
-          ui.focusPanel("data-checks");
-        }
         return checks;
       } catch (e) {
         set({ checking: false, checksError: failureText(e) });
         log("error", `The Data Checks could not run: ${failureText(e)}`);
         return [];
+      } finally {
+        // the Problems list forward: the problems, or why they could not be checked
+        const ui = useUIStore.getState();
+        if (ui.ribbonTab === "results") ui.setRibbonTab("home");
+        ui.focusPanel("data-checks");
       }
     },
 
