@@ -122,6 +122,8 @@ point). [How to measure between two times](../how-to/measure-between-two-times.m
 | Type a character | Start editing the cell with it |
 | Delete or Backspace | Clear the selected cells |
 | Esc | Cancel the edit |
+| Ctrl+Enter (while editing) | Put the typed value in every selected cell |
+| Shift+F10 or the Menu key | Open the right-click menu of the selected cells, or of a row or column header ([Edit a table or a map](../how-to/edit-a-table.md#change-many-cells-at-once)) |
 | Ctrl+A | Select every cell |
 | Ctrl+C, Ctrl+V | Copy and paste cells, also from and to a spreadsheet; the **Copy** and **Paste** buttons above the grid do the same ([Edit a table or a map](../how-to/edit-a-table.md)) |
 
