@@ -35,6 +35,7 @@ test("a box drawn on a table's plot in a part's window zooms into it", async ({ 
   const win = await openParams(page, "E-Motor");
   const chart = win.locator('[data-param="drag_torque"]').getByRole("img", { name: /^Table plot: / });
   await expect(chart).toBeVisible();
+  await chart.scrollIntoViewIfNeeded(); // the pointer cannot reach a chart below the fold
   const [lo, hi] = await xRange(chart);
   const box = (await chart.locator(".u-over").boundingBox())!;
   const y = box.y + box.height / 2;

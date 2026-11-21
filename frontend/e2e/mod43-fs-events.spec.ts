@@ -9,7 +9,9 @@ test("MOD-43: FS events is shown but not pressable in this version, and says why
   await openApp(page);
   await openFromMenu(page, "FS Electric (generic)");
   await showPanel(page, "Cases & Parameters");
-  const cases = await page.getByLabel("Case", { exact: true }).first().locator("option").allTextContents();
+  const options = page.getByLabel("Case", { exact: true }).first().locator("option");
+  await expect(options).not.toHaveCount(0);
+  const cases = await options.allTextContents();
   await ribbonTab(page, "Simulations").click();
   const button = page.getByRole("button", { name: "FS events" });
   await expect(button).toHaveAttribute("aria-disabled", "true");
@@ -19,5 +21,5 @@ test("MOD-43: FS events is shown but not pressable in this version, and says why
   await button.click({ force: true });
   await expect(finishNotice(page)).toHaveCount(0);
   // no case was marked or added
-  expect(await page.getByLabel("Case", { exact: true }).first().locator("option").allTextContents()).toEqual(cases);
+  expect(await options.allTextContents()).toEqual(cases);
 });
