@@ -1,7 +1,8 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { useProjectStore } from "../../store/projectStore";
+import { useUIStore } from "../../store/uiStore";
 import libraryJson from "../../data/componentLibrary.json";
 import type { ComponentDef, Project, SimRun } from "../../types";
 import { DataChecksPanel } from "./DataChecksPanel";
@@ -19,7 +20,8 @@ afterEach(() => {
   act(() => root?.unmount());
   root = null;
   document.body.innerHTML = "";
-  useProjectStore.setState({ project: null, dataChecks: null, checksError: null, runs: [], messages: [] });
+  useProjectStore.setState({ project: null, dataChecks: null, checksError: null, refused: null, runs: [], messages: [] });
+  vi.restoreAllMocks();
 });
 async function show(node: React.ReactNode) {
   const host = document.body.appendChild(document.createElement("div"));
@@ -84,6 +86,47 @@ it("marks the last run's problems once the model has changed since that run", as
   act(() => useProjectStore.setState({ project: project(1200) }));
   expect(host.textContent).toContain("'Vehicle' stalled.");
   expect(host.textContent).toContain("model changed since: run again to check");
+});
+
+it("lists a refused model's values, says it was refused, and a row opens the part's window at its value", async () => {
+  const open = vi.spyOn(useUIStore.getState(), "openParamDialog").mockImplementation(() => {});
+  useProjectStore.setState({
+    project: project(1500),
+    dataChecks: [{ level: "warning", text: "An older check." }],
+    refused: [
+      { elementId: "el-1", part: "Vehicle", paramKey: "mass_kg", text: "Vehicle Mass: must be a number (got nothing)", code: "float_type at …" },
+      { text: "Highway · duration: Input should be greater than 0 (got -1)", code: "greater_than at …" },
+    ],
+  });
+  const host = await show(<DataChecksPanel />);
+  expect(host.textContent).toContain("The engine refused the model: 2 problems");
+  expect(host.textContent).not.toMatch(/0 errors|Not checked/);
+  expect(host.textContent).toContain("Vehicle Mass: must be a number (got nothing)");
+  // the model as refused is all there is: the older checks are not current
+  expect(host.textContent).not.toContain("An older check.");
+  const rows = [...host.querySelectorAll("li button")] as HTMLButtonElement[];
+  expect(rows).toHaveLength(2);
+  act(() => rows[0].click());
+  expect(open).toHaveBeenCalledWith("el-1", "mass_kg");
+  // about no part: nothing to open
+  expect(rows[1].disabled).toBe(true);
+});
+
+it("a Data Check about one parameter opens the part's window at it; one about no parameter only shows the part", async () => {
+  const open = vi.spyOn(useUIStore.getState(), "openParamDialog").mockImplementation(() => {});
+  useProjectStore.setState({
+    project: project(-1),
+    dataChecks: [
+      { level: "error", text: "Vehicle Mass of 'Vehicle' must be above 0 kg.", elementIds: ["el-1"], paramKey: "mass_kg" },
+      { level: "warning", text: "'Vehicle' is not connected.", elementIds: ["el-1"] },
+    ],
+  });
+  const host = await show(<DataChecksPanel />);
+  const rows = [...host.querySelectorAll("li button")] as HTMLButtonElement[];
+  act(() => rows[0].click());
+  expect(open).toHaveBeenLastCalledWith("el-1", "mass_kg");
+  act(() => rows[1].click());
+  expect(open).toHaveBeenCalledTimes(1);
 });
 
 it("counts in words: one message, two messages", async () => {

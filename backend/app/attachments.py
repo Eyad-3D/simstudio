@@ -238,6 +238,7 @@ def check(project: Project) -> list[DataCheck]:
                 elementId=users[0][0].id if users else None,
                 elementLabel=users[0][0].label if users else None,
                 elementIds=[el.id for el, _ in users],
+                paramKey=users[0][1] if len(users) == 1 else None,
                 text=f"The attached file '{att.path}' is missing from the project's "
                      f"resources folder ({folder}).",
                 fix="Copy the file back into that folder, or attach it again "
@@ -246,6 +247,7 @@ def check(project: Project) -> list[DataCheck]:
             checks.append(DataCheck(
                 level="warning",
                 elementIds=[el.id for el, _ in users],
+                paramKey=users[0][1] if len(users) == 1 else None,
                 text=f"The attached file '{att.path}' has changed since it was attached.",
                 fix="If the new file is the one you want, attach it again to record it "
                     "(Project → Attached files)."))
@@ -255,7 +257,7 @@ def check(project: Project) -> list[DataCheck]:
         for el, key in users:
             checks.append(DataCheck(
                 level="error", elementId=el.id, elementLabel=el.label, elementIds=[el.id],
-                text=f"{el.label}: '{key}' names '{ref}', which is not attached to the project.",
+                paramKey=key, text=f"{el.label}: '{key}' names '{ref}', which is not attached to the project.",
                 fix="Attach the file (Project → Attached files) or pick another."))
     return checks
 

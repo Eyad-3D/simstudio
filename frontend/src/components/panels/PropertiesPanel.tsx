@@ -680,7 +680,7 @@ function ParameterInput({
     case "number":
       return (
         <NumberInput
-          value={Number(value)}
+          value={value == null ? null : Number(value)}
           onChange={onChange}
           label={def.label}
           def={def}
@@ -991,8 +991,12 @@ export function ElementForm({
     () => def.parameters.filter((p) => isBig(p) && !((drivingTask || roadProfile) && cycleId && isProfile(p)) && shown(p)),
     [def, drivingTask, roadProfile, cycleId, shown],
   );
+  // (a number with no value, which the engine refuses, shows as an empty
+  // field, not as the library's value it does not have)
   const valueOf = (p: ParameterDef): ParamValue =>
-    element.parameterOverrides[p.key] ?? p.default;
+    p.type === "number" && element.parameterOverrides[p.key] === null
+      ? (null as unknown as ParamValue)
+      : (element.parameterOverrides[p.key] ?? p.default);
   const valueOfKey = (key: string): ParamValue | undefined =>
     element.parameterOverrides[key] ?? def.parameters.find((q) => q.key === key)?.default;
   // A Wheel's tyre (MOD-48): a code that reads fills in the radius and the
@@ -1036,7 +1040,7 @@ export function ElementForm({
     unitButtons.current.get(key)?.focus();
   };
   const problemOf = (p: ParameterDef) =>
-    p.type === "number" ? rangeProblem(p, Number(valueOf(p)), unitOf(p)) : null;
+    p.type === "number" && valueOf(p) != null ? rangeProblem(p, Number(valueOf(p)), unitOf(p)) : null;
   // the dialog and Properties can show the same part: ids must not clash
   const formId = useId();
 
@@ -1175,7 +1179,7 @@ export function ElementForm({
               const choosable = p.type === "number" && alternatives(p.unit).length > 0;
               return (
                 <Fragment key={p.key}>
-                  <tr {...helpProps(p)}>
+                  <tr {...helpProps(p)} data-param={p.key}>
                     {/* the full label is in the help card, or else its tooltip */}
                     <td className="ss-td flex items-center text-[11px]" title={p.description ? undefined : p.label}>
                       <span className="truncate">{p.label}</span>

@@ -656,6 +656,9 @@ export interface DataCheck {
    *  before 0.3). */
   elementIds?: string[];
   text: string;
+  /** The parameter it is about (its key, of the first part), when it is
+   *  about one: Problems opens the part's window at it. */
+  paramKey?: string | null;
   /** What to do about it, when the text does not say. */
   fix?: string | null;
   /** The case it is about (its own values or kind): it stops only that

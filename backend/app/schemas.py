@@ -712,6 +712,9 @@ class DataCheck(BaseModel):
     # the case it is about (its own values or kind): it stops only that
     # case's runs. None: it is about the model, and stops every run
     caseId: Optional[str] = None
+    # the parameter it is about (its key), for the Problems list to open the
+    # part's window at; None when it is about no single parameter
+    paramKey: Optional[str] = None
 
 
 class SimulateRequest(BaseModel):

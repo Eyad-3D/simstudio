@@ -84,6 +84,23 @@ def test_ws_rejects_bad_start():
         assert msg["type"] == "error"
 
 
+def test_ws_refuses_a_project_with_each_value_and_its_place():
+    """A project the engine cannot read is refused with the errors
+    themselves, as an HTTP answer gives them: each with its path into the
+    project, so the app names the part and the value (not a count)."""
+    project = bev_axle().model_dump()
+    el = project["systems"][0]["elements"][0]
+    el["parameterOverrides"]["mass_kg"] = None
+    with client.websocket_connect("/api/simulate/run") as ws:
+        ws.send_json({"type": "start", "project": project, "caseId": "case"})
+        msg = ws.receive_json()
+    assert msg["type"] == "error"
+    assert isinstance(msg["detail"], list) and msg["detail"]
+    assert {tuple(d["loc"][:6]) for d in msg["detail"]} == {
+        ("systems", 0, "elements", 0, "parameterOverrides", "mass_kg")}
+    assert all(d["input"] is None for d in msg["detail"])
+
+
 def test_api_reference_page_works_offline():
     """/docs is served from the engine with nothing loaded from elsewhere
     (FastAPI's default loads Swagger UI from a CDN), AI-07."""

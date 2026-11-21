@@ -30,6 +30,8 @@ function fakeOpen() {
       frame.remove();
     });
     win.focus = vi.fn();
+    // (jsdom lays nothing out: the window's elements scroll into view as the main window's do)
+    (win as unknown as typeof globalThis).Element.prototype.scrollIntoView = (...a) => Element.prototype.scrollIntoView?.(...a);
     opened.push(win);
     return win;
   });
@@ -144,6 +146,23 @@ test("asking again for an open part's window raises it instead of opening anothe
   // focused once on opening, then on each request
   expect(opened[0].focus).toHaveBeenCalledTimes(3);
   expect(useParamWindows.getState().windows[0]).toMatchObject({ paramKey: "power", seq: 1 });
+});
+
+test("opened at a parameter (a Problems row), the window shows it and marks it a moment", () => {
+  const shown = vi.fn();
+  Element.prototype.scrollIntoView = shown;
+  fakeOpen();
+  open("m1", "power");
+  const row = opened[0].document.querySelector<HTMLElement>('[data-param="power"]')!;
+  expect(row.contains(powerInput(opened[0]))).toBe(true);
+  expect(row.classList.contains("ss-param-mark")).toBe(true);
+  expect(shown).toHaveBeenCalledWith({ block: "center" });
+  // the mark goes when its moment is over
+  act(() => row.dispatchEvent(new Event("animationend")));
+  expect(row.classList.contains("ss-param-mark")).toBe(false);
+  // asked again for the open window: marked again
+  open("m1", "power");
+  expect(row.classList.contains("ss-param-mark")).toBe(true);
 });
 
 test("an edit in the window is in the project at once, and an edit elsewhere shows in the window", () => {

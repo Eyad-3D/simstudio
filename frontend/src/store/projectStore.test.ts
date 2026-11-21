@@ -1087,6 +1087,33 @@ describe("data checks gate", () => {
     expect(messages()).toContain("error: Run blocked — fix 1 data-check error first.");
   });
 
+  it("a model the engine refuses to read does not run: its values are listed in Problems, one line in Messages", async () => {
+    vi.useFakeTimers();
+    await start();
+    const { problemCounts } = await import("./projectStore");
+    const rows = [
+      { elementId: "el-bat", part: "Battery", paramKey: "capacity_kWh", text: "Usable Capacity: must be a number (got nothing)", code: "float_type at …" },
+    ];
+    // the engine's 422, as api.ts makes it: the text, and the rows
+    const refusal = Object.assign(new Error("Battery · Usable Capacity: must be a number (got nothing)"), { status: 422, refusals: rows });
+    api.validateProject.mockRejectedValue(refusal);
+    const forward = vi.spyOn(useUIStore.getState(), "focusPanel");
+    await store().run();
+    expect(api.runSimulationLive).not.toHaveBeenCalled();
+    expect(store().running).toBe(false);
+    expect(store().refused).toEqual(rows);
+    expect(store().checksError).toBeNull();
+    expect(forward).toHaveBeenLastCalledWith("data-checks");
+    const said = messages().filter((m) => m.startsWith("error") || m.startsWith("warning"));
+    expect(said).toEqual(["error: The engine refused the model: 1 problem, listed in Problems."]);
+    expect(problemCounts(store())).toEqual({ errors: 1, warnings: 0 });
+    // read again after the fix: the rows go by themselves
+    api.validateProject.mockResolvedValue([]);
+    store().renameElement("el-bat", "Pack");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(store().refused).toBeNull();
+  });
+
   it("an error about another case's own values does not block this case", async () => {
     await start();
     engineFinishesRuns();

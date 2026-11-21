@@ -19,16 +19,19 @@ import type {
 } from "./types";
 import fallbackLibrary from "./data/componentLibrary.json";
 import fallbackProject from "./data/demoProject.json";
-import { detailText, responseText } from "./errorText";
+import { detailText, readError, refusalsOf, responseText, type Refusal } from "./errorText";
 
 const BASE = "/api";
 
 /** An error answer from the engine; `status` is its HTTP status (409 = the
- *  project file changed on disk since it was loaded). */
+ *  project file changed on disk since it was loaded; 0 = an answer on a live
+ *  connection, which has none). `refusals`: the rows of a project the engine
+ *  refused to read, one per value it refused. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly refusals: Refusal[] | null = null,
   ) {
     super(message);
   }
@@ -56,7 +59,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json" },
     ...init,
   });
-  if (!res.ok) throw new ApiError(res.status, await responseText(res, init?.body));
+  if (!res.ok) {
+    const { text, refusals } = await readError(res, init?.body);
+    throw new ApiError(res.status, text, refusals);
+  }
   return res.json() as Promise<T>;
 }
 
@@ -578,7 +584,14 @@ export function runSimulationLive(
         break;
       case "error":
         settled = true;
-        rejectDone(new Error(detailText(msg.detail) || "The simulation stopped with an error the engine did not describe."));
+        // (the engine's path starts at the project it was sent)
+        rejectDone(
+          new ApiError(
+            0,
+            detailText(msg.detail, project) || "The simulation stopped with an error the engine did not describe.",
+            refusalsOf(msg.detail, project),
+          ),
+        );
         ws.close();
         break;
     }
@@ -695,7 +708,7 @@ export function runStudyLive(
         ws.close();
         break;
       case "error":
-        fail(detailText(msg.detail) || "The study stopped with an error the engine did not describe.");
+        fail(detailText(msg.detail, req) || "The study stopped with an error the engine did not describe.");
         ws.close();
         break;
     }

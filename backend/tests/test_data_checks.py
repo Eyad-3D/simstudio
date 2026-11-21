@@ -800,3 +800,18 @@ def test_a_wire_the_diagram_cannot_show_goes_with_its_part():
     delete = "delete 'HV Battery Pack' (the wire goes with it) and add it again."
     assert fixes == {"c-gone": (["el-battery"], "The diagram cannot show this wire: " + delete),
                      "c-port": (["el-battery"], "The diagram cannot show this wire: " + delete)}
+
+
+def test_a_check_about_one_parameter_names_its_key():
+    """The Problems list opens the part's window at the parameter: a value out of
+    its range and an unreadable table carry the key; a wiring check, none."""
+    proj = load_example("bev-car")
+    bat = next(e for e in proj.systems[0].elements if e.id == "el-battery")
+    bat.parameterOverrides.update(coulombic_efficiency_pct=0, ocv_table="not a table")
+    keys = {c.paramKey: c.text for c in validate_project(proj) if c.level == "error"}
+    assert set(keys) == {"coulombic_efficiency_pct", "ocv_table"}, keys
+    assert "Coulombic Efficiency" in keys["coulombic_efficiency_pct"]
+    unwired = [c for c in _bev(lambda d, s: d.update(dataBusConnections=[
+        x for x in d["dataBusConnections"] if x["id"] != "db-2"]))
+        if "no Traction Command" in c.text]
+    assert unwired and all(c.paramKey is None for c in unwired)

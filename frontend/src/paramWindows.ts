@@ -204,3 +204,16 @@ window.addEventListener("pagehide", closeAllParamWindows);
 export function setWindowTitle(win: Window, title: string): void {
   win.document.title = title;
 }
+
+/** Show parameter `key` of a part's form (a Problems row or a table's button
+ *  opened the window at it): in view (a table from its top, a value's row in
+ *  the middle) and marked a moment so the eye finds it. */
+export function showParam(form: HTMLElement | null, key: string): void {
+  const el = form?.querySelector<HTMLElement>(`[data-param="${key}"]`);
+  if (!el) return;
+  el.scrollIntoView({ block: el.tagName === "TR" ? "center" : "start" });
+  el.classList.remove("ss-param-mark");
+  void el.offsetWidth; // (so a second request marks it again)
+  el.classList.add("ss-param-mark");
+  el.addEventListener("animationend", () => el.classList.remove("ss-param-mark"), { once: true });
+}

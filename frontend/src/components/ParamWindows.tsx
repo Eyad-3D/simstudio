@@ -9,6 +9,7 @@ import {
   closeParamWindow,
   openParamWindow,
   setWindowTitle,
+  showParam,
   useParamWindows,
   type ParamWindow,
 } from "../paramWindows";
@@ -107,10 +108,9 @@ function ParamWindowContent({ entry }: { entry: ParamWindow }) {
     body.current?.querySelector<HTMLElement>("input, select, textarea")?.focus();
   }, []);
 
-  // opened from a table's button: show that table
+  // opened at a parameter (a table's button, a Problems row): show it
   useEffect(() => {
-    if (entry.paramKey)
-      body.current?.querySelector(`[data-param="${entry.paramKey}"]`)?.scrollIntoView({ block: "start" });
+    if (entry.paramKey) showParam(body.current, entry.paramKey);
   }, [entry.paramKey, entry.seq]);
 
   if (gone) return null;
