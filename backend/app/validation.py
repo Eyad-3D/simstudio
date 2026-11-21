@@ -339,7 +339,7 @@ def validate_project(project: Project) -> list[DataCheck]:
                         and (problem := _number_problem(pdef, values[pdef.key])):
                     add("error", f"{_name(pdef)} of '{el.label}' in case '{case.name}' {problem}.",
                         el, fix="Change or remove the override in Cases & Parameters.",
-                        case=case)
+                        case=case, param=pdef.key)
 
     # -- structural solvability (delegated to model extraction) ------------------
     model = None
@@ -968,9 +968,8 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
     def once(level: str, text: str, el_id: str, fix: str, case: SimCase | None,
              param: str | None = None) -> None:
         if text not in seen:
-            seen.add(text)  # (a case's own value has no parameter window: no key there)
-            add(level, text, model.elements[el_id], fix=fix, case=case,
-                param=param if case is None else None)
+            seen.add(text)  # (the part's window shows a case's own value too)
+            add(level, text, model.elements[el_id], fix=fix, case=case, param=param)
 
     variants = [(None, {})] + [(c, c.parameterOverrides) for c in project.cases]
     for t in tasks:

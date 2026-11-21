@@ -129,6 +129,21 @@ it("a Data Check about one parameter opens the part's window at it; one about no
   expect(open).toHaveBeenCalledTimes(1);
 });
 
+it("a Data Check about a case's own value makes that case active and opens the part's window at the value", async () => {
+  const open = vi.spyOn(useUIStore.getState(), "openParamDialog").mockImplementation(() => {});
+  useProjectStore.setState({
+    project: project(1500),
+    activeCaseId: null,
+    dataChecks: [
+      { level: "error", text: "Vehicle Mass of 'Vehicle' in case 'City' must be above 0 kg.", elementIds: ["el-1"], paramKey: "mass_kg", caseId: "c" },
+    ],
+  });
+  const host = await show(<DataChecksPanel />);
+  act(() => (host.querySelector("li button") as HTMLButtonElement).click());
+  expect(useProjectStore.getState().activeCaseId).toBe("c");
+  expect(open).toHaveBeenLastCalledWith("el-1", "mass_kg");
+});
+
 it("counts in words: one message, two messages", async () => {
   useProjectStore.setState({ messages: [{ time: "09:30:00", level: "info", text: "Opened." }] });
   const host = await show(<MessagesPanel />);

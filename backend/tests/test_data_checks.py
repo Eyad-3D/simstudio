@@ -622,10 +622,13 @@ def test_a_case_override_keeps_to_the_limits_too():
     proj = load_example("bev-car")
     case = proj.cases[0]
     case.parameterOverrides["el-battery"] = {"initial_soc_pct": 150, "capacity_kWh": 70}
-    errors = [(c.text, c.elementIds, c.fix) for c in validate_project(proj) if c.level == "error"]
+    errors = [(c.text, c.elementIds, c.fix, c.caseId, c.paramKey)
+              for c in validate_project(proj) if c.level == "error"]
+    # (its key: the Problems row opens the part's window there, with the case active)
     assert errors == [(f"Initial SOC of 'HV Battery Pack' in case '{case.name}' must be above 0 "
                        "and at most 100 % — got 150.", ["el-battery"],
-                       "Change or remove the override in Cases & Parameters.")]
+                       "Change or remove the override in Cases & Parameters.", case.id,
+                       "initial_soc_pct")]
     result = client.post("/api/simulate",
                          json={"project": proj.model_dump(), "caseId": case.id}).json()
     assert result["status"] == "failed" and "150" in result["messages"][0]["text"]

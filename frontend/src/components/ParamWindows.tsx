@@ -102,10 +102,12 @@ function ParamWindowContent({ entry }: { entry: ParamWindow }) {
     if (label !== undefined) setWindowTitle(entry.win, label);
   }, [label, entry.win]);
 
-  // the focus starts on the first field
+  // the focus starts on the first field (the Name, after the search and Changed only)
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    body.current?.querySelector<HTMLElement>("input, select, textarea")?.focus();
+    body.current
+      ?.querySelector<HTMLElement>("input:not([type=search]):not([type=checkbox]), select, textarea")
+      ?.focus();
   }, []);
 
   // opened at a parameter (a table's button, a Problems row): show it

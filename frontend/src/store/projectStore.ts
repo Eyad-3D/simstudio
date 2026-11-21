@@ -482,6 +482,9 @@ export interface ProjectState {
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
   /** Several parameters at once (a component preset), as one undo step. */
   setParameters: (elementId: string, values: Record<string, ParamValue>) => void;
+  /** Put a parameter back to the library's value (its override goes), as one
+   *  undo step. */
+  resetParameter: (elementId: string, key: string) => void;
   /** Record where a parameter value comes from (CON-13); null forgets it. */
   setParameterSource: (elementId: string, key: string, source: ParameterSource | null) => void;
   /** Values for parameters of several parts (an imported parameter sheet,
@@ -1525,6 +1528,21 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         `param:${elementId}:${key}`,
       );
       streamLive(elementId, key, value);
+    },
+
+    // back to the library's value: an undo step of its own, never merged with
+    // the edit just before it
+    resetParameter: (elementId, key) => {
+      let def: ParamValue | undefined;
+      updateProject((draft) => {
+        for (const s of draft.systems) {
+          const el = s.elements.find((e) => e.id === elementId);
+          if (!el) continue;
+          delete el.parameterOverrides[key];
+          def = get().libraryById[el.componentDefId]?.parameters.find((p) => p.key === key)?.default;
+        }
+      });
+      if (def !== undefined) streamLive(elementId, key, def);
     },
 
     // presets set "fixed" parameters only, so nothing streams into a live run
@@ -3338,6 +3356,8 @@ export interface Problem {
   /** the parameter it is about (its key), of the first part: a click opens
    *  the part's window at it */
   paramKey?: string | null;
+  /** the case it is about (a case's own value): a click makes it active */
+  caseId?: string | null;
   /** the engine's own words for it (codes, paths), for a report */
   code?: string;
   /** Data Checks, or the run it came from; `changedSince` counts the changes
@@ -3399,6 +3419,7 @@ export function problemsOf(
     // engines before 0.3 name one part at most
     elementIds: (c.elementIds?.length ? c.elementIds : c.elementId ? [c.elementId] : []).filter((id) => ids.has(id)),
     paramKey: c.paramKey,
+    caseId: c.caseId,
     source: "check" as const,
   }));
   if (run) {

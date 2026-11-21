@@ -23,7 +23,12 @@ export function DataChecksPanel() {
     if (ui.ribbonTab !== "home") ui.setRibbonTab("home");
     ui.focusPanel("topology");
     ui.revealElements?.(p.elementIds);
-    if (p.paramKey && p.elementIds.length) ui.openParamDialog(p.elementIds[0], p.paramKey);
+    if (p.paramKey && p.elementIds.length) {
+      // about a case's own value: that case active, so the part's window
+      // shows its value on the case line under the parameter
+      if (p.caseId && project?.cases.some((c) => c.id === p.caseId)) useProjectStore.getState().setActiveCase(p.caseId);
+      ui.openParamDialog(p.elementIds[0], p.paramKey);
+    }
   };
 
   const seen = new Map<string, number>();

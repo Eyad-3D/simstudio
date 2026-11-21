@@ -9,6 +9,7 @@
 import { create } from "zustand";
 import { onAppKey } from "./appKeys";
 import { PARAM_WINDOW_KEY } from "./storageKeys";
+import { useUIStore } from "./store/uiStore";
 
 export interface ParamWindow {
   /** the part's element id */
@@ -211,7 +212,34 @@ export function setWindowTitle(win: Window, title: string): void {
 export function showParam(form: HTMLElement | null, key: string): void {
   const el = form?.querySelector<HTMLElement>(`[data-param="${key}"]`);
   if (!el) return;
+  // (in a folded section: unfold it)
+  const section = el.closest("details");
+  if (section) section.open = true;
   el.scrollIntoView({ block: el.tagName === "TR" ? "center" : "start" });
+  mark(el);
+}
+
+/** The name the desktop shell knows the main window by, to raise it. */
+export const MAIN_WINDOW_NAME = "lightsim-main";
+
+/** Show the active case's own value of part `elementId`'s parameter `key` in
+ *  Cases & Parameters (a parameter window's case line): the main window to
+ *  the front, the panel shown, the value's row in view, focused and marked. */
+export function showCaseValue(elementId: string, key: string): void {
+  useUIStore.getState().focusPanel("cases");
+  if (window.lightsimDesktop?.raiseWindow) void window.lightsimDesktop.raiseWindow(MAIN_WINDOW_NAME);
+  else window.focus();
+  requestAnimationFrame(() => {
+    const row = document.querySelector<HTMLElement>(`[data-override="${CSS.escape(`${elementId}:${key}`)}"]`);
+    if (!row) return;
+    row.scrollIntoView({ block: "center" });
+    row.querySelector<HTMLElement>("input, select")?.focus();
+    mark(row);
+  });
+}
+
+/** Marked a moment so the eye finds it. */
+function mark(el: HTMLElement): void {
   el.classList.remove("ss-param-mark");
   void el.offsetWidth; // (so a second request marks it again)
   el.classList.add("ss-param-mark");
