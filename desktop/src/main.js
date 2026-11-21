@@ -550,10 +550,12 @@ function handleFileRequests() {
     if (canceled || !filePaths[0]) return null;
     return engineFiles.allowAiFolder(filePaths[0]);
   });
-  // a part's parameter window asked for again: to the front, even from the taskbar
+  // a part's parameter window asked for again: to the front, even from the
+  // taskbar; the main window by its own name (a parameter window's case line
+  // shows the case's value in Cases & Parameters)
   ipcMain.handle("lightsim:raise-window", (event, name) => {
     if (!fromApp(event)) return;
-    const child = paramWindows.get(String(name));
+    const child = String(name) === "lightsim-main" ? mainWindow : paramWindows.get(String(name));
     if (!child || child.isDestroyed()) return;
     if (child.isMinimized()) child.restore();
     child.show();

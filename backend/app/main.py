@@ -100,6 +100,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -1384,7 +1385,9 @@ async def run_simulation_live(ws: WebSocket) -> None:
     try:
         project = Project.model_validate(first.get("project"))
     except ValidationError as e:
-        await ws.send_json({"type": "error", "detail": f"Invalid project: {e.error_count()} schema error(s)."})
+        # the errors themselves, as an HTTP answer gives them: the app names
+        # each part and value it refused
+        await ws.send_json({"type": "error", "detail": jsonable_encoder(e.errors(include_url=False, include_context=False))})
         await ws.close()
         return
     case_id = str(first.get("caseId", ""))
@@ -1513,7 +1516,7 @@ async def run_study_live(ws: WebSocket) -> None:
             raise ValueError("First message must be 'start'.")
         req = StudyRequest.model_validate(first)
     except (ValueError, ValidationError) as e:
-        detail = (f"Invalid study: {e.error_count()} schema error(s)."
+        detail = (jsonable_encoder(e.errors(include_url=False, include_context=False))
                   if isinstance(e, ValidationError) else str(e))
         await ws.send_json({"type": "error", "detail": detail})
         await ws.close()

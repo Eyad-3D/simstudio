@@ -6,6 +6,7 @@ import { componentHelpPage, useHelpStore } from "../help";
 import { componentIcon } from "../icons";
 import { ElementForm } from "./panels/PropertiesPanel";
 import { PartHelpButton } from "./ParamWindows";
+import { showParam } from "../paramWindows";
 
 /** A part's parameters in a modal dialog inside the main window: only when
  *  the browser blocked the parameter window (ParamWindows.tsx), which is
@@ -54,11 +55,10 @@ export function ParameterDialog() {
     if (paramDialogId && !def) closeParamDialog();
   }, [paramDialogId, def, closeParamDialog]);
 
-  // opened from a table's button: show that table
+  // opened at a parameter (a table's button, a Problems row): show it
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (paramDialogKey)
-      body.current?.querySelector(`[data-param="${paramDialogKey}"]`)?.scrollIntoView({ block: "start" });
+    if (paramDialogKey) showParam(body.current, paramDialogKey);
   }, [paramDialogId, paramDialogKey]);
 
   if (!paramDialogId || !element || !def) return null;

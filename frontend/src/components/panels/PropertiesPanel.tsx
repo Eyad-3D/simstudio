@@ -57,6 +57,8 @@ import type {
   TableN,
 } from "../../types";
 import { optionLabel } from "../../notYet";
+import { showCaseValue } from "../../paramWindows";
+import { PARAM_SECTIONS_KEY } from "../../storageKeys";
 
 /** A library table of three or more axes: its grid, with the import. */
 function LibraryTableN({ target, ...props }: Parameters<typeof TableNEditor>[0] & { target: DataTargetRef }) {
@@ -680,7 +682,7 @@ function ParameterInput({
     case "number":
       return (
         <NumberInput
-          value={Number(value)}
+          value={value == null ? null : Number(value)}
           onChange={onChange}
           label={def.label}
           def={def}
@@ -942,6 +944,26 @@ const isProfile = (p: ParameterDef) => p.type === "string" && p.key === "profile
 const isTable = (p: ParameterDef) => p.type === "table1d" || p.type === "table2d" || p.type === "table";
 const isBig = (p: ParameterDef) => isTable(p) || p.type === "maps" || p.type === "code" || isProfile(p);
 
+/** The sections a user opened or folded, by "part id/section" (U-4.9). */
+function loadOpenSections(): Record<string, boolean> {
+  try {
+    const saved: unknown = JSON.parse(window.localStorage.getItem(PARAM_SECTIONS_KEY) ?? "{}");
+    return saved && typeof saved === "object" && !Array.isArray(saved) ? (saved as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** "Case “City” runs with 60 %, not this part's own value": a button to that
+ *  value in Cases & Parameters. */
+function CaseLine({ text, onGo }: { text: string; onGo: () => void }) {
+  return (
+    <button type="button" className="ss-case-link" title="Show the case's value in Cases & Parameters" onClick={onGo}>
+      {text}
+    </button>
+  );
+}
+
 export function ElementForm({
   element,
   def,
@@ -991,8 +1013,12 @@ export function ElementForm({
     () => def.parameters.filter((p) => isBig(p) && !((drivingTask || roadProfile) && cycleId && isProfile(p)) && shown(p)),
     [def, drivingTask, roadProfile, cycleId, shown],
   );
+  // (a number with no value, which the engine refuses, shows as an empty
+  // field, not as the library's value it does not have)
   const valueOf = (p: ParameterDef): ParamValue =>
-    element.parameterOverrides[p.key] ?? p.default;
+    p.type === "number" && element.parameterOverrides[p.key] === null
+      ? (null as unknown as ParamValue)
+      : (element.parameterOverrides[p.key] ?? p.default);
   const valueOfKey = (key: string): ParamValue | undefined =>
     element.parameterOverrides[key] ?? def.parameters.find((q) => q.key === key)?.default;
   // A Wheel's tyre (MOD-48): a code that reads fills in the radius and the
@@ -1036,7 +1062,7 @@ export function ElementForm({
     unitButtons.current.get(key)?.focus();
   };
   const problemOf = (p: ParameterDef) =>
-    p.type === "number" ? rangeProblem(p, Number(valueOf(p)), unitOf(p)) : null;
+    p.type === "number" && valueOf(p) != null ? rangeProblem(p, Number(valueOf(p)), unitOf(p)) : null;
   // the dialog and Properties can show the same part: ids must not clash
   const formId = useId();
 
@@ -1096,13 +1122,314 @@ export function ElementForm({
     // moving to the card's own button keeps it
     onBlur: (e: React.FocusEvent) => e.relatedTarget?.closest(".ss-help-card") || setFocused(null),
   });
+
+  // the window's search and Changed only (U-4.9): a parameter shows when its
+  // label or description holds the words typed and, with Changed only, when
+  // its value is not the library's. Not in the narrow Properties panel.
+  const [query, setQuery] = useState("");
+  const [changedOnly, setChangedOnly] = useState(false);
+  const q = compact ? "" : query.trim().toLowerCase();
+  const only = !compact && changedOnly;
+  const filtering = q !== "" || only;
+  const isChanged = (p: ParameterDef) =>
+    Object.hasOwn(element.parameterOverrides, p.key) &&
+    JSON.stringify(element.parameterOverrides[p.key]) !== JSON.stringify(p.default);
+  const matches = (p: ParameterDef) =>
+    (!q || p.label.toLowerCase().includes(q) || (p.description ?? "").toLowerCase().includes(q)) &&
+    (!only || isChanged(p));
+
+  // a dot beside a value that is not the library's; a click puts it back,
+  // one undo step (U-4.9). None in the narrow panel, nor on an unchanged value.
+  const resetParameter = useProjectStore((s) => s.resetParameter);
+  const libText = (p: ParameterDef) => {
+    const unit = unitOf(p);
+    if (p.type === "number" && typeof p.default === "number")
+      return `${showNumber(p.default, p.unit, unit)}${unit === "-" ? "" : ` ${unit}`}`;
+    if (p.type === "boolean") return p.default ? "ticked" : "not ticked";
+    if (p.type === "enum" || (p.type === "string" && !isProfile(p))) return String(p.default) || "empty";
+    return null; // a table, a profile, code: too long to quote
+  };
+  const dot = (p: ParameterDef, inline = false) => {
+    if (compact || !isChanged(p)) return null;
+    const lib = libText(p);
+    return (
+      <button
+        type="button"
+        className={`ss-changed-dot${inline ? " ss-changed-dot-inline" : ""}`}
+        title={`Changed: click to put back the library's ${lib ?? "value"}`}
+        aria-label={`Put ${paramName(p)} back to the library's ${lib ?? "value"}`}
+        onClick={() => resetParameter(element.id, p.key)}
+      />
+    );
+  };
+
+  // the active case runs with its own value of a parameter (U-4.10): a line
+  // there says so, in the unit shown; the field still sets the part's own
+  // (a project from an old file may have no cases)
+  const activeCase = useProjectStore((s) => s.project?.cases?.find((c) => c.id === s.activeCaseId));
+  const cycles = useProjectStore((s) => s.cycles);
+  const caseNote = (p: ParameterDef): string | null => {
+    if (compact || !activeCase) return null;
+    const v = activeCase.parameterOverrides?.[element.id]?.[p.key];
+    if (v === undefined || JSON.stringify(v) === JSON.stringify(valueOf(p))) return null;
+    const unit = unitOf(p);
+    const text =
+      p.key === "cycle"
+        ? (cycles.find((c) => c.id === v)?.name ?? (v ? String(v) : "the typed profile"))
+        : typeof v === "number"
+          ? `${showNumber(v, p.unit, unit)}${unit === "-" ? "" : ` ${unit}`}`
+          : typeof v === "boolean"
+            ? v ? "this ticked" : "this not ticked"
+            : String(v);
+    return `Case “${activeCase.name}” runs with ${text}, not this part's own value.`;
+  };
+
+  // the window's sections (U-4.9): the library's headings, the last one
+  // (rarely used values) folded at first; folded or open is kept per user.
+  // While a search or Changed only is on, the sections with a match are open.
+  const sections = compact || !def.sections?.length ? null : def.sections;
+  const [opened, setOpened] = useState<Record<string, boolean>>(loadOpenSections);
+  const sectionKey = (name: string) => `${def.id}/${name}`;
+  const toggleSection = (name: string, open: boolean) => {
+    if (filtering || opened[sectionKey(name)] === open) return;
+    const next = { ...opened, [sectionKey(name)]: open };
+    setOpened(next);
+    try {
+      window.localStorage.setItem(PARAM_SECTIONS_KEY, JSON.stringify(next));
+    } catch {
+      /* storage unavailable: this window only */
+    }
+  };
   const profile = drivingTask ? profileToTable(String(valueOf(def.parameters.find(isProfile)!))) : {};
   // (a Road Profile from a file older than CON-11 has a catalogue with it)
   const cycleDef = def.parameters.find((p) => p.key === "cycle")!;
   const profileMode = String(valueOfKey("mode") ?? "");
 
+  const scalarRow = (p: ParameterDef) => {
+    const problem = problemOf(p);
+    const unit = unitOf(p);
+    const choosable = p.type === "number" && alternatives(p.unit).length > 0;
+    return (
+      <Fragment key={p.key}>
+        <tr {...helpProps(p)} data-param={p.key}>
+          {/* the full label is in the help card, or else its tooltip */}
+          <td className="ss-td flex items-center text-[11px]" title={p.description ? undefined : p.label}>
+            <span className="truncate">{p.label}</span>
+            <SourceBadge src={element.parameterSources?.[p.key]} />
+            {running && p.variability === "fixed" && (
+              <span
+                className="ml-1 shrink-0 text-[10px] italic text-[color:var(--ss-text-dim)]"
+                title="Structural parameter — a live edit takes effect on the next run"
+              >
+                (next run)
+              </span>
+            )}
+          </td>
+          <td className="ss-td relative">
+            {dot(p)}
+            <ParameterInput
+              def={p}
+              value={valueOf(p)}
+              unit={unit}
+              describedBy={`${formId}${p.key}-problem`}
+              onChange={(v) => change(p.key, v)}
+            />
+          </td>
+          <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">
+            {choosable ? (
+              <UnitButton
+                what={paramName(p)}
+                unit={unit}
+                open={unitOpen === p.key}
+                onOpen={() => setUnitOpen(p.key)}
+                buttonRef={(el) => void unitButtons.current.set(p.key, el)}
+              />
+            ) : (
+              p.unit
+            )}
+          </td>
+        </tr>
+        {choosable && unitOpen === p.key && (
+          <tr>
+            <td className="ss-td ss-unit-row">
+              <UnitChooser
+                what={paramName(p)}
+                lib={p.unit}
+                unit={unit}
+                onShow={(u) => {
+                  keepUnit(p.key, p.unit, "value", u);
+                  closeUnits(p.key);
+                }}
+                onReinterpret={(u) => {
+                  keepUnit(p.key, p.unit, "value", u, reinterpret(Number(valueOf(p)), p.unit, unit, u));
+                  closeUnits(p.key);
+                }}
+                onClose={() => closeUnits(p.key)}
+              />
+            </td>
+          </tr>
+        )}
+        {problem && (
+          // why the value is outside its limits, across the whole row
+          <tr>
+            <td id={`${formId}${p.key}-problem`} className="ss-td ss-param-problem">
+              <span role="alert">
+                {paramName(p)} {problem}.
+              </span>
+            </td>
+          </tr>
+        )}
+        {caseNote(p) && (
+          // the active case runs with its own value: say so, and which one the field sets
+          <tr>
+            <td className="ss-td ss-case-line">
+              <CaseLine text={caseNote(p)!} onGo={() => showCaseValue(element.id, p.key)} />
+            </td>
+          </tr>
+        )}
+      </Fragment>
+    );
+  };
+
+  // the value and unit take the width they need; the label gets the rest (at
+  // least 72 px), on one line, with the full text in its tooltip. Under a
+  // section's heading the column names are for screen readers only.
+  const scalarTable = (list: ParameterDef[], heading = true) =>
+    list.length > 0 && (
+      <table className="ss-param-grid w-full">
+        <thead className={heading ? undefined : "sr-only"}>
+          <tr>
+            <th className="ss-th truncate">Parameter</th>
+            <th className="ss-th">Value</th>
+            <th className="ss-th">Unit</th>
+          </tr>
+        </thead>
+        <tbody>{list.map(scalarRow)}</tbody>
+      </table>
+    );
+
+  const bigParam = (p: ParameterDef) => (
+    <div key={p.key} data-param={p.key}>
+      <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
+        {isProfile(p) ? "Profile" : p.label}
+        {!isProfile(p) && p.type !== "code" && p.type !== "maps" ? ` (${unitOf(p)})` : ""}
+        {running && !isProfile(p) && (
+          <span className="ml-1 font-normal italic">— applies on next run</span>
+        )}
+        {dot(p, true)}
+      </div>
+      {p.description && (
+        <div className="ss-param-help mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
+          <ParamHelp def={p} unit={unitOf(p)} />
+        </div>
+      )}
+      {p.axes?.some((a) => a.outside) && <OutsideSettings element={element} param={p} />}
+      {isProfile(p) ? (
+        <ProfileGridEditor
+          value={String(valueOf(p))}
+          defId={def.id}
+          mode={profileMode}
+          units={tableShown(p, [profileAxes(def.id, profileMode).x], profileAxes(def.id, profileMode).yUnit)}
+          onChange={(v) => setParameter(element.id, p.key, v)}
+        />
+      ) : isTable(p) && p.axes?.length === 1 ? (
+        <Table1DEditor
+          value={valueOf(p) as Table1D}
+          axis={p.axes[0]}
+          valueLabel={p.label}
+          valueUnit={p.unit}
+          units={tableShown(p)}
+          onChange={(v) => setParameter(element.id, p.key, v)}
+          importTarget={{ componentDefId: def.id, paramKey: p.key }}
+        />
+      ) : isTable(p) && p.axes?.length === 2 ? (
+        <Table2DEditor
+          value={valueOf(p) as Table2D}
+          axes={[p.axes[0], p.axes[1]]}
+          valueLabel={p.label}
+          valueUnit={p.unit}
+          units={tableShown(p)}
+          onChange={(v) => setParameter(element.id, p.key, v)}
+          importTarget={{ componentDefId: def.id, paramKey: p.key }}
+        />
+      ) : isTable(p) && (p.axes?.length ?? 0) > 2 ? (
+        // a table of three or more axes: one grid, two axes shown (docs/spec/tables.md)
+        <LibraryTableN
+          target={{ componentDefId: def.id, paramKey: p.key }}
+          axes={p.axes!.map((a, i) => ({ name: a.name, lib: a.unit, unit: unitOf(p, i) }))}
+          outputs={[{ key: "value", name: p.label, lib: p.unit, unit: unitOf(p) }]}
+          tables={{ value: valueOf(p) as TableN }}
+          onChange={(t) => setParameter(element.id, p.key, t.value)}
+          setUnit={(slot, _out, unit, t) =>
+            keepUnit(p.key, slot === "value" ? p.unit : p.axes![slot].unit, slot, unit, t?.value)
+          }
+        />
+      ) : p.type === "maps" ? (
+        <MapEditor element={element} />
+      ) : (
+        <ParameterInput
+          def={p}
+          value={valueOf(p)}
+          onChange={(v) => setParameter(element.id, p.key, v)}
+        />
+      )}
+    </div>
+  );
+
+  const tyreSummary = (list: ParameterDef[]) =>
+    tyre &&
+    list.some((p) => p.key === "tyre_code") && (
+      <p className="text-[11px] text-[color:var(--ss-text-dim)]" data-testid="tyre-summary">
+        {describeTyre(tyre, radiusFactor)}
+      </p>
+    );
+  const section = (s: { name: string; folded?: boolean }) => {
+    const list = scalarParams.filter((p) => p.section === s.name && matches(p));
+    const bigs = bigParams.filter((p) => p.section === s.name && matches(p));
+    if (!list.length && !bigs.length) return null;
+    return (
+      <details
+        key={s.name}
+        className="ss-param-section"
+        open={filtering || (opened[sectionKey(s.name)] ?? !s.folded)}
+        onToggle={(e) => toggleSection(s.name, e.currentTarget.open)}
+      >
+        <summary>{s.name}</summary>
+        <div className="flex flex-col gap-2 pt-1">
+          {scalarTable(list, false)}
+          {tyreSummary(list)}
+          {bigs.map(bigParam)}
+        </div>
+      </details>
+    );
+  };
+  // what a search or Changed only found, and what to say when it found nothing
+  const found =
+    scalarParams.filter(matches).length +
+    (compact ? 0 : bigParams.filter(matches).length) +
+    ((drivingTask || (roadProfile && cycleDef)) && cycleDef && matches(cycleDef) ? 1 : 0);
+  const nothingText = q
+    ? `No ${only ? "changed " : ""}parameter matches “${query.trim()}”.`
+    : "No value here differs from the library's.";
+
   return (
     <div className="flex flex-col gap-2 p-2">
+      {!compact && (
+        <div className="ss-param-tools">
+          <input
+            type="search"
+            className="ss-input min-w-0 flex-1"
+            placeholder="Search parameters"
+            aria-label="Search parameters"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <label className="flex shrink-0 items-center gap-1 text-[11px]">
+            <input type="checkbox" checked={changedOnly} onChange={(e) => setChangedOnly(e.target.checked)} />
+            Changed only
+          </label>
+        </div>
+      )}
       <div className="flex items-center gap-2">
         <span className="w-[72px] shrink-0 text-[11px] text-[color:var(--ss-text-dim)]">Name</span>
         <input
@@ -1137,7 +1464,8 @@ export function ElementForm({
           <CornerDownRight size={13} /> Open sub-system
         </button>
       )}
-      {def.presets?.map((preset) => (
+      {!filtering &&
+        def.presets?.map((preset) => (
         <div key={preset.name} className="flex flex-col gap-0.5">
           <button
             className="ss-toolbtn justify-center border border-[color:var(--ss-border)]"
@@ -1157,104 +1485,32 @@ export function ElementForm({
           )}
         </div>
       ))}
-      {scalarParams.length > 0 && (
-        // the value and unit take the width they need; the label gets the
-        // rest (at least 72 px), on one line, with the full text in its tooltip
-        <table className="ss-param-grid w-full">
-          <thead>
-            <tr>
-              <th className="ss-th truncate">Parameter</th>
-              <th className="ss-th">Value</th>
-              <th className="ss-th">Unit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {scalarParams.map((p) => {
-              const problem = problemOf(p);
-              const unit = unitOf(p);
-              const choosable = p.type === "number" && alternatives(p.unit).length > 0;
-              return (
-                <Fragment key={p.key}>
-                  <tr {...helpProps(p)}>
-                    {/* the full label is in the help card, or else its tooltip */}
-                    <td className="ss-td flex items-center text-[11px]" title={p.description ? undefined : p.label}>
-                      <span className="truncate">{p.label}</span>
-                      <SourceBadge src={element.parameterSources?.[p.key]} />
-                      {running && p.variability === "fixed" && (
-                        <span
-                          className="ml-1 shrink-0 text-[10px] italic text-[color:var(--ss-text-dim)]"
-                          title="Structural parameter — a live edit takes effect on the next run"
-                        >
-                          (next run)
-                        </span>
-                      )}
-                    </td>
-                    <td className="ss-td">
-                      <ParameterInput
-                        def={p}
-                        value={valueOf(p)}
-                        unit={unit}
-                        describedBy={`${formId}${p.key}-problem`}
-                        onChange={(v) => change(p.key, v)}
-                      />
-                    </td>
-                    <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">
-                      {choosable ? (
-                        <UnitButton
-                          what={paramName(p)}
-                          unit={unit}
-                          open={unitOpen === p.key}
-                          onOpen={() => setUnitOpen(p.key)}
-                          buttonRef={(el) => void unitButtons.current.set(p.key, el)}
-                        />
-                      ) : (
-                        p.unit
-                      )}
-                    </td>
-                  </tr>
-                  {choosable && unitOpen === p.key && (
-                    <tr>
-                      <td className="ss-td ss-unit-row">
-                        <UnitChooser
-                          what={paramName(p)}
-                          lib={p.unit}
-                          unit={unit}
-                          onShow={(u) => {
-                            keepUnit(p.key, p.unit, "value", u);
-                            closeUnits(p.key);
-                          }}
-                          onReinterpret={(u) => {
-                            keepUnit(p.key, p.unit, "value", u, reinterpret(Number(valueOf(p)), p.unit, unit, u));
-                            closeUnits(p.key);
-                          }}
-                          onClose={() => closeUnits(p.key)}
-                        />
-                      </td>
-                    </tr>
-                  )}
-                  {problem && (
-                    // why the value is outside its limits, across the whole row
-                    <tr>
-                      <td id={`${formId}${p.key}-problem`} className="ss-td ss-param-problem">
-                        <span role="alert">
-                          {paramName(p)} {problem}.
-                        </span>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+      {sections ? (
+        // one value and one unit column for every section, so they line up
+        // down the window: as wide as the longest value and unit shown
+        <div
+          className="ss-param-sections flex flex-col gap-2"
+          style={
+            {
+              "--ss-value-col": `max(5.5rem, calc(${Math.max(
+                0,
+                ...scalarParams.map((p) => {
+                  const v = valueOf(p);
+                  return p.type === "number" && typeof v === "number" ? showNumber(v, p.unit, unitOf(p)).length : 0;
+                }),
+              )}ch + 24px))`,
+              "--ss-unit-col": `calc(${Math.max(1, ...scalarParams.map((p) => unitOf(p).length))}ch + 26px)`,
+            } as React.CSSProperties
+          }
+        >
+          {sections.map(section)}
+        </div>
+      ) : (
+        scalarTable(scalarParams.filter(matches))
       )}
-      {tyre && (
-        <p className="text-[11px] text-[color:var(--ss-text-dim)]" data-testid="tyre-summary">
-          {describeTyre(tyre, radiusFactor)}
-        </p>
-      )}
-      <ValueSources element={element} def={def} />
-      {(drivingTask || (roadProfile && cycleDef)) && (
+      {!sections && tyreSummary(scalarParams.filter(matches))}
+      {!filtering && <ValueSources element={element} def={def} />}
+      {(drivingTask || (roadProfile && cycleDef)) && matches(cycleDef) && (
         <div className="flex flex-col gap-1" {...helpProps(cycleDef)}>
           <label className="flex flex-col gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
             <span>
@@ -1281,6 +1537,11 @@ export function ElementForm({
                 drivingTask && String(valueOf(def.parameters.find((q) => q.key === "mode")!)) === "distance"
               }
             />
+          )}
+          {caseNote(cycleDef) && (
+            <p className="ss-case-line">
+              <CaseLine text={caseNote(cycleDef)!} onGo={() => showCaseValue(element.id, "cycle")} />
+            </p>
           )}
         </div>
       )}
@@ -1313,79 +1574,19 @@ export function ElementForm({
           ))}
         </div>
       )}
-      {!compact &&
-        bigParams.map((p) => (
-        <div key={p.key} data-param={p.key}>
-          <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
-            {isProfile(p) ? "Profile" : p.label}
-            {!isProfile(p) && p.type !== "code" && p.type !== "maps" ? ` (${unitOf(p)})` : ""}
-            {running && !isProfile(p) && (
-              <span className="ml-1 font-normal italic">— applies on next run</span>
-            )}
-          </div>
-          {p.description && (
-            <div className="ss-param-help mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
-              <ParamHelp def={p} unit={unitOf(p)} />
-            </div>
-          )}
-          {p.axes?.some((a) => a.outside) && <OutsideSettings element={element} param={p} />}
-          {isProfile(p) ? (
-            <ProfileGridEditor
-              value={String(valueOf(p))}
-              defId={def.id}
-              mode={profileMode}
-              units={tableShown(p, [profileAxes(def.id, profileMode).x], profileAxes(def.id, profileMode).yUnit)}
-              onChange={(v) => setParameter(element.id, p.key, v)}
-            />
-          ) : isTable(p) && p.axes?.length === 1 ? (
-            <Table1DEditor
-              value={valueOf(p) as Table1D}
-              axis={p.axes[0]}
-              valueLabel={p.label}
-              valueUnit={p.unit}
-              units={tableShown(p)}
-              onChange={(v) => setParameter(element.id, p.key, v)}
-              importTarget={{ componentDefId: def.id, paramKey: p.key }}
-            />
-          ) : isTable(p) && p.axes?.length === 2 ? (
-            <Table2DEditor
-              value={valueOf(p) as Table2D}
-              axes={[p.axes[0], p.axes[1]]}
-              valueLabel={p.label}
-              valueUnit={p.unit}
-              units={tableShown(p)}
-              onChange={(v) => setParameter(element.id, p.key, v)}
-              importTarget={{ componentDefId: def.id, paramKey: p.key }}
-            />
-          ) : isTable(p) && (p.axes?.length ?? 0) > 2 ? (
-            // a table of three or more axes: one grid, two axes shown (docs/spec/tables.md)
-            <LibraryTableN
-              target={{ componentDefId: def.id, paramKey: p.key }}
-              axes={p.axes!.map((a, i) => ({ name: a.name, lib: a.unit, unit: unitOf(p, i) }))}
-              outputs={[{ key: "value", name: p.label, lib: p.unit, unit: unitOf(p) }]}
-              tables={{ value: valueOf(p) as TableN }}
-              onChange={(t) => setParameter(element.id, p.key, t.value)}
-              setUnit={(slot, _out, unit, t) =>
-                keepUnit(p.key, slot === "value" ? p.unit : p.axes![slot].unit, slot, unit, t?.value)
-              }
-            />
-          ) : p.type === "maps" ? (
-            <MapEditor element={element} />
-          ) : (
-            <ParameterInput
-              def={p}
-              value={valueOf(p)}
-              onChange={(v) => setParameter(element.id, p.key, v)}
-            />
-          )}
-        </div>
-      ))}
-      {fmuBlock ? (
+      {!compact && !sections && bigParams.filter(matches).map(bigParam)}
+      {filtering ? (
+        found === 0 && (
+          <p role="status" className="px-1 py-2 text-[12px] text-[color:var(--ss-text-dim)]">
+            {nothingText}
+          </p>
+        )
+      ) : fmuBlock ? (
         <FmuPanel element={element} compact={compact} />
       ) : (
         def.allowDynamicPorts && def.id !== MAP_DEF_ID && <DynamicPortsEditor element={element} />
       )}
-      {def.ports.length > 0 && (
+      {!filtering && def.ports.length > 0 && (
         <div>
           <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
             Ports
@@ -1439,7 +1640,7 @@ export function ElementForm({
           </>
         )}
       </div>
-      {def.description && (
+      {!filtering && def.description && (
         <p className="border-t border-[color:var(--ss-border)] pt-2 text-[11px] italic text-[color:var(--ss-text-dim)]">
           {def.description}
         </p>

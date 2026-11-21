@@ -90,9 +90,11 @@
           "unitGroup": "Power"
         }
       ],
+      "sections": [{"name": "Mass and road load"}, {"name": "Load transfer and downforce", "folded": true}],
       "parameters": [
         {
           "key": "mass_kg",
+          "section": "Mass and road load",
           "variability": "fixed",
           "label": "Vehicle Mass",
           "unit": "kg",
@@ -105,6 +107,7 @@
         },
         {
           "key": "cd",
+          "section": "Mass and road load",
           "label": "Drag Coefficient (Cd)",
           "unit": "-",
           "default": 0.28,
@@ -116,6 +119,7 @@
         },
         {
           "key": "frontal_area_m2",
+          "section": "Mass and road load",
           "label": "Frontal Area",
           "unit": "m²",
           "default": 2.2,
@@ -127,6 +131,7 @@
         },
         {
           "key": "road_load_mode",
+          "section": "Mass and road load",
           "variability": "fixed",
           "label": "Road Load From",
           "unit": "-",
@@ -139,6 +144,7 @@
         },
         {
           "key": "road_load_a_N",
+          "section": "Mass and road load",
           "label": "Road Load A (f0)",
           "unit": "N",
           "default": 212,
@@ -149,6 +155,7 @@
         },
         {
           "key": "road_load_b_N_per_kmh",
+          "section": "Mass and road load",
           "label": "Road Load B (f1)",
           "unit": "N/(km/h)",
           "default": 0,
@@ -159,6 +166,7 @@
         },
         {
           "key": "road_load_c_N_per_kmh2",
+          "section": "Mass and road load",
           "label": "Road Load C (f2)",
           "unit": "N/(km/h)²",
           "default": 0.0286,
@@ -169,6 +177,7 @@
         },
         {
           "key": "abc_include_driveline_losses",
+          "section": "Mass and road load",
           "variability": "fixed",
           "label": "Coefficients Include Driveline Losses",
           "unit": "-",
@@ -180,6 +189,7 @@
         },
         {
           "key": "initial_speed_kmh",
+          "section": "Mass and road load",
           "variability": "fixed",
           "label": "Initial Speed",
           "unit": "km/h",
@@ -192,6 +202,7 @@
         },
         {
           "key": "cg_height_m",
+          "section": "Load transfer and downforce",
           "label": "Centre of Gravity Height",
           "unit": "m",
           "default": 0,
@@ -203,6 +214,7 @@
         },
         {
           "key": "wheelbase_m",
+          "section": "Load transfer and downforce",
           "label": "Wheelbase",
           "unit": "m",
           "default": 2.7,
@@ -214,6 +226,7 @@
         },
         {
           "key": "downforce_cza_m2",
+          "section": "Load transfer and downforce",
           "label": "Downforce Area (CzA)",
           "unit": "m²",
           "default": 0,
@@ -224,6 +237,7 @@
         },
         {
           "key": "aero_balance_front_pct",
+          "section": "Load transfer and downforce",
           "label": "Front Aero Balance",
           "unit": "%",
           "default": 50,
@@ -236,6 +250,7 @@
         },
         {
           "key": "track_front_m",
+          "section": "Load transfer and downforce",
           "label": "Front Track Width",
           "unit": "m",
           "default": 1.55,
@@ -247,6 +262,7 @@
         },
         {
           "key": "track_rear_m",
+          "section": "Load transfer and downforce",
           "label": "Rear Track Width",
           "unit": "m",
           "default": 1.55,
@@ -478,9 +494,11 @@
           "unitGroup": "Voltage"
         }
       ],
+      "sections": [{"name": "Capacity and charge"}, {"name": "Voltage and resistance"}, {"name": "Limits"}, {"name": "Advanced", "folded": true}],
       "parameters": [
         {
           "key": "pack_model",
+          "section": "Capacity and charge",
           "variability": "fixed",
           "label": "Defined By",
           "unit": "-",
@@ -496,6 +514,7 @@
         },
         {
           "key": "capacity_kWh",
+          "section": "Capacity and charge",
           "showIf": {"key": "pack_model", "values": ["Pack values"]},
           "variability": "fixed",
           "label": "Usable Capacity",
@@ -509,6 +528,7 @@
         },
         {
           "key": "capacity_Ah",
+          "section": "Capacity and charge",
           "showIf": {"key": "pack_model", "values": ["Pack values"]},
           "variability": "fixed",
           "label": "Charge Capacity (0 = from Usable Capacity)",
@@ -523,6 +543,7 @@
         },
         {
           "key": "coulombic_efficiency_pct",
+          "section": "Capacity and charge",
           "variability": "fixed",
           "label": "Coulombic Efficiency (charging)",
           "unit": "%",
@@ -536,6 +557,7 @@
         },
         {
           "key": "charger_efficiency_pct",
+          "section": "Advanced",
           "variability": "fixed",
           "label": "Charger Efficiency",
           "unit": "%",
@@ -549,6 +571,7 @@
         },
         {
           "key": "ocv_table",
+          "section": "Voltage and resistance",
           "showIf": {"key": "pack_model", "values": ["Pack values"]},
           "label": "Open-Circuit Voltage",
           "unit": "V",
@@ -570,6 +593,7 @@
         },
         {
           "key": "internal_resistance_ohm",
+          "section": "Voltage and resistance",
           "showIf": {"key": "pack_model", "values": ["Pack values"]},
           "label": "Series Resistance R0",
           "unit": "Ω",
@@ -582,6 +606,7 @@
         },
         {
           "key": "rc_resistance_ohm",
+          "section": "Voltage and resistance",
           "variability": "fixed",
           "label": "RC Pair Resistance R1",
           "unit": "Ω",
@@ -594,6 +619,7 @@
         },
         {
           "key": "rc_time_constant_s",
+          "section": "Voltage and resistance",
           "variability": "fixed",
           "label": "RC Pair Time Constant",
           "unit": "s",
@@ -606,6 +632,7 @@
         },
         {
           "key": "max_charge_power_kW",
+          "section": "Limits",
           "label": "Max Charge Power",
           "unit": "kW",
           "default": 120,
@@ -617,6 +644,7 @@
         },
         {
           "key": "initial_soc_pct",
+          "section": "Capacity and charge",
           "variability": "fixed",
           "label": "Initial SOC",
           "unit": "%",
@@ -630,6 +658,7 @@
         },
         {
           "key": "min_soc_pct",
+          "section": "Capacity and charge",
           "label": "Minimum SOC",
           "unit": "%",
           "default": 10,
@@ -642,6 +671,7 @@
         },
         {
           "key": "output_power_limit_kW",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Output Power Limit (0 = none)",
           "unit": "kW",
@@ -654,6 +684,7 @@
         },
         {
           "key": "power_limit_margin_pct",
+          "section": "Advanced",
           "variability": "fixed",
           "label": "Power Limit Margin",
           "unit": "%",
@@ -667,6 +698,7 @@
         },
         {
           "key": "power_limit_window_s",
+          "section": "Advanced",
           "variability": "fixed",
           "label": "Power Check Window (0 = instant)",
           "unit": "s",
@@ -680,6 +712,7 @@
         },
         {
           "key": "power_limit_enforced",
+          "section": "Advanced",
           "variability": "fixed",
           "label": "Hold Power to Limit (off = check)",
           "unit": "-",
@@ -691,6 +724,7 @@
         },
         {
           "key": "voltage_class_V",
+          "section": "Advanced",
           "variability": "fixed",
           "label": "Voltage Class (0 = none)",
           "unit": "V",
@@ -703,6 +737,7 @@
         },
         {
           "key": "max_discharge_current_A",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Max Discharge Current (0 = none)",
           "unit": "A",
@@ -721,6 +756,7 @@
         },
         {
           "key": "max_charge_current_A",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Max Charge Current (0 = none)",
           "unit": "A",
@@ -739,6 +775,7 @@
         },
         {
           "key": "min_voltage_V",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Minimum Pack Voltage (0 = none)",
           "unit": "V",
@@ -757,6 +794,7 @@
         },
         {
           "key": "max_voltage_V",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Maximum Pack Voltage (0 = none)",
           "unit": "V",
@@ -775,6 +813,7 @@
         },
         {
           "key": "series_cells",
+          "section": "Capacity and charge",
           "variability": "fixed",
           "label": "Cells in Series (s)",
           "unit": "-",
@@ -794,6 +833,7 @@
         },
         {
           "key": "parallel_cells",
+          "section": "Capacity and charge",
           "variability": "fixed",
           "label": "Cells in Parallel (p)",
           "unit": "-",
@@ -813,6 +853,7 @@
         },
         {
           "key": "cell_capacity_Ah",
+          "section": "Capacity and charge",
           "variability": "fixed",
           "label": "Cell Capacity",
           "unit": "Ah",
@@ -832,6 +873,7 @@
         },
         {
           "key": "cell_ocv_table",
+          "section": "Voltage and resistance",
           "label": "Cell Open-Circuit Voltage",
           "unit": "V",
           "type": "table1d",
@@ -868,6 +910,7 @@
         },
         {
           "key": "cell_min_voltage_V",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Cell Minimum Voltage",
           "unit": "V",
@@ -887,6 +930,7 @@
         },
         {
           "key": "cell_max_voltage_V",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Cell Maximum Voltage",
           "unit": "V",
@@ -906,6 +950,7 @@
         },
         {
           "key": "cell_resistance_ohm",
+          "section": "Voltage and resistance",
           "variability": "fixed",
           "label": "Cell DC Resistance",
           "unit": "Ω",
@@ -925,6 +970,7 @@
         },
         {
           "key": "cell_resistance_factor",
+          "section": "Voltage and resistance",
           "variability": "fixed",
           "label": "Cell Resistance Factor",
           "unit": "-",
@@ -987,6 +1033,7 @@
         },
         {
           "key": "cell_temperature_factor",
+          "section": "Voltage and resistance",
           "variability": "fixed",
           "label": "Cell Temperature Factor",
           "unit": "-",
@@ -1019,6 +1066,7 @@
         },
         {
           "key": "cell_max_discharge_A",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Cell Continuous Discharge Current",
           "unit": "A",
@@ -1037,6 +1085,7 @@
         },
         {
           "key": "cell_peak_discharge_A",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Cell Peak Discharge Current",
           "unit": "A",
@@ -1055,6 +1104,7 @@
         },
         {
           "key": "cell_max_charge_A",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Cell Continuous Charge Current",
           "unit": "A",
@@ -1073,6 +1123,7 @@
         },
         {
           "key": "cell_peak_charge_A",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Cell Peak Charge Current",
           "unit": "A",
@@ -1091,6 +1142,7 @@
         },
         {
           "key": "cell_peak_duration_s",
+          "section": "Limits",
           "variability": "fixed",
           "label": "Peak Duration",
           "unit": "s",
@@ -1110,6 +1162,7 @@
         },
         {
           "key": "interconnect_resistance_ohm",
+          "section": "Voltage and resistance",
           "variability": "fixed",
           "label": "Interconnect Resistance (per series group)",
           "unit": "Ω",
@@ -1129,6 +1182,7 @@
         },
         {
           "key": "contactor_resistance_ohm",
+          "section": "Voltage and resistance",
           "variability": "fixed",
           "label": "Contactor and Cable Resistance",
           "unit": "Ω",
@@ -1148,6 +1202,7 @@
         },
         {
           "key": "cell_mass_kg",
+          "section": "Advanced",
           "variability": "fixed",
           "label": "Cell Mass",
           "unit": "kg",
@@ -1167,6 +1222,7 @@
         },
         {
           "key": "packaging_factor",
+          "section": "Advanced",
           "variability": "fixed",
           "label": "Packaging Factor",
           "unit": "-",
@@ -1186,6 +1242,7 @@
         },
         {
           "key": "weak_cell_capacity_pct",
+          "section": "Advanced",
           "variability": "fixed",
           "label": "Weakest Group Capacity",
           "unit": "%",
@@ -1205,6 +1262,7 @@
         },
         {
           "key": "weak_cell_resistance_pct",
+          "section": "Advanced",
           "variability": "fixed",
           "label": "Weakest Group Resistance",
           "unit": "%",
@@ -1224,6 +1282,7 @@
         },
         {
           "key": "soc_derate_band_pct",
+          "section": "Limits",
           "variability": "fixed",
           "label": "SOC Derating Band",
           "unit": "%",
@@ -2358,9 +2417,11 @@
           "unitGroup": "Power"
         }
       ],
+      "sections": [{"name": "Size and load"}, {"name": "Tyre"}, {"name": "Grip details", "folded": true}],
       "parameters": [
         {
           "key": "radius_m",
+          "section": "Size and load",
           "variability": "fixed",
           "label": "Wheel Radius",
           "unit": "m",
@@ -2373,6 +2434,7 @@
         },
         {
           "key": "inertia_kgm2",
+          "section": "Size and load",
           "variability": "fixed",
           "label": "Inertia",
           "unit": "kg·m²",
@@ -2385,6 +2447,7 @@
         },
         {
           "key": "vehicle_load_share_pct",
+          "section": "Size and load",
           "label": "Vehicle Load Share",
           "unit": "%",
           "default": 25,
@@ -2397,6 +2460,7 @@
         },
         {
           "key": "axle",
+          "section": "Size and load",
           "variability": "fixed",
           "label": "Axle",
           "unit": "-",
@@ -2409,6 +2473,7 @@
         },
         {
           "key": "mu",
+          "section": "Tyre",
           "label": "Friction Coefficient μ",
           "unit": "-",
           "default": 1.0,
@@ -2420,6 +2485,7 @@
         },
         {
           "key": "slip_stiffness",
+          "section": "Tyre",
           "label": "Slip Stiffness",
           "unit": "-",
           "default": 10,
@@ -2431,6 +2497,7 @@
         },
         {
           "key": "rolling_resistance",
+          "section": "Tyre",
           "label": "Rolling Resistance Coeff.",
           "unit": "-",
           "default": 0.0085,
@@ -2442,6 +2509,7 @@
         },
         {
           "key": "mu_lateral",
+          "section": "Grip details",
           "label": "Lateral Friction μ_y",
           "unit": "-",
           "default": 0,
@@ -2453,6 +2521,7 @@
         },
         {
           "key": "mu_load_sensitivity_per_kN",
+          "section": "Grip details",
           "label": "Load Sensitivity dμ/dFz",
           "unit": "1/kN",
           "default": 0,
@@ -2463,6 +2532,7 @@
         },
         {
           "key": "mu_nominal_load_N",
+          "section": "Grip details",
           "label": "Nominal Load Fz0",
           "unit": "N",
           "default": 0,
@@ -2474,6 +2544,7 @@
         },
         {
           "key": "friction_ellipse_exponent",
+          "section": "Grip details",
           "label": "Friction Ellipse Exponent",
           "unit": "-",
           "default": 2,
@@ -2486,6 +2557,7 @@
         },
         {
           "key": "tyre_code",
+          "section": "Tyre",
           "variability": "fixed",
           "label": "Tyre Code",
           "unit": "-",
@@ -2497,6 +2569,7 @@
         },
         {
           "key": "rolling_radius_factor",
+          "section": "Tyre",
           "variability": "fixed",
           "label": "Rolling Radius Factor",
           "unit": "-",
@@ -2510,6 +2583,7 @@
         },
         {
           "key": "tyre_label_class",
+          "section": "Tyre",
           "variability": "fixed",
           "label": "Rolling Resistance Label Class",
           "unit": "-",
