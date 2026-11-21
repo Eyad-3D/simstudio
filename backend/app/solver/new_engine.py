@@ -1930,7 +1930,10 @@ def _supply(ctx, plan: _Plan, run) -> list[str]:
     management (today's note, not said here) holds back no warning; else a
     battery at its maximum-power point ("maxp"), full ("full"), at its Max
     Charge Power ("chg"); a fuel cell at its maximum power ("fcmax") or one
-    that takes nothing back ("fcback"); a bus with no source ("nosrc").
+    that takes nothing back ("fcback"); a bus with no source ("nosrc"). A
+    motor recuperating behind a DC-DC holding its output voltage is held by
+    the converter, which passes power one way ("dcdc-oneway", today's
+    allocate_motor_power); drawing, by its tree's source.
 
     A fuel cell whose Hydrogen Tank is empty from the start gives nothing:
     today's says so ("h2empty") and never "fcmax". One whose tank the run
@@ -1960,6 +1963,7 @@ def _supply(ctx, plan: _Plan, run) -> list[str]:
         return a is not None and b is not None and b > a
 
     root_of = {bus.id: nodes[0][0] for nodes in ctx.bus_tree.values() for bus, _, _ in nodes}
+    fed_by = {bus.id: d for nodes in ctx.bus_tree.values() for bus, d, up in nodes if up is not None}
 
     def held_back(root, discharge: bool, k: int) -> None:
         if root.battery:
@@ -2004,7 +2008,14 @@ def _supply(ctx, plan: _Plan, run) -> list[str]:
         for m_id in ctx.motors:
             bus = ctx.motor_bus.get(m_id)
             if bus is not None and bus.id in root_of and grew(m_id, "t_limited", k):
-                held_back(root_of[bus.id], not grew(m_id, "e_regen_lost", k), k)
+                regen = grew(m_id, "e_regen_lost", k)
+                if regen and bus.id in fed_by:
+                    d = fed_by[bus.id]
+                    out.setdefault(f"dcdc-oneway:{d}", (
+                        f"DC-DC '{model.elements[d].label}' passes power one way only — "
+                        f"regenerative torque on its output bus limited."))
+                else:
+                    held_back(root_of[bus.id], not regen, k)
         for bus in model.buses:
             if bus.id not in root_of:
                 continue

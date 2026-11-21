@@ -527,6 +527,22 @@ pub fn bus_manager_fed(
     }
 }
 
+/// [`bus_manager`] for the bus a DC-DC converter holding its output
+/// voltage feeds: it also says what its loads ask of the converter, which
+/// asks it of its own input bus (`ask_fixed`: its consumers' demand;
+/// `ask_motors`: its motors' requests to draw). Its source window is what
+/// the converter's input bus grants the converter, times its efficiency;
+/// it takes nothing back (the converter passes power one way).
+pub fn bus_manager_asking(motors: usize, consumers: usize) -> ComponentDef {
+    let mut d = bus_manager_fed(motors, consumers, 0, 0);
+    d.name = format!("Blocks.BusManager_{motors}_{consumers}_asking");
+    d.ports.push(output("ask_fixed", "W", "its consumers' demand, asked of its converter"));
+    d.ports.push(output("ask_motors", "W", "its motors' requests to draw, asked of its converter"));
+    d.equations.push(eq(n("ask_fixed"), n("fixed"), "its consumers' demand"));
+    d.equations.push(eq(n("ask_motors"), n("pos"), "its motors' requests to draw"));
+    d
+}
+
 /// An open window, W.
 pub const BIG_W: f64 = 1e30;
 
@@ -541,14 +557,22 @@ pub struct DcDcConfig {
 }
 
 /// controller.dcdc: an averaged converter. Holding its output voltage, it
-/// draws P_out/η at its input for what the output bus takes; at a power
-/// setpoint, it feeds that power into the output bus (the bus's battery
-/// balances the rest) and draws P/η; on its input bus it is a load of
-/// P/η (`p_dem`) cut back with the consumers there (`served`), and what
-/// that leaves of its setpoint (`p_set`) is what its output bus's window
-/// counts on. Power flows from a to b; the motors
-/// behind it are allowed to feed back only what that bus's own loads use
-/// (the bus manager's window), as today.
+/// draws P_out/η at its input for what the output bus takes, inside its
+/// input bus's window as today's source tree has it: on its input bus it
+/// asks for its output bus's consumers' demand over η as a consumer
+/// (`p_dem`, served with the consumers there: `served`) and for its
+/// output bus's motors' requests over η as a motor (`p_request`, given
+/// its window `p_hi`), and what it is granted, times η, is its output
+/// bus's window (`p_deliver`). It passes power one way: a surplus on its
+/// output bus (only rounding, once the window holds) is its loss, not
+/// power at its input. At a power setpoint, it feeds that power into the
+/// output bus (the bus's battery balances the rest) and draws P/η; on its
+/// input bus it is a load of P/η (`p_dem`) cut back with the consumers
+/// there (`served`), and what that leaves of its setpoint (`p_set`) is
+/// what its output bus's window counts on. Power flows from a to b; the
+/// motors behind it are allowed to feed back only what that bus's own
+/// loads use (the bus manager's window), as today. A Power Setpoint
+/// linked while it holds its voltage is a port it does not read.
 pub fn dcdc(cfg: DcDcConfig) -> ComponentDef {
     let id = "controller.dcdc";
     let mut ports = vec![
@@ -557,21 +581,33 @@ pub fn dcdc(cfg: DcDcConfig) -> ComponentDef {
         phys(id, "b_pos", "Pin"),
         phys(id, "b_neg", "Pin"),
     ];
-    if cfg.setpoint_mode && cfg.setpoint_wired {
+    if cfg.setpoint_wired {
         ports.push(inp(id, "sig_setpoint_in"));
     }
+    ports.push(input("served", "1", "the share of its demand its input bus serves (0-1)"));
     if cfg.setpoint_mode {
-        ports.push(input("served", "1", "the share of its demand its input bus serves (0-1)"));
         ports.push(input(
             "absorb",
             "W",
             "its share of what the output bus can take in (its battery's charge window plus its loads)",
         ));
+    } else {
+        ports.push(input(
+            "p_hi",
+            "W",
+            "the most its output bus's motors may draw through it, at its input",
+        ));
+        ports.push(input("ask_fixed", "W", "its output bus's consumers' demand"));
+        ports.push(input("ask_motors", "W", "its output bus's motors' requests to draw"));
     }
     ports.extend([out(id, "sig_power_in"), out(id, "sig_power_out"), out(id, "sig_losses")]);
     if cfg.setpoint_mode {
         ports.push(output("p_dem", "W", "what its setpoint asks of its input bus"));
         ports.push(output("p_set", "W", "its setpoint, as far as its input bus serves it"));
+    } else {
+        ports.push(output("p_dem", "W", "what its output bus's consumers ask of its input bus"));
+        ports.push(output("p_request", "W", "what its output bus's motors ask of its input bus"));
+        ports.push(output("p_deliver", "W", "the most its output bus may take from it now"));
     }
     let mut eqs = vec![
         eq(n("va"), n("a_pos.v") - n("a_neg.v"), "input voltage"),
@@ -580,15 +616,24 @@ pub fn dcdc(cfg: DcDcConfig) -> ComponentDef {
         eq(c(0.0), n("b_pos.i") + n("b_neg.i"), "output current balance"),
         eq(n("sig_power_in"), n("va") * n("a_pos.i"), "the power it draws at its input"),
         eq(n("sig_power_out"), -(n("vb") * n("b_pos.i")), "the power it gives at its output"),
-        eq(
-            n("sig_power_in"),
-            ite(
-                ge(n("sig_power_out"), c(0.0)),
-                n("sig_power_out") / n("efficiency_pct"),
-                n("sig_power_out") * n("efficiency_pct"),
-            ),
-            "it draws the output power over its efficiency",
-        ),
+        if cfg.setpoint_mode {
+            eq(
+                n("sig_power_in"),
+                ite(
+                    ge(n("sig_power_out"), c(0.0)),
+                    n("sig_power_out") / n("efficiency_pct"),
+                    n("sig_power_out") * n("efficiency_pct"),
+                ),
+                "it draws the output power over its efficiency",
+            )
+        } else {
+            eq(
+                n("sig_power_in"),
+                max(n("sig_power_out"), c(0.0)) / n("efficiency_pct"),
+                "it draws the output power over its efficiency, one way: a surplus on its \
+                 output bus is its loss",
+            )
+        },
         eq(n("sig_losses"), n("sig_power_in") - n("sig_power_out"), "its loss"),
     ];
     if cfg.setpoint_mode {
@@ -610,6 +655,21 @@ pub fn dcdc(cfg: DcDcConfig) -> ComponentDef {
         ));
     } else {
         eqs.push(eq(n("vb"), n("output_voltage_V"), "it holds its output voltage"));
+        eqs.push(eq(
+            n("p_dem"),
+            n("ask_fixed") / n("efficiency_pct"),
+            "its output bus's consumers' demand, at its input",
+        ));
+        eqs.push(eq(
+            n("p_request"),
+            n("ask_motors") / n("efficiency_pct"),
+            "its output bus's motors' requests, at its input",
+        ));
+        eqs.push(eq(
+            n("p_deliver"),
+            n("efficiency_pct") * (n("p_dem") * n("served") + n("p_hi")),
+            "what its input bus grants it, at its output",
+        ));
     }
     ComponentDef {
         name: variant(

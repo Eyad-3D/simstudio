@@ -1516,7 +1516,7 @@
       "name": "DC-DC Converter",
       "icon": "sliders-horizontal",
       "domain": "electrical",
-      "description": "DC-DC converter with constant conversion efficiency. Unidirectional: draws at Terminal A, supplies at Terminal B. When Terminal B feeds a bus with a battery, the converter runs at its power setpoint (parameter or signal) and the battery balances the rest — the fuel-cell hybrid pattern.",
+      "description": "DC-DC converter with constant conversion efficiency. Unidirectional: draws at Terminal A, supplies at Terminal B. When Terminal B feeds a bus with a battery, the converter runs at its power setpoint (parameter or signal) and the battery balances the rest — the fuel-cell hybrid pattern. Otherwise it holds its output voltage and draws only what its input side can give: the loads on its output side are cut back with that side's own.",
       "ports": [
         {
           "id": "a_pos",
@@ -1613,7 +1613,7 @@
           "unit": "kW",
           "default": 0,
           "type": "number",
-          "description": "The power the converter delivers when its output side has a battery, unless its Power Setpoint input is wired; the battery covers the rest of the load. It throttles back when the battery is full. A negative value counts as 0.",
+          "description": "The power the converter delivers when its output side has a battery, unless its Power Setpoint input is wired; the battery covers the rest of the load. It throttles back when the battery is full. A negative value counts as 0. With no battery there, neither this value nor the input is used.",
           "typical": "The fuel cell's steady output in a fuel-cell hybrid car, for example 20–60 kW; 0 when a control signal sets it.",
           "whereToFind": "Your energy-management strategy: for example the average power the cycle needs, or a control script's output."
         }

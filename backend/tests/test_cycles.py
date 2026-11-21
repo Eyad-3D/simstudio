@@ -158,6 +158,27 @@ def test_a_road_profile_takes_its_cycles_grade_and_refuses_one_without():
                       "which has no grade; pick a cycle with a grade, or Custom profile."]
 
 
+def test_a_road_profile_meets_its_cycles_hills_where_the_car_is():
+    """Grade From Cycle: a cycle against time has its grade placed along the
+    distance its speed covers, and the Road Profile reads it at the distance
+    the car has driven, whatever its own Profile Axis says (before, the new
+    engine read the grade against the cycle's time at the car's distance)."""
+    from helpers import series
+    p = _with_road_profile(load_example("bev-car"), "long-haul-100km")
+    p.systems[0].elements[-1].parameterOverrides["mode"] = "time"
+    case = next(c for c in p.cases if c.id == "case-wltc")
+    case.duration = 600
+    r = simulate(p, "case-wltc")
+    assert r.status in ("success", "warning"), [m.text for m in r.messages]
+    pts = [tuple(map(float, x.split(":")))
+           for x in cycles.grade_profile_text("long-haul-100km").split("; ")]
+    grade = [q["value"] for q in series(r, "el-road", "sig_grade")]
+    metres = [q["value"] for q in series(r, "el-vehicle", "sig_distance")]
+    assert metres[-1] > 2000.0 and max(map(abs, grade)) > 0.1
+    want = [interp_profile(pts, d, False) for d in metres]
+    assert max(abs(a - b) for a, b in zip(grade, want)) < 1e-6
+
+
 def test_only_the_cycle_as_published_counts_as_the_standard_cycle():
     """CON-26: a scaled cycle, one repeated past its end or one read against
     distance is not the standard cycle; Repeat on a run no longer than the

@@ -160,7 +160,7 @@ Parameters:
 
 Category: E-Drive. Domain: electrical.
 
-DC-DC converter with constant conversion efficiency. Unidirectional: draws at Terminal A, supplies at Terminal B. When Terminal B feeds a bus with a battery, the converter runs at its power setpoint (parameter or signal) and the battery balances the rest — the fuel-cell hybrid pattern.
+DC-DC converter with constant conversion efficiency. Unidirectional: draws at Terminal A, supplies at Terminal B. When Terminal B feeds a bus with a battery, the converter runs at its power setpoint (parameter or signal) and the battery balances the rest — the fuel-cell hybrid pattern. Otherwise it holds its output voltage and draws only what its input side can give: the loads on its output side are cut back with that side's own.
 
 Ports:
 - `a_pos`: Input + (HV in) (electrical bidirectional, kW)

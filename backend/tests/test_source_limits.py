@@ -191,11 +191,87 @@ def test_one_way_dcdc_passes_no_regen_upstream():
     mot = _values(result, "mot", "sig_elec_power")
     aux = _values(result, "aux", "sig_power")
     out = _values(result, "dc", "sig_power_out")
-    assert min(out[1:]) >= 0.0
+    assert min(out[1:]) >= -1e-6  # (to the 1e-6 kW it holds the rest to)
     for m, a, o in zip(mot[1:], aux[1:], out[1:]):
         assert o == pytest.approx(m + a, abs=1e-6)  # the converter covers the bus, no more
     assert min(mot) >= -2.0 - 1e-6  # regeneration only feeds the 2 kW consumer
     assert _summary(result)["Electrical energy balance error"] < 0.1
+
+
+def _behind_a_dcdc(source_els, source_conns, aux_kw, links=()):
+    """A source on its own bus, a DC-DC holding 350 V on its output bus and
+    a Power Consumer there."""
+    elements = [*source_els, el("dc", "controller.dcdc", "DC-DC", output_voltage_V=350),
+                el("bus", "electric.node", "Bus"),
+                el("aux", "electric.constant_drive", "Aux", power_kW=aux_kw)]
+    wires = [*source_conns, conn(8, "dc", "b_pos", "bus", "t1"), conn(9, "bus", "t2", "aux", "pos")]
+    return project(elements, wires, list(links))
+
+
+BATTERY_BEFORE_A_DCDC = (
+    [el("batt", "battery.generic", "Battery", capacity_kWh=0.02, initial_soc_pct=20),
+     el("hv", "electric.node", "HV")],
+    [conn(1, "batt", "pos", "hv", "t1"), conn(7, "hv", "t2", "dc", "a_pos")])
+
+
+def test_a_dcdc_holding_its_voltage_keeps_its_battery_above_minimum_soc():
+    """A DC-DC holding its output voltage draws inside its input bus's
+    window like any load there: as its battery reaches its Minimum SOC, the
+    consumer behind it is cut back, and said so (before: the converter drew
+    past the Minimum SOC, below 0 %)."""
+    result = _run(_behind_a_dcdc(*BATTERY_BEFORE_A_DCDC, 3.0), 10)
+    aux = _values(result, "aux", "sig_power")
+    assert aux[1] == pytest.approx(3.0)
+    assert aux[-1] == pytest.approx(0.0, abs=1e-6)
+    assert min(_values(result, "batt", "sig_soc")) >= 10.0 - 1e-6
+    assert any("'Aux' cut back" in m.text for m in result.messages), [m.text for m in result.messages]
+
+
+def test_a_dcdc_holding_its_voltage_leaves_its_hydrogen_tank_at_empty():
+    """A fuel cell behind a DC-DC holding its output voltage stops giving
+    power at an empty Hydrogen Tank, and the consumer behind the converter
+    is cut back (before: the tank's mass went below 0 kg)."""
+    proj = _behind_a_dcdc(
+        [el("fc", "fuelcell.stack", "Fuel Cell"), el("fcbus", "electric.node", "FC Bus"),
+         el("h2", "fuel.h2_tank", "H2 Tank", capacity_kg=0.001, initial_fill_pct=100)],
+        [conn(1, "fc", "pos", "fcbus", "t1"), conn(7, "fcbus", "t2", "dc", "a_pos")], 20.0)
+    result = _run(proj, 10)
+    assert min(_values(result, "h2", "sig_mass")) >= -1e-9
+    assert _values(result, "aux", "sig_power")[-1] == pytest.approx(0.0, abs=1e-6)
+    assert any("'Aux' cut back" in m.text for m in result.messages), [m.text for m in result.messages]
+
+
+def test_a_dcdc_holding_its_voltage_passes_power_one_way_only():
+    """A motor recuperating behind a DC-DC holding its output voltage feeds
+    back only what its own bus uses: the converter never draws less than
+    nothing and its battery is never charged through it (before: it passed
+    the motor's power back at its efficiency)."""
+    batt, wires = BATTERY_BEFORE_A_DCDC
+    batt = [el("batt", "battery.generic", "Battery", initial_soc_pct=50), batt[1],
+            el("dc", "controller.dcdc", "DC-DC", output_voltage_V=350),
+            el("aux", "electric.constant_drive", "Aux", power_kW=2.0)]
+    wires = [*wires, conn(11, "dc", "b_pos", "bus", "t1"), conn(12, "bus", "t3", "aux", "pos")]
+    proj = _constant_demand_axle(batt, wires, -0.5, initial_speed_kmh=100, cd=0.0)
+    result = _run(proj, 5)
+    assert min(_values(result, "dc", "sig_power_in")) >= -1e-9
+    assert min(_values(result, "batt", "sig_power")) >= -1e-6
+    assert min(_values(result, "mot", "sig_elec_power")) >= -2.0 - 1e-6
+    assert any("passes power one way only" in m.text for m in result.messages), (
+        [m.text for m in result.messages])
+
+
+def test_a_dcdc_holding_its_voltage_ignores_a_linked_power_setpoint():
+    """A Power Setpoint linked to a DC-DC with no battery on its output is
+    ignored, as today's engine ignores it, and said so (before: the run
+    was refused, PORT-NOT-MAPPED)."""
+    batt, wires = BATTERY_BEFORE_A_DCDC
+    batt = [el("batt", "battery.generic", "Battery"), batt[1],
+            el("sp", "signal.constant", "Setpoint", value=5.0)]
+    proj = _behind_a_dcdc(batt, wires, 3.0, [dbc(1, "sp", "sig_out", "dc", "sig_setpoint_in")])
+    result = _run(proj, 5)
+    assert _values(result, "aux", "sig_power")[-1] == pytest.approx(3.0)
+    assert any("Power Setpoint" in m.text and "ignored" in m.text for m in result.messages), (
+        [m.text for m in result.messages])
 
 
 def test_empty_battery_sheds_its_consumers():

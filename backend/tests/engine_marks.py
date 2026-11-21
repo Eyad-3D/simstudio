@@ -168,10 +168,9 @@ XFAIL = {
     "test_source_limits.py::test_empty_battery_sheds_its_consumers": (
         "NEW-FAILED (RUN-INIT): the new engine cannot re-initialise the model at t = 2.18 s (open)"),
     "test_source_limits.py::test_one_way_dcdc_passes_no_regen_upstream": (
-        "NEW-FAILED (RUN-TABLE): the fuel cell's polarization curve read past its data at t = 0 (open)"),
+        "the new path writes no Electrical energy balance error row, today's share of its last-resort clamps "
+        "(the converter, the motor and the consumer behind it are as the test asks; open)"),
     "test_source_limits.py::test_full_battery_regen_goes_to_the_friction_brakes": "a full battery's regeneration: the numbers differ from today's (open)",
-    "test_source_limits.py::test_regeneration_the_supply_cannot_take_is_reported[one-way DC-DC]": (
-        "the new path does not write the 'regeneration not recovered' row behind a one-way DC-DC (open)"),
     "test_source_limits.py::test_driver_recuperates_up_to_the_charge_limit_and_brakes_the_rest": (
         "the charge power ends 1.5e-4 kW over the charge limit on the new engine (open)"),
     "test_source_limits.py::test_a_full_battery_recuperates_nothing_under_the_driver": (
