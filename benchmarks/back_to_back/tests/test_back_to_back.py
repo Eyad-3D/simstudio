@@ -1721,7 +1721,11 @@ def test_the_sweep_cuts_every_table_the_engine_reads_and_places_every_part_alone
 
     ids = sweep.faults()
     assert len(ids) == len(set(ids))
+    assert sweep.NEW_ONLY == {"signal.map"} and not sweep.NEW_ONLY & set(sweep.library())
     for site in lightsim_engine.table_sites():
+        if site["component"] in sweep.NEW_ONLY:  # today's engine has no such part: nothing to compare
+            assert not any(f":{site['component']}" in f for f in ids)
+            continue
         if site["component"] in ("signal.driving_task", "signal.road_profile"):
             assert any(f.startswith("profile:") for f in ids)
             continue
