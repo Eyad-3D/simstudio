@@ -2,8 +2,8 @@
 
 **This does not run in this version of LightSim yet.** The events are lap
 cases and cases with an event set, which the app's engine does not run yet:
-the **FS events** button and the endurance energy study's **Run** are shown
-but cannot be pressed, and a case with an event set, or a Lap case, fails
+the **FS events** button and the endurance energy study are not shown in
+this version, and a case with an event set, or a Lap case, fails
 with `Not run [NEW-FS-EVENT]` or `Not run [NEW-LAP]`. Only the plain 75 m
 *Acceleration test* runs. A later version ports them; the page describes how the events
 work then, as they worked on the older engine.

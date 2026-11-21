@@ -12,7 +12,6 @@ import { useNow } from "../useNow";
 import { FS_EVENT_NAMES, FS_EVENTS } from "../../fsEvents";
 import type { FsEvent } from "../../types";
 import { FsPoints } from "./FsPoints";
-import { EnduranceStudy } from "./EnduranceStudy";
 import { ExpectedValuesEditor } from "./ExpectedValues";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
@@ -661,7 +660,8 @@ export function CasePanel() {
         </div>
 
         <FsPoints />
-        {activeCase.fsEvent === "endurance" && <EnduranceStudy key={activeCase.id} simCase={activeCase} />}
+        {/* (the endurance energy study is not offered: an endurance is a lap
+            case, which this version does not run, Not run [NEW-LAP]) */}
         <ExpectedValuesEditor c={activeCase} />
 
         {/* -- per-case overrides ------------------------------------------- */}
