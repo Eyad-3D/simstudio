@@ -29,6 +29,9 @@ export const TOUR_KEY = "lightsim-tour-v1";
 export const HELP_WIDTH_KEY = "lightsim-help-width";
 /** the size and place of the parameter window closed last (paramWindows.ts) */
 export const PARAM_WINDOW_KEY = "lightsim-param-window";
+/** the parameter window's sections a user opened or folded, by "part id/section"
+ *  (components/panels/PropertiesPanel.tsx) */
+export const PARAM_SECTIONS_KEY = "lightsim-param-sections";
 
 const PREFIX = "lightsim-";
 const OLD_PREFIX = "simstudio-";

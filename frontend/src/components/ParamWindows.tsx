@@ -9,6 +9,7 @@ import {
   closeParamWindow,
   openParamWindow,
   setWindowTitle,
+  showParam,
   useParamWindows,
   type ParamWindow,
 } from "../paramWindows";
@@ -101,16 +102,17 @@ function ParamWindowContent({ entry }: { entry: ParamWindow }) {
     if (label !== undefined) setWindowTitle(entry.win, label);
   }, [label, entry.win]);
 
-  // the focus starts on the first field
+  // the focus starts on the first field (the Name, after the search and Changed only)
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    body.current?.querySelector<HTMLElement>("input, select, textarea")?.focus();
+    body.current
+      ?.querySelector<HTMLElement>("input:not([type=search]):not([type=checkbox]), select, textarea")
+      ?.focus();
   }, []);
 
-  // opened from a table's button: show that table
+  // opened at a parameter (a table's button, a Problems row): show it
   useEffect(() => {
-    if (entry.paramKey)
-      body.current?.querySelector(`[data-param="${entry.paramKey}"]`)?.scrollIntoView({ block: "start" });
+    if (entry.paramKey) showParam(body.current, entry.paramKey);
   }, [entry.paramKey, entry.seq]);
 
   if (gone) return null;
@@ -124,7 +126,7 @@ function ParamWindowContent({ entry }: { entry: ParamWindow }) {
         <span className="min-w-0 truncate text-[11px] text-[color:var(--ss-text-dim)]">— {def.name}</span>
         <PartHelpButton defId={def.id} from={entry.win} />
       </header>
-      <main ref={body} className="min-h-0 flex-1 overflow-y-auto">
+      <main ref={body} className="ss-param-scroll min-h-0 flex-1 overflow-y-auto">
         <div className="ss-zoom">
           <ElementForm element={element} def={def} />
         </div>

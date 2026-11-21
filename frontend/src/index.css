@@ -157,6 +157,22 @@ body,
   outline: 2px solid var(--ss-accent);
   outline-offset: -2px;
 }
+/* a parameter a window was opened at (a Problems row): marked a moment */
+.ss-param-mark {
+  border-radius: 4px;
+  animation: ss-param-mark 2.4s ease-out;
+}
+@keyframes ss-param-mark {
+  0%,
+  50% {
+    box-shadow: 0 0 0 2px var(--ss-accent);
+    background: var(--ss-accent-soft);
+  }
+  100% {
+    box-shadow: 0 0 0 2px transparent;
+    background: transparent;
+  }
+}
 
 /* ---- scrollbars (dense engineering-tool look) ---- */
 *::-webkit-scrollbar {
@@ -469,6 +485,92 @@ body,
   font-size: 10.5px;
   text-align: left;
   color: var(--ss-err);
+}
+/* a part's window (U-4.9): the search and Changed only stay at the top while
+   the form scrolls under them */
+.ss-param-tools {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: -8px;
+  padding: 8px 0;
+  background: var(--ss-panel);
+  border-bottom: 1px solid var(--ss-border);
+}
+/* the form under that row (the window's and the dialog's scroll area): what
+   is scrolled into view (a unit chooser opening, a parameter Problems opens
+   the window at, a click's target) lands below the row, never under it; the
+   row is as tall as its field, and grows with the A+ text size */
+.ss-param-scroll {
+  scroll-padding-top: calc(48px * var(--ss-ui-scale, 1));
+}
+/* the window's sections: one value and one unit column for all of them
+   (ElementForm sets the widths), so values line up from section to section */
+.ss-param-sections .ss-param-grid {
+  grid-template-columns: minmax(72px, 1fr) var(--ss-value-col) var(--ss-unit-col);
+}
+/* the window's sections: a plain heading, folded or open */
+.ss-param-section {
+  border-top: 1px solid var(--ss-border);
+  padding-top: 4px;
+}
+.ss-param-section > summary {
+  cursor: pointer;
+  padding: 2px 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ss-text-dim);
+}
+/* a value that is not the library's: a dot in the value cell's left padding
+   (it takes no room), a button that puts the library's value back */
+.ss-changed-dot {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  translate: 0 -50%;
+  width: 8px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.ss-changed-dot::before {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  margin: 0 auto;
+  border-radius: 50%;
+  background: var(--ss-accent);
+}
+.ss-changed-dot:is(:hover, :focus-visible)::before {
+  box-shadow: 0 0 0 2px var(--ss-accent-soft);
+}
+.ss-changed-dot-inline {
+  position: static;
+  display: inline-block;
+  translate: none;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+/* the active case runs with its own value: a line under the field, across the
+   whole row; a click shows that value in Cases & Parameters */
+.ss-case-line {
+  grid-column: 1 / -1;
+  font-size: 10.5px;
+  text-align: left;
+}
+.ss-case-link {
+  color: var(--ss-text-dim);
+  text-align: left;
+}
+.ss-case-link:hover {
+  color: var(--ss-accent);
+  text-decoration: underline;
 }
 /* a unit that can be shown or typed in another: the unit text, as a control
    that opens its chooser */

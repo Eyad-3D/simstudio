@@ -73,6 +73,18 @@
           ],
           "default": null,
           "title": "Caseid"
+        },
+        "paramKey": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paramkey"
         }
       },
       "required": [

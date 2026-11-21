@@ -49,6 +49,18 @@ button, and F1, open the part's help page in the Help window, a window of
 its own that every part's Help reuses; Alt+Left and Alt+Right go back and
 forward there in the desktop app.
 
+A part with many parameters (the battery, the Vehicle, a Wheel) shows them
+under headings; its rarely used ones sit in the last heading, folded until
+you open it, and the window remembers what you opened or folded. Type in
+**Search parameters** at the top to see only the parameters whose name or
+help holds those words, and tick **Changed only** to see only the values
+that are not the library's. A small dot beside a value marks one you
+changed: click it to put the library's value back (Ctrl+Z undoes that). When
+the active case runs with a value of its own, a line under the parameter
+says so, in the unit shown; the field above it is still the part's own
+value, and a click on the line shows the case's value in *Cases &
+Parameters*.
+
 A right-click on a part opens its menu: *Parameters*, *Rename…*,
 *Signals…*, *Duplicate*, *Copy*, *Cut* and *Delete*. On the empty diagram it
 offers *Paste*, *Select all* and *Fit view*. In the *Elements* list, Delete

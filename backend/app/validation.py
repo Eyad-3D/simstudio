@@ -138,9 +138,10 @@ def validate_project(project: Project) -> list[DataCheck]:
 
     def add(level: str, text: str, el: ElementInstance | None = None, *,
             ids: Iterable[str | None] = (), fix: str | None = None,
-            case: SimCase | None = None) -> None:
+            case: SimCase | None = None, param: str | None = None) -> None:
         # every part it is about, `el` first; `case`: the case it is about
-        # (it stops only that case's runs)
+        # (it stops only that case's runs); `param`: the key of the one
+        # parameter of `el` it is about (the Problems list opens its window there)
         about = list(dict.fromkeys(i for i in (el.id if el else None, *ids) if i in all_elements))
         first = el or (all_elements[about[0]] if about else None)
         checks.append(DataCheck(
@@ -151,6 +152,7 @@ def validate_project(project: Project) -> list[DataCheck]:
             elementIds=about,
             fix=fix,
             caseId=case.id if case is not None else None,
+            paramKey=param,
         ))
 
     all_elements = {el.id: el for s in project.systems for el in s.elements}
@@ -285,7 +287,8 @@ def validate_project(project: Project) -> list[DataCheck]:
         params.update(el.parameterOverrides)
         for pdef in cdef.parameters:  # number limits, from the catalogue
             if pdef.type == "number" and (problem := _number_problem(pdef, params[pdef.key])):
-                add("error", f"{_name(pdef)} of '{el.label}' {problem}.", el)
+                add("error", f"{_name(pdef)} of '{el.label}' {problem}.", el,
+                    param=pdef.key)
 
         for pdef in cdef.parameters:
             value = params.get(pdef.key)
@@ -299,16 +302,16 @@ def validate_project(project: Project) -> list[DataCheck]:
                     else:
                         parse_grid(value, len(axes), [a.name for a in axes])
                 except TableError as e:
-                    add("error", f"'{el.label}.{pdef.label}': {e}", el)
+                    add("error", f"'{el.label}.{pdef.label}': {e}", el, param=pdef.key)
             elif pdef.type == "code":
                 try:  # compile only: Data Checks never run script code
                     check_script(str(value or ""), el.label)
                 except ScriptError as e:
-                    add("error", str(e), el)
+                    add("error", str(e), el, param=pdef.key)
 
         if cdef.id == MAP_BLOCK:
             for text in map_problems(el.label, el.dynamicPorts, params.get("maps")):
-                add("error", text, el)
+                add("error", text, el, param="maps")
 
         if cdef.id == FMU_COMPONENT:  # reads the FMU file; never runs it
             for level, text, fix in fmu_problems(el.label, params, el.dynamicPorts):
@@ -318,13 +321,13 @@ def validate_project(project: Project) -> list[DataCheck]:
         # not its typed profile; an unknown cycle is build_model's error (below)
         if cdef.id in ("signal.road_profile", "signal.driving_task") and not params.get("cycle"):
             for level, text in profile_problems(str(params.get("profile", ""))):
-                add(level, f"'{el.label}' profile: {text}.", el)
+                add(level, f"'{el.label}' profile: {text}.", el, param="profile")
         ts = _as_number(params.get("sample_time_s", 0))  # a wrong one is an error above
         if ts is not None and COARSE_SAMPLE_TIME_S < ts < math.inf:
             add("warning",
                 f"'{el.label}' runs only every {ts:g} s (its Sample Time); real vehicle "
                 f"controllers run every 10-100 ms, so results may depend on this "
-                f"setting.", el)
+                f"setting.", el, param="sample_time_s")
 
     # a case's own values (Cases & Parameters) keep to the same limits
     for case in project.cases:
@@ -336,7 +339,7 @@ def validate_project(project: Project) -> list[DataCheck]:
                         and (problem := _number_problem(pdef, values[pdef.key])):
                     add("error", f"{_name(pdef)} of '{el.label}' in case '{case.name}' {problem}.",
                         el, fix="Change or remove the override in Cases & Parameters.",
-                        case=case)
+                        case=case, param=pdef.key)
 
     # -- structural solvability (delegated to model extraction) ------------------
     model = None
@@ -962,10 +965,11 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
                     "profile": catalogue.profile_text(cid)}
         return p
 
-    def once(level: str, text: str, el_id: str, fix: str, case: SimCase | None) -> None:
+    def once(level: str, text: str, el_id: str, fix: str, case: SimCase | None,
+             param: str | None = None) -> None:
         if text not in seen:
-            seen.add(text)
-            add(level, text, model.elements[el_id], fix=fix, case=case)
+            seen.add(text)  # (the part's window shows a case's own value too)
+            add(level, text, model.elements[el_id], fix=fix, case=case, param=param)
 
     variants = [(None, {})] + [(c, c.parameterOverrides) for c in project.cases]
     for t in tasks:
@@ -995,7 +999,7 @@ def _distance_checks(project: Project, model: Model, add: Add) -> None:
                                 f"not drive on (a stop with a waiting time is not modelled "
                                 f"yet).", t,
                      "Give that point a small speed (for example 5 km/h); at a profile's "
-                     "start, the speed the car sets off towards.", case)
+                     "start, the speed the car sets off towards.", case, "profile")
     route = model.signal_route
     src = route.get((model.driver, "sig_target_in")) if model.driver else None
     for case in project.cases:
@@ -1039,7 +1043,7 @@ def _plausibility_checks(model: Model, add: Add) -> None:
             if mass is not None and mass > 0 and not lo <= mass <= hi:
                 add("warning", f"Vehicle '{el.label}' has a mass of {mass:g} kg, outside the "
                                f"range of road vehicles ({lo:g} kg to {hi / 1000:g} t) — check "
-                               f"the value and its unit.", el)
+                               f"the value and its unit.", el, param="mass_kg")
             pushing = [f"{name} of {v:g} {unit}" for name, key, unit in (
                 ("A", "road_load_a_N", "N"), ("C", "road_load_c_N_per_kmh2", "N/(km/h)²"))
                 if (v := num(p, key)) is not None and v < 0]
@@ -1080,11 +1084,11 @@ def _plausibility_checks(model: Model, add: Add) -> None:
             if cap is not None and 0 < cap < lo:
                 add("warning", f"'{el.label}' has a capacity of {cap:g} kWh, too small for a "
                                f"traction battery (below {lo:g} kWh) — it would be empty "
-                               f"within seconds.", el)
+                               f"within seconds.", el, param="capacity_kWh")
             elif cap is not None and cap > hi:
                 add("warning", f"'{el.label}' has a capacity of {cap:g} kWh, far above any "
                                f"vehicle battery ({hi:g} kWh) — check the value and its "
-                               f"unit.", el)
+                               f"unit.", el, param="capacity_kWh")
             soc0, soc_min = num(p, "initial_soc_pct"), num(p, "min_soc_pct")
             if soc0 is not None and soc_min is not None and soc0 <= soc_min:
                 add("warning", f"'{el.label}' starts at {soc0:g} % SOC, at or below its "
@@ -1126,7 +1130,7 @@ def _plausibility_checks(model: Model, add: Add) -> None:
                 add("warning", f"'{el.label}' draws a constant {kw:g} kW — vehicle "
                                f"auxiliaries use about 0.3–5 kW (up to about 30 kW for a "
                                f"bus's heating and air conditioning). Check the value and "
-                               f"its unit.", el)
+                               f"its unit.", el, param="power_kW")
         elif cdef.id in ("motor.emotor", "engine.combustion") and any(
                 (num(p, k) or 100.0) != 100.0 for k in scale_keys(cdef.id)):
             _scale_checks(cdef.id, p, el, add)
@@ -1138,7 +1142,7 @@ def _plausibility_checks(model: Model, add: Add) -> None:
             ratio = num(p, "ratio")
             if ratio is not None and ratio > FINAL_DRIVE_MAX_RATIO:
                 add("warning", f"'{el.label}' has a ratio of {ratio:g}, far above road "
-                               f"vehicles' final drives (about 2–15) — check the value.", el)
+                               f"vehicles' final drives (about 2–15) — check the value.", el, param="ratio")
 
     wheels = [w for dl in model.drivelines for seg in dl.segments for w in seg.wheels]
     total = sum(w.load_share for w in wheels) * 100.0
@@ -1181,7 +1185,7 @@ def _tyre_checks(model: Model, wheels: list, add: Add) -> None:
         spec = parse_tyre_code(code)
         if spec is None:
             add("warning", f"'{el.label}' has a Tyre Code '{code}' LightSim cannot read: write it "
-                           f"as on the sidewall, e.g. 205/55 R16 91V or 20.5x7.0-13.", el)
+                           f"as on the sidewall, e.g. 205/55 R16 91V or 20.5x7.0-13.", el, param="tyre_code")
             continue
         try:
             factor = float(p.get("rolling_radius_factor", 0.97))
@@ -1215,7 +1219,7 @@ def _scale_checks(part: str, p: dict, el, add: Add) -> None:
             add("warning", f"'{el.label}' is scaled to {k * 100:g} % ({key.replace('_pct', '')}), "
                            f"outside the {lo * 100:g}–{hi * 100:g} % the scaling rules are meant "
                            f"for: a machine this much smaller or larger is built differently. "
-                           f"Use its own maps instead.", el)
+                           f"Use its own maps instead.", el, param=key)
     try:
         if part == "motor.emotor":
             raw = parse_table2d(p.get("full_load_torque"))
@@ -1268,11 +1272,11 @@ def _cell_pack_checks(p: dict, el, add: Add) -> None:
     if v_min > 0 and v_min >= ocv[-1][1]:
         add("warning", f"'{el.label}' has a Cell Minimum Voltage of {v_min:g} V, at or above "
                        f"the cell's open-circuit voltage when full ({ocv[-1][1]:g} V): it can "
-                       f"give no current. Check the value.", el)
+                       f"give no current. Check the value.", el, param="cell_min_voltage_V")
     if v_max > 0 and v_max <= ocv[0][1]:
         add("warning", f"'{el.label}' has a Cell Maximum Voltage of {v_max:g} V, at or below "
                        f"the cell's open-circuit voltage when empty ({ocv[0][1]:g} V): it can "
-                       f"take no charge. Check the value.", el)
+                       f"take no charge. Check the value.", el, param="cell_max_voltage_V")
 
 
 def _map_checks(model: Model, add: Add) -> None:
@@ -1315,7 +1319,7 @@ def _map_checks(model: Model, add: Add) -> None:
                 inputs = sum(p.direction == "input" for p in el.dynamicPorts or [])
                 if len(own) != inputs:
                     add("error", f"'{label}' has {len(own)} outside-the-data settings for its "
-                                 f"{inputs} inputs (one per input) — the run ignores them.", el)
+                                 f"{inputs} inputs (one per input) — the run ignores them.", el, param="maps")
                 continue
             pdef = next((p for p in cdef.parameters
                          if p.key == key and p.axes and p.axes[0].outside), None)
@@ -1329,7 +1333,7 @@ def _map_checks(model: Model, add: Add) -> None:
             if relaxed:
                 add("info", f"'{label}.{pdef.label}' does not stop the run outside its "
                             f"{' and '.join(relaxed)} data, as the library does — the run "
-                            f"summary says how long and how far it went outside.", el)
+                            f"summary says how long and how far it went outside.", el, param=pdef.key)
 
         if cdef.id == "motor.emotor":
             fl, loss = table(el_id, "full_load_torque", True), table(el_id, "power_loss", True)
@@ -1340,23 +1344,23 @@ def _map_checks(model: Model, add: Add) -> None:
             if n_max > n_curve:
                 add("warning", f"E-Motor '{label}': its Maximum Speed ({fmt(n_max)} 1/min) is "
                                f"beyond its full-load data, which ends at {fmt(n_curve)} 1/min — "
-                               f"lower it or extend the map.", el)
+                               f"lower it or extend the map.", el, param="max_speed_rpm")
             rng = inner_range(fl)
             if rng and rng[0] > 0:
                 add("warning", f"E-Motor '{label}': its full-load data starts at "
                                f"{fmt(rng[0])} 1/min but the motor starts from 0 — extend the "
-                               f"map down to 0 1/min.", el)
+                               f"map down to 0 1/min.", el, param="full_load_torque")
             if len(loss) > 1 and math.isfinite(n_max) and (loss[0][0] > 0 or loss[-1][0] < n_max):
                 add("warning", f"E-Motor '{label}': its loss map covers {span(loss[0][0], loss[-1][0])} "
                                f"1/min but the motor runs from 0 to its maximum speed of "
-                               f"{fmt(n_max)} 1/min — extend the map.", el)
+                               f"{fmt(n_max)} 1/min — extend the map.", el, param="power_loss")
             rng = inner_range(loss)
             need = max(v for _, p in fl for _, v in p) * max(
                 1.0, num(el_id, "q4_torque_scale_pct", 100.0) / 100.0)
             if rng and (rng[0] > 0 or rng[1] < need):
                 add("warning", f"E-Motor '{label}': its loss map covers {span(*rng)} N·m but the "
                                f"motor gives up to {fmt(need)} N·m (full-load peak × generator "
-                               f"torque scale) — extend the map.", el)
+                               f"torque scale) — extend the map.", el, param="power_loss")
         elif cdef.id == "engine.combustion":
             efl, fm = table(el_id, "full_load_torque", False), table(el_id, "fuel_map", True)
             if not efl or not fm:
@@ -1364,17 +1368,18 @@ def _map_checks(model: Model, add: Add) -> None:
             if len(fm) > 1 and (fm[0][0] > efl[0][0] or fm[-1][0] < efl[-1][0]):
                 add("warning", f"Engine '{label}': its fuel map covers {span(fm[0][0], fm[-1][0])} "
                                f"1/min but its full-load curve runs "
-                               f"{span(efl[0][0], efl[-1][0])} 1/min — extend the map.", el)
+                               f"{span(efl[0][0], efl[-1][0])} 1/min — extend the map.", el,
+                    param="fuel_map")
             rng, peak = inner_range(fm), max(v for _, v in efl)
             if rng and (rng[0] > 0 or rng[1] < peak):
                 add("warning", f"Engine '{label}': its fuel map covers {span(*rng)} N·m but the "
-                               f"engine gives up to {fmt(peak)} N·m — extend the map.", el)
+                               f"engine gives up to {fmt(peak)} N·m — extend the map.", el, param="fuel_map")
         elif cdef.id == "fuelcell.stack":
             pol, i_max = table(el_id, "polarization", False), num(el_id, "max_current_A", 400.0)
             if pol and len(pol) > 1 and pol[0][0] > 0:
                 add("warning", f"Fuel cell '{label}': its polarization curve starts at "
                                f"{fmt(pol[0][0])} A but the stack starts from 0 A — extend the "
-                               f"curve down to 0 A.", el)
+                               f"curve down to 0 A.", el, param="polarization")
             if pol and len(pol) > 1 and pol[-1][0] < i_max:
                 add("warning", f"Fuel cell '{label}': its polarization curve covers "
                                f"{span(pol[0][0], pol[-1][0])} A but its Maximum Current is "

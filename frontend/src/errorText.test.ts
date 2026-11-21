@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { detailText, failureText, isNotFound, responseText } from "./errorText";
+import { detailText, failureText, isNotFound, refusalsOf, responseText } from "./errorText";
 import { ApiError } from "./api";
 
 // a project as a request sends it: the engine's validation errors point into it
@@ -66,4 +66,46 @@ it("reads a failed response's body, and says 404 and an unreachable engine plain
   expect(isNotFound(new ApiError(422, "404 lines"))).toBe(false);
   expect(failureText(new TypeError("Failed to fetch"))).toBe("the engine could not be reached");
   expect(failureText(new ApiError(422, "name: Field required"))).toBe("name: Field required");
+});
+
+it("makes a refused project's errors one row per value: the part, the parameter, what is wrong and what it got", () => {
+  // an empty value: the engine tries each type a value may have, and says so once per type
+  const at = ["body", "project", "systems", 0, "elements", 1, "parameterOverrides", "capacity_kWh"];
+  const branches = ["bool", "int", "float", "str", "dict[str,union[float,...]]"].map((t) => ({
+    type: `${t}_type`,
+    loc: [...at, t],
+    msg: "Input should be valid",
+    input: null,
+  }));
+  const project = structuredClone(body);
+  const p = project.project.systems[0].elements[1] as { componentDefId: string; parameterOverrides: Record<string, unknown> };
+  p.parameterOverrides = { capacity_kWh: null };
+  const rows = refusalsOf(
+    [...branches, { type: "greater_than", loc: ["body", "project", "cases", 0, "duration"], msg: "Input should be greater than 0", input: -1 }],
+    JSON.stringify(project),
+  )!;
+  expect(rows).toHaveLength(2);
+  expect(rows[0]).toMatchObject({
+    elementId: "el-2",
+    part: "HV Battery",
+    paramKey: "capacity_kWh",
+    text: "Usable Capacity: must be a number (got nothing)",
+  });
+  // the engine's own words stay with the row, for a report
+  expect(rows[0].code).toContain("float_type");
+  expect(rows[0].code).toContain("parameterOverrides.capacity_kWh");
+  // about no part: the place in words, no part or key
+  expect(rows[1]).toMatchObject({ text: "Highway · duration: Input should be greater than 0 (got -1)" });
+  expect(rows[1].elementId).toBeUndefined();
+  // the text form lists each value once, too
+  expect(detailText(branches, project)).toBe("HV Battery · Usable Capacity: must be a number (got nothing)");
+  // a case's own value names the case, the part and the parameter
+  const caseValue = refusalsOf(
+    [{ type: "string_type", loc: ["body", "project", "cases", 0, "parameterOverrides", "el-1", "mass_kg"], msg: "Input should be a valid string", input: "" }],
+    body,
+  )!;
+  expect(caseValue[0]).toMatchObject({ elementId: "el-1", paramKey: "mass_kg", text: "Highway · Vehicle Mass: Input should be a valid string (got '')" });
+  // not a refusal of values
+  expect(refusalsOf("Project 'x' not found")).toBeNull();
+  expect(refusalsOf([{ msg: "no place" }])).toBeNull();
 });
