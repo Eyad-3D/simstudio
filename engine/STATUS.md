@@ -1673,3 +1673,80 @@ Endurance). `NEW-FS-EVENT` now refuses only a Lap case with an event set.
   closure 1.274e-9; the engine is unchanged, so every other case runs the
   same module as main. The guard, FS and engine-flag tests pass (247), as
   do `benchmarks/back_to_back/tests` (157); `ruff check .` is clean.
+
+## The lap profile on the engine: lap port, stage 2 (21 November 2026)
+
+A lap's speed profile is computed from the engine's own model of the car
+(DESIGN.md 10.1). The method is today's: cornering speeds, then the
+forward and backward passes. Every point comes from the case's lap model,
+fast mode's inverse model with the lap variants of the Race Track, the
+Vehicle and the Wheel, solved one instant at a time (`lsim_fast::PointSolver`,
+`lsim-lap`). `lightsim_engine.lap_model` gives `LapModel.solve`.
+Calibrate lap runs on it. Lap cases themselves still refuse (`NEW-LAP`)
+until stage 3 adds the energy pass.
+
+**The variants change no other model.** The model text of every example
+case is the same before (85aa535) and after: 23 cases, full and fast mode.
+Golden shows 0 differences.
+
+**The point solver.** The first smoke run had 2 366 of 86 809 solves failing
+and 81 674 refreshes of the derivatives. The causes were in the searches,
+not the model:
+- each acceleration search started at +60 m/s², then +30 m/s²;
+- a mode change threw the derivatives away;
+- at a corner's apex the only acceleration inside the limits is coasting,
+  which the bracket stepped over.
+
+Fixes: each search brackets from the last answer; a mode change keeps the
+derivatives; where nothing is inside, the search gives coasting's (today's
+rule). The autocross profile now takes 0.158 s and about 2.6 µs a solve;
+321 of 60 357 solves fail, all outside the limits. Every braking probe at
+or below the top speed solves (a test).
+
+**The top speed** is the motor's in its gear: 35.272 m/s on the FS car. The
+car settles at 35.005 m/s, where the fading torque meets the road load, and
+the limit is named *top speed*.
+
+**Against today's lap solver** (the FS example, profile only):
+
+| Track | From rest | Flying |
+|---|---|---|
+| Autocross | 62.217 against 59.138 s (+5.2 %) | 60.893 against 57.721 s (+5.5 %) |
+| Skidpad | +1.7 % | +0.6 % |
+| Endurance lap (30 kW) | +3.3 % | +3.5 % |
+
+- **Braking:** 87 % of the autocross difference is on braking stretches.
+  The engine brakes as the car's brakes are set: 62.5 % front, with
+  recuperation on the driven rear axle first. So the rear tyres reach their
+  grip first; 20.0 of 21.4 s of braking is held by the rear axle.
+- **Cornering:** the rest is cornering speeds 0.3 to 6.3 % lower,
+  increasingly with speed. The engine's open differential gives each rear
+  wheel half the drive force, so the unloaded inner wheel reaches its grip
+  first. Today's solver pools the two wheels' grip. Checked at a 48 m
+  corner: the inner rear wheel is at its grip (355.1 of 355.6 N) while the
+  outer one has 1 072 N.
+- Both deviations come from the engine's parts, as decided.
+
+**Calibrate lap:**
+- On laps logged from the engine's own profile (0.9 × the grip, 2.5 m²):
+  it fits grip 0.9 and CzA 1.875 m², with 2.7 km/h RMS, and predicts the
+  check lap to −0.04 %, in 9.2 s.
+- On the browser test's fixtures from today's lap mode: grip 0.9 and CzA
+  6.25 m², with the check lap 2.3 % fast.
+- The check lap's energy waits for stage 3.
+
+**Tests:**
+- `lsim-lap`: 8 tests, among them the top speed, the braking probes, the
+  named limits and the stop for the driver change.
+- `backend/tests/test_new_lap.py`: the profile against today's, within the
+  measured gaps.
+- `test_calibrate` and `test_laplog` run on the new engine.
+
+**Checks:**
+- `check.sh` passes (642 tests).
+- The guard and lap tests pass (296), and `benchmarks/back_to_back/tests` (157).
+- Ordinary cases' timings, best of 7 in alternating fresh processes, the
+  steps and events the same: hybrid UDDS 20.565 against 20.734 s, BEV WLTC
+  1.152 against 1.122 s, the CI slices 1.012 × and 1.023 ×. Their model is
+  the same text, so this is build noise; the guard tests ran on the other
+  CPUs at the same time.
