@@ -1349,8 +1349,8 @@ impl LapModel {
         let d = PyDict::new(py);
         d.set_item("v", prof.v)?;
         d.set_item("t", prof.t)?;
-        d.set_item("code", prof.code.iter().map(|c| *c as u8).collect::<Vec<_>>())?;
-        d.set_item("cause", prof.cause.iter().map(|c| *c as u8).collect::<Vec<_>>())?;
+        d.set_item("code", prof.code.iter().map(|c| *c as u32).collect::<Vec<_>>())?;
+        d.set_item("cause", prof.cause.iter().map(|c| *c as u32).collect::<Vec<_>>())?;
         d.set_item("apex", prof.apex)?;
         d.set_item("v_cap", prof.v_cap)?;
         let s = prof.stats;

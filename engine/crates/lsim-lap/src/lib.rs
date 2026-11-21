@@ -45,6 +45,10 @@ use std::collections::HashMap;
 const AT_APEX: f64 = 0.005;
 /// the highest speed looked at, m/s (today's envelope's)
 const V_MAX: f64 = 150.0;
+/// the share below their top speed over which the E-Motors' torque fades
+/// out (MOD-18): a car the motors hold at full load there is at its top
+/// speed in its gear
+const TOP_FADE: f64 = 0.02;
 /// accelerations searched, m/s²
 const A_MAX: f64 = 60.0;
 /// how close a root is found: speed, m/s; acceleration, m/s²
@@ -614,9 +618,12 @@ fn forward(
             0.5 * (a1 + a2)
         };
         let next = (v * v + 2.0 * a * ds).max(0.0).sqrt();
-        vf[i + 1] = next.min(apex[i + 1]);
-        if next >= car.v_cap && car.v_cap <= apex[i + 1] {
-            vf[i + 1] = car.v_cap;
+        vf[i + 1] = next.min(apex[i + 1]).min(car.v_cap);
+        // at the top speed: held there, or held by the motors at full load
+        // in their last 2 %, where their torque fades out (the car settles
+        // where it meets the road load, short of the cap)
+        let near = vf[i + 1] >= car.v_cap * (1.0 - TOP_FADE) && car.v_cap <= apex[i + 1];
+        if near && (vf[i + 1] >= car.v_cap * (1.0 - AT_APEX) || why[i].0 == Code::Motor) {
             why[i] = (Code::TopSpeed, Cause::None);
         }
     }
@@ -722,6 +729,119 @@ fn coast_mask(prof: &Profile, share: f64) -> Vec<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lsim_engine::{BuildOptions, Engine};
+    use lsim_project::{ImportOptions, import_case, standard_registry};
+
+    /// The FS example's car as its autocross case's lap model, and its parts.
+    fn fs_car() -> (Model, Parts) {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../backend/projects/fs-electric.json");
+        let pj: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).expect("the FS example")).unwrap();
+        let opts = ImportOptions { inverse: true, lap: true, ..Default::default() };
+        let (top, rep) = import_case(&pj, Some("case-autocross"), &standard_registry(), &opts)
+            .expect("its lap model imports");
+        let pr = rep.inverse.clone().unwrap();
+        let lp = rep.lap.clone().unwrap();
+        let model = Engine::new(rep.library())
+            .build_inverse(&top, &pr.spec, &BuildOptions::default())
+            .expect("its lap model builds");
+        let parts = Parts {
+            track: lp.track,
+            driver: lp.driver,
+            wheels: lp.wheels,
+            motors: lp.motors,
+            batteries: lp.batteries,
+        };
+        (model, parts)
+    }
+
+    /// A track a point a metre: `straight` m, a corner of `radius` m (+
+    /// left) and `length` m, then `straight` m again.
+    fn track(straight: usize, radius: f64, length: usize) -> Track {
+        let n = 2 * straight + length;
+        let kappa = (0..=n)
+            .map(|i| if i > straight && i <= straight + length { 1.0 / radius } else { 0.0 })
+            .collect();
+        Track { kappa, sin_t: vec![0.0; n + 1], ds: 1.0, closed: false }
+    }
+
+    /// The top speed is the motor's in its gear: 6 500 1/min through the
+    /// chain's 4.4 on 0.228 m wheels, 35.272 m/s, the highest speed the model
+    /// solves at; the car settles within the motor's last 2 %, where its
+    /// torque fades out, and the limit is named so.
+    #[test]
+    fn the_lap_is_held_at_the_motors_top_speed() {
+        let (model, parts) = fs_car();
+        let by_hand = 6500.0 * std::f64::consts::PI / 30.0 / 4.4 * 0.228;
+        let tr = track(2000, 1e9, 1);
+        let p = solve(&model, &model.info.params, &parts, &tr, &LapOptions::default()).unwrap();
+        assert!((p.v_cap - by_hand).abs() < 1e-3 * by_hand, "{} against {by_hand}", p.v_cap);
+        let top = p.v.iter().cloned().fold(0.0, f64::max);
+        // (where the fading torque meets the road load: 35.005 m/s)
+        assert!(top <= p.v_cap * (1.0 + 1e-12) && top > (1.0 - TOP_FADE) * p.v_cap, "{top}");
+        assert!(p.code.contains(&Code::TopSpeed));
+    }
+
+    /// Every braking probe at or below the top speed solves (a failed one
+    /// would read as out of reach): the deceleration search on the level and
+    /// in corners, from 0.5 m/s to the cap.
+    #[test]
+    fn braking_probes_at_or_below_the_cap_all_solve() {
+        let (model, parts) = fs_car();
+        let mut car = Car::new(&model, &model.info.params, &parts, 0.0).unwrap();
+        let cap = car.v_cap;
+        for kappa in [0.0, 0.02, 0.1] {
+            for k in 0..=40 {
+                let v = cap * k as f64 / 40.0;
+                for a in [-1.0, -5.0, -10.0, -20.0] {
+                    assert!(
+                        car.at(v, a, kappa, 0.0).is_some(),
+                        "braking at {v} m/s, {a} m/s², κ {kappa}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// From rest on the level the driven rear tyres hold the car; at speed
+    /// the battery's 80 kW Output Power Limit does, named as its cap; and
+    /// braking into the corner is held by an axle's grip, named.
+    #[test]
+    fn the_limits_are_named_as_the_car_meets_them() {
+        let (model, parts) = fs_car();
+        let tr = track(200, 15.0, 40);
+        let p = solve(&model, &model.info.params, &parts, &tr, &LapOptions::default()).unwrap();
+        assert_eq!((p.code[0], p.cause[0]), (Code::Traction, Cause::RearAxle));
+        assert!(p.code.iter().zip(&p.cause).any(|(c, w)| *c == Code::Cap && *w == Cause::PowerCap));
+        assert!(
+            p.code.iter().zip(&p.cause).any(
+                |(c, w)| *c == Code::Braking && matches!(w, Cause::RearAxle | Cause::FrontAxle)
+            )
+        );
+        assert!(p.code.contains(&Code::Corner));
+        // in the corner, at its cornering speed
+        let mid = 200 + 20;
+        assert!(
+            (p.v[mid] - p.apex[mid]).abs() < 1e-3 * p.apex[mid],
+            "{} against {}",
+            p.v[mid],
+            p.apex[mid]
+        );
+        assert!(p.t.windows(2).all(|w| w[1] > w[0]));
+    }
+
+    /// A lap that ends at a standstill (the endurance's driver change) ends
+    /// at 0, braking into it.
+    #[test]
+    fn a_lap_into_the_driver_change_ends_at_rest() {
+        let (model, parts) = fs_car();
+        let tr = track(100, 1e9, 1);
+        let opt = LapOptions { v_start: 10.0, stop: true, ..Default::default() };
+        let p = solve(&model, &model.info.params, &parts, &tr, &opt).unwrap();
+        assert_eq!(*p.v.last().unwrap(), 0.0);
+        assert_eq!(*p.code.last().unwrap(), Code::Braking);
+    }
 
     fn window() -> Window {
         Window { p_deliver: 0, i_mpp: 1, i_dis_lim: 2, i_floor: 3, p_cap: 0 }
