@@ -274,9 +274,14 @@ def _spare(cdef_id: str, **over) -> dict:
 
 
 def _alone(cdef_id: str, key: str = "") -> dict:
-    """A part placed on nothing: its defaults; a Lookup in the mode of the
-    table cut, with tables of more points than its defaults' two."""
+    """A part placed on nothing: its defaults, with the choice that shows the
+    table cut (a battery built from cells for its cells' tables); a Lookup in
+    the mode of the table cut, with tables of more points than its defaults'
+    two."""
     if cdef_id != "signal.lookup":
+        show = _pdef(cdef_id, key).get("showIf") if key else None
+        if show and _pdef(cdef_id, show["key"]).get("default") not in show["values"]:
+            return _spare(cdef_id, **{show["key"]: show["values"][0]})
         return _spare(cdef_id)
     return _spare(cdef_id, mode="2D" if key == "table_2d" else "1D",
                   table_1d={str(x): x for x in range(0, 101, 25)},
