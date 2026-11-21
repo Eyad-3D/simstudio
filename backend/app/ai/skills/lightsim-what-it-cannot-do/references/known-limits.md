@@ -9,8 +9,6 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 - **Lap cases** (`NEW-LAP`).
 - **Formula Student events** (`NEW-FS-EVENT`).
 - **A battery built from cells** (`NEW-CELLS`).
-- **A Map block** , at any number of inputs and outputs, even one input: every case of a project that has one fails with `Not run [NEW-TABLE-AXES]: 'Map 1' (a Map block) does not run in this version of LightSim yet`.
-- **A table parameter of three or more axes.** No part of the library has one yet; the format and the editor take them (Tables and the Map block).
 - **Data laid out across rows** (an axis along row 1 and its values along row 2) instead of down columns: transpose it in Excel first.
 - **Several tables without labels** : they are not put together; the preview reads one at a time.
 - **Two tables touching** with no empty row or column between them are read as one; a list whose columns have an empty column between them is read as two tables.

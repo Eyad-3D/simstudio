@@ -592,6 +592,15 @@ second: about 0.899889 after 10 s.
   …], x1Unit = "…", x2Unit = "…")`, one row of `values` for each point of
   `x1`, one number in a row for each point of `x2`. Read it as `eff(w,
   tau)`.
+* A table with three axes or more: `table(x1 = {…}, x2 = {…}, x3 = {…}, …,
+  values = {…}, x1Unit = "…", x2Unit = "…", x3Unit = "…", …)`, the values
+  one list in row-major order, the first axis outermost and the last
+  changing fastest (with `n_k` points on axis `k`, the value at the points
+  `(i_1, i_2, i_3)` is number `(i_1 · n_2 + i_2) · n_3 + i_3`, from 0).
+  Read it with one argument per axis, `r(T, soc, i)`. Every rule below
+  holds for any number of axes: along each axis the table is the same
+  monotone cubic (or straight line) as a table of one, and `outside` gives
+  one rule per axis (one rule alone is every axis's).
 * Between the points a table is a monotone cubic curve by default: its
   slope has no jumps (its second derivative has, at the points), and it
   does not overshoot where the data rise or fall steadily. `interpolation =
@@ -957,9 +966,10 @@ How the format maps to the engine's IR (`lsim-ir`):
 | `structural parameter` | `ParamDecl { structural: true }` |
 | `parameter Boolean b = true` | `ParamValue::Bool(true)` |
 | `parameter Mode m = Mode.Auto` | `ParamValue::Enum("Mode.Auto")`, the type in `ComponentDef::types` or `Library::types` |
-| `= table(x = …, y = …, xUnit = …)` | `ParamValue::Table1D` |
-| `= table(x1 = …, x2 = …, values = …)` | `ParamValue::Table2D` |
-| a table with `interpolation` or `outside` | `ParamValue::Table(TableData)` |
+| `= table(x = …, y = …, xUnit = …)` | `ParamValue::Table(TableData)`, one axis |
+| `= table(x1 = …, x2 = …, values = […])` | `ParamValue::Table(TableData)`, two axes |
+| `= table(x1 = …, x2 = …, x3 = …, values = {…})` | `ParamValue::Table(TableData)`, three axes or more |
+| a table with `interpolation` or `outside` | the same, with those rules (printed only where they are not the defaults) |
 | `ocv(soc)` | `Expr::Table { table: 0, args: [Name("ocv"), soc] }` (component scope) |
 | `a == b`, `a <> b` | `a >= b and a <= b`, `a < b or a > b` |
 | `true`, `false` | `Const(1.0)`, `Const(0.0)` |

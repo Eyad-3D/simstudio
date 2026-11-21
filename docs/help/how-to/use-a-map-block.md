@@ -8,12 +8,6 @@ and all outputs share one grid of *breakpoints* (the input values where
 the tables have values). A Map block has any number of inputs and
 outputs.
 
-**This version's engine does not run a Map block yet.** A case of a
-project with one fails at once with `Not run [NEW-TABLE-AXES]` and the
-block's name; the block, its tables and the project save and check as
-usual, and run once the engine has it
-([Known issues](../../KNOWN-LIMITS.md#does-not-run-in-this-version)).
-
 ## Add the block and its inputs and outputs
 
 1. In the *Components* panel, find **Map** under *Driver & Signals* and
@@ -83,3 +77,16 @@ Wire its inputs and outputs in *Data Bus Connections*, as for any signal
 block ([Wire control signals](wire-control-signals.md)). Between
 breakpoints each output follows straight lines along each input; past an
 input's data it does what that input's list says.
+
+## Run it
+
+A Map block runs in a full run and in quick mode. Its outputs are read
+from their maps at its inputs' values at every step of the solver, with
+no delay and no sample time, and are channels of the run like any
+block's (in the outputs' units). An input set to hold its edge value or
+to extend its edge slope that is read past its data is reported after
+the run: *'Motor Map' output 'Loss': read past its data on its input
+'Speed' for 74.2 s from t = 1531.40 s …*. An input set to stop the run
+stops it where it first leaves its data, with a message that names the
+output's map (`loss_map`, after the output's id) and the input
+(*… on its first (Speed) axis, which allows no values outside*).

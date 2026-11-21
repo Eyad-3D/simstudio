@@ -2,10 +2,9 @@
 
 This page is the contract for table parameters with any number of axes
 and for the Map block: how a table is defined in the part library, how its
-data are stored in a project file, how the engine reads them, and what a
-run refuses while this version's engine does not run them yet. The app
-(definition, storage, Data Checks, editor, parameter sheet) and the engine
-are both built to it. There is no limit on the number of axes in this
+data are stored in a project file, and how the engine reads and runs them.
+The app (definition, storage, Data Checks, editor, parameter sheet) and the
+engine are both built to it. There is no limit on the number of axes in this
 contract: one, two, three and more are the same model, and code tells them
 apart by the number of axes only.
 
@@ -57,17 +56,22 @@ breakpoints on axis `k`, the value at breakpoint indexes
 
     ((i_0 · n_1 + i_1) · n_2 + i_2) · … · n_(N-1) + i_(N-1)
 
-so the last axis changes fastest. This is how it reads two axes today
-(`engine/crates/lsim-ir/src/table.rs`).
+so the last axis changes fastest. This is how it reads every number of axes
+(`engine/crates/lsim-ir/src/table.rs`, `TableData`).
 
 ### Reading a table between and past its points
 
 A table is linear between its breakpoints along each axis (multilinear: a
 one-axis table is a broken line, a two-axis table is bilinear, and so on),
-as the app's one- and two-axis tables are today. Past an axis's data it
+as the app's one- and two-axis tables are. Past an axis's data it
 follows that axis's outside rule: `error` stops the run with a message
-naming the table and the axis, `clamp` holds the edge value, `linear`
-continues the edge segment's slope.
+naming the table and the axis (by its place and, for a Map block's input,
+its name: `… on its first (Speed) axis …`), `clamp` holds the edge value,
+`linear` continues the edge segment's slope. The time spent past each
+axis's data is reported per axis. Tables the engine's own parts define
+for themselves may interpolate with monotone cubics instead (C¹, no
+overshoot), for any number of axes too; every table of the library and
+of a Map block is linear.
 
 ## The per-axis lists
 
@@ -141,11 +145,12 @@ a Data Check error.
 
 The Map block (library id `signal.map`, name *Map*, category *Driver &
 Signals*) reads one or more output signals from tables over one or more
-input signals. Until the engine runs it, its entry in
-`backend/app/library/components.json` is in the list `awaitingEngine`,
-beside `components`: the app's library (`GET /api/library`) holds both
-lists, and the engine, which embeds that file and counts its parts, reads
-`components` alone. The engine side moves the entry into `components`. The user names its inputs and outputs, gives each a unit
+input signals. Its entry is in `components` of
+`backend/app/library/components.json`, which the engine embeds (a part the
+app has and the engine does not run yet would wait in the list
+`awaitingEngine` beside it, which the app's library, `GET /api/library`,
+also holds and the engine does not read; it is empty). The user names its
+inputs and outputs, gives each a unit
 and fills in the tables; its pins are wired like any signal block's. The
 older *Lookup Table* block (`signal.lookup`, one or two inputs, one
 output) stays as it is for the projects that use it.
@@ -307,47 +312,33 @@ each point once. A missing point, a point twice, a cell that is not a
 number or a unit of another kind refuses the sheet with the row it is in.
 The CSV export keeps a table as JSON text in its Value cell, at any depth.
 
-## What a run refuses
+## How the engine runs them
 
-This version's engine runs tables of one and two axes and has no Map
-block. Until it does, a case of a project that has a Map block, or a part
-whose table parameter has three or more axes, is refused before anything
-runs, with the code `NEW-TABLE-AXES` (`QUICK-TABLE-AXES` in quick mode)
-and words that name the part:
+A run takes a Map block and tables of any number of axes as it takes
+every other part, in a full run and in quick mode; nothing is refused for
+their number of axes.
 
-    Not run [NEW-TABLE-AXES]: 'Motor Map' (a Map block) does not run in this
-    version of LightSim yet: its engine runs tables of one and two axes and
-    no Map block yet.
-
-The run fails at once; nothing is run instead and no number is given. The
-refusal is made where the engine's other refusals are
-(`backend/app/solver/new_engine.py`, `unsupported` and
-`quick_unsupported`), so the app, the command line, studies and AI tools
-all give it. Data Checks do not stop on it: the project opens, is edited,
-checked and saved as any other.
-
-## What the engine builds to run them
-
-1. Tables of any number of axes: a table's data as breakpoints per axis,
-   values row-major (first axis outermost), an outside rule and a unit per
-   axis; multilinear between points, each axis's outside rule past them,
-   an axis with one breakpoint constant; the stop of an `error` axis and
-   the report of time spent past each axis's data, per axis, as for one
-   and two axes today.
-2. Reading a library table of type `table`, and `table1d`/`table2d`, by
-   its number of axes, from the stored form above.
-3. The Map block, `signal.map`: its entry moved from `awaitingEngine`
-   into `components` of `backend/app/library/components.json` (the
-   engine's tests that count the library's parts, 36 today, then count
-   37); its inputs and outputs from
-   `dynamicPorts` (inputs in order are the axes), units from the
-   library's `unitGroups`, one table per output from `maps`, the per-input
-   `tableOutside.maps`; each output read at the inputs' values every step
-   (a smooth signal function, no state, no sample time).
-4. Lifting the refusal: remove the `NEW-TABLE-AXES` and
-   `QUICK-TABLE-AXES` checks, their entries in `CODES` and in
-   `benchmarks/back_to_back/acceptance.toml`, the known limit, and turn
-   their tests into tests of the run.
+1. **Tables of any number of axes** (`engine/crates/lsim-ir`:
+   `TableData`, `interp::Table`): breakpoints per axis, values row-major
+   (first axis outermost), an outside rule, a unit and a name per axis;
+   multilinear between points, each axis's outside rule past them, an axis
+   with one breakpoint constant; the stop of an `error` axis and the
+   report of time spent past each axis's data, per axis. A table that
+   varies along one or two axes is computed as it always has been (the
+   same numbers to the last digit); three or more are computed cell by
+   cell from the grid's points.
+2. **A library table** of type `table`, `table1d` or `table2d` is read
+   from the stored form above by its number of axes
+   (`lsim_lib::table::stored_data`): one and two axes by their own rules,
+   three or more as a full grid.
+3. **The Map block**, `signal.map` (`lsim_lib::blocks::signals::map`,
+   mapped in `lsim-project`'s importer): its inputs and outputs from
+   `dynamicPorts` (inputs in order are the axes), each port's unit its
+   unit group's (`unitGroups`), one table per output from `maps` (a
+   parameter named after the output: `loss_map`), the per-input
+   `tableOutside.maps`; each output is its map read at the inputs' values
+   at every step (a smooth signal function, no state, no sample time). A
+   block with outputs and no inputs gives each output its number.
 
 ## Where this differs from the decisions it was built from
 

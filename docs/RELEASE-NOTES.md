@@ -49,8 +49,9 @@ sections.
   name and give units, any number of each. A table of three or more axes,
   and a Map block's tables, are edited two axes at a time with the others
   held at a breakpoint you pick; the parameter sheet holds them as a long
-  list. **This version's engine does not run them yet**: a case with a Map
-  block is refused (`NEW-TABLE-AXES`)
+  list. They run, in a full run and in quick mode: the engine reads a
+  table of any number of axes, straight lines along each axis between its
+  breakpoints and each axis's own rule past its data
   ([Use a Map block](help/how-to/use-a-map-block.md),
   [Tables and the Map block](spec/tables.md)).
 - **Import a table in any layout**, from an Excel, CSV or text file

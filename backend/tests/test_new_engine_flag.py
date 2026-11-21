@@ -306,12 +306,7 @@ def test_every_refusal_has_its_code():
     sampled.systems[0].elements.append(ElementInstance(
         id="pid", componentDefId="control.pid", label="PID", position={"x": 0, "y": 0},
         parameterOverrides={"sample_time_s": 0.5}))
-    mapped = load_example("bev-car")  # (a Map block: docs/spec/tables.md)
-    mapped.systems[0].elements.append(
-        ElementInstance(id="map", componentDefId="signal.map", label="Map", position={"x": 0, "y": 0}))
     seen = {
-        "NEW-TABLE-AXES": new_engine.unsupported(mapped, WLTC),
-        "QUICK-TABLE-AXES": new_engine.quick_unsupported(mapped, WLTC),
         "NEW-NOT-FOUND": new_engine.unsupported(load_example("bev-car"), "no-such-case"),
         "NEW-LAP": new_engine.unsupported(load_example("fs-electric"), "case-autocross"),
         # (a kind the schema does not have yet: the four it has are all handled above it)
