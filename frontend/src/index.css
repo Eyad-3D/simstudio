@@ -48,20 +48,16 @@
   --ss-td-border: #eef0f3;
   --ss-scrollbar: #c2c8d2;
   --ss-scrollbar-hover: #9aa2af;
-  /* one colour per domain for wires, part borders and icons, layer swatches
-     and pins: each at least 3:1 on the diagram (the panel colour) */
-  --ss-kind-electrical: #c26400;
-  --ss-kind-mechanical: #7a8494;
-  --ss-kind-signal: #0e7490;
-  --ss-kind-thermal: #c2410c;
-  --ss-kind-fluid: #2563eb;
-  /* pins: an outline at least 3:1 on the diagram around a light fill */
-  --ss-pin-electrical: #d97706;
-  --ss-pin-electrical-fill: #fde68a;
-  --ss-pin-mechanical: #4b5563;
-  --ss-pin-mechanical-fill: #d1d5db;
-  --ss-pin-thermal: #b91c1c;
-  --ss-pin-thermal-fill: #fecaca;
+  /* one colour per kind of connection (UI 4.42) for wires, part borders
+     and icons, pins, layer swatches and port dots: muted, at least 3:1 on
+     the diagram, and apart from each other also with the common
+     colour-vision deficiencies (contrast.test.ts); wires differ in line
+     style as well (ElementNode's KIND_LINE), so colour is never the only cue */
+  --ss-kind-electrical: #a8651a;
+  --ss-kind-mechanical: #33557a;
+  --ss-kind-signal: #2b8a80;
+  --ss-kind-thermal: #8c2f3a;
+  --ss-kind-fluid: #8458c0;
   /* a battery pin's + and − marks: text, at least 4.5:1 on a part */
   --ss-pole-positive: #dc2626;
   --ss-pole-negative: #2563eb;
@@ -99,9 +95,11 @@
   --ss-td-border: #2a2f37;
   --ss-scrollbar: #3a414c;
   --ss-scrollbar-hover: #4d5663;
-  /* (the domain colours are the light theme's) */
-  --ss-pin-mechanical: #a3abb8;
-  --ss-pin-thermal: #f87171;
+  --ss-kind-electrical: #d4a466;
+  --ss-kind-mechanical: #9ab0dc;
+  --ss-kind-signal: #6cc7b9;
+  --ss-kind-thermal: #d97a83;
+  --ss-kind-fluid: #9878d6;
   --ss-pole-positive: #f87171;
   --ss-pole-negative: #60a5fa;
   --ss-grid-line: #262b33;
@@ -307,18 +305,27 @@ body,
   background: var(--ss-panel);
   border-radius: 2px;
 }
-.react-flow__handle.ss-handle-electrical {
-  border-color: var(--ss-pin-electrical);
-  background: var(--ss-pin-electrical-fill);
+/* a pin in its kind's colour, around a light tint of it; electrical pins
+   are round, the others square */
+.react-flow__handle:is(.ss-handle-electrical, .ss-handle-power) {
+  --ss-pin: var(--ss-kind-electrical);
   border-radius: 50%;
 }
 .react-flow__handle.ss-handle-mechanical {
-  border-color: var(--ss-pin-mechanical);
-  background: var(--ss-pin-mechanical-fill);
+  --ss-pin: var(--ss-kind-mechanical);
 }
 .react-flow__handle.ss-handle-thermal {
-  border-color: var(--ss-pin-thermal);
-  background: var(--ss-pin-thermal-fill);
+  --ss-pin: var(--ss-kind-thermal);
+}
+.react-flow__handle.ss-handle-fluid {
+  --ss-pin: var(--ss-kind-fluid);
+}
+.react-flow__handle.ss-handle-signal {
+  --ss-pin: var(--ss-kind-signal);
+}
+.react-flow__handle:is(.ss-handle-electrical, .ss-handle-power, .ss-handle-mechanical, .ss-handle-thermal, .ss-handle-fluid, .ss-handle-signal) {
+  border-color: var(--ss-pin);
+  background: color-mix(in srgb, var(--ss-pin) 22%, var(--ss-panel));
 }
 .react-flow__edge-path {
   stroke-width: 1.6;
@@ -342,9 +349,6 @@ body,
   border-color: var(--ss-accent);
   border-width: 1px;
   opacity: 0.55;
-}
-.react-flow__edge.selected .react-flow__edge-path {
-  stroke-width: 2.4;
 }
 .dark .react-flow__pane,
 .dark .react-flow {

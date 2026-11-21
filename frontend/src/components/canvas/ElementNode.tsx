@@ -23,9 +23,10 @@ export type ElementFlowNode = Node<ElementNodeData, "element">;
 
 export const DEFAULT_NODE_WIDTH = 92;
 
-// One colour per domain for wires, node borders and icons, layer swatches and
-// port dots: the theme's --ss-kind-* tokens (index.css), each at least 3:1 on
-// the diagram in both themes (contrast.test.ts). CSS values, for styles only.
+// One colour per kind of connection for wires, node borders and icons, pins,
+// layer swatches and port dots: the theme's --ss-kind-* tokens (index.css),
+// each at least 3:1 on the diagram in both themes and told apart with the
+// common colour-vision deficiencies (contrast.test.ts). CSS values, for styles only.
 export const KIND_COLOR: Record<PortKind, string> = {
   electrical: "var(--ss-kind-electrical)",
   mechanical: "var(--ss-kind-mechanical)",
@@ -33,6 +34,19 @@ export const KIND_COLOR: Record<PortKind, string> = {
   thermal: "var(--ss-kind-thermal)",
   fluid: "var(--ss-kind-fluid)",
   power: "var(--ss-kind-electrical)",
+};
+
+/** A wire's line by its kind, so that colour is never the only cue (UI
+ *  4.42): electrical thin and solid, mechanical (a shaft) thicker and solid,
+ *  thermal dotted, fluid dashed; signal links are dashed too, and drawn only
+ *  in the Data Bus overlay. SVG presentation values. */
+export const KIND_LINE: Record<PortKind, { strokeWidth: number; strokeDasharray?: string; strokeLinecap?: "round" }> = {
+  electrical: { strokeWidth: 1.6 },
+  power: { strokeWidth: 1.6 },
+  mechanical: { strokeWidth: 2.6 },
+  thermal: { strokeWidth: 2, strokeDasharray: "1 4", strokeLinecap: "round" },
+  fluid: { strokeWidth: 2, strokeDasharray: "7 3" },
+  signal: { strokeWidth: 1.4, strokeDasharray: "5 4" },
 };
 
 // The one "headline" signal shown as a live chip on a node during/after a run.

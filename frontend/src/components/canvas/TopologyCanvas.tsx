@@ -51,7 +51,7 @@ import { useUIStore } from "../../store/uiStore";
 import { useDismiss } from "../useDismiss";
 import { dropFmuFile } from "../../fmu";
 import type { PortKind } from "../../types";
-import { ElementNode, KIND_COLOR, type ElementFlowNode } from "./ElementNode";
+import { ElementNode, KIND_COLOR, KIND_LINE, type ElementFlowNode } from "./ElementNode";
 import { EnergyBars } from "./EnergyOverlay";
 import { useReportsStore } from "../../store/reportsStore";
 import { useStaleness } from "../panels/StaleBanner";
@@ -468,7 +468,12 @@ function TopologyCanvasInner() {
         target: c.targetElementId,
         targetHandle: c.targetPortId,
         type: "smoothstep",
-        style: { stroke: KIND_COLOR[kind] },
+        // its kind's colour and line; a selected wire a pixel thicker
+        style: {
+          stroke: KIND_COLOR[kind],
+          ...KIND_LINE[kind],
+          ...(selectedEdges.has(c.id) ? { strokeWidth: KIND_LINE[kind].strokeWidth + 1 } : {}),
+        },
         selected: selectedEdges.has(c.id),
         // a wire added since the run shown in Results (UX-41)
         ...(staleWires.has(c.id)
