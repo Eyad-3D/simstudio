@@ -402,6 +402,17 @@ impl CellsConfig {
     pub fn any_ch(&self) -> bool {
         self.i_ch || self.i_ch_peak || self.v_max
     }
+
+    /// Its discharge limit can end during a run: only the peak current is
+    /// set, and past the peak's duration there is none (as today's).
+    pub fn dis_lapses(&self) -> bool {
+        self.i_dis_peak && !self.i_dis && !self.v_min
+    }
+
+    /// Its charge limit can end during a run ([`Self::dis_lapses`]).
+    pub fn ch_lapses(&self) -> bool {
+        self.i_ch_peak && !self.i_ch && !self.v_max
+    }
 }
 
 /// The parameters of a pack built from cells: the cell's (today's clamps
@@ -721,17 +732,24 @@ fn cells_part(
                 ch_d = min(ch_d, max(zero_a(), (n("cell_max_voltage_V") - v_src) * n("np") / r_e));
             }
         }
+        // (no limit, or the peak's only for a pulse past its duration: the
+        // band lowers the maximum-power point instead, and no charge power
+        // is given, as today's; looked at before the band's factor, which
+        // would make the "none" look like a limit)
+        let none = |i: &Expr| noev(ge(i.clone(), c(0.5 * BIG) * ua.clone()));
+        let ch_none = none(&ch_d);
         if band {
-            dis_d = if cc.any_dis() { dis_d * n("k_dis") } else { i_mpp.clone() * n("k_dis") };
+            dis_d = if cc.dis_lapses() {
+                ite(none(&dis_d), i_mpp.clone(), dis_d.clone()) * n("k_dis")
+            } else if cc.any_dis() {
+                dis_d * n("k_dis")
+            } else {
+                i_mpp.clone() * n("k_dis")
+            };
             ch_d = ch_d * n("k_ch");
         }
         let i_dis = min(dis_d, i_mpp);
-        // (none set, or the peak's only past its duration: 0, as today's)
-        let i_ch = if cc.any_ch() {
-            ite(noev(lt(ch_d.clone(), c(0.5 * BIG) * ua.clone())), ch_d, zero_a())
-        } else {
-            zero_a()
-        };
+        let i_ch = if cc.any_ch() { ite(ch_none, zero_a(), ch_d) } else { zero_a() };
         let k = d as u32;
         eqs.push(eq(
             n(&format!("sig_p_dis_{k}s")),
@@ -990,6 +1008,8 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
     let lim = cfg.limits.unwrap_or_default();
     let big_a = || c(BIG) * n("unit_A");
     uc.of("A");
+    // a current limit that is none (BIG)
+    let none = |i: &Expr| noev(ge(i.clone(), c(0.5 * BIG) * n("unit_A")));
     let (mut dis, mut ch, any_dis, any_ch, band) = match cells {
         None => {
             let mut dis = if lim.i_dis { n("max_discharge_current_A") } else { big_a() };
@@ -1018,19 +1038,40 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         let free_ch = c(2.0) * n("max_charge_power_kW")
             / (n("a_volt")
                 + sqrt(n("a_volt") * n("a_volt") + c(4.0) * n("r0") * n("max_charge_power_kW")));
-        dis = if any_dis { dis * k_dis } else { n("i_mpp") * k_dis };
-        ch = if any_ch { ch * k_ch } else { free_ch * k_ch };
+        // (built from cells with only a peak current set: past its duration
+        // there is no limit, and the band lowers what the pack would give or
+        // take without one, as with none set)
+        dis = match cells {
+            Some(cc) if cc.dis_lapses() => ite(none(&dis), n("i_mpp"), dis.clone()) * k_dis,
+            _ if any_dis => dis * k_dis,
+            _ => n("i_mpp") * k_dis,
+        };
+        ch = match cells {
+            Some(cc) if cc.ch_lapses() => ite(none(&ch), free_ch, ch.clone()) * k_ch,
+            _ if any_ch => ch * k_ch,
+            _ => free_ch * k_ch,
+        };
     }
     eqs.push(eq(n("i_dis_lim"), dis, "the discharge current limit"));
     eqs.push(eq(n("i_ch_lim"), ch, "the charge current limit"));
+    // (0 without one: none set, or a peak's that has ended with no band)
+    let shown = |lim: &str, any: bool, lapses: bool| {
+        if lapses && !band {
+            ite(none(&n(lim)), c(0.0) * n("unit_A"), n(lim))
+        } else if any || band {
+            n(lim)
+        } else {
+            c(0.0) * n("unit_A")
+        }
+    };
     eqs.push(eq(
         n("sig_i_dis_limit"),
-        if any_dis || band { n("i_dis_lim") } else { c(0.0) * n("unit_A") },
+        shown("i_dis_lim", any_dis, cells.is_some_and(|cc| cc.dis_lapses())),
         "the discharge current limit (0 without one)",
     ));
     eqs.push(eq(
         n("sig_i_ch_limit"),
-        if any_ch || band { n("i_ch_lim") } else { c(0.0) * n("unit_A") },
+        shown("i_ch_lim", any_ch, cells.is_some_and(|cc| cc.ch_lapses())),
         "the charge current limit (0 without one)",
     ));
     // the SOC limits: at most the current that would take the charge left
