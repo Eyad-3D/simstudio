@@ -490,7 +490,7 @@
             "Pack values",
             "Cells"
           ],
-          "description": "Pack values: you give the pack's capacity, open-circuit voltage and resistance. Cells: LightSim builds it from a cell datasheet and a layout (series × parallel), with resistance that rises in the cold, at low charge and in long pulses. Cells does not run in this version yet (Not run [NEW-CELLS]): use Pack values.",
+          "description": "Pack values: you give the pack's capacity, open-circuit voltage and resistance. Cells: LightSim builds it from a cell datasheet and a layout (series × parallel), with resistance that rises in the cold, at low charge and in long pulses.",
           "typical": "Pack values for consumption studies with a known pack · Cells to size a pack from cells, or for launch, cold and Formula Student accumulator studies.",
           "whereToFind": "Your data: a pack datasheet (Pack values) or a cell datasheet and the pack layout (Cells)."
         },

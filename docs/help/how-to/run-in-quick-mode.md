@@ -81,7 +81,6 @@ gives a code and ends *Set the case's mode to full to run it*:
 | `QUICK-BALANCE` | a hybrid's charge-balanced case (set *Charge balance* off to run it once) |
 | `QUICK-END` | the case ends at a *Distance* or after a number of *Laps*: quick mode runs the cycle's whole duration |
 | `QUICK-SAMPLED` | the model has a Script, FMU or Traction Control part, which fast mode does not run, or a PID or Lookup block with a *Sample Time* longer than a full run's solver step (10 ms), whose output a full run holds between samples |
-| `QUICK-CELLS` | a battery built from cells |
 | `QUICK-LIMITS` | a value outside its parameter's limits (a study's point can hold one) |
 | `QUICK-MISSING` | the new engine is not installed |
 | `QUICK-BUILD` | the model could not be built, or a text component's file could not be read |

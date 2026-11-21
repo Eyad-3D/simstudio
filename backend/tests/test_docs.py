@@ -175,9 +175,9 @@ def _fact_id(fact: dict) -> str:
 
 
 # the features the new engine does not run yet: a fact read from such a run
-# (a lap or a Formula Student event, a battery built from cells) runs
-# today's engine, the oracle for the port
-NOT_PORTED = ("NEW-LAP", "NEW-FS-EVENT", "NEW-CELLS")
+# (a lap or a Formula Student event) runs today's engine, the oracle for the
+# port
+NOT_PORTED = ("NEW-LAP", "NEW-FS-EVENT")
 
 
 def _not_ported(fact: dict) -> str | None:
@@ -919,7 +919,7 @@ def test_the_quick_mode_pages_say_what_it_gives_and_every_code_it_refuses_with()
 
     page, limits = _text("how-to/run-in-quick-mode.md"), _text("docs/KNOWN-LIMITS.md")
     codes = [c for c in new_engine.CODES if c.startswith("QUICK-")]
-    assert len(codes) == 12
+    assert len(codes) == 11
     for code in codes:
         assert f"`{code}`" in page, code
         assert f"`{code}`" in limits, code

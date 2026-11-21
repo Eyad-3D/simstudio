@@ -1,11 +1,11 @@
 // MOD-48: typing a tyre code fills in the wheel; MOD-08: the battery's
-// Defined By lists Cells, which this version does not run (NEW-CELLS), with
-// the words for it and not to be picked (the Properties panel).
+// Defined By switch shows the fields of the mode chosen (the Properties
+// panel).
 import { expect, test } from "@playwright/test";
 import { openApp, selectElement } from "./app";
 import { importProject } from "./ui-helpers";
 
-test("MOD-48 and MOD-08: a tyre code fills the wheel, Cells is listed as not in this version yet", async ({ page }) => {
+test("MOD-48 and MOD-08: a tyre code fills the wheel, Cells shows the cell fields", async ({ page }) => {
   const n = Date.now() % 100000;
   await openApp(page);
   const example = await (await page.request.get("/api/examples/bev-car")).json();
@@ -20,7 +20,7 @@ test("MOD-48 and MOD-08: a tyre code fills the wheel, Cells is listed as not in 
 
   await selectElement(page, "HV Battery Pack");
   await expect(page.getByRole("spinbutton", { name: "Cells in Series (s)" })).toHaveCount(0);
-  const cells = page.getByRole("combobox", { name: "Defined By" }).locator("option", { hasText: "Cells" });
-  await expect(cells).toHaveText("Cells (not in this version yet)");
-  await expect(cells).toBeDisabled();
+  await page.getByRole("combobox", { name: "Defined By" }).selectOption("Cells");
+  await expect(page.getByRole("spinbutton", { name: "Cells in Series (s)" })).toHaveValue("96");
+  await expect(page.getByRole("spinbutton", { name: "Series Resistance R0" })).toHaveCount(0);
 });

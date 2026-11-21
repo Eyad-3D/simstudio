@@ -106,6 +106,8 @@ def item_project(item: dict, scratch: Path, build_fmu: bool = True) -> tuple[dic
         how["hide_module"] = True
     elif iid in CHECKED:  # (the META line's battery checks)
         _element(project, "el-battery").setdefault("parameterOverrides", {}).update(CHECKED[iid])
+    if iid in CELLS:  # (a battery built from cells; a -single item's too)
+        _element(project, "el-battery").setdefault("parameterOverrides", {}).update(CELLS[iid])
     return project, case_id, how
 
 
@@ -116,6 +118,26 @@ CHECKED = {
                                   "power_limit_enforced": False},
     "bev-car/case-city-checked-w0": {"output_power_limit_kW": 23.6, "power_limit_window_s": 0.0,
                                      "power_limit_enforced": False},
+}
+
+
+# the items with a battery built from cells (added 21 November with the port:
+# acceptance.toml's changes)
+_CELLS = {"pack_model": "Cells"}
+CELLS = {
+    "cells/bev-wltc": _CELLS,
+    "cells/bev-wltc-winter": _CELLS,
+    "cells/bev-wltc-weak": {**_CELLS, "weak_cell_capacity_pct": 90, "weak_cell_resistance_pct": 150,
+                            "soc_derate_band_pct": 10, "rc_resistance_ohm": 0.02,
+                            "rc_time_constant_s": 30, "initial_soc_pct": 22, "min_soc_pct": 10},
+    "cells/bev-wltc-small": {**_CELLS, "parallel_cells": 10},
+    "cells/hybrid-mixed-single": {**_CELLS, "series_cells": 84, "parallel_cells": 1,
+                                  "cell_max_discharge_A": 100, "cell_peak_discharge_A": 200,
+                                  "cell_max_charge_A": 60, "cell_peak_charge_A": 120,
+                                  "initial_soc_pct": 55},
+    "cells/fs-accel": {**_CELLS, "series_cells": 140, "parallel_cells": 3, "cell_capacity_Ah": 4.5,
+                       "cell_max_discharge_A": 40, "cell_peak_discharge_A": 60,
+                       "cell_peak_duration_s": 2, "initial_soc_pct": 100},
 }
 
 

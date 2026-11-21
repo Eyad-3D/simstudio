@@ -260,6 +260,28 @@ pub fn table_sites() -> Vec<TableSite> {
             defs.push(("battery.generic", battery::battery(&cfg)));
         }
     }
+    // built from cells: the default cells, and with a weak element, a
+    // derating band, an RC pair and only peak currents
+    let cells = battery::CellsConfig::default();
+    defs.push((
+        "battery.generic",
+        battery::battery(&battery::BatteryConfig {
+            ocv: cells.pack_ocv(),
+            cells: Some(cells.clone()),
+            ..Default::default()
+        }),
+    ));
+    let odd = battery::CellsConfig { weak: true, i_dis: false, i_ch: false, ..cells.clone() };
+    defs.push((
+        "battery.generic",
+        battery::battery(&battery::BatteryConfig {
+            ocv: odd.pack_ocv(),
+            rc: true,
+            cells: Some(odd),
+            cells_band: true,
+            ..Default::default()
+        }),
+    ));
     let p = &catalog::param("signal.lookup", "table_2d").expect("table_2d")["default"];
     let t2 = crate::table::Table2::from_json(p, Default::default(), Default::default());
     let d2 = signals::LookupConfig::D2(t2.expect("the default 2D table"));

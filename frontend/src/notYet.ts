@@ -26,10 +26,9 @@ export function notYet(what: string) {
 
 /** Choices of a list parameter that do not run in this version, by
  *  parameter key: shown with the words, and not offered (a project that
- *  has one keeps it, and its run says why it is refused). */
-export const NOT_YET_OPTIONS: Record<string, string[]> = {
-  pack_model: ["Cells"], // NEW-CELLS
-};
+ *  has one keeps it, and its run says why it is refused). None now: a
+ *  Battery's Defined By: Cells runs since the cells were ported. */
+export const NOT_YET_OPTIONS: Record<string, string[]> = {};
 
 /** An option's label: its own, with "not in this version yet" when it is one. */
 export function optionLabel(key: string, option: string): { label: string; notYet: boolean } {

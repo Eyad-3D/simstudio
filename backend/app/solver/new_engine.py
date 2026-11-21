@@ -16,9 +16,9 @@ its solver options and the live edits it took (``replay`` makes them
 again). A case the new engine does not run, or that it refuses or stops,
 fails with a stable reason code in brackets (``[NEW-LAP]``; CODES lists
 them, and benchmarks/back_to_back counts them): nothing runs on today's
-engine instead. Three features are not ported yet and are refused so: lap
-cases (NEW-LAP), Formula Student events (NEW-FS-EVENT) and a battery built
-from cells (NEW-CELLS). A hybrid's
+engine instead. Two features are not ported yet and are refused so: lap
+cases (NEW-LAP) and Formula Student events (NEW-FS-EVENT); a battery built
+from cells runs since its port. A hybrid's
 charge-balanced case runs as today's does (balance.py): run after run on the new engine, each from the charge
 the last ended with. ``LIGHTSIM_ENGINE=today`` runs today's engine instead, for
 developers and the both-engines comparison (benchmarks/back_to_back); a
@@ -58,7 +58,6 @@ from .. import cycles, script_trust
 from ..library import unit_groups
 from ..schemas import Channel, LiveEdit, Project, SimMessage, SimResult, SummaryValue
 from . import balance
-from .battery import CELLS
 from .domains import FMU_COMPONENT, ModelInitError, RunContext
 from .energy import BookFlow, energy_flows
 from .evidence import Evidence
@@ -90,7 +89,6 @@ CODES = {
     "NEW-CASE-KIND": "a case kind the new engine's path does not run",
     "NEW-LAP": "a lap case",
     "NEW-FS-EVENT": "a Formula Student event case",
-    "NEW-CELLS": "a battery built from cells",
     "NEW-LIMITS": "a value outside its parameter's limits (a study's point can hold one)",
     "NEW-MISSING": "the module lightsim_engine is not installed",
     "NEW-BUILD": "today's model builder refused the model",
@@ -103,7 +101,6 @@ CODES = {
     "QUICK-KIND": "quick mode: a case that drives no drive cycle",
     "QUICK-SAMPLED": "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control, a "
                      "PID, a Lookup with a Sample Time longer than today's solver step)",
-    "QUICK-CELLS": "quick mode: a battery built from cells",
     "QUICK-LIMITS": "quick mode: a value outside its parameter's limits",
     "QUICK-MISSING": "quick mode: the module lightsim_engine is not installed",
     "QUICK-BALANCE": "quick mode: a hybrid's charge-balanced case",
@@ -311,11 +308,6 @@ def quick_unsupported(project: Project, case_id: str) -> Optional[Refusal]:
                                         f"Control, a PID: {sampled.label!r})")
     if (held := held_block(project, case)) is not None:
         return Refusal("QUICK-SAMPLED", f"it runs no sampled part, and {held}")
-    overrides = getattr(case, "parameterOverrides", None) or {}
-    if any(el.componentDefId == "battery.generic"
-           and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
-           for el in elements):
-        return Refusal("QUICK-CELLS", "it does not run a battery built from cells")
     from ..validation import value_problems  # (validation imports this package)
     if problems := value_problems(project, case_id):
         return Refusal("QUICK-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse "
@@ -514,13 +506,6 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
         return Refusal("NEW-CASE-KIND", f"{case.kind} cases do not run in this version of LightSim yet")
     if case.fsEvent:
         return Refusal("NEW-FS-EVENT", "Formula Student event cases do not run in this version of LightSim yet")
-    elements = [el for s in project.systems for el in s.elements]
-    overrides = getattr(case, "parameterOverrides", None) or {}
-    if any(el.componentDefId == "battery.generic"
-           and {**el.parameterOverrides, **overrides.get(el.id, {})}.get("pack_model") == CELLS
-           for el in elements):
-        return Refusal("NEW-CELLS", "a battery built from cells (Defined By: Cells) does not run "
-                                    "in this version of LightSim yet; set its Defined By to 'Pack values' to run the case")
     from ..validation import value_problems  # (validation imports this package)
     if problems := value_problems(project, case_id):  # (a study's point: Data Checks never saw it)
         return Refusal("NEW-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse a "
@@ -1057,7 +1042,8 @@ class _Plan:
         self.supply = {el: {v: var(el, v) for v in vs} for el, vs in (
             *((m, ("t_limited", "e_regen_lost")) for m in ctx.motors),
             *((b, ("soc", "i_mpp", "i_dis_lim", "i_ch_lim", "i_floor", "i_full", "p_absorb",
-                   "t_held")) for b in ctx.batteries),
+                   "t_held", "p_deliver", "sig_power", "soc_w", "i_dis_cur", "i_ch_cur"))
+              for b in ctx.batteries),
             *((c, ("served", "p_dem")) for c, cd in model.cdef_of.items() if cd.id in CONSUMER_TYPES))}
         # what each table rule of today's reads (BRANCH_READS' uses), on the
         # trace: its time past the data counted there (_branch_share)
@@ -1159,6 +1145,20 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
                 f"Battery '{label}' reached minimum SOC ({b.min_soc * 100:.0f} %) at "
                 f"t = {t_low:.0f} s — no further discharge; the motors get only what is "
                 f"left.")))
+        # a weak group that empties first stops the pack above its minimum
+        # SOC (the same current flows through every group): today's words
+        w_name = plan.supply[b.el_id].get("soc_w")
+        if not b.depleted_flagged and b.cells is not None and b.cells.weak and (
+                t_w := _first(run, w_name, lambda x: x <= b.min_soc + 1e-8)) is not None:
+            b.depleted_flagged = True
+            tr_w = run.trace
+            k_w = min(bisect.bisect_left(tr_w["times"], t_w), len(tr_w["times"]) - 1)
+            soc_w_then = float(tr_w[plan.supply[b.el_id]["soc"]][k_w])
+            messages.append(SimMessage(level="warning", text=(
+                f"Battery '{label}': its weakest group reached minimum SOC "
+                f"({b.min_soc * 100:.0f} %) at t = {t_w:.0f} s, with the pack at "
+                f"{soc_w_then * 100:.0f} % — no further discharge, as the same current flows "
+                f"through every group; the motors get only what is left.")))
         if b.check is not None:
             _terminal(b.check, run, b.el_id, last(b.el_id, "t_held"))
             if b.check.enforced and b.check.avg_peak_w > b.p_cap_w:
@@ -1204,6 +1204,8 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     _over_speed(ctx, plan, run, messages)
     messages += [SimMessage(level="warning", text=t)
                  for t in _supply(ctx, plan, run) + list(script_warnings)]
+    bms_s, bms_notes = _bms(ctx, plan, run)
+    messages += [SimMessage(level="info", text=t) for t in bms_notes]
     # today's own checks of the values the run used, in its words: what the
     # RunContext said while it was built (a Wheelbase of 0 with a CG
     # height, a CG height on one axle, wheels off the road at the start, a
@@ -1280,6 +1282,7 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
             # (the value its passed flag is judged on, not the engine's figure)
             s.label, s.value, s.limit, s.passed = row_label, v, lim, ok
         messages += [SimMessage(level="warning", text=t) for t in problems]
+    _bms_rows(ctx, summary, bms_s)
     edge_rows: set[str] = {"Energy balance residual"}
     edges = core.outside_rows(ev, solved)
     edge_rows |= {r.label for r in edges}
@@ -1626,6 +1629,20 @@ BRANCH_READS = {
     ("battery.generic", "ocv_table"): Reads(
         "at its state of charge, held to 0-100 %", ((("soc_c",), SAME),),
         left_out=_on_no_bus("battery")),
+    # a battery built from cells: today reads its cell's OCV (× Ns) at the
+    # pack's state of charge, held to 0-100 % (the weak element's read at its
+    # own is unbooked), and books no read of the cell's resistance factors
+    # (it holds them past their data, as VECTO does; an Error axis stops it)
+    ("battery.generic", "cell_ocv_table"): Reads(
+        "at the pack's state of charge, held to 0-100 %",
+        ((("soc_c", "soc_wc"), lambda v, top: v["soc_c"]),), left_out=_on_no_bus("battery"),
+        uses=("soc_c",)),
+    ("battery.generic", "cell_resistance_factor"): Reads(
+        "nowhere: it books no read of a cell's resistance factors",
+        ((("time - t0", "0 * unit_s", "2 * unit_s", "10 * unit_s", "30 * unit_s"), NEVER),
+         (("soc_c",), NEVER))),
+    ("battery.generic", "cell_temperature_factor"): Reads(
+        "nowhere: it books no read of a cell's resistance factors", ((("T_cell",), NEVER),)),
     ("motor.emotor", "full_load_torque"): Reads(
         "only while the motor is powered",
         ((("v",), lambda v, top: v["v"] if _motor_powered(v) else None),
@@ -1916,6 +1933,125 @@ def _runtime(ctx, plan: _Plan, run, t0: float) -> None:
         which = [side for side, name in lifted if float(tr[name][k]) <= LIFT_N]
         t = _at_event(axle_events, times[k - 1], times[k])
     ctx.wheels_lift("Both" if len(which) > 1 else which[0], t)
+
+
+# a battery's own summary rows, in today's order: what its battery
+# management's rows follow (core.py's battery rows)
+_BATTERY_ROWS = ("final_soc_pct", "energy_delivered_kwh", "energy_recuperated_kwh",
+                 "internal_losses_kwh", "layout_cells", "charge_capacity_ah", "pack_mass_kg",
+                 "lowest_cell_voltage_v", "highest_cell_voltage_v")
+_BIG_A = 1e29  # a current limit at or above this is the engine's "none" (BIG, 1e30 A)
+
+
+def _bms(ctx, plan: _Plan, run) -> tuple[dict, list[str]]:
+    """A battery's battery-management limits (built from cells, or Pack
+    values with a current or voltage limit or a derating band), from the
+    run's trace: the time each held it (today's summary rows "time at
+    {what} limit") and today's note, once per limit, that it held the
+    motors back (RunContext.limit_message). Today's rule (battery_window,
+    CellPack.currents): the limit that sets the current limit (the SOC
+    derating band where it lowers it, else the current limit where it is
+    the lower, else the cell's or pack's voltage), unless the
+    maximum-power point, the minimum SOC or full, the Output Power Limit
+    or the Max Charge Power is as tight; counted while the battery gives
+    (takes) at least 99.9 % of its window. Returns ({battery: {what:
+    seconds}}, the notes)."""
+    # ponytail: counted per traced stretch (0.1 s on a cycle, 10 ms on a
+    # test) where today's engine counts its 10 ms steps: a stretch at a
+    # limit shorter than the trace's step can be missed or counted whole
+    tr = _Listed(run.trace)
+    times = tr.get("times", [])
+    held: dict = {}
+    notes: dict = {}
+    if len(times) < 2:
+        return held, []
+    need = ("soc", "i_dis_lim", "i_ch_lim", "i_mpp", "i_floor", "i_full", "p_deliver",
+            "p_absorb", "sig_power")
+    for b in ctx.batteries.values():
+        cp = b.cells
+        names = plan.supply.get(b.el_id, {})
+        if cp is None or any(names.get(v) is None for v in need):
+            continue
+        col = {v: tr[n] for v, n in names.items() if n is not None}
+        label = ctx.model.elements[b.el_id].label
+        volt = "cell voltage" if cp.cells else "pack voltage"
+        secs = held.setdefault(b.el_id, {})
+
+        def band(k: int, discharge: bool) -> float:
+            if cp.band <= 0:
+                return 1.0
+            soc = float(col["soc"][k])
+            if not discharge:
+                return max(0.0, min(1.0, (1.0 - soc) / cp.band))
+            if cp.weak and "soc_w" in col:
+                soc = min(soc, float(col["soc_w"][k]))
+            return max(0.0, min(1.0, (soc - b.min_soc) / cp.band))
+
+        def current(k: int, discharge: bool) -> float:
+            key = "i_dis_cur" if discharge else "i_ch_cur"
+            if cp.cells:
+                return float(col[key][k]) if key in col else math.inf
+            amps = cp.i_dis if discharge else cp.i_ch
+            return amps if amps > 0 else math.inf
+
+        def why(k: int, discharge: bool) -> Optional[str]:
+            lim = float(col["i_dis_lim" if discharge else "i_ch_lim"][k])
+            if discharge:
+                tighter = lim >= min(float(col["i_mpp"][k]), float(col["i_floor"][k])) or (
+                    float(col["p_deliver"][k]) >= b.p_cap_w * (1.0 - 1e-12))
+            else:
+                tighter = lim >= float(col["i_full"][k]) or (
+                    float(col["p_absorb"][k]) >= b.max_charge_w * (1.0 - 1e-12))
+            if tighter or lim >= _BIG_A:
+                return None
+            if band(k, discharge) < 1.0:
+                return "SOC derating"
+            cur = current(k, discharge)
+            return "current" if cur < _BIG_A and lim >= cur * (1.0 - 1e-12) else volt
+
+        for k in range(len(times) - 1):
+            p = float(col["sig_power"][k])
+            if p > 0 and p >= float(col["p_deliver"][k]) * (1.0 - 1e-3):
+                which, bound = "discharge", why(k, True)
+            elif p < 0 and -p >= float(col["p_absorb"][k]) * (1.0 - 1e-3):
+                which, bound = "charge", why(k, False)
+            else:
+                continue
+            if bound is None:
+                continue
+            what = f"{which} {bound}"
+            secs[what] = secs.get(what, 0.0) + float(times[k + 1]) - float(times[k])
+            amps = float(col["i_dis_lim" if which == "discharge" else "i_ch_lim"][k])
+            notes.setdefault(f"{b.el_id}:{what}", (
+                f"Battery '{label}' held at its {which} limit from t = {float(times[k]):.2f} s "
+                f"({amps:,.0f} A, set by its {bound} limit) — the motors "
+                f"{'get less torque' if which == 'discharge' else 'regenerate less'}, as a "
+                f"battery management system would. The run summary says for how long."))
+    return held, list(notes.values())
+
+
+def _bms_rows(ctx, summary: list, held: dict) -> None:
+    """Today's rows of a battery's battery management, after its own rows:
+    the time at each limit (_bms), and a pack built from cells' lowest and
+    highest cell voltage with its limits (the engine's figures)."""
+    from .maps import slug
+    for b in ctx.batteries.values():
+        cp = b.cells
+        if cp is None:
+            continue
+        label = ctx.model.elements[b.el_id].label
+        if cp.cells:
+            for s in summary:
+                if s.key == f"{b.el_id}.lowest_cell_voltage_v":
+                    s.limit = cp.v_min or None
+                elif s.key == f"{b.el_id}.highest_cell_voltage_v":
+                    s.limit = cp.v_max or None
+        own = [i for i, s in enumerate(summary)
+               if s.key in {f"{b.el_id}.{r}" for r in _BATTERY_ROWS}]
+        at = own[-1] + 1 if own else len(summary)
+        summary[at:at] = [SummaryValue(key=f"{b.el_id}.time_at_{slug(what)}_limit_s",
+                                       label=f"{label} — time at {what} limit", value=secs, unit="s")
+                          for what, secs in sorted(held.get(b.el_id, {}).items())]
 
 
 def _supply(ctx, plan: _Plan, run) -> list[str]:
