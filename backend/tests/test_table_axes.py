@@ -244,6 +244,17 @@ def test_a_map_block_of_three_inputs_and_two_outputs_runs_as_its_map_says(mode):
     assert booked == pytest.approx(above, abs=3 * (times[1] - times[0]))
 
 
+def test_a_map_blocks_outside_rules_are_checked_one_per_input():
+    said = [c.text for c in validation.validate_project(_map_bev(["clamp", "error", "linear"]))
+            if "Motor Map" in c.text]
+    assert not said, said  # (three inputs, three rules: nothing to say, and the app runs it)
+    (short,) = [c for c in validation.validate_project(_map_bev(["clamp", "linear"]))
+                if "Motor Map" in c.text]
+    assert short.level == "error"
+    assert short.text == ("'Motor Map' has 2 outside-the-data settings for its 3 inputs (one per "
+                          "input) — the run ignores them.")
+
+
 @pytest.mark.parametrize("mode", ["full", "quick"])
 def test_a_map_input_set_to_error_stops_the_run_naming_the_map_and_the_input(mode):
     result = simulate(_map_bev(["error", "clamp", "clamp"], mode), WLTC)

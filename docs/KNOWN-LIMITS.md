@@ -35,13 +35,6 @@ comparison of the two engines (`LIGHTSIM_ENGINE=today`, see the
 of the older engine are not ported to the new one yet. They do not run in
 this version, and the reason code names each:
 
-The buttons for them (*FS events*, *Calibrate lap*, the endurance energy
-study's *Run*) are shown dimmed and cannot be pressed, and say so on hover
-and focus; a Battery's *Defined By: Cells* is listed with *(not in this
-version yet)* and cannot be picked (a project that already has it keeps it,
-and its runs are refused with the code). A *Lap* case can still be set up:
-its runs are refused, and the *Cases* panel says so under its kind.
-
 - **Lap cases** (`NEW-LAP`). A case of kind *Lap*: the Race Track's
   quasi-steady-state lap (Autocross, Skidpad, a custom track), the
   *Endurance energy* case and study that drive laps, and **Calibrate lap**.
@@ -59,6 +52,12 @@ its runs are refused, and the *Cases* panel says so under its kind.
   By: Cells*. Set it to *Pack values* (and give the pack's own capacity,
   open-circuit voltage and resistance) to run the case.
 
+The buttons for them (*FS events*, *Calibrate lap*, the endurance energy
+study's *Run*) are shown dimmed and cannot be pressed, and say so on hover
+and focus; a Battery's *Defined By: Cells* is listed with *(not in this
+version yet)* and cannot be picked (a project that already has it keeps it,
+and its runs are refused with the code). A *Lap* case can still be set up:
+its runs are refused, and the *Cases* panel says so under its kind.
 
 A Map port's unit that LightSim has no signal unit for (an energy, a
 pressure, or a unit you type) is shown only in the Map block's editor, its
