@@ -31,8 +31,6 @@ output bus's motors and consumers may draw from the battery's window.
 
 With no battery on its output bus, it holds its output at *Output Voltage*
 (V), and gives whatever power that bus takes. It draws P_in = P_out ÷ η.
-If the output bus feeds power back (P_out < 0, for example motors
-recuperating), the power flows back to the input side: P_in = η·P_out.
 
 In this mode no bus manager watches either side. The motors on its output
 bus are not held to any supply window (the run warns: "Buses fed by a

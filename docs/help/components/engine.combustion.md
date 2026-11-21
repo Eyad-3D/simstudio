@@ -68,7 +68,9 @@ is not fired that is the power its drag takes. It books ½·J·ω² as stored.
   data: it must cover the full-load curve's speeds and the torques the
   engine fires at. It is read only while the engine fires.
 - *Drag Torque (unfired)* holds its end value by default (*Clamp*). Set to
-  *Error*, it stops a run where the engine is fired with throttle past the
-  table's speeds, too.
+  *Error*, it stops a run wherever the engine turns faster than the table's
+  last speed, fired or not: the engine reads the table at every moment, as
+  the lower bound of its fired torque too. Below the first speed it holds
+  that speed's value down to 0.
 - The engine has no speed governor above idle: declutched with any
   throttle, it runs up to its rev limiter.

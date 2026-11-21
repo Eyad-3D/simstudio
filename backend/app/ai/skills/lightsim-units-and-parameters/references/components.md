@@ -61,7 +61,7 @@ Parameters:
 
 Category: Battery. Domain: electrical.
 
-Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power. The Output Power Limit caps the power the terminals give (volts × amps), less the Power Limit Margin: the motors get what is left after the other loads, and recuperation is not limited. With a limit or a Voltage Class set, the run summary checks the terminal power, averaged over the Power Check Window, against the limit, and the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against the Voltage Class; 0 turns either off. With Hold Power to Limit off, the power is only checked, not held. Defined By: Cells, which builds the pack from a cell datasheet and a layout (cells in series × in parallel), does not run in this version yet (Not run [NEW-CELLS]); with Pack values, a pack current and voltage limit can be set (0 = none).
+Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power. The Output Power Limit caps the power the terminals give (volts × amps), less the Power Limit Margin: the motors get what is left after the other loads, and recuperation is not limited. With a limit or a Voltage Class set, the run summary checks the terminal power, averaged over the Power Check Window, against the limit, and the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against the Voltage Class; 0 turns either off. With Hold Power to Limit off, the power is only checked, not held. Defined By: Cells builds the pack from a cell datasheet and a layout (cells in series × in parallel), with a cell resistance that follows the pulse length, the SOC and the cells' temperature, the cells' peak and continuous current limits and voltage limits, and an optional weakest group. The outputs Lowest Cell Voltage, Highest Cell Voltage and the Discharge and Charge Power Limits (2 s, 10 s, 30 s) need Cells: a Battery with Pack values has none of them, and linking one refuses the run. With Pack values, a pack current and voltage limit can be set (0 = none).
 
 Ports:
 - `pos`: Positive Terminal (+) (electrical bidirectional, kW)
@@ -274,7 +274,7 @@ Parameters:
 
 Category: Driveline. Domain: mechanical.
 
-Single-ratio reduction gear. Output torque = input torque × ratio × efficiency (direction-aware); output speed = input speed / ratio.
+Single-ratio reduction gear: output speed = input speed ÷ ratio. The gear carries the input torque less what the input inertia takes to speed up, τ_gear = τ_in − J_in·dω_in/dt; the output passes on τ_out = ratio × η × τ_gear − J_out·dω_out/dt, with η the Efficiency while power flows from input to output and 1/Efficiency while it flows back (recuperating or coasting), so the loss is always (1 − Efficiency) × the power entering the gear.
 
 Ports:
 - `flange_in`: Flange In (mechanical bidirectional, kW)
@@ -419,13 +419,13 @@ Parameters:
 
 Category: Driver & Signals. Domain: signal.
 
-User-written Python function evaluated every solver step (≤ 10 ms), or at its Sample Time if that is longer; the step is passed in as dt. Add named signal input/output ports in the Properties panel; the step() function receives inputs and a persistent state dict and returns a dict of output values. Use for hybrid control strategies, custom recuperation logic, signal math, etc.
+User-written Python function run at the start and then every Sample Time (every 10 ms at 0); the period is passed in as dt. Add named signal input/output ports in the Properties panel; the step() function receives inputs and a persistent state dict and returns a dict of output values. Use for hybrid control strategies, custom recuperation logic, signal math, etc.
 
 Ports: none until you add signal ports to the part.
 
 Parameters:
 - `code`: Python Code, default code
-- `sample_time_s`: Sample Time (0 = solver step) [s], default 0 s; ≥ 0
+- `sample_time_s`: Sample Time (0 = 10 ms) [s], default 0 s; ≥ 0
 
 ## FMU (Model from Another Tool) (`signal.fmu`)
 
@@ -439,7 +439,7 @@ Parameters:
 - `fmu_path`: FMU File, default ``
 - `fmu_sha256`: FMU Fingerprint, default ``
 - `fmu_name`: FMU Name, default ``
-- `sample_time_s`: Communication Step (0 = solver step) [s], default 0 s; ≥ 0
+- `sample_time_s`: Communication Step (0 = 10 ms) [s], default 0 s; ≥ 0
 
 ## Monitor (`signal.monitor`)
 

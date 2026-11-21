@@ -4184,7 +4184,7 @@ against exact answers from `benchmarks/`.
 | `boundary.ground` | ground with three pins |
 | `mech.shaft`, `mech.final_drive`, `mech.gearbox`, `mech.differential`, `mech.transfer_case` | inertia, ideal gear with efficiency on the torque the teeth carry, after the inertias before them (loss in the power direction, blended within `p_dir` of no power), selected ratio (gearbox: discrete gear from the signal, shift as a rigid engagement), open differential (torque split, speed sum) |
 | `mech.clutch` | stick/slip friction with engagement signal: modes and events, no chattering |
-| `mech.brake` | friction torque against rotation, holding at standstill (stick mode) |
+| `mech.brake` | friction torque against rotation, its capacity × clamp(ω / 0.001 rad/s, −1, 1): the whole capacity against the motion above 0.001 rad/s, and within it a stiff damper that holds a shaft at rest (a smaller torque lets it creep at under 0.001 rad/s); no stick mode and no events |
 | `propulsion.wheel` | rolling radius, slip-based tyre force (today's model), rolling resistance; translational port to the body |
 | `propulsion.propeller` | torque ∝ ω² load |
 | `vehicle.body` | mass, road load (Cd·A or A/B/C), grade, load transfer (exact, no longer one step behind), downforce; translational port |

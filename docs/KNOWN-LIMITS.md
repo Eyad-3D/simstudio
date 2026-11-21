@@ -624,16 +624,16 @@ minimum or an average, for example from the CSV export, or put the
   is open, as the P2 Hybrid Car example's script does.
   Turbo lag, restart cost and warm-up are not modelled either.
   *Roadmap:* MOD-13.
-- **A gear shift takes no time.** A Gearbox changes its ratio within one
-  solver step, as a rigid engagement with no slip: the speeds jump to the
-  new ratio keeping the driveline's angular momentum and, through tyres
-  that grip, the car's, and the kinetic energy that loses is booked as the
-  gearbox's *gear shifts* loss (the P2 Hybrid Car's 104 shifts on EPA city
-  lose 12.7 kJ). Real shifts take 0.2-0.5 s, with the torque interrupted
-  or a synchroniser slipping; here the car takes the gearbox input's
-  momentum at once (about 0.3 km/h at the P2 Hybrid Car's first upshift)
-  and loses no drive while shifting. A clutch in the driveline is not
-  rigid: it slips as its torque allows, so an engine behind a closed
+- **A gear shift takes no time.** A Gearbox changes its ratio at the
+  instant its gear number crosses halfway between two listed gears, as a
+  rigid engagement with no slip: the speeds of everything the gears tie
+  rigidly together jump to the new ratio keeping their angular momentum,
+  and the kinetic energy that loses is booked as the gearbox's *gear
+  shifts* loss. The car is not part of the jump: the tyres' slip changes
+  at the shift and passes the momentum on to the car over the next
+  moments. Real shifts take 0.2-0.5 s, with the torque interrupted or a
+  synchroniser slipping; here the car loses no drive while shifting. A
+  clutch in the driveline is not rigid: it slips as its torque allows, so an engine behind a closed
   clutch keeps its speed at the shift and the clutch takes up the
   difference. *Roadmap:* ENG-04.
 - **Gear losses leave out inertia.** Each gear's loss now acts on the net
@@ -698,19 +698,12 @@ minimum or an average, for example from the CSV export, or put the
   test-mass mode (equivalent test weight, × 1.015 for a two-wheel-drive
   dynamometer): enter the test mass as the Vehicle Mass. *Roadmap:* MOD-03
   (zero-load gear drag), VAL-05 (EPA reference tests).
-- **Wheel loads shift one step late, and only between the axles.** With a
-  Vehicle *Centre of Gravity Height* and each Wheel's *Axle* set, load
-  moves between the axles by m·(a + g·sin θ)·h/L when the car accelerates,
-  brakes or stands on a slope, and a *Downforce Area* adds ½·ρ·CzA·v² split
-  by the *Front Aero Balance*. The acceleration a is the previous solver step's,
-  10 ms behind: exact while it is steady, off by its change over one step
-  while it changes (0.6-4 % where an FS car's motor reaches its power
-  limit, the whole transfer in a launch's first step). With the driven
-  front wheels spinning, the lag feeds back with a gain of μ × h/L per
-  step: at a real car's 0.2-0.4 the loads settle within a few steps, at
-  0.9 they still ring after 0.4 s, and above 1 the acceleration swings
-  from step to step and the run can warn of front wheels lifting that
-  would not. Drag is taken to act at ground height and moves no load (at
+- **Wheel loads shift only between the axles.** With a Vehicle *Centre
+  of Gravity Height* and each Wheel's *Axle* set, load moves between the
+  axles by m·(a + g·sin θ)·h/L when the car accelerates, brakes or stands
+  on a slope, and a *Downforce Area* adds ½·ρ·CzA·v² split by the *Front
+  Aero Balance*. The acceleration a is the one at the same instant: the
+  loads and the motion are solved together. Drag is taken to act at ground height and moves no load (at
   90 km/h an FS car's drag would move about 90 N, 5 % of its rear axle
   load). An axle that would carry
   less than nothing carries nothing and the run warns: the car does not

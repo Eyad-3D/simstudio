@@ -5,8 +5,10 @@ digital controller does: it reads its inputs, calls your `step()` function,
 and holds the outputs it returns until its next call.
 
 - **When it runs.** Once at the start of the run (t = 0) and then every
-  period: the *Sample Time*, or 10 ms when the *Sample Time* is 0. Each call
-  gets the time t in s and dt, the period.
+  period: the *Sample Time*, or 10 ms when the *Sample Time* is 0. Any
+  Sample Time above 0 is used as it is, one shorter than 10 ms too (a
+  Sample Time of 2 ms calls it every 2 ms). Each call gets the time t in s
+  and dt, the period.
 - **Inputs.** The values of its input ports at that moment, by port id. Its
   ports have no unit: an input arrives as a number in the unit the app shows
   for the port it comes from (a Vehicle's speed in km/h, a battery's state

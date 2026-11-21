@@ -2,7 +2,8 @@
 
 Traction Control is a digital controller: it runs at the start of the run
 and then every *Sample Time* (every 10 ms when it is 0), and holds its
-output in between. Its output is the Driver's demand, capped by a limit L
+output in between. Any Sample Time above 0 is used as it is, one shorter
+than 10 ms too. Its output is the Driver's demand, capped by a limit L
 between 0 and 1: out = min(demand, L).
 
 ### At each run

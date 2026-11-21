@@ -3,13 +3,15 @@
 The Road Profile has no state and no physics: at every moment its output,
 the road's grade in %, is read from its profile.
 
-- **Where it reads.** With *Profile Axis* set to *Distance*, at x = the
+- **Where it reads** a typed *Profile*. With *Profile Axis* set to
+  *Distance*, at x = the
   *Distance* input when it is wired, else the distance the Vehicle has
   driven, in m (a model with no Vehicle reads at 0 m, its first point).
   With *Time*, at x = the time since the run started, in s.
 - **The profile.** The points of *Profile* (grade in %, rise ÷ run × 100,
-  uphill positive), sorted by x, or, with *Grade From Cycle* chosen, that
-  cycle's grade column in their place. A pair that is not two numbers is
+  uphill positive), sorted by x. With *Grade From Cycle* chosen, the grade
+  comes from that cycle instead, as its parameter text says. A pair that is
+  not two numbers is
   skipped; a profile with no points stops the run (*its profile has no
   points*).
 - **Between points** the grade follows a straight line (linear

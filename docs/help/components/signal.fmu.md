@@ -6,6 +6,7 @@ instants, as tools that run co-simulation FMUs do.
 
 - **When it exchanges.** Once at the start of the run (t = 0) and then at
   every multiple k·h of h, the *Communication Step* (10 ms when it is 0).
+  Any step above 0 is used as it is, one shorter than 10 ms too.
 - **At each exchange** LightSim gives the FMU the inputs it read at the
   last exchange, lets it step from the last exchange's time to this one,
   and takes its outputs there.
