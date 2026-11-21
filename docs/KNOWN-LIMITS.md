@@ -31,7 +31,7 @@ that starts *Not run* and gives a reason code in brackets (for example
 `Not run [NEW-LAP]: lap cases do not run in this version of LightSim yet`).
 The older engine's code stays in the repository for developers and for the
 comparison of the two engines (`LIGHTSIM_ENGINE=today`, see the
-[README](../README.md)); the app does not run a case on it. Three features
+[README](../README.md)); the app does not run a case on it. Two features
 of the older engine are not ported to the new one yet. They do not run in
 this version, and the reason code names each:
 
@@ -48,16 +48,14 @@ this version, and the reason code names each:
   runs that ended, so after a refused run it keeps showing the last
   stored ones. A plain *Acceleration test* (a case of kind *Acceleration*
   with no event) runs.
-- **A battery built from cells** (`NEW-CELLS`). A Battery with *Defined
-  By: Cells*. Set it to *Pack values* (and give the pack's own capacity,
-  open-circuit voltage and resistance) to run the case.
+
+A battery built from cells (*Defined By: Cells*) runs, in a full run and in
+quick mode (it was refused with `NEW-CELLS` until it was ported).
 
 The buttons for them (*FS events*, *Calibrate lap*, the endurance energy
 study's *Run*) are shown dimmed and cannot be pressed, and say so on hover
-and focus; a Battery's *Defined By: Cells* is listed with *(not in this
-version yet)* and cannot be picked (a project that already has it keeps it,
-and its runs are refused with the code). A *Lap* case can still be set up:
-its runs are refused, and the *Cases* panel says so under its kind.
+and focus. A *Lap* case can still be set up: its runs are refused, and the
+*Cases* panel says so under its kind.
 
 A Map port's unit that LightSim has no signal unit for (an energy, a
 pressure, or a unit you type) is shown only in the Map block's editor, its
@@ -302,16 +300,18 @@ limits a BMS keeps (fidelity L1), with these simplifications:
 
 - The resistance comes from tables (pulse length, SOC, temperature), not an
   electrochemical model; the default tables are estimates. The pulse length
-  is the time the current has flowed one way, so the step after the current
-  reverses still uses the old pulse's resistance.
+  is the time since the current last changed direction (by more than
+  1 µA); a reversal starts a new pulse at that instant, and the peak
+  current is allowed for the *Peak Duration* of each pulse.
 - The cells are at the first Ambient's temperature: they do not warm up
   under load (MOD-09). There is no hysteresis and no second RC pair
   (MOD-51), and no ageing.
-- A cell's voltage limit is met at the start of each 10 ms step; the
-  open-circuit voltage then falls a little over the step, so a cell can end
-  it a few millivolts past its limit (at most 2 mV in the tests). The RC
-  pair's voltage counts against the limits too, shared evenly by the
-  series cells.
+- The current and voltage limits hold at every instant of the run: a cell
+  stays at its minimum or maximum voltage while it is held there (the older
+  engine met them at the start of each 10 ms step, so a cell could end a
+  step past its limit: a few millivolts, and up to about 0.36 V for one
+  step when a hybrid's power jumped). The RC pair's voltage counts against
+  the limits too, shared evenly by the series cells.
 - The weakest group stops the pack when it reaches the *Minimum SOC* (or
   100 % when charging), as the same current flows through every group; the
   pack's own SOC is then higher.
@@ -324,6 +324,13 @@ limits a BMS keeps (fidelity L1), with these simplifications:
   the limit of the pulse going on (the 2 s values at a pulse's start).
 - No pulse test has been compared with a published cell's data yet (that
   needs a licence-clear cell data set, CON-19).
+- The run summary's *time at … limit* rows are counted on the run's trace,
+  every 0.1 s on a drive cycle (every 10 ms in a test that drives none): a
+  stretch at a limit shorter than that can be missed or counted whole.
+- A pack built from cells is not shown as one in the *Energy* tab: its
+  losses (the cells', the weak element's, the interconnects' and the
+  contactors') are one *internal losses* figure, as for a pack of pack
+  values.
 
 Fuel cells have no ramp rate, and DC-DC converters have no power rating.
 
@@ -615,16 +622,16 @@ minimum or an average, for example from the CSV export, or put the
   is open, as the P2 Hybrid Car example's script does.
   Turbo lag, restart cost and warm-up are not modelled either.
   *Roadmap:* MOD-13.
-- **A gear shift takes no time.** A Gearbox changes its ratio within one
-  solver step, as a rigid engagement with no slip: the speeds jump to the
-  new ratio keeping the driveline's angular momentum and, through tyres
-  that grip, the car's, and the kinetic energy that loses is booked as the
-  gearbox's *gear shifts* loss (the P2 Hybrid Car's 104 shifts on EPA city
-  lose 12.7 kJ). Real shifts take 0.2-0.5 s, with the torque interrupted
-  or a synchroniser slipping; here the car takes the gearbox input's
-  momentum at once (about 0.3 km/h at the P2 Hybrid Car's first upshift)
-  and loses no drive while shifting. A clutch in the driveline is not
-  rigid: it slips as its torque allows, so an engine behind a closed
+- **A gear shift takes no time.** A Gearbox changes its ratio at the
+  instant its gear number crosses halfway between two listed gears, as a
+  rigid engagement with no slip: the speeds of everything the gears tie
+  rigidly together jump to the new ratio keeping their angular momentum,
+  and the kinetic energy that loses is booked as the gearbox's *gear
+  shifts* loss. The car is not part of the jump: the tyres' slip changes
+  at the shift and passes the momentum on to the car over the next
+  moments. Real shifts take 0.2-0.5 s, with the torque interrupted or a
+  synchroniser slipping; here the car loses no drive while shifting. A
+  clutch in the driveline is not rigid: it slips as its torque allows, so an engine behind a closed
   clutch keeps its speed at the shift and the clutch takes up the
   difference. *Roadmap:* ENG-04.
 - **Gear losses leave out inertia.** Each gear's loss now acts on the net
@@ -689,19 +696,12 @@ minimum or an average, for example from the CSV export, or put the
   test-mass mode (equivalent test weight, × 1.015 for a two-wheel-drive
   dynamometer): enter the test mass as the Vehicle Mass. *Roadmap:* MOD-03
   (zero-load gear drag), VAL-05 (EPA reference tests).
-- **Wheel loads shift one step late, and only between the axles.** With a
-  Vehicle *Centre of Gravity Height* and each Wheel's *Axle* set, load
-  moves between the axles by m·(a + g·sin θ)·h/L when the car accelerates,
-  brakes or stands on a slope, and a *Downforce Area* adds ½·ρ·CzA·v² split
-  by the *Front Aero Balance*. The acceleration a is the previous solver step's,
-  10 ms behind: exact while it is steady, off by its change over one step
-  while it changes (0.6-4 % where an FS car's motor reaches its power
-  limit, the whole transfer in a launch's first step). With the driven
-  front wheels spinning, the lag feeds back with a gain of μ × h/L per
-  step: at a real car's 0.2-0.4 the loads settle within a few steps, at
-  0.9 they still ring after 0.4 s, and above 1 the acceleration swings
-  from step to step and the run can warn of front wheels lifting that
-  would not. Drag is taken to act at ground height and moves no load (at
+- **Wheel loads shift only between the axles.** With a Vehicle *Centre
+  of Gravity Height* and each Wheel's *Axle* set, load moves between the
+  axles by m·(a + g·sin θ)·h/L when the car accelerates, brakes or stands
+  on a slope, and a *Downforce Area* adds ½·ρ·CzA·v² split by the *Front
+  Aero Balance*. The acceleration a is the one at the same instant: the
+  loads and the motion are solved together. Drag is taken to act at ground height and moves no load (at
   90 km/h an FS car's drag would move about 90 N, 5 % of its rear axle
   load). An axle that would carry
   less than nothing carries nothing and the run warns: the car does not
@@ -921,7 +921,7 @@ minimum or an average, for example from the CSV export, or put the
   case), `QUICK-END` (a case that ends at a Distance or a lap count),
   `QUICK-SAMPLED` (a Script, FMU or Traction Control part, or a PID or
   Lookup block with a Sample Time longer than the 10 ms solver step),
-  `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
+  `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
   `QUICK-FAILED` (fast mode's own refusal), `QUICK-TABLE-TIME` (a
   table read past its data for a time within two of its steps a stretch
   of what the run allows, too near to judge at its points),
@@ -934,7 +934,7 @@ minimum or an average, for example from the CSV export, or put the
   for it in the app, and the file is not kept inside the project (it must be
   inside the projects folder, links followed, or the run fails with
   `NEW-TEXT`). One in a
-  case the engine does not run (a lap case, a battery built from cells) fails
+  case the engine does not run (a lap case, a Formula Student event) fails
   with its code and `NEW-TEXT` rather than running the built-in part. A
   Script, FMU or Traction Control part, and a sub-system's container, have
   no text component. *Roadmap:* ENG-16.

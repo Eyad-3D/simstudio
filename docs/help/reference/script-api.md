@@ -19,7 +19,7 @@ def step(t, dt, inputs, state, params):
 | Argument | What it holds |
 |---|---|
 | `t` | The simulated time, in s |
-| `dt` | The time since the last call, in s: the solver step (0.01 s, or less when the case's *Step* is shorter), or the block's *Sample Time* when that is longer |
+| `dt` | The time between calls, in s: the block's *Sample Time*, or 0.01 s when that is 0 |
 | `inputs` | A dict of the input ports' values, by port name. An input with no source reads 0 |
 | `state` | A dict that keeps what you store in it from one call to the next; empty on the first call |
 | `params` | A dict of the block's own parameters (its code and *Sample Time*) |
@@ -43,11 +43,10 @@ removes its links. Link the ports in *Data Bus Connections*
 
 ## When it runs
 
-`step` is called at every solver step (every 10 ms, or at the case's *Step*
-when that is shorter), after the signal sources and before the physics.
-With a *Sample Time* longer than the solver step, it is called only every
-*Sample Time* and its outputs hold in between. Inputs are always the latest
-values.
+`step` is called at the start of the run (t = 0) and then every *Sample
+Time*, or every 10 ms when the *Sample Time* is 0. Any Sample Time above 0
+is used as it is, one shorter than 10 ms too. Its outputs hold between
+calls. Inputs are the values at the moment of the call.
 
 ## What a script can use
 

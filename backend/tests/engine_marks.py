@@ -4,8 +4,9 @@ place that says so (conftest.py applies it at collection).
 TODAY: tests that run today's engine (LIGHTSIM_ENGINE=today, the marker
 ``todays_engine``), each with its reason:
   (i) a feature the new engine does not run yet and refuses with its code
-      (lap cases NEW-LAP, Formula Student events NEW-FS-EVENT, a battery
-      built from cells NEW-CELLS): their tests are the oracle for the port;
+      (lap cases NEW-LAP, Formula Student events NEW-FS-EVENT): their tests
+      are the oracle for the port (a battery built from cells, ported, runs
+      its tests on the new engine);
   (ii) today's engine's own workings (its fixed-step integrator, its
       checks of it, its recorder, its records).
 XFAIL: tests the new engine fails today, each an open defect of its path
@@ -17,7 +18,6 @@ that matches no collected test of a collected file fails the run.
 
 LAP = "(i) a lap case (NEW-LAP): not ported yet, today's engine is the oracle"
 FS = "(i) a Formula Student event (NEW-FS-EVENT) or lap case (NEW-LAP): not ported yet, today's engine is the oracle"
-CELLS = "(i) a battery built from cells (NEW-CELLS): not ported yet, today's engine is the oracle"
 INTEGRATOR = ("(ii) today's engine's own integrator check (its Energy balance residual and Electrical energy "
               "balance error rows; the new engine closes its energy books instead: classes.toml "
               "today-integrator-checks)")
@@ -31,7 +31,6 @@ STORED = ("(ii) the examples' stored results are runs of today's engine (their s
 TODAY_FILES = {
     "test_lapsim.py": LAP,
     "test_fs_events.py": FS,
-    "test_battery_cells.py": CELLS,
     "test_calibrate.py": "(i) the lap calibration runs lap cases (NEW-LAP): not ported yet",
     "test_laplog.py": "(i) a logged lap runs as a lap case (NEW-LAP): not ported yet",
 }
@@ -179,6 +178,7 @@ XFAIL = {
         "NEW-FAILED (RUN-NOT-FINITE): the new engine stops at the first value that is not a number, in its own "
         "words, where today's says 'Non-finite values' naming the channel (open)"),
     "test_climate.py::test_a_live_edit_of_the_demand_table_applies": LIVE_TABLE,
+    "test_battery_cells.py::test_a_live_edit_of_the_cell_voltage_curve_applies": LIVE_TABLE,
     "test_solver.py::test_live_profile_edit_takes_effect": LIVE_TABLE,
     "test_control_rate.py::test_scripts_run_every_solver_step_with_its_dt": TICK,
     "test_control_rate.py::test_block_with_a_sample_time_runs_at_that_rate_and_holds": TICK,

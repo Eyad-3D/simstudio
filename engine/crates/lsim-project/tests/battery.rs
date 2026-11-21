@@ -204,3 +204,142 @@ fn batt_voltage_limit() {
     assert!((t_star - want).abs() < 1e-7 * want.max(1.0), "t_vmin: {t_star} vs exact {want}");
     books_close(&res, 1e-8);
 }
+
+/// A pack built from cells (the library's 96s30p of 5 Ah cells) at a
+/// constant 300 A from 50 %, the cells at 25 °C: its terminal voltage is Ns
+/// cells' open-circuit voltage less R0 × I, R0 from the cell's DC
+/// resistance × its factor at the pulse length and SOC (today's `interp2`
+/// of the table, [`Table2::eval`]) per series element ÷ Np plus the
+/// interconnects and the contactors; the pulse starts at the first look
+/// (1 ms); its discharge limit is the peak's 900 A for the pulse's first
+/// 10 s and the continuous 450 A after, the switch a time event at
+/// exactly 10.001 s; the books close.
+#[test]
+fn a_pack_built_from_cells_against_its_hand_values() {
+    use lsim_lib::blocks::battery::CellsConfig;
+    let cells = CellsConfig::default();
+    let cfg = BatteryConfig {
+        ocv: cells.pack_ocv(),
+        cells: Some(cells.clone()),
+        ..BatteryConfig::default()
+    };
+    let (lib, def) = lib_with(&cfg);
+    let temp = lsim_lib::signal::constant("K").name;
+    let i_load = 300.0;
+    let top = ComponentDef {
+        name: "Cells".into(),
+        components: vec![
+            part("bat", &def, &[("initial_soc_pct", 0.5)]),
+            part("load", "Electrical.ConstantCurrent", &[("I", i_load)]),
+            part("gnd", "Electrical.Ground", &[]),
+            part("temp", &temp, &[("k", 298.15)]),
+        ],
+        connections: vec![
+            connect("bat.pos", "load.p"),
+            connect("load.n", "bat.neg"),
+            connect("bat.neg", "gnd.p"),
+            connect("temp.y", "bat.T_cell"),
+        ],
+        ..Default::default()
+    };
+    let (_m, res) = run(&lib, &top, 30.0, 0.5, RTOL);
+    let q = 30.0 * 5.0 * 3600.0;
+    for t in [1.0, 5.0, 9.5, 15.0, 30.0] {
+        let soc = 0.5 - i_load * t / q;
+        let pulse = t - 1e-3;
+        let r_cell = 0.02 * cells.r_factor.eval(pulse, soc) * cells.t_factor.eval(298.15);
+        let r0 = 96.0 * r_cell / 30.0 + 96.0 * 0.0002 + 0.0005;
+        let v = 96.0 * cells.ocv.eval(soc) - r0 * i_load;
+        let got = at(&res, "bat.v", t);
+        assert!((got - v).abs() < 1e-6 * v, "v at {t}: {got} against {v} by hand");
+        assert!((at(&res, "bat.soc", t) - soc).abs() < 1e-9, "SOC at {t}");
+        let lim = if t < 10.0 { 900.0 } else { 450.0 };
+        assert!((at(&res, "bat.i_dis_lim", t) - lim).abs() < 1e-9, "the limit at {t}");
+    }
+    assert!((cells.t_factor.eval(298.15) - 1.0).abs() < 1e-12, "25 °C is the factor's 1");
+    let switch = ev(&res, "the peak's up to its duration");
+    assert!((switch - 10.001).abs() < 1e-9, "the peak ends at {switch}");
+    books_close(&res, 1e-8);
+}
+
+/// A pack built from cells with only peak currents set (no continuous
+/// current, no cell voltage limit), inside its derating band: for the
+/// pulse's first 10 s its limit is the peak's × the band's factor; after,
+/// there is no current limit, and the band lowers the current the pack
+/// would give without one (its maximum-power point), as today's engine
+/// does. No limit is never shown as a number: the state of power for a
+/// charge pulse longer than the peak's duration is 0, for a shorter one a
+/// power a pack can take.
+#[test]
+fn a_cells_pack_with_only_peak_currents_in_its_derating_band() {
+    use lsim_lib::blocks::battery::CellsConfig;
+    let cells = CellsConfig {
+        i_dis: false,
+        i_ch: false,
+        v_min: false,
+        v_max: false,
+        ..CellsConfig::default()
+    };
+    assert!(cells.dis_lapses() && cells.ch_lapses());
+    let cfg = BatteryConfig {
+        ocv: cells.pack_ocv(),
+        cells: Some(cells),
+        cells_band: true,
+        ..BatteryConfig::default()
+    };
+    let (lib, def) = lib_with(&cfg);
+    let temp = lsim_lib::signal::constant("K").name;
+    let bat = [
+        ("initial_soc_pct", 0.95),
+        ("min_soc_pct", 0.9),
+        ("soc_derate_band_pct", 0.2),
+        ("max_charge_power_kW", 50e3),
+    ];
+    let top = |i_load: f64| ComponentDef {
+        name: "PeakOnly".into(),
+        components: vec![
+            part("bat", &def, &bat),
+            part("load", "Electrical.ConstantCurrent", &[("I", i_load)]),
+            part("gnd", "Electrical.Ground", &[]),
+            part("temp", &temp, &[("k", 298.15)]),
+        ],
+        connections: vec![
+            connect("bat.pos", "load.p"),
+            connect("load.n", "bat.neg"),
+            connect("bat.neg", "gnd.p"),
+            connect("temp.y", "bat.T_cell"),
+        ],
+        ..Default::default()
+    };
+    // discharging at 100 A
+    let (_m, res) = run(&lib, &top(100.0), 20.0, 0.5, RTOL);
+    let q = 30.0 * 5.0 * 3600.0;
+    for t in [5.0, 15.0] {
+        let k = at(&res, "bat.k_dis", t);
+        let by_hand = (0.95 - 100.0 * t / q - 0.9) / 0.2;
+        assert!((k - by_hand).abs() < 1e-8, "the band's factor at {t}: {k} against {by_hand}");
+        let want = if t < 10.0 { 900.0 * k } else { at(&res, "bat.i_mpp", t) * k };
+        for name in ["bat.i_dis_lim", "bat.sig_i_dis_limit"] {
+            let got = at(&res, name, t);
+            assert!((got - want).abs() < 1e-9 * want, "{name} at {t}: {got} against {want}");
+        }
+        assert_eq!(at(&res, "bat.sig_p_ch_30s", t), 0.0, "no charge limit for a 30 s pulse");
+        let p2 = at(&res, "bat.sig_p_ch_2s", t);
+        assert!(p2 > 0.0 && p2 < 1e6, "the 2 s charge power at {t}: {p2} W");
+        let p30 = at(&res, "bat.sig_p_dis_30s", t);
+        assert!(p30 > 0.0 && p30 < 1e7, "the 30 s discharge power at {t}: {p30} W");
+    }
+    books_close(&res, 1e-8);
+    // charging at 100 A: for the first 10 s the peak's × the band's factor;
+    // after, the band lowers the current its Max Charge Power would take
+    let (_m, res) = run(&lib, &top(-100.0), 20.0, 0.5, RTOL);
+    let k = at(&res, "bat.k_ch", 5.0);
+    let got = at(&res, "bat.i_ch_lim", 5.0);
+    assert!((got - 300.0 * k).abs() < 1e-9 * 300.0, "the peak's × the band: {got}");
+    let (k, a, r0) =
+        (at(&res, "bat.k_ch", 15.0), at(&res, "bat.a_volt", 15.0), at(&res, "bat.r0", 15.0));
+    let want = 2.0 * 50e3 / (a + (a * a + 4.0 * r0 * 50e3).sqrt()) * k;
+    let got = at(&res, "bat.i_ch_lim", 15.0);
+    assert!((got - want).abs() < 1e-9 * want, "past the peak's duration: {got} against {want}");
+    books_close(&res, 1e-8);
+}

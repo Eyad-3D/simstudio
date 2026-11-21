@@ -126,3 +126,16 @@ test("LRN-10: each Results summary row says what it means, and links to the defi
   await page.getByRole("button", { name: "what they mean" }).click();
   await expect(helpTitle(page)).toHaveText("Results summary values");
 });
+
+test("LRN-09: the help opens in the app's theme and follows a change of it, whatever the system's setting", async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await openApp(page);
+  await page.getByRole("button", { name: "Switch to dark mode" }).click();
+  await showPanel(page, "Problems");
+  await page.getByRole("button", { name: "Help on Problems" }).click();
+  await expect(helpTitle(page)).toHaveText("Find and fix problems in a model");
+  const help = page.frameLocator("iframe[title='Help page']").locator("body");
+  await expect(help).toHaveCSS("background-color", "rgb(22, 25, 30)");
+  await page.getByRole("button", { name: "Switch to light mode" }).click();
+  await expect(help).toHaveCSS("background-color", "rgb(255, 255, 255)");
+});

@@ -795,6 +795,20 @@ impl<'a> Builder<'a> {
                 None => self.constant_into(rho, "kg/m3", vehicle::AIR_DENSITY),
             }
         }
+        // a battery built from cells: its cells at the Ambient's temperature
+        // (20 °C without one), as today's until there is a thermal model
+        let packs: Vec<String> = facts
+            .of_kind("battery.generic")
+            .filter(|b| self.has_port(&b.id, "T_cell"))
+            .map(|b| b.id.clone())
+            .collect();
+        for b in packs {
+            let t = format!("{}.T_cell", self.inst(&b));
+            match &facts.ambient {
+                Some(a) => self.link(format!("{}.T_amb", self.inst(a)), t),
+                None => self.constant_into(t, "K", 293.15),
+            }
+        }
         for cl in facts.of_kind("electric.climate") {
             let t = format!("{}.T_amb", self.inst(&cl.id));
             match &facts.ambient {
@@ -1553,10 +1567,7 @@ pub fn standard_registry() -> Registry {
         })))
     });
     add!("battery.generic", |el: &Element, f: &Facts| {
-        if text(el, "pack_model", "Pack values") != "Pack values" {
-            return Err("a battery defined by its cells is not imported yet".into());
-        }
-        let mut cfg = battery::BatteryConfig::from_params(&el.params, el.outside("ocv_table", 0))?;
+        let mut cfg = battery::BatteryConfig::from_params(&el.params, &|k, a| el.outside(k, a))?;
         cfg.inverse = f.inverse;
         Ok(Mapped::of(battery::battery(&cfg)).with(cfg.values()?))
     });

@@ -2221,6 +2221,31 @@ the ten hybrid runs: 1 ms and 100 ms ran six to their ends, 10 ms seven
 (at a hundredth of the engine's scale the run's re-initialisation fails
 at 1 ms; the E-Motor's inverter switch chattered at 100 ms).
 
+*A battery's pulse.* A battery built from cells reads its cell
+resistance at the pulse length, the time since the current last changed
+direction by more than 1 µA (today's `SIGN_A`), and allows its peak
+currents for a pulse's first *Peak Duration*. Two discrete values carry
+it, the pulse's direction `dir` (+1, −1, or 0 before the first) and its
+start `t0`, set by a `when` on the current crossing +1 µA upward and one
+on its crossing −1 µA downward (and one look just after the start, where
+a current that flows from t = 0 has no edge); the pulse is `time − t0`,
+so the resistance table's breakpoints along it are stop times (section
+8.2's tables read along time) and the peak's end is a time the run
+reaches exactly. Each `when` reads the current alone and looks at the
+direction in its action (`t0` restarts only when the direction changes):
+a first form that shifted the other direction's current out of reach in
+the condition (`i − max(dir, 0)·1e6 > 1e-6`, one comparison) stopped the
+BEV's winter WLTC with an event storm, because a condition that crossed
+at an instant stays crossed there, so when the other `when` moved `dir`
+back the shifted condition came back crossed and fired again. The
+physics behind it is real and today's engine has it too: a cold pack at
+its charge limit against the heater's load, where a reversal's
+new pulse lowers R0, which lowers the power the charge limit lets the
+motor regenerate, which turns the current back; with the conditions on
+the current alone the instant settles in two rounds, and the next
+reversal waits at least for the resistance's first breakpoint (2 s by
+default) to raise R0 again.
+
 A smooth taper reaches zero only gradually, so the window passes through
 every consumer's own threshold, and the E-Motor had one: its inverter was
 off where its window did not cover its spin losses (the loss map at zero
@@ -4142,14 +4167,14 @@ in Stage 1; mappings in WP5):
 
 ### 12.2 Component library mapping (WP5)
 
-Each of the 36 blocks becomes a composite of primitives (or one equation
+Each of the 37 blocks becomes a composite of primitives (or one equation
 component) with today's port ids mapped; their parameter semantics are
 taken from `components.json` and the Python solver, and each is tested
 against exact answers from `benchmarks/`.
 
 | today | new composition (sketch) |
 |---|---|
-| `battery.generic` | OCV(SOC, T) table source + R0(SOC, T) + up to two RC pairs + SOC integrator (∫i dt / capacity) + cell-limit outputs; its power window closes continuously at its minimum SOC and at full (the current that takes the charge left in 10 ms, section 8.2); thermal port |
+| `battery.generic` | OCV(SOC) table source + R0 + an RC pair + SOC integrator (∫i dt / capacity) + the limits as its power window; its window closes continuously at its minimum SOC and at full (the current that takes the charge left in 10 ms, section 8.2). Built from cells (*Defined By: Cells*, since 21 November 2026): Np × the cell's charge, Ns × its OCV, R0 a variable (the cell's DC resistance × its factor by pulse length and SOC × its factor at the cells' temperature, the first Ambient's, per series element ÷ Np, plus the interconnects and contactors); the pulse since the current last changed direction, from `when`s on the current (section 8.2, *A battery's pulse*); an optional weak element with its own SOC; the cells' current limits (the peak for the pulse's first *Peak Duration*, a time event) and cell voltage limits, the derating band; the lowest and highest cell voltage and the 2/10/30 s state of power as outputs |
 | `motor.emotor` | ideal machine (torque = demand × available torque at speed and voltage, `limit` on full-load curve) + loss map table → electrical power = mechanical + loss; with its bus's supply window, the torque cut to the share of the command whose power fits, where not even the spin losses fit, its whole window taken and its shaft feeding the rest of them, a torque against the motion that fades below 0.1 rad/s (until 20 November 2026 the inverter was off there, which slid as a battery's tapering window passed through the spin losses, section 8.2; before that the share was solved there too and had no root at an empty battery, IDA stopping with flag -4); the inverter off only at a command of exactly 0, a dead supply or above its maximum speed; its full-load and loss maps are read at the speed held to its maximum speed (above it the inverter is off and they are not used, so a table that ends there is never read past its data) |
 | `engine.combustion` | torque source with full-load and fuel maps (tables), fuel port, idle/on logic as modes |
 | `fuelcell.stack`, `fuel.h2_tank`, `fuel.tank` | polarisation table source; tanks as fuel-port reservoirs (mass state) |
@@ -4159,7 +4184,7 @@ against exact answers from `benchmarks/`.
 | `boundary.ground` | ground with three pins |
 | `mech.shaft`, `mech.final_drive`, `mech.gearbox`, `mech.differential`, `mech.transfer_case` | inertia, ideal gear with efficiency on the torque the teeth carry, after the inertias before them (loss in the power direction, blended within `p_dir` of no power), selected ratio (gearbox: discrete gear from the signal, shift as a rigid engagement), open differential (torque split, speed sum) |
 | `mech.clutch` | stick/slip friction with engagement signal: modes and events, no chattering |
-| `mech.brake` | friction torque against rotation, holding at standstill (stick mode) |
+| `mech.brake` | friction torque against rotation, its capacity × clamp(ω / 0.001 rad/s, −1, 1): the whole capacity against the motion above 0.001 rad/s, and within it a stiff damper that holds a shaft at rest (a smaller torque lets it creep at under 0.001 rad/s); no stick mode and no events |
 | `propulsion.wheel` | rolling radius, slip-based tyre force (today's model), rolling resistance; translational port to the body |
 | `propulsion.propeller` | torque ∝ ω² load |
 | `vehicle.body` | mass, road load (Cd·A or A/B/C), grade, load transfer (exact, no longer one step behind), downforce; translational port |
@@ -4619,11 +4644,12 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   starts *Not run*, and nothing falls back to today's engine (the switch-over
   of 17 November 2026, the owner's decision of 20 October, 7 and 16 November:
   the new engine is the app's engine and is in the installer; see
-  `STATUS.md`). Three features are not ported yet and refused so: lap cases
-  (`NEW-LAP`), Formula Student events (`NEW-FS-EVENT`) and a battery built
-  from cells (`NEW-CELLS`); a hybrid's charge-balanced case was refused too
-  (`NEW-BALANCE`) until it was ported on 17 November 2026 (the owner's yes of
-  that day) and now runs on the new engine; a value outside its parameter's limits is refused too
+  `STATUS.md`). Two features are not ported yet and refused so: lap cases
+  (`NEW-LAP`) and Formula Student events (`NEW-FS-EVENT`); a hybrid's
+  charge-balanced case was refused too (`NEW-BALANCE`) until it was ported
+  on 17 November 2026 (the owner's yes of that day), and a battery built
+  from cells (`NEW-CELLS`) until its port on 21 November 2026, and both run
+  on the new engine now; a value outside its parameter's limits is refused too
   (`NEW-LIMITS`, which a study's point or a case's own value can hold, and
   which today's engine read clamped). Every code is in `new_engine.CODES`.
   The result is today's whole result, made by today's own code from the

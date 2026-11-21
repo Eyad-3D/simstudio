@@ -788,7 +788,8 @@ The owner decided on 20 October, 7 November and 16 November 2026: the new
 engine becomes the app's engine with no fall-back to today's. Three features
 stay refused, each with its code and a message, until they are ported: lap
 cases (`NEW-LAP`), Formula Student events (`NEW-FS-EVENT`) and a battery
-built from cells (`NEW-CELLS`). A fourth, a hybrid's charge-balanced case,
+built from cells (`NEW-CELLS`, until its port of 21 November 2026, below;
+it runs now). A fourth, a hybrid's charge-balanced case,
 was refused (`NEW-BALANCE`) until charge balancing was ported on 17 November
 2026 (the owner's yes of that day); it runs on the new engine now, and
 `NEW-BALANCE` no longer exists. Today's code stays in the repository (the new path uses its
@@ -879,7 +880,7 @@ engine's eight gaps, mean 4.1 %, largest 7.5 %; its exact-answer tier does
 not run), the release notes, `DESIGN.md` §13's account of the app and the
 back-to-back harness's documents.
 
-**What is refused.** The three features above (lap cases, Formula Student events, a battery built from cells); `NEW-LIMITS` (a value outside
+**What is refused.** The three features above (lap cases, Formula Student events, and until 21 November a battery built from cells); `NEW-LIMITS` (a value outside
 its parameter's limits, a study's point or a case's own Ambient or Vehicle
 value, which today's engine clamped and Data Checks never see); the engine's
 own refusals and stops (`NEW-FAILED` with its codes); quick mode's
@@ -1378,6 +1379,107 @@ axes, engine to editor, and the Map block runs.
   1.071 × (BEV city, 0.09 s against 0.085 to 0.089 s) over the last two
   measurements.
 
+## A battery built from cells runs on the new engine (21 November 2026)
+
+Branch `work/engine-cells` (from `work/engine-naxis` e08dd46). The lead's
+decision of 21 November: the first of the three features this version did
+not run, ported as today's model (`backend/app/solver/battery.py`), not
+today's numerics; `NEW-CELLS` and `QUICK-CELLS` are gone.
+
+- **The model** (`lsim-lib/src/blocks/battery.rs`, `CellsConfig`): Np ×
+  the cell's charge, Ns × its open-circuit voltage; R0 a variable, the
+  cell's DC resistance × its factor by pulse length and SOC × its factor
+  at the cells' temperature (the first Ambient's `T_amb`, 20 °C without
+  one, wired by the importer), per series element ÷ Np, plus each element's
+  interconnect and the contactors; the cells' continuous and peak currents
+  (the peak for a pulse's first *Peak Duration*) and minimum and maximum
+  cell voltages, for the normal cells and the weak element, behind each
+  cell's resistance in the pulse that way and its share of the RC pair's
+  voltage; the derating band (the weak element's SOC, if lower, for
+  discharging); the mass estimate. Its outputs: the lowest and highest cell
+  voltage and the state of power for 2, 10 and 30 s pulses (today's `sop`).
+  A pack of pack values builds the same definition as before, expression
+  for expression.
+- **Where today switched at an instant**, each now a form the loop handles:
+  the pulse timer, a `when` on the current crossing +1 µA upward and one on
+  −1 µA downward (the direction looked at in the action), so the pulse is
+  `time − t0` and the resistance table's breakpoints along it are stop
+  times (DESIGN.md 8.2, *A battery's pulse*: a first form whose conditions
+  read the direction stopped the BEV's winter WLTC with an event storm);
+  the peak current's duration running out, a time event at `t0 + Peak
+  Duration`, with no switch back until the current reverses; the weak
+  element stopping the string, the pack's continuous rule at its SOC limits
+  (`TAU_SOC`) applied to the weak element's SOC. The voltage limits use the
+  RC pair as it is now (the continuous limit of today's look over its step,
+  as for pack limits).
+- **Every loss is booked**: R0·i² with R0 the sum of the cells', the weak
+  element's, the interconnects' and the contactors' shares, the RC pair's
+  v1²/R1 and the charge not stored; the stored energy ∫OCV·dQ is a state
+  whose OCV includes the weak element's (each series cell carries the same
+  current). The battery's own books close within 1.5e-8 J of 3.4e6 J on
+  the city case.
+- **The app's path**: the summary's layout, charge capacity, mass estimate
+  and lowest and highest cell voltage (with the cells' limits) are the
+  engine's figures; the *time at … limit* rows and today's note that a
+  limit held the motors back are worked out from the run's trace by
+  today's rule (`new_engine._bms`), for a pack of pack values with limits
+  too, which had no such rows on the new engine before; the weak group's
+  "reached minimum SOC" warning; the cells' tables' read rules
+  (`BRANCH_READS`: today books only the OCV's read at the pack's SOC).
+  The resistance factors' Clamp axes are padded far past their data, so the
+  run records no read past them (today books none). Quick mode runs it.
+- **Against today's engine** (the harness's items part on seven items,
+  `acceptance.toml`'s `probe/bev-cells` and `cells/*`, each set against its
+  base item, the same case with pack values): the BEV's city, WLTC, winter
+  WLTC and WLTC with a weak element, a band and an RC pair add 8 to 12
+  differences each to their base item's, all explained: the limit
+  channels' first point (today's holds no limit before its first step), a
+  motor's table read past its voltage data said in the new path's words
+  (a full cells pack, 403 V, passes the motor map's 400 V), and the
+  battery's loss duty with an RC pair (the same with pack values: today's
+  per-step reading of what the cells give up includes the capacitor's
+  charging; the losses agree, 0.082231 and 0.082227 kWh). Final SOC within 0.004
+  points of today's on each, battery losses within 1e-4 of today's. The hybrid on
+  84s1p power cells: today's 1 ms run gives the new engine's figures
+  (final SOC 52.294 and 52.292 %, today's 10 ms 52.520 %); today's highest
+  cell voltage 4.561 V at 10 ms and 1 ms is the step after a current
+  reversal, which today reads at the old pulse's resistance (its documented
+  simplification); the new engine holds 4.200 V. The FS car on 140s3p
+  cells adds only its limit channels and first points: its 4 % more
+  battery power is its base item's launch difference (with pack values
+  78.08 against 75.15 kW). The 96s10p pack whose limits hold adds 187
+  differences: today's engine holds the regeneration 1.8 % short of its
+  charge window (58.9 A against 60 A), so its own count of the time at
+  the limit misses those stretches, and the engines book a regeneration
+  the battery cuts differently (today's brakes take it; the new engine's
+  motor is held and its regeneration not recovered is booked), which moves
+  the brakes', the driver's and the motor's channels; the same with a pack
+  of pack values and a 60 A charge limit (36.1 against 54.4 s at the limit,
+  final SOC 84.845 and 84.856 %).
+- **Closure**: within 1.5e-9 on five of the seven items (2.8e-12 to
+  5.9e-10); 1.56e-9 on the city case and 2.25e-9 on the 96s10p pack, each
+  carried by the E-Motor's and the Final Drive's books (the battery's within
+  1.3e-7 J of 1.2e7 J): a motor held by its supply window closes its books
+  worse, with pack values too (a 60 A charge limit on the same WLTC:
+  1.16e-8, before this piece).
+- **Checks**: `engine/check.sh` passes (633 tests, one new: a pack built
+  from cells against its hand values). Golden: 0 differences over 11 347
+  values, steps 3 998 112 and events 308 453 unchanged, worst closure
+  1.274e-9. The backend suite with this module
+  (`LIGHTSIM_REQUIRE_NEW_ENGINE=1`): 2 481 passed, 1 failed (the Reference
+  FMUs' version on this PC, as before), 15 skipped, 72 expected failures;
+  `test_battery_cells.py`, today's engine its oracle until now, runs on the
+  new engine (15 pass, the live table edit an expected failure,
+  `NEW-LIVE-NEXT-RUN`); lsim-py's 59 pass; `ruff check .` clean; the
+  frontend's unit tests 510 pass. Speed, best of seven in alternating fresh
+  processes against the engine-naxis module (venv-speed's): the hybrid's
+  UDDS 18.17 against 17.83 s, the BEV's WLTC 1.021 against 0.996 s, the
+  steps and events the same; the base built again now from e08dd46 runs
+  the hybrid's UDDS in 18.610 s against this branch's 18.608 s and the
+  BEV's WLTC (the engine's own run) in 0.779 against 0.786 s, so most of
+  that gap is between two builds of the same base; the CI performance
+  test's slices 0.079 against 0.085 s (BEV city) and 2.490 against
+  2.498 s (hybrid mixed).
 
 ## Four defects the Help writer found: the Road Profile's grade from a cycle and three on the DC-DC (21 November 2026)
 
