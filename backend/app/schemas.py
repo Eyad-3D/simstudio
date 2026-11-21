@@ -103,6 +103,9 @@ class ParameterDef(BaseModel):
     # Shown only while another parameter of the part has one of these values
     # ({"key": "pack_model", "values": ["Cells"]}); the UI hides it otherwise.
     showIf: Optional[ShowIf] = None
+    # The heading the part's parameter window shows it under: one of its
+    # part's `sections`. Display only; None for a part without sections.
+    section: Optional[str] = None
 
     def range_problem(self, value: float) -> Optional[str]:
         """Why `value` breaks the limits ("must be above 0 and at most 100 %"),
@@ -128,6 +131,14 @@ class ComponentPreset(BaseModel):
     note: str = ""
 
 
+class SectionDef(BaseModel):
+    """A heading in a part's parameter window. `folded`: it starts folded
+    (the part's rarely used parameters; only the last section may be)."""
+
+    name: str
+    folded: bool = False
+
+
 class ComponentDef(BaseModel):
     id: str
     category: str
@@ -137,6 +148,9 @@ class ComponentDef(BaseModel):
     description: Optional[str] = None
     ports: list[PortDef]
     parameters: list[ParameterDef]
+    # The parameter window's headings, in order; empty for a part with few
+    # parameters (it shows them as one list). Display only.
+    sections: list[SectionDef] = Field(default_factory=list)
     # Elements of this type may carry per-instance signal ports (Script, Monitor).
     allowDynamicPorts: bool = False
     # Sets of parameter values the Properties panel applies in one step.

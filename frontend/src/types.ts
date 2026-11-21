@@ -76,6 +76,9 @@ export interface ParameterDef {
   /** Shown only while another parameter of the part has one of these values
    *  (a battery's cell fields when it is built from cells). */
   showIf?: { key: string; values: ScalarValue[] } | null;
+  /** The heading the part's parameter window shows it under (one of the
+   *  part's `sections`). */
+  section?: string | null;
 }
 
 export interface ComponentDef {
@@ -87,6 +90,9 @@ export interface ComponentDef {
   description?: string;
   ports: PortDef[];
   parameters: ParameterDef[];
+  /** The parameter window's headings, in order; `folded` starts folded (the
+   *  last, rarely used section). None for a part with few parameters. */
+  sections?: { name: string; folded?: boolean }[];
   /** Elements of this type may carry per-instance signal ports (Script, Monitor). */
   allowDynamicPorts?: boolean;
   /** Sets of parameter values the Properties panel applies in one step. */

@@ -95,6 +95,13 @@
           "title": "Parameters",
           "type": "array"
         },
+        "sections": {
+          "items": {
+            "$ref": "#/$defs/SectionDef"
+          },
+          "title": "Sections",
+          "type": "array"
+        },
         "allowDynamicPorts": {
           "default": false,
           "title": "Allowdynamicports",
@@ -349,6 +356,18 @@
             }
           ],
           "default": null
+        },
+        "section": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Section"
         }
       },
       "required": [
@@ -456,6 +475,25 @@
         "kind"
       ],
       "title": "PortDef",
+      "type": "object"
+    },
+    "SectionDef": {
+      "description": "A heading in a part's parameter window. `folded`: it starts folded\n(the part's rarely used parameters; only the last section may be).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "folded": {
+          "default": false,
+          "title": "Folded",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SectionDef",
       "type": "object"
     },
     "ShowIf": {
