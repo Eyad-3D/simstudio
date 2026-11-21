@@ -137,12 +137,11 @@ limits are hidden and not used.
   Resistance Factor* table and f_T the *Cell Temperature Factor* table.
 - **The pulse** is the time since the current last changed direction. A
   new pulse starts when the current turns from charging to discharging or
-  back (beyond 1 µA either way). A pause at zero current does not start
-  one: when the current flows the same way again, the old pulse goes on
-  counting. Before the first pulse, f is read at a pulse of 0 s; with the
-  axis set to *Clamp* (the default) that is the table's first pulse length,
-  2 s in the default table. A current that flows from the start begins its
-  pulse 1 ms in.
+  back. A pause at zero current does not start one: when the current flows
+  the same way again, the old pulse goes on counting. Before the first
+  pulse, f is read at a pulse of 0 s; with the axis set to *Clamp* (the
+  default) that is the table's first pulse length, 2 s in the default
+  table.
 - **Temperature**: the cells are at the first Ambient's temperature, 20 °C
   without an Ambient. They do not warm up under load.
 - Each table axis has its own outside-the-data setting: *Clamp* holds the
