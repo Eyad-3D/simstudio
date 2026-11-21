@@ -487,7 +487,7 @@ impl lsim_ir::eval::Env for NodeEnv<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
     }
-    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+    fn table(&self, k: u32, order: &[u8], args: &[f64]) -> f64 {
         lsim_ir::eval::interpolate(self.tables, k, order, args)
     }
 }

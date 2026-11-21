@@ -52,19 +52,12 @@ this version, and the reason code names each:
   By: Cells*. Set it to *Pack values* (and give the pack's own capacity,
   open-circuit voltage and resistance) to run the case.
 
-Two new things of this version are built in the app but not yet in its
-engine, and are refused the same way (`NEW-TABLE-AXES`):
-
-- **A Map block**, at any number of inputs and outputs, even one input:
-  every case of a project that has one fails with
-  `Not run [NEW-TABLE-AXES]: 'Map 1' (a Map block) does not run in this
-  version of LightSim yet`. You can add one, fill in its tables, check,
-  save and export it; it runs once the engine has it. Until then, a
-  *Lookup Table* block reads one or two inputs, and a Script block can
-  read a table of any size ([Script cookbook](help/reference/script-cookbook.md#table-lookup)).
-- **A table parameter of three or more axes.** No part of the library has
-  one yet; the format and the editor take them
-  ([Tables and the Map block](spec/tables.md)).
+The buttons for them (*FS events*, *Calibrate lap*, the endurance energy
+study's *Run*) are shown dimmed and cannot be pressed, and say so on hover
+and focus; a Battery's *Defined By: Cells* is listed with *(not in this
+version yet)* and cannot be picked (a project that already has it keeps it,
+and its runs are refused with the code). A *Lap* case can still be set up:
+its runs are refused, and the *Cases* panel says so under its kind.
 
 A Map port's unit that LightSim has no signal unit for (an energy, a
 pressure, or a unit you type) is shown only in the Map block's editor, its
@@ -930,8 +923,7 @@ minimum or an average, for example from the CSV export, or put the
   case), `QUICK-END` (a case that ends at a Distance or a lap count),
   `QUICK-SAMPLED` (a Script, FMU or Traction Control part, or a PID or
   Lookup block with a Sample Time longer than the 10 ms solver step),
-  `QUICK-CELLS`, `QUICK-TABLE-AXES` (a Map block, or a table of three or
-  more axes), `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
+  `QUICK-CELLS`, `QUICK-LIMITS`, `QUICK-MISSING`, `QUICK-BUILD`,
   `QUICK-FAILED` (fast mode's own refusal), `QUICK-TABLE-TIME` (a
   table read past its data for a time within two of its steps a stretch
   of what the run allows, too near to judge at its points),
@@ -1209,12 +1201,6 @@ SUNDIALS' own examples, transcribed from their C code
   and down arrows then step through them while the line stands still, and
   an overlaid run that stopped where a line crosses it is read at the
   start or the end of its stop.
-- **A table's plot does not zoom with a drag.** The plot under a table or
-  map in a part's parameter window zooms with the mouse wheel and the + and
-  − keys, and a double-click shows the whole table again; dragging a box
-  to zoom, as on the *Results* charts, is off there, because the chart
-  would not see the mouse button come up in a window of its own.
-  *Workaround:* zoom with the wheel.
 - **Long runs with many lines zoom less smoothly.** On a 1-hour run
   (36,001 points) with 7 channels ticked and the baseline drawn faint as
   well (14 lines), the mouse wheel zooms at 60 frames a second most of the

@@ -213,7 +213,9 @@ fn expr(out: &mut String, e: &Expr, need: u8) {
         }
         // (a partial derivative, which only index reduction makes, prints as
         // the expression type shows it: not text-format syntax)
-        Expr::Table { order, .. } if *order != [0, 0] => out.push_str(&e.to_string()),
+        Expr::Table { order, .. } if !lsim_ir::expr::is_value(order) => {
+            out.push_str(&e.to_string())
+        }
         Expr::Table { table, args: list, .. } => match list.split_first() {
             Some((Expr::Name(n), rest)) => {
                 out.push_str(&ref_name(n));
@@ -248,23 +250,39 @@ fn list(v: &[f64]) -> String {
     format!("{{{}}}", v.iter().map(|x| num(*x)).collect::<Vec<_>>().join(", "))
 }
 
-fn table_text(t: &TableData, rules: bool) -> String {
+/// A table in the text format: its rules written when they are not the
+/// defaults (monotone cubic, every axis held at its edges).
+fn table_text(t: &TableData) -> String {
+    let rules = t.interpolation != Interpolation::default()
+        || t.axes.iter().any(|a| a.outside != Outside::default());
     let mut parts = vec![];
-    if t.dims() == 1 {
-        parts.push(format!("x = {}", list(&t.x)));
-        parts.push(format!("y = {}", list(&t.values)));
-        parts.push(format!("xUnit = {}", string(&t.axis_units[0])));
-    } else {
-        let rows: Vec<String> = t
-            .values
-            .chunks(t.y.len())
-            .map(|r| r.iter().map(|x| num(*x)).collect::<Vec<_>>().join(", "))
-            .collect();
-        parts.push(format!("x1 = {}", list(&t.x)));
-        parts.push(format!("x2 = {}", list(&t.y)));
-        parts.push(format!("values = [{}]", rows.join("; ")));
-        parts.push(format!("x1Unit = {}", string(&t.axis_units[0])));
-        parts.push(format!("x2Unit = {}", string(&t.axis_units[1])));
+    match t.dims() {
+        1 => {
+            parts.push(format!("x = {}", list(t.points(0))));
+            parts.push(format!("y = {}", list(&t.values)));
+            parts.push(format!("xUnit = {}", string(&t.axes[0].unit)));
+        }
+        2 => {
+            let rows: Vec<String> = t
+                .values
+                .chunks(t.points(1).len())
+                .map(|r| r.iter().map(|x| num(*x)).collect::<Vec<_>>().join(", "))
+                .collect();
+            parts.push(format!("x1 = {}", list(t.points(0))));
+            parts.push(format!("x2 = {}", list(t.points(1))));
+            parts.push(format!("values = [{}]", rows.join("; ")));
+            parts.push(format!("x1Unit = {}", string(&t.axes[0].unit)));
+            parts.push(format!("x2Unit = {}", string(&t.axes[1].unit)));
+        }
+        n => {
+            for k in 0..n {
+                parts.push(format!("x{} = {}", k + 1, list(t.points(k))));
+            }
+            parts.push(format!("values = {}", list(&t.values)));
+            for k in 0..n {
+                parts.push(format!("x{}Unit = {}", k + 1, string(&t.axes[k].unit)));
+            }
+        }
     }
     if rules {
         let i = match t.interpolation {
@@ -272,9 +290,10 @@ fn table_text(t: &TableData, rules: bool) -> String {
             Interpolation::Linear => "linear",
         };
         parts.push(format!("interpolation = {i}"));
-        let o: Vec<&str> = t.outside[..t.dims()]
+        let o: Vec<&str> = t
+            .axes
             .iter()
-            .map(|o| match o {
+            .map(|a| match a.outside {
                 Outside::Clamp => "clamp",
                 Outside::Linear => "linear",
                 Outside::Error => "error",
@@ -291,8 +310,7 @@ pub(crate) fn value_text(v: &ParamValue) -> String {
         ParamValue::Real(e) => expr_text(e),
         ParamValue::Bool(b) => b.to_string(),
         ParamValue::Enum(q) => ref_name(q),
-        ParamValue::Table(t) => table_text(t, true),
-        other => table_text(&other.table().expect("a table"), false),
+        ParamValue::Table(t) => table_text(t),
     }
 }
 

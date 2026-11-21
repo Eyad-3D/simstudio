@@ -696,12 +696,11 @@ mod table2_tests {
         fn vars(&self, _: &EvalInput<'_>, _: &mut [f64], _: &mut [f64]) {}
         fn when(&self, _: &EvalInput<'_>, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
         fn start(&self, _: &[f64], _: &mut [f64], _: &mut [f64]) {}
-        fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        fn eval_table(&self, k: u32, args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
             (k == 0).then(|| self.0.eval(args))
         }
-        fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
-            let second = if self.0.dims() == 2 { self.0.points(1).to_vec() } else { vec![] };
-            (k == 0).then(|| [self.0.points(0).to_vec(), second])
+        fn table_axes(&self, k: u32) -> Option<Vec<Vec<f64>>> {
+            (k == 0).then(|| (0..self.0.dims()).map(|a| self.0.points(a).to_vec()).collect())
         }
     }
 
@@ -748,8 +747,8 @@ mod table2_tests {
             for outside in [Outside::Clamp, Outside::Linear] {
                 let data = TableData {
                     interpolation,
-                    outside: [outside, outside],
                     ..TableData::new_2d(x.clone(), y.clone(), values.clone())
+                        .with_outside(&[outside, outside])
                 };
                 let m = model(&data);
                 let g = Grid2::new(0, &x, &y).expect("grid");
@@ -763,7 +762,7 @@ mod table2_tests {
                         for j in 0..=40 {
                             let a = xa + (xb - xa) * i as f64 / 40.0;
                             let b = ya + (yb - ya) * j as f64 / 40.0;
-                            let (v, d) = m.0.eval([a, b]);
+                            let (v, d) = m.0.eval(&[a, b]);
                             let holds = |t: Iv, v: f64| t.lo <= v && v <= t.hi;
                             spread = (spread.0.min(v), spread.1.max(v));
                             assert!(
@@ -786,8 +785,8 @@ mod table2_tests {
                             if one_region && xa < xb && ya < yb && i < 40 && j < 40 {
                                 let dh = 1e-6;
                                 let (a2, b2) = ((a + dh).min(xb), (b + dh).min(yb));
-                                let (_, dx) = m.0.eval([a2, b]);
-                                let (_, dy) = m.0.eval([a, b2]);
+                                let (_, dx) = m.0.eval(&[a2, b]);
+                                let (_, dy) = m.0.eval(&[a, b2]);
                                 let fd = |p: f64, q: f64, h: f64| (p - q) / h;
                                 let tol = |t: Iv| 1e-4 * (1.0 + t.mag());
                                 let near = |t: Iv, v: f64| t.lo - tol(t) <= v && v <= t.hi + tol(t);

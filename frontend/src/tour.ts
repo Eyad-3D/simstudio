@@ -57,11 +57,16 @@ function load(): TourState {
   return {};
 }
 
-export const useTourStore = create<TourState & { hint: string | null }>(() => ({ ...load(), hint: null }));
+/** `hint` is the hint on show and `hintKey` the panel or page it explains. */
+export const useTourStore = create<TourState & { hint: string | null; hintKey: string | null }>(() => ({
+  ...load(),
+  hint: null,
+  hintKey: null,
+}));
 
 function save(change: Partial<TourState>) {
   useTourStore.setState(change);
-  const { hint: _hint, ...state } = useTourStore.getState();
+  const { hint: _hint, hintKey: _hintKey, ...state } = useTourStore.getState();
   try {
     window.localStorage.setItem(TOUR_KEY, JSON.stringify(state));
   } catch {
@@ -92,10 +97,10 @@ export function hintFor(key: string) {
   const { hints = {}, hidden } = useTourStore.getState();
   if (!acted || hidden || automated() || hints[key] || !HINTS[key]) return;
   save({ hints: { ...hints, [key]: true } });
-  useTourStore.setState({ hint: HINTS[key] });
+  useTourStore.setState({ hint: HINTS[key], hintKey: key });
 }
 
-export const dismissHint = () => useTourStore.setState({ hint: null });
+export const dismissHint = () => useTourStore.setState({ hint: null, hintKey: null });
 
 /** Whether a value of a part that is in both models changed: adding,
  *  deleting or moving a part is not setting a value. */
@@ -137,6 +142,8 @@ export function watchSteps(): () => void {
   });
   const unUI = useUIStore.subscribe((s, prev) => {
     if (s.ribbonTab !== prev.ribbonTab && s.ribbonTab === "results") hintFor("results");
+    // the Results page's hint goes with the page: it is about what is not on screen any more
+    else if (s.ribbonTab !== prev.ribbonTab && useTourStore.getState().hintKey === "results") dismissHint();
     check();
   });
   check();

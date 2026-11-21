@@ -140,7 +140,7 @@ impl Patch {
         let (o0, h0, d0, u, uc) = region(&ax[0], r[0]);
         let (o1, h1, d1, w, wc) = region(&ax[1], r[1]);
         let at = |u: f64, w: f64| -> Option<f64> {
-            let v = model.eval_table(k, [o0 + h0 * u, o1 + h1 * w])?.0;
+            let v = model.eval_table(k, &[o0 + h0 * u, o1 + h1 * w])?.0;
             v.is_finite().then_some(v)
         };
         let mut f = vec![vec![0.0; w.len()]; u.len()];

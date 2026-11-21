@@ -1,7 +1,8 @@
-"""Tables of any number of axes and the Map block, on the app side
-(docs/spec/tables.md): the stored form at depth 1 to 4 through the project
-file, Data Checks, the parameter sheet's long form, and the run refusal
-until the engine side lands."""
+"""Tables of any number of axes and the Map block (docs/spec/tables.md):
+the stored form at depth 1 to 4 through the project file, Data Checks, the
+parameter sheet's long form, and a Map block of three inputs and two
+outputs run on the new engine, in full and in quick mode, against the
+map's own definition."""
 from __future__ import annotations
 
 import io
@@ -12,7 +13,7 @@ import pytest
 from app import validation
 from app.dataio import params
 from app.library import library_by_id
-from app.schemas import ComponentDef, ElementInstance, ParameterDef, PortDef, Project
+from app.schemas import ComponentDef, Connection, ElementInstance, ParameterDef, PortDef, Project
 from app.solver import new_engine, simulate
 from app.solver.maps import TableError, parse_grid
 from app.storage import load_example
@@ -130,7 +131,6 @@ def test_a_library_table_of_three_axes_is_checked_as_a_full_grid(monkeypatch):
                                   {"name": "Current", "unit": "A"}], default=grid(3))])
     lib = {**library_by_id(), part.id: part}
     monkeypatch.setattr(validation, "library_by_id", lambda: lib)
-    monkeypatch.setattr(new_engine, "library_by_id", lambda: lib)
     ragged = grid(3)
     ragged["0"]["20"] = {"0": 1.0}
     project = load_example("bev-car")
@@ -139,23 +139,129 @@ def test_a_library_table_of_three_axes_is_checked_as_a_full_grid(monkeypatch):
         parameterOverrides={"r": ragged}))
     found = [c.text for c in validation.validate_project(project) if "Cell Resistance" in c.text]
     assert found and "not a full grid" in found[0] and "Current" in found[0]
-    why = new_engine.unsupported(project, WLTC)
-    assert why.code == "NEW-TABLE-AXES" and "'Pack.Cell Resistance' (a table of 3 axes)" in why.why
+    # (the engine reads such a table by its number of axes: nothing refuses it for them)
+    assert new_engine.unsupported(project, WLTC) is None
 
 
-def test_a_case_with_a_map_block_is_refused_with_its_code(monkeypatch):
-    from app.solver import core
-    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
-    monkeypatch.setattr(core, "simulate_today", lambda *a, **k: pytest.fail("today's engine ran"))
-    project = _with(_map(3))
-    result = simulate(project, WLTC)
-    assert result.status == "failed" and not result.channels and not result.summary
-    (only,) = result.messages
-    assert only.text.startswith("Not run [NEW-TABLE-AXES]: 'Motor Map' (a Map block) does not run "
-                                "in this version of LightSim yet"), only.text
-    assert new_engine.quick_unsupported(project, WLTC).code == "QUICK-TABLE-AXES"
-    # a project without one is not refused for it
-    assert new_engine.table_axes(load_example("bev-car")) is None
+# A Map block on the BEV: Speed (km/h, from the Vehicle), SOC (%, from the
+# battery) and Torque (N·m, from the E-Motor) in; Loss (kW) and Efficiency
+# (%) out, into the vehicle's Monitor. The grid's speed axis ends at 100
+# km/h, below the WLTC's top speed, so a clamped (or Error) Speed is read
+# past its data.
+SPEEDS, SOCS, TORQUES = [0.0, 40.0, 100.0], [0.0, 50.0, 100.0], [-250.0, 0.0, 120.0, 250.0]
+
+
+def _loss(v, s, t):
+    return 0.5 + 0.01 * v + 0.002 * s * abs(t) / 100 + 1e-4 * v * t
+
+
+def _eff(v, s, t):
+    return 80 + 0.05 * v - 0.01 * s + 0.02 * t - 1e-4 * v * s
+
+
+def _grid(f):
+    return {str(v): {str(s): {str(t): f(v, s, t) for t in TORQUES} for s in SOCS} for v in SPEEDS}
+
+
+def _trilinear(f, at, outside):
+    """The map's definition, computed here: straight lines along each axis
+    between its breakpoints (the eight corners of the cell, weighted), past
+    an axis's data held at its edge (clamp) or along its edge segment
+    (linear)."""
+    axes = (SPEEDS, SOCS, TORQUES)
+    cell = []
+    for x, xs, rule in zip(at, axes, outside):
+        i = 0 if x <= xs[0] else min(len(xs) - 2, max(k for k in range(len(xs)) if xs[k] <= x))
+        w = (x - xs[i]) / (xs[i + 1] - xs[i])
+        if rule == "clamp":
+            w = min(max(w, 0.0), 1.0)
+        cell.append((i, w))
+    total = 0.0
+    for corner in range(8):
+        weight, point = 1.0, []
+        for k, (i, w) in enumerate(cell):
+            up = corner >> k & 1
+            weight *= w if up else 1.0 - w
+            point.append(axes[k][i + up])
+        total += weight * f(*point)
+    return total
+
+
+def _map_bev(outside: list[str], mode: str = "full") -> Project:
+    project = load_example("bev-car")
+    system = project.systems[0]
+    ports = [PortDef(id="speed", name="Speed", direction="input", kind="signal", unitGroup="Velocity"),
+             PortDef(id="soc", name="SOC", direction="input", kind="signal", unitGroup="Percent"),
+             PortDef(id="torque", name="Torque", direction="input", kind="signal", unitGroup="Torque"),
+             PortDef(id="loss", name="Loss", direction="output", kind="signal", unitGroup="Power"),
+             PortDef(id="eff", name="Efficiency", direction="output", kind="signal", unitGroup="Percent")]
+    system.elements.append(ElementInstance(
+        id="el-map", componentDefId="signal.map", label="Motor Map", position={"x": 0, "y": 0},
+        dynamicPorts=ports, parameterOverrides={"maps": {"loss": _grid(_loss), "eff": _grid(_eff)}},
+        tableOutside={"maps": outside}))
+    monitor = next(e for e in system.elements if e.id == "el-veh-monitor")
+    monitor.dynamicPorts = list(monitor.dynamicPorts or []) + [
+        PortDef(id="map_loss", name="Map loss", direction="input", kind="signal", unitGroup="Power"),
+        PortDef(id="map_eff", name="Map efficiency", direction="input", kind="signal", unitGroup="Percent")]
+    for i, (a, ap, b, bp) in enumerate([("el-vehicle", "sig_speed", "el-map", "speed"),
+                                        ("el-battery", "sig_soc", "el-map", "soc"),
+                                        ("el-motor", "sig_torque", "el-map", "torque"),
+                                        ("el-map", "loss", "el-veh-monitor", "map_loss"),
+                                        ("el-map", "eff", "el-veh-monitor", "map_eff")]):
+        system.connections.append(Connection(id=f"c-map-{i}", sourceElementId=a, sourcePortId=ap,
+                                             targetElementId=b, targetPortId=bp))
+    next(c for c in project.cases if c.id == WLTC).mode = mode
+    return project
+
+
+@pytest.mark.parametrize("mode", ["full", "quick"])
+def test_a_map_block_of_three_inputs_and_two_outputs_runs_as_its_map_says(mode):
+    outside = ["clamp", "clamp", "linear"]
+    result = simulate(_map_bev(outside, mode), WLTC)
+    assert result.status == "success", [m.text for m in result.messages]
+    ch = {c.portId: c for c in result.channels if c.elementId == "el-map"}
+    assert {"speed", "soc", "torque", "loss", "eff"} <= set(ch)
+    assert (ch["loss"].unit, ch["eff"].unit) == ("kW", "%")
+    series = {k: [p["value"] for p in c.timeSeries] for k, c in ch.items()}
+    times = [p["t"] for p in ch["speed"].timeSeries]
+    checked = 0
+    for n in range(0, len(times), 7):
+        at = [series[k][n] for k in ("speed", "soc", "torque")]
+        if any(x is None for x in at):
+            continue
+        for port, f in (("loss", _loss), ("eff", _eff)):
+            want = _trilinear(f, at, outside)
+            assert series[port][n] == pytest.approx(want, rel=1e-9, abs=1e-9), (port, times[n], at)
+        checked += 1
+    assert checked > 100
+    # the time Speed was read past 100 km/h, held there (clamp): booked, and said in the Map's words
+    above = sum(t1 - t0 for t0, t1, v in zip(times, times[1:], series["speed"][1:]) if v > SPEEDS[-1])
+    assert above > 50.0
+    said = [m.text for m in result.messages if m.text.startswith("'Motor Map' output 'Loss': read past "
+                                                                    "its data on its input 'Speed' for ")]
+    assert said and "held its edge value (clamp)" in said[0], [m.text for m in result.messages]
+    booked = float(said[0].split(" for ")[1].split(" s ")[0])
+    assert booked == pytest.approx(above, abs=3 * (times[1] - times[0]))
+
+
+def test_a_map_blocks_outside_rules_are_checked_one_per_input():
+    said = [c.text for c in validation.validate_project(_map_bev(["clamp", "error", "linear"]))
+            if "Motor Map" in c.text]
+    assert not said, said  # (three inputs, three rules: nothing to say, and the app runs it)
+    (short,) = [c for c in validation.validate_project(_map_bev(["clamp", "linear"]))
+                if "Motor Map" in c.text]
+    assert short.level == "error"
+    assert short.text == ("'Motor Map' has 2 outside-the-data settings for its 3 inputs (one per "
+                          "input) — the run ignores them.")
+
+
+@pytest.mark.parametrize("mode", ["full", "quick"])
+def test_a_map_input_set_to_error_stops_the_run_naming_the_map_and_the_input(mode):
+    result = simulate(_map_bev(["error", "clamp", "clamp"], mode), WLTC)
+    assert result.status == "failed"
+    text = " ".join(m.text for m in result.messages)
+    assert "loss_map" in text or "eff_map" in text, text
+    assert "first (Speed) axis" in text and "outside = Error" in text, text
 
 
 def _sheet(project: Project, name_part: str) -> tuple[openpyxl.Workbook, str]:

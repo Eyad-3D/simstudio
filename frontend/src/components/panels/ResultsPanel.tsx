@@ -22,7 +22,7 @@ import { downloadBlob, exportRunFile } from "../../api";
 import { confirmDialog } from "../../dialog";
 import { openHelp, useSummaryDefinition } from "../../help";
 import { summaryChange } from "../../provenance";
-import { previousRunOf, useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
+import { countOf, previousRunOf, useActiveRun, useOverlayRuns, useProjectStore } from "../../store/projectStore";
 import { useUIStore, type PlotView } from "../../store/uiStore";
 import { sameFigure, type Channel, type SimRun, type SummaryValue } from "../../types";
 import { useDismiss } from "../useDismiss";
@@ -44,6 +44,8 @@ import {
   type XAxis,
   type XAxisMode,
   type YAxisCfg,
+  legendIdx,
+  type LegendColumn,
 } from "./chartUtils";
 import { csvBlob } from "./csv";
 import { MeasurePanel, cursorsIn, measurePlugin } from "./Measure";
@@ -470,34 +472,51 @@ export function ResultsPanel() {
   // channel objects on every flush, and options built from them would rebuild
   // the chart (and drop a zoom box being drawn) ten times a second
   const seriesLook = JSON.stringify(
-    seriesDefs.map(({ legend, unit, color, dash, faint }) => ({ legend, unit, color, dash, faint })),
+    seriesDefs.map(({ legend, unit, color, dash, faint, channel }) => ({ legend, unit, color, dash, faint, ch: channelKey(channel) })),
   );
   const xLook = JSON.stringify(xAxis);
   const yLook = JSON.stringify(yAxes);
   const chartOptions = useMemo((): PlotOptions => {
     const axis = axisStyle(theme);
-    const looks: { legend: string; unit: string; color: string; dash?: number[]; faint?: boolean }[] =
+    const looks: { legend: string; unit: string; color: string; dash?: number[]; faint?: boolean; ch: string }[] =
       JSON.parse(seriesLook);
     const x: XAxis = JSON.parse(xLook);
     const ys: Record<string, YAxisCfg> = JSON.parse(yLook);
     const units = [...new Set(looks.map((d) => d.unit))];
+    // the faint baseline's line of each channel (its series index), read out
+    // in that channel's own legend entry rather than in a second one
+    const baseOf = looks.map((d) => (d.faint ? -1 : looks.findIndex((o) => o.faint && o.ch === d.ch) + 1));
+    // the legend reads the pointer's place; off the chart, each line's last value
+    const at = (u: uPlot, s: number, i: number | null | undefined) => legendIdx(u.data[s] as LegendColumn, u.data[0], i);
     return {
       scales: { x: { time: false }, ...Object.fromEntries(units.map((u) => [u, { range: yRange(ys[u] ?? {}, uPlot.rangeNum) }])) },
       series: [
         {
           label: x.kind === "t" ? "t" : "Distance",
-          value: (u, v, _s, i) => (v == null ? "—" : fmtX(x, v, i == null ? null : (u.data as TimedData).t?.[i])),
+          value: (u, _v, _s, i) => {
+            const k = at(u, 0, i);
+            return k == null ? "—" : fmtX(x, u.data[0][k], (u.data as TimedData).t?.[k] ?? null);
+          },
         },
-        ...looks.map((d) => ({
+        ...looks.map((d, j) => ({
           label: d.legend,
           scale: d.unit,
           stroke: d.color,
           width: d.faint ? 1.2 : 1.6,
-          ...(d.faint ? { alpha: 0.45 } : {}),
+          ...(d.faint ? { alpha: 0.45, class: "ss-legend-folded" } : {}),
           dash: d.dash,
           spanGaps: true,
           points: { show: false },
-          value: (_u: uPlot, v: number | null) => (v == null ? "—" : `${fmtNum(v)} ${d.unit}`),
+          value: (u: uPlot, _v: number | null, s: number, i: number | null) => {
+            const k = at(u, s, i);
+            const v = k == null ? null : (u.data[s][k] ?? null);
+            const text = v == null ? "—" : `${fmtNum(v)} ${d.unit}`;
+            const b = baseOf[j];
+            if (b <= 0) return text;
+            const kb = at(u, b, i);
+            const bv = kb == null ? null : (u.data[b][kb] ?? null);
+            return `${text} · baseline ${bv == null ? "—" : fmtNum(bv)}`;
+          },
         })),
       ],
       // one y axis per unit, on alternating sides
@@ -519,16 +538,7 @@ export function ResultsPanel() {
         // runs on other time grids have gaps in the merged columns: read the
         // nearest sample of the series, but none before its first or after
         // its last (a shorter run has ended there)
-        dataIdx: (u, s, i) => {
-          const ys = u.data[s];
-          let lo = i;
-          let hi = i;
-          while (lo >= 0 && ys[lo] === undefined) lo--;
-          while (hi < ys.length && ys[hi] === undefined) hi++;
-          if (lo < 0 || hi >= ys.length) return null;
-          const x = u.data[0][i];
-          return x - u.data[0][lo] <= u.data[0][hi] - x ? lo : hi;
-        },
+        dataIdx: (u, s, i) => legendIdx(u.data[s] as LegendColumn, u.data[0], i) as number,
       },
     };
     // (the limit band is drawn from the store: a switch redraws it)
@@ -1041,7 +1051,7 @@ export function ResultsPanel() {
               <>Study charts</>
             ) : view === "sweep" ? (
               <>
-                Sweep · {completeFamily.length} complete run(s)
+                Sweep · {countOf(completeFamily.length, "complete run")}
                 {incompleteCount > 0 && (
                   <span className="text-[color:var(--ss-warn)]">
                     {" "}
@@ -1053,7 +1063,7 @@ export function ResultsPanel() {
               <>X-Y · {xyYChannels.length} series vs {xyXShort || "—"}</>
             ) : (
               <>
-                {shownKeys.length} channel(s)
+                {countOf(shownKeys.length, "channel")}
                 {multiRun && <span> · {plotRuns.length} runs overlaid</span>}
               </>
             )}

@@ -64,7 +64,7 @@ impl CompResolve<'_> {
                 other => {
                     let axes = other
                         .table()
-                        .map(|t| t.axis_units[..t.dims()].iter().map(|u| unit_dim(u)).collect())
+                        .map(|t| t.axes.iter().map(|a| unit_dim(&a.unit)).collect())
                         .unwrap_or_default();
                     NameDim::Table(unit_dim(&p.unit), axes)
                 }
@@ -337,8 +337,10 @@ fn outside_word(e: &ast::Expr) -> Option<Outside> {
 
 /// `table(x = {…}, y = {…}, xUnit = "…")`,
 /// `table(x1 = {…}, x2 = {…}, values = […], x1Unit = "…", x2Unit = "…")`,
-/// with optional `interpolation = linear|monotoneCubic` and `outside =
-/// {clamp|linear|error, …}`.
+/// `table(x1 = {…}, x2 = {…}, x3 = {…}, …, values = {…}, x1Unit = "…", …)`
+/// (three axes or more: the values one list, row-major, the first axis
+/// outermost), with optional `interpolation = linear|monotoneCubic` and
+/// `outside = {clamp|linear|error, …}`.
 pub(crate) fn table_value(e: &ast::Expr) -> Result<ParamValue, LangError> {
     let ExprKind::Call(name, args) = &e.strip().kind else { unreachable!("checked by the caller") };
     debug_assert_eq!(name.join("."), "table");
@@ -363,13 +365,19 @@ pub(crate) fn table_value(e: &ast::Expr) -> Result<ParamValue, LangError> {
             "interpolation",
             "outside",
         ];
-        if !KNOWN.contains(&k.as_str()) {
+        // (an axis past the second: x3, x3Unit …)
+        let axis_part = |k: &str| {
+            let n = k.strip_prefix('x').map(|r| r.strip_suffix("Unit").unwrap_or(r));
+            n.is_some_and(|n| n.parse::<usize>().is_ok_and(|i| i >= 3) && !n.starts_with('0'))
+        };
+        if !KNOWN.contains(&k.as_str()) && !axis_part(k) {
             return Err(LangError::new(
                 "TABLE",
                 *s,
                 format!(
-                    "a table has no part '{k}': a 1-D table has x, y and xUnit; a 2-D table x1, \
-                     x2, values, x1Unit and x2Unit; both may give interpolation and outside"
+                    "a table has no part '{k}': a 1-D table has x, y and xUnit; a table of more \
+                     axes x1, x2, … (one per axis), values, x1Unit, x2Unit, …; any may give \
+                     interpolation and outside"
                 ),
             ));
         }
@@ -391,8 +399,55 @@ pub(crate) fn table_value(e: &ast::Expr) -> Result<ParamValue, LangError> {
             LangError::new("TABLE", e.span, format!("the table is missing its '{k}'"))
         })
     };
+    // the axes x1, x2, x3 … given, in order
+    let count = (1..).take_while(|k| got.contains_key(format!("x{k}").as_str())).count();
+    if let Some((k, s)) = got.iter().find(|(k, _)| {
+        k.strip_prefix('x')
+            .map(|r| r.strip_suffix("Unit").unwrap_or(r))
+            .and_then(|n| n.parse::<usize>().ok())
+            .is_some_and(|i| i > count.max(2))
+    }) {
+        return Err(LangError::new(
+            "TABLE",
+            s.1,
+            format!("'{k}' has no axis before it: the axes are x1, x2, x3 … in order"),
+        ));
+    }
     let two_d = got.contains_key("x1") || got.contains_key("values");
-    let (axes, values) = if two_d {
+    let (axes, values) = if two_d && count >= 3 {
+        for k in ["x", "y", "xUnit"] {
+            if let Some((_, s)) = got.get(k) {
+                return Err(LangError::new(
+                    "TABLE",
+                    *s,
+                    format!(
+                        "'{k}' belongs to a 1-D table; a table of {count} axes has x1 … x{count} and values"
+                    ),
+                ));
+            }
+        }
+        let mut axes = vec![];
+        for k in 1..=count {
+            let name = format!("x{k}");
+            let unit_key = format!("x{k}Unit");
+            axes.push((numbers(need(&name)?, &name)?, unit(&unit_key)?));
+        }
+        let v = need("values")?;
+        let values = numbers(v, "values")?;
+        let points: usize = axes.iter().map(|(a, _)| a.len()).product();
+        if values.len() != points {
+            return Err(LangError::new(
+                "TABLE",
+                v.span,
+                format!(
+                    "the values have {} numbers but the grid of its {count} axes has {points} \
+                     points (row-major: the last axis changes fastest)",
+                    values.len()
+                ),
+            ));
+        }
+        (axes, values)
+    } else if two_d {
         for k in ["x", "y", "xUnit"] {
             if let Some((_, s)) = got.get(k) {
                 return Err(LangError::new(
@@ -445,7 +500,6 @@ pub(crate) fn table_value(e: &ast::Expr) -> Result<ParamValue, LangError> {
         let y = numbers(need("y")?, "y")?;
         (vec![(x, unit("xUnit")?)], y)
     };
-    let rules = got.contains_key("interpolation") || got.contains_key("outside");
     let interpolation = match got.get("interpolation") {
         None => Interpolation::default(),
         Some((v, s)) => match &v.strip().kind {
@@ -475,8 +529,8 @@ pub(crate) fn table_value(e: &ast::Expr) -> Result<ParamValue, LangError> {
                     LangError::new("TABLE", w.span, "outside is clamp, linear or error".into())
                 })?);
             }
-            if out.len() == 1 && axes.len() == 2 {
-                out.push(out[0]);
+            if out.len() == 1 && axes.len() >= 2 {
+                out = vec![out[0]; axes.len()];
             }
             if out.len() != axes.len() {
                 return Err(LangError::new(
@@ -488,34 +542,24 @@ pub(crate) fn table_value(e: &ast::Expr) -> Result<ParamValue, LangError> {
             out
         }
     };
-    let mut axes = axes.into_iter();
-    let (x, x_unit) = axes.next().expect("one axis at least");
-    let (y, y_unit) = axes.next().unwrap_or_default();
     let data = TableData {
-        x,
-        y,
+        axes: axes
+            .into_iter()
+            .zip(outside)
+            .map(|((points, unit), outside)| lsim_ir::TableAxis {
+                points,
+                outside,
+                unit,
+                name: String::new(),
+            })
+            .collect(),
         values,
         interpolation,
-        outside: [outside[0], outside.get(1).copied().unwrap_or_default()],
-        axis_units: [x_unit, y_unit],
     };
     data.check().map_err(|why| {
         LangError::new("TABLE", e.span, format!("this table is not valid: {why}"))
     })?;
-    if rules {
-        return Ok(ParamValue::Table(data));
-    }
-    let [x_unit, y_unit] = data.axis_units;
-    Ok(if data.y.is_empty() {
-        ParamValue::Table1D { x: data.x, y: data.values, axis_unit: x_unit }
-    } else {
-        ParamValue::Table2D {
-            x1: data.x,
-            x2: data.y,
-            values: data.values,
-            axis_units: [x_unit, y_unit],
-        }
-    })
+    Ok(ParamValue::Table(data))
 }
 
 fn is_table_call(e: &ast::Expr) -> bool {
@@ -1622,8 +1666,13 @@ fn check_component(
             check_display_unit(&p.unit, du, decl, &format!("the parameter '{}'", p.name), errs);
         }
         if let Some(t) = p.default.table() {
-            for (j, unit) in t.axis_units[..t.dims()].iter().enumerate() {
-                check_unit(unit, decl, &format!("axis {} of the table '{}'", j + 1, p.name), errs);
+            for (j, a) in t.axes.iter().enumerate() {
+                check_unit(
+                    &a.unit,
+                    decl,
+                    &format!("axis {} of the table '{}'", j + 1, p.name),
+                    errs,
+                );
             }
         }
         match &p.default {

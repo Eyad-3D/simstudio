@@ -188,8 +188,7 @@ pub fn first_order(unit: &str) -> ComponentDef {
 fn line(x_unit: &str) -> TableData {
     TableData {
         interpolation: Interpolation::Linear,
-        axis_units: [x_unit.to_string(), String::new()],
-        ..TableData::new_1d(vec![0.0, 1.0], vec![0.0, 1.0])
+        ..TableData::new_1d(vec![0.0, 1.0], vec![0.0, 1.0]).with_units(&[x_unit])
     }
 }
 
@@ -214,8 +213,8 @@ pub fn table1d(u_in: &str, u_out: &str) -> ComponentDef {
 pub fn table2d(u1: &str, u2: &str, u_out: &str) -> ComponentDef {
     let data = TableData {
         interpolation: Interpolation::Linear,
-        axis_units: [u1.to_string(), u2.to_string()],
         ..TableData::new_2d(vec![0.0, 1.0], vec![0.0, 1.0], vec![0.0, 0.0, 0.0, 1.0])
+            .with_units(&[u1, u2])
     };
     ComponentDef {
         name: unit_name("Signal.Table2D", &[u1, u2, u_out]),

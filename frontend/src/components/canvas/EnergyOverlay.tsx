@@ -3,7 +3,7 @@
 // and lost as a label and a bar chart of the losses (RES-22).
 import { useMemo } from "react";
 import { X } from "lucide-react";
-import { useActiveRun, useProjectStore } from "../../store/projectStore";
+import { countOf, useActiveRun, useProjectStore } from "../../store/projectStore";
 import { useReportsStore } from "../../store/reportsStore";
 import { useUIStore } from "../../store/uiStore";
 import { useStaleness } from "../panels/StaleBanner";
@@ -132,7 +132,7 @@ export function EnergyBars() {
           </ul>
           {rows.length > shown.length && (
             <div className="mt-1 text-[10px] text-[color:var(--ss-text-dim)]">
-              {rows.length - shown.length} part(s) below {minPct} % hidden
+              {countOf(rows.length - shown.length, "part")} below {minPct} % hidden
             </div>
           )}
         </>

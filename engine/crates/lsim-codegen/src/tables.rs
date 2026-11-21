@@ -15,7 +15,7 @@ pub(crate) unsafe extern "C" fn lsim_tab1(t: *const Table, x: f64) -> f64 {
     // SAFETY: by the caller's contract (the generated code passes the
     // table store's pointers, which live as long as the compiled model).
     let t = unsafe { &*t };
-    t.value([x, 0.0])
+    t.value(&[x])
 }
 
 /// The value of 1-D table `t` at `x`; writes the derivative to `d[0]`.
@@ -25,7 +25,8 @@ pub(crate) unsafe extern "C" fn lsim_tab1(t: *const Table, x: f64) -> f64 {
 pub(crate) unsafe extern "C" fn lsim_tab1d(t: *const Table, x: f64, d: *mut f64) -> f64 {
     // SAFETY: as in `lsim_tab1`; `d` is the generated code's scratch.
     unsafe {
-        let (v, g) = (*t).eval([x, 0.0]);
+        let mut g = [0.0];
+        let v = (*t).eval_into(&[x], &mut g);
         *d = g[0];
         v
     }
@@ -37,7 +38,7 @@ pub(crate) unsafe extern "C" fn lsim_tab1d(t: *const Table, x: f64, d: *mut f64)
 /// `t` must point to a live [`Table`].
 pub(crate) unsafe extern "C" fn lsim_tab2(t: *const Table, x: f64, y: f64) -> f64 {
     // SAFETY: as in `lsim_tab1`.
-    unsafe { (*t).value([x, y]) }
+    unsafe { (*t).value(&[x, y]) }
 }
 
 /// The value of 2-D table `t` at `(x, y)`; writes the partial derivatives
@@ -48,10 +49,40 @@ pub(crate) unsafe extern "C" fn lsim_tab2(t: *const Table, x: f64, y: f64) -> f6
 pub(crate) unsafe extern "C" fn lsim_tab2d(t: *const Table, x: f64, y: f64, d: *mut f64) -> f64 {
     // SAFETY: as in `lsim_tab1d`.
     unsafe {
-        let (v, g) = (*t).eval([x, y]);
+        let mut g = [0.0; 2];
+        let v = (*t).eval_into(&[x, y], &mut g);
         *d = g[0];
         *d.add(1) = g[1];
         v
+    }
+}
+
+/// The value of table `t` (of `n` axes, three or more) at the `n`
+/// arguments at `x`.
+///
+/// # Safety
+/// `t` must point to a live [`Table`], `x` to `n` readable values.
+pub(crate) unsafe extern "C" fn lsim_tabn(t: *const Table, x: *const f64, n: i64) -> f64 {
+    // SAFETY: as in `lsim_tab1`; `x` is the generated code's scratch.
+    unsafe { (*t).value(std::slice::from_raw_parts(x, n as usize)) }
+}
+
+/// The value of table `t` (of `n` axes, three or more) at the `n`
+/// arguments at `x`; writes its partial derivatives to `d[0..n]`.
+///
+/// # Safety
+/// `t` must point to a live [`Table`], `x` to `n` readable values and `d`
+/// to `n` writable ones (not overlapping `x`).
+pub(crate) unsafe extern "C" fn lsim_tabnd(
+    t: *const Table,
+    x: *const f64,
+    n: i64,
+    d: *mut f64,
+) -> f64 {
+    // SAFETY: as in `lsim_tabn`; `d` is the generated code's scratch.
+    unsafe {
+        let n = n as usize;
+        (*t).eval_into(std::slice::from_raw_parts(x, n), std::slice::from_raw_parts_mut(d, n))
     }
 }
 
@@ -74,7 +105,7 @@ pub(crate) struct TableStore {
     ptrs: Vec<*const Table>,
     /// the derivatives' entries: `(table, order)`, in store order after
     /// the flat tables
-    derived: Vec<(u32, [u8; 2])>,
+    derived: Vec<(u32, Vec<u8>)>,
 }
 
 // SAFETY: the pointers point into `tables`, owned by the store and never
@@ -92,15 +123,16 @@ impl TableStore {
     pub(crate) fn new(
         data: &[&TableData],
         names: &[&str],
-        derived: &[(u32, [u8; 2])],
+        derived: &[(u32, Vec<u8>)],
     ) -> Result<TableStore, String> {
         let mut tables = Vec::with_capacity(data.len() + derived.len());
         for (d, name) in data.iter().zip(names) {
             tables.push(Table::new(d).map_err(|e| format!("table '{name}': {e}"))?);
         }
-        for &(k, order) in derived {
+        for (k, order) in derived {
+            let k = *k;
             let base = tables.get(k as usize).ok_or_else(|| format!("no table {k}"))?;
-            let r = u32::from(order[0]) + u32::from(order[1]);
+            let r: u32 = order.iter().map(|&o| u32::from(o)).sum();
             let c = base.continuity();
             if r > c.saturating_add(1) {
                 return Err(format!(
@@ -117,18 +149,18 @@ impl TableStore {
     }
 
     /// The derivatives' entries after the flat tables.
-    pub(crate) fn derived(&self) -> &[(u32, [u8; 2])] {
+    pub(crate) fn derived(&self) -> &[(u32, Vec<u8>)] {
         &self.derived
     }
 
-    /// The entry of `table`'s partial derivative of `order` (`[0, 0]`: the
-    /// table itself).
-    pub(crate) fn entry(&self, table: u32, order: [u8; 2]) -> Option<usize> {
-        if order == [0, 0] {
+    /// The entry of `table`'s partial derivative of `order` (every order 0:
+    /// the table itself).
+    pub(crate) fn entry(&self, table: u32, order: &[u8]) -> Option<usize> {
+        if lsim_ir::expr::is_value(order) {
             return Some(table as usize);
         }
         let n = self.tables.len() - self.derived.len();
-        self.derived.iter().position(|&d| d == (table, order)).map(|i| n + i)
+        self.derived.iter().position(|(t, o)| *t == table && o == order).map(|i| n + i)
     }
 
     pub(crate) fn ptrs(&self) -> *const *const Table {

@@ -315,34 +315,59 @@ Modelica's scalar set, plus two engine built-ins:
 
 * `limit(x, lo, hi)` — a saturation; full dynamic mode clamps, fast mode
   passes `x` through and flags the moments it is outside the band;
-* table interpolation `Table { table, args }` — 1-D and 2-D tables held as
-  runtime data (monotone cubic by default, so the result is C¹ and the
+* table interpolation `Table { table, args }` — tables of any number of
+  axes held as runtime data (monotone cubic by default, so the result is C¹ and the
   solver needs no events at breakpoints; linear and the outside-data rules
   of today's `tableOutside` as options). In component scope `args[0]` is
   the table parameter's name and the rest are the abscissae
   (`expr::table("ocv", vec![soc])`, printed `ocv(soc)`); in flat scope
   `table` indexes `FlatSystem::tables` and `args` are the abscissae. Its
-  `order` (`[0, 0]` for a value) reads a partial derivative of the
-  interpolant instead, which only index reduction makes (section 6, step
-  5; printed `table3'[1, 0](x, y)`).
+  `order` (empty for a value, else one entry per abscissa) reads a partial
+  derivative of the interpolant instead, which only index reduction makes
+  (section 6, step 5; printed `table3'[1, 0](x, y)`).
 
 The text format writes `a == b` and `a <> b`; the IR holds them as
 `a >= b and a <= b` and `a < b or a > b` (no new comparison operators), and
 `true`/`false` as 1 and 0.
 
-**Tables** (`table.rs`): one `TableData` serves the language, preparation
-and the code generator: breakpoints `x` and `y` (empty for 1-D), values
-row-major (`values[i * y.len() + j]` at `(x[i], y[j])`), `interpolation`
-(`MonotoneCubic` by default, or `Linear`), `outside` per axis (`Clamp` by
-default, `Linear`, `Error`: today's `tableOutside`) and `axis_units` (the
-axes' coherent SI unit texts). `TableData::check` says in plain words what
-is malformed. The interpolant built from it (`interp.rs`, `interp::Table`:
-Steffen's 1-D cubics, the monotone bicubic, linear; moved here from
+**Tables** (`table.rs`, `docs/spec/tables.md`): one `TableData` serves the
+language, preparation and the code generator, for any number of axes:
+its `axes` (each a `TableAxis`: breakpoints, `outside` rule — `Clamp` by
+default, `Linear`, `Error`: today's `tableOutside` — the coherent SI unit
+text, and a name for messages, a Map block's input), the values row-major
+with the first axis outermost (with `n_k` points on axis `k`, the value at
+`(i_0, …, i_(N-1))` is element `((i_0 · n_1 + i_1) · n_2 + …) · n_(N-1) +
+i_(N-1)`), and `interpolation` (`MonotoneCubic` by default, or `Linear`).
+An axis of one breakpoint is constant (never outside its data).
+`TableData::check` says in plain words what is malformed. The
+interpolant built from it (`interp.rs`, `interp::Table`; moved here from
 `lsim-codegen`, which re-exports it) is the one every reader evaluates,
-with its partial derivatives of any order (`eval_order`) and how many
-times it is continuously differentiable (`continuity`); the interpreter
-reads tables through `Env::table(k, order, args)` (`eval::interpolate`
-over the interpolants).
+with its partial derivatives of any order (`eval_order`, one order per
+argument) and how many times it is continuously differentiable
+(`continuity`); the interpreter reads tables through `Env::table(k,
+order, args)` (`eval::interpolate` over the interpolants).
+
+*One model, two forms of arithmetic.* The axes along which a table varies
+(two points or more) are interpolated; their number picks the
+arithmetic. One or two keep each cell's polynomial in power-basis
+coefficients (Steffen's 1-D cubics, the monotone bicubic, linear and
+bilinear), the arithmetic every run before tables of more axes was made
+with: a table of one or two axes gives the same bits it always has (the
+golden record did not move), and so does a table of more axes with a
+single point along the others. Three or more are evaluated from the
+nodes' values and slopes, cell by cell, as the tensor product of the same
+1-D rules — multilinear, or Hermite cubics with zero cross derivatives
+(the bicubic's zero twist), whose node slopes start as Steffen's along
+each grid line and are reduced until every cell's Bézier net is monotone
+along each axis along which its data are (Carlson and Fritsch's
+condition on every row of the net, for any number of axes) — because 4^N
+coefficients per cell would not fit a fine grid of many axes. Past the
+data each axis follows its rule; along the axes that continue there the
+value is the cell's polynomial's multilinear extension, `Σ_S Π_(k∈S) d_k
+∂_S P` over the subsets `S` of those axes (two axes: `v + vx dx + vy dy +
+vxy dx dy`, as before). C¹ where every varying axis continues (cubic), C⁰
+otherwise. Tests: `lsim-ir/tests/tables_nd.rs` (three and four axes
+against the definition computed in the test).
 
 ### 5.3 Components (`component.rs`)
 
@@ -362,9 +387,10 @@ over the interpolants).
   `ParamValue`: `Real(expr)` (a number or an expression of the same
   scope's parameters), `Bool` (structural), `Enum("Mode.Auto")` (an option
   of an enumeration type, structural; in equations it is its position
-  counting from 1), or a table: `Table1D`, `Table2D` (default rules) or
-  `Table(TableData)` (its own rules); `ParamValue::table()` gives any of
-  them as `TableData`.
+  counting from 1), or a table: `Table(TableData)`, of any number of axes
+  with its own rules (the 1-D and 2-D literals `Table1D` and `Table2D`
+  were the same table with the default rules and are gone);
+  `ParamValue::table()` gives it as `TableData`.
 * `EnumType` (a name and its options) in `ComponentDef::types`, or in
   `Library::types` for types several components share; a name is looked
   up in the declaring component first (`Library::enum_ordinal`).
@@ -639,9 +665,10 @@ additive). What the other packages change to use them:
 
 **WP5 (lsim-lib, lsim-project)**
 
-* Tables: make table parameters with `ParamValue::Table1D`/`Table2D`, or
-  `ParamValue::Table(TableData { … })` to set `interpolation: Linear` (as
-  today's app) or `outside` per axis (`tableOutside`); read them with
+* Tables: make table parameters with `ParamValue::Table(TableData { … })`
+  (`TableData::new(axes, values)`, `new_1d`, `new_2d`; `interpolation:
+  Linear` as today's app, `with_outside` per axis as `tableOutside`); read
+  them with
   `lsim_ir::expr::table("loss_map", vec![w, tau])`. A `TableData` is a
   rectangular grid: resample today's table2d sheets onto the union of
   their inner points (exact for linear interpolation). This replaces the
@@ -652,8 +679,8 @@ additive). What the other packages change to use them:
   names with its parts (the text format rejects the clash).
 * Sampled blocks: a definition named `External.…` with signal ports and a
   `period` parameter.
-* Any exhaustive `match` on `ParamValue` gains the `Table2D` and `Table`
-  arms (or uses `ParamValue::table()`).
+* Any exhaustive `match` on `ParamValue` gains the `Table` arm (or uses
+  `ParamValue::table()`).
 
 **WP6 (lsim-fast, lsim-engine, lsim-py)**
 
@@ -1282,7 +1309,10 @@ Stage 1 implements steps 1–4, 6, 7 (simplified) and 11, and step 8 for
    (`eval_order`), the interpreter reads it through `Env::table`,
    preparation through its node environment, the solver through
    `ModelFunctions::eval_table_order`, and the generated code calls the
-   same `lsim_tab*` symbols on the table store's entry for that
+   same `lsim_tab*` symbols (`lsim_tab1`, `lsim_tab2` with and without
+   rates; `lsim_tabn`/`lsim_tabnd` for three axes or more, the arguments
+   and the rates in a stack slot of the call's own) on the table store's
+   entry for that
    derivative (each derivative the model reads gets one after the flat
    tables: the same coefficients, asking for that derivative). The
    compiled code is the interpreter's, bitwise (random expressions with
@@ -1475,8 +1505,13 @@ builds):
   monotone and without overshoot on every interval), bicubic Hermite
   patches in 2-D whose node slopes are reduced until every cell's Bézier
   net is monotone along each axis along which its data are (Carlson and
-  Fritsch), linear and bilinear; `Clamp`, `Linear` and `Error` outside per
-  axis. The value alone (every call outside the Jacobian) stops before the
+  Fritsch), linear and bilinear, and their tensor products for three axes
+  or more (section 5.2); `Clamp`, `Linear` and `Error` outside per axis. A
+  condition kernel declines a condition that reads a table of three axes
+  or more (it is interpreted, as every condition the kernels decline), and
+  the run encloses no such read along a step (a condition reading one
+  whose arguments move is located by root finding without the pulse
+  check: `lsim_ir::interval::supported`). The value alone (every call outside the Jacobian) stops before the
   rates wherever they cannot change it; an axis with uneven breakpoints
   starts its interval search at the interval it found last. Tests:
   `tests/tables.rs` (C¹ across every breakpoint, cell edge and continued
@@ -2986,7 +3021,10 @@ round).**
   below, inside and above the data, and inside the read is the table's
   own at the argument held between the edges plus, beyond each edge, its
   edge cell's polynomial continued (inside the data, bitwise the table's
-  read); outside, the table's held value. The other reads of the same
+  read); outside, the table's held value. A read of three arguments or
+  more is held as a 2-D one is, its cell's polynomial in all of them
+  (coefficients row-major over the arguments, the Taylor coefficients at
+  the cell's point). The other reads of the same
   table at the same arguments (the value beside the slope index
   reduction reads) are held with it: their edges are crossed at the same
   instants, at no further cost. A 2-D read is held at every breakpoint of
@@ -5220,7 +5258,7 @@ work end to end) or against hand-written test doubles of the interfaces.
   text format.
 * **Builds**: the parser for the text format (section 5.4) with spans and
   plain-words errors; unit checking at parse time; `structural parameter`,
-  enumerations, Boolean parameters, tables (`ParamValue::Table1D/2D`,
+  enumerations, Boolean parameters, tables (`ParamValue::Table`,
   `Expr::Table`) and `assert` end to end in the IR; Base Modelica import
   (the flat subset MCP-0031 defines: classes, records of scalars, `der`,
   `when`, `if`, functions of scalars); `to_text` round trip.

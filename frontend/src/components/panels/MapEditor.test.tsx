@@ -192,7 +192,7 @@ test("a breakpoint on a shown axis: a row added copies the last, rows deleted go
   expect(gridKeys(maps().loss, 3)[2]).toEqual(["0", "100", "200"]);
   expect(cell(3, 1).textContent).toBe(cell(2, 1).textContent);
   down(cell(1, 1));
-  await press(button(/^Row\(s\)/));
+  await press(button(/^Rows$/));
   expect(gridKeys(maps().eff, 3)[2]).toEqual(["100", "200"]);
   // a breakpoint typed in a header moves it, in every output and slice
   down(cell(0, 2));

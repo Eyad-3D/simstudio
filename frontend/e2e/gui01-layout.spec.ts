@@ -59,7 +59,7 @@ test.describe("1366x768", () => {
     await openApp(page);
     const start = await canvasShare(page);
     await ribbonButton(page, "Simulations");
-    await ribbonButton(page, "Checks");
+    await ribbonButton(page, "Data Checks");
     await expect.poll(async () => (await trayAndDock(page)).tray).toBeGreaterThanOrEqual(120);
     await page.locator(".dv-edge-group button[aria-label='Collapse to tabs']").click();
     await expect.poll(async () => (await trayAndDock(page)).tray).toBeLessThanOrEqual(36);
@@ -76,7 +76,7 @@ test.describe("1366x768", () => {
     await newProject(page);
     await dropComponent(page, "E-Motor", 300, 200); // unwired: Data Checks finds problems
     await ribbonButton(page, "Simulations");
-    await ribbonButton(page, "Checks");
+    await ribbonButton(page, "Data Checks");
     await expect(page.locator(".dv-tab[aria-label^='Problems ('] .dv-default-tab[data-badge]")).toHaveCount(1);
     await expect(page.locator(".dv-tab[aria-label^='Messages'] .dv-default-tab[data-badge]")).toHaveCount(0);
   });

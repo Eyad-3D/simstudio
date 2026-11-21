@@ -213,7 +213,11 @@ impl<'a> Loop<'a> {
             .table_axes
             .iter()
             .enumerate()
-            .map(|(k, [x, y])| Grid2::new(k as u32, x, y))
+            .map(|(k, ax)| match ax.as_slice() {
+                // (a 2-D table's grid: more axes are not enclosed)
+                [x, y] => Grid2::new(k as u32, x, y),
+                _ => None,
+            })
             .collect();
         // the model's compiled kernels of the mixed conditions, if the run
         // uses them

@@ -1310,6 +1310,13 @@ def _map_checks(model: Model, add: Add) -> None:
     for el_id, cdef in model.cdef_of.items():
         el, label = elements[el_id], elements[el_id].label
         for key, own in el.tableOutside.items():
+            if cdef.id == MAP_BLOCK and key == "maps":
+                # a Map block's rules are one per input (docs/spec/tables.md)
+                inputs = sum(p.direction == "input" for p in el.dynamicPorts or [])
+                if len(own) != inputs:
+                    add("error", f"'{label}' has {len(own)} outside-the-data settings for its "
+                                 f"{inputs} inputs (one per input) — the run ignores them.", el)
+                continue
             pdef = next((p for p in cdef.parameters
                          if p.key == key and p.axes and p.axes[0].outside), None)
             if pdef is None or len(own) != len(pdef.axes or []):

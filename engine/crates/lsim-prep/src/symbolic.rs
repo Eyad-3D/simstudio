@@ -193,7 +193,7 @@ pub fn diff(e: &Expr, s: Slot) -> Expr {
                 }
             }
         }
-        Table { table, args, order } => table_chain(*table, args, *order, |a| Ok(d(a)))
+        Table { table, args, order } => table_chain(*table, args, order, |a| Ok(d(a)))
             .expect("differentiating in a variable does not fail"),
     }
 }
@@ -207,16 +207,16 @@ pub fn diff(e: &Expr, s: Slot) -> Expr {
 fn table_chain(
     table: u32,
     args: &[Expr],
-    order: [u8; 2],
+    order: &[u8],
     mut d: impl FnMut(&Expr) -> Result<Expr, String>,
 ) -> Result<Expr, String> {
     let mut sum: Option<Expr> = None;
-    for (j, a) in args.iter().enumerate().take(2) {
+    for (j, a) in args.iter().enumerate() {
         let da = simplify(d(a)?);
         if is_const(&da, 0.0) {
             continue;
         }
-        let mut o = order;
+        let mut o: Vec<u8> = (0..args.len()).map(|k| order.get(k).copied().unwrap_or(0)).collect();
         o[j] = o[j]
             .checked_add(1)
             .ok_or_else(|| "a table would be differentiated too often".to_string())?;
@@ -250,7 +250,7 @@ pub fn time_derivative(e: &Expr, dvar: &mut dyn FnMut(VarId) -> Expr) -> Result<
         Var(v) => dvar(*v),
         Der(_) | Name(_) => return Err(format!("cannot differentiate {e} in time here")),
         Table { table, args, order } => {
-            table_chain(*table, args, *order, |a| time_derivative(a, dvar))?
+            table_chain(*table, args, order, |a| time_derivative(a, dvar))?
         }
         Neg(a) => Neg(b(time_derivative(a, dvar)?)),
         NoEvent(a) => NoEvent(b(time_derivative(a, dvar)?)),

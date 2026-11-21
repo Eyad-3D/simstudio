@@ -143,10 +143,13 @@ impl Feed {
             }
             Expr::Table { table, args, order } => {
                 // (a value read hashes as it always has)
-                if *order != [0, 0] {
+                if !lsim_ir::expr::is_value(order) {
                     self.tag(17);
-                    self.u32(u32::from(order[0]));
-                    self.u32(u32::from(order[1]));
+                    // (one and two arguments hash two orders, as they
+                    // always have; more hash one each)
+                    for k in 0..order.len().max(2) {
+                        self.u32(u32::from(order.get(k).copied().unwrap_or(0)));
+                    }
                 }
                 self.tag(16);
                 self.u32(*table);
@@ -232,10 +235,20 @@ pub fn structure_key(m: &PreparedModel) -> String {
     f.section("tables", m.flat.tables.len());
     for t in &m.flat.tables {
         // the rules shape the code, the data do not
-        f.tag(t.data.interpolation as u8);
-        f.tag(t.data.outside[0] as u8);
-        f.tag(t.data.outside[1] as u8);
-        f.tag(u8::from(!t.data.y.is_empty()));
+        // (one and two axes hash as they always have: two rules, the
+        // second a 1-D table's default, and whether it has a second axis;
+        // more axes hash every rule, then their number)
+        let d = &t.data;
+        let rule = |k: usize| d.axes.get(k).map_or(lsim_ir::Outside::Clamp, |a| a.outside);
+        f.tag(d.interpolation as u8);
+        for k in 0..d.dims().max(2) {
+            f.tag(rule(k) as u8);
+        }
+        if d.dims() <= 2 {
+            f.tag(u8::from(d.dims() == 2));
+        } else {
+            f.u64(d.dims() as u64);
+        }
     }
     f.section("modes", m.modes.len());
     for x in &m.modes {

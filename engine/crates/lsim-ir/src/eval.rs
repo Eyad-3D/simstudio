@@ -24,7 +24,7 @@ pub trait Env {
     /// the table `k` of the flat system interpolated at `args`, or its
     /// partial derivative of `order` (see [`Expr::Table`]); NaN when this
     /// environment has no tables
-    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+    fn table(&self, k: u32, order: &[u8], args: &[f64]) -> f64 {
         let _ = (k, order, args);
         f64::NAN
     }
@@ -44,7 +44,7 @@ pub fn eval(e: &Expr, env: &dyn Env) -> f64 {
         Expr::Name(_) => f64::NAN,
         Expr::Table { table, args, order } => {
             let at: Vec<f64> = args.iter().map(ev).collect();
-            env.table(*table, *order, &at)
+            env.table(*table, order, &at)
         }
         Expr::Var(v) => env.var(*v),
         Expr::Param(p) => env.param(*p),
@@ -117,13 +117,14 @@ pub fn eval(e: &Expr, env: &dyn Env) -> f64 {
     }
 }
 
-/// Table `k` of `tables` at `args` (one or two), or its partial derivative
-/// of `order`: what an [`Env`] with the model's interpolants answers
-/// ([`crate::interp::Table`]; NaN for a table it does not have).
-pub fn interpolate(tables: &[crate::interp::Table], k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+/// Table `k` of `tables` at `args` (one per axis), or its partial
+/// derivative of `order` (one per argument): what an [`Env`] with the
+/// model's interpolants answers ([`crate::interp::Table`]; NaN for a table
+/// it does not have; an argument missing reads 0, as the compiled code
+/// reads it).
+pub fn interpolate(tables: &[crate::interp::Table], k: u32, order: &[u8], args: &[f64]) -> f64 {
     let Some(t) = tables.get(k as usize) else { return f64::NAN };
-    let at = [args.first().copied().unwrap_or(f64::NAN), args.get(1).copied().unwrap_or(0.0)];
-    if order == [0, 0] { t.value(at) } else { t.eval_order(at, order).0 }
+    if order.iter().all(|&o| o == 0) { t.value(args) } else { t.eval_order(args, order).0 }
 }
 
 /// An [`Env`] over plain slices: variables, derivatives, parameters.

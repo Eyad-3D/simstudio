@@ -1,5 +1,5 @@
 import { Bot, CircleAlert, CircleCheck, CloudOff, Loader2, Plus, TriangleAlert, X } from "lucide-react";
-import { confirmReplaceProject, followNotice, problemCounts, useProjectStore } from "../store/projectStore";
+import { confirmReplaceProject, countOf, followNotice, problemCounts, useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
 import { progressText } from "../sweep";
 import { useNow } from "./useNow";
@@ -146,6 +146,8 @@ export function StatusBar() {
   // model changes, and the latest run), not every error ever logged: Messages
   // keeps those
   const errors = useProjectStore((s) => problemCounts(s).errors);
+  const warnings = useProjectStore((s) => problemCounts(s).warnings);
+  const checksError = useProjectStore((s) => s.checksError);
   const elementCount =
     project?.systems.reduce((n, s) => n + s.elements.length, 0) ?? 0;
   // a sweep's time left counts down between its points (STU-17)
@@ -153,16 +155,22 @@ export function StatusBar() {
 
   return (
     <div className="ss-zoom flex h-[26px] shrink-0 items-center border-t border-[color:var(--ss-border)] bg-[color:var(--ss-chrome)] text-[11px]">
-      <div className="flex h-full items-end gap-0.5 px-1.5">
+      {/* the one open project (LightSim opens one at a time): its name, not a
+          tab; New replaces it, after asking to save its changes */}
+      <div className="flex h-full items-center gap-2 px-2">
         {project && (
-          <div className="flex h-[22px] items-center gap-2 rounded-t border border-b-0 border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-3 font-medium">
+          <span className="flex items-center gap-1 font-medium" title={dirty ? "Open project, with unsaved changes" : "Open project"}>
             {project.name}
-            {dirty && <span className="text-[color:var(--ss-accent)]">•</span>}
-          </div>
+            {dirty && (
+              <span className="text-[color:var(--ss-accent)]" aria-label="unsaved changes">
+                •
+              </span>
+            )}
+          </span>
         )}
         <button
-          className="mb-0.5 rounded p-0.5 hover:bg-[color:var(--ss-hover)]"
-          title="New project"
+          className="flex items-center gap-0.5 rounded px-1 text-[color:var(--ss-text-dim)] hover:bg-[color:var(--ss-hover)] hover:text-[color:var(--ss-text)]"
+          title="New project: replaces the open one (asks to save its changes first)"
           onClick={() =>
             void confirmReplaceProject("Creating a new project").then((ok) => {
               if (!ok) return;
@@ -173,7 +181,7 @@ export function StatusBar() {
             })
           }
         >
-          <Plus size={13} />
+          <Plus size={12} aria-hidden /> New project
         </button>
       </div>
       <div className="ml-auto flex items-center gap-3 px-3 text-[color:var(--ss-text-dim)]">
@@ -197,20 +205,22 @@ export function StatusBar() {
             </span>
           </span>
         )}
-        {errors > 0 && (
+        {(errors > 0 || warnings > 0 || checksError) && (
           <button
-            className="text-[color:var(--ss-err)] hover:underline"
-            title="Show the problems"
+            className="flex items-center gap-2 hover:underline"
+            title={checksError ? `The Data Checks could not run: ${checksError}` : "Show the problems"}
             onClick={() => {
               const ui = useUIStore.getState();
               if (ui.ribbonTab === "results") ui.setRibbonTab("home");
               ui.focusPanel("data-checks");
             }}
           >
-            {errors} {errors === 1 ? "error" : "errors"}
+            {checksError && <span className="text-[color:var(--ss-warn)]">Data Checks could not run</span>}
+            {errors > 0 && <span className="text-[color:var(--ss-err)]">{countOf(errors, "error")}</span>}
+            {warnings > 0 && <span className="text-[color:var(--ss-warn)]">{countOf(warnings, "warning")}</span>}
           </button>
         )}
-        <span>{elementCount} elements</span>
+        <span>{countOf(elementCount, "part")}</span>
         {offline ? (
           <span className="flex items-center gap-1 text-[color:var(--ss-warn)]">
             <CloudOff size={12} /> backend offline

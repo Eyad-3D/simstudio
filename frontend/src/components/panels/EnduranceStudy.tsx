@@ -3,6 +3,7 @@ import { Grid3x3 } from "lucide-react";
 import { packKwh } from "../../fsEvents";
 import { useProjectStore } from "../../store/projectStore";
 import type { SimCase } from "../../types";
+import { notYet } from "../../notYet";
 
 const parseList = (text: string) =>
   text
@@ -27,8 +28,6 @@ const CHOICES = [
  *  and its Output Power Limit on an endurance case, shown as a map. */
 export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
   const project = useProjectStore((s) => s.project);
-  const running = useProjectStore((s) => s.running);
-  const runEnduranceStudy = useProjectStore((s) => s.runEnduranceStudy);
   // kept with the project's runs (PLT-34)
   const studies = useProjectStore((s) => s.studies);
   const libraryById = useProjectStore((s) => s.libraryById);
@@ -87,9 +86,8 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
         </label>
         <button
           className="ss-toolbtn justify-self-end border border-[color:var(--ss-border)]"
-          disabled={running || !p.length || !c.length}
-          onClick={() => void runEnduranceStudy({ caseId: simCase.id, batteryId: battery.id, packs: p, caps: c })}
           title="Run the grid (at most 6 values each) and save it as a study"
+          {...notYet("The endurance energy study")} // NEW-LAP
         >
           <Grid3x3 size={12} /> Run {p.length} × {c.length} = {p.length * c.length} runs
         </button>

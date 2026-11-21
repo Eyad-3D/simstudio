@@ -18,8 +18,7 @@ fails with a stable reason code in brackets (``[NEW-LAP]``; CODES lists
 them, and benchmarks/back_to_back counts them): nothing runs on today's
 engine instead. Three features are not ported yet and are refused so: lap
 cases (NEW-LAP), Formula Student events (NEW-FS-EVENT) and a battery built
-from cells (NEW-CELLS); a Map block or a table of three or more axes is
-refused too (NEW-TABLE-AXES, docs/spec/tables.md). A hybrid's
+from cells (NEW-CELLS). A hybrid's
 charge-balanced case runs as today's does (balance.py): run after run on the new engine, each from the charge
 the last ended with. ``LIGHTSIM_ENGINE=today`` runs today's engine instead, for
 developers and the both-engines comparison (benchmarks/back_to_back); a
@@ -56,8 +55,8 @@ from types import SimpleNamespace
 from typing import Callable, NamedTuple, Optional
 
 from .. import cycles, script_trust
-from ..library import library_by_id, unit_groups
-from ..schemas import TABLE_TYPES, Channel, LiveEdit, Project, SimMessage, SimResult, SummaryValue
+from ..library import unit_groups
+from ..schemas import Channel, LiveEdit, Project, SimMessage, SimResult, SummaryValue
 from . import balance
 from .battery import CELLS
 from .domains import FMU_COMPONENT, ModelInitError, RunContext
@@ -92,7 +91,6 @@ CODES = {
     "NEW-LAP": "a lap case",
     "NEW-FS-EVENT": "a Formula Student event case",
     "NEW-CELLS": "a battery built from cells",
-    "NEW-TABLE-AXES": "a Map block, or a table of three or more axes (docs/spec/tables.md)",
     "NEW-LIMITS": "a value outside its parameter's limits (a study's point can hold one)",
     "NEW-MISSING": "the module lightsim_engine is not installed",
     "NEW-BUILD": "today's model builder refused the model",
@@ -106,7 +104,6 @@ CODES = {
     "QUICK-SAMPLED": "quick mode: a project with a sampled part (a Script, an FMU, a Traction Control, a "
                      "PID, a Lookup with a Sample Time longer than today's solver step)",
     "QUICK-CELLS": "quick mode: a battery built from cells",
-    "QUICK-TABLE-AXES": "quick mode: a Map block, or a table of three or more axes",
     "QUICK-LIMITS": "quick mode: a value outside its parameter's limits",
     "QUICK-MISSING": "quick mode: the module lightsim_engine is not installed",
     "QUICK-BALANCE": "quick mode: a hybrid's charge-balanced case",
@@ -305,8 +302,6 @@ def quick_unsupported(project: Project, case_id: str) -> Optional[Refusal]:
         return Refusal("QUICK-END", "it runs the cycle's whole duration, not to a case's Distance "
                                     "or Laps (from its Start line)")
     elements = [el for s in project.systems for el in s.elements]
-    if (axes := table_axes(project)) is not None:
-        return Refusal("QUICK-TABLE-AXES", axes)
     if balance.applies(project, case):
         return Refusal("QUICK-BALANCE", "it does not charge-balance a hybrid's case (set Charge "
                                         "balance off to run it once)")
@@ -508,26 +503,6 @@ def refused(case_id: str, why: Refusal, detail: str = "") -> SimResult:
         level="error", text=f"Not run [{why.code}]: {why.why}{more}.")])
 
 
-def table_axes(project: Project) -> Optional[str]:
-    """Why the engine cannot take the project's tables yet, naming the parts:
-    a Map block, or a table parameter of three or more axes
-    (docs/spec/tables.md); None when it can."""
-    lib = library_by_id()
-    parts = []
-    for el in (el for s in project.systems for el in s.elements):
-        cdef = lib.get(el.componentDefId)
-        if el.componentDefId == MAP_BLOCK:
-            parts.append(f"{el.label!r} (a Map block)")
-        elif cdef is not None:
-            parts += [f"'{el.label}.{p.label}' (a table of {len(p.axes or [])} axes)"
-                      for p in cdef.parameters if p.type in TABLE_TYPES and len(p.axes or []) > 2]
-    if not parts:
-        return None
-    more = f" and {len(parts) - 1} more" if len(parts) > 1 else ""
-    return (f"{parts[0]}{more} {'do' if more else 'does'} not run in this version of LightSim yet: "
-            f"its engine runs tables of one and two axes and no Map block yet")
-
-
 def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     """Why the new engine does not run this case, or None when it does."""
     case = next((c for c in project.cases if c.id == case_id), None)
@@ -539,8 +514,6 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
         return Refusal("NEW-CASE-KIND", f"{case.kind} cases do not run in this version of LightSim yet")
     if case.fsEvent:
         return Refusal("NEW-FS-EVENT", "Formula Student event cases do not run in this version of LightSim yet")
-    if (axes := table_axes(project)) is not None:
-        return Refusal("NEW-TABLE-AXES", axes)
     elements = [el for s in project.systems for el in s.elements]
     overrides = getattr(case, "parameterOverrides", None) or {}
     if any(el.componentDefId == "battery.generic"
@@ -1426,6 +1399,9 @@ def _tables(ctx, run, messages: list[SimMessage]) -> list:
         el_id, key, axis = rec["part"], rec["table"].rsplit(".", 1)[-1], int(rec["axis"])
         if el_id is None:
             continue
+        if ctx.model.cdef_of[el_id].id == MAP_BLOCK:
+            messages.append(_map_outside(ctx.model.elements[el_id], key, axis, rec))
+            continue
         rule = BRANCH_READS.get((ctx.model.cdef_of[el_id].id, key))
         if rule is not None and rule.key is not None:
             key = rule.key(ctx.params(el_id))
@@ -1556,6 +1532,25 @@ def _to_today(rec, rng: Optional[tuple[float, float]]) -> Callable[[float], floa
 
 
 # the note's code for a table record the verdict does not judge (_tables)
+def _map_outside(el, key: str, axis: int, rec) -> SimMessage:
+    """A Map block's map read past its data on one input, in its own words
+    (docs/spec/tables.md): the output and the input by name, for how long,
+    how far, and what the map gave there (an input set to Error stops the
+    run in the engine instead). Today's engine has no Map block: nothing is
+    judged against it."""
+    ports = el.dynamicPorts or []
+    ins = [p for p in ports if p.direction == "input"]
+    out = next((p.name for p in ports if p.direction == "output" and f"{p.id}_map" == key.rstrip("_")), key)
+    name = ins[axis].name if axis < len(ins) else f"input {axis + 1}"
+    rules = (el.tableOutside or {}).get("maps") or []
+    rule = rules[axis] if len(rules) == len(ins) and axis < len(rules) else "clamp"
+    gave = "held its edge value" if rule == "clamp" else "continued along its edge slope"
+    return SimMessage(level="info", text=(
+        f"'{el.label}' output '{out}': read past its data on its input '{name}' for "
+        f"{float(rec['total']):g} s from t = {float(rec['first']):.2f} s (to {float(rec['furthest']):g} "
+        f"against its edge {float(rec['edge']):g}, in the engine's units), where the map {gave} ({rule})."))
+
+
 NOT_JUDGED = "NEW-TABLE-NOT-JUDGED"
 
 
@@ -1679,6 +1674,11 @@ BRANCH_READS = {
         ((("t_out_c",), lambda v, top: v["t_out_c"] if v["q"] != 0.0 else None),), uses=("t_out_c", "q")),
     # its Table 1D, or its Table 2D in the Mode 2D (the verdict leaves it to
     # its summary rows: a controller's own schedule, core.judged_uses)
+    # (a Map block's maps, named after its outputs, one input per axis; the
+    # default definition's here: today's engine has no Map block, and the
+    # time past a map's data is said in its own words, _map_outside)
+    ("signal.map", "output_1_map"): Reads(
+        "never: today's engine has no Map block", ((("input_1",), NEVER),)),
     ("signal.lookup", "table"): Reads(
         "at its inputs (held between samples, with a Sample Time over today's step)",
         ((("sig_x_in", "hold.x_out"), SAME), (("sig_y_in", "hold.y_out"), SAME)),

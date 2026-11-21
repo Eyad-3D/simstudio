@@ -76,7 +76,7 @@ impl lsim_ir::eval::Env for PointEnv<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
     }
-    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+    fn table(&self, k: u32, order: &[u8], args: &[f64]) -> f64 {
         interval::table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }
@@ -101,13 +101,13 @@ fn tools(m: &JitModel, n: usize) -> (Vec<Vec<f64>>, Vec<Option<Grid2>>) {
     let mut breaks = vec![];
     let mut grids = vec![];
     for k in 0..n {
-        let [x, y] = m.table_axes(k as u32).expect("the model gives its tables");
-        if y.is_empty() {
-            breaks.push(x);
+        let mut axes = m.table_axes(k as u32).expect("the model gives its tables");
+        if axes.len() == 1 {
+            breaks.push(axes.remove(0));
             grids.push(None);
         } else {
             breaks.push(vec![]);
-            grids.push(Grid2::new(k as u32, &x, &y));
+            grids.push(Grid2::new(k as u32, &axes[0], &axes[1]));
         }
     }
     (breaks, grids)

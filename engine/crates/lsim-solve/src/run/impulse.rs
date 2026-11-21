@@ -149,7 +149,7 @@ impl JetEnv for Store<'_> {
     fn der(&self, v: VarId) -> f64 {
         self.ders.get(&(v.0 as usize)).copied().unwrap_or(f64::NAN)
     }
-    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> Option<(f64, [f64; 2])> {
+    fn table(&self, k: u32, order: &[u8], args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
         table_at(self.model, k, order, args)
     }
 }
@@ -185,7 +185,7 @@ impl JetEnv for EnergyEnv<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
     }
-    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> Option<(f64, [f64; 2])> {
+    fn table(&self, k: u32, order: &[u8], args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
         table_at(self.model, k, order, args)
     }
 }

@@ -163,7 +163,7 @@ fn smooth_enough(res: &lsim_ir::Expr, eq: usize, continuity: &[u32]) -> Result<(
     let mut bad = None;
     res.walk(&mut |x| {
         if let lsim_ir::Expr::Table { table, order, .. } = x {
-            let o = u32::from(order[0]) + u32::from(order[1]);
+            let o: u32 = order.iter().map(|&k| u32::from(k)).sum();
             let c = continuity.get(*table as usize).copied().unwrap_or(0);
             if o > c.saturating_add(1) && bad.is_none() {
                 bad =

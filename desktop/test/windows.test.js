@@ -8,7 +8,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { test } = require("node:test");
 
-const { windowOpenAction, isHelpUrl, paramWindowOptions, onScreen } = require("../src/windows");
+const { windowOpenAction, isHelpUrl, paramWindowOptions, onScreen, viewMenu, PANELS } = require("../src/windows");
 
 // (a Windows checkout has CRLF line ends: the patterns below are written for LF)
 const main = fs.readFileSync(path.join(__dirname, "..", "src", "main.js"), "utf8").replace(/\r\n/g, "\n");
@@ -115,4 +115,33 @@ test("a window remembered on a monitor that has gone comes back onto a screen", 
   assert.deepEqual(onScreen({ x: 5000, y: 0, width: 2500, height: 1300 }, [screenA], screenA), {
     x: 0, y: 0, width: 1920, height: 1040,
   });
+});
+
+test("the View menu lists every panel, the layout and the theme; Reload and the developer tools only from the sources", () => {
+  const calls = [];
+  const call = (script) => calls.push(script);
+  const released = viewMenu({ dev: false, call });
+  const roles = (menu) => menu.filter((i) => i.role).map((i) => i.role);
+  assert.deepEqual(roles(released), ["resetZoom", "zoomIn", "zoomOut", "togglefullscreen"]);
+  assert.deepEqual(roles(viewMenu({ dev: true, call })).slice(-3), ["reload", "forceReload", "toggleDevTools"]);
+  const labels = released.filter((i) => i.label).map((i) => i.label);
+  assert.deepEqual(labels, ["Panels", "Reset Layout", "Light Theme", "Dark Theme"]);
+
+  // every panel of the page, by its tab title, each showing that panel
+  const dock = fs
+    .readFileSync(path.join(__dirname, "..", "..", "frontend", "src", "components", "DockLayout.tsx"), "utf8")
+    .replace(/\r\n/g, "\n");
+  const block = dock.slice(dock.indexOf("const PANELS"), dock.indexOf("};", dock.indexOf("const PANELS")));
+  const pagePanels = [...block.matchAll(/^\s+"?([a-z-]+)"?: \{ title: "([^"]+)"/gm)].map((m) => [m[1], m[2]]);
+  assert.ok(pagePanels.length >= 10);
+  assert.deepEqual(PANELS, pagePanels);
+  const panels = released.find((i) => i.label === "Panels").submenu;
+  assert.deepEqual(panels.map((i) => i.label), pagePanels.map(([, title]) => title));
+  panels.find((i) => i.label === "Problems").click();
+  assert.equal(calls.at(-1), 'window.lightsimShowPanel ? window.lightsimShowPanel("data-checks") : false');
+  released.find((i) => i.label === "Dark Theme").click();
+  assert.equal(calls.at(-1), 'window.lightsimSetTheme ? window.lightsimSetTheme("dark") : false');
+
+  // main.js builds its View menu from it, as packaged or not
+  assert.match(main, /label: "View",[\s\S]{0,200}submenu: windows\.viewMenu\(\{ dev: !app\.isPackaged, call: inWindow \}\)/);
 });

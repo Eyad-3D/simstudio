@@ -56,6 +56,7 @@ import type {
   Table2D,
   TableN,
 } from "../../types";
+import { optionLabel } from "../../notYet";
 
 /** A library table of three or more axes: its grid, with the import. */
 function LibraryTableN({ target, ...props }: Parameters<typeof TableNEditor>[0] & { target: DataTargetRef }) {
@@ -238,9 +239,9 @@ function Table1DEditor({
               className="ss-toolbtn"
               disabled={pairs.length <= 1}
               onClick={deleteRows}
-              title="Delete the selected row(s)"
+              title="Delete the selected rows"
             >
-              <Trash2 size={12} aria-hidden /> Delete row(s)
+              <Trash2 size={12} aria-hidden /> Delete rows
             </button>
             {importer.tools}
             {importTarget?.paramKey === "profile" && (
@@ -466,18 +467,18 @@ function Table2DEditor({
               className="ss-toolbtn"
               disabled={outerKeys.length <= 1}
               onClick={deleteCols}
-              title="Delete the selected column(s)"
+              title="Delete the selected columns"
             >
-              <Trash2 size={12} aria-hidden /> Col(s)
+              <Trash2 size={12} aria-hidden /> Columns
             </button>
             <button
               type="button"
               className="ss-toolbtn"
               disabled={innerKeys.length <= 1}
               onClick={deleteRows}
-              title="Delete the selected row(s)"
+              title="Delete the selected rows"
             >
-              <Trash2 size={12} aria-hidden /> Row(s)
+              <Trash2 size={12} aria-hidden /> Rows
             </button>
             {importer.tools}
           </>
@@ -666,11 +667,14 @@ function ParameterInput({
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         >
-          {(def.options ?? []).map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
+          {(def.options ?? []).map((o) => {
+            const { label, notYet } = optionLabel(def.key, o);
+            return (
+              <option key={o} value={o} disabled={notYet}>
+                {label}
+              </option>
+            );
+          })}
         </select>
       );
     case "number":

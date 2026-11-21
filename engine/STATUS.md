@@ -1275,3 +1275,105 @@ itself).
   step at or after 0.5 s now ends at 0.502 s). The golden comparison: 0
   differences against the record, the worst closure 1.274e-9, 199 of 201
   figures and 984 of 1038 channels inside.
+
+## Tables of any number of axes and the Map block (20 November 2026)
+
+Branch `work/engine-naxis` (from `work/battery-window` ca80f1c, with
+`work/ui-import` 60564bc, the app side, merged), built to
+`docs/spec/tables.md`. The owner's requirement: a table has any number of
+axes, engine to editor, and the Map block runs.
+
+- **One table model for every number of axes.** `TableData` holds a list
+  of axes (breakpoints, outside rule, unit, a name for messages) and the
+  values row-major, the first axis outermost; `ParamValue::Table1D` and
+  `Table2D` (the 1-D and 2-D literals with the default rules) are gone;
+  `Expr::Table`'s order is a list (empty for a value read); the
+  interpolant, the model functions' table calls (`eval_table`,
+  `eval_table_order`, `table_axes`), the guards (`TableGuard::axis` a
+  `u32`), the held reads (a degree per argument, coefficients row-major,
+  nested Horner), the time-outside report and the text form
+  (`x1, x2, x3 …, values = {…}`) all take N axes. The generated code calls
+  `lsim_tabn`/`lsim_tabnd` for three axes or more (arguments and rates in
+  a stack slot), the tape a `TabN` op.
+- **Where one and two axes keep their own arithmetic** (`interp.rs`): the
+  axes a table varies along pick it. One or two keep the power-basis
+  coefficients per cell (Steffen's cubics, the monotone bicubic, linear
+  and bilinear) and the same evaluation, so their numbers are the same to
+  the bit, which the golden record confirms. Three or more are evaluated
+  from the nodes' values and slopes, cell by cell, as the tensor product of
+  the same 1-D rules (multilinear; Hermite cubics with zero cross
+  derivatives, Steffen's slopes along each grid line reduced to Carlson and
+  Fritsch's monotone Bézier-net condition on every row of the net): a per
+  cell table of 4^N coefficients would not fit a fine grid of many axes.
+  For two axes it is the same function as the bicubic. A
+  table of three axes with one point on one of them is the 2-D table, to
+  the bit (tested).
+- **Not extended to three axes or more**: the run's interval enclosures of
+  a table read along a step (a 1-D table's breakpoints, a 2-D table's
+  grid, `Grid2`) and the condition kernels' table op; a condition that
+  reads such a table is interpreted, and if its arguments move it is
+  located by root finding without the pulse check (the path a condition
+  the enclosures do not cover already takes).
+- **The Map block** (`signal.map`): its library entry moved from
+  `awaitingEngine` (now empty) into `components` (37 parts). Each port is
+  typed by its unit group (SI inside, the link converts display numbers as
+  for every typed port, so nothing changes on the wire); each output is
+  its map read at the inputs (`Blocks.Map…`, one table parameter per
+  output named after it: `loss_map`), the per-input `tableOutside.maps`
+  its axes' rules, the inputs' names its axes' names. A library table of
+  any number of axes is read from the stored form by its number of axes
+  (`lsim_lib::table::stored_data`: one and two axes by `Table1`/`Table2`,
+  three or more as a full grid).
+- **Refusals lifted**: `NEW-TABLE-AXES` and `QUICK-TABLE-AXES` are gone
+  from `new_engine.py`, `CODES` and `acceptance.toml` (a `[[changes]]`
+  entry), and the known limit with them. **Quick mode runs a Map block**:
+  fast mode evaluates the same compiled model; its own report of time
+  outside a table had assumed two axes and crashed on a 1-D table's empty
+  axis list in the new layout (found by the test, fixed).
+- **Messages**: an `Error` axis stops the run naming its axis by place and
+  name (`… on its first (Speed) axis …`, unchanged for unnamed axes); the
+  backend says a Map's time past its data in its own words (*'Motor Map'
+  output 'Loss': read past its data on its input 'Speed' for … s*), not as
+  a comparison with today's engine, which had no Map block.
+- **Cache**: `prepared-v14` (what is cached changed shape).
+- **Speed**: the first build was 6.4 % slower on the hybrid's UDDS (20.84 s
+  against 19.59 s, every one of seven runs) for the same steps and
+  events: the table reads made outside the compiled code (interpreted
+  conditions, the pulse check's enclosures, the energy integrands, along
+  every step) got their rates in a new `Vec` each, where two axes had
+  returned an array. They come in `interp::Rates` now, inline for up to
+  four arguments and on the heap past that (a capacity, not a limit), a
+  derivative table's orders in a stack buffer, and the one- and
+  two-axis path reads its arguments without the general lists: 19.63 s
+  against 19.54 s.
+- **Tests**: `lsim-ir/tests/tables_nd.rs` (three and four axes against
+  the multilinear definition computed in the test: inside, on the
+  breakpoints, on and past each edge under each rule, an axis of one
+  point, every rate against a central difference; monotone cubics
+  reproducing a sum of quadratics with their second derivatives, C¹ across
+  cells and monotone where their data are); `lsim-lang` round trip of
+  three- and four-axis tables; `backend/tests/test_table_axes.py`, a Map
+  of three inputs (Speed, SOC, Torque from the BEV's parts) and two
+  outputs into the Monitor, full and quick, its outputs against the
+  trilinear definition at every seventh output point, the time Speed was
+  held past 100 km/h booked and said, and an `error` input stopping the
+  run with the map and the input named; the old refusal tests turned into
+  these.
+- **Golden comparison**: 0 differences against the record (11 347
+  values), steps 3 998 112 and events 308 453 as before, the worst closure
+  1.274e-9, 199 of 201 figures and 984 of 1038 channels inside.
+- **Checks**: `engine/check.sh` passes (632 tests). The backend suite
+  with this module (`LIGHTSIM_REQUIRE_NEW_ENGINE=1`): 2 478 passed, 1
+  failed (the Reference FMUs' version on this PC, as on main's module), 17
+  skipped, 71 expected failures, run before the last two engine edits (the
+  sum of a read's orders in index reduction's smoothness check, a
+  message's wording), after which the Map, flag, docs, generated-copy and
+  table-rule tests (256) and lsim-py's 59 passed again; `ruff check .`
+  clean; the frontend's unit tests 495 passed (its library copy changed).
+  Speed, best of seven in alternating fresh processes against the base's
+  module (the battery-window engine) built the same way: the hybrid's UDDS
+  19.75 s against 19.67 s (medians 20.54 and 20.13 s; the spread 19.7 to
+  20.7 s on both sides), the BEV's WLTC 1.097 s against 1.106 s, the CI
+  performance test's slices 1.000 to 1.014 × (hybrid mixed) and 1.011 to
+  1.071 × (BEV city, 0.09 s against 0.085 to 0.089 s) over the last two
+  measurements.

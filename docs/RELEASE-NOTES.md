@@ -49,8 +49,9 @@ sections.
   name and give units, any number of each. A table of three or more axes,
   and a Map block's tables, are edited two axes at a time with the others
   held at a breakpoint you pick; the parameter sheet holds them as a long
-  list. **This version's engine does not run them yet**: a case with a Map
-  block is refused (`NEW-TABLE-AXES`)
+  list. They run, in a full run and in quick mode: the engine reads a
+  table of any number of axes, straight lines along each axis between its
+  breakpoints and each axis's own rule past its data
   ([Use a Map block](help/how-to/use-a-map-block.md),
   [Tables and the Map block](spec/tables.md)).
 - **Import a table in any layout**, from an Excel, CSV or text file
@@ -1200,6 +1201,25 @@ sections.
   when pyarrow is installed; LightSim does not include pyarrow. (STD-09)
 
 ### Fixed
+
+- The interface's loose ends. An error the engine sends back reads as
+  sentences naming the part and the parameter (it read *[object Object]*).
+  *Problems* and the status bar say when the Data Checks could not run, and
+  why, instead of *0 errors*; the status bar counts warnings too; a row from
+  the latest run says when the model has changed since it. Numbers such as
+  the energy balance error read as numbers (*< 0.001 %*, not
+  *1.27e-7 %*), and counts as words (*1 message*, not *1 message(s)*).
+  Buttons for what this version does not run (*FS events*, *Calibrate
+  lap*, the endurance energy study) are shown but cannot be pressed, and
+  say why; *Bookmarks* is gone. Every panel can be shown again by name, also
+  one you closed: **Home → Panels**, and in the desktop app a real **View**
+  menu (panels, layout, theme, zoom) without Reload and the developer tools.
+  The checks have one name, *Data Checks* (the ribbon's *Checks*). The
+  status bar names the open project and **New project** for what it does.
+  The Results legend reads where each line ended when the pointer is off
+  the chart, and the faint baseline in its channel's own row; a table's
+  plot in a part's window zooms with a dragged box; the Results page's
+  first-use hint goes away with the page.
 
 - Data Checks no longer stop a coast-down or a gear schedule. A Vehicle
   with no wheels, or with wheels and no E-Motor or Engine, is an error only

@@ -41,9 +41,9 @@ const W0: f64 = 40.0; // the load's speed at the start, rad/s
 fn source(jump: bool) -> ComponentDef {
     let profile = TableData {
         interpolation: Interpolation::Linear,
-        outside: [Outside::Clamp, Outside::Clamp],
-        axis_units: ["s".into(), String::new()],
         ..TableData::new_1d(vec![0.0, 1.0, 2.0], vec![0.0, 0.0, TAU])
+            .with_outside(&[Outside::Clamp, Outside::Clamp])
+            .with_units(&["s", ""])
     };
     let tau = if jump {
         Expr::If(
@@ -274,9 +274,9 @@ fn swing() -> ComponentDef {
     use lsim_ir::expr::der;
     let profile = TableData {
         interpolation: Interpolation::Linear,
-        outside: [Outside::Clamp, Outside::Clamp],
-        axis_units: ["s".into(), String::new()],
         ..TableData::new_1d(vec![0.0, T_KINK, T_KINK + 1.0], vec![0.0, 0.0, A_END])
+            .with_outside(&[Outside::Clamp, Outside::Clamp])
+            .with_units(&["s", ""])
     };
     ComponentDef {
         name: "Test.ForcedSwing".into(),

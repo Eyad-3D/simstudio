@@ -57,10 +57,15 @@ impl ModelFunctions for With<'_> {
     fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
         self.m.start(p, y0, d0)
     }
-    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+    fn eval_table(&self, k: u32, args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
         self.m.eval_table(k, args)
     }
-    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+    fn eval_table_order(
+        &self,
+        k: u32,
+        order: &[u8],
+        args: &[f64],
+    ) -> Option<(f64, lsim_ir::interp::Rates)> {
         self.m.eval_table_order(k, order, args)
     }
     fn books_kernel(&self, _: &BooksSpec) -> Option<Arc<dyn BooksKernel>> {
@@ -319,7 +324,7 @@ fn books_are_bitwise_the_interpreters_on_edge_cases() {
     let bin = Expr::bin;
     let call = |f: F, args: Vec<Expr>| Expr::Call(f, args);
     let neg = |e: Expr| Expr::Neg(Box::new(e));
-    let tab = |k: u32, args: Vec<Expr>| Expr::Table { table: k, args, order: [0, 0] };
+    let tab = |k: u32, args: Vec<Expr>| Expr::Table { table: k, args, order: vec![] };
     // (the random model's tables: 1-D, 2-D, 1-D)
     let cases: Vec<Expr> = vec![
         bin(B::Mul, neg(t.clone()), x.clone()),
@@ -353,7 +358,7 @@ fn books_are_bitwise_the_interpreters_on_edge_cases() {
         tab(0, vec![x.clone(), y.clone(), z.clone()]),
         // a table's derivative (from index reduction), as the condition
         // kernels leave it to the interpreter
-        Expr::Table { table: 0, args: vec![x.clone()], order: [1, 0] },
+        Expr::Table { table: 0, args: vec![x.clone()], order: vec![1] },
         // (an extra argument, which the rules do not read)
         call(F::Sin, vec![x.clone(), a.clone()]),
     ];

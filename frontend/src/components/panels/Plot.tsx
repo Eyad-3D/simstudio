@@ -47,6 +47,33 @@ const modeOf = (u: uPlot) => (u as unknown as { mode: 1 | 2 }).mode;
  *  screen px while uPlot draws in CSS px, so they are divided by this. */
 export const scaleOf = (el: HTMLElement) => el.getBoundingClientRect().width / el.offsetWidth || 1;
 
+/** uPlot ends a zoom box on a mouseup on the main window's page (the
+ *  `document` it was loaded with), but a chart in another window (a part's
+ *  parameter window) gets its mouseup on its own page: pass the one mouseup
+ *  that ends this drag on to the main page, so the box zooms in any window. */
+export function endDragOn(page: Document): void {
+  if (page === document) return;
+  page.addEventListener(
+    "mouseup",
+    (m) =>
+      document.dispatchEvent(
+        new MouseEvent("mouseup", {
+          clientX: m.clientX,
+          clientY: m.clientY,
+          screenX: m.screenX,
+          screenY: m.screenY,
+          button: m.button,
+          buttons: m.buttons,
+          shiftKey: m.shiftKey,
+          ctrlKey: m.ctrlKey,
+          altKey: m.altKey,
+          metaKey: m.metaKey,
+        }),
+      ),
+    { once: true },
+  );
+}
+
 /** The lowest and highest value on a scale over all the data. */
 function fullRange(u: uPlot, key: string): [number, number] | null {
   let lo = Infinity;
@@ -184,7 +211,10 @@ function gestures(label: string, onZoom: (u: uPlot, r: Range | null, reset?: boo
           mousedown: (u, targ, handler) => (e) => {
             if (e.button === 0 && e.target === targ) {
               if (e.shiftKey) pan(u, e);
-              else handler(e);
+              else {
+                handler(e);
+                endDragOn(u.root.ownerDocument);
+              }
             }
             return null;
           },

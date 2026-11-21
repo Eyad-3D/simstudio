@@ -62,7 +62,7 @@ test("AI-01: the AI access tab changes what AI tools may do", async ({ page }) =
   await expect(access.getByLabel("Folder to allow")).toHaveValue("");
   await access.getByLabel("Folder to allow").fill(join(projectsFolder, "no-such-folder"));
   await access.getByRole("button", { name: "Add", exact: true }).click();
-  await expect(access.getByText(/^404 No folder/)).toBeVisible();
+  await expect(access.getByText(/^No folder/)).toBeVisible();
 
   // the examples and the run time cap
   await access.getByRole("checkbox", { name: /examples that come with LightSim/ }).uncheck();

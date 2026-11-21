@@ -711,7 +711,7 @@ Parameters:
 
 Category: Driver & Signals. Domain: signal.
 
-A map with your own inputs and outputs: name each input and give it a unit, and it becomes an axis of the map; each output reads its own table over those axes, and all outputs share one grid of breakpoints. Any number of inputs and outputs. Between breakpoints it follows straight lines along each axis; past an axis's data it holds the edge value, unless that input's outside-the-data setting says otherwise. This version's engine does not run it yet: a case with a Map block is refused (NEW-TABLE-AXES).
+A map with your own inputs and outputs: name each input and give it a unit, and it becomes an axis of the map; each output reads its own table over those axes, and all outputs share one grid of breakpoints. Any number of inputs and outputs. Between breakpoints it follows straight lines along each axis; past an axis's data it holds the edge value, unless that input's outside-the-data setting says otherwise.
 
 Ports: none until you add signal ports to the part.
 

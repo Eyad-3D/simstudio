@@ -9,6 +9,7 @@ import { levelIcon } from "./MessagesPanel";
 export function DataChecksPanel() {
   const problems = useProblems();
   const dataChecks = useProjectStore((s) => s.dataChecks);
+  const checksError = useProjectStore((s) => s.checksError);
   const checking = useProjectStore((s) => s.checking);
   const runDataChecks = useProjectStore((s) => s.runDataChecks);
   const project = useProjectStore((s) => s.project);
@@ -37,11 +38,27 @@ export function DataChecksPanel() {
           Run Data Checks
         </button>
         <span className="ml-2 text-[11px] text-[color:var(--ss-text-dim)]">
-          {countOf(errors, "error")}, {countOf(warnings, "warning")}
+          {checksError && !dataChecks
+            ? "Not checked"
+            : `${countOf(errors, "error")}, ${countOf(warnings, "warning")}`}
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {!dataChecks && problems.length === 0 && (
+        {checksError && (
+          <div role="alert" className="flex items-start gap-2 border-b border-[color:var(--ss-td-border)] px-2 py-1.5 text-[12px]">
+            <span className="mt-[2px]">{levelIcon("warning")}</span>
+            <span className="min-w-0 flex-1">
+              The Data Checks could not run: {checksError}
+              <span className="block text-[11px] text-[color:var(--ss-text-dim)]">
+                {dataChecks
+                  ? "The rows below are from the last check that ran. "
+                  : "Nothing has been checked yet, so no problems are listed. "}
+                They run again by themselves after the next change, or press Run Data Checks.
+              </span>
+            </span>
+          </div>
+        )}
+        {!dataChecks && !checksError && problems.length === 0 && (
           <div className="px-3 py-2 text-[12px] text-[color:var(--ss-text-dim)]">
             Not checked yet. The model is checked by itself a moment after it opens or changes (unconnected
             parts, missing signals, parameter ranges, power sources).
@@ -70,10 +87,22 @@ export function DataChecksPanel() {
                       <span className="block text-[11px] text-[color:var(--ss-text-dim)]">How to fix: {p.fix}</span>
                     )}
                   </span>
-                  <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">
-                    {p.source === "check"
-                      ? "Data Checks"
-                      : `Run ${p.source.caseName} · ${new Date(p.source.startedAt).toLocaleTimeString()}`}
+                  <span className="shrink-0 text-right text-[10px] text-[color:var(--ss-text-dim)]">
+                    {p.source === "check" ? (
+                      "Data Checks"
+                    ) : (
+                      <>
+                        Last run: {p.source.caseName} · {new Date(p.source.startedAt).toLocaleTimeString()}
+                        {p.source.changedSince > 0 && (
+                          <span
+                            className="block text-[color:var(--ss-warn)]"
+                            title="The model has changed since this run: the problem may be fixed already. Run again to check."
+                          >
+                            model changed since: run again to check
+                          </span>
+                        )}
+                      </>
+                    )}
                   </span>
                 </button>
               </li>

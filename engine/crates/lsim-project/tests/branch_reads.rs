@@ -88,8 +88,8 @@ fn branch_model() -> (lsim_ir::Library, lsim_ir::ComponentDef) {
     use lsim_ir::table::{Outside, TableData};
     use lsim_lib::x::*;
     let mut data = TableData::new_1d(vec![0.0, 1.0], vec![0.0, 1.0]);
-    data.outside = [Outside::Error, Outside::Error];
-    data.axis_units = ["1".into(), "1".into()];
+    data = data.with_outside(&[Outside::Error, Outside::Error]);
+    data = data.with_units(&["1", "1"]);
     let def = lsim_ir::ComponentDef {
         name: "Test.Branch".into(),
         doc: "a table read in one branch".into(),

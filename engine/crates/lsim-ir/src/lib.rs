@@ -60,5 +60,5 @@ pub use runtime::{
     BooksCover, BooksKernel, BooksPart, BooksSpec, ConditionKernels, DiscreteBlock, Enclosure,
     EvalInput, InitFunctions, Layout, ModelFunctions, RateSource, SparsityPattern, TableGuard,
 };
-pub use table::{FlatTable, Interpolation, Outside, TableData};
+pub use table::{FlatTable, Interpolation, Outside, TableAxis, TableData};
 pub use units::{Dim, Unit, UnitError};

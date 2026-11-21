@@ -198,9 +198,7 @@ fn with_table(mut s: SubDecl, name: &str, data: TableData) -> SubDecl {
 fn data_1d(x: &[f64], y: &[f64], interp: Interpolation, outside: Outside, axis: &str) -> TableData {
     TableData {
         interpolation: interp,
-        outside: [outside, outside],
-        axis_units: [axis.into(), String::new()],
-        ..TableData::new_1d(x.to_vec(), y.to_vec())
+        ..TableData::new_1d(x.to_vec(), y.to_vec()).with_outside(&[outside]).with_units(&[axis])
     }
 }
 
@@ -222,10 +220,7 @@ fn varying_pendulum(two_d: bool) -> ComponentDef {
         params.push(table_param(
             "length",
             "m",
-            TableData {
-                axis_units: ["s".into(), "s".into()],
-                ..TableData::new_2d(vec![0.0, 1.0], vec![0.0, 1.0], vec![1.0; 4])
-            },
+            TableData::new_2d(vec![0.0, 1.0], vec![0.0, 1.0], vec![1.0; 4]).with_units(&["s", "s"]),
         ));
         lsim_ir::expr::table("length", vec![n("a") * Expr::Time, n("b") * Expr::Time + n("c0")])
     } else {
@@ -273,10 +268,8 @@ fn speed_map_gear() -> ComponentDef {
         params: vec![table_param(
             "ratio_map",
             "1",
-            TableData {
-                axis_units: ["rad/s".into(), "s".into()],
-                ..TableData::new_2d(vec![0.0, 1.0], vec![0.0, 1.0], vec![1.0; 4])
-            },
+            TableData::new_2d(vec![0.0, 1.0], vec![0.0, 1.0], vec![1.0; 4])
+                .with_units(&["rad/s", "s"]),
         )],
         vars: vec![var("ratio", "1", "")],
         equations: vec![
@@ -585,12 +578,12 @@ fn a_gear_through_a_2d_map_matches_a_fine_integration() {
     let vals: Vec<f64> =
         ws.iter().flat_map(|&w| ts.iter().map(move |&t| g(w)[0] + h(t)[0])).collect();
     let mut data = TableData::new_2d(ws.to_vec(), ts.to_vec(), vals);
-    data.axis_units = ["rad/s".into(), "s".into()];
-    data.outside = [Outside::Linear, Outside::Linear];
+    data = data.with_units(&["rad/s", "s"]);
+    data = data.with_outside(&[Outside::Linear, Outside::Linear]);
     // the premise: the engine's bicubic is g + h
     let interp = lsim_ir::interp::Table::new(&data).unwrap();
     for (w, t) in [(1.0, 0.1), (7.0, 1.0), (33.0, 2.9)] {
-        assert!((interp.eval([w, t]).0 - g(w)[0] - h(t)[0]).abs() < 1e-13);
+        assert!((interp.eval(&[w, t]).0 - g(w)[0] - h(t)[0]).abs() < 1e-13);
     }
     let top = ComponentDef {
         name: "Test.MapCvt".into(),
@@ -717,11 +710,11 @@ fn a_pendulum_whose_length_follows_a_2d_table_swings_as_the_reference() {
     let vals: Vec<f64> =
         xs.iter().flat_map(|&x| ys.iter().map(move |&y| g(x)[0] + h(y)[0])).collect();
     let mut data = TableData::new_2d(xs.to_vec(), ys.to_vec(), vals);
-    data.axis_units = ["s".into(), "s".into()];
-    data.outside = [Outside::Error, Outside::Linear];
+    data = data.with_units(&["s", "s"]);
+    data = data.with_outside(&[Outside::Error, Outside::Linear]);
     let interp = lsim_ir::interp::Table::new(&data).unwrap();
     for (x, y) in [(0.1, 0.1), (1.0, 1.3), (2.9, 2.4)] {
-        assert!((interp.eval([x, y]).0 - g(x)[0] - h(y)[0]).abs() < 1e-13);
+        assert!((interp.eval(&[x, y]).0 - g(x)[0] - h(y)[0]).abs() < 1e-13);
     }
     let len = |t: f64| {
         let (gx, hy) = (g(a * t), h(b * t + c0));
@@ -881,7 +874,7 @@ fn the_librarys_table_blocks_in_a_constraint() {
     let vals: Vec<f64> =
         grid.iter().flat_map(|&u| grid.iter().map(move |&v| r0 + 0.5 * k * (u + v))).collect();
     let mut map = TableData::new_2d(grid.to_vec(), grid.to_vec(), vals);
-    map.outside = [Outside::Linear, Outside::Linear];
+    map = map.with_outside(&[Outside::Linear, Outside::Linear]);
     let mut top2 = top.clone();
     top2.components.retain(|s| s.name != "lookup");
     top2.components.push(with_table(sub("clock2", &time_table_def(), &[]), "table", clock));

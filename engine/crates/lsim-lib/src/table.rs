@@ -18,6 +18,7 @@
 //! [`Table1::split_steps`] takes the steps out as jumps that the block adds
 //! as `if` terms (events), leaving a continuous table.
 
+use crate::blocks::catalog::AppUnit;
 use crate::x::{ident, n};
 use lsim_ir::component::build::param;
 use lsim_ir::expr::Expr;
@@ -133,6 +134,16 @@ impl Table1 {
         }
     }
 
+    /// The table with every abscissa through `fx` and every value through
+    /// `fy` (to SI from a unit with an offset, as °C; both increasing).
+    pub fn mapped(&self, fx: impl Fn(f64) -> f64, fy: impl Fn(f64) -> f64) -> Table1 {
+        Table1 {
+            x: self.x.iter().map(|&v| fx(v)).collect(),
+            y: self.y.iter().map(|&v| fy(v)).collect(),
+            outside: self.outside,
+        }
+    }
+
     /// Its value at x: today's `interp1` exactly.
     pub fn eval(&self, x: f64) -> f64 {
         let (xs, ys, k) = (&self.x, &self.y, self.x.len());
@@ -208,9 +219,7 @@ impl Table1 {
         };
         let d = TableData {
             interpolation: Interpolation::Linear,
-            outside: [outside, Outside::Clamp],
-            axis_units: [x_unit.to_string(), String::new()],
-            ..TableData::new_1d(x, y)
+            ..TableData::new_1d(x, y).with_outside(&[outside]).with_units(&[x_unit])
         };
         d.check()?;
         Ok(d)
@@ -315,6 +324,21 @@ impl Table2 {
         }
     }
 
+    /// The table with its outer, inner and values through `fo`, `fi`, `fv`
+    /// ([`Table1::mapped`]).
+    pub fn mapped(
+        &self,
+        fo: impl Fn(f64) -> f64,
+        fi: impl Fn(f64) -> f64 + Copy,
+        fv: impl Fn(f64) -> f64 + Copy,
+    ) -> Table2 {
+        Table2 {
+            outer: self.outer.iter().map(|&v| fo(v)).collect(),
+            sheets: self.sheets.iter().map(|s| s.mapped(fi, fv)).collect(),
+            outer_outside: self.outer_outside,
+        }
+    }
+
     /// Its value: today's `interp2` exactly.
     pub fn eval(&self, xo: f64, xi: f64) -> f64 {
         let k = self.outer.len();
@@ -412,9 +436,9 @@ impl Table2 {
         }
         let d = TableData {
             interpolation: Interpolation::Linear,
-            outside: [outer_outside, inner_outside],
-            axis_units: [units[0].to_string(), units[1].to_string()],
             ..TableData::new_2d(outer, inner, values)
+                .with_outside(&[outer_outside, inner_outside])
+                .with_units(&units)
         };
         d.check()?;
         Ok(d)
@@ -432,6 +456,132 @@ impl Table2 {
             rows.iter().map(|s| *s.x.last().unwrap()).fold(f64::INFINITY, f64::min),
         ))
     }
+}
+
+/// One axis of a table in its stored form: its name, its unit and its
+/// outside rule.
+#[derive(Clone, Debug)]
+pub struct StoredAxis {
+    /// what it is (for messages)
+    pub name: String,
+    /// the unit its breakpoints are stored in
+    pub unit: AppUnit,
+    /// past its data
+    pub outside: Outside,
+}
+
+/// A table of any number of axes from its stored form
+/// (`docs/spec/tables.md`): a nested object, one level per axis in the
+/// order of `axes`, its keys the breakpoints as text, the values at the
+/// last level, numbers in `value`'s unit; as runtime data in SI,
+/// interpolated linearly. One axis and two are read as they always have
+/// been ([`Table1`], [`Table2`]: a two-axis table may leave a point out,
+/// each first-axis breakpoint's object read as a 1-D table of its own); a
+/// table of three or more axes is a full grid, every object at one level
+/// with the same breakpoints. An axis of one breakpoint is constant: never
+/// outside its data.
+pub fn stored_data(v: &Value, axes: &[StoredAxis], value: AppUnit) -> Result<TableData, String> {
+    let (si, fv) = (|a: &StoredAxis| a.unit.si, |x: f64| value.to_si(x));
+    let mut d = match axes {
+        [] => return Err("a table has one axis at least".into()),
+        [a] => Table1::from_json(v, a.outside)?.mapped(|x| a.unit.to_si(x), fv).data(si(a))?,
+        [a, b] => Table2::from_json(v, a.outside, b.outside)?
+            .mapped(|x| a.unit.to_si(x), |x| b.unit.to_si(x), fv)
+            .grid_data([si(a), si(b)])?,
+        _ => {
+            let (points, values) = full_grid(v, axes.len())?;
+            let d = TableData {
+                interpolation: Interpolation::Linear,
+                ..TableData::new(
+                    points
+                        .iter()
+                        .zip(axes)
+                        .map(|(p, a)| p.iter().map(|&x| a.unit.to_si(x)).collect())
+                        .collect(),
+                    values.into_iter().map(fv).collect(),
+                )
+            };
+            let outside: Vec<Outside> = axes.iter().map(|a| a.outside).collect();
+            let units: Vec<&str> = axes.iter().map(si).collect();
+            d.with_outside(&outside).with_units(&units)
+        }
+    };
+    for (ax, a) in d.axes.iter_mut().zip(axes) {
+        ax.name = a.name.clone();
+    }
+    d.check()?;
+    Ok(d)
+}
+
+/// A full grid of `n` axes from its stored form: each axis's breakpoints,
+/// increasing, and the values row-major (the first axis outermost), as
+/// stored (not converted).
+pub fn full_grid(v: &Value, n: usize) -> Result<(Vec<Vec<f64>>, Vec<f64>), String> {
+    // the breakpoints: those along the first object of each level
+    let mut axes: Vec<Vec<f64>> = vec![];
+    let mut at = v;
+    for k in 0..n {
+        let pts = grid_level(at, k, n)?;
+        axes.push(pts.iter().map(|p| p.0).collect());
+        at = pts[0].1;
+    }
+    let mut values = Vec::with_capacity(axes.iter().map(Vec::len).product());
+    grid_fill(v, 0, &axes, &mut values)?;
+    Ok((axes, values))
+}
+
+/// One level of a stored grid (axis `k` of `count`): its breakpoints,
+/// increasing, with what each holds.
+fn grid_level(v: &Value, k: usize, count: usize) -> Result<Vec<(f64, &Value)>, String> {
+    let which = lsim_ir::table::axis_name(k, count);
+    let obj = v.as_object().ok_or_else(|| {
+        format!("the table is not nested one level per axis: {which} holds no object here")
+    })?;
+    if obj.is_empty() {
+        return Err(format!("{which} has no breakpoint here (an empty object)"));
+    }
+    let mut pts = vec![];
+    for (key, child) in obj {
+        let x: f64 = key
+            .trim()
+            .parse()
+            .ok()
+            .filter(|x: &f64| x.is_finite())
+            .ok_or_else(|| format!("the breakpoint '{key}' of {which} is not a number"))?;
+        pts.push((x, child));
+    }
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    if let Some(w) = pts.windows(2).find(|w| w[0].0 == w[1].0) {
+        return Err(format!("{which} has the breakpoint {} twice", w[0].0));
+    }
+    Ok(pts)
+}
+
+/// The values below `v` (axis `k` on), row-major, into `out`: every
+/// object at a level with that axis's breakpoints.
+fn grid_fill(v: &Value, k: usize, axes: &[Vec<f64>], out: &mut Vec<f64>) -> Result<(), String> {
+    let pts = grid_level(v, k, axes.len())?;
+    let here: Vec<f64> = pts.iter().map(|p| p.0).collect();
+    if here != axes[k] {
+        let show = |p: &[f64]| p.iter().map(|x| format!("{x}")).collect::<Vec<_>>().join(", ");
+        return Err(format!(
+            "the table is not a full grid: {} has the breakpoints {} here but {} elsewhere",
+            lsim_ir::table::axis_name(k, axes.len()),
+            show(&here),
+            show(&axes[k])
+        ));
+    }
+    for (x, child) in pts {
+        if k + 1 == axes.len() {
+            let y = num(child)
+                .filter(|y| y.is_finite())
+                .ok_or_else(|| format!("the value at {x} is not a number"))?;
+            out.push(y);
+        } else {
+            grid_fill(child, k + 1, axes, out)?;
+        }
+    }
+    Ok(())
 }
 
 /// Parameters of value 1 that give a bare number a unit (`0 W` is written
@@ -510,7 +660,10 @@ mod tests {
         assert_eq!(p.outer, vec![1000.0, 16000.0]);
         assert_eq!(p.sheets[0].x, vec![-300.0, 0.0, 300.0]);
         let d = p.grid_data(["rad/s", "N.m"]).unwrap();
-        assert_eq!((d.x[0], d.y[0], d.outside[0]), (1000.0, -300.0, Outside::Error));
+        assert_eq!(
+            (d.points(0)[0], d.points(1)[0], d.outside(0)),
+            (1000.0, -300.0, Outside::Error)
+        );
     }
 
     #[test]
@@ -518,7 +671,7 @@ mod tests {
         let t = Table1::from_points(vec![(0.0, 0.3)], Outside::Error);
         let d = t.padded(Some(0.0), None).data("rad/s").unwrap();
         assert_eq!(
-            (d.x, d.values, d.outside[0]),
+            (d.points(0).to_vec(), d.values.clone(), d.outside(0)),
             (vec![-1.0, 0.0, 1.0], vec![0.3; 3], Outside::Clamp)
         );
         // a 2-D table with one sheet, and with sheets of one point each
@@ -527,7 +680,7 @@ mod tests {
             Table2 { outer: vec![5.0], sheets: vec![one(1.0, 2.0)], outer_outside: Outside::Error };
         let d = t.grid_data(["1", "1"]).unwrap();
         assert_eq!(
-            (d.x, d.y.clone(), d.outside),
+            (d.points(0).to_vec(), d.points(1).to_vec(), [d.outside(0), d.outside(1)]),
             (vec![4.0, 5.0, 6.0], vec![0.0, 1.0, 2.0], [Outside::Clamp; 2])
         );
         assert_eq!(d.values, vec![2.0; 9]);
@@ -537,7 +690,10 @@ mod tests {
             outer_outside: Outside::Error,
         };
         let d = t.grid_data(["1", "1"]).unwrap();
-        assert_eq!((d.y, d.outside), (vec![0.0, 1.0, 3.0, 4.0], [Outside::Error, Outside::Clamp]));
+        assert_eq!(
+            (d.points(1).to_vec(), [d.outside(0), d.outside(1)]),
+            (vec![0.0, 1.0, 3.0, 4.0], [Outside::Error, Outside::Clamp])
+        );
         assert_eq!(d.values, vec![2.0, 2.0, 2.0, 2.0, 4.0, 4.0, 4.0, 4.0]);
     }
 
@@ -585,16 +741,18 @@ mod tests {
         for (o, i) in [(Outside::Clamp, Outside::Clamp), (Outside::Linear, Outside::Linear)] {
             let t = Table2::from_json(&json, o, i).unwrap();
             let d = t.grid_data(["rad/s", "N.m"]).unwrap();
-            assert_eq!(d.y, vec![0.0, 100.0, 120.0, 200.0, 350.0]);
+            assert_eq!(d.points(1), &[0.0, 100.0, 120.0, 200.0, 350.0]);
             assert_eq!(d.interpolation, Interpolation::Linear);
-            let ny = d.y.len();
+            let ny = d.points(1).len();
             for xo in [-500.0, 0.0, 1500.0, 3000.0, 4500.0, 6000.0, 7000.0] {
                 for xi in [-10.0, 0.0, 50.0, 110.0, 120.0, 300.0, 400.0] {
                     // bilinear on the grid: inner first on every row, then outer
-                    let rows: Vec<f64> = (0..d.x.len())
-                        .map(|r| lin(&d.y, &d.values[r * ny..(r + 1) * ny], xi, d.outside[1]))
+                    let rows: Vec<f64> = (0..d.points(0).len())
+                        .map(|r| {
+                            lin(d.points(1), &d.values[r * ny..(r + 1) * ny], xi, d.outside(1))
+                        })
                         .collect();
-                    let v = lin(&d.x, &rows, xo, d.outside[0]);
+                    let v = lin(d.points(0), &rows, xo, d.outside(0));
                     assert!(
                         (v - t.eval(xo, xi)).abs() < 1e-9,
                         "{o:?} at ({xo}, {xi}): {v} vs {}",

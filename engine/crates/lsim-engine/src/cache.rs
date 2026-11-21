@@ -47,8 +47,10 @@ use std::path::{Path, PathBuf};
 /// read on the explicit form too), and `HeldRead::explicit` is gone. v12:
 /// a 2-D read that jumps is one the releases weigh (`HeldRead::jumps`).
 /// v13: the dummy derivatives are listed
-/// (`PreparedModel::dummy_derivatives`, no default).
-const FORMAT: &str = "prepared-v13";
+/// (`PreparedModel::dummy_derivatives`, no default). v14: tables of any
+/// number of axes (`TableData::axes`, `Expr::Table`'s order a list, a held
+/// read's degree one per argument), and no `ParamValue::Table1D`/`Table2D`.
+const FORMAT: &str = "prepared-v14";
 
 /// The digest of the code that prepares a model (`build.rs`).
 const PREPARATION: &str = env!("LSIM_PREPARATION_DIGEST");

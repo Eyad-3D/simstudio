@@ -133,7 +133,7 @@ fn set(
 ) -> Result<(), SolveError> {
     let h = &info.held[k];
     let dims = h.axes.len();
-    let read = |o: [u8; 2], x: [f64; 2]| -> Result<f64, SolveError> {
+    let read = |o: &[u8], x: &[f64]| -> Result<f64, SolveError> {
         crate::info::table_at(model, h.table, o, &x[..dims]).map(|(v, _)| v).ok_or_else(|| {
             SolveError::Integrator {
                 t,
@@ -149,14 +149,14 @@ fn set(
     // (`width` wide there): nothing of a higher degree (a table given cubic
     // data after the model was built for linear ones would be read wrong:
     // such a model must be built again)
-    let degree_holds = |at: [f64; 2], width: [f64; 2]| -> Result<(), SolveError> {
+    let degree_holds = |at: &[f64], width: &[f64]| -> Result<(), SolveError> {
         for j in 0..dims {
-            let mut o = h.order;
+            let mut o = h.order.clone();
             o[j] = o[j].saturating_add(h.degree[j] + 1);
-            let mut x = at;
+            let mut x = at.to_vec();
             for frac in [0.0, 0.25] {
                 x[j] = at[j] + frac * width[j];
-                if read(o, x)? != 0.0 {
+                if read(&o, &x)? != 0.0 {
                     return Err(rebuild(t, h, "interpolates its data with a higher degree"));
                 }
             }
@@ -164,8 +164,8 @@ fn set(
         Ok(())
     };
     let Some(e) = h.edges else {
-        let mut at = [0.0; 2];
-        let mut width = [0.0; 2];
+        let mut at = vec![0.0; dims];
+        let mut width = vec![0.0; dims];
         for (j, ax) in h.axes.iter().enumerate() {
             let p = info.table_points(h.table, j);
             let (lo, hi) = edges(p, cells[j], merged(model, h.table, j));
@@ -176,15 +176,29 @@ fn set(
             d[ax.lo] = lo;
             d[ax.hi] = hi;
         }
-        let w = usize::from(h.degree[1]) + 1;
-        for i in 0..=h.degree[0] {
-            for j in 0..=h.degree[1] {
-                let o = [h.order[0].saturating_add(i), h.order[1].saturating_add(j)];
-                let c = read(o, at)? / (factorial(i) * factorial(j));
-                d[h.coef[usize::from(i) * w + usize::from(j)]] = c;
+        // the Taylor coefficients at `at`, row-major over the arguments
+        // (two: `i` outer, `j` inner, divided by `i! j!`)
+        let count: usize = h.degree.iter().map(|&g| usize::from(g) + 1).product();
+        let mut o = h.order.clone();
+        for flat in 0..count {
+            let mut rest = flat;
+            let mut powers = vec![0u8; dims];
+            for (k, pk) in powers.iter_mut().enumerate().rev() {
+                let w = usize::from(h.degree[k]) + 1;
+                *pk = (rest % w) as u8;
+                rest /= w;
             }
+            for k in 0..dims {
+                o[k] = h.order[k].saturating_add(powers[k]);
+            }
+            let f: f64 = if dims == 2 {
+                factorial(powers[0]) * factorial(powers[1])
+            } else {
+                powers.iter().map(|&p| factorial(p)).product()
+            };
+            d[h.coef[flat]] = read(&o, &at)? / f;
         }
-        return degree_holds(at, width);
+        return degree_holds(&at, &width);
     };
     // held at the data's edges only (one argument): between them the table
     // itself, which must be smooth enough there for the read
@@ -210,13 +224,13 @@ fn set(
         d[ax.anchor] = first;
         d[e.anchor_end] = last;
         for i in 0..=h.degree[0] {
-            let o = [h.order[0].saturating_add(i), 0];
+            let o = [h.order[0].saturating_add(i)];
             let f = factorial(i);
-            d[h.coef[usize::from(i)]] = read(o, [first, 0.0])? / f;
-            d[h.coef[w + usize::from(i)]] = read(o, [last, 0.0])? / f;
+            d[h.coef[usize::from(i)]] = read(&o, &[first])? / f;
+            d[h.coef[w + usize::from(i)]] = read(&o, &[last])? / f;
         }
-        degree_holds([first, 0.0], [p[1] - p[0], 0.0])?;
-        return degree_holds([last, 0.0], [p[n - 1] - p[n - 2], 0.0]);
+        degree_holds(&[first], &[p[1] - p[0]])?;
+        return degree_holds(&[last], &[p[n - 1] - p[n - 2]]);
     }
     // outside: the table read at the edge, plus its held value there less
     // that (the table must be constant there: held at its edges)
@@ -224,17 +238,17 @@ fn set(
     let out = anchor(p, if c == 0 { 0 } else { n });
     d[e.from] = edge;
     d[e.to] = edge;
-    d[e.offset] = read(h.order, [out, 0.0])? - read(h.order, [edge, 0.0])?;
+    d[e.offset] = read(&h.order, &[out])? - read(&h.order, &[edge])?;
     d[ax.anchor] = out;
     d[e.anchor_end] = out;
     for &v in &h.coef {
         d[v] = 0.0;
     }
-    let mut o = h.order;
+    let mut o = h.order.clone();
     o[0] = o[0].saturating_add(1);
     let side = if c == 0 { -1.0 } else { 1.0 };
     for x in [out, out + side * 0.25 * (p[1] - p[0]).abs()] {
-        if read(o, [x, 0.0])? != 0.0 {
+        if read(&o, &[x])? != 0.0 {
             return Err(rebuild(t, h, "is not held at its edges, as it was"));
         }
     }
@@ -255,16 +269,16 @@ pub(crate) fn place(
     g: &[f64],
     t: f64,
     d: &mut [f64],
-    frozen: &[[bool; 2]],
-) -> Result<Vec<(usize, [bool; 2])>, SolveError> {
+    frozen: &[Vec<bool>],
+) -> Result<Vec<(usize, Vec<bool>)>, SolveError> {
     let mut moved = vec![];
     for (k, h) in info.held.iter().enumerate() {
         // (released: the table itself, its edges open)
         if d[h.released] > 0.5 {
             continue;
         }
-        let mut cells = [0usize; 2];
-        let mut change = [false; 2];
+        let mut cells = vec![0usize; h.axes.len()];
+        let mut change = vec![false; h.axes.len()];
         for (j, ax) in h.axes.iter().enumerate() {
             let (gb, ga) = (g[ax.below], g[ax.above]);
             let now = d[ax.cell];
@@ -282,7 +296,7 @@ pub(crate) fn place(
                 });
             }
             cells[j] = now as usize;
-            let frozen = frozen.get(k).is_some_and(|f| f[j]);
+            let frozen = frozen.get(k).is_some_and(|f| f.get(j).copied().unwrap_or(false));
             if unset || (!frozen && (gb < 0.0 || ga < 0.0)) {
                 // the argument, from its edge functions (a finite edge)
                 let (lo, hi) = (d[ax.lo], d[ax.hi]);
@@ -301,7 +315,7 @@ pub(crate) fn place(
             }
         }
         if change.iter().any(|c| *c) {
-            set(model, info, k, &cells[..h.axes.len()], t, d)?;
+            set(model, info, k, &cells, t, d)?;
             moved.push((k, change));
         }
     }
@@ -417,7 +431,7 @@ pub(crate) fn continuous_to(
             return Ok(false);
         }
         let read = |o: u8, x: f64| -> Result<f64, SolveError> {
-            crate::info::table_at(model, h.table, [o, 0], &[x]).map(|(v, _)| v).ok_or_else(|| {
+            crate::info::table_at(model, h.table, &[o], &[x]).map(|(v, _)| v).ok_or_else(|| {
                 SolveError::Integrator {
                     t,
                     message: format!(
@@ -534,12 +548,16 @@ pub(crate) fn at_breakpoint(
             if (x - p[i]).abs() > 1e-6 * width.abs() {
                 continue;
             }
-            let what = match (r.order, r.args.len()) {
-                ([0, 0], _) => "its value".to_string(),
-                ([1, 0], 1) => "its first derivative".to_string(),
-                ([2, 0], 1) => "its second derivative".to_string(),
-                ([k, 0], 1) => format!("its derivative of order {k}"),
-                ([a, b], _) => format!("its derivative of order ({a}, {b})"),
+            let what = match (r.order.as_slice(), r.args.len()) {
+                (o, _) if o.iter().all(|&x| x == 0) => "its value".to_string(),
+                ([1, ..], 1) => "its first derivative".to_string(),
+                ([2, ..], 1) => "its second derivative".to_string(),
+                ([k, ..], 1) => format!("its derivative of order {k}"),
+                (o, n) => {
+                    let parts: Vec<String> =
+                        (0..n).map(|k| o.get(k).copied().unwrap_or(0).to_string()).collect();
+                    format!("its derivative of order ({})", parts.join(", "))
+                }
             };
             let arg = match a {
                 lsim_ir::Expr::Var(v) => info

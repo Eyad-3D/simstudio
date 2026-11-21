@@ -111,10 +111,10 @@ fn one_dimensional_tables_are_c1_and_monotone_on_every_interval() {
             data.interpolation = Interpolation::Linear;
         }
         let outside = [Outside::Clamp, Outside::Linear, Outside::Error][case % 3];
-        data.outside = [outside, outside];
+        data = data.with_outside(&[outside, outside]);
         let t = Table::new(&data).expect("a table");
         let s = scale_1d(&x, &f);
-        let at = |x: f64| t.eval([x, 0.0]);
+        let at = |x: f64| t.eval(&[x]);
         let what = |i: usize| format!("case {case}, {data:?}, at breakpoint {i}");
         // the data, and continuity across every breakpoint
         for i in 0..n {
@@ -221,13 +221,13 @@ fn two_dimensional_tables_are_c1_and_monotone_where_their_data_are() {
             data.interpolation = Interpolation::Linear;
         }
         let outside = [Outside::Clamp, Outside::Linear, Outside::Error][case % 3];
-        data.outside = [outside, outside];
+        data = data.with_outside(&[outside, outside]);
         let t = Table::new(&data).expect("a table");
         let fv = f.iter().fold(0.0f64, |m, a| m.max(a.abs())).max(f64::MIN_POSITIVE);
         let hmin =
             x.windows(2).chain(y.windows(2)).map(|w| w[1] - w[0]).fold(f64::INFINITY, f64::min);
         let fd = 2.0 * fv / hmin;
-        let at = |a: f64, b: f64| t.eval([a, b]);
+        let at = |a: f64, b: f64| t.eval(&[a, b]);
         let what = format!("case {case}, {data:?}");
         // the data
         for i in 0..nx {

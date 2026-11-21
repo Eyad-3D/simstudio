@@ -40,6 +40,12 @@ declare global {
     lightsimOpenFile?: () => Promise<boolean>;
     /** called by the shell: File → Save As… */
     lightsimSaveAs?: () => Promise<boolean>;
+    /** called by the shell: View → Panels → a panel (also one that was closed) */
+    lightsimShowPanel?: (id: string) => boolean;
+    /** called by the shell: View → Reset Layout */
+    lightsimResetLayout?: () => boolean;
+    /** called by the shell: View → Light Theme / Dark Theme */
+    lightsimSetTheme?: (theme: "light" | "dark") => boolean;
   }
 }
 

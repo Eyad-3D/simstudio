@@ -2088,8 +2088,8 @@ fn a_mode_whose_own_value_moves_its_condition_across_stops_the_run_there() {
 fn at_the_edge(e: f64) -> ComponentDef {
     use lsim_ir::table::{Outside, TableData};
     let mut data = TableData::new_1d(vec![0.0, 1.0], vec![0.0, 1.0]);
-    data.outside = [Outside::Error, Outside::Error];
-    data.axis_units = ["1".into(), "1".into()];
+    data = data.with_outside(&[Outside::Error, Outside::Error]);
+    data = data.with_units(&["1", "1"]);
     ComponentDef {
         name: "Test.AtTheEdge".into(),
         params: vec![

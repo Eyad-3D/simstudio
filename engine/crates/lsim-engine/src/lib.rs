@@ -450,7 +450,7 @@ impl Env for RunPoint<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.p[p.0 as usize]
     }
-    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+    fn table(&self, k: u32, order: &[u8], args: &[f64]) -> f64 {
         lsim_ir::interval::table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }

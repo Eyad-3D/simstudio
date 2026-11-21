@@ -340,14 +340,14 @@ impl<'a> Flattener<'a> {
                 match args.first() {
                     Some(Expr::Param(p)) => match self.table_of.get(p) {
                         Some(&k) => {
-                            Expr::Table { table: k, args: args[1..].to_vec(), order: *order }
+                            Expr::Table { table: k, args: args[1..].to_vec(), order: order.clone() }
                         }
                         None => {
                             not_tables.push(self.flat.params[p.0 as usize].name.clone());
                             Expr::Const(f64::NAN)
                         }
                     },
-                    _ => Expr::Table { table: *table, args, order: *order },
+                    _ => Expr::Table { table: *table, args, order: order.clone() },
                 }
             }
             leaf => leaf.clone(),
@@ -1310,11 +1310,9 @@ mod tests {
             doc: String::new(),
         };
         let ocv = ParamDecl {
-            default: ParamValue::Table1D {
-                x: vec![0.0, 1.0],
-                y: vec![3.0, 4.0],
-                axis_unit: "1".into(),
-            },
+            default: ParamValue::Table(
+                TableData::new_1d(vec![0.0, 1.0], vec![3.0, 4.0]).with_units(&["1"]),
+            ),
             ..param("ocv", "V", 0.0, "")
         };
         let m = ParamDecl {
@@ -1344,12 +1342,10 @@ mod tests {
         };
         lib.add(cell);
         let pack_table = ParamDecl {
-            default: ParamValue::Table2D {
-                x1: vec![0.0, 1.0],
-                x2: vec![0.0, 1.0],
-                values: vec![3.0, 3.1, 4.0, 4.1],
-                axis_units: ["1".into(), "1".into()],
-            },
+            default: ParamValue::Table(
+                TableData::new_2d(vec![0.0, 1.0], vec![0.0, 1.0], vec![3.0, 3.1, 4.0, 4.1])
+                    .with_units(&["1", "1"]),
+            ),
             ..param("ocv_pack", "V", 0.0, "")
         };
         let top = ComponentDef {
@@ -1366,11 +1362,10 @@ mod tests {
                 SubDecl {
                     modifiers: vec![Modifier {
                         param: "ocv".into(),
-                        value: ParamValue::Table1D {
-                            x: vec![0.0, 0.5, 1.0],
-                            y: vec![3.0, 3.5, 4.2],
-                            axis_unit: "1".into(),
-                        },
+                        value: ParamValue::Table(
+                            TableData::new_1d(vec![0.0, 0.5, 1.0], vec![3.0, 3.5, 4.2])
+                                .with_units(&["1"]),
+                        ),
                     }],
                     ..sub("b", "Cell", &[])
                 },
@@ -1381,7 +1376,7 @@ mod tests {
         // the pack's own table, then each cell's
         let names: Vec<&str> = flat.tables.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, ["ocv_pack", "a.ocv", "b.ocv"]);
-        assert_eq!(flat.tables[2].data.x, vec![0.0, 0.5, 1.0]);
+        assert_eq!(flat.tables[2].data.points(0), vec![0.0, 0.5, 1.0]);
         let a_v = flat.find_var("a.v").unwrap();
         let read = flat.equations.iter().find(|e| e.lhs == Expr::Var(a_v)).unwrap();
         assert!(

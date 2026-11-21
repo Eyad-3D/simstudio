@@ -2252,14 +2252,14 @@ impl ModelFunctions for WithTable {
     fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
         self.0.start(p, y0, d0)
     }
-    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+    fn eval_table(&self, k: u32, args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
         (k == 0).then(|| {
             let (v, d) = (self.1)(args[0]);
-            (v, [d, 0.0])
+            (v, vec![d].into())
         })
     }
-    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
-        (k == 0).then(|| [self.2.clone(), vec![]])
+    fn table_axes(&self, k: u32) -> Option<Vec<Vec<f64>>> {
+        (k == 0).then(|| vec![self.2.clone()])
     }
 }
 
@@ -2281,7 +2281,7 @@ fn a_model_that_does_not_give_the_tables_its_books_read_does_not_start() {
         y0: vec![0.0],
         d0: vec![],
     };
-    let table = Expr::Table { table: 0, args: vec![Expr::Var(VarId(0))], order: [0, 0] };
+    let table = Expr::Table { table: 0, args: vec![Expr::Var(VarId(0))], order: vec![] };
     let mut info = RunInfo::bare(1, 1, vec![]);
     info.var_sources = vec![VarSource::Y(0)];
     info.table_names = vec!["k.efficiency".into()];
@@ -2309,13 +2309,13 @@ fn a_model_that_does_not_give_the_tables_its_books_read_does_not_start() {
     let mut cond = info.clone();
     cond.time_functions = vec![Some(TimeFunction::Mixed {
         chain: vec![],
-        g: Expr::Table { table: 0, args: vec![Expr::Time], order: [0, 0] } - Expr::Var(VarId(0)),
+        g: Expr::Table { table: 0, args: vec![Expr::Time], order: vec![] } - Expr::Var(VarId(0)),
     })];
     let e = simulate(&model(), &cond, &opts, grid, &mut []).unwrap_err().to_string();
     assert!(e.contains("'k.efficiency'") && e.contains("function of time"), "{e}");
     // a time event's instant
     let mut timed = info.clone();
-    let at = Expr::Table { table: 0, args: vec![Expr::Const(1.0)], order: [0, 0] };
+    let at = Expr::Table { table: 0, args: vec![Expr::Const(1.0)], order: vec![] };
     timed.time_crossings = vec![Some(TimeCrossing { at, rising: true })];
     let e = simulate(&model(), &timed, &opts, grid, &mut []).unwrap_err().to_string();
     assert!(e.contains("'k.efficiency'") && e.contains("time event"), "{e}");
@@ -2358,7 +2358,7 @@ fn a_model_that_does_not_give_the_tables_its_books_read_does_not_start() {
     // a model that gives its tables but not their partial derivatives
     // (`eval_table_order` left at its default) while the books read a
     // derivative index reduction wrote: the run does not start either
-    let slope = Expr::Table { table: 0, args: vec![Expr::Var(VarId(0))], order: [1, 0] };
+    let slope = Expr::Table { table: 0, args: vec![Expr::Var(VarId(0))], order: vec![1] };
     let given = || WithTable(model(), |x| (2.0 * x, 2.0), vec![0.0, 10.0]);
     let mut books = books.clone();
     books.energy = Some(Arc::new(EnergyInfo {
@@ -2448,7 +2448,7 @@ fn a_double_crossing_of_a_driving_cycle_condition_within_a_step_is_found() {
     }];
     info.time_functions = vec![Some(TimeFunction::Mixed {
         chain: vec![],
-        g: Expr::Table { table: 0, args: vec![Expr::Time], order: [0, 0] } - Expr::Var(VarId(0)),
+        g: Expr::Table { table: 0, args: vec![Expr::Time], order: vec![] } - Expr::Var(VarId(0)),
     })];
     for backend in backends() {
         let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
@@ -2513,11 +2513,14 @@ impl ModelFunctions for WithTable2 {
     fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
         self.0.start(p, y0, d0)
     }
-    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
-        (k == 0).then(|| (self.1)(args[0], args[1]))
+    fn eval_table(&self, k: u32, args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
+        (k == 0).then(|| {
+            let (v, d) = (self.1)(args[0], args[1]);
+            (v, d.to_vec().into())
+        })
     }
-    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
-        (k == 0).then(|| self.2.clone())
+    fn table_axes(&self, k: u32) -> Option<Vec<Vec<f64>>> {
+        (k == 0).then(|| self.2.to_vec())
     }
 }
 
@@ -2573,10 +2576,10 @@ fn a_double_crossing_through_a_2d_table_within_a_step_is_found() {
     info.when_strict = vec![true];
     info.time_crossings = vec![None];
     info.table_breaks = vec![vec![]];
-    info.table_axes = vec![[vec![0.0, 50.0, 100.0], vec![0.0, 50.0, 100.0]]];
+    info.table_axes = vec![vec![vec![0.0, 50.0, 100.0], vec![0.0, 50.0, 100.0]]];
     info.time_functions = vec![Some(TimeFunction::Mixed {
         chain: vec![],
-        g: Expr::Table { table: 0, args: vec![Expr::Time, Expr::Var(VarId(0))], order: [0, 0] },
+        g: Expr::Table { table: 0, args: vec![Expr::Time, Expr::Var(VarId(0))], order: vec![] },
     })];
     for backend in backends() {
         let opts = SolverOptions { backend, rtol: 1e-8, atol: 1e-8, ..Default::default() };
@@ -2755,7 +2758,7 @@ fn a_pure_condition_on_a_linear_table_fires_once() {
     whens(&mut info, &[(0, Direction::Rising, "'Trigger': table(time) > 0.5")]);
     info.when_strict = vec![true];
     info.time_crossings = vec![None];
-    let g = Expr::Table { table: 0, args: vec![Expr::Time], order: [0, 0] } - Expr::Const(0.5);
+    let g = Expr::Table { table: 0, args: vec![Expr::Time], order: vec![] } - Expr::Const(0.5);
     info.time_functions = vec![Some(TimeFunction::Pure(g))];
     info.table_breaks = vec![vec![0.0, 50.0, 50.1, 50.2, 100.0]];
     let opts = SolverOptions { rtol: 1e-8, atol: 1e-8, ..Default::default() };
@@ -3780,7 +3783,7 @@ impl Integrator for Stops<'_> {
 
 /// A model giving its tables' breakpoints (`ModelFunctions::table_axes`)
 /// over a hand model's other methods.
-struct WithAxes(Hand, Vec<Option<[Vec<f64>; 2]>>);
+struct WithAxes(Hand, Vec<Option<Vec<Vec<f64>>>>);
 
 impl ModelFunctions for WithAxes {
     fn layout(&self) -> &Layout {
@@ -3804,7 +3807,7 @@ impl ModelFunctions for WithAxes {
     fn start(&self, p: &[f64], y0: &mut [f64], d0: &mut [f64]) {
         self.0.start(p, y0, d0)
     }
-    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+    fn table_axes(&self, k: u32) -> Option<Vec<Vec<f64>>> {
         self.1.get(k as usize).cloned().flatten()
     }
 }
@@ -3816,7 +3819,7 @@ impl ModelFunctions for WithAxes {
 /// model that gives none, or the same, leaves the run as prepared.
 #[test]
 fn the_tables_breakpoints_follow_the_data_the_model_gives() {
-    let model = |axes: Vec<Option<[Vec<f64>; 2]>>| {
+    let model = |axes: Vec<Option<Vec<Vec<f64>>>>| {
         let hand = Hand {
             layout: layout(1, 0, 0, 0, 0, 0, 1),
             f: Box::new(|_, out| out[0] = 0.0),
@@ -3833,7 +3836,7 @@ fn the_tables_breakpoints_follow_the_data_the_model_gives() {
     let mut info = RunInfo::bare(1, 0, vec![]);
     info.table_names = vec!["cycle".into(), "map".into()];
     info.table_breaks = vec![vec![0.0, 1.0], vec![]];
-    info.table_axes = vec![[vec![], vec![]], [vec![0.0, 1.0], vec![0.0, 2.0]]];
+    info.table_axes = vec![vec![], vec![vec![0.0, 1.0], vec![0.0, 2.0]]];
     let along = |table: u32, axis: usize, at: Vec<f64>| lsim_solve::info::TimeTable {
         table,
         axis,
@@ -3845,11 +3848,11 @@ fn the_tables_breakpoints_follow_the_data_the_model_gives() {
     info.time_tables = vec![along(0, 0, vec![0.0, 1.0]), along(1, 1, vec![0.0, 2.0])];
     // none given, or the same: as prepared
     assert!(info.with_model_tables(&model(vec![])).is_none());
-    let same = vec![Some([vec![0.0, 1.0], vec![]]), Some([vec![0.0, 1.0], vec![0.0, 2.0]])];
+    let same = vec![Some(vec![vec![0.0, 1.0]]), Some(vec![vec![0.0, 1.0], vec![0.0, 2.0]])];
     assert!(info.with_model_tables(&model(same)).is_none());
     // other data: the model's
     let other =
-        vec![Some([vec![0.0, 3.0, 4.0], vec![]]), Some([vec![0.0, 1.0], vec![0.0, 5.0, 6.0]])];
+        vec![Some(vec![vec![0.0, 3.0, 4.0]]), Some(vec![vec![0.0, 1.0], vec![0.0, 5.0, 6.0]])];
     let got = info.with_model_tables(&model(other)).expect("other breakpoints");
     assert_eq!(got.table_breaks, vec![vec![0.0, 3.0, 4.0], vec![]]);
     assert!(got.table_axes[0].iter().all(|a| a.is_empty()));
@@ -3857,7 +3860,7 @@ fn the_tables_breakpoints_follow_the_data_the_model_gives() {
     assert_eq!(got.time_tables[0].at, vec![0.0, 3.0, 4.0]);
     assert_eq!(got.time_tables[1].at, vec![0.0, 5.0, 6.0]);
     // only the table that changed
-    let one = vec![None, Some([vec![0.0, 1.0], vec![0.0, 7.0]])];
+    let one = vec![None, Some(vec![vec![0.0, 1.0], vec![0.0, 7.0]])];
     let got = info.with_model_tables(&model(one)).expect("other breakpoints");
     assert_eq!(got.table_breaks[0], vec![0.0, 1.0]);
     assert_eq!(got.time_tables[0].at, vec![0.0, 1.0]);

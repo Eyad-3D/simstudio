@@ -9,8 +9,6 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 - **Lap cases** (`NEW-LAP`).
 - **Formula Student events** (`NEW-FS-EVENT`).
 - **A battery built from cells** (`NEW-CELLS`).
-- **A Map block** , at any number of inputs and outputs, even one input: every case of a project that has one fails with `Not run [NEW-TABLE-AXES]: 'Map 1' (a Map block) does not run in this version of LightSim yet`.
-- **A table parameter of three or more axes.** No part of the library has one yet; the format and the editor take them (Tables and the Map block).
 - **Data laid out across rows** (an axis along row 1 and its values along row 2) instead of down columns: transpose it in Excel first.
 - **Several tables without labels** : they are not put together; the preview reads one at a time.
 - **Two tables touching** with no empty row or column between them are read as one; a list whose columns have an empty column between them is read as two tables.
@@ -161,7 +159,6 @@ Point 0 of every run is the initial state at t = 0.
 - **Peaks between recorded points are stored but not drawn.** Since 0.3 every stored point also keeps each channel's lowest, highest and time-averaged value since the point before it, taken at every solver step (ENG-16), so a regeneration burst between two points is in the run: with *Store every* 10 on the Battery Elect…
 - **The Results page shows at most 3 decimals.** Since 0.3, stored values and summary numbers keep full precision (ENG-16): one more kilogram on the Battery Electric Car changes its City Cycle's consumption and final SOC, and the energies equal the solver steps' sum to 1e-6; each part's energy books, the *E…
 - **Cursor integrals come from the recorded points.** The *Results* chart's cursors integrate the stored points with the trapezoid rule, so they differ a little from the summary's energies, which add up every solver step: on the Battery Electric Car's City Cycle (a point every 1 s), the battery's power integrate…
-- **A table's plot does not zoom with a drag.** The plot under a table or map in a part's parameter window zooms with the mouse wheel and the + and − keys, and a double-click shows the whole table again; dragging a box to zoom, as on the *Results* charts, is off there, because the chart would not see the m…
 - **Long runs with many lines zoom less smoothly.** On a 1-hour run (36,001 points) with 7 channels ticked and the baseline drawn faint as well (14 lines), the mouse wheel zooms at 60 frames a second most of the time, but about one step in 20 takes two frames (30-40 ms).
 
 ## The examples

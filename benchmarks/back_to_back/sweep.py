@@ -93,10 +93,17 @@ def base_project(base: str) -> tuple[dict, str]:
     return project, case_id
 
 
+# parts today's engine never had: the sweep compares the two engines, so it
+# has nothing to place or cut for them (a Map block is tested against its
+# map's own definition, backend/tests/test_table_axes.py)
+NEW_ONLY = frozenset({"signal.map"})
+
+
 @lru_cache(maxsize=1)
 def library() -> dict[str, dict]:
+    """The library's parts that both engines have."""
     lib = json.loads((runs.BACKEND / "app" / "library" / "components.json").read_text(encoding="utf-8"))
-    return {c["id"]: c for c in lib["components"]}
+    return {c["id"]: c for c in lib["components"] if c["id"] not in NEW_ONLY}
 
 
 @lru_cache(maxsize=1)
@@ -106,6 +113,8 @@ def sites() -> dict[str, list[str]]:
     import lightsim_engine
     out: dict[str, list[str]] = {}
     for s in lightsim_engine.table_sites():
+        if s["component"] in NEW_ONLY:
+            continue
         keys = ["table_1d", "table_2d"] if s["component"] == "signal.lookup" else [s["table"]]
         for k in keys:
             out.setdefault(s["component"], [])

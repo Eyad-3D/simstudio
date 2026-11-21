@@ -420,8 +420,8 @@ fn a_constraint_through_a_table_too_rough_for_its_differentiation() {
         display_unit: None,
         default: ParamValue::Table(lsim_ir::TableData {
             interpolation: lsim_ir::Interpolation::Linear,
-            axis_units: ["s".into(), String::new()],
             ..lsim_ir::TableData::new_1d(vec![0.0, 1.0, 2.0], vec![0.0, 0.5, 0.6])
+                .with_units(&["s"])
         }),
         min: None,
         max: None,

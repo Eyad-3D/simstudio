@@ -957,8 +957,8 @@ pub struct SolverReport {
 pub struct TableOutside {
     /// the table's name
     pub table: String,
-    /// 0: its first axis, 1: its second
-    pub axis: u8,
+    /// which axis: 0 its first, 1 its second …
+    pub axis: u32,
     /// when the run first read it outside, s
     pub first: f64,
     /// how long it read it outside, s (the crossings located as events)

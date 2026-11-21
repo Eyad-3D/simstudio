@@ -8,10 +8,10 @@ use lsim_solve::{OutputGrid, SolverOptions};
 use serde_json::json;
 
 #[test]
-fn the_registry_maps_all_36_blocks() {
+fn the_registry_maps_all_37_blocks() {
     let reg = standard_registry();
     let ids: Vec<&str> = reg.ids().collect();
-    assert_eq!(ids.len(), 36, "{ids:?}");
+    assert_eq!(ids.len(), 37, "{ids:?}");
     let cat = lsim_lib::blocks::catalog::catalog();
     for c in cat["components"].as_array().unwrap() {
         let id = c["id"].as_str().unwrap();

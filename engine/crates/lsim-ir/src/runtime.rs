@@ -64,8 +64,8 @@ impl SparsityPattern {
 pub struct TableGuard {
     /// the table's index in [`crate::FlatSystem::tables`]
     pub table: u32,
-    /// 0: the first axis, 1: the second
-    pub axis: u8,
+    /// which axis: 0 the first, 1 the second …
+    pub axis: u32,
     /// the axis's setting
     pub outside: crate::table::Outside,
 }
@@ -248,13 +248,13 @@ pub trait ModelFunctions: Send + Sync {
     }
 
     /// Table `k` of the flat system ([`crate::expr::Expr::Table`]) at
-    /// `args` (the second ignored by a 1-D table) as the compiled code
+    /// `args` (one per axis) as the compiled code
     /// interpolates it: its value and its partial derivatives, so that
     /// expressions evaluated outside the compiled code (the energy books'
     /// declared stored energies and losses) read the same tables. `None`
     /// when the model does not give its tables (the default) or has no
     /// table `k`.
-    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+    fn eval_table(&self, k: u32, args: &[f64]) -> Option<(f64, crate::interp::Rates)> {
         let _ = (k, args);
         None
     }
@@ -263,18 +263,23 @@ pub trait ModelFunctions: Send + Sync {
     /// `order` along each argument, as index reduction reads it, see
     /// [`crate::expr::Expr::Table`]): that derivative and its partial
     /// derivatives, as the compiled code computes them. The default gives
-    /// order `[0, 0]` by [`Self::eval_table`] and nothing else.
-    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
-        if order == [0, 0] { self.eval_table(k, args) } else { None }
+    /// the value (every order 0) by [`Self::eval_table`] and nothing else.
+    fn eval_table_order(
+        &self,
+        k: u32,
+        order: &[u8],
+        args: &[f64],
+    ) -> Option<(f64, crate::interp::Rates)> {
+        if crate::expr::is_value(order) { self.eval_table(k, args) } else { None }
     }
 
-    /// Table `k`'s breakpoints as the compiled code interpolates it: its
-    /// first axis's, and its second's (empty for a 1-D table), so that the
+    /// Table `k`'s breakpoints as the compiled code interpolates it, one
+    /// list per axis, so that the
     /// run loop's enclosures of the tables follow the data the model was
     /// given (a model's tables may be swapped after preparation). `None`
     /// when the model does not give them (the default) or has no table
     /// `k`.
-    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+    fn table_axes(&self, k: u32) -> Option<Vec<Vec<f64>>> {
         let _ = k;
         None
     }

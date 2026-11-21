@@ -506,7 +506,9 @@ pub struct EnergyInfo {
 /// (true: the `then` branch). Empty: read wherever its expression is.
 fn table_when(m: &PreparedModel) -> Vec<Vec<(Expr, bool)>> {
     fn walk(e: &Expr, path: &mut Vec<(Expr, bool)>, out: &mut Vec<Vec<(Expr, bool)>>) {
-        if let Expr::Table { args, order: [0, 0], .. } = e {
+        if let Expr::Table { args, order, .. } = e
+            && lsim_ir::expr::is_value(order)
+        {
             out.extend(args.iter().map(|_| path.clone()));
         }
         if let Expr::If(c, a, b) = e {
@@ -531,7 +533,9 @@ fn table_when(m: &PreparedModel) -> Vec<Vec<(Expr, bool)>> {
 
 fn table_args(m: &PreparedModel) -> Vec<(u32, Expr)> {
     fn walk(e: &Expr, out: &mut Vec<(u32, Expr)>) {
-        if let Expr::Table { table, args, order: [0, 0] } = e {
+        if let Expr::Table { table, args, order } = e
+            && lsim_ir::expr::is_value(order)
+        {
             out.extend(args.iter().map(|a| (*table, a.clone())));
         }
         for c in e.children() {
@@ -644,12 +648,15 @@ pub struct RunInfo {
     /// crossing: how the run loop keeps a pulse in time from being stepped
     /// over (empty, or `None` for the others)
     pub time_functions: Vec<Option<TimeFunction>>,
-    /// per table: the breakpoints of a 1-D table (empty: 2-D, or not
-    /// known), for the enclosures of the time functions that read it
+    /// per table: the breakpoints of a 1-D table (empty: more axes, or
+    /// not known), for the enclosures of the time functions that read it
     pub table_breaks: Vec<Vec<f64>>,
-    /// per table: a 2-D table's two axes (empty: 1-D, or not known), for
-    /// the same
-    pub table_axes: Vec<[Vec<f64>; 2]>,
+    /// per table of two axes or more: its axes' breakpoints, one list per
+    /// axis (empty: 1-D, or not known), for the same (a 2-D table's grid)
+    /// and the held reads' cells
+    pub table_axes: Vec<Vec<Vec<f64>>>,
+    /// per table: its axes' names (empty: unnamed), for messages
+    pub table_axis_names: Vec<Vec<String>>,
     /// the choices index reduction made among states, which the run
     /// watches ([`crate::states`])
     pub state_sets: Vec<StateSetInfo>,
@@ -876,8 +883,9 @@ impl Affine {
 pub struct StateRead {
     /// the table
     pub table: u32,
-    /// the derivative of it the model reads (`[0, 0]`: its value)
-    pub order: [u8; 2],
+    /// the derivative of it the model reads, one order per argument (all
+    /// 0: its value)
+    pub order: Vec<u8>,
     /// its arguments, of the model's variables (as its channels) and
     /// parameters
     pub args: Vec<Expr>,
@@ -886,7 +894,7 @@ pub struct StateRead {
     /// per argument: the table's smoothness inside its data and at its
     /// data's edges (`C^c`; `u32::MAX`: no breakpoint there,
     /// [`lsim_ir::interp::AxisSmoothness`])
-    pub smooth: [(u32, u32); 2],
+    pub smooth: Vec<(u32, u32)>,
     /// the held read it is ([`RunInfo::held`]), if it is held
     pub held: Option<usize>,
 }
@@ -1019,10 +1027,11 @@ impl StateSetInfo {
 pub struct HeldInfo {
     /// the table
     pub table: u32,
-    /// the derivative of it the model reads (`[0, 0]`: its value)
-    pub order: [u8; 2],
+    /// the derivative of it the model reads, one order per argument (all
+    /// 0: its value)
+    pub order: Vec<u8>,
     /// the polynomials' degree along each argument
-    pub degree: [u8; 2],
+    pub degree: Vec<u8>,
     /// per argument: where its cell is held
     pub axes: Vec<HeldAxisInfo>,
     /// the coefficients (indices into the discrete variables), as
@@ -1266,6 +1275,7 @@ impl RunInfo {
             time_functions: vec![],
             table_breaks: vec![],
             table_axes: vec![],
+            table_axis_names: vec![],
             state_sets: vec![],
             choices: None,
             held: vec![],
@@ -1443,18 +1453,23 @@ impl RunInfo {
             table_breaks: flat
                 .tables
                 .iter()
-                .map(|t| if t.data.dims() == 1 { t.data.x.clone() } else { vec![] })
+                .map(|t| if t.data.dims() == 1 { t.data.points(0).to_vec() } else { vec![] })
                 .collect(),
             table_axes: flat
                 .tables
                 .iter()
                 .map(|t| {
-                    if t.data.dims() == 2 {
-                        [t.data.x.clone(), t.data.y.clone()]
+                    if t.data.dims() >= 2 {
+                        t.data.axes.iter().map(|a| a.points.clone()).collect()
                     } else {
-                        [vec![], vec![]]
+                        vec![]
                     }
                 })
+                .collect(),
+            table_axis_names: flat
+                .tables
+                .iter()
+                .map(|t| t.data.axes.iter().map(|a| a.name.clone()).collect())
                 .collect(),
             var_sources: sources,
             time_crossings,
@@ -1472,13 +1487,13 @@ impl RunInfo {
                     let at =
                         |v: &VarId| *d_index.get(v).expect("a held read's variables are discrete");
                     let (table, order) = match &h.read {
-                        Expr::Table { table, order, .. } => (*table, *order),
+                        Expr::Table { table, order, .. } => (*table, order),
                         _ => unreachable!("a held read is a table read"),
                     };
                     HeldInfo {
                         table,
-                        order,
-                        degree: h.degree,
+                        order: padded(order, h.degree.len()),
+                        degree: h.degree.clone(),
                         axes: h
                             .axes
                             .iter()
@@ -1525,13 +1540,25 @@ impl RunInfo {
         }
     }
 
+    /// How a message names axis `axis` of table `k`: `first`, `second` …,
+    /// with its name when it has one (`first (Speed)`).
+    pub fn axis_words(&self, k: u32, axis: u32) -> String {
+        let name = self
+            .table_axis_names
+            .get(k as usize)
+            .and_then(|n| n.get(axis as usize))
+            .filter(|n| !n.is_empty());
+        let ord = lsim_ir::table::ordinal(axis as usize);
+        name.map_or(ord.clone(), |n| format!("{ord} ({n})"))
+    }
+
     /// The breakpoints of table `k` along `axis`, as the run has them (the
     /// model's own where they differ from the prepared ones:
     /// [`RunInfo::with_model_tables`]).
     pub fn table_points(&self, k: u32, axis: usize) -> &[f64] {
         let k = k as usize;
         match self.table_axes.get(k) {
-            Some(a) if !a[0].is_empty() => &a[axis.min(1)],
+            Some(a) if !a.is_empty() => a.get(axis).map_or(&[], |p| p.as_slice()),
             _ => self.table_breaks.get(k).map_or(&[], |b| b.as_slice()),
         }
     }
@@ -1545,19 +1572,16 @@ impl RunInfo {
     /// the model interpolates.
     pub fn with_model_tables(&self, model: &dyn ModelFunctions) -> Option<RunInfo> {
         let n = self.table_names.len().max(self.table_breaks.len()).max(self.table_axes.len());
-        let mut changed: Vec<(usize, [Vec<f64>; 2])> = vec![];
+        let mut changed: Vec<(usize, Vec<Vec<f64>>)> = vec![];
         for k in 0..n {
-            let Some([x, y]) = model.table_axes(k as u32) else { continue };
-            let (breaks, axes) = if y.is_empty() {
-                (x.clone(), [vec![], vec![]])
-            } else {
-                (vec![], [x.clone(), y.clone()])
-            };
+            let Some(all) = model.table_axes(k as u32) else { continue };
+            let (breaks, axes) =
+                if all.len() == 1 { (all[0].clone(), vec![]) } else { (vec![], all.clone()) };
             // (a table the run has no entry for: no breakpoints, no axes)
             let same = self.table_breaks.get(k).map_or(breaks.is_empty(), |b| *b == breaks)
-                && self.table_axes.get(k).map_or(axes[0].is_empty(), |a| *a == axes);
+                && self.table_axes.get(k).map_or(axes.is_empty(), |a| *a == axes);
             if !same {
-                changed.push((k, [x, y]));
+                changed.push((k, all));
             }
         }
         if changed.is_empty() {
@@ -1565,17 +1589,17 @@ impl RunInfo {
         }
         let mut info = self.clone();
         info.table_breaks.resize(n, vec![]);
-        info.table_axes.resize(n, [vec![], vec![]]);
-        for (k, [x, y]) in changed {
-            if y.is_empty() {
-                info.table_breaks[k] = x.clone();
-                info.table_axes[k] = [vec![], vec![]];
+        info.table_axes.resize(n, vec![]);
+        for (k, all) in changed {
+            if all.len() == 1 {
+                info.table_breaks[k] = all[0].clone();
+                info.table_axes[k] = vec![];
             } else {
                 info.table_breaks[k] = vec![];
-                info.table_axes[k] = [x.clone(), y.clone()];
+                info.table_axes[k] = all.clone();
             }
             for tt in info.time_tables.iter_mut().filter(|tt| tt.table as usize == k) {
-                tt.at = if tt.axis == 0 { x.clone() } else { y.clone() };
+                tt.at = all.get(tt.axis).cloned().unwrap_or_default();
             }
         }
         Some(info)
@@ -1752,14 +1776,14 @@ fn time_tables(m: &PreparedModel) -> Vec<TimeTable> {
     let mut visit = |e: &Expr| {
         e.walk(&mut |x| {
             let Expr::Table { table, args, .. } = x else { return };
-            for (axis, arg) in args.iter().enumerate().take(2) {
+            for (axis, arg) in args.iter().enumerate() {
                 let Some(pos) = resolve(arg, &assigned, &discrete, &mut memo, 0) else { continue };
                 let Some((c, b)) = time_affine(&pos, &discrete) else { continue };
                 if c == 0.0 || !c.is_finite() {
                     continue;
                 }
                 let Some(t) = m.flat.tables.get(*table as usize) else { continue };
-                let at = if axis == 0 { t.data.x.clone() } else { t.data.y.clone() };
+                let at = t.data.axes.get(axis).map(|a| a.points.clone()).unwrap_or_default();
                 if at.is_empty() || !seen.insert((*table, axis, format!("{c} {b}"))) {
                     continue;
                 }
@@ -1784,10 +1808,10 @@ fn time_tables(m: &PreparedModel) -> Vec<TimeTable> {
     for e in m.assignments.iter().map(|a| &a.expr).chain(m.residuals.iter().map(|r| &r.expr)) {
         e.walk(&mut |x| {
             if let Expr::Table { table, order, .. } = x
-                && *order != [0, 0]
+                && !lsim_ir::expr::is_value(order)
                 && let Some(t) = m.flat.tables.get(*table as usize)
             {
-                let r = u32::from(order[0]) + u32::from(order[1]);
+                let r: u32 = order.iter().map(|&o| u32::from(o)).sum();
                 if r > lsim_ir::interp::continuity(&t.data) {
                     kinked.insert(*table);
                 }
@@ -2611,17 +2635,20 @@ fn state_reads(m: &PreparedModel) -> Vec<StateRead> {
             {
                 return;
             }
-            if out.iter().any(|r| r.table == *table && r.order == *order && &r.args == args) {
+            if out.iter().any(|r| {
+                r.table == *table && r.order == padded(order, args.len()) && &r.args == args
+            }) {
                 return;
             }
-            let mut smooth = [(u32::MAX, u32::MAX); 2];
-            for (j, sj) in smooth.iter_mut().enumerate().take(args.len()) {
-                let a = lsim_ir::interp::data_smoothness(&ft.data, j);
-                *sj = (a.inside, a.edges);
-            }
+            let smooth: Vec<(u32, u32)> = (0..args.len())
+                .map(|j| {
+                    let a = lsim_ir::interp::data_smoothness(&ft.data, j);
+                    (a.inside, a.edges)
+                })
+                .collect();
             out.push(StateRead {
                 table: *table,
-                order: *order,
+                order: padded(order, args.len()),
                 args: args.clone(),
                 label: ft.name.clone(),
                 smooth,
@@ -2658,12 +2685,18 @@ impl Env for ChannelEnv<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
     }
-    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+    fn table(&self, k: u32, order: &[u8], args: &[f64]) -> f64 {
         table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }
 
 pub(crate) use lsim_ir::interval::table_at;
+
+/// A table read's `order` with one entry per argument (a value read's is
+/// empty in the expressions).
+pub(crate) fn padded(order: &[u8], n: usize) -> Vec<u8> {
+    (0..n.max(order.len())).map(|k| order.get(k).copied().unwrap_or(0)).collect()
+}
 
 #[cfg(test)]
 mod tests {

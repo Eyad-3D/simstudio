@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn reads_todays_library() {
-        assert_eq!(catalog()["components"].as_array().unwrap().len(), 36);
+        assert_eq!(catalog()["components"].as_array().unwrap().len(), 37);
         assert_eq!(default_si("vehicle.body", "mass_kg"), 1800.0);
         assert!((default_si("battery.generic", "capacity_kWh") - 60.0 * 3.6e6).abs() < 1e-6);
         assert!((default_si("electric.climate", "cabin_setpoint_C") - 294.15).abs() < 1e-12);

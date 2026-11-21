@@ -775,7 +775,7 @@ impl<'a, E: Emit> Lw<'a, E> {
                 D { v, t }
             }
             Expr::Table { table, args, order } => {
-                self.table(self.cx.table_entry(*table, *order), args)?
+                self.table(self.cx.table_entry(*table, order), args)?
             }
         })
     }

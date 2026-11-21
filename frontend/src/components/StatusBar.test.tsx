@@ -133,3 +133,30 @@ it("shows an AI agent's change with who and why, and undoes it or its session in
   act(() => useProjectStore.setState({ project: { id: "other", name: "Other", systems: [], dataBusConnections: [], cases: [] } }));
   expect(notice()).toBeNull();
 });
+
+it("counts warnings too, says when the Data Checks could not run, and names New for what it does", async () => {
+  useProjectStore.setState({
+    project: { id: "p", name: "Car", systems: [], dataBusConnections: [], cases: [] },
+    dirty: true,
+    runs: [],
+    dataChecks: [{ level: "warning", text: "Brake has no Brake Command signal." }],
+    checksError: null,
+  });
+  const host = document.body.appendChild(document.createElement("div"));
+  await act(async () => createRoot(host).render(<StatusBar />));
+  expect(host.textContent).toContain("1 warning");
+  expect(host.textContent).not.toContain("error");
+  act(() => useProjectStore.setState({ dataChecks: [{ level: "warning", text: "a" }, { level: "warning", text: "b" }] }));
+  expect(host.textContent).toContain("2 warnings");
+
+  act(() => useProjectStore.setState({ dataChecks: null, checksError: "the engine could not be reached" }));
+  const problems = host.querySelector<HTMLButtonElement>("button[title^='The Data Checks could not run']")!;
+  expect(problems.textContent).toBe("Data Checks could not run");
+  expect(problems.title).toBe("The Data Checks could not run: the engine could not be reached");
+
+  // the open project is a name, not a tab; New says it replaces it
+  const newButton = [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === "New project")!;
+  expect(newButton.title).toBe("New project: replaces the open one (asks to save its changes first)");
+  expect(host.textContent).toContain("Car•");
+  expect(host.textContent).toMatch(/0 parts/);
+});

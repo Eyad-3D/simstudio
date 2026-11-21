@@ -31,21 +31,17 @@ use std::f64::consts::{FRAC_PI_2, PI, TAU};
 mod table2;
 pub use table2::{Grid2, Partials, regions};
 
-/// Table `k` of a model at `args` (one or two), or its partial derivative
+/// Table `k` of a model at `args` (one per axis), or its partial derivative
 /// of `order` (see [`Expr::Table`]), as the model interpolates it: its
 /// value and partial derivatives (`None` when the model does not give its
 /// tables).
 pub fn table_at(
     model: &dyn ModelFunctions,
     k: u32,
-    order: [u8; 2],
+    order: &[u8],
     args: &[f64],
-) -> Option<(f64, [f64; 2])> {
-    match args {
-        [x] => model.eval_table_order(k, order, [*x, 0.0]),
-        [x, y] => model.eval_table_order(k, order, [*x, *y]),
-        _ => None,
-    }
+) -> Option<(f64, crate::interp::Rates)> {
+    model.eval_table_order(k, order, args)
 }
 
 /// A closed interval `[lo, hi]` (bounds may be infinite).
@@ -489,7 +485,7 @@ pub fn supported(
         Expr::Call(Builtin::Der | Builtin::Pre, _) => ok = false,
         Expr::Call(Builtin::Atan2, args) if args.iter().any(moves) => ok = false,
         // a table's derivative (index reduction's) has no enclosure here
-        Expr::Table { order, .. } if *order != [0, 0] => ok = false,
+        Expr::Table { order, .. } if !crate::expr::is_value(order) => ok = false,
         Expr::Table { table, args, .. } if args.iter().any(moves) => {
             let k = *table as usize;
             let known = match args.len() {
@@ -543,7 +539,7 @@ pub fn enclose(e: &Expr, cx: &Cx<'_>, t: Iv) -> J2 {
             };
             if_j2(is_comparison(c), cj, a, b)
         }
-        Expr::Table { order, .. } if *order != [0, 0] => J2::all(),
+        Expr::Table { order, .. } if !crate::expr::is_value(order) => J2::all(),
         Expr::Table { table, args, .. } => {
             let at: Vec<J2> = args.iter().map(ev).collect();
             table_j2(cx, *table, &at)
@@ -870,7 +866,7 @@ pub fn max_j2(a: J2, b: J2) -> J2 {
 pub fn table_j2(cx: &Cx<'_>, k: u32, at: &[J2]) -> J2 {
     if at.iter().all(|a| a.is_const() && a.v.is_point()) {
         let args: Vec<f64> = at.iter().map(|a| a.v.lo).collect();
-        return match table_at(cx.model, k, [0, 0], &args) {
+        return match table_at(cx.model, k, &[], &args) {
             Some((v, _)) => J2::konst(Iv::point(v)),
             None => J2::all(),
         };
@@ -906,7 +902,10 @@ pub fn table_j2(cx: &Cx<'_>, k: u32, at: &[J2]) -> J2 {
 /// slopes there and mean the secant; outside the data it continues as the
 /// table says (a constant or a line).
 pub fn table_enclosure(model: &dyn ModelFunctions, k: u32, xs: &[f64], u: Iv) -> (Iv, Iv, Iv) {
-    let at = |x: f64| table_at(model, k, [0, 0], &[x]).unwrap_or((f64::NAN, [f64::NAN; 2]));
+    let at = |x: f64| {
+        table_at(model, k, &[], &[x])
+            .unwrap_or((f64::NAN, crate::interp::Rates::from(vec![f64::NAN])))
+    };
     if !(u.lo.is_finite() && u.hi.is_finite()) {
         return (ALL, ALL, ALL);
     }

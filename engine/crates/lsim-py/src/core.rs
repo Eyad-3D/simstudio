@@ -870,7 +870,7 @@ impl lsim_ir::eval::Env for Recorded<'_> {
     fn param(&self, p: lsim_ir::flat::ParamId) -> f64 {
         self.params.get(p.0 as usize).copied().unwrap_or(f64::NAN)
     }
-    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+    fn table(&self, k: u32, order: &[u8], args: &[f64]) -> f64 {
         lsim_ir::interval::table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }
@@ -911,7 +911,7 @@ fn fast_table_outside(
     for (g, (table, arg)) in guards.iter().zip(&info.table_args) {
         let k_t = g.table as usize;
         let points = match info.table_axes.get(k_t) {
-            Some(ax) if !ax[0].is_empty() => ax.get(g.axis as usize),
+            Some(ax) if !ax.is_empty() => ax.get(g.axis as usize),
             _ => info.table_breaks.get(k_t),
         };
         let (Some(&lo), Some(&hi)) =
@@ -960,7 +960,7 @@ fn fast_table_outside(
             continue;
         }
         let name = info.table_names.get(k_t).cloned().unwrap_or_default();
-        let which = if g.axis == 0 { "first" } else { "second" };
+        let which = info.axis_words(g.table, g.axis);
         if g.outside == lsim_ir::table::Outside::Error {
             if stop.as_ref().is_none_or(|(t, _)| first < *t) {
                 stop = Some((
@@ -1003,7 +1003,7 @@ fn fast_table_outside(
 /// parameters; NaN for a variable the run did not record), in the unit
 /// `SolverReport::table_outside` gives that axis in. A full run's and fast
 /// mode's alike.
-pub fn table_reads(built: &Built, out: &RunOutput) -> Vec<(String, u8, Vec<f64>)> {
+pub fn table_reads(built: &Built, out: &RunOutput) -> Vec<(String, u32, Vec<f64>)> {
     use lsim_ir::runtime::ModelFunctions;
     let (info, r) = (&built.model.info, &out.result);
     let guards = built.model.jit.table_guard_list();
@@ -1018,7 +1018,7 @@ pub fn table_reads(built: &Built, out: &RunOutput) -> Vec<(String, u8, Vec<f64>)
         .zip(&r.values)
         .filter_map(|(n, v)| index.get(n.as_str()).map(|&i| (i, v)))
         .collect();
-    let mut reads: Vec<(String, u8, Vec<f64>)> = guards
+    let mut reads: Vec<(String, u32, Vec<f64>)> = guards
         .iter()
         .map(|g| {
             let name = info.table_names.get(g.table as usize).cloned().unwrap_or_default();

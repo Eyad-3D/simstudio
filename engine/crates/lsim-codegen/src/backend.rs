@@ -186,11 +186,11 @@ pub(crate) trait Emit {
     fn bits_and(&mut self, a: Self::V, b: Self::V) -> Self::V;
     fn bits_or(&mut self, a: Self::V, b: Self::V) -> Self::V;
     fn call(&mut self, f: Lib, args: &[Self::V]) -> Self::V;
-    /// Table `k` at `args` (1 or 2), with its partial derivatives when
-    /// asked.
-    fn table(&mut self, k: u32, args: &[Self::V], derivs: bool) -> (Self::V, [Option<Self::V>; 2]);
+    /// Table `k` at `args` (one per axis), with its partial derivatives
+    /// (one per argument) when asked.
+    fn table(&mut self, k: u32, args: &[Self::V], derivs: bool) -> (Self::V, Vec<Option<Self::V>>);
     /// Table `k`'s guard of axis `axis` at `x`.
-    fn table_guard(&mut self, k: u32, axis: u8, x: Self::V) -> Self::V;
+    fn table_guard(&mut self, k: u32, axis: u32, x: Self::V) -> Self::V;
 }
 
 fn mem() -> MemFlagsData {
@@ -381,30 +381,51 @@ impl Emit for Clif<'_, '_> {
         self.call_symbol(f.symbol(), args)
     }
 
-    fn table(&mut self, k: u32, args: &[Value], derivs: bool) -> (Value, [Option<Value>; 2]) {
+    fn table(&mut self, k: u32, args: &[Value], derivs: bool) -> (Value, Vec<Option<Value>>) {
         let ptr = self.table_ptr(k);
+        let n = args.len();
+        if n > 2 {
+            // three axes or more: the arguments, then the partial
+            // derivatives, in a stack slot of the call's own
+            let size = (8 * n * if derivs { 2 } else { 1 }) as u32;
+            let ss = self.b.create_sized_stack_slot(StackSlotData::new(
+                StackSlotKind::ExplicitSlot,
+                size,
+                3,
+            ));
+            let at = self.b.ins().stack_addr(I64, ss, 0);
+            for (i, a) in args.iter().enumerate() {
+                self.b.ins().store(mem(), *a, at, (8 * i) as i32);
+            }
+            let count = self.b.ins().iconst(I64, n as i64);
+            if !derivs {
+                return (self.call_symbol("lsim_tabn", &[ptr, at, count]), vec![None; n]);
+            }
+            let d = self.b.ins().stack_addr(I64, ss, (8 * n) as i32);
+            let v = self.call_symbol("lsim_tabnd", &[ptr, at, count, d]);
+            let g =
+                (0..n).map(|i| Some(self.b.ins().load(F64, mem(), d, (8 * i) as i32))).collect();
+            return (v, g);
+        }
         let mut call_args = vec![ptr];
         call_args.extend_from_slice(args);
-        let name = match (args.len(), derivs) {
+        let name = match (n, derivs) {
             (1, false) => "lsim_tab1",
             (1, true) => "lsim_tab1d",
             (_, false) => "lsim_tab2",
             (_, true) => "lsim_tab2d",
         };
         if !derivs {
-            return (self.call_symbol(name, &call_args), [None, None]);
+            return (self.call_symbol(name, &call_args), vec![None; n]);
         }
         let addr = self.scratch();
         call_args.push(addr);
         let v = self.call_symbol(name, &call_args);
-        let mut g = [None, None];
-        for (k, gk) in g.iter_mut().enumerate().take(args.len()) {
-            *gk = Some(self.b.ins().load(F64, mem(), addr, (8 * k) as i32));
-        }
+        let g = (0..n).map(|k| Some(self.b.ins().load(F64, mem(), addr, (8 * k) as i32))).collect();
         (v, g)
     }
 
-    fn table_guard(&mut self, k: u32, axis: u8, x: Value) -> Value {
+    fn table_guard(&mut self, k: u32, axis: u32, x: Value) -> Value {
         let ptr = self.table_ptr(k);
         let ax = self.b.ins().iconst(I64, axis as i64);
         self.call_symbol("lsim_tab_guard", &[ptr, ax, x])

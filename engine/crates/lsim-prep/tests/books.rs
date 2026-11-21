@@ -11,7 +11,7 @@ mod common;
 use common::*;
 use lsim_ir::component::build::{connect, eq, param, port, state, sub, var};
 use lsim_ir::expr::{Expr, c, der, name as n, table};
-use lsim_ir::{ComponentDef, EnergyDecl, ParamDecl, ParamValue};
+use lsim_ir::{ComponentDef, EnergyDecl, ParamDecl, ParamValue, TableData};
 use lsim_prep::{Settings, prepare_with_report};
 use lsim_solve::{OutputGrid, RunInfo, SolverOptions};
 
@@ -77,19 +77,19 @@ fn spin(form: Form) -> (lsim_ir::PreparedModel, usize) {
         ..Default::default()
     };
     wheel.params.push(param("J", "kg.m2", 2.0, "inertia"));
-    let one =
-        ParamValue::Table1D { x: vec![-1e3, 1e3], y: vec![1.0, 1.0], axis_unit: "rad/s".into() };
+    let one = ParamValue::Table(
+        TableData::new_1d(vec![-1e3, 1e3], vec![1.0, 1.0]).with_units(&["rad/s"]),
+    );
     wheel.params.push(table_param("one", "1", one));
     let line = vec![-1e3, -10.0, 0.0, 0.5, 2.0, 1e3];
-    let id = ParamValue::Table1D { x: line.clone(), y: line.clone(), axis_unit: "rad/s".into() };
+    let id =
+        ParamValue::Table(TableData::new_1d(line.clone(), line.clone()).with_units(&["rad/s"]));
     wheel.params.push(table_param("id", "rad/s", id));
     let x2 = vec![0.0, 1.0, 10.0];
-    let id2 = ParamValue::Table2D {
-        values: line.iter().flat_map(|v| [*v; 3]).collect(),
-        x1: line,
-        x2,
-        axis_units: ["rad/s".into(), "s".into()],
-    };
+    let id2 = ParamValue::Table(
+        TableData::new_2d(line.clone(), x2, line.iter().flat_map(|v| [*v; 3]).collect())
+            .with_units(&["rad/s", "s"]),
+    );
     wheel.params.push(table_param("id2", "rad/s", id2));
     let mut lib = library();
     lib.add(wheel);
@@ -188,10 +188,10 @@ fn the_books_read_the_compiled_tables() {
     let jit = lsim_codegen::compile(&m, &Default::default()).expect("compiles");
     let k = m.flat.tables.iter().position(|t| t.name.ends_with(".id")).expect("the table") as u32;
     for x in [-20.0, -10.0, 0.25, 1.0, 3.0, 500.0] {
-        let (v, d) = jit.eval_table(k, [x, 0.0]).expect("the model gives its tables");
+        let (v, d) = jit.eval_table(k, &[x]).expect("the model gives its tables");
         assert!((v - x).abs() < 1e-12 * x.abs().max(1.0) && (d[0] - 1.0).abs() < 1e-12, "{x}");
-        assert_eq!(d[1], 0.0);
-        assert_eq!((v, d), jit.table(k as usize).eval([x, 0.0]));
+        assert_eq!(d.len(), 1);
+        assert_eq!((v, d), jit.table(k as usize).eval(&[x]));
     }
-    assert!(jit.eval_table(m.flat.tables.len() as u32, [0.0, 0.0]).is_none(), "no such table");
+    assert!(jit.eval_table(m.flat.tables.len() as u32, &[0.0]).is_none(), "no such table");
 }

@@ -1,8 +1,8 @@
 # Calibrate lap mode on a logged lap
 
 **This does not run in this version of LightSim yet.** Calibrating runs lap
-cases, which the app's engine does not run yet: **Calibrate lap** fails with
-`Not run [NEW-LAP]`. A later version ports lap mode; the page describes how
+cases, which the app's engine does not run yet (`NEW-LAP`): the **Calibrate
+lap** button is shown on the *Simulations* tab but cannot be pressed. A later version ports lap mode; the page describes how
 it works then, as it worked on the older engine.
 
 Lap mode's lap times are usually optimistic: it drives an ideal line at
