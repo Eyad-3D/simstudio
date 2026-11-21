@@ -15,8 +15,13 @@ The *Parameters* sheet has a row per parameter of every part: *Part*,
 columns for your team, *Source* (where the number comes from) and *Notes*.
 Each table, map and drive profile has a sheet of its own, named after its
 part and parameter, laid out as the table import reads it
-([Import a table from a file](import-a-table-from-a-file.md)). Scripts are
-not in the sheet.
+([Import a table from a file](import-a-table-from-a-file.md)). A table of
+three or more axes, and a Map block's tables, have a sheet as a long list:
+a column for each axis (a Map block: each input), then one for the values
+(a Map block: one for each output), each headed with its name and unit,
+and a row for each point of the grid, the last axis changing fastest.
+Change the numbers there; on import, the rows may be in any order, but
+every point must be there once. Scripts are not in the sheet.
 
 **Export CSV** saves the *Parameters* sheet alone as a CSV file; tables
 are then text in their *Value* cell. Use the `.xlsx` file to edit tables.

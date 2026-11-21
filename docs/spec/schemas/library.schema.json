@@ -143,19 +143,7 @@
                 "type": "string"
               },
               {
-                "additionalProperties": {
-                  "additionalProperties": {
-                    "type": "number"
-                  },
-                  "type": "object"
-                },
-                "type": "object"
-              },
-              {
-                "additionalProperties": {
-                  "type": "number"
-                },
-                "type": "object"
+                "$ref": "#/$defs/Table"
               }
             ]
           },
@@ -204,19 +192,7 @@
               "type": "string"
             },
             {
-              "additionalProperties": {
-                "additionalProperties": {
-                  "type": "number"
-                },
-                "type": "object"
-              },
-              "type": "object"
-            },
-            {
-              "additionalProperties": {
-                "type": "number"
-              },
-              "type": "object"
+              "$ref": "#/$defs/Table"
             }
           ],
           "title": "Default"
@@ -230,6 +206,8 @@
             "code",
             "table1d",
             "table2d",
+            "table",
+            "maps",
             "file"
           ],
           "title": "Type",
@@ -457,6 +435,18 @@
           ],
           "default": null,
           "title": "Polarity"
+        },
+        "unitText": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unittext"
         }
       },
       "required": [
@@ -500,6 +490,19 @@
         "values"
       ],
       "title": "ShowIf",
+      "type": "object"
+    },
+    "Table": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "$ref": "#/$defs/Table"
+          }
+        ]
+      },
       "type": "object"
     }
   },

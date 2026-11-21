@@ -110,8 +110,11 @@ def data_files() -> list[str]:
 
 
 def _is_dataset(ptype: str | None, key: str, value) -> bool:
-    """Maps, curves and profiles: the values someone could have copied."""
-    return ptype in ("table1d", "table2d") or key == "profile" or isinstance(value, dict)
+    """Maps, curves and profiles: the values someone could have copied (an
+    empty table, such as a Map block's maps before it is filled, holds none)."""
+    if isinstance(value, dict) and not value:
+        return False
+    return ptype in ("table1d", "table2d", "table") or key == "profile" or isinstance(value, dict)
 
 
 def embedded_datasets() -> set[tuple[str, str]]:

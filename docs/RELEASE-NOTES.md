@@ -44,6 +44,35 @@ sections.
 
 ### New
 
+- A table can have any number of axes, and the new **Map** block (in
+  *Driver & Signals*) reads one or more outputs from tables over inputs you
+  name and give units, any number of each. A table of three or more axes,
+  and a Map block's tables, are edited two axes at a time with the others
+  held at a breakpoint you pick; the parameter sheet holds them as a long
+  list. **This version's engine does not run them yet**: a case with a Map
+  block is refused (`NEW-TABLE-AXES`)
+  ([Use a Map block](help/how-to/use-a-map-block.md),
+  [Tables and the Map block](spec/tables.md)).
+- **Import a table in any layout**, from an Excel, CSV or text file
+  (**Import…** in the table's toolbar) or by pasting cells copied in Excel:
+  two columns, a matrix (pivot table) with or without names in its corner,
+  a pivot table with several key columns, a list with a column per axis
+  in any order, and a table for each breakpoint of a further axis ("a map
+  for each temperature"), one under another, side by side or a worksheet
+  each, labelled `Temperature = 25 °C`, `T [°C]: 25` or `T = 25 °C, U =
+  400 V`. Names and units are read from the titles (`Speed [rpm]`,
+  `Torque_Nm`, a units row, `degC`) and matched to the table's axes and
+  values by name and kind of unit, then converted; decimal commas,
+  thousands separators and exponents are read. A preview shows the layout
+  found, what each column was read as and its conversion, every problem
+  with its cell, a choice for missing points (refuse, or fill from the
+  nearest breakpoint), and the table in its own grid with its plot; you
+  correct the matching there, and Apply is one undo step. A paste with
+  titles or units, or one that does not fit, opens the same preview
+  instead of going into the cells. A Map block can be set up from the data
+  in one step: an input per axis and an output per value column, named
+  and with units from the titles
+  ([Import a table from a file](help/how-to/import-a-table-from-a-file.md)).
 - Every table, map and drive profile has a plot under its grid that
   follows each edit, paste and undo, in the units shown (a map: a curve
   per row or per column, your choice), and **Copy** and **Paste** buttons

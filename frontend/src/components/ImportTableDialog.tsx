@@ -423,8 +423,9 @@ export function Preview({
   );
 }
 
-/** The first cells of the sheet as read, to see where the data is. */
-function Cells({ cells }: { cells: api.TableImport["cells"] }) {
+/** The first cells of the sheet as read, to see where the data is; the
+ *  cells a problem names (`marked`, "B7") are outlined. */
+export function Cells({ cells, marked }: { cells: api.TableImport["cells"]; marked?: Set<string> }) {
   const width = Math.min(10, Math.max(...cells.map((r) => r.length)));
   const letter = (i: number) => String.fromCharCode(65 + i);
   return (
@@ -446,7 +447,14 @@ function Cells({ cells }: { cells: api.TableImport["cells"] }) {
             <tr key={i}>
               <th className="pr-1 font-normal text-[color:var(--ss-text-dim)]">{i + 1}</th>
               {Array.from({ length: width }, (_, j) => (
-                <td key={j} className="max-w-[90px] truncate border border-[color:var(--ss-border)] px-1">
+                <td
+                  key={j}
+                  className={`max-w-[90px] truncate border px-1 ${
+                    marked?.has(`${letter(j)}${i + 1}`)
+                      ? "border-[color:var(--ss-err)] outline outline-1 outline-[color:var(--ss-err)]"
+                      : "border-[color:var(--ss-border)]"
+                  }`}
+                >
                   {r[j] ?? ""}
                 </td>
               ))}

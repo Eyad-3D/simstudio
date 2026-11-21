@@ -53,6 +53,33 @@ export function parseClipboardMatrix(text: string): string[][] {
   return cleaned.split("\n").map((row) => row.split("\t"));
 }
 
+/** Why a pasted block needs the import's preview instead of going into the
+ *  cells as it is, or null: a cell that is not a number (a title, a unit,
+ *  a decimal comma), or a table with its own axes (an empty top-left cell,
+ *  breakpoints along the first row and down the first column) pasted
+ *  anywhere but the grid's corner. */
+export function importReason(block: string[][], at: { r: number; c: number }): string | null {
+  const bad = block
+    .flat()
+    .map((t) => t.trim())
+    .find((t) => t !== "" && !Number.isFinite(Number(t)));
+  if (bad !== undefined)
+    return /[A-Za-z°%[\]()/]/.test(bad)
+      ? `the clipboard has titles or units ("${bad.slice(0, 40)}").`
+      : `the clipboard has numbers written another way ("${bad.slice(0, 20)}": a decimal comma or thousands separators).`;
+  const t = (s: string | undefined) => (s ?? "").trim();
+  if (
+    (at.r !== 0 || at.c !== 0) &&
+    block.length >= 2 &&
+    block[0].length >= 2 &&
+    t(block[0][0]) === "" &&
+    block[0].slice(1).every((s) => t(s) !== "") &&
+    block.slice(1).every((row) => t(row[0]) !== "")
+  )
+    return "the clipboard holds a table with its own axes (an empty top-left cell, breakpoints along the first row and down the first column).";
+  return null;
+}
+
 /** The cells of `range` as clipboard text (TSV rows), as Excel copies them. */
 export function matrixText(matrix: GridCell[][], range: GridRange): string {
   const lines: string[] = [];
@@ -83,6 +110,7 @@ export function SpreadsheetGrid({
   onHeaderOpen,
   tools,
   caption,
+  onImportText,
 }: {
   matrix: GridCell[][];
   onCommit: (r: number, c: number, text: string) => void;
@@ -100,6 +128,9 @@ export function SpreadsheetGrid({
   tools?: ReactNode;
   /** a line joined to the top of the grid (the table's units) */
   caption?: ReactNode;
+  /** pasted text that is not a plain block of numbers fitting here: opens
+   *  the import's preview with it, and why (ImportDataDialog) */
+  onImportText?: (text: string, why: string) => void;
 }) {
   const rows = matrix.length;
   const cols = matrix[0]?.length ?? 0;
@@ -279,11 +310,19 @@ export function SpreadsheetGrid({
     let block = parseClipboardMatrix(text);
     let { r, c } = sel.active;
     const corner = cellAt(0, 0);
-    if (corner?.readOnly && block[0]?.[0] === corner.text) {
+    const own = corner?.readOnly && block[0]?.[0] === corner.text;
+    if (own) {
       [r, c] = [0, 0];
       if (matrix[0].every((cell) => cell.readOnly)) [block, r] = [block.slice(1), 1];
     }
     if (block.length === 0) return;
+    const several = block.length > 1 || block[0].length > 1;
+    const why = onImportText && several && !own ? importReason(block, { r, c }) : null;
+    if (why) {
+      setNotice(null);
+      onImportText!(text, why);
+      return;
+    }
     if (block.length === 1 && block[0].length === 1) {
       if (!isEditable(r, c)) return;
       const issue = issueFor({ r, c, value: block[0][0] });
@@ -295,6 +334,12 @@ export function SpreadsheetGrid({
       setNotice(issue);
     } else {
       const problem = onPasteBlock(r, c, block);
+      if (problem && onImportText && !own) {
+        // a block that does not fit here: the preview shows how it can be read
+        setNotice(null);
+        onImportText(text, `${problem.replace(/^Paste not applied: /, "").replace(/\.?$/, ".")}`);
+        return;
+      }
       setNotice(problem ? { level: "error", text: problem } : null);
     }
   };

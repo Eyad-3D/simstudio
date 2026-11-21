@@ -20,8 +20,9 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ..library import library_by_id
-from ..schemas import ComponentDef, ParameterDef, Project
+from ..library import library_by_id, unit_groups
+from ..schemas import TABLE_TYPES, ComponentDef, ParameterDef, Project
+from ..solver.maps import TableError, parse_grid
 from ..version import VERSION
 from . import units as U
 from .sheets import OutSheet, Sheet, csv_bytes, read_file, sheet_title, xlsx_bytes
@@ -50,7 +51,120 @@ def _is_profile(p: ParameterDef) -> bool:
 
 
 def _is_table(p: ParameterDef) -> bool:
-    return p.type in ("table1d", "table2d") or _is_profile(p)
+    return p.type in TABLE_TYPES or p.type == "maps" or _is_profile(p)
+
+
+Columns = tuple[list[tuple[str, str]], list[tuple[Optional[str], str, str]]]
+
+
+def _long_form(el, p: ParameterDef) -> Optional[Columns]:
+    """The columns of a table the sheet holds in long form (docs/spec/tables.md):
+    ([(axis name, unit)], [(output port id or None, value name, unit)]) for a
+    table of three or more axes and a Map block's maps; None for the others."""
+    if p.type in TABLE_TYPES and len(p.axes or []) >= 3:
+        return [(a.name, a.unit) for a in p.axes or []], [(None, p.label, p.unit)]
+    if p.type == "maps":
+        groups = unit_groups()
+        ports = el.dynamicPorts or []
+
+        def unit(port) -> str:
+            return groups.get(port.unitGroup or "No Unit", "-")
+        return ([(q.name, unit(q)) for q in ports if q.direction == "input"],
+                [(q.id, q.name, unit(q)) for q in ports if q.direction == "output"])
+    return None
+
+
+def _long_rows(title: str, cols: Columns, value: Any) -> Optional[list[list[Any]]]:
+    """A long-form sheet: a title, a header with a column per axis and per
+    value, and a row per point of the grid, the last axis changing fastest;
+    None when the table is not a full grid (it then goes as JSON)."""
+    axes, outs = cols
+    if not axes or not outs:
+        return None
+    tables = [value if oid is None else (value or {}).get(oid) for oid, _, _ in outs]
+    try:
+        grids = [parse_grid(t, len(axes), [a for a, _ in axes]) for t in tables]
+    except TableError:
+        return None
+    if any(g[0] != grids[0][0] for g in grids):
+        return None
+    header = [f"{n} [{u}]" for n, u in axes] + [f"{n} [{u}]" for _, n, u in outs]
+    points: list[list[float]] = [[]]
+    for breaks in grids[0][0]:
+        points = [[*pt, x] for pt in points for x in breaks]
+    return [[title], header, *([*pt, *(g[1][i] for g in grids)] for i, pt in enumerate(points))]
+
+
+def _read_long(sheet: Sheet, cols: Columns) -> tuple[Any, list[dict]]:
+    """A long-form sheet back as a table (or a Map block's maps): the
+    columns by their place, a header's unit converted to the stored one, the
+    rows a full grid with each point once."""
+    axes, outs = cols
+    width = len(axes) + len(outs)
+    errors: list[dict] = []
+
+    def err(row: Optional[int], text: str) -> None:
+        errors.append({"sheet": sheet.name, **({"row": row} if row else {}),
+                       "text": f"Sheet '{sheet.name}'" + (f", row {row}" if row else "") + f": {text}"})
+
+    hr = next((r for r, row in enumerate(sheet.rows)
+               if sum(isinstance(c, str) and c.strip() != "" for c in row[:width]) == width), None)
+    if hr is None:
+        err(None, f"no header row with {width} columns ({', '.join(n for n, _ in axes)}, then "
+                  f"{', '.join(n for _, n, _ in outs)}).")
+        return None, errors
+    want = [*axes, *((n, u) for _, n, u in outs)]
+    conv: list[Optional[tuple[str, str]]] = []
+    for (name, unit), text in zip(want, sheet.rows[hr][:width]):
+        _, written, as_written = U.split_header(str(text))
+        if as_written is None or written == unit or (written and U.canonical(unit) == written):
+            conv.append(None)
+        elif written and U.same_group(written, unit):
+            conv.append((written, unit))
+        else:
+            err(hr + 1, f"the column '{text}' is in {as_written}, which is not a unit of "
+                        f"{name} ({unit}).")
+            return None, errors
+    rows: dict[tuple, tuple[int, list[float]]] = {}
+    for r in range(hr + 1, len(sheet.rows)):
+        cells = list(sheet.rows[r][:width])
+        if all(c is None or (isinstance(c, str) and not c.strip()) for c in cells):
+            continue
+        cells += [None] * (width - len(cells))
+        if not all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in cells):
+            err(r + 1, "every cell of a point must be a number.")
+            if len(errors) >= 20:
+                break
+            continue
+        nums = [U.tidy(U.convert(float(c), *k)) if k else float(c) for c, k in zip(cells, conv)]
+        pt = tuple(nums[:len(axes)])
+        if pt in rows:
+            err(r + 1, f"the point {', '.join(f'{x:g}' for x in pt)} is also in row {rows[pt][0]}.")
+            continue
+        rows[pt] = (r + 1, nums[len(axes):])
+    if errors:
+        return None, errors
+    breaks = [sorted({pt[i] for pt in rows}) for i in range(len(axes))]
+    points: list[tuple] = [()]
+    for b in breaks:
+        points = [(*pt, x) for pt in points for x in b]
+    missing = next((pt for pt in points if pt not in rows), None)
+    if missing is not None or not rows:
+        where = ", ".join(f"{n} {x:g}" for (n, _), x in zip(axes, missing or ()))
+        err(None, f"the rows are not a full grid: there is no row for {where or 'any point'}.")
+        return None, errors
+    tables = []
+    for j in range(len(outs)):
+        t: dict = {}
+        for pt in points:
+            node = t
+            for x in pt[:-1]:
+                node = node.setdefault(f"{x:.12g}", {})
+            node[f"{pt[-1]:.12g}"] = rows[pt][1][j]
+        tables.append(t)
+    if outs[0][0] is None:
+        return tables[0], errors
+    return {oid: t for (oid, _, _), t in zip(outs, tables)}, errors
 
 
 def _same(a: Any, b: Any) -> bool:
@@ -68,8 +182,8 @@ def _norm_table(p: ParameterDef, v: Any) -> Any:
             return d
         try:
             return sorted((float(k), keyed(x)) for k, x in d.items())
-        except (TypeError, ValueError):
-            return d
+        except (TypeError, ValueError):  # (a Map block's maps: by output port id)
+            return sorted((str(k), keyed(x)) for k, x in d.items())
     if _is_profile(p) and isinstance(v, str):
         pts = []
         for chunk in v.replace("\n", ";").split(";"):
@@ -98,16 +212,21 @@ def _target(el, cdef: ComponentDef, p: ParameterDef) -> Target:
             return Target("profile", [axis], _q("Grade", "%"), True, p.label)
         return Target("profile", [_q("Time", "s")], _q("Target Speed", "km/h"), True, p.label)
     axes = [_q(a.name, a.unit) for a in (p.axes or [])]
-    return Target(p.type, axes, _q(p.label, p.unit), label=p.label)
+    return Target("table2d" if len(axes) == 2 else "table1d", axes, _q(p.label, p.unit), label=p.label)
 
 
 def _table_rows(el, cdef: ComponentDef, p: ParameterDef, value: Any) -> list[list[Any]]:
     """A table's sheet in the layout the importer reads: a title row, then
     for a 1-D table or profile an x and a y column, for a map the column
     values along a row and the row values down the first column."""
-    t = _target(el, cdef, p)
     title = [f"{el.label} · {p.label}"]
-    if t.kind == "table2d":
+    if (cols := _long_form(el, p)) is not None:
+        rows = _long_rows(title[0], cols, value)
+        if rows is None:
+            raise TableError("not a full grid")
+        return rows
+    t = _target(el, cdef, p)
+    if len(t.axes) == 2:
         outer, inner = t.axes
         outer_keys = sorted(value, key=float)
         inner_keys = sorted({k for o in value.values() for k in o}, key=float)
@@ -167,9 +286,13 @@ def export_sheets(project: Project, tables_inline: bool = False) -> list[OutShee
         p = r.p
         changed = "yes" if p.key in r.el.parameterOverrides and not _same(
             r.value, p.default) else ""
-        if _is_table(p) and not tables_inline:
+        try:
+            rows = _table_rows(r.el, r.cdef, p, r.value) if _is_table(p) and not tables_inline else None
+        except TableError:  # (not a full grid: as JSON in its Value cell, as in a CSV)
+            rows = None
+        if rows is not None:
             name = sheet_title(f"{r.el.label} - {p.label.split(' (')[0]}", taken)
-            extra.append(OutSheet(name, _table_rows(r.el, r.cdef, p, r.value), header_rows=0))
+            extra.append(OutSheet(name, rows, header_rows=0))
             value: Any = f"{_SEE_SHEET}'{name}'"
             default: Any = ""
         elif _is_table(p):
@@ -353,13 +476,19 @@ def import_sheet(project: Project, data: bytes, filename: str) -> SheetImport:
                 if sheet is None:
                     err(n, f"the sheet '{name}' for {el.label} · {p.label} is missing.")
                     continue
-                res = import_table(sheet, _target(el, cdef, p))
-                if res.errors:
-                    for e in res.errors:
-                        out.errors.append({"sheet": sheet.name, "row": e.row,
-                                           "text": f"Sheet '{sheet.name}': {e.text}"})
-                    continue
-                new: Any = res.value
+                if (long := _long_form(el, p)) is not None:
+                    new, problems = _read_long(sheet, long)
+                    if problems:
+                        out.errors.extend(problems)
+                        continue
+                else:
+                    res = import_table(sheet, _target(el, cdef, p))
+                    if res.errors:
+                        for e in res.errors:
+                            out.errors.append({"sheet": sheet.name, "row": e.row,
+                                               "text": f"Sheet '{sheet.name}': {e.text}"})
+                        continue
+                    new: Any = res.value
                 where = sheet.name
             else:
                 try:

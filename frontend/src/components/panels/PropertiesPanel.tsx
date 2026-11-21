@@ -11,6 +11,7 @@ import { KIND_COLOR } from "../canvas/ElementNode";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
 import { SourceBadge, ValueSources } from "./ValueSources";
 import { ImportFromFileButton, type ImportTarget } from "../ImportTableDialog";
+import { useTableImport } from "../ImportDataDialog";
 import { TableUnits, UnitButton, UnitChooser, type UnitColumn } from "../UnitChooser";
 import { TablePlot } from "../TablePlot";
 import {
@@ -25,7 +26,23 @@ import {
   type UnitSlot,
 } from "../../units";
 import { FmuPanel } from "./FmuPanel";
+import { MAP_DEF_ID, MapEditor } from "./MapEditor";
+import { TableNEditor } from "./TableNEditor";
+import {
+  GRID_HINT,
+  OUTSIDE_LABELS,
+  axisIssue,
+  cellText,
+  nextAxisKey,
+  numberIssue,
+  oneCell,
+  pastedAxisIssue,
+  slugify,
+  sortedNumericKeys,
+  type TableShown,
+} from "./gridRules";
 import { FMU_DEF_ID, FMU_FILE_KEYS } from "../../fmu";
+import type { DataTargetRef } from "../../api";
 import type {
   AxisDef,
   ComponentDef,
@@ -37,88 +54,18 @@ import type {
   ScalarValue,
   Table1D,
   Table2D,
+  TableN,
 } from "../../types";
 
-function sortedNumericKeys(obj: Record<string, unknown>): string[] {
-  return Object.keys(obj).sort((a, b) => Number(a) - Number(b));
-}
-
-/** Next axis value after `keys`, extrapolating the last step (fallback if flat). */
-function nextAxisKey(keys: string[], fallback: number): number {
-  const last = keys.length ? Number(keys[keys.length - 1]) : 0;
-  const prev = keys.length > 1 ? Number(keys[keys.length - 2]) : last - fallback;
-  const step = keys.length > 1 ? last - prev : fallback;
-  return last + (step || fallback);
-}
-
-const GRID_HINT =
-  "Type or double-click to edit a cell · drag or Shift+click to select a range · Copy and Paste (Ctrl+C, Ctrl+V) work with Excel";
-
-/** Whether a grid selection is one cell. */
-const oneCell = (r: GridRange | null) => !!r && r.r0 === r.r1 && r.c0 === r.c1;
-
-/** Why `text` cannot be stored as a number, or null when it can. */
-function numberIssue(text: string): GridIssue | null {
-  const t = text.trim();
-  if (Number.isFinite(Number(t))) return null;
-  const hint = /^-?\d+,\d+$/.test(t) ? " (use a point for decimals)" : "";
-  return { level: "error", text: `'${t}' is not a number${hint}.` };
-}
-
-/** Check a typed breakpoint against the others on its axis (`keys`, in
- *  order; `index` is its own position): it must be a new number, and one out
- *  of order is flagged because the row or column will move. */
-function axisIssue(
-  name: string,
-  what: "row" | "column",
-  text: string,
-  keys: string[],
-  index: number,
-): GridIssue | null {
-  const t = text.trim();
-  if (t === "") return { level: "error", text: `Enter a ${name} value.` };
-  const bad = numberIssue(t);
-  if (bad) return bad;
-  const n = Number(t);
-  if (keys.some((k, i) => i !== index && Number(k) === n))
-    return { level: "error", text: `${name} ${n} is already in the table.` };
-  const prev = index > 0 ? Number(keys[index - 1]) : -Infinity;
-  const next = index < keys.length - 1 ? Number(keys[index + 1]) : Infinity;
-  if (n < prev || n > next)
-    return { level: "warning", text: `${name} ${n} is out of order: the ${what} moves so ${name} keeps increasing.` };
-  return null;
-}
-
-/** First problem among axis cells about to be pasted, or null. Empty cells
- *  are allowed only where the paste adds a new row/column (auto-numbered). */
-function pastedAxisIssue(name: string, cells: string[], existing: number): GridIssue | null {
-  const seen = new Set<number>();
-  for (let i = 0; i < cells.length; i++) {
-    const t = cells[i].trim();
-    if (t === "" && i >= existing) continue;
-    if (t === "") return { level: "error", text: `a ${name} value is empty.` };
-    const bad = numberIssue(t);
-    if (bad) return bad;
-    const n = Number(t);
-    if (seen.has(n)) return { level: "error", text: `${name} ${n} would appear twice.` };
-    seen.add(n);
-  }
-  return null;
-}
-
-/** How a table's numbers are shown: the unit of each axis and of the values,
- *  and how to keep a choice (with the table's new value when the numbers
- *  were in another unit). The table itself is always in the library's units. */
-interface TableShown {
-  axes: string[];
-  value: string;
-  set: (slot: UnitSlot, unit: string, table?: unknown) => void;
-}
-
-/** A stored key or value as its cell shows it: in the library's unit as it
- *  is (a key as written), else converted (units.ts). */
-function cellText(stored: string | number, lib: string, unit: string): string {
-  return unit === lib ? String(stored) : showNumber(Number(stored), lib, unit);
+/** A library table of three or more axes: its grid, with the import. */
+function LibraryTableN({ target, ...props }: Parameters<typeof TableNEditor>[0] & { target: DataTargetRef }) {
+  const importer = useTableImport(target, (r) => props.onChange(r.tables));
+  return (
+    <>
+      <TableNEditor {...props} tools={importer.tools} onImportText={importer.onImportText} />
+      {importer.dialog}
+    </>
+  );
 }
 
 /** Excel-style editable grid for a 1D lookup table {x: y}. */
@@ -144,6 +91,11 @@ function Table1DEditor({
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
   const [unitOpen, setUnitOpen] = useState<UnitSlot | null>(null);
+  // a table's import (any layout, from a file or pasted); a profile keeps its own
+  const importer = useTableImport(
+    importTarget && importTarget.paramKey !== "profile" ? importTarget : null,
+    (r) => onChange(r.tables.value as Table1D),
+  );
   const keys = sortedNumericKeys(value);
   // what the cells show, and how their text reads back (units.ts)
   const xUnit = units.axes[0] ?? axis.unit;
@@ -211,6 +163,9 @@ function Table1DEditor({
     const rows = pairs.map((p) => [...p] as [string, string]);
     const startRow = r <= 0 ? 0 : r - 1;
     const startCol = Math.min(1, Math.max(0, c));
+    const width = Math.max(...block.map((b) => b.length));
+    if (startCol + width > 2)
+      return `Paste not applied: the clipboard has ${width} columns, and from here the table has ${2 - startCol}.`;
     block.forEach((brow, bi) => {
       brow.forEach((val, bj) => {
         const tc = startCol + bj;
@@ -266,6 +221,7 @@ function Table1DEditor({
         onSelectionChange={setSelRange}
         validate={validate}
         onHeaderOpen={openHeader}
+        onImportText={importer.onImportText}
         caption={
           columns.some((c) => alternatives(c.lib).length > 0) && (
             <TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />
@@ -286,12 +242,14 @@ function Table1DEditor({
             >
               <Trash2 size={12} aria-hidden /> Delete row(s)
             </button>
-            {importTarget && (
+            {importer.tools}
+            {importTarget?.paramKey === "profile" && (
               <ImportFromFileButton target={importTarget} onApply={onImport ?? ((v) => onChange(v as Table1D))} />
             )}
           </>
         }
       />
+      {importer.dialog}
       <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
       <TablePlot
         table={value}
@@ -327,6 +285,7 @@ function Table2DEditor({
 }) {
   const [selRange, setSelRange] = useState<GridRange | null>(null);
   const [unitOpen, setUnitOpen] = useState<UnitSlot | null>(null);
+  const importer = useTableImport(importTarget ?? null, (r) => onChange(r.tables.value as Table2D));
   const outerKeys = sortedNumericKeys(value);
   const innerSet = new Set<string>();
   for (const ok of outerKeys) for (const ik of Object.keys(value[ok] ?? {})) innerSet.add(ik);
@@ -491,6 +450,7 @@ function Table2DEditor({
         onSelectionChange={setSelRange}
         validate={validate}
         onHeaderOpen={openCorner}
+        onImportText={importer.onImportText}
         caption={<TableUnits columns={columns} table={value} open={unitOpen} setOpen={setUnitOpen} set={units.set} />}
         tools={
           <>
@@ -519,10 +479,11 @@ function Table2DEditor({
             >
               <Trash2 size={12} aria-hidden /> Row(s)
             </button>
-            {importTarget && <ImportFromFileButton target={importTarget} onApply={(v) => onChange(v as Table2D)} />}
+            {importer.tools}
           </>
         }
       />
+      {importer.dialog}
       <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
       <TablePlot
         table={value}
@@ -809,12 +770,6 @@ function FileInput({ def, value, onChange }: { def: ParameterDef; value: string;
   );
 }
 
-const OUTSIDE_LABELS: Record<OutsidePolicy, string> = {
-  error: "stop the run (Error)",
-  clamp: "hold the edge value (Clamp)",
-  linear: "extend the edge slope (Linear)",
-};
-
 /** A table's outside-the-data setting per axis: the element's own, else the
  *  library's. Applies on the next run. */
 function OutsideSettings({ element, param }: { element: ElementInstance; param: ParameterDef }) {
@@ -847,10 +802,6 @@ function OutsideSettings({ element, param }: { element: ElementInstance; param: 
       ))}
     </div>
   );
-}
-
-function slugify(name: string): string {
-  return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "port";
 }
 
 /** Add/rename/remove per-instance signal ports (Script, Monitor). */
@@ -984,8 +935,8 @@ function defaultText(def: ParameterDef, shownIn = def.unit): string | null {
 }
 
 const isProfile = (p: ParameterDef) => p.type === "string" && p.key === "profile";
-const isBig = (p: ParameterDef) =>
-  p.type === "table1d" || p.type === "table2d" || p.type === "code" || isProfile(p);
+const isTable = (p: ParameterDef) => p.type === "table1d" || p.type === "table2d" || p.type === "table";
+const isBig = (p: ParameterDef) => isTable(p) || p.type === "maps" || p.type === "code" || isProfile(p);
 
 export function ElementForm({
   element,
@@ -1349,7 +1300,7 @@ export function ElementForm({
               <span className="flex min-w-0 items-center gap-1.5">
                 {p.type === "code" ? <Pencil size={12} /> : <Table2 size={12} />}
                 <span className="truncate">{isProfile(p) ? "Profile" : p.label}</span>
-                {p.type !== "code" && !isProfile(p) ? (
+                {p.type !== "code" && p.type !== "maps" && !isProfile(p) ? (
                   <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">({unitOf(p)})</span>
                 ) : null}
               </span>
@@ -1363,7 +1314,7 @@ export function ElementForm({
         <div key={p.key} data-param={p.key}>
           <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
             {isProfile(p) ? "Profile" : p.label}
-            {!isProfile(p) && p.type !== "code" ? ` (${unitOf(p)})` : ""}
+            {!isProfile(p) && p.type !== "code" && p.type !== "maps" ? ` (${unitOf(p)})` : ""}
             {running && !isProfile(p) && (
               <span className="ml-1 font-normal italic">— applies on next run</span>
             )}
@@ -1382,7 +1333,7 @@ export function ElementForm({
               units={tableShown(p, [profileAxes(def.id, profileMode).x], profileAxes(def.id, profileMode).yUnit)}
               onChange={(v) => setParameter(element.id, p.key, v)}
             />
-          ) : p.type === "table1d" && p.axes?.length === 1 ? (
+          ) : isTable(p) && p.axes?.length === 1 ? (
             <Table1DEditor
               value={valueOf(p) as Table1D}
               axis={p.axes[0]}
@@ -1392,7 +1343,7 @@ export function ElementForm({
               onChange={(v) => setParameter(element.id, p.key, v)}
               importTarget={{ componentDefId: def.id, paramKey: p.key }}
             />
-          ) : p.type === "table2d" && p.axes?.length === 2 ? (
+          ) : isTable(p) && p.axes?.length === 2 ? (
             <Table2DEditor
               value={valueOf(p) as Table2D}
               axes={[p.axes[0], p.axes[1]]}
@@ -1402,6 +1353,20 @@ export function ElementForm({
               onChange={(v) => setParameter(element.id, p.key, v)}
               importTarget={{ componentDefId: def.id, paramKey: p.key }}
             />
+          ) : isTable(p) && (p.axes?.length ?? 0) > 2 ? (
+            // a table of three or more axes: one grid, two axes shown (docs/spec/tables.md)
+            <LibraryTableN
+              target={{ componentDefId: def.id, paramKey: p.key }}
+              axes={p.axes!.map((a, i) => ({ name: a.name, lib: a.unit, unit: unitOf(p, i) }))}
+              outputs={[{ key: "value", name: p.label, lib: p.unit, unit: unitOf(p) }]}
+              tables={{ value: valueOf(p) as TableN }}
+              onChange={(t) => setParameter(element.id, p.key, t.value)}
+              setUnit={(slot, _out, unit, t) =>
+                keepUnit(p.key, slot === "value" ? p.unit : p.axes![slot].unit, slot, unit, t?.value)
+              }
+            />
+          ) : p.type === "maps" ? (
+            <MapEditor element={element} />
           ) : (
             <ParameterInput
               def={p}
@@ -1414,7 +1379,7 @@ export function ElementForm({
       {fmuBlock ? (
         <FmuPanel element={element} compact={compact} />
       ) : (
-        def.allowDynamicPorts && <DynamicPortsEditor element={element} />
+        def.allowDynamicPorts && def.id !== MAP_DEF_ID && <DynamicPortsEditor element={element} />
       )}
       {def.ports.length > 0 && (
         <div>

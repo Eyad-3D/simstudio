@@ -138,19 +138,7 @@
                 "type": "string"
               },
               {
-                "additionalProperties": {
-                  "additionalProperties": {
-                    "type": "number"
-                  },
-                  "type": "object"
-                },
-                "type": "object"
-              },
-              {
-                "additionalProperties": {
-                  "type": "number"
-                },
-                "type": "object"
+                "$ref": "#/$defs/Table"
               }
             ]
           },
@@ -415,6 +403,18 @@
           ],
           "default": null,
           "title": "Polarity"
+        },
+        "unitText": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unittext"
         }
       },
       "required": [
@@ -705,19 +705,7 @@
                   "type": "string"
                 },
                 {
-                  "additionalProperties": {
-                    "additionalProperties": {
-                      "type": "number"
-                    },
-                    "type": "object"
-                  },
-                  "type": "object"
-                },
-                {
-                  "additionalProperties": {
-                    "type": "number"
-                  },
-                  "type": "object"
+                  "$ref": "#/$defs/Table"
                 }
               ]
             },
@@ -793,6 +781,19 @@
         "name"
       ],
       "title": "SystemNode",
+      "type": "object"
+    },
+    "Table": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "number"
+          },
+          {
+            "$ref": "#/$defs/Table"
+          }
+        ]
+      },
       "type": "object"
     }
   },

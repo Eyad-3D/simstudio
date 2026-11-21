@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 
 from . import cycles
 from .library import library_by_id
-from .schemas import Project
+from .schemas import TABLE_TYPES, Project
 from .version import VERSION
 
 CATALOGUE = Path(__file__).parent / "library" / "sources.json"
@@ -234,7 +234,7 @@ def sources_of(project: Project, case_id: Optional[str] = None) -> RunSources:
                     continue
                 if cdef.id == "signal.driving_task" and key == "profile" and values.get("cycle"):
                     continue  # a cycle replaces the typed profile
-                table = pdef.type in ("table1d", "table2d") or key == "profile"
+                table = pdef.type in TABLE_TYPES or key == "profile"
                 if key not in values:  # the library's default
                     row = by_key.get((lib_file, f"{cdef.id}.{key}") if table else ("", ""))
                     cite(row or by_key[(lib_file, "*")], what)

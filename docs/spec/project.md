@@ -123,7 +123,7 @@ from the library's defaults, in `parameterOverrides`.
 | `label` | text, required | The name shown on the diagram |
 | `position` | `{x, y}`, required | Where it sits on the diagram, in diagram units |
 | `parameterOverrides` | object | Parameter key → value, for the values that differ from the library's default. A number is in the parameter's unit; see [Values](#values) |
-| `dynamicPorts` | list of [Port](#port) | Signal ports added to this part (Script and Monitor blocks) |
+| `dynamicPorts` | list of [Port](#port) | Signal ports added to this part (Script, Monitor, FMU and Map blocks) |
 | `portSides` | object | Port id → `left`, `right`, `top` or `bottom`: where a pin is drawn |
 | `portOffsets` | object | Port id → 0 to 1: where along its side a pin is drawn |
 | `tableOutside` | object | Table parameter key → one of `error`, `clamp`, `linear` per axis: what the run does outside the table's data, overriding the library's setting |
@@ -148,6 +148,14 @@ from the library's defaults, in `parameterOverrides`.
   axis's name and unit; the values are in the parameter's unit.
 - **table2d**: the same, one level deeper: outer axis value → inner axis
   value → value, e.g. a motor's full-load torque by voltage, then speed.
+- **table**: a table of any number of axes, one level per axis in the
+  order of the library's `axes`; from three axes on, a full grid.
+  `table1d` and `table2d` are the same model with one and two axes.
+  [Tables and the Map block](tables.md) gives the stored form, the order
+  the engine reads the values in and the per-axis lists.
+- **maps** (a Map block's `maps`): output port id → that output's table
+  over the block's inputs, all outputs on one shared full grid; see
+  [Tables and the Map block](tables.md#the-map-block).
 
 A Driving Task's `cycle` names a bundled drive cycle by id (`wltc-3b`,
 `udds`, `hwfet`; `GET /api/cycles`) or one of the project's own
@@ -157,8 +165,9 @@ s and km/h, separated by `;`.
 
 ## Port
 
-The ports of a part come from the library. Script and Monitor blocks add
-their own in `dynamicPorts`, with the same fields.
+The ports of a part come from the library. Script, Monitor, FMU and Map
+blocks add their own in `dynamicPorts`, with the same fields; a Map
+block's inputs are the axes of its tables, in their order.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -169,6 +178,7 @@ their own in `dynamicPorts`, with the same fields.
 | `unitGroup` | text or null | The quantity of a signal (`Power`, `Velocity` …); the library's `unitGroups` maps it to a unit |
 | `side` | `left`, `right` or null | Where the pin is drawn by default |
 | `polarity` | `positive`, `negative` or null | An electrical terminal's polarity |
+| `unitText` | text or null | A Map block port's unit when the app has no unit group for it (its `unitGroup` is then `No Unit`): shown with its numbers and on its pin, never converted ([Tables and the Map block](tables.md#ports)) |
 
 ## Wire
 

@@ -26,6 +26,7 @@ Abualkhair, CC BY 4.0".
 | Page | Covers |
 |---|---|
 | [Project file](project.md) | A project: its parts, wires, signal links, cases and studies, and its history of saves |
+| [Tables and the Map block](tables.md) | Table parameters with any number of axes: their definition, stored form and the order the engine reads them in; the Map block; what a run refuses |
 | [Runs and results](results.md) | The runs folder, a stored run, a result, the summary keys, and the CSV, MAT and JSON exports |
 | [Engine API](api.md) | The HTTP API, the live-run WebSocket messages and the offline API page |
 | [Format changelog](CHANGELOG.md) | What changed in each version of each format |
