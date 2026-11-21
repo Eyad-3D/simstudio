@@ -160,6 +160,11 @@ limits (I_dis and I_ch above). Each is a cell's value × Np for the pack:
   limit.
 - **Charge current**: the same with *Cell Continuous Charge Current* and
   *Cell Peak Charge Current*.
+- With only a peak current set that way (no continuous current and no cell
+  voltage limit), once the Peak Duration has passed the pack is as if it had
+  no limit that way: the *SOC Derating Band* lowers the maximum-power point
+  (discharging) or the current at *Max Charge Power* (charging), and without
+  a band the limit output reads 0.
 - **Cell voltage**: a cell's terminal voltage is
 
   `v = v_cell − U₁ ÷ Ns − (I ÷ Np)·R_cell`
