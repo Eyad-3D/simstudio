@@ -227,8 +227,9 @@ impl<'a> PointSolver<'a> {
             if d_new == self.d {
                 return Ok(());
             }
+            // (the derivatives are kept: where the new mode changes them,
+            // slow convergence refreshes them)
             self.d.copy_from_slice(&d_new);
-            self.valid = false;
             self.solve_z()?;
         }
         Err("its modes did not settle".into())

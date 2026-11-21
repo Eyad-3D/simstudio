@@ -992,10 +992,9 @@ impl<'a> Builder<'a> {
                 ));
             };
             if facts.of_kind("track.lap").next().is_none() {
-                return self.errors.push(err(
-                    "LAP-PARTS",
-                    "A lap case needs a Race Track.".to_string(),
-                ));
+                return self
+                    .errors
+                    .push(err("LAP-PARTS", "A lap case needs a Race Track.".to_string()));
             }
             let spec = lsim_ir::InverseSpec {
                 prescribed: vec![format!("{}.v", self.inst(&veh))],

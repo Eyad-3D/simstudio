@@ -1335,7 +1335,8 @@ impl LapModel {
         more: bool,
         stop: bool,
     ) -> PyResult<Bound<'py, PyDict>> {
-        let params = self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
+        let params =
+            self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
         let track = lsim_lap::Track { kappa, sin_t, ds, closed };
         let opt = lsim_lap::LapOptions { v_start, coast, more, stop };
         let t0 = std::time::Instant::now();
@@ -1384,15 +1385,23 @@ impl LapModel {
         kappa: f64,
         sin_t: f64,
     ) -> PyResult<Option<Bound<'py, PyDict>>> {
-        let params = self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
+        let params =
+            self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
         let m = &self.built.model;
-        let mut s = m.point_solver(&params, &[(v, 0.0)]).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let mut s = m
+            .point_solver(&params, &[(v, 0.0)])
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let flat = &m.prepared.flat;
         for (name, value) in [
             (format!("{}.kappa_now", self.parts.track), kappa),
-            (format!("{}.grade_now", self.parts.track), sin_t / (1.0 - sin_t * sin_t).max(1e-12).sqrt()),
+            (
+                format!("{}.grade_now", self.parts.track),
+                sin_t / (1.0 - sin_t * sin_t).max(1e-12).sqrt(),
+            ),
         ] {
-            let id = flat.find_param(&name).ok_or_else(|| PyValueError::new_err(format!("no {name}")))?;
+            let id = flat
+                .find_param(&name)
+                .ok_or_else(|| PyValueError::new_err(format!("no {name}")))?;
             s.params_mut()[id.0 as usize] = value;
         }
         if s.solve(&[(v, a)]).is_err() {

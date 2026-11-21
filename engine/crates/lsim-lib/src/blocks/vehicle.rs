@@ -314,7 +314,8 @@ pub fn body(cfg: BodyConfig) -> ComponentDef {
             var("lat_use", "1", "the share of the lateral grip the corner takes"),
         ]);
         let ne = cfg.n_ell.max(1.0);
-        let moment = n("mass_kg") * noev(abs(n("ay"))) * max(n("cg_height_m"), c(0.0) * n("cg_height_m"));
+        let moment =
+            n("mass_kg") * noev(abs(n("ay"))) * max(n("cg_height_m"), c(0.0) * n("cg_height_m"));
         let axle = |share: Expr, track: &str, k: &str| {
             ite(
                 noev(and(gt(n(track), c(0.0) * n(track)), gt(n(k), c(0.5)))),
@@ -625,10 +626,7 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             if lap {
                 eq(
                     n("N"),
-                    max(
-                        n("N0") + n("side") * min(n("dlat"), n("N0")),
-                        c(0.0) * n("unit_N"),
-                    ),
+                    max(n("N0") + n("side") * min(n("dlat"), n("N0")), c(0.0) * n("unit_N")),
                     "its load before the corner, and what its pair moves to its outer wheel",
                 )
             } else {

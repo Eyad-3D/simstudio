@@ -63,8 +63,8 @@ pub mod stepper;
 pub mod trace;
 
 pub use limits::{DerSrc, LimitSite, Term};
-pub use point::{PointSolver, PointStats};
 pub use lsim_ir::InverseSpec;
+pub use point::{PointSolver, PointStats};
 pub use trace::Trace;
 
 use lsim_ir::prepared::Direction;

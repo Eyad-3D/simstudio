@@ -162,13 +162,13 @@ pub fn import(
 ) -> Result<(Value, lsim_ir::ComponentDef, ImportReport), Failure> {
     let project = parse_project(project_json)?;
     let reg = standard_registry();
-    let (mut top, mut rep) =
-        import_case(&project, Some(case_id), &reg, &ImportOptions {
-            cycles_dir,
-            inverse,
-            lap: false,
-        })
-            .map_err(Failure::Model)?;
+    let (mut top, mut rep) = import_case(
+        &project,
+        Some(case_id),
+        &reg,
+        &ImportOptions { cycles_dir, inverse, lap: false },
+    )
+    .map_err(Failure::Model)?;
     with_texts(&mut top, &mut rep, texts)?;
     Ok((project, top, rep))
 }

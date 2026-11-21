@@ -51,6 +51,13 @@ const A_MAX: f64 = 60.0;
 const V_TOL: f64 = 1e-6;
 const A_TOL: f64 = 1e-6;
 const MAX_ROOT: usize = 60;
+/// the slowest speed the car is solved at, m/s: at rest the model has no
+/// answer (the stage 2 spike solved every point at 0.5 m/s, and the solve
+/// at 0 m/s and 0 m/s² fails), and below it the forces barely change (the
+/// recuperation's fade below 3 m/s the most)
+const V_MIN: f64 = 0.5;
+/// the first step a search's bracket widens by from its guess, m/s²
+const A_STEP: f64 = 0.5;
 
 /// What held the car back on a stretch: today's codes (lapsim.LIMITS
 /// position + 1) and the motors' top speed.
@@ -229,6 +236,9 @@ struct Car<'a> {
     windows: Vec<Window>,
     apex: HashMap<(u64, u64), f64>,
     v_cap: f64,
+    /// the last answers of the searches: where the next one starts
+    /// (acceleration, deceleration, coasting), m/s²
+    guess: [f64; 3],
 }
 
 /// The margin of a value inside its upper (`up`) or lower bound, as a share
@@ -285,7 +295,17 @@ impl<'a> Car<'a> {
         let s = model
             .point_solver(params, &[(v0, 0.0)])
             .map_err(|e| LapError::Model(format!("the lap model could not be started: {e}")))?;
-        let mut car = Car { s, kappa, grade, pedal, sites, windows, apex: HashMap::new(), v_cap: V_MAX };
+        let mut car = Car {
+            s,
+            kappa,
+            grade,
+            pedal,
+            sites,
+            windows,
+            apex: HashMap::new(),
+            v_cap: V_MAX,
+            guess: [0.0; 3],
+        };
         car.v_cap = car.top_speed();
         Ok(car)
     }
@@ -297,7 +317,7 @@ impl<'a> Car<'a> {
         let p = self.s.params_mut();
         p[self.kappa] = kappa;
         p[self.grade] = sin_t / (1.0 - sin_t * sin_t).max(1e-12).sqrt();
-        self.s.solve(&[(v, a)]).ok()?;
+        self.s.solve(&[(v.max(V_MIN), a)]).ok()?;
         Some(self.s.sites())
     }
 
@@ -365,7 +385,8 @@ impl<'a> Car<'a> {
         let holds = |car: &mut Self, v: f64| -> bool {
             let Some(x) = car.at(v, 0.0, kappa, sin_t) else { return false };
             car.sites.iter().enumerate().all(|(k, s)| {
-                !matches!(s, Site::Wheel(_)) || (margin(x[k], true) >= 0.0 && margin(x[k], false) >= 0.0)
+                !matches!(s, Site::Wheel(_))
+                    || (margin(x[k], true) >= 0.0 && margin(x[k], false) >= 0.0)
             })
         };
         let cap = self.v_cap;
@@ -387,23 +408,58 @@ impl<'a> Car<'a> {
         v
     }
 
-    /// The root of a margin `f` in `a` between `lo` (inside) and `hi`
-    /// (outside), by regula falsi with Illinois' step, bisecting where the
-    /// model has no answer; returns the last `a` inside and its site.
+    /// The root of a margin `f` in `x` (≥ 0 inside, falling as `x` grows):
+    /// bracketed from `guess`, widening by A_STEP and doubling within
+    /// ±A_MAX, then regula falsi with Illinois' step, bisecting where the
+    /// model has no answer; returns the last `x` inside and its site, or
+    /// None where no `x` down to -A_MAX is inside.
+    #[allow(clippy::type_complexity)] // (a margin of the car at one value)
     fn root(
         &mut self,
         f: &mut dyn FnMut(&mut Self, f64) -> (f64, Option<usize>),
-        mut lo: f64,
-        mut hi: f64,
-    ) -> (f64, Option<usize>) {
-        let (mut flo, mut site) = f(self, lo);
-        let (mut fhi, _) = f(self, hi);
+        guess: f64,
+    ) -> Option<(f64, Option<usize>)> {
+        let g = guess.clamp(-A_MAX, A_MAX);
+        let (fg, sg) = f(self, g);
+        let (mut lo, mut flo, mut site, mut hi, mut fhi);
+        let mut step = A_STEP;
+        if fg >= 0.0 {
+            (lo, flo, site) = (g, fg, sg);
+            loop {
+                let x = (lo + step).min(A_MAX);
+                let (fx, sx) = f(self, x);
+                if fx < 0.0 {
+                    (hi, fhi) = (x, fx);
+                    break;
+                }
+                (lo, flo, site) = (x, fx, sx);
+                if x >= A_MAX {
+                    return Some((lo, site));
+                }
+                step *= 2.0;
+            }
+        } else {
+            (hi, fhi) = (g, fg);
+            loop {
+                let x = (hi - step).max(-A_MAX);
+                let (fx, sx) = f(self, x);
+                if fx >= 0.0 {
+                    (lo, flo, site) = (x, fx, sx);
+                    break;
+                }
+                (hi, fhi) = (x, fx);
+                if x <= -A_MAX {
+                    return None;
+                }
+                step *= 2.0;
+            }
+        }
         let mut side = 0i8;
         for _ in 0..MAX_ROOT {
             if (hi - lo).abs() <= A_TOL {
                 break;
             }
-            let x = if fhi > -1.0 && flo.is_finite() && fhi.is_finite() && flo != fhi {
+            let x = if fhi > -1.0 && flo != fhi {
                 let x = lo - flo * (hi - lo) / (fhi - flo);
                 if (x - lo) * (x - hi) < 0.0 { x } else { 0.5 * (lo + hi) }
             } else {
@@ -411,31 +467,30 @@ impl<'a> Car<'a> {
             };
             let (fx, sx) = f(self, x);
             if fx >= 0.0 {
-                lo = x;
-                flo = fx;
-                site = sx;
+                (lo, flo, site) = (x, fx, sx);
                 if side == 1 {
                     fhi *= 0.5;
                 }
                 side = 1;
             } else {
-                hi = x;
-                fhi = fx;
+                (hi, fhi) = (x, fx);
                 if side == -1 {
                     flo *= 0.5;
                 }
                 side = -1;
             }
         }
-        // (the site that held it, read just inside)
-        (lo, site)
+        Some((lo, site))
     }
 
     /// The most acceleration at speed `v` and what limits it.
     fn accel(&mut self, kappa: f64, sin_t: f64, v: f64) -> (f64, Code, Cause) {
         let mut f = |car: &mut Self, a: f64| car.drive(v, a, kappa, sin_t);
-        let lo = if f(self, 0.0).0 >= 0.0 { 0.0 } else { -A_MAX };
-        let (a, site) = self.root(&mut f, lo, A_MAX);
+        let Some((a, site)) = self.root(&mut f, self.guess[0]) else {
+            // no drive inside the grip the corner leaves: it coasts
+            return (self.coast(kappa, sin_t, v), Code::Corner, Cause::None);
+        };
+        self.guess[0] = a;
         let _ = self.drive(v, a, kappa, sin_t); // (the point itself, for the cause)
         let (code, cause) = match site.map(|k| self.sites[k]) {
             Some(Site::Pedal) => (Code::Motor, Cause::None),
@@ -462,7 +517,11 @@ impl<'a> Car<'a> {
     /// The most deceleration at speed `v` (positive) and what limits it.
     fn decel(&mut self, kappa: f64, sin_t: f64, v: f64) -> (f64, Cause) {
         let mut f = |car: &mut Self, d: f64| car.brake(v, -d, kappa, sin_t);
-        let (d, site) = self.root(&mut f, 0.0, A_MAX);
+        let Some((d, site)) = self.root(&mut f, self.guess[1]) else {
+            // no braking inside the grip the corner leaves: the road load alone
+            return (-self.coast(kappa, sin_t, v), Cause::None);
+        };
+        self.guess[1] = d;
         let cause = match site.map(|k| self.sites[k]) {
             Some(Site::Wheel(true)) => Cause::FrontAxle,
             Some(Site::Wheel(false)) => Cause::RearAxle,
@@ -482,7 +541,9 @@ impl<'a> Car<'a> {
                 None => (-1.0, None),
             }
         };
-        self.root(&mut f, -A_MAX, A_MAX).0
+        let a = self.root(&mut f, self.guess[2]).map_or(-A_MAX, |r| r.0);
+        self.guess[2] = a;
+        a
     }
 }
 
@@ -498,10 +559,12 @@ pub fn solve(
     opt: &LapOptions,
 ) -> Result<Profile, LapError> {
     let n = track.kappa.len().saturating_sub(1);
-    if n == 0 || track.sin_t.len() != n + 1 || !(track.ds > 0.0) {
-        return Err(LapError::Model("the track needs two points or more, a spacing above 0".into()));
+    if n == 0 || track.sin_t.len() != n + 1 || track.ds.is_nan() || track.ds <= 0.0 {
+        return Err(LapError::Model(
+            "the track needs two points or more, a spacing above 0".into(),
+        ));
     }
-    let mut car = Car::new(model, params, parts, opt.v_start.max(0.0).min(V_MAX))?;
+    let mut car = Car::new(model, params, parts, opt.v_start.clamp(0.0, V_MAX))?;
     let apex: Vec<f64> =
         track.kappa.iter().zip(&track.sin_t).map(|(&k, &s)| car.apex(k, s)).collect();
     let (vf, why) = forward(&mut car, track, &apex, opt.v_start, None);
@@ -666,7 +729,10 @@ mod tests {
 
     #[test]
     fn a_window_at_its_cap_is_the_power_cap() {
-        assert_eq!(battery_cause(&window(), &[80e3, 500.0, 300.0, 400.0], &[80e3]), Cause::PowerCap);
+        assert_eq!(
+            battery_cause(&window(), &[80e3, 500.0, 300.0, 400.0], &[80e3]),
+            Cause::PowerCap
+        );
     }
 
     #[test]
@@ -676,7 +742,10 @@ mod tests {
         assert_eq!(battery_cause(&window(), &[50e3, 500.0, 300.0, 400.0], &p), Cause::CurrentLimit);
         assert_eq!(battery_cause(&window(), &[50e3, 500.0, 300.0, 100.0], &p), Cause::SocFloor);
         // a cap far above the window is no cause
-        assert_eq!(battery_cause(&window(), &[50e3, 200.0, 300.0, 400.0], &[80e3]), Cause::MaxPower);
+        assert_eq!(
+            battery_cause(&window(), &[50e3, 200.0, 300.0, 400.0], &[80e3]),
+            Cause::MaxPower
+        );
     }
 
     #[test]
