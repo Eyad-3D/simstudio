@@ -103,6 +103,10 @@ to the source's positive terminal, through Electric Nodes too.
    power to what the bus gets, and delivers at most its share of P_absorb
    plus what the bus's loads use. So it throttles back as the pack fills.
 
+A DC-DC converter that holds its output voltage and draws from the bus
+counts in step 1 for the consumers behind it and in step 2 for the driving
+motors behind it. It feeds nothing back.
+
 ### Losses and stored energy
 
 The energy view books as loss R0·I² + U₁² ÷ R1, plus (1 − η_c)·OCV·|I|

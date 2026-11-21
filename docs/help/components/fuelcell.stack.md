@@ -35,10 +35,9 @@ setpoint that draw from its bus are held to that window. In the usual
 layout, a DC-DC Converter at a power setpoint feeds a battery's bus from
 the stack, and it is cut back with the stack's window.
 
-A DC-DC Converter that holds its output voltage is not held to the window.
-Fed from the stack, it can draw past the *Maximum Current*, keep drawing
-after the tank is empty (the tank's mass then falls below 0), and pass
-recuperated power back into the stack.
+A DC-DC Converter that holds its output voltage is held to the window too:
+the consumers and the motors behind it are served together with the stack's
+own, and it passes nothing back into the stack.
 
 ### Edges
 

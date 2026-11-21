@@ -30,14 +30,27 @@ output bus's motors and consumers may draw from the battery's window.
 ### Otherwise: output voltage
 
 With no battery on its output bus, it holds its output at *Output Voltage*
-(V), and gives whatever power that bus takes. It draws P_in = P_out ÷ η.
+(V) and is that bus's source. It gives what the bus takes, as far as its
+input side can give it, and draws P_in = P_out ÷ η.
 
-In this mode no bus manager watches either side. The motors on its output
-bus are not held to any supply window (the run warns: "Buses fed by a
-DC-DC converter holding its output voltage have no bus manager yet: their
-motors are not held to the supply's window."), and what it draws is not
-part of its input battery's or fuel cell's window, so it can take that
-source past its limits.
+- **Consumers behind it** (Power Consumers, Climate Controls): their demand
+  ÷ η is asked of the input bus, where the converter counts as one of that
+  bus's consumers. If the source there cannot carry all its consumers, each
+  gets the same share, the ones behind the converter too.
+- **Driving motors behind it**: their requests ÷ η are asked of the input
+  bus, where the converter counts as one of that bus's motors and shares
+  what the consumers leave.
+- On a Voltage Source's bus it gets all it asks. With its input left open
+  it gets nothing.
+- **One way**: a motor behind it feeds back only what the loads on its own
+  bus use at that moment. The rest shows as the motor's *regeneration not
+  recovered*, and *Messages* says: "DC-DC '…' passes power one way only —
+  regenerative torque on its output bus limited."
+- A *Power Setpoint* linked in this mode is not used; the run goes ahead
+  and *Messages* says so.
+
+So a battery behind the converter stops at its *Minimum SOC* and a hydrogen
+tank at empty, as they do for the loads on their own bus.
 
 ### Losses
 
@@ -53,7 +66,3 @@ converter stores nothing. It has no power rating.
   input must be on a bus with a battery, fuel cell or voltage source of its
   own (not behind another DC-DC converter, nor left open): connect its
   input to such a bus".
-- The *Power Setpoint* input exists only at a power setpoint. Linked while
-  the converter holds its output voltage, the run is refused: "Port
-  'sig_setpoint_in' of '…' is linked, but its block has no such signal
-  port."

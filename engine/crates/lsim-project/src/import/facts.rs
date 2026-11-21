@@ -93,12 +93,14 @@ pub struct Bus {
 }
 
 impl Bus {
-    /// Its source hands its motors and consumers a power window (a battery
-    /// or a fuel cell; a voltage source gives whatever is asked).
+    /// Its source hands its motors and consumers a power window (a battery,
+    /// a fuel cell, or a DC-DC converter holding its output voltage, which
+    /// passes on what its input bus grants it; a voltage source gives
+    /// whatever is asked).
     pub fn windowed(&self) -> bool {
         matches!(
             self.source.as_ref().map(|s| s.1.as_str()),
-            Some("battery.generic" | "fuelcell.stack")
+            Some("battery.generic" | "fuelcell.stack" | "controller.dcdc")
         )
     }
 }
@@ -215,14 +217,17 @@ impl Facts {
 const RATIO_TYPES: [&str; 2] = ["mech.final_drive", "mech.gearbox"];
 
 /// A drive cycle as a profile: its points as profile text (`x:v; …`,
-/// speed in km/h, grade in %), and whether x is the distance driven.
+/// speed in km/h, grade in %), and whether x of its speed is the distance
+/// driven.
 #[derive(Clone, Debug)]
 pub struct Cycle {
     /// the speed profile, if it has one
     pub speed: Option<String>,
-    /// the grade profile, if it has one
+    /// the grade profile against the distance driven, m, if it has one (a
+    /// cycle against time has its grade placed along the distance its
+    /// speed covers, as today's)
     pub grade: Option<String>,
-    /// x is the distance driven, m (else the time, s)
+    /// x of the speed is the distance driven, m (else the time, s)
     pub distance: bool,
 }
 
@@ -271,11 +276,14 @@ pub fn read(
                 let label = el["label"].as_str().unwrap_or(&id);
                 match cycles(&cy) {
                     Some(c) => {
-                        let text = if kind == "signal.driving_task" { c.speed } else { c.grade };
+                        let task = kind == "signal.driving_task";
+                        let text = if task { c.speed } else { c.grade };
                         match text {
                             Some(t) => {
                                 params.insert("profile".into(), Value::String(t));
-                                if c.distance {
+                                // a cycle's grade is along the distance, whatever
+                                // the Road Profile's own axis says (today's)
+                                if c.distance || !task {
                                     params.insert("mode".into(), Value::String("distance".into()));
                                 }
                             }

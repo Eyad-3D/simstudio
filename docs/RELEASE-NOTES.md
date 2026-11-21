@@ -1216,6 +1216,22 @@ sections.
 
 ### Fixed
 
+- A Road Profile set to a drive cycle, and the DC-DC converter, on the new
+  engine. A Road Profile that takes its grade from a cycle against time
+  meets each hill at the distance where the cycle has it, read against the
+  distance the car has driven whatever its *Profile Axis* says, as its
+  *Grade From Cycle* text says (it read the cycle's seconds as metres). A
+  DC-DC converter holding its output voltage draws inside what its input
+  side can give: the consumers on its output side are cut back, and its
+  motors held, with that side's own, as the older engine did, so a battery
+  stops at its *Minimum SOC* and a hydrogen tank at empty (it could drain a
+  battery below 0 % and a tank below 0 kg). It passes power one way, as its
+  texts say: a motor behind it recuperates only what the loads on its own
+  side use, the rest is the motor's *regeneration not recovered*, and
+  *Messages* says the converter limited it (it passed the power back to its
+  input). A *Power Setpoint* linked to a converter with no battery on its
+  output is ignored, as the older engine ignored it, and *Messages* says so
+  (the run was refused).
 - The interface's loose ends. An error the engine sends back reads as
   sentences naming the part and the parameter (it read *[object Object]*).
   *Problems* and the status bar say when the Data Checks could not run, and

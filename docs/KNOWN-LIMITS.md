@@ -120,9 +120,8 @@ code. A test in the repository records each as an expected failure
 - **Some notes and rows the older engine wrote are missing**: the note
   that a motor at its maximum speed holds the car there, the time a Lookup
   block spent outside its data on *Clamp* or *Linear*, the count of the
-  tables a run read past their data, the *regeneration not recovered* rows
-  behind a one-way DC-DC converter, and an early message that the car does
-  not move.
+  tables a run read past their data, and an early message that the car
+  does not move.
 - **Some figures differ from the older engine's by more than the band the
   two engines are compared at, and no class of difference explains them
   yet**: the energy of a gear shift, a clutch that never locks exactly,
@@ -148,10 +147,9 @@ code. A test in the repository records each as an expected failure
   losses. A battery near its *Minimum SOC* or full gives and takes less as
   it nears the limit (within about 10 ms of charge), as the older engine
   did over its step.
-- **A battery driven to its limits, an empty battery's consumers and a
-  fuel cell behind a one-way DC-DC converter can fail at their start or at
-  t = 0** (`RUN-INIT` at about 2.2 s; `RUN-TABLE` at t = 0): the new engine
-  cannot start again from the state these cases reach.
+- **A battery driven to its limits and an empty battery's consumers can
+  fail where the battery reaches its limit** (`RUN-INIT` at about 2.2 s):
+  the new engine cannot start again from the state these cases reach.
 - **A model whose loss map has sheets of different range is refused**
   (`BLOCK`): the older engine counted a read outside the narrowest range,
   the new engine watches the widest.

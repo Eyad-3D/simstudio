@@ -160,7 +160,7 @@ Parameters:
 
 Category: E-Drive. Domain: electrical.
 
-DC-DC converter with constant conversion efficiency. It draws at its input (Input + and Input −) and supplies its output (Output + and Output −). When its output feeds a bus with a battery, the converter runs at its power setpoint (parameter or signal) and the battery balances the rest — the fuel-cell hybrid pattern.
+DC-DC converter with constant conversion efficiency. It draws at its input (Input + and Input −) and supplies its output (Output + and Output −); power passes one way. When its output feeds a bus with a battery, the converter runs at its power setpoint (parameter or signal) and the battery balances the rest — the fuel-cell hybrid pattern. Otherwise it holds its output voltage and draws only what its input side can give: the loads on its output side are cut back together with the input side's own.
 
 Ports:
 - `a_pos`: Input + (HV in) (electrical bidirectional, kW)

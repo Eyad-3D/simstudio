@@ -317,6 +317,29 @@ pub fn bundled_cycles_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../backend/app/cycles")
 }
 
+/// A cycle's grade against time placed along the distance its speed
+/// covers, as profile text (today's `cycles._grade_along`): from (time s,
+/// speed km/h, grade %) rows, x grows by (t2 − t1)·(v1 + v2)/7.2 m a row
+/// and a point is added only where it grows (standing still keeps the
+/// first grade; a row with no grade reads 0 %), x rounded to the
+/// millimetre as today's profile text has it (`{:.3}` rounds as Python's
+/// `round(x, 3)`, ties to even). A car that lags the trace still meets
+/// each hill where it is.
+fn grade_along(rows: &[(f64, f64, Option<f64>)]) -> Option<String> {
+    let first = rows.first()?;
+    first.2?;
+    let mut out = vec![(0.0, first.2.unwrap_or(0.0))];
+    let mut x = 0.0;
+    for w in rows.windows(2) {
+        let ((t1, v1, _), (t2, v2, g2)) = (w[0], w[1]);
+        x += (t2 - t1) * (v1 + v2) / 7.2;
+        if x > out[out.len() - 1].0 {
+            out.push((x, g2.filter(|g| *g != 0.0).unwrap_or(0.0)));
+        }
+    }
+    Some(out.iter().map(|(x, g)| format!("{x:.3}:{g}")).collect::<Vec<_>>().join("; "))
+}
+
 /// A bundled cycle's CSV as profile text.
 fn read_csv_cycle(text: &str) -> Option<Cycle> {
     let mut lines = text.lines();
@@ -324,19 +347,19 @@ fn read_csv_cycle(text: &str) -> Option<Cycle> {
     let col = |name: &str| header.iter().position(|h| h == name);
     let (t, v, g) = (col("t_s")?, col("speed_kmh"), col("grade_pct"));
     let mut speed = vec![];
-    let mut grade = vec![];
+    let mut rows = vec![];
     for line in lines {
         let cells: Vec<&str> = line.split(',').map(str::trim).collect();
-        let Some(x) = cells.get(t).and_then(|s| s.parse::<f64>().ok()) else { continue };
-        if let Some(y) = v.and_then(|i| cells.get(i)).and_then(|s| s.parse::<f64>().ok()) {
+        let num =
+            |i: Option<usize>| i.and_then(|i| cells.get(i)).and_then(|s| s.parse::<f64>().ok());
+        let Some(x) = num(Some(t)) else { continue };
+        if let Some(y) = num(v) {
             speed.push(format!("{x}:{y}"));
-        }
-        if let Some(y) = g.and_then(|i| cells.get(i)).and_then(|s| s.parse::<f64>().ok()) {
-            grade.push(format!("{x}:{y}"));
+            rows.push((x, y, num(g)));
         }
     }
     let join = |v: Vec<String>| (!v.is_empty()).then(|| v.join("; "));
-    Some(Cycle { speed: join(speed), grade: join(grade), distance: false })
+    Some(Cycle { speed: join(speed), grade: grade_along(&rows), distance: false })
 }
 
 /// A project's own cycle (`cycles[]`, `own:…`) as profile text.
@@ -348,7 +371,16 @@ fn own_cycle(c: &Value) -> Cycle {
             x.iter().zip(v).filter_map(|(x, y)| y.as_f64().map(|y| format!("{x}:{y}"))).collect();
         (!pts.is_empty()).then(|| pts.join("; "))
     };
-    Cycle { speed: col("speed"), grade: col("grade"), distance: c["axis"] == "distance" }
+    let distance = c["axis"] == "distance";
+    let grade = if distance || c["grade"].as_array().is_none() {
+        col("grade")
+    } else {
+        let at = |key: &str, i: usize| c[key].get(i).and_then(Value::as_f64);
+        let rows: Vec<_> =
+            (0..x.len()).filter_map(|i| Some((x[i], at("speed", i)?, at("grade", i)))).collect();
+        grade_along(&rows)
+    };
+    Cycle { speed: col("speed"), grade, distance }
 }
 
 /// Imports a project with no case (the parts' own values, a 600 s run).
@@ -1051,24 +1083,34 @@ impl<'a> Builder<'a> {
         }
         // a bus manager on every bus whose source hands out a window; a
         // DC-DC converter at its power setpoint (setpoint mode) is a
-        // consumer of its input bus and an inflow of its output bus
-        let at_setpoint: Vec<String> = facts
-            .of_kind("controller.dcdc")
-            .map(|e| e.id.clone())
-            .filter(|d| self.has_port(d, "p_set"))
-            .collect();
-        let setpoint = |port: &str, bus: &facts::Bus| -> Vec<String> {
-            let on = |d: &&String| bus.members.iter().any(|(e, p)| e == *d && p == port);
-            at_setpoint.iter().filter(on).cloned().collect()
+        // consumer of its input bus and an inflow of its output bus; one
+        // holding its output voltage is the source of its output bus, and
+        // on its input bus a consumer (what its output bus's consumers ask)
+        // and a motor (what its output bus's motors ask), as today's source
+        // tree counts the loads behind it
+        let dcdcs = |port: &str| -> Vec<String> {
+            facts
+                .of_kind("controller.dcdc")
+                .map(|e| e.id.clone())
+                .filter(|d| self.has_port(d, port))
+                .collect()
         };
+        let (at_setpoint, holding) = (dcdcs("p_set"), dcdcs("p_request"));
+        let on = |list: &[String], port: &str, bus: &facts::Bus| -> Vec<String> {
+            let on = |d: &&String| bus.members.iter().any(|(e, p)| e == *d && p == port);
+            list.iter().filter(on).cloned().collect()
+        };
+        let mut asked: Vec<String> = vec![];
         for bus in facts.buses.iter().filter(|b| b.windowed()) {
             let (src, kind) = bus.source.clone().expect("a windowed bus has a source");
             let mut consumers: Vec<String> =
                 bus.consumers.iter().filter(|c| self.has_port(c, "served")).cloned().collect();
-            consumers.extend(setpoint("a_pos", bus));
-            let motors: Vec<String> =
+            consumers.extend(on(&at_setpoint, "a_pos", bus));
+            consumers.extend(on(&holding, "a_pos", bus));
+            let mut motors: Vec<String> =
                 bus.motors.iter().filter(|m| self.has_port(m, "p_hi")).cloned().collect();
-            let inflows = setpoint("b_pos", bus);
+            motors.extend(on(&holding, "a_pos", bus));
+            let inflows = on(&at_setpoint, "b_pos", bus);
             if consumers.is_empty() && motors.is_empty() && inflows.is_empty() {
                 continue;
             }
@@ -1084,11 +1126,20 @@ impl<'a> Builder<'a> {
                     }
                 }
             }
-            let def =
-                electric::bus_manager_fed(motors.len(), consumers.len(), inflows.len(), uses.len());
+            let fed = kind == "controller.dcdc";
+            let def = if fed {
+                electric::bus_manager_asking(motors.len(), consumers.len())
+            } else {
+                electric::bus_manager_fed(motors.len(), consumers.len(), inflows.len(), uses.len())
+            };
             let h = self.helper("bus", def, &[]);
             let si = self.inst(&src);
             self.link(format!("{si}.p_deliver"), format!("{h}.p_deliver"));
+            if fed {
+                self.link(format!("{h}.ask_fixed"), format!("{si}.ask_fixed"));
+                self.link(format!("{h}.ask_motors"), format!("{si}.ask_motors"));
+                asked.push(src.clone());
+            }
             if kind == "battery.generic" {
                 self.link(format!("{si}.p_absorb"), format!("{h}.p_absorb"));
             } else {
@@ -1103,7 +1154,10 @@ impl<'a> Builder<'a> {
                 let mi = self.inst(mid);
                 self.link(format!("{mi}.p_request"), format!("{h}.p_req{}", k + 1));
                 self.link(format!("{h}.p_hi{}", k + 1), format!("{mi}.p_hi"));
-                self.link(format!("{h}.p_lo{}", k + 1), format!("{mi}.p_lo"));
+                // (a converter passes nothing back to its input bus)
+                if !holding.contains(mid) {
+                    self.link(format!("{h}.p_lo{}", k + 1), format!("{mi}.p_lo"));
+                }
             }
             for (j, d) in inflows.iter().enumerate() {
                 let di = self.inst(d);
@@ -1121,12 +1175,37 @@ impl<'a> Builder<'a> {
                 self.constant_into(format!("{}.served", self.inst(&d.id)), "1", 1.0);
             }
         }
-        if facts.of_kind("controller.dcdc").any(|d| !self.has_port(&d.id, "p_set")) {
-            self.report.warnings.push(warning(
-                "DCDC-WINDOW",
-                "Buses fed by a DC-DC converter holding its output voltage have no bus manager \
-                 yet: their motors are not held to the supply's window.",
-            ));
+        for d in &holding {
+            let di = self.inst(d);
+            // one holding its voltage with no window on its input: a voltage
+            // source grants all it asks; nothing (its input open) grants nothing
+            let input = facts.bus_of(d, "a_pos");
+            if !input.is_some_and(facts::Bus::windowed) {
+                let vs = input
+                    .and_then(|b| b.source.as_ref())
+                    .is_some_and(|s| s.1 == "electric.voltage_source");
+                self.constant_into(format!("{di}.served"), "1", if vs { 1.0 } else { 0.0 });
+                self.constant_into(
+                    format!("{di}.p_hi"),
+                    "W",
+                    if vs { electric::BIG_W } else { 0.0 },
+                );
+            }
+            // nothing on its output bus asks anything of it
+            if !asked.contains(d) {
+                self.constant_into(format!("{di}.ask_fixed"), "W", 0.0);
+                self.constant_into(format!("{di}.ask_motors"), "W", 0.0);
+            }
+            if self.has_port(d, "sig_setpoint_in") {
+                let label = &facts.el(d).label;
+                self.report.warnings.push(warning(
+                    "DCDC-SETPOINT-IGNORED",
+                    format!(
+                        "The Power Setpoint linked to '{label}' is ignored: with no battery on its \
+                         output bus it holds its output voltage, and delivers what that bus takes."
+                    ),
+                ));
+            }
         }
     }
 
@@ -1480,6 +1559,8 @@ pub fn standard_registry() -> Registry {
                     .into(),
             );
         }
+        // (linked while it holds its voltage: kept as a port it does not
+        // read, as today's ignores it; the import says so)
         Ok(Mapped::of(electric::dcdc(electric::DcDcConfig {
             setpoint_mode,
             setpoint_wired: wired(el, f, "sig_setpoint_in"),

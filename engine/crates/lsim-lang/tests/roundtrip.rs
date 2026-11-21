@@ -539,6 +539,7 @@ fn every_block_variant() -> Vec<ComponentDef> {
     for (motors, consumers) in [(0, 1), (1, 0), (2, 3)] {
         v.push(electric::bus_manager(motors, consumers));
     }
+    v.push(electric::bus_manager_asking(1, 2));
     v.push(signals::lookup(&signals::default_lookup()));
     let p = &lsim_lib::blocks::catalog::param("signal.lookup", "table_2d").unwrap()["default"];
     let d2 = lsim_lib::table::Table2::from_json(p, Default::default(), Default::default());

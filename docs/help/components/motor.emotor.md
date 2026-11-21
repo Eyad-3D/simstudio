@@ -53,8 +53,10 @@ pays the rest: a torque against the motion of (P_loss(|ω|, 0) − P_hi) ÷ |ω|
 at most its generator torque limit, fading below 0.1 rad/s. Below that
 speed the losses the supply cannot pay are left out.
 
-On a Voltage Source's bus, or behind a DC-DC Converter that holds its
-output voltage, nothing holds the motor back.
+On a Voltage Source's bus nothing holds the motor back. Behind a DC-DC
+Converter that holds its output voltage, the motor is held to what the
+converter's input side can give, and it recuperates only what the loads on
+its own bus use.
 
 ### What it tells the Driver
 

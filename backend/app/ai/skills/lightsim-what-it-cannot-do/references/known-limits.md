@@ -22,7 +22,7 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 - **A part connected to nothing can fail where the older engine left it
   out.** The older engine builds no part with nothing connected to it (a battery or Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft drives nothing, a Climate Control on nothing) and runs the rest, with a warning from Data Checks.
 - **A table set to Error stops the run in the engine's own words.** The message names the table by its internal name and the time, not in the older words, and a run it stops gives no partial result with its figures marked not valid.
-- **Some notes and rows the older engine wrote are missing** : the note that a motor at its maximum speed holds the car there, the time a Lookup block spent outside its data on *Clamp* or *Linear*, the count of the tables a run read past their data, the *regeneration not recovered* rows behind a one-way DC-DC converter…
+- **Some notes and rows the older engine wrote are missing** : the note that a motor at its maximum speed holds the car there, the time a Lookup block spent outside its data on *Clamp* or *Linear*, the count of the tables a run read past their data, and an early message that the car does not move.
 - **Some figures differ from the older engine's by more than the band the
   two engines are compared at, and no class of difference explains them
   yet** : the energy of a gear shift, a clutch that never locks exactly, the axle loads under load transfer, a car coasting up a grade (16.66 against 20.39 for the energy test's m g h), an idle car's final SOC (89.9991 % against 90 %), the slip Traction Control holds…
@@ -30,9 +30,8 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
   without end** (`RUN-EVENT-STORM`: the BEV's WLTC cycle on a 6 % downhill grade with its Final Drive ratio x3, the hybrid's Mixed Cycle with its gears x3), where the older engine warned or finished; and a motor driven past its maximum speed in a top-speed test stops on its …
 - **An E-Motor on an empty battery feeds its own spin losses from the
   shaft.** Where its supply cannot cover even the losses of its spinning rotor, the motor takes what the supply gives, and the rest of those losses brakes the shaft (as its *Drag Torque* does with the inverter off).
-- **A battery driven to its limits, an empty battery's consumers and a
-  fuel cell behind a one-way DC-DC converter can fail at their start or at
-  t = 0** (`RUN-INIT` at about 2.2 s; `RUN-TABLE` at t = 0): the new engine cannot start again from the state these cases reach.
+- **A battery driven to its limits and an empty battery's consumers can
+  fail where the battery reaches its limit** (`RUN-INIT` at about 2.2 s): the new engine cannot start again from the state these cases reach.
 - **A model whose loss map has sheets of different range is refused** (`BLOCK`): the older engine counted a read outside the narrowest range, the new engine watches the widest.
 - **The reference suite's coast-down model is a loop the engine cannot solve
   with its values** (`SINGULAR-LOOP`: the *Brake RL* and *Wheel RL* parts), so the validation page's coast-down rows are not re-measured on the new engine (see What is validated).

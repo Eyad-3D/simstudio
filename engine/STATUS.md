@@ -1480,3 +1480,120 @@ today's numerics; `NEW-CELLS` and `QUICK-CELLS` are gone.
   that gap is between two builds of the same base; the CI performance
   test's slices 0.079 against 0.085 s (BEV city) and 2.490 against
   2.498 s (hybrid mixed).
+
+## Four defects the Help writer found: the Road Profile's grade from a cycle and three on the DC-DC (21 November 2026)
+
+The Help writer's reading of the engine for the parts' pages
+(`help-parts-report.md`, "Possible engine defects") named four places where
+the engine did not do what the parts' texts and today's engine do. Each has
+a test that failed on main's module and passes now.
+
+- **Road Profile, *Grade From Cycle***: the engine read a bundled cycle's
+  grade against the cycle's time column and kept the part's own *Profile
+  Axis* (Distance by default), so seconds were read as metres. It now places
+  the grade of a cycle against time along the distance its speed covers,
+  with today's arithmetic (`cycles._grade_along`: x grows by
+  (t2 − t1)·(v1 + v2)/7.2 m a row, a point only where it grows, x to the
+  millimetre, rounded as Python's `round(x, 3)` rounds, ties to even), and
+  reads it against Distance whatever the part's axis says, as today's
+  `build_model` forces it. A project's own cycle against time gets the
+  same; one against distance is read as it is. Test:
+  `test_cycles.py::test_a_road_profile_meets_its_cycles_hills_where_the_car_is`
+  (the BEV's WLTC for 600 s with a Road Profile on `long-haul-100km` set
+  to Time: its grade against the cycle's profile at the car's distance,
+  within 1e-6 %; 1.06 % off before).
+- **DC-DC holding its output voltage, outside every window**: the converter
+  drew whatever its output bus took, with no bus manager there (the
+  `DCDC-WINDOW` warning) and not counted on its input bus, so it took a
+  battery past its *Minimum SOC* and below 0 %, and a hydrogen tank below
+  0 kg. Today's engine counts the loads behind such a converter in its
+  input source's tree (consumers at 1/η, cut with the root's consumers;
+  motors at 1/η, sharing the root's room). Now: the converter is the
+  source of a bus manager on its output bus (`bus_manager_asking`, a
+  variant that also says what its loads ask: its consumers' demand and
+  its motors' requests to draw), and on its input bus it takes two places,
+  a consumer asking that demand ÷ η and a motor asking those requests ÷ η;
+  what the input bus grants it, × η, is its output bus's window. So the
+  input source is never drawn past its window, and the output is served
+  short like any part its supply holds: its consumers cut (and said, in
+  today's words), its motors held (and said as the input source's limit).
+  Two places, not one, because today's tree serves every consumer first
+  and lets every motor share what is left: one consumer place would put
+  the motors behind the converter before the input bus's own, one motor
+  place would put its consumers behind them. A converter whose input bus
+  has a voltage source gets an open window; one whose input is left open,
+  none. A chain of converters works the same way (a converter-fed bus is
+  windowed). One difference from today's tree, small and inside the
+  window: the motor place asks only the positive requests, so a motor
+  recuperating behind the converter while another draws there reserves a
+  little more room than today's net sum. Tests:
+  `test_source_limits.py::test_a_dcdc_holding_its_voltage_keeps_its_battery_above_minimum_soc`
+  (a 0.02 kWh battery at 20 %, a 3 kW consumer behind the converter: cut
+  back to 0 at the Minimum SOC, which holds; before, the consumer kept its
+  3 kW) and `…_leaves_its_hydrogen_tank_at_empty` (a 1 g tank behind a
+  fuel cell, 20 kW behind the converter: the mass stays at 0; before,
+  −2.15 g).
+- **DC-DC direction**: in voltage mode the converter passed power fed back
+  on its output to its input at η (`P_in = P_out·η` for P_out < 0), though
+  its texts say one way. Today's engine passes none (`out = max(0, load)`,
+  a surplus a residual it warns about) and holds the regeneration behind
+  the converter to that bus's own loads (`allocate_motor_power`, "passes
+  power one way only"). Now the output bus's manager takes nothing back,
+  so the motors there feed back only what its consumers use (the rest is
+  their *regeneration not recovered*, and the adapter says today's
+  one-way message); the converter's input is max(P_out, 0) ÷ η, so a
+  surplus on its output bus (rounding, once the window holds: 2.3e-9 kW in
+  the older one-way test) is its loss, booked, not vanished. Setpoint
+  mode keeps its equation (its output is never negative). Test:
+  `…_passes_power_one_way_only` (a battery, the converter, a 2 kW consumer
+  and a motor at −0.5 command from 100 km/h: the converter never draws
+  less than nothing, the battery is never charged, the motor feeds back at
+  most 2 kW and the message is today's; before, 51.8 kW went back).
+  `test_regeneration_the_supply_cannot_take_is_reported[one-way DC-DC]`
+  passes now (its expected-failure mark removed);
+  `test_one_way_dcdc_passes_no_regen_upstream` runs now (before:
+  `RUN-TABLE` at t = 0, the fuel cell asked past its curve by the
+  unwindowed converter) and keeps a mark only for today's *Electrical
+  energy balance error* row, which the new path does not write; its first
+  check takes the 1e-6 kW the test holds its other checks to.
+- **DC-DC Power Setpoint linked with no battery on the output**: refused
+  (`PORT-NOT-MAPPED`). Today's engine reads the setpoint only for
+  converters feeding a battery bus, so it ignores it, silently. Now the
+  input stays a port the converter does not read, and the import warns
+  (`DCDC-SETPOINT-IGNORED`: "The Power Setpoint linked to 'DC-DC' is
+  ignored: …"). Test: `…_ignores_a_linked_power_setpoint`.
+- **Texts**: the DC-DC's library description says what voltage mode does
+  (draws only what its input side can give, its output loads cut with
+  that side's own) and its Power Setpoint text that neither the value nor
+  the input is used with no battery on the output; KNOWN-LIMITS loses the
+  missing *regeneration not recovered* rows behind a one-way DC-DC and the
+  fuel cell behind one failing at t = 0; RELEASE-NOTES has the four under
+  *Fixed*; DESIGN's table rows for `controller.dcdc` and the Road Profile.
+- **Golden comparison**: 0 differences against the record (11 347
+  values), steps 3 998 112 and events 308 453 as before, the worst closure
+  1.274e-9 (no golden case has a DC-DC or a Road Profile on a cycle).
+- **Closure on the cases added** (|closure| ÷ throughput): the battery to
+  its Minimum SOC 6.0e-10, the hydrogen tank to empty 1.2e-16, the motor
+  recuperating behind the converter 5.9e-12, the setpoint ignored 0, the
+  older one-way tests 3.7e-11 (fuel cell) and 2.7e-10 (battery); the
+  Road Profile case as its test runs it 2.57e-9, which is the BEV's WLTC
+  cut at 600 s itself (the same with no Road Profile, on main's module
+  too), and 6.8e-10 with the profile linked to the Vehicle's grade. Two
+  converters holding their voltages in a chain (by hand) hold their
+  battery at 10 % and cut the consumer (main's module: −30 %); one with
+  its input open is refused on both modules (`ELEC-NO-GROUND`).
+- **Checks**: `engine/check.sh` passes (632 tests). The backend suite
+  with this module (`LIGHTSIM_REQUIRE_NEW_ENGINE=1`): 2 482 passed, 6 failed, 15 skipped, 70 expected failures; of the six, one is the Reference FMUs' version on this PC (as on main), and five start a process of their own (the command line, the wheel, the agent sandbox and bench) that did not see this branch's module, kept outside the venv for the run: with it installed in the venv the five pass; lsim-py's 59 pass;
+  `benchmarks/back_to_back/tests` 157 passed; `ruff check .` clean; the
+  frontend's unit tests 510 pass (its library copy changed); the generated
+  copies regenerated and their guard tests pass. Speed, best of seven in
+  alternating fresh processes against main's module built the same way,
+  the steps and events the same: the hybrid's UDDS 19.050 against
+  18.972 s, the BEV's WLTC 1.059 against 1.040 s, the CI performance
+  test's slices 1.073 × (BEV city, 0.091 against 0.085 s) and 1.008 ×
+  (hybrid mixed). None of these cars has a converter or a Road Profile,
+  so their model is the same; the BEV's gap is all in the engine's run,
+  and main's own source built a second time (its own worktree and target
+  folder) runs that in 0.832 s against the first build's 0.811 s, this
+  branch's 0.840 s, its slices 0.947 × and 1.010 ×: most of the gap is
+  between two builds of the same code.
