@@ -1221,6 +1221,13 @@ sections.
   plot in a part's window zooms with a dragged box; the Results page's
   first-use hint goes away with the page.
 
+- The help opens in the app's light or dark theme and follows a change of
+  it; it followed the system's setting, so a dark app could open a white
+  Help window. Opened in another browser, it still follows the system.
+  Each part's help page now says how the part computes, from the engine's
+  own equations: its inputs, the equations that matter, the limits it
+  applies, what it books as a loss, and what it does past its tables' data.
+
 - Data Checks no longer stop a coast-down or a gear schedule. A Vehicle
   with no wheels, or with wheels and no E-Motor or Engine, is an error only
   when nothing can move it: with an *Initial Speed* above 0 (also one a

@@ -8,7 +8,7 @@ Every part in LightSim's library: its id (the `type` for model_edit's `add`), it
 
 Category: Vehicle. Domain: mechanical.
 
-Longitudinal vehicle body: mass, road load and road grade. Road load comes from the drag coefficient × frontal area and the Wheels' rolling resistance, or, with Road Load From set to coefficients, from A + B·v + C·v² with v in km/h, as coast-down tests publish it (WLTP f0, f1, f2; EPA's lbf, lbf/mph and lbf/mph² values × 4.448, × 2.764 and × 1.717); then Cd, frontal area and the Wheels' rolling resistance are not used. Drag follows the air density the Ambient block sets (1.204 kg/m³ at 20 °C and 101.325 kPa without one), and so does C, which is taken at 1.204 kg/m³. Coast-down (target) coefficients already hold the drag of the gears the wheels turn in neutral: with Coefficients Include Driveline Losses ticked, the final drives, differentials and transfer cases run lossless (gearboxes and motors keep their losses; a coast-down holds only the axle's spin losses, so this leaves out a little); untick it for dyno-set coefficients. The road grade (rise over run, in %) sets the slope angle θ = atan(grade / 100): the weight pulls the car back with m·g·sin θ, and the normal load (rolling resistance, tyre grip) is m·g·cos θ. Load transfer: with a Centre of Gravity Height h, a load of m·(a + g·sin θ)·h/L moves from the front axle to the rear, with L the Wheelbase and a the acceleration over the previous solver step (so the loads are one 10 ms step behind; drag is taken to act at ground height). Each Wheel's Axle setting says which axle it is on, and the Wheels' load shares give the static split, so the centre of gravity's position follows from them. The Downforce Area (CzA) adds ½·ρ·CzA·v², at the air density the Ambient block sets, split between the axles by the Front Aero Balance; a negative CzA is lift. Downforce adds to the Wheels' rolling resistance, but not to coefficient A. An axle that would carry less than nothing lifts: it carries nothing, the other axle carries the rest, and the run warns. With a height and an area of 0 (the defaults) every wheel keeps its share of the weight. In a lap case the car also corners: a lateral acceleration a_y moves m·a_y·h from the inner to the outer wheels, split between the axles as the weight is (the front axle's static share of the weight takes that share of it), over each axle's Front or Rear Track Width. Front Axle Load and Rear Axle Load are the normal loads on the Front and on the Rear Wheels. Binds to all Wheel elements automatically — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.
+Longitudinal vehicle body: mass, road load and road grade. Road load comes from the drag coefficient × frontal area and the Wheels' rolling resistance, or, with Road Load From set to coefficients, from A + B·v + C·v² with v in km/h, as coast-down tests publish it (WLTP f0, f1, f2; EPA's lbf, lbf/mph and lbf/mph² values × 4.448, × 2.764 and × 1.717); then Cd, frontal area and the Wheels' rolling resistance are not used. Drag follows the air density the Ambient block sets (1.204 kg/m³ at 20 °C and 101.325 kPa without one), and so does C, which is taken at 1.204 kg/m³. Coast-down (target) coefficients already hold the drag of the gears the wheels turn in neutral: with Coefficients Include Driveline Losses ticked, the final drives, differentials and transfer cases run lossless (gearboxes and motors keep their losses; a coast-down holds only the axle's spin losses, so this leaves out a little); untick it for dyno-set coefficients. The road grade (rise over run, in %) sets the slope angle θ = atan(grade / 100): the weight pulls the car back with m·g·sin θ, and the normal load (rolling resistance, tyre grip) is m·g·cos θ. Load transfer: with a Centre of Gravity Height h, a load of m·(a + g·sin θ)·h/L moves from the front axle to the rear, with L the Wheelbase and a the acceleration at the same instant (drag is taken to act at ground height). Each Wheel's Axle setting says which axle it is on, and the Wheels' load shares give the static split, so the centre of gravity's position follows from them. The Downforce Area (CzA) adds ½·ρ·CzA·v², at the air density the Ambient block sets, split between the axles by the Front Aero Balance; a negative CzA is lift. Downforce adds to the Wheels' rolling resistance, but not to coefficient A. An axle that would carry less than nothing lifts: it carries nothing, the other axle carries the rest, and the run warns. With a height and an area of 0 (the defaults) every wheel keeps its share of the weight. In a lap case the car also corners: a lateral acceleration a_y moves m·a_y·h from the inner to the outer wheels, split between the axles as the weight is (the front axle's static share of the weight takes that share of it), over each axle's Front or Rear Track Width. Front Axle Load and Rear Axle Load are the normal loads on the Front and on the Rear Wheels. Binds to every Wheel whose Mechanical Shaft is connected automatically (a Wheel with nothing on its shaft carries no load) — no canvas wiring needed for the body itself. Pair it with a Driver element to follow a speed profile.
 
 Ports:
 - `sig_grade_in`: Road Grade (signal input, %)
@@ -42,7 +42,7 @@ Parameters:
 
 Category: Vehicle. Domain: signal.
 
-Speed-following driver (PI controller). Wire a target-speed profile into Target Speed and the Vehicle's speed into Actual Speed; the driver outputs a traction command in [-1, 1] and a friction-brake command, blending recuperation (motor generator quadrant, battery charge limit) before the brakes per the Recuperation Weight.
+Speed-following driver (PI controller). Wire a target-speed profile into Target Speed; Actual Speed reads the Vehicle's speed when nothing is wired to it. The driver outputs a traction command in [-1, 1] and a friction-brake command, using the motors' generator torque before the brakes per the Recuperation Weight.
 
 Ports:
 - `sig_target_in`: Target Speed (signal input, km/h)
@@ -61,7 +61,7 @@ Parameters:
 
 Category: Battery. Domain: electrical.
 
-Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power. The Output Power Limit caps the power the terminals give (volts × amps), less the Power Limit Margin: the motors get what is left after the other loads, and recuperation is not limited. With a limit or a Voltage Class set, the run summary checks the terminal power, averaged over the Power Check Window, against the limit, and the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against the Voltage Class; 0 turns either off. With Hold Power to Limit off, the power is only checked, not held. Defined By: Cells builds the pack from a cell datasheet and a layout (cells in series × in parallel) instead: its resistance then rises in long pulses, at low charge and in the cold (the Ambient's temperature), and the cells' current and voltage limits hold, as a battery management system keeps them; with Pack values, a pack current and voltage limit can be set (0 = none).
+Equivalent-circuit battery pack: OCV(SOC) lookup table with series resistance R0 and an optional RC pair for voltage transients (RC disabled when either RC parameter is 0). SOC counts the charge that flows (amp-hours) and the OCV table is read at that SOC. Charge Capacity sets the amp-hours; left at 0 they come from the Usable Capacity at the OCV table's mean voltage, so a full-to-empty discharge gives out the Usable Capacity. Coulombic Efficiency is the share of the charging current that is stored (Li-ion cells store about 99.9 %, so it defaults to 100 %). Charging power is limited by the maximum charge power. The Output Power Limit caps the power the terminals give (volts × amps), less the Power Limit Margin: the motors get what is left after the other loads, and recuperation is not limited. With a limit or a Voltage Class set, the run summary checks the terminal power, averaged over the Power Check Window, against the limit, and the highest pack voltage (open-circuit at 100 % SOC, or at the terminals while recuperating) against the Voltage Class; 0 turns either off. With Hold Power to Limit off, the power is only checked, not held. Defined By: Cells, which builds the pack from a cell datasheet and a layout (cells in series × in parallel), does not run in this version yet (Not run [NEW-CELLS]); with Pack values, a pack current and voltage limit can be set (0 = none).
 
 Ports:
 - `pos`: Positive Terminal (+) (electrical bidirectional, kW)
@@ -160,7 +160,7 @@ Parameters:
 
 Category: E-Drive. Domain: electrical.
 
-DC-DC converter with constant conversion efficiency. Unidirectional: draws at Terminal A, supplies at Terminal B. When Terminal B feeds a bus with a battery, the converter runs at its power setpoint (parameter or signal) and the battery balances the rest — the fuel-cell hybrid pattern.
+DC-DC converter with constant conversion efficiency. It draws at its input (Input + and Input −) and supplies its output (Output + and Output −). When its output feeds a bus with a battery, the converter runs at its power setpoint (parameter or signal) and the battery balances the rest — the fuel-cell hybrid pattern.
 
 Ports:
 - `a_pos`: Input + (HV in) (electrical bidirectional, kW)
@@ -225,7 +225,7 @@ Parameters:
 
 Category: Base Electric. Domain: electrical.
 
-Heating and air-conditioning as an electrical load, from the outside temperature (an estimate until LightSim has a cabin model). The Heating/Cooling Demand table gives the heat the cabin needs at each outside temperature (the first Ambient's Temperature, 20 °C without one). A PTC heater turns every watt into heat; a heat pump moves about 2 W of heat per watt at −7 °C (its COP, a share of the ideal Carnot value), and below its Minimum Outside Temperature the PTC heater takes over. Cooling always runs the air-conditioning compressor. While it heats or cools, the blower adds its own power. The Enable input switches it off below 0.5 (unwired: always on).
+Heating and air-conditioning as an electrical load, from the outside temperature (an estimate until LightSim has a cabin model). The Heating/Cooling Demand table gives the heat the cabin needs at each outside temperature (the first Ambient's Temperature, 20 °C without one). A PTC heater turns every watt into heat; a heat pump moves about 1.9 W of heat per watt at −7 °C (its COP, a share of the ideal Carnot value), and below its Minimum Outside Temperature the PTC heater takes over. Cooling always runs the air-conditioning compressor. While it heats or cools, the blower adds its own power. The Enable input switches it off below 0.5 (unwired: always on).
 
 Ports:
 - `pos`: Positive Terminal (+) (electrical bidirectional, kW)
@@ -293,7 +293,7 @@ Parameters:
 
 Category: Driveline. Domain: mechanical.
 
-Splits one mechanical input to two outputs. Unlocked (open): equal torque to both sides, output speeds free (input speed = mean of outputs). Locked: both outputs forced to the same speed, torque split follows the grip on each side.
+Splits one mechanical input to two outputs. Unlocked (open): equal torque to both sides, output speeds free (input speed = Ratio × the outputs' mean speed). Locked: both outputs forced to the same speed, torque split follows the grip on each side.
 
 Ports:
 - `flange_in`: Flange In (mechanical bidirectional, kW)
@@ -511,7 +511,7 @@ Parameters:
 
 Category: Driveline. Domain: mechanical.
 
-Multi-speed gearbox. The ratio table maps gear number → ratio; the Gear Select signal picks the active gear (nearest defined gear wins, unwired = default gear). A shift takes effect at the solver step (≤ 10 ms) in which Gear Select changes, as a rigid, instantaneous engagement: the speeds jump to the new ratio keeping the driveline's angular momentum (and, through tyres that grip, the vehicle's), and the kinetic energy that loses is the gearbox's loss (its gear shifts term). A clutch passes no more than its torque, so an engine behind one keeps its speed and the clutch slips.
+Multi-speed gearbox. The ratio table maps gear number → ratio; the Gear Select signal picks the active gear (nearest defined gear wins, unwired = default gear). A shift takes effect at the instant Gear Select crosses halfway between two listed gears, as a rigid, instantaneous engagement: the speeds the gears tie together jump to the new ratio keeping their angular momentum, and the kinetic energy that loses is the gearbox's loss (its gear shifts term); the tyres then pass the momentum on to the vehicle through their slip. A clutch passes no more than its torque, so an engine behind one keeps its speed and the clutch slips.
 
 Ports:
 - `flange_in`: Flange In (mechanical bidirectional, kW)
@@ -533,7 +533,7 @@ Parameters:
 
 Category: Driveline. Domain: mechanical.
 
-Friction clutch (dry friction). While its two sides turn at different speeds it slips and passes engagement × Max Torque against the slip; once they meet it sticks and passes whatever torque keeps them together, up to that torque, with no slip and no loss. In the solver step in which its slip would pass through zero it locks. Unwired engagement = fully closed.
+Friction clutch (dry friction). While its two sides turn at different speeds it slips and passes engagement × Max Torque against the slip; once they meet it sticks and passes whatever torque keeps them together, up to that torque, with no slip and no loss. It locks at the instant its slip reaches zero. Unwired engagement = fully closed.
 
 Ports:
 - `flange_a`: Flange A (mechanical bidirectional, kW)

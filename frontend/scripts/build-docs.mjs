@@ -116,11 +116,15 @@ for (const c of lib.components) {
     const def = p.type.startsWith("table") ? "a table" : p.type === "maps" ? "a table per output" : p.type === "code" ? "a script" : cell(p.default === "" ? "(none)" : p.default);
     return `| <span id="${p.key}"></span>${cell(p.label)} | ${cell(p.unit)} | ${def} |${meaning ? ` ${cell(texts[i])} |` : ""}`;
   });
+  // how the part computes, written from the engine's code
+  const how = `docs/help/components/${c.id}.md`;
+  const hasHow = existsSync(join(root, how));
   add("Reference", `reference/components/${c.id}.md`,
     `# ${c.name}\n\n${c.description ?? ""}\n\nGroup in the library: ${c.category}. Id: \`${c.id}\`.\n\n` +
+    (hasHow ? `${read(how).trimEnd()}\n\n` : "") +
     (ports.length ? `## Ports\n\n| Port | Direction | Kind | Quantity (unit) |\n|---|---|---|---|\n${ports.join("\n")}\n\n` : "") +
     (params.length ? `## Parameters\n\n| Parameter | Unit | Default |${meaning ? " Meaning |" : ""}\n|---|---|---|${meaning ? "---|" : ""}\n${params.join("\n")}\n` : ""),
-    undefined, c.parameters.map((p) => p.key));
+    undefined, c.parameters.map((p) => p.key)); // links in `how` resolve from docs/help/reference/components/
 }
 add("Reference", "reference/components/index.md", "# Components\n\nEvery part in the library, by its group. Select a part on the diagram and press F1 to open its page.\n\n" +
   [...new Set(lib.components.map((c) => c.category))].map((cat) => `## ${cat}\n\n` + lib.components.filter((c) => c.category === cat)
@@ -201,7 +205,7 @@ for (page of pages) {
     `<li><a href="${up}${q.path.replace(/\.md$/, ".html")}"${q === page ? ' aria-current="page"' : ""}>${esc(title(q.md))}</a></li>`).join("")}</ul>`).join("");
   const html = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(title(page.md))} · LightSim ${VERSION} help</title><link rel="stylesheet" href="${up}help.css"></head><body>
+<title>${esc(title(page.md))} · LightSim ${VERSION} help</title><link rel="stylesheet" href="${up}help.css"><script src="${up}theme.js"></script></head><body>
 <a class="skip" href="#main">Skip to the page</a>
 <nav aria-label="Help pages"><p class="brand"><a href="${up}index.html">LightSim ${VERSION} help</a></p>
 <div role="search"><label for="q">Search the help</label><input id="q" type="search" autocomplete="off"><ul id="hits" aria-live="polite"></ul></div>
@@ -229,5 +233,5 @@ const terms = [...read("docs/help/reference/results.md").matchAll(/^\| \*\*(.+?)
 }));
 if (terms.length < 30) throw new Error(`docs/help/reference/results.md: only ${terms.length} summary rows found`);
 writeFileSync(join(out, "summary-terms.json"), JSON.stringify(terms));
-for (const f of ["help.js", "help.css"]) copyFileSync(join(here, "help-assets", f), join(out, f));
+for (const f of ["help.js", "help.css", "theme.js"]) copyFileSync(join(here, "help-assets", f), join(out, f));
 console.log(`help: ${pages.length} pages in ${used.length} sections, LightSim ${VERSION}, ${Date.now() - t0} ms → ${out}`);
