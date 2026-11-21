@@ -656,10 +656,9 @@ impl BatteryFacts {
         inst: &str,
         params: &Map<String, Value>,
     ) -> Option<BatteryFacts> {
-        let cfg = lsim_lib::blocks::battery::BatteryConfig::from_params(
-            params,
-            lsim_lib::blocks::catalog::axis_outside("battery.generic", "ocv_table", 0),
-        )
+        let cfg = lsim_lib::blocks::battery::BatteryConfig::from_params(params, &|k, a| {
+            lsim_lib::blocks::catalog::axis_outside("battery.generic", k, a)
+        })
         .ok()?;
         Some(BatteryFacts {
             q_ah: param(&format!("{inst}.Q"))? / 3600.0,
@@ -829,7 +828,44 @@ pub fn figures_with(
             "kWh",
         );
         net_j += g("e_delivered") - g("e_recuperated");
-        let bf = BatteryFacts::of(param, &i, &params_of(id));
+        let own = params_of(id);
+        if lsim_lib::blocks::catalog::text(&own, "pack_model", "Pack values") == "Cells" {
+            // built from cells: today's rows of its layout, capacity, mass
+            // estimate and cell voltages over the run
+            use lsim_lib::blocks::battery::{layout, pack_mass_kg};
+            let (ns, np) = layout(&own);
+            add(format!("{id}.layout_cells"), format!("{label} — layout"), ns * np, "cells");
+            add(
+                format!("{id}.charge_capacity_ah"),
+                format!("{label} — charge capacity"),
+                param(&format!("{i}.Q")).unwrap_or(0.0) / 3600.0,
+                "Ah",
+            );
+            add(
+                format!("{id}.pack_mass_kg"),
+                format!("{label} — pack mass (estimate)"),
+                pack_mass_kg(&own),
+                "kg",
+            );
+            if let (Some(lo), Some(hi)) = (
+                extreme(res, &format!("{i}.sig_v_cell_min"), false),
+                extreme(res, &format!("{i}.sig_v_cell_max"), true),
+            ) {
+                add(
+                    format!("{id}.lowest_cell_voltage_v"),
+                    format!("{label} — lowest cell voltage"),
+                    lo,
+                    "V",
+                );
+                add(
+                    format!("{id}.highest_cell_voltage_v"),
+                    format!("{label} — highest cell voltage"),
+                    hi,
+                    "V",
+                );
+            }
+        }
+        let bf = BatteryFacts::of(param, &i, &own);
         if let Some(bf) = &bf {
             let p = params_of(id);
             let limit_kw = lsim_lib::blocks::catalog::get(&p, "output_power_limit_kW", 0.0);

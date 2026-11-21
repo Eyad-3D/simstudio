@@ -38,7 +38,9 @@ def test_the_acceptance_file_names_every_line_and_code():
     assert set(acc["note_codes"]) == set(new_engine.NOTE_CODES) and not set(acc["note_codes"]) & set(acc["codes"])
     for item in acc["item"]:
         assert item["expect"] == "run" or item["expect"].removeprefix("refuse:") in acc["codes"]
-    assert len(acc["item"]) == 27  # (26, and probe/bev-performance-distance, 16 November)
+    # (26, and probe/bev-performance-distance, 16 November; the six cells/
+    # items, 21 November)
+    assert len(acc["item"]) == 33
     assert len(runs.fault_ids()) == 160 + 27 * 4 + 5 * 4
     cases, faults = runs.meta_set()
     assert len(cases) == 5 and len(faults) == 4
@@ -1095,7 +1097,8 @@ def test_all_runs_every_part_the_baseline_ran():
     # with a battery check, on both engines and at META's three settings, and (since its third
     # review) the 20 faults planted as a case's own values, on both engines, and (since the
     # switch lane's performance piece) probe/bev-performance-distance, three more jobs
-    assert len(runs.specs(set(parts.split(",")))) == 631 + 3 + 8 + 2 * (3 + 3) + 2 * 5 * 4
+    # (+ 6 * 3: the six cells/ items' three settings, 21 November)
+    assert len(runs.specs(set(parts.split(",")))) == 631 + 3 + 8 + 2 * (3 + 3) + 2 * 5 * 4 + 6 * 3
 
 
 def test_a_record_another_code_made_is_run_again(tmp_path):
@@ -1721,7 +1724,11 @@ def test_the_sweep_cuts_every_table_the_engine_reads_and_places_every_part_alone
 
     ids = sweep.faults()
     assert len(ids) == len(set(ids))
+    assert sweep.NEW_ONLY == {"signal.map"} and not sweep.NEW_ONLY & set(sweep.library())
     for site in lightsim_engine.table_sites():
+        if site["component"] in sweep.NEW_ONLY:  # today's engine has no such part: nothing to compare
+            assert not any(f":{site['component']}" in f for f in ids)
+            continue
         if site["component"] in ("signal.driving_task", "signal.road_profile"):
             assert any(f.startswith("profile:") for f in ids)
             continue
@@ -1810,9 +1817,9 @@ def test_the_sweep_counts_a_live_run_the_new_path_fails_as_a_mismatch(tmp_path):
     (d,) = sweep.compare("table:x", "live", ok, live_failed)["diffs"]
     assert d.startswith("verdict: today success, live failed")
     assert sweep.compare("table:x", "live", ok, ok | {"warnings": ["w"]})["diffs"]  # (not only its verdict)
-    refused = ok | {"status": "failed", "refused": "NEW-CELLS",
-                    "first": "Not run [NEW-CELLS]: a battery built from cells ..."}
-    assert sweep.compare("table:x", "live", ok, refused) == {"handed": "NEW-CELLS"}
+    refused = ok | {"status": "failed", "refused": "NEW-LAP",
+                    "first": "Not run [NEW-LAP]: lap cases do not run ..."}
+    assert sweep.compare("table:x", "live", ok, refused) == {"handed": "NEW-LAP"}
     (d,) = sweep.compare("table:x", "live", ok, refused | {"refused": "NEW-ERROR"})["diffs"]
     assert "not a listed hand-back" in d
     for fid in ("table:bev-car/case-city-live:el-motor.drag_torque:0:hi:half:error",
