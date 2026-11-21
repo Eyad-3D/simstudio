@@ -794,7 +794,8 @@ def test_a_control_stops_the_run_where_it_is(bev):
     run = out["run"]
     stopped = run.report["stopped"]
     assert 500 <= stopped < 600 and run.times[-1] == stopped, stopped
-    assert run.times[-2] == np.floor(stopped) and len(run.times) < 1801
+    # the output time before the stop (a stop can land exactly on one)
+    assert run.times[-2] == np.ceil(stopped) - 1 and len(run.times) < 1801
     assert all(len(v) == len(run.times) for v in run.channels.values())
     assert run.energy["relative_closure"] < 1e-8
     assert c.points(0.0) == [] and c.cancelled
