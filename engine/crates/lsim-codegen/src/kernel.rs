@@ -333,7 +333,7 @@ impl Builder<'_> {
                 self.emit(out, JOp::Call(r, *f, regs, n as u8))?;
                 r
             }
-            Expr::Table { order, .. } if *order != [0, 0] => {
+            Expr::Table { order, .. } if !lsim_ir::expr::is_value(order) => {
                 return Err("it reads a table's derivative".into());
             }
             Expr::Table { table, args, .. } => {

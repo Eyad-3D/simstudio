@@ -102,47 +102,16 @@ pub enum ParamValue {
     /// qualified name: `"Mode.Manual"` is the option `Manual` of the type
     /// `Mode` (see [`EnumType`]); the type is the text before the last dot
     Enum(String),
-    /// a 1-D table: abscissae (in `axis_unit`) and values (in the unit),
-    /// interpolated by the default rules ([`TableData`])
-    Table1D {
-        /// the abscissae, increasing
-        x: Vec<f64>,
-        /// the values
-        y: Vec<f64>,
-        /// the abscissae's unit text
-        axis_unit: String,
-    },
-    /// a 2-D table: the values at the grid points `(x1[i], x2[j])`, in the
-    /// unit, interpolated by the default rules ([`TableData`])
-    Table2D {
-        /// the first axis' points, increasing
-        x1: Vec<f64>,
-        /// the second axis' points, increasing
-        x2: Vec<f64>,
-        /// row-major: `values[i * x2.len() + j]` is at `(x1[i], x2[j])`
-        values: Vec<f64>,
-        /// the two axes' unit texts
-        axis_units: [String; 2],
-    },
-    /// a table of one or two axes with its own interpolation and
+    /// a table of any number of axes with its own interpolation and
     /// outside-the-data rules
     Table(TableData),
 }
 
 impl ParamValue {
-    /// The table this value holds, with its rules (the defaults for
-    /// [`ParamValue::Table1D`] and [`ParamValue::Table2D`]); `None` when it
-    /// is not a table.
+    /// The table this value holds, with its rules; `None` when it is not a
+    /// table.
     pub fn table(&self) -> Option<TableData> {
         match self {
-            ParamValue::Table1D { x, y, axis_unit } => Some(TableData {
-                axis_units: [axis_unit.clone(), String::new()],
-                ..TableData::new_1d(x.clone(), y.clone())
-            }),
-            ParamValue::Table2D { x1, x2, values, axis_units } => Some(TableData {
-                axis_units: axis_units.clone(),
-                ..TableData::new_2d(x1.clone(), x2.clone(), values.clone())
-            }),
             ParamValue::Table(t) => Some(t.clone()),
             _ => None,
         }
@@ -627,25 +596,23 @@ mod tests {
     #[test]
     fn tables_normalise_and_check_their_shape() {
         let t1 =
-            ParamValue::Table1D { x: vec![0.0, 1.0], y: vec![3.0, 4.0], axis_unit: "1".into() };
+            ParamValue::Table(TableData::new_1d(vec![0.0, 1.0], vec![3.0, 4.0]).with_units(&["1"]));
         let d = t1.table().unwrap();
         assert_eq!(d.dims(), 1);
         assert_eq!(d.interpolation, Interpolation::MonotoneCubic);
-        assert_eq!(d.outside, [Outside::Clamp; 2]);
-        assert_eq!(d.axis_units[0], "1");
+        assert_eq!(d.outside(0), Outside::Clamp);
+        assert_eq!(d.axes[0].unit, "1");
         assert!(d.check().is_ok());
-        let t2 = ParamValue::Table2D {
-            x1: vec![0.0, 1.0],
-            x2: vec![0.0, 10.0, 20.0],
-            values: vec![1.0; 6],
-            axis_units: ["rad/s".into(), "N.m".into()],
-        };
+        let t2 = ParamValue::Table(
+            TableData::new_2d(vec![0.0, 1.0], vec![0.0, 10.0, 20.0], vec![1.0; 6])
+                .with_units(&["rad/s", "N.m"]),
+        );
         assert!(t2.table().unwrap().check().is_ok());
         let mut bad = t2.table().unwrap();
         bad.values.pop();
         assert_eq!(bad.check().unwrap_err(), "the table has 6 grid points but 5 values");
         bad.values.push(1.0);
-        bad.y = vec![0.0, 20.0, 10.0];
+        bad.axes[1].points = vec![0.0, 20.0, 10.0];
         assert!(bad.check().unwrap_err().contains("increase strictly, but 20 is followed by 10"));
         assert_eq!(ParamValue::Bool(true).table(), None);
     }

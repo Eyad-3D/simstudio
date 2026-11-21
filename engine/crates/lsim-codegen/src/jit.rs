@@ -2,7 +2,9 @@
 //! module, and compilation of many functions on several threads.
 
 use crate::CodegenError;
-use crate::tables::{lsim_tab_guard, lsim_tab1, lsim_tab1d, lsim_tab2, lsim_tab2d};
+use crate::tables::{
+    lsim_tab_guard, lsim_tab1, lsim_tab1d, lsim_tab2, lsim_tab2d, lsim_tabn, lsim_tabnd,
+};
 use cranelift_codegen::control::ControlPlane;
 use cranelift_codegen::ir::types::{F64, I64};
 use cranelift_codegen::ir::{AbiParam, Function, Signature, Type};
@@ -66,6 +68,8 @@ fn runtime_symbols() -> Vec<(&'static str, *const u8, Vec<bool>)> {
     v.push(("lsim_tab1d", lsim_tab1d as *const u8, vec![true, false, true]));
     v.push(("lsim_tab2", lsim_tab2 as *const u8, vec![true, false, false]));
     v.push(("lsim_tab2d", lsim_tab2d as *const u8, vec![true, false, false, true]));
+    v.push(("lsim_tabn", lsim_tabn as *const u8, vec![true, true, true]));
+    v.push(("lsim_tabnd", lsim_tabnd as *const u8, vec![true, true, true, true]));
     v.push(("lsim_tab_guard", lsim_tab_guard as *const u8, vec![true, true, false]));
     v
 }

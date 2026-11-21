@@ -41,8 +41,7 @@ fn bat_part(
             param: "ocv_table".into(),
             value: ParamValue::Table(TableData {
                 interpolation: Interpolation::Linear,
-                axis_units: ["1".into(), String::new()],
-                ..TableData::new_1d(vec![0.0, 1.0], vec![a, a + b])
+                ..TableData::new_1d(vec![0.0, 1.0], vec![a, a + b]).with_units(&["1", ""])
             }),
         },
         real("ocv_mean", a + 0.5 * b),

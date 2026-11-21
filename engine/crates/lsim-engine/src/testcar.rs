@@ -380,8 +380,7 @@ pub fn speed_trace(name: &str, t: &[f64], v: &[f64]) -> ComponentDef {
     assert!(t.len() >= 2 && t.len() == v.len());
     let data = lsim_ir::TableData {
         interpolation: lsim_ir::Interpolation::Linear,
-        axis_units: ["s".into(), String::new()],
-        ..lsim_ir::TableData::new_1d(t.to_vec(), v.to_vec())
+        ..lsim_ir::TableData::new_1d(t.to_vec(), v.to_vec()).with_units(&["s"])
     };
     ComponentDef {
         name: name.into(),

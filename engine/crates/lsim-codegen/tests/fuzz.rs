@@ -58,7 +58,7 @@ impl Env for Point<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.params[p.0 as usize]
     }
-    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+    fn table(&self, k: u32, order: &[u8], args: &[f64]) -> f64 {
         lsim_ir::interval::table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }
@@ -170,7 +170,7 @@ fn fast_eval(e: &Expr, env: &dyn Env, fma: bool) -> f64 {
         Expr::Name(_) => f64::NAN,
         Expr::Table { table, args, order } => {
             let at: Vec<f64> = args.iter().map(ev).collect();
-            env.table(*table, *order, &at)
+            env.table(*table, order, &at)
         }
         Expr::Var(v) => env.var(*v),
         Expr::Param(p) => env.param(*p),

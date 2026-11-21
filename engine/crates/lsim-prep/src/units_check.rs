@@ -56,12 +56,14 @@ fn dim(e: &Expr, flat: &FlatSystem) -> Result<D, Mismatch> {
         Expr::Table { table, args, order } => match flat.tables.get(*table as usize) {
             Some(t) => {
                 let mut out = t.unit.dim;
-                for (k, (a, unit)) in args.iter().zip(&t.data.axis_units).enumerate() {
+                for (k, (a, unit)) in
+                    args.iter().zip(t.data.axes.iter().map(|x| &x.unit)).enumerate()
+                {
                     let axis = lsim_ir::units::parse_unit(unit);
                     // a derivative: the value's unit per the axis's, per
                     // order
                     if let Ok(u) = &axis {
-                        for _ in 0..order[k] {
+                        for _ in 0..order.get(k).copied().unwrap_or(0) {
                             out = known(out.checked_div(u.dim))?;
                         }
                     }

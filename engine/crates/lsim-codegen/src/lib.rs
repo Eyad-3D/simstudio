@@ -788,12 +788,17 @@ impl ModelFunctions for JitModel {
         self.guards.call(inp, &[], work, out, &self.tables);
     }
 
-    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+    fn eval_table(&self, k: u32, args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
         let k = k as usize;
         (k < self.table_dims.len()).then(|| self.tables.get(k).eval(args))
     }
 
-    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+    fn eval_table_order(
+        &self,
+        k: u32,
+        order: &[u8],
+        args: &[f64],
+    ) -> Option<(f64, lsim_ir::interp::Rates)> {
         if k as usize >= self.table_dims.len() {
             return None;
         }
@@ -805,12 +810,11 @@ impl ModelFunctions for JitModel {
         })
     }
 
-    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+    fn table_axes(&self, k: u32) -> Option<Vec<Vec<f64>>> {
         let k = k as usize;
         (k < self.table_dims.len()).then(|| {
             let t = self.tables.get(k);
-            let second = if t.dims() == 2 { t.points(1).to_vec() } else { vec![] };
-            [t.points(0).to_vec(), second]
+            (0..t.dims()).map(|a| t.points(a).to_vec()).collect()
         })
     }
 

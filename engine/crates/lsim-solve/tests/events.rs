@@ -653,7 +653,7 @@ fn a_condition_a_time_table_drives_is_not_stepped_over() {
         vec![0.0, 10.0, 11.0, 12.0, 30.0],
         vec![0.0, 0.0, 1.0, 0.0, 0.0],
     );
-    profile.axis_units[0] = "s".into();
+    profile.axes[0].unit = "s".into();
     let cycle = ComponentDef {
         name: "Test.Cycle".into(),
         params: vec![lsim_lib::table::table_param("profile", "1", profile, "the target by time")],
@@ -740,7 +740,7 @@ fn cycle_model() -> common::Built {
         vec![0.0, 10.0, 11.0, 12.0, 30.0],
         vec![0.0, 0.0, 1.0, 0.0, 0.0],
     );
-    profile.axis_units[0] = "s".into();
+    profile.axes[0].unit = "s".into();
     let cycle = ComponentDef {
         name: "Test.Cycle".into(),
         params: vec![lsim_lib::table::table_param("profile", "1", profile, "the target by time")],
@@ -793,12 +793,9 @@ fn a_model_given_other_tables_is_run_on_their_breakpoints() {
         vec![0.0, 20.0, 21.0, 22.0, 30.0],
         vec![0.0, 0.0, 1.0, 0.0, 0.0],
     );
-    moved.axis_units[0] = "s".into();
+    moved.axes[0].unit = "s".into();
     let jit = built.jit.with_tables(&[moved]).expect("takes the new data");
-    assert_eq!(
-        ModelFunctions::table_axes(&jit, 0),
-        Some([vec![0.0, 20.0, 21.0, 22.0, 30.0], vec![]])
-    );
+    assert_eq!(ModelFunctions::table_axes(&jit, 0), Some(vec![vec![0.0, 20.0, 21.0, 22.0, 30.0]]));
     let seen = info.var_names.iter().position(|x| x == "k.seen").unwrap();
     let opts = SolverOptions::default();
     let grid = OutputGrid { t0: 0.0, t_end: 30.0, dt: 10.0 };
@@ -853,7 +850,7 @@ fn a_model_given_other_tables_is_run_on_their_breakpoints() {
         fn table_guards(&self, inp: &EvalInput<'_>, w: &mut [f64], out: &mut [f64]) {
             self.0.table_guards(inp, w, out)
         }
-        fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+        fn eval_table(&self, k: u32, args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
             self.0.eval_table(k, args)
         }
     }
@@ -886,7 +883,7 @@ fn a_condition_on_a_table_of_a_function_of_time_is_found_exactly() {
         vec![0.0, 3.0, 6.0, 9.0, 12.0, 15.0, 20.0],
         vec![0.0, 1.0, 0.2, 0.9, 0.1, 1.0, 0.0],
     );
-    profile.axis_units[0] = "1".into();
+    profile.axes[0].unit = "1".into();
     let wobble = ComponentDef {
         name: "Test.Wobble".into(),
         params: vec![
@@ -944,7 +941,7 @@ fn a_condition_on_a_table_of_a_function_of_time_is_found_exactly() {
     let x = *run.channel("k.x").unwrap().last().unwrap();
     // the crossings, bisected on the compiled table
     let table = built.jit.table(0);
-    let h = |t: f64| table.eval([10.0 + 8.0 * lsim_ir::math::sin(w * t), 0.0]).0 - 0.5;
+    let h = |t: f64| table.eval(&[10.0 + 8.0 * lsim_ir::math::sin(w * t)]).0 - 0.5;
     let (mut held, mut since, mut count, n) = (0.0, None, 0, 4_000_000);
     if h(0.0) > 0.0 {
         since = Some(0.0);

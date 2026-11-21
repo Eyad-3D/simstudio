@@ -47,16 +47,16 @@ pub const SMOOTH_DERIVATIVES: Ops = Ops { derivatives: true, ..SMOOTH };
 /// A random order for a read of a table of `dims` arguments: its value
 /// unless `ops` asks for derivatives, else up to the second order (the
 /// first when smooth).
-fn order(r: &mut Rng, dims: usize, ops: Ops) -> [u8; 2] {
+fn order(r: &mut Rng, dims: usize, ops: Ops) -> Vec<u8> {
     if !ops.derivatives {
-        return [0, 0];
+        return vec![];
     }
-    let firsts: &[[u8; 2]] = if dims == 1 { &[[1, 0]] } else { &[[1, 0], [0, 1]] };
-    let seconds: &[[u8; 2]] = if dims == 1 { &[[2, 0]] } else { &[[2, 0], [1, 1], [0, 2]] };
+    let firsts: &[&[u8]] = if dims == 1 { &[&[1]] } else { &[&[1, 0], &[0, 1]] };
+    let seconds: &[&[u8]] = if dims == 1 { &[&[2]] } else { &[&[2, 0], &[1, 1], &[0, 2]] };
     match r.below(if ops.smooth { 2 } else { 3 }) {
-        0 => [0, 0],
-        1 => firsts[r.below(firsts.len())],
-        _ => seconds[r.below(seconds.len())],
+        0 => vec![],
+        1 => firsts[r.below(firsts.len())].to_vec(),
+        _ => seconds[r.below(seconds.len())].to_vec(),
     }
 }
 
@@ -234,7 +234,7 @@ pub fn table(r: &mut Rng, dims: usize) -> TableData {
         data.interpolation = Interpolation::Linear;
     }
     let out = [Outside::Clamp, Outside::Linear, Outside::Error];
-    data.outside = [out[r.below(3)], out[r.below(3)]];
+    data = data.with_outside(&[out[r.below(3)], out[r.below(3)]]);
     data
 }
 
@@ -287,7 +287,7 @@ pub fn implicit_model(
             if ops.smooth || ops.derivatives {
                 // C¹ inside and across the edges: cubic, linear outside
                 data.interpolation = Interpolation::MonotoneCubic;
-                data.outside = [Outside::Linear, Outside::Linear];
+                data = data.with_outside(&[Outside::Linear, Outside::Linear]);
             }
             let k = b.table(&format!("t{i}"), data);
             l.tables.push((k, dims));

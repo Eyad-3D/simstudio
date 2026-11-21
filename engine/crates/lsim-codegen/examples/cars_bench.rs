@@ -159,13 +159,18 @@ impl ModelFunctions for Timed<'_> {
         self.note(7, inp);
         self.time(7, || self.m.table_guards(inp, work, out))
     }
-    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+    fn eval_table(&self, k: u32, args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
         self.m.eval_table(k, args)
     }
-    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+    fn eval_table_order(
+        &self,
+        k: u32,
+        order: &[u8],
+        args: &[f64],
+    ) -> Option<(f64, lsim_ir::interp::Rates)> {
         self.m.eval_table_order(k, order, args)
     }
-    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+    fn table_axes(&self, k: u32) -> Option<Vec<Vec<f64>>> {
         self.m.table_axes(k)
     }
     fn table_interp(&self, k: u32) -> Option<&lsim_ir::interp::Table> {

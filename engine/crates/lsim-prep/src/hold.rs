@@ -203,19 +203,20 @@ enum Need {
 /// Where the read of derivative `order` of the table `data` needs cells,
 /// per argument, holding the kinds `holds`. A read of derivative `o`
 /// jumps where the table is `C^c` with `o > c`, and kinks where `o = c`.
-fn need(data: &TableData, order: [u8; 2], holds: Holds) -> [Need; 2] {
-    let mut out = [Need::Nowhere; 2];
+fn need(data: &TableData, order: &[u8], holds: Holds) -> Vec<Need> {
     let dims = data.dims();
-    for (j, n) in out.iter_mut().enumerate().take(dims) {
+    let mut out = vec![Need::Nowhere; dims];
+    for (j, n) in out.iter_mut().enumerate() {
         let s = data_smoothness(data, j);
-        let o = u32::from(order[j]);
+        let o = u32::from(order.get(j).copied().unwrap_or(0));
         // (u32::MAX: no breakpoint there)
         let past = |c: u32, edges: bool| {
             if c == u32::MAX || o < c {
                 false
             } else if o == c {
                 holds.kinks
-            } else if dims == 2 {
+            } else if dims >= 2 {
+                // (a read of two axes or more)
                 holds.two_d
             } else if c > 0 {
                 holds.higher
@@ -240,7 +241,7 @@ fn need(data: &TableData, order: [u8; 2], holds: Holds) -> [Need; 2] {
 /// somewhere (a 1-D read or a 2-D one: [`Holds::AUTO`]), which the run's
 /// releases weigh ([`HeldRead::jumps`]): not one that only kinks, held for
 /// comparison ([`TableCells::Kinks`]).
-fn jumps(data: &TableData, order: [u8; 2]) -> bool {
+fn jumps(data: &TableData, order: &[u8]) -> bool {
     need(data, order, Holds::AUTO).iter().any(|n| *n != Need::Nowhere)
 }
 
@@ -289,10 +290,10 @@ pub fn apply(model: &mut PreparedModel, mode: TableCells) {
     // where the reads of a table at the same arguments need cells: the
     // most any of them needs (held together, their edges are crossed
     // together)
-    let mut group: HashMap<String, [Need; 2]> = HashMap::new();
+    let mut group: HashMap<String, Vec<Need>> = HashMap::new();
     for r in st.reads.values() {
-        let g = group.entry(r.group.clone()).or_insert([Need::Nowhere; 2]);
-        for (gj, rj) in g.iter_mut().zip(r.need) {
+        let g = group.entry(r.group.clone()).or_insert_with(|| vec![Need::Nowhere; r.need.len()]);
+        for (gj, &rj) in g.iter_mut().zip(&r.need) {
             *gj = (*gj).max(rj);
         }
     }
@@ -301,7 +302,7 @@ pub fn apply(model: &mut PreparedModel, mode: TableCells) {
         .iter()
         .map(|k| {
             let r = &st.reads[k];
-            let g = group[&r.group];
+            let g = &group[&r.group];
             if g.iter().all(|n| *n == Need::Nowhere) {
                 None
             } else if r.args.len() == 1 && g[0] == Need::Edges {
@@ -369,10 +370,10 @@ enum Cells {
 /// needs cells itself, and the key of the reads at the same arguments.
 struct Pending {
     table: u32,
-    order: [u8; 2],
+    order: Vec<u8>,
     args: Vec<Expr>,
     origin: Origin,
-    need: [Need; 2],
+    need: Vec<Need>,
     group: String,
     /// whether it jumps itself ([`jumps`])
     jumps: bool,
@@ -427,23 +428,25 @@ fn named(e: Expr, model: &PreparedModel, st: &mut State, origin: &Origin, holds:
         let Expr::Table { table, args, order } = &node else { return node };
         let data = &model.flat.tables[*table as usize].data;
         let dims = data.dims();
-        let points = [data.x.len(), data.y.len()];
         if args.len() != dims
-            || points[..dims].iter().any(|&n| n < 2)
+            || data.axes.iter().any(|a| a.points.len() < 2)
             || !args.iter().any(|a| moves(a, st, 0))
         {
             return node;
         }
-        let key = format!("{table}:{order:?}:{args:?}");
+        // (the key's order written with two entries at least, as one and
+        // two arguments always have been)
+        let shown: Vec<u8> = (0..dims.max(2)).map(|k| order.get(k).copied().unwrap_or(0)).collect();
+        let key = format!("{table}:{shown:?}:{args:?}");
         let group = format!("{table}:{args:?}");
         st.reads.entry(key.clone()).or_insert_with(|| Pending {
             table: *table,
-            order: *order,
+            order: order.clone(),
             args: args.clone(),
             origin: origin.clone(),
-            need: need(data, *order, holds),
+            need: need(data, order, holds),
             group,
-            jumps: jumps(data, *order),
+            jumps: jumps(data, order),
         });
         Expr::Name(format!("{NAME}{key}"))
     })
@@ -478,8 +481,8 @@ impl Expand<'_> {
                 let a = self.args_of(k);
                 let r = &self.reads[&self.keys[k]];
                 match &self.held[k] {
-                    Some(h) => written(h, r.table, r.order, &a),
-                    None => Expr::Table { table: r.table, args: a, order: r.order },
+                    Some(h) => written(h, r.table, &r.order, &a),
+                    None => Expr::Table { table: r.table, args: a, order: r.order.clone() },
                 }
             }
             other => other,
@@ -525,10 +528,10 @@ fn hold(
         }
         v
     };
-    let mut degree = [0u8; 2];
+    let mut degree = vec![0u8; r.args.len()];
     let mut axes = vec![];
-    for (j, dj) in degree.iter_mut().enumerate().take(r.args.len()) {
-        *dj = base.saturating_sub(r.order[j]);
+    for (j, dj) in degree.iter_mut().enumerate() {
+        *dj = base.saturating_sub(r.order.get(j).copied().unwrap_or(0));
         let cell = var(model, format!("{prefix}.cell{}", j + 1), -1.0);
         let anchor = var(model, format!("{prefix}.at{}", j + 1), 0.0);
         let lo = var(model, format!("{prefix}.lo{}", j + 1), 0.0);
@@ -545,10 +548,22 @@ fn hold(
     let mut coef = vec![];
     let cells = match cells {
         Cells::Points => {
-            for i in 0..=degree[0] {
-                for jj in 0..=degree[1] {
-                    coef.push(var(model, format!("{prefix}.c{i}{jj}"), 0.0));
+            // row-major over the arguments, named by their powers (one
+            // argument's with a second power 0, as it always has been)
+            let count: usize = degree.iter().map(|&d| usize::from(d) + 1).product();
+            for flat in 0..count {
+                let mut rest = flat;
+                let mut powers = vec![0usize; degree.len()];
+                for (k, pk) in powers.iter_mut().enumerate().rev() {
+                    let w = usize::from(degree[k]) + 1;
+                    *pk = rest % w;
+                    rest /= w;
                 }
+                if powers.len() == 1 {
+                    powers.push(0);
+                }
+                let name: String = powers.iter().map(|p| p.to_string()).collect();
+                coef.push(var(model, format!("{prefix}.c{name}"), 0.0));
             }
             HeldCells::Points
         }
@@ -569,8 +584,22 @@ fn hold(
         }
     };
     let released = var(model, format!("{prefix}.released"), 0.0);
-    let read = Expr::Table { table: r.table, args: vec![], order: r.order };
+    let read = Expr::Table { table: r.table, args: vec![], order: r.order.clone() };
     HeldRead { read, axes, degree, coef, cells, released, group, jumps: r.jumps }
+}
+
+/// The polynomial of the coefficients `cs` (row-major over the arguments,
+/// `degree[k] + 1` along argument `k`) in the powers of `s`: Horner's form
+/// along the first argument of the polynomials of the rest.
+fn nested(cs: &[Expr], degree: &[u8], s: &[Expr]) -> Expr {
+    if degree.len() == 1 {
+        return horner(cs, &s[0]);
+    }
+    let w: usize = degree[1..].iter().map(|&d| usize::from(d) + 1).product();
+    let rows: Vec<Expr> = (0..=usize::from(degree[0]))
+        .map(|i| nested(&cs[i * w..(i + 1) * w], &degree[1..], &s[1..]))
+        .collect();
+    horner(&rows, &s[0])
 }
 
 /// `Σ cs[i] x^i` in Horner's form.
@@ -588,36 +617,26 @@ fn horner(cs: &[Expr], x: &Expr) -> Expr {
 /// the equations read it: `if released > 0.5 then` the table itself `else`
 /// the cell's function (both are evaluated, the one chosen bitwise as it
 /// stands).
-fn written(h: &HeldRead, table: u32, order: [u8; 2], args: &[Expr]) -> Expr {
+fn written(h: &HeldRead, table: u32, order: &[u8], args: &[Expr]) -> Expr {
     let released =
         Expr::Compare(CmpOp::Gt, Box::new(Expr::Var(h.released)), Box::new(Expr::Const(0.5)));
-    let own = Expr::Table { table, args: args.to_vec(), order };
+    let own = Expr::Table { table, args: args.to_vec(), order: order.to_vec() };
     Expr::If(Box::new(released), Box::new(own), Box::new(in_cell(h, table, order, args)))
 }
 
 /// The held read `h` as its cell's function.
-fn in_cell(h: &HeldRead, table: u32, order: [u8; 2], args: &[Expr]) -> Expr {
+fn in_cell(h: &HeldRead, table: u32, order: &[u8], args: &[Expr]) -> Expr {
     use BinaryOp::{Add, Sub};
     match &h.cells {
-        // `Σ c_ij (a₁ − m₁)^i (a₂ − m₂)^j`
+        // `Σ c_ij… (a₁ − m₁)^i (a₂ − m₂)^j …`, nested in Horner's form
         HeldCells::Points => {
             let s: Vec<Expr> = args
                 .iter()
                 .zip(&h.axes)
                 .map(|(a, ax)| Expr::bin(Sub, a.clone(), Expr::Var(ax.anchor)))
                 .collect();
-            let width = usize::from(h.degree[1]) + 1;
-            let rows: Vec<Expr> = (0..=usize::from(h.degree[0]))
-                .map(|i| {
-                    let cs: Vec<Expr> =
-                        (0..width).map(|j| Expr::Var(h.coef[i * width + j])).collect();
-                    match s.get(1) {
-                        Some(t) => horner(&cs, t),
-                        None => cs[0].clone(),
-                    }
-                })
-                .collect();
-            horner(&rows, &s[0])
+            let coef: Vec<Expr> = h.coef.iter().map(|v| Expr::Var(*v)).collect();
+            nested(&coef, &h.degree, &s)
         }
         // `T(max(from, min(to, a))) + offset + (P_last(max(a, to)) −
         // P_last(to)) + (P_first(min(a, from)) − P_first(from))`: the
@@ -628,7 +647,7 @@ fn in_cell(h: &HeldRead, table: u32, order: [u8; 2], args: &[Expr]) -> Expr {
             let call = |f: Builtin, x: Expr, y: Expr| Expr::Call(f, vec![x, y]);
             let (from, to) = (Expr::Var(e.from), Expr::Var(e.to));
             let at = call(Builtin::Max, from.clone(), call(Builtin::Min, to.clone(), a.clone()));
-            let read = Expr::Table { table, args: vec![at], order };
+            let read = Expr::Table { table, args: vec![at], order: order.to_vec() };
             let w = usize::from(h.degree[0]) + 1;
             let first: Vec<Expr> = h.coef[..w].iter().map(|v| Expr::Var(*v)).collect();
             let last: Vec<Expr> = h.coef[w..].iter().map(|v| Expr::Var(*v)).collect();
@@ -659,7 +678,7 @@ mod tests {
         let x: Vec<f64> = (0..n).map(|i| i as f64).collect();
         let mut d = TableData::new_1d(x.clone(), x.iter().map(|v| v * v).collect());
         d.interpolation = interp;
-        d.outside = [outside, outside];
+        d = d.with_outside(&[outside]);
         d
     }
 
@@ -674,37 +693,37 @@ mod tests {
         let cub = |o| data(MonotoneCubic, o, 5);
         let j = Holds::JUMPS;
         // a linear table's value kinks (stepped over); its slope jumps
-        assert_eq!(need(&lin(Clamp), [0, 0], j)[0], Nowhere);
-        assert_eq!(need(&lin(Outside::Linear), [1, 0], j)[0], Points);
-        assert_eq!(need(&lin(Clamp), [1, 0], j)[0], Points);
+        assert_eq!(need(&lin(Clamp), &[0], j)[0], Nowhere);
+        assert_eq!(need(&lin(Outside::Linear), &[1], j)[0], Points);
+        assert_eq!(need(&lin(Clamp), &[1], j)[0], Points);
         // a monotone cubic's value and slope are continuous inside; held
         // at its edges, the slope jumps there
-        assert_eq!(need(&cub(Clamp), [0, 0], j)[0], Nowhere);
-        assert_eq!(need(&cub(Outside::Linear), [1, 0], j)[0], Nowhere);
-        assert_eq!(need(&cub(Clamp), [1, 0], j)[0], Edges);
+        assert_eq!(need(&cub(Clamp), &[0], j)[0], Nowhere);
+        assert_eq!(need(&cub(Outside::Linear), &[1], j)[0], Nowhere);
+        assert_eq!(need(&cub(Clamp), &[1], j)[0], Edges);
         // a cubic's second derivative jumps at its points (and at its
         // data's edges, continued linearly): not held so, but by the
         // default, on either form, as is a clamped cubic's slope at its
         // edges
-        assert_eq!(need(&cub(Outside::Linear), [2, 0], j)[0], Nowhere);
+        assert_eq!(need(&cub(Outside::Linear), &[2], j)[0], Nowhere);
         let auto = TableCells::Auto.holds();
         assert_eq!(auto, Holds::AUTO);
-        assert_eq!(need(&cub(Outside::Linear), [2, 0], auto)[0], Points);
-        assert_eq!(need(&cub(Clamp), [1, 0], auto)[0], Edges);
-        assert_eq!(need(&cub(Clamp), [0, 0], auto)[0], Nowhere, "a value only kinks");
-        assert_eq!(need(&lin(Clamp), [0, 0], auto)[0], Nowhere, "a value only kinks");
+        assert_eq!(need(&cub(Outside::Linear), &[2], auto)[0], Points);
+        assert_eq!(need(&cub(Clamp), &[1], auto)[0], Edges);
+        assert_eq!(need(&cub(Clamp), &[0], auto)[0], Nowhere, "a value only kinks");
+        assert_eq!(need(&lin(Clamp), &[0], auto)[0], Nowhere, "a value only kinks");
         // two points: a single cell, a line continued
-        assert_eq!(need(&data(Linear, Outside::Linear, 2), [1, 0], j)[0], Nowhere);
-        assert_eq!(need(&data(Linear, Clamp, 2), [1, 0], j)[0], Edges);
+        assert_eq!(need(&data(Linear, Outside::Linear, 2), &[1], j)[0], Nowhere);
+        assert_eq!(need(&data(Linear, Clamp, 2), &[1], j)[0], Edges);
         // kinks held too, for comparison
         let k = Holds::ALL;
-        assert_eq!(need(&lin(Clamp), [0, 0], k)[0], Points);
-        assert_eq!(need(&cub(Clamp), [0, 0], k)[0], Edges);
-        assert_eq!(need(&cub(Outside::Linear), [0, 0], k)[0], Nowhere);
-        assert_eq!(need(&cub(Outside::Linear), [1, 0], k)[0], Points);
-        assert_eq!(need(&lin(Outside::Linear), [0, 0], k)[0], Points);
-        assert_eq!(need(&data(Linear, Outside::Linear, 2), [0, 0], k)[0], Nowhere);
-        assert_eq!(need(&lin(Clamp), [1, 0], Holds::NONE)[0], Nowhere);
+        assert_eq!(need(&lin(Clamp), &[0], k)[0], Points);
+        assert_eq!(need(&cub(Clamp), &[0], k)[0], Edges);
+        assert_eq!(need(&cub(Outside::Linear), &[0], k)[0], Nowhere);
+        assert_eq!(need(&cub(Outside::Linear), &[1], k)[0], Points);
+        assert_eq!(need(&lin(Outside::Linear), &[0], k)[0], Points);
+        assert_eq!(need(&data(Linear, Outside::Linear, 2), &[0], k)[0], Nowhere);
+        assert_eq!(need(&lin(Clamp), &[1], Holds::NONE)[0], Nowhere);
         // a 2-D read that jumps: held by the default, not by `Jumps`; its
         // value only kinks
         let mut two = TableData::new_2d(
@@ -713,16 +732,16 @@ mod tests {
             (0..9).map(|v| f64::from(v * v)).collect(),
         );
         two.interpolation = Linear;
-        assert_eq!(need(&two, [1, 0], j), [Nowhere, Nowhere]);
-        assert_eq!(need(&two, [1, 0], auto), [Points, Nowhere]);
-        assert_eq!(need(&two, [0, 0], auto), [Nowhere, Nowhere]);
-        assert_eq!(need(&two, [1, 0], k), [Points, Points]);
+        assert_eq!(need(&two, &[1, 0], j), [Nowhere, Nowhere]);
+        assert_eq!(need(&two, &[1, 0], auto), [Points, Nowhere]);
+        assert_eq!(need(&two, &[0, 0], auto), [Nowhere, Nowhere]);
+        assert_eq!(need(&two, &[1, 0], k), [Points, Points]);
         // what the run's releases weigh: every read that jumps, a 2-D one
         // too, not one that only kinks
-        assert!(jumps(&lin(Clamp), [1, 0]) && jumps(&cub(Clamp), [1, 0]));
-        assert!(jumps(&cub(Outside::Linear), [2, 0]) && jumps(&two, [1, 0]));
-        assert!(jumps(&two, [0, 1]), "its slope along the second argument");
-        assert!(!jumps(&lin(Clamp), [0, 0]) && !jumps(&two, [0, 0]) && !jumps(&cub(Clamp), [0, 0]));
-        assert!(!jumps(&cub(Outside::Linear), [1, 0]));
+        assert!(jumps(&lin(Clamp), &[1]) && jumps(&cub(Clamp), &[1]));
+        assert!(jumps(&cub(Outside::Linear), &[2]) && jumps(&two, &[1, 0]));
+        assert!(jumps(&two, &[0, 1]), "its slope along the second argument");
+        assert!(!jumps(&lin(Clamp), &[0]) && !jumps(&two, &[0, 0]) && !jumps(&cub(Clamp), &[0]));
+        assert!(!jumps(&cub(Outside::Linear), &[1]));
     }
 }

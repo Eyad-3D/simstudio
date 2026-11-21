@@ -10,7 +10,7 @@
 
 use super::*;
 use crate::table::{Table1, Table2, UnitCarriers, table_param};
-use lsim_ir::ParamValue;
+use lsim_ir::{ParamValue, TableData};
 
 /// A profile block's configuration (Driving Task, Road Profile).
 #[derive(Clone, Debug, PartialEq)]
@@ -362,6 +362,111 @@ pub fn default_lookup() -> LookupConfig {
     LookupConfig::D1(Table1::from_json(p, Default::default()).expect("table"))
 }
 
+/// signal.map: its inputs (the axes of its maps, in order) and outputs,
+/// each with its SI unit, and each output's map: a table with one axis per
+/// input (SI), or its value when the block has no input.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MapConfig {
+    /// (port id, SI unit) of each input, in order
+    pub inputs: Vec<(String, String)>,
+    /// (port id, SI unit) of each output
+    pub outputs: Vec<(String, String)>,
+    /// each output's map: [`ParamValue::Table`], or [`ParamValue::Real`]
+    /// with no input
+    pub maps: Vec<ParamValue>,
+}
+
+impl MapConfig {
+    /// The parameter that holds output `k`'s map: named after the output
+    /// (`loss_map`), so that a message about it says which, and never a
+    /// port's name.
+    pub fn param(&self, k: usize) -> String {
+        let taken = |n: &str| self.inputs.iter().chain(&self.outputs).any(|(id, _)| id == n);
+        let mut name = format!("{}_map", self.outputs[k].0);
+        while taken(&name) {
+            name.push('_');
+        }
+        name
+    }
+
+    /// Its maps as the part's values.
+    pub fn values(&self) -> Vec<(String, ParamValue)> {
+        (0..self.outputs.len()).map(|k| (self.param(k), self.maps[k].clone())).collect()
+    }
+}
+
+/// The default Map: one input and one output, its map a line through (0,
+/// 0) and (1, 1).
+pub fn default_map() -> MapConfig {
+    let one = |id: &str| (id.to_string(), "1".to_string());
+    let line = TableData {
+        interpolation: crate::table::Interpolation::Linear,
+        ..TableData::new_1d(vec![0.0, 1.0], vec![0.0, 1.0]).with_units(&["1"])
+    };
+    MapConfig {
+        inputs: vec![one("input_1")],
+        outputs: vec![one("output_1")],
+        maps: vec![ParamValue::Table(line)],
+    }
+}
+
+/// signal.map: each output its map read at the inputs, every step (a
+/// smooth signal function of them: no state, no sample time). Its ports
+/// are its own (`dynamicPorts`), so its definition is named with a
+/// fingerprint of them (`Blocks.Map` for [`default_map`]'s).
+pub fn map(cfg: &MapConfig) -> ComponentDef {
+    let mut ports = vec![];
+    for (id, u) in &cfg.inputs {
+        ports.push(crate::x::input(id, u, "an input: an axis of the maps"));
+    }
+    for (id, u) in &cfg.outputs {
+        ports.push(crate::x::output(id, u, "an output: its map at the inputs"));
+    }
+    let at: Vec<Expr> = cfg.inputs.iter().map(|(id, _)| n(id)).collect();
+    let mut params = vec![];
+    let mut equations = vec![];
+    for (k, (id, u)) in cfg.outputs.iter().enumerate() {
+        let name = cfg.param(k);
+        let (decl, value) = match &cfg.maps[k] {
+            ParamValue::Table(t) => (
+                table_param(&name, u, t.clone(), &format!("the map of output {id}")),
+                lsim_ir::expr::table(&name, at.clone()),
+            ),
+            other => {
+                let v = match other {
+                    ParamValue::Real(Expr::Const(v)) => *v,
+                    _ => 0.0,
+                };
+                (p(&name, u, v, &format!("the value of output {id} (no input)")), n(&name))
+            }
+        };
+        params.push(decl);
+        equations.push(eq(n(id), value, &format!("output {id}: its map at the inputs")));
+    }
+    let shape: Vec<f64> = cfg
+        .inputs
+        .iter()
+        .chain(&cfg.outputs)
+        .flat_map(|(a, b)| a.bytes().chain(b.bytes()).map(f64::from).chain([-1.0]))
+        .chain([cfg.inputs.len() as f64])
+        .chain(cfg.maps.iter().map(|m| f64::from(u8::from(matches!(m, ParamValue::Table(_))))))
+        .collect();
+    let base = default_map();
+    let same = cfg.inputs == base.inputs && cfg.outputs == base.outputs;
+    ComponentDef {
+        name: if same {
+            "Blocks.Map".into()
+        } else {
+            format!("Blocks.Map_{}", crate::signal::fingerprint(shape))
+        },
+        doc: doc("signal.map"),
+        ports,
+        params,
+        equations,
+        ..Default::default()
+    }
+}
+
 /// A sampled block's ports: its inputs and outputs with their SI units.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct SampledPorts {
@@ -541,6 +646,7 @@ pub fn defaults() -> Vec<ComponentDef> {
         monitor(&[]),
         system(),
         race_track(),
+        map(&default_map()),
     ];
     out.extend(pid_gain_constants());
     out

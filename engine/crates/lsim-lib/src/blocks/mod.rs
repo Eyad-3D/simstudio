@@ -183,6 +183,7 @@ pub fn default_names() -> Vec<(&'static str, &'static str)> {
         ("control.traction", "External.TractionControl"),
         ("control.pid", "Blocks.Pid"),
         ("signal.lookup", "Blocks.Lookup"),
+        ("signal.map", "Blocks.Map"),
         ("signal.road_profile", "Blocks.RoadProfile"),
         ("track.lap", "Blocks.RaceTrack"),
     ]
@@ -266,6 +267,7 @@ pub fn table_sites() -> Vec<TableSite> {
     // with a Sample Time over today's step: read at its held inputs
     defs.push(("signal.lookup", signals::lookup_held(&signals::default_lookup())));
     defs.push(("signal.lookup", signals::lookup_held(&d2)));
+    defs.push(("signal.map", signals::map(&signals::default_map())));
     for f in all(2) {
         let (distance, repeat) = (f[0], f[1]);
         let task = signals::ProfileConfig { distance, repeat, ..signals::default_task() };
@@ -367,7 +369,7 @@ mod tests {
             .iter()
             .map(|c| c["id"].as_str().unwrap())
             .collect();
-        assert_eq!(ids.len(), 36);
+        assert_eq!(ids.len(), 37);
         for id in ids {
             let (_, name) = default_names().into_iter().find(|(i, _)| *i == id).expect(id);
             assert!(defs.iter().any(|d| d == name), "{id}: {name} missing");

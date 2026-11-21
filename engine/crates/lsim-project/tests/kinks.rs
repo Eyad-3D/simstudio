@@ -87,7 +87,7 @@ fn table_text(xs: &[f64], ys: &[f64], unit: &str, interp: &str, outside: &str) -
 fn data_1d(xs: &[f64], ys: &[f64], interp: Interpolation, outside: Outside) -> TableData {
     let mut d = TableData::new_1d(xs.to_vec(), ys.to_vec());
     d.interpolation = interp;
-    d.outside = [outside, outside];
+    d = d.with_outside(&[outside, outside]);
     d
 }
 
@@ -204,9 +204,9 @@ end Test.KinkGear;
 /// `1 / r` is smooth), inverted by bisection between `lo` and `hi`.
 fn gear_exact(data: &TableData, g: &Gear, (lo, hi): (f64, f64), times: &[f64]) -> Vec<f64> {
     let t = Table::new(data).expect("a table");
-    let r = |w: f64| t.value([w, 0.0]);
+    let r = |w: f64| t.value(&[w]);
     let inv = |w: f64| 1.0 / r(w);
-    let phi = |w: f64| g.j1 * r(w) * w + g.j2 * integral(&inv, &data.x, 0.0, w);
+    let phi = |w: f64| g.j1 * r(w) * w + g.j2 * integral(&inv, data.points(0), 0.0, w);
     let start = phi(g.w0);
     times
         .iter()
@@ -1377,7 +1377,7 @@ end Test.Pass;
     );
     let data = data_1d(&ps, &ts, Interpolation::MonotoneCubic, Outside::Clamp);
     let table = Table::new(&data).unwrap();
-    let rate = |v: f64| table.value([v, 0.0]);
+    let rate = |v: f64| table.value(&[v]);
     let inv = |v: f64| 1.0 / rate(v);
     let last = *ps.last().unwrap();
     let t_last = integral(&inv, &ps, 0.0, last);
@@ -1550,8 +1550,7 @@ end Test.Spring;
         let r = run(&m, 1e-8, 20.0, 0.01);
         let table = Table::new(&d).unwrap();
         let (x, f) = (r.channel("x").unwrap(), r.channel("f").unwrap());
-        let worst =
-            x.iter().zip(f).fold(0.0f64, |m, (a, b)| m.max((table.value([*a, 0.0]) - b).abs()));
+        let worst = x.iter().zip(f).fold(0.0f64, |m, (a, b)| m.max((table.value(&[*a]) - b).abs()));
         assert!(worst < 1e-14, "{t}: {worst:e}");
         // (the linear table's points crossed; the cubic, held at its edges
         // only, never left)

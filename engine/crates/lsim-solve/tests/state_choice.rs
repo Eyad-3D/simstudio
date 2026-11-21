@@ -1023,8 +1023,8 @@ fn with_rate() -> (common::Built, lsim_ir::table::TableData) {
     use lsim_ir::table::{Interpolation, Outside, TableData};
     let mut data = TableData::new_1d(vec![0.0, 5.0], vec![0.0, 1.0]);
     data.interpolation = Interpolation::Linear;
-    data.outside = [Outside::Clamp, Outside::Clamp];
-    data.axis_units[0] = "s".into();
+    data = data.with_outside(&[Outside::Clamp, Outside::Clamp]);
+    data.axes[0].unit = "s".into();
     let mut def = pendulum(1.5, StateSelect::Default);
     def.params.push(lsim_lib::table::table_param("rate", "m/s", data.clone(), "a rate by time"));
     def.vars.push(state("z", "m", 0.0, "its integral"));
@@ -1060,7 +1060,7 @@ fn a_model_given_other_tables_keeps_the_detection() {
     assert!(switches(&r) > 0);
     assert!((z[z.len() - 1] - 7.5).abs() < 1e-5, "z(10 s) = {}", z[z.len() - 1]);
     let mut beyond = data.clone();
-    beyond.outside = [Outside::Linear, Outside::Linear];
+    beyond = beyond.with_outside(&[Outside::Linear, Outside::Linear]);
     let mut cubic = data;
     cubic.interpolation = Interpolation::MonotoneCubic;
     for other in [beyond, cubic] {

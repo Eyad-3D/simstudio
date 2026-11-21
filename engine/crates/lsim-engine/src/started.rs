@@ -93,13 +93,18 @@ impl ModelFunctions for Started<'_> {
     fn table_guards(&self, inp: &EvalInput<'_>, work: &mut [f64], out: &mut [f64]) {
         self.m.table_guards(inp, work, out)
     }
-    fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+    fn eval_table(&self, k: u32, args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
         self.m.eval_table(k, args)
     }
-    fn eval_table_order(&self, k: u32, order: [u8; 2], args: [f64; 2]) -> Option<(f64, [f64; 2])> {
+    fn eval_table_order(
+        &self,
+        k: u32,
+        order: &[u8],
+        args: &[f64],
+    ) -> Option<(f64, lsim_ir::interp::Rates)> {
         self.m.eval_table_order(k, order, args)
     }
-    fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
+    fn table_axes(&self, k: u32) -> Option<Vec<Vec<f64>>> {
         self.m.table_axes(k)
     }
     fn table_interp(&self, k: u32) -> Option<&lsim_ir::interp::Table> {
@@ -234,19 +239,20 @@ mod tests {
         fn table_guards(&self, inp: &EvalInput<'_>, _: &mut [f64], out: &mut [f64]) {
             fill(out, 11.0, inp)
         }
-        fn eval_table(&self, k: u32, args: [f64; 2]) -> Option<(f64, [f64; 2])> {
-            Some((12.0 + k as f64, args))
+        fn eval_table(&self, k: u32, args: &[f64]) -> Option<(f64, lsim_ir::interp::Rates)> {
+            Some((12.0 + k as f64, args.to_vec().into()))
         }
         fn eval_table_order(
             &self,
             k: u32,
-            order: [u8; 2],
-            args: [f64; 2],
-        ) -> Option<(f64, [f64; 2])> {
-            Some((15.0 + k as f64 + order[0] as f64 + 2.0 * order[1] as f64, args))
+            order: &[u8],
+            args: &[f64],
+        ) -> Option<(f64, lsim_ir::interp::Rates)> {
+            let o = |i: usize| order.get(i).copied().unwrap_or(0) as f64;
+            Some((15.0 + k as f64 + o(0) + 2.0 * o(1), args.to_vec().into()))
         }
-        fn table_axes(&self, k: u32) -> Option<[Vec<f64>; 2]> {
-            Some([vec![13.0, k as f64], vec![14.0]])
+        fn table_axes(&self, k: u32) -> Option<Vec<Vec<f64>>> {
+            Some(vec![vec![13.0, k as f64], vec![14.0]])
         }
         fn table_interp(&self, _k: u32) -> Option<&lsim_ir::interp::Table> {
             Some(&self.table)
@@ -365,12 +371,12 @@ mod tests {
         let mut b = vec![0.0; m.table_guard_list().len()];
         m.table_guards(&inp, &mut work, &mut b);
         put("table_guards", b);
-        let t = m.eval_table(2, [0.5, 0.75]).map(|(v, d)| vec![v, d[0], d[1]]);
+        let t = m.eval_table(2, &[0.5, 0.75]).map(|(v, d)| vec![v, d[0], d[1]]);
         put("eval_table", t.unwrap_or_default());
-        let a = m.table_axes(2).map(|[a, b]| [a, b].concat());
+        let a = m.table_axes(2).map(|v| v.concat());
         put("table_axes", a.unwrap_or_default());
         let t = m.table_interp(2).map(|t| {
-            let (v, d) = t.eval([0.5, 0.75]);
+            let (v, d) = t.eval(&[0.5, 0.75]);
             vec![t.dims() as f64, v, d[0], t.same(&probe().table) as u8 as f64]
         });
         put("table_interp", t.unwrap_or_default());
@@ -390,7 +396,7 @@ mod tests {
             ]
         });
         put("condition_kernels", k.unwrap_or_default());
-        let t = m.eval_table_order(2, [1, 0], [0.5, 0.75]).map(|(v, d)| vec![v, d[0], d[1]]);
+        let t = m.eval_table_order(2, &[1, 0], &[0.5, 0.75]).map(|(v, d)| vec![v, d[0], d[1]]);
         put("eval_table_order", t.unwrap_or_default());
         let spec = BooksSpec { parts: vec![], chain: vec![], rates: vec![], n_out: 2 };
         let b = m.books_kernel(&spec).map(|k| {

@@ -166,7 +166,7 @@ impl Env for Point<'_> {
     fn param(&self, p: ParamId) -> f64 {
         self.p.get(p.0 as usize).copied().unwrap_or(f64::NAN)
     }
-    fn table(&self, k: u32, order: [u8; 2], args: &[f64]) -> f64 {
+    fn table(&self, k: u32, order: &[u8], args: &[f64]) -> f64 {
         table_at(self.model, k, order, args).map_or(f64::NAN, |(v, _)| v)
     }
 }

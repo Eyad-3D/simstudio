@@ -187,13 +187,14 @@ pub struct HeldRead {
     pub read: Expr,
     /// one per argument of the read, in order
     pub axes: Vec<HeldAxis>,
-    /// the polynomials' degree along each argument (their cells' degree,
-    /// the derivative read taken off: 1 for a linear table's value, 0 for
-    /// its first derivative, 3 for a cubic's value; 0 along a second
-    /// argument a 1-D table does not have)
-    pub degree: [u8; 2],
-    /// the discrete coefficients: [`HeldCells::Points`], that of
-    /// `(a₁ − m₁)^i (a₂ − m₂)^j` at `i · (degree[1] + 1) + j`;
+    /// the polynomials' degree along each argument, one per argument (their
+    /// cells' degree, the derivative read taken off: 1 for a linear table's
+    /// value, 0 for its first derivative, 3 for a cubic's value)
+    pub degree: Vec<u8>,
+    /// the discrete coefficients: [`HeldCells::Points`], those of the
+    /// products of the powers `(a_k − m_k)^(i_k)`, row-major over the
+    /// arguments (two: `(a₁ − m₁)^i (a₂ − m₂)^j` at `i · (degree[1] + 1) +
+    /// j`);
     /// [`HeldCells::Edges`], those of the first data cell's polynomial in
     /// powers of `(a − m)` (`m` the axis's `anchor`), then those of the
     /// last's (at [`HeldEdges::anchor_end`]), `degree[0] + 1` each

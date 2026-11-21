@@ -205,7 +205,7 @@ pub fn noev(a: Expr) -> Expr {
     Expr::NoEvent(Box::new(a))
 }
 pub fn tab(k: u32, args: Vec<Expr>) -> Expr {
-    Expr::Table { table: k, args, order: [0, 0] }
+    Expr::Table { table: k, args, order: vec![] }
 }
 
 /// A smooth, monotone-ish 1-D curve sampled on `n` points over [a, b].
@@ -371,7 +371,7 @@ pub fn vehicle(units: usize) -> PreparedModel {
     let mut climate = curve(10, -20.0, 40.0, |t| {
         3000.0 - 120.0 * (t + 20.0) + 2.0 * lsim_ir::math::powi(t - 10.0, 2)
     });
-    climate.outside = [Outside::Linear, Outside::Clamp];
+    climate = climate.with_outside(&[Outside::Linear, Outside::Clamp]);
     let climate_t = b.table("climate.demand", climate);
     let vb = b.state("body.v", 0.0);
     let xb = b.state("body.x", 0.0);

@@ -4,7 +4,7 @@
 
 use lsim_ir::component::build::{eq, param, state, var};
 use lsim_ir::expr::{BinaryOp, Expr, c, der, name as n};
-use lsim_ir::{ComponentDef, Library, ParamDecl, ParamValue};
+use lsim_ir::{ComponentDef, Library, ParamDecl, ParamValue, TableData};
 use lsim_prep::{PrepOptions, prepare};
 
 /// `x = rhs` with parameters `a` and `b` in `m100`, `m` in `m-128`, `q` in
@@ -18,11 +18,9 @@ fn model(rhs: Expr) -> ComponentDef {
             param("m", "m-128", 1.0, ""),
             param("q", "m4", 1.0, ""),
             ParamDecl {
-                default: ParamValue::Table1D {
-                    x: vec![0.0, 1.0],
-                    y: vec![0.0, 1.0],
-                    axis_unit: "s-100".into(),
-                },
+                default: ParamValue::Table(
+                    TableData::new_1d(vec![0.0, 1.0], vec![0.0, 1.0]).with_units(&["s-100"]),
+                ),
                 ..param("t", "s100", 0.0, "")
             },
         ],
@@ -50,7 +48,7 @@ fn a_unit_that_overflows_is_refused_not_a_panic() {
         ("a number over a unit", c(1.0) / n("m")),
         (
             "the slope of a table",
-            Expr::Table { table: 0, args: vec![n("t"), c(0.5)], order: [1, 0] },
+            Expr::Table { table: 0, args: vec![n("t"), c(0.5)], order: vec![1, 0] },
         ),
         ("a whole power", pow(n("q"), 63.0)),
         ("a half power", pow(n("q"), 63.5)),

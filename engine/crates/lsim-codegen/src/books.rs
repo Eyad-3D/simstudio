@@ -106,7 +106,7 @@ fn value_ok(e: &Expr, s: &Sizes) -> bool {
         // a table's derivative (index reduction) is left to the
         // interpreter, as the condition kernels leave it
         Expr::Table { table, args, order } => {
-            *order == [0, 0]
+            lsim_ir::expr::is_value(order)
                 && (*table as usize) < s.n_tables
                 && (1..=2).contains(&args.len())
                 && args.iter().all(|a| value_ok(a, s))
@@ -157,7 +157,7 @@ fn rate_ok(e: &Expr, cx: &RateCx<'_>, upto: usize) -> bool {
             }
         }
         Expr::Table { table, args, order } => {
-            *order == [0, 0]
+            lsim_ir::expr::is_value(order)
                 && (*table as usize) < cx.s.n_tables
                 && (1..=2).contains(&args.len())
                 && args.iter().all(ok)
@@ -391,7 +391,9 @@ impl<'a, E: Emit> Lower<'a, E> {
             Expr::Var(v) | Expr::Pre(v) => self.load(0, v.0 as usize),
             Expr::Param(p) => self.load(1, p.0 as usize),
             Expr::Name(_) | Expr::Der(_) => unreachable!("declined"),
-            Expr::Table { order, .. } if *order != [0, 0] => unreachable!("declined"),
+            Expr::Table { order, .. } if !lsim_ir::expr::is_value(order) => {
+                unreachable!("declined")
+            }
             Expr::Table { table, args, .. } => {
                 let at: Vec<E::V> = args.iter().map(|a| self.value(a)).collect();
                 // (the value `eval_table` gives, `Table::eval`'s: the value
@@ -577,7 +579,9 @@ impl<'a, E: Emit> Lower<'a, E> {
             Expr::Var(v) => self.var(v.0 as usize),
             Expr::Time => (self.e.time(), R::K(1.0)),
             Expr::Name(_) | Expr::Pre(_) | Expr::Der(_) => unreachable!("declined"),
-            Expr::Table { order, .. } if *order != [0, 0] => unreachable!("declined"),
+            Expr::Table { order, .. } if !lsim_ir::expr::is_value(order) => {
+                unreachable!("declined")
+            }
             Expr::Table { table, args, .. } => {
                 let at: Vec<Dual<E::V>> = args.iter().map(|a| self.dual(a)).collect();
                 let vals: Vec<E::V> = at.iter().map(|a| a.0).collect();

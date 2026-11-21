@@ -132,30 +132,53 @@ fn everything() -> ComponentDef {
         ..param("mode", "", 0.0, "the mode")
     };
     let ocv = ParamDecl {
-        default: ParamValue::Table1D {
-            x: vec![0.0, 0.5, 1.0],
-            y: vec![3.2, 3.6, 4.1],
-            axis_unit: "1".into(),
-        },
+        default: ParamValue::Table(
+            TableData::new_1d(vec![0.0, 0.5, 1.0], vec![3.2, 3.6, 4.1]).with_units(&["1"]),
+        ),
         ..param("ocv", "V", 0.0, "open-circuit voltage over SOC")
     };
     let eff = ParamDecl {
-        default: ParamValue::Table2D {
-            x1: vec![0.0, 100.0],
-            x2: vec![-50.0, 0.0, 50.0],
-            values: vec![0.9, 0.95, 0.9, 0.85, 0.9, -0.8],
-            axis_units: ["rad/s".into(), "N.m".into()],
-        },
+        default: ParamValue::Table(
+            TableData::new_2d(
+                vec![0.0, 100.0],
+                vec![-50.0, 0.0, 50.0],
+                vec![0.9, 0.95, 0.9, 0.85, 0.9, -0.8],
+            )
+            .with_units(&["rad/s", "N.m"]),
+        ),
         ..param("eff", "1", 0.0, "")
     };
     let loss = ParamDecl {
         default: ParamValue::Table(TableData {
-            outside: [Outside::Linear, Outside::Clamp],
             interpolation: Interpolation::Linear,
-            axis_units: ["A".into(), String::new()],
             ..TableData::new_1d(vec![1.0, 2.0], vec![10.0, 40.0])
+                .with_outside(&[Outside::Linear, Outside::Clamp])
+                .with_units(&["A", ""])
         }),
         ..param("loss_map", "W", 0.0, "")
+    };
+    // tables of three and four axes: the values one row-major list
+    let cell = ParamDecl {
+        default: ParamValue::Table(TableData {
+            interpolation: Interpolation::Linear,
+            ..TableData::new(
+                vec![vec![273.15, 298.15], vec![0.2, 0.8], vec![-100.0, 100.0]],
+                vec![3.1, 2.9, 2.6, 2.4, 1.9, 1.8, 1.5, 1.4],
+            )
+            .with_outside(&[Outside::Clamp, Outside::Error, Outside::Linear])
+            .with_units(&["K", "1", "A"])
+        }),
+        ..param("r_cell", "Ohm", 0.0, "cell resistance")
+    };
+    let four = ParamDecl {
+        default: ParamValue::Table(
+            TableData::new(
+                vec![vec![0.0, 1.0], vec![2.0], vec![0.0, 1.0, 3.0], vec![-1.0, 1.0]],
+                (0..12).map(f64::from).collect(),
+            )
+            .with_units(&["s", "m", "1", "V"]),
+        ),
+        ..param("four", "W", 0.0, "")
     };
     let mut gear = sub("box", "Mech.Gearbox", &[("ratio", n("k") / c(3.0))]);
     gear.modifiers
@@ -163,7 +186,9 @@ fn everything() -> ComponentDef {
     gear.modifiers.push(Modifier { param: "locked".into(), value: ParamValue::Bool(false) });
     gear.modifiers.push(Modifier {
         param: "map".into(),
-        value: ParamValue::Table1D { x: vec![0.0, 1.0], y: vec![1.0, -1.0], axis_unit: "s".into() },
+        value: ParamValue::Table(
+            TableData::new_1d(vec![0.0, 1.0], vec![1.0, -1.0]).with_units(&["s"]),
+        ),
     });
     gear.label = Some("Main gearbox".into());
     gear.ui_id = Some("el-gear-1".into());
@@ -195,7 +220,7 @@ fn everything() -> ComponentDef {
                 doc: String::new(),
             },
         ],
-        params: vec![gain, n_cells, bound, flag, choice, ocv, eff, loss],
+        params: vec![gain, n_cells, bound, flag, choice, ocv, eff, loss, cell, four],
         vars: vec![
             weird,
             x,

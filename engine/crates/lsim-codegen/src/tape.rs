@@ -41,14 +41,19 @@ pub(crate) enum Op {
     Tab1(u32, u32, u32, u32),
     /// value, table, x, y, the derivatives' first register (or NONE)
     Tab2(u32, u32, u32, u32, u32),
+    /// value, table, its arguments' list ([`Tape::lists`]), the
+    /// derivatives' first register (or NONE): three arguments or more
+    TabN(u32, u32, u32, u32),
     /// dst, table, axis, x
-    Guard(u32, u32, u8, u32),
+    Guard(u32, u32, u32, u32),
 }
 
 /// A recorded function.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Tape {
     pub ops: Vec<Op>,
+    /// the argument registers of the [`Op::TabN`] reads
+    pub lists: Vec<Vec<u32>>,
     /// registers it uses
     pub regs: usize,
 }
@@ -57,6 +62,7 @@ pub(crate) struct Tape {
 #[derive(Default)]
 pub(crate) struct Recorder {
     ops: Vec<Op>,
+    lists: Vec<Vec<u32>>,
     next: u32,
 }
 
@@ -74,7 +80,7 @@ impl Recorder {
     }
 
     pub(crate) fn finish(self) -> Tape {
-        Tape { ops: self.ops, regs: self.next as usize }
+        Tape { ops: self.ops, lists: self.lists, regs: self.next as usize }
     }
 }
 
@@ -162,28 +168,31 @@ impl Emit for Recorder {
         }
     }
 
-    fn table(&mut self, k: u32, args: &[u32], derivs: bool) -> (u32, [Option<u32>; 2]) {
+    fn table(&mut self, k: u32, args: &[u32], derivs: bool) -> (u32, Vec<Option<u32>>) {
         let v = self.reg();
         let n = args.len();
         let d0 = if derivs {
             let d0 = self.reg();
-            if n == 2 {
+            for _ in 1..n {
                 self.reg();
             }
             d0
         } else {
             NONE
         };
-        if n == 1 {
-            self.ops.push(Op::Tab1(v, k, args[0], d0));
-        } else {
-            self.ops.push(Op::Tab2(v, k, args[0], args[1], d0));
+        match n {
+            1 => self.ops.push(Op::Tab1(v, k, args[0], d0)),
+            2 => self.ops.push(Op::Tab2(v, k, args[0], args[1], d0)),
+            _ => {
+                self.lists.push(args.to_vec());
+                self.ops.push(Op::TabN(v, k, self.lists.len() as u32 - 1, d0));
+            }
         }
-        let g = if derivs { [Some(d0), (n == 2).then_some(d0 + 1)] } else { [None, None] };
+        let g = (0..n as u32).map(|i| derivs.then(|| d0 + i)).collect();
         (v, g)
     }
 
-    fn table_guard(&mut self, k: u32, axis: u8, x: u32) -> u32 {
+    fn table_guard(&mut self, k: u32, axis: u32, x: u32) -> u32 {
         self.push(|r| Op::Guard(r, k, axis, x))
     }
 }
@@ -267,9 +276,10 @@ impl Tape {
                 Op::Tab1(d, k, x, g) => {
                     let t = tables.get(k as usize);
                     if g == NONE {
-                        r[d as usize] = t.value([r[x as usize], 0.0]);
+                        r[d as usize] = t.value(&[r[x as usize]]);
                     } else {
-                        let (v, gr) = t.eval([r[x as usize], 0.0]);
+                        let mut gr = [0.0];
+                        let v = t.eval_into(&[r[x as usize]], &mut gr);
                         r[d as usize] = v;
                         r[g as usize] = gr[0];
                     }
@@ -277,12 +287,25 @@ impl Tape {
                 Op::Tab2(d, k, x, y, g) => {
                     let t = tables.get(k as usize);
                     if g == NONE {
-                        r[d as usize] = t.value([r[x as usize], r[y as usize]]);
+                        r[d as usize] = t.value(&[r[x as usize], r[y as usize]]);
                     } else {
-                        let (v, gr) = t.eval([r[x as usize], r[y as usize]]);
+                        let mut gr = [0.0; 2];
+                        let v = t.eval_into(&[r[x as usize], r[y as usize]], &mut gr);
                         r[d as usize] = v;
                         r[g as usize] = gr[0];
                         r[g as usize + 1] = gr[1];
+                    }
+                }
+                Op::TabN(d, k, list, g) => {
+                    let t = tables.get(k as usize);
+                    let regs_of = &self.lists[list as usize];
+                    let at: Vec<f64> = regs_of.iter().map(|&x| r[x as usize]).collect();
+                    if g == NONE {
+                        r[d as usize] = t.value(&at);
+                    } else {
+                        let n = at.len();
+                        let gs = g as usize;
+                        r[d as usize] = t.eval_into(&at, &mut r[gs..gs + n]);
                     }
                 }
                 Op::Guard(d, k, axis, x) => {

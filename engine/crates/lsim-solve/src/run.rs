@@ -927,7 +927,7 @@ fn mag_eval(e: &lsim_ir::Expr, cx: &mut MagCx<'_>) -> (f64, f64) {
             let am: Vec<(f64, f64)> = args.iter().map(|x| mag_eval(x, cx)).collect();
             let vals: Vec<f64> = am.iter().map(|x| x.0).collect();
             let at = |v: &[f64]| {
-                crate::info::table_at(cx.model, *table, *order, v).map_or(f64::NAN, |x| x.0)
+                crate::info::table_at(cx.model, *table, order, v).map_or(f64::NAN, |x| x.0)
             };
             let v = at(&vals);
             let mut m = v.abs();
@@ -2550,7 +2550,7 @@ impl Loop<'_> {
         }
         let k_t = g.table as usize;
         let points = match self.info.table_axes.get(k_t) {
-            Some(ax) if !ax[0].is_empty() => &ax[g.axis as usize],
+            Some(ax) if !ax.is_empty() => ax.get(g.axis as usize)?,
             _ => self.info.table_breaks.get(k_t)?,
         };
         let (lo, hi) = (*points.first()?, *points.last()?);
@@ -2688,7 +2688,7 @@ impl Loop<'_> {
                 t,
                 message: format!(
                     "the table '{name}' was read outside its data on its {} axis, which allows no values outside (outside = Error): widen the table or keep the operating point inside it",
-                    if g.axis == 0 { "first" } else { "second" }
+                    self.info.axis_words(g.table, g.axis),
                 ),
             });
         }
@@ -2939,7 +2939,8 @@ impl Loop<'_> {
         let mut iterations = 0;
         // the held table reads moved at this instant, per axis
         // (crate::held::place)
-        let mut moved = vec![[false; 2]; info.held.len()];
+        let mut moved: Vec<Vec<bool>> =
+            info.held.iter().map(|h| vec![false; h.axes.len()]).collect();
         // the discrete values the rounds went through since the first round
         // that asked for another ended (or the last mode decided here), and
         // which of them a round ended with, for a cycle ([`cycling_mode`];
@@ -3513,13 +3514,13 @@ fn tables_given(
     t0: f64,
 ) -> Result<(), SolveError> {
     use crate::TimeFunction;
-    let mut read: Vec<(u32, [u8; 2], &str)> = vec![];
+    let mut read: Vec<(u32, Vec<u8>, usize, &str)> = vec![];
     let mut visit = |e: &lsim_ir::Expr, what: &'static str| {
         e.walk(&mut |x| {
-            if let lsim_ir::Expr::Table { table, order, .. } = x
-                && !read.iter().any(|(k, o, _)| k == table && o == order)
+            if let lsim_ir::Expr::Table { table, order, args } = x
+                && !read.iter().any(|(k, o, _, _)| k == table && o == order)
             {
-                read.push((*table, *order, what));
+                read.push((*table, order.clone(), args.len(), what));
             }
         })
     };
@@ -3584,14 +3585,17 @@ fn tables_given(
             }
         }
     }
-    for (k, order, what) in read {
-        if model.eval_table_order(k, order, [0.0, 0.0]).is_none() {
+    for (k, order, n, what) in read {
+        if model.eval_table_order(k, &order, &vec![0.0; n]).is_none() {
             let name = info.table_names.get(k as usize).cloned().unwrap_or_else(|| format!("{k}"));
-            let (which, method) = if order == [0, 0] {
+            let (which, method) = if lsim_ir::expr::is_value(&order) {
                 (format!("the table '{name}'"), "eval_table")
             } else {
                 (
-                    format!("the partial derivative {order:?} of the table '{name}'"),
+                    format!(
+                        "the partial derivative {:?} of the table '{name}'",
+                        crate::info::padded(&order, 2)
+                    ),
                     "eval_table_order",
                 )
             };
@@ -3617,12 +3621,14 @@ fn tables_given(
 /// pass `table_axes` on).
 fn axes_missing(model: &dyn ModelFunctions, info: &RunInfo) -> Vec<String> {
     use crate::TimeFunction;
-    let mut used: std::collections::BTreeSet<u32> =
-        info.time_tables.iter().map(|tt| tt.table).collect();
+    // (each table with the number of arguments it is read with)
+    let mut used: std::collections::BTreeMap<u32, usize> =
+        info.time_tables.iter().map(|tt| (tt.table, tt.axis + 1)).collect();
     let mut add = |e: &lsim_ir::Expr| {
         e.walk(&mut |x| {
-            if let lsim_ir::Expr::Table { table, .. } = x {
-                used.insert(*table);
+            if let lsim_ir::Expr::Table { table, args, .. } = x {
+                let n = used.entry(*table).or_insert(0);
+                *n = (*n).max(args.len());
             }
         })
     };
@@ -3639,7 +3645,10 @@ fn axes_missing(model: &dyn ModelFunctions, info: &RunInfo) -> Vec<String> {
         }
     }
     used.into_iter()
-        .filter(|&k| model.eval_table(k, [0.0, 0.0]).is_some() && model.table_axes(k).is_none())
+        .filter(|&(k, n)| {
+            model.eval_table(k, &vec![0.0; n]).is_some() && model.table_axes(k).is_none()
+        })
+        .map(|(k, _)| k)
         .map(|k| {
             let name = info.table_names.get(k as usize).cloned().unwrap_or_else(|| format!("{k}"));
             format!(
@@ -5666,7 +5675,7 @@ fn run_watched<'a>(
             let name = info.table_names.get(g.table as usize).cloned().unwrap_or_default();
             let words = format!(
                 "the table '{name}' was read outside its data on its {} axis for {total:.6} s, first at t = {first:.6} s",
-                if g.axis == 0 { "first" } else { "second" }
+                info.axis_words(g.table, g.axis)
             );
             // (warned of once, not once per table guard; a record per guard)
             if !report.warnings.contains(&words) {

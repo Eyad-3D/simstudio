@@ -494,8 +494,8 @@ mod tests {
         let mut other = RunInfo::bare(0, 0, vec![]);
         other.held.push(HeldInfo {
             table: 0,
-            order: [1, 0],
-            degree: [0, 0],
+            order: vec![1],
+            degree: vec![0],
             axes: vec![HeldAxisInfo { cell: 0, anchor: 1, lo: 2, hi: 3, below: 0, above: 1 }],
             coef: vec![4],
             edges: None,

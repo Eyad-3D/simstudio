@@ -687,7 +687,7 @@ fn outputs<E: Emit>(lw: &mut Lw<'_, E>, env: &Env<'_>, kind: Kind) -> Result<(),
             for s in &env.sites {
                 for (axis, a) in s.args.iter().enumerate() {
                     let x = lw.lower(a)?.v;
-                    let v = lw.e.table_guard(s.table, axis as u8, x);
+                    let v = lw.e.table_guard(s.table, axis as u32, x);
                     lw.store_out(g, v);
                     g += 1;
                 }

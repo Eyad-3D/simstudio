@@ -45,7 +45,7 @@ pub(crate) struct Ctx<'m> {
     /// the table store's entry of each partial derivative the model reads
     /// (`(table, order)`; after the flat tables, in
     /// [`derivative_reads`]' order)
-    pub derived: HashMap<(u32, [u8; 2]), u32>,
+    pub derived: HashMap<(u32, Vec<u8>), u32>,
 }
 
 impl<'m> Ctx<'m> {
@@ -63,8 +63,8 @@ impl<'m> Ctx<'m> {
     }
 
     /// The table store's entry that a read of `table` of `order` calls.
-    pub(crate) fn table_entry(&self, table: u32, order: [u8; 2]) -> u32 {
-        if order == [0, 0] { table } else { self.derived[&(table, order)] }
+    pub(crate) fn table_entry(&self, table: u32, order: &[u8]) -> u32 {
+        if lsim_ir::expr::is_value(order) { table } else { self.derived[&(table, order.to_vec())] }
     }
 }
 
@@ -72,14 +72,14 @@ impl<'m> Ctx<'m> {
 /// reads through tables, see [`Expr::Table`]), as `(table, order)`,
 /// sorted: the table store gives each its own interpolant after the flat
 /// tables.
-pub(crate) fn derivative_reads(model: &PreparedModel) -> Vec<(u32, [u8; 2])> {
+pub(crate) fn derivative_reads(model: &PreparedModel) -> Vec<(u32, Vec<u8>)> {
     let mut out = vec![];
     let mut scan = |e: &Expr| {
         e.walk(&mut |x| {
             if let Expr::Table { table, order, .. } = x
-                && *order != [0, 0]
+                && !lsim_ir::expr::is_value(order)
             {
-                out.push((*table, *order));
+                out.push((*table, order.clone()));
             }
         })
     };
@@ -649,8 +649,8 @@ pub(crate) fn table_sites<'m>(model: &'m PreparedModel) -> (Vec<TableSite<'m>>, 
     for s in &sites {
         let data = &model.flat.tables[s.table as usize].data;
         for axis in 0..s.args.len() {
-            let outside = data.outside.get(axis).copied().unwrap_or(Outside::Clamp);
-            guards.push(TableGuard { table: s.table, axis: axis as u8, outside });
+            let outside = data.axes.get(axis).map_or(Outside::Clamp, |a| a.outside);
+            guards.push(TableGuard { table: s.table, axis: axis as u32, outside });
         }
     }
     (sites, guards)
@@ -668,7 +668,9 @@ fn collect_tables<'m>(e: &'m Expr, released: &HashSet<VarId>, out: &mut Vec<Tabl
     }
     // (a derivative read's arguments are its value's, which the model
     // keeps beside it: the value's site guards them)
-    if let Expr::Table { table, args, order: [0, 0] } = e {
+    if let Expr::Table { table, args, order } = e
+        && lsim_ir::expr::is_value(order)
+    {
         out.push(TableSite { table: *table, args });
     }
     for c in e.children() {

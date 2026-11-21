@@ -1349,6 +1349,61 @@ fn table2(el: &Element, key: &str) -> Result<Table2, String> {
     )
 }
 
+/// A Map block's inputs, outputs and maps (`docs/spec/tables.md`, *The Map
+/// block*): its `dynamicPorts` (the inputs in order are the axes), each
+/// port's unit its unit group's, one table per output from `maps` in the
+/// stored form, each input's outside rule from `tableOutside.maps`
+/// (absent, or a list of another length: `clamp`).
+fn map_config(el: &Element) -> Result<signals::MapConfig, String> {
+    use lsim_lib::table::{StoredAxis, stored_data};
+    let ports = |dir: &str| -> Vec<&serde_json::Value> {
+        el.dynamic_ports.iter().filter(|p| p["direction"] == dir).collect()
+    };
+    let id = |p: &serde_json::Value| p["id"].as_str().unwrap_or("").to_string();
+    let name = |p: &serde_json::Value| p["name"].as_str().map_or_else(|| id(p), str::to_string);
+    let (ins, outs) = (ports("input"), ports("output"));
+    let rules: Vec<lsim_lib::table::Outside> = match el.table_outside.get("maps") {
+        Some(serde_json::Value::Array(a)) if a.len() == ins.len() => a
+            .iter()
+            .map(|r| r.as_str().map_or(Default::default(), lsim_lib::table::outside))
+            .collect(),
+        _ => vec![Default::default(); ins.len()],
+    };
+    let axes: Vec<StoredAxis> = ins
+        .iter()
+        .zip(&rules)
+        .map(|(p, &outside)| StoredAxis { name: name(p), unit: el.port_unit(&id(p)), outside })
+        .collect();
+    let empty = serde_json::Map::new();
+    let maps = el.params.get("maps").and_then(serde_json::Value::as_object).unwrap_or(&empty);
+    let mut cfg = signals::MapConfig { inputs: vec![], outputs: vec![], maps: vec![] };
+    for p in &ins {
+        cfg.inputs.push((id(p), el.port_unit(&id(p)).si.to_string()));
+    }
+    for p in &outs {
+        let (pid, unit) = (id(p), el.port_unit(&id(p)));
+        let stored = maps
+            .get(&pid)
+            .ok_or_else(|| format!("its output '{}' has no map (maps.{pid})", name(p)))?;
+        let value = if axes.is_empty() {
+            let v = catalog::num(stored).ok_or_else(|| {
+                format!("its output '{}' has no input, and its value is not a number", name(p))
+            })?;
+            ParamValue::Real(c(unit.to_si(v)))
+        } else {
+            let mut t = stored_data(stored, &axes, unit)
+                .map_err(|why| format!("the map of its output '{}': {why}", name(p)))?;
+            for (ax, a) in t.axes.iter_mut().zip(&axes) {
+                ax.name = a.name.clone();
+            }
+            ParamValue::Table(t)
+        };
+        cfg.outputs.push((pid, unit.si.to_string()));
+        cfg.maps.push(value);
+    }
+    Ok(cfg)
+}
+
 fn w0(el: &Element, f: &Facts, port: &str, param: &str) -> Vec<(String, ParamValue)> {
     f.kin_of(&el.id, port)
         .map(|k| vec![(param.to_string(), ParamValue::Real(c(k.w0)))])
@@ -1359,7 +1414,7 @@ fn text<'a>(el: &'a Element, key: &str, default: &'a str) -> &'a str {
     catalog::text(&el.params, key, default)
 }
 
-/// Today's 36 block types.
+/// Today's 37 block types.
 pub fn standard_registry() -> Registry {
     let mut r = Registry::default();
     macro_rules! add {
@@ -1589,6 +1644,10 @@ pub fn standard_registry() -> Registry {
             return Ok(m);
         }
         Ok(Mapped::of(signals::lookup(&cfg)).with(cfg.values()?))
+    });
+    add!("signal.map", |el: &Element, _: &Facts| {
+        let cfg = map_config(el)?;
+        Ok(Mapped::of(signals::map(&cfg)).with(cfg.values()))
     });
     for id in ["signal.script", "signal.fmu"] {
         add!(id, move |el: &Element, _: &Facts| {

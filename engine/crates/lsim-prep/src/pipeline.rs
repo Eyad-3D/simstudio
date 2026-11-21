@@ -727,7 +727,9 @@ pub fn run(
     let through_tables = differentiated > 0
         && sys.eqs.iter().any(|e| {
             e.diff_of.is_some()
-                && e.res.any(&mut |x| matches!(x, Expr::Table { order, .. } if *order != [0, 0]))
+            && e.res.any(
+                &mut |x| matches!(x, Expr::Table { order, .. } if !lsim_ir::expr::is_value(order)),
+            )
         });
     // an inverse model reads them too: which speeds stay states is chosen
     // at its start, which its tables decide (a battery's open-circuit
