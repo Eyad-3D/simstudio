@@ -26,9 +26,6 @@ FIXED_STEP = "(ii) today's engine's fixed-step integrator (its error, stability 
 POLLS = ("(ii) its Stop lands mid-run only on today's engine, which reads the stop once per output step and runs "
          "slowly enough; the new engine reads it in wall time and ends first (its own Stop tests: "
          "test_new_engine_live.py, test_stop_latency.py)")
-STORED = ("(ii) the examples' stored results are runs of today's engine (their snapshot says so): a fresh run on "
-          "today's engine gives them; storing new ones from the new engine is for the owner")
-
 WEAK = ("(ii) today's engine's own copy of the weakest group, changed with the new engine's (its charge "
         "factor and its resistance; the both-engines comparison holds the two models together)")
 
@@ -78,7 +75,6 @@ TODAY = {
     "test_source_limits.py::test_max_power_point_limits_the_motor": INTEGRATOR,
     "test_source_limits.py::test_fuel_cell_overload_limits_the_motor": INTEGRATOR,
     "test_source_limits.py::test_regen_command_above_the_charge_limit_is_cut": INTEGRATOR,
-    "test_example_cards.py::test_a_fresh_run_gives_the_stored_summary": STORED,
     "test_verdict.py::test_a_cancelled_run_flags_its_figures_per_distance": POLLS,
     "test_verdict.py::test_a_performance_test_is_timed_only_from_below_its_target_and_to_the_end": POLLS,
     "test_verdict.py::test_a_stop_after_the_last_step_leaves_a_complete_run": POLLS,
