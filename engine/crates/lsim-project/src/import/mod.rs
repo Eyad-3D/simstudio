@@ -1637,7 +1637,7 @@ pub fn standard_registry() -> Registry {
     add!("electric.node", |el: &Element, f: &Facts| {
         let term =
             f.buses.iter().flat_map(|b| &b.nodes).find(|(n, _)| *n == el.id).and_then(|x| x.1);
-        Ok(Mapped::of(electric::electric_node(term)))
+        Ok(Mapped::of(electric::electric_node(&el.terminals, term)))
     });
     add!("electric.voltage_source", |_: &Element, _: &Facts| Ok(Mapped::of(
         electric::voltage_source()
@@ -1765,7 +1765,9 @@ pub fn standard_registry() -> Registry {
         })))
     });
     add!("boundary.ambient", |_: &Element, _: &Facts| Ok(Mapped::of(vehicle::ambient())));
-    add!("mech.node", |_: &Element, _: &Facts| Ok(Mapped::of(driveline::mech_node())));
+    add!("mech.node", |el: &Element, _: &Facts| Ok(Mapped::of(driveline::mech_node(
+        &el.terminals
+    ))));
     add!("mech.shaft", |el: &Element, f: &Facts| {
         Ok(Mapped::of(driveline::shaft()).with(w0(el, f, "flange_a", "w0")))
     });

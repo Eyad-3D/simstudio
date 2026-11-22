@@ -45,6 +45,11 @@ def _with_ui_fields(raw: dict) -> dict:
     el["portOffsets"] = {"shaft": 0.25, "sig_speed": 0.8}
     el["portSides"] = {"shaft": "top"}
     el["color"] = "#ff8800"
+    el["hiddenPorts"] = ["sig_speed"]
+    for e in root["elements"]:  # a node with a sixth terminal
+        if e["componentDefId"] == "electric.node":
+            e["terminals"] = ["t1", "t2", "t3", "t4", "t5", "t6"]
+            break
     root["connections"][0]["route"] = [{"x": 10, "y": 20}, {"x": 30, "y": 20}]
     p["dataBusConnections"][0]["note"] = "speed feedback"
     p["cases"][0]["note"] = "hot day, check the aux load"
@@ -247,3 +252,28 @@ def test_moved_ports_change_the_drawing_only():
     b = simulate(plain, "case-city")
     assert a.status == "success"
     assert a.model_dump(mode="json") == b.model_dump(mode="json")
+
+
+@needs_engine
+def test_hidden_ports_change_the_drawing_only():
+    """Ports hidden on the diagram (hiddenPorts: the HV Bus's and the front
+    nodes' unwired ones, a battery's unwired signal) are drawing only: the
+    project loads, runs and gives the same results as with none hidden, and
+    an older file without the field reads as none hidden."""
+    plain = load_example("bev-car")
+    assert not any(e.hiddenPorts for s in plain.systems for e in s.elements)
+    hidden = plain.model_copy(deep=True)
+    by_id = {e.id: e for e in hidden.systems[0].elements}
+    by_id["el-hvbus"].hiddenPorts = ["t5"]
+    by_id["el-node-fl"].hiddenPorts = ["f4"]
+    by_id["el-node-fr"].hiddenPorts = ["f4"]
+    by_id["el-battery"].hiddenPorts = ["sig_voltage"]
+    assert not [c for c in validate_project(hidden) if c.level == "error"]
+    a = simulate(hidden, "case-city")
+    b = simulate(plain, "case-city")
+    assert a.status == "success"
+    assert a.model_dump(mode="json") == b.model_dump(mode="json")
+    # saved and opened again, the hidden ports stay hidden
+    again = Project.model_validate_json(hidden.model_dump_json())
+    assert {e.id: e.hiddenPorts for e in again.systems[0].elements if e.hiddenPorts} == {
+        "el-hvbus": ["t5"], "el-node-fl": ["f4"], "el-node-fr": ["f4"], "el-battery": ["sig_voltage"]}

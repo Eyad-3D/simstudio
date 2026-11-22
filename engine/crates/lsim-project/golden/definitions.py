@@ -92,8 +92,9 @@ def driveline(project):
             motors.append(e)
         elif t == "mech.clutch":
             clutches.append(e)
-        elif t == "mech.node":
-            todo += [(x, y) for f in ("f1", "f2", "f3", "f4") for x, y in peers(e, f)]
+        elif t == "mech.node":  # its wired flanges (the library's four, or its own)
+            wired = {c[k + "PortId"] for c in conns for k in ("source", "target") if c[k + "ElementId"] == e}
+            todo += [(x, y) for f in sorted(wired) for x, y in peers(e, f)]
     return chain, motors, clutches, next((i for i, (t, _) in els.items() if t == "mech.node"
                                           and i in seen), None)
 

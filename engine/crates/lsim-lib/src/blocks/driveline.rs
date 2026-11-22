@@ -35,18 +35,22 @@ fn eta_dir(tau: Expr, w: Expr, eta: Expr) -> Expr {
         * noev(clamp(tau * w / n("p_dir"), c(-1.0), c(1.0))))
 }
 
-/// mech.node: four flanges on one rigid shaft.
-pub fn mech_node() -> ComponentDef {
+/// The Mechanical Node's flanges in the library; a part may list its own.
+pub const NODE_FLANGES: [&str; 4] = ["f1", "f2", "f3", "f4"];
+
+/// mech.node: its flanges (`fs`: the library's four, or the part's own, at
+/// least two) on one rigid shaft.
+pub fn mech_node(fs: &[String]) -> ComponentDef {
     let id = "mech.node";
-    let fs = ["f1", "f2", "f3", "f4"];
+    let first = format!("{}.w", fs[0]);
     let mut eqs: Vec<lsim_ir::EquationDecl> =
-        fs[1..].iter().map(|f| eq(n(&format!("{f}.w")), n("f1.w"), "one rigid shaft")).collect();
+        fs[1..].iter().map(|f| eq(n(&format!("{f}.w")), n(&first), "one rigid shaft")).collect();
     eqs.push(eq(c(0.0), sum(fs.iter().map(|f| n(&format!("{f}.tau")))), "the torques sum to zero"));
-    eqs.push(eq(n("sig_speed"), noev(abs(n("f1.w"))), "its speed"));
+    eqs.push(eq(n("sig_speed"), noev(abs(n(&first))), "its speed"));
     let mut ports: Vec<PortDecl> = fs.iter().map(|f| phys(id, f, "Flange")).collect();
     ports.push(out(id, "sig_speed"));
     ComponentDef {
-        name: "Blocks.MechNode".into(),
+        name: super::electric::junction_name("Blocks.MechNode", fs, &NODE_FLANGES),
         doc: doc(id),
         ports,
         equations: eqs,
@@ -638,7 +642,7 @@ fn rename_ports(d: &mut ComponentDef, map: &[(&str, &str)]) {
 /// The driveline blocks in their default configuration.
 pub fn defaults() -> Vec<ComponentDef> {
     vec![
-        mech_node(),
+        mech_node(&NODE_FLANGES.map(String::from)),
         shaft(),
         final_drive(),
         gearbox(&GearboxConfig::default()),

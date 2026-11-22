@@ -113,6 +113,12 @@ export interface ElementInstance {
   portSides?: Record<string, PortSide>;
   /** Per-instance pin offset along its side, 0..1 (set by Shift+drag). */
   portOffsets?: Record<string, number>;
+  /** Ports not drawn on the diagram: unwired ones the user hid (the
+   *  drawing only; the model and the run ignore it). */
+  hiddenPorts?: string[];
+  /** A junction's own terminals (Electric Node t1, t2, …; Mechanical Node
+   *  f1, f2, …), in order; absent (or null) = the library's. */
+  terminals?: string[] | null;
   /** Per-instance outside-the-data settings: table key → one per axis,
    *  overriding the library's (AxisDef.outside). */
   tableOutside?: Record<string, OutsidePolicy[]>;

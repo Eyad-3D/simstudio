@@ -42,7 +42,16 @@ import { FS_EVENT_NAMES, FS_EVENTS, packOverrides, type FsEvent } from "../fsEve
 import { codeOf, fingerprintOf } from "../trust";
 import { pointComplete, type SweepProgress } from "../sweep";
 import { useUIStore } from "./uiStore";
-import { placesAfterMove, type Place } from "../components/canvas/portPlaces";
+import {
+  JUNCTIONS,
+  freePlace,
+  partDef,
+  physicalPorts,
+  placesAfterMove,
+  portInUse,
+  withTerminal,
+  type Place,
+} from "../components/canvas/portPlaces";
 
 export function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
@@ -294,7 +303,17 @@ function channelMetaResolver(
 /** An element's ports: its library ones plus any it carries itself (Monitor
  *  and Script ports are added per element in Properties). */
 export function portsOf(el: ElementInstance, libraryById: Record<string, ComponentDef>): PortDef[] {
-  return [...(libraryById[el.componentDefId]?.ports ?? []), ...(el.dynamicPorts ?? [])];
+  const def = libraryById[el.componentDefId];
+  return [...(def ? partDef(el, def).ports : []), ...(el.dynamicPorts ?? [])];
+}
+
+/** A port coming onto a part whose ports were moved (shown again, or a new
+ *  terminal) gets a free place of its own; elsewhere they spread evenly. */
+function putFree(el: ElementInstance, def: ComponentDef, portId: string) {
+  const place = freePlace(el, def, portId);
+  if (!place) return;
+  el.portSides = { ...el.portSides, [portId]: place.side };
+  el.portOffsets = { ...el.portOffsets, [portId]: Math.round(place.frac * 1e4) / 1e4 };
 }
 
 /** The signal output already feeding input `elementId.portId` (through a data
@@ -522,6 +541,17 @@ export interface ProjectState {
   placePort: (elementId: string, portId: string, place: Place) => void;
   /** Put a part's ports back in the library's places (one undo step). */
   resetPortPlaces: (elementId: string) => void;
+  /** Hide a port on the diagram (one undo step); false, and nothing done,
+   *  when it has a wire or a signal link. */
+  hidePort: (elementId: string, portId: string) => boolean;
+  /** Show a part's hidden ports again, or only `portId` (one undo step). */
+  showPorts: (elementId: string, portId?: string) => void;
+  /** An Electric or Mechanical Node's next terminal, at a free place (one
+   *  undo step). */
+  addTerminal: (elementId: string) => void;
+  /** Remove a node's terminal for good (one undo step); false, and nothing
+   *  done, when it has a wire or the node would have fewer than two. */
+  deleteTerminal: (elementId: string, portId: string) => boolean;
   /** Wire two ports; with `replaceId`, the new wire takes that one's place in
    *  the same undo step, and the old wire stays if the new one is refused. */
   addConnection: (
@@ -1391,7 +1421,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // a wire from another part's port to one of this part's: only between
       // two ports of the same kind, and not a signal (wired on the Data Bus)
       const from = wire && project.systems.flatMap((s) => s.elements).find((e) => e.id === wire.elementId);
-      const fromKind = from && libraryById[from.componentDefId]?.ports.find((p) => p.id === wire!.portId)?.kind;
+      const fromKind = from && portsOf(from, libraryById).find((p) => p.id === wire!.portId)?.kind;
       const toKind = wire && def.ports.find((p) => p.id === wire.toPortId)?.kind;
       const wired = !!fromKind && fromKind === toKind && fromKind !== "signal";
       const count = project.systems.reduce(
@@ -1669,9 +1699,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     placePort: (elementId, portId, place) => {
       const { project, libraryById } = get();
       const el = project?.systems.flatMap((s) => s.elements).find((e) => e.id === elementId);
-      const def = el && libraryById[el.componentDefId];
-      if (!el || !def) return;
-      const { portSides, portOffsets } = placesAfterMove(el, def, portId, place);
+      const lib = el && libraryById[el.componentDefId];
+      if (!el || !lib) return;
+      const { portSides, portOffsets } = placesAfterMove(el, partDef(el, lib), portId, place);
       updateProject((draft) => {
         for (const s of draft.systems) {
           const d = s.elements.find((e) => e.id === elementId);
@@ -1693,6 +1723,74 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           }
         }
       }),
+
+    hidePort: (elementId, portId) => {
+      const { project } = get();
+      if (!project || portInUse(project, elementId, portId)) return false;
+      updateProject((draft) => {
+        for (const s of draft.systems)
+          for (const el of s.elements)
+            if (el.id === elementId && !el.hiddenPorts?.includes(portId))
+              el.hiddenPorts = [...(el.hiddenPorts ?? []), portId];
+      });
+      return true;
+    },
+
+    showPorts: (elementId, portId) => {
+      const { libraryById } = get();
+      updateProject((draft) => {
+        for (const s of draft.systems)
+          for (const el of s.elements) {
+            const lib = libraryById[el.componentDefId];
+            if (el.id !== elementId || !el.hiddenPorts?.length || !lib) continue;
+            // each comes back at a free place (on its own side if it has room)
+            for (const id of portId ? [portId] : [...el.hiddenPorts]) {
+              el.hiddenPorts = el.hiddenPorts!.filter((p) => p !== id);
+              putFree(el, partDef(el, lib), id);
+            }
+            if (!el.hiddenPorts!.length) delete el.hiddenPorts;
+          }
+      });
+    },
+
+    addTerminal: (elementId) => {
+      const { libraryById } = get();
+      updateProject((draft) => {
+        for (const s of draft.systems)
+          for (const el of s.elements) {
+            const lib = libraryById[el.componentDefId];
+            if (el.id !== elementId || !lib || !JUNCTIONS[lib.id]) continue;
+            const ts = withTerminal(el, lib);
+            el.terminals = ts;
+            putFree(el, partDef(el, lib), ts[ts.length - 1]);
+          }
+      });
+    },
+
+    deleteTerminal: (elementId, portId) => {
+      const { project, libraryById } = get();
+      const el = project?.systems.flatMap((s) => s.elements).find((e) => e.id === elementId);
+      const lib = el && libraryById[el.componentDefId];
+      if (!project || !el || !lib || !JUNCTIONS[lib.id] || portInUse(project, elementId, portId)) return false;
+      const ts = physicalPorts(partDef(el, lib)).map((p) => p.id);
+      if (ts.length <= 2 || !ts.includes(portId)) return false;
+      const left = ts.filter((t) => t !== portId);
+      const library = physicalPorts(lib).map((p) => p.id);
+      updateProject((draft) => {
+        for (const s of draft.systems)
+          for (const d of s.elements) {
+            if (d.id !== elementId) continue;
+            // the library's own list is no list of its own: older files stay as they were
+            if (left.join() === library.join()) delete d.terminals;
+            else d.terminals = left;
+            if (d.portSides) delete d.portSides[portId];
+            if (d.portOffsets) delete d.portOffsets[portId];
+            d.hiddenPorts = d.hiddenPorts?.filter((p) => p !== portId);
+            if (!d.hiddenPorts?.length) delete d.hiddenPorts;
+          }
+      });
+      return true;
+    },
 
     setDynamicPorts: (elementId, ports, map) =>
       updateProject((draft) => {
@@ -1752,8 +1850,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const src = elements.find((e) => e.id === sourceElementId);
       const tgt = elements.find((e) => e.id === targetElementId);
       if (!src || !tgt) return;
-      const srcPort = libraryById[src.componentDefId]?.ports.find((p) => p.id === sourcePortId);
-      const tgtPort = libraryById[tgt.componentDefId]?.ports.find((p) => p.id === targetPortId);
+      const srcPort = portsOf(src, libraryById).find((p) => p.id === sourcePortId);
+      const tgtPort = portsOf(tgt, libraryById).find((p) => p.id === targetPortId);
       if (!srcPort || !tgtPort) return;
 
       if (srcPort.kind === "signal" || tgtPort.kind === "signal") {

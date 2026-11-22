@@ -172,6 +172,13 @@ class ElementInstance(BaseModel):
     portSides: dict[str, Literal["left", "right", "top", "bottom"]] = Field(default_factory=dict)
     # Per-instance pin offset along its side, 0..1 (Shift+drag a pin).
     portOffsets: dict[str, float] = Field(default_factory=dict)
+    # Ports not drawn on the diagram (unwired ones the user hid). The drawing
+    # only: the model and the run ignore it.
+    hiddenPorts: list[str] = Field(default_factory=list)
+    # A junction's own terminals (Electric Node t1, t2, …; Mechanical Node
+    # f1, f2, …), in order; None = the library's (five; four). At least two,
+    # validated in data checks.
+    terminals: Optional[list[str]] = None
     # Per-instance "outside the data" settings: table key → one per axis,
     # overriding the library's (AxisDef.outside). Not a parameter, so case
     # overrides and sweeps cannot change it.
