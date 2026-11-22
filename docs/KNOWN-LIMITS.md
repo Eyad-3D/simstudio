@@ -18,7 +18,7 @@ how the example cars compare with real ones.
   that tracks the fix, so the release notes can say when it is resolved.
 - *Being fixed* means the work is under way for an upcoming release. Until
   the release notes say it is done, the problem and the workaround apply.
-- Last reviewed: 17 November 2026, for version 0.2.0. This page is updated
+- Last reviewed: 22 November 2026, for version 0.2.0. This page is updated
   with every release.
 
 ## Does not run in this version
@@ -28,40 +28,18 @@ in Rust). It replaced the older engine (written in Python) as the app's
 engine in this version, and nothing falls back to the older one: a case the
 new engine does not run fails at once, before any result, with an error
 that starts *Not run* and gives a reason code in brackets (for example
-`Not run [NEW-LAP]: lap cases do not run in this version of LightSim yet`).
+`Not run [NEW-LIMITS]`, a value outside its parameter's limits).
 The older engine's code stays in the repository for developers and for the
 comparison of the two engines (`LIGHTSIM_ENGINE=today`, see the
-[README](../README.md)); the app does not run a case on it. Two features
-of the older engine are not ported to the new one yet. They do not run in
-this version, and the reason code names each:
+[README](../README.md)); the app does not run a case on it.
 
-- **Lap cases** (`NEW-LAP`). A case of kind *Lap*: the Race Track's
-  quasi-steady-state lap (Autocross, Skidpad, a custom track) and the
-  *Endurance energy* case and study that drive laps. **Calibrate lap**
-  runs: its fit and check use the engine's lap profile, and only the check
-  lap's energy waits for lap cases.
-  The Formula Student Electric example's *Autocross* and *Endurance energy*
-  cases fail with it; its *Acceleration 75 m* case runs. The sections on lap
-  mode below describe the older engine's lap solver, which a later version
-  ports.
-- **Formula Student events scored from a lap** (`NEW-FS-EVENT`). A Lap
-  case with a Formula Student event set: the skidpad, the autocross and the
-  endurance, which the *FS events* button adds with the acceleration. The
-  *Formula Student points* table lists only runs that ended, so after a
-  refused run it keeps showing the last stored ones. The acceleration runs
-  and scores: an Acceleration case with its *FS event* set to
-  *Acceleration* gets its event time, rule checks and points. So does an
-  endurance driven from a speed trace (a Cycle case with *FS event*
-  *Endurance*), which reports its energy and rule checks but no points, as
-  before.
-
-A battery built from cells (*Defined By: Cells*) runs, in a full run and in
-quick mode (it was refused with `NEW-CELLS` until it was ported).
-
-The buttons for them (*FS events*, the endurance energy
-study's *Run*) are shown dimmed and cannot be pressed, and say so on hover
-and focus. A *Lap* case can still be set up: its runs are refused, and the
-*Cases* panel says so under its kind.
+Every case kind of the older engine runs on the new one now. Lap cases (the
+Race Track's quasi-steady-state lap, the *Endurance energy* case and study)
+and the Formula Student events scored from a lap (the skidpad, the autocross
+and the endurance) run on it too: *Lap mode is a quasi-steady-state
+estimate* below says how, and names the few cars on which a lap still
+stops. A battery built from cells (*Defined By: Cells*) runs, in a full run
+and in quick mode.
 
 A Map port's unit that LightSim has no signal unit for (an energy, a
 pressure, or a unit you type) is shown only in the Map block's editor, its
@@ -357,24 +335,25 @@ highest terminal voltage of a solver step, not a 500 ms average.
 
 ### Lap mode is a quasi-steady-state estimate
 
-**This does not run in this version** (`NEW-LAP`, see [Does not run in this
-version](#does-not-run-in-this-version)); what follows describes the lap
-solver of the older engine, which a later version ports.
-
-A case of kind *Lap* finds the fastest speed along the Race Track's line
-about every metre, then drives that speed through the model's motors,
-gears, brakes and battery. It is not a driving simulation:
+A case of kind *Lap* runs on the new engine in two steps for each lap. First
+the lap's speed profile is solved from the car as the engine models it,
+one instant at a time at each track point (about every metre): the speed
+each corner allows, a forward pass at full acceleration and a backward pass
+at full braking, from the car's state at that lap's start (the battery's
+charge). Then the energy pass drives that profile through the whole model in
+fast mode (the speed, curvature and grade are given, and the pedal is worked
+out back from them) in 0.01 s steps. Its energy books close to about 1e-7 of
+the energy through the parts, so the *Lap energy balance error* reads about
+0.00001 %. The laps are joined into one run. The FS example's autocross (2
+laps) takes about 0.6 s and its 23-lap endurance about 7 s (the older lap
+solver: 0.4 s and 3.9 s). It is not a driving simulation:
 
 - The driver is ideal: at the tyres' limit on the given line everywhere,
-  with no transients, suspension, yaw, tyre slip or slip-angle drag, and
-  an ideal brake balance (every tyre brakes at its limit). Regeneration
-  comes first when braking, up to the Driver's *Recuperation Weight* and
-  the driven wheels' braking grip; the drive cycles' Driver does not hold
-  regeneration to the grip. Lap times are usually optimistic: a user of
-  OpenLAP, a similar point-mass lap simulator, found its F1 example lap
-  7.5-8 % faster than the real car's. Calibrate the grip and the downforce
-  against a lap your car has driven (**Calibrate lap**, VAL-38) before
-  trusting a lap time.
+  with no transients, suspension or yaw. Lap times are usually optimistic: a
+  user of OpenLAP, a similar point-mass lap simulator, found its F1 example
+  lap 7.5-8 % faster than the real car's. Calibrate the grip and the
+  downforce against a lap your car has driven (**Calibrate lap**, VAL-38)
+  before trusting a lap time.
 - The car follows the line as drawn, with no track width or racing line.
   Where the curvature changes sign within a metre, as at the skidpad's
   crossover, the speed rises by up to 3 % at that point: a real car cannot
@@ -385,37 +364,70 @@ gears, brakes and battery. It is not a driving simulation:
   Gearboxes in their gear and commands every E-Motor
   itself, with one demand for all, so Scripts or controllers between the
   Driver and the motors (torque vectoring, traction control) do nothing.
-  With E-Motors on both axles, the driven wheels' grip is used together,
-  as if the torque went to whichever axle has grip to spare: a car whose
-  axles' torque does not match their grip can be slower than lap mode
-  says (with a 6.5 front and a 4.0 rear final drive a 600 m straight
-  took 3.7 % longer in the time domain, against 1.6 % with equal final
-  drives).
-- The powertrain's limit is read at each lap's start, with the battery's
-  charge and voltage then. Within a lap the motors can fall short of the
-  speed where the battery's voltage sags more than expected; the *Lap
-  energy balance error* shows it, and above 0.5 % the *Energy per lap* is
-  marked not valid, and so are the lap times when the motors gave less
-  than the speed asked for (or the battery reached its minimum SOC).
-  The braking is solved likewise: the friction brakes' Max Torque plus the
-  regeneration the battery could take at the lap's start; when the
-  brakes then cannot follow the speed (the battery filled, or a live edit
-  took regeneration away), the run warns and the lap times are marked not
-  valid.
-  The Output Power Limit is held at every point; the check window's
-  average is not used to let short peaks through.
+- The brakes share the braking by their *Max Torque*, as the engine models
+  them (the FS example: 500/500 N·m at the front, 300/300 at the rear, so
+  62.5 % at the front). The older lap solver assumed an ideal balance. On
+  the FS autocross the car brakes at up to 16.6 m/s² instead of 25 m/s²,
+  held by the rear tyres, and the flying lap takes 60.9 s against the older
+  solver's 57.7 s (+5.5 %).
+- The car drives through its differential as modelled, which is open: in a
+  corner the unloaded inner driven wheel's grip can hold the car back. On
+  the FS autocross that is about 0.4 s, and up to 6 % on fast corners. A
+  limited-slip or locked differential is not modelled (a future part model
+  for every case, not a lap-only assumption).
+- The top speed is the motors' in their gear: the highest speed the model
+  solves at on the level (for the FS example 6,500 1/min through 4.4 on
+  0.228 m wheels, 35.3 m/s). The car settles within the motors' last 2 %,
+  where their torque fades out. Those stretches are named top speed: the
+  Race Track's *Limit* channel reads 8 there, and a *Time limited by top
+  speed* row appears when the car reaches it. (The other codes are as
+  before: 1 cornering grip, 2 traction grip, 3 motor, 4 battery, 5 power
+  cap, 6 braking, 7 lift-and-coast.)
+- The tyres slip, and the lap counts the slip loss (force × slip × speed);
+  the older lap counted none. On the car of the lap tests (slip stiffness
+  20) it is 19 % of the battery's energy over an autocross lap. Where the
+  motors at full torque hold the car (below their base speed), the lap
+  takes that loss out of the drive force instead of turning the wheel
+  faster, so the acceleration there is short by about the slip: 3.5 %
+  slower over 75 m than the time-domain acceleration test at μ 2.5 (10 %
+  slip). The FS example's autocross and endurance have no such stretches.
+- The lap is solved per stretch of track (about 1 m). Inside a stretch the
+  constant acceleration runs the battery's power a few per cent over the
+  power cap at the stretch's end and under it at its start (6.5 % at the
+  endurance's 30 kW cap, 1.6 % at 80 kW); the mean over each stretch is on
+  the cap. So in a lap case the battery's peak terminal power, its pack
+  voltages, its time at its power limit and the E-Motor's time limited by
+  its supply are given per stretch (from the stretch means), as the lap
+  solves them; the channels' minimum and maximum show the values inside the
+  stretches. On stretches held by the motors at full load or by the
+  battery's own limits the profile takes four sub-steps, so the energy pass
+  never asks for more than they give.
+- A battery that starts a lap exactly full is taken 0.1 % below full for
+  that lap's profile (where it is after the lap's first acceleration): at
+  exactly full it takes no charge back, and the profile would brake without
+  regeneration while the car regenerates from the first braking on.
 - Sideways load transfer is shared between the axles as the static weight
   is (no roll stiffness or anti-roll bars), and each axle's wheels are
   taken in pairs across the car, the same way in left and right corners:
   give the left and right wheels the same load share.
+- The lap's energy differs from the older lap solver's because the profile
+  differs. The FS autocross takes 0.248 kWh per lap against 0.397 kWh
+  (-37 %); the FS endurance (23 laps, 30 kW) 0.146 kWh per lap against
+  0.232, 3.36 kWh in all against 5.33. The slower braking makes the car
+  brake earlier and peak lower (30.3 m/s against 32.6 m/s on the
+  autocross), and the kinetic energy it gains and sheds per lap is 24 %
+  less. The older solver's own speed profile, driven through the new
+  engine's energy pass, takes 2.8 % more than the older solver says
+  (mostly the slip losses). Lap times: the autocross's flying lap 60.9 s
+  (57.7 s before), the endurance's best lap 64.2 s (62.1 s).
 - Driving a lap's speed as a drive cycle gives other energy figures: the
   drive cycles' Driver has no brake balance or ABS and can lock the driven
   wheels when braking hard (a Formula Student-sized car driving its
   Autocross lap's speed as a drive cycle used 62 % more energy and
   recuperated 30 Wh instead of 110 Wh).
-- Live edits during a lap case reach the motors, gears and battery at
-  once, but the lap's speed, with the edited tyres, Vehicle and brakes,
-  is solved again only at the next lap's start.
+- Live edits during a lap case are taken at the next lap's start: that
+  lap's profile and energy pass use them.
+- A Race Track's channels are recorded in lap cases only.
 - A Custom track's curvature is used as entered: a logged lateral
   acceleration / speed² is noisy and should be smoothed first. Data Checks
   refuse a curvature above 0.5 1/m (a 2 m radius).
@@ -423,6 +435,15 @@ gears, brakes and battery. It is not a driving simulation:
   drawings after FS Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1,
   not official layouts; FSUK and FSAE may differ, check the current
   season's rules.
+- **A lap stops where a battery's maximum-power point holds the car**
+  (a 1.2 Ω pack), and the run fails with the engine's message and the
+  time: the profile takes the battery's limits at the lap's start, and as
+  its charge falls during the lap the energy pass asks it for a little
+  more than it then gives. The tests record it as open
+  (`backend/tests/engine_marks.py`).
+- **A lap case gives its energy rows and the books' closure, but not yet
+  each part's energy flows or the Energy report** (the Sankey chart) built
+  from them. The tests record it as open.
 
 *Workaround:* compare lap cases with each other rather than with a stop
 watch, and check the *Time limited by* rows and the Race Track's *Limit*
@@ -434,10 +455,9 @@ of power), MOD-09 (heat over an endurance).
 ### Formula Student points are estimates
 
 The *FS event* rows and the *Formula Student points* table score a run
-with the formulas of FS Rules 2026 v1.1 (FSG) D 9. In this version only the
-acceleration, and an endurance from a speed trace, get these rows: a Lap
-case with an event set does not run (`NEW-FS-EVENT`). They are not official
-results:
+with the formulas of FS Rules 2026 v1.1 (FSG) D 9. The acceleration, an endurance from a speed trace and the three events
+scored from a lap (the skidpad, the autocross and the endurance) get these
+rows. They are not official results:
 
 - Only FSG 2026 scoring is built in. FSUK and FSAE use other maximum
   points and formulas, and a season's rules can change them.
@@ -464,7 +484,7 @@ results:
   Power Limit of the first battery (with the capacity, its *Charge
   Capacity* in the same proportion, or for a pack built from cells, the
   cell's capacity); it runs one endurance for each pair, a
-  4 × 4 grid in about 3 min, and a larger pack keeps the car's mass and
+  4 × 4 grid in about 2 min, and a larger pack keeps the car's mass and
   resistance (add the cells' mass to the Vehicle yourself). Grid studies of
   other parameters are STU-06's work.
 
@@ -481,8 +501,8 @@ only by coasting before the braking points:
 - The coast is a share of each stretch of acceleration that ends in
   braking, from no slower than half the braking speed; it does not
   regenerate while coasting and never lifts in corners.
-- The *Energy Target* picks each lap's share from an estimate of the
-  lap's energy that it corrects lap by lap. It met targets within 0.6 %
+- The *Energy Target* picks each lap's share from the energy pass of the
+  first lap's profile at each share, corrected lap by lap. It met targets within 0.6 %
   on the FS example; a target beyond what full lift-and-coast saves is
   missed with a warning. It does not lower the power cap for you.
 - Battery temperature is not part of the strategy (no heat model yet).
@@ -494,8 +514,8 @@ both to find the pace you want.
 ### Imported laps are drive cycles against time
 
 **Import lap** (STD-35) makes a lap from a logger or lap simulator into a
-drive cycle, which runs as any cycle case does (the *Lap* case kind it can
-also make does not run in this version, `NEW-LAP`):
+drive cycle, which runs as any cycle case does (it can also make a *Lap*
+case, which runs on the new engine):
 
 - The Driving Task follows speed against time, so a trace against
   distance is turned into time from its speed; driving it against
@@ -543,9 +563,9 @@ once MOD-16 exists), MOD-16.
 
 ### Lap mode calibration fits two numbers on one lap
 
-**Calibrate lap** (VAL-38) fits the app's engine's lap profile; the check
-lap's energy error waits for lap cases on the engine (`NEW-LAP`). It fits
-only a grip factor and the CzA:
+**Calibrate lap** (VAL-38) fits the app's engine's lap profile; its check
+gives the check lap's energy from that lap's energy pass, and the energy
+error when the log has pack power. It fits only a grip factor and the CzA:
 
 - Grip and downforce trade off on one lap, so the two values are not
   reliable on their own; the check lap's errors are.
@@ -1279,21 +1299,19 @@ SUNDIALS' own examples, transcribed from their C code
   car with traction control reaches it later. Its tyres' *Slip Stiffness*
   of 20 (not 10) makes LightSim run it at a 5 ms step instead of 10 ms
   (ENG-14).
-  The *Autocross* and *Endurance energy* cases do not run in this
-  version (`NEW-LAP`). The *Endurance energy* case is lap mode at the tyres'
+  The *Autocross* and *Endurance energy* cases run on the lap solver (see
+  *Lap mode is a quasi-steady-state estimate*). The *Endurance energy* case
+  is lap mode at the tyres'
   limit in every corner and under every braking, with no lift-and-coast and no driver
   change (FS Rules 2026 v1.1 (FSG) D 7.5.4's 3 min); its energy follows the
-  Output Power Limit the case sets, 30 kW: 20 kW gives 4.14 kWh net, 40 kW
-  6.33 kWh with 7.9 % SOC left, and at 45 kW the pack runs out before the
-  last lap is done. The E-Motor's generator torque is held to 40 % for
+  Output Power Limit the case sets, 30 kW (3.36 kWh net, 53.2 % SOC left): 20 kW gives 2.71 kWh net with 63.4 % SOC left, 40 kW 3.94 kWh with 43.4 % left, and 45 kW 4.20 kWh with 38.9 % left. The E-Motor's generator torque is held to 40 % for
   drive cycles you add: their Driver has no brake balance or ABS, and at
   full generator torque, braking hard from 100 km/h locks the rear wheels
   and turns them backwards (at 40 % they still lock from about 45-60 km/h
   in a hard stop, and turn backwards just before the car stops, which FS
   Rules 2026 v1.1 (FSG) EV 2.2.4 forbids; at 20 % they lock only below
   walking pace).
-  Lap mode holds regeneration to the rear tyres' grip, so the example's
-  own cases hardly depend on it. The 500 A current limit (EV 2.2.2) is
+  The 500 A current limit (EV 2.2.2) is
   not set in the example (its cases stay under 160 A; the battery's preset
   sets it), and its pack is defined by pack values, so the cells' own limits
   are not checked:

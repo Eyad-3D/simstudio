@@ -4,8 +4,7 @@ If your team already has a lap's speed, from the car's data logger or from
 your own lap simulator, LightSim can drive that speed as a drive cycle and
 tell you the energy, battery and motor loads it takes. LightSim does not
 work out the cornering speed here: the speed comes from your file. (A
-*Lap* case works the speed out itself, but it does not run in this version
-of LightSim yet; see
+*Lap* case works the speed out itself: see
 [Score the Formula Student events](score-fs-events.md).)
 
 ## Import the lap

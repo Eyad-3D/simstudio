@@ -1,19 +1,13 @@
 # FS Electric (generic)
 
-**Two of its three cases do not run in this version of LightSim yet.**
-*Acceleration 75 m* runs; *Autocross (flying lap)* and *Endurance energy*
-are lap cases, which the app's engine does not run yet: they fail with
-`Not run [NEW-LAP]`. What this page says about the lap and the endurance
-is what the older engine gave.
-
 **The question it answers:** how fast is a Formula Student electric car
 over 75 m, how long does one lap take, and how much energy does it need
 for the endurance event?
 
 **Level:** for Formula Student teams; the three
 [Formula Student lessons](../lessons/fs-1-acceleration.md) start from it.
-**Each run takes:** under 1 s for the acceleration, about 1 s for a lap,
-10 to 15 s for the endurance.
+**Each run takes:** under 1 s for the acceleration, about 1 s for the
+autocross, about 7 s for the endurance.
 
 ## The car
 
@@ -63,8 +57,8 @@ The summary says for how long each limit held the car back, for example
 | Case | Result |
 |---|---|
 | *Acceleration 75 m* | 3.754 s from the start line, 118.86 km/h at the line, 0-100 km/h in 2.96 s |
-| *Autocross (flying lap)* | 57.721 s for the flying lap, 60.31 km/h average |
-| *Endurance energy* (23 laps, 30 kW limit) | 1,428.53 s, 5.33 kWh net from the Accumulator, 25.02 % SOC left |
+| *Autocross (flying lap)* | 60.895 s for the flying lap, 57.25 km/h average |
+| *Endurance energy* (23 laps, 30 kW limit) | 1,478.26 s, 3.36 kWh net from the Accumulator, 53.15 % SOC left |
 
 At FS Czech Republic 2025 the 35 electric teams took 3.51 to 6.44 s over
 75 m (median 3.91 s, the case's reference time), and the 14 teams scored
@@ -102,7 +96,7 @@ These results are estimates: see the messages each run gives, and
    under *Parameter overrides*, set *Accumulator · Output Power Limit (0 =
    none)* to 25. What do you gain and what do you lose?
 
-   **Answer:** The car needs 1,454.700 s instead of 1,428.53 s (26 s
-   more) and ends with 34.16 % SOC instead of 25.02 %. Lesson 3,
+   **Answer:** The car needs 1,499.141 s instead of 1,478.26 s (21 s
+   more) and ends with 58.29 % SOC instead of 53.15 %. Lesson 3,
    [Size the accumulator](../lessons/fs-3-accumulator.md), uses this
    trade.

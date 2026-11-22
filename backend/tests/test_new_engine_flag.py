@@ -250,33 +250,21 @@ def _cells(project):
     return project
 
 
-# the features the new engine does not run yet (the owner, 16 November; a
-# hybrid's charge-balanced case runs since its port, 17 November, a battery
-# built from cells since its port, 21 November, the Formula Student events
-# scored without a lap since theirs, 21 November): each case fails with its
-# code and says so; its tests run today's engine (the marker todays_engine)
-# as the oracle for the port
-NOT_YET = {
-    "NEW-LAP": lambda: (load_example("fs-electric"), "case-autocross"),
-    "NEW-FS-EVENT": lambda: (_changed("fs-electric", "case-autocross", fsEvent="autocross"), "case-autocross"),
-}
+# every feature of today's engine runs on the new one: a hybrid's
+# charge-balanced case since its port (17 November), a battery built from
+# cells since its port (21 November), the Formula Student events scored
+# without a lap since theirs (21 November), lap cases and the events scored
+# from one since theirs (22 November)
 
 
-@pytest.mark.parametrize("code", NOT_YET)
-def test_a_feature_not_ported_yet_is_refused_with_its_code(monkeypatch, code):
-    """The app's own path (no variable) refuses the case: failed, no
-    channels, one error with the code that says what does not run in this
-    version yet and, where there is one, what to set to run the case;
-    nothing about environment variables, and nothing on today's engine."""
-    from app.solver import core
-    monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
-    monkeypatch.setattr(core, "simulate_today", _no_today)
-    project, case_id = NOT_YET[code]()
-    result = simulate(project, case_id)
-    assert result.status == "failed" and not result.channels and not result.summary
-    (only,) = result.messages
-    assert only.level == "error" and only.text.startswith(f"Not run [{code}]: "), only.text
-    assert "in this version of LightSim yet" in only.text and "LIGHTSIM_" not in only.text
+def test_lap_cases_and_their_formula_student_events_are_not_refused():
+    """Their port (new_lap, test_lapsim.py, test_fs_events.py): a lap case
+    and a lap case with its event set run on the path."""
+    for project in (load_example("fs-electric"),
+                    _changed("fs-electric", "case-autocross", fsEvent="autocross")):
+        why = new_engine.unsupported(project, "case-autocross")
+        assert why is None or why.code == "NEW-MISSING"
+    assert "NEW-LAP" not in new_engine.CODES and "NEW-FS-EVENT" not in new_engine.CODES
 
 
 def test_a_hybrid_balanced_case_is_not_refused():
@@ -299,8 +287,7 @@ def test_a_battery_built_from_cells_is_not_refused():
 
 def test_a_formula_student_event_without_a_lap_is_not_refused():
     """Their port (test_fs_events.py): the 75 m acceleration and an
-    endurance driven from a speed trace run on the path; an event on a lap
-    case is refused with NEW-FS-EVENT until lap cases are ported."""
+    endurance driven from a speed trace run on the path."""
     why = new_engine.unsupported(
         _changed("fs-electric", "case-accel-75m", fsEvent="acceleration"), "case-accel-75m")
     assert why is None or why.code == "NEW-MISSING"
@@ -328,11 +315,8 @@ def test_every_refusal_has_its_code():
         parameterOverrides={"sample_time_s": 0.5}))
     seen = {
         "NEW-NOT-FOUND": new_engine.unsupported(load_example("bev-car"), "no-such-case"),
-        "NEW-LAP": new_engine.unsupported(load_example("fs-electric"), "case-autocross"),
         # (a kind the schema does not have yet: the four it has are all handled above it)
         "NEW-CASE-KIND": new_engine.unsupported(_changed("bev-car", WLTC, kind="drift"), WLTC),
-        "NEW-FS-EVENT": new_engine.unsupported(
-            _changed("fs-electric", "case-autocross", fsEvent="autocross"), "case-autocross"),
         "NEW-LIMITS": new_engine.unsupported(studies._point_project(
             load_example("bev-car"), WLTC, {"el-ambient": {"pressure_kPa": -50.0}}), WLTC),
         # quick mode's (a case's mode "quick")
@@ -369,10 +353,8 @@ def test_nothing_runs_on_todays_engine(monkeypatch):
     from app.solver import core
     monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
     monkeypatch.setattr(core, "simulate_today", _no_today)
-    result = simulate(load_example("fs-electric"), "case-autocross")
-    assert result.status == "failed" and not result.channels
-    assert [m.level for m in result.messages] == ["error"]
-    assert "[NEW-LAP]" in result.messages[0].text
+    result = simulate(load_example("fs-electric"), "case-autocross")  # (a lap case)
+    assert result.status == "success" and result.channels and result.engine == "new"
 
 
 def test_a_failure_of_the_path_fails_the_case(monkeypatch):

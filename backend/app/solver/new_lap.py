@@ -30,7 +30,7 @@ from .runtime import GRAVITY, ControlFn, EmitFn, MovingAverage
 LIMITS = lapsim.LIMITS + ("top speed",)
 CAP_CODE = 5
 LAP_NOTE = ("Lap mode results are quasi-steady-state estimates: an ideal driver at the tyres' "
-            "limit on the given line, with no transients, suspension, yaw or tyre slip. The "
+            "limit on the given line, with no transients, suspension or yaw. The "
             "car is the engine's own: its brakes share the braking by their Max Torque, and "
             "its differential is open, so the inner driven wheel's grip can hold the car back "
             "in a corner. They are usually optimistic: calibrate the tyres' μ and μ_y and the "
@@ -374,7 +374,8 @@ def lap_result(project, case, ctx, lm, run, books: dict, lap, messages: list, st
     from .labfig import lab_base
     from .new_engine import _tables
     from .references import check_references
-    from .verdict import beyond_data
+    from .runtime import usable_energy_left_wh
+    from .verdict import beyond_data, terminal_checks
 
     model = ctx.model
     case_id = case.id
@@ -417,6 +418,15 @@ def lap_result(project, case, ctx, lm, run, books: dict, lap, messages: list, st
             b.i_peak_a = max(i_mean[1:])
         if b.check is not None and b.check.limit_w > 0:
             per_stretch[f"{b.el_id}.time_at_power_limit_s"] = cap_s
+        if b.check is not None and len(p_mean) > 1:  # its terminal checks, per stretch
+            avg = MovingAverage(b.check.window_s)
+            for j in range(1, len(times)):
+                avg.add(times[j - 1], times[j], p_mean[j] * 1000.0)
+            b.check.peak_w, b.check.avg_peak_w = b.p_peak_w, avg.peak_w
+            b.check.t_avg_peak = avg.t_peak
+            if len(v_mean := _col(vmean, f"{b.el_id}:sig_voltage")) > 1:
+                b.check.v_peak, b.check.v_min = max(v_mean[1:]), min(v_mean[1:])
+            b.check.limit_s = cap_s if b.check.enforced else b.check.limit_s
         e = {q: float(lap.end.get(f"{inst[b.el_id]}.{q}", 0.0)) for q in
              ("e_delivered", "e_recuperated", "e_losses")} if b.el_id in inst else {}
         b.energy_out_wh = e.get("e_delivered", 0.0) / 3600.0
@@ -478,6 +488,19 @@ def lap_result(project, case, ctx, lm, run, books: dict, lap, messages: list, st
             s.value = per_stretch[s.key]
         figures.append(s)
     summary += figures
+    by_key = {s.key: s for s in summary}
+    for b in ctx.batteries.values():  # its terminal checks, as a full run's
+        if b.check is None:
+            continue
+        found, problems = terminal_checks(b.el_id, model.elements[b.el_id].label, b.check,
+                                          usable_energy_left_wh(b) / 1000.0, b.depleted_flagged)
+        for row_label, v, u, lim, ok, k in found:
+            s = by_key.get(k)
+            if s is None:
+                s = by_key[k] = SummaryValue(key=k, label=row_label, value=v, unit=u)
+                summary.append(s)
+            s.label, s.value, s.limit, s.passed = row_label, v, lim, ok
+        messages += [SimMessage(level="warning", text=t) for t in problems]
     labels = [label for label, *_ in rows if label != "Lap energy balance error"]
     not_valid: dict[str, str] = {}
     times_done = bool(times)

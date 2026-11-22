@@ -40,10 +40,30 @@ sections.
 | Every part's energy books hold what the solver's step did: each torque as the step applied it, at the step's mean speed (before: the speed the step started with, while the step moved the speed to its end). A motor spinning up an inertia gave it T²·dt²/2J more per step than its books said | The *Energy balance residual* falls to rounding (about 1e-11 %; it was 0.011 % on the Battery Electric Car's City Cycle, 0.019 % on the hybrid's Mixed Cycle, 0.23 % on its EPA city cycle, 1.3 % for a motor spinning up a light inertia at 10 ms). A motor's or engine's shaft energy and loss move by the step's own error (the E-Motor's loss on the City Cycle 308.4 → 308.2 kJ); no speed, current or fuel figure changes | MOD-10 |
 | A car that coasts comes to a stop and stays there: rolling resistance acts in full to the stop (it faded out below 0.3 m/s, so a coasting car's speed decayed for ever and on a gentle downhill a car crept on, 0.53 km/h on 0.5 %); a car whose speed would pass through zero within a solver step stops in that step, and at rest the rolling resistance holds it until the tyres, less the slope, push harder. The distance driven is the trapezoid of each step's speeds | A coast-down from 108 km/h stops at 193.18 s, as the closed form says (it never stopped). At its stops the Battery Electric Car now stands exactly still, so its Driver's command is 0 and the inverter is off instead of burning the E-Motor's spin losses: City Cycle 11.121 → 11.114 kWh/100 km, WLTC 14.053 → 14.046; its 75 m from rest 5.527 → 5.533 s. The hybrid, the Efficient Electric Sedan and the FS Electric car move by under 0.05 % | ENG-09 |
 | A clutch is dry friction: it slips at its whole torque while its sides turn at different speeds, sticks in the solver step its slip would pass through zero, and once stuck holds its sides together (solved with the driveline) up to that torque, with no slip and no loss. It was a smooth band of 0.5 rad/s, explicit while slipping, so at the 10 ms step it could overshoot lock-up and ring, and locked it still slipped and lost a little | A clutch closing at the 10 ms step no longer rings (the benchmarks' lock-up: speeds exact to 2e-15 after it, its torque the 16 N·m it must pass, where it read −100 N·m one step after lock-up), and Data Checks no longer note that a clutch can ring. The P2 Hybrid Car: Mixed Cycle 2.875 → 2.870 l/100 km, now the same at the 10 and 5 ms steps; EPA city 2.829 → 2.827 (one more engine start at the 10 ms step than at 2.5 ms, see Known issues), highway 3.235 → 3.228; its 75 m from rest 6.314 s at 10 ms against 6.309 s at 1 ms (it was 6.474 against 6.344 s, with the clutch ringing in second gear) | ENG-09 |
-| Every case now runs on the new simulation engine, written in Rust, which replaces the older engine (written in Python): the app, the command line, studies, the AI tools and quick mode all use it, and nothing falls back to the older one. A case it cannot run fails at once with *Not run* and a reason code in brackets | The figures move a little, each inside the band of the older engine's own 10 ms and 1 ms runs: the Battery Electric Car's WLTC consumption 14.046 → 14.053 kWh/100 km and its final SOC 84.926 → 84.923 %, the Efficient Electric Sedan's UDDS 9.50 → 9.52 and WLTC 11.78 → 11.79 kWh/100 km, the P2 Hybrid Car's EPA city consumption 2.83 → 2.81 l/100 km (the older engine's own 1 ms run gives 2.81 too), FS Electric's 75 m time 3.751 → 3.754 s, its time to 100 km/h 2.945 → 2.963 s and its time held at the 80 kW limit 3.62 → 3.80 s (the older engine's own 1 ms run gives 2.963 s and 3.79 s: its 10 ms step was the outlier). On the reference suite the eight gaps to EPA are +5.3, +7.4, +0.9, +7.5, −1.0, +4.1, −6.6 and 0.0 % (mean 4.1 %, largest 7.5 %). A PID block now runs as a discrete controller, as the older engine's did, and no longer stops a run at its limit; a performance case (0-100 km/h) runs on it too, and a case that ends at a distance or a lap count ends where it should. **Two features do not run in this version yet** and are refused with their codes: lap cases (`NEW-LAP`: the Race Track, Autocross, Skidpad, the endurance study and *Calibrate lap*) and the Formula Student events scored from a lap case (`NEW-FS-EVENT`: the skidpad, the autocross and the endurance; the 75 m acceleration and an endurance driven from a speed trace run and score, see *New*). A battery built from cells runs on it (see *New*). A hybrid's charge-balanced case runs on it, as on the older engine: the P2 Hybrid Car's three cycle cases run and each settles in 1 run. A value outside its parameter's limits in a case, which the older engine clamped with a warning, is refused (`NEW-LIMITS`); a part with nothing connected to it is built, not left out, and can fail the run; quick mode refuses a case it cannot run instead of running it in full. [Known issues](KNOWN-LIMITS.md#does-not-run-in-this-version) lists each, with the other differences | ENG-16 |
+| Every case now runs on the new simulation engine, written in Rust, which replaces the older engine (written in Python): the app, the command line, studies, the AI tools and quick mode all use it, and nothing falls back to the older one. A case it cannot run fails at once with *Not run* and a reason code in brackets | The figures move a little, each inside the band of the older engine's own 10 ms and 1 ms runs: the Battery Electric Car's WLTC consumption 14.046 → 14.053 kWh/100 km and its final SOC 84.926 → 84.923 %, the Efficient Electric Sedan's UDDS 9.50 → 9.52 and WLTC 11.78 → 11.79 kWh/100 km, the P2 Hybrid Car's EPA city consumption 2.83 → 2.81 l/100 km (the older engine's own 1 ms run gives 2.81 too), FS Electric's 75 m time 3.751 → 3.754 s, its time to 100 km/h 2.945 → 2.963 s and its time held at the 80 kW limit 3.62 → 3.80 s (the older engine's own 1 ms run gives 2.963 s and 3.79 s: its 10 ms step was the outlier). On the reference suite the eight gaps to EPA are +5.3, +7.4, +0.9, +7.5, −1.0, +4.1, −6.6 and 0.0 % (mean 4.1 %, largest 7.5 %). A PID block now runs as a discrete controller, as the older engine's did, and no longer stops a run at its limit; a performance case (0-100 km/h) runs on it too, and a case that ends at a distance or a lap count ends where it should. Lap cases (the Race Track, Autocross, Skidpad, the endurance study) and the Formula Student events scored from a lap case (the skidpad, the autocross and the endurance) run on it too, with different lap times and energy than the older lap solver gave (see the next row and *New*). A battery built from cells runs on it (see *New*). A hybrid's charge-balanced case runs on it, as on the older engine: the P2 Hybrid Car's three cycle cases run and each settles in 1 run. A value outside its parameter's limits in a case, which the older engine clamped with a warning, is refused (`NEW-LIMITS`); a part with nothing connected to it is built, not left out, and can fail the run; quick mode refuses a case it cannot run instead of running it in full. [Known issues](KNOWN-LIMITS.md#does-not-run-in-this-version) lists each, with the other differences | ENG-16 |
+| Lap cases and the Formula Student events scored from a lap run on the new engine: each lap's speed profile is solved from the car as the engine models it, and the engine's energy pass drives it through the whole model. The brakes share the braking by their *Max Torque* (the older lap solver assumed an ideal balance), the car drives through its open differential, and its tyres slip (the older lap counted no slip loss) | Lap times and energy differ from the older lap solver's. On the FS Electric example the autocross's flying lap takes 60.9 s instead of 57.7 s (+5.5 %): the car brakes at up to 16.6 m/s² instead of 25 m/s², held by the rear tyres under its 62.5 % front brake share, and the open differential's unloaded inner wheel costs about 0.4 s (up to 6 % on fast corners). Its energy is 0.248 kWh per lap instead of 0.397 (−37 %); the endurance (23 laps, 30 kW) takes 0.146 kWh per lap instead of 0.232 and 3.36 kWh in all instead of 5.33, and its best lap is 64.2 s instead of 62.1 s. The slower braking makes the car brake earlier and peak lower (30.3 m/s against 32.6 m/s on the autocross), and the kinetic energy it gains and sheds per lap is 24 % less. The older solver's own speed profile, driven through the new engine's energy pass, takes 2.8 % more energy than the older solver says, mostly the slip losses. The *Formula Student points* of these events move with the times | ENG-16 |
 
 ### New
 
+- **Lap cases and the Formula Student events scored from a lap run on the
+  new engine**: Autocross, Skidpad and custom tracks, the *Endurance
+  energy* case and study, and the *FS events* button (the skidpad, the
+  autocross and the endurance). Each lap's speed profile is solved from the
+  car as the engine models it, one instant at a time at each track point
+  (cornering speeds, a forward pass at full acceleration, a backward pass
+  at full braking), from the car's state at that lap's start. Then the
+  energy pass drives that profile through the whole model in 0.01 s steps;
+  its energy books close to about 1e-7 of the energy through the parts
+  (*Lap energy balance error* about 0.00001 %). The FS example's autocross
+  takes about 0.6 s and its endurance about 7 s. The top speed (the motors'
+  in their gear) is a new *Limit* code, 8, with a *Time limited by top speed*
+  row. In a lap case the battery's peak power, pack voltages and time at its
+  limit are given per stretch of about 1 m, from the stretch means. Live
+  edits are taken at the next lap's start. **Calibrate lap**'s check lap
+  gives its energy too. The lap changes the times and energy the older
+  lap solver gave, see *Your results will change*. The run stops, with the
+  engine's message, where a battery's maximum-power point holds the car
+  (the tests record it as open), and a lap case has no Energy report yet.
 - **Calibrate lap runs again**, on the new engine: the fit and the check lap
   use the engine's own lap profile of the car (the method of the older lap
   mode: cornering speeds, a forward pass at full acceleration and a
@@ -54,8 +74,7 @@ sections.
   against 59.1 s (+5.2 %; 2.7 s of it braking, where the rear tyres reach
   their grip first under its 62.5 % front brake bias), the skidpad +1.7 %
   (the open differential's unloaded inner wheel). The check lap's energy
-  error, and lap cases themselves, wait for the next step of the port
-  (`NEW-LAP`).
+  and energy error come from that lap's energy pass, as a lap case's.
 - **Table tools**, in every table and map: cells shaded from low to high
   (**Shade** in the toolbar), a click on a point of the plot selects its
   cell, and a right-click on selected cells sets, multiplies, offsets or
@@ -78,8 +97,8 @@ sections.
   checks. On the FS Electric example's 75 m the event time is 3.7537 s,
   against 3.7539 s from the older engine at its 1 ms step (3.7507 s at
   10 ms); the rule checks agree to 0.002 %. The skidpad, the autocross and
-  the endurance are scored from lap cases, which do not run in this
-  version yet.
+  the endurance are scored from lap cases, which run on the new engine
+  too (see the first *New* item).
 - A **battery built from cells** (*Defined By: Cells*) runs on the new
   engine, in a full run and in quick mode: the pack from a cell and its
   Ns × Np layout, the cell's resistance by pulse length, charge and
@@ -1454,11 +1473,11 @@ sections.
 ### Upgrading from a 0.2.0 build
 
 - Every run is now made by the new engine (see the first row of *Your
-  results will change*). Cases of the three features that do not run yet
-  (lap cases, Formula Student events, a battery built from cells) now fail
-  with *Not run* and a code, where 0.2.0 ran them: open
-  [Known issues](KNOWN-LIMITS.md#does-not-run-in-this-version) for what to
-  set to run a case once (a battery's *Defined By* to *Pack values*). A
+  results will change*). A case the new engine cannot run now fails with *Not run* and a code,
+  where 0.2.0 ran it: open
+  [Known issues](KNOWN-LIMITS.md#does-not-run-in-this-version) for the
+  codes. Lap cases and the Formula Student events run, with different lap
+  times and energy than 0.2.0's. A
   hybrid's charge-balanced case runs. Runs stored by 0.2.0 keep their
   figures and say which engine made them.
 - A battery without a Charge Capacity gets it from its Usable Capacity ÷

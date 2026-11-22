@@ -664,13 +664,13 @@
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "57.721 s for the flying lap, 60.31 km/h average",
+   "text": "60.895 s for the flying lap, 57.25 km/h average",
    "expr": "(v('fs-autocross', 'Lap time'), v('fs-autocross', 'Average speed'))",
    "format": "{0[0]:.3f} s for the flying lap, {0[1]:.2f} km/h average"
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "1,428.53 s, 5.33 kWh net from the Accumulator, 25.02 % SOC left",
+   "text": "1,478.26 s, 3.36 kWh net from the Accumulator, 53.15 % SOC left",
    "expr": "(v('fs-endurance', 'Total time'), v('fs-endurance', 'Accumulator — energy delivered') - v('fs-endurance', 'Accumulator — energy recuperated'), v('fs-endurance', 'Accumulator — final SOC'))",
    "format": "{0[0]:,.2f} s, {0[1]:.2f} kWh net from the Accumulator, {0[2]:.2f} % SOC left"
   },
@@ -688,7 +688,7 @@
   },
   {
    "page": "examples/fs-electric.md",
-   "text": "The car needs 1,454.700 s instead of 1,428.53 s (26 s more) and ends with 34.16 % SOC instead of 25.02 %",
+   "text": "The car needs 1,499.141 s instead of 1,478.26 s (21 s more) and ends with 58.29 % SOC instead of 53.15 %",
    "expr": "(v('fs-endurance-25', 'Total time'), v('fs-endurance', 'Total time'), v('fs-endurance-25', 'Total time') - v('fs-endurance', 'Total time'), v('fs-endurance-25', 'Accumulator — final SOC'), v('fs-endurance', 'Accumulator — final SOC'))",
    "format": "The car needs {0[0]:,.3f} s instead of {0[1]:,.2f} s ({0[2]:.0f} s more) and ends with {0[3]:.2f} % SOC instead of {0[4]:.2f} %"
   },
@@ -752,66 +752,68 @@
   },
   {
    "page": "lessons/fs-2-endurance.md",
-   "text": "the run ends as *success* after 1,428.53 s (*Total time*), 22.515 km driven, with *Accumulator — final SOC* 25.02 %",
-   "expr": "status('fs-endurance') == 'success' and (round(v('fs-endurance', 'Total time'), 2), round(v('fs-endurance', 'Distance driven'), 3), round(v('fs-endurance', 'Accumulator — final SOC'), 2)) == (1428.53, 22.515, 25.02)"
+   "text": "the run ends as *success* after 1,478.26 s (*Total time*), 22.515 km driven, with *Accumulator — final SOC* 53.15 %",
+   "expr": "status('fs-endurance') == 'success' and (round(v('fs-endurance', 'Total time'), 2), round(v('fs-endurance', 'Distance driven'), 3), round(v('fs-endurance', 'Accumulator — final SOC'), 2)) == (1478.26, 22.515, 53.15)"
   },
   {
    "page": "lessons/fs-2-endurance.md",
-   "text": "6.5 kWh delivered and 1.167 kWh recuperated: 5.33 kWh net, and *Energy per lap* 0.2319 kWh. Braking gives back 18 % of the energy drawn",
+   "text": "5.6 kWh delivered and 2.247 kWh recuperated: 3.36 kWh net, and *Energy per lap* 0.1461 kWh. Braking gives back 40 % of the energy drawn",
    "expr": "(v('fs-endurance', 'Accumulator — energy delivered'), v('fs-endurance', 'Accumulator — energy recuperated'), v('fs-endurance', 'Accumulator — energy delivered') - v('fs-endurance', 'Accumulator — energy recuperated'), v('fs-endurance', 'Energy per lap'), 100 * v('fs-endurance', 'Accumulator — energy recuperated') / v('fs-endurance', 'Accumulator — energy delivered'))",
    "format": "{0[0]:.1f} kWh delivered and {0[1]:.3f} kWh recuperated: {0[2]:.2f} kWh net, and *Energy per lap* {0[3]:.4f} kWh. Braking gives back {0[4]:.0f} % of the energy drawn"
   },
   {
    "page": "lessons/fs-2-endurance.md",
-   "text": "*RMS battery power* reads 22.853 kW, and the accumulator was held at its limit for 703.27 s, about half the event",
-   "expr": "(v('fs-endurance', 'RMS battery power'), v('fs-endurance', 'Accumulator — time held at the output power limit'), 0.45 < v('fs-endurance', 'Accumulator — time held at the output power limit') / v('fs-endurance', 'Total time') < 0.55)",
-   "format": "*RMS battery power* reads {0[0]:.3f} kW, and the accumulator was held at its limit for {0[1]:.2f} s, about half the event"
+   "text": "*RMS battery power* reads 22.693 kW, and the accumulator was held at its limit for 583.74 s, about 40 % of the event",
+   "expr": "(v('fs-endurance', 'RMS battery power'), v('fs-endurance', 'Accumulator — time held at the output power limit'), 0.35 < v('fs-endurance', 'Accumulator — time held at the output power limit') / v('fs-endurance', 'Total time') < 0.45)",
+   "format": "*RMS battery power* reads {0[0]:.3f} kW, and the accumulator was held at its limit for {0[1]:.2f} s, about 40 % of the event"
   },
   {
    "page": "lessons/fs-2-endurance.md",
-   "text": "*Accumulator — minimum pack voltage* is 472.94 V",
+   "text": "*Accumulator — minimum pack voltage* is 498.83 V",
    "expr": "v('fs-endurance', 'Accumulator — minimum pack voltage')",
    "format": "is {:.2f} V"
   },
   {
    "page": "lessons/fs-2-endurance.md",
-   "text": "*Time limited by power cap* reads 703.266 s and *Time limited by cornering grip* 434.603 s",
+   "text": "*Time limited by power cap* reads 583.742 s and *Time limited by cornering grip* 458.885 s",
    "expr": "(v('fs-endurance', 'Time limited by power cap'), v('fs-endurance', 'Time limited by cornering grip'))",
    "format": "*Time limited by power cap* reads {0[0]:.3f} s and *Time limited by cornering grip* {0[1]:.3f} s"
   },
   {
    "page": "lessons/fs-3-accumulator.md",
-   "text": "the *Total time* is 1,454.700 s at 25 kW, 1,428.53 s at 30 kW and 1,407.638 s at 35 kW; the final SOC 34.16 %, 25.02 % and 16.44 %",
+   "text": "the *Total time* is 1,499.141 s at 25 kW, 1,478.26 s at 30 kW and 1,462.054 s at 35 kW; the final SOC 58.29 %, 53.15 % and 48.32 %",
    "expr": "tuple(v(r, 'Total time') for r in ('fs-endurance-25', 'fs-endurance', 'fs-endurance-35')) + tuple(v(r, 'Accumulator — final SOC') for r in ('fs-endurance-25', 'fs-endurance', 'fs-endurance-35'))",
    "format": "the *Total time* is {0[0]:,.3f} s at 25 kW, {0[1]:,.2f} s at 30 kW and {0[2]:,.3f} s at 35 kW; the final SOC {0[3]:.2f} %, {0[4]:.2f} % and {0[5]:.2f} %"
   },
   {
    "page": "lessons/fs-3-accumulator.md",
-   "text": "Each 5 kW more saves 21 to 26 s over the event and uses about 9 points more charge",
+   "text": "Each 5 kW more saves 16 to 21 s over the event and uses about 5 points more charge",
    "expr": "(v('fs-endurance', 'Total time') - v('fs-endurance-35', 'Total time'), v('fs-endurance-25', 'Total time') - v('fs-endurance', 'Total time'), (v('fs-endurance-25', 'Accumulator — final SOC') - v('fs-endurance-35', 'Accumulator — final SOC')) / 2)",
    "format": "saves {0[0]:.0f} to {0[1]:.0f} s over the event and uses about {0[2]:.0f} points"
   },
   {
    "page": "lessons/fs-3-accumulator.md",
-   "text": "accumulator reached its minimum SOC (5 %) at t = 1326 s, and the car stops 347 m into lap 23",
-   "expr": "status('fs-endurance-3p') == 'failed' and message('fs-endurance-3p', 'reached minimum SOC (5 %) at t = 1326 s') and message('fs-endurance-3p', 'stops 347 m into lap 23')"
+   "text": "with 3 in parallel the car finishes with 36.18 % SOC and 1.59 kWh usable energy left",
+   "expr": "(v('fs-endurance-3p', 'Accumulator — final SOC'), v('fs-endurance-3p', 'Accumulator — usable energy left')) if status('fs-endurance-3p') == 'success' else None",
+   "format": "with 3 in parallel the car finishes with {0[0]:.2f} % SOC and {0[1]:.2f} kWh usable energy left"
   },
   {
    "page": "lessons/fs-3-accumulator.md",
-   "text": "With 4 the car finishes with 25.02 % SOC and 1.34 kWh usable energy left; with 5, 41.04 % and 3.075 kWh",
+   "text": "With 4 the car finishes with 53.15 % SOC and 3.33 kWh usable energy left; with 5, 63.02 % and 5.060 kWh",
    "expr": "(v('fs-endurance', 'Accumulator — final SOC'), v('fs-endurance', 'Accumulator — usable energy left'), v('fs-endurance-5p', 'Accumulator — final SOC'), v('fs-endurance-5p', 'Accumulator — usable energy left'))",
    "format": "With 4 the car finishes with {0[0]:.2f} % SOC and {0[1]:.2f} kWh usable energy left; with 5, {0[2]:.2f} % and {0[3]:.3f} kWh"
   },
   {
    "page": "lessons/fs-3-accumulator.md",
-   "text": "4p finishes with a margin of 1.34 kWh",
+   "text": "4p finishes with a margin of 3.33 kWh",
    "expr": "v('fs-endurance', 'Accumulator — usable energy left')",
    "format": "margin of {:.2f} kWh"
   },
   {
    "page": "lessons/fs-3-accumulator.md",
-   "text": "*Vehicle Mass* of 274 kg (six kilograms of cells less), the car still stops in lap 23",
-   "expr": "status('fs-endurance-3p-full') == 'failed' and message('fs-endurance-3p-full', 'into lap 23 of')"
+   "text": "*Vehicle Mass* of 274 kg (six kilograms of cells less), the car still finishes with 36.15 % SOC",
+   "expr": "v('fs-endurance-3p-full', 'Accumulator — final SOC') if status('fs-endurance-3p-full') == 'success' else None",
+   "format": "*Vehicle Mass* of 274 kg (six kilograms of cells less), the car still finishes with {:.2f} % SOC"
   },
   {
    "page": "theory/why-numbers-differ.md",

@@ -126,14 +126,13 @@ def test_a_text_that_does_not_fit_its_part_fails_with_the_engines_code(tmp_path)
 
 
 @needs_engine
-def test_a_case_the_new_path_does_not_run_fails_with_both_codes(tmp_path, monkeypatch):
-    """A lap case (NEW-LAP) with a text component: today's engine would run
-    the built-in part in its place without a word, so the case fails with
-    NEW-LAP and NEW-TEXT."""
+def test_a_lap_case_runs_its_text_component(tmp_path, monkeypatch):
+    """A lap case with a text component runs on the new engine, its lap
+    model built with the part from the file (new_lap.lap_model)."""
     proj = _with_text("fs-electric", "case-accel-75m", "el-battery", tmp_path / "acc.mo")
     result = simulate(proj, "case-autocross")
-    assert result.status == "failed" and not result.channels
-    assert result.messages[0].text.startswith("Not run [NEW-LAP] [NEW-TEXT]")
+    assert result.status in ("success", "warning"), [m.text for m in result.messages]
+    assert result.messages[0].text == "Run on the new engine." and result.channels
 
 
 def test_without_the_module_a_text_component_never_runs_on_today_engine(tmp_path, monkeypatch):

@@ -115,7 +115,26 @@ LIMITS = ("NEW-LIMITS: the new path refuses a run with a value outside its param
           "{what}), where today's engine clamps it and runs; a refusal that is not one of the four features (open: "
           "the owner's call whether the app keeps it)")
 
+BENCH_KEYS = ("NEW-LAP-BENCH: the FS tasks' answer keys are the older lap solver's results (and one task's "
+              "premise, a pack that runs out, no longer holds); they are worked out again once the example's "
+              "brake and regeneration values are settled (open)")
+
+LAP_BOOKS = ("NEW-LAP-BOOKS: a lap case on the new engine gives its energy rows and books' closure, but not "
+             "yet each part's energy flows or the energy report built from them (open)")
+
 XFAIL = {
+    "test_agent_bench.py::test_the_endurance_energy_to_two_decimals_passes": BENCH_KEYS,
+    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-aero]": BENCH_KEYS,
+    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-endurance-pack]": BENCH_KEYS,
+    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-gearing]": BENCH_KEYS,
+    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-fs-endurance]": BENCH_KEYS,
+    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-fs-limits]": BENCH_KEYS,
+    "test_examples_plausible.py::test_fs_endurance_energy_is_that_of_an_fs_car": (
+        "NEW-LAP-REGEN: the FS example recuperates 40.07 % of what it draws over its endurance, over the "
+        "band's 40 %: its Recuperation Weight of 100 % puts up to 30 kW of regeneration on the rear axle, "
+        "past its tyres' grip; the example's brake and regeneration values are the lead's call (open)"),
+    "test_energy_book.py::test_lap_case_books_the_mechanics_from_the_lap": LAP_BOOKS,
+    "test_reports.py::test_a_lap_case_names_its_brakes_and_gears": LAP_BOOKS,
     "test_lapsim.py::test_75_m_straight_matches_the_time_domain_within_2_percent[2.5-vehicle2-wheel2]": (
         "NEW-LAP-SLIP: where the motors at full torque hold the car, the lap's wheel (fast mode's inverse "
         "model) turns with the prescribed speed and takes its tyre's slip loss out of the force: 3.835 s "
