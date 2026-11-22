@@ -562,8 +562,9 @@ function SimulationsTab() {
         <BigButton
           icon={Crosshair}
           label="Calibrate lap"
-          title="Calibrate lap mode on a logged lap: LightSim builds the track from the lap's speed and lateral acceleration, fits the tyres' grip scale and the downforce (CzA) to the logged speed, and checks the prediction on a second lap, blind (lap time, speed RMS and energy errors). The files stay on your computer."
-          notYetRun // NEW-LAP
+          title="Calibrate lap mode on a logged lap: LightSim builds the track from the lap's speed and lateral acceleration, fits the tyres' grip scale and the downforce (CzA) to the logged speed, and checks the prediction on a second lap, blind (lap time and speed RMS errors; the energy error once lap cases run). The files stay on your computer."
+          disabled={store.running || !store.project}
+          onClick={() => setCalibrating(true)}
         />
         {calibrating && <CalibrateDialog onClose={() => setCalibrating(false)} />}
       </RibbonGroup>

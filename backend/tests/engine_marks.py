@@ -34,8 +34,6 @@ WEAK = ("(ii) today's engine's own copy of the weakest group, changed with the n
 
 TODAY_FILES = {
     "test_lapsim.py": LAP,
-    "test_calibrate.py": "(i) the lap calibration runs lap cases (NEW-LAP): not ported yet",
-    "test_laplog.py": "(i) a logged lap runs as a lap case (NEW-LAP): not ported yet",
 }
 
 TODAY = {

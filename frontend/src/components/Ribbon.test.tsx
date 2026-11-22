@@ -49,11 +49,10 @@ it("offers no button that does nothing: what this version does not run is not sh
   const host = await ribbon("simulations");
   // FS events needs lap mode, which this version does not run (UI 4.43)
   expect(buttonNamed(host, "FS events")).toBeUndefined();
-  // Calibrate lap stays, dimmed: a lesson and its doc test name it (a question for the owner)
+  // Calibrate lap runs on the new engine's lap profile: it can be pressed
   const calibrate = buttonNamed(host, "Calibrate lap")!;
-  expect(calibrate.getAttribute("data-not-yet")).toBe("Calibrate lap: not in this version of LightSim yet");
-  await click(calibrate);
-  expect(document.querySelector("[role=dialog]")).toBeNull();
+  expect(calibrate.getAttribute("aria-disabled")).toBeNull();
+  expect(calibrate.getAttribute("data-not-yet")).toBeNull();
   // what does run stays where it was
   for (const name of ["Acceleration test", "Import lap", "Vehicle tests", "US label"])
     expect(buttonNamed(host, name), name).toBeTruthy();
