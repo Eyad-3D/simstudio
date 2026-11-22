@@ -1750,6 +1750,19 @@ Endurance). `NEW-FS-EVENT` now refuses only a Lap case with an event set.
   same module as main. The guard, FS and engine-flag tests pass (247), as
   do `benchmarks/back_to_back/tests` (157); `ruff check .` is clean.
 
+## Lap cases on the engine: lap port, stage 3 (22 November 2026)
+
+Lap cases and the FS events scored from one run on the new engine
+(`work/engine-lap3`; DESIGN.md section 10.1; the report in the lane's
+notes). `NEW-LAP` and `NEW-FS-EVENT` are gone. Golden 0 differences,
+check.sh passes, the full-mode model text of every example case is
+unchanged (fast mode: the E-Motor's p / v). FS autocross 0.63 s, endurance
+7.0 s (today 0.35 s, 3.5 s). Open, each a strict expected failure:
+a battery held at its maximum-power point stops the energy pass; a lap case
+has no per-part energy flows or Energy report yet; the motors at full
+torque take the tyre slip as less force; the FS example's recuperation share
+and agent-bench keys wait on its brake and regeneration values.
+
 ## The lap profile on the engine: lap port, stage 2 (21 November 2026)
 
 A lap's speed profile is computed from the engine's own model of the car
