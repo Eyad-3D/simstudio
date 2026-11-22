@@ -68,7 +68,8 @@ STORED_REL, STORED_ABS = 1e-4, 1e-4
 def test_opened_and_run_as_the_app_does_every_case_gives_its_stored_figures(project_id):
     """The example opened through the API, its stored runs fetched as the app
     shows them, and every case run as the app's Run: its status and every
-    summary figure are the stored ones, the same engine made both, and an
+    summary figure are the stored ones, the same engine made both, the
+    stored runs graded the case's expected values as they are now, and an
     expected value that is LightSim's own result (a regression check) reads
     within by rounding only. A change that moves them must rewrite the
     stored results (tests/update_stored.py --reason ...)."""
@@ -86,6 +87,9 @@ def test_opened_and_run_as_the_app_does_every_case_gives_its_stored_figures(proj
         for row in old["summary"]:
             assert got[row["label"]] == pytest.approx(row["value"], rel=STORED_REL, abs=STORED_ABS), (
                 where, row["label"], row["value"], got[row["label"]])
+        expected = {r["kpi"]: r["value"] for c in project["cases"] if c["id"] == run["caseId"]
+                    for r in c["references"]}
+        assert {r["label"]: r["reference"] for r in old["references"] if not r["automatic"]} == expected, where
         for ref in fresh["references"]:
             if not ref["automatic"] and ref["source"].startswith("LightSim"):
                 assert ref["grade"] == "within" and abs(ref["differencePct"]) < 0.05, (where, ref)

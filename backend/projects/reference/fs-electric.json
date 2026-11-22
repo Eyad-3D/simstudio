@@ -2,7 +2,7 @@
  "_about": "Stored reference results of this example (CON-15): the app's engine's runs, written by backend/tests/update_stored.py, explained in tests/golden/CHANGES.md.",
  "creation": {
   "appVersion": "0.2.0",
-  "gitCommit": "2c0b4b47",
+  "gitCommit": "d8a55419",
   "solver": "the app's engine (new 0.1.0): variable step, rtol 1e-06, atol 1e-08; lap mode: the lap's speed profile, then fast mode along it in steps of at most 0.01 s; recorded every 1 s",
   "date": "2026-11-22",
   "machine": "Linux x86_64, Python 3.11.17",
