@@ -996,9 +996,22 @@ impl<'a> Builder<'a> {
                     .errors
                     .push(err("LAP-PARTS", "A lap case needs a Race Track.".to_string()));
             }
+            // the speed, and the Race Track's curvature and grade where the
+            // car is: inputs freed from the constants that feed them, and
+            // prescribed as the speed is (point by point, or along the lap)
+            let ti = self.inst(&facts.of_kind("track.lap").next().unwrap().id.clone());
+            let mut freed = vec![format!("{}.sig_cmd_in", self.inst(&d))];
+            for (q, unit) in [("kappa_in", "1/m"), ("grade_in", "1")] {
+                self.constant_into(format!("{ti}.{q}"), unit, 0.0);
+                freed.push(format!("{ti}.{q}"));
+            }
             let spec = lsim_ir::InverseSpec {
-                prescribed: vec![format!("{}.v", self.inst(&veh))],
-                freed: vec![format!("{}.sig_cmd_in", self.inst(&d))],
+                prescribed: vec![
+                    format!("{}.v", self.inst(&veh)),
+                    format!("{ti}.kappa_in"),
+                    format!("{ti}.grade_in"),
+                ],
+                freed,
             };
             self.report.inverse = Some(Prescribed { spec, t: vec![0.0, 1.0], v: vec![0.0, 0.0] });
             let track = facts.of_kind("track.lap").next().map(|t| t.id.clone()).unwrap_or_default();

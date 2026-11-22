@@ -233,8 +233,6 @@ fn battery_cause(w: &Window, vars: &[f64], params: &[f64]) -> Cause {
 /// The car at one instant at a time.
 struct Car<'a> {
     s: PointSolver<'a>,
-    kappa: usize,
-    grade: usize,
     pedal: usize,
     sites: Vec<Site>,
     windows: Vec<Window>,
@@ -243,6 +241,13 @@ struct Car<'a> {
     /// the last answers of the searches: where the next one starts
     /// (acceleration, deceleration, coasting), m/s²
     guess: [f64; 3],
+}
+
+/// The lap model's prescribed inputs at a point: the speed and its slope
+/// (the acceleration), the Race Track's curvature and its grade (from the
+/// slope's sine), each with a slope of 0.
+pub fn prescribed(v: f64, a: f64, kappa: f64, sin_t: f64) -> [(f64, f64); 3] {
+    [(v, a), (kappa, 0.0), (sin_t / (1.0 - sin_t * sin_t).max(1e-12).sqrt(), 0.0)]
 }
 
 /// The margin of a value inside its upper (`up`) or lower bound, as a share
@@ -268,8 +273,6 @@ impl<'a> Car<'a> {
                 .position(|n| *n == name)
                 .ok_or_else(|| LapError::Model(format!("the lap model has no variable '{name}'")))
         };
-        let kappa = param(format!("{}.kappa_now", parts.track))?;
-        let grade = param(format!("{}.grade_now", parts.track))?;
         let pedal = var(format!("{}.cmd", parts.driver))?;
         let sites = model
             .limits
@@ -297,19 +300,10 @@ impl<'a> Car<'a> {
             });
         }
         let s = model
-            .point_solver(params, &[(v0, 0.0)])
+            .point_solver(params, &prescribed(v0, 0.0, 0.0, 0.0))
             .map_err(|e| LapError::Model(format!("the lap model could not be started: {e}")))?;
-        let mut car = Car {
-            s,
-            kappa,
-            grade,
-            pedal,
-            sites,
-            windows,
-            apex: HashMap::new(),
-            v_cap: V_MAX,
-            guess: [0.0; 3],
-        };
+        let mut car =
+            Car { s, pedal, sites, windows, apex: HashMap::new(), v_cap: V_MAX, guess: [0.0; 3] };
         car.v_cap = car.top_speed();
         Ok(car)
     }
@@ -318,10 +312,7 @@ impl<'a> Car<'a> {
     /// slope `sin_t`: each site's `[value, lo, hi]`; None where the model
     /// has no answer.
     fn at(&mut self, v: f64, a: f64, kappa: f64, sin_t: f64) -> Option<Vec<[f64; 3]>> {
-        let p = self.s.params_mut();
-        p[self.kappa] = kappa;
-        p[self.grade] = sin_t / (1.0 - sin_t * sin_t).max(1e-12).sqrt();
-        self.s.solve(&[(v.max(V_MIN), a)]).ok()?;
+        self.s.solve(&prescribed(v.max(V_MIN), a, kappa, sin_t)).ok()?;
         Some(self.s.sites())
     }
 

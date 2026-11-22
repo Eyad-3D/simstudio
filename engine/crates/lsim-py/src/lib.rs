@@ -1389,22 +1389,9 @@ impl LapModel {
             self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
         let m = &self.built.model;
         let mut s = m
-            .point_solver(&params, &[(v, 0.0)])
+            .point_solver(&params, &lsim_lap::prescribed(v, 0.0, kappa, sin_t))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let flat = &m.prepared.flat;
-        for (name, value) in [
-            (format!("{}.kappa_now", self.parts.track), kappa),
-            (
-                format!("{}.grade_now", self.parts.track),
-                sin_t / (1.0 - sin_t * sin_t).max(1e-12).sqrt(),
-            ),
-        ] {
-            let id = flat
-                .find_param(&name)
-                .ok_or_else(|| PyValueError::new_err(format!("no {name}")))?;
-            s.params_mut()[id.0 as usize] = value;
-        }
-        if s.solve(&[(v, a)]).is_err() {
+        if s.solve(&lsim_lap::prescribed(v, a, kappa, sin_t)).is_err() {
             return Ok(None);
         }
         let sites = s.sites();

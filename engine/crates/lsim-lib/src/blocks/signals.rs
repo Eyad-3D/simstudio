@@ -579,11 +579,12 @@ pub fn race_track() -> ComponentDef {
     .with_carriers(&outs.iter().map(|q| port_si(id, q)).collect::<Vec<_>>())
 }
 
-/// track.lap in a lap case's model: the curvature and grade at the point
-/// of the lap being solved (`kappa_now`, `grade_now`, set by the lap
-/// solver for each point, lsim-lap) for the Vehicle (`kappa`, `grade`),
-/// and its curvature output; its other outputs read 0 (the lap's channels
-/// are the lap solver's).
+/// track.lap in a lap case's model: the curvature and grade where the car
+/// is, for the Vehicle (`kappa`, `grade`) and its curvature output, from
+/// its inputs `kappa_in` and `grade_in`, which the lap model prescribes as
+/// it does the speed (lsim-lap sets them for each point of the profile,
+/// and drives them along the lap in its energy pass); its other outputs
+/// read 0 (the lap's channels are the lap solver's).
 pub fn race_track_lap() -> ComponentDef {
     let id = "track.lap";
     let outs = [
@@ -598,13 +599,15 @@ pub fn race_track_lap() -> ComponentDef {
         "sig_elevation",
     ];
     let mut ports: Vec<PortDecl> = outs.iter().map(|q| out(id, q)).collect();
+    ports.push(input("kappa_in", "1/m", "the curvature where the car is (prescribed)"));
+    ports.push(input("grade_in", "1", "the grade where the car is (prescribed)"));
     ports.push(output("kappa", "1/m", "the curvature here (for the Vehicle)"));
     ports.push(output("grade", "1", "the grade here (for the Vehicle)"));
     let mut equations: Vec<lsim_ir::EquationDecl> = outs
         .iter()
         .map(|q| {
             if *q == "sig_curvature" {
-                return eq(n(q), n("kappa_now"), "the curvature here");
+                return eq(n(q), n("kappa_in"), "the curvature here");
             }
             let u = port_si(id, q);
             let unit_expr =
@@ -612,17 +615,13 @@ pub fn race_track_lap() -> ComponentDef {
             eq(n(q), unit_expr, "the lap solver's channel")
         })
         .collect();
-    equations.push(eq(n("kappa"), n("kappa_now"), "the curvature here"));
-    equations.push(eq(n("grade"), n("grade_now"), "the grade here"));
+    equations.push(eq(n("kappa"), n("kappa_in"), "the curvature here"));
+    equations.push(eq(n("grade"), n("grade_in"), "the grade here"));
     ComponentDef {
         name: "Blocks.RaceTrack_lap".into(),
         doc: doc(id),
         ports,
-        params: vec![
-            p("zero", "1", 0.0, "the value its other outputs read"),
-            p("kappa_now", "1/m", 0.0, "the curvature at the point being solved (+ left)"),
-            p("grade_now", "1", 0.0, "the grade (rise over run) at the point being solved"),
-        ],
+        params: vec![p("zero", "1", 0.0, "the value its other outputs read")],
         equations,
         ..Default::default()
     }
