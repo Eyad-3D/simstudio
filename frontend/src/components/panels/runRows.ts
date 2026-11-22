@@ -67,6 +67,20 @@ export type Sort = { key: SortKey; desc: boolean };
 export const statusText = (r: RunRow) =>
   r.status === "running" ? "running" : r.incomplete ? "incomplete" : r.status === "success" ? "success" : r.status;
 
+/** Every status cell text, and the colour it is drawn in; contrast.test.ts
+ *  checks each on the table's rows (plain, hovered, shown). */
+export const STATUS_COLOR: Record<string, string> = {
+  success: "var(--ss-text-dim)",
+  "reading…": "var(--ss-text-dim)",
+  running: "var(--ss-text-dim)",
+  incomplete: "var(--ss-warn)",
+  warning: "var(--ss-warn)",
+  failed: "var(--ss-err)",
+  error: "var(--ss-err)",
+};
+/** The shown row's background, checked with the status colours. */
+export const SHOWN_ROW = "var(--ss-accent-soft)";
+
 /** A sweep point's value, else the run's own name. */
 export const rowName = (r: RunRow) =>
   r.sweepValue !== undefined ? `${r.sweepParam ?? "value"} ${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}` : (r.name ?? "");

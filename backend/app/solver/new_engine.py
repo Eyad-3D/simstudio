@@ -17,8 +17,11 @@ again). A case the new engine does not run, or that it refuses or stops,
 fails with a stable reason code in brackets (``[NEW-LAP]``; CODES lists
 them, and benchmarks/back_to_back counts them): nothing runs on today's
 engine instead. Two features are not ported yet and are refused so: lap
-cases (NEW-LAP) and Formula Student events (NEW-FS-EVENT); a battery built
-from cells runs since its port. A hybrid's
+cases (NEW-LAP) and the Formula Student events scored from one
+(NEW-FS-EVENT: skidpad, autocross and endurance on a Lap case); the 75 m
+acceleration and an endurance driven from a speed trace run and score
+(fs_events, on the run's own figures), and a battery built from cells runs
+since its port. A hybrid's
 charge-balanced case runs as today's does (balance.py): run after run on the new engine, each from the charge
 the last ended with. ``LIGHTSIM_ENGINE=today`` runs today's engine instead, for
 developers and the both-engines comparison (benchmarks/back_to_back); a
@@ -57,7 +60,7 @@ from typing import Callable, NamedTuple, Optional
 from .. import cycles, script_trust
 from ..library import unit_groups
 from ..schemas import Channel, LiveEdit, Project, SimMessage, SimResult, SummaryValue
-from . import balance
+from . import balance, fs_events
 from .domains import FMU_COMPONENT, ModelInitError, RunContext
 from .energy import BookFlow, energy_flows
 from .evidence import Evidence
@@ -88,7 +91,7 @@ CODES = {
     "NEW-NOT-FOUND": "the case is not in the project",
     "NEW-CASE-KIND": "a case kind the new engine's path does not run",
     "NEW-LAP": "a lap case",
-    "NEW-FS-EVENT": "a Formula Student event case",
+    "NEW-FS-EVENT": "a Formula Student event scored from a lap case",
     "NEW-LIMITS": "a value outside its parameter's limits (a study's point can hold one)",
     "NEW-MISSING": "the module lightsim_engine is not installed",
     "NEW-BUILD": "today's model builder refused the model",
@@ -500,12 +503,13 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     case = next((c for c in project.cases if c.id == case_id), None)
     if case is None:
         return Refusal("NEW-NOT-FOUND", "the case was not found")
+    if case.kind == "lap" and case.fsEvent:
+        return Refusal("NEW-FS-EVENT", "Formula Student events scored from a lap case (skidpad, autocross, "
+                                       "endurance) do not run in this version of LightSim yet")
     if case.kind == "lap":
         return Refusal("NEW-LAP", "lap cases do not run in this version of LightSim yet")
     if case.kind not in KINDS:
         return Refusal("NEW-CASE-KIND", f"{case.kind} cases do not run in this version of LightSim yet")
-    if case.fsEvent:
-        return Refusal("NEW-FS-EVENT", "Formula Student event cases do not run in this version of LightSim yet")
     from ..validation import value_problems  # (validation imports this package)
     if problems := value_problems(project, case_id):  # (a study's point: Data Checks never saw it)
         return Refusal("NEW-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse a "
@@ -567,6 +571,10 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
     built = lightsim_engine.build(shipped.model_dump_json(), case_id, cycles_dir=str(cycles.DIR),
                                   texts=texts)
     plan = _Plan(model, ctx, built, lanes)
+    if case.fsEvent:  # the power rule check's own 500 ms average (fs_events._checks), kept on
+        # the power's engine name, as the battery's check keeps its own window on the channel's
+        plan.windows.update({name: fs_events.RULE_WINDOW_S for name in
+                             (plan.supply[b]["sig_power"] for b in ctx.batteries) if name})
     opts = options or {}
     step = float(opts.get("traceStep", ACCEL_TRACE_STEP_S if ctx.performance else TRACE_STEP_S))
     kw = dict(rtol=float(opts.get("rtol", 1e-6)), atol=float(opts.get("atol", 1e-8)),
@@ -1123,8 +1131,23 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     ev = Evidence.of_context(ctx, energy_report=getattr(case, "energyReport", True))
     ev.distance = last(ctx.veh_id, "dist") if ctx.veh_id else 0.0
     soc = {b: raw.get(f"{b}:sig_soc") for b in ctx.batteries}
+    integ = run.integrals
     for b in ctx.batteries.values():
         label = model.elements[b.el_id].label
+        # what today's run keeps of each battery for its Formula Student
+        # rows (fs_events): the peaks over every point the integrator
+        # visited, ∫P² dt, and the rule check's 500 ms average
+        cur, volt = integ.get(f"{b.el_id}:sig_current"), integ.get(f"{b.el_id}:sig_voltage")
+        power = integ.get(f"{b.el_id}:sig_power")
+        if cur:
+            b.i_peak_a = max(0.0, float(cur["max"]))
+        if volt:
+            b.v_peak, b.v_low = float(volt["max"]), float(volt["min"])
+        if power and times:
+            b.p_sq_ws, b.t_on = float(power["square"]) * 1e6, times[-1] - times[0]
+        avg = run.windows.get(plan.supply[b.el_id]["sig_power"] or "")
+        if case.fsEvent and avg:
+            b.rule_avg = SimpleNamespace(peak_w=float(avg["peak"]))
         b.energy_out_wh = last(b.el_id, "e_delivered") / 3600.0
         b.energy_in_wh = last(b.el_id, "e_recuperated") / 3600.0
         b.loss_wh = last(b.el_id, "e_losses") / 3600.0
@@ -1302,6 +1325,9 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
                 and not ctx.fuelcells)
     not_valid = core.not_valid_first(ev, verdict, summary, stopped, None, times)
     core.not_valid_last(ev, verdict, summary, not_valid, edge_rows, lab_base(summary, electric))
+    messages += [SimMessage(level=level, text=text) for level, text in  # its FS event rows
+                 fs_events.add_event_rows(case, ctx, None, summary, finished=not stopped,
+                                          points=bool(times))]
     fill_keys(summary, project)
 
     energy, duty, limits = make_reports(ev)
@@ -1640,7 +1666,7 @@ BRANCH_READS = {
     ("battery.generic", "cell_resistance_factor"): Reads(
         "nowhere: it books no read of a cell's resistance factors",
         ((("time - t0", "0 * unit_s", "2 * unit_s", "10 * unit_s", "30 * unit_s"), NEVER),
-         (("soc_c",), NEVER))),
+         (("soc_c", "soc_wc"), NEVER))),
     ("battery.generic", "cell_temperature_factor"): Reads(
         "nowhere: it books no read of a cell's resistance factors", ((("T_cell",), NEVER),)),
     ("motor.emotor", "full_load_torque"): Reads(

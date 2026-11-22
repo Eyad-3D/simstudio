@@ -11,7 +11,7 @@ today's engine as the oracle for the port; they run on the new engine.
 from __future__ import annotations
 
 import pytest
-from helpers import conn, el, example_result, project, series
+from helpers import conn, dbc, el, example_result, project, series
 
 from app.library import library_by_id
 from app.solver import simulate
@@ -326,3 +326,73 @@ def test_quick_mode_runs_a_pack_built_from_cells():
     assert quick["el-battery.final_soc_pct"] == pytest.approx(full["el-battery.final_soc_pct"], abs=0.01)
     assert quick["el-battery.energy_delivered_kwh"] == pytest.approx(
         full["el-battery.energy_delivered_kwh"], rel=2e-3)
+
+
+# the weakest group is one model in both engines (today's copy changes with
+# the new engine's; engine_marks.py puts [today] on today's engine)
+ENGINES = ["new", "today"]
+
+
+def _charged(kw: float, duration: float, **battery):
+    """A pack built from cells charged at ``kw`` from a grid through a DC-DC
+    holding that power (its Power Setpoint), nothing else."""
+    return project(
+        [el("grid", "electric.voltage_source", "Grid", voltage_V=400),
+         el("a", "electric.node", "Bus A"),
+         el("dc", "controller.dcdc", "Charger", efficiency_pct=100),
+         el("b", "electric.node", "Bus B"),
+         el("batt", "battery.generic", "Pack", **{"pack_model": CELLS, **battery}),
+         el("set", "signal.constant", "Power", value=kw)],
+        [conn(1, "grid", "pos", "a", "t1"), conn(2, "a", "t2", "dc", "a_pos"),
+         conn(3, "dc", "b_pos", "b", "t1"), conn(4, "b", "t2", "batt", "pos")],
+        [dbc(1, "set", "sig_out", "dc", "sig_setpoint_in")],
+        duration=duration, time_step=0.1)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_a_weak_group_fills_first_and_the_charge_band_follows_it(engine):
+    """A weaker group (half the capacity) fills twice as fast, so the
+    derating band's charge factor reads the higher of its SOC and the
+    pack's, as the discharge factor reads the lower: the pack from 70 % to
+    80 % takes the group from 70 % to 90 %, its factor (1 - 0.9) / 0.2 = 0.5
+    where the pack's SOC alone gave 1. Before, the charge limit stayed at
+    the cells' 10 A until the pack itself reached the band."""
+    r = simulate(_charged(5.0, 330.0, series_cells=96, parallel_cells=2, cell_capacity_Ah=5.0,
+                          weak_cell_capacity_pct=50, initial_soc_pct=70, soc_derate_band_pct=20,
+                          cell_max_charge_A=5, cell_peak_charge_A=0, cell_max_voltage_V=0), "case")
+    assert r.status in ("success", "warning"), [m.text for m in r.messages]
+    soc, lim = series(r, "batt", "sig_soc"), series(r, "batt", "sig_i_ch_limit")
+    seen = 0
+    for k in range(1, len(soc)):
+        s = soc[k - 1 if engine == "today" else k]["value"] / 100.0  # (today's: set at the step's start)
+        k_ch = min(1.0, max(0.0, (1.0 - max(s, 0.7 + (s - 0.7) / 0.5)) / 0.2))
+        if 0.05 < k_ch < 0.95:
+            assert lim[k]["value"] == pytest.approx(10.0 * k_ch, rel=2e-3), soc[k]["t"]
+            seen += 1
+    assert seen > 100
+    assert soc[-1]["value"] < 80.0  # (the pack itself never in the band)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_a_weak_groups_resistance_is_read_at_its_own_soc(engine):
+    """A weaker group's resistance is the Cell Resistance Factor at its own
+    SOC x its share, not at the pack's: half the capacity and 1.5 x the
+    resistance from 40 %, the pack at 26 % has the group at 12 %, where the
+    factor for a long pulse is 1.89 against the pack's 1.62. Its cell is the
+    lowest; before, it read about 80 mV high at 10 kW."""
+    r = simulate(bench(10.0, duration=200.0, series_cells=96, parallel_cells=2, cell_capacity_Ah=5.0,
+                       weak_cell_capacity_pct=50, weak_cell_resistance_pct=150, initial_soc_pct=40,
+                       min_soc_pct=5, cell_max_discharge_A=0, cell_peak_discharge_A=0,
+                       cell_min_voltage_V=0), "case")
+    assert r.status in ("success", "warning"), [m.text for m in r.messages]
+    soc, cur = series(r, "batt", "sig_soc"), series(r, "batt", "sig_current")
+    v_min = series(r, "batt", "sig_v_cell_min")
+    seen, low = 0, 100.0
+    for k in range(len(soc)):
+        if soc[k]["t"] < 125.0:  # (past the table's longest pulse, 120 s: held there)
+            continue
+        s_weak = 40.0 - (40.0 - soc[k]["value"]) / 0.5
+        want = interp1(CELL_OCV, s_weak) - cur[k]["value"] / 2 * r_cell(s_weak, 20.0, 120.0) * 1.5
+        assert v_min[k]["value"] == pytest.approx(want, abs=2e-3), soc[k]["t"]  # (no Ambient: 20 C)
+        seen, low = seen + 1, min(low, s_weak)
+    assert seen > 100 and low < 12.0, low  # (on to its Minimum SOC, 5 %)

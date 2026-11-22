@@ -32,6 +32,8 @@ selection as the Delete key.
 | F2 | Rename the selected part |
 | Enter | Go to the selected part's *Properties*, with the keyboard in its *Name* |
 | . (full stop) | Zoom to the selected parts, or to the whole model when none is selected |
+| Shift+A, or double-click empty diagram | Add a part there: type part of its name, the arrows move in the list, Enter places it, Esc closes the box |
+| Drag a wire from a port to empty diagram | Add a part there, wired to that port: the box lists only the parts it can be wired to |
 | Ctrl+click or Shift+click a part | Add it to the selection, or take it out |
 | Shift+drag on empty diagram | Draw a box to select the parts in it |
 | Shift+click a pin | Move the pin to the next side of its part |

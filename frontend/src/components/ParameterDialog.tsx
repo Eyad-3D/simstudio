@@ -93,7 +93,7 @@ export function ParameterDialog() {
             <X size={14} />
           </button>
         </div>
-        <div ref={body} className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={body} className="ss-param-scroll min-h-0 flex-1 overflow-y-auto">
           <ElementForm element={element} def={def} />
         </div>
       </div>

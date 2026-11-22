@@ -1597,3 +1597,155 @@ a test that failed on main's module and passes now.
   folder) runs that in 0.832 s against the first build's 0.811 s, this
   branch's 0.840 s, its slices 0.947 × and 1.010 ×: most of the gap is
   between two builds of the same code.
+
+## The weakest group's charge factor and resistance, in both engines; a flaky stop test (21 November 2026)
+
+The Help writer noted two asymmetries in a pack built from cells with a
+weakest group, the same in both engines (the port was faithful, so this is
+a model change, decided by the lead, made in both together):
+
+- **The derating band's charge factor** read the pack's SOC, though its
+  discharge factor read the lower of the pack's and the weak group's. A
+  group with less capacity fills first as it empties first, so the charge
+  factor now reads the higher: `k_ch = clamp((1 − max(soc, soc_w)) / band)`
+  (`battery.rs` `cells_part`; `battery.py` `CellPack.derate`).
+- **The weak group's resistance** was the normal cell's × its multiple,
+  with the *Cell Resistance Factor* read at the pack's SOC. It is now read
+  at the group's own SOC (the normal cells keep the pack's):
+  `R0 = ((Ns − 1)·R_cell + k·R_cell,w) ÷ Np + Ns·R_ic + R_ct`, and the same
+  R_cell,w in the group's cell voltage limits, its cell voltage (the
+  *Lowest/Highest Cell Voltage* outputs) and the state of power. In the new
+  engine that is three variables (`r_pulse_w`, `r_cell0_w`, `r_cell_w`) and
+  five more reads of the factor table in a weak pack only (two for R, three
+  for the 2/10/30 s state of power); a linear table's value read is stepped
+  over, not held (`lsim-prep` `hold.rs`), and the pulse axis's breakpoints
+  are the times the run already stops at, so it adds no event (the
+  both-engines item and the tests' runs: the same event counts). In the
+  older model, a field `r_weak_now` beside `r_cell_now`, set where it is.
+  The adapter's table-read rule for the factor table (`BRANCH_READS`) names
+  the new read (today's engine books none). A pack without a weakest group
+  keeps its expressions as they were: bit for bit on both engines (below).
+
+Tests, each failing before and passing after, in both engines' suites:
+`lsim-project/tests/battery.rs`
+`a_weak_groups_charge_band_reads_the_higher_soc` (charging at 300 A from
+70 %, half the capacity: the factor 0.667 at 150 s where it read 1) and
+`a_weak_groups_resistance_is_read_at_its_own_soc` (R0 and the weak cell's
+voltage by hand at 5, 60 and 150 s; R0 was 8.4e-7 Ω off at 5 s);
+`backend/tests/test_battery_cells.py`
+`test_a_weak_group_fills_first_and_the_charge_band_follows_it` and
+`test_a_weak_groups_resistance_is_read_at_its_own_soc`, each `[new]` and
+`[today]` (today's marked in `engine_marks.py`): the charge limit 10 A × the
+factor by hand (it stayed at 10 A), and the lowest cell voltage by hand at
+the group's SOC within 2 mV (it read 84 mV high at 10 kW).
+
+**A flaky test**: `lsim-py/tests/test_api.py::test_a_control_stops_the_run_where_it_is`
+expected the point before a stop at `floor(stopped)`. A stop on a step that
+ends on an output time (512.0) records that point once (`Recorder::end_at`
+adds no second point at the same time), so the points end 511, 512; the
+expectation is now `ceil(stopped) − 1`, the last output time before the
+stop. Its neighbour, the live change's `at == floor(t) + 1`, holds: the run
+takes a change after recording every output time up to where it is, so its
+next output time is after it. The run loop's own stop test stops between
+output times.
+
+- **Packs without a weakest group, bit for bit**: the BEV's WLTC on the
+  library's cells (as it is; with a 10 % band, an RC pair and from 22 %;
+  and 96s10p, its limits holding) gives the same hash of every recorded
+  value and summary figure before and after, on both engines (the older
+  one over 600 s).
+- **Golden comparison**: 0 differences against the record (11 347
+  values), steps 3 998 112 and events 308 453 as before, the worst closure
+  1.274e-9. No golden case has a pack built from cells, let alone a
+  weakest group (the four example projects use Pack values).
+- **Closure** (|closure| ÷ throughput) on the weak-group runs: the
+  both-engines item `cells/bev-wltc-weak` (the BEV's WLTC with a weak group
+  of 90 % capacity and 150 % resistance, a 10 % band and an RC pair, from
+  22 %) 7.0e-10 (4.2e-10 before), its events 443 as before, steps 139 064
+  (139 355); the two new tests' runs 2.0e-16 and 0.
+- **Both engines**: `cells/bev-wltc-weak` runs as expected on both, with
+  the same classes before and after (b 11, c 33, 58 unclassified, none of
+  class a) and the same rows; the battery's rows keep their gaps (its
+  losses duty, a known RC-pair difference, 16.039 → 16.038 band widths):
+  the two models moved together.
+- **Checks**: `engine/check.sh` passes (636 tests); the backend files
+  that touch the battery (`test_battery_*`, `test_source_limits`,
+  `test_new_engine_evidence`) pass; lsim-py's 59 pass;
+  `benchmarks/back_to_back/tests` 157 passed; `ruff check .` clean; the
+  frontend's unit tests 513 pass (its library copy changed); the generated
+  copies regenerated and their guard tests pass. Speed, best of seven in alternating fresh processes against 4b0091f's module built the same way, the steps and events the same: the hybrid's UDDS 19.007 against 18.897 s, the BEV's WLTC 1.069 against 1.063 s, the CI performance test's slices 0.965 × (BEV city) and 1.002 × (hybrid mixed); none of these cars has a pack built from cells, so their model is the same (the last piece measured two builds of one source 2.6 % apart).
+## Formula Student scoring without a lap runs on the new engine (21 November 2026)
+
+Stage 1 of the lap and Formula Student port (the design note
+`engine-lap-design.md`, decided by the lead): the Formula Student events
+that need no lap run and score on the new engine. These are the 75 m
+acceleration (an Acceleration case with *FS event* Acceleration) and an
+endurance driven from a speed trace (a Cycle case with *FS event*
+Endurance). `NEW-FS-EVENT` now refuses only a Lap case with an event set.
+
+- **The scoring layer is shared.** `fs_events.add_event_rows`, used by
+  both engines' runs, holds today's block from `core.py` (the event rows,
+  or the note that the case's kind has none). The new path fills today's
+  `BatteryState` figures from the run, which `fs_events` reads:
+  - the peak current, and the highest and lowest terminal voltage (the
+    integrals' max and min over every point the integrator visited);
+  - ∫P² dt, for the RMS power;
+  - the rules' 500 ms moving average of the power (D 10.4.1).
+- **No engine change.** The engine keeps any list of (channel, span)
+  windows. The battery's own check keeps its window on the channel
+  `el:sig_power`, and the rule's 500 ms window is asked for on the same
+  variable's engine name, `inst.sig_power`. So the second window per
+  channel the design note expected needed no change to the engine or to
+  `lsim-py`.
+- **Both engines.** `probe/fs-event-acceleration` goes from
+  `refuse:NEW-FS-EVENT` to `run` (acceptance.toml). It runs on both
+  engines with the same 15 unclassified rows as its base case and no
+  others: the event adds no difference.
+
+  | Row (the FS example's 75 m) | New | Today, 1 ms | Today, 10 ms |
+  |---|---|---|---|
+  | Acceleration time | 3.75372 s | 3.75393 s | 3.75066 s |
+  | Current | 150.2027 A | 150.2022 A | |
+  | Power (500 ms average) | 80.0 kW | 80.0 kW | |
+  | Voltage | 579.6 V | 579.6 V | |
+  | Points | 50 | 50 | |
+
+  The trace endurance (a MoTeC lap repeated to 5 km) against today's 10 ms
+  run:
+
+  | Row | New | Today, 10 ms |
+  |---|---|---|
+  | Endurance energy | 0.64938 kWh | 0.64617 kWh |
+  | Current | 149.74 A | 149.71 A |
+  | Voltage | 589.43 V | 590.14 V |
+  | Power (500 ms average) | 80.0 kW | 80.0 kW |
+- **Tests.** `test_fs_events.py`'s nine tests that need no lap run on the
+  new engine (engine_marks.py: the file's today mark becomes one per lap
+  test):
+  - the scoring formulas;
+  - the 500 ms power rule whatever the check window;
+  - the trace endurance;
+  - an event on the wrong kind of case;
+  - the 22 km laps.
+
+  The eight lap ones stay on today's engine, the oracle.
+  `test_new_engine_flag.py` refuses `NEW-FS-EVENT` on a Lap case with an
+  event (it refused the acceleration before), and checks that the
+  acceleration and a trace endurance are not refused.
+- **Closure.** The acceleration with its event: 1.9e-10 (779 steps, 8
+  events). The trace endurance: 9.9e-12.
+- **The app.** The per-case *FS event* control was never dimmed. The
+  ribbon's *FS events* button stays dimmed: it marks and runs all four
+  events, three of them on Lap cases. `mod43-fs-events.spec.ts` says so,
+  and a new test there sets an Acceleration case's *FS event*. It is
+  checked with eslint and tsc; no browser runs in WSL, so GitHub's checks
+  run it.
+- **Texts.** KNOWN-LIMITS (the `NEW-FS-EVENT` bullet and the points
+  section), the Help page *Score the Formula Student dynamic events* (a
+  *Score the acceleration* section), and RELEASE-NOTES (the refusal's
+  words and a *New* bullet). The skill pack's copy is regenerated.
+- **Checks.** `engine/check.sh` passes (634 tests). Golden: 0
+  differences over 11 347 values, steps and events as before, the worst
+  closure 1.274e-9; the engine is unchanged, so every other case runs the
+  same module as main. The guard, FS and engine-flag tests pass (247), as
+  do `benchmarks/back_to_back/tests` (157); `ruff check .` is clean.

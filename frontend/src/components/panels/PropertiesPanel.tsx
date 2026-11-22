@@ -1113,7 +1113,9 @@ export function ElementForm({
   const win = useOwnerWindow();
   // a dialog over Properties hides its card (the focus can stay behind it)
   const covered = useUIStore((s) => compact && (s.paramDialogId !== null || s.dialog !== null));
-  const helpDef = covered ? undefined : def.parameters.find((p) => p.key === help && p.description);
+  // (a unit chooser open under its row: the card steps aside, so it never
+  // lies over the chooser in a narrow window)
+  const helpDef = covered || unitOpen ? undefined : def.parameters.find((p) => p.key === help && p.description);
   useEffect(() => {
     const el = card.current;
     if (!el?.showPopover) return; // no popovers in jsdom

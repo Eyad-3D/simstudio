@@ -42,12 +42,16 @@ this version, and the reason code names each:
   cases fail with it; its *Acceleration 75 m* case runs. The sections on lap
   mode below describe the older engine's lap solver, which a later version
   ports.
-- **Formula Student events** (`NEW-FS-EVENT`). A case with a Formula
-  Student event set (what the *FS events* button adds) and the *Formula
-  Student points* table that scores such runs: the points table lists only
-  runs that ended, so after a refused run it keeps showing the last
-  stored ones. A plain *Acceleration test* (a case of kind *Acceleration*
-  with no event) runs.
+- **Formula Student events scored from a lap** (`NEW-FS-EVENT`). A Lap
+  case with a Formula Student event set: the skidpad, the autocross and the
+  endurance, which the *FS events* button adds with the acceleration. The
+  *Formula Student points* table lists only runs that ended, so after a
+  refused run it keeps showing the last stored ones. The acceleration runs
+  and scores: an Acceleration case with its *FS event* set to
+  *Acceleration* gets its event time, rule checks and points. So does an
+  endurance driven from a speed trace (a Cycle case with *FS event*
+  *Endurance*), which reports its energy and rule checks but no points, as
+  before.
 
 A battery built from cells (*Defined By: Cells*) runs, in a full run and in
 quick mode (it was refused with `NEW-CELLS` until it was ported).
@@ -428,9 +432,10 @@ of power), MOD-09 (heat over an endurance).
 ### Formula Student points are estimates
 
 The *FS event* rows and the *Formula Student points* table score a run
-with the formulas of FS Rules 2026 v1.1 (FSG) D 9. A case with an event set
-does not run in this version (`NEW-FS-EVENT`), so no new run gets these rows
-until it is ported. They are not official results:
+with the formulas of FS Rules 2026 v1.1 (FSG) D 9. In this version only the
+acceleration, and an endurance from a speed trace, get these rows: a Lap
+case with an event set does not run (`NEW-FS-EVENT`). They are not official
+results:
 
 - Only FSG 2026 scoring is built in. FSUK and FSAE use other maximum
   points and formulas, and a season's rules can change them.

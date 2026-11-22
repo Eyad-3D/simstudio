@@ -8,6 +8,7 @@ import {
   rowName,
   sortRows,
   statusText,
+  STATUS_COLOR,
   type RunRow,
   type Sort,
   type SortKey,
@@ -105,12 +106,12 @@ export function RunsTable({
               const shown = r.id === shownId;
               const on = shown || drawn.has(r.id);
               const label = runLabel(r);
-              const status = statusText(r);
+              const status = reading.has(r.id) ? "reading…" : statusText(r);
               return (
                 <tr
                   key={r.id}
                   aria-current={shown || undefined}
-                  className={`cursor-pointer ${shown ? "bg-[color:var(--ss-active)]" : "hover:bg-[color:var(--ss-hover)]"}`}
+                  className={`cursor-pointer ${shown ? "bg-[color:var(--ss-accent-soft)]" : "hover:bg-[color:var(--ss-hover)]"}`}
                   title={shown ? `${label} — the run shown` : `${label} — click to show it first`}
                   onClick={(e) => {
                     if ((e.target as HTMLElement).closest("input, button")) return;
@@ -149,10 +150,11 @@ export function RunsTable({
                   {named && <td className="ss-td max-w-[220px] truncate">{rowName(r)}</td>}
                   <td className="ss-td max-w-[140px] truncate">{r.caseName}</td>
                   <td
-                    className={`ss-td whitespace-nowrap ${status === "success" ? "text-[color:var(--ss-text-dim)]" : "text-[color:var(--ss-warn)]"}`}
+                    className="ss-td whitespace-nowrap"
+                    style={{ color: STATUS_COLOR[status] ?? STATUS_COLOR.warning }}
                     title={r.incomplete}
                   >
-                    {reading.has(r.id) ? "reading…" : status}
+                    {status}
                   </td>
                   {cols.map((c) => {
                     const sv = figureOf(r, c);

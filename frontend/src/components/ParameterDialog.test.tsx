@@ -38,6 +38,9 @@ test("the battery shows only the fields of the way it is defined (MOD-08)", asyn
   act(() => root.render(<ParameterDialog />));
   const text = () => document.body.textContent ?? "";
   expect(text()).toContain("Series Resistance R0");
+  // the search row sits at the top of the dialog's scroll area, which keeps
+  // room for it (index.css .ss-param-scroll)
+  expect(document.querySelector(".ss-param-scroll > div > .ss-param-tools")).not.toBeNull();
   expect(text()).not.toContain("Cells in Series");
   element.parameterOverrides = { pack_model: "Cells" };
   act(() => setProject());
