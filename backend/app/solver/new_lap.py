@@ -385,8 +385,8 @@ def lap_result(project, case, ctx, lm, run, books: dict, lap, messages: list, st
     from .keys import fill_keys
     from .labfig import lab_base
     from .new_engine import _duty, _flows, _tables
-    from .references import check_references
-    from .reports import make_reports
+    from .references import check_references, hand_checks
+    from .reports import RunRecorder, make_reports
     from .runtime import usable_energy_left_wh
     from .verdict import beyond_data, terminal_checks
 
@@ -494,6 +494,7 @@ def lap_result(project, case, ctx, lm, run, books: dict, lap, messages: list, st
     # ---- the reports: the energy pass's books part by part (Run.energy) and
     # each channel's integrals over the stretches, into the full path's code
     integ = stretch_integrals(times, raw, vmin, vmax, vmean)
+    integ.update(motor_currents(run, ctx, inst, times))
     ev = Evidence.of_context(ctx, energy_report=getattr(case, "energyReport", True))
     dist = _col(raw, f"{ctx.veh_id}:sig_distance") if ctx.veh_id else []
     ev.distance = dist[-1] if dist else 0.0
@@ -501,7 +502,7 @@ def lap_result(project, case, ctx, lm, run, books: dict, lap, messages: list, st
     ev.flows = _flows(model, inst, books_all, integ, {})
     ev.time_s = ev.duty_s = times[-1] - times[0]
     ev.duty = _duty(ctx, inst, integ)
-    ev.lanes = []
+    ev.lanes = lap_lanes(RunRecorder(ctx).lanes, times, raw.get(f"{model.track}:sig_limit", []))
     ev.residual_wh = abs(books_all.get("closure_J", 0.0)) / 3600.0
     ev.throughput_wh = books_all.get("throughput_J", 0.0) / 3600.0
     ev.vsource_energy_wh = ctx.vsource_energy_wh
@@ -580,7 +581,8 @@ def lap_result(project, case, ctx, lm, run, books: dict, lap, messages: list, st
     return SimResult(caseId=case_id, status=core.status_of(messages, stopped), channels=channels,
                      summary=summary, messages=messages,
                      partEnergy=energy_flows(ev.flows, ev.time_s), energy=energy, duty=duty,
-                     limits=limits, references=check_references(case.references, summary))
+                     limits=limits,
+                     references=check_references(case.references, summary) + hand_checks(ev, channels))
 
 
 def stretch_integrals(times: list[float], raw: dict, vmin: dict, vmax: dict,
@@ -602,6 +604,48 @@ def stretch_integrals(times: list[float], raw: dict, vmin: dict, vmax: dict,
                      "max": float(np.max(np.asarray(vmax[name], dtype=float))),
                      "min": float(np.min(np.asarray(vmin[name], dtype=float)))}
     return out
+
+
+def motor_currents(run, ctx, inst: dict, times: list[float]) -> dict[str, dict[str, float]]:
+    """Each motor's DC current's integrals (its duty's row), from the
+    engine's own variable at the lap's points (the line between them: the
+    lap's resolution). The channels have no such port."""
+    eng = run.engine_channels
+    raw, vmin, vmax, vmean = {}, {}, {}, {}
+    for el_id in ctx.motors:
+        name = f"{inst.get(el_id, el_id)}.i"
+        if name not in eng or len(eng[name]) != len(times):
+            continue
+        v = [float(x) for x in eng[name]]
+        raw[name] = v
+        vmean[name] = [v[0]] + [(a + b) / 2.0 for a, b in zip(v, v[1:])]
+        vmin[name] = [v[0]] + [min(a, b) for a, b in zip(v, v[1:])]
+        vmax[name] = [v[0]] + [max(a, b) for a, b in zip(v, v[1:])]
+    return stretch_integrals(times, raw, vmin, vmax, vmean)
+
+
+# what held the car back on a stretch (lsim-lap's code) as the full path's
+# limit states (reports.LIMIT_STATES): the tyres' grip, cornering or
+# traction, is "grip"; the motors, their top speed among it, "machine"; the
+# battery "supply"; the Output Power Limit "set_limit"; no code: "demand"
+CODE_STATE = {1: 1, 2: 1, 3: 4, 4: 3, 5: 2, 6: 0, 7: 5, 8: 4}
+
+
+def lap_lanes(lanes: list, times: list[float], code: list[float]) -> list:
+    """Each driveline's limit band (reports.Lane) from the Limit channel:
+    one speed profile for the whole car, so every driveline has its
+    stretch's state; a point's code names the stretch before it."""
+    from .reports import LIMIT_STATES
+
+    for lane in lanes:
+        lane.seconds, lane.changes, lane.state = [0.0] * len(LIMIT_STATES), [], -1
+        for k in range(1, min(len(times), len(code))):
+            state = CODE_STATE.get(int(code[k]), LIMIT_STATES.index("demand"))
+            lane.seconds[state] += times[k] - times[k - 1]
+            if state != lane.state:
+                lane.changes.append((times[k - 1], state))
+                lane.state = state
+    return lanes
 
 
 def lap_rows(lap, books: dict, ctx) -> list[tuple[str, float, str, str]]:
