@@ -14,24 +14,15 @@ export const SIDES: PortSide[] = ["left", "top", "right", "bottom"];
 export const physicalPorts = (def: ComponentDef): PortDef[] => def.ports.filter((p) => p.kind !== "signal");
 
 /** Every drawn port's place: the one saved with the part, else spread evenly
- *  along the side the library gives it. `preview` puts one port elsewhere. */
-export function portPlaces(
-  el: ElementInstance,
-  def: ComponentDef,
-  preview?: { portId: string; place: Place } | null,
-): Record<string, Place> {
+ *  along the side the library gives it. */
+export function portPlaces(el: ElementInstance, def: ComponentDef): Record<string, Place> {
   const bySide: Record<PortSide, PortDef[]> = { left: [], right: [], top: [], bottom: [] };
-  for (const p of physicalPorts(def)) {
-    const side = preview?.portId === p.id ? preview.place.side : el.portSides?.[p.id] ?? ((p.side as PortSide) || "left");
-    bySide[side].push(p);
-  }
+  for (const p of physicalPorts(def)) bySide[el.portSides?.[p.id] ?? ((p.side as PortSide) || "left")].push(p);
   const out: Record<string, Place> = {};
   for (const side of SIDES)
     bySide[side].forEach((p, i, list) => {
       const stored = el.portOffsets?.[p.id];
-      const frac =
-        preview?.portId === p.id ? preview.place.frac : typeof stored === "number" ? stored : (i + 1) / (list.length + 1);
-      out[p.id] = { side, frac };
+      out[p.id] = { side, frac: typeof stored === "number" ? stored : (i + 1) / (list.length + 1) };
     });
   return out;
 }
@@ -59,7 +50,8 @@ export function portSpot(want: number, others: number[], length: number): number
     for (let k = 1; k < n; k++) {
       const f = k / n;
       if (others.some((o) => Math.abs(o - f) * length < PORT_GAP)) continue;
-      if (best === null || Math.abs(f - want) < Math.abs(best - want)) best = f;
+      // (of two as near, the first along the side)
+      if (best === null || Math.abs(f - want) < Math.abs(best - want) - 1e-9) best = f;
     }
     if (best !== null) return best;
   }
@@ -92,7 +84,7 @@ export function placesAfterMove(
   portId: string,
   place: Place,
 ): { portSides: Record<string, PortSide>; portOffsets: Record<string, number> } {
-  const places = portPlaces(el, def, { portId, place });
+  const places = { ...portPlaces(el, def), [portId]: place };
   const portSides: Record<string, PortSide> = {};
   const portOffsets: Record<string, number> = {};
   for (const [id, p] of Object.entries(places)) {

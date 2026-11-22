@@ -59,6 +59,14 @@ sections.
   same box with only the parts that port can be wired to: Enter places the
   part already wired, in one undo step
   ([Your first electric car](help/tutorials/first-electric-car.md#3-start-a-blank-project-and-add-the-parts)).
+- **Wires find their own way** on the diagram: straight stretches with
+  rounded corners, round the parts and their names, apart from each other,
+  crossing only where going round would be much longer. Shift+drag a port
+  to move it round its part (it snaps to free places; one undo step), and
+  right-click the part for **Reset port places**. The four examples' ports
+  are placed so their wires cross little or not at all; only where ports
+  are drawn changed, not the models or their results
+  ([Your first electric car](help/tutorials/first-electric-car.md#4-wire-the-power-path)).
 - **Formula Student scoring without a lap** runs on the new engine: an
   Acceleration case with its *FS event* set gets the event time, the rule
   checks (80 kW on the rules' 500 ms average, 500 A, 600 V) and the points

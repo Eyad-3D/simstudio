@@ -131,6 +131,12 @@
           "parameterOverrides": {
             "max_torque_Nm": 300,
             "inertia_kgm2": 0.01
+          },
+          "portSides": {
+            "flange": "right"
+          },
+          "portOffsets": {
+            "flange": 0.5
           }
         },
         {
@@ -141,7 +147,19 @@
             "x": 545,
             "y": 130
           },
-          "parameterOverrides": {}
+          "parameterOverrides": {},
+          "portSides": {
+            "f1": "right",
+            "f2": "left",
+            "f3": "right",
+            "f4": "top"
+          },
+          "portOffsets": {
+            "f1": 0.6667,
+            "f2": 0.5,
+            "f3": 0.3333,
+            "f4": 0.5
+          }
         },
         {
           "id": "el-wheel-rl",
@@ -163,6 +181,12 @@
             "mu_load_sensitivity_per_kN": -0.2,
             "mu_nominal_load_N": 700,
             "friction_ellipse_exponent": 2
+          },
+          "portSides": {
+            "shaft": "right"
+          },
+          "portOffsets": {
+            "shaft": 0.5
           }
         },
         {
@@ -208,6 +232,14 @@
             "power_limit_window_s": 0.5,
             "voltage_class_V": 600,
             "power_limit_enforced": true
+          },
+          "portSides": {
+            "pos": "top",
+            "neg": "right"
+          },
+          "portOffsets": {
+            "pos": 0.5,
+            "neg": 0.5
           }
         },
         {
@@ -591,6 +623,12 @@
           "parameterOverrides": {
             "max_torque_Nm": 300,
             "inertia_kgm2": 0.01
+          },
+          "portSides": {
+            "flange": "right"
+          },
+          "portOffsets": {
+            "flange": 0.5
           }
         },
         {
@@ -601,7 +639,19 @@
             "x": 545,
             "y": 560
           },
-          "parameterOverrides": {}
+          "parameterOverrides": {},
+          "portSides": {
+            "f1": "right",
+            "f2": "left",
+            "f3": "right",
+            "f4": "top"
+          },
+          "portOffsets": {
+            "f1": 0.3333,
+            "f2": 0.5,
+            "f3": 0.6667,
+            "f4": 0.5
+          }
         },
         {
           "id": "el-wheel-rr",
@@ -623,6 +673,12 @@
             "mu_load_sensitivity_per_kN": -0.2,
             "mu_nominal_load_N": 700,
             "friction_ellipse_exponent": 2
+          },
+          "portSides": {
+            "shaft": "right"
+          },
+          "portOffsets": {
+            "shaft": 0.5
           }
         }
       ],

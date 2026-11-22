@@ -232,7 +232,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
 
   // physical ports only — signal / data-bus wiring is managed in the
   // Data Bus Connections panel and is not drawn on the canvas
-  const places = portPlaces(element, def, preview);
+  const places = preview ? { ...portPlaces(element, def), [preview.portId]: preview.place } : portPlaces(element, def);
   const bySide: Record<PortSide, PortDef[]> = { left: [], right: [], top: [], bottom: [] };
   for (const p of physicalPorts(def)) bySide[places[p.id].side].push(p);
   const fracOf = (p: PortDef): number => places[p.id].frac;

@@ -8,12 +8,15 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
+from test_new_engine_flag import needs_engine
 
 from app import storage
 from app.main import app
 from app.migrations import CURRENT_VERSION
 from app.paths import EXAMPLES_DIR
 from app.schemas import Project
+from app.solver import simulate
+from app.storage import load_example
 from app.validation import validate_project
 from app.version import VERSION
 
@@ -227,3 +230,20 @@ def test_an_acceleration_case_is_saved_with_its_line_and_reference(tmp_path):
     saved = next(c for c in on_disk["cases"] if c["id"] == "case-accel")
     assert (saved["kind"], saved["endDistance"], saved["startLine"], saved["referenceTime"]) == (
         "acceleration", 75.0, 0.3, 4.3)
+
+
+@needs_engine
+def test_moved_ports_change_the_drawing_only():
+    """Where a port is drawn on its part (portSides, portOffsets: moved with
+    Shift+drag) is layout only: a project with moved ports loads, runs and
+    gives the same results as the same project with none moved."""
+    moved = load_example("bev-car")  # the shipped file has moved ports
+    assert any(e.portSides and e.portOffsets for s in moved.systems for e in s.elements)
+    plain = moved.model_copy(deep=True)
+    for s in plain.systems:
+        for e in s.elements:
+            e.portSides, e.portOffsets = {}, {}
+    a = simulate(moved, "case-city")
+    b = simulate(plain, "case-city")
+    assert a.status == "success"
+    assert a.model_dump(mode="json") == b.model_dump(mode="json")

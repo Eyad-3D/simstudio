@@ -152,7 +152,12 @@ describe("the wire router", () => {
       const ms = (performance.now() - t0) / runs;
       const segs = segments(r, wires);
       const through = segs.reduce((n, s) => n + parts.reduce((m, q) => m + inside(s, q.box), 0), 0);
-      console.log(`${name}: ${parts.length} parts, ${wires.length} wires, ${ms.toFixed(1)} ms, ${crossings(segs)} crossings, ${overlaps(segs)} overlaps, ${through} units through parts`);
+      const length = segs.reduce((n, s) => n + Math.abs(s.b.x - s.a.x) + Math.abs(s.b.y - s.a.y), 0);
+      const bends = wires.reduce((n, w) => n + r[w.id].length - 2, 0);
+      console.log(
+        `${name}: ${parts.length} parts, ${wires.length} wires, ${ms.toFixed(1)} ms, ${crossings(segs)} crossings, ` +
+          `${overlaps(segs)} overlaps, ${through} units through parts, length ${Math.round(length)}, ${bends} bends`,
+      );
       expect(overlaps(segs)).toBe(0);
       expect(through).toBe(0);
       expect(ms).toBeLessThan(250);
