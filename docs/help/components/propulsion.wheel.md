@@ -69,8 +69,8 @@ energy is booked as its slip loss.
   Vehicle: it carries no load, passes no force and takes no share of the
   weight. The shares are scaled over the connected Wheels only. A model
   with no Vehicle gives the same.
-- Lap cases do not run in this version, so *Lateral Friction μ_y* and the
-  *Friction Ellipse Exponent* are not used by any case that runs.
+- *Lateral Friction μ_y* and the *Friction Ellipse Exponent* are used by
+  lap cases only.
 
 ### Quick mode
 

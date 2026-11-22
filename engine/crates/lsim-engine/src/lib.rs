@@ -118,6 +118,25 @@ pub struct BuildReport {
     pub warnings: Vec<Diagnostic>,
 }
 
+/// Where a part's entries are among [`Model::books_quantities`]: its power
+/// in, its loss and its stored energy (the last two where it declares them).
+pub type BookEntry = (usize, Option<usize>, Option<usize>);
+
+/// A fast run's energy books ([`Model::books`]), J.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FastBooks {
+    /// net energy the boundary parts (sources) delivered into the model
+    pub supplied: f64,
+    /// energy lost to heat
+    pub lost: f64,
+    /// change of the stored energy, from the states at the run's ends
+    pub stored_change: f64,
+    /// supplied - lost - stored_change
+    pub closure: f64,
+    /// half the sum of every part's ∫ |power in| dt
+    pub throughput: f64,
+}
+
 /// A model ready to run.
 pub struct Model {
     /// the prepared model (names, units, origins)
@@ -652,6 +671,25 @@ impl Model {
         record: Option<&[usize]>,
         blocks: &mut [lsim_fast::BoundBlock],
     ) -> Result<FastResult, RunError> {
+        self.fast_from(params, None, traces, o, record, blocks, &[])
+    }
+
+    /// Fast mode as [`Self::fast_with`], from the state `start` (`y = [x;
+    /// z]` and the discrete values, a run's [`FastResult::end_y`] and
+    /// `end_d`: a lap goes on from the last; `None`: the model's consistent
+    /// start), integrating the quantities `integrate` over the run
+    /// ([`FastResult::integrals`]: a lap's energy books, [`Self::books`]).
+    #[allow(clippy::too_many_arguments)]
+    pub fn fast_from(
+        &self,
+        params: &[f64],
+        start: Option<(&[f64], &[f64])>,
+        traces: &[Trace],
+        o: &FastOptions,
+        record: Option<&[usize]>,
+        blocks: &mut [lsim_fast::BoundBlock],
+        integrate: &[Expr],
+    ) -> Result<FastResult, RunError> {
         if self.inverse.is_none() {
             return Err(RunError::Mode(
                 "this model was built for full dynamic runs; build its inverse model for fast mode"
@@ -672,7 +710,15 @@ impl Model {
                 blocks.len()
             )));
         }
-        let (y0, d0) = self.fast_start(params, traces, o)?;
+        let (y0, d0) = match start {
+            Some((y, d))
+                if y.len() == self.jit.layout().n_y() && d.len() == self.jit.layout().n_d =>
+            {
+                (y.to_vec(), d.to_vec())
+            }
+            Some(_) => return Err(RunError::Param("a start state of the wrong size".into())),
+            None => self.fast_start(params, traces, o)?,
+        };
         let m = Started::with_start(&self.jit, y0, d0);
         let prob = FastProblem {
             model: &m,
@@ -688,8 +734,123 @@ impl Model {
             inputs: &self.inputs,
             whens: &self.whens,
             modes: &self.modes,
+            integrate,
         };
         Ok(lsim_fast::run(&prob, blocks)?)
+    }
+
+    /// The quantities a fast run integrates for the energy books
+    /// ([`Self::fast_from`]'s `integrate`): each part's power in and, where
+    /// it declares them, its loss and stored energy, in that order, and for
+    /// each part where its entries are (power, loss, stored).
+    pub fn books_quantities(&self) -> (Vec<Expr>, Vec<BookEntry>) {
+        let mut q = vec![];
+        let mut at = vec![];
+        for part in self.info.energy.iter().flat_map(|e| e.parts.iter()) {
+            let power = q.len();
+            q.push(part.power.clone());
+            let loss = part.loss.as_ref().map(|l| {
+                q.push(l.clone());
+                q.len() - 1
+            });
+            let stored = part.stored.as_ref().map(|s| {
+                q.push(s.clone());
+                q.len() - 1
+            });
+            at.push((power, loss, stored));
+        }
+        (q, at)
+    }
+
+    /// A fast run's energy books from its integrals of
+    /// [`Self::books_quantities`] (as a full run's: the boundary parts'
+    /// supply, the losses, the change of stored energy from the states at
+    /// the run's ends, the closure and the throughput, J; the closure is
+    /// the quadrature's error and the parts' disagreement with their
+    /// equations together).
+    pub fn books(&self, r: &FastResult) -> FastBooks {
+        let (_, at) = self.books_quantities();
+        let mut b = FastBooks::default();
+        let mut twice = 0.0;
+        for (power, loss, stored) in at {
+            let get = |v: &Vec<f64>, k: usize| v.get(k).copied().unwrap_or(0.0);
+            twice += get(&r.integrals_abs, power);
+            if loss.is_none() && stored.is_none() {
+                b.supplied -= get(&r.integrals, power);
+                continue;
+            }
+            b.lost += loss.map_or(0.0, |k| get(&r.integrals, k));
+            b.stored_change += stored.map_or(0.0, |k| get(&r.q_end, k) - get(&r.q_start, k));
+        }
+        b.throughput = 0.5 * twice;
+        b.closure = b.supplied - b.lost - b.stored_change;
+        b
+    }
+
+    /// A fast run's books part by part, as a full run's
+    /// ([`lsim_solve::EnergyBooks`]) from its integrals of
+    /// [`Self::books_quantities`]: each part's energy in, throughput, loss
+    /// and stored energy's change (from the states at the run's ends; a fast
+    /// run has no events that change it, so that is its integral too). No
+    /// series on the output grid.
+    pub fn fast_energy_books(&self, r: &FastResult) -> lsim_solve::EnergyBooks {
+        let (_, at) = self.books_quantities();
+        let get = |v: &Vec<f64>, k: usize| v.get(k).copied().unwrap_or(0.0);
+        let mut parts = vec![];
+        for (part, (power, loss, stored)) in
+            self.info.energy.iter().flat_map(|e| e.parts.iter()).zip(at)
+        {
+            let energy_in = get(&r.integrals, power);
+            let lost = loss.map_or(0.0, |k| get(&r.integrals, k));
+            let stored_change = stored.map_or(0.0, |k| get(&r.q_end, k) - get(&r.q_start, k));
+            let declared = loss.is_some() || stored.is_some();
+            parts.push(lsim_solve::PartBooks {
+                path: part.path.clone(),
+                name: part.name.clone(),
+                declared,
+                energy_in,
+                throughput: get(&r.integrals_abs, power),
+                lost,
+                stored_change,
+                stored_integral: stored_change,
+                closure: if declared { energy_in - lost - stored_change } else { 0.0 },
+                ..Default::default()
+            });
+        }
+        let b = self.books(r);
+        lsim_solve::EnergyBooks {
+            parts,
+            supplied: b.supplied,
+            lost: b.lost,
+            stored_integral: b.stored_change,
+            stored_change: b.stored_change,
+            throughput: b.throughput,
+            closure: b.closure,
+            relative_closure: if b.throughput > 0.0 { b.closure.abs() / b.throughput } else { 0.0 },
+            error_controlled: true,
+            ..Default::default()
+        }
+    }
+
+    /// One instant of this inverse model at a time, its states held at
+    /// `y` and `d` (a run's end: a lap's start), with parameters `params`.
+    pub fn point_solver_at(
+        &self,
+        params: &[f64],
+        y: Vec<f64>,
+        d: Vec<f64>,
+    ) -> lsim_fast::PointSolver<'_> {
+        lsim_fast::PointSolver::new(
+            &self.jit,
+            params,
+            y,
+            d,
+            &self.info.y_nominal,
+            &self.inputs,
+            &self.limits,
+            &self.ders,
+            FastOptions::default().newton_tol,
+        )
     }
 
     /// One instant of this inverse model at a time (a lap case's

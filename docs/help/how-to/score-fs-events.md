@@ -1,16 +1,5 @@
 # Score the Formula Student dynamic events
 
-**Three of the four events do not run in this version of LightSim yet.**
-The skidpad, the autocross and the endurance are scored from Lap cases,
-which the app's engine does not run yet: the **FS events** button and the
-endurance energy study are not shown in this version, and a Lap case fails
-with `Not run [NEW-FS-EVENT]` (with an event set) or `Not run [NEW-LAP]`.
-The acceleration runs and scores: see
-[Score the acceleration](#score-the-acceleration). An endurance driven from
-an imported lap (a Cycle case) also runs and gives its energy and rule
-checks. A later version ports the lap events; what the page says about them
-is how they worked on the older engine.
-
 LightSim can run the four dynamic events of an electric Formula Student
 car and estimate their points, so you can judge a design change in
 competition points instead of seconds. The scoring follows Formula Student
@@ -123,8 +112,8 @@ The *Endurance energy study* shows how pack size and power cap trade off.
 2. Under **Endurance energy study**, type the accumulator capacities
    (kWh) and the Output Power Limits (kW) to try, up to 6 of each,
    separated by commas.
-3. Click **Run**. Each pair runs the whole endurance, about 10 s each:
-   a 4 × 4 grid takes about 3 min.
+3. Click **Run**. Each pair runs the whole endurance, about 7 s each:
+   a 4 × 4 grid takes about 2 min.
 4. The map shows one figure for every pair: pick it in **Show** (the
    endurance energy, the net battery energy, the time, the points, the
    RMS battery power or the lowest pack voltage). A pair whose pack ran

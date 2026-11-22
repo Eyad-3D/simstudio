@@ -177,7 +177,7 @@ def test_the_power_rule_is_judged_on_500_ms_whatever_the_check_window():
 
 
 def test_running_out_of_energy_does_not_finish():
-    proj = fs_car("Autocross", 6, battery={"capacity_kWh": 1.0, "output_power_limit_kW": 80})
+    proj = fs_car("Autocross", 6, battery={"capacity_kWh": 0.6, "output_power_limit_kW": 80})
     case = proj.cases[0]
     case.fsEvent, case.referenceTime, case.referenceEnergy = "endurance", 300.0, 2.0
     r = simulate(proj, "case")
@@ -235,11 +235,12 @@ def test_lift_and_coast_trades_lap_time_for_energy():
     assert energies == sorted(energies, reverse=True) and len(set(energies)) == len(energies)
 
 
-@pytest.mark.parametrize("target", [5.0, 4.5])
+@pytest.mark.parametrize("target", [3.0, 2.8])
 def test_an_energy_target_is_met_within_2_percent(target):
     """The item's metric: on the FS example's endurance (23 laps, 30 kW),
-    the strategy ends within 2 % of the energy target (5.0 kWh: −0.54 %,
-    4.5 kWh: −0.22 %, against 5.33 kWh with no lift-and-coast)."""
+    the strategy ends within 2 % of the energy target (3.0 kWh and 2.8 kWh,
+    against 3.36 kWh with no lift-and-coast and about 2.3 kWh with it in
+    full)."""
     _, r = _endurance({"energy_target_kWh": target})
     assert r.status == "success", [m.text for m in r.messages if m.level != "info"]
     rows = _rows(r)
@@ -251,7 +252,7 @@ def test_an_energy_target_is_met_within_2_percent(target):
 
 
 def test_an_energy_target_out_of_reach_says_so():
-    _, r = _endurance({"energy_target_kWh": 2.0})
+    _, r = _endurance({"energy_target_kWh": 1.5})
     rows = _rows(r)
     assert rows["Lift-and-coast, mean share"].value == 100
     assert rows["Energy used against the target"].value > 2.0

@@ -1,11 +1,9 @@
-// MOD-44: an energy target on the FS example's endurance case (lap mode
-// lifts and coasts before the braking points to end within 2 % of it). Lap
-// cases do not run in this version (NEW-LAP, until they are ported): the run
-// says so.
+// MOD-44: an energy target on the FS example's endurance case: lap mode
+// lifts and coasts before the braking points to end within 2 % of it.
 import { expect, test } from "@playwright/test";
-import { expectRefused, openApp, openFromMenu, showPanel } from "./app";
+import { openApp, openFromMenu, openSummary, showPanel, showResults } from "./app";
 
-test("MOD-44: an endurance takes its energy target, and its run is refused", async ({ page }) => {
+test("MOD-44: an endurance ends within 2 % of its energy target", async ({ page }) => {
   test.setTimeout(120_000);
   await openApp(page);
   await openFromMenu(page, "FS Electric (generic)");
@@ -15,7 +13,17 @@ test("MOD-44: an endurance takes its energy target, and its run is refused", asy
     .locator("label", { hasText: /^Energy target/ })
     .locator("input")
     .fill("5");
-  await expect(page.locator("label", { hasText: /^Energy target/ }).locator("input")).toHaveValue("5");
   await page.getByRole("button", { name: "Run case" }).click();
-  await expectRefused(page, "NEW-LAP");
+  await showResults(page);
+  await openSummary(page);
+  const row = page.getByRole("row", {
+    name: /^Energy used against the target/,
+  });
+  await expect(row).toBeVisible({ timeout: 60_000 });
+  // the row's cells: label, value, then min, max and mean (— here) and the unit
+  const cells = await row.locator("td, th").allInnerTexts();
+  expect(cells.at(-1)?.trim()).toBe("%");
+  const pct = Number(cells[1].replace("−", "-"));
+  expect(Math.abs(pct)).toBeLessThan(2);
+  await expect(page.getByRole("row", { name: /^Lift-and-coast, mean share/ })).toBeVisible();
 });

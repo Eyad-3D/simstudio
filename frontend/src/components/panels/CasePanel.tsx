@@ -12,6 +12,7 @@ import { useNow } from "../useNow";
 import { FS_EVENT_NAMES, FS_EVENTS } from "../../fsEvents";
 import type { FsEvent } from "../../types";
 import { FsPoints } from "./FsPoints";
+import { EnduranceStudy } from "./EnduranceStudy";
 import { ExpectedValuesEditor } from "./ExpectedValues";
 
 // Only scalar parameters are editable as per-case overrides here; tables and
@@ -464,11 +465,6 @@ export function CasePanel() {
               <option value="lap">Lap</option>
             </select>
           </label>
-          {activeCase.kind === "lap" && (
-            <p className="text-meta text-[color:var(--ss-text-dim)]">
-              Lap cases do not run in this version of LightSim yet: Run fails with Not run [NEW-LAP].
-            </p>
-          )}
           <label
             className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
             title="Every run of this case gets an Energy view in Results: where the battery's or fuel's energy went, as a Sankey chart and a table per part, and Energy labels on the diagram."
@@ -660,8 +656,7 @@ export function CasePanel() {
         </div>
 
         <FsPoints />
-        {/* (the endurance energy study is not offered: an endurance is a lap
-            case, which this version does not run, Not run [NEW-LAP]) */}
+        {activeCase.fsEvent === "endurance" && <EnduranceStudy key={activeCase.id} simCase={activeCase} />}
         <ExpectedValuesEditor c={activeCase} />
 
         {/* -- per-case overrides ------------------------------------------- */}

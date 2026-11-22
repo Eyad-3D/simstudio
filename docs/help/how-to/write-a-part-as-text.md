@@ -49,7 +49,8 @@ engine with `LIGHTSIM_ENGINE=today` still gets such a case on the new one.)
 
 A case the new engine does not run fails instead of running the built-in
 part in the file's place: its message gives the reason's code and
-`NEW-TEXT` (for example `Not run [NEW-LAP] [NEW-TEXT]` for a lap case). A
+`NEW-TEXT` (for example `Not run [NEW-LIMITS] [NEW-TEXT]` for a value
+outside its limits). A
 file that cannot be read, or one outside your projects folder, fails the
 run with `NEW-TEXT`; a text that does
 not fit the part fails with the engine's code:

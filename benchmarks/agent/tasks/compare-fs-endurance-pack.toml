@@ -30,9 +30,10 @@ ops = [
   { op = "set", element = "Vehicle", param = "mass_kg", value = 262 },
 ]
 
-# The lighter car's "total time" is shorter, but it stops 2 km short.
+# The lighter car's "total time" is shorter (1314.7 s), but it stops 1.94 km
+# short (20.56 km of 22.5 km; the 14 Ah car drives all 22.5 km).
 [wrong]
-answer = "ANSWER: B; 1296.5"
+answer = "ANSWER: B; 1314.7"
 
 [[answer]]
 choice = "A"
@@ -40,6 +41,6 @@ options = { A = "car-a.json", B = "car-b.json" }
 best = { case = "Endurance energy", key = "distance_km", pick = "max" }
 
 [[answer]]
-value = 1428.53
+value = 1453.18
 rtol = 0.01
 figure = { file = "car-a.json", case = "Endurance energy", key = "total_time_s" }

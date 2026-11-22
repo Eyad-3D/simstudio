@@ -1,9 +1,9 @@
 # Calibrate lap mode on a logged lap
 
 The fit and the check run on the app's engine: the speed it predicts for a
-lap comes from your car as the engine models it. One part waits for lap
-cases on the engine (`NEW-LAP`): the check lap's **energy** error is not
-given yet, and the results say so.
+lap comes from your car as the engine models it. The check also gives the
+check lap's energy, from that lap's energy pass, and the **energy** error
+when the log has pack power.
 
 Lap mode's lap times are usually optimistic: it drives an ideal line at
 the tyres' limit. If your car has driven a lap with a data logger, you can
@@ -38,8 +38,8 @@ out. The files stay on your computer.
      sensitivity together) and the downforce area CzA (m²);
    - for each lap, the logged and the predicted lap time, the time error,
      the speed trace's RMS error (km/h, the typical gap between the two
-     speed traces). The energy error comes once lap cases run on the
-     app's engine.
+     speed traces), and the check lap's energy (kWh) and, when the log
+     has pack power, its energy error.
 6. Click **Apply to the model** to put the fitted grip and CzA in your
    car (one undo), or **Close** to leave it as it is.
 

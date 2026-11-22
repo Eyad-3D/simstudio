@@ -6,8 +6,6 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 
 ## Does not run in this version
 
-- **Lap cases** (`NEW-LAP`).
-- **Formula Student events scored from a lap** (`NEW-FS-EVENT`).
 - **Data laid out across rows** (an axis along row 1 and its values along row 2) instead of down columns: transpose it in Excel first.
 - **Several tables without labels** : they are not put together; the preview reads one at a time.
 - **Two tables touching** with no empty row or column between them are read as one; a list whose columns have an empty column between them is read as two tables.
@@ -55,7 +53,7 @@ A battery delivers power up to its maximum-power point (the most its resistance 
 
 ### Lap mode is a quasi-steady-state estimate
 
-**This does not run in this version** (`NEW-LAP`, see Does not run in this version); what follows describes the lap solver of the older engine, which a later version ports.
+- **Where the car cannot follow the lap's profile** , because a battery gives less than the lap's start assumed (its charge falls during the lap, and with it the most it can give), the rest of the lap is solved again from the car's state there, the battery held a further 0.5 % of its charge lower each time, at…
 
 ### Formula Student points are estimates
 
@@ -67,7 +65,7 @@ A Race Track's *Lift-and-Coast* and *Energy Target* (MOD-44) save energy only by
 
 ### Imported laps are drive cycles against time
 
-**Import lap** (STD-35) makes a lap from a logger or lap simulator into a drive cycle, which runs as any cycle case does (the *Lap* case kind it can also make does not run in this version, `NEW-LAP`):
+**Import lap** (STD-35) makes a lap from a logger or lap simulator into a drive cycle, which runs as any cycle case does (it can also make a *Lap* case, which runs on the new engine):
 
 ### The Traction Control block is a simple slip loop
 
@@ -75,7 +73,7 @@ The *Traction Control* block (MOD-45) limits one demand for all the motors it fe
 
 ### Lap mode calibration fits two numbers on one lap
 
-**Calibrate lap** (VAL-38) fits the app's engine's lap profile; the check lap's energy error waits for lap cases on the engine (`NEW-LAP`).
+**Calibrate lap** (VAL-38) fits the app's engine's lap profile; its check gives the check lap's energy from that lap's energy pass, and the energy error when the log has pack power.
 
 ### Signal units are checked, not converted
 

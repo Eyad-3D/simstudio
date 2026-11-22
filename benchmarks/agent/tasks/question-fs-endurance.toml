@@ -24,24 +24,24 @@ ops = [
 
 # The finished event of the example's own car.
 [wrong]
-answer = "ANSWER: 22.5; 0.2319"
+answer = "ANSWER: 22.5; 0.2432"
 
 # The energy the accumulator delivered over the 21 laps, without what braking
 # put back: outside the band of both readings.
 [[also_wrong]]
-answer = "ANSWER: 20.557; 0.2741"
+answer = "ANSWER: 20.557; 0.2682"
 
 # The distance of one reading with the energy of the other.
 [[also_wrong]]
-answer = "ANSWER: 20.557; 0.2351"
+answer = "ANSWER: 20.557; 0.2498"
 
 # "Before the accumulator is empty" reads two ways, and both are right: the
 # run's Distance driven (21 laps), or where the charge reaches its 5 %
-# minimum (t = 1263 s), after which the car coasts on. The second reading's
-# distance is the vehicle's distance channel at that moment, 20.023 km. Its
+# minimum (t = 1267 s), after which the car coasts on. The second reading's
+# distance is the vehicle's distance channel at that moment, 19.583 km. Its
 # energy per lap is either the run's own Energy per lap (as the first
 # reading) or the battery's net energy (delivered less recuperated,
-# 4.717 kWh) over the laps up to there, 0.2305 kWh; a test works the
+# 4.997 kWh) over the laps up to there, 0.2498 kWh; a test works the
 # figures out from the run. So there are three right answers, each taken as
 # a whole (also[0] and also[1] are the second and third): the run's
 # distance goes only with the run's energy per lap.
@@ -51,17 +51,17 @@ answer = "ANSWER: 20.557; 0.2351"
 [[answer]]
 value = 20.557
 rtol = 0.01
-also = [{ value = 20.023 }, { value = 20.023 }]
+also = [{ value = 19.583 }, { value = 19.583 }]
 figure = { file = "car.json", case = "Endurance energy", key = "distance_km" }
 
 # The brief names no precision, so the band takes the energy to two decimals:
-# 0.22 is 2.06 % off 0.22462 (the comparison of 6 November failed five tries
-# with the 2 % band it had then). 2.5 % still fails the mixed readings below
-# (0.2319 is 3.2 % off, 0.231 2.8 %). The price: 20.56 with 0.23 (the other
-# energy to two decimals) is 2.4 % off and passes, since two decimals cannot
-# tell the readings' energies apart; a brief that names the precision would.
+# 0.24 is 0.85 % off 0.23797 (the comparison of 6 November failed five tries
+# with a 2 % band, when the key was 0.22462 and 0.22 was 2.06 % off). The two
+# readings' energies, 0.23797 and 0.2498, lie 4.9 % apart, so 2.5 % keeps them
+# apart even to two decimals (0.24 and 0.25), and the mixed readings below
+# fail (0.2498 is 5.0 % off the run's energy, 0.25 5.1 %).
 [[answer]]
-value = 0.22462
+value = 0.23797
 rtol = 0.025
-also = [{ value = 0.2305 }, { value = 0.22462 }]
+also = [{ value = 0.2498 }, { value = 0.23797 }]
 figure = { file = "car.json", case = "Endurance energy", key = "energy_per_lap_kwh" }

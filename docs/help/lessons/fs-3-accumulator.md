@@ -1,14 +1,9 @@
 # Formula Student 3: size the accumulator
 
-**This lesson does not run in this version of LightSim yet.** It sweeps the
-endurance energy case, a lap case, which the app's engine does not run yet
-(`Not run [NEW-LAP]`). A later version ports lap mode; the lesson describes
-how it works then.
-
-The third Formula Student lesson. You trade endurance time against
-energy with the power limit, find how many cells in parallel the car
-needs to finish, and keep the results for your design review. It takes
-about 20 minutes. Do [Formula Student 2](fs-2-endurance.md) first.
+The third Formula Student lesson. You trade endurance time against energy
+with the power limit, find how many cells in parallel the car
+needs to finish, and keep the results for your design review. It
+takes about 20 minutes. Do [Formula Student 2](fs-2-endurance.md) first.
 
 ## 1. Sweep the endurance power limit
 
@@ -19,18 +14,17 @@ uses. Sweep it on the endurance:
 2. Open the *Cases* tab on the right and scroll to *Parameter sweep*.
 3. Choose *Accumulator* and *Output Power Limit (0 = none) (kW)*; set
    **From** 25, **to** 35, **in** 3 steps: 25, 30 and 35 kW.
-4. Click **Run sweep**. The three runs take about half a minute.
+4. Click **Run sweep**. The three runs take about 20 s.
 5. Click **Show results** in the notice it ends with, then **Sweep**
    above the chart, and pick *Total time* in the list next to it; then
    pick *Accumulator — final SOC*.
 
 The swept value takes the place of the case's own 30 kW for each run.
 
-**Check:** the *Total time* is 1,454.700 s at 25 kW, 1,428.53 s at 30 kW
-and 1,407.638 s at 35 kW; the final SOC 34.16 %, 25.02 % and 16.44 %.
+**Check:** the *Total time* is 1,477.550 s at 25 kW, 1,453.18 s at 30 kW
+and 1,433.984 s at 35 kW; the final SOC 31.00 %, 21.58 % and 12.40 %.
 
-Each 5 kW more saves 21 to 26 s over the event and uses about 9 points
-more charge. Where the time is worth more points than the energy depends
+saves 19 to 24 s over the event and uses about 9 points. Where the time is worth more points than the energy depends
 on your event's scoring formulas.
 
 ## 2. How many cells in parallel?
@@ -46,18 +40,18 @@ the 30 kW limit:
    page, or in the study's table under *Saved studies*.
 
 **Check:** with 3 in parallel the run fails: *Messages* says the
-accumulator reached its minimum SOC (5 %) at t = 1326 s, and the car
-stops 347 m into lap 23. With 4 the car finishes with 25.02 % SOC and
-1.34 kWh usable energy left; with 5, 41.04 % and 3.075 kWh.
+accumulator reached its minimum SOC (5 %) at t = 1296 s, and the car
+stops 289 m into lap 22. With 4 the car finishes with 21.58 % SOC and
+1.10 kWh usable energy left; with 5, 38.38 % and 2.840 kWh.
 
-So 3p is too small at 30 kW, and 4p finishes with a margin of 1.34 kWh.
+So 3p is too small at 30 kW, and 4p finishes with a margin of 1.10 kWh.
 Fewer cells in parallel would also make the car lighter and raise the
 accumulator's resistance; the sweep changes only the charge. To see
 both, set the values by hand for a single run.
 
 **Check:** with *Charge Capacity* 10.5 Ah, *Usable Capacity* 5.41 kWh,
 *Series Resistance R0* 0.4 Ω (4/3 of 0.3 Ω) and a *Vehicle Mass* of
-274 kg (six kilograms of cells less), the car still stops in lap 23.
+274 kg (six kilograms of cells less), the car still stops in lap 22.
 
 ## 3. Pick your accumulator
 

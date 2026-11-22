@@ -4118,8 +4118,38 @@ differential (today's pools the driven wheels' grip). On the FS example
 the autocross from rest takes 62.2 s against today's 59.1 s, 87 % of the
 difference on braking stretches, the skidpad 1.7 % longer; the cornering
 speeds are 0.3 to 6.3 % lower, increasingly with speed (STATUS.md, the lap
-port's stage 2). Lap cases' energy pass (fast mode along the profile) is
-the port's stage 3.
+port's stage 2).
+
+A lap case (stage 3, `backend/app/solver/new_lap.py`) solves each lap's
+profile from the car's state where the last lap ended (`lsim_lap::State`:
+the lap model's `y` and discrete values), then drives it: its energy pass is
+fast mode along the profile (`lsim_lap::drive`: the speed, the curvature and
+the grade as traces in time, at most 0.01 s steps, an output point at each
+track point, `FastOptions::output_trace` the curvature's), integrating each
+part's power, loss and stored energy by Simpson's rule over each step
+(`FastProblem::integrate`, `Model::books`), and `lsim_lap::join` joins the
+laps into one run. A stretch the motors at full load or the battery's window
+hold, at either end, is driven in four sub-steps each at the lesser of its
+ends' limits, which the speed trace carries (`Profile::fine`); elsewhere a
+stretch takes the mean of its ends' limits (Heun). A battery that starts a
+lap full is held 0.1 % below full for the profile. In fast mode's inverse
+model the E-Motor takes its current as p / v (v at least 1 V): v · i = p
+let a power of 0 stand at v = 0.
+
+The profile takes the battery's limits at the lap's start. Where the energy
+pass finds the battery giving less than the motors were asked for
+(`lsim_lap::drive_resolving`: a long flag of the motors' supply), the rest of
+that lap's profile is solved again from the car's state at the stretch
+before it (`cut`, `splice`), with the battery's charge taken 0.5 % lower each
+time (`RESOLVE_SOC`), at most `RESOLVES` (3) times a lap; beyond that the
+last pass that ran is kept, flagged, and the lap's rows are not valid, and a
+pass that cannot go on stops the run (`LapError::PassStopped`) with a
+message naming the lap. The reports are a full run's code
+(`new_engine._flows`, `_duty`, `reports.make_reports`, `references.hand_checks`)
+fed from each channel's integrals over the stretches (`stretch_integrals`),
+the per-part books of the energy pass (`Model::fast_energy_books`), each
+motor's current from the engine's own variable at the points, and the limit
+band from the Limit channel, one state a stretch (`new_lap.CODE_STATE`).
 
 ## 11. Outputs, energy books and accuracy reports
 
@@ -4711,8 +4741,9 @@ le.ModelError             # .diagnostics: [{severity, code, message, parts, hint
   starts *Not run*, and nothing falls back to today's engine (the switch-over
   of 17 November 2026, the owner's decision of 20 October, 7 and 16 November:
   the new engine is the app's engine and is in the installer; see
-  `STATUS.md`). Two features are not ported yet and refused so: lap cases
-  (`NEW-LAP`) and Formula Student events (`NEW-FS-EVENT`); a hybrid's
+  `STATUS.md`). Lap cases (`NEW-LAP`) and the Formula Student events
+  scored from one (`NEW-FS-EVENT`) were refused until their port on
+  22 November 2026; a hybrid's
   charge-balanced case was refused too (`NEW-BALANCE`) until it was ported
   on 17 November 2026 (the owner's yes of that day), and a battery built
   from cells (`NEW-CELLS`) until its port on 21 November 2026, and both run

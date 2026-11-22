@@ -14,14 +14,12 @@ takes effect on the next run, and the result's note of it says so with the
 code NEW-LIVE-NEXT-RUN). The result says which engine ran it, its version,
 its solver options and the live edits it took (``replay`` makes them
 again). A case the new engine does not run, or that it refuses or stops,
-fails with a stable reason code in brackets (``[NEW-LAP]``; CODES lists
+fails with a stable reason code in brackets (``[NEW-CASE-KIND]``; CODES lists
 them, and benchmarks/back_to_back counts them): nothing runs on today's
-engine instead. Two features are not ported yet and are refused so: lap
-cases (NEW-LAP) and the Formula Student events scored from one
-(NEW-FS-EVENT: skidpad, autocross and endurance on a Lap case); the 75 m
-acceleration and an endurance driven from a speed trace run and score
-(fs_events, on the run's own figures), and a battery built from cells runs
-since its port. A hybrid's
+engine instead. Lap cases run (new_lap: each lap's profile from the car's
+state, then its energy pass in fast mode), and so do the Formula Student
+events, from a lap case or a speed trace (fs_events, on the run's own
+figures). A hybrid's
 charge-balanced case runs as today's does (balance.py): run after run on the new engine, each from the charge
 the last ended with. ``LIGHTSIM_ENGINE=today`` runs today's engine instead, for
 developers and the both-engines comparison (benchmarks/back_to_back); a
@@ -84,14 +82,12 @@ from .verdict import (
 )
 
 ENV_VAR = "LIGHTSIM_ENGINE"
-KINDS = ("cycle", "performance", "acceleration")  # the case kinds the new engine runs
+KINDS = ("cycle", "performance", "acceleration", "lap")  # the case kinds the new engine runs
 
 # why the new engine's path does not run a case (benchmarks/back_to_back/acceptance.toml)
 CODES = {
     "NEW-NOT-FOUND": "the case is not in the project",
     "NEW-CASE-KIND": "a case kind the new engine's path does not run",
-    "NEW-LAP": "a lap case",
-    "NEW-FS-EVENT": "a Formula Student event scored from a lap case",
     "NEW-LIMITS": "a value outside its parameter's limits (a study's point can hold one)",
     "NEW-MISSING": "the module lightsim_engine is not installed",
     "NEW-BUILD": "today's model builder refused the model",
@@ -458,7 +454,8 @@ def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> S
                             summary, {}, set(), lab_base(summary, fuel <= 0 and not ctx.fuelcells))
     fill_keys(summary, project)
     result = SimResult(caseId=case_id, status=core.status_of(messages, False),
-                       channels=_channels(model, run, times), summary=summary, messages=messages,
+                       channels=[c for c in _channels(model, run, times) if c.elementId != model.track],
+                       summary=summary, messages=messages,
                        references=check_references(case.references, summary))
     result.engine, result.engineVersion = "new", lightsim_engine.version()
     result.solverOptions = {"quickStep": float(fast["step"])}  # (quick mode, its step)
@@ -503,11 +500,6 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
     case = next((c for c in project.cases if c.id == case_id), None)
     if case is None:
         return Refusal("NEW-NOT-FOUND", "the case was not found")
-    if case.kind == "lap" and case.fsEvent:
-        return Refusal("NEW-FS-EVENT", "Formula Student events scored from a lap case (skidpad, autocross, "
-                                       "endurance) do not run in this version of LightSim yet")
-    if case.kind == "lap":
-        return Refusal("NEW-LAP", "lap cases do not run in this version of LightSim yet")
     if case.kind not in KINDS:
         return Refusal("NEW-CASE-KIND", f"{case.kind} cases do not run in this version of LightSim yet")
     from ..validation import value_problems  # (validation imports this package)
@@ -543,6 +535,9 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
     from . import core  # (core imports this module)
 
     case = next(c for c in project.cases if c.id == case_id)
+    if case.kind == "lap":  # its laps, each a profile and an energy pass (new_lap)
+        from .new_lap import run_lap
+        return run_lap(project, case_id, emit, control, edits)
     # today's model gives what the engine's run lacks: the labels and units of
     # the channels, the Script blocks' code, ports and parameters, and, in a
     # RunContext built and never stepped, the parts as today's engine reads
@@ -1281,7 +1276,8 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
                     stopped, case)
     messages += [SimMessage(level=level, text=text) for level, text in verdict.messages]
 
-    channels = _channels(model, run, times)
+    # (a Race Track's channels are a lap case's: in any other case its outputs read 0)
+    channels = [c for c in _channels(model, run, times) if c.elementId != model.track]
 
     # ---- the summary: the engine's figures, judged ---------------------------
     # (a charge-balanced case's battery share and charge-corrected fuel are

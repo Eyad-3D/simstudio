@@ -1,9 +1,8 @@
 // MOD-42: a case of kind Lap runs the model's Race Track. Its layout and laps
-// are the case's own (overrides of the Race Track), and Duration, Step and
-// Pacing do not apply. Lap cases do not run in this version (the app's engine
-// refuses them, NEW-LAP, until they are ported): the run says so.
+// are the case's own (overrides of the Race Track), Duration, Step and Pacing
+// do not apply, and the summary leads with the lap time, marked an estimate.
 import { expect, test } from "@playwright/test";
-import { expectRefused, openApp, ribbonTab, runButton, showPanel } from "./app";
+import { headlineTile, openApp, openSummary, ribbonTab, runActiveCase, showPanel } from "./app";
 import { importProject } from "./ui-helpers";
 
 async function importBev(page: import("@playwright/test").Page, withTrack: boolean) {
@@ -20,7 +19,7 @@ async function importBev(page: import("@playwright/test").Page, withTrack: boole
   await showPanel(page, "Cases & Parameters");
 }
 
-test("MOD-42: a lap case on the Skidpad takes its layout and laps, and its run is refused", async ({ page }) => {
+test("MOD-42: a lap case on the Skidpad gives its lap and sector times as estimates", async ({ page }) => {
   await openApp(page);
   await importBev(page, true);
   const kind = page.locator("label", { hasText: /^Kind/ }).locator("select");
@@ -35,8 +34,17 @@ test("MOD-42: a lap case on the Skidpad takes its layout and laps, and its run i
   await ribbonTab(page, "Simulations").click();
   await expect(page.getByTitle("Solver settings for this case")).toHaveText("lap mode");
 
-  await runButton(page).click();
-  await expectRefused(page, "NEW-LAP");
+  await runActiveCase(page);
+  await expect(headlineTile(page, "Lap time")).toBeVisible();
+  await expect(page.getByTitle(/results are estimates/).filter({ hasText: /^estimates$/ })).toBeVisible();
+  await openSummary(page);
+  await expect(page.getByRole("row", { name: /^Lap time/ })).toBeVisible();
+  await expect(page.getByRole("row", { name: /^Sector 2 time/ })).toBeVisible();
+  await expect(page.getByText("Summary value · estimate")).toBeVisible();
+  await page.getByTitle(/^Run info/).click();
+  const info = page.getByRole("region", { name: "Run info" });
+  await expect(info).toContainText("lap mode (estimate)");
+  await expect(info).toContainText("Race Track · Layout = Skidpad");
 });
 
 test("MOD-42: a lap case without a Race Track says where to get one", async ({ page }) => {

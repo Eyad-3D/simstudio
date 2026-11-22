@@ -81,6 +81,10 @@ there is no load transfer, and the Front Aero Balance is not used.
 Each Wheel takes its share of its axle's load: see
 [Wheel](propulsion.wheel.md).
 
+The cornering load transfer and the *Front Track Width* and *Rear Track
+Width* are used by lap cases only (see
+[Known limits](../../../KNOWN-LIMITS.md)).
+
 ### Energy
 
 The Vehicle stores kinetic energy `½·m·v²` and potential energy `m·g·z`,
@@ -112,7 +116,3 @@ motion, or against the acceleration that starts the car from rest, and is
 
 - One Vehicle per model. A model with two is refused: "Only one
   vehicle.body element per model is supported."
-- Lap cases do not run in this version (see
-  [Known limits](../../../KNOWN-LIMITS.md)). So the cornering load transfer
-  and the *Front Track Width* and *Rear Track Width* are not used by any
-  case that runs.

@@ -45,10 +45,15 @@ const buttonNamed = (host: HTMLElement, text: string) =>
   [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === text);
 const click = (el: Element) => act(() => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
-it("offers no button that does nothing: what this version does not run is not shown", async () => {
+it("runs the FS events and Calibrate lap, which this version runs on its lap cases", async () => {
+  const runFsEvents = vi.fn(async () => {});
+  useProjectStore.setState({ runFsEvents, project: useProjectStore.getState().project ?? ({} as never) });
   const host = await ribbon("simulations");
-  // FS events needs lap mode, which this version does not run (UI 4.43)
-  expect(buttonNamed(host, "FS events")).toBeUndefined();
+  const fs = buttonNamed(host, "FS events")!;
+  expect(fs.getAttribute("aria-disabled")).toBeNull();
+  expect(fs.getAttribute("data-not-yet")).toBeNull();
+  await click(fs);
+  expect(runFsEvents).toHaveBeenCalledOnce();
   // Calibrate lap runs on the new engine's lap profile: it can be pressed
   const calibrate = buttonNamed(host, "Calibrate lap")!;
   expect(calibrate.getAttribute("aria-disabled")).toBeNull();

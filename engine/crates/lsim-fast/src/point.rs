@@ -132,6 +132,21 @@ impl<'a> PointSolver<'a> {
         }
     }
 
+    /// The states and iteration variables it holds (`y = [x; z]`).
+    pub fn y(&self) -> &[f64] {
+        &self.y
+    }
+
+    /// Holds state `i` of `y` at `value` from now on (and in the start it
+    /// falls back to); an index past the states is left alone.
+    pub fn hold_state(&mut self, i: usize, value: f64) {
+        if i < self.nx {
+            self.y[i] = value;
+            self.y_ref[i] = value;
+            self.valid = false;
+        }
+    }
+
     /// The parameters (a lap solver sets the curvature and grade here).
     pub fn params_mut(&mut self) -> &mut [f64] {
         &mut self.p

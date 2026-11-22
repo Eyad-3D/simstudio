@@ -111,6 +111,16 @@ pub struct FastOptions {
     /// refresh the Jacobian after this many steps at the latest (0: only
     /// when the error estimate says so)
     pub max_jacobian_age: usize,
+    /// record an output point at every sample of the trace `output_trace`
+    /// too (a lap's track points), not only on the uniform grid
+    pub output_at_samples: bool,
+    /// the trace whose samples `output_at_samples` records (a lap's
+    /// curvature: its speed has points between the track's)
+    pub output_trace: usize,
+    /// record an output point on the uniform grid (false: the grid only
+    /// sets the steps, as a lap's energy pass steps finer than its track
+    /// points for its books; the run's first and last points are recorded)
+    pub output_grid: bool,
 }
 
 impl Default for FastOptions {
@@ -126,6 +136,9 @@ impl Default for FastOptions {
             interval_stats: true,
             flag_rtol: 1e-9,
             max_jacobian_age: 0,
+            output_at_samples: false,
+            output_trace: 0,
+            output_grid: true,
         }
     }
 }
@@ -224,6 +237,20 @@ pub struct FastResult {
     pub report: FastReport,
     /// wall-clock time, s
     pub wall_seconds: f64,
+    /// [`FastProblem::integrate`]'s quantities: each one's integral over
+    /// the run (Simpson's rule on each step's start, middle and end; the
+    /// trapezoid without [`FastOptions::interval_stats`])
+    pub integrals: Vec<f64>,
+    /// and the integral of its magnitude
+    pub integrals_abs: Vec<f64>,
+    /// each one's value at the run's first point
+    pub q_start: Vec<f64>,
+    /// and at its last
+    pub q_end: Vec<f64>,
+    /// the state the run ended in (`y = [x; z]`), to go on from
+    pub end_y: Vec<f64>,
+    /// and its discrete values
+    pub end_d: Vec<f64>,
 }
 
 impl FastResult {
@@ -348,6 +375,10 @@ pub struct FastProblem<'a> {
     /// the modes, checked against their relations after every step
     /// (empty: only their `when` clauses keep them right)
     pub modes: &'a [ModeInfo],
+    /// quantities (flat-scope expressions of the variables and
+    /// parameters) to integrate over the run ([`FastResult::integrals`]):
+    /// a lap's energy books
+    pub integrate: &'a [lsim_ir::expr::Expr],
 }
 
 impl<'a> FastProblem<'a> {
@@ -373,6 +404,7 @@ impl<'a> FastProblem<'a> {
             inputs: &[],
             whens: &[],
             modes: &[],
+            integrate: &[],
         }
     }
 }

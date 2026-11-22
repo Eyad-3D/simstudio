@@ -98,12 +98,12 @@ def test_what_the_books_do_not_close_is_not_accounted_for():
 
 
 def test_a_lap_case_names_its_brakes_and_gears():
-    # the lap's own energy pass books them, as the Vehicle's terms
+    # the lap's energy pass books them part by part, as a drive cycle's run
     e = example_result("fs-electric", "case-autocross").energy
     groups = {f.label: f.group for f in e.sinks}
-    assert groups["Friction brakes"] == "brakes"
-    assert groups["Gears and spinning parts"] == "losses"
-    assert groups["Air drag and rolling resistance"] == "road"
+    assert groups["Brake FL"] == groups["Brake RR"] == "brakes"
+    assert groups["Chain Drive"] == groups["Differential"] == "losses"
+    assert "road" in groups.values()
     assert abs(e.remainderPct) < 0.05
 
 

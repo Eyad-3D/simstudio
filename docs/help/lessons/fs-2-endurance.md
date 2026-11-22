@@ -1,10 +1,5 @@
 # Formula Student 2: endurance energy
 
-**This lesson does not run in this version of LightSim yet.** The endurance
-energy case is a lap case, which the app's engine does not run yet: **Run**
-fails with `Not run [NEW-LAP]`. A later version ports lap mode; the lesson
-describes how it works then.
-
 The second Formula Student lesson. You run the endurance event, about
 22 km, and read how much energy the car takes from its accumulator, how
 hard it works the cells and how long it runs at its power limit. It takes
@@ -15,7 +10,7 @@ about 15 minutes. Do
 
 Open **FS Electric (generic)** from the *Start* page again, or go on with
 your copy from lesson 1. In the list next to **Run**, pick *Endurance
-energy* and press **Run**. The run takes about 10 to 15 s; click
+energy* and press **Run**. The run takes about 7 s; click
 **Show results** in the notice it ends with.
 
 This is a *Lap* case: the car drives 23 laps of LightSim's own 979 m
@@ -25,8 +20,8 @@ Power Limit* to 30 kW for itself, a typical endurance setting: teams turn
 the power down to make the energy last. You can see this override in the
 *Cases* tab on the right, under *Parameter overrides*.
 
-**Check:** the run ends as *success* after 1,428.53 s (*Total time*),
-22.515 km driven, with *Accumulator — final SOC* 25.02 %.
+**Check:** the run ends as *success* after 1,453.18 s (*Total time*),
+22.515 km driven, with *Accumulator — final SOC* 21.58 %.
 
 ## 2. Read the energy
 
@@ -37,14 +32,14 @@ Open **All summary values** under the chart.
 - The difference is the net energy the event took. It is also *Energy per
   lap* times the number of laps.
 
-**Check:** 6.5 kWh delivered and 1.167 kWh recuperated: 5.33 kWh net,
-and *Energy per lap* 0.2319 kWh. Braking gives back 18 % of the energy
+**Check:** 6.3 kWh delivered and 0.694 kWh recuperated: 5.59 kWh net,
+and *Energy per lap* 0.2432 kWh. Braking gives back 11 % of the energy
 drawn.
 
 The 14 teams scored for efficiency at FS Czech Republic 2025 used 3.19 to
-6.15 kWh in the endurance (median 5.25 kWh), so this car sits near the
-middle. Real endurance energy is higher than a lap simulation's: the
-driver is not ideal and there is traffic and a driver change.
+6.15 kWh in the endurance (median 5.25 kWh), so this car sits at the low
+end. Real endurance energy is higher than a lap simulation's: the driver
+is not ideal and there is traffic and a driver change.
 
 ## 3. Read how hard the cells work
 
@@ -57,9 +52,8 @@ numbers tell you how hard the event works them:
 - *Accumulator — time held at the output power limit*: how long the car
   ran at its 30 kW limit.
 
-**Check:** *RMS battery power* reads 22.853 kW, and the accumulator was
-held at its limit for 703.27 s, about half the event. *Accumulator —
-minimum pack voltage* is 472.94 V.
+**Check:** *RMS battery power* reads 21.262 kW, and the accumulator was
+held at its limit for 667.80 s, about 40 % of the event. is 469.46 V.
 
 Tick *Accumulator · Discharge Power* and *Accumulator · Terminal Voltage*
 to see it over the event: the voltage falls as the charge goes down and
@@ -71,8 +65,8 @@ The summary also says, for each limit, how long it held the car back over
 the event: *Time limited by cornering grip*, *traction grip*, *motor*,
 *battery*, *power cap* and *braking*.
 
-**Check:** *Time limited by power cap* reads 703.266 s and *Time limited
-by cornering grip* 434.603 s. At 30 kW the car spends more time held back
+**Check:** *Time limited by power cap* reads 667.805 s and *Time limited
+by cornering grip* 460.738 s. At 30 kW the car spends more time held back
 by its power limit than by its tyres in the corners.
 
 ## 5. With your team's own speed trace

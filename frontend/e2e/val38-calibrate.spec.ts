@@ -3,8 +3,8 @@
 // grip and 2.5 m² of downforce, with noise), made from the older engine's
 // lap mode; no team's log is bundled. The fit runs on the new engine's lap
 // profile (its brake split and open differential: it finds more downforce,
-// and predicts the check lap 2.3 % fast); the check's energy waits for lap
-// cases on the new engine (NEW-LAP).
+// and predicts the check lap 2.3 % fast); the check gives the check lap's
+// energy from its energy pass.
 import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { openApp, openFromMenu, ribbonTab } from "./app";
