@@ -864,7 +864,19 @@
             "x": 930,
             "y": 90
           },
-          "parameterOverrides": {}
+          "parameterOverrides": {},
+          "portSides": {
+            "f2": "left",
+            "f1": "left",
+            "f3": "right",
+            "f4": "right"
+          },
+          "portOffsets": {
+            "f2": 0.1667,
+            "f1": 0.5,
+            "f3": 0.5,
+            "f4": 0.8333
+          }
         },
         {
           "id": "el-node-r",
@@ -874,7 +886,19 @@
             "x": 930,
             "y": 350
           },
-          "parameterOverrides": {}
+          "parameterOverrides": {},
+          "portSides": {
+            "f1": "left",
+            "f2": "left",
+            "f3": "right",
+            "f4": "right"
+          },
+          "portOffsets": {
+            "f1": 0.5,
+            "f2": 0.8333,
+            "f3": 0.5,
+            "f4": 0.1667
+          }
         },
         {
           "id": "el-wheel-rl",

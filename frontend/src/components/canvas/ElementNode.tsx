@@ -13,6 +13,7 @@ import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { componentIcon } from "../../icons";
 import { NodeMarks } from "./EnergyOverlay";
+import { SIDES, movedPlace, nodeSize, portPlaces, physicalPorts, type Place } from "./portPlaces";
 
 export type ElementNodeData = {
   element: ElementInstance;
@@ -21,7 +22,7 @@ export type ElementNodeData = {
 
 export type ElementFlowNode = Node<ElementNodeData, "element">;
 
-export const DEFAULT_NODE_WIDTH = 92;
+export { DEFAULT_NODE_WIDTH } from "./portPlaces";
 
 // One colour per kind of connection for wires, node borders and icons, pins,
 // layer swatches and port dots: the theme's --ss-kind-* tokens (index.css),
@@ -80,23 +81,13 @@ const POSITION_OF: Record<PortSide, Position> = {
   bottom: Position.Bottom,
 };
 
-const NEXT_SIDE: Record<PortSide, PortSide> = {
-  left: "top",
-  top: "right",
-  right: "bottom",
-  bottom: "left",
-};
-
-type Placement = { side: PortSide; frac: number };
-
 /** Nearest node edge + offset (0..1 along that edge) for a screen point. */
-function placementFromPoint(rect: DOMRect, clientX: number, clientY: number): Placement {
+function placementFromPoint(rect: DOMRect, clientX: number, clientY: number): Place {
   const x = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
   const y = Math.min(1, Math.max(0, (clientY - rect.top) / rect.height));
   const d = { left: x, right: 1 - x, top: y, bottom: 1 - y };
   const side = (Object.keys(d) as PortSide[]).reduce((a, b) => (d[b] < d[a] ? b : a));
-  const frac = side === "top" || side === "bottom" ? x : y;
-  return { side, frac: Math.min(0.92, Math.max(0.08, frac)) };
+  return { side, frac: side === "top" || side === "bottom" ? x : y };
 }
 
 function handleClass(kind: PortDef["kind"]): string {
@@ -119,7 +110,8 @@ function polarityGlyphStyle(side: PortSide, offset: string): React.CSSProperties
 /** A physical (non-signal) port: one interactive source handle that can both
  *  start and end connections, plus an invisible target handle underneath so
  *  incoming edges have an anchor of type 'target' at the same spot.
- *  Shift+drag repositions the pin freely; Shift+click (no drag) cycles side. */
+ *  Shift+drag moves the pin round the part (it snaps to free places);
+ *  Shift+click (no drag) moves it to the next side. */
 function PhysicalPort({
   port,
   side,
@@ -133,9 +125,9 @@ function PhysicalPort({
   side: PortSide;
   frac: number;
   boxRef: React.RefObject<HTMLDivElement | null>;
-  onCycle: (port: PortDef, next: PortSide) => void;
-  onDragPreview: (portId: string, placement: Placement) => void;
-  onDragCommit: (port: PortDef, placement: Placement | null) => void;
+  onCycle: (port: PortDef) => void;
+  onDragPreview: (portId: string, placement: Place) => void;
+  onDragCommit: (port: PortDef) => void;
 }) {
   const pos = POSITION_OF[side];
   const offset = `${frac * 100}%`;
@@ -152,10 +144,9 @@ function PhysicalPort({
     if (!e.shiftKey) return;
     e.stopPropagation();
     e.preventDefault();
-    useProjectStore.getState().beginHistory();
     const startX = e.clientX;
     const startY = e.clientY;
-    let last: Placement | null = null;
+    let last: Place | null = null;
     const onMove = (ev: MouseEvent) => {
       if (!boxRef.current) return;
       last = placementFromPoint(boxRef.current.getBoundingClientRect(), ev.clientX, ev.clientY);
@@ -169,8 +160,8 @@ function PhysicalPort({
       window.addEventListener("click", swallow, { capture: true, once: true });
       setTimeout(() => window.removeEventListener("click", swallow, true));
       const moved = Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY);
-      if (moved < 4 || !last) onCycle(port, NEXT_SIDE[side]);
-      else onDragCommit(port, last);
+      if (moved < 4 || !last) onCycle(port);
+      else onDragCommit(port);
     };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp, true);
@@ -193,7 +184,7 @@ function PhysicalPort({
         className={`${handleClass(port.kind)} nokey`}
         isConnectableStart
         isConnectableEnd
-        title={`${port.name}${port.unitText ? ` [${port.unitText}]` : ""} (${port.kind}) — Shift+click: move to the next side · Shift+drag: move along the node's edges`}
+        title={`${port.name}${port.unitText ? ` [${port.unitText}]` : ""} (${port.kind}) — drag: draw a wire · Shift+drag: move this port round the part · Shift+click: move it to the next side`}
         onMouseDownCapture={startShiftDrag}
       />
       {port.polarity && (
@@ -214,8 +205,7 @@ function PhysicalPort({
 export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>) => {
   const { def, element } = data;
   const Icon = componentIcon(def.icon);
-  const setPortSide = useProjectStore((s) => s.setPortSide);
-  const setPortPlacement = useProjectStore((s) => s.setPortPlacement);
+  const placePort = useProjectStore((s) => s.placePort);
   const dataChecks = useProjectStore((s) => s.dataChecks);
   const boxRef = useRef<HTMLDivElement | null>(null);
 
@@ -237,34 +227,49 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
     if (!worst) return null;
     return { level: worst, text: forEl.map((c) => c.text).join("\n") } as const;
   }, [dataChecks, element.id]);
-  // live pin position while Shift+dragging a port (committed to the store on release)
-  const [preview, setPreview] = useState<{ portId: string; placement: Placement } | null>(null);
+  // the pin's snapped place while Shift+dragging a port (saved on release)
+  const [preview, setPreview] = useState<{ portId: string; place: Place } | null>(null);
 
   // physical ports only — signal / data-bus wiring is managed in the
   // Data Bus Connections panel and is not drawn on the canvas
-  const physical = def.ports.filter((p) => p.kind !== "signal");
-  const sideOf = (p: PortDef): PortSide =>
-    preview?.portId === p.id
-      ? preview.placement.side
-      : element.portSides?.[p.id] ?? ((p.side as PortSide) || "left");
+  const places = preview ? { ...portPlaces(element, def), [preview.portId]: preview.place } : portPlaces(element, def);
   const bySide: Record<PortSide, PortDef[]> = { left: [], right: [], top: [], bottom: [] };
-  for (const p of physical) bySide[sideOf(p)].push(p);
+  for (const p of physicalPorts(def)) bySide[places[p.id].side].push(p);
+  const fracOf = (p: PortDef): number => places[p.id].frac;
 
-  const fracOf = (p: PortDef, index: number, count: number): number => {
-    if (preview?.portId === p.id) return preview.placement.frac;
-    const stored = element.portOffsets?.[p.id];
-    if (typeof stored === "number") return stored;
-    return (index + 1) / (count + 1);
+  // the pin follows the pointer from one free place to the next
+  // (the release is handled by the handler the press set up: it reads the
+  // last place from a ref, not from that render's state)
+  const lastPreview = useRef<{ portId: string; place: Place } | null>(null);
+  const onDragPreview = (portId: string, raw: Place) => {
+    const place = movedPlace(element, def, portId, raw.side, raw.frac);
+    if (!place) return;
+    lastPreview.current = { portId, place };
+    setPreview(lastPreview.current);
   };
-
-  const onCycle = (port: PortDef, next: PortSide) => setPortSide(element.id, port.id, next);
+  const onDragCommit = (port: PortDef) => {
+    const place = lastPreview.current?.portId === port.id ? lastPreview.current.place : null;
+    lastPreview.current = null;
+    setPreview(null);
+    const now = places[port.id];
+    if (place && (place.side !== now.side || place.frac !== now.frac)) placePort(element.id, port.id, place);
+  };
+  // Shift+click: the next side round with room, at about the same place
+  const onCycle = (port: PortDef) => {
+    const now = places[port.id];
+    const at = SIDES.indexOf(now.side);
+    for (let k = 1; k < 4; k++) {
+      const place = movedPlace(element, def, port.id, SIDES[(at + k) % 4], now.frac);
+      if (place) return placePort(element.id, port.id, place);
+    }
+  };
 
   // React Flow re-measures a node's pins only when the node's size changes
   // (TopologyCanvas keeps measured sizes on the nodes), so tell it when a pin
   // moves or flips side, or the node now shows another part's ports.
   const updateNodeInternals = useUpdateNodeInternals();
   const pinLayout = (Object.keys(bySide) as PortSide[])
-    .flatMap((sd) => bySide[sd].map((p, i) => `${p.id}@${sd}:${fracOf(p, i, bySide[sd].length)}`))
+    .flatMap((sd) => bySide[sd].map((p) => `${p.id}@${sd}:${fracOf(p)}`))
     .join(" ");
   const measuredPinLayout = useRef(pinLayout);
   useEffect(() => {
@@ -273,10 +278,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
     updateNodeInternals(element.id);
   }, [pinLayout, element.id, updateNodeInternals]);
 
-  const portRows = Math.max(bySide.left.length, bySide.right.length, 1);
-  const defaultHeight = Math.max(54, portRows * 18 + 18);
-  const width = element.size?.width ?? DEFAULT_NODE_WIDTH;
-  const height = element.size?.height ?? defaultHeight;
+  const { width, height } = nodeSize(element, places);
   const isSub = element.isSubSystem;
 
   return (
@@ -337,19 +339,16 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
           </span>
         )}
         {(Object.keys(bySide) as PortSide[]).map((sd) =>
-          bySide[sd].map((p, i) => (
+          bySide[sd].map((p) => (
             <PhysicalPort
               key={p.id}
               port={p}
               side={sd}
-              frac={fracOf(p, i, bySide[sd].length)}
+              frac={fracOf(p)}
               boxRef={boxRef}
               onCycle={onCycle}
-              onDragPreview={(portId, placement) => setPreview({ portId, placement })}
-              onDragCommit={(port, placement) => {
-                setPreview(null);
-                if (placement) setPortPlacement(element.id, port.id, placement.side, placement.frac);
-              }}
+              onDragPreview={onDragPreview}
+              onDragCommit={onDragCommit}
             />
           )),
         )}
