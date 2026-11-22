@@ -67,6 +67,14 @@ const V_MIN: f64 = 0.5;
 /// 0.01 s, 5.0e-9 at 0.002 s, where round-off adds up); the states do not
 /// move by it (the battery's energy the same to the digits shown)
 pub const BOOKS_STEP: f64 = 0.01;
+/// a battery that starts a lap full is held this share of its charge below
+/// full for the lap's profile, where it is once the lap's first acceleration
+/// has drawn on it (80 kW for 1 s draws 0.3 % of the FS car's 14 A·h): at
+/// exactly full it takes no charge back, so the profile would brake the whole
+/// lap without regeneration while its energy pass regenerates from the first
+/// braking on, on the driven axle alone, past that axle's grip (the FS car's
+/// rear tyres by 2.6 %); 0.1 % moves its open-circuit voltage by 0.2 V
+const FULL_SHARE: f64 = 1e-3;
 /// the first step a search's bracket widens by from its guess, m/s²
 const A_STEP: f64 = 0.5;
 
@@ -312,12 +320,21 @@ impl<'a> Car<'a> {
                 p_cap: param(format!("{b}.p_cap"))?,
             });
         }
-        let s = match state {
+        let mut s = match state {
             Some(st) => model.point_solver_at(params, st.y.clone(), st.d.clone()),
             None => model
                 .point_solver(params, &prescribed(v0, 0.0, 0.0, 0.0))
                 .map_err(|e| LapError::Model(format!("the lap model could not be started: {e}")))?,
         };
+        // a battery that starts the lap full is held just below full (FULL_SHARE)
+        for b in &parts.batteries {
+            let soc = format!("{b}.soc");
+            if let Some(i) = model.info.y_names.iter().position(|n| *n == soc)
+                && s.y()[i] > 1.0 - FULL_SHARE
+            {
+                s.hold_state(i, 1.0 - FULL_SHARE);
+            }
+        }
         let mut car =
             Car { s, pedal, sites, windows, apex: HashMap::new(), v_cap: V_MAX, guess: [0.0; 3] };
         car.v_cap = car.top_speed();

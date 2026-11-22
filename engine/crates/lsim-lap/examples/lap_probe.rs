@@ -70,8 +70,19 @@ fn main() {
     for k in 0..laps {
         let opt = LapOptions { v_start: v0, more: k + 1 < laps, ..Default::default() };
         let t1 = Instant::now();
-        let prof =
+        let mut prof =
             solve(&model, &model.info.params, &parts, &track, &opt, state.as_ref()).expect("lap");
+        // another speed profile on the same points (PROFILE: a JSON file of
+        // `t` and `v`), driven in its place
+        if let Ok(f) = std::env::var("PROFILE") {
+            let pj: Value = serde_json::from_str(&std::fs::read_to_string(f).unwrap()).unwrap();
+            let get = |k: &str| -> Vec<f64> {
+                pj[k].as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect()
+            };
+            prof.t = get("t");
+            prof.v = get("v");
+            assert_eq!(prof.t.len(), track.kappa.len());
+        }
         let t_prof = t1.elapsed().as_secs_f64();
         let t2 = Instant::now();
         let r = match drive(&model, &model.info.params, &track, &prof, state.as_ref(), &q) {
@@ -118,6 +129,16 @@ fn main() {
         };
         let t_drive = t2.elapsed().as_secs_f64();
         let b = model.books(&r);
+        if std::env::var("ENERGIES").is_ok() {
+            // each energy state's change over the lap, J
+            for (j, nm) in r.names.iter().enumerate() {
+                let leaf = nm.rsplit('.').next().unwrap_or("");
+                if leaf.starts_with("e_") || leaf.starts_with("E_") {
+                    let c = r.column(&r.values, j);
+                    println!("    {nm:<40} {:12.1} J", c[c.len() - 1] - c[0]);
+                }
+            }
+        }
         let e_out = r.channel("el_battery.e_delivered").map(|c| c[c.len() - 1]).unwrap_or(f64::NAN);
         let soc = r.channel("el_battery.soc").map(|c| c[c.len() - 1]).unwrap_or(f64::NAN);
         println!(

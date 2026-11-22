@@ -766,6 +766,7 @@ impl Run {
 /// The parameter values a model runs with: what `set_params` set (kept by
 /// name so that the model's own base values stay the base) and the whole
 /// vector they give.
+#[derive(Default)]
 struct ParamState {
     set: BTreeMap<String, f64>,
     values: Vec<f64>,
@@ -1287,9 +1288,11 @@ fn lap_model(
     })
 }
 
-/// The laps driven so far, and the last profile solved.
+/// The laps driven so far, the parameters the next lap takes, and the
+/// last profile solved.
 #[derive(Default)]
 struct DriveState {
+    params: ParamState,
     car: Option<lsim_lap::State>,
     track: Option<lsim_lap::Track>,
     prof: Option<lsim_lap::Profile>,
@@ -1305,7 +1308,6 @@ struct DriveState {
 struct LapDrive {
     built: Arc<core::Built>,
     parts: lsim_lap::Parts,
-    params: Vec<f64>,
     quantities: Vec<lsim_engine::lsim_ir::expr::Expr>,
     state: Mutex<DriveState>,
 }
@@ -1325,6 +1327,19 @@ fn books_map(b: &lsim_engine::FastBooks) -> BTreeMap<String, f64> {
 
 #[pymethods]
 impl LapDrive {
+    /// Sets runtime parameters (engine names, SI) on top of those set
+    /// before, for the laps solved from now on (a live edit, taken at the
+    /// next lap's start); as `LapModel.set_params`.
+    fn set_params(&self, values: BTreeMap<String, f64>) -> PyResult<()> {
+        let mut st = self.state.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
+        let mut all = st.params.set.clone();
+        all.extend(values);
+        let pairs: Vec<(String, f64)> = all.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        st.params.values = self.built.model.params_with(&pairs).map_err(PyValueError::new_err)?;
+        st.params.set = all;
+        Ok(())
+    }
+
     /// The next lap's profile, as `LapModel.solve`'s, from the car's state
     /// where the last lap driven ended (the model's own start before the
     /// first).
@@ -1347,7 +1362,7 @@ impl LapDrive {
         let opt = lsim_lap::LapOptions { v_start, coast, more, stop };
         let t0 = std::time::Instant::now();
         let (model, params, parts, car) =
-            (&self.built.model, &self.params, &self.parts, st.car.as_ref());
+            (&self.built.model, &st.params.values, &self.parts, st.car.as_ref());
         let prof = py
             .detach(|| lsim_lap::solve(model, params, parts, &track, &opt, car))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -1378,7 +1393,7 @@ impl LapDrive {
         };
         let t0 = std::time::Instant::now();
         let (model, params, q, car) =
-            (&self.built.model, &self.params, &self.quantities, st.car.as_ref());
+            (&self.built.model, &st.params.values, &self.quantities, st.car.as_ref());
         let r = py
             .detach(|| lsim_lap::drive(model, params, track, prof, car, q))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -1428,7 +1443,7 @@ impl LapDrive {
         let st = self.state.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
         let Some(r) = st.run.clone() else { return Ok(None) };
         let t_end = *r.times.last().unwrap_or(&0.0);
-        let (b, params, seconds) = (&self.built, self.params.clone(), st.seconds);
+        let (b, params, seconds) = (&self.built, st.params.values.clone(), st.seconds);
         let out = py
             .detach(|| {
                 core::fast_output(
@@ -1517,15 +1532,16 @@ impl LapModel {
     /// lap's profile from the car's state at its start, then its energy
     /// pass, joined into one run. With the parameters set now.
     fn laps(&self) -> PyResult<LapDrive> {
-        let params =
-            self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
+        let st = self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
         let (quantities, _) = self.built.model.books_quantities();
         Ok(LapDrive {
             built: Arc::clone(&self.built),
             parts: self.parts.clone(),
-            params,
             quantities,
-            state: Mutex::new(DriveState::default()),
+            state: Mutex::new(DriveState {
+                params: ParamState { set: st.set.clone(), values: st.values.clone() },
+                ..Default::default()
+            }),
         })
     }
 
@@ -1565,6 +1581,19 @@ impl LapModel {
         }
         d.set_item("vars", vars)?;
         Ok(Some(d))
+    }
+
+    /// The parameters' current values (SI) by engine name: the model's
+    /// own, with what `set_params` set (a live edit is the difference to
+    /// these of a model built with it).
+    fn params<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let values =
+            self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
+        let out = PyDict::new(py);
+        for (name, v) in self.built.model.param_names().into_iter().zip(values) {
+            out.set_item(name, v)?;
+        }
+        Ok(out)
     }
 
     /// Each element id's instance name in the model (engine names are
