@@ -485,7 +485,6 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
         ),
         p("fz_static", "N", 0.0, "its share of the weight on level ground"),
         p("w0", "rad/s", 0.0, "its speed at the start"),
-        p("side", "1", 0.0, "a lap case: +1 its pair's outer wheel, −1 its inner one, 0 none"),
         pe("r", "m", max(n("radius_m"), c(1e-3)), "rolling radius, at least 1 mm"),
         pe("c_slip", "1", max(n("slip_stiffness"), c(0.1)), "slip stiffness, at least 0.1"),
         pe("mu0", "1", max(n("mu"), c(0.0)), "friction coefficient"),
@@ -493,6 +492,14 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
         p("v_eps", "m/s", V_EPS, "the speed below which slip is taken over this speed"),
         p("unit_N", "N", 1.0, "unit carrier"),
     ]);
+    if lap {
+        params.push(p(
+            "side",
+            "1",
+            0.0,
+            "a lap case: +1 its pair's outer wheel, −1 its inner one, 0 none",
+        ));
+    }
     let mut ports = vec![phys(id, "shaft", "Flange")];
     if cfg.on_vehicle {
         ports.push(lsim_ir::component::build::port(
@@ -548,7 +555,13 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
         ]);
         let fz0 = ite(gt(n("mu_nominal_load_N"), c(0.0)), n("mu_nominal_load_N"), n("fz_static"));
         // a lap case: the share of the grip the corner leaves
-        let grip = if lap { n("mu_eff") * n("N") * n("left") } else { n("mu_eff") * n("N") };
+        // (the bounds written as before outside a lap case: the same model text)
+        let (grip_lo, grip) = if lap {
+            let g = n("mu_eff") * n("N") * n("left");
+            (-g.clone(), g)
+        } else {
+            (-n("mu_eff") * n("N"), n("mu_eff") * n("N"))
+        };
         let (slip, force) = if cfg.prescribed {
             vars.push(var("F_grip", "N", "the tyre's force, within its grip"));
             (
@@ -567,7 +580,7 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
                 ),
                 eq(
                     n("F_grip"),
-                    limit(n("F"), -grip.clone(), grip.clone()),
+                    limit(n("F"), grip_lo, grip),
                     if lap {
                         "the force its torques leave, up to μ × load × the corner's share \
                          (fast mode flags it beyond)"
