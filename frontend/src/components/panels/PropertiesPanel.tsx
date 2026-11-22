@@ -1418,14 +1418,25 @@ export function ElementForm({
     const list = scalarParams.filter((p) => p.section === s.name && matches(p));
     const bigs = bigParams.filter((p) => p.section === s.name && matches(p));
     if (!list.length && !bigs.length) return null;
+    const open = filtering || (opened[sectionKey(s.name)] ?? !s.folded);
     return (
       <details
         key={s.name}
         className="ss-param-section"
-        open={filtering || (opened[sectionKey(s.name)] ?? !s.folded)}
+        open={open}
         onToggle={(e) => toggleSection(s.name, e.currentTarget.open)}
       >
-        <summary>{s.name}</summary>
+        {/* a click (or Enter, Space) folds or opens it and keeps that at once:
+            the browser's own toggle event comes a moment later, and a window
+            closed in that moment forgot what was just opened */}
+        <summary
+          onClick={(e) => {
+            e.preventDefault();
+            toggleSection(s.name, !open);
+          }}
+        >
+          {s.name}
+        </summary>
         <div className="flex flex-col gap-2 pt-1">
           {scalarTable(list, false)}
           {tyreSummary(list)}
