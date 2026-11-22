@@ -162,9 +162,13 @@ pub fn import(
 ) -> Result<(Value, lsim_ir::ComponentDef, ImportReport), Failure> {
     let project = parse_project(project_json)?;
     let reg = standard_registry();
-    let (mut top, mut rep) =
-        import_case(&project, Some(case_id), &reg, &ImportOptions { cycles_dir, inverse })
-            .map_err(Failure::Model)?;
+    let (mut top, mut rep) = import_case(
+        &project,
+        Some(case_id),
+        &reg,
+        &ImportOptions { cycles_dir, inverse, lap: false },
+    )
+    .map_err(Failure::Model)?;
     with_texts(&mut top, &mut rep, texts)?;
     Ok((project, top, rep))
 }
@@ -323,6 +327,41 @@ pub fn build(
             .build(&top, &BuildOptions { cache, table_cells, ..Default::default() })
             .map_err(Failure::Model)?;
         Ok(Built { model, rep, project, case_id: case_id.to_string(), import_seconds })
+    })
+}
+
+/// A lap case's model (lsim-lap): fast mode's inverse model with the lap
+/// variants of the Race Track, the Vehicle and its wheels, and the parts
+/// the lap solver reads.
+pub fn build_lap(
+    project_json: &str,
+    case_id: &str,
+    cycles_dir: Option<PathBuf>,
+    texts: &BTreeMap<String, String>,
+) -> Result<(Built, lsim_lap::Parts), Failure> {
+    guarded(|| {
+        let t0 = Instant::now();
+        let project = parse_project(project_json)?;
+        let reg = standard_registry();
+        let opts = ImportOptions { cycles_dir, inverse: true, lap: true };
+        let (mut top, mut rep) =
+            import_case(&project, Some(case_id), &reg, &opts).map_err(Failure::Model)?;
+        with_texts(&mut top, &mut rep, texts)?;
+        let import_seconds = t0.elapsed().as_secs_f64();
+        let (Some(pr), Some(lp)) = (rep.inverse.clone(), rep.lap.clone()) else {
+            return Err(model_error("LAP-PARTS", "The case has no lap model.".into()));
+        };
+        let model = Engine::new(rep.library())
+            .build_inverse(&top, &pr.spec, &BuildOptions::default())
+            .map_err(Failure::Model)?;
+        let parts = lsim_lap::Parts {
+            track: lp.track,
+            driver: lp.driver,
+            wheels: lp.wheels,
+            motors: lp.motors,
+            batteries: lp.batteries,
+        };
+        Ok((Built { model, rep, project, case_id: case_id.to_string(), import_seconds }, parts))
     })
 }
 

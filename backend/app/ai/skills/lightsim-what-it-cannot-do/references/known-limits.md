@@ -75,7 +75,7 @@ The *Traction Control* block (MOD-45) limits one demand for all the motors it fe
 
 ### Lap mode calibration fits two numbers on one lap
 
-**Calibrate lap** (VAL-38) runs lap cases, so it does not run in this version (`NEW-LAP`).
+**Calibrate lap** (VAL-38) fits the app's engine's lap profile; the check lap's energy error waits for lap cases on the engine (`NEW-LAP`).
 
 ### Signal units are checked, not converted
 

@@ -36,8 +36,10 @@ of the older engine are not ported to the new one yet. They do not run in
 this version, and the reason code names each:
 
 - **Lap cases** (`NEW-LAP`). A case of kind *Lap*: the Race Track's
-  quasi-steady-state lap (Autocross, Skidpad, a custom track), the
-  *Endurance energy* case and study that drive laps, and **Calibrate lap**.
+  quasi-steady-state lap (Autocross, Skidpad, a custom track) and the
+  *Endurance energy* case and study that drive laps. **Calibrate lap**
+  runs: its fit and check use the engine's lap profile, and only the check
+  lap's energy waits for lap cases.
   The Formula Student Electric example's *Autocross* and *Endurance energy*
   cases fail with it; its *Acceleration 75 m* case runs. The sections on lap
   mode below describe the older engine's lap solver, which a later version
@@ -56,9 +58,8 @@ this version, and the reason code names each:
 A battery built from cells (*Defined By: Cells*) runs, in a full run and in
 quick mode (it was refused with `NEW-CELLS` until it was ported).
 
-*FS events* and the endurance energy study are not shown in this version;
-*Calibrate lap* is shown dimmed, cannot be pressed, and says so on hover
-and focus. A *Lap* case can still be set up: its runs are refused, and the
+*FS events* and the endurance energy study are not shown in this version.
+A *Lap* case can still be set up: its runs are refused, and the
 *Cases* panel says so under its kind.
 
 A Map port's unit that LightSim has no signal unit for (an energy, a
@@ -541,16 +542,25 @@ once MOD-16 exists), MOD-16.
 
 ### Lap mode calibration fits two numbers on one lap
 
-**Calibrate lap** (VAL-38) runs lap cases, so it does not run in this
-version (`NEW-LAP`). It fits only a grip factor and the CzA:
+**Calibrate lap** (VAL-38) fits the app's engine's lap profile; the check
+lap's energy error waits for lap cases on the engine (`NEW-LAP`). It fits
+only a grip factor and the CzA:
 
 - Grip and downforce trade off on one lap, so the two values are not
   reliable on their own; the check lap's errors are.
 - The track comes from the lateral acceleration over the speed squared:
   no GPS position, elevation or track width, and lap mode's other limits
   apply (ideal driver, no transients).
-- It searches a grid (grip 0.6-1.5, CzA 0-5 m²) and takes about 30 s;
-  values outside it are not found.
+- It searches a grid (grip 0.6-1.5, CzA 0-5 m², narrowed twice around
+  the best) and takes about 10 s; values well outside it are not found.
+- The engine's lap brakes as the car's brakes are set and drives through
+  its differential as modelled (open): the rear tyres of a car whose
+  brakes are biased to the front, and the unloaded inner wheel of an open
+  differential, set the limits. Fitted to a car with a limited-slip
+  differential or another brake balance, the grip and CzA take up the
+  difference: on LightSim's own laps from the older engine's lap mode
+  (ideal brake balance, the driven wheels' grip pooled) it found grip 0.9
+  and CzA 6.25 m² for 2.5 m², and predicted the check lap 2.3 % fast.
 - It has been checked on LightSim's own laps only. No accuracy is claimed
   for a real car until a documented logged lap, with a licence that lets
   LightSim publish the result, has been used.

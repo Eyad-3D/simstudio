@@ -1,9 +1,9 @@
 # Calibrate lap mode on a logged lap
 
-**This does not run in this version of LightSim yet.** Calibrating runs lap
-cases, which the app's engine does not run yet (`NEW-LAP`): the **Calibrate
-lap** button is shown on the *Simulations* tab but cannot be pressed. A later version ports lap mode; the page describes how
-it works then, as it worked on the older engine.
+The fit and the check run on the app's engine: the speed it predicts for a
+lap comes from your car as the engine models it. One part waits for lap
+cases on the engine (`NEW-LAP`): the check lap's **energy** error is not
+given yet, and the results say so.
 
 Lap mode's lap times are usually optimistic: it drives an ideal line at
 the tyres' limit. If your car has driven a lap with a data logger, you can
@@ -32,13 +32,14 @@ out. The files stay on your computer.
 2. On the *Simulations* tab, click **Calibrate lap**.
 3. Pick the lap to fit in **Lap to calibrate on**, and a lap from another
    session in **Lap to check**.
-4. Check the **Speed unit** and click **Calibrate**. It takes about 30 s.
+4. Check the **Speed unit** and click **Calibrate**. It takes about 10 s.
 5. Read the results:
    - **Best fit**: the factor on every tyre's grip (μ, lateral μ and load
      sensitivity together) and the downforce area CzA (m²);
    - for each lap, the logged and the predicted lap time, the time error,
      the speed trace's RMS error (km/h, the typical gap between the two
-     speed traces) and the energy error when the log has the power.
+     speed traces). The energy error comes once lap cases run on the
+     app's engine.
 6. Click **Apply to the model** to put the fitted grip and CzA in your
    car (one undo), or **Close** to leave it as it is.
 
@@ -49,8 +50,18 @@ metre is the lateral acceleration divided by the speed squared, smoothed
 over 3 m. It then tries grip factors from 0.6 to 1.5 and CzA from 0 to
 5 m², and narrows the search twice around the best, keeping the pair whose
 lap mode speed is closest to the logged speed (the least root mean square
-of the difference). The check lap is driven with that pair in a full lap
-case, so its energy comes from the motors and the battery.
+of the difference). The check lap is driven with that pair.
+
+Each speed comes from the engine's model of your car at each point of the
+lap: the tyres' grip under their loads (with the downforce, the load
+moved between the axles and, in corners, from the inner to the outer
+wheels), the motors at full load through the gears, the battery's limits,
+and the brakes as they are set. So a car whose brakes are biased to the
+front locks its rear tyres first under braking, and an open differential
+lets the unloaded inner wheel set how hard the car can drive out of a
+corner: a fit to a car that has a limited-slip differential, or another
+brake balance, takes up the difference in the grip and downforce it
+finds.
 
 ## Good to know
 

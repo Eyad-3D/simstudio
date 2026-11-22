@@ -57,12 +57,14 @@
 
 pub mod limits;
 pub mod lu;
+pub mod point;
 pub mod ros;
 pub mod stepper;
 pub mod trace;
 
 pub use limits::{DerSrc, LimitSite, Term};
 pub use lsim_ir::InverseSpec;
+pub use point::{PointSolver, PointStats};
 pub use trace::Trace;
 
 use lsim_ir::prepared::Direction;
