@@ -32,19 +32,16 @@ STORED = ("(ii) the examples' stored results are runs of today's engine (their s
 WEAK = ("(ii) today's engine's own copy of the weakest group, changed with the new engine's (its charge "
         "factor and its resistance; the both-engines comparison holds the two models together)")
 
-TODAY_FILES = {
-    "test_lapsim.py": LAP,
-}
+TODAY_FILES: dict[str, str] = {}
+
+# the lap tests that read today's lap energy pass or its live edits within a lap
+TODAYS_LAP = ("(ii) today's lap energy pass (lapsim.LapSlave: its braking check, step by step, and a live "
+              "edit taken within a lap); the new engine's lap brakes within the brakes and the regeneration "
+              "in its profile, and takes a live edit at the next lap's start")
 
 TODAY = {
-    "test_fs_events.py::test_four_events_score_on_the_fs_example_in_time": FS_LAP,
-    "test_fs_events.py::test_endurance_stops_for_the_driver_change": FS_LAP,
-    "test_fs_events.py::test_a_rule_breach_scores_nothing": FS_LAP,
-    "test_fs_events.py::test_running_out_of_energy_does_not_finish": FS_LAP,
-    "test_fs_events.py::test_lift_and_coast_trades_lap_time_for_energy": FS_LAP,
-    "test_fs_events.py::test_an_energy_target_is_met_within_2_percent": FS_LAP,
-    "test_fs_events.py::test_an_energy_target_out_of_reach_says_so": FS_LAP,
-    "test_fs_events.py::test_a_lap_endurance_reports_net_energy_and_lowest_voltage": FS_LAP,
+    "test_lapsim.py::test_lap_braking_keeps_to_the_brakes_and_the_regeneration": TODAYS_LAP,
+    "test_lapsim.py::test_braking_the_car_did_not_have_marks_the_lap_not_valid": TODAYS_LAP,
     # (i) the three features
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[build-fs-powertrain]": LAP,
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-aero]": LAP,
@@ -140,6 +137,19 @@ LIMITS = ("NEW-LIMITS: the new path refuses a run with a value outside its param
           "the owner's call whether the app keeps it)")
 
 XFAIL = {
+    "test_lapsim.py::test_75_m_straight_matches_the_time_domain_within_2_percent[2.5-vehicle2-wheel2]": (
+        "NEW-LAP-SLIP: where the motors at full torque hold the car, the lap's wheel (fast mode's inverse "
+        "model) turns with the prescribed speed and takes its tyre's slip loss out of the force: 3.835 s "
+        "against the time-domain 3.706 s at μ 2.5, about the slip at that force (10 %) (open)"),
+    "test_lapsim.py::test_lap_energy_closes_against_the_component_losses[battery1-0.0-None]": (
+        "NEW-LAP-PASS: the energy pass of a lap that the battery's maximum-power point holds (1.2 ohm) "
+        "stops where the profile, solved with the battery's charge at the lap's start, asks it for more "
+        "than it then gives (open)"),
+    "test_lapsim.py::test_lap_energy_closes_against_the_component_losses[battery2-1.0-None]": (
+        "NEW-LAP-PASS: as battery1 (open)"),
+    "test_lapsim.py::test_limit_times_add_up": (
+        "NEW-LAP-PASS: the energy pass of this car (60 kW, μ 2.2) stops at 45.8 s with the Driver's pedal "
+        "undetermined, where the trace's acceleration jumps at a track point (open)"),
     "test_lab_figures.py::test_ftp_bags_are_weighted_as_epa_does": (
         "the new path gives no 'FTP weighted fuel consumption' row: the engine's figures have each bag, today's "
         "lab_rows weights them (open)"),

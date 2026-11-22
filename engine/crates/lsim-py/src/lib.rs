@@ -1329,14 +1329,15 @@ fn books_map(b: &lsim_engine::FastBooks) -> BTreeMap<String, f64> {
 impl LapDrive {
     /// Sets runtime parameters (engine names, SI) on top of those set
     /// before, for the laps solved from now on (a live edit, taken at the
-    /// next lap's start); as `LapModel.set_params`.
+    /// next lap's start); one bound to another parameter may be given only
+    /// as the others make it (a model built with the edit gives them all).
     fn set_params(&self, values: BTreeMap<String, f64>) -> PyResult<()> {
         let mut st = self.state.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
-        let mut all = st.params.set.clone();
-        all.extend(values);
-        let pairs: Vec<(String, f64)> = all.iter().map(|(k, v)| (k.clone(), *v)).collect();
-        st.params.values = self.built.model.params_with(&pairs).map_err(PyValueError::new_err)?;
-        st.params.set = all;
+        let mut set: Vec<(String, f64)> = st.params.set.clone().into_iter().collect();
+        let changes: Vec<(String, f64)> = values.into_iter().collect();
+        st.params.values =
+            core::params_after(&self.built, &mut set, &changes).map_err(PyValueError::new_err)?;
+        st.params.set = set.into_iter().collect();
         Ok(())
     }
 

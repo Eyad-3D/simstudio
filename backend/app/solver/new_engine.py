@@ -454,7 +454,8 @@ def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> S
                             summary, {}, set(), lab_base(summary, fuel <= 0 and not ctx.fuelcells))
     fill_keys(summary, project)
     result = SimResult(caseId=case_id, status=core.status_of(messages, False),
-                       channels=_channels(model, run, times), summary=summary, messages=messages,
+                       channels=[c for c in _channels(model, run, times) if c.elementId != model.track],
+                       summary=summary, messages=messages,
                        references=check_references(case.references, summary))
     result.engine, result.engineVersion = "new", lightsim_engine.version()
     result.solverOptions = {"quickStep": float(fast["step"])}  # (quick mode, its step)
@@ -1275,7 +1276,8 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
                     stopped, case)
     messages += [SimMessage(level=level, text=text) for level, text in verdict.messages]
 
-    channels = _channels(model, run, times)
+    # (a Race Track's channels are a lap case's: in any other case its outputs read 0)
+    channels = [c for c in _channels(model, run, times) if c.elementId != model.track]
 
     # ---- the summary: the engine's figures, judged ---------------------------
     # (a charge-balanced case's battery share and charge-corrected fuel are

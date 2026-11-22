@@ -1328,20 +1328,21 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
     let mut bounds: Vec<(f64, bool)> =
         grid.iter().enumerate().map(|(k, t)| (*t, o.output_grid || k == 0 || k == last)).collect();
     let eps = 1e-9 * o.step;
-    // (every sample of the first trace too, as output points, where asked)
-    let samples: Vec<usize> = match prob.traces.first() {
+    // (every sample of one trace too, as output points, where asked)
+    let samples: Vec<usize> = match prob.traces.get(o.output_trace) {
         Some(tr) if o.output_at_samples => (0..tr.t.len()).collect(),
         _ => vec![],
     };
     for (i, (tr, bp)) in prob.traces.iter().zip(&bps).enumerate() {
-        let at: &[usize] = if i == 0 && o.output_at_samples { &samples } else { bp };
+        let out = o.output_at_samples && i == o.output_trace;
+        let at: &[usize] = if out { &samples } else { bp };
         for tk in at.iter().map(|&k| tr.t[k]) {
             if tk > t_start + eps && tk < t_end - eps {
                 let k = ((tk - t_start) / o.step).floor() as usize;
                 let near = grid.get(k).is_some_and(|g| (g - tk).abs() <= eps)
                     || grid.get(k + 1).is_some_and(|g| (g - tk).abs() <= eps);
                 if !near {
-                    bounds.push((tk, o.output_at_samples));
+                    bounds.push((tk, out));
                 }
             }
         }

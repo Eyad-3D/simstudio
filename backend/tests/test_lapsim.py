@@ -168,14 +168,15 @@ def _closure(result, proj, aux_kw=0.0):
     (trapezoids of ½·ρ·CdA·v² + c_rr·m·g over the recorded distance), the
     friction brakes (their torque at the wheels' mean speed over each step),
     the gears (the motor's mechanical power × (1 − 97 % × 99 %), or its
-    regenerated power × (1/(97 % × 99 %) − 1)), the motor's losses and the
-    consumer."""
+    regenerated power × (1/(97 % × 99 %) − 1)), the motor's losses, the
+    tyres' slip losses and the consumer. A power is taken over each
+    recorded interval by its mean there (the channel's mean)."""
     ts = [p["t"] for p in series(result, "batt", "sig_power")]
     dts = [b - a for a, b in zip(ts, ts[1:])]
 
-    def integral(el_id, port, fn=lambda x: x):  # step values, W·s: recorded at each step's end
-        vals = _values(result, el_id, port)
-        return sum(fn(x) * dt for x, dt in zip(vals[1:], dts))
+    def integral(el_id, port, fn=lambda x: x):  # the interval's mean × its length, W·s
+        c = next(c for c in result.channels if c.elementId == el_id and c.portId == port)
+        return sum(fn(x) * dt for x, dt in zip(c.mean[1:], dts))
 
     battery = integral("batt", "sig_power") * 1000.0
     r, i = 0.23, 4.0
@@ -195,7 +196,8 @@ def _closure(result, proj, aux_kw=0.0):
     gears = integral("mot", "sig_mech_power",
                      lambda p: p * (1 - eta) if p > 0 else -p * (1 / eta - 1)) * 1000.0
     motor = integral("mot", "sig_losses") * 1000.0
-    parts = kinetic + road + friction + gears + motor + aux_kw * 1000.0 * ts[-1]
+    slip = sum(integral(w, "sig_slip_losses") for w in ("fl", "fr", "rl", "rr")) * 1000.0
+    parts = kinetic + road + friction + gears + motor + slip + aux_kw * 1000.0 * ts[-1]
     return 100.0 * (parts - battery) / battery
 
 
@@ -208,11 +210,11 @@ def _closure(result, proj, aux_kw=0.0):
 def test_lap_energy_closes_against_the_component_losses(battery, aux_kw, dcdc_pct):
     """The item's metric: over an Autocross lap the battery's net energy at
     its terminals matches the kinetic energy, road load, friction brakes,
-    gear and motor losses (and a 1 kW consumer, with its DC-DC's losses)
-    within 0.5 %, from the recorded channels (measured +0.002, +0.030,
-    +0.033 and +0.002 %), and so does the summary's Lap energy balance
-    error, also where the battery's maximum-power point holds the motor
-    back."""
+    gear, motor and tyre slip losses (and a 1 kW consumer, with its
+    DC-DC's losses) within 0.5 %, from the recorded channels (measured
+    +0.23 % and +0.22 %), and so does the summary's Lap energy balance
+    error (the engine's books: 1e-5 %), also where the battery's
+    maximum-power point holds the motor back."""
     proj = fs_car(battery=battery)
     if aux_kw:
         s = proj.systems[0]
@@ -341,16 +343,17 @@ def test_all_wheel_drive_passes_the_slower_motor_top_speed():
 
 
 def test_live_edits_reach_the_next_lap():
-    """A live edit of the tyres' μ (1.5 to 1.0) early in lap 1 of three:
-    laps 2 and 3 corner at no more than 1.0 g, and lap 3 takes the time a
-    run at μ 1.0 takes (the cornering speeds are solved again at each
-    lap's start)."""
+    """A live edit of the tyres' μ (1.5 to 1.0) sent while lap 1 of three
+    is driven (the run reads its control at each lap's start: the second
+    read is lap 2's): laps 2 and 3 corner at no more than 1.0 g, and lap 3
+    takes the time a run at μ 1.0 takes (each lap's profile and energy pass
+    take the edits made before it)."""
     calls = [0]
 
     def control():
         calls[0] += 1
         return ([{"type": "set_param", "elementId": w, "key": "mu", "value": 1.0}
-                 for w in ("fl", "fr", "rl", "rr")] if calls[0] == 100 else [])
+                 for w in ("fl", "fr", "rl", "rr")] if calls[0] == 2 else [])
 
     result = simulate(fs_car("Autocross", 3), "case", control=control)
     lat = _values(result, "trk", "sig_lat_accel")
@@ -366,7 +369,7 @@ def test_lap_times_not_valid_when_the_car_had_less_than_they_assume():
     its Full-Load Torque table: the lap times, like the Energy per lap, are
     marked not valid (the laps were solved with power the car did not
     have, or from data it did not hold)."""
-    result = simulate(fs_car("Autocross", 2, battery={"capacity_kWh": 0.5}), "case")
+    result = simulate(fs_car("Autocross", 2, battery={"capacity_kWh": 0.3}), "case")
     marked = {s.label: s.notValid for s in result.summary}
     for label in ("Lap time", "Lap 1 time", "Total time", "Sector 1 time", "Average speed",
                   "Energy per lap"):
@@ -625,4 +628,5 @@ def test_the_app_runs_a_lap_case():
                                                 "caseId": "case"}).json()
     assert result["status"] == "success"
     assert result["summary"][0]["label"] == "Lap time"
-    assert result["messages"][0]["text"].startswith("Case 'Case' solved in lap mode: 2 laps")
+    assert result["messages"][0]["text"] == "Run on the new engine."
+    assert result["messages"][1]["text"].startswith("Case 'Case' solved in lap mode: 2 laps")

@@ -111,10 +111,12 @@ pub struct FastOptions {
     /// refresh the Jacobian after this many steps at the latest (0: only
     /// when the error estimate says so)
     pub max_jacobian_age: usize,
-    /// record an output point at every sample of the first trace, and at
-    /// every breakpoint of the others, too (a lap's track points), not only
-    /// on the uniform grid
+    /// record an output point at every sample of the trace `output_trace`
+    /// too (a lap's track points), not only on the uniform grid
     pub output_at_samples: bool,
+    /// the trace whose samples `output_at_samples` records (a lap's
+    /// curvature: its speed has points between the track's)
+    pub output_trace: usize,
     /// record an output point on the uniform grid (false: the grid only
     /// sets the steps, as a lap's energy pass steps finer than its track
     /// points for its books; the run's first and last points are recorded)
@@ -135,6 +137,7 @@ impl Default for FastOptions {
             flag_rtol: 1e-9,
             max_jacobian_age: 0,
             output_at_samples: false,
+            output_trace: 0,
             output_grid: true,
         }
     }
