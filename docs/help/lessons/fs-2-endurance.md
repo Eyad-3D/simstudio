@@ -20,8 +20,8 @@ Power Limit* to 30 kW for itself, a typical endurance setting: teams turn
 the power down to make the energy last. You can see this override in the
 *Cases* tab on the right, under *Parameter overrides*.
 
-**Check:** the run ends as *success* after 1,478.26 s (*Total time*),
-22.515 km driven, with *Accumulator — final SOC* 53.15 %.
+**Check:** the run ends as *success* after 1,477.22 s (*Total time*),
+22.515 km driven, with *Accumulator — final SOC* 52.12 %.
 
 ## 2. Read the energy
 
@@ -32,8 +32,8 @@ Open **All summary values** under the chart.
 - The difference is the net energy the event took. It is also *Energy per
   lap* times the number of laps.
 
-**Check:** 5.6 kWh delivered and 2.247 kWh recuperated: 3.36 kWh net,
-and *Energy per lap* 0.1461 kWh. Braking gives back 40 % of the energy
+**Check:** 5.6 kWh delivered and 2.209 kWh recuperated: 3.43 kWh net,
+and *Energy per lap* 0.1493 kWh. Braking gives back 39 % of the energy
 drawn.
 
 The 14 teams scored for efficiency at FS Czech Republic 2025 used 3.19 to
@@ -52,9 +52,8 @@ numbers tell you how hard the event works them:
 - *Accumulator — time held at the output power limit*: how long the car
   ran at its 30 kW limit.
 
-**Check:** *RMS battery power* reads 22.693 kW, and the accumulator was
-held at its limit for 583.74 s, about 40 % of the event. *Accumulator —
-minimum pack voltage* is 498.83 V.
+**Check:** *RMS battery power* reads 22.709 kW, and the accumulator was
+held at its limit for 590.88 s, about 40 % of the event. is 497.66 V.
 
 Tick *Accumulator · Discharge Power* and *Accumulator · Terminal Voltage*
 to see it over the event: the voltage falls as the charge goes down and
@@ -66,7 +65,7 @@ The summary also says, for each limit, how long it held the car back over
 the event: *Time limited by cornering grip*, *traction grip*, *motor*,
 *battery*, *power cap* and *braking*.
 
-**Check:** *Time limited by power cap* reads 583.742 s and *Time limited
+**Check:** *Time limited by power cap* reads 590.880 s and *Time limited
 by cornering grip* 458.885 s. At 30 kW the car spends more time held back
 by its power limit than by its tyres in the corners.
 

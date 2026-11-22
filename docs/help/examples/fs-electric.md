@@ -57,8 +57,8 @@ The summary says for how long each limit held the car back, for example
 | Case | Result |
 |---|---|
 | *Acceleration 75 m* | 3.754 s from the start line, 118.86 km/h at the line, 0-100 km/h in 2.96 s |
-| *Autocross (flying lap)* | 60.895 s for the flying lap, 57.25 km/h average |
-| *Endurance energy* (23 laps, 30 kW limit) | 1,478.26 s, 3.36 kWh net from the Accumulator, 53.15 % SOC left |
+| *Autocross (flying lap)* | 60.792 s for the flying lap, 57.34 km/h average |
+| *Endurance energy* (23 laps, 30 kW limit) | 1,477.22 s, 3.43 kWh net from the Accumulator, 52.12 % SOC left |
 
 At FS Czech Republic 2025 the 35 electric teams took 3.51 to 6.44 s over
 75 m (median 3.91 s, the case's reference time), and the 14 teams scored
@@ -96,7 +96,7 @@ These results are estimates: see the messages each run gives, and
    under *Parameter overrides*, set *Accumulator · Output Power Limit (0 =
    none)* to 25. What do you gain and what do you lose?
 
-   **Answer:** The car needs 1,499.141 s instead of 1,478.26 s (21 s
-   more) and ends with 58.29 % SOC instead of 53.15 %. Lesson 3,
+   **Answer:** The car needs 1,498.286 s instead of 1,477.22 s (21 s
+   more) and ends with 57.33 % SOC instead of 52.12 %. Lesson 3,
    [Size the accumulator](../lessons/fs-3-accumulator.md), uses this
    trade.

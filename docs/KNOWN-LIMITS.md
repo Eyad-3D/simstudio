@@ -365,19 +365,16 @@ solver: 0.4 s and 3.9 s). It is not a driving simulation:
   itself, with one demand for all, so Scripts or controllers between the
   Driver and the motors (torque vectoring, traction control) do nothing.
 - The brakes share the braking by their *Max Torque*, as the engine models
-  them (the FS example: 500/500 N·m at the front, 300/300 at the rear, so
-  62.5 % at the front; its weight transfer under braking asks for about
-  70.5 %), and the regeneration comes first, up to the Driver's
+  them (the FS example: 600/600 N·m at the front, 250/250 at the rear, so 70.6 % at the front, about what its weight transfer under braking asks for), and the regeneration comes first, up to the Driver's
   *Recuperation Weight*, on the driven wheels only, without regard to their
   grip (as in a drive cycle). The older lap solver assumed an ideal balance
   and held the regeneration to the driven wheels' grip. The FS example's
   weight is 100 %: up to 30 kW of regeneration on its rear axle, 1 500 to
   3 000 N, more than the rear tyres' 1 265 to 1 800 N of grip below about
-  33 m/s. So on the FS autocross the car brakes at up to 16.6 m/s² instead
-  of 25 m/s², held by the rear tyres, and the flying lap takes 60.9 s
-  against the older solver's 57.7 s (+5.5 %); with a Recuperation Weight
-  of 0 % it takes 58.7 s. Lower the weight, or move the brakes' Max Torque
-  forward, for a car whose brake system keeps the balance.
+  33 m/s. So on the FS autocross the car brakes at up to 18.3 m/s² instead
+  of 25 m/s², held by the rear tyres, and the flying lap takes 60.8 s
+  against the older solver's 57.7 s (+5.3 %); with a Recuperation Weight
+  of 0 % it takes 58.7 s. Lower the weight for a car whose brake system keeps the balance.
 - The car drives through its differential as modelled, which is open: in a
   corner the unloaded inner driven wheel's grip can hold the car back. On
   the FS autocross that is about 0.4 s, and up to 6 % on fast corners. A
@@ -419,14 +416,14 @@ solver: 0.4 s and 3.9 s). It is not a driving simulation:
   taken in pairs across the car, the same way in left and right corners:
   give the left and right wheels the same load share.
 - The lap's energy differs from the older lap solver's because the profile
-  differs. The FS autocross takes 0.248 kWh per lap against 0.397 kWh
-  (-37 %); the FS endurance (23 laps, 30 kW) 0.146 kWh per lap against
-  0.232, 3.36 kWh in all against 5.33. The slower braking makes the car
-  brake earlier and peak lower (30.3 m/s against 32.6 m/s on the
-  autocross), and the kinetic energy it gains and sheds per lap is 24 %
+  differs. The FS autocross takes 0.256 kWh per lap against 0.397 kWh
+  (-36 %); the FS endurance (23 laps, 30 kW) 0.149 kWh per lap against
+  0.232, 3.43 kWh in all against 5.33. The slower braking makes the car
+  brake earlier and peak lower (30.5 m/s against 32.6 m/s on the
+  autocross), and the kinetic energy it gains and sheds per lap is 23 %
   less. The older solver's own speed profile, driven through the new
   engine's energy pass, takes 2.8 % more than the older solver says
-  (mostly the slip losses). Lap times: the autocross's flying lap 60.9 s
+  (mostly the slip losses). Lap times: the autocross's flying lap 60.8 s
   (57.7 s before), the endurance's best lap 64.2 s (62.1 s).
 - Driving a lap's speed as a drive cycle gives other energy figures: the
   drive cycles' Driver has no brake balance or ABS and can lock the driven
@@ -1312,7 +1309,7 @@ SUNDIALS' own examples, transcribed from their C code
   is lap mode at the tyres'
   limit in every corner and under every braking, with no lift-and-coast and no driver
   change (FS Rules 2026 v1.1 (FSG) D 7.5.4's 3 min); its energy follows the
-  Output Power Limit the case sets, 30 kW (3.36 kWh net, 53.2 % SOC left): 20 kW gives 2.71 kWh net with 63.4 % SOC left, 40 kW 3.94 kWh with 43.4 % left, and 45 kW 4.20 kWh with 38.9 % left. The E-Motor's generator torque is held to 40 % for
+  Output Power Limit the case sets, 30 kW (3.43 kWh net, 52.1 % SOC left): 20 kW gives 2.71 kWh net with 63.4 % SOC left, 40 kW 3.94 kWh with 43.4 % left, and 45 kW 4.20 kWh with 38.9 % left. The E-Motor's generator torque is held to 40 % for
   drive cycles you add: their Driver has no brake balance or ABS, and at
   full generator torque, braking hard from 100 km/h locks the rear wheels
   and turns them backwards (at 40 % they still lock from about 45-60 km/h

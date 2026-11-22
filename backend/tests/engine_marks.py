@@ -129,10 +129,6 @@ XFAIL = {
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-gearing]": BENCH_KEYS,
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-fs-endurance]": BENCH_KEYS,
     "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-fs-limits]": BENCH_KEYS,
-    "test_examples_plausible.py::test_fs_endurance_energy_is_that_of_an_fs_car": (
-        "NEW-LAP-REGEN: the FS example recuperates 40.07 % of what it draws over its endurance, over the "
-        "band's 40 %: its Recuperation Weight of 100 % puts up to 30 kW of regeneration on the rear axle, "
-        "past its tyres' grip; the example's brake and regeneration values are the lead's call (open)"),
     "test_energy_book.py::test_lap_case_books_the_mechanics_from_the_lap": LAP_BOOKS,
     "test_reports.py::test_a_lap_case_names_its_brakes_and_gears": LAP_BOOKS,
     "test_lapsim.py::test_75_m_straight_matches_the_time_domain_within_2_percent[2.5-vehicle2-wheel2]": (

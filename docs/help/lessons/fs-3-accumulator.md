@@ -21,8 +21,8 @@ uses. Sweep it on the endurance:
 
 The swept value takes the place of the case's own 30 kW for each run.
 
-**Check:** the *Total time* is 1,499.141 s at 25 kW, 1,478.26 s at 30 kW
-and 1,462.054 s at 35 kW; the final SOC 58.29 %, 53.15 % and 48.32 %.
+**Check:** the *Total time* is 1,498.286 s at 25 kW, 1,477.22 s at 30 kW
+and 1,460.819 s at 35 kW; the final SOC 57.33 %, 52.12 % and 47.00 %.
 
 Each 5 kW more saves 16 to 21 s over the event and uses about 5 points
 more charge. Where the time is worth more points than the energy depends
@@ -40,18 +40,18 @@ the 30 kW limit:
 2. Click **Run sweep** and look at each run's status on the *Results*
    page, or in the study's table under *Saved studies*.
 
-**Check:** with 3 in parallel the car finishes with 36.18 % SOC and
-1.59 kWh usable energy left. With 4 the car finishes with 53.15 % SOC and
-3.33 kWh usable energy left; with 5, 63.02 % and 5.060 kWh.
+**Check:** with 3 in parallel the car finishes with 34.79 % SOC and
+1.51 kWh usable energy left. With 4 the car finishes with 52.12 % SOC and
+3.25 kWh usable energy left; with 5, 62.22 % and 4.986 kWh.
 
-So all three finish at 30 kW, and 4p finishes with a margin of 3.33 kWh.
+So all three finish at 30 kW, and margin of 3.25 kWh.
 Fewer cells in parallel would also make the car lighter and raise the
 accumulator's resistance; the sweep changes only the charge. To see
 both, set the values by hand for a single run.
 
 **Check:** with *Charge Capacity* 10.5 Ah, *Usable Capacity* 5.41 kWh,
 *Series Resistance R0* 0.4 Ω (4/3 of 0.3 Ω) and a *Vehicle Mass* of 274 kg
-(six kilograms of cells less), the car still finishes with 36.15 % SOC.
+(six kilograms of cells less), the car still finishes with 34.70 % SOC.
 
 ## 3. Pick your accumulator
 
