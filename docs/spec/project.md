@@ -126,6 +126,8 @@ from the library's defaults, in `parameterOverrides`.
 | `dynamicPorts` | list of [Port](#port) | Signal ports added to this part (Script, Monitor, FMU and Map blocks) |
 | `portSides` | object | Port id → `left`, `right`, `top` or `bottom`: where a pin is drawn |
 | `portOffsets` | object | Port id → 0 to 1: where along its side a pin is drawn |
+| `hiddenPorts` | list of text | Ports not drawn on the diagram (unwired ones the user hid). The drawing only: the model and the run ignore it. Absent when none is hidden |
+| `terminals` | list of text or null | An Electric Node's (`t1`, `t2`, …) or a Mechanical Node's (`f1`, `f2`, …) own terminals, in order, at least two; absent or null for the library's (five; four). Only these two parts take it |
 | `tableOutside` | object | Table parameter key → one of `error`, `clamp`, `linear` per axis: what the run does outside the table's data, overriding the library's setting |
 | `displayUnits` | object | Parameter key → `{value, axes}`: the unit the app shows and takes the value in (`value`) and each axis of a table in (`axes`, one per axis, null for the library's), one of `backend/app/dataio/units.json`'s units of the same kind. Display only: every value in `parameterOverrides` stays in the parameter's own unit. Absent when nothing was chosen |
 | `size` | `{width, height}` or null | Its size on the diagram; null for the default |

@@ -172,6 +172,28 @@
           "title": "Portoffsets",
           "type": "object"
         },
+        "hiddenPorts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Hiddenports",
+          "type": "array"
+        },
+        "terminals": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Terminals"
+        },
         "tableOutside": {
           "additionalProperties": {
             "items": {

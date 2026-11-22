@@ -79,6 +79,13 @@ sections.
   are placed so their wires cross little or not at all; only where ports
   are drawn changed, not the models or their results
   ([Your first electric car](help/tutorials/first-electric-car.md#4-wire-the-power-path)).
+- **Hide a port, and nodes with more terminals.** Right-click an unused
+  port for **Hide port**; the part's menu has **Show hidden ports**. An
+  Electric Node or a Mechanical Node gets one more terminal from **Add a
+  port** and loses an unused one from **Delete port**: a sixth or seventh
+  wire on a bus needs no second node. A node with the library's five (or
+  four) terminals is the same model as before
+  ([Your first electric car](help/tutorials/first-electric-car.md#4-wire-the-power-path)).
 - **Formula Student scoring without a lap** runs on the new engine: an
   Acceleration case with its *FS event* set gets the event time, the rule
   checks (80 kW on the rules' 500 ms average, 500 A, 600 V) and the points

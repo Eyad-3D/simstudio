@@ -212,7 +212,7 @@ fn six_flanges_turn_as_two_chained_nodes_turn() {
     // and as the exact answer: w = tau/D (1 − e^(−D t / J)), D = 1.1
     let w = one.channel("mass.w").unwrap();
     for (t, x) in one.times.iter().zip(w) {
-        let exact = 20.0 / 1.1 * (1.0 - (-1.1 * t / 2.0).exp());
+        let exact = 20.0 / 1.1 * (1.0 - lsim_ir::math::exp(-1.1 * t / 2.0));
         assert!((x - exact).abs() < 1e-6 * 20.0 / 1.1, "t = {t}: {x} vs {exact}");
     }
     // the node's Node Speed is the shaft's
