@@ -1206,3 +1206,14 @@ gain check for clutches.
 | hybrid-car Mixed Cycle (fine step) | CO₂ emissions | 67.8285 g/km | 67.7677 g/km | -0.06078 (-0.09 %) |
 | hybrid-car Mixed Cycle (fine step) | Battery energy change, share of fuel energy | -0.031412 % | -0.031653 % | -0.000241 (+0.77 %) |
 | hybrid-car Mixed Cycle (fine step) | channels that moved | | 59 | 1 outside their tube |
+
+## FS Electric example: brakes 600/250 N·m and Recuperation Weight 40 %
+
+The FS Electric example's brakes are 600 N·m at the front and 250 N·m at
+the rear (70.6 % of the braking at the front, what its weight transfer under
+braking asks for; 500/300 before, 62.5 %), and its Driver's Recuperation
+Weight is 40 % (100 % before, which put up to 30 kW of regeneration on the
+rear axle alone, past the rear tyres' grip, in the new engine's laps). Only
+its stored results (backend/projects/reference/fs-electric.json, today's
+engine) are written again: its autocross and endurance cases. No golden
+fixture moved; the other examples' stored results are kept as they were.

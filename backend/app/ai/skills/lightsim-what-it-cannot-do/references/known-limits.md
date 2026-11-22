@@ -53,9 +53,7 @@ A battery delivers power up to its maximum-power point (the most its resistance 
 
 ### Lap mode is a quasi-steady-state estimate
 
-- **A lap stops where a battery's maximum-power point holds the car** (a 1.2 Ω pack), and the run fails with the engine's message and the time: the profile takes the battery's limits at the lap's start, and as its charge falls during the lap the energy pass asks it for a little more than it then gives.
-- **A lap case gives its energy rows and the books' closure, but not yet
-  each part's energy flows or the Energy report** (the Sankey chart) built from them.
+- **Where the car cannot follow the lap's profile** , because a battery gives less than the lap's start assumed (its charge falls during the lap, and with it the most it can give), the rest of the lap is solved again from the car's state there, the battery held a further 0.5 % of its charge lower each time, at…
 
 ### Formula Student points are estimates
 

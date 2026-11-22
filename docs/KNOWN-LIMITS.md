@@ -365,16 +365,20 @@ solver: 0.4 s and 3.9 s). It is not a driving simulation:
   itself, with one demand for all, so Scripts or controllers between the
   Driver and the motors (torque vectoring, traction control) do nothing.
 - The brakes share the braking by their *Max Torque*, as the engine models
-  them (the FS example: 600/600 N·m at the front, 250/250 at the rear, so 70.6 % at the front, about what its weight transfer under braking asks for), and the regeneration comes first, up to the Driver's
-  *Recuperation Weight*, on the driven wheels only, without regard to their
-  grip (as in a drive cycle). The older lap solver assumed an ideal balance
-  and held the regeneration to the driven wheels' grip. The FS example's
-  weight is 100 %: up to 30 kW of regeneration on its rear axle, 1 500 to
-  3 000 N, more than the rear tyres' 1 265 to 1 800 N of grip below about
-  33 m/s. So on the FS autocross the car brakes at up to 18.3 m/s² instead
-  of 25 m/s², held by the rear tyres, and the flying lap takes 60.8 s
-  against the older solver's 57.7 s (+5.3 %); with a Recuperation Weight
-  of 0 % it takes 58.7 s. Lower the weight for a car whose brake system keeps the balance.
+  them (the FS example: 600/600 N·m at the front, 250/250 at the rear, so
+  70.6 % at the front, about what its weight transfer under braking asks
+  for), and the regeneration comes first, up to the Driver's *Recuperation
+  Weight*, on the driven wheels only, without regard to their grip (as in a
+  drive cycle). The older lap solver assumed an ideal balance and held the
+  regeneration to the driven wheels' grip. Regeneration on the driven axle
+  adds to that axle's braking, so where it is strong those tyres reach
+  their grip first and the car brakes less hard than its tyres together
+  could: at a weight of 100 % the FS example's 30 kW of regeneration on its
+  rear axle (1 500 to 3 000 N) is more than the rear tyres' 1 265 to 1 800 N
+  of grip below about 33 m/s, and its autocross lap takes 60.8 s. The
+  example uses 40 %: the car brakes at up to 23.5 m/s² (25 m/s² in the
+  older solver) and the flying lap takes 59.0 s against the older solver's
+  57.7 s (+2.2 %).
 - The car drives through its differential as modelled, which is open: in a
   corner the unloaded inner driven wheel's grip can hold the car back. On
   the FS autocross that is about 0.4 s, and up to 6 % on fast corners. A
@@ -415,16 +419,17 @@ solver: 0.4 s and 3.9 s). It is not a driving simulation:
   is (no roll stiffness or anti-roll bars), and each axle's wheels are
   taken in pairs across the car, the same way in left and right corners:
   give the left and right wheels the same load share.
-- The lap's energy differs from the older lap solver's because the profile
-  differs. The FS autocross takes 0.256 kWh per lap against 0.397 kWh
-  (-36 %); the FS endurance (23 laps, 30 kW) 0.149 kWh per lap against
-  0.232, 3.43 kWh in all against 5.33. The slower braking makes the car
-  brake earlier and peak lower (30.5 m/s against 32.6 m/s on the
-  autocross), and the kinetic energy it gains and sheds per lap is 23 %
-  less. The older solver's own speed profile, driven through the new
-  engine's energy pass, takes 2.8 % more than the older solver says
-  (mostly the slip losses). Lap times: the autocross's flying lap 60.8 s
-  (57.7 s before), the endurance's best lap 64.2 s (62.1 s).
+- The lap's energy differs from the older lap solver's. The FS autocross
+  takes 0.419 kWh per lap against 0.397 kWh (+5.5 %); the FS endurance
+  (23 laps, 30 kW) 0.243 kWh per lap against 0.232, 5.59 kWh in all against
+  5.33 (+4.9 %), recuperating 11 % of the energy it draws (18 % before). The
+  car brakes earlier and peaks lower (31.9 m/s against 32.6 m/s on the
+  autocross), gaining and shedding 8 % less kinetic energy per lap, and its
+  tyres' slip losses count. With the older solver's setup (a Recuperation
+  Weight of 100 %), the older solver's own speed profile driven through the
+  new engine's energy pass takes 2.8 % more than the older solver says,
+  mostly the slip losses. Lap times: the autocross's flying lap 59.0 s
+  (57.7 s before), the endurance's best lap 63.1 s (62.1 s).
 - Driving a lap's speed as a drive cycle gives other energy figures: the
   drive cycles' Driver has no brake balance or ABS and can lock the driven
   wheels when braking hard (a Formula Student-sized car driving its
@@ -440,15 +445,13 @@ solver: 0.4 s and 3.9 s). It is not a driving simulation:
   drawings after FS Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1,
   not official layouts; FSUK and FSAE may differ, check the current
   season's rules.
-- **A lap stops where a battery's maximum-power point holds the car**
-  (a 1.2 Ω pack), and the run fails with the engine's message and the
-  time: the profile takes the battery's limits at the lap's start, and as
-  its charge falls during the lap the energy pass asks it for a little
-  more than it then gives. The tests record it as open
-  (`backend/tests/engine_marks.py`).
-- **A lap case gives its energy rows and the books' closure, but not yet
-  each part's energy flows or the Energy report** (the Sankey chart) built
-  from them. The tests record it as open.
+- **Where the car cannot follow the lap's profile**, because a battery
+  gives less than the lap's start assumed (its charge falls during the lap,
+  and with it the most it can give), the rest of the lap is solved again
+  from the car's state there, the battery held a further 0.5 % of its
+  charge lower each time, at most 3 times a lap; the run says so. Beyond
+  that, or where solving again cannot help (an empty battery), the lap's
+  rows are marked not valid.
 
 *Workaround:* compare lap cases with each other rather than with a stop
 watch, and check the *Time limited by* rows and the Race Track's *Limit*

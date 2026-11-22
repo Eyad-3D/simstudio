@@ -310,7 +310,10 @@ def run_lap(project: Project, case_id: str, emit: Optional[EmitFn] = None,
                                coast=share, more=more, stop=stop)
             got = drive.drive(names=names)
         except ValueError as e:  # the car cannot drive it, or its energy pass stopped
-            messages.append(SimMessage(level="error", text=f"The car cannot drive the lap: {e}."))
+            text, which = str(e), f"the car cannot drive lap {k + 1} of {laps}"
+            text = (text.replace("the car cannot drive the lap", which, 1)
+                    if text.startswith("the car cannot drive the lap") else f"{which}: {text}")
+            messages.append(SimMessage(level="error", text=text[0].upper() + text[1:] + "."))
             failed_at = t_now
             break
         if got.get("resolves"):  # the source gave less than the lap's start assumed

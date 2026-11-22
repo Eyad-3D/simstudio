@@ -24,20 +24,25 @@ The car is the one the engine models, so some things differ from an ideal
 lap solver:
 
 - **Braking.** The brakes share the braking by their *Max Torque* (the FS
-  example: 600/600 N·m at the front, 250/250 at the rear, so 70.6 % at the front, about what its weight transfer under braking asks for), not by an ideal balance, and the regeneration comes first, up to
-  the Driver's *Recuperation Weight*, on the driven wheels only. With the
-  FS example's weight of 100 % its rear tyres take up to 30 kW of
-  regeneration, past their grip below about 33 m/s: on the FS autocross the
-  car brakes at up to 18.3 m/s², held by the rear tyres (58.6 s instead of
-  60.8 s at a weight of 0 %). Lower the weight for a car whose brake system keeps the balance.
+  example: 600/600 N·m at the front, 250/250 at the rear, so 70.6 % at the
+  front, about what its weight transfer under braking asks for), not by an
+  ideal balance, and the regeneration comes first, up to the Driver's
+  *Recuperation Weight*, on the driven wheels only. Regeneration adds to
+  the driven axle's braking, so where it is strong those tyres reach their
+  grip first and the car brakes less hard than its four tyres could: the
+  lap brakes earlier and takes longer. The FS example uses 40 %; at 100 %
+  its 30 kW of regeneration would hold its rear tyres at their grip below
+  about 33 m/s, and its autocross lap would take 60.8 s instead of 59.0 s.
 - **The open differential.** The car drives through its differential as
   modelled, open: in a corner the unloaded inner driven wheel's grip can
   hold the car back (about 0.4 s of the FS autocross, up to 6 % on fast
   corners). A limited-slip or locked differential is not modelled.
 - **Tyre slip.** The tyres slip, and the lap counts the slip loss (force ×
   slip × speed). Where the motors at full torque hold the car (below their
-  base speed), the lap takes that loss out of the drive force, so the
-  acceleration there is short by about the slip.
+  base speed), the lap takes that loss out of the drive force instead of
+  turning the wheel faster, so the acceleration there is short by about the
+  slip: over 75 m at μ 2.5 (10 % slip) the lap is 3.5 % slower than the
+  time-domain acceleration test.
 - **Top speed.** The top speed is the motors' in their gear: the highest
   speed the model solves at on the level (for the FS example 6,500 1/min
   through 4.4 on 0.228 m wheels, 35.3 m/s). The car settles within the
@@ -48,20 +53,23 @@ traction grip, 3 motor, 4 battery, 5 power cap, 6 braking, 7
 lift-and-coast, 8 top speed. When the car reaches its top speed the
 summary has a *Time limited by top speed* row.
 
-The lap is solved per stretch of track (about 1 m). Inside a stretch the
-constant acceleration runs the battery's power a few per cent over the
-power cap at the stretch's end and under it at its start (6.5 % at the
-endurance's 30 kW cap, 1.6 % at 80 kW); the mean over each stretch is on
-the cap. So in a lap case the battery's peak terminal power, its pack
-voltages, its time at its power limit and the E-Motor's time limited by its
-supply are given per stretch, from the stretch means; the channels'
-minimum and maximum show the values inside the stretches. On stretches
-held by the motors at full load or by the battery's own limits the profile
-takes four sub-steps, so the energy pass never asks for more than they
-give. A battery that starts a lap exactly full is taken 0.1 % below full
-for that lap's profile: at exactly full it takes no charge back, and the
-profile would brake without regeneration while the car regenerates from the
-first braking on.
+The lap is solved per stretch of track (about 1 m), and that is its
+resolution: in a lap case the battery's peak terminal power, its current,
+its pack voltages, its time at its power limit and the E-Motor's time
+limited by its supply are given per stretch, from the stretch means. Inside
+a stretch the constant acceleration runs the power a few per cent over the
+power cap at the stretch's end and under it at its start (a peak up to
+6.5 % over the endurance's 30 kW cap, 1.6 % over 80 kW), while the
+stretch's mean is on the cap; the channels' minimum and maximum show the
+values inside the stretches. On stretches held by the motors at full load
+or by the battery's own limits the profile takes four sub-steps, so the
+energy pass never asks for more than they give. Where a battery gives less
+than the lap's start assumed (its charge falls during the lap), the rest of
+the lap is solved again from the car's state there, at most 3 times a lap,
+and the run says so. A battery that starts a lap exactly full is taken
+0.1 % below full for that lap's profile: at exactly full it takes no charge
+back, and the profile would brake without regeneration while the car
+regenerates from the first braking on.first braking on.
 
 The Race Track's channels are recorded in lap cases only.
 

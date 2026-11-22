@@ -23,6 +23,15 @@ real car. Replace them with your team's data.
 - Drag area (CdA) 1.2 m², downforce area (CzA) 3.0 m², 45 % of it on the
   front; tyres with a friction coefficient μ of 1.5 that falls by 0.2 per
   kN of load.
+- Brakes of 600 N·m on each front wheel and 250 N·m on each rear one:
+  70.6 % of the braking at the front, about what the car's weight transfer
+  under braking asks for (70.5 % at the tyres' limit, by hand from the
+  values above).
+- The Driver's *Recuperation Weight* at 40 %: regeneration brakes the
+  driven rear wheels only, on top of their brakes, so at 100 % its 30 kW
+  would hold the rear tyres at their grip below about 33 m/s and the car
+  would brake later than its tyres allow (the autocross lap 60.9 s instead
+  of 59.0 s). At 40 % the endurance still recuperates 11 % of what it draws.
 
 The rules it follows are FS Rules 2026 v1.1 (Formula Student Germany,
 FSG): at most 80 kW at the accumulator outlet (EV 2.2.1), judged on a
@@ -57,8 +66,8 @@ The summary says for how long each limit held the car back, for example
 | Case | Result |
 |---|---|
 | *Acceleration 75 m* | 3.754 s from the start line, 118.86 km/h at the line, 0-100 km/h in 2.96 s |
-| *Autocross (flying lap)* | 60.792 s for the flying lap, 57.34 km/h average |
-| *Endurance energy* (23 laps, 30 kW limit) | 1,477.22 s, 3.43 kWh net from the Accumulator, 52.12 % SOC left |
+| *Autocross (flying lap)* | 58.980 s for the flying lap, 59.05 km/h average |
+| *Endurance energy* (23 laps, 30 kW limit) | 1,453.18 s, 5.59 kWh net from the Accumulator, 21.58 % SOC left |
 
 At FS Czech Republic 2025 the 35 electric teams took 3.51 to 6.44 s over
 75 m (median 3.91 s, the case's reference time), and the 14 teams scored
@@ -96,7 +105,7 @@ These results are estimates: see the messages each run gives, and
    under *Parameter overrides*, set *Accumulator · Output Power Limit (0 =
    none)* to 25. What do you gain and what do you lose?
 
-   **Answer:** The car needs 1,498.286 s instead of 1,477.22 s (21 s
-   more) and ends with 57.33 % SOC instead of 52.12 %. Lesson 3,
+   **Answer:** The car needs 1,477.550 s instead of 1,453.18 s (24 s
+   more) and ends with 31.00 % SOC instead of 21.58 %. Lesson 3,
    [Size the accumulator](../lessons/fs-3-accumulator.md), uses this
    trade.
