@@ -38,7 +38,7 @@ ops = [
 # The small wings win the 75 m acceleration (the model's first case) and use
 # less energy, but the big wings win the autocross lap.
 [wrong]
-answer = "ANSWER: B; 0.3715"
+answer = "ANSWER: B; 0.3896"
 
 [[answer]]
 choice = "A"
@@ -46,6 +46,6 @@ options = { A = "car-a.json", B = "car-b.json" }
 best = { case = "Autocross (flying lap)", key = "lap_time_s", pick = "min" }
 
 [[answer]]
-value = 0.42399
+value = 0.4512
 rtol = 0.02
 figure = { file = "car-a.json", case = "Autocross (flying lap)", key = "energy_per_lap_kwh" }

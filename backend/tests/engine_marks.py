@@ -115,17 +115,7 @@ LIMITS = ("NEW-LIMITS: the new path refuses a run with a value outside its param
           "{what}), where today's engine clamps it and runs; a refusal that is not one of the four features (open: "
           "the owner's call whether the app keeps it)")
 
-BENCH_KEYS = ("NEW-LAP-BENCH: the FS tasks' answer keys are the older lap solver's results (and one task's "
-              "premise, a pack that runs out, no longer holds); they are worked out again once the example's "
-              "brake and regeneration values are settled (open)")
-
 XFAIL = {
-    "test_agent_bench.py::test_the_endurance_energy_to_two_decimals_passes": BENCH_KEYS,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-aero]": BENCH_KEYS,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-endurance-pack]": BENCH_KEYS,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-gearing]": BENCH_KEYS,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-fs-endurance]": BENCH_KEYS,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-fs-limits]": BENCH_KEYS,
     "test_lapsim.py::test_75_m_straight_matches_the_time_domain_within_2_percent[2.5-vehicle2-wheel2]": (
         "NEW-LAP-SLIP: where the motors at full torque hold the car, the lap's wheel (fast mode's inverse "
         "model) turns with the prescribed speed and takes its tyre's slip loss out of the force: 3.835 s "

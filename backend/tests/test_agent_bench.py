@@ -113,8 +113,8 @@ _DISCONNECT = {"op": "disconnect", "from": "Vehicle Task:sig_demand", "to": "Dri
 
 
 @pytest.mark.parametrize("task_id, attempt, reason", [
-    # the two figures swapped: they lie 2.5 % apart, and the bands were 3 %
-    ("question-fs-limits", "ANSWER: 39.074; 38.09", "answer 1: '39.074', the key 38.09"),
+    # the two figures swapped: they lie 13.5 % apart, and the bands were 15 %
+    ("question-fs-limits", "ANSWER: 43.47; 38.287", "answer 1: '43.47', the key 38.287"),
     # no Script block: a Lookup Table under the asked label does the job
     ("write-speed-limiter", "also_wrong:0", "0 signal.script parts labelled 'Speed Limiter'"),
     ("write-aux-shed", "also_wrong:0", "0 signal.script parts labelled 'Aux Shedding'"),
@@ -274,7 +274,7 @@ def test_a_repair_may_not_remove_or_swap_a_part_the_brief_leaves_alone(change, s
 
 def test_a_key_whose_numbers_pass_swapped_is_refused():
     task = next(t for t in TASKS if t.id == "question-fs-limits")
-    wide = dataclasses.replace(task, answer=tuple({**key, "rtol": 0.03} for key in task.answer))
+    wide = dataclasses.replace(task, answer=tuple({**key, "rtol": 0.15} for key in task.answer))
     assert "answers 1 and 2 swapped pass: their bands overlap" in agent.validate(wide)
     # every reading is swapped, not only the main one
     close_pair = ({"value": 50.0, "rtol": 0.01}, {"value": 50.2, "rtol": 0.01})
@@ -288,22 +288,22 @@ def test_the_endurance_key_takes_both_readings_of_an_empty_accumulator():
     agents gave the second and were failed for it. Both readings pass, each
     as LightSim works it out; the event's finished distance still fails."""
     task = next(t for t in TASKS if t.id == "question-fs-endurance")
-    for text in ("ANSWER: 20.56; 0.225", "ANSWER: 20.0; 0.229", "ANSWER: 20.05; 0.231", "ANSWER: 20.0; 0.225"):
+    for text in ("ANSWER: 20.56; 0.238", "ANSWER: 19.58; 0.250", "ANSWER: 19.6; 0.2498", "ANSWER: 19.58; 0.238"):
         assert agent._check_answer(task, text, {}) == [], text
-    assert agent._check_answer(task, "ANSWER: 22.5; 0.2319", {})
+    assert agent._check_answer(task, "ANSWER: 22.5; 0.2432", {})
     # one reading as a whole: the run's distance with an energy of the other reading fails
-    for text in ("ANSWER: 20.557; 0.2351", "ANSWER: 20.76; 0.2350", "ANSWER: 20.557; 0.2319",
-                 "ANSWER: 20.56; 0.231", "ANSWER: 20.56; 0.234"):
+    for text in ("ANSWER: 20.557; 0.2498", "ANSWER: 20.76; 0.2498", "ANSWER: 20.557; 0.2682",
+                 "ANSWER: 20.56; 0.25", "ANSWER: 20.56; 0.26"):
         assert agent._check_answer(task, text, {}), text
 
 
 def test_the_endurance_energy_to_two_decimals_passes():
-    """The brief names no precision, and the run's energy per lap, 0.2246 kWh,
-    is 0.22 to two decimals: 2.06 % off the key. The comparison of 6 November
-    failed five tries for it under a 2 % band, while 0.23 for the other
-    reading's 0.2305 passed."""
+    """The brief names no precision, and the run's energy per lap, 0.2380 kWh,
+    is 0.24 to two decimals: 0.85 % off the key (0.22 for the older key's
+    0.2246, 2.06 % off, failed five tries of the comparison of 6 November
+    under a 2 % band), and the other reading's 0.2498 is 0.25."""
     task = next(t for t in TASKS if t.id == "question-fs-endurance")
-    for text in ("ANSWER: 20.56; 0.22", "ANSWER: 20.0; 0.22", "ANSWER: 20.0; 0.23"):
+    for text in ("ANSWER: 20.56; 0.24", "ANSWER: 19.6; 0.24", "ANSWER: 19.6; 0.25"):
         assert agent._check_answer(task, text, {}) == [], text
     project = agent.ls.Project(agent.start_files(task)["car.json"])
     result = project.run("Endurance energy")
