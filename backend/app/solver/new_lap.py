@@ -313,6 +313,13 @@ def run_lap(project: Project, case_id: str, emit: Optional[EmitFn] = None,
             messages.append(SimMessage(level="error", text=f"The car cannot drive the lap: {e}."))
             failed_at = t_now
             break
+        if got.get("resolves"):  # the source gave less than the lap's start assumed
+            prof = got["profile"]
+            n = got["resolves"]
+            messages.append(SimMessage(level="info", text=(
+                f"Lap {k + 1}: its battery gave less than the lap's start assumed (its charge "
+                f"fell during the lap), so the rest of the lap was solved again from the car's "
+                f"state there ({n} time{'s' if n > 1 else ''}).")))
         lap.end = got["end"]
         used = battery_net(lap.end) - lap.net_j
         lap.net_j += used

@@ -130,12 +130,6 @@ XFAIL = {
         "NEW-LAP-SLIP: where the motors at full torque hold the car, the lap's wheel (fast mode's inverse "
         "model) turns with the prescribed speed and takes its tyre's slip loss out of the force: 3.835 s "
         "against the time-domain 3.706 s at μ 2.5, about the slip at that force (10 %) (open)"),
-    "test_lapsim.py::test_lap_energy_closes_against_the_component_losses[battery1-0.0-None]": (
-        "NEW-LAP-PASS: the energy pass of a lap that the battery's maximum-power point holds (1.2 ohm) "
-        "stops where the profile, solved with the battery's charge at the lap's start, asks it for more "
-        "than it then gives (open)"),
-    "test_lapsim.py::test_lap_energy_closes_against_the_component_losses[battery2-1.0-None]": (
-        "NEW-LAP-PASS: as battery1 (open)"),
     "test_lab_figures.py::test_ftp_bags_are_weighted_as_epa_does": (
         "the new path gives no 'FTP weighted fuel consumption' row: the engine's figures have each bag, today's "
         "lab_rows weights them (open)"),

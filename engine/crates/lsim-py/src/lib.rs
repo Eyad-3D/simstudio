@@ -1295,6 +1295,7 @@ struct DriveState {
     params: ParamState,
     car: Option<lsim_lap::State>,
     track: Option<lsim_lap::Track>,
+    opt: lsim_lap::LapOptions,
     prof: Option<lsim_lap::Profile>,
     run: Option<lsim_engine::lsim_fast::FastResult>,
     seconds: f64,
@@ -1360,7 +1361,7 @@ impl LapDrive {
     ) -> PyResult<Bound<'py, PyDict>> {
         let mut st = self.state.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
         let track = lsim_lap::Track { kappa, sin_t, ds, closed };
-        let opt = lsim_lap::LapOptions { v_start, coast, more, stop };
+        let opt = lsim_lap::LapOptions { v_start, coast, more, stop, soc_drop: 0.0 };
         let t0 = std::time::Instant::now();
         let (model, params, parts, car) =
             (&self.built.model, &st.params.values, &self.parts, st.car.as_ref());
@@ -1370,6 +1371,7 @@ impl LapDrive {
         let seconds = t0.elapsed().as_secs_f64();
         st.seconds += seconds;
         st.track = Some(track);
+        st.opt = opt;
         st.prof = Some(prof.clone());
         profile_dict(py, prof, seconds)
     }
@@ -1393,10 +1395,16 @@ impl LapDrive {
             return Err(PyValueError::new_err("no lap solved to drive"));
         };
         let t0 = std::time::Instant::now();
-        let (model, params, q, car) =
-            (&self.built.model, &st.params.values, &self.quantities, st.car.as_ref());
-        let r = py
-            .detach(|| lsim_lap::drive(model, params, track, prof, car, q))
+        let (model, params, q, car, parts, opt) = (
+            &self.built.model,
+            &st.params.values,
+            &self.quantities,
+            st.car.as_ref(),
+            &self.parts,
+            &st.opt,
+        );
+        let (prof, r, resolves) = py
+            .detach(|| lsim_lap::drive_resolving(model, params, parts, track, prof, opt, car, q))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let seconds = t0.elapsed().as_secs_f64();
         st.seconds += seconds;
@@ -1422,6 +1430,11 @@ impl LapDrive {
         }
         d.set_item("flags", flags)?;
         d.set_item("seconds", seconds)?;
+        // where the lap was solved again: how many times, and its profile now
+        d.set_item("resolves", resolves)?;
+        if resolves > 0 {
+            d.set_item("profile", profile_dict(py, prof.clone(), 0.0)?)?;
+        }
         if keep {
             st.car = Some(lsim_lap::State { y: r.end_y.clone(), d: r.end_d.clone() });
             st.run = Some(lsim_lap::join(st.run.take(), r));
@@ -1521,7 +1534,7 @@ impl LapModel {
         let params =
             self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
         let track = lsim_lap::Track { kappa, sin_t, ds, closed };
-        let opt = lsim_lap::LapOptions { v_start, coast, more, stop };
+        let opt = lsim_lap::LapOptions { v_start, coast, more, stop, soc_drop: 0.0 };
         let t0 = std::time::Instant::now();
         let built = Arc::clone(&self.built);
         let parts = self.parts.clone();

@@ -67,6 +67,13 @@ const V_MIN: f64 = 0.5;
 /// 0.01 s, 5.0e-9 at 0.002 s, where round-off adds up); the states do not
 /// move by it (the battery's energy the same to the digits shown)
 pub const BOOKS_STEP: f64 = 0.01;
+/// the times a lap's profile is solved again where its energy pass could not
+/// follow it (drive_resolving)
+pub const RESOLVES: usize = 3;
+/// the share of a battery's charge each time again holds it lower for the
+/// rest of the lap (drive_resolving): 0.5 % moves the FS car's 1.2 ohm test
+/// pack's maximum-power point down by about 0.2 %
+const RESOLVE_SOC: f64 = 5e-3;
 /// a battery that starts a lap full is held this share of its charge below
 /// full for the lap's profile, where it is once the lap's first acceleration
 /// has drawn on it (80 kW for 1 s draws 0.3 % of the FS car's 14 A·h): at
@@ -182,6 +189,10 @@ pub struct LapOptions {
     pub more: bool,
     /// the lap ends at a standstill (the endurance's driver change)
     pub stop: bool,
+    /// the batteries are held this share of their charge lower for the
+    /// profile (0: as they are; drive_resolving's, where the car could not
+    /// follow the profile at their limit)
+    pub soc_drop: f64,
 }
 
 /// One lap's speed profile.
@@ -214,6 +225,8 @@ pub enum LapError {
     Model(String),
     /// the car stops on the track, at this distance, m
     Stops(f64),
+    /// the energy pass stopped at this time from the lap's start, s, and why
+    PassStopped(f64, String),
 }
 
 impl std::fmt::Display for LapError {
@@ -225,6 +238,7 @@ impl std::fmt::Display for LapError {
                 "the car cannot drive the lap: it stops {s:.0} m into it (its motors do not \
                  overcome the road load there)"
             ),
+            LapError::PassStopped(_, m) => write!(f, "the lap's energy pass: {m}"),
         }
     }
 }
@@ -304,6 +318,7 @@ impl<'a> Car<'a> {
         parts: &Parts,
         v0: f64,
         state: Option<&State>,
+        soc_drop: f64,
     ) -> Result<Car<'a>, LapError> {
         let flat = &model.prepared.flat;
         let param = |name: String| {
@@ -352,13 +367,16 @@ impl<'a> Car<'a> {
                 .point_solver(params, &prescribed(v0, 0.0, 0.0, 0.0))
                 .map_err(|e| LapError::Model(format!("the lap model could not be started: {e}")))?,
         };
-        // a battery that starts the lap full is held just below full (FULL_SHARE)
+        // a battery that starts the lap full is held just below full
+        // (FULL_SHARE), and each one `soc_drop` lower where asked
         for b in &parts.batteries {
             let soc = format!("{b}.soc");
-            if let Some(i) = model.info.y_names.iter().position(|n| *n == soc)
-                && s.y()[i] > 1.0 - FULL_SHARE
-            {
-                s.hold_state(i, 1.0 - FULL_SHARE);
+            if let Some(i) = model.info.y_names.iter().position(|n| *n == soc) {
+                let x = s.y()[i];
+                let held = (x - soc_drop.max(0.0)).clamp(0.0, 1.0 - FULL_SHARE);
+                if held < x {
+                    s.hold_state(i, held);
+                }
             }
         }
         let mut car = Car {
@@ -645,7 +663,8 @@ pub fn solve(
             "the track needs two points or more, a spacing above 0".into(),
         ));
     }
-    let mut car = Car::new(model, params, parts, opt.v_start.clamp(0.0, V_MAX), state)?;
+    let mut car =
+        Car::new(model, params, parts, opt.v_start.clamp(0.0, V_MAX), state, opt.soc_drop)?;
     let apex: Vec<f64> =
         track.kappa.iter().zip(&track.sin_t).map(|(&k, &s)| car.apex(k, s)).collect();
     let (vf, why, subs) = forward(&mut car, track, &apex, opt.v_start, None);
@@ -704,7 +723,160 @@ pub fn drive(
         ..Default::default()
     };
     let start = state.map(|s| (s.y.as_slice(), s.d.as_slice()));
-    model.fast_from(params, start, &traces, &o, None, &mut [], integrate).map_err(|e| err(&e))
+    model.fast_from(params, start, &traces, &o, None, &mut [], integrate).map_err(|e| match &e {
+        lsim_engine::RunError::Fast(
+            lsim_fast::FastError::NoConvergence { t, .. }
+            | lsim_fast::FastError::Singular { t, .. },
+        ) => LapError::PassStopped(*t, e.to_string()),
+        _ => err(&e),
+    })
+}
+
+/// One lap's energy pass, the profile solved again where the car could not
+/// follow it: where the pass stops (a battery asked past its maximum-power
+/// point has no answer), or where the motors ask their supply for more than
+/// it gives over a stretch or more, the rest of the lap is solved again from
+/// the car's state a stretch before (its battery's charge then, not the
+/// lap's start), and the lap is driven again; at most RESOLVES times, then
+/// the last stop or the flagged pass is the answer. The profile driven, the
+/// pass, and how many times it was solved again.
+#[allow(clippy::too_many_arguments)]
+pub fn drive_resolving(
+    model: &Model,
+    params: &[f64],
+    parts: &Parts,
+    track: &Track,
+    prof: &Profile,
+    opt: &LapOptions,
+    state: Option<&State>,
+    integrate: &[lsim_engine::lsim_ir::expr::Expr],
+) -> Result<(Profile, lsim_fast::FastResult, usize), LapError> {
+    let mut prof = prof.clone();
+    // the last pass that ran (flagged where the car could not follow): the
+    // answer when solving again does not help (an empty battery)
+    let mut ran: Option<(Profile, lsim_fast::FastResult, usize)> = None;
+    for k in 0..=RESOLVES {
+        let t_bad = match drive(model, params, track, &prof, state, integrate) {
+            Ok(r) => match supply_short(parts, &prof, &r) {
+                Some(t) if k < RESOLVES => {
+                    ran = Some((prof.clone(), r, k));
+                    t
+                }
+                _ => return Ok((prof, r, k)),
+            },
+            Err(LapError::PassStopped(t, _)) if k < RESOLVES => t,
+            Err(e) => return ran.ok_or(e),
+        };
+        match resolve_from(model, params, parts, track, &prof, opt, state, integrate, t_bad, k) {
+            Ok(p) => prof = p,
+            Err(e) => return ran.ok_or(e),
+        }
+    }
+    unreachable!("the loop returns by its last round")
+}
+
+/// The profile solved again from a stretch before `t_bad` on (drive_resolving).
+#[allow(clippy::too_many_arguments)]
+fn resolve_from(
+    model: &Model,
+    params: &[f64],
+    parts: &Parts,
+    track: &Track,
+    prof: &Profile,
+    opt: &LapOptions,
+    state: Option<&State>,
+    integrate: &[lsim_engine::lsim_ir::expr::Expr],
+    t_bad: f64,
+    k: usize,
+) -> Result<Profile, LapError> {
+    // a stretch before the trouble: the pass up to there gives the state
+    let i0 = prof.t.iter().rposition(|t| *t < t_bad).unwrap_or(0).saturating_sub(1);
+    if i0 == 0 {
+        return Err(LapError::PassStopped(t_bad, "at the lap's start".into()));
+    }
+    let head = cut(track, prof, i0);
+    let r0 = drive(model, params, &head.0, &head.1, state, integrate)?;
+    let at = State { y: r0.end_y, d: r0.end_d };
+    let rest = Track {
+        kappa: track.kappa[i0..].to_vec(),
+        sin_t: track.sin_t[i0..].to_vec(),
+        ds: track.ds,
+        closed: false,
+    };
+    // (each time again with the batteries held a further RESOLVE_SOC lower:
+    // a battery driven at its limit asked a hair more than it then gives)
+    let o = LapOptions {
+        v_start: prof.v[i0],
+        soc_drop: opt.soc_drop + RESOLVE_SOC * (k + 1) as f64,
+        ..opt.clone()
+    };
+    let tail = solve(model, params, parts, &rest, &o, Some(&at))?;
+    Ok(splice(prof, i0, &tail))
+}
+
+/// The time the motors first ask their supply for more than it gives over
+/// a whole stretch or more (two track points or more inside the flag).
+fn supply_short(parts: &Parts, prof: &Profile, r: &lsim_fast::FastResult) -> Option<f64> {
+    r.flags
+        .iter()
+        .filter(|f| f.upper && parts.motors.contains(&f.part))
+        .filter(|f| prof.t.iter().filter(|t| **t > f.t_start && **t < f.t_end).count() >= 2)
+        .map(|f| f.t_start)
+        .next()
+}
+
+/// The track and the profile up to point `i` (inclusive).
+fn cut(track: &Track, prof: &Profile, i: usize) -> (Track, Profile) {
+    (
+        Track {
+            kappa: track.kappa[..=i].to_vec(),
+            sin_t: track.sin_t[..=i].to_vec(),
+            ds: track.ds,
+            closed: false,
+        },
+        cut_profile(prof, i),
+    )
+}
+
+/// The profile up to point `i` (inclusive).
+fn cut_profile(prof: &Profile, i: usize) -> Profile {
+    let fine = prof.fine.iter().copied().filter(|(t, _)| *t <= prof.t[i]).collect();
+    Profile {
+        v: prof.v[..=i].to_vec(),
+        t: prof.t[..=i].to_vec(),
+        code: prof.code[..i].to_vec(),
+        cause: prof.cause[..i].to_vec(),
+        apex: prof.apex.get(..=i).map(|a| a.to_vec()).unwrap_or_default(),
+        fine,
+        ..prof.clone()
+    }
+}
+
+/// The profile `prof` up to point `i`, then `tail` (solved from there) on.
+fn splice(prof: &Profile, i: usize, tail: &Profile) -> Profile {
+    let t0 = prof.t[i];
+    let mut p = cut_profile(prof, i);
+    p.v[i] = tail.v[0].min(p.v[i]);
+    p.v.extend_from_slice(&tail.v[1..]);
+    p.t.extend(tail.t[1..].iter().map(|t| t + t0));
+    p.code.extend_from_slice(&tail.code);
+    p.cause.extend_from_slice(&tail.cause);
+    if !p.apex.is_empty() {
+        p.apex.extend(tail.apex.iter().skip(1));
+    }
+    if !p.fine.is_empty() || !tail.fine.is_empty() {
+        if p.fine.is_empty() {
+            p.fine = p.t.iter().copied().zip(p.v.iter().copied()).take(i + 1).collect();
+        }
+        let tf: Vec<(f64, f64)> = if tail.fine.is_empty() {
+            tail.t.iter().copied().zip(tail.v.iter().copied()).collect()
+        } else {
+            tail.fine.clone()
+        };
+        p.fine.extend(tf.into_iter().skip(1).map(|(t, v)| (t + t0, v)));
+    }
+    p.stats = prof.stats;
+    p
 }
 
 /// Joins a lap's energy pass `lap` onto the laps before it `run` (None:
@@ -1055,7 +1227,7 @@ mod tests {
     #[test]
     fn braking_probes_at_or_below_the_cap_all_solve() {
         let (model, parts) = fs_car();
-        let mut car = Car::new(&model, &model.info.params, &parts, 0.0, None).unwrap();
+        let mut car = Car::new(&model, &model.info.params, &parts, 0.0, None, 0.0).unwrap();
         let cap = car.v_cap;
         for kappa in [0.0, 0.02, 0.1] {
             for k in 0..=40 {
