@@ -14,6 +14,12 @@ trace's RMS error and, when the log has the pack power, the energy error.
 The logs stay on the team's computer: they are read in the request and not
 stored. The fit varies only the grip and the downforce; the powertrain,
 mass and drag are the model's own.
+
+The speeds are the new engine's lap profile (new_lap, lsim-lap): the car as
+the engine models it, built once for the logged track and given each try's
+grip and downforce. The check lap's energy needs a lap case's energy pass,
+which the new engine does not run yet (NEW-LAP): the check gives the lap
+time and the speed trace's error, and says so.
 """
 from __future__ import annotations
 
@@ -23,12 +29,9 @@ from typing import Optional
 
 from .. import laplog
 from ..schemas import Project, SimCase
-from . import lapsim
-from .core import simulate
-from .domains import RunContext
+from . import lapsim, new_lap
 from .maps import OutsideDataError
 from .network import build_model
-from .runtime import Runtime
 
 SMOOTH_M = 3.0  # m: the moving average over which the curvature is smoothed
 POINT_M = 1.0  # m: the track table's spacing
@@ -183,24 +186,45 @@ def _overrides(project: Project, log: LoggedLap, mu_scale: float, cza: float) ->
     return ov
 
 
-def _speed_rms(project: Project, log: LoggedLap, mu_scale: float, cza: float) -> float:
-    """RMS of lap mode's speed against the logged speed, m/s, at the log's
-    points (the lap from the logged start speed)."""
-    ov = _overrides(project, log, mu_scale, cza)
-    gear_of: dict = {}
-    model = build_model(project, gear_of, ov)
-    ctx = RunContext(project, model, Runtime(model, None), gear_of, ov)
-    ctx.v = log.v[0]
-    lap = lapsim.LapRun(ctx, 2.0 * POINT_M)  # (the fit at 2 m: half the cost)
-    prof = lap.solve(log.v[0])
-    pts = [(i * lap.track.ds, v) for i, v in enumerate(prof.v)]
-    errs = [_interp(pts, x) - v for x, v in zip(log.s, log.v)]
-    return math.sqrt(sum(e * e for e in errs) / len(errs))
+class _Laps:
+    """The logged lap's track driven by the case's car on the new engine:
+    its lap model built once, each try's grip scale and downforce set on it
+    (the wheels' μ, lateral μ and load sensitivity times the scale, the
+    Vehicle's CzA)."""
+
+    def __init__(self, project: Project, log: LoggedLap):
+        ov = _overrides(project, log, 1.0, 0.0)
+        proj = project.model_copy(deep=True)
+        proj.cases = [SimCase(id=CASE_ID, name="Calibration", kind="lap", parameterOverrides=ov)]
+        self.log, self.lm = log, new_lap.lap_model(proj, CASE_ID)
+        self.tracks = {s: new_lap.track_of(proj, ov, s) for s in (POINT_M, 2.0 * POINT_M)}
+        inst = self.lm.instances
+        els = [e for s in proj.systems for e in s.elements]
+        veh = next(e for e in els if e.componentDefId == "vehicle.body")
+        self.cza = f"{inst[veh.id]}.downforce_cza_m2"
+        names = [f"{inst[e.id]}.{k}" for e in els if e.componentDefId == "propulsion.wheel"
+                 and e.id in inst for k in ("mu", "mu_lateral", "mu_load_sensitivity_per_kN")]
+        self.grip = self.lm.values(names)
+
+    def profile(self, mu_scale: float, cza: float, spacing: float) -> tuple[lapsim.Track, dict]:
+        self.lm.set_params({**{n: v * mu_scale for n, v in self.grip.items()}, self.cza: cza})
+        track = self.tracks[spacing]
+        return track, new_lap.solve(self.lm, track, self.log.v[0])
+
+    def speed_rms(self, mu_scale: float, cza: float, spacing: float = 2.0 * POINT_M) -> float:
+        """RMS of the lap's speed against the logged speed, m/s, at the
+        log's points (the lap from the logged start speed; the fit at 2 m,
+        half the cost)."""
+        track, prof = self.profile(mu_scale, cza, spacing)
+        pts = [(i * track.ds, v) for i, v in enumerate(prof["v"])]
+        errs = [_interp(pts, x) - v for x, v in zip(self.log.s, self.log.v)]
+        return math.sqrt(sum(e * e for e in errs) / len(errs))
 
 
 def calibrate(project: Project, log: LoggedLap) -> dict:
     """The grip scale and CzA that fit ``log`` best: {"mu_scale", "cza",
     "rms_kmh", "evaluations"}."""
+    laps = _Laps(project, log)
     best = (math.inf, 1.0, 0.0)
     evals = 0
     mu_lo, mu_hi = MU_GRID
@@ -212,7 +236,7 @@ def calibrate(project: Project, log: LoggedLap) -> dict:
             for j in range(n):
                 cz = c_lo + (c_hi - c_lo) * j / (n - 1)
                 try:
-                    err = _speed_rms(project, log, mu, cz)
+                    err = laps.speed_rms(mu, cz)
                 except (lapsim.LapError, OutsideDataError):  # (a run that cannot drive it)
                     err = math.inf
                 evals += 1
@@ -230,27 +254,21 @@ def calibrate(project: Project, log: LoggedLap) -> dict:
 
 
 def predict(project: Project, log: LoggedLap, mu_scale: float, cza: float) -> dict:
-    """Drive ``log``'s track with the calibrated values (a full lap case:
-    the energy too) and compare: lap time, speed RMS and energy errors."""
-    ov = _overrides(project, log, mu_scale, cza)
-    proj = project.model_copy(deep=True)
-    proj.cases = [SimCase(id=CASE_ID, name="Calibration check", kind="lap", outputEvery=1,
-                          parameterOverrides=ov)]
-    veh = next(e for s in proj.systems for e in s.elements if e.componentDefId == "vehicle.body")
-    veh.parameterOverrides["initial_speed_kmh"] = log.v[0] * 3.6
-    res = simulate(proj, CASE_ID)
-    rows = {s.label: s.value for s in res.summary}
-    out = {"status": res.status, "lap_time_log_s": round(log.time_s, 3),
-           "messages": [m.text for m in res.messages if m.level in ("warning", "error")]}
-    if "Lap time" not in rows:
-        return out
-    t = rows["Lap time"]
-    out.update(lap_time_model_s=t, lap_time_error_pct=round(100.0 * (t - log.time_s) / log.time_s, 2),
-               speed_rms_kmh=round(_speed_rms(project, log, mu_scale, cza) * 3.6, 3))
-    e = rows.get("Energy per lap")
-    if e is not None:
-        out["energy_model_kwh"] = e
-    if log.energy_kwh is not None and e is not None and log.energy_kwh > 0:
-        out.update(energy_log_kwh=round(log.energy_kwh, 4),
-                   energy_error_pct=round(100.0 * (e - log.energy_kwh) / log.energy_kwh, 2))
+    """Drive ``log``'s track with the calibrated values (the lap from the
+    logged start speed, a point every metre) and compare: the lap time and
+    the speed trace's RMS error. The energy needs a lap case's energy pass,
+    which the new engine does not run yet: the check says so."""
+    out = {"status": "success", "lap_time_log_s": round(log.time_s, 3), "messages": []}
+    try:
+        laps = _Laps(project, log)
+        _, prof = laps.profile(mu_scale, cza, POINT_M)
+    except (lapsim.LapError, OutsideDataError) as e:
+        return {**out, "status": "failed", "messages": [str(e)]}
+    t = prof["t"][-1]
+    out.update(lap_time_model_s=round(t, 3),
+               lap_time_error_pct=round(100.0 * (t - log.time_s) / log.time_s, 2),
+               speed_rms_kmh=round(laps.speed_rms(mu_scale, cza, POINT_M) * 3.6, 3))
+    if log.energy_kwh is not None:
+        out["messages"].append("The energy is not compared: a lap case's energy does not run in "
+                               "this version of LightSim yet (NEW-LAP).")
     return out

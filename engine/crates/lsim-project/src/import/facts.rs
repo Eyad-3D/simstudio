@@ -171,6 +171,9 @@ pub struct Facts {
     /// fast mode's inverse model: the vehicle's speed follows the cycle
     /// (`ImportOptions::inverse`)
     pub inverse: bool,
+    /// a lap case's model (`ImportOptions::lap`): the inverse model with
+    /// the lap variants of the Race Track, the Vehicle and its wheels
+    pub lap: bool,
     /// warnings
     pub warnings: Vec<String>,
 }

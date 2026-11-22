@@ -25,6 +25,7 @@ lsim-prep = { path = "crates/lsim-prep" }
 lsim-codegen = { path = "crates/lsim-codegen" }
 lsim-solve = { path = "crates/lsim-solve" }
 lsim-fast = { path = "crates/lsim-fast" }
+lsim-lap = { path = "crates/lsim-lap" }
 lsim-lib = { path = "crates/lsim-lib" }
 lsim-project = { path = "crates/lsim-project" }
 lsim-engine = { path = "crates/lsim-engine" }
