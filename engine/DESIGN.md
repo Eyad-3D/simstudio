@@ -4136,6 +4136,21 @@ lap full is held 0.1 % below full for the profile. In fast mode's inverse
 model the E-Motor takes its current as p / v (v at least 1 V): v · i = p
 let a power of 0 stand at v = 0.
 
+The profile takes the battery's limits at the lap's start. Where the energy
+pass finds the battery giving less than the motors were asked for
+(`lsim_lap::drive_resolving`: a long flag of the motors' supply), the rest of
+that lap's profile is solved again from the car's state at the stretch
+before it (`cut`, `splice`), with the battery's charge taken 0.5 % lower each
+time (`RESOLVE_SOC`), at most `RESOLVES` (3) times a lap; beyond that the
+last pass that ran is kept, flagged, and the lap's rows are not valid, and a
+pass that cannot go on stops the run (`LapError::PassStopped`) with a
+message naming the lap. The reports are a full run's code
+(`new_engine._flows`, `_duty`, `reports.make_reports`, `references.hand_checks`)
+fed from each channel's integrals over the stretches (`stretch_integrals`),
+the per-part books of the energy pass (`Model::fast_energy_books`), each
+motor's current from the engine's own variable at the points, and the limit
+band from the Limit channel, one state a stretch (`new_lap.CODE_STATE`).
+
 ## 11. Outputs, energy books and accuracy reports
 
 * **Channels**: every flat variable, named by path (`battery.c1.v`); the

@@ -1754,14 +1754,19 @@ Endurance). `NEW-FS-EVENT` now refuses only a Lap case with an event set.
 
 Lap cases and the FS events scored from one run on the new engine
 (`work/engine-lap3`; DESIGN.md section 10.1; the report in the lane's
-notes). `NEW-LAP` and `NEW-FS-EVENT` are gone. Golden 0 differences,
-check.sh passes, the full-mode model text of every example case is
-unchanged (fast mode: the E-Motor's p / v). FS autocross 0.63 s, endurance
-7.0 s (today 0.35 s, 3.5 s). Open, each a strict expected failure:
-a battery held at its maximum-power point stops the energy pass; a lap case
-has no per-part energy flows or Energy report yet; the motors at full
-torque take the tyre slip as less force; the FS example's recuperation share
-and agent-bench keys wait on its brake and regeneration values.
+notes). `NEW-LAP` and `NEW-FS-EVENT` are gone. A lap case gives its part
+energies, Energy report, duty, limit band and automatic hand checks as a
+full run does. Where a battery gives less than the lap's start assumed, the
+rest of that lap's profile is solved again from the car's state there (at
+most 3 times a lap; beyond that the lap's rows are marked not valid, and a
+pass that cannot go on stops the run with a message naming the lap). The
+FS example's brakes are 600/250 N·m and its Recuperation Weight 40 %.
+Golden 0 differences, check.sh passes, the full-mode model text of every
+example case is unchanged but the Race Track's description (fast mode: the
+E-Motor's p / v). FS autocross 0.63 s, endurance 7.5 s (today 0.37 s,
+3.8 s). Open: where the motors' torque holds the car, fast mode's inverse
+wheel takes the tyre's slip loss out of the force (3.5 % slower over 75 m
+at μ 2.5; a strict expected failure, KNOWN-LIMITS).
 
 ## The lap profile on the engine: lap port, stage 2 (21 November 2026)
 
