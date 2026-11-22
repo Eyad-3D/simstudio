@@ -50,7 +50,7 @@ export function EnergyView({ run }: { run: SimRun }) {
   if (!e || !layout) {
     const off = run.snapshot?.case.energyReport === false;
     return (
-      <div className="flex h-full min-h-[200px] items-center justify-center px-4 text-center text-[12px] text-[color:var(--ss-text-dim)]">
+      <div className="flex h-full min-h-[200px] items-center justify-center px-4 text-center text-body text-[color:var(--ss-text-dim)]">
         {run.status === "running"
           ? "The energy report comes when the run finishes."
           : off
@@ -88,7 +88,7 @@ export function EnergyView({ run }: { run: SimRun }) {
 
   return (
     <div className="flex min-h-[260px] flex-[3] flex-col overflow-auto">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 text-[11px] text-[color:var(--ss-text-dim)]">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 text-meta text-[color:var(--ss-text-dim)]">
         <span>
           Sources <b className="font-mono text-[color:var(--ss-text)]">{kwh(total)} kWh</b>
         </span>
@@ -124,7 +124,7 @@ export function EnergyView({ run }: { run: SimRun }) {
         viewBox={`0 0 ${W} ${height}`}
         className="mx-auto block w-full max-w-[1100px] shrink-0"
         style={{ minHeight: 220 }}
-        fontSize={11}
+        fontSize={12}
       >
         <g transform={`translate(0 ${top})`}>
           {links.map((l, i) => {
@@ -241,7 +241,7 @@ export function EnergyView({ run }: { run: SimRun }) {
             </tr>
           </tbody>
         </table>
-        <p className="mt-1 text-[10px] text-[color:var(--ss-text-dim)]">
+        <p className="mt-1 text-meta text-[color:var(--ss-text-dim)]">
           Each part books itself every solver step, and its In − Out − Lost − Stored change is 0. In and Out count both ways: a
           wheel's In is what its axle gave it when driving and what the car gave it when braking, and its Lost is the tyre's slip.
           In a lap case the gears and friction brakes are in the Vehicle's row, from the lap's own books.

@@ -145,7 +145,7 @@ export function HelpPanel() {
         >
           <House size={13} />
         </button>
-        <h2 className="min-w-0 flex-1 truncate px-1 text-[12px] font-semibold" title={title}>
+        <h2 className="min-w-0 flex-1 truncate px-1 text-body font-semibold" title={title}>
           {title}
         </h2>
         <button

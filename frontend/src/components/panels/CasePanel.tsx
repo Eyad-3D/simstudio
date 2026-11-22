@@ -89,7 +89,7 @@ function CaseNumber({
   return (
     <>
       <label
-        className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+        className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
         title={title}
       >
         {name}
@@ -263,7 +263,7 @@ export function CasePanel() {
   const staleCases = staleness.caseIds;
   if (!project || !activeCase) {
     return (
-      <div className="px-3 py-2 text-[12px] text-[color:var(--ss-text-dim)]">
+      <div className="px-3 py-2 text-body text-[color:var(--ss-text-dim)]">
         No simulation case available.
       </div>
     );
@@ -302,7 +302,7 @@ export function CasePanel() {
     <div className="flex h-full flex-col">
       {/* in a narrow panel the Run/Stop buttons wrap below the case */}
       <div className="ss-panel-toolbar flex-wrap">
-        <span className="text-[11px] text-[color:var(--ss-text-dim)]">Case</span>
+        <span className="text-meta text-[color:var(--ss-text-dim)]">Case</span>
         <select
           className="ss-input w-[150px]"
           aria-label="Case"
@@ -345,13 +345,13 @@ export function CasePanel() {
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {/* -- case settings ------------------------------------------------ */}
-        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+        <div className="mb-1 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
           Case settings
         </div>
         {/* one setting a row: side by side, a side panel left each label ~10 px */}
         <div className="mb-4 grid gap-y-1.5 rounded bg-[color:var(--ss-panel-alt)] p-2">
           <label
-            className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+            className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
             title={
               accel
                 ? "The acceleration test's time limit: a car that has not reached the line by then gets a warning. FS Rules 2026 v1.1 (FSG) D 9.2.1 disqualifies runs over 25 s in driverless runs only; FSUK and FSAE may differ, check the current season's rules."
@@ -373,7 +373,7 @@ export function CasePanel() {
             />
           </label>
           <label
-            className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+            className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
             title={
               lap
                 ? lapHint
@@ -396,7 +396,7 @@ export function CasePanel() {
             />
           </label>
           <label
-            className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+            className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
             title={
               lap
                 ? "Store a result point every N track points (about 1 m apart; 1 = every point). Keeps a long run's result small: 5 or more for a Formula Student endurance."
@@ -418,7 +418,7 @@ export function CasePanel() {
             />
           </label>
           <label
-            className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+            className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
             title={
               lap
                 ? lapHint
@@ -442,7 +442,7 @@ export function CasePanel() {
             </select>
           </label>
           <label
-            className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+            className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
             title="Cycle: judged on following the target speed. Performance: the Driver holds full throttle until the car reaches the target, then holds it there, and the run reports the time from t = 0 to the target speed and the maximum speed (for example 0:100 for 0-100 km/h, 0:250 for top speed). Acceleration: the Driver holds full throttle the whole run (no target needed) and the run ends at the line, reporting the time from the start line, the speed at the line, 0-100 km/h and the battery's terminal power (results are estimates). Lap: the model's Race Track sets the run (its layout and laps below): a quasi-steady-state lap solver finds the fastest speed along it and the motors and battery drive that speed, reporting the lap and sector times, the energy per lap and what limited the car (results are estimates)."
           >
             Kind
@@ -466,7 +466,7 @@ export function CasePanel() {
             </select>
           </label>
           <label
-            className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+            className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
             title="Every run of this case gets an Energy view in Results: where the battery's or fuel's energy went, as a Sankey chart and a table per part, and Energy labels on the diagram."
           >
             Energy report
@@ -480,7 +480,7 @@ export function CasePanel() {
             (track && layoutDef && lapsDef ? (
               <>
                 <label
-                  className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+                  className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
                   title={`The layout of Race Track '${track.label}' for this case (a case override). Autocross, Skidpad and Acceleration 75 m are drawn for LightSim after FS Rules 2026 v1.1 (FSG) D 4.1, D 5.1.1, D 6.1 and D 7.1 (FSUK and FSAE may differ, check the current season's rules); Custom uses the track's own tables.`}
                 >
                   Track layout
@@ -523,13 +523,13 @@ export function CasePanel() {
                 )}
               </>
             ) : (
-              <p className="text-[11px] text-[color:var(--ss-text-dim)]">
+              <p className="text-meta text-[color:var(--ss-text-dim)]">
                 Add a Race Track from Driver &amp; Signals: its layout and laps set a lap case.
               </p>
             ))}
           {(activeCase.kind ?? "cycle") === "cycle" && (
             <label
-              className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
               title="Quick: the new engine's fast mode. The cycle's speed is prescribed and the Driver's pedal worked out back from it, so the run takes a fraction of a full run's time; it gives the totals (energy, consumption, range, distance, each phase's), not the peaks, the speed trace's verdict or the reports, and flags a limit the car would have met instead of acting on it. A case it cannot run (a Script, FMU or Traction Control part, a battery built from cells, a charge-balanced hybrid) is not run: it fails saying why; set the mode to full."
             >
               Run mode
@@ -548,7 +548,7 @@ export function CasePanel() {
           )}
           {!accel && !lap && (
             <label
-              className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
               title="Charge balancing (for hybrids): run the cycle again from the charge the battery ended with, until its stored energy changes by less than 1 % of the fuel's energy (at most 5 runs), so the fuel figure holds no energy the battery gave or took. Auto: on for a Cycle case whose model has an engine and a battery, and not paced. Quick mode does not charge-balance a case (Not run [QUICK-BALANCE]): set this to Off to run it once in quick mode."
             >
               Charge balance
@@ -605,7 +605,7 @@ export function CasePanel() {
           )}
           {(accel || lap || (activeCase.kind ?? "cycle") === "cycle") && (
             <label
-              className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
+              className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
               title="The Formula Student dynamic event this case stands for: the run then reports the event's time as the rules take it, the rule checks (80 kW, 500 A, 600 V) and an estimate of the points against the reference values below. Acceleration needs an Acceleration case, the others a Lap case. Endurance also stops the car for the driver change at half distance; on a Cycle case (an imported lap, repeated) it gives the endurance energy and rule checks only. Scoring: FS Rules 2026 v1.1 (FSG) D 9; FSUK and FSAE score differently, check the current season's rules."
             >
               FS event
@@ -660,10 +660,10 @@ export function CasePanel() {
         <ExpectedValuesEditor c={activeCase} />
 
         {/* -- per-case overrides ------------------------------------------- */}
-        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+        <div className="mb-1 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
           Parameter overrides · {activeCase.name}
         </div>
-        <p className="mb-2 text-[11px] text-[color:var(--ss-text-dim)]">
+        <p className="mb-2 text-meta text-[color:var(--ss-text-dim)]">
           Overrides apply only when this case runs — the shared topology and its
           element parameters stay untouched.
         </p>
@@ -685,7 +685,7 @@ export function CasePanel() {
                   data-override={`${elId}:${key}`}
                   className="rounded border border-[color:var(--ss-border)] px-1.5 py-1"
                 >
-                  <div className="truncate text-[11px]" title={name}>
+                  <div className="truncate text-meta" title={name}>
                     {name}
                   </div>
                   <div className="mt-0.5 flex min-w-0 items-center gap-1">
@@ -705,10 +705,10 @@ export function CasePanel() {
                         onChange={(v) => setCaseOverride(activeCase.id, elId, key, v)}
                       />
                     ) : (
-                      <span className="truncate text-[11px]">{String(value)}</span>
+                      <span className="truncate text-meta">{String(value)}</span>
                     )}
                     {pdef && pdef.unit !== "-" && (
-                      <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">
+                      <span className="shrink-0 text-meta text-[color:var(--ss-text-dim)]">
                         {pdef.unit}
                       </span>
                     )}
@@ -733,7 +733,7 @@ export function CasePanel() {
             })}
           </ul>
         ) : (
-          <div className="mb-2 rounded border border-dashed border-[color:var(--ss-border)] px-2 py-1.5 text-[11px] text-[color:var(--ss-text-dim)]">
+          <div className="mb-2 rounded border border-dashed border-[color:var(--ss-border)] px-2 py-1.5 text-meta text-[color:var(--ss-text-dim)]">
             No overrides — this case uses the base parameters.
           </div>
         )}
@@ -779,10 +779,10 @@ export function CasePanel() {
         </div>
 
         {/* -- parameter sweep --------------------------------------------- */}
-        <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+        <div className="mb-1 flex items-center gap-1 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
           <Sliders size={12} /> Parameter sweep
         </div>
-        <p className="mb-2 text-[11px] text-[color:var(--ss-text-dim)]">
+        <p className="mb-2 text-meta text-[color:var(--ss-text-dim)]">
           Run this case once per value of one numeric parameter. Each run lands in
           the Results history so you can overlay and compare them.
         </p>
@@ -825,7 +825,7 @@ export function CasePanel() {
               ))}
             </select>
           </div>
-          <div className="mb-1.5 flex flex-wrap items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]">
+          <div className="mb-1.5 flex flex-wrap items-center gap-1 text-meta text-[color:var(--ss-text-dim)]">
             <select
               className="ss-input"
               aria-label="Sweep values"
@@ -890,7 +890,7 @@ export function CasePanel() {
               <span role="alert">{sweep.problem}</span>
             </div>
           )}
-          {sweep.note && <div className="mb-1 text-[10px] text-[color:var(--ss-text-dim)]">{sweep.note}</div>}
+          {sweep.note && <div className="mb-1 text-meta text-[color:var(--ss-text-dim)]">{sweep.note}</div>}
           {swParam && outside.length > 0 && (
             <div className="ss-param-problem mb-1.5">
               {paramName(swParam)} {rangeProblem(swParam, outside[0])}:{" "}
@@ -903,14 +903,14 @@ export function CasePanel() {
               {sweep.values.slice(0, SWEEP_CHIPS).map((v, i) => (
                 <span
                   key={i}
-                  className="rounded bg-[color:var(--ss-accent-soft)] px-1.5 py-0.5 text-[10px] text-[color:var(--ss-text)]"
+                  className="rounded bg-[color:var(--ss-accent-soft)] px-1.5 py-0.5 text-meta text-[color:var(--ss-text)]"
                 >
                   {v}
                   {swUnit}
                 </span>
               ))}
               {sweep.values.length > SWEEP_CHIPS && (
-                <span className="px-1 py-0.5 text-[10px] text-[color:var(--ss-text-dim)]">
+                <span className="px-1 py-0.5 text-meta text-[color:var(--ss-text-dim)]">
                   … and {sweep.values.length - SWEEP_CHIPS} more
                 </span>
               )}
@@ -926,7 +926,7 @@ export function CasePanel() {
               <Play size={13} /> Run sweep ({sweep.values.length})
             </button>
             {progress && (
-              <span className="text-[11px] text-[color:var(--ss-accent)]" title="The points run side by side; the time left follows the pace of those that ended">
+              <span className="text-meta text-[color:var(--ss-accent)]" title="The points run side by side; the time left follows the pace of those that ended">
                 {progressText(progress, Math.max(now, progress.lastAt ?? 0))}
               </span>
             )}

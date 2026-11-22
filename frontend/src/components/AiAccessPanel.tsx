@@ -4,7 +4,7 @@ import { desktop } from "../desktop";
 
 const row = "flex items-start gap-2 border-t border-[color:var(--ss-border)] py-1";
 const button = "ss-toolbtn shrink-0 border border-[color:var(--ss-border)] px-2 disabled:opacity-40";
-const heading = "mt-3 mb-1 text-[12px] font-semibold";
+const heading = "mt-3 mb-1 text-body font-semibold";
 const message = (e: unknown) => String((e as Error).message ?? e).replace(/^Error invoking remote method '[^']*': (Error: )?/, "");
 
 /** Connect AI → AI access (AI-01): the settings `lightsim ai …` changes,
@@ -278,7 +278,7 @@ export function AiAccessPanel() {
           No AI tool has used LightSim yet.
         </p>
       )}
-      <p className="mt-2 text-[11px] text-[color:var(--ss-text-dim)]">
+      <p className="mt-2 text-meta text-[color:var(--ss-text-dim)]">
         Kept on this computer only. Settings: <span className="break-all">{state.settingsPath}</span>
       </p>
       {error && <p className="text-red-600">{error}</p>}

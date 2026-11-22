@@ -116,14 +116,14 @@ function SheetPreview({
       >
         <div className="flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-3 py-2">
           <FileUp size={15} className="text-[color:var(--ss-accent)]" />
-          <span id={titleId} className="min-w-0 truncate text-[13px] font-semibold">
+          <span id={titleId} className="min-w-0 truncate text-title font-semibold">
             Import parameters from {name}
           </span>
           <button className="ss-toolbtn ml-auto" title="Close (Esc)" aria-label="Close the dialog" onClick={onClose}>
             <X size={14} />
           </button>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-[12px]">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-body">
           {failure && (
             <p role="alert" className="ss-param-problem">
               {failure}
@@ -155,7 +155,7 @@ function SheetPreview({
             </ul>
           )}
           {n > 0 && (
-            <table className="w-full border-collapse text-[11px]">
+            <table className="w-full border-collapse text-meta">
               <caption className="text-left font-semibold">What changes</caption>
               <thead>
                 <tr className="text-left text-[color:var(--ss-text-dim)]">
@@ -191,7 +191,7 @@ function SheetPreview({
           )}
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-[color:var(--ss-border)] px-3 py-2">
-          <span className="mr-auto text-[11px] text-[color:var(--ss-text-dim)]">
+          <span className="mr-auto text-meta text-[color:var(--ss-text-dim)]">
             {result.ok && n > 0 ? "Applied as one step: Undo (Ctrl+Z) takes it all back." : ""}
           </span>
           <button className="ss-toolbtn border border-[color:var(--ss-border)] px-2" onClick={onClose}>

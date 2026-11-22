@@ -52,9 +52,9 @@ export function ExampleCardDialog({ onClose }: { onClose: () => void }) {
       <div
         role="dialog"
         aria-label="Project card"
-        className="flex max-h-[88vh] w-[620px] max-w-[94vw] flex-col overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] text-[12px] shadow-2xl"
+        className="flex max-h-[88vh] w-[620px] max-w-[94vw] flex-col overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] text-body shadow-2xl"
       >
-        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-[13px] font-semibold">
+        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-title font-semibold">
           Card · {project?.name}
         </div>
         <div className="flex flex-col gap-2 overflow-y-auto px-4 py-3">
@@ -108,7 +108,7 @@ export function ExampleCardDialog({ onClose }: { onClose: () => void }) {
             <label key={key} className={field}>
               <span className={label}>
                 {name}
-                <span className="block text-[10px]">one a line</span>
+                <span className="block text-meta">one a line</span>
               </span>
               <textarea
                 className="ss-input"

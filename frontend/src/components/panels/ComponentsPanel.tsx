@@ -95,7 +95,7 @@ export function ComponentsPanel() {
               >
                 {isCollapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
                 {category}
-                <span className="ml-auto pr-1 text-[10px] font-normal text-[color:var(--ss-text-dim)]">
+                <span className="ml-auto pr-1 text-meta font-normal text-[color:var(--ss-text-dim)]">
                   {defs.length}
                 </span>
               </button>
@@ -130,7 +130,7 @@ export function ComponentsPanel() {
                     >
                       <Icon size={14} strokeWidth={1.6} className="shrink-0 text-[color:var(--ss-node-icon)]" />
                       <span className="truncate">{def.name}</span>
-                      <span className="ml-auto pr-1 text-[9px] uppercase text-[color:var(--ss-text-dim)]">
+                      <span className="ml-auto pr-1 text-meta uppercase text-[color:var(--ss-text-dim)]">
                         {def.domain.slice(0, 4)}
                       </span>
                     </button>
@@ -142,7 +142,7 @@ export function ComponentsPanel() {
         {task && cycleHits.length > 0 && (
           <div>
             {/* lined up with the category names above */}
-            <div className="py-[3px] pl-[25px] text-[12px] font-semibold">Drive cycles</div>
+            <div className="py-[3px] pl-[25px] text-body font-semibold">Drive cycles</div>
             {cycleHits.map((c) => {
               const Icon = componentIcon(task.icon);
               return (
@@ -169,12 +169,12 @@ export function ComponentsPanel() {
           </div>
         )}
         {groups.length === 0 && cycleHits.length === 0 && (
-          <div className="px-3 py-2 text-[12px] text-[color:var(--ss-text-dim)]">
+          <div className="px-3 py-2 text-body text-[color:var(--ss-text-dim)]">
             No components match “{query}”.
           </div>
         )}
       </div>
-      <div className="border-t border-[color:var(--ss-border)] px-2 py-1 text-[10px] text-[color:var(--ss-text-dim)]">
+      <div className="border-t border-[color:var(--ss-border)] px-2 py-1 text-meta text-[color:var(--ss-text-dim)]">
         Drag, double-click or press Enter to add; or click a part, then the diagram.
       </div>
       <div className="sr-only" aria-live="polite">

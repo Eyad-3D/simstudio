@@ -74,7 +74,7 @@ export function RunSourcesView({ run }: { run: SimRun }) {
           </ul>
           {data.credits.length > 0 && (
             <div>
-              <div className="text-[10px] text-[color:var(--ss-text-dim)]">Credits the data asks for</div>
+              <div className="text-meta text-[color:var(--ss-text-dim)]">Credits the data asks for</div>
               {data.credits.map((c) => (
                 <div key={c}>{c}</div>
               ))}

@@ -58,6 +58,9 @@ it("runs the FS events and Calibrate lap, which this version runs on its lap cas
   const calibrate = buttonNamed(host, "Calibrate lap")!;
   expect(calibrate.getAttribute("aria-disabled")).toBeNull();
   expect(calibrate.getAttribute("data-not-yet")).toBeNull();
+  // what does run stays where it was
+  for (const name of ["Acceleration test", "Import lap", "Vehicle tests", "US label"])
+    expect(buttonNamed(host, name), name).toBeTruthy();
   // the checks have one name: the Data Checks
   expect(buttonNamed(host, "Data Checks")).toBeTruthy();
   expect(buttonNamed(host, "Checks")).toBeUndefined();

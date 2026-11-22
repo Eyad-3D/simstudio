@@ -151,6 +151,20 @@ test("the battery's parameters sit under its sections, the last folded, and fold
   // inside a section, the library's order
   const inCharge = [...sections()[0].querySelectorAll("tr[data-param]")].map((r) => r.getAttribute("data-param"));
   expect(inCharge).toEqual(def.parameters.filter((p) => p.section === "Capacity and charge" && !p.showIf?.values.includes("Cells")).map((p) => p.key));
+  // a click on its heading opens it and keeps that at once, before the
+  // browser's own toggle event (a window closed right after still remembers)
+  act(() => {
+    advanced().querySelector("summary")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  expect(advanced().open).toBe(true);
+  expect(JSON.parse(localStorage.getItem("lightsim-param-sections")!)).toEqual({ "battery.generic/Advanced": true });
+  // folded again the same way, then opened by the page itself (a Problems row
+  // opening the window at a value in it): the toggle event keeps that too
+  act(() => {
+    advanced().querySelector("summary")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  });
+  expect(advanced().open).toBe(false);
+  expect(JSON.parse(localStorage.getItem("lightsim-param-sections")!)).toEqual({ "battery.generic/Advanced": false });
   act(() => {
     advanced().open = true;
     advanced().dispatchEvent(new Event("toggle"));

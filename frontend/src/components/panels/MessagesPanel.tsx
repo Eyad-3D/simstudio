@@ -26,14 +26,14 @@ export function MessagesPanel() {
   return (
     <div className="flex h-full flex-col">
       <div className="ss-panel-toolbar">
-        <span className="text-[11px] text-[color:var(--ss-text-dim)]">
+        <span className="text-meta text-[color:var(--ss-text-dim)]">
           {countOf(messages.length, "message")}
         </span>
         <button className="ss-toolbtn ml-auto" onClick={clear} title="Clear messages">
           <Ban size={12} /> Clear
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto font-mono text-[11.5px]">
+      <div className="min-h-0 flex-1 overflow-y-auto font-mono text-meta">
         {messages.map((m, i) => (
           <div
             key={i}
@@ -51,7 +51,7 @@ export function MessagesPanel() {
           </div>
         ))}
         {messages.length === 0 && (
-          <div className="px-3 py-2 text-[12px] text-[color:var(--ss-text-dim)]">
+          <div className="px-3 py-2 text-body text-[color:var(--ss-text-dim)]">
             No messages yet.
           </div>
         )}

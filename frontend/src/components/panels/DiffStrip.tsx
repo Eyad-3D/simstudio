@@ -101,7 +101,7 @@ export function DiffStrip({
   }, [looksText, unitsText, xText, theme, syncKey]);
   return (
     <div className="flex h-[132px] shrink-0 flex-col px-1 pb-1">
-      <div className="truncate px-1 text-[10px] text-[color:var(--ss-text-dim)]" title={caption}>
+      <div className="truncate px-1 text-meta text-[color:var(--ss-text-dim)]" title={caption}>
         {caption}
       </div>
       <div className="min-h-0 flex-1">

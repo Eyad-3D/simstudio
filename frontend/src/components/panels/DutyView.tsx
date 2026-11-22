@@ -27,7 +27,7 @@ export function DutyView({ run }: { run: SimRun }) {
 
   if (!duty || duty.length === 0) {
     return (
-      <div className="flex h-full min-h-[200px] items-center justify-center px-4 text-center text-[12px] text-[color:var(--ss-text-dim)]">
+      <div className="flex h-full min-h-[200px] items-center justify-center px-4 text-center text-body text-[color:var(--ss-text-dim)]">
         {run.status === "running"
           ? "The duty table comes when the run finishes."
           : "This run has no duty table: it has no motor, battery, engine, fuel cell or DC-DC converter, it failed, or it was made before LightSim 0.3."}
@@ -40,7 +40,7 @@ export function DutyView({ run }: { run: SimRun }) {
 
   return (
     <div className="flex min-h-[260px] flex-[3] flex-col overflow-auto">
-      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 text-[11px] text-[color:var(--ss-text-dim)]">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1 text-meta text-[color:var(--ss-text-dim)]">
         <span title="RMS, the root-mean-square, is the mean that sets heating: a part's losses grow with the square of its current, so its cooling is sized from the RMS, not the peak.">
           Highest, lowest, mean and RMS over the run, from the solver's own steps
         </span>
@@ -101,7 +101,7 @@ export function DutyView({ run }: { run: SimRun }) {
             )}
           </tbody>
         </table>
-        <p className="mt-1 text-[10px] text-[color:var(--ss-text-dim)]">
+        <p className="mt-1 text-meta text-[color:var(--ss-text-dim)]">
           A motor's DC current is its electrical power over its bus voltage (the phase current is not modelled). Each
           part's RMS and peak power, torque and current can be a study's column (Parameter studies).
         </p>

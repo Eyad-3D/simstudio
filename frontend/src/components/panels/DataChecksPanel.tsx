@@ -46,7 +46,7 @@ export function DataChecksPanel() {
           {checking ? <Loader2 size={13} className="animate-spin" /> : <ListChecks size={13} />}
           Run Data Checks
         </button>
-        <span className="ml-2 text-[11px] text-[color:var(--ss-text-dim)]">
+        <span className="ml-2 text-meta text-[color:var(--ss-text-dim)]">
           {refused
             ? `The engine refused the model: ${countOf(refused.length, "problem")}`
             : checksError && !dataChecks
@@ -56,11 +56,11 @@ export function DataChecksPanel() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {checksError && (
-          <div role="alert" className="flex items-start gap-2 border-b border-[color:var(--ss-td-border)] px-2 py-1.5 text-[12px]">
+          <div role="alert" className="flex items-start gap-2 border-b border-[color:var(--ss-td-border)] px-2 py-1.5 text-body">
             <span className="mt-[2px]">{levelIcon("warning")}</span>
             <span className="min-w-0 flex-1">
               The Data Checks could not run: {checksError}
-              <span className="block text-[11px] text-[color:var(--ss-text-dim)]">
+              <span className="block text-meta text-[color:var(--ss-text-dim)]">
                 {dataChecks
                   ? "The rows below are from the last check that ran. "
                   : "Nothing has been checked yet, so no problems are listed. "}
@@ -70,7 +70,7 @@ export function DataChecksPanel() {
           </div>
         )}
         {!dataChecks && !checksError && problems.length === 0 && (
-          <div className="px-3 py-2 text-[12px] text-[color:var(--ss-text-dim)]">
+          <div className="px-3 py-2 text-body text-[color:var(--ss-text-dim)]">
             Not checked yet. The model is checked by itself a moment after it opens or changes (unconnected
             parts, missing signals, parameter ranges, power sources).
           </div>
@@ -85,7 +85,7 @@ export function DataChecksPanel() {
             return (
               <li key={`${key}:${n}`} className="border-b border-[color:var(--ss-td-border)]">
                 <button
-                  className="flex w-full items-start gap-2 px-2 py-1 text-left text-[12px] enabled:hover:bg-[color:var(--ss-hover)]"
+                  className="flex w-full items-start gap-2 px-2 py-1 text-left text-body enabled:hover:bg-[color:var(--ss-hover)]"
                   disabled={!parts} // about the project, not a part
                   onClick={() => show(p)}
                   title={
@@ -97,14 +97,14 @@ export function DataChecksPanel() {
                   }
                 >
                   <span className="mt-[2px]">{levelIcon(p.level)}</span>
-                  <span className="w-[150px] shrink-0 truncate text-[11px] font-medium">{parts || "—"}</span>
+                  <span className="w-[150px] shrink-0 truncate text-meta font-medium">{parts || "—"}</span>
                   <span className="min-w-0 flex-1">
                     {p.text}
                     {p.fix && (
-                      <span className="block text-[11px] text-[color:var(--ss-text-dim)]">How to fix: {p.fix}</span>
+                      <span className="block text-meta text-[color:var(--ss-text-dim)]">How to fix: {p.fix}</span>
                     )}
                   </span>
-                  <span className="shrink-0 text-right text-[10px] text-[color:var(--ss-text-dim)]">
+                  <span className="shrink-0 text-right text-meta text-[color:var(--ss-text-dim)]">
                     {p.source === "check" ? (
                       "Data Checks"
                     ) : p.source === "refused" ? (

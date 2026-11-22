@@ -38,7 +38,7 @@ export function StaleBanner({ run }: { run: SimRun }) {
     <div
       role="status"
       aria-label="Results out of date"
-      className="shrink-0 border-b border-[color:var(--ss-border)] px-2 py-1 text-[11px]"
+      className="shrink-0 border-b border-[color:var(--ss-border)] px-2 py-1 text-meta"
       style={{ background: "color-mix(in srgb, var(--ss-warn) 10%, var(--ss-panel))" }}
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">

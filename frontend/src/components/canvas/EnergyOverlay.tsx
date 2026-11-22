@@ -36,7 +36,7 @@ export function NodeMarks({ elementId }: { elementId: string }) {
       )}
       {p && (
         <div
-          className="pointer-events-none absolute left-1/2 top-full z-10 mt-[17px] w-[128px] -translate-x-1/2 text-center text-[9.5px] leading-tight tabular-nums text-[color:var(--ss-text-dim)]"
+          className="pointer-events-none absolute left-1/2 top-full z-10 mt-[17px] w-[128px] -translate-x-1/2 text-center text-meta leading-tight tabular-nums text-[color:var(--ss-text-dim)]"
           data-energy-label
         >
           <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
@@ -73,7 +73,7 @@ export function EnergyBars() {
     <div
       role="region"
       aria-label="Energy lost per part"
-      className="absolute right-2 top-12 z-10 w-[280px] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-[11px] shadow-md"
+      className="absolute right-2 top-12 z-10 w-[280px] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-meta shadow-md"
     >
       <div className="mb-1 flex items-center gap-1">
         <b>Energy lost per part</b>
@@ -87,10 +87,10 @@ export function EnergyBars() {
         </div>
       ) : (
         <>
-          <div className="mb-1 truncate text-[10px] text-[color:var(--ss-text-dim)]" title={run?.caseName}>
+          <div className="mb-1 truncate text-meta text-[color:var(--ss-text-dim)]" title={run?.caseName}>
             {run?.caseName} · sources {kwh(e.sourceKWh)} kWh
           </div>
-          <label className="mb-1 flex items-center gap-1 text-[10px] text-[color:var(--ss-text-dim)]">
+          <label className="mb-1 flex items-center gap-1 text-meta text-[color:var(--ss-text-dim)]">
             Hide below
             <input
               type="range"
@@ -131,7 +131,7 @@ export function EnergyBars() {
             })}
           </ul>
           {rows.length > shown.length && (
-            <div className="mt-1 text-[10px] text-[color:var(--ss-text-dim)]">
+            <div className="mt-1 text-meta text-[color:var(--ss-text-dim)]">
               {countOf(rows.length - shown.length, "part")} below {minPct} % hidden
             </div>
           )}

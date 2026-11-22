@@ -26,7 +26,7 @@ test("GUI-03: the tray opening and closing keeps the model and its names in view
   await dockTab(page, "Messages").click();
   await expect.poll(() => zoomOf(page), { message: "re-fitted to the smaller diagram" }).toBeLessThan(fitted!);
   expect((await nodeLayout(page)).offscreen).toBe(0);
-  expect(await names(page)).toEqual({ smallest: 11, cutOff: 0 });
+  expect(await names(page)).toEqual({ smallest: 12, cutOff: 0 });
   expect((await canvasShare(page)).pct, "the diagram's share of the window").toBeGreaterThanOrEqual(40);
   await page.locator(".dv-edge-group button[aria-label='Collapse to tabs']").click();
   await expect.poll(() => zoomOf(page), { message: "back to the first fit" }).toBe(fitted);

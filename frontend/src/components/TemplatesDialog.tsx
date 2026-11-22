@@ -27,7 +27,7 @@ export function TemplatesDialog({ onClose }: { onClose: () => void }) {
         aria-label="Vehicle templates"
         className="flex max-h-[90vh] w-[620px] max-w-[94vw] flex-col overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl"
       >
-        <div className="flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2 text-[13px]">
+        <div className="flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2 text-body">
           <span className="font-semibold">Vehicle templates</span>
           <span className="ml-auto flex gap-1" role="tablist">
             {(
@@ -51,7 +51,7 @@ export function TemplatesDialog({ onClose }: { onClose: () => void }) {
             ))}
           </span>
         </div>
-        <div className="flex flex-col gap-2 overflow-y-auto px-4 py-3 text-[12px]">
+        <div className="flex flex-col gap-2 overflow-y-auto px-4 py-3 text-body">
           {error && (
             <p role="alert" className="text-red-600">
               {error}
@@ -134,8 +134,8 @@ function NewFromTemplate({
             <span className="min-w-0 flex-1">
               <span className="font-semibold">{x.name}</span>
               {!x.builtin && <span className="text-[color:var(--ss-text-dim)]"> · yours, version {x.version}</span>}
-              <span className="block text-[11px] text-[color:var(--ss-text-dim)]">{x.description}</span>
-              <span className="block text-[11px] text-[color:var(--ss-text-dim)]">
+              <span className="block text-meta text-[color:var(--ss-text-dim)]">{x.description}</span>
+              <span className="block text-meta text-[color:var(--ss-text-dim)]">
                 Slots: {Object.keys(x.slots).join(", ") || "none"}
               </span>
             </span>
@@ -186,7 +186,7 @@ function NewFromTemplate({
             </label>
           ))}
           <button
-            className="mt-1 self-end rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110"
+            className="mt-1 self-end rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-body font-semibold text-white hover:brightness-110"
             onClick={() => void create()}
           >
             Create project
@@ -315,7 +315,7 @@ function SaveAsTemplate({
         </div>
       </details>
       <button
-        className="mt-1 self-end rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110 disabled:opacity-40"
+        className="mt-1 self-end rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-body font-semibold text-white hover:brightness-110 disabled:opacity-40"
         disabled={!name.trim()}
         onClick={() => void save()}
       >

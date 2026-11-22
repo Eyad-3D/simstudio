@@ -27,7 +27,7 @@ export function HelpMenu() {
     items[(at + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length]?.focus();
   };
 
-  const item = "block w-full px-3 py-1.5 text-left text-[12px] text-[color:var(--ss-text)] hover:bg-[color:var(--ss-accent-soft)] focus:bg-[color:var(--ss-accent-soft)]";
+  const item = "block w-full px-3 py-1.5 text-left text-body text-[color:var(--ss-text)] hover:bg-[color:var(--ss-accent-soft)] focus:bg-[color:var(--ss-accent-soft)]";
   return (
     <div ref={ref} className="relative">
       <button

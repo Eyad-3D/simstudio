@@ -50,10 +50,10 @@ function Card({
       onClick={onClick}
     >
       <Thumb pts={pts} />
-      <span className="text-[13px] font-semibold text-[color:var(--ss-text)]">{title}</span>
-      <span className="text-[11px] text-[color:var(--ss-text-dim)] [overflow-wrap:anywhere]">{meta}</span>
+      <span className="text-title font-semibold text-[color:var(--ss-text)]">{title}</span>
+      <span className="text-meta text-[color:var(--ss-text-dim)] [overflow-wrap:anywhere]">{meta}</span>
       {text && (
-        <span id={`${id}-text`} className="whitespace-pre-line text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
+        <span id={`${id}-text`} className="whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)]">
           {text}
         </span>
       )}
@@ -62,7 +62,7 @@ function Card({
 }
 
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3";
-const H2 = "mb-2 text-[13px] font-semibold text-[color:var(--ss-text)]";
+const H2 = "mb-2 text-title font-semibold text-[color:var(--ss-text)]";
 
 /** Start (UX-16), at launch and on New: go on with the open project, start
  *  from an example or a blank project, or reopen a recent one. */
@@ -118,7 +118,7 @@ export function StartPage() {
         </button>
       </div>
       {offline && (
-        <p className="text-[12px] text-[color:var(--ss-warn)]">
+        <p className="text-body text-[color:var(--ss-warn)]">
           The engine is not reachable, so the examples and your saved projects are not listed.
         </p>
       )}
@@ -140,12 +140,12 @@ export function StartPage() {
             />
           ))}
           <button
-            className="flex min-h-[120px] flex-col items-center justify-center gap-1 rounded border border-dashed border-[color:var(--ss-field-border)] p-2.5 text-[13px] font-semibold text-[color:var(--ss-text)] hover:border-[color:var(--ss-accent)] focus-visible:outline-2 focus-visible:outline-[color:var(--ss-accent)]"
+            className="flex min-h-[120px] flex-col items-center justify-center gap-1 rounded border border-dashed border-[color:var(--ss-field-border)] p-2.5 text-title font-semibold text-[color:var(--ss-text)] hover:border-[color:var(--ss-accent)] focus-visible:outline-2 focus-visible:outline-[color:var(--ss-accent)]"
             onClick={() => replaceWith("Creating a new project", () => store().newProject())}
           >
             <FilePlus2 size={20} className="text-[color:var(--ss-accent)]" />
             Blank project
-            <span className="text-[11px] font-normal text-[color:var(--ss-text-dim)]">An empty diagram</span>
+            <span className="text-meta font-normal text-[color:var(--ss-text-dim)]">An empty diagram</span>
           </button>
         </div>
       </section>
@@ -155,7 +155,7 @@ export function StartPage() {
           Recent projects
         </h2>
         {recent?.length === 0 && !offline && (
-          <p className="text-[12px] text-[color:var(--ss-text-dim)]">
+          <p className="text-body text-[color:var(--ss-text-dim)]">
             None saved yet. A project you save is listed here.
           </p>
         )}
@@ -175,7 +175,7 @@ export function StartPage() {
         </div>
       </section>
 
-      <label className="flex items-center gap-2 text-[12px] text-[color:var(--ss-text-dim)]">
+      <label className="flex items-center gap-2 text-body text-[color:var(--ss-text-dim)]">
         <input type="checkbox" checked={openLast} onChange={(e) => setOpenLast(e.target.checked)} />
         Skip this page: open my last project at start-up
       </label>

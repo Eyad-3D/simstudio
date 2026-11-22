@@ -23,9 +23,10 @@ export type ElementFlowNode = Node<ElementNodeData, "element">;
 
 export const DEFAULT_NODE_WIDTH = 92;
 
-// One colour per domain for wires, node borders and icons, layer swatches and
-// port dots: the theme's --ss-kind-* tokens (index.css), each at least 3:1 on
-// the diagram in both themes (contrast.test.ts). CSS values, for styles only.
+// One colour per kind of connection for wires, node borders and icons, pins,
+// layer swatches and port dots: the theme's --ss-kind-* tokens (index.css),
+// each at least 3:1 on the diagram in both themes and told apart with the
+// common colour-vision deficiencies (contrast.test.ts). CSS values, for styles only.
 export const KIND_COLOR: Record<PortKind, string> = {
   electrical: "var(--ss-kind-electrical)",
   mechanical: "var(--ss-kind-mechanical)",
@@ -33,6 +34,19 @@ export const KIND_COLOR: Record<PortKind, string> = {
   thermal: "var(--ss-kind-thermal)",
   fluid: "var(--ss-kind-fluid)",
   power: "var(--ss-kind-electrical)",
+};
+
+/** A wire's line by its kind, so that colour is never the only cue (UI
+ *  4.42): electrical thin and solid, mechanical (a shaft) thicker and solid,
+ *  thermal dotted, fluid dashed; signal links are dashed too, and drawn only
+ *  in the Data Bus overlay. SVG presentation values. */
+export const KIND_LINE: Record<PortKind, { strokeWidth: number; strokeDasharray?: string; strokeLinecap?: "round" }> = {
+  electrical: { strokeWidth: 1.6 },
+  power: { strokeWidth: 1.6 },
+  mechanical: { strokeWidth: 2.6 },
+  thermal: { strokeWidth: 2, strokeDasharray: "1 4", strokeLinecap: "round" },
+  fluid: { strokeWidth: 2, strokeDasharray: "7 3" },
+  signal: { strokeWidth: 1.4, strokeDasharray: "5 4" },
 };
 
 // The one "headline" signal shown as a live chip on a node during/after a run.
@@ -184,7 +198,7 @@ function PhysicalPort({
       />
       {port.polarity && (
         <span
-          className="pointer-events-none absolute z-10 text-[10px] font-bold leading-none"
+          className="pointer-events-none absolute z-10 text-meta font-bold leading-none"
           style={{
             ...polarityGlyphStyle(side, offset),
             color: port.polarity === "positive" ? "var(--ss-pole-positive)" : "var(--ss-pole-negative)",
@@ -285,7 +299,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
       >
         {showLiveValues && badge && liveVal !== undefined && (
           <div
-            className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 -translate-x-1/2 whitespace-nowrap rounded px-1 py-[1px] text-[10px] font-semibold leading-none tabular-nums"
+            className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 -translate-x-1/2 whitespace-nowrap rounded px-1 py-[1px] text-meta font-semibold leading-none tabular-nums"
             style={{
               color: "var(--ss-accent)",
               background: "color-mix(in srgb, var(--ss-accent) 14%, var(--ss-panel))",
@@ -318,7 +332,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
           style={isSub ? undefined : { color: domainColor }}
         />
         {isSub && (
-          <span className="absolute bottom-0.5 right-1 text-[8px] font-semibold uppercase tracking-wide text-[color:var(--ss-accent)]">
+          <span className="absolute bottom-0.5 right-1 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-accent)]">
             SYS
           </span>
         )}
@@ -339,7 +353,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
             />
           )),
         )}
-        <div className="ss-node-label pointer-events-none absolute left-1/2 top-full mt-1 w-[128px] -translate-x-1/2 text-center text-[11px] leading-tight">
+        <div className="ss-node-label pointer-events-none absolute left-1/2 top-full mt-1 w-[96px] -translate-x-1/2 text-center text-meta leading-tight">
           <span
             className={`rounded px-1 ${selected ? "font-semibold text-[color:var(--ss-accent)]" : "text-[color:var(--ss-node-icon)]"}`}
             style={{ background: "color-mix(in srgb, var(--ss-panel) 78%, transparent)" }}

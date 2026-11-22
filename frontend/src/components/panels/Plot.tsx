@@ -26,8 +26,8 @@ export function axisStyle(_theme: string): uPlot.Axis {
   const grid = css.getPropertyValue("--ss-td-border").trim();
   return {
     stroke: css.getPropertyValue("--ss-text-dim").trim(),
-    font: font(10),
-    labelFont: font(10),
+    font: font(12),
+    labelFont: font(12),
     labelSize: 14,
     grid: { stroke: grid, width: 1 },
     ticks: { stroke: grid, width: 1, size: 4 },
@@ -345,7 +345,7 @@ async function exportPng(u: uPlot, options: PlotOptions, bg: string, name: strin
   const r = plot.width / u.width; // 2, times the screen's pixel ratio
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d")!;
-  ctx.font = font(11 * r);
+  ctx.font = font(12 * r);
   // lay the legend out in rows first, to know the picture's height
   const items = options.series.slice(1).map((s) => ({ s, w: 22 * r + ctx.measureText(String(s.label ?? "")).width }));
   const rowH = 20 * r;
@@ -365,7 +365,7 @@ async function exportPng(u: uPlot, options: PlotOptions, bg: string, name: strin
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(plot, 0, 0);
-  ctx.font = font(11 * r);
+  ctx.font = font(12 * r);
   ctx.textBaseline = "middle";
   ctx.lineWidth = 2 * r;
   const text = getComputedStyle(document.documentElement).getPropertyValue("--ss-text").trim();

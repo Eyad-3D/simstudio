@@ -35,7 +35,7 @@ export function ImportFromFileButton({
   return (
     <>
       <button
-        className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[11px]"
+        className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta"
         title="Read this table from a CSV or Excel (.xlsx) file; you see what was read before anything changes"
         onClick={() => input.current?.click()}
       >
@@ -60,7 +60,7 @@ export function ImportFromFileButton({
         }}
       />
       {error && (
-        <span role="alert" className="ss-param-problem text-[11px]">
+        <span role="alert" className="ss-param-problem text-meta">
           {error}
         </span>
       )}
@@ -142,14 +142,14 @@ function ImportTableDialog({
       >
         <div className="flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-3 py-2">
           <FileUp size={15} className="text-[color:var(--ss-accent)]" />
-          <span id={titleId} className="min-w-0 truncate text-[13px] font-semibold">
+          <span id={titleId} className="min-w-0 truncate text-title font-semibold">
             Import {result?.target ?? "table"} from {file.name}
           </span>
           <button className="ss-toolbtn ml-auto" title="Close (Esc)" aria-label="Close the dialog" onClick={onClose}>
             <X size={14} />
           </button>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-[12px]">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-body">
           {failure && (
             <p role="alert" className="ss-param-problem">
               {failure}
@@ -161,7 +161,7 @@ function ImportTableDialog({
               <div className="flex flex-wrap items-end gap-2">
                 {result.sheets.length > 1 && (
                   <label className="flex flex-col gap-0.5">
-                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Sheet</span>
+                    <span className="text-meta text-[color:var(--ss-text-dim)]">Sheet</span>
                     <select
                       className="ss-input"
                       value={result.sheet}
@@ -176,7 +176,7 @@ function ImportTableDialog({
                   </label>
                 )}
                 <label className="flex flex-col gap-0.5">
-                  <span className="text-[11px] text-[color:var(--ss-text-dim)]">Cells (e.g. B3:F20)</span>
+                  <span className="text-meta text-[color:var(--ss-text-dim)]">Cells (e.g. B3:F20)</span>
                   <input
                     className="ss-input w-[110px]"
                     value={rangeText}
@@ -189,7 +189,7 @@ function ImportTableDialog({
                 {result.kind !== "table2d" && result.columns.length > 2 && (
                   <>
                     <label className="flex flex-col gap-0.5">
-                      <span className="text-[11px] text-[color:var(--ss-text-dim)]">
+                      <span className="text-meta text-[color:var(--ss-text-dim)]">
                         {result.axes[0]?.name} from
                       </span>
                       <select
@@ -205,7 +205,7 @@ function ImportTableDialog({
                       </select>
                     </label>
                     <label className="flex flex-col gap-0.5">
-                      <span className="text-[11px] text-[color:var(--ss-text-dim)]">{result.valueName} from</span>
+                      <span className="text-meta text-[color:var(--ss-text-dim)]">{result.valueName} from</span>
                       <select
                         className="ss-input"
                         value={result.yColumn ?? ""}
@@ -222,7 +222,7 @@ function ImportTableDialog({
                 )}
                 {result.decimal && (result.decimalQuestion || options.decimal) && (
                   <label className="flex flex-col gap-0.5">
-                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Decimal mark</span>
+                    <span className="text-meta text-[color:var(--ss-text-dim)]">Decimal mark</span>
                     <select
                       className="ss-input"
                       value={result.decimal}
@@ -249,7 +249,7 @@ function ImportTableDialog({
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(result.units).map(([k, u]) => (
                     <label key={k} className="flex flex-col gap-0.5">
-                      <span className="text-[11px] text-[color:var(--ss-text-dim)]">
+                      <span className="text-meta text-[color:var(--ss-text-dim)]">
                         Unit of {UNIT_LABELS[k] ?? k}
                         {u.how === "header" ? " (from the file)" : u.how === "guessed" ? " (guessed)" : ""}
                       </span>
@@ -302,14 +302,14 @@ function ImportTableDialog({
               )}
               {result.ok && result.preview && <Preview result={result} />}
               {result.notes.length > 0 && (
-                <p className="text-[11px] text-[color:var(--ss-text-dim)]">{result.notes.join(" · ")}</p>
+                <p className="text-meta text-[color:var(--ss-text-dim)]">{result.notes.join(" · ")}</p>
               )}
               {!result.ok && result.cells.length > 0 && <Cells cells={result.cells} />}
             </>
           )}
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-[color:var(--ss-border)] px-3 py-2">
-          <span className="mr-auto text-[11px] text-[color:var(--ss-text-dim)]">
+          <span className="mr-auto text-meta text-[color:var(--ss-text-dim)]">
             {result?.ok ? "Replaces the whole table; Undo (Ctrl+Z) brings it back." : ""}
           </span>
           <button className="ss-toolbtn border border-[color:var(--ss-border)] px-2" onClick={onClose}>
@@ -364,20 +364,20 @@ export function Preview({
             strokeWidth={1.5}
             points={p.map(([x, y]) => `${sx(x).toFixed(1)},${sy(y).toFixed(1)}`).join(" ")}
           />
-          <text x={4} y={14} fontSize={10} fill="var(--ss-text-dim)">
+          <text x={4} y={14} fontSize={12} fill="var(--ss-text-dim)">
             {fmt(y1)}
           </text>
-          <text x={4} y={H - 22} fontSize={10} fill="var(--ss-text-dim)">
+          <text x={4} y={H - 22} fontSize={12} fill="var(--ss-text-dim)">
             {fmt(y0)}
           </text>
-          <text x={40} y={H - 5} fontSize={10} fill="var(--ss-text-dim)">
+          <text x={40} y={H - 5} fontSize={12} fill="var(--ss-text-dim)">
             {fmt(x0)}
           </text>
-          <text x={W - 6} y={H - 5} fontSize={10} textAnchor="end" fill="var(--ss-text-dim)">
+          <text x={W - 6} y={H - 5} fontSize={12} textAnchor="end" fill="var(--ss-text-dim)">
             {fmt(x1)} {axis.unit}
           </text>
         </svg>
-        <figcaption className="text-[11px] text-[color:var(--ss-text-dim)]">
+        <figcaption className="text-meta text-[color:var(--ss-text-dim)]">
           {result.valueName} ({result.valueUnit}) over {axis.name} ({axis.unit}), {p.length.toLocaleString("en")} points, as it will be stored
         </figcaption>
       </figure>
@@ -388,7 +388,7 @@ export function Preview({
   const rows = p.rows.slice(0, 8);
   return (
     <figure className="m-0 overflow-x-auto">
-      <table className="border-collapse text-[11px]">
+      <table className="border-collapse text-meta">
         <thead>
           <tr>
             <th className="border border-[color:var(--ss-border)] px-1 text-left font-normal text-[color:var(--ss-text-dim)]">
@@ -415,7 +415,7 @@ export function Preview({
           ))}
         </tbody>
       </table>
-      <figcaption className="text-[11px] text-[color:var(--ss-text-dim)]">
+      <figcaption className="text-meta text-[color:var(--ss-text-dim)]">
         Columns: {outer.name} ({outer.unit}), {p.cols.length}; rows: {inner.name} ({inner.unit}), {p.rows.length};
         values: {result.valueName} ({result.valueUnit}), as they will be stored
       </figcaption>
@@ -430,8 +430,8 @@ export function Cells({ cells, marked }: { cells: api.TableImport["cells"]; mark
   const letter = (i: number) => String.fromCharCode(65 + i);
   return (
     <div className="overflow-x-auto">
-      <p className="text-[11px] text-[color:var(--ss-text-dim)]">The start of the sheet:</p>
-      <table className="border-collapse text-[11px]">
+      <p className="text-meta text-[color:var(--ss-text-dim)]">The start of the sheet:</p>
+      <table className="border-collapse text-meta">
         <thead>
           <tr>
             <th />
@@ -576,14 +576,14 @@ export function ImportCycleDialog({
       >
         <div className="flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-3 py-2">
           <FileUp size={15} className="text-[color:var(--ss-accent)]" />
-          <span id={titleId} className="min-w-0 truncate text-[13px] font-semibold">
+          <span id={titleId} className="min-w-0 truncate text-title font-semibold">
             Import a drive cycle{file ? ` from ${file.name}` : ""}
           </span>
           <button className="ss-toolbtn ml-auto" title="Close (Esc)" aria-label="Close the dialog" onClick={onClose}>
             <X size={14} />
           </button>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-[12px]">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-body">
           <p className="text-[color:var(--ss-text-dim)]">
             A CSV or Excel (.xlsx) file with a time column (s) or a distance column (m), and a speed column (km/h, m/s
             or mph), a road grade column (%), or both. The cycle is kept in this project, and its Drive Cycle lists
@@ -597,7 +597,7 @@ export function ImportCycleDialog({
             >
               <FileUp size={12} /> {file ? "Choose another file…" : "Choose a file…"}
             </button>
-            <span className="text-[11px] text-[color:var(--ss-text-dim)]">or drop it here</span>
+            <span className="text-meta text-[color:var(--ss-text-dim)]">or drop it here</span>
             <input
               ref={input}
               type="file"
@@ -622,7 +622,7 @@ export function ImportCycleDialog({
               <div className="flex flex-wrap items-end gap-2">
                 {result.sheets.length > 1 && (
                   <label className="flex flex-col gap-0.5">
-                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Sheet</span>
+                    <span className="text-meta text-[color:var(--ss-text-dim)]">Sheet</span>
                     <select
                       className="ss-input"
                       value={result.sheet}
@@ -637,7 +637,7 @@ export function ImportCycleDialog({
                   </label>
                 )}
                 <label className="flex flex-col gap-0.5">
-                  <span className="text-[11px] text-[color:var(--ss-text-dim)]">Cells (e.g. B3:F20)</span>
+                  <span className="text-meta text-[color:var(--ss-text-dim)]">Cells (e.g. B3:F20)</span>
                   <input
                     className="ss-input w-[110px]"
                     value={rangeText}
@@ -648,7 +648,7 @@ export function ImportCycleDialog({
                   />
                 </label>
                 <label className="flex flex-col gap-0.5">
-                  <span className="text-[11px] text-[color:var(--ss-text-dim)]">Points against</span>
+                  <span className="text-meta text-[color:var(--ss-text-dim)]">Points against</span>
                   <select
                     className="ss-input"
                     value={result.axis}
@@ -668,7 +668,7 @@ export function ImportCycleDialog({
                 </label>
                 {result.decimal && (result.decimalQuestion || options.decimal) && (
                   <label className="flex flex-col gap-0.5">
-                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Decimal mark</span>
+                    <span className="text-meta text-[color:var(--ss-text-dim)]">Decimal mark</span>
                     <select
                       className="ss-input"
                       value={result.decimal}
@@ -697,7 +697,7 @@ export function ImportCycleDialog({
                           : result.gradeColumn;
                     return (
                       <label key={key} className="flex flex-col gap-0.5">
-                        <span className="text-[11px] text-[color:var(--ss-text-dim)]">{text}</span>
+                        <span className="text-meta text-[color:var(--ss-text-dim)]">{text}</span>
                         <select
                           className="ss-input"
                           value={current ?? -1}
@@ -724,7 +724,7 @@ export function ImportCycleDialog({
                 <div className="flex flex-wrap gap-2">
                   {Object.entries(result.units).map(([k, u]) => (
                     <label key={k} className="flex flex-col gap-0.5">
-                      <span className="text-[11px] text-[color:var(--ss-text-dim)]">
+                      <span className="text-meta text-[color:var(--ss-text-dim)]">
                         Unit of {CYCLE_UNIT_LABELS[k] ?? k}
                         {u.how === "header" ? " (from the file)" : u.how === "guessed" ? " (guessed)" : ""}
                       </span>
@@ -788,12 +788,12 @@ export function ImportCycleDialog({
                 </p>
               )}
               {result.notes.length > 0 && (
-                <p className="text-[11px] text-[color:var(--ss-text-dim)]">{result.notes.join(" · ")}</p>
+                <p className="text-meta text-[color:var(--ss-text-dim)]">{result.notes.join(" · ")}</p>
               )}
               {!result.ok && result.cells.length > 0 && <Cells cells={result.cells} />}
               {result.ok && (
                 <label className="flex flex-col gap-0.5" htmlFor={nameId}>
-                  <span className="text-[11px] text-[color:var(--ss-text-dim)]">Name in the Drive Cycle lists</span>
+                  <span className="text-meta text-[color:var(--ss-text-dim)]">Name in the Drive Cycle lists</span>
                   <input
                     id={nameId}
                     ref={nameRef}
@@ -808,7 +808,7 @@ export function ImportCycleDialog({
           )}
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-[color:var(--ss-border)] px-3 py-2">
-          <span className="mr-auto text-[11px] text-[color:var(--ss-text-dim)]">
+          <span className="mr-auto text-meta text-[color:var(--ss-text-dim)]">
             {result?.ok ? "Kept in the project file; Undo (Ctrl+Z) takes it out again." : ""}
           </span>
           <button className="ss-toolbtn border border-[color:var(--ss-border)] px-2" onClick={onClose}>

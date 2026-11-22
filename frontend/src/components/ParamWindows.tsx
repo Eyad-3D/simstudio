@@ -122,8 +122,8 @@ function ParamWindowContent({ entry }: { entry: ParamWindow }) {
       <header className="ss-zoom flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-3 py-2">
         {/* eslint-disable-next-line react-hooks/static-components -- componentIcon picks from a fixed module-level registry, so Icon is the same component every render */}
         <Icon size={16} className="text-[color:var(--ss-accent)]" aria-hidden />
-        <h1 className="min-w-0 truncate text-[13px] font-semibold">{element.label}</h1>
-        <span className="min-w-0 truncate text-[11px] text-[color:var(--ss-text-dim)]">— {def.name}</span>
+        <h1 className="min-w-0 truncate text-title font-semibold">{element.label}</h1>
+        <span className="min-w-0 truncate text-meta text-[color:var(--ss-text-dim)]">— {def.name}</span>
         <PartHelpButton defId={def.id} from={entry.win} />
       </header>
       <main ref={body} className="ss-param-scroll min-h-0 flex-1 overflow-y-auto">

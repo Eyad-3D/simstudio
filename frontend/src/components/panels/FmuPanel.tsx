@@ -38,7 +38,7 @@ function Badge({ file }: { file: FmuFile }) {
   return (
     <span
       data-testid="fmu-badge"
-      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+      className={`rounded px-1.5 py-0.5 text-meta font-semibold ${
         good
           ? "bg-[color:var(--ss-ok-soft)] text-[color:var(--ss-ok)]"
           : "bg-[color:var(--ss-err-soft)] text-[color:var(--ss-err)]"
@@ -151,7 +151,7 @@ export function FmuPanel({ element, compact }: { element: ElementInstance; compa
 
   return (
     <div className="flex flex-col gap-1.5" data-param="fmu_variables">
-      <div className="text-[11px] font-semibold text-[color:var(--ss-text-dim)]">FMU file</div>
+      <div className="text-meta font-semibold text-[color:var(--ss-text-dim)]">FMU file</div>
       <input
         ref={input}
         type="file"
@@ -169,23 +169,23 @@ export function FmuPanel({ element, compact }: { element: ElementInstance; compa
         <FileUp size={13} /> {path || sha ? "Choose another FMU file…" : "Choose FMU file…"}
       </button>
       {!path && !sha && !busy && (
-        <p className="text-[11px] italic text-[color:var(--ss-text-dim)]">
+        <p className="text-meta italic text-[color:var(--ss-text-dim)]">
           Choose a .fmu file exported from another tool, or drop one on the diagram.
         </p>
       )}
-      {busy && <p className="text-[11px] text-[color:var(--ss-text-dim)]">Reading the FMU…</p>}
+      {busy && <p className="text-meta text-[color:var(--ss-text-dim)]">Reading the FMU…</p>}
       {error && (
-        <p role="alert" className="text-[11px] text-[color:var(--ss-err)]">
+        <p role="alert" className="text-meta text-[color:var(--ss-err)]">
           {error}
         </p>
       )}
       {file && !file.found && (
-        <p role="alert" className="text-[11px] text-[color:var(--ss-err)]">
+        <p role="alert" className="text-meta text-[color:var(--ss-err)]">
           {file.problem}
         </p>
       )}
       {file?.found && info && (
-        <div className="flex flex-col gap-1 text-[11px]">
+        <div className="flex flex-col gap-1 text-meta">
           <div className="flex items-center gap-2">
             <span className="truncate font-semibold" title={file.path}>
               {file.name || info.modelName}
@@ -232,7 +232,7 @@ export function FmuPanel({ element, compact }: { element: ElementInstance; compa
               onClick={() => openParamDialog(element.id, "fmu_variables")}
             >
               <span>Variables and pins</span>
-              <span className="text-[10px] text-[color:var(--ss-accent)]">
+              <span className="text-meta text-[color:var(--ss-accent)]">
                 {pins} pin{pins === 1 ? "" : "s"} · Edit…
               </span>
             </button>
@@ -240,13 +240,13 @@ export function FmuPanel({ element, compact }: { element: ElementInstance; compa
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-[color:var(--ss-text-dim)]">Variables</span>
-                <span className="text-[10px] text-[color:var(--ss-text-dim)]">
+                <span className="text-meta text-[color:var(--ss-text-dim)]">
                   tick a variable to make it a pin; change a start value before the run
                 </span>
               </div>
               {variables.length > 8 && (
                 <input
-                  className="ss-input text-[11px]"
+                  className="ss-input text-meta"
                   placeholder="Find a variable"
                   aria-label="Find a variable"
                   value={filter}
@@ -254,7 +254,7 @@ export function FmuPanel({ element, compact }: { element: ElementInstance; compa
                 />
               )}
               <div className="max-h-[320px] overflow-auto rounded border border-[color:var(--ss-border)]">
-                <table className="w-full text-[11px]" aria-label="FMU variables">
+                <table className="w-full text-meta" aria-label="FMU variables">
                   <thead>
                     <tr>
                       <th className="ss-th w-[36px]">Pin</th>
@@ -291,7 +291,7 @@ export function FmuPanel({ element, compact }: { element: ElementInstance; compa
                             {v.settable ? (
                               <input
                                 key={`${key}:${String(params[key] ?? v.start)}`}
-                                className={`ss-input w-[72px] text-right text-[11px] ${changed ? "font-semibold" : ""}`}
+                                className={`ss-input w-[72px] text-right text-meta ${changed ? "font-semibold" : ""}`}
                                 aria-label={`Start value of ${v.name}`}
                                 defaultValue={String(params[key] ?? v.start ?? "")}
                                 title={changed ? `Changed from the FMU's ${v.start}` : "The FMU's own start value"}
@@ -309,7 +309,7 @@ export function FmuPanel({ element, compact }: { element: ElementInstance; compa
                   </tbody>
                 </table>
               </div>
-              <div className="flex items-center gap-1 text-[10px] text-[color:var(--ss-text-dim)]">
+              <div className="flex items-center gap-1 text-meta text-[color:var(--ss-text-dim)]">
                 <CircleCheck size={11} /> {pins} pin{pins === 1 ? "" : "s"}: wire them on the Data Bus like any
                 signal.
               </div>
