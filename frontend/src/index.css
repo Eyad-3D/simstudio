@@ -221,7 +221,9 @@ body,
   --dv-paneview-header-border-color: var(--ss-border);
   --dv-group-view-background-color: var(--ss-panel);
   --dv-tabs-and-actions-container-height: 34px;
-  --dv-tabs-and-actions-container-font-size: var(--text-body);
+  /* (the small size: at 13 px "Components" and "Elements" were cut short in
+     their 200-px column at 1366 px) */
+  --dv-tabs-and-actions-container-font-size: var(--text-meta);
   --dv-drag-over-background-color: rgba(47, 111, 179, 0.18);
   --dv-drag-over-border-color: var(--ss-accent);
   --dv-tab-close-icon-color: var(--ss-text-dim);
@@ -445,7 +447,16 @@ body,
   text-align: right;
 }
 .ss-td {
-  @apply border-b border-[color:var(--ss-td-border)] px-2 py-1 text-body;
+  @apply border-b border-[color:var(--ss-td-border)] px-2 py-1;
+}
+/* a cell's size sits in the components layer, so a cell's own smaller size
+   (a label's or a unit's text-meta) wins over it: unlayered, it made every
+   label and unit of the narrow Properties panel 13 px, and at 1366 px the
+   value fields no longer fitted their column */
+@layer components {
+  .ss-td {
+    font-size: var(--text-body);
+  }
 }
 /* Properties' label/value/unit table, laid out as a grid: the label column
    keeps at least 72 px and takes what the value and unit leave; a value field
@@ -465,6 +476,12 @@ body,
 }
 .ss-param-grid :is(input, select) {
   max-width: 100%;
+}
+/* in the narrow Properties panel of the dock (not the part's own window) the
+   cells keep less room at their sides, so a value field fits its column
+   beside a long unit at 1366 px */
+.dockview-theme-ss .ss-param-grid :is(th, td) {
+  padding-inline: 4px;
 }
 /* a choice's text can be long ("Drag and rolling resistance"): its select
    is as wide as a number field and leaves the rest to the labels (its full
