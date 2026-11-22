@@ -25,8 +25,13 @@ lap solver:
 
 - **Braking.** The brakes share the braking by their *Max Torque* (the FS
   example: 500/500 N·m at the front, 300/300 at the rear, so 62.5 % at the
-  front), not by an ideal balance. On the FS autocross the car brakes at up
-  to 16.6 m/s², held by the rear tyres.
+  front), not by an ideal balance, and the regeneration comes first, up to
+  the Driver's *Recuperation Weight*, on the driven wheels only. With the
+  FS example's weight of 100 % its rear tyres take up to 30 kW of
+  regeneration, past their grip below about 33 m/s: on the FS autocross the
+  car brakes at up to 16.6 m/s², held by the rear tyres (58.7 s instead of
+  60.9 s at a weight of 0 %). Lower the weight, or move the brakes' *Max
+  Torque* forward, for a car whose brake system keeps the balance.
 - **The open differential.** The car drives through its differential as
   modelled, open: in a corner the unloaded inner driven wheel's grip can
   hold the car back (about 0.4 s of the FS autocross, up to 6 % on fast

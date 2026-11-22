@@ -366,10 +366,18 @@ solver: 0.4 s and 3.9 s). It is not a driving simulation:
   Driver and the motors (torque vectoring, traction control) do nothing.
 - The brakes share the braking by their *Max Torque*, as the engine models
   them (the FS example: 500/500 N·m at the front, 300/300 at the rear, so
-  62.5 % at the front). The older lap solver assumed an ideal balance. On
-  the FS autocross the car brakes at up to 16.6 m/s² instead of 25 m/s²,
-  held by the rear tyres, and the flying lap takes 60.9 s against the older
-  solver's 57.7 s (+5.5 %).
+  62.5 % at the front; its weight transfer under braking asks for about
+  70.5 %), and the regeneration comes first, up to the Driver's
+  *Recuperation Weight*, on the driven wheels only, without regard to their
+  grip (as in a drive cycle). The older lap solver assumed an ideal balance
+  and held the regeneration to the driven wheels' grip. The FS example's
+  weight is 100 %: up to 30 kW of regeneration on its rear axle, 1 500 to
+  3 000 N, more than the rear tyres' 1 265 to 1 800 N of grip below about
+  33 m/s. So on the FS autocross the car brakes at up to 16.6 m/s² instead
+  of 25 m/s², held by the rear tyres, and the flying lap takes 60.9 s
+  against the older solver's 57.7 s (+5.5 %); with a Recuperation Weight
+  of 0 % it takes 58.7 s. Lower the weight, or move the brakes' Max Torque
+  forward, for a car whose brake system keeps the balance.
 - The car drives through its differential as modelled, which is open: in a
   corner the unloaded inner driven wheel's grip can hold the car back. On
   the FS autocross that is about 0.4 s, and up to 6 % on fast corners. A
