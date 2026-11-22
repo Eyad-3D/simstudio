@@ -63,7 +63,7 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
     <div className="mb-1.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
       <div className="flex items-center gap-1 px-1 py-0.5">
         <button
-          className="flex min-w-0 flex-1 items-center gap-1 rounded px-0.5 py-0.5 text-left text-[11px] hover:bg-[color:var(--ss-hover)]"
+          className="flex min-w-0 flex-1 items-center gap-1 rounded px-0.5 py-0.5 text-left text-meta hover:bg-[color:var(--ss-hover)]"
           aria-expanded={open}
           title={`${factor.elementLabel} · ${factor.paramLabel} on '${study.caseName}', ${when}`}
           onClick={onToggle}
@@ -73,7 +73,7 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
             <span className="block truncate font-medium">
               {study.factors.map((f) => `${f.elementLabel} · ${f.paramLabel}`).join(" × ")}
             </span>
-            <span className="block truncate text-[10px] text-[color:var(--ss-text-dim)]">
+            <span className="block truncate text-meta text-[color:var(--ss-text-dim)]">
               {complete.length} of {study.points.length} complete · {when}
             </span>
           </span>
@@ -110,7 +110,7 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
       </div>
       {open && (
         <div className="border-t border-[color:var(--ss-border)] px-1.5 py-1">
-          <div className="mb-1 text-[10px] text-[color:var(--ss-text-dim)]">
+          <div className="mb-1 text-meta text-[color:var(--ss-text-dim)]">
             Case '{study.caseName}' · {countOf(factor.values.length, "value")}
             {study.workers && study.wallS != null && (
               <>
@@ -124,7 +124,7 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
             )}
           </div>
           {study.kpis.length > 0 && (
-            <label className="mb-1 flex items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]">
+            <label className="mb-1 flex items-center gap-1 text-meta text-[color:var(--ss-text-dim)]">
               Result
               <select className="ss-input min-w-0 flex-1" value={kpi} onChange={(e) => setKpi(e.target.value)}>
                 {study.kpis.map((k) => (
@@ -203,10 +203,10 @@ export function StudiesList() {
 
   return (
     <section aria-label="Saved studies" className="mt-4">
-      <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+      <div className="mb-1 flex items-center gap-1 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
         <FlaskConical size={12} /> Saved studies ({studies.length})
       </div>
-      <p className="mb-2 text-[11px] text-[color:var(--ss-text-dim)]">
+      <p className="mb-2 text-meta text-[color:var(--ss-text-dim)]">
         Each sweep is kept with the project&apos;s runs with its table of results, also after its runs
         leave the Results history. Running a sweep does not change the model file.
       </p>

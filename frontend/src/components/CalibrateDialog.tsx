@@ -46,7 +46,7 @@ export function CalibrateDialog({ onClose }: { onClose: () => void }) {
       setBusy(false);
     }
   };
-  const row = "flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]";
+  const row = "flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]";
   const pred = (title: string, p?: api.LapPrediction) =>
     p && (
       <tr className="border-t border-[color:var(--ss-border)]">
@@ -70,11 +70,11 @@ export function CalibrateDialog({ onClose }: { onClose: () => void }) {
         aria-label="Calibrate lap mode"
         className="max-h-[92vh] w-[560px] max-w-[94vw] overflow-y-auto rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl"
       >
-        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-[13px] font-semibold">
+        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-title font-semibold">
           Calibrate lap mode on a logged lap
         </div>
         <div className="grid gap-2 px-4 py-3">
-          <p className="text-[11px] leading-snug text-[color:var(--ss-text-dim)]">
+          <p className="text-meta leading-snug text-[color:var(--ss-text-dim)]">
             Pick a logged lap (CSV with time or distance, speed and lateral acceleration; pack power if you have it).
             LightSim builds the track from it and finds the grip scale and downforce (CzA) whose lap mode speed fits the
             logged speed best. A second lap from another session checks the prediction, blind. The files stay on your
@@ -100,17 +100,17 @@ export function CalibrateDialog({ onClose }: { onClose: () => void }) {
             </select>
           </label>
           {error && (
-            <p role="alert" className="text-[11px] text-[color:var(--ss-err)]">
+            <p role="alert" className="text-meta text-[color:var(--ss-err)]">
               {error}
             </p>
           )}
           {result && (
             <>
-              <p className="text-[11px]">
+              <p className="text-meta">
                 Best fit: grip × {fmt(result.fit.mu_scale, 4)}, CzA {fmt(result.fit.cza, 3)} m², speed RMS{" "}
                 {fmt(result.fit.rms_kmh, 2)} km/h on the calibration lap.
               </p>
-              <table className="w-full border-collapse text-[11px]" aria-label="Calibration results">
+              <table className="w-full border-collapse text-meta" aria-label="Calibration results">
                 <thead>
                   <tr className="text-left text-[color:var(--ss-text-dim)]">
                     <th className="py-0.5 pr-2 font-normal">Lap</th>
@@ -125,7 +125,7 @@ export function CalibrateDialog({ onClose }: { onClose: () => void }) {
                   {pred("Check (blind)", result.check_lap)}
                 </tbody>
               </table>
-              <p className="text-[10px] text-[color:var(--ss-text-dim)]">
+              <p className="text-meta text-[color:var(--ss-text-dim)]">
                 Grip and downforce both raise the cornering speed, so one lap cannot always tell them apart: trust the
                 check lap&apos;s errors more than the two values. The energy error needs the pack power in the log.
               </p>

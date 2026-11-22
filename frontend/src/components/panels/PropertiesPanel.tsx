@@ -268,7 +268,7 @@ function Table1DEditor({
         }
       />
       {importer.dialog}
-      <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
+      <p className="text-meta leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
       <TablePlot
         table={value}
         axes={[{ name: axis.name, lib: axis.unit, unit: xUnit, keys }]}
@@ -515,7 +515,7 @@ function Table2DEditor({
         }
       />
       {importer.dialog}
-      <p className="text-[10px] leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
+      <p className="text-meta leading-tight text-[color:var(--ss-text-dim)]">{GRID_HINT}</p>
       <TablePlot
         table={value}
         axes={[
@@ -724,7 +724,7 @@ function ParameterInput({
     case "code":
       return (
         <textarea
-          className="ss-input w-full resize-y font-mono text-[11px]"
+          className="ss-input w-full resize-y font-mono text-meta"
           rows={12}
           spellCheck={false}
           aria-label={def.label}
@@ -736,7 +736,7 @@ function ParameterInput({
     default:
       return def.key === "profile" ? (
         <textarea
-          className="ss-input w-full resize-y font-mono text-[11px]"
+          className="ss-input w-full resize-y font-mono text-meta"
           rows={2}
           aria-label={def.label}
           aria-description={def.description ?? undefined}
@@ -814,7 +814,7 @@ function OutsideSettings({ element, param }: { element: ElementInstance; param: 
     (a, i) => element.tableOutside?.[param.key]?.[i] ?? a.outside ?? "clamp",
   );
   return (
-    <div className="mb-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[color:var(--ss-text-dim)]">
+    <div className="mb-1 flex flex-wrap gap-x-3 gap-y-1 text-meta text-[color:var(--ss-text-dim)]">
       {axes.map((a, i) => (
         <label key={a.name} className="flex items-center gap-1">
           Outside the {a.name} data:
@@ -867,23 +867,23 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
   };
   return (
     <div>
-      <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
+      <div className="mb-1 flex items-center gap-2 text-meta font-semibold text-[color:var(--ss-text-dim)]">
         Signal Ports
         <button
-          className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[10px] font-normal"
+          className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta font-normal"
           onClick={() => add("input")}
         >
           <Plus size={10} /> input
         </button>
         <button
-          className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[10px] font-normal"
+          className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta font-normal"
           onClick={() => add("output")}
         >
           <Plus size={10} /> output
         </button>
       </div>
       {ports.length === 0 && (
-        <div className="px-1 pb-1 text-[11px] italic text-[color:var(--ss-text-dim)]">
+        <div className="px-1 pb-1 text-meta italic text-[color:var(--ss-text-dim)]">
           No ports yet — add inputs/outputs; their names are the keys in the
           script's <code>inputs</code> / returned dict.
         </div>
@@ -891,7 +891,7 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
       {ports.map((p) => (
         <div key={p.id} className="flex items-center gap-1 py-0.5">
           <span
-            className={`rounded px-1 text-[9px] font-semibold uppercase ${
+            className={`rounded px-1 text-meta font-semibold uppercase ${
               p.direction === "input"
                 ? "bg-[color:var(--ss-info-soft)] text-[color:var(--ss-info)]"
                 : "bg-[color:var(--ss-warn-soft)] text-[color:var(--ss-warn)]"
@@ -900,14 +900,14 @@ function DynamicPortsEditor({ element }: { element: ElementInstance }) {
             {p.direction === "input" ? "in" : "out"}
           </span>
           <input
-            className="ss-input flex-1 font-mono text-[11px]"
+            className="ss-input flex-1 font-mono text-meta"
             defaultValue={p.name}
             title="Port name (renaming disconnects existing wires)"
             onBlur={(e) => e.target.value !== p.name && rename(p, e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           />
           <select
-            className="ss-input w-[92px] text-[11px]"
+            className="ss-input w-[92px] text-meta"
             aria-label={`Unit of ${p.name}`}
             title="The unit this port gives or expects. Data Checks warn when a wire joins two different units, such as a SOC in % into a port set to Fraction (0-1); nothing is converted."
             value={p.unitGroup ?? "No Unit"}
@@ -1244,12 +1244,12 @@ export function ElementForm({
       <Fragment key={p.key}>
         <tr {...helpProps(p)} data-param={p.key}>
           {/* the full label is in the help card, or else its tooltip */}
-          <td className="ss-td flex items-center text-[11px]" title={p.description ? undefined : p.label}>
+          <td className="ss-td flex items-center text-meta" title={p.description ? undefined : p.label}>
             <span className="truncate">{p.label}</span>
             <SourceBadge src={element.parameterSources?.[p.key]} />
             {running && p.variability === "fixed" && (
               <span
-                className="ml-1 shrink-0 text-[10px] italic text-[color:var(--ss-text-dim)]"
+                className="ml-1 shrink-0 text-meta italic text-[color:var(--ss-text-dim)]"
                 title="Structural parameter — a live edit takes effect on the next run"
               >
                 (next run)
@@ -1266,7 +1266,7 @@ export function ElementForm({
               onChange={(v) => change(p.key, v)}
             />
           </td>
-          <td className="ss-td whitespace-nowrap text-[11px] text-[color:var(--ss-text-dim)]">
+          <td className="ss-td whitespace-nowrap text-meta text-[color:var(--ss-text-dim)]">
             {choosable ? (
               <UnitButton
                 what={paramName(p)}
@@ -1341,7 +1341,7 @@ export function ElementForm({
 
   const bigParam = (p: ParameterDef) => (
     <div key={p.key} data-param={p.key}>
-      <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
+      <div className="mb-1 text-meta font-semibold text-[color:var(--ss-text-dim)]">
         {isProfile(p) ? "Profile" : p.label}
         {!isProfile(p) && p.type !== "code" && p.type !== "maps" ? ` (${unitOf(p)})` : ""}
         {running && !isProfile(p) && (
@@ -1350,7 +1350,7 @@ export function ElementForm({
         {dot(p, true)}
       </div>
       {p.description && (
-        <div className="ss-param-help mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
+        <div className="ss-param-help mb-1 text-meta text-[color:var(--ss-text-dim)]">
           <ParamHelp def={p} unit={unitOf(p)} />
         </div>
       )}
@@ -1410,7 +1410,7 @@ export function ElementForm({
   const tyreSummary = (list: ParameterDef[]) =>
     tyre &&
     list.some((p) => p.key === "tyre_code") && (
-      <p className="text-[11px] text-[color:var(--ss-text-dim)]" data-testid="tyre-summary">
+      <p className="text-meta text-[color:var(--ss-text-dim)]" data-testid="tyre-summary">
         {describeTyre(tyre, radiusFactor)}
       </p>
     );
@@ -1418,14 +1418,25 @@ export function ElementForm({
     const list = scalarParams.filter((p) => p.section === s.name && matches(p));
     const bigs = bigParams.filter((p) => p.section === s.name && matches(p));
     if (!list.length && !bigs.length) return null;
+    const open = filtering || (opened[sectionKey(s.name)] ?? !s.folded);
     return (
       <details
         key={s.name}
         className="ss-param-section"
-        open={filtering || (opened[sectionKey(s.name)] ?? !s.folded)}
+        open={open}
         onToggle={(e) => toggleSection(s.name, e.currentTarget.open)}
       >
-        <summary>{s.name}</summary>
+        {/* a click (or Enter, Space) folds or opens it and keeps that at once:
+            the browser's own toggle event comes a moment later, and a window
+            closed in that moment forgot what was just opened */}
+        <summary
+          onClick={(e) => {
+            e.preventDefault();
+            toggleSection(s.name, !open);
+          }}
+        >
+          {s.name}
+        </summary>
         <div className="flex flex-col gap-2 pt-1">
           {scalarTable(list, false)}
           {tyreSummary(list)}
@@ -1455,14 +1466,14 @@ export function ElementForm({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <label className="flex shrink-0 items-center gap-1 text-[11px]">
+          <label className="flex shrink-0 items-center gap-1 text-meta">
             <input type="checkbox" checked={changedOnly} onChange={(e) => setChangedOnly(e.target.checked)} />
             Changed only
           </label>
         </div>
       )}
       <div className="flex items-center gap-2">
-        <span className="w-[72px] shrink-0 text-[11px] text-[color:var(--ss-text-dim)]">Name</span>
+        <span className="w-[72px] shrink-0 text-meta text-[color:var(--ss-text-dim)]">Name</span>
         <input
           className="ss-input min-w-0 flex-1"
           aria-label="Name"
@@ -1470,20 +1481,20 @@ export function ElementForm({
           onChange={(e) => renameElement(element.id, e.target.value)}
         />
       </div>
-      <div className="flex items-center gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
+      <div className="flex items-center gap-2 text-meta text-[color:var(--ss-text-dim)]">
         <span className="w-[72px] shrink-0">Type</span>
         <span className="truncate text-[color:var(--ss-text)]" title={def.name}>
           {def.name}
         </span>
         {running && (
           <span
-            className="flex items-center gap-1 rounded bg-[color:var(--ss-ok-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[color:var(--ss-ok)]"
+            className="flex items-center gap-1 rounded bg-[color:var(--ss-ok-soft)] px-1.5 py-0.5 text-meta font-semibold text-[color:var(--ss-ok)]"
             title="Simulation running — number/switch edits apply immediately; tables and code apply on the next run"
           >
             <Radio size={10} /> LIVE
           </span>
         )}
-        <span className="ml-auto rounded bg-[color:var(--ss-panel-alt)] px-1.5 py-0.5 text-[10px] uppercase">
+        <span className="ml-auto rounded bg-[color:var(--ss-panel-alt)] px-1.5 py-0.5 text-meta uppercase">
           {def.domain}
         </span>
       </div>
@@ -1508,7 +1519,7 @@ export function ElementForm({
           {/* the source of the values, in full in the tooltip */}
           {preset.note && (
             <p
-              className={`text-[10px] text-[color:var(--ss-text-dim)] ${compact ? "line-clamp-2" : ""}`}
+              className={`text-meta text-[color:var(--ss-text-dim)] ${compact ? "line-clamp-2" : ""}`}
               title={preset.note}
             >
               {preset.note}
@@ -1543,11 +1554,11 @@ export function ElementForm({
       {!filtering && <ValueSources element={element} def={def} />}
       {(drivingTask || (roadProfile && cycleDef)) && matches(cycleDef) && (
         <div className="flex flex-col gap-1" {...helpProps(cycleDef)}>
-          <label className="flex flex-col gap-0.5 text-[11px] text-[color:var(--ss-text-dim)]">
+          <label className="flex flex-col gap-0.5 text-meta text-[color:var(--ss-text-dim)]">
             <span>
               {cycleDef.label}
               {running && (
-                <span className="ml-1 text-[10px] italic" title="Structural parameter — a live edit takes effect on the next run">
+                <span className="ml-1 text-meta italic" title="Structural parameter — a live edit takes effect on the next run">
                   (next run)
                 </span>
               )}
@@ -1597,10 +1608,10 @@ export function ElementForm({
                 {p.type === "code" ? <Pencil size={12} /> : <Table2 size={12} />}
                 <span className="truncate">{isProfile(p) ? "Profile" : p.label}</span>
                 {p.type !== "code" && p.type !== "maps" && !isProfile(p) ? (
-                  <span className="shrink-0 text-[10px] text-[color:var(--ss-text-dim)]">({unitOf(p)})</span>
+                  <span className="shrink-0 text-meta text-[color:var(--ss-text-dim)]">({unitOf(p)})</span>
                 ) : null}
               </span>
-              <span className="shrink-0 text-[10px] text-[color:var(--ss-accent)]">Edit…</span>
+              <span className="shrink-0 text-meta text-[color:var(--ss-accent)]">Edit…</span>
             </button>
           ))}
         </div>
@@ -1608,7 +1619,7 @@ export function ElementForm({
       {!compact && !sections && bigParams.filter(matches).map(bigParam)}
       {filtering ? (
         found === 0 && (
-          <p role="status" className="px-1 py-2 text-[12px] text-[color:var(--ss-text-dim)]">
+          <p role="status" className="px-1 py-2 text-body text-[color:var(--ss-text-dim)]">
             {nothingText}
           </p>
         )
@@ -1619,17 +1630,19 @@ export function ElementForm({
       )}
       {!filtering && def.ports.length > 0 && (
         <div>
-          <div className="mb-1 text-[11px] font-semibold text-[color:var(--ss-text-dim)]">
+          <div className="mb-1 text-meta font-semibold text-[color:var(--ss-text-dim)]">
             Ports
           </div>
           {def.ports.map((p) => (
-            <div key={p.id} className="flex items-center gap-2 py-0.5 text-[11px]">
+            <div key={p.id} className="flex items-center gap-2 py-0.5 text-meta">
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
                 style={{ background: KIND_COLOR[p.kind] }}
               />
-              <span className="truncate">{p.name}</span>
-              <span className="ml-auto text-[10px] text-[color:var(--ss-text-dim)]">
+              <span className="truncate" title={p.name}>
+                {p.name}
+              </span>
+              <span className="ml-auto shrink-0 whitespace-nowrap text-meta text-[color:var(--ss-text-dim)]">
                 {p.kind} · {p.direction}
               </span>
             </div>
@@ -1672,7 +1685,7 @@ export function ElementForm({
         )}
       </div>
       {!filtering && def.description && (
-        <p className="border-t border-[color:var(--ss-border)] pt-2 text-[11px] italic text-[color:var(--ss-text-dim)]">
+        <p className="border-t border-[color:var(--ss-border)] pt-2 text-meta italic text-[color:var(--ss-text-dim)]">
           {def.description}
         </p>
       )}
@@ -1692,14 +1705,14 @@ export function PropertiesPanel() {
   return (
     // data-properties-panel: Enter on the diagram puts the focus in here (UX-19)
     <div className="flex h-full flex-col" data-properties-panel>
-      <div className="ss-panel-toolbar text-[11px] font-semibold">
+      <div className="ss-panel-toolbar text-meta font-semibold">
         {selected ? `Parameters — ${selected.label}` : "Parameters"}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {selected && selectedDef ? (
           <ElementForm element={selected} def={selectedDef} compact />
         ) : (
-          <div className="flex flex-col items-center gap-2 p-6 text-center text-[12px] text-[color:var(--ss-text-dim)]">
+          <div className="flex flex-col items-center gap-2 p-6 text-center text-body text-[color:var(--ss-text-dim)]">
             <Box size={22} strokeWidth={1.2} />
             Select an element on the canvas or in the Elements panel to edit its parameters.
           </div>

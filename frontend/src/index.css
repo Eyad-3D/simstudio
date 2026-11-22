@@ -1,5 +1,17 @@
 @import "tailwindcss";
 
+/* The app's text sizes (UI 4.41), the only ones it uses: nothing is smaller
+   than 12 px (Microsoft's least legible size for a UI), body text is 13 px,
+   headings 14 px semibold, a headline result's number 20 px. Each is a
+   Tailwind utility (text-meta, text-body, text-title, text-figure) and a
+   variable for the plain CSS below; the A- / A+ buttons scale them all. */
+@theme {
+  --text-meta: 12px;
+  --text-body: 13px;
+  --text-title: 14px;
+  --text-figure: 20px;
+}
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
@@ -36,20 +48,16 @@
   --ss-td-border: #eef0f3;
   --ss-scrollbar: #c2c8d2;
   --ss-scrollbar-hover: #9aa2af;
-  /* one colour per domain for wires, part borders and icons, layer swatches
-     and pins: each at least 3:1 on the diagram (the panel colour) */
-  --ss-kind-electrical: #c26400;
-  --ss-kind-mechanical: #7a8494;
-  --ss-kind-signal: #0e7490;
-  --ss-kind-thermal: #c2410c;
-  --ss-kind-fluid: #2563eb;
-  /* pins: an outline at least 3:1 on the diagram around a light fill */
-  --ss-pin-electrical: #d97706;
-  --ss-pin-electrical-fill: #fde68a;
-  --ss-pin-mechanical: #4b5563;
-  --ss-pin-mechanical-fill: #d1d5db;
-  --ss-pin-thermal: #b91c1c;
-  --ss-pin-thermal-fill: #fecaca;
+  /* one colour per kind of connection (UI 4.42) for wires, part borders
+     and icons, pins, layer swatches and port dots: muted, at least 3:1 on
+     the diagram, and apart from each other also with the common
+     colour-vision deficiencies (contrast.test.ts); wires differ in line
+     style as well (ElementNode's KIND_LINE), so colour is never the only cue */
+  --ss-kind-electrical: #a8651a;
+  --ss-kind-mechanical: #33557a;
+  --ss-kind-signal: #2b8a80;
+  --ss-kind-thermal: #8c2f3a;
+  --ss-kind-fluid: #8458c0;
   /* a battery pin's + and − marks: text, at least 4.5:1 on a part */
   --ss-pole-positive: #dc2626;
   --ss-pole-negative: #2563eb;
@@ -87,9 +95,11 @@
   --ss-td-border: #2a2f37;
   --ss-scrollbar: #3a414c;
   --ss-scrollbar-hover: #4d5663;
-  /* (the domain colours are the light theme's) */
-  --ss-pin-mechanical: #a3abb8;
-  --ss-pin-thermal: #f87171;
+  --ss-kind-electrical: #d4a466;
+  --ss-kind-mechanical: #9ab0dc;
+  --ss-kind-signal: #6cc7b9;
+  --ss-kind-thermal: #d97a83;
+  --ss-kind-fluid: #9878d6;
   --ss-pole-positive: #f87171;
   --ss-pole-negative: #60a5fa;
   --ss-grid-line: #262b33;
@@ -127,7 +137,7 @@ body,
   width: 100%;
 }
 .u-legend {
-  font-size: 11px;
+  font-size: var(--text-meta);
   color: var(--ss-text);
 }
 .u-legend th {
@@ -211,7 +221,9 @@ body,
   --dv-paneview-header-border-color: var(--ss-border);
   --dv-group-view-background-color: var(--ss-panel);
   --dv-tabs-and-actions-container-height: 34px;
-  --dv-tabs-and-actions-container-font-size: 12px;
+  /* (the small size: at 13 px "Components" and "Elements" were cut short in
+     their 200-px column at 1366 px) */
+  --dv-tabs-and-actions-container-font-size: var(--text-meta);
   --dv-drag-over-background-color: rgba(47, 111, 179, 0.18);
   --dv-drag-over-border-color: var(--ss-accent);
   --dv-tab-close-icon-color: var(--ss-text-dim);
@@ -262,7 +274,7 @@ body,
   border-radius: 8px;
   background: var(--ss-warn-fill);
   color: #fff;
-  font-size: 10px;
+  font-size: var(--text-meta);
   font-weight: 600;
   line-height: 16px;
   text-align: center;
@@ -295,24 +307,34 @@ body,
   background: var(--ss-panel);
   border-radius: 2px;
 }
-.react-flow__handle.ss-handle-electrical {
-  border-color: var(--ss-pin-electrical);
-  background: var(--ss-pin-electrical-fill);
+/* a pin in its kind's colour, around a light tint of it; electrical pins
+   are round, the others square */
+.react-flow__handle:is(.ss-handle-electrical, .ss-handle-power) {
+  --ss-pin: var(--ss-kind-electrical);
   border-radius: 50%;
 }
 .react-flow__handle.ss-handle-mechanical {
-  border-color: var(--ss-pin-mechanical);
-  background: var(--ss-pin-mechanical-fill);
+  --ss-pin: var(--ss-kind-mechanical);
 }
 .react-flow__handle.ss-handle-thermal {
-  border-color: var(--ss-pin-thermal);
-  background: var(--ss-pin-thermal-fill);
+  --ss-pin: var(--ss-kind-thermal);
+}
+.react-flow__handle.ss-handle-fluid {
+  --ss-pin: var(--ss-kind-fluid);
+}
+.react-flow__handle.ss-handle-signal {
+  --ss-pin: var(--ss-kind-signal);
+}
+.react-flow__handle:is(.ss-handle-electrical, .ss-handle-power, .ss-handle-mechanical, .ss-handle-thermal, .ss-handle-fluid, .ss-handle-signal) {
+  border-color: var(--ss-pin);
+  background: color-mix(in srgb, var(--ss-pin) 22%, var(--ss-panel));
 }
 .react-flow__edge-path {
   stroke-width: 1.6;
 }
-/* part names keep at least their 11 px on screen when the diagram is zoomed
-   out: TopologyCanvas keeps the zoom in --ss-zoom */
+/* part names keep at least their 12 px on screen when the diagram is zoomed
+   out (TopologyCanvas keeps the zoom in --ss-zoom); a long name wraps onto a
+   second line under its part rather than running into its neighbour's */
 .ss-node-label {
   scale: max(1, calc(1 / var(--ss-zoom, 1)));
   transform-origin: top center;
@@ -330,9 +352,6 @@ body,
   border-width: 1px;
   opacity: 0.55;
 }
-.react-flow__edge.selected .react-flow__edge-path {
-  stroke-width: 2.4;
-}
 .dark .react-flow__pane,
 .dark .react-flow {
   background: var(--ss-panel);
@@ -340,7 +359,7 @@ body,
 
 /* ---- shared widget styles ---- */
 .ss-toolbtn {
-  @apply flex min-h-[27px] items-center justify-center gap-1 rounded px-2 py-1 text-[12px] text-[color:var(--ss-text)] hover:bg-[color:var(--ss-hover)] active:bg-[color:var(--ss-active)] disabled:opacity-40 disabled:hover:bg-transparent;
+  @apply flex min-h-[27px] items-center justify-center gap-1 rounded px-2 py-1 text-body text-[color:var(--ss-text)] hover:bg-[color:var(--ss-hover)] active:bg-[color:var(--ss-active)] disabled:opacity-40 disabled:hover:bg-transparent;
 }
 /* a faint baseline line is read out in its channel's own legend entry
    (ResultsPanel), not in a second one */
@@ -376,7 +395,7 @@ body,
   border-radius: 3px;
   background: var(--ss-panel);
   color: var(--ss-text);
-  font-size: 12px;
+  font-size: var(--text-body);
   line-height: 1.3;
   text-align: center;
   white-space: normal;
@@ -387,7 +406,7 @@ body,
   outline-offset: -2px;
 }
 .ss-input {
-  @apply rounded border border-[color:var(--ss-field-border)] bg-[color:var(--ss-panel)] px-1.5 py-0.5 text-[12px] text-[color:var(--ss-text)] outline-none focus:border-[color:var(--ss-accent)];
+  @apply rounded border border-[color:var(--ss-field-border)] bg-[color:var(--ss-panel)] px-1.5 py-0.5 text-body text-[color:var(--ss-text)] outline-none focus:border-[color:var(--ss-accent)];
 }
 .ss-input[aria-invalid="true"] {
   border-color: var(--ss-err);
@@ -405,7 +424,7 @@ body,
   font-variant-numeric: tabular-nums;
 }
 .ss-tree-row {
-  @apply flex w-full cursor-default items-center gap-1.5 truncate px-1.5 py-[3px] text-left text-[12px] hover:bg-[color:var(--ss-hover)];
+  @apply flex w-full cursor-default items-center gap-1.5 truncate px-1.5 py-[3px] text-left text-body hover:bg-[color:var(--ss-hover)];
 }
 .ss-tree-row:focus-visible {
   outline: 2px solid var(--ss-accent);
@@ -420,7 +439,7 @@ body,
   @apply flex items-center gap-1 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1.5 py-1;
 }
 .ss-th {
-  @apply border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1 text-left text-[11px] font-semibold text-[color:var(--ss-text-dim)];
+  @apply border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1 text-left text-meta font-semibold text-[color:var(--ss-text-dim)];
 }
 /* (this unlayered rule beats Tailwind's text-right: a numeric column's head
    sits over its right-aligned numbers) */
@@ -428,7 +447,16 @@ body,
   text-align: right;
 }
 .ss-td {
-  @apply border-b border-[color:var(--ss-td-border)] px-2 py-1 text-[12px];
+  @apply border-b border-[color:var(--ss-td-border)] px-2 py-1;
+}
+/* a cell's size sits in the components layer, so a cell's own smaller size
+   (a label's or a unit's text-meta) wins over it: unlayered, it made every
+   label and unit of the narrow Properties panel 13 px, and at 1366 px the
+   value fields no longer fitted their column */
+@layer components {
+  .ss-td {
+    font-size: var(--text-body);
+  }
 }
 /* Properties' label/value/unit table, laid out as a grid: the label column
    keeps at least 72 px and takes what the value and unit leave; a value field
@@ -448,6 +476,12 @@ body,
 }
 .ss-param-grid :is(input, select) {
   max-width: 100%;
+}
+/* in the narrow Properties panel of the dock (not the part's own window) the
+   cells keep less room at their sides, so a value field fits its column
+   beside a long unit at 1366 px */
+.dockview-theme-ss .ss-param-grid :is(th, td) {
+  padding-inline: 4px;
 }
 /* a choice's text can be long ("Drag and rolling resistance"): its select
    is as wide as a number field and leaves the rest to the labels (its full
@@ -471,7 +505,7 @@ body,
   background: var(--ss-panel);
   color: var(--ss-text);
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
-  font-size: 11.5px;
+  font-size: var(--text-meta);
   line-height: 1.45;
 }
 :is(.ss-help-card, .ss-param-help) p + p,
@@ -482,7 +516,7 @@ body,
    the whole row of the parameter grid */
 .ss-param-problem {
   grid-column: 1 / -1;
-  font-size: 10.5px;
+  font-size: var(--text-meta);
   text-align: left;
   color: var(--ss-err);
 }
@@ -520,7 +554,7 @@ body,
 .ss-param-section > summary {
   cursor: pointer;
   padding: 2px 0;
-  font-size: 11px;
+  font-size: var(--text-meta);
   font-weight: 600;
   color: var(--ss-text-dim);
 }
@@ -561,7 +595,7 @@ body,
    whole row; a click shows that value in Cases & Parameters */
 .ss-case-line {
   grid-column: 1 / -1;
-  font-size: 10.5px;
+  font-size: var(--text-meta);
   text-align: left;
 }
 .ss-case-link {
@@ -605,7 +639,7 @@ body,
   border-radius: 4px;
   background: var(--ss-panel-alt);
   color: var(--ss-text);
-  font-size: 11px;
+  font-size: var(--text-meta);
   line-height: 1.4;
 }
 .ss-unit-chooser button {
@@ -636,7 +670,7 @@ body,
   padding: 2px 7px;
   border: 1px solid var(--ss-border);
   background: var(--ss-panel);
-  font-size: 11px;
+  font-size: var(--text-meta);
 }
 .ss-table-tools .ss-toolbtn:hover:not(:disabled) {
   background: var(--ss-hover);
@@ -694,7 +728,7 @@ body,
 }
 .ss-grid .ss-cell {
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: var(--text-body);
   line-height: 18px;
   white-space: nowrap;
   cursor: cell;
@@ -776,7 +810,7 @@ body,
   background: var(--ss-panel);
   color: var(--ss-text);
   padding: 4px 8px;
-  font-size: 12px;
+  font-size: var(--text-body);
   line-height: 18px;
   font-weight: 600;
   text-align: right;
@@ -830,7 +864,7 @@ body,
   margin: 4px 0 0;
   padding: 0;
   list-style: none;
-  font-size: 11px;
+  font-size: var(--text-meta);
   color: var(--ss-text);
 }
 .ss-table-plot-legend li {
@@ -848,7 +882,7 @@ body,
 }
 .ss-table-plot-readout {
   margin: 2px 0 0;
-  font-size: 11px;
+  font-size: var(--text-meta);
   color: var(--ss-text);
   font-variant-numeric: tabular-nums;
 }
@@ -858,4 +892,11 @@ body,
 .driver-overlay,
 .driver-overlay * {
   pointer-events: none !important;
+}
+
+/* numbers line up down a column (UI 4.41): equal-width digits in every
+   table (runs, summaries, the table editors, the parameter values) */
+table,
+.ss-figure {
+  font-variant-numeric: tabular-nums;
 }

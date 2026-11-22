@@ -821,7 +821,7 @@ export function SpreadsheetGrid({
         <div
           data-grid-notice
           role={shownNotice.level === "error" ? "alert" : "status"}
-          className={`text-[11px] leading-tight ${
+          className={`text-meta leading-tight ${
             shownNotice.level === "error"
               ? "text-[color:var(--ss-err)]"
               : shownNotice.level === "warning"

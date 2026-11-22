@@ -62,28 +62,28 @@ export function DialogHost() {
       >
         <div
           id="ss-dialog-title"
-          className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-[13px] font-semibold"
+          className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-title font-semibold"
         >
           {dialog.title}
         </div>
         <div className="px-4 py-3">
           {dialog.message && (
-            <p className="text-[12px] leading-snug text-[color:var(--ss-text-dim)]">
+            <p className="text-body leading-snug text-[color:var(--ss-text-dim)]">
               {dialog.message}
             </p>
           )}
           {dialog.note && (
-            <p className="mt-2 text-[12px] font-semibold leading-snug">{dialog.note}</p>
+            <p className="mt-2 text-body font-semibold leading-snug">{dialog.note}</p>
           )}
           {dialog.code && (
             <div className="mt-2 max-h-[50vh] space-y-2 overflow-auto" data-testid="dialog-code">
               {dialog.code.map((c, i) => (
                 <figure key={i} className="m-0">
-                  <figcaption className="mb-1 text-[12px] font-semibold">{c.label}</figcaption>
+                  <figcaption className="mb-1 text-body font-semibold">{c.label}</figcaption>
                   <pre
                     tabIndex={0}
                     aria-label={`Code of ${c.label}`}
-                    className="m-0 overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] p-2 font-mono text-[11px] leading-snug"
+                    className="m-0 overflow-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] p-2 font-mono text-meta leading-snug"
                   >
                     {c.code}
                   </pre>
@@ -123,7 +123,7 @@ export function DialogHost() {
             {dialog.cancelLabel ?? "Cancel"}
           </button>
           <button
-            className={`rounded px-3 py-1 text-[12px] font-semibold text-white ${
+            className={`rounded px-3 py-1 text-body font-semibold text-white ${
               dialog.danger ? "bg-red-600 hover:bg-red-700" : "bg-[color:var(--ss-accent-fill)] hover:brightness-110"
             } disabled:opacity-40`}
             disabled={dialog.kind === "prompt" && text.trim() === ""}

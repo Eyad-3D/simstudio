@@ -17,7 +17,7 @@ const GRADE_CLASS: Record<ReferenceGrade, string> = {
 export function GradeChip({ check }: { check: ReferenceCheck }) {
   return (
     <span
-      className={`rounded border px-1 font-sans text-[10px] font-semibold ${GRADE_CLASS[check.grade]}`}
+      className={`rounded border px-1 font-sans text-meta font-semibold ${GRADE_CLASS[check.grade]}`}
       title={gradeTitle(check)}
     >
       {check.automatic && check.grade === "within" ? "ok" : GRADE_TEXT[check.grade]}
@@ -51,7 +51,7 @@ export function ReferenceList({ checks, compact = false }: { checks: ReferenceCh
   if (checks.length === 0) return null;
   const failed = auto.filter((c) => c.grade !== "within");
   return (
-    <div className="text-[11px]" role="region" aria-label="Expected values">
+    <div className="text-meta" role="region" aria-label="Expected values">
       {mine.length > 0 && (
         <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
           {mine.map((c, i) => (
@@ -62,7 +62,7 @@ export function ReferenceList({ checks, compact = false }: { checks: ReferenceCh
       {auto.length > 0 &&
         (compact && failed.length === 0 ? (
           <details>
-            <summary className="cursor-pointer text-[10px] text-[color:var(--ss-text-dim)]">
+            <summary className="cursor-pointer text-meta text-[color:var(--ss-text-dim)]">
               Hand calculations: {auto.length} passed
             </summary>
             <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
@@ -102,10 +102,10 @@ export function ExpectedValuesEditor({ c }: { c: SimCase }) {
   };
   return (
     <div className="mb-3">
-      <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+      <div className="mb-1 flex items-center gap-2 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
         Expected values · {c.name}
         <button
-          className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-[10px] font-normal normal-case tracking-normal"
+          className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta font-normal normal-case tracking-normal"
           onClick={add}
           disabled={running}
           title="Add a number you trust for one of this case's results; every run then shows the gap"
@@ -114,7 +114,7 @@ export function ExpectedValuesEditor({ c }: { c: SimCase }) {
         </button>
       </div>
       {refs.length === 0 ? (
-        <p className="mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
+        <p className="mb-1 text-meta text-[color:var(--ss-text-dim)]">
           A number you trust for a result of this case, such as a maker's 0-100 km/h time or
           last year's measured 75 m time: each run shows how far it lands, green within the
           tolerance, amber within twice it, red beyond.
@@ -127,7 +127,7 @@ export function ExpectedValuesEditor({ c }: { c: SimCase }) {
             ))}
           </datalist>
           {refs.map((r, i) => (
-            <li key={i} className="rounded border border-[color:var(--ss-border)] px-1.5 py-1 text-[11px]">
+            <li key={i} className="rounded border border-[color:var(--ss-border)] px-1.5 py-1 text-meta">
               <div className="flex min-w-0 items-center gap-1">
                 <input
                   className="ss-input min-w-0 flex-1"

@@ -27,7 +27,7 @@ function FinishNotice() {
     <div
       role={notice.level === "error" ? "alert" : "status"}
       aria-label="Run finished"
-      className="fixed bottom-[32px] right-3 z-50 w-[330px] max-w-[calc(100vw-24px)] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-[12px] shadow-lg"
+      className="fixed bottom-[32px] right-3 z-50 w-[330px] max-w-[calc(100vw-24px)] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-body shadow-lg"
     >
       <div className="flex items-start gap-1.5">
         <Icon size={15} className={`mt-px shrink-0 ${NOTICE_COLOR[notice.level]}`} aria-hidden />
@@ -58,7 +58,7 @@ function FinishNotice() {
         )}
         {notice.show === "results" && (
           <label
-            className="ml-auto flex items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]"
+            className="ml-auto flex items-center gap-1 text-meta text-[color:var(--ss-text-dim)]"
             title="Open the Results page by itself when a run or sweep ends"
           >
             <input
@@ -89,7 +89,7 @@ function AgentChangeNotice() {
     <div
       role="status"
       aria-label="AI change"
-      className="fixed bottom-[32px] left-3 z-50 w-[330px] max-w-[calc(100vw-24px)] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-[12px] shadow-lg"
+      className="fixed bottom-[32px] left-3 z-50 w-[330px] max-w-[calc(100vw-24px)] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-body shadow-lg"
     >
       <div className="flex items-start gap-1.5">
         <Bot size={15} className="mt-px shrink-0 text-[color:var(--ss-accent)]" aria-hidden />
@@ -106,7 +106,7 @@ function AgentChangeNotice() {
         </button>
       </div>
       {entry.changes.length > 0 && entry.reason && (
-        <div className="mt-0.5 pl-[21px] text-[11px] text-[color:var(--ss-text-dim)]">
+        <div className="mt-0.5 pl-[21px] text-meta text-[color:var(--ss-text-dim)]">
           {entry.changes.slice(0, 3).join("; ")}
           {entry.changes.length > 3 ? ` (+${entry.changes.length - 3})` : ""}
         </div>
@@ -154,7 +154,7 @@ export function StatusBar() {
   const now = useNow(1000, Boolean(running && sweep));
 
   return (
-    <div className="ss-zoom flex h-[26px] shrink-0 items-center border-t border-[color:var(--ss-border)] bg-[color:var(--ss-chrome)] text-[11px]">
+    <div className="ss-zoom flex h-[26px] shrink-0 items-center border-t border-[color:var(--ss-border)] bg-[color:var(--ss-chrome)] text-meta">
       {/* the one open project (LightSim opens one at a time): its name, not a
           tab; New replaces it, after asking to save its changes */}
       <div className="flex h-full items-center gap-2 px-2">

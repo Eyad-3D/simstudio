@@ -90,7 +90,7 @@ export function RunInfo({ run }: { run: SimRun }) {
 
   if (!snap) {
     return (
-      <div role="region" aria-label="Run info" className="rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] text-[11px]">
+      <div role="region" aria-label="Run info" className="rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] text-meta">
         {fields}
         <div className="px-1.5 py-1 text-[color:var(--ss-text-dim)]">
           This run was stored before runs kept a copy of their model and settings.
@@ -133,7 +133,7 @@ export function RunInfo({ run }: { run: SimRun }) {
     });
 
   return (
-    <div role="region" aria-label="Run info" className="max-h-[260px] overflow-y-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] text-[11px]">
+    <div role="region" aria-label="Run info" className="max-h-[260px] overflow-y-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] text-meta">
       {fields}
       <dl className="grid grid-cols-[62px_1fr] gap-x-2 gap-y-0.5 px-1.5 py-1 [&>dd]:min-w-0 [&>dd]:break-words [&>dt]:text-[color:var(--ss-text-dim)]">
         <dt>Case</dt>
@@ -212,9 +212,9 @@ export function RunChanges({ run, base }: { run: SimRun; base: SimRun }) {
       role="region"
       aria-label="What changed"
       tabIndex={0}
-      className="max-h-[96px] overflow-y-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1.5 py-1 text-[11px]"
+      className="max-h-[96px] overflow-y-auto rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-1.5 py-1 text-meta"
     >
-      <div className="text-[10px] text-[color:var(--ss-text-dim)]">What changed since {runShort(base)}</div>
+      <div className="text-meta text-[color:var(--ss-text-dim)]">What changed since {runShort(base)}</div>
       {!changes ? (
         <div className="text-[color:var(--ss-text-dim)]">
           This run or the baseline was stored before runs kept their model.

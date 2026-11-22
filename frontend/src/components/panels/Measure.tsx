@@ -91,7 +91,7 @@ export function measurePlugin(kind: XAxis["kind"]): PngPlugin {
     ctx.globalAlpha = 1;
     ctx.strokeStyle = color;
     ctx.lineWidth = Math.round(w);
-    ctx.font = `bold ${font(11 * w)}`;
+    ctx.font = `bold ${font(12 * w)}`;
     ctx.textBaseline = "top";
     at.forEach((x, i) => {
       ctx.beginPath();
@@ -273,7 +273,7 @@ function TimeToReach({ run, channels }: { run: SimRun; channels: Channel[] }) {
     >
       <label className="flex items-center gap-1">
         Time to reach
-        <select className="ss-input max-w-[170px] py-0.5 text-[11px]" value={channelKey(c)} onChange={edit(setPick)}>
+        <select className="ss-input max-w-[170px] py-0.5 text-meta" value={channelKey(c)} onChange={edit(setPick)}>
           {channels.map((x) => (
             <option key={channelKey(x)} value={channelKey(x)}>
               {x.label.split(" · ")[1] ?? x.label}
@@ -339,7 +339,7 @@ export function MeasurePanel({ run, series, kind }: { run: SimRun; series: Serie
   if (!ab || timesOf(run).length === 0) return null;
   const cell = "ss-td whitespace-nowrap text-right font-mono";
   return (
-    <section aria-label="Measurement cursors" className="shrink-0 border-t border-[color:var(--ss-border)] text-[11px]">
+    <section aria-label="Measurement cursors" className="shrink-0 border-t border-[color:var(--ss-border)] text-meta">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-[color:var(--ss-panel-alt)] px-1.5 py-1">
         <CursorInput run={run} ab={ab} which={0} />
         <CursorInput run={run} ab={ab} which={1} />

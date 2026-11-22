@@ -46,9 +46,10 @@ const ON_TINT = [
     [fg, "err-soft"],
   ]),
 ];
-// marks on the diagram (the panel colour) that must stand out at 3:1: pin
-// outlines, a part's warning and error badges (each colour on the other)
-const MARKS = ["pin-electrical", "pin-mechanical", "pin-thermal", "node-border", "warn", "err"];
+// marks on the diagram (the panel colour) that must stand out at 3:1: a
+// part's border, its warning and error badges (pins take their kind's colour,
+// checked with the wires below)
+const MARKS = ["node-border", "warn", "err"];
 
 /** A colour as the app writes it: a hex value, or a token as var(--ss-…). */
 function resolve(color: string, t: Record<string, string>): string {
@@ -75,9 +76,20 @@ for (const [theme, t] of Object.entries(THEMES)) {
       expect(contrast(t["field-border"], t[bg])).toBeGreaterThanOrEqual(3),
     );
     // the diagram and the charts are drawn on the panel colour
-    it.each(Object.entries(KIND_COLOR))("%s wires and icons (%s) are at least 3:1 on the diagram", (_, c) =>
-      expect(contrast(resolve(c, t), t.panel)).toBeGreaterThanOrEqual(3),
-    );
+    it.each(Object.entries(KIND_COLOR))("%s wires, pins and icons (%s) are at least 3:1 on the diagram", (_, c) => {
+      expect(contrast(resolve(c, t), t.panel)).toBeGreaterThanOrEqual(3);
+      expect(contrast(resolve(c, t), t["panel-alt"])).toBeGreaterThanOrEqual(3);
+    });
+    // the kinds are told apart (UI 4.42): every two at least 15 apart in
+    // CIELAB, in normal vision and with protanopia, deuteranopia and tritanopia
+    it.each(Object.keys(DEFICIENCY))("the kinds of connection stay apart in %s", (vision) => {
+      const kinds = Object.entries(KIND_COLOR).filter(([k]) => k !== "power"); // (power is drawn as electrical)
+      for (const [i, [a, ca]] of kinds.entries())
+        for (const [b, cb] of kinds.slice(i + 1)) {
+          const d = deltaE(seen(resolve(ca, t), vision), seen(resolve(cb, t), vision));
+          expect(d, `${a} and ${b}`).toBeGreaterThanOrEqual(15);
+        }
+    });
     it.each(MARKS)("%s is at least 3:1 on the diagram", (c) =>
       expect(contrast(t[c], t.panel)).toBeGreaterThanOrEqual(3),
     );
@@ -105,6 +117,47 @@ for (const [theme, t] of Object.entries(THEMES)) {
     });
   });
 }
+
+/** Colour vision, as linear-RGB matrices: Machado, Oliveira and Fernandes
+ *  (2009), severity 1, for the three common dichromacies. */
+const DEFICIENCY: Record<string, number[][]> = {
+  "normal vision": [
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+  ],
+  protanopia: [
+    [0.152286, 1.052583, -0.204868],
+    [0.114503, 0.786281, 0.099216],
+    [-0.003882, -0.048116, 1.051998],
+  ],
+  deuteranopia: [
+    [0.367322, 0.860646, -0.227968],
+    [0.280085, 0.672501, 0.047413],
+    [-0.01182, 0.04294, 0.968881],
+  ],
+  tritanopia: [
+    [1.255528, -0.076749, -0.178779],
+    [-0.078411, 0.930809, 0.147602],
+    [0.004733, 0.691367, 0.3039],
+  ],
+};
+
+/** A #rrggbb colour as seen with `vision`, in CIELAB (D65). */
+function seen(hex: string, vision: string): number[] {
+  const lin = hexRgb(hex).map((c) => c / 255).map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  const [r, g, b] = DEFICIENCY[vision].map((row) => Math.min(1, Math.max(0, row.reduce((s, m, i) => s + m * lin[i], 0))));
+  const f = (x: number) => (x > 0.008856 ? Math.cbrt(x) : 7.787 * x + 16 / 116);
+  const [x, y, z] = [
+    (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047,
+    0.2126 * r + 0.7152 * g + 0.0722 * b,
+    (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883,
+  ].map(f);
+  return [116 * y - 16, 500 * (x - y), 200 * (y - z)];
+}
+
+/** CIE76 colour difference. */
+const deltaE = (p: number[], q: number[]) => Math.hypot(...p.map((v, i) => v - q[i]));
 
 function hexRgb(hex: string): number[] {
   return [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));

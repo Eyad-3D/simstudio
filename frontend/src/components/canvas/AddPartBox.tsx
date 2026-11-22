@@ -120,7 +120,7 @@ export function AddPartBox({
               data-index={i}
               role="option"
               aria-selected={i === at}
-              className={`flex h-[26px] cursor-pointer items-center gap-2 px-2 text-[12px] text-[color:var(--ss-text)] ${
+              className={`flex h-[26px] cursor-pointer items-center gap-2 px-2 text-body text-[color:var(--ss-text)] ${
                 i === at ? "bg-[color:var(--ss-accent-soft)]" : "hover:bg-[color:var(--ss-hover)]"
               }`}
               onMouseEnter={() => setActive(i)}
@@ -129,12 +129,12 @@ export function AddPartBox({
             >
               <Icon size={14} strokeWidth={1.6} className="shrink-0 text-[color:var(--ss-node-icon)]" />
               <span className="truncate">{def.name}</span>
-              {port && <span className="ml-auto truncate text-[10px] text-[color:var(--ss-text-dim)]">{port.name}</span>}
+              {port && <span className="ml-auto truncate text-meta text-[color:var(--ss-text-dim)]">{port.name}</span>}
             </li>
           );
         })}
         {parts.length === 0 && (
-          <li className="px-2 py-1 text-[11px] text-[color:var(--ss-text-dim)]">
+          <li className="px-2 py-1 text-meta text-[color:var(--ss-text-dim)]">
             {from && !query ? `No part has a port this wire can join.` : `No part matches “${query}”.`}
           </li>
         )}

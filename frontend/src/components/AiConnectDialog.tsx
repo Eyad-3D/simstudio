@@ -64,9 +64,9 @@ export function AiConnectDialog() {
         aria-label="Connect an AI assistant"
         className="w-[560px] max-w-[94vw] overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl"
       >
-        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 pt-2.5 text-[13px] font-semibold">
+        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 pt-2.5 text-title font-semibold">
           Connect an AI assistant
-          <div role="tablist" aria-label="Sections" className="mt-1.5 flex gap-1 text-[12px] font-normal">
+          <div role="tablist" aria-label="Sections" className="mt-1.5 flex gap-1 text-body font-normal">
             {(
               [
                 ["apps", "AI apps"],
@@ -95,7 +95,7 @@ export function AiConnectDialog() {
           id="ai-tab-panel"
           role="tabpanel"
           aria-labelledby={`ai-tab-${tab}`}
-          className="max-h-[70vh] space-y-3 overflow-auto px-4 py-3 text-[12px] leading-snug"
+          className="max-h-[70vh] space-y-3 overflow-auto px-4 py-3 text-body leading-snug"
         >
           {tab === "access" ? (
             <AiAccessPanel />

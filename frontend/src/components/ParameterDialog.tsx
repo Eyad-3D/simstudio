@@ -82,8 +82,8 @@ export function ParameterDialog() {
         <div className="flex items-center gap-2 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-3 py-2">
           {/* eslint-disable-next-line react-hooks/static-components -- componentIcon picks from a fixed module-level registry, so Icon is the same component every render */}
           <Icon size={16} className="text-[color:var(--ss-accent)]" />
-          <span className="min-w-0 truncate text-[13px] font-semibold">{element.label}</span>
-          <span className="min-w-0 truncate text-[11px] text-[color:var(--ss-text-dim)]">— {def.name}</span>
+          <span className="min-w-0 truncate text-title font-semibold">{element.label}</span>
+          <span className="min-w-0 truncate text-meta text-[color:var(--ss-text-dim)]">— {def.name}</span>
           <PartHelpButton defId={def.id} from={window} />
           <button
             className="ss-toolbtn"

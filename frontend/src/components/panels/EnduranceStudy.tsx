@@ -67,20 +67,20 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
 
   return (
     <section className="mb-4" aria-label="Endurance energy study">
-      <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+      <div className="mb-1 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
         Endurance energy study
       </div>
-      <p className="mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
+      <p className="mb-1 text-meta text-[color:var(--ss-text-dim)]">
         Runs this endurance at every pair of {battery.label}&apos;s capacity (its charge in Ah scales with it) and
         Output Power Limit, to see how pack size and power cap trade off. Each run takes about 10 s. This does not run in
         this version of LightSim yet: an endurance is a lap case (Not run [NEW-LAP]).
       </p>
       <div className="grid gap-1">
-        <label className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
+        <label className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]">
           Capacities (kWh)
           <input className="ss-input w-[150px]" value={packs} onChange={(e) => setPacks(e.target.value)} />
         </label>
-        <label className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]">
+        <label className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]">
           Power limits (kW)
           <input className="ss-input w-[150px]" value={caps} onChange={(e) => setCaps(e.target.value)} />
         </label>
@@ -94,7 +94,7 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
       </div>
       {study && shown && (
         <div className="mt-2">
-          <label className="mb-1 flex items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]">
+          <label className="mb-1 flex items-center gap-1 text-meta text-[color:var(--ss-text-dim)]">
             Show
             <select className="ss-input min-w-0 flex-1" value={shown} onChange={(e) => setKpi(e.target.value)}>
               {labels.map((l) => (
@@ -104,7 +104,7 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
               ))}
             </select>
           </label>
-          <table className="w-full border-collapse text-[11px]" aria-label="Endurance energy map">
+          <table className="w-full border-collapse text-meta" aria-label="Endurance energy map">
             <thead>
               <tr>
                 <th className="ss-th text-left">kWh \ kW</th>
@@ -144,7 +144,7 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
               ))}
             </tbody>
           </table>
-          <p className="mt-1 text-[10px] text-[color:var(--ss-text-dim)]">
+          <p className="mt-1 text-meta text-[color:var(--ss-text-dim)]">
             {unit ? `${shown} in ${unit}. ` : ""}Darker is higher; DNF: the pack ran out before the last lap. The whole
             table is in Saved studies below.
           </p>

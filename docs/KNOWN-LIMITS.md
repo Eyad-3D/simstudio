@@ -58,9 +58,8 @@ this version, and the reason code names each:
 A battery built from cells (*Defined By: Cells*) runs, in a full run and in
 quick mode (it was refused with `NEW-CELLS` until it was ported).
 
-The buttons for them (*FS events*, the endurance energy
-study's *Run*) are shown dimmed and cannot be pressed, and say so on hover
-and focus. A *Lap* case can still be set up: its runs are refused, and the
+*FS events* and the endurance energy study are not shown in this
+version. A *Lap* case can still be set up: its runs are refused, and the
 *Cases* panel says so under its kind.
 
 A Map port's unit that LightSim has no signal unit for (an energy, a

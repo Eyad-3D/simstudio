@@ -42,10 +42,10 @@ export function LabelEstimateDialog({ onClose }: { onClose: () => void }) {
         aria-label="US label estimate"
         className="flex max-h-[90vh] w-[640px] max-w-[94vw] flex-col overflow-hidden rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-2xl"
       >
-        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-[13px] font-semibold">
+        <div className="border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-4 py-2.5 text-title font-semibold">
           US label estimate (not certified)
         </div>
-        <div className="flex flex-col gap-2 overflow-y-auto px-4 py-3 text-[12px]">
+        <div className="flex flex-col gap-2 overflow-y-auto px-4 py-3 text-body">
           <p className="leading-snug text-[color:var(--ss-text-dim)]">
             Runs this model on EPA&apos;s city cycle (UDDS) and highway cycle (HWFET), then adjusts the two lab figures
             with EPA&apos;s derived five-cycle equations, as FASTSim does. A case that already drives UDDS or HWFET is
@@ -85,7 +85,7 @@ export function LabelEstimateDialog({ onClose }: { onClose: () => void }) {
               ))}
               <table className="w-full border-collapse text-left">
                 <thead>
-                  <tr className="text-[11px] text-[color:var(--ss-text-dim)]">
+                  <tr className="text-meta text-[color:var(--ss-text-dim)]">
                     <th className="py-1 pr-2 font-normal">Figure</th>
                     <th className="py-1 pr-2 text-right font-normal">Value</th>
                     <th className="py-1 font-normal">How it is worked out</th>
@@ -98,7 +98,7 @@ export function LabelEstimateDialog({ onClose }: { onClose: () => void }) {
                       <td className="whitespace-nowrap py-1 pr-2 text-right tabular-nums">
                         {fmt(s.value)} {s.unit}
                       </td>
-                      <td className="py-1 text-[11px] text-[color:var(--ss-text-dim)]">{s.how}</td>
+                      <td className="py-1 text-meta text-[color:var(--ss-text-dim)]">{s.how}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -111,7 +111,7 @@ export function LabelEstimateDialog({ onClose }: { onClose: () => void }) {
             Close
           </button>
           <button
-            className="rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-[12px] font-semibold text-white hover:brightness-110 disabled:opacity-40"
+            className="rounded bg-[color:var(--ss-accent-fill)] px-3 py-1 text-body font-semibold text-white hover:brightness-110 disabled:opacity-40"
             disabled={busy || !project}
             onClick={() => void run()}
           >

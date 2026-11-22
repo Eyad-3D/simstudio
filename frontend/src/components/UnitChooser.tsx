@@ -143,7 +143,7 @@ export function TableUnits({
   };
   return (
     <div className="flex flex-col gap-1">
-      <div className="text-[11px] text-[color:var(--ss-text-dim)]">
+      <div className="text-meta text-[color:var(--ss-text-dim)]">
         {columns.map((c, i) => (
           <Fragment key={String(c.slot)}>
             {i > 0 && " · "}

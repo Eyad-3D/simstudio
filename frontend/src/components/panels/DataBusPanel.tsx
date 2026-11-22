@@ -168,7 +168,7 @@ function SourcePicker({
               role="option"
               aria-selected={i === active}
               ref={i === active ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
-              className={`cursor-pointer px-2 py-[2px] text-[11px] ${i === active ? "bg-[color:var(--ss-accent-soft)]" : ""}`}
+              className={`cursor-pointer px-2 py-[2px] text-meta ${i === active ? "bg-[color:var(--ss-accent-soft)]" : ""}`}
               onMouseDown={(e) => e.preventDefault()} // keep focus, so the pick lands before blur closes the list
               onMouseEnter={() => setActive(i)}
               onClick={() => choose(o)}
@@ -181,7 +181,7 @@ function SourcePicker({
               role="option"
               aria-selected={false}
               aria-disabled
-              className="px-2 py-[2px] text-[11px] text-[color:var(--ss-text-dim)]"
+              className="px-2 py-[2px] text-meta text-[color:var(--ss-text-dim)]"
             >
               No output matches.
             </li>
@@ -260,7 +260,7 @@ function BulkWiring({
   return (
     <section
       aria-label="Connect several"
-      className="min-h-0 flex-initial space-y-1 overflow-y-auto border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1.5 text-[11px]"
+      className="min-h-0 flex-initial space-y-1 overflow-y-auto border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1.5 text-meta"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <div role="radiogroup" aria-label="How to connect" className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -453,11 +453,11 @@ export function DataBusPanel() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <label className="flex items-center gap-1 text-[11px]">
+        <label className="flex items-center gap-1 text-meta">
           <input type="checkbox" checked={freeOnly} onChange={(e) => setFreeOnly(e.target.checked)} />
           Unconnected inputs
         </label>
-        <label className="flex items-center gap-1 text-[11px]">
+        <label className="flex items-center gap-1 text-meta">
           <input type="checkbox" checked={selectedOnly} onChange={(e) => setSelectedOnly(e.target.checked)} />
           Selected part
         </label>
@@ -469,7 +469,7 @@ export function DataBusPanel() {
         >
           Connect several…
         </button>
-        <span className="ml-auto text-[11px] text-[color:var(--ss-text-dim)]">
+        <span className="ml-auto text-meta text-[color:var(--ss-text-dim)]">
           {countOf(project?.dataBusConnections.length ?? 0, "link")} · {countOf(free, "unconnected input")}
         </span>
       </div>
@@ -484,7 +484,7 @@ export function DataBusPanel() {
         {shownBroken.map((b) => (
           <li
             key={b.id}
-            className="flex items-start gap-1 border-b border-[color:var(--ss-td-border)] px-2 py-[3px] text-[11px]"
+            className="flex items-start gap-1 border-b border-[color:var(--ss-td-border)] px-2 py-[3px] text-meta"
           >
             <span className="min-w-0 flex-1 text-[color:var(--ss-warn)]">{b.text}</span>
             <button className="ss-toolbtn shrink-0" title="Remove connection" onClick={() => removeDataBus(b.id)}>
@@ -495,7 +495,7 @@ export function DataBusPanel() {
         {shown.map((r) => (
           <li
             key={r.key}
-            className="flex items-start gap-1 border-b border-[color:var(--ss-td-border)] px-2 py-[3px] text-[11px]"
+            className="flex items-start gap-1 border-b border-[color:var(--ss-td-border)] px-2 py-[3px] text-meta"
           >
             <SourcePicker
               to={r.to}
@@ -520,12 +520,12 @@ export function DataBusPanel() {
           </li>
         ))}
         {hints.map((el) => (
-          <li key={el.id} className="px-2 py-[3px] text-[11px] text-[color:var(--ss-text-dim)]">
+          <li key={el.id} className="px-2 py-[3px] text-meta text-[color:var(--ss-text-dim)]">
             <b>{el.label}</b>: no ports yet. Add one in Properties.
           </li>
         ))}
         {shown.length + shownBroken.length + hints.length === 0 && (
-          <li className="px-3 py-2 text-[11px] text-[color:var(--ss-text-dim)]">{empty}</li>
+          <li className="px-3 py-2 text-meta text-[color:var(--ss-text-dim)]">{empty}</li>
         )}
       </ul>
     </div>

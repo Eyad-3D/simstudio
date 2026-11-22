@@ -31,7 +31,7 @@ export function LayerConfigPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="ss-panel-toolbar text-[11px] text-[color:var(--ss-text-dim)]">
+      <div className="ss-panel-toolbar text-meta text-[color:var(--ss-text-dim)]">
         Choose which connection layers and overlays are drawn on the Topology canvas.
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -67,13 +67,13 @@ export function LayerConfigPanel() {
                     {l.label}
                   </span>
                 </td>
-                <td className="ss-td text-[11px] text-[color:var(--ss-text-dim)]">{l.note}</td>
+                <td className="ss-td text-meta text-[color:var(--ss-text-dim)]">{l.note}</td>
               </tr>
             ))}
           </tbody>
         </table>
 
-        <div className="mt-3 mb-1 flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
+        <div className="mt-3 mb-1 flex items-center gap-1 text-meta font-semibold uppercase tracking-wide text-[color:var(--ss-text-dim)]">
           <Activity size={12} /> Overlays
         </div>
         <label className="flex cursor-pointer items-start gap-2 rounded px-1 py-1 hover:bg-[color:var(--ss-hover)]">
@@ -83,9 +83,9 @@ export function LayerConfigPanel() {
             checked={showLiveValues}
             onChange={toggleLiveValues}
           />
-          <span className="text-[12px]">
+          <span className="text-body">
             Live values on nodes
-            <span className="block text-[11px] text-[color:var(--ss-text-dim)]">
+            <span className="block text-meta text-[color:var(--ss-text-dim)]">
               Show each element's headline signal (speed, SOC, torque…) as a chip during and
               after a run.
             </span>

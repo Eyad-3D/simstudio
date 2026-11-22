@@ -96,7 +96,7 @@ export function MonitorsPanel() {
 
   if (monitors.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-[12px] text-[color:var(--ss-text-dim)]">
+      <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center text-body text-[color:var(--ss-text-dim)]">
         <Gauge size={30} strokeWidth={1} />
         <div>
           No Monitor elements in the model. Drop a <b>Monitor</b> from the library, add
@@ -139,14 +139,14 @@ export function MonitorsPanel() {
           className="min-w-[230px] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] shadow-sm"
         >
           <button
-            className="flex w-full items-center gap-1.5 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1 text-[11px] font-semibold hover:text-[color:var(--ss-accent)]"
+            className="flex w-full items-center gap-1.5 border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-2 py-1 text-meta font-semibold hover:text-[color:var(--ss-accent)]"
             onClick={() => select(element.id)}
             title="Select this monitor"
           >
             <Gauge size={12} />
             {element.label}
             {running && (
-              <span className="ml-auto flex items-center gap-1 text-[9px] font-semibold uppercase text-[color:var(--ss-ok)]">
+              <span className="ml-auto flex items-center gap-1 text-meta font-semibold uppercase text-[color:var(--ss-ok)]">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
                 live
               </span>
@@ -154,7 +154,7 @@ export function MonitorsPanel() {
           </button>
           <div className="flex flex-col gap-1 p-2">
             {inputs.length === 0 && (
-              <div className="text-[11px] italic text-[color:var(--ss-text-dim)]">
+              <div className="text-meta italic text-[color:var(--ss-text-dim)]">
                 No input ports — add them in Properties.
               </div>
             )}
@@ -166,14 +166,14 @@ export function MonitorsPanel() {
               return (
                 <div key={i} className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[10px] text-[color:var(--ss-text-dim)]" title={inp.sourceLabel}>
+                    <div className="truncate text-meta text-[color:var(--ss-text-dim)]" title={inp.sourceLabel}>
                       {inp.portName} — {inp.sourceLabel}
                     </div>
                     <div className="font-mono text-[15px] leading-tight">
                       {shown == null
                         ? "—"
                         : shown.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                      <span className="ml-1 text-[10px] text-[color:var(--ss-text-dim)]">
+                      <span className="ml-1 text-meta text-[color:var(--ss-text-dim)]">
                         {inp.unit}
                       </span>
                     </div>

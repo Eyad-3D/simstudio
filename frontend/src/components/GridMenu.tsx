@@ -88,7 +88,7 @@ export function GridMenu({
   };
 
   const item =
-    "block w-full px-3 py-1 text-left text-[12px] text-[color:var(--ss-text)] hover:bg-[color:var(--ss-accent-soft)] focus:bg-[color:var(--ss-accent-soft)] focus:outline-none disabled:opacity-40 disabled:hover:bg-transparent";
+    "block w-full px-3 py-1 text-left text-body text-[color:var(--ss-text)] hover:bg-[color:var(--ss-accent-soft)] focus:bg-[color:var(--ss-accent-soft)] focus:outline-none disabled:opacity-40 disabled:hover:bg-transparent";
   return (
     <div
       ref={ref}
@@ -107,10 +107,10 @@ export function GridMenu({
             apply();
           }}
         >
-          <label className="flex flex-col gap-1 whitespace-nowrap text-[12px] text-[color:var(--ss-text)]">
+          <label className="flex flex-col gap-1 whitespace-nowrap text-body text-[color:var(--ss-text)]">
             {asking.ask}
             <input
-              className="ss-input w-full py-0.5 text-[12px]"
+              className="ss-input w-full py-0.5 text-body"
               value={text}
               aria-invalid={problem ? true : undefined}
               onChange={(e) => {
@@ -119,7 +119,7 @@ export function GridMenu({
               }}
             />
           </label>
-          {problem && <span className="text-[11px] text-[color:var(--ss-err)]">{problem}</span>}
+          {problem && <span className="text-meta text-[color:var(--ss-err)]">{problem}</span>}
           <div className="flex justify-end gap-1">
             <button type="button" className="ss-toolbtn" onClick={() => onClose(true)}>
               Cancel

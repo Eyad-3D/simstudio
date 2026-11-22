@@ -64,7 +64,7 @@ export function useTableImport(target: api.DataTargetRef | null, onApply: (r: Da
         }}
       />
       {error && (
-        <span role="alert" className="ss-param-problem text-[11px]">
+        <span role="alert" className="ss-param-problem text-meta">
           {error}
         </span>
       )}
@@ -227,14 +227,14 @@ export function ImportDataDialog({
           ) : (
             <ClipboardPaste size={15} className="text-[color:var(--ss-accent)]" />
           )}
-          <span id={titleId} className="min-w-0 truncate text-[13px] font-semibold">
+          <span id={titleId} className="min-w-0 truncate text-title font-semibold">
             Import {result?.target ?? "a table"} from {from}
           </span>
           <button className="ss-toolbtn ml-auto" title="Close (Esc)" aria-label="Close the dialog" onClick={onClose}>
             <X size={14} />
           </button>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-[12px]">
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3 text-body">
           {"why" in source && (
             <p className="text-[color:var(--ss-text-dim)]" data-import-why>
               Not pasted into the cells: {source.why} Check how it was read, then Apply.
@@ -258,7 +258,7 @@ export function ImportDataDialog({
               <div className="flex flex-wrap items-end gap-2">
                 {(result.sheets?.length ?? 0) > 1 && (
                   <label className="flex flex-col gap-0.5">
-                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Sheet</span>
+                    <span className="text-meta text-[color:var(--ss-text-dim)]">Sheet</span>
                     <select
                       className="ss-input"
                       value={result.sheet ?? ""}
@@ -275,7 +275,7 @@ export function ImportDataDialog({
                 )}
                 {result.block !== null && (
                   <label className="flex flex-col gap-0.5">
-                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Table</span>
+                    <span className="text-meta text-[color:var(--ss-text-dim)]">Table</span>
                     <select
                       className="ss-input"
                       value={result.block}
@@ -292,7 +292,7 @@ export function ImportDataDialog({
                 )}
                 {result.decimal && (result.decimalQuestion || options.decimal) && (
                   <label className="flex flex-col gap-0.5">
-                    <span className="text-[11px] text-[color:var(--ss-text-dim)]">Decimal mark</span>
+                    <span className="text-meta text-[color:var(--ss-text-dim)]">Decimal mark</span>
                     <select
                       className="ss-input"
                       value={result.decimal}
@@ -317,14 +317,14 @@ export function ImportDataDialog({
                     {build && result.ports
                       ? ` (${inputs} inputs, ${result.ports.length - inputs} outputs, named and with units from the titles)`
                       : ""}
-                    <span className="block text-[11px] text-[color:var(--ss-text-dim)]">
+                    <span className="block text-meta text-[color:var(--ss-text-dim)]">
                       Its inputs and outputs are replaced; wires to a port whose name is not in the data are removed.
                     </span>
                   </span>
                 </label>
               )}
               {result.fields.length > 0 && (
-                <table className="ss-import-fields w-full border-collapse text-[11px]" aria-label="What was read">
+                <table className="ss-import-fields w-full border-collapse text-meta" aria-label="What was read">
                   <thead className="text-left text-[color:var(--ss-text-dim)]">
                     <tr>
                       <th className="font-normal">In the data</th>
@@ -345,7 +345,7 @@ export function ImportDataDialog({
                         </td>
                         <td className="py-0.5 pr-2">
                           <select
-                            className="ss-input py-0.5 text-[11px]"
+                            className="ss-input py-0.5 text-meta"
                             aria-label={`What ${fieldLabel(f)} is`}
                             value={slotValue(f)}
                             onChange={(e) => setField(f.index, e.target.value)}
@@ -365,7 +365,7 @@ export function ImportDataDialog({
                         <td className="py-0.5">
                           {f.slot !== "skip" && f.options && f.options.length > 1 ? (
                             <select
-                              className="ss-input py-0.5 text-[11px]"
+                              className="ss-input py-0.5 text-meta"
                               aria-label={`Unit of ${fieldLabel(f)}`}
                               value={f.used ?? ""}
                               onChange={(e) => setFieldUnit(f.index, e.target.value)}
@@ -398,7 +398,7 @@ export function ImportDataDialog({
               )}
               {(result.holes > 0 || options.fill) && (
                 <fieldset className="flex flex-wrap gap-3 rounded border border-[color:var(--ss-border)] px-2 py-1">
-                  <legend className="px-1 text-[11px] text-[color:var(--ss-text-dim)]">
+                  <legend className="px-1 text-meta text-[color:var(--ss-text-dim)]">
                     {result.holes.toLocaleString("en")} point{result.holes === 1 ? "" : "s"} of the grid missing
                   </legend>
                   <label className="flex items-center gap-1">
@@ -441,11 +441,11 @@ export function ImportDataDialog({
                 </ul>
               )}
               {result.notes.length > 0 && (
-                <p className="text-[11px] text-[color:var(--ss-text-dim)]">{result.notes.join(" · ")}</p>
+                <p className="text-meta text-[color:var(--ss-text-dim)]">{result.notes.join(" · ")}</p>
               )}
               {q && q.axes.length > 0 && q.outputs.length > 0 ? (
                 <div data-import-grid>
-                  <p className="mb-1 text-[11px] text-[color:var(--ss-text-dim)]">
+                  <p className="mb-1 text-meta text-[color:var(--ss-text-dim)]">
                     The table as it will be stored ({result.points.toLocaleString("en")} points
                     {result.filled ? `, ${result.filled.toLocaleString("en")} filled` : ""}):
                   </p>
@@ -465,7 +465,7 @@ export function ImportDataDialog({
           )}
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-[color:var(--ss-border)] px-3 py-2">
-          <span className="mr-auto text-[11px] text-[color:var(--ss-text-dim)]">
+          <span className="mr-auto text-meta text-[color:var(--ss-text-dim)]">
             {result?.ok
               ? build
                 ? "Replaces the Map block's inputs, outputs and tables; Undo (Ctrl+Z) brings them back."

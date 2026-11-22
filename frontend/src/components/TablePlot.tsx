@@ -161,10 +161,10 @@ export function TablePlot({
           <ChartSpline size={12} aria-hidden /> {open ? "Hide plot" : "Show plot"}
         </button>
         {open && axes.length > 1 && (
-          <label className="flex items-center gap-1 text-[11px] text-[color:var(--ss-text-dim)]">
+          <label className="flex items-center gap-1 text-meta text-[color:var(--ss-text-dim)]">
             Along x
             <select
-              className="ss-input py-0.5 text-[11px]"
+              className="ss-input py-0.5 text-meta"
               value={along}
               onChange={(e) => setAlong(Number(e.target.value))}
             >
@@ -188,7 +188,7 @@ export function TablePlot({
         </div>
       )}
       {open && (
-        <figcaption data-plot-mark className="text-[11px] text-[color:var(--ss-text-dim)]">
+        <figcaption data-plot-mark className="text-meta text-[color:var(--ss-text-dim)]">
           {marked
             ? `Marked: ${marked}`
             : `Select a cell to mark its point. Point at the plot to read its values${onPick ? ", click a point to select its cell" : ""}.`}
