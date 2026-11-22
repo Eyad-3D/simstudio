@@ -8,8 +8,11 @@ import { fmtNum } from "./chartUtils";
 import { ReferenceList } from "./ExpectedValues";
 import { RunSourcesView } from "./RunSourcesView";
 
+/** What a run is named by in the lists: a run in memory or one listed on disk. */
+type RunNaming = Pick<SimRun, "caseName" | "startedAt" | "status" | "incomplete" | "name" | "sweepValue" | "sweepUnit">;
+
 /** The clock time a run started. */
-export function runTime(r: SimRun): string {
+export function runTime(r: Pick<SimRun, "startedAt">): string {
   return new Date(r.startedAt).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
@@ -19,7 +22,7 @@ export function runTime(r: SimRun): string {
 
 /** A run in the run pickers: its case, its name (else its clock time) and
  *  an outcome other than success. */
-export function runLabel(r: SimRun): string {
+export function runLabel(r: RunNaming): string {
   // "success" is the usual case and the chart header shows it: leave it out
   // so the label fits the 280 px picker; any other outcome stays visible
   const outcome = r.incomplete ? `incomplete (${r.incomplete})` : r.status === "success" ? "" : r.status;
@@ -28,7 +31,7 @@ export function runLabel(r: SimRun): string {
 
 /** Compact run label for legends/overlay chips — swept value if present,
  *  else its name or clock time. */
-export function runShort(r: SimRun): string {
+export function runShort(r: RunNaming): string {
   const mark = r.incomplete ? " (incomplete)" : "";
   if (r.sweepValue !== undefined)
     return `${fmtNum(r.sweepValue)}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}${mark}`;

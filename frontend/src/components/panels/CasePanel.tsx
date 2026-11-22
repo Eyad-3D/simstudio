@@ -686,6 +686,8 @@ export function CasePanel() {
               return (
                 <li
                   key={`${elId}:${key}`}
+                  // a part's window goes to it from its case line (paramWindows.showCaseValue)
+                  data-override={`${elId}:${key}`}
                   className="rounded border border-[color:var(--ss-border)] px-1.5 py-1"
                 >
                   <div className="truncate text-[11px]" title={name}>

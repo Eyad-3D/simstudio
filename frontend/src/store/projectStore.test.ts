@@ -1087,6 +1087,33 @@ describe("data checks gate", () => {
     expect(messages()).toContain("error: Run blocked — fix 1 data-check error first.");
   });
 
+  it("a model the engine refuses to read does not run: its values are listed in Problems, one line in Messages", async () => {
+    vi.useFakeTimers();
+    await start();
+    const { problemCounts } = await import("./projectStore");
+    const rows = [
+      { elementId: "el-bat", part: "Battery", paramKey: "capacity_kWh", text: "Usable Capacity: must be a number (got nothing)", code: "float_type at …" },
+    ];
+    // the engine's 422, as api.ts makes it: the text, and the rows
+    const refusal = Object.assign(new Error("Battery · Usable Capacity: must be a number (got nothing)"), { status: 422, refusals: rows });
+    api.validateProject.mockRejectedValue(refusal);
+    const forward = vi.spyOn(useUIStore.getState(), "focusPanel");
+    await store().run();
+    expect(api.runSimulationLive).not.toHaveBeenCalled();
+    expect(store().running).toBe(false);
+    expect(store().refused).toEqual(rows);
+    expect(store().checksError).toBeNull();
+    expect(forward).toHaveBeenLastCalledWith("data-checks");
+    const said = messages().filter((m) => m.startsWith("error") || m.startsWith("warning"));
+    expect(said).toEqual(["error: The engine refused the model: 1 problem, listed in Problems."]);
+    expect(problemCounts(store())).toEqual({ errors: 1, warnings: 0 });
+    // read again after the fix: the rows go by themselves
+    api.validateProject.mockResolvedValue([]);
+    store().renameElement("el-bat", "Pack");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(store().refused).toBeNull();
+  });
+
   it("an error about another case's own values does not block this case", async () => {
     await start();
     engineFinishesRuns();
@@ -1421,6 +1448,46 @@ describe("stored runs", () => {
     expect(api.fetchRun).not.toHaveBeenCalledWith("fixture", "run-0");
     expect(store().activeRunId).toBe("run-21");
     expect(store().runsLoading).toBe(false);
+  });
+
+  it("an older stored run is listed for the table, read when ticked and let go when unticked", async () => {
+    stored("fixture", history(22));
+    await start();
+    await settled();
+    // every stored run is listed, with its figures, the oldest two unread
+    expect(store().runIndex.map((e) => e.id)).toEqual(history(22).reverse().map((r) => r.id));
+    expect(api.fetchRun).not.toHaveBeenCalledWith("fixture", "run-0");
+    expect(await store().loadStoredRun("run-0")).toBe(true);
+    expect(api.fetchRun).toHaveBeenCalledWith("fixture", "run-0");
+    store().toggleOverlayRun("run-0");
+    expect(shownIds().at(-1)).toBe("run-0");
+    // read once: a second tick finds it in memory
+    expect(await store().loadStoredRun("run-0")).toBe(true);
+    expect(api.fetchRun).toHaveBeenCalledTimes(21);
+    // unticked, it leaves memory; the newest 20 stay
+    store().toggleOverlayRun("run-0");
+    expect(shownIds()).toEqual(history(22).slice(2).reverse().map((r) => r.id));
+    // shown, it stays while it is shown
+    await store().loadStoredRun("run-1");
+    store().setActiveRun("run-1");
+    expect(shownIds()).toContain("run-1");
+    store().setActiveRun("run-21");
+    expect(shownIds()).not.toContain("run-1");
+    // a run that cannot be read is not drawn, and says why
+    expect(await store().loadStoredRun("run-gone")).toBe(false);
+    expect(messages().at(-1)).toMatch(/^warning: The stored run could not be read: 404/);
+  });
+
+  it("a new run joins the list of stored runs; a deleted one leaves it", async () => {
+    stored("fixture", history(2));
+    await start();
+    await settled();
+    engineFinishesRuns();
+    await store().run();
+    const fresh = store().activeRunId!;
+    expect(store().runIndex.map((e) => e.id)).toEqual([fresh, "run-1", "run-0"]);
+    await store().removeRun("run-0");
+    expect(store().runIndex.map((e) => e.id)).toEqual([fresh, "run-1"]);
   });
 
   it("a stored run that cannot be read is left out and reported", async () => {

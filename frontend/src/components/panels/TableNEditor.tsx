@@ -7,7 +7,7 @@
 // every output, and the line under the controls says so.
 import { useState, type ReactNode } from "react";
 import { Columns3, Plus, Rows3, Trash2 } from "lucide-react";
-import { SpreadsheetGrid, type GridCell, type GridIssue, type GridRange } from "../SpreadsheetGrid";
+import { SpreadsheetGrid, type GridCell, type GridIssue, type GridLine, type GridRange } from "../SpreadsheetGrid";
 import { TableUnits, type UnitColumn } from "../UnitChooser";
 import { TablePlot } from "../TablePlot";
 import { alternatives, cellReader, mapTable, reinterpret, toStored, type UnitSlot } from "../../units";
@@ -16,12 +16,14 @@ import {
   getAt,
   gridKeys,
   gridValues,
+  insertBreakpoint,
   nearest,
   removeBreakpoint,
   renameBreakpoint,
   setAt,
   type Grid,
 } from "../../tableN";
+import { continueKeys, newBreakpoint } from "../gridTools";
 import { GRID_HINT, axisIssue, cellText, nextAxisKey, numberIssue, oneCell, pastedAxisIssue } from "./gridRules";
 
 /** An axis or a table's values as the editor shows them: the unit the numbers
@@ -77,6 +79,7 @@ export function TableNEditor({
   const [unitOpen, setUnitOpen] = useState<UnitSlot | null>(null);
   const [adding, setAdding] = useState<{ axis: number; text: string } | null>(null);
   const [note, setNote] = useState("");
+  const [focusCell, setFocusCell] = useState<{ r: number; c: number } | null>(null);
 
   const keys = gridKeys(tables[outputs[0].key] ?? {}, depth);
   const hidden = axes.map((_, j) => j).filter((j) => j !== rowAxis && j !== colAxis);
@@ -113,7 +116,7 @@ export function TableNEditor({
             { text: title(out), kind: "colHeader", readOnly: true },
           ],
           ...rowKeys.map((k, i): GridCell[] => [
-            { text: show(rowAxis, k), kind: "body" },
+            { text: show(rowAxis, k), kind: "body", axis: true },
             { text: valueAt(i, 0), kind: "body" },
           ]),
         ]
@@ -146,8 +149,8 @@ export function TableNEditor({
     const each = (fn: (t: Grid) => Grid) => (next = Object.fromEntries(outputs.map((o) => [o.key, fn(next[o.key] ?? {})])));
     const place = (axis: number, old: string[], texts: string[]): string[] => {
       const read = keyReader(axis);
-      let top = Math.max(0, ...texts.map((t) => t.trim()).filter((t) => t !== "").map(Number).filter(Number.isFinite));
-      const want = texts.map((t) => (t.trim() === "" ? String(read(String((top += 1)))) : String(read(t.trim()))));
+      // (a breakpoint a paste past the end did not give continues the last step)
+      const want = continueKeys(texts).map((t) => String(read(t.trim())));
       // (two steps, so breakpoints that trade places never meet)
       old.forEach((k, i) => i < want.length && k !== want[i] && each((t) => renameBreakpoint(t, axis, k, `\u0000${i}`)));
       old.forEach((k, i) => i < want.length && k !== want[i] && each((t) => renameBreakpoint(t, axis, `\u0000${i}`, want[i])));
@@ -225,6 +228,32 @@ export function TableNEditor({
     onChange(every((t) => drop.reduce((acc, k) => removeBreakpoint(acc, axis, k), t)));
   };
   const between = (lo: number, hi: number, list: string[]) => list.filter((_, i) => i + 1 >= Math.max(1, lo) && i + 1 <= hi);
+
+  // a right-click on a row or column header: a breakpoint inserted (midway,
+  // its points interpolated, so the table means the same) or deleted, along
+  // the whole table: every slice of the other axes, every output
+  const lineAxis = (line: GridLine) => (line === "row" ? rowAxis : colAxis!);
+  const insertAt = (line: GridLine, at: number, where: "before" | "after") => {
+    const axis = lineAxis(line);
+    const key = newBreakpoint(keys[axis], at - 1, where);
+    onChange(every((t) => insertBreakpoint(t, axis, key)));
+    const unit = axes[axis].unit && axes[axis].unit !== "-" ? ` ${axes[axis].unit}` : "";
+    const ends = at - 1 === (where === "before" ? 0 : keys[axis].length - 1);
+    setNote(
+      `Inserted ${axes[axis].name} ${show(axis, key)}${unit}: its points are ${ends ? "a copy of the edge's" : "interpolated between its neighbours"}` +
+        `${depth > 2 ? ", in every slice" : ""}${outputs.length > 1 ? ", in every output" : ""}.`,
+    );
+  };
+  const deleteAt = (line: GridLine, at: number[]) => {
+    const axis = lineAxis(line);
+    removeOn(axis, at.map((i) => keys[axis][i - 1]).filter((k) => k !== undefined));
+  };
+  // a point clicked on the plot: its slice is shown and its cell selected
+  const pickPoint = (idx: number[]) => {
+    if (hidden.some((j) => keys[j][idx[j]] !== heldKey(j)))
+      setHeld({ ...held, ...Object.fromEntries(hidden.map((j) => [j, keys[j][idx[j]]])) });
+    setFocusCell({ r: idx[rowAxis] + 1, c: colAxis === null ? 1 : idx[colAxis] + 1 });
+  };
 
   // a held axis's breakpoint typed in its shown unit
   const addTyped = () => {
@@ -398,6 +427,10 @@ export function TableNEditor({
         validate={validate}
         onHeaderOpen={openHeader}
         onImportText={onImportText}
+        shade={depth >= 2 ? "map" : "curve"}
+        onInsert={insertAt}
+        onDelete={deleteAt}
+        focusCell={focusCell}
         caption={<TableUnits columns={columns} table={table} open={unitOpen} setOpen={setUnitOpen} set={storeUnit} />}
         tools={
           <>
@@ -454,6 +487,7 @@ export function TableNEditor({
         value={out}
         mark={mark}
         fixed={axes.map((_, j) => Math.max(0, keys[j].indexOf(heldKey(j))))}
+        onPick={pickPoint}
       />
     </div>
   );

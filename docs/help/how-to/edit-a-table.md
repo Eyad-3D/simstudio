@@ -29,6 +29,37 @@ and **Delete row(s)** in the toolbar add a row at the end or delete the
 selected rows; a map has a button for each of its axes. Every change is
 in the project at once and is one step for **Undo** (Ctrl+Z).
 
+## Change many cells at once
+
+Select cells and right-click them (or press Shift+F10) for:
+
+- **Set to…**: every selected cell gets the value you type. You can also
+  type a value and press **Ctrl+Enter**, as in Excel.
+- **Multiply by…** and **Add…**: scale the selected cells by a factor, or
+  add a value to them (a negative one subtracts).
+- **Interpolate between the edges**: the cells inside the selection are
+  filled in a straight line between its first and last cells. In a block
+  of three or more rows and columns, they are filled from all four edges.
+  The steps follow the breakpoints' values, as the simulation reads the
+  table. The edge cells are not changed.
+
+Right-click a row or column header to insert a row or column before or
+after it, or to delete it (or all the selected ones). A new breakpoint
+sits midway between its neighbours, and its values are interpolated from
+theirs, so the table means the same until you change it. At an end, it
+continues the last step and copies the edge values. In a table of three
+or more axes, the new breakpoint is added to every slice. Every axis
+keeps at least one breakpoint.
+
+Values are typed in the units the table shows. Each of these actions is
+one step for **Undo**.
+
+**Shade** in the toolbar colours the cells from purple for the lowest
+values to yellow for the highest, so a value out of line stands out. The
+colours run evenly, and people with the common kinds of colour blindness
+can read them. It is on at first for maps and off for single curves (the
+plot shows those). LightSim remembers your choice.
+
 ## Copy and paste
 
 The toolbar's **Copy** and **Paste** buttons do what Ctrl+C and Ctrl+V do
@@ -38,7 +69,10 @@ paste.
 - **Copy** copies the selected cells. With one cell selected, or none,
   it copies the whole table with its headers.
 - **Paste** pastes from the selected cell on, to the right and down. A
-  block larger than the table adds rows (and, in a map, columns). A whole
+  block larger than the table adds rows (and, in a map, columns). The
+  line under the grid says how many were added, and a breakpoint the
+  paste did not give continues the last step. A paste is one step for
+  **Undo**. A whole
   table copied from LightSim goes back where it came from, wherever the
   selection is: copy a table, change it in Excel, copy it there and click
   **Paste**.
@@ -65,7 +99,9 @@ each axis and its unit.
   of another axis, each named in the legend under the plot by its value
   and unit (*Speed 3000 1/min*).
 - The point of the selected cell has a ring around it, and the line under
-  the plot names it with its value.
+  the plot names it with its value. Click a point on the plot to select
+  its cell. In a table of three or more axes, the grid moves to that
+  point's slice.
 - Point at a curve: the other curves fade, and a line under the plot
   gives its value at that place along x. Drag a box to zoom into it, or turn the mouse wheel; a double-click shows the whole table again, and with
   the plot selected the + and − keys zoom and the arrow keys move along x.

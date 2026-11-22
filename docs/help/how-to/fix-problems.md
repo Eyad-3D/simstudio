@@ -8,11 +8,18 @@ run.
 
 ## Read the list
 
-If the Data Checks could not run (the engine refused the model, or could
-not be reached), the top of *Problems* says so and why, and the status bar
-says *Data Checks could not run*: the list then shows the last checks that
-ran, or nothing if none has. They run again by themselves after your next
-change, or click **Run Data Checks**.
+If the engine cannot read the model at all (a value with nothing in it,
+or of the wrong kind, as in a draft restored after a crash), the top of
+*Problems* says *The engine refused the model* and how many problems, and
+lists one row per value: the part, the parameter and what is wrong, such as
+*Vehicle Mass: must be a number (got nothing)*. **Run** does not start, and
+*Messages* has one line that points to *Problems*.
+
+If the Data Checks could not run for another reason (the engine could not be
+reached), the top of *Problems* says so and why, and the status bar says
+*Data Checks could not run*: the list then shows the last checks that ran,
+or nothing if none has. They run again by themselves after your next change,
+or click **Run Data Checks**.
 
 A row from the latest run says *Last run* and the case. Once you change the
 model it also says *model changed since: run again to check*: the change
@@ -36,6 +43,10 @@ Click a row, or move to it with Tab and press Enter. LightSim shows the
 diagram, opens the sub-system the part is in, selects the part and zooms to
 it. A check about several parts, such as two Vehicles in one model, selects
 all of them. *Properties* then shows the part's values.
+
+A row about one value also opens the part's window at that value, outlined
+for a moment so you see it at once. A row about wiring, or about several
+values together, only selects the part.
 
 Fix the value or the wiring as the row says. The list follows your edits:
 the row goes away once the problem is gone.

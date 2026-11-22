@@ -73,7 +73,7 @@ describe("keyBelongsToTarget", () => {
 });
 
 describe("diagramHasKeys", () => {
-  document.body.innerHTML = `<div id="diagram"><div id="part" tabindex="0"></div></div><button id="other"></button>`;
+  document.body.innerHTML = `<div id="panel" tabindex="-1"><div id="diagram"><div id="part" tabindex="0"></div></div></div><button id="other"></button>`;
   const root = document.getElementById("diagram");
   const part = document.getElementById("part");
   const other = document.getElementById("other");
@@ -91,6 +91,13 @@ describe("diagramHasKeys", () => {
     expect(diagramHasKeys(root, body, body, true, false)).toBe(true);
     expect(diagramHasKeys(root, null, body, false, true)).toBe(true);
     expect(diagramHasKeys(root, body, body, false, false)).toBe(false);
+  });
+
+  it("with the focus on the panel that holds the diagram (a click on empty diagram space leaves it there)", () => {
+    const panel = document.getElementById("panel");
+    expect(diagramHasKeys(root, panel, body, true, false)).toBe(true);
+    expect(diagramHasKeys(root, panel, body, false, true)).toBe(true);
+    expect(diagramHasKeys(root, panel, body, false, false)).toBe(false);
   });
 
   it("never without a diagram", () => {

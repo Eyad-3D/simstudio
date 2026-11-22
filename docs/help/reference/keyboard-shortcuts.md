@@ -32,6 +32,8 @@ selection as the Delete key.
 | F2 | Rename the selected part |
 | Enter | Go to the selected part's *Properties*, with the keyboard in its *Name* |
 | . (full stop) | Zoom to the selected parts, or to the whole model when none is selected |
+| Shift+A, or double-click empty diagram | Add a part there: type part of its name, the arrows move in the list, Enter places it, Esc closes the box |
+| Drag a wire from a port to empty diagram | Add a part there, wired to that port: the box lists only the parts it can be wired to |
 | Ctrl+click or Shift+click a part | Add it to the selection, or take it out |
 | Shift+drag on empty diagram | Draw a box to select the parts in it |
 | Shift+click a pin | Move the pin to the next side of its part |
@@ -48,6 +50,18 @@ closes when its part is deleted or another project is opened. Its **Help**
 button, and F1, open the part's help page in the Help window, a window of
 its own that every part's Help reuses; Alt+Left and Alt+Right go back and
 forward there in the desktop app.
+
+A part with many parameters (the battery, the Vehicle, a Wheel) shows them
+under headings; its rarely used ones sit in the last heading, folded until
+you open it, and the window remembers what you opened or folded. Type in
+**Search parameters** at the top to see only the parameters whose name or
+help holds those words, and tick **Changed only** to see only the values
+that are not the library's. A small dot beside a value marks one you
+changed: click it to put the library's value back (Ctrl+Z undoes that). When
+the active case runs with a value of its own, a line under the parameter
+says so, in the unit shown; the field above it is still the part's own
+value, and a click on the line shows the case's value in *Cases &
+Parameters*.
 
 A right-click on a part opens its menu: *Parameters*, *Rename…*,
 *Signals…*, *Duplicate*, *Copy*, *Cut* and *Delete*. On the empty diagram it
@@ -110,6 +124,8 @@ point). [How to measure between two times](../how-to/measure-between-two-times.m
 | Type a character | Start editing the cell with it |
 | Delete or Backspace | Clear the selected cells |
 | Esc | Cancel the edit |
+| Ctrl+Enter (while editing) | Put the typed value in every selected cell |
+| Shift+F10 or the Menu key | Open the right-click menu of the selected cells, or of a row or column header ([Edit a table or a map](../how-to/edit-a-table.md#change-many-cells-at-once)) |
 | Ctrl+A | Select every cell |
 | Ctrl+C, Ctrl+V | Copy and paste cells, also from and to a spreadsheet; the **Copy** and **Paste** buttons above the grid do the same ([Edit a table or a map](../how-to/edit-a-table.md)) |
 

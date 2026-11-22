@@ -56,6 +56,21 @@ sections.
   (the open differential's unloaded inner wheel). The check lap's energy
   error, and lap cases themselves, wait for the next step of the port
   (`NEW-LAP`).
+- **Table tools**, in every table and map: cells shaded from low to high
+  (**Shade** in the toolbar), a click on a point of the plot selects its
+  cell, and a right-click on selected cells sets, multiplies, offsets or
+  interpolates them (or type a value and Ctrl+Enter). A right-click on a
+  row or column header inserts a breakpoint midway, interpolated so the
+  table means the same, or deletes one; in a table of three or more axes
+  in every slice. Each action, and each paste, is one undo step; a
+  breakpoint a paste past the end did not give continues the last step
+  ([Edit a table](help/how-to/edit-a-table.md#change-many-cells-at-once)).
+- **Add a part on the diagram**: double-click an empty spot (or press
+  Shift+A), type part of its name and press Enter, and the part goes
+  there. Drag a wire from a port and let go on an empty spot to get the
+  same box with only the parts that port can be wired to: Enter places the
+  part already wired, in one undo step
+  ([Your first electric car](help/tutorials/first-electric-car.md#3-start-a-blank-project-and-add-the-parts)).
 - **Formula Student scoring without a lap** runs on the new engine: an
   Acceleration case with its *FS event* set gets the event time, the rule
   checks (80 kW on the rules' 500 ms average, 500 A, 600 V) and the points
@@ -119,6 +134,10 @@ sections.
   marked as typed in the wrong unit; the project keeps every value in the
   library's unit and remembers the unit chosen per part
   ([Work in other units](help/how-to/work-in-other-units.md)).
+- *Results* lists every stored run in a table with its main figures: sort
+  it by any column, tick runs to draw them; with two drawn, a strip under
+  the chart shows the second minus the first
+  ([Compare two runs](help/how-to/compare-two-runs.md)).
 - A double-click on a part opens its parameters in a window of their own,
   one per part: resize it, minimise it, move it to another screen and keep
   several open. Edits there are in the project at once, and the window
@@ -1237,6 +1256,12 @@ sections.
 
 ### Fixed
 
+- A battery built from cells with a weakest group, on both engines: the
+  derating band's charge factor follows the group when it is fuller than
+  the pack (a group with less capacity fills first, as it empties first),
+  and the group's resistance is read at its own state of charge (both read
+  the pack's). Packs without a weakest group do not change; the examples
+  have none.
 - A Road Profile set to a drive cycle, and the DC-DC converter, on the new
   engine. A Road Profile that takes its grade from a cycle against time
   meets each hill at the distance where the cycle has it, read against the

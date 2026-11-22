@@ -1,7 +1,7 @@
 // CON-15: an example opens with its stored reference results already in
 // Results, and carries a card that says what it answers and what to expect.
 import { expect, test } from "@playwright/test";
-import { headlineTile, openApp, openFromMenu, ribbonTab, runActiveCase, runButton } from "./app";
+import { headlineTile, openApp, openFromMenu, ribbonTab, runActiveCase, runButton, runRow } from "./app";
 
 test("CON-15: an example opens with its stored results and its card", async ({ page }) => {
   test.setTimeout(240_000);
@@ -11,7 +11,10 @@ test("CON-15: an example opens with its stored results and its card", async ({ p
   // the stored result is there before anything runs
   await ribbonTab(page, "Results").click();
   await expect(headlineTile(page, "Fuel consumption")).toContainText("2.827");
-  await expect(page.locator("select").filter({ hasText: "EPA city (UDDS) · Stored result" }).first()).toBeVisible();
+  // its row in the table of runs names it, on its case
+  const stored = runRow(page, 0).row;
+  await expect(stored).toContainText("Stored result");
+  await expect(stored).toContainText("EPA city (UDDS)");
   const expected = page.getByRole("region", { name: "Expected values" }).filter({ visible: true }).first();
   await expect(expected).toContainText("Fuel consumption");
   await expect(expected).toContainText("within");
