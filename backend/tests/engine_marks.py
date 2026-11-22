@@ -42,27 +42,6 @@ TODAYS_LAP = ("(ii) today's lap energy pass (lapsim.LapSlave: its braking check,
 TODAY = {
     "test_lapsim.py::test_lap_braking_keeps_to_the_brakes_and_the_regeneration": TODAYS_LAP,
     "test_lapsim.py::test_braking_the_car_did_not_have_marks_the_lap_not_valid": TODAYS_LAP,
-    # (i) the three features
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[build-fs-powertrain]": LAP,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-aero]": LAP,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-endurance-pack]": LAP,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[compare-fs-gearing]": LAP,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-fs-endurance]": LAP,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[question-fs-limits]": LAP,
-    "test_agent_bench.py::test_each_task_passes_its_reference_and_fails_its_blank_and_wrong_solutions[repair-fs-rules]": LAP,
-    "test_agent_bench.py::test_the_endurance_energy_to_two_decimals_passes": LAP,
-    "test_energy_book.py::test_lap_case_books_the_mechanics_from_the_lap": LAP,
-    "test_example_cards.py::test_each_case_lands_within_its_expected_values[fs-electric-case-autocross]": LAP,
-    "test_example_cards.py::test_each_case_lands_within_its_expected_values[fs-electric-case-endurance]": LAP,
-    "test_example_cards.py::test_a_fresh_run_gives_the_stored_summary[fs-electric-case-autocross]": LAP,
-    "test_example_cards.py::test_a_fresh_run_gives_the_stored_summary[fs-electric-case-endurance]": LAP,
-    "test_examples_plausible.py::test_every_shipped_case_succeeds_and_follows_its_cycle[fs-electric-case-autocross]": LAP,
-    "test_examples_plausible.py::test_every_shipped_case_succeeds_and_follows_its_cycle[fs-electric-case-endurance]": LAP,
-    "test_examples_plausible.py::test_fs_card_has_result_bands_and_rule_versions": LAP,
-    "test_examples_plausible.py::test_fs_pack_is_inside_its_voltage_and_current_class": LAP,
-    "test_examples_plausible.py::test_fs_endurance_energy_is_that_of_an_fs_car": LAP,
-    "test_reports.py::test_a_lap_case_names_its_brakes_and_gears": LAP,
-    "test_summary_keys.py::test_a_lap_case_has_keys_for_its_rows": LAP,
     # (ii) today's engine's own workings
     "test_reference_problems.py::test_todays_engine_stays_within_its_baseline": (
         "(ii) today's engine's own baseline on the reference problems (the new engine's is the engine's harness, engine/)"),
@@ -147,9 +126,6 @@ XFAIL = {
         "than it then gives (open)"),
     "test_lapsim.py::test_lap_energy_closes_against_the_component_losses[battery2-1.0-None]": (
         "NEW-LAP-PASS: as battery1 (open)"),
-    "test_lapsim.py::test_limit_times_add_up": (
-        "NEW-LAP-PASS: the energy pass of this car (60 kW, μ 2.2) stops at 45.8 s with the Driver's pedal "
-        "undetermined, where the trace's acceleration jumps at a track point (open)"),
     "test_lab_figures.py::test_ftp_bags_are_weighted_as_epa_does": (
         "the new path gives no 'FTP weighted fuel consumption' row: the engine's figures have each bag, today's "
         "lab_rows weights them (open)"),

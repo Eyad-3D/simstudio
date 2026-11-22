@@ -111,9 +111,9 @@ def test_calibrated_on_one_lap_it_predicts_another_within_5_percent():
     of another is within 5 % on lap time, and reports the speed trace's RMS
     error. The laps were logged from today's lap mode; the fit and the
     prediction are the new engine's lap profile (its brake split and open
-    differential: the fit takes up the difference in grip). The energy
-    error waits for lap cases on the new engine (NEW-LAP): the check says
-    so (it was 0.6 % on today's)."""
+    differential: the fit takes up the difference in grip). The check
+    gives that lap's energy, its energy pass's (the log has no pack power
+    to compare it with)."""
     client = TestClient(app)
     proj = load_example("fs-electric")
     body = {"project": proj.model_dump(mode="json"),
@@ -129,7 +129,8 @@ def test_calibrated_on_one_lap_it_predicts_another_within_5_percent():
     assert fit["rms_kmh"] < 4.0
     assert abs(check["lap_time_error_pct"]) < 5.0
     assert check["speed_rms_kmh"] < 4.0
-    assert "energy_error_pct" not in check  # (the log has no pack power; lap cases' energy: NEW-LAP)
+    assert 0.1 < check["energy_model_kwh"] < 1.0  # (an FS autocross lap)
+    assert "energy_error_pct" not in check  # (the log has no pack power)
     assert out["calibration_lap"]["status"] in ("success", "warning")
 
 

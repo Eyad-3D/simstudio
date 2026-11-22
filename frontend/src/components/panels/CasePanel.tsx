@@ -465,11 +465,6 @@ export function CasePanel() {
               <option value="lap">Lap</option>
             </select>
           </label>
-          {activeCase.kind === "lap" && (
-            <p className="text-[11px] text-[color:var(--ss-text-dim)]">
-              Lap cases do not run in this version of LightSim yet: Run fails with Not run [NEW-LAP].
-            </p>
-          )}
           <label
             className="flex items-center justify-between gap-2 text-[11px] text-[color:var(--ss-text-dim)]"
             title="Every run of this case gets an Energy view in Results: where the battery's or fuel's energy went, as a Sankey chart and a table per part, and Energy labels on the diagram."

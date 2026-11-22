@@ -114,6 +114,21 @@ fn main() {
                                 || n.contains("p_deliver"))
                     })
                     .collect();
+                if let Ok(path) = std::env::var("DUMP") {
+                    let pat = std::env::var("LISTPAT").unwrap_or_default();
+                    let mut m = serde_json::Map::new();
+                    m.insert("t".into(), serde_json::json!(r.times));
+                    for nm in r.names.iter().filter(|n| pat.split(',').any(|p| n.contains(p))) {
+                        m.insert(nm.clone(), serde_json::json!(r.channel(nm).unwrap()));
+                    }
+                    std::fs::write(path, serde_json::Value::Object(m).to_string()).unwrap();
+                }
+                if let Ok(pat) = std::env::var("LISTPAT") {
+                    for nm in r.names.iter().filter(|n| pat.split(',').any(|p| n.contains(p))) {
+                        let c = r.channel(nm).unwrap();
+                        println!("  {nm}: {:?}", &c[c.len().saturating_sub(3)..]);
+                    }
+                }
                 for nm in &names {
                     let c = r.channel(nm).unwrap();
                     println!("  {nm}: {:?}", &c[c.len().saturating_sub(6)..]);

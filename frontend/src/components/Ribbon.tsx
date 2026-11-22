@@ -554,7 +554,8 @@ function SimulationsTab() {
           icon={Trophy}
           label="FS events"
           title="Formula Student dynamic events: marks (or adds) an Acceleration, a Skidpad, an Autocross and an Endurance case (22 laps of the Autocross layout, about 22 km, with the driver change), runs the four and shows their points in Cases & Parameters → Formula Student points. Set each case's reference values (the best teams' time and energy) for the points. Scoring: FS Rules 2026 v1.1 (FSG) D 9, estimates, not official results; FSUK and FSAE score differently."
-          notYetRun // NEW-FS-EVENT, NEW-LAP
+          disabled={store.running || !store.project}
+          onClick={() => void store.runFsEvents()}
         />
         <BigButton
           icon={FileUp}

@@ -1,39 +1,39 @@
-// MOD-43: "FS events" marks the four dynamic events' cases and runs them.
-// Three of the four are scored from a lap case, which does not run in this
-// version (NEW-FS-EVENT, NEW-LAP, until lap cases are ported), so the button
-// is shown, dimmed, says so on hover and focus, and a press does nothing.
-// The acceleration is scored without a lap: an Acceleration case's own FS
-// event can be set, and its run scores it.
+// MOD-43: on the FS example, one click on "FS events" marks its cases for
+// the four dynamic events (adding the skidpad), runs them and shows the
+// points table; a reference time typed for an event gives its points.
 import { expect, test } from "@playwright/test";
-import { finishNotice, openApp, openFromMenu, ribbonTab, showPanel } from "./app";
+import { openApp, openFromMenu, ribbonTab, showPanel } from "./app";
 
-test("MOD-43: FS events is shown but not pressable in this version, and says why", async ({ page }) => {
+test("MOD-43: one click runs the four FS events and shows their points", async ({ page }) => {
+  test.setTimeout(120_000);
   await openApp(page);
   await openFromMenu(page, "FS Electric (generic)");
-  await showPanel(page, "Cases & Parameters");
-  const options = page.getByLabel("Case", { exact: true }).first().locator("option");
-  await expect(options).not.toHaveCount(0);
-  const cases = await options.allTextContents();
   await ribbonTab(page, "Simulations").click();
-  const button = page.getByRole("button", { name: "FS events" });
-  await expect(button).toHaveAttribute("aria-disabled", "true");
-  await expect(button).toHaveAttribute("data-not-yet", "FS events: not in this version of LightSim yet");
-  await button.focus();
-  await page.keyboard.press("Enter");
-  await button.click({ force: true });
-  await expect(finishNotice(page)).toHaveCount(0);
-  // no case was marked or added
-  expect(await options.allTextContents()).toEqual(cases);
-});
+  await page.getByRole("button", { name: "FS events" }).click();
 
-test("MOD-43: an Acceleration case's FS event can be set", async ({ page }) => {
-  await openApp(page);
-  await openFromMenu(page, "FS Electric (generic)");
+  const table = page.getByRole("table", {
+    name: "Formula Student points table",
+  });
+  await expect(table).toBeVisible({ timeout: 60_000 });
+  // every event ran: each has its time
+  for (const ev of ["Acceleration", "Skidpad", "Autocross", "Endurance"]) {
+    await expect(table.getByRole("row", { name: new RegExp(`^${ev}`) })).toContainText(/\d+\.\d{3}/, {
+      timeout: 60_000,
+    });
+  }
+  // no reference times yet: no points, and the table says what to set
+  await expect(table.getByRole("row", { name: /^Skidpad/ })).toContainText("Reference time");
+
+  // the skidpad case: the reference time gives its points on the next run
   await showPanel(page, "Cases & Parameters");
-  await page.getByLabel("Case", { exact: true }).first().selectOption("case-accel-75m");
-  const event = page.getByLabel("FS event");
-  await expect(event).toBeEnabled();
-  await expect(event).not.toHaveAttribute("aria-disabled", "true");
-  await event.selectOption("acceleration");
-  await expect(event).toHaveValue("acceleration");
+  // (the page stays on the Simulations tab, whose ribbon has a Case list too: UX-21)
+  await page.getByRole("region", { name: "Cases" }).getByLabel("Case", { exact: true }).selectOption({ label: "Skidpad" });
+  await expect(page.locator("label", { hasText: /^FS event/ }).locator("select")).toHaveValue("skidpad");
+  await page
+    .locator("label", { hasText: /^Reference time/ })
+    .locator("input")
+    .fill("4.9");
+  await page.getByRole("button", { name: "Run case" }).click();
+  await showPanel(page, "Cases & Parameters");
+  await expect(table.getByRole("row", { name: /^Skidpad/ })).toContainText(/\d+\.\d \/ 50/, { timeout: 60_000 });
 });

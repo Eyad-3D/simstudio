@@ -45,20 +45,15 @@ const buttonNamed = (host: HTMLElement, text: string) =>
   [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === text);
 const click = (el: Element) => act(() => el.dispatchEvent(new MouseEvent("click", { bubbles: true })));
 
-it("shows what this version does not run, but a press does nothing and it says why", async () => {
+it("runs the FS events and Calibrate lap, which this version runs on its lap cases", async () => {
   const runFsEvents = vi.fn(async () => {});
-  useProjectStore.setState({ runFsEvents });
+  useProjectStore.setState({ runFsEvents, project: useProjectStore.getState().project ?? ({} as never) });
   const host = await ribbon("simulations");
-  for (const name of ["FS events"]) {
-    const b = buttonNamed(host, name)!;
-    expect(b, name).toBeTruthy();
-    expect(b.disabled).toBe(false); // it can take focus and be read
-    expect(b.getAttribute("aria-disabled")).toBe("true");
-    expect(b.getAttribute("data-not-yet")).toBe(`${name}: not in this version of LightSim yet`);
-    expect(b.getAttribute("aria-description")).toContain("not in this version");
-    await click(b);
-  }
-  expect(runFsEvents).not.toHaveBeenCalled();
+  const fs = buttonNamed(host, "FS events")!;
+  expect(fs.getAttribute("aria-disabled")).toBeNull();
+  expect(fs.getAttribute("data-not-yet")).toBeNull();
+  await click(fs);
+  expect(runFsEvents).toHaveBeenCalledOnce();
   // Calibrate lap runs on the new engine's lap profile: it can be pressed
   const calibrate = buttonNamed(host, "Calibrate lap")!;
   expect(calibrate.getAttribute("aria-disabled")).toBeNull();

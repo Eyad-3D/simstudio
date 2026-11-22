@@ -17,9 +17,8 @@ mass and drag are the model's own.
 
 The speeds are the new engine's lap profile (new_lap, lsim-lap): the car as
 the engine models it, built once for the logged track and given each try's
-grip and downforce. The check lap's energy needs a lap case's energy pass,
-which the new engine does not run yet (NEW-LAP): the check gives the lap
-time and the speed trace's error, and says so.
+grip and downforce. The check lap's energy is that lap's energy pass (fast
+mode along its profile, as a lap case's): the batteries' net energy.
 """
 from __future__ import annotations
 
@@ -205,11 +204,27 @@ class _Laps:
         names = [f"{inst[e.id]}.{k}" for e in els if e.componentDefId == "propulsion.wheel"
                  and e.id in inst for k in ("mu", "mu_lateral", "mu_load_sensitivity_per_kN")]
         self.grip = self.lm.values(names)
+        self.batteries = [inst[e.id] for e in els
+                          if e.componentDefId.startswith("battery.") and e.id in inst]
 
     def profile(self, mu_scale: float, cza: float, spacing: float) -> tuple[lapsim.Track, dict]:
         self.lm.set_params({**{n: v * mu_scale for n, v in self.grip.items()}, self.cza: cza})
         track = self.tracks[spacing]
         return track, new_lap.solve(self.lm, track, self.log.v[0])
+
+    def energy_kwh(self, mu_scale: float, cza: float) -> float:
+        """The batteries' net energy over the lap (its energy pass, a
+        point every metre, from the logged start speed), kWh."""
+        self.lm.set_params({**{n: v * mu_scale for n, v in self.grip.items()}, self.cza: cza})
+        track = self.tracks[POINT_M]
+        names = [f"{b}.{q}" for b in self.batteries for q in ("e_delivered", "e_recuperated")]
+        drive = self.lm.laps()
+        try:
+            drive.solve(track.kappa, track.sin_t, track.ds, track.closed, self.log.v[0])
+            end = drive.drive(names=names)["end"]
+        except ValueError as e:
+            raise lapsim.LapError(f"The car cannot drive the lap: {e}.") from e
+        return sum(end[n] if n.endswith("e_delivered") else -end[n] for n in names) / 3.6e6
 
     def speed_rms(self, mu_scale: float, cza: float, spacing: float = 2.0 * POINT_M) -> float:
         """RMS of the lap's speed against the logged speed, m/s, at the
@@ -255,9 +270,9 @@ def calibrate(project: Project, log: LoggedLap) -> dict:
 
 def predict(project: Project, log: LoggedLap, mu_scale: float, cza: float) -> dict:
     """Drive ``log``'s track with the calibrated values (the lap from the
-    logged start speed, a point every metre) and compare: the lap time and
-    the speed trace's RMS error. The energy needs a lap case's energy pass,
-    which the new engine does not run yet: the check says so."""
+    logged start speed, a point every metre) and compare: the lap time, the
+    speed trace's RMS error and, when the log has the pack power, the
+    energy."""
     out = {"status": "success", "lap_time_log_s": round(log.time_s, 3), "messages": []}
     try:
         laps = _Laps(project, log)
@@ -268,7 +283,13 @@ def predict(project: Project, log: LoggedLap, mu_scale: float, cza: float) -> di
     out.update(lap_time_model_s=round(t, 3),
                lap_time_error_pct=round(100.0 * (t - log.time_s) / log.time_s, 2),
                speed_rms_kmh=round(laps.speed_rms(mu_scale, cza, POINT_M) * 3.6, 3))
-    if log.energy_kwh is not None:
-        out["messages"].append("The energy is not compared: a lap case's energy does not run in "
-                               "this version of LightSim yet (NEW-LAP).")
+    try:
+        e = laps.energy_kwh(mu_scale, cza)
+    except (lapsim.LapError, OutsideDataError) as err:
+        out["messages"].append(f"The energy is not compared: {err}")
+        return out
+    out["energy_model_kwh"] = round(e, 4)
+    if log.energy_kwh is not None and log.energy_kwh > 0:
+        out.update(energy_log_kwh=round(log.energy_kwh, 4),
+                   energy_error_pct=round(100.0 * (e - log.energy_kwh) / log.energy_kwh, 2))
     return out

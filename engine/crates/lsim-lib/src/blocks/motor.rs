@@ -501,7 +501,18 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         )
     });
     eqs.extend([
-        eq(n("v") * n("i"), n("p_elec"), "it takes that power from its supply"),
+        if cfg.inverse {
+            // fast mode: v·i = p would let a power of 0 stand at v = 0 with any
+            // current (the supply shorted), a root a solve can land on and the
+            // inverter, off below 1 V, then holds; this form has i = 0 there
+            eq(
+                n("i"),
+                n("p_elec") / max(n("v"), c(1.0) * n("unit_V")),
+                "it takes that power from its supply",
+            )
+        } else {
+            eq(n("v") * n("i"), n("p_elec"), "it takes that power from its supply")
+        },
         eq(n("sig_speed"), n("wa"), "shaft speed"),
         eq(n("sig_torque"), n("T"), "shaft torque"),
         eq(n("sig_mech_power"), n("T") * n("w"), "mechanical power"),
