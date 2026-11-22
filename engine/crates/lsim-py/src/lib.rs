@@ -1262,6 +1262,192 @@ fn part_text(py: Python<'_>, project_json: &str, case_id: &str, element: &str) -
     py.detach(|| core::part_text(project_json, case_id, element)).map_err(|f| to_err(py, f))
 }
 
+/// A lap case's model (lsim-lap): the case's car as fast mode's inverse
+/// model with the lap variants of its Race Track, Vehicle and wheels,
+/// solved one instant at a time for a lap's speed profile
+/// (`LapModel.solve`). `texts` as `build`'s.
+#[pyfunction]
+#[pyo3(signature = (project_json, case_id, cycles_dir=None, texts=None))]
+fn lap_model(
+    py: Python<'_>,
+    project_json: &str,
+    case_id: &str,
+    cycles_dir: Option<PathBuf>,
+    texts: Option<BTreeMap<String, String>>,
+) -> PyResult<LapModel> {
+    let texts = texts_of(texts);
+    let (built, parts) = py
+        .detach(|| core::build_lap(project_json, case_id, cycles_dir, &texts))
+        .map_err(|f| to_err(py, f))?;
+    let values = built.model.info.params.clone();
+    Ok(LapModel {
+        built: Arc::new(built),
+        parts,
+        params: Mutex::new(ParamState { set: BTreeMap::new(), values }),
+    })
+}
+
+/// A lap case's model (`lap_model`).
+#[pyclass(module = "lightsim_engine", frozen)]
+struct LapModel {
+    built: Arc<core::Built>,
+    parts: lsim_lap::Parts,
+    params: Mutex<ParamState>,
+}
+
+#[pymethods]
+impl LapModel {
+    /// Sets runtime parameters by their engine names (SI values) on top of
+    /// those set before, for the next solves (Calibrate lap's grip scale
+    /// and downforce); a structural one, a table or an unknown name is a
+    /// ValueError.
+    fn set_params(&self, values: BTreeMap<String, f64>) -> PyResult<()> {
+        let mut st = self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
+        let mut all = st.set.clone();
+        all.extend(values);
+        let pairs: Vec<(String, f64)> = all.iter().map(|(k, v)| (k.clone(), *v)).collect();
+        let values = self.built.model.params_with(&pairs).map_err(PyValueError::new_err)?;
+        st.set = all;
+        st.values = values;
+        Ok(())
+    }
+
+    /// One lap's speed profile on a track given point by point (`kappa`,
+    /// 1/m, + left, and `sin_t`, the slope's sine, + uphill, a point every
+    /// `ds` m), from `v_start` (m/s): a dict with `v` and `t` at each point,
+    /// `code` and `cause` for each stretch (lsim_lap::Code, Cause), `apex`
+    /// at each point (inf on a straight), `v_cap` (the highest speed the
+    /// model solves at), `stats` (the point solver's work) and `seconds`.
+    /// `coast` the share of lift-and-coast before each braking point,
+    /// `more` a lap follows, `stop` it ends at a standstill. A car that
+    /// cannot drive it is a ValueError saying where it stops.
+    #[pyo3(signature = (kappa, sin_t, ds, closed, v_start, coast=0.0, more=false, stop=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn solve<'py>(
+        &self,
+        py: Python<'py>,
+        kappa: Vec<f64>,
+        sin_t: Vec<f64>,
+        ds: f64,
+        closed: bool,
+        v_start: f64,
+        coast: f64,
+        more: bool,
+        stop: bool,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let params =
+            self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
+        let track = lsim_lap::Track { kappa, sin_t, ds, closed };
+        let opt = lsim_lap::LapOptions { v_start, coast, more, stop };
+        let t0 = std::time::Instant::now();
+        let built = Arc::clone(&self.built);
+        let parts = self.parts.clone();
+        let prof = py
+            .detach(move || lsim_lap::solve(&built.model, &params, &parts, &track, &opt))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let seconds = t0.elapsed().as_secs_f64();
+        let d = PyDict::new(py);
+        d.set_item("v", prof.v)?;
+        d.set_item("t", prof.t)?;
+        d.set_item("code", prof.code.iter().map(|c| *c as u32).collect::<Vec<_>>())?;
+        d.set_item("cause", prof.cause.iter().map(|c| *c as u32).collect::<Vec<_>>())?;
+        d.set_item("apex", prof.apex)?;
+        d.set_item("v_cap", prof.v_cap)?;
+        let s = prof.stats;
+        d.set_item(
+            "stats",
+            [
+                ("solves", s.solves),
+                ("cold", s.cold),
+                ("failed", s.failed),
+                ("iterations", s.iterations),
+                ("residuals", s.residuals),
+                ("refreshes", s.refreshes),
+            ]
+            .into_iter()
+            .collect::<BTreeMap<_, _>>(),
+        )?;
+        d.set_item("seconds", seconds)?;
+        Ok(d)
+    }
+
+    /// The car at one instant: speed `v` (m/s), acceleration `a` (m/s²),
+    /// on curvature `kappa` and slope `sin_t`, its states at the start: a
+    /// dict with `sites` (each limit's label, part, value, lower and upper
+    /// bound) and `vars` (every variable by name, SI), or None where the
+    /// model has no answer there.
+    #[pyo3(signature = (v, a, kappa=0.0, sin_t=0.0))]
+    fn point<'py>(
+        &self,
+        py: Python<'py>,
+        v: f64,
+        a: f64,
+        kappa: f64,
+        sin_t: f64,
+    ) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let params =
+            self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
+        let m = &self.built.model;
+        let mut s = m
+            .point_solver(&params, &[(v, 0.0)])
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let flat = &m.prepared.flat;
+        for (name, value) in [
+            (format!("{}.kappa_now", self.parts.track), kappa),
+            (
+                format!("{}.grade_now", self.parts.track),
+                sin_t / (1.0 - sin_t * sin_t).max(1e-12).sqrt(),
+            ),
+        ] {
+            let id = flat
+                .find_param(&name)
+                .ok_or_else(|| PyValueError::new_err(format!("no {name}")))?;
+            s.params_mut()[id.0 as usize] = value;
+        }
+        if s.solve(&[(v, a)]).is_err() {
+            return Ok(None);
+        }
+        let sites = s.sites();
+        let d = PyDict::new(py);
+        let list = PyList::empty(py);
+        for (l, x) in m.limits.iter().zip(&sites) {
+            list.append((l.label.clone(), l.part.clone(), x[0], x[1], x[2]))?;
+        }
+        d.set_item("sites", list)?;
+        let vars = PyDict::new(py);
+        for (name, x) in m.info.var_names.iter().zip(s.last_vars()) {
+            vars.set_item(name, *x)?;
+        }
+        d.set_item("vars", vars)?;
+        Ok(Some(d))
+    }
+
+    /// Each element id's instance name in the model (engine names are
+    /// `instance.parameter`).
+    #[getter]
+    fn instances(&self) -> BTreeMap<String, String> {
+        self.built.rep.instances.clone()
+    }
+
+    /// The parameters' values now (SI), by engine name: those set and the
+    /// model's own; an unknown name is a ValueError.
+    fn values(&self, names: Vec<String>) -> PyResult<BTreeMap<String, f64>> {
+        let st = self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
+        let flat = &self.built.model.prepared.flat;
+        names
+            .into_iter()
+            .map(|n| match flat.find_param(&n) {
+                Some(id) => Ok((n, st.values[id.0 as usize])),
+                None => Err(PyValueError::new_err(format!("no parameter '{n}'"))),
+            })
+            .collect()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("LapModel({:?})", self.built.case_id)
+    }
+}
+
 /// Fast mode (DESIGN.md section 10) on a drive-cycle case of a project (its
 /// JSON text): the vehicle's speed prescribed from the cycle its Driver
 /// follows, the Driver's pedal solved for, every `step` s (default 1 s), the
@@ -1370,11 +1556,13 @@ fn lightsim_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(build, m)?)?;
     m.add_function(wrap_pyfunction!(diagnose, m)?)?;
     m.add_function(wrap_pyfunction!(fast, m)?)?;
+    m.add_function(wrap_pyfunction!(lap_model, m)?)?;
     m.add_function(wrap_pyfunction!(part_text, m)?)?;
     m.add_function(wrap_pyfunction!(table_sites, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(spike, m)?)?;
     m.add_class::<Model>()?;
+    m.add_class::<LapModel>()?;
     m.add_class::<Run>()?;
     m.add_class::<RunControl>()?;
     m.add("ModelError", m.py().get_type::<ModelError>())?;

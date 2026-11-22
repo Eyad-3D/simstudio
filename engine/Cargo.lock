@@ -1004,6 +1004,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lsim-lap"
+version = "0.1.0"
+dependencies = [
+ "lsim-engine",
+ "lsim-fast",
+ "lsim-project",
+ "serde_json",
+]
+
+[[package]]
 name = "lsim-lib"
 version = "0.1.0"
 dependencies = [
@@ -1053,6 +1063,7 @@ dependencies = [
  "lsim-engine",
  "lsim-ir",
  "lsim-lang",
+ "lsim-lap",
  "lsim-lib",
  "lsim-project",
  "lsim-script",
