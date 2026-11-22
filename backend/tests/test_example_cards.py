@@ -51,7 +51,7 @@ def test_each_case_lands_within_its_expected_values(project_id, case_id):
 @pytest.mark.parametrize("project_id", EXAMPLES)
 def test_the_stored_results_are_explained_in_the_changelog(project_id):
     data = reference_results.load(project_id)
-    assert data is not None, "run tests/update_golden.py --reason '...'"
+    assert data is not None, "run tests/update_stored.py --reason '...'"
     note = data["creation"]["note"]
     assert re.search(rf"^## {re.escape(note)}$", CHANGES.read_text(encoding="utf-8"), re.M), (
         f"{project_id}'s stored results name '{note}', which tests/golden/CHANGES.md lacks")
@@ -62,7 +62,7 @@ def test_the_stored_results_are_explained_in_the_changelog(project_id):
                          [(p, c.id) for p in EXAMPLES for c in _cases(p)])
 def test_a_fresh_run_gives_the_stored_summary(project_id, case_id):
     """A change that moves an example's results must rewrite the stored
-    results (tests/update_golden.py --reason ...), with its CHANGES.md note."""
+    results (tests/update_stored.py --reason ...), with its CHANGES.md note."""
     stored = reference_results.load(project_id)["cases"][case_id]
     result = example_result(project_id, case_id)
     assert result.status == stored["status"]
