@@ -787,6 +787,51 @@ impl Model {
         b
     }
 
+    /// A fast run's books part by part, as a full run's
+    /// ([`lsim_solve::EnergyBooks`]) from its integrals of
+    /// [`Self::books_quantities`]: each part's energy in, throughput, loss
+    /// and stored energy's change (from the states at the run's ends; a fast
+    /// run has no events that change it, so that is its integral too). No
+    /// series on the output grid.
+    pub fn fast_energy_books(&self, r: &FastResult) -> lsim_solve::EnergyBooks {
+        let (_, at) = self.books_quantities();
+        let get = |v: &Vec<f64>, k: usize| v.get(k).copied().unwrap_or(0.0);
+        let mut parts = vec![];
+        for (part, (power, loss, stored)) in
+            self.info.energy.iter().flat_map(|e| e.parts.iter()).zip(at)
+        {
+            let energy_in = get(&r.integrals, power);
+            let lost = loss.map_or(0.0, |k| get(&r.integrals, k));
+            let stored_change = stored.map_or(0.0, |k| get(&r.q_end, k) - get(&r.q_start, k));
+            let declared = loss.is_some() || stored.is_some();
+            parts.push(lsim_solve::PartBooks {
+                path: part.path.clone(),
+                name: part.name.clone(),
+                declared,
+                energy_in,
+                throughput: get(&r.integrals_abs, power),
+                lost,
+                stored_change,
+                stored_integral: stored_change,
+                closure: if declared { energy_in - lost - stored_change } else { 0.0 },
+                ..Default::default()
+            });
+        }
+        let b = self.books(r);
+        lsim_solve::EnergyBooks {
+            parts,
+            supplied: b.supplied,
+            lost: b.lost,
+            stored_integral: b.stored_change,
+            stored_change: b.stored_change,
+            throughput: b.throughput,
+            closure: b.closure,
+            relative_closure: if b.throughput > 0.0 { b.closure.abs() / b.throughput } else { 0.0 },
+            error_controlled: true,
+            ..Default::default()
+        }
+    }
+
     /// One instant of this inverse model at a time, its states held at
     /// `y` and `d` (a run's end: a lap's start), with parameters `params`.
     pub fn point_solver_at(

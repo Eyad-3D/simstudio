@@ -370,10 +370,13 @@ def lap_result(project, case, ctx, lm, run, books: dict, lap, messages: list, st
     peaks and time at its limit per stretch of track), the rows a failed
     check makes not valid, the Formula Student event rows."""
     from . import core, fs_events
+    from .energy import energy_flows
+    from .evidence import Evidence
     from .keys import fill_keys
     from .labfig import lab_base
-    from .new_engine import _tables
+    from .new_engine import _duty, _flows, _tables
     from .references import check_references
+    from .reports import make_reports
     from .runtime import usable_energy_left_wh
     from .verdict import beyond_data, terminal_checks
 
@@ -478,6 +481,22 @@ def lap_result(project, case, ctx, lm, run, books: dict, lap, messages: list, st
         messages.append(SimMessage(level="warning", text=f"Lap mode: {len(flags) - 5} more "
                                                          f"stretches like these."))
 
+    # ---- the reports: the energy pass's books part by part (Run.energy) and
+    # each channel's integrals over the stretches, into the full path's code
+    integ = stretch_integrals(times, raw, vmin, vmax, vmean)
+    ev = Evidence.of_context(ctx, energy_report=getattr(case, "energyReport", True))
+    dist = _col(raw, f"{ctx.veh_id}:sig_distance") if ctx.veh_id else []
+    ev.distance = dist[-1] if dist else 0.0
+    books_all = run.energy or {}
+    ev.flows = _flows(model, inst, books_all, integ, {})
+    ev.time_s = ev.duty_s = times[-1] - times[0]
+    ev.duty = _duty(ctx, inst, integ)
+    ev.lanes = []
+    ev.residual_wh = abs(books_all.get("closure_J", 0.0)) / 3600.0
+    ev.throughput_wh = books_all.get("throughput_J", 0.0) / 3600.0
+    ev.vsource_energy_wh = ctx.vsource_energy_wh
+    energy, duty, limits = make_reports(ev)
+
     # ---- the rows ------------------------------------------------------------
     rows = lap_rows(lap, books, ctx)
     summary = [SummaryValue(key=k, label=label, value=v, unit=u) for label, v, u, k in rows]
@@ -550,7 +569,29 @@ def lap_result(project, case, ctx, lm, run, books: dict, lap, messages: list, st
         f"{len(times)} points recorded{rec_note}, {len(channels)} result channels.")))
     return SimResult(caseId=case_id, status=core.status_of(messages, stopped), channels=channels,
                      summary=summary, messages=messages,
-                     references=check_references(case.references, summary))
+                     partEnergy=energy_flows(ev.flows, ev.time_s), energy=energy, duty=duty,
+                     limits=limits, references=check_references(case.references, summary))
+
+
+def stretch_integrals(times: list[float], raw: dict, vmin: dict, vmax: dict,
+                      vmean: dict) -> dict[str, dict[str, float]]:
+    """Each channel's integrals over the run as the full path's engine gives
+    them (its integral, magnitude and square, and its extremes), from the
+    stretches' means: the lap's own resolution."""
+    import numpy as np
+
+    dt = np.diff(np.asarray(times, dtype=float))
+    out = {}
+    for name in raw:
+        m = vmean.get(name)
+        if m is None or len(m) != len(times) or len(times) < 2:
+            continue
+        mm = np.asarray(m, dtype=float)[1:]
+        out[name] = {"integral": float(np.sum(mm * dt)), "magnitude": float(np.sum(np.abs(mm) * dt)),
+                     "square": float(np.sum(mm * mm * dt)),
+                     "max": float(np.max(np.asarray(vmax[name], dtype=float))),
+                     "min": float(np.min(np.asarray(vmin[name], dtype=float)))}
+    return out
 
 
 def lap_rows(lap, books: dict, ctx) -> list[tuple[str, float, str, str]]:

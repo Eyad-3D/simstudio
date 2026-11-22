@@ -1459,6 +1459,9 @@ impl LapDrive {
                 )
             })
             .map_err(|f| to_err(py, f))?;
+        let mut out = out;
+        out.result.energy =
+            Some(self.built.model.fast_energy_books(&st.run.clone().unwrap_or_default()));
         Ok(Some(Run::new(Arc::clone(&self.built), out)))
     }
 

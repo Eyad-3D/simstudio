@@ -164,7 +164,12 @@ def test_climate_control_is_its_own_line():
 
 
 def test_lap_case_books_the_mechanics_from_the_lap():
+    """A lap case's books are its energy pass's, part by part: the
+    Vehicle's road load and acceleration, each brake's heat, each wheel's
+    slip loss."""
     r = example_result("fs-electric", "case-autocross")
     f = _flows(r)
-    assert "Vehicle" in f and set(f["Vehicle"].terms) >= {"road load", "friction brakes"}
+    assert "Vehicle" in f and set(f["Vehicle"].terms) >= {"air drag", "rolling resistance",
+                                                          "acceleration"}
+    assert f["Brake FL"].losses > 0 and f["Wheel RL"].losses > 0
     assert not any(s.label == "Energy balance residual" for s in r.summary)
