@@ -103,6 +103,14 @@ chosen when the part has one, so the battery's negative terminal goes to
 the motor's negative terminal; otherwise it is the part's first port of
 that kind. One Undo takes away both the part and its wire.
 
+Wires find their own way: they run in straight stretches round the parts
+and their names, and keep apart from each other. When a wire takes a long
+way round, move a port: hold Shift and drag the port to another place on
+its part's outline, or to another side. It snaps to free places, never onto
+another port, and its wires follow when you let go; Shift+click moves it to
+the next side. One Undo puts it back. To put all of a part's ports back
+where they started, right-click the part and choose **Reset port places**.
+
 **Check:** *Problems* now lists 2 errors, both about missing signals,
 such as *Driver 'Driver 1' has no Target Speed signal*.
 

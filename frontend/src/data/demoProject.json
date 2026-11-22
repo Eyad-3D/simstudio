@@ -185,7 +185,13 @@
             "x": 430,
             "y": 130
           },
-          "parameterOverrides": {}
+          "parameterOverrides": {},
+          "portSides": {
+            "flange": "right"
+          },
+          "portOffsets": {
+            "flange": 0.5
+          }
         },
         {
           "id": "el-node-fl",
@@ -195,7 +201,19 @@
             "x": 545,
             "y": 130
           },
-          "parameterOverrides": {}
+          "parameterOverrides": {},
+          "portSides": {
+            "f1": "right",
+            "f2": "left",
+            "f3": "right",
+            "f4": "top"
+          },
+          "portOffsets": {
+            "f1": 0.6667,
+            "f2": 0.5,
+            "f3": 0.3333,
+            "f4": 0.5
+          }
         },
         {
           "id": "el-wheel-fl",
@@ -234,6 +252,12 @@
               "confidence": 1,
               "note": "61 % of the weight on the driven axle, split evenly"
             }
+          },
+          "portSides": {
+            "shaft": "right"
+          },
+          "portOffsets": {
+            "shaft": 0.5
           }
         },
         {
@@ -244,7 +268,21 @@
             "x": 200,
             "y": 250
           },
-          "parameterOverrides": {}
+          "parameterOverrides": {},
+          "portSides": {
+            "t1": "left",
+            "t2": "bottom",
+            "t4": "right",
+            "t3": "right",
+            "t5": "top"
+          },
+          "portOffsets": {
+            "t1": 0.5,
+            "t2": 0.0833,
+            "t4": 0.3333,
+            "t3": 0.6667,
+            "t5": 0.5
+          }
         },
         {
           "id": "el-battery",
@@ -270,6 +308,14 @@
               "confidence": 1,
               "note": "58 of 62 kWh usable"
             }
+          },
+          "portSides": {
+            "pos": "top",
+            "neg": "right"
+          },
+          "portOffsets": {
+            "pos": 0.5,
+            "neg": 0.5
           }
         },
         {
@@ -290,6 +336,14 @@
               "confidence": 1,
               "note": "FASTSim's auxKw"
             }
+          },
+          "portSides": {
+            "pos": "top",
+            "neg": "right"
+          },
+          "portOffsets": {
+            "pos": 0.3007,
+            "neg": 0.5
           }
         },
         {
@@ -644,7 +698,13 @@
             "x": 430,
             "y": 560
           },
-          "parameterOverrides": {}
+          "parameterOverrides": {},
+          "portSides": {
+            "flange": "right"
+          },
+          "portOffsets": {
+            "flange": 0.5
+          }
         },
         {
           "id": "el-node-fr",
@@ -654,7 +714,19 @@
             "x": 545,
             "y": 560
           },
-          "parameterOverrides": {}
+          "parameterOverrides": {},
+          "portSides": {
+            "f1": "right",
+            "f2": "left",
+            "f3": "right",
+            "f4": "top"
+          },
+          "portOffsets": {
+            "f1": 0.3333,
+            "f2": 0.5,
+            "f3": 0.6667,
+            "f4": 0.5
+          }
         },
         {
           "id": "el-wheel-fr",
@@ -693,6 +765,12 @@
               "confidence": 1,
               "note": "61 % of the weight on the driven axle, split evenly"
             }
+          },
+          "portSides": {
+            "shaft": "right"
+          },
+          "portOffsets": {
+            "shaft": 0.5
           }
         },
         {

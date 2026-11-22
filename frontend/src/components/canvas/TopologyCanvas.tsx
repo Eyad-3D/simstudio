@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
+  BaseEdge,
+  getSmoothStepPath,
   MiniMap,
   ReactFlow,
   ReactFlowProvider,
@@ -12,6 +14,7 @@ import {
   type Connection as RFConnection,
   type Edge,
   type EdgeChange,
+  type EdgeProps,
   type IsValidConnection,
   type NodeChange,
   type Viewport,
@@ -31,6 +34,7 @@ import {
   PackagePlus,
   Pencil,
   Redo2,
+  RotateCcw,
   Scissors,
   Settings2,
   Trash2,
@@ -68,8 +72,44 @@ import {
   useCanvasSelection,
 } from "../../store/canvasSelection";
 import { canvasAction, diagramHasKeys, keyBelongsToTarget } from "./canvasKeys";
+import { routingInput } from "./portPlaces";
+import { fitEnds, pathMiddle, roundedPath, routeWires, type Pt } from "./route";
 
 const nodeTypes = { element: ElementNode };
+
+type RoutedFlowEdge = Edge<{ points?: Pt[] }, "routed">;
+
+/** A wire along the route the router made for it (route.ts); while a part or
+ *  port it joins is being moved, a plain stepped line until it is let go. */
+function RoutedEdge(p: EdgeProps<RoutedFlowEdge>) {
+  const pts = p.data?.points && fitEnds(p.data.points, { x: p.sourceX, y: p.sourceY }, { x: p.targetX, y: p.targetY });
+  let path: string;
+  let mid: Pt;
+  if (pts) {
+    path = roundedPath(pts);
+    mid = pathMiddle(pts);
+  } else {
+    const [d, x, y] = getSmoothStepPath({ ...p, borderRadius: 6 });
+    path = d;
+    mid = { x, y };
+  }
+  return (
+    <BaseEdge
+      id={p.id}
+      path={path}
+      labelX={mid.x}
+      labelY={mid.y}
+      label={p.label}
+      labelStyle={p.labelStyle}
+      labelBgStyle={p.labelBgStyle}
+      labelBgPadding={p.labelBgPadding}
+      style={p.style}
+      interactionWidth={p.interactionWidth}
+    />
+  );
+}
+
+const edgeTypes = { routed: RoutedEdge };
 
 const GRID = 22; // background grid gap; snap uses the same pitch
 const ALIGN_THRESH = 5; // flow-unit tolerance for alignment guides
@@ -459,7 +499,20 @@ function TopologyCanvasInner() {
       }));
   }, [system, libraryById, selectedNodes, measured]);
 
-  const edges: Edge[] = useMemo(() => {
+  // The wires' routes, made again when the diagram changes but not while a
+  // part is being dragged: then the routes made before it stay, and the
+  // dragged part's wires are drawn as plain stepped lines until it is let go.
+  const [dragging, setDragging] = useState(false);
+  const [routedSystem, setRoutedSystem] = useState(system);
+  if (!dragging && routedSystem !== system) setRoutedSystem(system);
+  const routes = useMemo(() => {
+    if (!routedSystem) return {};
+    const shown = (k: PortKind) => k !== "signal" && visibleKinds[k === "mechanical" ? "mechanical" : "electrical"];
+    const { parts, wires } = routingInput(routedSystem, libraryById, undefined, shown);
+    return routeWires(parts, wires);
+  }, [routedSystem, libraryById, visibleKinds]);
+
+  const edges: RoutedFlowEdge[] = useMemo(() => {
     if (!system || !project) return [];
     const portKind = (elId: string, portId: string): PortKind => {
       const el = system.elements.find((e) => e.id === elId);
@@ -468,7 +521,7 @@ function TopologyCanvasInner() {
     };
     // signal / data-bus wiring is not drawn on the canvas — see the
     // Data Bus Connections panel
-    const out: Edge[] = [];
+    const out: RoutedFlowEdge[] = [];
     for (const c of system.connections) {
       const kind = portKind(c.sourceElementId, c.sourcePortId);
       if (kind === "signal") continue;
@@ -480,7 +533,8 @@ function TopologyCanvasInner() {
         sourceHandle: c.sourcePortId,
         target: c.targetElementId,
         targetHandle: c.targetPortId,
-        type: "smoothstep",
+        type: "routed",
+        data: { points: routes[c.id] },
         // its kind's colour and line; a selected wire a pixel thicker
         style: {
           stroke: KIND_COLOR[kind],
@@ -501,7 +555,7 @@ function TopologyCanvasInner() {
       });
     }
     return out;
-  }, [system, project, libraryById, visibleKinds, selectedEdges, staleWires]);
+  }, [system, project, libraryById, visibleKinds, selectedEdges, staleWires, routes]);
 
   // Signal / data-bus links as a dashed overlay (render-only). These are stored
   // globally in project.dataBusConnections, not as canvas edges; we draw a
@@ -696,7 +750,10 @@ function TopologyCanvasInner() {
     },
     [system],
   );
-  const onNodeDragStop = useCallback(() => setGuides(null), []);
+  const onNodeDragStop = useCallback(() => {
+    setGuides(null);
+    setDragging(false);
+  }, []);
 
   // context-menu helpers -----------------------------------------------------
   // kept clear of the canvas's right and bottom edges
@@ -972,6 +1029,7 @@ function TopologyCanvasInner() {
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -987,7 +1045,10 @@ function TopologyCanvasInner() {
           }}
           onReconnect={onReconnect}
           isValidConnection={isValidConnection}
-          onNodeDragStart={() => store.getState().beginHistory()}
+          onNodeDragStart={() => {
+            store.getState().beginHistory();
+            setDragging(true);
+          }}
           onNodeDrag={onNodeDrag}
           onNodeDragStop={onNodeDragStop}
           onNodeContextMenu={(e, node) => {
@@ -1229,6 +1290,17 @@ function TopologyCanvasInner() {
                       const ui = useUIStore.getState();
                       ui.setBusSelectedOnly(true);
                       ui.focusPanel("data-bus");
+                      closeMenu();
+                    }}
+                  />
+                )}
+                {/* only for a part whose ports were moved */}
+                {menuEl && Object.keys({ ...menuEl.portSides, ...menuEl.portOffsets }).length > 0 && (
+                  <MenuBtn
+                    icon={RotateCcw}
+                    label="Reset port places"
+                    onClick={() => {
+                      store.getState().resetPortPlaces(menuEl.id);
                       closeMenu();
                     }}
                   />

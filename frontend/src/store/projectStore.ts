@@ -25,7 +25,6 @@ import type {
   ParamValue,
   ParameterSource,
   PortDef,
-  PortSide,
   Project,
   ReferenceValue,
   RunSnapshot,
@@ -43,6 +42,7 @@ import { FS_EVENT_NAMES, FS_EVENTS, packOverrides, type FsEvent } from "../fsEve
 import { codeOf, fingerprintOf } from "../trust";
 import { pointComplete, type SweepProgress } from "../sweep";
 import { useUIStore } from "./uiStore";
+import { placesAfterMove, type Place } from "../components/canvas/portPlaces";
 
 export function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
@@ -517,13 +517,11 @@ export interface ProjectState {
    *  ("the number is in another unit"), as one undo step. */
   setDisplayUnit: (elementId: string, key: string, slot: UnitSlot, unit: string | null, value?: ParamValue) => void;
   setDynamicPorts: (elementId: string, ports: PortDef[], map?: MapBlockState) => void;
-  setPortSide: (elementId: string, portId: string, side: PortSide) => void;
-  setPortPlacement: (
-    elementId: string,
-    portId: string,
-    side: PortSide,
-    offset: number,
-  ) => void;
+  /** Move one port of a part to a place on its outline, as one undo step;
+   *  the part's other ports are written down where they are, so none shifts. */
+  placePort: (elementId: string, portId: string, place: Place) => void;
+  /** Put a part's ports back in the library's places (one undo step). */
+  resetPortPlaces: (elementId: string) => void;
   /** Wire two ports; with `replaceId`, the new wire takes that one's place in
    *  the same undo step, and the old wire stays if the new one is refused. */
   addConnection: (
@@ -1668,22 +1666,30 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (value !== undefined) streamLive(elementId, key, value);
     },
 
-    setPortSide: (elementId, portId, side) =>
+    placePort: (elementId, portId, place) => {
+      const { project, libraryById } = get();
+      const el = project?.systems.flatMap((s) => s.elements).find((e) => e.id === elementId);
+      const def = el && libraryById[el.componentDefId];
+      if (!el || !def) return;
+      const { portSides, portOffsets } = placesAfterMove(el, def, portId, place);
       updateProject((draft) => {
         for (const s of draft.systems) {
-          const el = s.elements.find((e) => e.id === elementId);
-          if (el) el.portSides = { ...el.portSides, [portId]: side };
+          const d = s.elements.find((e) => e.id === elementId);
+          if (d) {
+            d.portSides = portSides;
+            d.portOffsets = portOffsets;
+          }
         }
-      }),
+      });
+    },
 
-    setPortPlacement: (elementId, portId, side, offset) =>
+    resetPortPlaces: (elementId) =>
       updateProject((draft) => {
-        const clamped = Math.min(0.92, Math.max(0.08, offset));
         for (const s of draft.systems) {
           const el = s.elements.find((e) => e.id === elementId);
           if (el) {
-            el.portSides = { ...el.portSides, [portId]: side };
-            el.portOffsets = { ...el.portOffsets, [portId]: clamped };
+            delete el.portSides;
+            delete el.portOffsets;
           }
         }
       }),
