@@ -60,6 +60,13 @@ const MAX_ROOT: usize = 60;
 /// at 0 m/s and 0 m/s² fails), and below it the forces barely change (the
 /// recuperation's fade below 3 m/s the most)
 const V_MIN: f64 = 0.5;
+/// the energy pass's longest step, s: the books are integrated by
+/// Simpson's rule over each step, and across the kinks inside a step (a
+/// clamp, a magnitude) that costs accuracy (the FS autocross closed to
+/// 5.2e-6 with the track's points as steps, 4.6e-7 at 0.05 s, 6.4e-10 at
+/// 0.01 s, 5.0e-9 at 0.002 s, where round-off adds up); the states do not
+/// move by it (the battery's energy the same to the digits shown)
+pub const BOOKS_STEP: f64 = 0.01;
 /// the first step a search's bracket widens by from its guess, m/s²
 const A_STEP: f64 = 0.5;
 
@@ -259,7 +266,13 @@ fn margin(x: [f64; 3], up: bool) -> f64 {
 }
 
 impl<'a> Car<'a> {
-    fn new(model: &'a Model, params: &[f64], parts: &Parts, v0: f64) -> Result<Car<'a>, LapError> {
+    fn new(
+        model: &'a Model,
+        params: &[f64],
+        parts: &Parts,
+        v0: f64,
+        state: Option<&State>,
+    ) -> Result<Car<'a>, LapError> {
         let flat = &model.prepared.flat;
         let param = |name: String| {
             flat.find_param(&name)
@@ -299,9 +312,12 @@ impl<'a> Car<'a> {
                 p_cap: param(format!("{b}.p_cap"))?,
             });
         }
-        let s = model
-            .point_solver(params, &prescribed(v0, 0.0, 0.0, 0.0))
-            .map_err(|e| LapError::Model(format!("the lap model could not be started: {e}")))?;
+        let s = match state {
+            Some(st) => model.point_solver_at(params, st.y.clone(), st.d.clone()),
+            None => model
+                .point_solver(params, &prescribed(v0, 0.0, 0.0, 0.0))
+                .map_err(|e| LapError::Model(format!("the lap model could not be started: {e}")))?,
+        };
         let mut car =
             Car { s, pedal, sites, windows, apex: HashMap::new(), v_cap: V_MAX, guess: [0.0; 3] };
         car.v_cap = car.top_speed();
@@ -542,16 +558,29 @@ impl<'a> Car<'a> {
     }
 }
 
+/// The car's state between laps: the lap model's `y = [x; z]` and discrete
+/// values where the last lap's energy pass ended (its battery's charge,
+/// its energies).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct State {
+    /// the states and iteration variables
+    pub y: Vec<f64>,
+    /// the discrete values
+    pub d: Vec<f64>,
+}
+
 /// One lap's speed profile on `track` (today's LapRun.solve: the cornering
 /// speeds, the forward and backward passes, and with `opt.coast` a second
 /// forward pass that lifts before the braking points), the lap model
-/// `model` with parameters `params`, its parts `parts`.
+/// `model` with parameters `params`, its parts `parts`, the car's state at
+/// the lap's start `state` (None: the model's own start).
 pub fn solve(
     model: &Model,
     params: &[f64],
     parts: &Parts,
     track: &Track,
     opt: &LapOptions,
+    state: Option<&State>,
 ) -> Result<Profile, LapError> {
     let n = track.kappa.len().saturating_sub(1);
     if n == 0 || track.sin_t.len() != n + 1 || track.ds.is_nan() || track.ds <= 0.0 {
@@ -559,7 +588,7 @@ pub fn solve(
             "the track needs two points or more, a spacing above 0".into(),
         ));
     }
-    let mut car = Car::new(model, params, parts, opt.v_start.clamp(0.0, V_MAX))?;
+    let mut car = Car::new(model, params, parts, opt.v_start.clamp(0.0, V_MAX), state)?;
     let apex: Vec<f64> =
         track.kappa.iter().zip(&track.sin_t).map(|(&k, &s)| car.apex(k, s)).collect();
     let (vf, why) = forward(&mut car, track, &apex, opt.v_start, None);
@@ -575,6 +604,109 @@ pub fn solve(
     prof.v_cap = car.v_cap;
     prof.stats = car.s.stats;
     Ok(prof)
+}
+
+/// One lap's energy pass (today's LapSlave and ElectricalSlave): fast mode
+/// along the profile `prof` on `track` (the speed, the curvature and the
+/// grade as traces in time, the speed linear between the track's points as
+/// the profile's constant acceleration makes it), from the car's state
+/// `state` (None: the model's own start), an output point at every track
+/// point, the quantities `integrate` integrated over it (the energy books:
+/// `Model::books_quantities`). The run ends in the state the next lap starts
+/// from ([`State`] from its `end_y` and `end_d`).
+pub fn drive(
+    model: &Model,
+    params: &[f64],
+    track: &Track,
+    prof: &Profile,
+    state: Option<&State>,
+    integrate: &[lsim_engine::lsim_ir::expr::Expr],
+) -> Result<lsim_fast::FastResult, LapError> {
+    use lsim_fast::{FastOptions, Trace};
+    let err = |e: &dyn std::fmt::Display| LapError::Model(format!("the lap's energy pass: {e}"));
+    let t = prof.t.clone();
+    let grade: Vec<f64> = track.sin_t.iter().map(|s| s / (1.0 - s * s).max(1e-12).sqrt()).collect();
+    let traces = [
+        Trace::new(t.clone(), prof.v.clone()).map_err(|e| err(&e))?,
+        Trace::new(t.clone(), track.kappa.clone()).map_err(|e| err(&e))?,
+        Trace::new(t.clone(), grade).map_err(|e| err(&e))?,
+    ];
+    let t_end = *t.last().unwrap_or(&0.0);
+    let o = FastOptions {
+        step: BOOKS_STEP.min(t_end.max(1e-9)),
+        output_grid: false,
+        t_start: Some(0.0),
+        t_end: Some(t_end),
+        output_at_samples: true,
+        ..Default::default()
+    };
+    let start = state.map(|s| (s.y.as_slice(), s.d.as_slice()));
+    model.fast_from(params, start, &traces, &o, None, &mut [], integrate).map_err(|e| err(&e))
+}
+
+/// Joins a lap's energy pass `lap` onto the laps before it `run` (None:
+/// it is the first) as one run: its times after theirs (its first point,
+/// the last one's end again, dropped), its flags and events moved with
+/// them, the work and the integrals summed, the books' start values the
+/// first lap's and their end values and the end state this one's.
+pub fn join(
+    run: Option<lsim_fast::FastResult>,
+    mut lap: lsim_fast::FastResult,
+) -> lsim_fast::FastResult {
+    let Some(mut run) = run else { return lap };
+    let t0 = *run.times.last().unwrap_or(&0.0);
+    let n = run.names.len();
+    debug_assert_eq!(n, lap.names.len());
+    let skip = usize::from(!lap.times.is_empty());
+    run.times.extend(lap.times.iter().skip(skip).map(|t| t + t0));
+    for (to, from) in [
+        (&mut run.values, &lap.values),
+        (&mut run.min, &lap.min),
+        (&mut run.max, &lap.max),
+        (&mut run.mean, &lap.mean),
+    ] {
+        to.extend_from_slice(&from[(skip * n).min(from.len())..]);
+    }
+    run.flags.extend(lap.flags.drain(..).map(|mut f| {
+        f.t_start += t0;
+        f.t_end += t0;
+        f
+    }));
+    run.events.extend(lap.events.drain(..).map(|mut e| {
+        e.t += t0;
+        e
+    }));
+    let (a, b) = (&mut run.report, &lap.report);
+    for (x, y) in [
+        (&mut a.steps, b.steps),
+        (&mut a.residual_evals, b.residual_evals),
+        (&mut a.vars_evals, b.vars_evals),
+        (&mut a.jacobian_evals, b.jacobian_evals),
+        (&mut a.lu_factorisations, b.lu_factorisations),
+        (&mut a.newton_iterations, b.newton_iterations),
+        (&mut a.gz_refreshes, b.gz_refreshes),
+        (&mut a.step_redos, b.step_redos),
+        (&mut a.newton_restarts, b.newton_restarts),
+        (&mut a.events, b.events),
+        (&mut a.block_changes, b.block_changes),
+    ] {
+        *x += y;
+    }
+    if b.max_error > a.max_error {
+        a.max_error = b.max_error;
+        a.max_error_at = b.max_error_at + t0;
+    }
+    run.wall_seconds += lap.wall_seconds;
+    for (x, y) in run.integrals.iter_mut().zip(&lap.integrals) {
+        *x += y;
+    }
+    for (x, y) in run.integrals_abs.iter_mut().zip(&lap.integrals_abs) {
+        *x += y;
+    }
+    run.q_end = lap.q_end;
+    run.end_y = lap.end_y;
+    run.end_d = lap.end_d;
+    run
 }
 
 /// Full acceleration from `v_start` (Heun's method over each spacing),
@@ -766,7 +898,8 @@ mod tests {
         let (model, parts) = fs_car();
         let by_hand = 6500.0 * std::f64::consts::PI / 30.0 / 4.4 * 0.228;
         let tr = track(2000, 1e9, 1);
-        let p = solve(&model, &model.info.params, &parts, &tr, &LapOptions::default()).unwrap();
+        let p =
+            solve(&model, &model.info.params, &parts, &tr, &LapOptions::default(), None).unwrap();
         assert!((p.v_cap - by_hand).abs() < 1e-3 * by_hand, "{} against {by_hand}", p.v_cap);
         let top = p.v.iter().cloned().fold(0.0, f64::max);
         // (where the fading torque meets the road load: 35.005 m/s)
@@ -780,7 +913,7 @@ mod tests {
     #[test]
     fn braking_probes_at_or_below_the_cap_all_solve() {
         let (model, parts) = fs_car();
-        let mut car = Car::new(&model, &model.info.params, &parts, 0.0).unwrap();
+        let mut car = Car::new(&model, &model.info.params, &parts, 0.0, None).unwrap();
         let cap = car.v_cap;
         for kappa in [0.0, 0.02, 0.1] {
             for k in 0..=40 {
@@ -802,7 +935,8 @@ mod tests {
     fn the_limits_are_named_as_the_car_meets_them() {
         let (model, parts) = fs_car();
         let tr = track(200, 15.0, 40);
-        let p = solve(&model, &model.info.params, &parts, &tr, &LapOptions::default()).unwrap();
+        let p =
+            solve(&model, &model.info.params, &parts, &tr, &LapOptions::default(), None).unwrap();
         assert_eq!((p.code[0], p.cause[0]), (Code::Traction, Cause::RearAxle));
         assert!(p.code.iter().zip(&p.cause).any(|(c, w)| *c == Code::Cap && *w == Cause::PowerCap));
         assert!(
@@ -829,9 +963,39 @@ mod tests {
         let (model, parts) = fs_car();
         let tr = track(100, 1e9, 1);
         let opt = LapOptions { v_start: 10.0, stop: true, ..Default::default() };
-        let p = solve(&model, &model.info.params, &parts, &tr, &opt).unwrap();
+        let p = solve(&model, &model.info.params, &parts, &tr, &opt, None).unwrap();
         assert_eq!(*p.v.last().unwrap(), 0.0);
         assert_eq!(*p.code.last().unwrap(), Code::Braking);
+    }
+
+    /// Two laps' energy passes, the second from the first one's end state,
+    /// join into one run: its time goes on, no point twice, the battery's
+    /// energy carried over, and the books close over both.
+    #[test]
+    fn laps_driven_on_join_into_one_run_whose_books_close() {
+        let (model, parts) = fs_car();
+        let tr = track(150, 20.0, 60);
+        let (q, _) = model.books_quantities();
+        let p = &model.info.params;
+        let (mut run, mut state, mut v0) = (None, None::<State>, 0.0);
+        let mut ends = vec![];
+        for k in 0..2 {
+            let opt = LapOptions { v_start: v0, more: k == 0, ..Default::default() };
+            let prof = solve(&model, p, &parts, &tr, &opt, state.as_ref()).unwrap();
+            let r = drive(&model, p, &tr, &prof, state.as_ref(), &q).unwrap();
+            let e = r.channel("el_battery.e_delivered").unwrap();
+            ends.push((*e.first().unwrap(), *e.last().unwrap(), r.times.len()));
+            v0 = *prof.v.last().unwrap();
+            state = Some(State { y: r.end_y.clone(), d: r.end_d.clone() });
+            run = Some(join(run, r));
+        }
+        let run = run.unwrap();
+        assert_eq!(ends[1].0, ends[0].1, "the second lap starts with the first one's energy");
+        assert_eq!(run.times.len(), ends[0].2 + ends[1].2 - 1);
+        assert!(run.times.windows(2).all(|w| w[1] > w[0]));
+        assert_eq!(*run.channel("el_battery.e_delivered").unwrap().last().unwrap(), ends[1].1);
+        let b = model.books(&run);
+        assert!(b.closure.abs() < 1e-6 * b.throughput, "{b:?}");
     }
 
     fn window() -> Window {

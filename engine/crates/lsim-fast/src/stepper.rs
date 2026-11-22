@@ -85,6 +85,23 @@ use std::time::Instant;
 
 const MAX_NEWTON: usize = 30;
 const MAX_EVENTS_PER_STEP: usize = 64;
+
+/// Why a step stopped on events that keep firing, with the clauses of the
+/// last ones.
+fn chatter(events: &[FastEvent]) -> String {
+    let mut last: Vec<&str> = vec![];
+    for e in events.iter().rev().take(16) {
+        if !last.contains(&e.label.as_str()) {
+            last.push(&e.label);
+        }
+    }
+    let ts: Vec<String> = events.iter().rev().take(8).map(|e| format!("{:.12}", e.t)).collect();
+    format!(
+        "events keep firing (more than {MAX_EVENTS_PER_STEP} in one step: {}; the last at t = {})",
+        last.join("; "),
+        ts.join(", ")
+    )
+}
 /// An iteration variable this many times its size so far (its largest
 /// magnitude at a consistent point, at least its nominal) has run away:
 /// its solve fails there instead of calling a step small beside such a
@@ -1047,6 +1064,31 @@ struct Recording<'s, 't> {
     sites: &'t [LimitSite],
     ders: &'t [Option<DerSrc>],
     lim: Vec<[f64; 3]>,
+    /// the quantities integrated over the run, and their integrals
+    quant: Quantities<'t>,
+}
+
+/// [`crate::FastProblem::integrate`]'s quantities: their values at the
+/// step's start, their integrals and their magnitudes', their first and
+/// last values.
+struct Quantities<'t> {
+    exprs: &'t [lsim_ir::expr::Expr],
+    at_start: Vec<f64>,
+    mid: Vec<f64>,
+    end: Vec<f64>,
+    int: Vec<f64>,
+    int_abs: Vec<f64>,
+    first: Option<Vec<f64>>,
+}
+
+impl Quantities<'_> {
+    /// Each quantity at a point (its variables `vars`) into `out`.
+    fn eval_into(&self, st: &Stepper<'_>, t: f64, vars: &[f64], xdot: &[f64], out: &mut [f64]) {
+        let pt = limits::Point { t, vars, p: st.p, y: &st.y, xdot, ders: &[], model: st.m };
+        for (o, e) in out.iter_mut().zip(self.exprs) {
+            *o = lsim_ir::eval::eval(e, &pt);
+        }
+    }
 }
 
 /// Evaluates every limit at a point and hands it to the tracker.
@@ -1094,11 +1136,34 @@ impl Recording<'_, '_> {
                 &st.out[..nx],
             );
         }
+        if !self.quant.exprs.is_empty() && self.stats {
+            let mut mid = std::mem::take(&mut self.quant.mid);
+            self.quant.eval_into(st, a.t + 0.5 * h, &self.v_mid, &st.out[..nx], &mut mid);
+            self.quant.mid = mid;
+        }
         st.y[..nx].copy_from_slice(&b.x);
         st.y[nx..].copy_from_slice(&b.z);
         st.u.copy_from_slice(&b.u);
         st.vars_into(b.t, &mut self.v_end);
         track(&mut self.tracker, self.sites, self.ders, &mut self.lim, st, b.t, &self.v_end, &b.f);
+        if !self.quant.exprs.is_empty() {
+            let mut end = std::mem::take(&mut self.quant.end);
+            self.quant.eval_into(st, b.t, &self.v_end, &b.f, &mut end);
+            let q = &mut self.quant;
+            for k in 0..end.len() {
+                let (s, e) = (q.at_start[k], end[k]);
+                let (area, abs) = if self.stats {
+                    let m = q.mid[k];
+                    (h * (s + 4.0 * m + e) / 6.0, h * (s.abs() + 4.0 * m.abs() + e.abs()) / 6.0)
+                } else {
+                    (0.5 * h * (s + e), 0.5 * h * (s.abs() + e.abs()))
+                };
+                q.int[k] += area;
+                q.int_abs[k] += abs;
+            }
+            q.at_start.copy_from_slice(&end);
+            q.end = end;
+        }
         let rec = self.acc.rec;
         for (j, &i) in rec.iter().enumerate() {
             let (s, e) = (self.v_start[i], self.v_end[i]);
@@ -1123,6 +1188,15 @@ impl Recording<'_, '_> {
     fn restart(&mut self, st: &mut Stepper<'_>, t: f64) {
         if self.need_vars {
             st.vars_into(t, &mut self.v_start);
+            if !self.quant.exprs.is_empty() {
+                let mut s0 = std::mem::take(&mut self.quant.at_start);
+                self.quant.eval_into(st, t, &self.v_start, &st.out[..st.nx], &mut s0);
+                if self.quant.first.is_none() {
+                    self.quant.first = Some(s0.clone());
+                    self.quant.end.copy_from_slice(&s0);
+                }
+                self.quant.at_start = s0;
+            }
             let st: &Stepper<'_> = st;
             track(
                 &mut self.tracker,
@@ -1250,16 +1324,24 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
     let bps: Vec<Vec<usize>> = prob.traces.iter().map(|t| t.breakpoints()).collect();
     let n_out = ((t_end - t_start) / o.step - 1e-9).ceil().max(1.0) as usize;
     let grid: Vec<f64> = (0..=n_out).map(|k| (t_start + k as f64 * o.step).min(t_end)).collect();
-    let mut bounds: Vec<(f64, bool)> = grid.iter().map(|t| (*t, true)).collect();
+    let last = grid.len() - 1;
+    let mut bounds: Vec<(f64, bool)> =
+        grid.iter().enumerate().map(|(k, t)| (*t, o.output_grid || k == 0 || k == last)).collect();
     let eps = 1e-9 * o.step;
-    for (tr, bp) in prob.traces.iter().zip(&bps) {
-        for tk in bp.iter().map(|&k| tr.t[k]) {
+    // (every sample of the first trace too, as output points, where asked)
+    let samples: Vec<usize> = match prob.traces.first() {
+        Some(tr) if o.output_at_samples => (0..tr.t.len()).collect(),
+        _ => vec![],
+    };
+    for (i, (tr, bp)) in prob.traces.iter().zip(&bps).enumerate() {
+        let at: &[usize] = if i == 0 && o.output_at_samples { &samples } else { bp };
+        for tk in at.iter().map(|&k| tr.t[k]) {
             if tk > t_start + eps && tk < t_end - eps {
                 let k = ((tk - t_start) / o.step).floor() as usize;
                 let near = grid.get(k).is_some_and(|g| (g - tk).abs() <= eps)
                     || grid.get(k + 1).is_some_and(|g| (g - tk).abs() <= eps);
                 if !near {
-                    bounds.push((tk, false));
+                    bounds.push((tk, o.output_at_samples));
                 }
             }
         }
@@ -1345,8 +1427,9 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         .map(|&i| prob.names.get(i).cloned().unwrap_or_else(|| format!("v[{i}]")))
         .collect();
     let nv = l.n_vars;
+    let nq = prob.integrate.len();
     let mut out = Recording {
-        need_vars: nrec > 0 || !prob.limits.is_empty() || !blocks.is_empty(),
+        need_vars: nrec > 0 || !prob.limits.is_empty() || !blocks.is_empty() || nq > 0,
         stats: o.interval_stats,
         v_start: vec![0.0; nv],
         v_mid: vec![0.0; nv],
@@ -1362,6 +1445,15 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         sites: prob.limits,
         ders: prob.ders,
         lim: vec![[0.0; 3]; prob.limits.len()],
+        quant: Quantities {
+            exprs: prob.integrate,
+            at_start: vec![0.0; nq],
+            mid: vec![0.0; nq],
+            end: vec![0.0; nq],
+            int: vec![0.0; nq],
+            int_abs: vec![0.0; nq],
+            first: None,
+        },
     };
     let mut times = Vec::with_capacity(n_out + 1);
     let mut values = Vec::with_capacity((n_out + 1) * nrec);
@@ -1529,10 +1621,7 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
             if !side.is_empty() {
                 n_events += 1;
                 if n_events > MAX_EVENTS_PER_STEP {
-                    return Err(FastError::NoConvergence {
-                        t: a.t,
-                        what: "events keep firing (more than 64 in one step)".into(),
-                    });
+                    return Err(FastError::NoConvergence { t: a.t, what: chatter(&events) });
                 }
                 if !st.held.is_empty() {
                     st.rep.events += 1;
@@ -1600,10 +1689,7 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
             };
             n_events += 1;
             if n_events > MAX_EVENTS_PER_STEP {
-                return Err(FastError::NoConvergence {
-                    t: te,
-                    what: "events keep firing (more than 64 in one step)".into(),
-                });
+                return Err(FastError::NoConvergence { t: te, what: chatter(&events) });
             }
             // an event at the step's end ends the step there (no step of
             // no length after it)
@@ -1635,6 +1721,16 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
             // the event iteration from there (the modes settled, a `when`
             // the actions make true fired)
             event_mode(&mut st, prob.whens, te, &mut r_start, &mut buf, &mut events, &[])?;
+            // a crossing the step's interpolant had passed at te that the
+            // state stepped to te has not quite (they differ by the step's
+            // error) is taken as passed, else it is found again at te, and
+            // again (a mode that reads otherwise is set at the step's end)
+            for (k, wi) in prob.whens.iter().enumerate() {
+                let c = wi.crossing;
+                if fired[k] != 0.0 && r_tmp[c] != 0.0 && fires(wi, r_start[c], r_tmp[c]) {
+                    r_start[c] = r_tmp[c];
+                }
+            }
             st.capture(te, &mut a);
             out.restart(&mut st, te);
             if at_end {
@@ -1658,6 +1754,7 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         }
     }
     let flags = out.tracker.finish(t_end);
+    let q = out.quant;
     Ok(FastResult {
         times,
         names,
@@ -1668,7 +1765,13 @@ pub fn run(prob: &FastProblem<'_>, blocks: &mut [BoundBlock]) -> Result<FastResu
         mean: vmean,
         flags,
         events,
+        end_y: st.y.clone(),
+        end_d: st.d.clone(),
         report: st.rep,
         wall_seconds: started.elapsed().as_secs_f64(),
+        q_start: q.first.unwrap_or_else(|| vec![0.0; nq]),
+        q_end: q.end,
+        integrals: q.int,
+        integrals_abs: q.int_abs,
     })
 }

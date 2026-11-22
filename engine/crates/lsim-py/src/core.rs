@@ -838,51 +838,77 @@ pub fn fast(
             .fast_with(&model.info.params, std::slice::from_ref(&trace), &o, None, &mut [])
             .map_err(|e| fail(&e))?;
         let wall_seconds = started.elapsed().as_secs_f64();
-        let columns = |table: &[f64]| (0..r.names.len()).map(|j| r.column(table, j)).collect();
-        let result = SimResult {
-            times: r.times.clone(),
-            names: r.names.clone(),
-            values: columns(&r.values),
-            min: columns(&r.min),
-            max: columns(&r.max),
-            mean: columns(&r.mean),
-            left_limits: vec![],
-            square_integral: vec![],
-            magnitude_integral: vec![],
-            trace: None,
-            windows: vec![],
-            events: vec![],
-            stats: Default::default(),
-            backend: "fast",
-            options: SolverOptions::default(),
-            wall_seconds,
-            energy: None,
-            report: lsim_solve::SolverReport {
-                table_outside: fast_table_outside(&model, &r)?,
-                ..Default::default()
-            },
-        };
-        let params = model.info.params.clone();
-        let flat = &model.prepared.flat;
-        let param =
-            |name: &str| flat.find_param(name).and_then(|id| params.get(id.0 as usize).copied());
-        let figures = figures_with(&project, &rep, &param, &result);
-        let out = RunOutput {
-            result,
-            figures,
-            params: params.clone(),
-            wall_seconds,
-            reran: false,
+        let out = fast_output(
+            &project,
+            &rep,
+            &model,
+            model.info.params.clone(),
+            r,
+            step,
             t_end,
-            output_step: step,
-            scripts: vec![],
-            trace_names: None,
-            window_names: vec![],
-            edits: vec![],
-            fast: Some(FastOut { flags: r.flags, events: r.events, report: r.report, step }),
-        };
+            wall_seconds,
+        )?;
         let built = Built { model, rep, project, case_id: case_id.to_string(), import_seconds };
         Ok((built, out))
+    })
+}
+
+/// A fast-mode run's output (`r`, with the parameters `params`, its step
+/// `step`, its end `t_end` and wall-clock time `wall_seconds`) as a run's:
+/// its channels, today's figures, its table reads past their data, its
+/// flags, events and report.
+#[allow(clippy::too_many_arguments)]
+pub fn fast_output(
+    project: &Value,
+    rep: &ImportReport,
+    model: &lsim_engine::Model,
+    params: Vec<f64>,
+    r: lsim_engine::lsim_fast::FastResult,
+    step: f64,
+    t_end: f64,
+    wall_seconds: f64,
+) -> Result<RunOutput, Failure> {
+    let columns = |table: &[f64]| (0..r.names.len()).map(|j| r.column(table, j)).collect();
+    let result = SimResult {
+        times: r.times.clone(),
+        names: r.names.clone(),
+        values: columns(&r.values),
+        min: columns(&r.min),
+        max: columns(&r.max),
+        mean: columns(&r.mean),
+        left_limits: vec![],
+        square_integral: vec![],
+        magnitude_integral: vec![],
+        trace: None,
+        windows: vec![],
+        events: vec![],
+        stats: Default::default(),
+        backend: "fast",
+        options: SolverOptions::default(),
+        wall_seconds,
+        energy: None,
+        report: lsim_solve::SolverReport {
+            table_outside: fast_table_outside(model, &r)?,
+            ..Default::default()
+        },
+    };
+    let flat = &model.prepared.flat;
+    let param =
+        |name: &str| flat.find_param(name).and_then(|id| params.get(id.0 as usize).copied());
+    let figures = figures_with(project, rep, &param, &result);
+    Ok(RunOutput {
+        result,
+        figures,
+        params: params.clone(),
+        wall_seconds,
+        reran: false,
+        t_end,
+        output_step: step,
+        scripts: vec![],
+        trace_names: None,
+        window_names: vec![],
+        edits: vec![],
+        fast: Some(FastOut { flags: r.flags, events: r.events, report: r.report, step }),
     })
 }
 

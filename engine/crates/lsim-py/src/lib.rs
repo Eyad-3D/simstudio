@@ -1287,6 +1287,170 @@ fn lap_model(
     })
 }
 
+/// The laps driven so far, and the last profile solved.
+#[derive(Default)]
+struct DriveState {
+    car: Option<lsim_lap::State>,
+    track: Option<lsim_lap::Track>,
+    prof: Option<lsim_lap::Profile>,
+    run: Option<lsim_engine::lsim_fast::FastResult>,
+    seconds: f64,
+}
+
+/// A lap case's laps driven one after another (`LapModel.laps()`):
+/// `solve` a lap's profile from the car's state where the last lap
+/// ended, `drive` it (its energy pass, joined onto the laps before),
+/// `finish` for the run.
+#[pyclass(module = "lightsim_engine", frozen)]
+struct LapDrive {
+    built: Arc<core::Built>,
+    parts: lsim_lap::Parts,
+    params: Vec<f64>,
+    quantities: Vec<lsim_engine::lsim_ir::expr::Expr>,
+    state: Mutex<DriveState>,
+}
+
+fn books_map(b: &lsim_engine::FastBooks) -> BTreeMap<String, f64> {
+    [
+        ("supplied", b.supplied),
+        ("lost", b.lost),
+        ("stored_change", b.stored_change),
+        ("closure", b.closure),
+        ("throughput", b.throughput),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v))
+    .collect()
+}
+
+#[pymethods]
+impl LapDrive {
+    /// The next lap's profile, as `LapModel.solve`'s, from the car's state
+    /// where the last lap driven ended (the model's own start before the
+    /// first).
+    #[pyo3(signature = (kappa, sin_t, ds, closed, v_start, coast=0.0, more=false, stop=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn solve<'py>(
+        &self,
+        py: Python<'py>,
+        kappa: Vec<f64>,
+        sin_t: Vec<f64>,
+        ds: f64,
+        closed: bool,
+        v_start: f64,
+        coast: f64,
+        more: bool,
+        stop: bool,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let mut st = self.state.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
+        let track = lsim_lap::Track { kappa, sin_t, ds, closed };
+        let opt = lsim_lap::LapOptions { v_start, coast, more, stop };
+        let t0 = std::time::Instant::now();
+        let (model, params, parts, car) =
+            (&self.built.model, &self.params, &self.parts, st.car.as_ref());
+        let prof = py
+            .detach(|| lsim_lap::solve(model, params, parts, &track, &opt, car))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let seconds = t0.elapsed().as_secs_f64();
+        st.seconds += seconds;
+        st.track = Some(track);
+        st.prof = Some(prof.clone());
+        profile_dict(py, prof, seconds)
+    }
+
+    /// The energy pass along the last profile solved: with `keep` it is
+    /// joined onto the laps before and the next lap starts where it ends;
+    /// without, it is only measured (a lift-and-coast share tried). A dict
+    /// of the lap's `books` (supplied, lost, stored_change, closure,
+    /// throughput, J), the `end` values of the channels `names` (SI, NaN
+    /// for a name not recorded), its `flags` (each as `Run.report`'s, its
+    /// times from the lap's start) and its `seconds`.
+    #[pyo3(signature = (keep=true, names=vec![]))]
+    fn drive<'py>(
+        &self,
+        py: Python<'py>,
+        keep: bool,
+        names: Vec<String>,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let mut st = self.state.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
+        let (Some(track), Some(prof)) = (st.track.as_ref(), st.prof.as_ref()) else {
+            return Err(PyValueError::new_err("no lap solved to drive"));
+        };
+        let t0 = std::time::Instant::now();
+        let (model, params, q, car) =
+            (&self.built.model, &self.params, &self.quantities, st.car.as_ref());
+        let r = py
+            .detach(|| lsim_lap::drive(model, params, track, prof, car, q))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let seconds = t0.elapsed().as_secs_f64();
+        st.seconds += seconds;
+        let d = PyDict::new(py);
+        d.set_item("books", books_map(&model.books(&r)))?;
+        let end = PyDict::new(py);
+        for n in &names {
+            let x = r.channel(n).and_then(|c| c.last().copied()).unwrap_or(f64::NAN);
+            end.set_item(n, x)?;
+        }
+        d.set_item("end", end)?;
+        let flags = PyList::empty(py);
+        for f in &r.flags {
+            flags.append((
+                f.t_start,
+                f.t_end,
+                f.label.clone(),
+                f.part.clone(),
+                f.upper,
+                f.worst_excess,
+                f.unit.clone(),
+            ))?;
+        }
+        d.set_item("flags", flags)?;
+        d.set_item("seconds", seconds)?;
+        if keep {
+            st.car = Some(lsim_lap::State { y: r.end_y.clone(), d: r.end_d.clone() });
+            st.run = Some(lsim_lap::join(st.run.take(), r));
+        }
+        Ok(d)
+    }
+
+    /// The laps' energy books together, as `drive`'s (None before a lap
+    /// is kept).
+    fn books(&self) -> PyResult<Option<BTreeMap<String, f64>>> {
+        let st = self.state.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
+        Ok(st.run.as_ref().map(|r| books_map(&self.built.model.books(r))))
+    }
+
+    /// The laps kept, as one run (the `Run` that `fast` gives: channels,
+    /// figures, the energy passes' flags, events and report, its step the
+    /// energy pass's longest), or None before a lap is kept. The laps can
+    /// go on after.
+    fn finish(&self, py: Python<'_>) -> PyResult<Option<Run>> {
+        let st = self.state.lock().map_err(|_| PyValueError::new_err("poisoned"))?;
+        let Some(r) = st.run.clone() else { return Ok(None) };
+        let t_end = *r.times.last().unwrap_or(&0.0);
+        let (b, params, seconds) = (&self.built, self.params.clone(), st.seconds);
+        let out = py
+            .detach(|| {
+                core::fast_output(
+                    &b.project,
+                    &b.rep,
+                    &b.model,
+                    params,
+                    r,
+                    lsim_lap::BOOKS_STEP,
+                    t_end,
+                    seconds,
+                )
+            })
+            .map_err(|f| to_err(py, f))?;
+        Ok(Some(Run::new(Arc::clone(&self.built), out)))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("LapDrive({:?})", self.built.case_id)
+    }
+}
+
 /// A lap case's model (`lap_model`).
 #[pyclass(module = "lightsim_engine", frozen)]
 struct LapModel {
@@ -1343,32 +1507,26 @@ impl LapModel {
         let built = Arc::clone(&self.built);
         let parts = self.parts.clone();
         let prof = py
-            .detach(move || lsim_lap::solve(&built.model, &params, &parts, &track, &opt))
+            .detach(move || lsim_lap::solve(&built.model, &params, &parts, &track, &opt, None))
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let seconds = t0.elapsed().as_secs_f64();
-        let d = PyDict::new(py);
-        d.set_item("v", prof.v)?;
-        d.set_item("t", prof.t)?;
-        d.set_item("code", prof.code.iter().map(|c| *c as u32).collect::<Vec<_>>())?;
-        d.set_item("cause", prof.cause.iter().map(|c| *c as u32).collect::<Vec<_>>())?;
-        d.set_item("apex", prof.apex)?;
-        d.set_item("v_cap", prof.v_cap)?;
-        let s = prof.stats;
-        d.set_item(
-            "stats",
-            [
-                ("solves", s.solves),
-                ("cold", s.cold),
-                ("failed", s.failed),
-                ("iterations", s.iterations),
-                ("residuals", s.residuals),
-                ("refreshes", s.refreshes),
-            ]
-            .into_iter()
-            .collect::<BTreeMap<_, _>>(),
-        )?;
-        d.set_item("seconds", seconds)?;
-        Ok(d)
+        profile_dict(py, prof, seconds)
+    }
+
+    /// A lap case's laps, driven one after another (`LapDrive`): each
+    /// lap's profile from the car's state at its start, then its energy
+    /// pass, joined into one run. With the parameters set now.
+    fn laps(&self) -> PyResult<LapDrive> {
+        let params =
+            self.params.lock().map_err(|_| PyValueError::new_err("poisoned"))?.values.clone();
+        let (quantities, _) = self.built.model.books_quantities();
+        Ok(LapDrive {
+            built: Arc::clone(&self.built),
+            parts: self.parts.clone(),
+            params,
+            quantities,
+            state: Mutex::new(DriveState::default()),
+        })
     }
 
     /// The car at one instant: speed `v` (m/s), acceleration `a` (m/s²),
@@ -1550,8 +1708,40 @@ fn lightsim_engine(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(spike, m)?)?;
     m.add_class::<Model>()?;
     m.add_class::<LapModel>()?;
+    m.add_class::<LapDrive>()?;
     m.add_class::<Run>()?;
     m.add_class::<RunControl>()?;
     m.add("ModelError", m.py().get_type::<ModelError>())?;
     Ok(())
+}
+
+/// One lap's profile (`lsim_lap::Profile`) as `LapModel.solve` gives it.
+fn profile_dict(
+    py: Python<'_>,
+    prof: lsim_lap::Profile,
+    seconds: f64,
+) -> PyResult<Bound<'_, PyDict>> {
+    let d = PyDict::new(py);
+    d.set_item("v", prof.v)?;
+    d.set_item("t", prof.t)?;
+    d.set_item("code", prof.code.iter().map(|c| *c as u32).collect::<Vec<_>>())?;
+    d.set_item("cause", prof.cause.iter().map(|c| *c as u32).collect::<Vec<_>>())?;
+    d.set_item("apex", prof.apex)?;
+    d.set_item("v_cap", prof.v_cap)?;
+    let s = prof.stats;
+    d.set_item(
+        "stats",
+        [
+            ("solves", s.solves),
+            ("cold", s.cold),
+            ("failed", s.failed),
+            ("iterations", s.iterations),
+            ("residuals", s.residuals),
+            ("refreshes", s.refreshes),
+        ]
+        .into_iter()
+        .collect::<BTreeMap<_, _>>(),
+    )?;
+    d.set_item("seconds", seconds)?;
+    Ok(d)
 }
