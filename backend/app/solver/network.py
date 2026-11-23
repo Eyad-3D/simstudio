@@ -673,6 +673,14 @@ def build_model(
                                         f"— that loop is not supported.", j_el))
                     ok = False
                     continue
+                kind = p.get("type", "Open")
+                if cdef.id == "mech.differential" and kind == "Limited-slip":
+                    errors.append(about(
+                        f"'{elements[j_el].label}' is a Limited-slip differential, which only "
+                        f"the app's engine models (the older engine models Open and Locked "
+                        f"ones): run it on the app's engine.", j_el))
+                    ok = False
+                    continue
                 f_b = 0.5
                 if cdef.id == "mech.transfer_case":
                     f_b = 1.0 - max(0.0, min(1.0, float(p.get("torque_split_a_pct", 50)) / 100.0))
@@ -681,7 +689,8 @@ def build_model(
                     ratio=float(p.get("ratio", 1.0)) or 1.0,
                     eff=(1.0 if cdef.id in lossless
                          else max(1e-3, float(p.get("efficiency_pct", 100)) / 100.0)),
-                    locked=bool(p.get("locked", False)),
+                    # its Type, or an older project's (a transfer case's) Locked box
+                    locked=kind == "Locked" or bool(p.get("locked", False)),
                     f_b=f_b,
                     parent_seg=sp,
                     parent_m=dl.segments[sp].port_ms[pin[0]] if pin else 1.0,

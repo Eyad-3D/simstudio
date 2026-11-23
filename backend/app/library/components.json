@@ -2196,7 +2196,7 @@
       "name": "Differential",
       "icon": "git-fork",
       "domain": "mechanical",
-      "description": "Splits one mechanical input to two outputs. Unlocked (open): equal torque to both sides, output speeds free (input speed = Ratio × the outputs' mean speed). Locked: both outputs forced to the same speed, torque split follows the grip on each side.",
+      "description": "Splits one mechanical input to two outputs. Its Type says how the two outputs are tied. Open: equal torque to both sides, their speeds free (input speed = Ratio × the outputs' mean speed), so the side with less grip sets what the axle can push. Locked: both outputs at one speed, the torque split follows each side's grip. Limited-slip: open, with a friction clutch between the two sides that lets their torques differ by up to its locking torque (Preload + the locking share × the torque through it); while the sides turn at different speeds it passes that torque from the faster side to the slower one, and its friction turns the slip into heat (in Losses).",
       "ports": [
         {
           "id": "flange_in",
@@ -2260,14 +2260,54 @@
       ],
       "parameters": [
         {
-          "key": "locked",
-          "label": "Locked",
+          "key": "type",
+          "variability": "fixed",
+          "label": "Type",
           "unit": "-",
-          "default": false,
-          "type": "boolean",
-          "description": "Unticked (open): both outputs get the same torque and may turn at different speeds. Ticked: both outputs turn at the same speed, and each gets the torque its wheel's grip allows.",
-          "typical": "Unticked for road cars; ticked for a locked axle or spool.",
-          "whereToFind": "The car's specification: an open, limited-slip or locked differential (a limited-slip one lies between the two)."
+          "default": "Open",
+          "type": "enum",
+          "options": ["Open", "Locked", "Limited-slip"],
+          "description": "How the two outputs are tied. Open: both get the same torque and may turn at different speeds, so in a corner or on a slippery side the wheel with less grip holds the axle back. Locked: both turn at the same speed and each gets the torque its wheel's grip allows. Limited-slip: open, with a friction clutch between the two sides that sends up to its locking torque to the side that turns slower (the one with grip, when the other spins).",
+          "typical": "Open for most road cars; Limited-slip for sports cars and Formula Student cars; Locked for a spool (karts, some drag and off-road cars).",
+          "whereToFind": "The car's specification. A project saved before the Differential had a Type, with its Locked box ticked, opens as Locked."
+        },
+        {
+          "key": "preload_Nm",
+          "showIf": {"key": "type", "values": ["Limited-slip"]},
+          "label": "Preload",
+          "unit": "N·m",
+          "default": 40,
+          "type": "number",
+          "minimum": 0,
+          "description": "The locking torque with no torque through the differential: the torque that turns one output while the other is held and the input turns freely (the breakaway torque). It comes from the springs that press the clutch plates together.",
+          "typical": "About 10–40 N·m in Formula Student cars; 30–150 N·m in road and track cars.",
+          "whereToFind": "The differential's data sheet or setup sheet (preload, breakaway or pre-tension torque), or measured: one wheel held, the other turned with a torque wrench, the car in neutral."
+        },
+        {
+          "key": "lock_drive_pct",
+          "showIf": {"key": "type", "values": ["Limited-slip"]},
+          "label": "Locking Under Power",
+          "unit": "%",
+          "default": 40,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "While the motor drives the wheels: how far the two outputs' torques may differ, as a share of the torque through the differential (on top of twice the Preload). At 40 % with 1,000 N·m through it, one side can take up to 700 N·m and the other 300 N·m. A data sheet that gives a torque bias ratio TBR (the most torque one side gets over the other's) means a share of (TBR − 1) ÷ (TBR + 1): TBR 2 is 33 %, TBR 3 is 50 %.",
+          "typical": "25–60 % (the ramp angle on the drive side: a steeper ramp locks less).",
+          "whereToFind": "The differential's data sheet: the locking value or ramp setting for drive (power, acceleration), or its torque bias ratio."
+        },
+        {
+          "key": "lock_coast_pct",
+          "showIf": {"key": "type", "values": ["Limited-slip"]},
+          "label": "Locking Off Power",
+          "unit": "%",
+          "default": 25,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "The same while the wheels drive the motor back (lifting off, recuperating): how far the two outputs' torques may differ, as a share of the torque through the differential (on top of twice the Preload).",
+          "typical": "0–60 % (the ramp on the coast side; often less than under power).",
+          "whereToFind": "The differential's data sheet: the locking value or ramp setting for coast (deceleration, overrun)."
         },
         {
           "key": "ratio",

@@ -6,6 +6,7 @@
 //! project to the same facts.
 
 use lsim_lib::blocks::catalog::{self, AppUnit, app_unit};
+use lsim_lib::blocks::driveline;
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
@@ -219,6 +220,9 @@ pub struct Facts {
     /// a lap case's model (`ImportOptions::lap`): the inverse model with
     /// the lap variants of the Race Track, the Vehicle and its wheels
     pub lap: bool,
+    /// fast mode: each locked or limited-slip differential's wheels, on
+    /// outputs a and b ([`grip_splits`])
+    pub grip_splits: BTreeMap<String, (String, String)>,
     /// warnings
     pub warnings: Vec<String>,
 }
@@ -759,4 +763,80 @@ fn kinematics(f: &mut Facts) {
         }
     }
     f.kin = port_val;
+}
+
+/// How a differential's (or transfer case's) outputs are tied: its Type
+/// (Open, Locked, Limited-slip; a transfer case has none), where an older
+/// project's ticked Locked box counts as Locked.
+pub fn split_kind(e: &Element) -> driveline::SplitKind {
+    use driveline::SplitKind::*;
+    match catalog::text(&e.params, "type", "Open") {
+        "Locked" => Locked,
+        "Limited-slip" if e.kind == "mech.differential" => LimitedSlip,
+        _ if catalog::flag(&e.params, "locked", false) => Locked,
+        _ => Open,
+    }
+}
+
+/// Fast mode: each locked or limited-slip differential's wheel on output a
+/// and on output b, whose grip sets how it splits its torque there
+/// (driveline::split). Each output needs one Wheel on the Vehicle on its
+/// own shaft (through Shafts, Mechanical Nodes and Brakes); an error names
+/// one that has none.
+pub fn grip_splits(f: &Facts) -> Result<BTreeMap<String, (String, String)>, Vec<String>> {
+    let mut peers: HashMap<End, Vec<End>> = HashMap::new();
+    for (a, b) in &f.wires {
+        peers.entry(a.clone()).or_default().push(b.clone());
+        peers.entry(b.clone()).or_default().push(a.clone());
+    }
+    // the wheels on the shaft a port turns
+    let wheels_on = |start: End| -> Vec<String> {
+        let mut seen: BTreeSet<End> = BTreeSet::new();
+        let mut todo = vec![start.clone()];
+        let mut found = vec![];
+        while let Some(p) = todo.pop() {
+            if !seen.insert(p.clone()) {
+                continue;
+            }
+            for q in peers.get(&p).into_iter().flatten() {
+                todo.push(q.clone());
+            }
+            if p == start {
+                continue; // not through the differential itself
+            }
+            let Some(&i) = f.index.get(&p.0) else { continue };
+            let e = &f.elements[i];
+            if e.kind == "propulsion.wheel" && f.wheels.contains_key(&e.id) {
+                found.push(e.id.clone());
+            }
+            let rigid = e.rigid();
+            if rigid.contains(&p.1.as_str()) {
+                todo.extend(rigid.iter().map(|r| (e.id.clone(), r.to_string())));
+            }
+        }
+        found.sort();
+        found.dedup();
+        found
+    };
+    let mut out = BTreeMap::new();
+    let mut errors = vec![];
+    for e in f.of_kind("mech.differential") {
+        let kind = split_kind(e);
+        if kind == driveline::SplitKind::Open {
+            continue;
+        }
+        let a = wheels_on((e.id.clone(), "flange_out_a".into()));
+        let b = wheels_on((e.id.clone(), "flange_out_b".into()));
+        match (a.as_slice(), b.as_slice()) {
+            ([a], [b]) if a != b => {
+                out.insert(e.id.clone(), (a.clone(), b.clone()));
+            }
+            _ => errors.push(format!(
+                "'{}' is a {} differential: in quick mode and in a lap its torque splits as its                  wheels' grip allows, so each of its outputs needs one Wheel of its own on the                  Vehicle, joined to it by Shafts, Mechanical Nodes or Brakes only. Run it in full                  dynamic mode, or make its Type Open.",
+                e.label,
+                if kind == driveline::SplitKind::Locked { "Locked" } else { "Limited-slip" }
+            )),
+        }
+    }
+    if errors.is_empty() { Ok(out) } else { Err(errors) }
 }
