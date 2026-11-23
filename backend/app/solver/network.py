@@ -674,13 +674,6 @@ def build_model(
                     ok = False
                     continue
                 kind = p.get("type", "Open")
-                if cdef.id == "mech.differential" and kind == "Limited-slip":
-                    errors.append(about(
-                        f"'{elements[j_el].label}' is a Limited-slip differential, which only "
-                        f"the app's engine models (the older engine models Open and Locked "
-                        f"ones): run it on the app's engine.", j_el))
-                    ok = False
-                    continue
                 f_b = 0.5
                 if cdef.id == "mech.transfer_case":
                     f_b = 1.0 - max(0.0, min(1.0, float(p.get("torque_split_a_pct", 50)) / 100.0))
@@ -1045,3 +1038,11 @@ def loop_warning(order: list[str], deps: dict[str, set[str]], label: dict[str, s
     return (f"Signal blocks {names} form a loop. Every solver step they run in this order, "
             f"and LightSim inserts a one-step delay (at most 10 ms) where {'; '.join(late)}: "
             f"that value is the one from the step before.")
+
+
+def limited_slip(model: Model) -> list[str]:
+    """The labels of the model's limited-slip differentials, which the older
+    engine does not model (its network holds them as open ones)."""
+    return [model.elements[i].label for i, c in model.cdef_of.items()
+            if c.id == "mech.differential"
+            and model.params_of[i].get("type") == "Limited-slip"]

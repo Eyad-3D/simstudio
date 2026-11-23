@@ -345,15 +345,15 @@ pub struct SplitConfig {
 /// friction with stiction between the two outputs (the clutch's, from
 /// rotational::friction_mode_eqs). Its torque `tau_c`, taken from output a
 /// and given to output b, is at most the locking capacity
-/// `preload + ½ · lock · |i·τ_x|`, `lock` the drive ramp's share while the
-/// torque through the gears drives forwards and the coast ramp's while it
-/// drives backwards: stuck, the outputs turn together and the coupling
+/// `preload + ½ · lock · |i·η_d·τ_x|` (the torque the gears pass on),
+/// `lock` the drive ramp's share while that torque drives forwards and the
+/// coast ramp's while it drives backwards: stuck, the outputs turn together and the coupling
 /// holds whatever keeps them so; slipping, it takes exactly its capacity
 /// from the faster output to the slower one, and its loss is `tau_c · s`,
 /// s = ω_a − ω_b. The two outputs' torques then differ by 2·tau_c: by the
 /// preload twice with no torque through it (the preload is the torque that
 /// turns one output with the other held and the input free) and by `lock`
-/// × the input torque without preload (the locking share the ramps give,
+/// × the torque through it without preload (the locking share the ramps give,
 /// a torque bias ratio of (1 + lock) / (1 − lock)).
 ///
 /// In fast mode's inverse model the wheels turn at the vehicle's speed and
@@ -457,14 +457,14 @@ pub fn split(cfg: SplitConfig) -> ComponentDef {
         vars.push(var("cap", "N.m", "the coupling's locking capacity now"));
         // drive ramp while the torque through the gears drives forwards,
         // coast ramp while it drives backwards (a kink at no torque: no event)
-        let t_in = || n("i") * n("tau_x");
+        let t_in = || n("i") * n("eta_d") * n("tau_x");
         eqs.push(eq(
             n("cap"),
             max(n("preload_Nm"), c(0.0))
                 + c(0.5)
                     * (clamp(n("lock_drive_pct"), c(0.0), c(1.0)) * noev(max(t_in(), c(0.0)))
                         + clamp(n("lock_coast_pct"), c(0.0), c(1.0)) * noev(max(-t_in(), c(0.0)))),
-            "preload + ½ × the ramp's locking share × the torque through the gears",
+            "preload + ½ × the ramp's locking share × the torque the gears pass on",
         ));
     }
     if inverse {
