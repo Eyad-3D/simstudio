@@ -558,9 +558,14 @@ fn every_block_variant() -> Vec<ComponentDef> {
             n_ell: 1.8,
         }));
     }
+    let five = electric::NODE_TERMINALS.map(String::from);
+    let own: Vec<String> = ["t1", "t2", "t4", "t6", "t7"].map(String::from).to_vec();
     for source in [None, Some(0), Some(2)] {
-        v.push(electric::electric_node(source));
+        v.push(electric::electric_node(&five, source));
+        v.push(electric::electric_node(&own, source));
     }
+    let six: Vec<String> = (1..=6).map(|k| format!("f{k}")).collect();
+    v.push(lsim_lib::blocks::driveline::mech_node(&six));
     for (motors, consumers) in [(0, 1), (1, 0), (2, 3)] {
         v.push(electric::bus_manager(motors, consumers));
     }

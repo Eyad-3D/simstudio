@@ -25,6 +25,9 @@ pub struct Element {
     pub table_outside: Map<String, Value>,
     /// its dynamic ports (Script, FMU, Monitor)
     pub dynamic_ports: Vec<Value>,
+    /// a junction's terminals (Electric Node, Mechanical Node): its own list
+    /// (`terminals`), else the library's; empty for every other part
+    pub terminals: Vec<String>,
 }
 
 impl Element {
@@ -70,8 +73,50 @@ impl Element {
         if let Some(p) = self.dynamic_ports.iter().find(|p| p["id"] == port) {
             return Some(from(p));
         }
-        catalog::block(&self.kind)?["ports"].as_array()?.iter().find(|p| p["id"] == port).map(from)
+        let lib = catalog::block(&self.kind)?["ports"].as_array()?;
+        if !self.terminals.is_empty() {
+            // a junction's terminal is like its library's first; a library
+            // terminal the part does not list is not there
+            if self.terminals.iter().any(|t| t == port) {
+                return lib.first().map(from);
+            }
+            if lib.iter().any(|p| p["id"] == port && p["kind"] != "signal") {
+                return None;
+            }
+        }
+        lib.iter().find(|p| p["id"] == port).map(from)
     }
+
+    /// Its mechanical ports that turn together on one rigid shaft.
+    fn rigid(&self) -> Vec<&str> {
+        if self.kind == "mech.node" {
+            self.terminals.iter().map(String::as_str).collect()
+        } else {
+            rigid_ports(&self.kind).to_vec()
+        }
+    }
+}
+
+/// A junction's terminals: the part's own list (`terminals`), else the
+/// library's; none for any other part. An own list must name at least two
+/// different terminals.
+fn junction_terminals(kind: &str, el: &Value) -> Result<Vec<String>, String> {
+    use lsim_lib::blocks::{driveline::NODE_FLANGES, electric::NODE_TERMINALS};
+    let lib: &[&str] = match kind {
+        "electric.node" => &NODE_TERMINALS,
+        "mech.node" => &NODE_FLANGES,
+        _ => return Ok(vec![]),
+    };
+    let Some(own) = el["terminals"].as_array() else {
+        return Ok(lib.iter().map(|t| t.to_string()).collect());
+    };
+    let ts: Vec<String> = own.iter().filter_map(|t| t.as_str().map(String::from)).collect();
+    let unique: BTreeSet<&String> = ts.iter().collect();
+    if ts.len() < 2 || unique.len() != ts.len() || ts.len() != own.len() {
+        let label = el["label"].as_str().unwrap_or("");
+        return Err(format!("'{label}' needs at least two terminals, each named once."));
+    }
+    Ok(ts)
 }
 
 /// An end of a wire or link: (element id, port id).
@@ -301,6 +346,10 @@ pub fn read(
                     }
                 }
             }
+            let terminals = junction_terminals(&kind, el).unwrap_or_else(|e| {
+                errors.push(e);
+                vec![]
+            });
             f.index.insert(id.clone(), f.elements.len());
             f.elements.push(Element {
                 id: id.clone(),
@@ -309,6 +358,7 @@ pub fn read(
                 params,
                 table_outside: el["tableOutside"].as_object().cloned().unwrap_or_default(),
                 dynamic_ports: el["dynamicPorts"].as_array().cloned().unwrap_or_default(),
+                terminals,
             });
         }
     }
@@ -442,10 +492,10 @@ fn buses(f: &mut Facts) {
         }
     }
     for e in &f.elements {
-        let ts: &[&str] = match e.kind.as_str() {
-            "electric.node" => &["t1", "t2", "t3", "t4", "t5"],
-            "boundary.ground" => &["t1", "t2", "t3"],
-            _ => &[],
+        let ts: Vec<&str> = match e.kind.as_str() {
+            "electric.node" => e.terminals.iter().map(String::as_str).collect(),
+            "boundary.ground" => vec!["t1", "t2", "t3"],
+            _ => vec![],
         };
         for w in ts.windows(2) {
             let (a, b) = ((e.id.clone(), w[0].to_string()), (e.id.clone(), w[1].to_string()));
@@ -492,13 +542,14 @@ fn buses(f: &mut Facts) {
             if f.el(e).kind == "electric.node" && !bus.nodes.iter().any(|(n, _)| n == e) {
                 // the terminal wired straight to the source's positive port
                 let src = bus.source.clone();
+                let ts = &f.el(e).terminals;
                 let term = src.and_then(|(s, k)| {
                     let sp = if k == "controller.dcdc" { "b_pos" } else { "pos" };
-                    (0..5).find(|t| {
-                        let tp = format!("t{}", t + 1);
+                    (0..ts.len()).find(|&t| {
+                        let tp = &ts[t];
                         f.wires.iter().any(|(a, b)| {
-                            (a.0 == *e && a.1 == tp && b.0 == s && b.1 == sp)
-                                || (b.0 == *e && b.1 == tp && a.0 == s && a.1 == sp)
+                            (a.0 == *e && a.1 == *tp && b.0 == s && b.1 == sp)
+                                || (b.0 == *e && b.1 == *tp && a.0 == s && a.1 == sp)
                         })
                     })
                 });
@@ -518,7 +569,6 @@ fn buses(f: &mut Facts) {
 /// for rigid parts; gears and splits are handled apart.
 fn rigid_ports(kind: &str) -> &'static [&'static str] {
     match kind {
-        "mech.node" => &["f1", "f2", "f3", "f4"],
         "mech.shaft" => &["flange_a", "flange_b"],
         "mech.brake" => &["flange"],
         "motor.emotor" | "engine.combustion" | "propulsion.wheel" | "propulsion.propeller" => {
@@ -649,9 +699,10 @@ fn kinematics(f: &mut Facts) {
             }
         };
         let kind = e.kind.as_str();
-        if rigid_ports(kind).contains(&p.1.as_str()) || kind == "mech.clutch" {
+        let rigid = e.rigid();
+        if rigid.contains(&p.1.as_str()) || kind == "mech.clutch" {
             let ports: &[&str] =
-                if kind == "mech.clutch" { &["flange_a", "flange_b"] } else { rigid_ports(kind) };
+                if kind == "mech.clutch" { &["flange_a", "flange_b"] } else { &rigid };
             let eta = if kind == "mech.shaft" { efficiency(&e, f.lossless_axle) } else { 1.0 };
             let clutch = val.clutch || kind == "mech.clutch";
             for q in ports {

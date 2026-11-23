@@ -297,10 +297,23 @@ def resolve_params(el: ElementInstance, cdef: ComponentDef) -> dict:
     return params
 
 
+# The junctions, whose parts may list their own terminals (`terminals`), and
+# what a terminal is called.
+JUNCTIONS = {"electric.node": "Terminal", "mech.node": "Flange"}
+
+
 def ports_of(el: ElementInstance, cdef: ComponentDef) -> list[PortDef]:
+    ports = list(cdef.ports)
+    if el.terminals is not None and cdef.id in JUNCTIONS:
+        # a junction's own terminals, each like the library's first, then its signals
+        lib = [p for p in ports if p.kind != "signal"]
+        by_id = {p.id: p for p in lib}
+        own = [by_id.get(t) or lib[0].model_copy(update={
+            "id": t, "name": f"{JUNCTIONS[cdef.id]} {t[1:]}", "side": "right"}) for t in el.terminals]
+        ports = own + [p for p in ports if p.kind == "signal"]
     if cdef.allowDynamicPorts and el.dynamicPorts:
-        return [*cdef.ports, *el.dynamicPorts]
-    return list(cdef.ports)
+        ports += el.dynamicPorts
+    return ports
 
 
 def gearbox_ratio(params: dict, gear: float | None = None) -> float:
@@ -536,7 +549,7 @@ def build_model(
                     queue.append((el_id, other, m_other, region, eta))
                 enqueue_peers(el_id, pid, m, region)
             elif t == "mech.node":
-                for pid2 in ("f1", "f2", "f3", "f4"):
+                for pid2 in [p.id for p in ports_of(elements[el_id], cdef) if p.kind == "mechanical"]:
                     if (el_id, pid2) not in seen_ports:
                         queue.append((el_id, pid2, m, region, None))
                 enqueue_peers(el_id, pid, m, region)
@@ -769,13 +782,13 @@ def build_model(
         connected_ports.add(b)
     for el_id, cdef in cdef_of.items():
         if cdef.id in ("electric.node", "boundary.ground"):
-            eports = [p.id for p in cdef.ports if p.kind == "electrical"]
+            eports = [p.id for p in ports_of(elements[el_id], cdef) if p.kind == "electrical"]
             for p1, p2 in zip(eports, eports[1:]):
                 union((el_id, p1), (el_id, p2))
 
     groups: dict[tuple[str, str], list[tuple[str, str]]] = defaultdict(list)
     for el_id, cdef in cdef_of.items():
-        for p in cdef.ports:
+        for p in ports_of(elements[el_id], cdef):
             if p.kind == "electrical":
                 groups[find((el_id, p.id))].append((el_id, p.id))
 

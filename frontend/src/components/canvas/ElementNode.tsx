@@ -13,7 +13,7 @@ import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { componentIcon } from "../../icons";
 import { NodeMarks } from "./EnergyOverlay";
-import { SIDES, movedPlace, nodeSize, portPlaces, physicalPorts, type Place } from "./portPlaces";
+import { SIDES, drawnPorts, movedPlace, nodeSize, portPlaces, type Place } from "./portPlaces";
 
 export type ElementNodeData = {
   element: ElementInstance;
@@ -184,7 +184,7 @@ function PhysicalPort({
         className={`${handleClass(port.kind)} nokey`}
         isConnectableStart
         isConnectableEnd
-        title={`${port.name}${port.unitText ? ` [${port.unitText}]` : ""} (${port.kind}) — drag: draw a wire · Shift+drag: move this port round the part · Shift+click: move it to the next side`}
+        title={`${port.name}${port.unitText ? ` [${port.unitText}]` : ""} (${port.kind}) — drag: draw a wire · Shift+drag: move this port round the part · Shift+click: move it to the next side · right-click: hide it`}
         onMouseDownCapture={startShiftDrag}
       />
       {port.polarity && (
@@ -234,7 +234,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
   // Data Bus Connections panel and is not drawn on the canvas
   const places = preview ? { ...portPlaces(element, def), [preview.portId]: preview.place } : portPlaces(element, def);
   const bySide: Record<PortSide, PortDef[]> = { left: [], right: [], top: [], bottom: [] };
-  for (const p of physicalPorts(def)) bySide[places[p.id].side].push(p);
+  for (const p of drawnPorts(element, def)) bySide[places[p.id].side].push(p);
   const fracOf = (p: PortDef): number => places[p.id].frac;
 
   // the pin follows the pointer from one free place to the next

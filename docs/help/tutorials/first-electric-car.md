@@ -111,6 +111,15 @@ another port, and its wires follow when you let go; Shift+click moves it to
 the next side. One Undo puts it back. To put all of a part's ports back
 where they started, right-click the part and choose **Reset port places**.
 
+A port you do not use can be hidden: right-click it and choose **Hide
+port**. Only a port with no wire and no signal link can be hidden; the
+model and its results do not change. Right-click the part and choose
+**Show hidden ports** to bring them back. An Electric Node or a
+Mechanical Node takes as many wires as you need: right-click it and
+choose **Add a port** for one more terminal, or right-click a terminal
+with no wire and choose **Delete port** (a node keeps at least two).
+Other parts keep the ports they have: on them you can only hide one.
+
 **Check:** *Problems* now lists 2 errors, both about missing signals,
 such as *Driver 'Driver 1' has no Target Speed signal*.
 

@@ -10,6 +10,7 @@ import { SpreadsheetGrid, type GridCell, type GridIssue, type GridLine, type Gri
 import { continueKeys, newBreakpoint } from "../gridTools";
 import { insertBreakpoint, removeBreakpoint } from "../../tableN";
 import { KIND_COLOR } from "../canvas/ElementNode";
+import { partDef } from "../canvas/portPlaces";
 import { CyclePreview, CycleSelect } from "./CyclePicker";
 import { SourceBadge, ValueSources } from "./ValueSources";
 import { ImportFromFileButton, type ImportTarget } from "../ImportTableDialog";
@@ -1633,7 +1634,7 @@ export function ElementForm({
           <div className="mb-1 text-meta font-semibold text-[color:var(--ss-text-dim)]">
             Ports
           </div>
-          {def.ports.map((p) => (
+          {partDef(element, def).ports.map((p) => (
             <div key={p.id} className="flex items-center gap-2 py-0.5 text-meta">
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
@@ -1643,6 +1644,9 @@ export function ElementForm({
                 {p.name}
               </span>
               <span className="ml-auto shrink-0 whitespace-nowrap text-meta text-[color:var(--ss-text-dim)]">
+                {element.hiddenPorts?.includes(p.id) && (
+                  <span title="Not drawn on the diagram: the part's right-click menu shows it again">hidden · </span>
+                )}
                 {p.kind} · {p.direction}
               </span>
             </div>

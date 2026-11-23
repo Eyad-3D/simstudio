@@ -12,6 +12,7 @@ plausibility of key vehicle parameters.
 from __future__ import annotations
 
 import math
+import re
 from collections import defaultdict
 from typing import Callable, Iterable
 
@@ -38,6 +39,7 @@ from .solver.battery import CELLS
 from .solver.maps import MAP_BLOCK, inner_range, map_problems, parse_grid
 from .solver.network import (
     AXLE_GEAR_TYPES,
+    JUNCTIONS,
     NO_DRIVER,
     NO_VEHICLE,
     NO_WHEELS,
@@ -158,26 +160,27 @@ def validate_project(project: Project) -> list[DataCheck]:
     all_elements = {el.id: el for s in project.systems for el in s.elements}
 
     # -- reference integrity ---------------------------------------------------
-    def ports_of(el: ElementInstance):
-        cdef = defs.get(el.componentDefId)
-        if cdef is None:
-            return []
-        ports = list(cdef.ports)
-        if cdef.allowDynamicPorts and el.dynamicPorts:
-            ports.extend(el.dynamicPorts)
-        return ports
-
     def port_of(el_id: str, port_id: str):
         el = all_elements.get(el_id)
-        if el is None:
+        cdef = defs.get(el.componentDefId) if el else None
+        if cdef is None:
             return None
-        return next((p for p in ports_of(el) if p.id == port_id), None)
+        return next((p for p in ports_of(el, cdef) if p.id == port_id), None)
 
     for el in all_elements.values():
         cdef = defs.get(el.componentDefId)
         if cdef is None:
             add("error", f"Element references unknown component type '{el.componentDefId}'.", el)
             continue
+        if el.terminals is not None:
+            prefix = cdef.ports[0].id[0] if cdef.id in JUNCTIONS else ""
+            if not prefix:
+                add("error", f"'{el.label}' lists terminals of its own, which only an Electric Node "
+                             "or a Mechanical Node can.", el)
+            elif (len(el.terminals) < 2 or len(set(el.terminals)) != len(el.terminals)
+                  or not all(re.fullmatch(prefix + r"[1-9]\d*", t) for t in el.terminals)):
+                add("error", f"'{el.label}' needs at least two terminals, each named once "
+                             f"({prefix}1, {prefix}2, …).", el)
         if el.dynamicPorts:
             if not cdef.allowDynamicPorts:
                 add("error", f"'{el.label}' has custom ports but '{cdef.name}' does not allow them.", el)

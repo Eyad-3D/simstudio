@@ -38,6 +38,7 @@ selection as the Delete key.
 | Shift+drag on empty diagram | Draw a box to select the parts in it |
 | Shift+click a pin | Move the pin to the next side of its part |
 | Shift+drag a pin | Move the pin round the part's outline, to a free place on any side; its wires follow when you let go |
+| Right-click a pin | **Hide port** (one with no wire or signal link); on an Electric or Mechanical Node, also **Delete port** |
 | Double-click a part | Open its parameters in a window of their own (a sub-system: go inside); again, bring that window to the front |
 | Esc | Cancel click-to-place; close a menu, or a help card, unit chooser or import preview in a parameter window |
 | Enter on a table's header (a map's top-left cell) | Choose the unit of that column (of the map's values) ([Work in other units](../how-to/work-in-other-units.md)) |
