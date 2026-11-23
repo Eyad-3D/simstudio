@@ -59,22 +59,25 @@ def test_edits_come_back_as_changes():
     project = load_example("bev-car")
     vehicle = next(e for e in project.systems[0].elements if e.componentDefId == "vehicle.body")
     diff = next(e for e in project.systems[0].elements if e.componentDefId == "mech.differential")
+    task = next(e for e in project.systems[0].elements if e.componentDefId == "signal.driving_task")
 
     def ocv(wb):
         ws = wb["HV Battery Pack - Open-Circuit"]
         ws["B3"] = 333.5  # the first OCV point
 
-    data = _edit(project, {(vehicle.id, "mass_kg"): 2300, (diff.id, "locked"): "TRUE"}, ocv)
+    data = _edit(project, {(vehicle.id, "mass_kg"): 2300, (task.id, "repeat"): "TRUE",
+                           (diff.id, "type"): "limited-slip"}, ocv)
     res = params.import_sheet(project, data, "p.xlsx")
     assert res.errors == []
     got = {(c.elementId, c.key): c for c in res.changes}
     assert got[(vehicle.id, "mass_kg")].new == 2300
     assert got[(vehicle.id, "mass_kg")].row == _row_of(project, vehicle.id, "mass_kg")
-    assert got[(diff.id, "locked")].new is True
+    assert got[(task.id, "repeat")].new is True
+    assert got[(diff.id, "type")].new == "Limited-slip"  # an option, in any case
     battery = next(e for e in project.systems[0].elements if e.componentDefId == "battery.generic")
     ocv_change = got[(battery.id, "ocv_table")]
     assert ocv_change.new["0"] == 333.5 and ocv_change.sheet == "HV Battery Pack - Open-Circuit"
-    assert len(res.changes) == 3
+    assert len(res.changes) == 4
 
 
 def test_five_unit_errors_give_five_row_numbered_messages():
