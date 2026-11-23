@@ -19,7 +19,8 @@ test("an unused port is hidden from its menu and shown again from the part's; a 
   await pin(page, "t1").click({ button: "right" });
   await expect(item(page, "Hide port")).toHaveAttribute("aria-disabled", "true");
   await expect(item(page, "Hide port")).toHaveAttribute("title", /has a wire or a signal link/);
-  await item(page, "Hide port").click();
+  // (forced: Playwright waits for a greyed item to become usable otherwise)
+  await item(page, "Hide port").click({ force: true });
   await expect(pin(page, "t1")).toHaveCount(1);
   await page.keyboard.press("Escape");
 
