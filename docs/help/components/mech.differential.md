@@ -122,5 +122,9 @@ only; quick mode and a lap name one that has none.
 
 - The older engine (Python) models Open and Locked; it does not run a
   Limited-slip one, and says so.
+- A full run on a drive cycle with a Limited-slip one ends as *warning*:
+  the run says its clutch's break-away condition cannot be searched ahead
+  (it reads the motor's acceleration). The figures hold; Known limits says
+  more. Lap cases and acceleration tests are not affected.
 - A project saved before the Differential had a Type, with its Locked box
   ticked, opens with Type Locked.

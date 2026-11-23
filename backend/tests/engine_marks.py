@@ -112,6 +112,11 @@ LIMITS = ("NEW-LIMITS: the new path refuses a run with a value outside its param
           "the owner's call whether the app keeps it)")
 
 XFAIL = {
+    "test_fs_events.py::test_an_endurance_from_a_lap_trace_reports_its_energy": (
+        "STUCK-FRICTION-LOOKAHEAD: on a driveline a drive cycle or lap trace drives, a stuck friction "
+        "element's break-away condition (the FS example's limited-slip differential; a Clutch there "
+        "too) reads an E-Motor's J·dω/dt, which the run loop's look-ahead cannot enclose: the run "
+        "warns that root finding alone watches it, and ends as warning (open)"),
     "test_lapsim.py::test_75_m_straight_matches_the_time_domain_within_2_percent[2.5-vehicle2-wheel2]": (
         "NEW-LAP-SLIP: where the motors at full torque hold the car, the lap's wheel (fast mode's inverse "
         "model) turns with the prescribed speed and takes its tyre's slip loss out of the force: 3.835 s "

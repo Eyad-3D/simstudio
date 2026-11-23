@@ -375,15 +375,15 @@ solver: 0.4 s and 3.9 s). It is not a driving simulation:
   their grip first and the car brakes less hard than its tyres together
   could: at a weight of 100 % the FS example's 30 kW of regeneration on its
   rear axle (1 500 to 3 000 N) is more than the rear tyres' 1 265 to 1 800 N
-  of grip below about 33 m/s, and its autocross lap takes 60.8 s. The
-  example uses 40 %: the car brakes at up to 23.5 m/s² (25 m/s² in the
-  older solver) and the flying lap takes 59.0 s against the older solver's
-  57.7 s (+2.2 %).
+  of grip below about 33 m/s, and its autocross lap takes 60.2 s. The
+  example uses 40 %: the car brakes at up to 23.7 m/s² (25 m/s² in the
+  older solver) and the flying lap takes 58.5 s against the older solver's
+  57.7 s (+1.3 %).
 - The car drives through its differential as its Type says. With an open
   one the unloaded inner driven wheel's grip can hold the car back in a
-  corner: the FS autocross lap takes 58.98 s with the example's open
-  differential, 58.48 s with a typical limited-slip one (20 N·m preload,
-  40 % under power, 25 % off power). In a lap and in quick mode the two
+  corner: the FS autocross lap takes 58.48 s with the example's
+  limited-slip differential (20 N·m preload, 40 % under power, 25 % off
+  power, a typical setting), 58.98 s with an open one. In a lap and in quick mode the two
   wheels of an axle turn at one speed, so a locked or limited-slip
   differential splits its torque by its wheels' grip (as at a locked
   axle's limit), not by their speeds: under part throttle in a corner a
@@ -392,6 +392,14 @@ solver: 0.4 s and 3.9 s). It is not a driving simulation:
   counted there (in a full run it is); and a locked axle's resistance to
   turning (a tyre scrubs in a corner) is not modelled, so a locked axle
   gives the fastest lap of the three.
+- A full run on a drive cycle or a lap trace with a Limited-slip
+  Differential, or with a Clutch on the driven driveline, ends as *warning*:
+  the run says that the clutch's break-away condition cannot be searched
+  ahead, because it reads a motor's acceleration. Root finding still finds
+  the break-away at the end of the solver's step it happens in, so the
+  figures hold; only a slip shorter than one step could be missed. (Open,
+  STUCK-FRICTION-LOOKAHEAD; lap cases and acceleration tests are not
+  affected.)
 - The top speed is the motors' in their gear: the highest speed the model
   solves at on the level (for the FS example 6,500 1/min through 4.4 on
   0.228 m wheels, 35.3 m/s). The car settles within the motors' last 2 %,
@@ -428,16 +436,16 @@ solver: 0.4 s and 3.9 s). It is not a driving simulation:
   taken in pairs across the car, the same way in left and right corners:
   give the left and right wheels the same load share.
 - The lap's energy differs from the older lap solver's. The FS autocross
-  takes 0.419 kWh per lap against 0.397 kWh (+5.5 %); the FS endurance
-  (23 laps, 30 kW) 0.243 kWh per lap against 0.232, 5.59 kWh in all against
-  5.33 (+4.9 %), recuperating 11 % of the energy it draws (18 % before). The
+  takes 0.424 kWh per lap against 0.397 kWh (+6.8 %); the FS endurance
+  (23 laps, 30 kW) 0.245 kWh per lap against 0.232, 5.64 kWh in all against
+  5.33 (+5.8 %), recuperating 11 % of the energy it draws (18 % before). The
   car brakes earlier and peaks lower (31.9 m/s against 32.6 m/s on the
   autocross), gaining and shedding 8 % less kinetic energy per lap, and its
   tyres' slip losses count. With the older solver's setup (a Recuperation
   Weight of 100 %), the older solver's own speed profile driven through the
   new engine's energy pass takes 2.8 % more than the older solver says,
-  mostly the slip losses. Lap times: the autocross's flying lap 59.0 s
-  (57.7 s before), the endurance's best lap 63.1 s (62.1 s).
+  mostly the slip losses. Lap times: the autocross's flying lap 58.5 s
+  (57.7 s before), the endurance's best lap 62.7 s (62.1 s).
 - Driving a lap's speed as a drive cycle gives other energy figures: the
   drive cycles' Driver has no brake balance or ABS and can lock the driven
   wheels when braking hard (a Formula Student-sized car driving its
@@ -596,8 +604,10 @@ error when the log has pack power. It fits only a grip factor and the CzA:
   differential, set the limits. Fitted with another differential or
   brake balance than the real car's, the grip and CzA take up the
   difference: on LightSim's own laps from the older engine's lap mode
-  (ideal brake balance, the driven wheels' grip pooled) it found grip 0.9
-  and CzA 6.25 m² for 2.5 m², and predicted the check lap 2.3 % fast.
+  (ideal brake balance, the driven wheels' grip pooled), made with grip
+  0.9 and CzA 2.5 m², it finds grip 0.86 and CzA 2.08 m² for the FS
+  example (limited-slip differential, brakes 600/250 N·m) and predicts the
+  check lap within 0.8 %.
 - It has been checked on LightSim's own laps only. No accuracy is claimed
   for a real car until a documented logged lap, with a licence that lets
   LightSim publish the result, has been used.

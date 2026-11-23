@@ -24,44 +24,45 @@ ops = [
 
 # The finished event of the example's own car.
 [wrong]
-answer = "ANSWER: 22.5; 0.2432"
+answer = "ANSWER: 22.5; 0.2453"
 
-# The energy the accumulator delivered over the 21 laps, without what braking
+# The energy the accumulator delivered over the 20 laps, without what braking
 # put back: outside the band of both readings.
 [[also_wrong]]
-answer = "ANSWER: 20.557; 0.2682"
+answer = "ANSWER: 19.578; 0.2724"
 
 # The distance of one reading with the energy of the other.
 [[also_wrong]]
-answer = "ANSWER: 20.557; 0.2498"
+answer = "ANSWER: 19.578; 0.2464"
 
 # "Before the accumulator is empty" reads two ways, and both are right: the
-# run's Distance driven (21 laps), or where the charge reaches its 5 %
-# minimum (t = 1267 s), after which the car coasts on. The second reading's
-# distance is the vehicle's distance channel at that moment, 19.583 km. Its
+# run's Distance driven (20 laps), or where the charge reaches its 5 %
+# minimum, after which the car coasts on. The second reading's
+# distance is the vehicle's distance channel at that moment, 19.238 km. Its
 # energy per lap is either the run's own Energy per lap (as the first
 # reading) or the battery's net energy (delivered less recuperated,
-# 4.997 kWh) over the laps up to there, 0.2498 kWh; a test works the
+# 4.843 kWh) over the laps up to there, 0.2464 kWh; a test works the
 # figures out from the run. So there are three right answers, each taken as
 # a whole (also[0] and also[1] are the second and third): the run's
 # distance goes only with the run's energy per lap.
-# The run's own Energy per lap is that net energy over the 21 laps driven.
+# The run's own Energy per lap is that net energy over the 20 laps driven.
 # LightSim marks it not valid because the event did not finish, not because
 # the number is wrong for the question, so the key keeps it.
 [[answer]]
-value = 20.557
+value = 19.578
 rtol = 0.01
-also = [{ value = 19.583 }, { value = 19.583 }]
+also = [{ value = 19.238 }, { value = 19.238 }]
 figure = { file = "car.json", case = "Endurance energy", key = "distance_km" }
 
 # The brief names no precision, so the band takes the energy to two decimals:
-# 0.24 is 0.85 % off 0.23797 (the comparison of 6 November failed five tries
-# with a 2 % band, when the key was 0.22462 and 0.22 was 2.06 % off). The two
-# readings' energies, 0.23797 and 0.2498, lie 4.9 % apart, so 2.5 % keeps them
-# apart even to two decimals (0.24 and 0.25), and the mixed readings below
-# fail (0.2498 is 5.0 % off the run's energy, 0.25 5.1 %).
+# 0.24 is 0.9 % off 0.24217 and 0.25 is 1.4 % off 0.24645 (the comparison of
+# 6 November failed five tries with a 2 % band, when the key was 0.22462 and
+# 0.22 was 2.06 % off). The two readings' energies, 0.24217 and 0.24645, lie
+# 1.8 % apart (4.9 % before the example had a limited-slip differential), so
+# 1.5 % keeps them apart even to two decimals (0.24 and 0.25), and the mixed
+# readings fail (0.24645 is 1.8 % off the run's energy, 0.25 3.2 %).
 [[answer]]
-value = 0.23797
-rtol = 0.025
-also = [{ value = 0.2498 }, { value = 0.23797 }]
+value = 0.24217
+rtol = 0.015
+also = [{ value = 0.24645 }, { value = 0.24217 }]
 figure = { file = "car.json", case = "Endurance energy", key = "energy_per_lap_kwh" }

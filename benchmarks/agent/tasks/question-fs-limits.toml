@@ -27,19 +27,19 @@ ops = [
 [wrong]
 answer = "ANSWER: 23.1; 43.2"
 
-# The two figures lie 13.5 % apart, and the example's cornering-grip time
-# (43.23 s) 0.55 % from this car's (43.47 s): the bands are narrower than
+# The two figures lie 11.2 % apart, and the example's cornering-grip time
+# (42.91 s) 0.63 % from this car's (43.18 s): the bands are narrower than
 # both, so the figures swapped fail (the validator checks that) and so does
 # the example's.
 [[also_wrong]]
-answer = "ANSWER: 38.29; 43.23"
+answer = "ANSWER: 38.84; 42.91"
 
 [[answer]]
-value = 38.287
+value = 38.842
 rtol = 0.005
 figure = { file = "car.json", case = "Autocross (flying lap)", key = "time_limited_by_power_cap_s" }
 
 [[answer]]
-value = 43.470
+value = 43.180
 rtol = 0.005
 figure = { file = "car.json", case = "Autocross (flying lap)", key = "time_limited_by_cornering_grip_s" }

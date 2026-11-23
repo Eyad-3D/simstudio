@@ -2,9 +2,9 @@
 // The two "logged" laps are LightSim's own (the FS example with 0.9 × its
 // grip and 2.5 m² of downforce, with noise), made from the older engine's
 // lap mode; no team's log is bundled. The fit runs on the new engine's lap
-// profile (its brake split and open differential: it finds more downforce,
-// and predicts the check lap 2.3 % fast); the check gives the check lap's
-// energy from its energy pass.
+// profile (its brake split and limited-slip differential: it finds less grip
+// and downforce, and predicts the check lap within 0.8 %); the check gives
+// the check lap's energy from its energy pass.
 import { expect, test } from "@playwright/test";
 import { fileURLToPath } from "node:url";
 import { openApp, openFromMenu, ribbonTab } from "./app";

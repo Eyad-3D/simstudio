@@ -6,7 +6,7 @@ on the speed (σ 0.3 km/h) and the lateral acceleration (σ 0.03 g): the
 Autocross layout to calibrate on and the same lap driven the other way
 round to check, through the API as the app sends them. The laps the fit is
 checked on are the new engine's own lap profile, the car the fit tunes (its
-brake split and open differential); the log reader's test reads one from
+brake split and limited-slip differential); the log reader's test reads one from
 today's lap mode, which also logs the pack power."""
 import math
 import os
@@ -110,8 +110,8 @@ def test_calibrated_on_one_lap_it_predicts_another_within_5_percent():
     """The item's metric: calibrated on one logged lap, the blind prediction
     of another is within 5 % on lap time, and reports the speed trace's RMS
     error. The laps were logged from today's lap mode; the fit and the
-    prediction are the new engine's lap profile (its brake split and open
-    differential: the fit takes up the difference in grip). The check
+    prediction are the new engine's lap profile (its brake split and limited-
+    slip differential: the fit takes up the difference in grip). The check
     gives that lap's energy, its energy pass's (the log has no pack power
     to compare it with)."""
     client = TestClient(app)

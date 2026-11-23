@@ -32,11 +32,11 @@ lap solver:
   grip first and the car brakes less hard than its four tyres could: the
   lap brakes earlier and takes longer. The FS example uses 40 %; at 100 %
   its 30 kW of regeneration would hold its rear tyres at their grip below
-  about 33 m/s, and its autocross lap would take 60.8 s instead of 59.0 s.
+  about 33 m/s, and its autocross lap would take 60.2 s instead of 58.5 s.
 - **The differential.** The car drives through its differential as its
   *Type* says. Open: in a corner the unloaded inner driven wheel's grip can
-  hold the car back (the FS autocross takes 58.98 s with its open one,
-  58.48 s with a typical limited-slip one). Locked and Limited-slip: the
+  hold the car back (the FS autocross takes 58.48 s with the example's
+  limited-slip one, 58.98 s with an open one). Locked and Limited-slip: the
   two wheels of an axle turn at one speed in a lap, so the torque splits
   by the wheels' grip, a limited-slip one's as far as its locking torque
   reaches; its clutch's heat in a corner and a locked axle's resistance to
