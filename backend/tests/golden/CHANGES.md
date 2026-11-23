@@ -1217,3 +1217,92 @@ rear axle alone, past the rear tyres' grip, in the new engine's laps). Only
 its stored results (backend/projects/reference/fs-electric.json, today's
 engine) are written again: its autocross and endurance cases. No golden
 fixture moved; the other examples' stored results are kept as they were.
+
+## Stored results from the app's engine
+
+The examples' stored results (projects/reference/, CON-15) were runs of
+today's (older) engine, written with the golden fixtures; the app runs every
+case on the new engine, so a Run on an unchanged example differed from what
+it opened with (FS Electric's autocross 57.721 s stored, 58.98 s run). They
+are now the app's engine's runs, written by tests/update_stored.py (each case
+records the engine, version and solver options that made it). The golden
+fixtures in this folder are not changed: they are the engines' own reference.
+
+Why the figures move:
+
+- Drive cycles (aero-bev, bev-car, hybrid-car): the new engine integrates
+  with a variable step to rtol 1e-6 where today's took fixed steps of at
+  most 10 ms; the headline figures move by 0.2 % or less, except the P2
+  Hybrid's charge-balanced EPA city cycle: fuel 2.827 to 2.809 l/100 km
+  (-0.65 %, of it Bag 2 -1.6 %, Bag 1 +0.1 %), the battery ending 0.06
+  points below its start SOC instead of 0.30 above (both inside the
+  charge-balance rule).
+- FS Electric's 75 m acceleration: 3 ms slower; the energy delivered 4.3 %
+  more, the tyres' slip losses, which the new engine's wheels count.
+- FS Electric's autocross and endurance: lap cases on the new engine
+  (DESIGN.md 10.1, docs/KNOWN-LIMITS.md, Lap mode): its brakes share the
+  braking by their Max Torque, with regeneration first on the driven axle,
+  where today's lap solver braked with an ideal balance; its differential is
+  open; its tyres slip. Lap time 57.72 to 58.98 s (+2.2 %), the endurance's
+  best lap 62.05 to 63.12 s and 21.6 % SOC left instead of 17.2 %.
+
+| Case | Figure | Before | After | Change |
+|---|---|---|---|---|
+| aero-bev EPA city (UDDS) | HV Battery Pack — final SOC | 87.9772 % | 87.973 % | -0.004193 (-0.00 %) |
+| aero-bev EPA city (UDDS) | HV Battery Pack — energy delivered | 1.92593 kWh | 1.92611 kWh | +0.0001869 (+0.01 %) |
+| aero-bev EPA city (UDDS) | Consumption | 9.49985 kWh/100km | 9.51987 kWh/100km | +0.02002 (+0.21 %) |
+| aero-bev EPA city (UDDS) | Fuel-economy equivalent (MPGe, AC) | 189.595 MPGe | 189.196 MPGe | -0.3988 (-0.21 %) |
+| aero-bev EPA highway (HWFET) | HV Battery Pack — final SOC | 86.7846 % | 86.7836 % | -0.0009958 (-0.00 %) |
+| aero-bev EPA highway (HWFET) | HV Battery Pack — energy delivered | 2.08794 kWh | 2.08818 kWh | +0.0002348 (+0.01 %) |
+| aero-bev EPA highway (HWFET) | Consumption | 11.0611 kWh/100km | 11.0646 kWh/100km | +0.00348 (+0.03 %) |
+| aero-bev EPA highway (HWFET) | Fuel-economy equivalent (MPGe, AC) | 162.834 MPGe | 162.783 MPGe | -0.05122 (-0.03 %) |
+| aero-bev WLTC Class 3b | HV Battery Pack — final SOC | 85.1138 % | 85.1101 % | -0.003738 (-0.00 %) |
+| aero-bev WLTC Class 3b | HV Battery Pack — energy delivered | 3.90922 kWh | 3.90938 kWh | +0.0001699 (+0.00 %) |
+| aero-bev WLTC Class 3b | Consumption | 11.7773 kWh/100km | 11.7864 kWh/100km | +0.009118 (+0.08 %) |
+| aero-bev WLTC Class 3b | Fuel-economy equivalent (MPGe, AC) | 152.932 MPGe | 152.814 MPGe | -0.1183 (-0.08 %) |
+| bev-car City Cycle | HV Battery Pack — final SOC | 88.7647 % | 88.7649 % | +0.0001039 (+0.00 %) |
+| bev-car City Cycle | HV Battery Pack — energy delivered | 0.880373 kWh | 0.880344 kWh | -2.949e-05 (-0.00 %) |
+| bev-car City Cycle | Consumption | 11.114 kWh/100km | 11.113 kWh/100km | -0.0009467 (-0.01 %) |
+| bev-car City Cycle | Fuel-economy equivalent (MPGe, AC) | 162.059 MPGe | 162.073 MPGe | +0.01381 (+0.01 %) |
+| bev-car WLTC Class 3b | HV Battery Pack — final SOC | 84.926 % | 84.9234 % | -0.002661 (-0.00 %) |
+| bev-car WLTC Class 3b | HV Battery Pack — energy delivered | 4.37041 kWh | 4.37145 kWh | +0.001043 (+0.02 %) |
+| bev-car WLTC Class 3b | Consumption | 14.0456 kWh/100km | 14.0532 kWh/100km | +0.007531 (+0.05 %) |
+| bev-car WLTC Class 3b | Fuel-economy equivalent (MPGe, AC) | 128.234 MPGe | 128.165 MPGe | -0.06872 (-0.05 %) |
+| bev-car WLTC, heating/air-con on | HV Battery Pack — final SOC | 83.1911 % | 83.1884 % | -0.002679 (-0.00 %) |
+| bev-car WLTC, heating/air-con on | HV Battery Pack — energy delivered | 5.25475 kWh | 5.25577 kWh | +0.001025 (+0.02 %) |
+| bev-car WLTC, heating/air-con on | Consumption | 18.8809 kWh/100km | 18.8884 kWh/100km | +0.007531 (+0.04 %) |
+| bev-car WLTC, heating/air-con on | Fuel-economy equivalent (MPGe, AC) | 95.394 MPGe | 95.3559 MPGe | -0.03804 (-0.04 %) |
+| bev-car WLTC, winter day (−7 °C, heating on) | HV Battery Pack — final SOC | 81.4286 % | 81.4259 % | -0.002735 (-0.00 %) |
+| bev-car WLTC, winter day (−7 °C, heating on) | HV Battery Pack — energy delivered | 6.20925 kWh | 6.21028 kWh | +0.001037 (+0.02 %) |
+| bev-car WLTC, winter day (−7 °C, heating on) | Consumption | 23.7557 kWh/100km | 23.7634 kWh/100km | +0.007632 (+0.03 %) |
+| bev-car WLTC, winter day (−7 °C, heating on) | Fuel-economy equivalent (MPGe, AC) | 75.8186 MPGe | 75.7942 MPGe | -0.02435 (-0.03 %) |
+| bev-car WLTC, hot day (35 °C, air-con on) | HV Battery Pack — final SOC | 83.9534 % | 83.9508 % | -0.002649 (-0.00 %) |
+| bev-car WLTC, hot day (35 °C, air-con on) | HV Battery Pack — energy delivered | 4.85293 kWh | 4.85395 kWh | +0.001016 (+0.02 %) |
+| bev-car WLTC, hot day (35 °C, air-con on) | Consumption | 16.7637 kWh/100km | 16.7712 kWh/100km | +0.007469 (+0.04 %) |
+| bev-car WLTC, hot day (35 °C, air-con on) | Fuel-economy equivalent (MPGe, AC) | 107.442 MPGe | 107.394 MPGe | -0.04785 (-0.04 %) |
+| fs-electric Acceleration 75 m | Time to 75 m | 3.75066 s | 3.75372 s | +0.003057 (+0.08 %) |
+| fs-electric Acceleration 75 m | Accumulator — final SOC | 98.888 % | 98.8399 % | -0.04803 (-0.05 %) |
+| fs-electric Acceleration 75 m | Accumulator — energy delivered | 0.0831878 kWh | 0.0867386 kWh | +0.003551 (+4.27 %) |
+| fs-electric Autocross (flying lap) | Lap time | 57.7211 s | 58.9797 s | +1.259 (+2.18 %) |
+| fs-electric Autocross (flying lap) | Total time | 116.859 s | 119.35 s | +2.49 (+2.13 %) |
+| fs-electric Autocross (flying lap) | Energy per lap | 0.434685 kWh | 0.418939 kWh | -0.01575 (-3.62 %) |
+| fs-electric Autocross (flying lap) | Accumulator — final SOC | 88.213 % | 88.6205 % | +0.4075 (+0.46 %) |
+| fs-electric Autocross (flying lap) | Accumulator — energy delivered | 0.951449 kWh | 0.929555 kWh | -0.02189 (-2.30 %) |
+| fs-electric Autocross (flying lap) | Consumption | 44.4048 kWh/100km | 42.7962 kWh/100km | -1.609 (-3.62 %) |
+| fs-electric Autocross (flying lap) | Fuel-economy equivalent (MPGe, AC) | 40.5615 MPGe | 42.0861 MPGe | +1.525 (+3.76 %) |
+| fs-electric Endurance energy | Lap time | 62.05 s | 63.1207 s | +1.071 (+1.73 %) |
+| fs-electric Endurance energy | Total time | 1428.53 s | 1453.18 s | +24.65 (+1.73 %) |
+| fs-electric Endurance energy | Energy per lap | 0.25563 kWh | 0.243212 kWh | -0.01242 (-4.86 %) |
+| fs-electric Endurance energy | Accumulator — final SOC | 17.2392 % | 21.5767 % | +4.338 (+25.16 %) |
+| fs-electric Endurance energy | Accumulator — energy delivered | 6.4997 kWh | 6.28797 kWh | -0.2117 (-3.26 %) |
+| fs-electric Endurance energy | Consumption | 26.1136 kWh/100km | 24.845 kWh/100km | -1.269 (-4.86 %) |
+| fs-electric Endurance energy | Fuel-economy equivalent (MPGe, AC) | 68.9727 MPGe | 72.4943 MPGe | +3.522 (+5.11 %) |
+| hybrid-car EPA city (UDDS) | HV Battery — final SOC | 56.6414 % | 56.281 % | -0.3604 (-0.64 %) |
+| hybrid-car EPA city (UDDS) | HV Battery — energy delivered | 0.786001 kWh | 0.788697 kWh | +0.002696 (+0.34 %) |
+| hybrid-car EPA city (UDDS) | Fuel consumption | 2.82726 l/100km | 2.80897 l/100km | -0.01829 (-0.65 %) |
+| hybrid-car EPA highway (HWFET) | HV Battery — final SOC | 58.897 % | 58.8873 % | -0.00968 (-0.02 %) |
+| hybrid-car EPA highway (HWFET) | HV Battery — energy delivered | 0.42958 kWh | 0.429046 kWh | -0.0005341 (-0.12 %) |
+| hybrid-car EPA highway (HWFET) | Fuel consumption | 3.22761 l/100km | 3.22803 l/100km | +0.0004258 (+0.01 %) |
+| hybrid-car Mixed Cycle | HV Battery — final SOC | 51.9121 % | 51.9106 % | -0.001537 (-0.00 %) |
+| hybrid-car Mixed Cycle | HV Battery — energy delivered | 0.207182 kWh | 0.207155 kWh | -2.692e-05 (-0.01 %) |
+| hybrid-car Mixed Cycle | Fuel consumption | 2.86951 l/100km | 2.86948 l/100km | -2.636e-05 (-0.00 %) |

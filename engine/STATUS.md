@@ -911,10 +911,10 @@ the switch):
   (the owner's yes of that day): the P2 Hybrid example's three cycle cases run
   charge-balanced, each settling in 1 run. Quick mode refuses a case it cannot run
   where it used to run it in full: the owner may prefer the run in full.
-- Stored results of the examples and the six Results screenshot baselines show
-  today's engine's runs; storing and regenerating them from the new engine is
-  the lead's call (the regeneration commits from the CI runner without the
-  lane's trailer line).
+- The examples' stored results are the app's engine's runs (22 November 2026,
+  tests/update_stored.py; tests/golden/CHANGES.md, "Stored results from the
+  app's engine"). The six Results screenshot baselines are regenerated on the
+  CI runner (its commits carry no trailer line).
 - The Engine's drag table is read in a variable of its own, so with its axis on
   Error it still stops a run where the engine is fired past the table's
   speeds; putting the read in its branch moves the hybrid's golden values by

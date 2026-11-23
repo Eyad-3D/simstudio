@@ -1113,7 +1113,7 @@
       "references": [
         {
           "kpi": "Consumption",
-          "value": 11.12,
+          "value": 11.11,
           "tolerance": 3,
           "tolerancePct": true,
           "source": "LightSim 0.3.0's own result: a regression check only, as no real car drives this hand-typed cycle"
@@ -1224,7 +1224,7 @@
       "references": [
         {
           "kpi": "Consumption",
-          "value": 11.12,
+          "value": 11.11,
           "tolerance": 3,
           "tolerancePct": true,
           "source": "LightSim 0.3.0's own result: a regression check only, as no real car drives this hand-typed cycle"

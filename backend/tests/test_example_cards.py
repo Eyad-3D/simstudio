@@ -51,24 +51,48 @@ def test_each_case_lands_within_its_expected_values(project_id, case_id):
 @pytest.mark.parametrize("project_id", EXAMPLES)
 def test_the_stored_results_are_explained_in_the_changelog(project_id):
     data = reference_results.load(project_id)
-    assert data is not None, "run tests/update_golden.py --reason '...'"
+    assert data is not None, "run tests/update_stored.py --reason '...'"
     note = data["creation"]["note"]
     assert re.search(rf"^## {re.escape(note)}$", CHANGES.read_text(encoding="utf-8"), re.M), (
         f"{project_id}'s stored results name '{note}', which tests/golden/CHANGES.md lacks")
     assert set(data["cases"]) == {c.id for c in _cases(project_id)}
 
 
-@pytest.mark.parametrize("project_id,case_id",
-                         [(p, c.id) for p in EXAMPLES for c in _cases(p)])
-def test_a_fresh_run_gives_the_stored_summary(project_id, case_id):
-    """A change that moves an example's results must rewrite the stored
-    results (tests/update_golden.py --reason ...), with its CHANGES.md note."""
-    stored = reference_results.load(project_id)["cases"][case_id]
-    result = example_result(project_id, case_id)
-    assert result.status == stored["status"]
-    fresh = {s.label: s.value for s in result.summary}
-    for row in stored["summary"]:
-        assert fresh.get(row["label"]) == pytest.approx(row["value"], rel=2e-3, abs=0.02), row
+# a fresh run against the stored figures: to the summary's rounding (the
+# same machine gives them exactly; another one's maths library can move the
+# last digits of a variable-step run)
+STORED_REL, STORED_ABS = 1e-4, 1e-4
+
+
+@pytest.mark.parametrize("project_id", EXAMPLES)
+def test_opened_and_run_as_the_app_does_every_case_gives_its_stored_figures(project_id):
+    """The example opened through the API, its stored runs fetched as the app
+    shows them, and every case run as the app's Run: its status and every
+    summary figure are the stored ones, the same engine made both, the
+    stored runs graded the case's expected values as they are now, and an
+    expected value that is LightSim's own result (a regression check) reads
+    within by rounding only. A change that moves them must rewrite the
+    stored results (tests/update_stored.py --reason ...)."""
+    project = client.get(f"/api/examples/{project_id}").json()
+    stored = client.get(f"/api/examples/{project_id}/reference").json()
+    assert [r["caseId"] for r in stored] == [c.id for c in _cases(project_id)]
+    for run in stored:
+        old = run["result"]
+        fresh = client.post("/api/simulate", json={"project": project, "caseId": run["caseId"]}).json()
+        where = f"{project_id} {run['caseId']}"
+        assert fresh["engine"] == old["engine"] == "new", where
+        assert fresh["status"] == old["status"] == "success", where
+        got = {s["label"]: s["value"] for s in fresh["summary"]}
+        assert set(got) == {s["label"] for s in old["summary"]}, where
+        for row in old["summary"]:
+            assert got[row["label"]] == pytest.approx(row["value"], rel=STORED_REL, abs=STORED_ABS), (
+                where, row["label"], row["value"], got[row["label"]])
+        expected = {r["kpi"]: r["value"] for c in project["cases"] if c["id"] == run["caseId"]
+                    for r in c["references"]}
+        assert {r["label"]: r["reference"] for r in old["references"] if not r["automatic"]} == expected, where
+        for ref in fresh["references"]:
+            if not ref["automatic"] and ref["source"].startswith("LightSim"):
+                assert ref["grade"] == "within" and abs(ref["differencePct"]) < 0.05, (where, ref)
 
 
 def test_the_app_gets_the_stored_runs_of_an_example():

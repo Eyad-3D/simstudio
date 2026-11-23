@@ -4,13 +4,13 @@ Each example has ``projects/reference/<example>.json``: for every case that
 is not a live (paced) copy, its status, every summary value and a few
 comparison signals recorded every second (vehicle speed and target, battery
 SOC and power, motor speed and torque, engine fuel rate, as the model has
-them), plus how it was made (app version, git commit, solver step, date,
-machine and the tests/golden/CHANGES.md entry that explains it).
+them), plus how it was made (app version, git commit, the engine and its
+solver options, date, machine and the tests/golden/CHANGES.md entry that
+explains it). They are the app's engine's runs, as a user's Run makes them.
 
 The app opens an example with these runs already in Results, marked as
-stored; Run recomputes them. tests/update_golden.py rewrites the files with
-the golden fixtures, and test_example_cards.py checks that fresh runs still
-give the stored summary.
+stored; Run recomputes them. tests/update_stored.py rewrites the files, and
+test_example_cards.py checks that fresh runs give the stored summary.
 """
 from __future__ import annotations
 
@@ -67,18 +67,36 @@ def record(project, result: SimResult) -> dict:
     signals.sort(key=lambda s: [(t, p) for t, p in wanted].index(
         (types[s["elementId"]], s["portId"])))
     return {"status": result.status,
+            "engine": {"engine": result.engine, "engineVersion": result.engineVersion,
+                       "solverOptions": result.solverOptions},
             "messages": [m.model_dump() for m in result.messages if m.level != "info"],
             "summary": [s.model_dump(exclude_none=True) for s in result.summary],
             "references": [r.model_dump(exclude_none=True) for r in result.references],
             "t": times, "signals": signals}
 
 
+def solver_line(results: dict[str, SimResult]) -> str:
+    """How the runs were made, from the runs themselves: the engine and each
+    kind of solve its cases took."""
+    engines = sorted({f"{r.engine} {r.engineVersion}" for r in results.values()})
+    kinds = []
+    for r in results.values():
+        o = r.solverOptions
+        kind = (f"variable step, rtol {o['rtol']:g}, atol {o['atol']:g}" if o and "rtol" in o
+                else "lap mode: the lap's speed profile, then fast mode along it in steps of "
+                     "at most 0.01 s")
+        if kind not in kinds:
+            kinds.append(kind)
+    return f"the app's engine ({', '.join(engines)}): {'; '.join(kinds)}; recorded every 1 s"
+
+
 def write(example_id: str, project, results: dict[str, SimResult], note: str) -> Path:
     data = {
-        "_about": "Stored reference results of this example (CON-15): written by "
-                  "backend/tests/update_golden.py, explained in tests/golden/CHANGES.md.",
+        "_about": "Stored reference results of this example (CON-15): the app's engine's runs, "
+                  "written by backend/tests/update_stored.py, explained in "
+                  "tests/golden/CHANGES.md.",
         "creation": {"appVersion": VERSION, "gitCommit": _git_commit(),
-                     "solver": "fixed step, at most 10 ms; recorded every 1 s",
+                     "solver": solver_line(results),
                      "date": dt.date.today().isoformat(),
                      "machine": f"{platform.system()} {platform.machine()}, Python "
                                 f"{platform.python_version()}",
@@ -123,7 +141,7 @@ def stored_results(example_id: str) -> list[dict]:
                                           for t, v in zip(rec["t"], s["values"])])
                       for s in rec["signals"]],
             summary=[SummaryValue(**s) for s in rec["summary"]],
-            references=rec.get("references", []))
+            references=rec.get("references", []), **rec.get("engine", {}))
         out.append({"caseId": case_id, "result": result.model_dump(),
                     "creation": data["creation"]})
     return out
