@@ -343,8 +343,10 @@ pub struct SplitConfig {
 ///
 /// Limited-slip (a clutch-pack type, as Salisbury's): open, with a Coulomb
 /// friction with stiction between the two outputs (the clutch's, from
-/// rotational::friction_mode_eqs). Its torque `tau_c`, taken from output a
-/// and given to output b, is at most the locking capacity
+/// rotational::friction_mode_eqs; with its outputs at one speed at the
+/// start it starts stuck, and breaks away just after it if it cannot hold).
+/// Its torque `tau_c`, taken from output a and given to output b, is at
+/// most the locking capacity
 /// `preload + ½ · lock · |i·η_d·τ_x|` (the torque the gears pass on),
 /// `lock` the drive ramp's share while that torque drives forwards and the
 /// coast ramp's while it drives backwards: stuck, the outputs turn together and the coupling
@@ -514,6 +516,7 @@ pub fn split(cfg: SplitConfig) -> ComponentDef {
             p("unit_m", "kg.m2", 1.0, "unit carrier"),
             crate::rotational::s_small("rad/s"),
             crate::rotational::s_jump("rad/s"),
+            p("t_start", "s", 1e-9, "just after the start: when it checks a stuck start"),
         ]);
         let mut s = driveline_speed("s_c", "s0", "the outputs' speed difference, a − b");
         s.fixed = false;
@@ -521,8 +524,21 @@ pub fn split(cfg: SplitConfig) -> ComponentDef {
             s,
             var("acc_c", "rad/s2", "its rate"),
             var("tau_c", "N.m", "the torque the coupling passes from output a to b"),
+            var("brk_start", "1", "1 past the start while stuck past its capacity"),
         ]);
-        vars.extend(crate::rotational::friction_mode_vars("s0"));
+        // with its outputs together at the start it starts stuck. The shared
+        // rule starts a friction sliding forwards (dir from s0 ≥ 0), which
+        // here passed the whole capacity from one output to the other until
+        // it stuck (on the FS launch for 1.8 ns, setting the rear wheels'
+        // speeds apart: 5 more events); with no direction (passing nothing)
+        // the outputs' slip wanders at round-off across 0, an event at each
+        // crossing. Its break-away at the start, which a condition already
+        // true at t = 0 never fires, is the event just after it (below)
+        let mut modes = crate::rotational::friction_mode_vars("s0");
+        for v in modes.iter_mut().filter(|v| v.name == "stuck") {
+            v.start = Some(ite(and(ge(n("s0"), c(0.0)), le(n("s0"), c(0.0))), c(1.0), c(0.0)));
+        }
+        vars.extend(modes);
         eqs.extend([
             eq(n("s_c"), n("flange_out_a.w") - n("flange_out_b.w"), "the coupling's slip"),
             eq(n("acc_c"), der("s_c"), "the slip's rate"),
@@ -530,6 +546,23 @@ pub fn split(cfg: SplitConfig) -> ComponentDef {
         ]);
         eqs.extend(shares(true));
         eqs.extend(crate::rotational::friction_mode_eqs("s_c", "acc_c", "tau_c", "cap", "unit_m"));
+        // started stuck with its holding torque already past its capacity, it
+        // breaks away just after the start, the way that torque pushes
+        let brk = |k: &str| gt(n(k), c(0.5));
+        eqs.push(eq(
+            n("brk_start"),
+            ite(gt(time(), n("t_start")), c(1.0), c(0.0)) * (n("brk_fwd") + n("brk_back")),
+            "past the start, stuck with its holding torque past its capacity",
+        ));
+        eqs.push(when(
+            gt(n("brk_start"), c(0.5)),
+            &[
+                ("stuck", ite(brk("brk_fwd"), c(0.0), ite(brk("brk_back"), c(0.0), pre("stuck")))),
+                ("dir", ite(brk("brk_fwd"), c(1.0), ite(brk("brk_back"), c(-1.0), pre("dir")))),
+                ("armed", ite(brk("brk_fwd"), c(0.0), ite(brk("brk_back"), c(0.0), pre("armed")))),
+            ],
+            "started stuck past its capacity, it breaks away just after the start",
+        ));
     } else {
         eqs.push(open_speed());
         eqs.extend(shares(false));
