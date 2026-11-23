@@ -862,7 +862,7 @@
       "references": [
         {
           "kpi": "Lap time",
-          "value": 58.98,
+          "value": 58.48,
           "tolerance": 3,
           "tolerancePct": true,
           "source": "LightSim 0.3.0's own result on its own 979 m layout: a regression check only"
