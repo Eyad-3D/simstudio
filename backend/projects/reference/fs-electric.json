@@ -2,11 +2,11 @@
  "_about": "Stored reference results of this example (CON-15): the app's engine's runs, written by backend/tests/update_stored.py, explained in tests/golden/CHANGES.md.",
  "creation": {
   "appVersion": "0.2.0",
-  "gitCommit": "223b1537",
+  "gitCommit": "afe73e13",
   "solver": "the app's engine (new 0.1.0): variable step, rtol 1e-06, atol 1e-08; lap mode: the lap's speed profile, then fast mode along it in steps of at most 0.01 s; recorded every 1 s",
   "date": "2026-11-23",
   "machine": "Linux x86_64, Python 3.11.17",
-  "note": "The FS Electric example: a limited-slip differential"
+  "note": "The FS limited-slip coupling starts stuck"
  },
  "cases": {
   "case-accel-75m": {
@@ -26,7 +26,7 @@
     {
      "key": "accel_time_s",
      "label": "Time to 75 m",
-     "value": 3.753713185880787,
+     "value": 3.753719759871494,
      "unit": "s",
      "limit": 25.0,
      "passed": true
@@ -34,43 +34,43 @@
     {
      "key": "accel_end_speed_kmh",
      "label": "Speed at 75 m",
-     "value": 118.86423558514471,
+     "value": 118.8646894804233,
      "unit": "km/h"
     },
     {
      "key": "accel_gap_to_reference_s",
      "label": "Gap to reference time",
-     "value": -0.15628681411921308,
+     "value": -0.15628024012850616,
      "unit": "s"
     },
     {
      "key": "time_to_100_kmh_s",
      "label": "Time to 100 km/h",
-     "value": 2.962566358204349,
+     "value": 2.96257182304376,
      "unit": "s"
     },
     {
      "key": "el-battery.mean_terminal_power_kw",
      "label": "Accumulator — mean terminal power",
-     "value": 78.07645451136925,
+     "value": 78.0764563377325,
      "unit": "kW"
     },
     {
      "key": "grip_limit_time_pct",
      "label": "Time at the tyres' grip limit",
-     "value": 48.69664118170285,
+     "value": 48.69658213978478,
      "unit": "%"
     },
     {
      "key": "el-battery.final_soc_pct",
      "label": "Accumulator — final SOC",
-     "value": 98.83993366331022,
+     "value": 98.83993216063031,
      "unit": "%"
     },
     {
      "key": "el-battery.energy_delivered_kwh",
      "label": "Accumulator — energy delivered",
-     "value": 0.08673850190353086,
+     "value": 0.08673861463600016,
      "unit": "kWh"
     },
     {
@@ -82,13 +82,13 @@
     {
      "key": "el-battery.internal_losses_kwh",
      "label": "Accumulator — internal losses",
-     "value": 0.007237541680845167,
+     "value": 0.007237551180722537,
      "unit": "kWh"
     },
     {
      "key": "el-battery.peak_terminal_power_kw",
      "label": "Accumulator — peak terminal power",
-     "value": 80.00000000018547,
+     "value": 80.00000068081717,
      "unit": "kW"
     },
     {
@@ -102,7 +102,7 @@
     {
      "key": "el-battery.time_at_power_limit_s",
      "label": "Accumulator — time held at the output power limit",
-     "value": 3.796007085362243,
+     "value": 3.7960121856516844,
      "unit": "s"
     },
     {
@@ -116,42 +116,42 @@
     {
      "key": "el-battery.min_pack_voltage_v",
      "label": "Accumulator — minimum pack voltage",
-     "value": 532.6134692573416,
+     "value": 532.61346653235,
      "unit": "V"
     },
     {
      "key": "el-battery.usable_energy_left_kwh",
      "label": "Accumulator — usable energy left",
-     "value": 6.812853953779466,
+     "value": 6.812853832251128,
      "unit": "kWh",
      "passed": true
     },
     {
      "key": "el-motor.time_limited_by_supply_s",
      "label": "E-Motor — time limited by supply",
-     "value": 3.7960068545884575,
+     "value": 3.796012026586416,
      "unit": "s"
     },
     {
      "key": "distance_km",
      "label": "Distance driven",
-     "value": 0.07530004559120615,
+     "value": 0.07530000102771028,
      "unit": "km"
     },
     {
      "key": "simulated_duration_s",
      "label": "Simulated duration",
-     "value": 3.999395320995794,
+     "value": 3.9994004253839734,
      "unit": "s"
     }
    ],
    "references": [
     {
      "label": "Time to 75 m",
-     "value": 3.753713185880787,
+     "value": 3.753719759871494,
      "reference": 4.0,
      "unit": "s",
-     "difference": -0.246287,
+     "difference": -0.24628,
      "differencePct": -6.157,
      "tolerance": 0.5,
      "grade": "within",
@@ -161,10 +161,10 @@
     },
     {
      "label": "Top speed allowed by 'E-Motor' (hand calculation)",
-     "value": 118.8643,
+     "value": 118.8647,
      "reference": 126.9775,
      "unit": "km/h",
-     "difference": -8.1132,
+     "difference": -8.1128,
      "differencePct": -6.39,
      "tolerance": 2.5395,
      "grade": "within",
@@ -195,35 +195,35 @@
      "portId": "sig_speed",
      "label": "Vehicle · Vehicle Speed",
      "unit": "km/h",
-     "values": [0.0,36.039969039961946,73.38076486843475,100.82186056135421,118.86425619314824]
+     "values": [0.0,36.03996903232424,73.38077326039159,100.8217387301471,118.86468994496076]
     },
     {
      "elementId": "el-battery",
      "portId": "sig_soc",
      "label": "Accumulator · SOC",
      "unit": "%",
-     "values": [100.0,99.73246152279125,99.43519295958207,99.13762392717608,98.83993366331022]
+     "values": [100.0,99.73246153101994,99.43519296692543,99.13762393362275,98.8399321606303]
     },
     {
      "elementId": "el-battery",
      "portId": "sig_power",
      "label": "Accumulator · Discharge Power",
      "unit": "kW",
-     "values": [4.282000000000101,80.00000000000007,80.00000000000017,80.00000000000031,80.00000000000011]
+     "values": [4.282000000000101,79.99999999999994,80.0000000000002,80.00000000000004,80.0]
     },
     {
      "elementId": "el-motor",
      "portId": "sig_speed",
      "label": "E-Motor · Shaft Speed",
      "unit": "1/min",
-     "values": [0.0,4400.099921893759,4000.2458354725786,5396.589466225864,6306.977382481654]
+     "values": [0.0,4400.102251868466,4000.246343126173,5396.583305919906,6306.99923155743]
     },
     {
      "elementId": "el-motor",
      "portId": "sig_torque",
      "label": "E-Motor · Shaft Torque",
      "unit": "N·m",
-     "values": [230.0,164.11817049379857,179.7375014747866,134.57540525139984,115.31054621346415]
+     "values": [230.0,164.1180884400702,179.73596318862093,134.57555650466392,115.31014812445545]
     }
    ]
   },
