@@ -635,9 +635,8 @@ and seven comparison signals (vehicle speed and target, battery SOC and
 power, motor speed and torque, engine fuel rate) every second. The other
 channels appear only after **Run**. The stored runs are not saved with the
 project and are not kept when LightSim restarts; the run lists call them
-*not stored on disk*. They were made by the older engine; **Run** gives the
-new engine's figures, which differ in the headline rows by well under 1 %
-(the BEV's WLTC consumption is 14.0456 kWh/100 km stored and 14.0532 run).
+*not stored on disk*. They are runs of the app's engine, so **Run** on an
+unchanged example gives the same figures.
 
 *Workaround:* press **Run** for every channel.
 

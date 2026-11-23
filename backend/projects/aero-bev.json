@@ -1106,7 +1106,7 @@
       "references": [
         {
           "kpi": "Consumption",
-          "value": 11.78,
+          "value": 11.79,
           "tolerance": 3,
           "tolerancePct": true,
           "source": "LightSim 0.3.0's own result: a regression check only, as no WLTC test of this car at the battery was found"

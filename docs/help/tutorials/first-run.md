@@ -71,7 +71,7 @@ same.
   a double-click shows the whole run again
   ([all the chart's keys](../reference/keyboard-shortcuts.md#on-a-chart)).
 - Under the numbers, a line compares *Consumption* with the value the
-  example expects, 11.12 kWh/100 km ± 3 %, and reads **within**.
+  example expects, 11.11 kWh/100 km ± 3 %, and reads **within**.
   *Hand calculations: 2 passed* folds away two checks LightSim works out
   itself ([more](../how-to/check-against-expected-values.md)).
 - The word at the top of the chart says how the run went. *success* means

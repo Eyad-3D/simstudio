@@ -26,6 +26,8 @@ import {
   ClipboardPaste,
   Copy,
   CopyPlus,
+  Eye,
+  EyeOff,
   Grid2x2,
   Magnet,
   Map,
@@ -33,6 +35,7 @@ import {
   MousePointerClick,
   PackagePlus,
   Pencil,
+  Plus,
   Redo2,
   RotateCcw,
   Scissors,
@@ -72,7 +75,7 @@ import {
   useCanvasSelection,
 } from "../../store/canvasSelection";
 import { canvasAction, diagramHasKeys, keyBelongsToTarget } from "./canvasKeys";
-import { routingInput } from "./portPlaces";
+import { JUNCTIONS, asDrawn, partDef, physicalPorts, portInUse, routingInput, wiredPorts } from "./portPlaces";
 import { fitEnds, pathMiddle, roundedPath, routeWires, type Pt } from "./route";
 
 const nodeTypes = { element: ElementNode };
@@ -125,7 +128,8 @@ const DEFAULT_H = 78;
 const FIT_PADDING = { x: 0.15, top: "48px", bottom: "32px" } as const;
 const AUTO_FIT = { padding: FIT_PADDING, maxZoom: 1, minZoom: 0.5 };
 
-type CtxMenu = { x: number; y: number; nodeId: string | null };
+// a right-click on a part, or on one of its ports (`portId`)
+type CtxMenu = { x: number; y: number; nodeId: string | null; portId?: string };
 
 function MenuBtn({
   icon: Icon,
@@ -134,6 +138,8 @@ function MenuBtn({
   kbd,
   disabled,
   danger,
+  title,
+  indent,
 }: {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   label: string;
@@ -141,14 +147,22 @@ function MenuBtn({
   kbd?: string;
   disabled?: boolean;
   danger?: boolean;
+  /** what it does, or why it cannot */
+  title?: string;
+  /** one of the item above's choices */
+  indent?: boolean;
 }) {
+  // one that cannot, with its reason, stays under the pointer so the reason shows
+  const soft = !!disabled && !!title;
   return (
     <button
-      className={`flex w-full items-center gap-2 px-2.5 py-1 text-left hover:bg-[color:var(--ss-hover)] disabled:opacity-40 disabled:hover:bg-transparent ${
-        danger ? "text-[color:var(--ss-err)]" : ""
-      }`}
-      disabled={disabled}
-      onClick={onClick}
+      className={`flex w-full items-center gap-2 py-1 pr-2.5 text-left hover:bg-[color:var(--ss-hover)] disabled:opacity-40 disabled:hover:bg-transparent ${
+        indent ? "pl-6" : "pl-2.5"
+      } ${danger ? "text-[color:var(--ss-err)]" : ""} ${soft ? "cursor-default opacity-40 hover:bg-transparent" : ""}`}
+      disabled={disabled && !soft}
+      aria-disabled={soft || undefined}
+      title={title}
+      onClick={soft ? undefined : onClick}
     >
       <Icon size={13} className="shrink-0" />
       <span className="flex-1">{label}</span>
@@ -223,6 +237,13 @@ function TopologyCanvasInner() {
   const [menu, setMenu] = useState<CtxMenu | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuEl = menu?.nodeId ? system?.elements.find((e) => e.id === menu.nodeId) : undefined;
+  // its ports as the project has them (a node's own terminals), its hidden ones
+  const menuLib = menuEl && libraryById[menuEl.componentDefId];
+  const menuPorts = menuEl && menuLib ? physicalPorts(partDef(menuEl, menuLib)) : [];
+  const menuHidden = menuPorts.filter((p) => menuEl?.hiddenPorts?.includes(p.id));
+  const menuJunction = !!menuLib && !!JUNCTIONS[menuLib.id];
+  const menuPort = menu?.portId ? menuPorts.find((p) => p.id === menu.portId) : undefined;
+  const menuPortUsed = !!menuPort && !!project && !!menuEl && portInUse(project, menuEl.id, menuPort.id);
   // a Monitor or Script without ports yet can still get signals
   const menuSignals =
     !!menuEl &&
@@ -487,13 +508,14 @@ function TopologyCanvasInner() {
 
   const nodes: ElementFlowNode[] = useMemo(() => {
     if (!system) return [];
+    const wired = wiredPorts(system);
     return system.elements
       .filter((el) => libraryById[el.componentDefId])
       .map((el) => ({
         id: el.id,
         type: "element" as const,
         position: el.position,
-        data: { element: el, def: libraryById[el.componentDefId] },
+        data: { element: asDrawn(el, wired), def: partDef(el, libraryById[el.componentDefId]) },
         selected: selectedNodes.has(el.id),
         measured: measured[`${el.id}|${el.componentDefId}`],
       }));
@@ -516,8 +538,7 @@ function TopologyCanvasInner() {
     if (!system || !project) return [];
     const portKind = (elId: string, portId: string): PortKind => {
       const el = system.elements.find((e) => e.id === elId);
-      const def = el && libraryById[el.componentDefId];
-      return def?.ports.find((p) => p.id === portId)?.kind ?? "power";
+      return (el && portsOf(el, libraryById).find((p) => p.id === portId)?.kind) ?? "power";
     };
     // signal / data-bus wiring is not drawn on the canvas — see the
     // Data Bus Connections panel
@@ -655,8 +676,7 @@ function TopologyCanvasInner() {
     (elId: string | null, portId: string | null | undefined) => {
       if (!elId || !portId || !system) return null;
       const el = system.elements.find((e) => e.id === elId);
-      const def = el && libraryById[el.componentDefId];
-      return def?.ports.find((p) => p.id === portId) ?? null;
+      return (el && portsOf(el, libraryById).find((p) => p.id === portId)) ?? null;
     },
     [system, libraryById],
   );
@@ -757,13 +777,14 @@ function TopologyCanvasInner() {
 
   // context-menu helpers -----------------------------------------------------
   // kept clear of the canvas's right and bottom edges
-  const openMenuAt = (clientX: number, clientY: number, nodeId: string | null) => {
+  const openMenuAt = (clientX: number, clientY: number, nodeId: string | null, portId?: string) => {
     const wrapper = wrapperRef.current;
     const rect = wrapper?.getBoundingClientRect();
     setMenu({
       x: Math.min(clientX - (rect?.left ?? 0), (wrapper?.clientWidth ?? 9999) - 184),
-      y: Math.min(clientY - (rect?.top ?? 0), (wrapper?.clientHeight ?? 9999) - 200),
+      y: Math.min(clientY - (rect?.top ?? 0), (wrapper?.clientHeight ?? 9999) - (portId ? 64 : 200)),
       nodeId,
+      portId,
     });
   };
   const closeMenu = () => setMenu(null);
@@ -1057,7 +1078,9 @@ function TopologyCanvasInner() {
               setSelectedNodes(new Set([node.id]));
               store.getState().select(node.id);
             }
-            openMenuAt(e.clientX, e.clientY, node.id);
+            // on one of its ports: that port's menu
+            const pin = (e.target as HTMLElement).closest?.(".react-flow__handle");
+            openMenuAt(e.clientX, e.clientY, node.id, pin?.getAttribute("data-handleid") ?? undefined);
           }}
           onPaneContextMenu={(e) => {
             e.preventDefault();
@@ -1258,7 +1281,44 @@ function TopologyCanvasInner() {
             className="absolute z-50 min-w-[176px] rounded-md border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] py-1 shadow-lg"
             style={{ left: menu.x, top: menu.y }}
           >
-            {menu.nodeId ? (
+            {menu.nodeId && menuEl && menuPort ? (
+              <>
+                {/* a port: hide it; a node's terminal: delete it for good */}
+                <MenuBtn
+                  icon={EyeOff}
+                  label="Hide port"
+                  disabled={menuPortUsed}
+                  title={
+                    menuPortUsed
+                      ? `${menuPort.name} has a wire or a signal link: only an unused port can be hidden`
+                      : `Hide ${menuPort.name} on the diagram (the part's menu shows it again)`
+                  }
+                  onClick={() => {
+                    store.getState().hidePort(menuEl.id, menuPort.id);
+                    closeMenu();
+                  }}
+                />
+                {menuJunction && (
+                  <MenuBtn
+                    icon={Trash2}
+                    label="Delete port"
+                    danger
+                    disabled={menuPortUsed || menuPorts.length <= 2}
+                    title={
+                      menuPortUsed
+                        ? `${menuPort.name} has a wire: delete the wire first`
+                        : menuPorts.length <= 2
+                          ? "A node keeps at least two terminals"
+                          : `Remove ${menuPort.name} from ${menuEl.label}`
+                    }
+                    onClick={() => {
+                      store.getState().deleteTerminal(menuEl.id, menuPort.id);
+                      closeMenu();
+                    }}
+                  />
+                )}
+              </>
+            ) : menu.nodeId ? (
               <>
                 <MenuBtn
                   icon={Settings2}
@@ -1301,6 +1361,43 @@ function TopologyCanvasInner() {
                     label="Reset port places"
                     onClick={() => {
                       store.getState().resetPortPlaces(menuEl.id);
+                      closeMenu();
+                    }}
+                  />
+                )}
+                {/* only for a part with hidden ports: all back, or one */}
+                {menuEl && menuHidden.length > 0 && (
+                  <MenuBtn
+                    icon={Eye}
+                    label="Show hidden ports"
+                    onClick={() => {
+                      store.getState().showPorts(menuEl.id);
+                      closeMenu();
+                    }}
+                  />
+                )}
+                {menuEl &&
+                  menuHidden.length > 1 &&
+                  menuHidden.map((p) => (
+                    <MenuBtn
+                      key={p.id}
+                      icon={Eye}
+                      indent
+                      label={p.name}
+                      title={`Show ${p.name} only`}
+                      onClick={() => {
+                        store.getState().showPorts(menuEl.id, p.id);
+                        closeMenu();
+                      }}
+                    />
+                  ))}
+                {menuEl && menuJunction && (
+                  <MenuBtn
+                    icon={Plus}
+                    label="Add a port"
+                    title={`One more ${JUNCTIONS[menuLib!.id].toLowerCase()} on ${menuEl.label}`}
+                    onClick={() => {
+                      store.getState().addTerminal(menuEl.id);
                       closeMenu();
                     }}
                   />

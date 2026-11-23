@@ -28,6 +28,7 @@ from typing import Any, Callable, Optional
 
 from .. import storage
 from ..schemas import Project, RunSnapshot, SimResult, StoredRun
+from ..solver.network import ports_of
 from ..version import VERSION
 from . import results as R
 from .access import AuditLog, Policy
@@ -450,7 +451,7 @@ class Tools:
             params.append(row)
         elements = {e.id: e for s in project.systems for e in s.elements}
         ports = []
-        for port in list(cdef.ports if cdef else []) + list(el.dynamicPorts):
+        for port in ports_of(el, cdef) if cdef else list(el.dynamicPorts):
             links = []
             for s in project.systems:
                 for c in s.connections:

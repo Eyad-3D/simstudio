@@ -87,4 +87,4 @@ back afterwards, or close the copy without saving.
 
    **Answer:** From 542.2 to 309.9 km: at city speeds the heater draws
    almost as much as driving does, so the consumption rises by three
-   quarters (9.50 to 16.64 kWh/100 km).
+   quarters (9.52 to 16.66 kWh/100 km).

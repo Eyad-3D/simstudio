@@ -23,6 +23,7 @@ from typing import Iterable, Optional, Sequence
 
 from ..library import library_by_id
 from ..schemas import ComponentDef, DataCheck, ElementInstance, Project, SimCase, SummaryValue
+from ..solver.network import ports_of
 from ..version import VERSION
 
 #: The size *Copy for AI* aims for (the roadmap's 8 KB).
@@ -109,7 +110,7 @@ def changed_values(el: ElementInstance, cdef: Optional[ComponentDef]) -> list[tu
 
 
 def port_name(el: Optional[ElementInstance], cdef: Optional[ComponentDef], port_id: str) -> str:
-    ports = list(cdef.ports if cdef else []) + list(el.dynamicPorts if el else [])
+    ports = ports_of(el, cdef) if el and cdef else list(cdef.ports if cdef else [])
     return next((p.name for p in ports if p.id == port_id), port_id)
 
 

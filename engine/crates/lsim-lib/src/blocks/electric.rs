@@ -47,17 +47,31 @@ pub fn ground() -> ComponentDef {
     }
 }
 
-/// electric.node: five terminals at one voltage, currents summing to zero.
+/// The Electric Node's terminals in the library; a part may list its own.
+pub const NODE_TERMINALS: [&str; 5] = ["t1", "t2", "t3", "t4", "t5"];
+
+/// A junction's definition name: `base` with the library's terminals, else
+/// `base` followed by the part's own terminals (`Blocks.ElectricNode_t1_t2_t6`).
+pub fn junction_name(base: &str, ts: &[String], library: &[&str]) -> String {
+    if ts.iter().map(String::as_str).eq(library.iter().copied()) {
+        base.to_string()
+    } else {
+        format!("{base}_{}", ts.join("_"))
+    }
+}
+
+/// electric.node: its terminals (`ts`: the library's five, or the part's
+/// own, at least two) at one voltage, currents summing to zero.
 /// Its Throughput Power is the power its bus's source feeds in through
-/// terminal `source` (today's bus load, negative while the bus feeds the
+/// terminal `ts[source]` (today's bus load, negative while the bus feeds the
 /// source back), or, when no terminal leads straight to a source, the
 /// power coming in through all terminals that bring it.
-pub fn electric_node(source: Option<usize>) -> ComponentDef {
+pub fn electric_node(ts: &[String], source: Option<usize>) -> ComponentDef {
     let id = "electric.node";
-    let ts = ["t1", "t2", "t3", "t4", "t5"];
+    let first = format!("{}.v", ts[0]);
     let mut equations: Vec<lsim_ir::EquationDecl> = ts[1..]
         .iter()
-        .map(|t| eq(n(&format!("{t}.v")), n("t1.v"), "every terminal is at one voltage"))
+        .map(|t| eq(n(&format!("{t}.v")), n(&first), "every terminal is at one voltage"))
         .collect();
     equations.push(eq(
         c(0.0),
@@ -71,10 +85,11 @@ pub fn electric_node(source: Option<usize>) -> ComponentDef {
     equations.push(eq(n("sig_power"), power, "the power its source feeds in"));
     let mut ports: Vec<PortDecl> = ts.iter().map(|t| phys(id, t, "Pin")).collect();
     ports.push(out(id, "sig_power"));
+    let base = junction_name("Blocks.ElectricNode", ts, &NODE_TERMINALS);
     ComponentDef {
         name: match source {
-            None => "Blocks.ElectricNode".into(),
-            Some(k) => format!("Blocks.ElectricNode_src{}", k + 1),
+            None => base,
+            Some(k) => format!("{base}_src{}", k + 1),
         },
         doc: doc(id),
         ports,
@@ -694,7 +709,7 @@ pub fn dcdc(cfg: DcDcConfig) -> ComponentDef {
 pub fn defaults() -> Vec<ComponentDef> {
     vec![
         ground(),
-        electric_node(None),
+        electric_node(&NODE_TERMINALS.map(String::from), None),
         voltage_source(),
         power_consumer(LoadConfig::default()),
         climate(&ClimateConfig::default()),

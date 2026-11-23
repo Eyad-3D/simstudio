@@ -878,6 +878,12 @@
    "text": "From 542.2 to 309.9 km",
    "expr": "(v('aero-udds', 'Range at this consumption'), v('aero-udds-heat', 'Range at this consumption'))",
    "format": "From {0[0]:.1f} to {0[1]:.1f} km"
+  },
+  {
+   "page": "examples/aero-bev.md",
+   "text": "9.52 to 16.66 kWh/100 km",
+   "expr": "(v('aero-udds', 'Consumption'), v('aero-udds-heat', 'Consumption'))",
+   "format": "{0[0]:.2f} to {0[1]:.2f} kWh/100 km"
   }
  ],
  "recipes": {
