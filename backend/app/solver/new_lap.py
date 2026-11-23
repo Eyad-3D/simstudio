@@ -32,8 +32,8 @@ CAP_CODE = 5
 LAP_NOTE = ("Lap mode results are quasi-steady-state estimates: an ideal driver at the tyres' "
             "limit on the given line, with no transients, suspension or yaw. The "
             "car is the engine's own: its brakes share the braking by their Max Torque, and "
-            "its differential is open, so the inner driven wheel's grip can hold the car back "
-            "in a corner. They are usually optimistic: calibrate the tyres' μ and μ_y and the "
+            "its differential splits the drive as its Type says (an open one lets the inner "
+            "driven wheel's grip hold the car back in a corner). They are usually optimistic: calibrate the tyres' μ and μ_y and the "
             "downforce against a lap your car has driven.")
 
 

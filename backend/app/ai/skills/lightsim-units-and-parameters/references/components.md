@@ -293,7 +293,7 @@ Parameters:
 
 Category: Driveline. Domain: mechanical.
 
-Splits one mechanical input to two outputs. Unlocked (open): equal torque to both sides, output speeds free (input speed = Ratio × the outputs' mean speed). Locked: both outputs forced to the same speed, torque split follows the grip on each side.
+Splits one mechanical input to two outputs. Its Type says how the two outputs are tied. Open: equal torque to both sides, their speeds free (input speed = Ratio × the outputs' mean speed), so the side with less grip sets what the axle can push. Locked: both outputs at one speed, the torque split follows each side's grip. Limited-slip: open, with a friction clutch between the two sides that lets their torques differ by up to its locking torque (Preload + the locking share × the torque through it); while the sides turn at different speeds it passes that torque from the faster side to the slower one, and its friction turns the slip into heat (in Losses).
 
 Ports:
 - `flange_in`: Flange In (mechanical bidirectional, kW)
@@ -306,7 +306,10 @@ Ports:
 - `sig_losses`: Losses (signal output, kW)
 
 Parameters:
-- `locked`: Locked, default off
+- `type`: Type, default `Open`; one of Open, Locked, Limited-slip
+- `preload_Nm`: Preload [N·m], default 40 N·m; ≥ 0
+- `lock_drive_pct`: Locking Under Power [%], default 40 %; ≥ 0 and ≤ 100
+- `lock_coast_pct`: Locking Off Power [%], default 25 %; ≥ 0 and ≤ 100
 - `ratio`: Ratio, default 1; > 0
 - `efficiency_pct`: Efficiency [%], default 98 %; > 0 and ≤ 100
 - `inertia_kgm2`: Inertia [kg·m²], default 0.015 kg·m²; ≥ 0

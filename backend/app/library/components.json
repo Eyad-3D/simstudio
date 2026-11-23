@@ -2267,7 +2267,7 @@
           "default": "Open",
           "type": "enum",
           "options": ["Open", "Locked", "Limited-slip"],
-          "description": "How the two outputs are tied. Open: both get the same torque and may turn at different speeds, so in a corner or on a slippery side the wheel with less grip holds the axle back. Locked: both turn at the same speed and each gets the torque its wheel's grip allows. Limited-slip: open, with a friction clutch between the two sides that sends up to its locking torque to the side that turns slower (the one with grip, when the other spins).",
+          "description": "How the two outputs are tied. Open: the same torque to both, their speeds free, so the wheel with less grip holds the axle back. Locked: both at one speed, each with the torque its grip allows. Limited-slip: open, with a friction clutch between the sides that sends up to its locking torque to the slower one.",
           "typical": "Open for most road cars; Limited-slip for sports cars and Formula Student cars; Locked for a spool (karts, some drag and off-road cars).",
           "whereToFind": "The car's specification. A project saved before the Differential had a Type, with its Locked box ticked, opens as Locked."
         },
@@ -2292,9 +2292,9 @@
           "type": "number",
           "minimum": 0,
           "maximum": 100,
-          "description": "While the motor drives the wheels: how far the two outputs' torques may differ, as a share of the torque through the differential (on top of twice the Preload). At 40 % with 1,000 N·m through it, one side can take up to 700 N·m and the other 300 N·m. A data sheet that gives a torque bias ratio TBR (the most torque one side gets over the other's) means a share of (TBR − 1) ÷ (TBR + 1): TBR 2 is 33 %, TBR 3 is 50 %.",
+          "description": "While the motor drives the wheels: how far the two outputs' torques may differ, as a share of the torque through the differential (on top of twice the Preload). At 40 % with 1,000 N·m through it, one side can take up to 700 N·m and the other 300 N·m.",
           "typical": "25–60 % (the ramp angle on the drive side: a steeper ramp locks less).",
-          "whereToFind": "The differential's data sheet: the locking value or ramp setting for drive (power, acceleration), or its torque bias ratio."
+          "whereToFind": "The differential's data sheet: the locking value or ramp setting for drive (power, acceleration). A torque bias ratio TBR (the most torque one side gets over the other's) is a share of (TBR − 1) ÷ (TBR + 1): TBR 2 is 33 %, TBR 3 is 50 %."
         },
         {
           "key": "lock_coast_pct",

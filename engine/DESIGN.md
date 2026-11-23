@@ -4120,6 +4120,19 @@ difference on braking stretches, the skidpad 1.7 % longer; the cornering
 speeds are 0.3 to 6.3 % lower, increasingly with speed (STATUS.md, the lap
 port's stage 2).
 
+A differential's Type (driveline::split): a locked or limited-slip one
+cannot take its split from its outputs' speeds in the lap model or fast
+mode, where every wheel turns at the vehicle's speed (a locked one's
+`ω_A = ω_B` is then redundant, a stuck clutch's torque undetermined). Its
+fast-mode variant splits by its wheels' grip (inputs `g_a`, `g_b` from
+each output's wheel's `f_grip`, found on the output's own shaft by
+`facts::grip_splits`): locked, in proportion to the grip, so both wheels
+reach it together; limited-slip, the open split moved toward that by at
+most its locking torque. At an axle's traction limit that is the forward
+model's answer (locked: both wheels' grip; limited-slip: the low-grip
+wheel's torque plus twice the locking torque); below it, and for the
+clutch's heat in a corner (no slip in these models), it is not.
+
 A lap case (stage 3, `backend/app/solver/new_lap.py`) solves each lap's
 profile from the car's state where the last lap ended (`lsim_lap::State`:
 the lap model's `y` and discrete values), then drives it: its energy pass is
@@ -4279,7 +4292,7 @@ against exact answers from `benchmarks/`.
 | `electric.voltage_source`, `electric.constant_drive`, `electric.climate` | constant voltage; power consumers (i = P/v with a guard); climate load model |
 | `electric.node`, `mech.node` | composite whose own ports are all connected together (one connection set: equal across, through sums to zero) |
 | `boundary.ground` | ground with three pins |
-| `mech.shaft`, `mech.final_drive`, `mech.gearbox`, `mech.differential`, `mech.transfer_case` | inertia, ideal gear with efficiency on the torque the teeth carry, after the inertias before them (loss in the power direction, blended within `p_dir` of no power), selected ratio (gearbox: discrete gear from the signal, shift as a rigid engagement), open differential (torque split, speed sum) |
+| `mech.shaft`, `mech.final_drive`, `mech.gearbox`, `mech.differential`, `mech.transfer_case` | inertia, ideal gear with efficiency on the torque the teeth carry, after the inertias before them (loss in the power direction, blended within `p_dir` of no power), selected ratio (gearbox: discrete gear from the signal, shift as a rigid engagement), differential by its Type: open (torque split, speed sum), locked (one speed), limited-slip (open with a stick/slip clutch between the outputs, locking torque preload + ½ × share × the torque passed on); in fast mode a locked or limited-slip one splits by its wheels' grip (`f_grip`, linked by the import) |
 | `mech.clutch` | stick/slip friction with engagement signal: modes and events, no chattering |
 | `mech.brake` | friction torque against rotation, its capacity × clamp(ω / 0.001 rad/s, −1, 1): the whole capacity against the motion above 0.001 rad/s, and within it a stiff damper that holds a shaft at rest (a smaller torque lets it creep at under 0.001 rad/s); no stick mode and no events |
 | `propulsion.wheel` | rolling radius, slip-based tyre force (today's model), rolling resistance; translational port to the body |
@@ -4461,7 +4474,7 @@ against exact answers from `benchmarks/`.
   built again (a build, no run: 15 ms for the BEV car) and its parameters
   compared with the run's: those that moved go to the run, an event at its
   next output time, and a model the engine builds otherwise for the value
-  (a Differential's lock, a Driving Task's mode: a structure of their
+  (a Differential's Type, a Driving Task's mode: a structure of their
   own), a value it refuses, or one that changes what the path's checks
   after the run read of today's parts as at its start (`_checked`: the
   Ambient's air, a battery's minimum SOC, charge power and checks, a

@@ -45,6 +45,22 @@ sections.
 
 ### New
 
+- **The Differential has a Type: Open, Locked or Limited-slip** (it had a
+  Locked box). Open is the model as before; Locked turns both outputs at
+  one speed; Limited-slip is an open differential with a friction clutch
+  between its outputs, set by the values on its data sheet: *Preload*
+  (N·m) and the locking share *Under Power* and *Off Power* (%; a torque
+  bias ratio TBR is a share of (TBR − 1) ÷ (TBR + 1)). The clutch passes
+  up to its locking torque to the slower output, and its heat is in the
+  differential's *Losses*. It works in a full run, in quick mode and in a
+  lap, where the two wheels of an axle turn at one speed and the torque
+  splits by their grip. The examples keep their open differentials and
+  their figures. The FS Electric car with a typical limited-slip one (20
+  N·m, 40 %, 25 %) laps the autocross in 58.48 s instead of 58.98 s. A
+  project saved with the Locked box ticked opens as Locked; the older
+  engine runs Open and Locked ones and refuses a Limited-slip one with a
+  message.
+
 - **Lap cases and the Formula Student events scored from a lap run on the
   new engine**: Autocross, Skidpad and custom tracks, the *Endurance
   energy* case and study, and the *FS events* button (the skidpad, the

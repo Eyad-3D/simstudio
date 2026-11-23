@@ -1750,6 +1750,21 @@ Endurance). `NEW-FS-EVENT` now refuses only a Lap case with an event set.
   same module as main. The guard, FS and engine-flag tests pass (247), as
   do `benchmarks/back_to_back/tests` (157); `ruff check .` is clean.
 
+## The Differential's Type: Open, Locked, Limited-slip (23 November 2026)
+
+`work/engine-diff`: the Differential's Locked box becomes a Type. Open is
+the model text as before; Locked is the locked model the engine had;
+Limited-slip is open with the clutch's stick/slip friction between the
+outputs (locking torque preload + ½ × share × the torque passed on, the
+drive or coast share by its sign), its heat in the part's loss. In fast
+mode and a lap a locked or limited-slip one splits by its wheels' grip
+(DESIGN.md, section 10.1). Hand answers in lsim-project
+tests/differential.rs (each type, a slipping and a stuck clutch, off
+power, the fast-mode split) and backend tests/test_differential.py (a
+split-grip launch in a full run and quick mode, the FS autocross ordered
+locked < limited-slip < open). Golden 0 differences; the older engine
+refuses a limited-slip one where it runs.
+
 ## Lap cases on the engine: lap port, stage 3 (22 November 2026)
 
 Lap cases and the FS events scored from one run on the new engine
