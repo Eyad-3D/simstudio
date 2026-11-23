@@ -10,7 +10,7 @@ test("CON-15: an example opens with its stored results and its card", async ({ p
 
   // the stored result is there before anything runs
   await ribbonTab(page, "Results").click();
-  await expect(headlineTile(page, "Fuel consumption")).toContainText("2.827");
+  await expect(headlineTile(page, "Fuel consumption")).toContainText("2.809");
   // its row in the table of runs names it, on its case
   const stored = runRow(page, 0).row;
   await expect(stored).toContainText("Stored result");
@@ -20,11 +20,10 @@ test("CON-15: an example opens with its stored results and its card", async ({ p
   await expect(expected).toContainText("within");
 
   // Run recomputes it, charge-balanced, compared with the stored one (the
-  // stored result is today's engine's 2.827 l/100 km; the new engine's run
-  // gives 2.809)
+  // stored result is the app's engine's own run, so Run gives its figure)
   await runActiveCase(page);
   await expect(runButton(page)).toBeEnabled({ timeout: 150_000 }); // the run has finished
-  await expect(headlineTile(page, "Fuel consumption")).toContainText("2.8");
+  await expect(headlineTile(page, "Fuel consumption")).toContainText("2.809");
   await expect(page.getByText(/vs baseline/).first()).toBeVisible();
 
   // the card, in the Project tab
