@@ -16,7 +16,9 @@ real car. Replace them with your team's data.
 
 - 280 kg with the driver; centre of gravity 0.28 m high; wheelbase 1.53 m.
 - One rear E-Motor (230 N·m, about 100 kW) through a 4.4 chain drive and
-  an open differential; the front wheels are not driven and have brakes.
+  a limited-slip differential (a typical clutch-pack setting, not a data
+  sheet's: Preload 20 N·m, locking 40 % under power and 25 % off power);
+  the front wheels are not driven and have brakes.
 - An Accumulator (the Formula Student word for the high-voltage battery)
   of 138 cells in series and 4 in parallel (138s4p): 580 V full,
   7.2 kWh, 0.3 Ω, with the battery's *Formula Student Electric* preset.
