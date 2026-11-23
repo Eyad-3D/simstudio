@@ -17,15 +17,13 @@ In a full run the icy wheel spins and its force is its grip exactly; the
 torques follow each Type's law exactly at every instant. In quick mode
 (every wheel at the car's speed) the split follows the wheels' grip, and a
 cycle asking for more than the axle can push is flagged."""
-import os
-
 import pytest
+from helpers import bev_axle, conn, el
 
 from app.schemas import ElementInstance
 from app.solver import new_lap, simulate
 from app.solver.core import simulate_today
 from app.storage import load_example
-from helpers import bev_axle, conn, el
 
 N = 1800 * 9.81 / 2
 R = 0.33
@@ -145,6 +143,3 @@ def test_quick_mode_names_a_locked_differential_without_a_wheel_on_each_output()
     assert r.status == "failed"
     assert any("needs one Wheel of its own" in m.text for m in r.messages), r.messages
 
-
-if os.environ.get("LIGHTSIM_ENGINE") == "today":  # the new engine's behaviour only
-    pytestmark = pytest.mark.skip("the Type is the new engine's")
