@@ -55,7 +55,9 @@ The clutch works like the Clutch part:
   faster output to the slower one. A spinning wheel is the faster one, so
   the wheel with grip gets more torque: the low-grip wheel's torque plus
   2·T_L, at most what locked would give;
-- the changes between the two are located exactly in time.
+- the changes between the two are located exactly in time;
+- with both outputs at one speed at the start (a car at rest, or driving
+  straight), it starts holding, and lets go at once if it cannot.
 
 So the two outputs' torques differ by at most 2·T_L: twice the Preload
 with no torque through it, and L × the torque through it without preload.

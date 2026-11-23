@@ -1765,6 +1765,17 @@ split-grip launch in a full run and quick mode, the FS autocross ordered
 locked < limited-slip < open). Golden 0 differences; the older engine
 refuses a limited-slip one where it runs.
 
+The FS example is Limited-slip (20 N·m, 40 %, 25 %; the lead's decision).
+Its coupling starts stuck when its outputs start together, and a mode 1 ns
+after the start breaks a stuck start away if it cannot hold (the shared
+friction rule's sliding start passed its whole capacity from one rear
+wheel to the other for 1.8 ns and took the 75 m run's books to 2.3e-9;
+now 7.8e-10). The golden record's FS 75 m case is recorded again
+(golden/README.md); the other 13 cases are kept. Open:
+STUCK-FRICTION-LOOKAHEAD, a full run on a drive cycle with a stuck
+friction element (this coupling, or a Clutch) warns that its break-away
+condition cannot be searched ahead (it reads a motor's J·dω/dt).
+
 ## Lap cases on the engine: lap port, stage 3 (22 November 2026)
 
 Lap cases and the FS events scored from one run on the new engine

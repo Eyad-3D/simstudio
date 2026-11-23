@@ -58,8 +58,11 @@ def _logged(track: dict, grip=0.9, cza=2.5, seed=1) -> str:
 
 
 def _todays_logged(track: dict, grip=0.9, cza=2.5, seed=1) -> str:
-    """Three laps of today's lap mode, logged with the pack power."""
+    """Three laps of today's lap mode, logged with the pack power. Its
+    lap mode pools the driven wheels' grip whatever the differential's
+    Type, and the older engine runs no Limited-slip one: Open here."""
     p = _car(grip, cza)
+    next(e for e in p.systems[0].elements if e.id == "el-diff").parameterOverrides["type"] = "Open"
     case = p.cases[1]
     case.parameterOverrides, case.outputEvery = {"el-track": {**track, "laps": 3}}, 1
     r = _todays_lap(p, case.id)

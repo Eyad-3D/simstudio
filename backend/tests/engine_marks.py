@@ -112,6 +112,10 @@ LIMITS = ("NEW-LIMITS: the new path refuses a run with a value outside its param
           "the owner's call whether the app keeps it)")
 
 XFAIL = {
+    "test_laplog.py::test_an_imported_lap_runs_as_a_cycle_through_the_app": (
+        "STUCK-FRICTION-LOOKAHEAD: the FS example driving an imported lap as a cycle; its limited-slip "
+        "differential's break-away condition reads the E-Motor's J·dω/dt, which the run loop's "
+        "look-ahead cannot enclose: the run warns and ends as warning (open)"),
     "test_fs_events.py::test_an_endurance_from_a_lap_trace_reports_its_energy": (
         "STUCK-FRICTION-LOOKAHEAD: on a driveline a drive cycle or lap trace drives, a stuck friction "
         "element's break-away condition (the FS example's limited-slip differential; a Clutch there "

@@ -16,7 +16,7 @@ import os
 import re
 
 import pytest
-from helpers import dbc, el, sig_port
+from helpers import dbc, el, sig_port, todays
 
 from app.schemas import ElementInstance, Project
 from app.solver import new_engine, simulate
@@ -41,7 +41,7 @@ def new(monkeypatch):
 def _today(project, case_id, monkeypatch):
     with monkeypatch.context() as m:
         m.setenv(new_engine.ENV_VAR, "today")
-        return simulate(project, case_id)
+        return simulate(todays(copy.deepcopy(project)), case_id)
 
 
 def _without(proj, el_id):
