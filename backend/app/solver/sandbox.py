@@ -179,10 +179,11 @@ class ScriptSandbox:
         # Fast per-step path: busy-wait briefly before blocking (see Conn), and
         # let the watchdog enforce the time limit instead of a per-read timeout.
         # The AppContainer pipe reads block, so there the watchdog is the only
-        # time limit (no spin).
+        # time limit (no spin). With one usable CPU no spin either: the worker
+        # cannot answer while this process holds that CPU spinning.
         if self._ac is None:
             self._sock.settimeout(None)
-            self._conn._spin = True
+            self._conn._spin = _w.usable_cpus() >= 2
         self._watch_stop = threading.Event()
         self._watch = threading.Thread(
             target=self._watchdog, name="lightsim-sandbox-watchdog", daemon=True)
