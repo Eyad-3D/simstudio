@@ -3,6 +3,8 @@
 #
 #   engine/check.sh            # everything
 #   CARGO_BUILD_JOBS=4 ...     # more parallel jobs (default 2)
+#   LSIM_PY_MODULE=DIR ...     # also the Python module's tests, on the module
+#                              # built from this tree into DIR
 #
 # Needs: Rust 1.94+ (rustfmt, clippy), a C compiler (the vendored SUNDIALS,
 # built by lsim-sundials-sys with the cc crate: no CMake, no libclang; on
@@ -43,6 +45,21 @@ python3 judge/test_judge.py
 step "the hard-problem harness's transcriber (benchmarks/hard)"
 python3 ../benchmarks/hard/test_fortran.py
 python3 ../benchmarks/hard/test_tools.py
+
+# the Python module's tests (crates/lsim-py/tests, which CI runs on the
+# wheel it builds): with LSIM_PY_MODULE set to a folder holding the module
+# built from this tree (lightsim_engine), here too. They run the engine
+# through the module and pin what follows the step sequence (when an edit
+# is taken, a run's points), so a change to the solver can move them where
+# the Rust tests do not look. check.sh does not build the module (maturin
+# and a release build of its own); without it the step says it was skipped.
+if [ -n "${LSIM_PY_MODULE:-}" ]; then
+    step "the Python module's tests (crates/lsim-py/tests)"
+    PYTHONPATH="$LSIM_PY_MODULE" "${LSIM_PYTHON:-python3}" -m pytest -q -p no:cacheprovider \
+        crates/lsim-py/tests
+else
+    step "the Python module's tests: skipped (set LSIM_PY_MODULE to the module built from this tree)"
+fi
 
 if command -v cargo-deny >/dev/null 2>&1; then
     step "cargo-deny (licences, bans)"
