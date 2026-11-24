@@ -172,8 +172,6 @@ XFAIL = {
     "test_control_rate.py::test_block_with_a_sample_time_runs_at_that_rate_and_holds": TICK,
     "test_signal_wiring.py::test_the_delay_is_what_the_run_does": TICK,
     "test_fmu.py::test_communication_step_holds_outputs_between_steps": TICK,
-    "test_engine.py::test_coasting_in_gear_burns_no_fuel_and_co2_follows_the_fuel": (
-        "an Engine coasting in gear burns 1.9 g/s on the new engine, where today's cuts the fuel (open)"),
     "test_gear_shifts.py::test_a_shift_keeps_the_angular_momentum_and_books_the_energy_it_loses": (
         "a gear shift's energy on the new engine differs from the rigid engagement the test computes (open)"),
     "test_gear_shifts.py::test_through_gripping_tyres_the_vehicle_takes_part_in_the_shift": "a gear shift through gripping tyres differs from today's (open)",
