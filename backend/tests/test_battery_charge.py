@@ -28,9 +28,14 @@ def _amps(i_a):
     return el("amps", "signal.lookup", "Current", table_1d={"0": 0, "1000": i_a})
 
 
+# a minimum SOC as near 0 as Data Checks allow (above 0): the battery
+# empties to it, and holds there
+MIN_SOC = 1e-6
+
+
 def _discharge(battery, i_a, duration):
     return simulate(project(
-        [el("batt", "battery.generic", "Battery", initial_soc_pct=100, min_soc_pct=0, **battery),
+        [el("batt", "battery.generic", "Battery", initial_soc_pct=100, min_soc_pct=MIN_SOC, **battery),
          el("bus", "electric.node", "Bus"),
          el("load", "electric.constant_drive", "Load", power_kW=0),
          _amps(i_a)],
@@ -41,10 +46,13 @@ def _discharge(battery, i_a, duration):
 
 
 def _time_empty(soc):
-    """The time the SOC reaches 0, interpolated between recorded points."""
+    """The time the SOC reaches 0 (its minimum, 1e-6 %), interpolated
+    between the recorded points about it: the first point at most 0.01 %
+    and the one before (the last 10 ms close the window exponentially, so
+    a point just after the minimum can still be 1e-4 % above it)."""
     points = sorted(soc.items())
     for (ta, a), (tb, b) in zip(points, points[1:]):
-        if a > 1e-6 >= b:
+        if a > 1e-2 >= b:
             return ta + a / (a - b) * (tb - ta)
     return None
 

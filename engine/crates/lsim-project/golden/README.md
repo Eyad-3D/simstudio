@@ -1052,3 +1052,18 @@ steps, the events and the books' closure, before → after.
 | hybrid-car/case-mixed | 0 (every figure to the bit) | 1.7e-13 | 296432 → 296432 | 56212 → 56222 | 1.9e-12 → 1.9e-12 |
 | hybrid-car/case-mixed-live | 0 (every figure to the bit) | 1.7e-13 | 296432 → 296432 | 56212 → 56222 | 1.9e-12 → 1.9e-12 |
 | hybrid-car/case-udds | 4.8e-07 (Phase Bag 2 — fuel consumption) | 1.1e-06 | 1648592 → 1648790 | 118138 → 118525 | 3.1e-11 → 2.8e-11 |
+
+## The battery shut at its SOC limits (24 November 2026)
+
+A battery's window closes as it nears its minimum SOC (or full) over the
+last 10 ms of charge, exponentially: it took the SOC ever closer to the
+limit, below the solver's own tolerance on it, where the window's kink
+at the limit was crossed back and forth by the solver's noise and the
+integrator stopped (a 1C discharge to a minimum SOC of 1 %, at 3564.1 s).
+Now an event shuts it within 1e-9 of the limit (1e-7 %), until the
+current turns and moves the SOC twice that away.
+
+No example's battery reaches either limit; the FS car's starts full, so
+its run passes the event that opens the window again as it leaves 100 %:
+its events 12 → 13, every value, step and its books (7.8e-10) the same to
+the bit. Every other case is kept to the byte.

@@ -8592,7 +8592,7 @@
   },
   {
     "block_changes": 0,
-    "build_seconds": 0.010179826,
+    "build_seconds": 0.009781489,
     "case": "case-accel-75m",
     "channels": [
       {
@@ -9316,7 +9316,7 @@
     "energy_shift_gear_kwh": 0.0,
     "energy_shift_loss_kwh": 0.0,
     "energy_shift_tyre_kwh": 0.0,
-    "events": 12,
+    "events": 13,
     "figures": [
       {
         "band": 0.01876963550674665,
@@ -9532,7 +9532,7 @@
     "inert_ticks": 0,
     "light_restarts": 0,
     "project": "fs-electric",
-    "run_seconds": 0.029584322,
+    "run_seconds": 0.029689004,
     "steps": 769,
     "today_shift_gear_kwh": 0.0
   },

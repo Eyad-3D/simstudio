@@ -13,7 +13,8 @@
 //! SOC, or reach 100 %, within one 10 ms step) are a current that would
 //! take the charge left above the minimum SOC (or up to full) in 10 ms
 //! ([`TAU_SOC`]): a window that closes continuously as the SOC reaches its
-//! limit, with no switch there.
+//! limit, shut by an event within [`SOC_HOLD`] of it (until the current
+//! turns and moves the SOC twice that away).
 //!
 //! The OCV table is runtime data (the parameter `ocv_table`, linear as
 //! today); the definition depends only on the structural choices (an RC
@@ -63,6 +64,14 @@ const BIG: f64 = 1e30;
 /// draw drove the SOC back to the limit from each side, and the run
 /// stopped with an event storm (DESIGN.md 8.2).
 const TAU_SOC: f64 = 0.01;
+
+/// How near its minimum SOC (or full) the SOC limits' window shuts (an
+/// event): the window closes as `exp(−t/TAU_SOC)` and would take the SOC
+/// ever closer, below the solver's tolerance on it, where the window's
+/// kink at the limit is crossed back and forth by the solver's noise.
+/// 1e-9 of the charge is well above that noise and below anything shown
+/// (the SOC at its minimum to 1e-7 %).
+const SOC_HOLD: f64 = 1e-9;
 
 /// Pack-level limits (Pack values with a current or voltage limit or a
 /// derating band; today's `CellPack` in PACK mode).
@@ -1137,12 +1146,42 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
             max(c(0.0) * n("unit_A"), (c(1.0) - n("soc_w")) * q_w / (n("tau_soc") * n("eta_c"))),
         );
     }
+    // shut within SOC_HOLD of the limit, until the current turns the SOC
+    // back twice that far (its lowest and highest element's, with a weak one)
+    let (lo_soc, hi_soc) = if cells.is_some_and(|cc| cc.weak) {
+        (min(n("soc"), n("soc_w")), max(n("soc"), n("soc_w")))
+    } else {
+        (n("soc"), n("soc"))
+    };
+    vars.push(discrete("at_min", "1", 0.0, "1 while it is held at its minimum SOC"));
+    vars.push(discrete("at_full", "1", 0.0, "1 while it is held full"));
+    eqs.push(when(
+        le(lo_soc.clone(), n("min_soc_pct") + c(SOC_HOLD)),
+        &[("at_min", c(1.0))],
+        "it is at its minimum SOC: it gives no more",
+    ));
+    eqs.push(when(
+        gt(lo_soc, n("min_soc_pct") + c(2.0 * SOC_HOLD)),
+        &[("at_min", c(0.0))],
+        "charged off its minimum SOC: it gives again",
+    ));
+    eqs.push(when(
+        ge(hi_soc.clone(), c(1.0 - SOC_HOLD)),
+        &[("at_full", c(1.0))],
+        "it is full: it takes no more",
+    ));
+    eqs.push(when(lt(hi_soc, c(1.0 - 2.0 * SOC_HOLD)), &[("at_full", c(0.0))], "it takes again"));
     eqs.push(eq(
         n("i_floor"),
-        floor,
-        "it gives at most what takes the charge above its minimum SOC in tau_soc",
+        ite(gt(n("at_min"), c(0.5)), c(0.0) * n("unit_A"), floor),
+        "it gives at most what takes the charge above its minimum SOC in tau_soc (nothing \
+         once there)",
     ));
-    eqs.push(eq(n("i_full"), full, "it takes at most what fills it in tau_soc"));
+    eqs.push(eq(
+        n("i_full"),
+        ite(gt(n("at_full"), c(0.5)), c(0.0) * n("unit_A"), full),
+        "it takes at most what fills it in tau_soc (nothing once full)",
+    ));
     let (i_floor, i_full) = (n("i_floor"), n("i_full"));
     let i_d = min(min(n("i_mpp"), n("i_dis_lim")), i_floor);
     eqs.push(eq(

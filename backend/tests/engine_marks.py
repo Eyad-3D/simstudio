@@ -151,7 +151,9 @@ XFAIL = {
         "NEW-FAILED (SINGULAR-LOOP): the reference suite's coast-down model ('Brake RL' and 'Wheel RL') is a loop "
         "the new engine cannot solve with its values (open)"),
     "test_source_limits.py::test_empty_battery_sheds_its_consumers": (
-        "NEW-FAILED (RUN-INIT): the new engine cannot re-initialise the model at t = 2.18 s (open)"),
+        "NEW-FAILED (RUN-INTEGRATOR): a car standing at its target from the start keeps its E-Motor's inverter "
+        "on at a command of round-off (3.8e-12); where the battery's minimum SOC cuts it back, the motor feeds "
+        "its standstill loss from a rotor creeping at 3e-12 rad/s and the integrator stops at 2.17 s (open)"),
     "test_verdict.py::test_non_finite_values_fail_the_run": (
         "NEW-FAILED (RUN-NOT-FINITE): the new engine stops at the first value that is not a number, in its own "
         "words, where today's says 'Non-finite values' naming the channel (open)"),
@@ -166,7 +168,9 @@ XFAIL = {
         "a live edit read at the start is listed at the run's first output time (10 s), where today's lists it at "
         "t = 0 (open)"),
     "test_mcp_server.py::test_every_answer_stays_under_20_kb": "an MCP answer of a new-engine run is 20,027 bytes, over the 20 kB the server keeps to (open)",
-    "test_power_limit.py::test_usable_energy_left": "an idle car's final SOC is 89.9991 % on the new engine, not exactly its 90 % (open)",
+    "test_power_limit.py::test_usable_energy_left": (
+        "an idle car's final SOC is 89.9991 %, not 90 %: its E-Motor's inverter runs at a command of round-off "
+        "(3.8e-12) from the start and draws its standstill loss (open)"),
     "test_road_load.py::test_ambient_sets_the_air_density": "the speed trace under a changed air density differs from today's (open)",
     "test_solver.py::test_diff_open_torque_split_is_equal": "an open differential's split is equal to 3e-6 on the new engine, the test asks 1e-6 (open)",
     "test_verdict.py::test_a_car_that_does_not_move_fails_and_says_so_early": "the new engine does not stream the early message that the car does not move (open)",
@@ -176,10 +180,10 @@ XFAIL = {
         what="no case value of the Ambient; today's run warns"),
     "test_load_transfer.py::test_a_wheelbase_of_0_given_at_run_time_is_warned_about": LIMITS.format(
         what="no case value of the Vehicle; today's run warns"),
-    "test_battery_charge.py::test_a_1c_discharge_empties_the_battery_in_one_hour": LIMITS.format(
-        what="a Minimum SOC of 0 for a single run too"),
-    "test_battery_charge.py::test_without_a_charge_capacity_it_comes_from_the_usable_capacity": LIMITS.format(
-        what="a Minimum SOC of 0 for a single run too"),
+    "test_battery_charge.py::test_a_1c_discharge_empties_the_battery_in_one_hour": (
+        "the current between the solver's points, interpolated across a step that spans the OCV table's "
+        "kink (read at the SOC, stepped over: engine DESIGN 8.2), is 0.08 % off 1C at the table's 90 % "
+        "and 10 % (steps of 5 to 10 s); the SOC and the time to empty are right (open)"),
     "test_numerics.py::test_rc_branch_step_response_is_first_order": LIMITS.format(
         what="a Minimum SOC of 0 for a single run too"),
     "test_numerics.py::test_error_halves_when_the_step_halves[battery RC (implicit)]": LIMITS.format(

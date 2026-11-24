@@ -308,7 +308,7 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 
 ## fs-electric/case-accel-75m (Acceleration 75 m)
 
-New engine: build 0.01 s, run 0.03 s (769 steps, 12 events); today: 0.3 s at 10 ms, 0.9 s at 1 ms. Energy books: closure 7.8e-10 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.01 s, run 0.03 s (769 steps, 13 events); today: 0.3 s at 10 ms, 0.9 s at 1 ms. Energy books: closure 7.8e-10 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|

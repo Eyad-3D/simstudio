@@ -2,11 +2,11 @@
  "_about": "Stored reference results of this example (CON-15): the app's engine's runs, written by backend/tests/update_stored.py, explained in tests/golden/CHANGES.md.",
  "creation": {
   "appVersion": "0.2.0",
-  "gitCommit": "96ebe9c9",
+  "gitCommit": "84b5f658",
   "solver": "the app's engine (new 0.1.0): variable step, rtol 1e-06, atol 1e-08; recorded every 1 s",
   "date": "2026-11-24",
   "machine": "Linux x86_64, Python 3.11.17",
-  "note": "The friction brakes take the recuperation a motor's supply cuts"
+  "note": "The battery shut at its SOC limits"
  },
  "cases": {
   "case-city": {
