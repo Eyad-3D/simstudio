@@ -1067,3 +1067,47 @@ No example's battery reaches either limit; the FS car's starts full, so
 its run passes the event that opens the window again as it leaves 100 %:
 its events 12 → 13, every value, step and its books (7.8e-10) the same to
 the bit. Every other case is kept to the byte.
+
+## A standing motor's command of round-off (24 November 2026)
+
+What was booked: a car standing at its target from the start of a cycle
+kept its E-Motor's inverter on through those first seconds, drawing the
+loss map's standstill loss (about 0.1 kW on the examples' maps), where at
+every later stop the inverter was off and drew nothing. Why it was noise:
+in the start's first microseconds the Vehicle slides and sticks again,
+the Driver's integral picks up about 1e-11 from it, and the command it
+then holds is a few 1e-12 (3.8e-12), not exactly 0; the inverter ran for
+any command that is not exactly 0. Now, near standstill (below w_slow,
+0.1 rad/s), a command within CMD_ON = 1e-9 of 0 counts as none
+(`lsim-lib/src/blocks/motor.rs`), as the Engine's THR_ON does for its
+throttle: the start books no standstill loss, as a stop does not. Moving,
+a command passes 1e-9 in an instant and nothing changes (at any speed the
+same rule added events to every cycle, 17 → 52 on the aero BEV's HWFET).
+
+The figures that move are that loss leaving, accepted by the lead by
+name: the cycles' first phase or bag by up to 8.4e-4 (the WLTC's Low
+phase, the UDDS's Bag 1), whole cycles by up to 3.75e-4 (the aero BEV's
+UDDS consumption and range; 8.6e-5 on the WLTCs), the inverter's
+switching on as the cycle moves off added to the events (+7 a battery
+cycle; the hybrid's HWFET 77,091 → 77,060 and UDDS 118,525 → 118,505, its
+steps moved), books inside 1.5e-9. The City cycle moves its car from
+t = 0: its inverter now switches on as the command passes 1e-9 rather
+than as it leaves 0, nanoseconds later, which moves its steps (figures by
+5.7e-7 at most, books 1.5e-9). The hybrid's Mixed cases and the FS 75 m
+are kept to the byte.
+
+Per case, against the record before (84e2695f), as above:
+
+| case | largest figure move | largest channel move | steps | events | books |
+|---|---|---|---|---|---|
+| aero-bev/case-hwfet | 2.3e-05 (Range at this consumption) | 8.6e-06 | 50460 → 50589 | 17 → 24 | 1.1e-11 → 4.9e-11 |
+| aero-bev/case-udds | 7.2e-04 (Phase Bag 1 — consumption) | 9.2e-05 | 112210 → 112024 | 257 → 264 | 7.8e-11 → 1.5e-10 |
+| aero-bev/case-wltc | 8.4e-04 (Phase Low — consumption) | 2.1e-05 | 139224 → 139860 | 122 → 129 | 1.6e-10 → 3.2e-10 |
+| bev-car/case-city | 5.7e-07 (HV Battery Pack — internal losses) | 2.1e-05 | 2655 → 2693 | 17 → 17 | 9.3e-10 → 1.5e-09 |
+| bev-car/case-city-live | 5.7e-07 (HV Battery Pack — internal losses) | 2.1e-05 | 2655 → 2693 | 17 → 17 | 9.3e-10 → 1.5e-09 |
+| bev-car/case-wltc | 5.6e-04 (Phase Low — consumption) | 1.0e-05 | 135927 → 136524 | 122 → 129 | 1.3e-10 → 2.0e-10 |
+| bev-car/case-wltc-hvac | 2.6e-04 (Phase Low — consumption) | 1.0e-05 | 136123 → 136118 | 122 → 129 | 9.4e-11 → 5.0e-10 |
+| bev-car/case-wltc-summer | 3.3e-04 (Phase Low — consumption) | 1.0e-05 | 136445 → 136624 | 122 → 129 | 5.2e-10 → 6.6e-10 |
+| bev-car/case-wltc-winter | 1.8e-04 (Phase Low — consumption) | 1.0e-05 | 136667 → 136103 | 122 → 129 | 1.9e-10 → 3.7e-10 |
+| hybrid-car/case-hwfet | 1.5e-05 (HV Battery — energy delivered) | 7.0e-06 | 903552 → 903483 | 77091 → 77060 | 9.0e-12 → 9.7e-12 |
+| hybrid-car/case-udds | 2.0e-04 (Phase Bag 1 — fuel consumption) | 8.7e-05 | 1648790 → 1649302 | 118525 → 118505 | 2.8e-11 → 3.0e-11 |

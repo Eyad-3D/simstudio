@@ -150,10 +150,6 @@ XFAIL = {
     "test_reference_suite.py::test_exact_answer_tier[coast-": (
         "NEW-FAILED (SINGULAR-LOOP): the reference suite's coast-down model ('Brake RL' and 'Wheel RL') is a loop "
         "the new engine cannot solve with its values (open)"),
-    "test_source_limits.py::test_empty_battery_sheds_its_consumers": (
-        "NEW-FAILED (RUN-INTEGRATOR): a car standing at its target from the start keeps its E-Motor's inverter "
-        "on at a command of round-off (3.8e-12); where the battery's minimum SOC cuts it back, the motor feeds "
-        "its standstill loss from a rotor creeping at 3e-12 rad/s and the integrator stops at 2.17 s (open)"),
     "test_verdict.py::test_non_finite_values_fail_the_run": (
         "NEW-FAILED (RUN-NOT-FINITE): the new engine stops at the first value that is not a number, in its own "
         "words, where today's says 'Non-finite values' naming the channel (open)"),
@@ -168,9 +164,6 @@ XFAIL = {
         "a live edit read at the start is listed at the run's first output time (10 s), where today's lists it at "
         "t = 0 (open)"),
     "test_mcp_server.py::test_every_answer_stays_under_20_kb": "an MCP answer of a new-engine run is 20,027 bytes, over the 20 kB the server keeps to (open)",
-    "test_power_limit.py::test_usable_energy_left": (
-        "an idle car's final SOC is 89.9991 %, not 90 %: its E-Motor's inverter runs at a command of round-off "
-        "(3.8e-12) from the start and draws its standstill loss (open)"),
     "test_road_load.py::test_ambient_sets_the_air_density": "the speed trace under a changed air density differs from today's (open)",
     "test_solver.py::test_diff_open_torque_split_is_equal": "an open differential's split is equal to 3e-6 on the new engine, the test asks 1e-6 (open)",
     "test_verdict.py::test_a_car_that_does_not_move_fails_and_says_so_early": "the new engine does not stream the early message that the car does not move (open)",

@@ -37,6 +37,17 @@ const ID: &str = "motor.emotor";
 const RPM: f64 = std::f64::consts::PI / 30.0;
 /// the share of the maximum speed over which the drive torque falls to 0
 const SPEED_LIMIT_BAND: f64 = 0.02;
+/// the command above which (either way) the inverter runs near standstill
+/// (below `w_slow`): a car standing at its target from the start holds a
+/// Driver's command of round-off (its integral picks up about 1e-11 in the
+/// start's first microseconds: 3.8e-12), which ran the inverter at its
+/// standstill loss through the cycle's first seconds, where at every later
+/// stop the command is exactly 0 and the inverter off. Below this, a command
+/// counts as none. Moving, a command passes it in an instant and the
+/// inverter is not held off for it: the bound keeps every zero crossing of
+/// a moving car's command as it was (at any speed it added events to every
+/// battery cycle: 17 -> 52 on the aero BEV's HWFET, 7 with the bound).
+pub const CMD_ON: f64 = 1e-9;
 
 /// The motor's configuration: its maps (SI, scaled) and whether a supply
 /// window limits it.
@@ -313,12 +324,19 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             n("alive"),
             ite(
                 and(
-                    // a command of exactly 0 is an instant (no event); in
+                    // a command of 0 is an instant (no event), and near
+                    // standstill one within CMD_ON of 0 is round-off; in
                     // fast mode the inverter runs at 0 too
                     if cfg.inverse {
                         gt(n("v"), c(1.0) * n("unit_V"))
                     } else {
-                        and(gt(n("v"), c(1.0) * n("unit_V")), noev(gt(abs(n("dem")), c(0.0))))
+                        and(
+                            gt(n("v"), c(1.0) * n("unit_V")),
+                            noev(gt(
+                                abs(n("dem")),
+                                ite(lt(n("wa"), n("w_slow")), c(CMD_ON), c(0.0)),
+                            )),
+                        )
                     },
                     le(n("wa"), wmax.clone() * c(1.0 + 1e-9)),
                 ),

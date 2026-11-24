@@ -110,8 +110,7 @@ code. A test in the repository records each as an expected failure
   two engines are compared at, and no class of difference explains them
   yet**: the energy of a gear shift, a clutch that never locks exactly,
   the axle loads under load transfer, a car coasting up a grade (16.66
-  against 20.39 for the energy test's m g h), an idle car's final SOC
-  (89.9991 % against 90 %), the slip Traction Control holds after the
+  against 20.39 for the energy test's m g h), the slip Traction Control holds after the
   launch ramp (0.359 against under 0.3), the fuel an Engine coasting in
   gear burns (1.9 g/s, where the older engine cuts it), a car at rest that
   moves at 1e-14 m/s, and a propeller's books.
@@ -131,10 +130,6 @@ code. A test in the repository records each as an expected failure
   losses. A battery near its *Minimum SOC* or full gives and takes less as
   it nears the limit (within about 10 ms of charge), as the older engine
   did over its step, and nothing from 10⁻⁷ % of it.
-- **An empty battery's consumers can stop the run where it reaches its
-  minimum SOC** (`RUN-INTEGRATOR` at about 2.2 s), when the car stands at
-  its target from the start: its E-Motor's inverter then runs at a command
-  of round-off and the motor cannot feed its standstill loss.
 - **A model whose loss map has sheets of different range is refused**
   (`BLOCK`): the older engine counted a read outside the narrowest range,
   the new engine watches the widest.
