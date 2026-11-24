@@ -149,8 +149,11 @@ def test_the_first_gear_sample_is_the_starting_gear(monkeypatch):
 
 def test_drivelines_shift_in_the_same_step():
     """Two e-axles with their own two-speed gearbox on one gear signal: both
-    change ratio at the same solver step (before, the second one a step
-    later)."""
+    change ratio at the same instant (before, the second one a step later).
+    The Shifter's tick at 0.5 s makes gear 2 there; a point at an event
+    shows the values just after it (the older engine's tick took effect a
+    step later), so the ratio is 3.0 up to 0.49 s and 1.5 from 0.5 s, the
+    same on both axles at every point."""
     from helpers import conn, dbc, el, project, series, sig_port
 
     from app.schemas import ElementInstance
@@ -175,11 +178,15 @@ def test_drivelines_shift_in_the_same_step():
         databus.append(dbc(40 + i, "shift", "gear", f"gb{ax}", "sig_gear_in"))
     proj = project(elements, connections, databus, duration=1.0, time_step=0.01)
     result = simulate(proj, "case")
+    ratios = {}
     for ax in ("f", "r"):
         mot = {round(p["t"], 2): p["value"] for p in series(result, f"mot{ax}", "sig_speed")}
         whl = {round(p["t"], 2): p["value"] for p in series(result, f"w{ax}", "sig_speed")}
-        assert mot[0.5] / whl[0.5] == pytest.approx(3.0, rel=0.01), ax
-        assert mot[0.51] / whl[0.51] == pytest.approx(1.5, rel=0.01), ax
+        ratios[ax] = {t: mot[t] / whl[t] for t in mot if whl[t] > 0}
+        assert ratios[ax][0.49] == pytest.approx(3.0, rel=0.01), ax
+        assert ratios[ax][0.51] == pytest.approx(1.5, rel=0.01), ax
+    for t, x in ratios["f"].items():  # the same ratio on both axles at every point
+        assert x == pytest.approx(ratios["r"][t], rel=1e-6), t
 
 
 def test_the_result_lists_the_live_edits_it_made():

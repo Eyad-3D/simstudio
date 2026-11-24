@@ -2283,6 +2283,10 @@ def _flows(model, inst: dict, books: dict, integ: dict,
         f.out_j += 0.5 * (thr - e_in)
         f.loss_j += p["lost_J"] + p.get("impulse_lost_J", 0.0)
         f.stored_j += p["stored_change_J"]
+        if p.get("impulse_lost_J", 0.0) and f.part == "mech.gearbox":
+            # what its rigid engagements took at its gear changes: the named
+            # term today's books give it
+            f.terms["gear shifts"] = f.terms.get("gear shifts", 0.0) + p["impulse_lost_J"]
 
     def flow(name: str) -> tuple[float, float]:  # ∫ p⁺ dt, ∫ p⁻ dt of a kW channel, J
         got = integ.get(name)

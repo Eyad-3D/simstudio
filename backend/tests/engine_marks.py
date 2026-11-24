@@ -172,26 +172,13 @@ XFAIL = {
     "test_control_rate.py::test_block_with_a_sample_time_runs_at_that_rate_and_holds": TICK,
     "test_signal_wiring.py::test_the_delay_is_what_the_run_does": TICK,
     "test_fmu.py::test_communication_step_holds_outputs_between_steps": TICK,
-    "test_gear_shifts.py::test_a_shift_keeps_the_angular_momentum_and_books_the_energy_it_loses": (
-        "a gear shift's energy on the new engine differs from the rigid engagement the test computes (open)"),
-    "test_gear_shifts.py::test_through_gripping_tyres_the_vehicle_takes_part_in_the_shift": "a gear shift through gripping tyres differs from today's (open)",
-    "test_gear_shifts.py::test_an_engine_behind_a_closed_clutch_keeps_its_speed_and_the_clutch_slips": "a closed clutch's slip differs from today's (open)",
-    "test_live_params.py::test_drivelines_shift_in_the_same_step": "two drivelines' shifts on the new engine do not fall in the same step (open)",
     "test_live_params.py::test_the_result_lists_the_live_edits_it_made": (
         "a live edit read at the start is listed at the run's first output time (10 s), where today's lists it at "
         "t = 0 (open)"),
     "test_mcp_server.py::test_every_answer_stays_under_20_kb": "an MCP answer of a new-engine run is 20,027 bytes, over the 20 kB the server keeps to (open)",
-    "test_numerics.py::test_coasting_up_a_grade_turns_kinetic_energy_into_m_g_h": "coasting up a grade: 16.66 against 20.39 (m g h) on the new engine (open)",
-    "test_numerics.py::test_clutch_engagement_loses_the_two_inertia_energy": "a clutch on the new engine never locks exactly (slip 0.0) in the test's window (open)",
     "test_power_limit.py::test_usable_energy_left": "an idle car's final SOC is 89.9991 % on the new engine, not exactly its 90 % (open)",
-    "test_references.py::test_energy_from_nowhere_is_flagged": "the new path grades energy from nowhere 'within', where today's grades it 'outside' (open)",
-    "test_reports.py::test_a_propeller_keeps_its_books": "a propeller's books on the new path: losses 0.090 against energy in 0.146 kWh (open)",
     "test_road_load.py::test_ambient_sets_the_air_density": "the speed trace under a changed air density differs from today's (open)",
     "test_solver.py::test_diff_open_torque_split_is_equal": "an open differential's split is equal to 3e-6 on the new engine, the test asks 1e-6 (open)",
-    "test_traction_control.py::test_slip_holds_its_target_after_the_launch_ramp": "Traction Control's slip after the launch ramp is 0.359 on the new engine, over 0.3 (open)",
-    "test_traction_control.py::test_the_defaults_stay_stable_at_the_10_ms_step": "Traction Control's run differs: 3.756 against 3.744 +- 0.01 (open)",
-    "test_vehicle_stop.py::test_a_coasting_car_stops_where_the_closed_form_says_and_stays_stopped": "a coasting car's speed never reaches exactly 0 on the new engine (open)",
-    "test_vehicle_stop.py::test_rolling_resistance_holds_a_car_on_a_slope_it_cannot_overcome": "a car held by rolling resistance moves -5.9e-14 on the new engine, not exactly 0 (open)",
     "test_verdict.py::test_a_car_that_does_not_move_fails_and_says_so_early": "the new engine does not stream the early message that the car does not move (open)",
     "test_power_limit.py::test_a_margin_outside_0_to_100_percent_is_refused_not_a_crash": LIMITS.format(
         what="it for the case as well"),
