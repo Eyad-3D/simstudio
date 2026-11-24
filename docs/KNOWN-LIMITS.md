@@ -392,14 +392,6 @@ solver: 0.4 s and 3.9 s). It is not a driving simulation:
   counted there (in a full run it is); and a locked axle's resistance to
   turning (a tyre scrubs in a corner) is not modelled, so a locked axle
   gives the fastest lap of the three.
-- A full run on a drive cycle or a lap trace with a Limited-slip
-  Differential, or with a Clutch on the driven driveline, ends as *warning*:
-  the run says that the clutch's break-away condition cannot be searched
-  ahead, because it reads a motor's acceleration. Root finding still finds
-  the break-away at the end of the solver's step it happens in, so the
-  figures hold; only a slip shorter than one step could be missed. (Open,
-  STUCK-FRICTION-LOOKAHEAD; lap cases and acceleration tests are not
-  affected.)
 - The top speed is the motors' in their gear: the highest speed the model
   solves at on the level (for the FS example 6,500 1/min through 4.4 on
   0.228 m wheels, 35.3 m/s). The car settles within the motors' last 2 %,

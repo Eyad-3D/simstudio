@@ -3181,7 +3181,17 @@ round).**
   (a variable several of them share once; the steps that do not move
   along a step enclosed once while the discrete values keep theirs), not
   expanded into one expression: a motor's limits read 45 and 49 of them,
-  which expanded ran to 160,000 and 250,000 characters. Nor is it
+  which expanded ran to 160,000 and 250,000 characters. A state's
+  derivative in the chain (a stuck clutch's holding torque reads an
+  E-Motor's `J·dω/dt`) is that state's rate along the step: the state is
+  a leaf, its rate and second rate the enclosure of `der` (its third rate
+  unbounded), its rate at a point the polynomial's (`DensePoly::rate_at`),
+  and such a function runs without a compiled kernel
+  (`lsim_ir::interval::supported_with`, only where the caller encloses the
+  state; every other use refuses a derivative as before). Until 24
+  November 2026 it was refused, and a Clutch or a limited-slip
+  differential's clutch on a driveline a drive cycle drives was left to
+  root finding with a warning. Nor is it
   expanded to classify it: whether it reads continuous variables is read
   through the same definitions (`time_functions`), and only a pure
   function is expanded and held to 20,000 nodes. (Until 20 November 2026

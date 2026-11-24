@@ -1307,6 +1307,13 @@ sections.
 
 ### Fixed
 
+- A full run on a drive cycle with a Clutch on the driven driveline, or a
+  limited-slip Differential, ended as *warning* with a message about the
+  solver ("its condition reads time in a way the run cannot search
+  ahead"). The run now follows the clutch's break-away along each step, and
+  ends as *success*. The figures do not change: on the cases measured, the
+  same events and figures to the last digit.
+
 - A battery built from cells with a weakest group, on both engines: the
   derating band's charge factor follows the group when it is fuller than
   the pack (a group with less capacity fills first, as it empties first),

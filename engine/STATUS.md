@@ -1771,10 +1771,24 @@ after the start breaks a stuck start away if it cannot hold (the shared
 friction rule's sliding start passed its whole capacity from one rear
 wheel to the other for 1.8 ns and took the 75 m run's books to 2.3e-9;
 now 7.8e-10). The golden record's FS 75 m case is recorded again
-(golden/README.md); the other 13 cases are kept. Open:
-STUCK-FRICTION-LOOKAHEAD, a full run on a drive cycle with a stuck
-friction element (this coupling, or a Clutch) warns that its break-away
-condition cannot be searched ahead (it reads a motor's J·dω/dt).
+(golden/README.md); the other 13 cases are kept.
+
+## A state's derivative in the look-ahead (24 November 2026)
+
+`work/engine-lookahead`. A stuck friction's break-away condition (a
+Clutch's, a limited-slip differential's) on a driveline a drive cycle
+drives reads the cycle's time and an E-Motor's `J·dω/dt`; the look-ahead
+refused the derivative, left the condition to root finding and warned, so
+the run ended as warning (STUCK-FRICTION-LOOKAHEAD). It now takes a state's
+derivative as that state's rate along the step from the dense output
+(DESIGN.md 8.2, *Conditions on explicit functions of time*). Only
+conditions that were refused before change: golden 0 differences over the
+14 cases, every case's books inside 1.5e-9. Measured on the case that
+warned (the BEV city cycle with a limited-slip differential, one front
+wheel on low grip), the warning cost nothing: the same events, figures and
+books to the bit before and after. Tests: lsim-project differential.rs (a
+rising torque breaks the clutch away at its hand answer to 1e-9 s),
+backend test_stuck_friction.py.
 
 ## Lap cases on the engine: lap port, stage 3 (22 November 2026)
 
