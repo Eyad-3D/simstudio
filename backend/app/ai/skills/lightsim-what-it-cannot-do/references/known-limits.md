@@ -24,8 +24,8 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 - **Some figures differ from the older engine's by more than the band the
   two engines are compared at, and no class of difference explains them
   yet** : the energy of a gear shift, a clutch that never locks exactly, the axle loads under load transfer, a car coasting up a grade (16.66 against 20.39 for the energy test's m g h), the slip Traction Control holds after the launch ramp (0.359 against under 0.3), …
-- **A machine driven to its maximum speed can stop a run by switching
-  without end** (`RUN-EVENT-STORM`: the BEV's WLTC cycle on a 6 % downhill grade with its Final Drive ratio x3, the hybrid's Mixed Cycle with its gears x3), where the older engine warned or finished; and a motor driven past its maximum speed in a top-speed test stops on its …
+- **An Engine driven to its maximum speed can stop a run by switching
+  without end** (`RUN-EVENT-STORM`), where the older engine warned or finished.
 - **An E-Motor on an empty battery feeds its own spin losses from the
   shaft.** Where its supply cannot cover even the losses of its spinning rotor, the motor takes what the supply gives, and the rest of those losses brakes the shaft (as its *Drag Torque* does with the inverter off).
 - **A model whose loss map has sheets of different range is refused** (`BLOCK`): the older engine counted a read outside the narrowest range, the new engine watches the widest.
@@ -120,7 +120,7 @@ Point 0 of every run is the initial state at t = 0.
 - **A run the new engine cannot follow can take minutes to be refused, or
   not end.** A run has no time limit unless the caller gives one (the app gives none; the Python module's `time_limit=` does, and its `memory_limit=` is 4 GB when not given, counting the recorded results and the events, not everything the run holds).
 - **A PID's and a Lookup's Sample Time follow a 10 ms step.** The engine runs a PID block, and a Lookup block with a Sample Time over 10 ms, at the instants the older engine did: every 10 ms step while the Sample Time is within it, otherwise the first step at or after each multiple of the Sample Time, holding the output…
-- **A machine driven to its maximum speed can stop the run.** A motor or engine driven above its maximum speed by something else (a downhill grade, an engine or another motor on its shaft) is not a case of the table stopping the run: the engine reads the motor's full-load and loss maps at its speed held to the maximum (…
+- **A machine driven to its maximum speed.** A motor or engine driven above its maximum speed by something else (a downhill grade, an engine or another motor on its shaft) is not a case of the table stopping the run: the engine reads the motor's full-load and loss maps at its speed held to the maximum (…
 - **A Driver with no P gain can succeed.** A Driver whose *Kp* is 0 follows the cycle (on the BEV, within 1.6 km/h), where the older engine lagged it by about 17 km/h and warned.
 - **A value outside its limits is refused.** A study's point can hold a value that Data Checks would refuse for a single run (a negative pressure, a CG height below 0, a wheel's load share of 0): the older engine read many such values clamped, the new engine refuses the run with the code `NEW-LIMITS` an…
 - **Fuel energy is a heating value you set.** The fuel's energy is the fuel burnt × the Fuel Tank's *Fuel Heating Value* (42.9 MJ/kg, petrol, by default; background knowledge, not checked against a source; a model without a Fuel Tank uses that default), and hydrogen's is 119.96 MJ/kg (33.3 kWh/kg).

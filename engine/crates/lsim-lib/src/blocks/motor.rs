@@ -48,6 +48,15 @@ const SPEED_LIMIT_BAND: f64 = 0.02;
 /// a moving car's command as it was (at any speed it added events to every
 /// battery cycle: 17 -> 52 on the aero BEV's HWFET, 7 with the bound).
 pub const CMD_ON: f64 = 1e-9;
+/// how far below its maximum speed an E-Motor driven above it runs again:
+/// above the maximum its inverter is off and its drag brakes the rotor; on
+/// again at the maximum itself, the taper's torque there is 0, so switching
+/// on takes away the drag, and a light driveline (the rotor and wheels, held
+/// to the car by their tyres' slip) was lifted straight back over it: the
+/// inverter switched without end (an event storm). Back on this far below,
+/// the taper gives 5 % of the full-load torque, and the motor settles inside
+/// its band.
+pub const SPEED_BACK_ON: f64 = 1e-3;
 
 /// The motor's configuration: its maps (SI, scaled) and whether a supply
 /// window limits it.
@@ -293,7 +302,28 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         n("t_fl") * max(c(0.0), wmax.clone() - n("wa")) / (band * wmax.clone()),
         n("t_fl"),
     );
+    // above its maximum speed: from where it passes it upwards (or starts
+    // above it) until it is SPEED_BACK_ON below it
+    vars.push(lsim_ir::VarDecl {
+        start: Some(ite(gt(abs(n("w0")), wmax.clone() * c(1.0 + 1e-9)), c(1.0), c(0.0))),
+        ..lsim_ir::component::build::discrete(
+            "over",
+            "1",
+            0.0,
+            "1 from above its maximum speed until it is back 0.1 % below it",
+        )
+    });
     let mut eqs = vec![
+        when(
+            gt(n("wa"), wmax.clone() * c(1.0 + 1e-9)),
+            &[("over", c(1.0))],
+            "above its maximum speed: the inverter is off",
+        ),
+        when(
+            lt(n("wa"), wmax.clone() * c(1.0 - SPEED_BACK_ON)),
+            &[("over", c(0.0))],
+            "back 0.1 % below its maximum speed: it may run again",
+        ),
         eq(n("v"), n("pos.v") - n("neg.v"), "its supply voltage"),
         eq(c(0.0), n("pos.i") + n("neg.i"), "the current into pos leaves at neg"),
         eq(n("i"), n("pos.i"), "the current it takes"),
@@ -338,7 +368,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
                             )),
                         )
                     },
-                    le(n("wa"), wmax.clone() * c(1.0 + 1e-9)),
+                    lt(n("over"), c(0.5)),
                 ),
                 c(1.0),
                 c(0.0),
@@ -565,7 +595,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         eq(
             n("t_regen"),
             ite(
-                and(gt(n("v"), c(1.0) * n("unit_V")), le(n("wa"), wmax * c(1.0 + 1e-9))),
+                and(gt(n("v"), c(1.0) * n("unit_V")), lt(n("over"), c(0.5))),
                 n("t_fl") * n("q4_torque_scale_pct"),
                 c(0.0) * n("unit_N_m"),
             ),

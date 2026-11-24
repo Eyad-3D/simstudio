@@ -113,13 +113,9 @@ code. A test in the repository records each as an expected failure
   launch ramp (0.359 against under 0.3), the fuel an Engine coasting in
   gear burns (1.9 g/s, where the older engine cuts it), a car at rest that
   moves at 1e-14 m/s, and a propeller's books.
-- **A machine driven to its maximum speed can stop a run by switching
-  without end** (`RUN-EVENT-STORM`: the BEV's WLTC cycle on a 6 % downhill
-  grade with its Final Drive ratio x3, the hybrid's Mixed Cycle with its
-  gears x3), where the older engine warned or finished; and a motor driven
-  past its maximum speed in a top-speed test stops on its full-load map
-  (`RUN-TABLE`). See *A machine driven to its maximum speed can stop the
-  run* below.
+- **An Engine driven to its maximum speed can stop a run by switching
+  without end** (`RUN-EVENT-STORM`), where the older engine warned or
+  finished. See *A machine driven to its maximum speed* below.
 - **An E-Motor on an empty battery feeds its own spin losses from the
   shaft.** Where its supply cannot cover even the losses of its spinning
   rotor, the motor takes what the supply gives, and the rest of those
@@ -1038,27 +1034,20 @@ minimum or an average, for example from the CSV export, or put the
   Traction Control block with a Sample Time on the output grid shows its value
   just after the tick at an output point, where the older engine showed the
   value before it. *Roadmap:* ENG-16.
-- **A machine driven to its maximum speed can stop the run.** A motor or
-  engine driven above its maximum speed by something else (a downhill
-  grade, an engine or another motor on its shaft) is not a case of the
-  table stopping the run: the engine reads the motor's full-load and loss
-  maps at its speed held to the maximum (above it the inverter is off and
-  they are not used), as the older engine did. It can still stop at the
-  limit itself (`NEW-FAILED`, `RUN-EVENT-STORM`): where the driver brakes
-  and gravity or another source drives the motor up to its maximum
-  speed, the brake works below it and not above, and the speed switches
-  about the limit without end, which the older engine, with a fixed step
-  that lets a machine carry past by a step, did not notice (a downhill
-  cycle run of the example BEV or aero car with its Final Drive ratio x3;
-  the hybrid with its ratio x3 on a 6 % downhill grade, where the Engine
-  switches between fired and not fired). The older engine finished the
-  run, or warned that the engine went past its maximum speed or the battery
-  was full. Such a run now fails with its code, and no longer starts again
-  on another engine. The hybrid on the highway cycle at that ratio
-  downhill does not switch so: it runs to its end and warns, as the older
-  engine did, but also gives the battery's "charging exceeds max charge
-  power" warning, which the older engine did not give (browser test ENG-34
-  records it). *Roadmap:* ENG-16.
+- **A machine driven to its maximum speed.** A motor or engine driven
+  above its maximum speed by something else (a downhill grade, an engine
+  or another motor on its shaft) is not a case of the table stopping the
+  run: the engine reads the motor's full-load and loss maps at its speed
+  held to the maximum (above it the inverter is off and they are not
+  used), as the older engine did. An E-Motor's inverter, off above its
+  maximum speed, runs again 0.1 % below it (where its taper gives it 5 %
+  of its full-load torque), so a motor driven over its maximum and slowing
+  back settles inside its band: the example BEV's and aero car's WLTC on
+  a 6 % downhill grade with the Final Drive ratio x3, and the hybrid's
+  Mixed and highway cycles there, run to their end. An Engine has no such
+  margin and can still stop at its limit (`NEW-FAILED`,
+  `RUN-EVENT-STORM`), where the older engine, with a fixed step that lets
+  a machine carry past by a step, finished or warned. *Roadmap:* ENG-16.
 - **A Driver with no P gain can succeed.** A Driver whose *Kp* is 0
   follows the cycle (on the BEV, within 1.6 km/h), where the older engine
   lagged it by about 17 km/h and warned. The run shows success, not that

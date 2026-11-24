@@ -23,7 +23,10 @@ shaft and J the *Rotor Inertia* (kg·m²) × *Torque Scale*.
 
 The inverter runs when the command is not 0 (near standstill, below about
 1 1/min, more than 10⁻⁹ either way: less is rounding), U is above 1 V and
-|ω| is at most ω_max. It then draws
+|ω| is at most ω_max. Driven above ω_max, it is off until |ω| is 0.1 %
+below ω_max again, where the taper gives it 5 % of T_fl (on again at ω_max
+itself, the drag it takes away would lift a light driveline straight back
+over). It then draws
 
 P_el = T·ω + P_loss(|ω|, |T|)
 
