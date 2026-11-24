@@ -294,11 +294,12 @@ def test_an_edit_the_new_engine_builds_another_model_for_is_for_the_next_run():
 
 
 # what the path's checks after the run read (new_engine._checked): an edit of
-# each, which today's engine checks at each step with the values then
+# each, which today's engine checks at each step with the values then (a
+# motor's maximum speed is made live: its check follows the edit's time,
+# test_map_edges.py::test_max_speed_is_live_tunable)
 CHECKED = [
     ("bev-car", "case-city", "el-ambient", "temperature_C", 65),  # the air outside the usual
     ("bev-car", "case-city", "el-ambient", "pressure_kPa", 121.59),
-    ("bev-car", "case-city", "el-motor", "max_speed_rpm", 1.0),  # a motor past its maximum speed
     ("bev-car", "case-city", "el-battery", "min_soc_pct", 95),  # a battery at its minimum SOC
     ("bev-car", "case-city", "el-battery", "max_charge_power_kW", 10),  # charging held back
     ("bev-car", "case-city", "el-motor", "torque_scale_pct", 120),  # a table's axes
@@ -327,7 +328,7 @@ def test_each_value_the_checks_after_the_run_read_is_an_edit_for_the_next_run(
 @pytest.mark.parametrize("el_id,key,value", [c[2:] for c in CHECKED[:4]])
 def test_an_edit_the_checks_after_the_run_read_is_not_made(el_id, key, value):
     """An edit today's engine flags at the step it sees it (the Ambient's
-    air, a motor's maximum speed, a battery's minimum SOC) would go unjudged
+    air, a battery's minimum SOC or charge power) would go unjudged
     by the path's checks, which read the parts as at the run's start: it is
     not made, the run is the run without it, the result lists it with its
     coded note, and a replay gives the same result."""

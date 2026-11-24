@@ -921,9 +921,11 @@ minimum or an average, for example from the CSV export, or put the
   for which the engine builds another model (a Differential's Type, a
   Driving Task's mode or repeat, a Climate Control's heat source), one the
   checks after the run would read as it was at the start (the Ambient's
-  temperature or pressure, a battery's minimum SOC or charge power, an
-  E-Motor's maximum speed, a Vehicle's CG height or Downforce Area), and a
-  Sample Time that changes when a PID or Lookup block samples. Such an
+  temperature or pressure, a battery's minimum SOC or charge power, a
+  Vehicle's CG height or Downforce Area), and a Sample Time that changes
+  when a PID or Lookup block samples. (An E-Motor's maximum speed is made
+  live: the check of its time above it follows the edit's time.) An edit
+  already there before the run's first step is made at t = 0. Such an
   edit, and one too late for the run, is listed in the run's live edits
   with its note, code `NEW-LIVE-NEXT-RUN`; so is a structural parameter's
   (an E-Motor's torque, speed or voltage scale among them). A table sent to

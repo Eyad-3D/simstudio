@@ -133,9 +133,6 @@ XFAIL = {
     "test_map_edges.py::test_maximum_speed_below_the_map_is_a_speed_limiter": (
         "a motor at its maximum speed: the new path does not write today's note that the motor holds the car "
         "there (classes.toml new-path-lacks-messages, class a; open)"),
-    "test_map_edges.py::test_max_speed_is_live_tunable": (
-        "a live edit of a motor's maximum speed: the new engine keeps the speed the run started with "
-        "(11,926 1/min against the edited 9,000; open)"),
     "test_map_edges.py::test_clamp_and_linear_lookup_blocks_count_their_time_outside": (
         "a Lookup block's time outside its data on Clamp or Linear is not said as today's says it (open)"),
     "test_map_edges.py::test_a_run_counts_every_table_it_reads": (

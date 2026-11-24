@@ -186,23 +186,40 @@ def test_a_machine_held_at_its_limiter_is_not_over_speed(kind, params):
 
 
 def test_max_speed_is_live_tunable():
+    """A live edit of the E-Motor's maximum speed takes effect where it is
+    made, and the run's own check of the time above it follows it: from
+    the edit's time on, above the new maximum counts. (A paced run: a live
+    run reads its edits in wall time, as the view goes.)"""
     proj = bev_axle(profile="0:0; 3:300; 60:300")
     proj.cases[0].duration = 60
     proj.cases[0].timeStep = 1.0
-    steps = {"n": 0}
+    proj.cases[0].realtimeFactor = 20.0
+    seen = {"t": 0.0, "sent": False}
+
+    def emit(msg):
+        if msg.get("type") == "step":
+            seen["t"] = msg["t"]
 
     def control():
-        steps["n"] += 1
-        if steps["n"] == 20:  # at t = 19 s, near 12,000 1/min
-            return [{"type": "set_param", "elementId": "mot", "key": "max_speed_rpm",
-                     "value": 9000}]
+        if seen["t"] >= 19.0 and not seen["sent"]:  # near 12,000 1/min
+            seen["sent"] = True
+            return [{"type": "set_param", "elementId": "mot", "key": "max_speed_rpm", "value": 9000}]
         return []
 
-    result = simulate(proj, "case", control=control)
+    result = simulate(proj, "case", emit, control)
+    [edit] = [e for e in result.liveEdits if e.key == "max_speed_rpm"]
+    assert edit.note is None and 19.0 <= edit.t < 25.0
     rpm = series(result, "mot", "sig_speed")
-    assert max(p["value"] for p in rpm if p["t"] <= 19) > 11000
-    # above its new maximum it coasts down to it, and stays there
-    assert max(p["value"] for p in rpm if p["t"] > 50) <= 9000
+    assert max(p["value"] for p in rpm if p["t"] <= edit.t) > 11000
+    # above its new maximum it coasts down to it (about 30 s from 11,900
+    # 1/min), and stays there
+    coasting = [p["t"] for p in rpm if p["t"] >= edit.t and p["value"] > 9000 * (1 + 1e-6)]
+    assert coasting and coasting[-1] < 58.0
+    assert all(p["value"] <= 9000 * (1 + 1e-6) for p in rpm if p["t"] > coasting[-1])
+    # its time above its maximum (a share of the run, %): from the edit on, above 9,000 1/min
+    above = _summary(result)["E-Motor — time above maximum speed"] / 100.0 * 60.0
+    assert above == pytest.approx(coasting[-1] - edit.t, abs=2.0)
+    assert any("was driven above its maximum speed (9,000 1/min)" in t for t in _texts(result, "info"))
 
 
 # ---- tables outside their data -------------------------------------------------------

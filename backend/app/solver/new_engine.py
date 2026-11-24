@@ -770,15 +770,15 @@ def _checked(ctx: RunContext) -> str:
     were at the run's start, where today's engine checks them at each step
     with the values then: the Ambient's air (_runtime), each battery's
     minimum SOC, charge power, power cap and checks (_terminal, _supply),
-    each E-Motor's and Engine's maximum speed (_over_speed), each table's
-    axes (_tables), the Vehicle's CG height and Downforce Area (the lift). A
-    live edit that changes any of it takes effect on the next run (_Edits)."""
+    each table's axes (_tables), the Vehicle's CG height and Downforce Area
+    (the lift). A live edit that changes any of it takes effect on the next
+    run (_Edits). (A machine's maximum speed is read as each edit left it,
+    at its time: _over_speed.)"""
     amb = ctx.params(ctx.amb_id) if ctx.amb_id else {}
     return repr((amb.get("temperature_C"), amb.get("pressure_kPa"),
                  ctx.load_shift() if ctx.veh_id else None,
                  [(b.el_id, b.min_soc, b.max_charge_w, b.p_cap_w, b.check)
                   for b in ctx.batteries.values()],
-                 [(el, m.speed_use.edge) for el, m in (*ctx.motors.items(), *ctx.engines.items())],
                  sorted((str(k), m.ranges) for k, m in ctx.maps.items())))
 
 
@@ -1230,7 +1230,7 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
         ev.grip_limited_s = pct / 100.0 * (solved - (times[0] if times else 0.0))
     ev.grip_limited_s = ev.grip_limited_s or 0.0
     _tables(ctx, run, messages)
-    _over_speed(ctx, plan, run, messages)
+    _over_speed(ctx, plan, run, messages, _edges(project, case.id, made, ctx))
     messages += [SimMessage(level="warning", text=t)
                  for t in _supply(ctx, plan, run) + list(script_warnings)]
     bms_s, bms_notes = _bms(ctx, plan, run)
@@ -1851,7 +1851,34 @@ def _first(run, name: Optional[str], hit: Callable[[float], bool]) -> Optional[f
 ENGINE_REV_BAND = 1e-3  # an Engine's rev limiter band above its limit, of it (lsim-lib's REV_BAND)
 
 
-def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
+def _edges(project: Project, case_id: str, made, ctx) -> dict[str, list[tuple[float, float]]]:
+    """Each E-Motor's and Engine's maximum speed (1/min) through the run, for
+    those a live edit the run made moves: (t, the maximum from then on), the
+    first at t = 0 as the run started (ctx has the parts as the edits left
+    them at the run's end)."""
+    out: dict[str, list[tuple[float, float]]] = {}
+    machines = {**ctx.motors, **ctx.engines}
+    if not any(e.elementId in machines for e in made):
+        return out
+    start = _context(project, case_id)
+    now_edge = {el: m.speed_use.edge for el, m in (*start.motors.items(), *start.engines.items())}
+    edited = project.model_copy(deep=True)
+    case = next(c for c in edited.cases if c.id == case_id)
+    for e in sorted(made, key=lambda e: e.t):
+        case.parameterOverrides.setdefault(e.elementId, {})[e.key] = e.value
+        if e.elementId not in now_edge:
+            continue
+        now = _context(edited, case_id)
+        m = now.motors.get(e.elementId) or now.engines.get(e.elementId)
+        if m is not None and m.speed_use.edge != now_edge[e.elementId]:
+            out.setdefault(e.elementId, [(0.0, now_edge[e.elementId])]).append(
+                (float(e.t), float(m.speed_use.edge)))
+            now_edge[e.elementId] = m.speed_use.edge
+    return out
+
+
+def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage],
+                edges: Optional[dict[str, list[tuple[float, float]]]] = None) -> None:
     """Each E-Motor's and Engine's time above its maximum speed and its
     highest speed then (today's speed_use records, which the verdict and
     the summary judge), from the run: the time the line through its traced
@@ -1862,7 +1889,8 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
     ENGINE_REV_BAND, so only what drives it higher is above), its
     highest speed over every point the integrator visited and when the
     trace saw it; and, as today's engine says it, a note when it first
-    went above."""
+    went above. A live edit of its maximum speed counts from its time on
+    (``edges``: each machine's (t, maximum) from its edits)."""
     tr = run.trace or {}
     times = [float(t) for t in tr.get("times", [])]
     integ = run.integrals
@@ -1871,19 +1899,25 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
         use, got = m.speed_use, integ.get(f"{el_id}:sig_speed")
         if name is None or not got or len(times) < 2:
             continue
-        n_max = use.edge
-        top = n_max * (1.0 + 1e-6) * (1.0 + (ENGINE_REV_BAND if el_id in ctx.engines else 0.0))
+        steps = (edges or {}).get(el_id) or [(0.0, use.edge)]
+
+        def n_at(t: float) -> float:  # the maximum in force at t
+            return [n for te, n in steps if te <= t][-1] if t >= steps[0][0] else steps[0][1]
+        band = 1.0 + (ENGINE_REV_BAND if el_id in ctx.engines else 0.0)
         xs = [abs(float(x)) for x in tr[name]]
-        above, first = 0.0, None
+        above, first, n_first = 0.0, None, steps[0][1]
         for k in range(1, len(times)):
+            top = n_at(times[k]) * (1.0 + 1e-6) * band
             a, b, dt = xs[k - 1] - top, xs[k] - top, times[k] - times[k - 1]
             if a > 0 or b > 0:
                 share = 1.0 if a > 0 and b > 0 else max(a, b) / abs(a - b)
                 above += share * dt
                 if first is None:
                     first = times[k - 1] if a > 0 else times[k] - share * dt
+                    n_first = n_at(times[k])
         label = ctx.model.elements[el_id].label
         highest = max(float(got["max"]), -float(got["min"]))
+        n_max = use.edge
         if el_id in ctx.engines and highest >= n_max * (1 - 1e-9):
             # held at its rev limit: today's note (MOD-18)
             messages.append(SimMessage(level="info", text=(
@@ -1896,11 +1930,11 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage]) -> None:
         use.value = max(float(got["max"]), -float(got["min"]))
         use.t = times[k]
         messages.append(SimMessage(level="info", text=(
-            f"E-Motor '{label}' was driven above its maximum speed ({n_max:,.0f} 1/min) at "
+            f"E-Motor '{label}' was driven above its maximum speed ({n_first:,.0f} 1/min) at "
             f"t = {first:.2f} s; its inverter is off above it, so it gives no drive torque and "
             f"no regeneration. The run summary says for how long and how far."
             if el_id in ctx.motors else
-            f"Engine '{label}' was driven above its maximum speed ({n_max:,.0f} 1/min, the "
+            f"Engine '{label}' was driven above its maximum speed ({n_first:,.0f} 1/min, the "
             f"full-load curve's last point) at t = {first:.2f} s; it is not fired above it. The "
             f"run summary says for how long and how far.")))
 
