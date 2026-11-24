@@ -81,13 +81,12 @@ other numbers. Each fails with *Not run* or the engine's own message and a
 code. A test in the repository records each as an expected failure
 (`backend/tests/engine_marks.py`) until it is fixed.
 
-- **A value outside its parameter's limits, typed in the case, is refused**
-  (`NEW-LIMITS`). Data Checks look at the model's own values and a study's
-  base project, not at the case's Ambient or Vehicle values. A case that
-  sets an Ambient temperature of -300 °C, a Vehicle wheelbase of 0 or a
-  battery margin over 100 % is refused with the limit it breaks, where the
-  older engine clamped the value and warned. Bring the value inside its
-  limits.
+- **A value outside its parameter's limits is refused** (`NEW-LIMITS`).
+  Data Checks refuse it, the part's own value or the case's over it (an
+  Ambient temperature of -300 °C, a Vehicle wheelbase of 0, a battery
+  margin over 100 %); a study's point, which they never see, is refused by
+  the run in the same words. The older engine clamped such a value and
+  warned. Bring the value inside its limits.
 - **A part connected to nothing can fail where the older engine left it
   out.** The older engine builds no part with nothing connected to it (a
   battery or Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft
@@ -1066,10 +1065,9 @@ minimum or an average, for example from the CSV export, or put the
   warning, because the two engines' Drivers differ. *Roadmap:* ENG-16.
 - **A value outside its limits is refused.** A study's point can hold a
   value that Data Checks would refuse for a single run (a negative
-  pressure, a CG height below 0, a wheel's load share of 0), and so can a
-  case's own Ambient or Vehicle value: the older engine read many such
-  values clamped, the new engine refuses the run with the code
-  `NEW-LIMITS` and the limit it breaks. Inside the limits, the older
+  pressure, a CG height below 0, a wheel's load share of 0): the older
+  engine read many such values clamped, the new engine refuses the run
+  with the code `NEW-LIMITS` and Data Checks' own words. Inside the limits, the older
   engine put a floor under some values that the new engine reads as typed,
   among them the Ambient's temperature at -273 °C (its limit is above
   -273.15 °C), a Vehicle's mass at 1 kg, a wheel's radius at 1 mm, a

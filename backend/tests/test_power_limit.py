@@ -282,8 +282,8 @@ def test_no_limit_changes_nothing():
 def test_a_margin_outside_0_to_100_percent_is_refused_not_a_crash(margin):
     """A case's Power Limit Margin of 120 % once gave a negative power cap
     and a ZeroDivisionError in the source-limit handshake. Data Checks
-    refuse it for that case; run without them (the solver called directly),
-    the margin is held to 0-100 % and the run ends normally."""
+    refuse it for that case, and so does the run (the solver called
+    directly, as a study's point is), in the same words."""
     from app.validation import run_blockers, validate_project
 
     proj = _car("0:0; 0.01:100; 30:100", 2.0, 0.1, performance=True, output_power_limit_kW=40)
@@ -294,9 +294,8 @@ def test_a_margin_outside_0_to_100_percent_is_refused_not_a_crash(margin):
         f"Power Limit Margin of '{BAT}' in case '{case.name}' must be at least 0 and at most "
         f"100 % — got {margin:g}."]
     result = simulate(proj, case.id)
-    assert result.status in ("success", "warning"), [m.text for m in result.messages]
-    peak = _rows(result)[f"{BAT} — peak terminal power"].value
-    assert peak == (pytest.approx(0.0, abs=1e-6) if margin > 100 else pytest.approx(40.0, rel=1e-3))
+    assert result.status == "failed"
+    assert [m.text for m in result.messages] == [f"Not run [NEW-LIMITS]: {blockers[0].text}"]
 
 
 def test_a_motor_commanded_at_standstill_draws_its_loss_map_there():

@@ -210,14 +210,18 @@ def test_a_lift_above_the_weight_lifts_every_wheel(tagged):
                for m in result.messages), result.messages
 
 
-def test_a_wheelbase_of_0_given_at_run_time_is_warned_about():
-    """Data Checks refuse a Wheelbase of 0 on the block but cannot see a case
-    value; the run says the load does not shift."""
+def test_a_wheelbase_of_0_given_at_run_time_is_refused():
+    """A Wheelbase of 0 is outside its limits on the block and as a case's
+    own value: Data Checks refuse it, and so does the run (the solver
+    called directly, as a study's point is), in the same words."""
+    from app.validation import run_blockers, validate_project
     proj = _tag_axles(coast_project({"mass_kg": M, "cg_height_m": H}, v0=50.0, duration=0.1,
                                     dt=DT))
     proj.cases[0].parameterOverrides = {"veh": {"wheelbase_m": 0}}
-    texts = [m.text for m in simulate(proj, "case").messages]
-    assert any("has a Wheelbase of 0 m, so no load shifts" in t for t in texts), texts
+    blockers = run_blockers(validate_project(proj), "case")
+    result = simulate(proj, "case")
+    assert result.status == "failed" and len(blockers) == 1
+    assert [m.text for m in result.messages] == [f"Not run [NEW-LIMITS]: {blockers[0].text}"]
 
 
 def test_the_slope_moves_load_to_the_rear():

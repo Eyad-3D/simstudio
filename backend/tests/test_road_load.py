@@ -59,17 +59,23 @@ def test_ambient_sets_the_air_density():
 @pytest.mark.parametrize("case_values, where", [
     ({}, None),
     ({"pressure_kPa": 1.0}, "at 20 °C and 1 kPa at t = 0.00 s"),  # typed in bar
-    ({"temperature_C": -300}, "at -300 °C and 101.325 kPa"),  # held at -273 °C
+    ({"temperature_C": -300}, "refused"),  # below absolute zero: outside its limits
 ])
 def test_a_case_value_outside_the_usual_air_is_warned_about_by_the_run(case_values, where):
-    """Data Checks see only the Ambient's own values, so the run itself
-    warns about a case value (or sweep, or live edit) outside the usual air."""
+    """The run itself warns about a case value (or sweep, or live edit)
+    inside its limits but outside the usual air; one outside its limits
+    (below absolute zero) it refuses, in Data Checks' words."""
     proj = coast_project({"cd": 0.3}, {"rolling_resistance": 0.0}, ambient={},
                          v0=110.0, duration=1.0, dt=0.01)
     proj.cases[0].parameterOverrides = {"amb": case_values}
     result = simulate(proj, "case")
     about_air = [(m.level, m.text) for m in result.messages if "'Ambient'" in m.text]
-    if where is None:
+    if where == "refused":
+        from app.validation import run_blockers, validate_project
+        blockers = run_blockers(validate_project(proj), "case")
+        assert result.status == "failed" and len(blockers) == 1
+        assert [m.text for m in result.messages] == [f"Not run [NEW-LIMITS]: {blockers[0].text}"]
+    elif where is None:
         assert about_air == []
     else:
         assert len(about_air) == 1 and about_air[0][0] == "warning"

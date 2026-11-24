@@ -504,9 +504,9 @@ def unsupported(project: Project, case_id: str) -> Optional[Refusal]:
         return Refusal("NEW-CASE-KIND", f"{case.kind} cases do not run in this version of LightSim yet")
     from ..validation import value_problems  # (validation imports this package)
     if problems := value_problems(project, case_id):  # (a study's point: Data Checks never saw it)
-        return Refusal("NEW-LIMITS", f"{'; '.join(problems)} (outside the limits Data Checks refuse a "
-                                     f"single run for: bring the value inside them, in the study's range "
-                                     f"if a study set it)")
+        # Data Checks' own words (a single run is refused by them first; a
+        # study's point, whose values they never see, is refused here)
+        return Refusal("NEW-LIMITS", ". ".join(problems))
     try:
         import lightsim_engine  # noqa: F401
     except ImportError:

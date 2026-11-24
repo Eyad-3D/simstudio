@@ -933,13 +933,16 @@ def test_a_part_s_own_value_outside_its_limits_is_not_run(new):
     next(e for e in proj.systems[0].elements if e.id == "el-ambient").parameterOverrides["pressure_kPa"] = -50.0
     assert value_problems(proj, "case-city") == ["Pressure of 'Ambient' must be above 0 kPa — got -50"]
     why = new_engine.unsupported(proj, "case-city")
-    assert why.code == "NEW-LIMITS" and why.why.startswith("Pressure of 'Ambient' must be above 0 kPa — got -50 (")
+    # Data Checks' own words (a part's own value: no case named)
+    assert why.code == "NEW-LIMITS" and why.why == "Pressure of 'Ambient' must be above 0 kPa — got -50"
     result = simulate(proj, "case-city")  # (strict)
     assert result.status == "failed" and result.messages[0].text.startswith("Not run [NEW-LIMITS]: Pressure of ")
     over = _with_case_values(copy.deepcopy(proj), "case-city", {"el-ambient": {"pressure_kPa": 101.325}})
     assert value_problems(over, "case-city") == [] and new_engine.unsupported(over, "case-city") is None
     good = _with_case_values(load_example("bev-car"), "case-city", {"el-ambient": {"pressure_kPa": -50.0}})
-    assert value_problems(good, "case-city") == value_problems(proj, "case-city")
+    # (a case's own value: Data Checks name the case)
+    assert value_problems(good, "case-city") == [
+        "Pressure of 'Ambient' in case 'City Cycle' must be above 0 kPa — got -50"]
     # a case that is not there reads the parts' own values; a part of a kind
     # the library does not know has no limits to break
     assert value_problems(proj, "no-such-case") == value_problems(proj, "case-city")

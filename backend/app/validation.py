@@ -115,9 +115,11 @@ def value_problems(project: Project, case_id: str) -> list[str]:
         for el in system.elements:
             cdef = defs.get(el.componentDefId)
             for pdef in cdef.parameters if cdef else ():
-                value = over.get(el.id, {}).get(pdef.key, el.parameterOverrides.get(pdef.key, pdef.default))
+                own = pdef.key in over.get(el.id, {})
+                value = over[el.id][pdef.key] if own else el.parameterOverrides.get(pdef.key, pdef.default)
                 if pdef.type == "number" and (problem := _number_problem(pdef, value)):
-                    out.append(f"{_name(pdef)} of '{el.label}' {problem}")
+                    where = f" in case '{case.name}'" if own else ""
+                    out.append(f"{_name(pdef)} of '{el.label}'{where} {problem}")
     return out
 
 

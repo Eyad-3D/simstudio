@@ -250,8 +250,7 @@ def _rc_error(step):
     fraction of I R1 (flat OCV, R0 ≈ 0: v_RC = OCV − terminal voltage)."""
     result = _run(_battery_at_constant_current(
         I_STEP, {"0": E0, "100": E0}, step, 20.0, internal_resistance_ohm=1e-6,
-        rc_resistance_ohm=R1, rc_time_constant_s=TAU, capacity_kWh=60, initial_soc_pct=90,
-        min_soc_pct=0))
+        rc_resistance_ohm=R1, rc_time_constant_s=TAU, capacity_kWh=60, initial_soc_pct=90))
     return max(abs(E0 - p["value"] - I_STEP * R1 * (1 - math.exp(-p["t"] / TAU)))
                for p in series(result, "batt", "sig_voltage")) / (I_STEP * R1)
 
