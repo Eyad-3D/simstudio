@@ -59,8 +59,8 @@ wheels), the motors at full load through the gears, the battery's limits,
 and the brakes as they are set. So a car whose brakes are biased to the
 front locks its rear tyres first under braking, and an open differential
 lets the unloaded inner wheel set how hard the car can drive out of a
-corner: a fit to a car that has a limited-slip differential, or another
-brake balance, takes up the difference in the grip and downforce it
+corner: set the Differential's *Type* and the brakes as the real car has
+them, or the fit takes up the difference in the grip and downforce it
 finds.
 
 ## Good to know

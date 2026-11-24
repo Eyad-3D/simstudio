@@ -3,7 +3,7 @@
   "name": "Formula Student electric",
   "version": 1,
   "example": "fs-electric",
-  "description": "A Formula Student electric car with one rear motor, chain drive and open differential, the battery's Formula Student preset, an acceleration case and autocross and endurance lap cases, with typical values (not a real car) as the starting point.",
+  "description": "A Formula Student electric car with one rear motor, chain drive and limited-slip differential, the battery's Formula Student preset, an acceleration case and autocross and endurance lap cases, with typical values (not a real car) as the starting point.",
   "slots": {
     "Battery": "el-battery",
     "E-Drive 1": "el-motor",

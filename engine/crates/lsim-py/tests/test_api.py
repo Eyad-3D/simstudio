@@ -897,11 +897,14 @@ def test_an_acceleration_test_streams_its_last_run_and_takes_no_change_in_it():
 
     changed = fs.simulate(edits=[(0.5, {"el_vehicle.cd": 1.0})])
     (e,) = changed.report["edits"]
-    # taken at the end of the first step at or after 0.5 s (0.502 s since
-    # the battery's charge window opens with the SOC from its full start,
-    # 20 November 2026; 0.512 s since the dummy derivatives left the error
-    # test; 0.509 s before), made at the next output time
-    assert changed.report["reran_to_finish"] and e["at"] == 0.51
+    # taken at the end of the first step at or after 0.5 s, made at the next
+    # output time. The rule, not the number: where that step ends follows the
+    # model's step sequence (0.509, 0.512, 0.502 s as the engine changed; 0.514 s
+    # with the example's limited-slip differential), so the number moved with
+    # every such change
+    assert changed.report["reran_to_finish"]
+    assert 0.5 <= e["t"] < 0.55, e
+    assert e["at"] == min(t for t in changed.times if t >= e["t"]), e
     assert changed.times[-1] != fs.simulate().times[-1]  # (another drag: another finish)
     again = fs.simulate(edits=[(e["t"], e["params"])])
     assert _bits(again.times) == _bits(changed.times)

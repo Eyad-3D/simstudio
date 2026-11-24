@@ -46,6 +46,6 @@ options = { A = "car-a.json", B = "car-b.json" }
 best = { case = "Autocross (flying lap)", key = "lap_time_s", pick = "min" }
 
 [[answer]]
-value = 0.4512
+value = 0.4566
 rtol = 0.02
 figure = { file = "car-a.json", case = "Autocross (flying lap)", key = "energy_per_lap_kwh" }

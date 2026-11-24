@@ -57,7 +57,7 @@ use super::{Loop, same_instant};
 use crate::info::{VarSource, table_at};
 use crate::interval::{
     Basis, Cx, DensePoly, Found, Grid2, Iv, J2, basis_sizes, enclose, first_change, stray,
-    supported,
+    supported_with,
 };
 use crate::{DenseOutput, Integrator, SolveError};
 use lsim_ir::runtime::{ConditionKernels, Enclosure, EvalInput, ModelFunctions};
@@ -119,6 +119,10 @@ pub(super) struct Mixed<'a> {
     /// the model's compiled kernel of it (its zero crossing), when it has
     /// one and the run uses kernels
     kernel: Option<usize>,
+    /// it reads a state's derivative (`der(v)`, a leaf's rate along the
+    /// step): its point values need the leaves' rates, and no compiled
+    /// kernel takes them
+    pub(super) rates: bool,
     /// steps a certificate cleared, steps taken along the dense output
     pub(super) certified: u64,
     pub(super) scanned: u64,
@@ -188,6 +192,8 @@ struct PointEnv<'a> {
     t: f64,
     m: &'a Mixed<'a>,
     ys: &'a [f64],
+    /// the leaves' rates (empty: it reads no derivative)
+    rs: &'a [f64],
     chain: &'a [f64],
     base: &'a Base<'a>,
 }
@@ -204,8 +210,11 @@ impl lsim_ir::eval::Env for PointEnv<'_> {
             Slot::Const => self.base.vars.get(k).copied().unwrap_or(f64::NAN),
         }
     }
-    fn der(&self, _: VarId) -> f64 {
-        f64::NAN
+    fn der(&self, v: VarId) -> f64 {
+        match self.m.slot.get(v.0 as usize).copied() {
+            Some(Slot::Leaf(p, s)) => self.rs.get(p as usize).map_or(f64::NAN, |r| s * r),
+            _ => f64::NAN,
+        }
     }
     fn param(&self, p: ParamId) -> f64 {
         self.base.params[p.0 as usize]
@@ -223,14 +232,16 @@ impl<'a> Mixed<'a> {
         let moves = |e: &Expr| {
             e.any(&mut |x| match x {
                 Expr::Time => true,
-                Expr::Var(v) | Expr::Pre(v) => {
+                Expr::Var(v) | Expr::Pre(v) | Expr::Der(v) => {
                     self.slot.get(v.0 as usize).is_some_and(|s| *s != Slot::Const)
                 }
                 _ => false,
             })
         };
-        self.chain.iter().all(|(_, e)| supported(e, breaks, grids, &moves))
-            && supported(self.g, breaks, grids, &moves)
+        // a leaf's derivative is its rate along the step
+        let rate = |k: usize| matches!(self.slot.get(k), Some(Slot::Leaf(..)));
+        self.chain.iter().all(|(_, e)| supported_with(e, breaks, grids, &moves, &rate))
+            && supported_with(self.g, breaks, grids, &moves, &rate)
     }
 
     /// The entries of y it reads.
@@ -248,8 +259,15 @@ impl<'a> Mixed<'a> {
         self.kernel = Some(k);
     }
 
-    /// The condition at `t`, its leaves at `ys` (in `y_idx` order).
-    fn point(&self, t: f64, ys: &[f64], base: &Base<'_>, scratch: &mut Vec<f64>) -> f64 {
+    /// The condition at `t`, its leaves at `ys` (in `y_idx` order), their
+    /// rates `rs` (read only when it reads a derivative).
+    fn point(
+        &self,
+        t: f64,
+        (ys, rs): (&[f64], &[f64]),
+        base: &Base<'_>,
+        scratch: &mut Vec<f64>,
+    ) -> f64 {
         if let (Some(k), Some((kern, buf))) = (self.kernel, base.kern) {
             let buf = &mut *buf.borrow_mut();
             for (&i, y) in self.y_idx.iter().zip(ys) {
@@ -260,10 +278,10 @@ impl<'a> Mixed<'a> {
         }
         scratch.clear();
         for (_, e) in self.chain {
-            let v = lsim_ir::eval::eval(e, &PointEnv { t, m: self, ys, chain: scratch, base });
+            let v = lsim_ir::eval::eval(e, &PointEnv { t, m: self, ys, rs, chain: scratch, base });
             scratch.push(v);
         }
-        lsim_ir::eval::eval(self.g, &PointEnv { t, m: self, ys, chain: scratch, base })
+        lsim_ir::eval::eval(self.g, &PointEnv { t, m: self, ys, rs, chain: scratch, base })
     }
 
     /// The condition's enclosure over the times `t`, its leaves enclosed
@@ -629,13 +647,27 @@ impl<'a> Loop<'a> {
         let mut y_idx: Vec<usize> = vec![];
         let mut consts: Vec<usize> = vec![];
         let mut ok = true;
+        let mut rates = false;
         let mut visit = |e: &Expr| {
             e.walk(&mut |x| {
-                let (Expr::Var(v) | Expr::Pre(v)) = x else { return };
+                let (Expr::Var(v) | Expr::Pre(v) | Expr::Der(v)) = x else { return };
                 let k = v.0 as usize;
                 if k >= slot.len() {
                     ok = false;
                     return;
+                }
+                if let Expr::Der(_) = x {
+                    // a state's derivative: its rate along the step, read
+                    // from the dense output's polynomial (the state a leaf)
+                    rates = true;
+                    let state = matches!(
+                        info.var_sources.get(k),
+                        Some(VarSource::Y(_) | VarSource::NegY(_))
+                    );
+                    if !state || matches!(slot[k], Slot::Chain(_)) || consts.contains(&k) {
+                        ok = false;
+                        return;
+                    }
                 }
                 if slot[k] != Slot::Const || consts.contains(&k) {
                     return;
@@ -671,7 +703,7 @@ impl<'a> Loop<'a> {
         for (_, e) in chain {
             let m = e.any(&mut |x| match x {
                 Expr::Time => true,
-                Expr::Var(v) | Expr::Pre(v) => match slot.get(v.0 as usize) {
+                Expr::Var(v) | Expr::Pre(v) | Expr::Der(v) => match slot.get(v.0 as usize) {
                     Some(Slot::Leaf(..)) => true,
                     Some(Slot::Chain(i)) => moving.get(*i as usize).copied().unwrap_or(true),
                     _ => false,
@@ -695,6 +727,7 @@ impl<'a> Loop<'a> {
             wait: 0,
             warned: false,
             kernel: None,
+            rates,
             certified: 0,
             scanned: 0,
         })
@@ -898,11 +931,15 @@ impl<'a> Loop<'a> {
         let jcell = std::cell::RefCell::new(std::mem::take(jscratch));
         let fcell = std::cell::RefCell::new(std::mem::take(fscratch));
         let mut ys = vec![0.0; ny];
+        let mut rs = vec![0.0; if m.rates { ny } else { 0 }];
         let mut p = |t: f64| {
             for (y, poly) in ys.iter_mut().zip(&polys) {
                 *y = poly.at(t);
             }
-            m.point(t, &ys, base, &mut fcell.borrow_mut())
+            for (r, poly) in rs.iter_mut().zip(&polys) {
+                *r = poly.rate_at(t);
+            }
+            m.point(t, (&ys, &rs), base, &mut fcell.borrow_mut())
         };
         let mut enc = |l: f64, r: f64| {
             let t = Iv { lo: l, hi: r };

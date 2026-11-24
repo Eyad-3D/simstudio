@@ -308,29 +308,29 @@ Channels: 65 of 70 inside their bands (RMS of the difference to today's 1 ms run
 
 ## fs-electric/case-accel-75m (Acceleration 75 m)
 
-New engine: build 0.01 s, run 0.03 s (779 steps, 8 events); today: 0.3 s at 10 ms, 0.9 s at 1 ms. Energy books: closure 1.9e-10 of the throughput, 0.0000 kWh lost at events.
+New engine: build 0.01 s, run 0.03 s (769 steps, 12 events); today: 0.3 s at 10 ms, 0.9 s at 1 ms. Energy books: closure 7.8e-10 of the throughput, 0.0000 kWh lost at events.
 
 | figure | unit | today 10 ms | today 1 ms | band | new | new − 1 ms | |
 |---|---|---:|---:|---:|---:|---:|---|
-| Time to 75 m | s | 3.750662 | 3.753927 | ±0.018770 | 3.753670 | -2.5752e-4 | inside |
-| Speed at 75 m | km/h | 118.894173 | 118.844428 | ±0.594222 | 118.864747 | 0.020318 | inside |
-| Gap to reference time | s | -0.159338 | -0.156073 | ±0.006529 | -0.156330 | -2.5752e-4 | inside |
-| Time to 100 km/h | s | 2.945441 | 2.963405 | ±0.035927 | 2.962554 | -8.5056e-4 | inside |
-| Accumulator — mean terminal power | kW | 75.150800 | 78.010330 | ±5.719058 | 78.076457 | 0.066127 | inside |
-| Time at the tyres' grip limit | % | 48.557089 | 48.725000 | ±0.335822 | 48.696557 | -0.028443 | inside |
-| Accumulator — final SOC | % | 98.887960 | 98.840767 | ±0.494204 | 98.839932 | -8.3531e-4 | inside |
-| Accumulator — energy delivered | kWh | 0.083188 | 0.086678 | ±0.006981 | 0.086739 | 6.0469e-5 | inside |
+| Time to 75 m | s | 3.750662 | 3.753927 | ±0.018770 | 3.753670 | -2.5744e-4 | inside |
+| Speed at 75 m | km/h | 118.894173 | 118.844428 | ±0.594222 | 118.864690 | 0.020262 | inside |
+| Gap to reference time | s | -0.159338 | -0.156073 | ±0.006529 | -0.156330 | -2.5744e-4 | inside |
+| Time to 100 km/h | s | 2.945441 | 2.963405 | ±0.035927 | 2.962567 | -8.3796e-4 | inside |
+| Accumulator — mean terminal power | kW | 75.150800 | 78.010330 | ±5.719058 | 78.076456 | 0.066127 | inside |
+| Time at the tyres' grip limit | % | 48.557089 | 48.725000 | ±0.335822 | 48.696582 | -0.028418 | inside |
+| Accumulator — final SOC | % | 98.887960 | 98.840767 | ±0.494204 | 98.839932 | -8.3534e-4 | inside |
+| Accumulator — energy delivered | kWh | 0.083188 | 0.086678 | ±0.006981 | 0.086739 | 6.0471e-5 | inside |
 | Accumulator — energy recuperated | kWh | 0 | 0 | ±1.0000e-9 | 0 | 0 | inside |
-| Accumulator — internal losses | kWh | 0.006904 | 0.007231 | ±6.5275e-4 | 0.007238 | 7.0453e-6 | inside |
-| Accumulator — peak terminal power | kW | 80.000000 | 80.000000 | ±0.400000 | 80.000001 | 8.9736e-7 | inside |
+| Accumulator — internal losses | kWh | 0.006904 | 0.007231 | ±6.5275e-4 | 0.007238 | 7.0454e-6 | inside |
+| Accumulator — peak terminal power | kW | 80.000000 | 80.000000 | ±0.400000 | 80.000001 | 6.8082e-7 | inside |
 | Accumulator — peak terminal power, averaged | kW | 80.000000 | 80.000000 | ±0.400000 | 80.000000 | 4.3122e-8 | inside |
 | Accumulator — time held at the output power limit | s | 3.615000 | 3.791000 | ±0.352000 | 3.796012 | 0.005012 | inside |
 | Accumulator — maximum pack voltage | V | 579.600000 | 579.600000 | ±2.898000 | 579.600000 | 0 | inside |
 | Accumulator — minimum pack voltage | V | 532.700788 | 532.615027 | ±2.663075 | 532.613467 | -0.001561 | inside |
-| Accumulator — usable energy left | kWh | 6.816738 | 6.812921 | ±0.007634 | 6.812854 | -6.7555e-5 | inside |
+| Accumulator — usable energy left | kWh | 6.816738 | 6.812921 | ±0.007634 | 6.812854 | -6.7558e-5 | inside |
 | E-Motor — time limited by supply | s | 3.615000 | 3.791000 | ±0.352000 | 3.796012 | 0.005012 | inside |
-| Distance driven | km | 0.075347 | 0.075306 | ±3.7653e-4 | 0.075300 | -6.1983e-6 | inside |
-| Simulated duration | s | 3.985000 | 4.000000 | ±0.030000 | 3.999400 | -5.9968e-4 | inside |
+| Distance driven | km | 0.075347 | 0.075306 | ±3.7653e-4 | 0.075300 | -6.1980e-6 | inside |
+| Simulated duration | s | 3.985000 | 4.000000 | ±0.030000 | 3.999400 | -5.9957e-4 | inside |
 
 Channels: 65 of 65 inside their bands (RMS of the difference to today's 1 ms run).
 

@@ -462,21 +462,46 @@ fn every_block_variant() -> Vec<ComponentDef> {
             on_vehicle: s[0],
             prescribed: false,
             lap: false,
+            grip: false,
         }));
         v.push(vehicle::wheel(vehicle::WheelConfig {
             on_vehicle: s[0],
             prescribed: true,
             lap: false,
+            grip: false,
         }));
         // a lap case's
         v.push(vehicle::wheel(vehicle::WheelConfig {
             on_vehicle: s[0],
             prescribed: true,
             lap: true,
+            grip: false,
         }));
+        // on a locked or limited-slip differential: it says its grip
+        for lap in [false, true] {
+            v.push(vehicle::wheel(vehicle::WheelConfig {
+                on_vehicle: s[0],
+                prescribed: true,
+                lap,
+                grip: true,
+            }));
+        }
     }
     for s in switches(2) {
-        v.push(driveline::split(driveline::SplitConfig { transfer_case: s[0], locked: s[1] }));
+        for kind in [
+            driveline::SplitKind::Open,
+            driveline::SplitKind::Locked,
+            driveline::SplitKind::LimitedSlip,
+        ] {
+            if s[0] && kind == driveline::SplitKind::LimitedSlip {
+                continue; // a transfer case has no limited-slip type
+            }
+            v.push(driveline::split(driveline::SplitConfig {
+                transfer_case: s[0],
+                kind,
+                inverse: s[1],
+            }));
+        }
         v.push(electric::power_consumer(electric::LoadConfig {
             demand_wired: s[0],
             served_input: s[1],

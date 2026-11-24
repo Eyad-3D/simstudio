@@ -21,10 +21,10 @@ uses. Sweep it on the endurance:
 
 The swept value takes the place of the case's own 30 kW for each run.
 
-**Check:** the *Total time* is 1,477.550 s at 25 kW, 1,453.18 s at 30 kW
-and 1,433.984 s at 35 kW; the final SOC 31.00 %, 21.58 % and 12.40 %.
+**Check:** the *Total time* is 1,467.099 s at 25 kW, 1,442.62 s at 30 kW
+and 1,422.874 s at 35 kW; the final SOC 30.51 %, 20.83 % and 11.52 %.
 
-saves 19 to 24 s over the event and uses about 9 points. Where the time is worth more points than the energy depends
+saves 20 to 24 s over the event and uses about 9 points. Where the time is worth more points than the energy depends
 on your event's scoring formulas.
 
 ## 2. How many cells in parallel?
@@ -40,11 +40,11 @@ the 30 kW limit:
    page, or in the study's table under *Saved studies*.
 
 **Check:** with 3 in parallel the run fails: *Messages* says the
-accumulator reached its minimum SOC (5 %) at t = 1296 s, and the car
-stops 289 m into lap 22. With 4 the car finishes with 21.58 % SOC and
-1.10 kWh usable energy left; with 5, 38.38 % and 2.840 kWh.
+accumulator reached its minimum SOC (5 %) at t = 1270 s, and the car
+stops 291 m into lap 22. With 4 the car finishes with 20.83 % SOC and
+1.05 kWh usable energy left; with 5, 37.81 % and 2.789 kWh.
 
-So 3p is too small at 30 kW, and 4p finishes with a margin of 1.10 kWh.
+So 3p is too small at 30 kW, and 4p finishes with a margin of 1.05 kWh.
 Fewer cells in parallel would also make the car lighter and raise the
 accumulator's resistance; the sweep changes only the charge. To see
 both, set the values by hand for a single run.

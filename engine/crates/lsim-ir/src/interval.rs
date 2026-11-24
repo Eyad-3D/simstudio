@@ -479,8 +479,23 @@ pub fn supported(
     grids: &[Option<Grid2>],
     moves: &dyn Fn(&Expr) -> bool,
 ) -> bool {
+    supported_with(e, breaks, grids, moves, &|_| false)
+}
+
+/// [`supported`], where the derivative of a variable whose enclosure gives
+/// its rate (`rate_known`, by channel: a state the caller encloses along a
+/// step with its rates, a leaf of [`Cx`]) is bounded too: [`enclose`] takes
+/// `der(v)` as that leaf's rate and second rate.
+pub fn supported_with(
+    e: &Expr,
+    breaks: &[Vec<f64>],
+    grids: &[Option<Grid2>],
+    moves: &dyn Fn(&Expr) -> bool,
+    rate_known: &dyn Fn(usize) -> bool,
+) -> bool {
     let mut ok = true;
     e.walk(&mut |x| match x {
+        Expr::Der(v) if rate_known(v.0 as usize) => {}
         Expr::Der(_) | Expr::Name(_) => ok = false,
         Expr::Call(Builtin::Der | Builtin::Pre, _) => ok = false,
         Expr::Call(Builtin::Atan2, args) if args.iter().any(moves) => ok = false,
@@ -512,7 +527,13 @@ pub fn enclose(e: &Expr, cx: &Cx<'_>, t: Iv) -> J2 {
             None => k(cx.vars.get(v.0 as usize).copied().unwrap_or(f64::NAN)),
         },
         Expr::Time => time_j2(t),
-        Expr::Der(_) | Expr::Name(_) => J2::all(),
+        // a leaf's derivative: its rate and second rate (its third rate is
+        // not enclosed: unbounded); anything else's is not bounded here
+        Expr::Der(v) => match (cx.leaf)(v.0 as usize) {
+            Some(j) => J2 { v: j.d, d: j.dd, dd: ALL },
+            None => J2::all(),
+        },
+        Expr::Name(_) => J2::all(),
         Expr::Neg(a) => ev(a).neg(),
         Expr::NoEvent(a) => ev(a),
         Expr::Binary(op, a, b) => binary_j2(*op, ev(a), ev(b)),

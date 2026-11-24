@@ -977,3 +977,28 @@ losses, one unit in the last place apart at some output points (their RMS
 by 1.7e-13 to 1.0e-10 of their value), evaluated in another order; every
 state, step and event, and every other value, are the same to the bit.
 Those four cases are this run's.
+
+## The FS example's limited-slip differential (23 November 2026)
+
+The FS Electric example's Differential is Type Limited-slip (Preload
+20 N·m, locking 40 % under power and 25 % off power; the owner's choice,
+a typical setting), so its acceleration run's model has the coupling's
+stick/slip friction between the rear wheels (`lsim-lib/src/blocks/
+driveline.rs`, `split`). On the straight launch, both rear wheels on the
+same load and grip, the coupling holds from the start and passes nothing
+(about 1e-10 N·m). It starts stuck when its outputs start together: the
+shared friction rule starts a friction sliding forwards, which here passed
+its whole 119 N·m from one rear wheel to the other for 1.8 ns, set the
+wheels' speeds apart and took this run's books to 2.3e-9 with 5 more
+events; a mode just after the start (1 ns) breaks a stuck start away if it
+cannot hold. Only this case is recorded again: its 141 values move by at
+most 3.5e-4 × band, as a share of their value at most 5.3e-6 (the aero
+force), the time to 75 m 3.753670 s either way to six decimals (the gap
+to the reference time −0.15633041 → −0.15633034 s); steps 779 → 769,
+events 8 → 12, its books 1.9e-10 → 7.8e-10; 19 of 19 figures and 65 of 65
+channels inside, as before. Against the same model with an open
+differential it differs by at most 4.3e-6 of a figure (time to 100 km/h),
+the order by which the engine's locked differential, the same physics on
+this launch in other equations, differs from the open one (3.8e-6): the
+integrator's tolerance over another set of equations. Every other case is
+the same to the bit (the record's other cases kept as they were).

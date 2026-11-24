@@ -114,7 +114,7 @@ _DISCONNECT = {"op": "disconnect", "from": "Vehicle Task:sig_demand", "to": "Dri
 
 @pytest.mark.parametrize("task_id, attempt, reason", [
     # the two figures swapped: they lie 13.5 % apart, and the bands were 15 %
-    ("question-fs-limits", "ANSWER: 43.47; 38.287", "answer 1: '43.47', the key 38.287"),
+    ("question-fs-limits", "ANSWER: 43.18; 38.842", "answer 1: '43.18', the key 38.842"),
     # no Script block: a Lookup Table under the asked label does the job
     ("write-speed-limiter", "also_wrong:0", "0 signal.script parts labelled 'Speed Limiter'"),
     ("write-aux-shed", "also_wrong:0", "0 signal.script parts labelled 'Aux Shedding'"),
@@ -288,22 +288,22 @@ def test_the_endurance_key_takes_both_readings_of_an_empty_accumulator():
     agents gave the second and were failed for it. Both readings pass, each
     as LightSim works it out; the event's finished distance still fails."""
     task = next(t for t in TASKS if t.id == "question-fs-endurance")
-    for text in ("ANSWER: 20.56; 0.238", "ANSWER: 19.58; 0.250", "ANSWER: 19.6; 0.2498", "ANSWER: 19.58; 0.238"):
+    for text in ("ANSWER: 19.58; 0.242", "ANSWER: 19.24; 0.246", "ANSWER: 19.2; 0.2464", "ANSWER: 19.24; 0.242"):
         assert agent._check_answer(task, text, {}) == [], text
-    assert agent._check_answer(task, "ANSWER: 22.5; 0.2432", {})
+    assert agent._check_answer(task, "ANSWER: 22.5; 0.2453", {})
     # one reading as a whole: the run's distance with an energy of the other reading fails
-    for text in ("ANSWER: 20.557; 0.2498", "ANSWER: 20.76; 0.2498", "ANSWER: 20.557; 0.2682",
-                 "ANSWER: 20.56; 0.25", "ANSWER: 20.56; 0.26"):
+    for text in ("ANSWER: 19.578; 0.2464", "ANSWER: 19.77; 0.2464", "ANSWER: 19.578; 0.2724",
+                 "ANSWER: 19.58; 0.25", "ANSWER: 19.58; 0.26"):
         assert agent._check_answer(task, text, {}), text
 
 
 def test_the_endurance_energy_to_two_decimals_passes():
-    """The brief names no precision, and the run's energy per lap, 0.2380 kWh,
-    is 0.24 to two decimals: 0.85 % off the key (0.22 for the older key's
+    """The brief names no precision, and the run's energy per lap, 0.2422 kWh,
+    is 0.24 to two decimals: 0.9 % off the key (0.22 for the older key's
     0.2246, 2.06 % off, failed five tries of the comparison of 6 November
-    under a 2 % band), and the other reading's 0.2498 is 0.25."""
+    under a 2 % band), and the other reading's 0.2464 is 0.25 (1.4 % off)."""
     task = next(t for t in TASKS if t.id == "question-fs-endurance")
-    for text in ("ANSWER: 20.56; 0.24", "ANSWER: 19.6; 0.24", "ANSWER: 19.6; 0.25"):
+    for text in ("ANSWER: 19.58; 0.24", "ANSWER: 19.2; 0.24", "ANSWER: 19.2; 0.25"):
         assert agent._check_answer(task, text, {}) == [], text
     project = agent.ls.Project(agent.start_files(task)["car.json"])
     result = project.run("Endurance energy")

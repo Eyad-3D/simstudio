@@ -41,7 +41,7 @@ from .keys import fill_keys
 from .labfig import LabLog, lab_rows
 from .maps import OutsideDataError, slug
 from .master import Master, SlaveStepError
-from .network import NO_WHEELS, ModelError, build_model, moves_unpowered
+from .network import NO_WHEELS, ModelError, build_model, limited_slip, moves_unpowered
 from .profiles import distance_axis, lap_length
 from .references import check_references, hand_checks
 from .reports import RunRecorder, make_reports
@@ -173,6 +173,12 @@ def run_case(
             caseId=case_id, status="failed", channels=[],
             messages=[SimMessage(level="error", text=t) for t in e.errors],
         )
+    if lsd := limited_slip(model):
+        return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
+            level="error",
+            text=f"'{lsd[0]}' is a Limited-slip differential, which only the app's engine "
+                 f"models (the older engine models Open and Locked ones): run it on the "
+                 f"app's engine.")])
 
     rt = Runtime(model, emit)
     for w in model_warnings(model):

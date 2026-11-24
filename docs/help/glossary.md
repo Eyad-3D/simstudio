@@ -69,7 +69,9 @@ They run by themselves after every change; *Problems* lists what they find.
 
 **Differential**: the gear set that lets the two wheels of an axle turn
 at different speeds in a corner while it shares the drive between them.
-A locked differential makes them turn together.
+A locked differential makes them turn together. A limited-slip one lets
+them turn at different speeds but passes up to its locking torque to the
+slower one.
 
 **Domain**: what a wire carries. *Electrical* wires carry power at a
 voltage, *mechanical* wires a turning shaft. A wire joins two ports of the

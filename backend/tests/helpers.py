@@ -215,6 +215,17 @@ def series(result, el_id: str, port_id: str):
     raise KeyError(f"channel {el_id}:{port_id} not in result")
 
 
+def todays(project: Project) -> Project:
+    """The project for today's (older) engine, which runs no Limited-slip
+    differential: each one made Open (the FS example's, on its straight
+    launch, holds and passes nothing: the same run). Changes ``project``."""
+    for system in project.systems:
+        for e in system.elements:
+            if e.componentDefId == "mech.differential" and e.parameterOverrides.get("type") == "Limited-slip":
+                e.parameterOverrides["type"] = "Open"
+    return project
+
+
 def example_result(project_id: str, case_id: str) -> SimResult:
     """A shipped example's case, run once per test session and engine
     (LIGHTSIM_ENGINE; read-only: the result is shared by every test that asks
@@ -224,4 +235,5 @@ def example_result(project_id: str, case_id: str) -> SimResult:
 
 @lru_cache(maxsize=None)
 def _example_result(project_id: str, case_id: str, engine: str | None) -> SimResult:
-    return simulate(load_example(project_id), case_id)
+    project = load_example(project_id)
+    return simulate(todays(project) if engine == "today" else project, case_id)

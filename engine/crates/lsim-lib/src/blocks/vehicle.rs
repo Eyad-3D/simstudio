@@ -445,11 +445,15 @@ pub struct WheelConfig {
     /// transfer, its lateral grip, and the share of its grip the corner
     /// leaves for driving and braking
     pub lap: bool,
+    /// fast mode (with `prescribed`), on a locked or limited-slip
+    /// differential's output: it says its grip (`f_grip`), which sets how
+    /// that differential splits its torque (driveline::split)
+    pub grip: bool,
 }
 
 impl Default for WheelConfig {
     fn default() -> Self {
-        WheelConfig { on_vehicle: true, prescribed: false, lap: false }
+        WheelConfig { on_vehicle: true, prescribed: false, lap: false, grip: false }
     }
 }
 
@@ -466,6 +470,7 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
         "mu_nominal_load_N",
     ];
     let lap = cfg.lap && cfg.on_vehicle;
+    let grip_out = cfg.grip && cfg.prescribed && cfg.on_vehicle;
     if lap {
         keys.push("mu_lateral");
     }
@@ -515,6 +520,9 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
         ports.push(input("left", "1", "the share of its grip the corner leaves"));
         ports.push(output("f_lat", "N", "its lateral grip: μ_y × normal load"));
     }
+    if grip_out {
+        ports.push(output("f_grip", "N", "its grip: the most force its tyre passes now"));
+    }
     for q in
         ["sig_speed", "sig_slip", "sig_force", "sig_torque", "sig_normal_load", "sig_slip_losses"]
     {
@@ -562,6 +570,9 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
         } else {
             (-n("mu_eff") * n("N"), n("mu_eff") * n("N"))
         };
+        if grip_out {
+            eqs.push(eq(n("f_grip"), grip.clone(), "its grip, for its differential's split"));
+        }
         let (slip, force) = if cfg.prescribed {
             vars.push(var("F_grip", "N", "the tyre's force, within its grip"));
             (
@@ -702,7 +713,8 @@ pub fn wheel(cfg: WheelConfig) -> ComponentDef {
             [cfg.on_vehicle as u8 as f64]
                 .into_iter()
                 .chain(cfg.prescribed.then_some(1.0))
-                .chain(lap.then_some(2.0)),
+                .chain(lap.then_some(2.0))
+                .chain(grip_out.then_some(3.0)),
         ),
         doc: doc(id),
         ports,

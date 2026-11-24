@@ -488,6 +488,10 @@ pub fn import_case(
     facts.performance = run.kind == CaseKind::Performance && !opts.lap;
     facts.inverse = opts.inverse || opts.lap;
     facts.lap = opts.lap;
+    if facts.inverse {
+        facts.grip_splits = facts::grip_splits(&facts)
+            .map_err(|e| e.into_iter().map(|m| err("SPLIT-NO-WHEELS", m)).collect::<Vec<_>>())?;
+    }
     if opts.inverse && (facts.full_throttle || facts.performance) {
         return Err(vec![err(
             "FAST-NO-CYCLE",
@@ -850,6 +854,12 @@ impl<'a> Builder<'a> {
                 Some(a) => self.link(format!("{}.T_amb", self.inst(a)), t),
                 None => self.constant_into(t, "K", 293.15),
             }
+        }
+        // fast mode: a locked or limited-slip differential's wheels' grip
+        for (d, (a, b)) in &facts.grip_splits {
+            let di = self.inst(d);
+            self.link(format!("{}.f_grip", self.inst(a)), format!("{di}.g_a"));
+            self.link(format!("{}.f_grip", self.inst(b)), format!("{di}.g_b"));
         }
         let Some(v) = veh else { return };
         let vi = self.inst(&v);
@@ -1765,6 +1775,7 @@ pub fn standard_registry() -> Registry {
             on_vehicle,
             prescribed: f.inverse && on_vehicle,
             lap,
+            grip: f.grip_splits.values().any(|(a, b)| *a == el.id || *b == el.id),
         }))
         .with(values))
     });
@@ -1802,7 +1813,8 @@ pub fn standard_registry() -> Registry {
         add!(id, move |el: &Element, f: &Facts| {
             let cfg = driveline::SplitConfig {
                 transfer_case: tc,
-                locked: catalog::flag(&el.params, "locked", false),
+                kind: facts::split_kind(el),
+                inverse: f.grip_splits.contains_key(&el.id),
             };
             let mut m = Mapped::of(driveline::split(cfg)).with(w0(el, f, "flange_in", "w0"));
             if f.lossless_axle {

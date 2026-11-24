@@ -17,6 +17,7 @@ import threading
 import time
 
 import pytest
+from helpers import todays
 from test_new_engine_flag import needs_engine
 
 from app import studies
@@ -405,7 +406,9 @@ def test_a_stopped_acceleration_test_has_no_finish(monkeypatch):
     for engine in ("new", "today"):
         _engine(monkeypatch, engine)
         live = _Live(at=1.0, then=[{"type": "cancel"}])
-        result = simulate(load_example("fs-electric"), "case-accel-75m", live.emit, live.control)
+        proj = load_example("fs-electric")
+        result = simulate(todays(proj) if engine == "today" else proj, "case-accel-75m", live.emit,
+                          live.control)
         assert result.status == "cancelled", (engine, [m.text for m in result.messages])
         said[engine] = ({s.key: (s.passed, s.notValid) for s in result.summary
                          if s.key.startswith("accel")},

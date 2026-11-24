@@ -1750,6 +1750,46 @@ Endurance). `NEW-FS-EVENT` now refuses only a Lap case with an event set.
   same module as main. The guard, FS and engine-flag tests pass (247), as
   do `benchmarks/back_to_back/tests` (157); `ruff check .` is clean.
 
+## The Differential's Type: Open, Locked, Limited-slip (23 November 2026)
+
+`work/engine-diff`: the Differential's Locked box becomes a Type. Open is
+the model text as before; Locked is the locked model the engine had;
+Limited-slip is open with the clutch's stick/slip friction between the
+outputs (locking torque preload + ½ × share × the torque passed on, the
+drive or coast share by its sign), its heat in the part's loss. In fast
+mode and a lap a locked or limited-slip one splits by its wheels' grip
+(DESIGN.md, section 10.1). Hand answers in lsim-project
+tests/differential.rs (each type, a slipping and a stuck clutch, off
+power, the fast-mode split) and backend tests/test_differential.py (a
+split-grip launch in a full run and quick mode, the FS autocross ordered
+locked < limited-slip < open). Golden 0 differences; the older engine
+refuses a limited-slip one where it runs.
+
+The FS example is Limited-slip (20 N·m, 40 %, 25 %; the lead's decision).
+Its coupling starts stuck when its outputs start together, and a mode 1 ns
+after the start breaks a stuck start away if it cannot hold (the shared
+friction rule's sliding start passed its whole capacity from one rear
+wheel to the other for 1.8 ns and took the 75 m run's books to 2.3e-9;
+now 7.8e-10). The golden record's FS 75 m case is recorded again
+(golden/README.md); the other 13 cases are kept.
+
+## A state's derivative in the look-ahead (24 November 2026)
+
+`work/engine-lookahead`. A stuck friction's break-away condition (a
+Clutch's, a limited-slip differential's) on a driveline a drive cycle
+drives reads the cycle's time and an E-Motor's `J·dω/dt`; the look-ahead
+refused the derivative, left the condition to root finding and warned, so
+the run ended as warning (STUCK-FRICTION-LOOKAHEAD). It now takes a state's
+derivative as that state's rate along the step from the dense output
+(DESIGN.md 8.2, *Conditions on explicit functions of time*). Only
+conditions that were refused before change: golden 0 differences over the
+14 cases, every case's books inside 1.5e-9. Measured on the case that
+warned (the BEV city cycle with a limited-slip differential, one front
+wheel on low grip), the warning cost nothing: the same events, figures and
+books to the bit before and after. Tests: lsim-project differential.rs (a
+rising torque breaks the clutch away at its hand answer to 1e-9 s),
+backend test_stuck_friction.py.
+
 ## Lap cases on the engine: lap port, stage 3 (22 November 2026)
 
 Lap cases and the FS events scored from one run on the new engine

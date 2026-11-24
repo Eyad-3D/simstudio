@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing_extensions import TypeAliasType
 
 from .migrations import CURRENT_VERSION
@@ -195,6 +195,20 @@ class ElementInstance(BaseModel):
     # Today's engine reads none: such a case runs on the new engine. None = the
     # built-in definition
     textFile: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _differential_type(cls, data: Any) -> Any:
+        """A Differential from before it had a Type: its Locked box
+        (``locked``) becomes the Type (Locked when ticked, else Open)."""
+        if isinstance(data, dict) and data.get("componentDefId") == "mech.differential":
+            over = data.get("parameterOverrides")
+            if isinstance(over, dict) and "locked" in over:
+                over = dict(over)
+                if over.pop("locked") and "type" not in over:
+                    over["type"] = "Locked"
+                data = {**data, "parameterOverrides": over}
+        return data
 
 
 class Connection(BaseModel):

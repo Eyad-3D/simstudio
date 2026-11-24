@@ -16,7 +16,9 @@ real car. Replace them with your team's data.
 
 - 280 kg with the driver; centre of gravity 0.28 m high; wheelbase 1.53 m.
 - One rear E-Motor (230 N·m, about 100 kW) through a 4.4 chain drive and
-  an open differential; the front wheels are not driven and have brakes.
+  a limited-slip differential (a typical clutch-pack setting, not a data
+  sheet's: Preload 20 N·m, locking 40 % under power and 25 % off power);
+  the front wheels are not driven and have brakes.
 - An Accumulator (the Formula Student word for the high-voltage battery)
   of 138 cells in series and 4 in parallel (138s4p): 580 V full,
   7.2 kWh, 0.3 Ω, with the battery's *Formula Student Electric* preset.
@@ -30,8 +32,8 @@ real car. Replace them with your team's data.
 - The Driver's *Recuperation Weight* at 40 %: regeneration brakes the
   driven rear wheels only, on top of their brakes, so at 100 % its 30 kW
   would hold the rear tyres at their grip below about 33 m/s and the car
-  would brake later than its tyres allow (the autocross lap 60.9 s instead
-  of 59.0 s). At 40 % the endurance still recuperates 11 % of what it draws.
+  would brake later than its tyres allow (the autocross lap 60.2 s instead
+  of 58.5 s). At 40 % the endurance still recuperates 11 % of what it draws.
 
 The rules it follows are FS Rules 2026 v1.1 (Formula Student Germany,
 FSG): at most 80 kW at the accumulator outlet (EV 2.2.1), judged on a
@@ -66,8 +68,8 @@ The summary says for how long each limit held the car back, for example
 | Case | Result |
 |---|---|
 | *Acceleration 75 m* | 3.754 s from the start line, 118.86 km/h at the line, 0-100 km/h in 2.96 s |
-| *Autocross (flying lap)* | 58.980 s for the flying lap, 59.05 km/h average |
-| *Endurance energy* (23 laps, 30 kW limit) | 1,453.18 s, 5.59 kWh net from the Accumulator, 21.58 % SOC left |
+| *Autocross (flying lap)* | 58.477 s for the flying lap, 59.55 km/h average |
+| *Endurance energy* (23 laps, 30 kW limit) | 1,442.62 s, 5.64 kWh net from the Accumulator, 20.83 % SOC left |
 
 At FS Czech Republic 2025 the 35 electric teams took 3.51 to 6.44 s over
 75 m (median 3.91 s, the case's reference time), and the 14 teams scored
@@ -105,7 +107,7 @@ These results are estimates: see the messages each run gives, and
    under *Parameter overrides*, set *Accumulator · Output Power Limit (0 =
    none)* to 25. What do you gain and what do you lose?
 
-   **Answer:** The car needs 1,477.550 s instead of 1,453.18 s (24 s
-   more) and ends with 31.00 % SOC instead of 21.58 %. Lesson 3,
+   **Answer:** The car needs 1,467.099 s instead of 1,442.62 s (24 s
+   more) and ends with 30.51 % SOC instead of 20.83 %. Lesson 3,
    [Size the accumulator](../lessons/fs-3-accumulator.md), uses this
    trade.
