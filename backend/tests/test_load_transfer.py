@@ -2,8 +2,8 @@
 
 Each wheel's normal load is its share of the weight normal to the road plus
 its axle's part of the longitudinal load transfer m·(a + g·sin θ)·h/L, with
-a the vehicle's acceleration over the previous solver step, and of the
-downforce ½·ρ·CzA·v² split by the aero balance. With a CG height and a
+a the vehicle's acceleration at that instant, and of the downforce
+½·ρ·CzA·v² split by the aero balance. With a CG height and a
 downforce area of 0 (the defaults) every wheel keeps its share of the
 weight, as before. Recorded values are rounded to 1e-5, which sets the
 tolerances of the exact checks."""
@@ -26,6 +26,14 @@ def _values(result, el_id, port):
 
 def _speeds(result):
     return [x / 3.6 for x in _values(result, "veh", "sig_speed")]
+
+
+def _accels(result, m):
+    """The Vehicle's acceleration at each point, from its acceleration power
+    m·a·v (kW); None where it stands."""
+    v = _speeds(result)
+    return [p * 1e3 / (m * s) if s > 1e-6 else None
+            for p, s in zip(_values(result, "veh", "sig_p_accel"), v)]
 
 
 def _tag_axles(proj):
@@ -65,32 +73,26 @@ def fs_car(driven="Rear", mu=2.0, h=H, fd=4.0, v0=36.0, duration=1.5):
 
 def test_axle_loads_follow_m_a_h_over_l():
     """The item's metric: the rear axle gains m·a·h/L under acceleration and
-    the front axle under braking, within 0.5 % (measured 0.011 % at
-    7.6 m/s² and 0.034 % at 12.5 m/s²), with a from the recorded speed; the
-    axles carry the weight
-    together. The transfer is one step behind: each step's loads follow the
-    previous step's acceleration exactly (this is what KNOWN-LIMITS says)."""
+    the front axle under braking, with a the Vehicle's acceleration at the
+    same instant (its acceleration power over m·v), to rounding; the axles
+    carry the weight together. (The older engine moved the load one solver
+    step late; KNOWN-LIMITS said so.)"""
     # (a) accelerating at a constant motor torque (the Driver unwired)
     proj = fs_car()
     proj.dataBusConnections = [c for c in proj.dataBusConnections if c.port2Id != "sig_demand_in"]
     proj.systems[0].elements.append(el("cmd", "signal.constant", "Command", value=0.5))
     proj.dataBusConnections.append(dbc(70, "cmd", "sig_out", "mot", "sig_demand_in"))
     result = simulate(proj, "case")
-    v = _speeds(result)
     front, rear = _values(result, "veh", "sig_load_front"), _values(result, "veh", "sig_load_rear")
     static = (1 - FRONT) * M * GRAVITY
-    accel = [0.0] + [(v[i] - v[i - 1]) / DT for i in range(1, len(v))]  # 0 before the run
+    accel = _accels(result, M)
     checked = 0
-    for i in range(1, len(v)):
-        assert front[i] + rear[i] == pytest.approx(M * GRAVITY, abs=1e-4)
-        # (c) the documented lag, at every point (the first ones included,
-        # where the acceleration builds up step by step)
-        assert rear[i] - static == pytest.approx(M * accel[i - 1] * H / L, abs=0.05)
-        if 0.1 <= i * DT <= 1.1:
-            expected = M * accel[i] * H / L
-            assert abs(rear[i] - static - expected) <= 0.005 * expected
-            checked += 1
-    assert checked == 101 and min(accel[10:111]) > 5.0
+    for f, r, a in zip(front, rear, accel):
+        assert f + r == pytest.approx(M * GRAVITY, abs=1e-4)
+        if a is not None:
+            assert r - static == pytest.approx(M * a * H / L, rel=1e-6, abs=1e-6)
+            checked += a > 5.0
+    assert checked > 100  # 1.5 s at 36 km/h on, over 5 m/s² the whole run
 
     # (b) braking with all four brakes at 20 % from 100 km/h
     proj = _tag_axles(coast_project(
@@ -107,14 +109,14 @@ def test_axle_loads_follow_m_a_h_over_l():
     result = simulate(proj, "case")
     v = _speeds(result)
     front = _values(result, "veh", "sig_load_front")
+    accel = _accels(result, M)
     checked = 0
-    for i in range(20, len(v)):
-        if v[i] * 3.6 < 10.0:
+    for s, f, a in zip(v, front, accel):
+        if s * 3.6 < 10.0:
             break
-        expected = M * (v[i - 1] - v[i]) / DT * H / L
-        assert abs(front[i] - FRONT * M * GRAVITY - expected) <= 0.005 * expected
-        checked += 1
-    assert checked > 150 and expected > M * 10.0 * H / L  # 1.8 s braking at over 10 m/s²
+        assert f - FRONT * M * GRAVITY == pytest.approx(-M * a * H / L, rel=1e-6, abs=1e-6)
+        checked += -a > 10.0
+    assert checked > 150  # 1.8 s braking at over 10 m/s²
 
 
 def test_downforce_adds_half_rho_cza_v_squared():
@@ -174,11 +176,18 @@ def test_a_lifting_axle_carries_nothing():
     result = simulate(fs_car(mu=mu, h=1.4, fd=12.0, duration=1.0), "case")
     v = _speeds(result)
     front, rear = _values(result, "veh", "sig_load_front"), _values(result, "veh", "sig_load_rear")
+    accel = _accels(result, M)
+    # both rear tyres at their grip (the slip at μ over the slip stiffness)
+    grip = [min(fl, fr) >= mu * M * GRAVITY / 2 * (1 - 1e-9)
+            for fl, fr in zip(_values(result, "whl", "sig_force"), _values(result, "whr", "sig_force"))]
+    at_grip = 0
     for i in range(3, len(v)):  # lifted from the third step on
         assert front[i] == 0.0
         assert rear[i] == pytest.approx(M * GRAVITY, abs=1e-4)
-        if i <= 50:  # later the motor's power limits it
-            assert (v[i] - v[i - 1]) / DT == pytest.approx(mu * GRAVITY, rel=5e-3)
+        if grip[i]:  # (the slip builds over the first steps; later the motor's power limits it)
+            assert accel[i] == pytest.approx(mu * GRAVITY, rel=1e-6)
+            at_grip += 1
+    assert at_grip > 30
     assert result.status == "warning"
     assert any("front wheels of Vehicle 'Vehicle' lift off the road" in m.text
                for m in result.messages), result.messages
@@ -212,19 +221,28 @@ def test_a_wheelbase_of_0_given_at_run_time_is_warned_about():
 
 
 def test_the_slope_moves_load_to_the_rear():
-    """Standing on a 20 % grade the weight's pull down the slope moves
-    m·g·sin θ·h/L to the rear axle; coasting up it with nothing but the
-    grade slowing the car moves nothing (a + g·sin θ = 0)."""
+    """Standing on a 20 % grade, held there by its brakes, the weight's pull
+    down the slope moves m·g·sin θ·h/L to the rear axle; coasting up it with
+    nothing but the grade slowing the car moves nothing (a + g·sin θ = 0).
+    (Nothing else holds a car on a slope: without its brakes it rolls back,
+    and a + g·sin θ = 0 again.)"""
     m, h, wheelbase = 1500.0, 0.55, 2.7
     theta = math.atan(0.2)
     static = 0.5 * m * GRAVITY * math.cos(theta)
     for v0, transfer in ((0.0, m * GRAVITY * math.sin(theta) * h / wheelbase), (60.0, 0.0)):
-        result = simulate(_tag_axles(coast_project(
+        proj = _tag_axles(coast_project(
             {"mass_kg": m, "cd": 0.0, "cg_height_m": h, "wheelbase_m": wheelbase},
-            {"rolling_resistance": 0.0}, grade=20.0, v0=v0, duration=1.0, dt=DT)), "case")
+            {"rolling_resistance": 0.0}, grade=20.0, v0=v0, duration=1.0, dt=DT))
+        if v0 == 0.0:  # its four brakes on: they hold it
+            proj.systems[0].elements.append(el("bk", "signal.constant", "Brake Command", value=1.0))
+            proj.dataBusConnections += [dbc(60 + i, "bk", "sig_out", f"b{i}", "sig_demand_in")
+                                        for i in range(4)]
+        result = simulate(proj, "case")
         rear = _values(result, "veh", "sig_load_rear")
-        # from the first step on: point 0 is recorded before the grade is read
-        for x in rear[2:]:
+        # held: once the brakes have taken the car up (they let it creep at
+        # their hold speed, 0.01 m/s here, settled within 0.1 s); coasting:
+        # from the first step on (point 0 is recorded before the grade is read)
+        for x in rear[20 if v0 == 0 else 2:]:
             assert x == pytest.approx(static + transfer, rel=1e-8 if v0 == 0 else 1e-4)
 
 

@@ -180,9 +180,6 @@ XFAIL = {
     "test_live_params.py::test_the_result_lists_the_live_edits_it_made": (
         "a live edit read at the start is listed at the run's first output time (10 s), where today's lists it at "
         "t = 0 (open)"),
-    "test_load_transfer.py::test_axle_loads_follow_m_a_h_over_l": "the axle loads differ from m a h / L on the new engine (open)",
-    "test_load_transfer.py::test_a_lifting_axle_carries_nothing": "the axle loads differ on the new engine (open)",
-    "test_load_transfer.py::test_the_slope_moves_load_to_the_rear": "the axle loads on a slope differ on the new engine (open)",
     "test_mcp_server.py::test_every_answer_stays_under_20_kb": "an MCP answer of a new-engine run is 20,027 bytes, over the 20 kB the server keeps to (open)",
     "test_numerics.py::test_coasting_up_a_grade_turns_kinetic_energy_into_m_g_h": "coasting up a grade: 16.66 against 20.39 (m g h) on the new engine (open)",
     "test_numerics.py::test_clutch_engagement_loses_the_two_inertia_energy": "a clutch on the new engine never locks exactly (slip 0.0) in the test's window (open)",
