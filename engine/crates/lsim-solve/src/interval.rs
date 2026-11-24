@@ -22,7 +22,9 @@
 
 #[cfg(test)]
 use lsim_ir::expr::{BinaryOp, CmpOp, Expr};
-pub(crate) use lsim_ir::interval::{ALL, Cx, Grid2, Iv, J2, ONE, ZERO, enclose, supported};
+pub(crate) use lsim_ir::interval::{
+    ALL, Cx, Grid2, Iv, J2, ONE, ZERO, enclose, supported, supported_with,
+};
 #[cfg(test)]
 use lsim_ir::runtime::ModelFunctions;
 #[cfg(test)]
@@ -271,6 +273,19 @@ impl DensePoly {
             acc = self.a[j] + (tau - self.x[j]) / self.s[j] * acc;
         }
         acc
+    }
+
+    /// The rate at `t` in floating point (the nested Newton form's
+    /// derivative).
+    pub(crate) fn rate_at(&self, t: f64) -> f64 {
+        let tau = t - self.origin;
+        let q = self.x.len();
+        let (mut acc, mut rate) = (self.a[q], 0.0);
+        for j in (0..q).rev() {
+            rate = (rate * (tau - self.x[j]) + acc) / self.s[j];
+            acc = self.a[j] + (tau - self.x[j]) / self.s[j] * acc;
+        }
+        rate
     }
 
     fn horner(c: &[Iv], tau: Iv) -> Iv {

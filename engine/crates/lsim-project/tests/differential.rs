@@ -155,3 +155,66 @@ fn fast_mode_splits_by_the_grip() {
         check_run(&top, torque_a, 100.0 - torque_a, torque_a);
     }
 }
+
+/// A torque that grows with time: `k · t` into its flange.
+fn rising_torque() -> lsim_ir::ComponentDef {
+    use lsim_ir::component::build::{eq, port};
+    use lsim_lib::x::{n, p, time};
+    lsim_ir::ComponentDef {
+        name: "Test.RisingTorque".into(),
+        doc: "Drives its flange with k · t.".into(),
+        ports: vec![port("flange", "Flange", "the driven shaft")],
+        params: vec![p("k", "N.m/s", 0.0, "how fast the torque grows")],
+        equations: vec![eq(n("flange.tau"), -(n("k") * time()), "it drives the shaft with k · t")],
+        ..Default::default()
+    }
+}
+
+/// The torque into a limited-slip differential grows as 10·t N·m, its
+/// outputs two free inertias, 1 and 3 kg·m², its clutch's preload 3 N·m and
+/// 20 % under power. Held together, both turn at T/4 rad/s², so output a
+/// needs T/4 of its open half T/2: the clutch passes T/4 from a to b. Its
+/// capacity is 3 + ½·0.2·T, so it breaks away where T/4 = 3 + 0.1·T: T =
+/// 20 N·m, at t = 2 s. That condition reads time and the inertias' rates
+/// (J·dω/dt), and the run's look-ahead follows it along each step: no
+/// warning, and the break-away located at 2 s (past the capacity by the
+/// friction rule's margin) to the event tolerance.
+#[test]
+fn limited_slip_breaks_away_where_a_rising_torque_passes_its_capacity() {
+    let mut lib = library();
+    lib.add(rising_torque());
+    let lsd = [
+        ("ratio", 1.0),
+        ("efficiency_pct", 1.0),
+        ("inertia_kgm2", 0.0),
+        ("preload_Nm", 3.0),
+        ("lock_drive_pct", 0.2),
+        ("lock_coast_pct", 0.2),
+    ];
+    let top = model(
+        "RisingRig",
+        vec![
+            part("drive", "Test.RisingTorque", &[("k", 10.0)]),
+            part("diff", LSD, &lsd),
+            part("ja", "Rotational.Inertia", &[("J", 1.0)]),
+            part("jb", "Rotational.Inertia", &[("J", 3.0)]),
+        ],
+        &[
+            ("drive.flange", "diff.flange_in"),
+            ("diff.flange_out_a", "ja.a"),
+            ("diff.flange_out_b", "jb.a"),
+        ],
+    );
+    let (_built, res) = run(&lib, &top, 3.0, 0.5, RTOL);
+    // (past the capacity by the friction rule's margin: a share BREAKAWAY
+    // of it and eps, 1e-9 N·m: T = 20.0000333 N·m)
+    let b = lsim_lib::rotational::BREAKAWAY;
+    let t_star = (3.0 * (1.0 + b) + 1e-9) / (0.25 - 0.1 * (1.0 + b)) / 10.0;
+    let t = ev(&res, "breaks away forwards");
+    assert!((t - t_star).abs() < 1e-9, "break-away at {t}, by hand {t_star}");
+    assert!(res.report.warnings.is_empty(), "{:?}", res.report.warnings);
+    // held until then: both at T/4 = 2.5·t rad/s², ω = 1.25·t²
+    let (wa, wb) = (at(&res, "ja.w", 1.5), at(&res, "jb.w", 1.5));
+    assert!((wa - 1.25 * 2.25).abs() < 1e-6 && (wb - wa).abs() < 1e-9, "{wa} {wb}");
+    books_close(&res, 1e-7);
+}

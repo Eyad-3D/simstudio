@@ -251,7 +251,9 @@ impl<'a> Loop<'a> {
                     match self.mixed_of(chain, g) {
                         Kind::Scan(mut m) => {
                             m.roots.push(k);
-                            if self.tf.kernels.as_ref().is_some_and(|(c, _)| c.covers(k)) {
+                            if !m.rates
+                                && self.tf.kernels.as_ref().is_some_and(|(c, _)| c.covers(k))
+                            {
                                 m.use_kernel(k);
                             }
                             self.tf.mixed.push(*m);
