@@ -1002,3 +1002,53 @@ the order by which the engine's locked differential, the same physics on
 this launch in other equations, differs from the open one (3.8e-6): the
 integrator's tolerance over another set of equations. Every other case is
 the same to the bit (the record's other cases kept as they were).
+
+## The Engine's fuel cut and the brakes taking the supply's cut (24 November 2026)
+
+Recorded again from the golden run on 96ebe9c9, with two causes, kept
+apart here.
+
+**The Engine cuts its fuel when coasting in gear (7734f86a).** The
+Driver's command lands on exactly 0 when the pedal lifts, so the Engine's
+mode "fired with throttle" (throttle > 0) only touched its threshold and
+never turned off: it fired at zero torque off its map. It now fires above
+a throttle of 1e-9, which the lifting command crosses. In the record this
+moves only the four hybrid cases' event counts, the threshold's crossings
+where nothing else changes (HWFET 76,965 → 77,091; Mixed and Mixed-live
+56,212 → 56,222; UDDS 118,138 → 118,540): on 7734f86a every figure and
+channel compared to the bit.
+
+**The friction brakes take the recuperation a motor's supply cuts
+(96ebe9c9).** A windowed E-Motor now tells the Driver the share of its
+command its supply allows, and the friction brakes take what the supply
+cut of the Driver's recuperation, as the older engine's Driver did. No
+example's supply cuts it (the share stays within 2.5e-13 of 1), but the
+brakes now read the motor's share, which changes the structure of the
+solver's Jacobian, so every battery case takes another step sequence:
+figures move by at most 1.2e-6 of their value (rtol is 1e-6), the books
+stay inside 1.5e-9 (the city case's 1.3e-9 → 9.3e-10), and no event
+count moves but the hybrid UDDS's (118,540 → 118,525). The hybrid HWFET's
+and Mixed's two E-Motor channels move by one unit in the last place
+(their RMS difference by 1.7e-13 to 1.0e-10 of itself); their states,
+steps and events are the same to the bit. The FS 75 m (no Driver) is
+kept to the byte.
+
+Per case, against the record before (6cf71ed6): the largest relative move
+of a figure, and of a channel's RMS difference to today's 1 ms run; the
+steps, the events and the books' closure, before → after.
+
+| case | largest figure move | largest channel move | steps | events | books |
+|---|---|---|---|---|---|
+| aero-bev/case-hwfet | 3.0e-08 (HV Battery Pack — internal losses) | 1.0e-06 | 50611 → 50460 | 17 → 17 | 4.5e-11 → 1.1e-11 |
+| aero-bev/case-udds | 2.9e-07 (Phase Bag 1 — consumption) | 9.2e-07 | 112111 → 112210 | 257 → 257 | 1.5e-10 → 7.8e-11 |
+| aero-bev/case-wltc | 2.5e-07 (HV Battery Pack — energy recuperated) | 4.0e-07 | 139393 → 139224 | 122 → 122 | 1.6e-10 → 1.6e-10 |
+| bev-car/case-city | 1.2e-06 (HV Battery Pack — energy recuperated) | 5.5e-05 | 2751 → 2655 | 17 → 17 | 1.3e-09 → 9.3e-10 |
+| bev-car/case-city-live | 1.2e-06 (HV Battery Pack — energy recuperated) | 5.5e-05 | 2751 → 2655 | 17 → 17 | 1.3e-09 → 9.3e-10 |
+| bev-car/case-wltc | 3.2e-07 (HV Battery Pack — energy recuperated) | 1.3e-06 | 135991 → 135927 | 122 → 122 | 6.3e-10 → 1.3e-10 |
+| bev-car/case-wltc-hvac | 4.0e-07 (HV Battery Pack — energy recuperated) | 2.6e-07 | 136825 → 136123 | 122 → 122 | 4.9e-10 → 9.4e-11 |
+| bev-car/case-wltc-summer | 5.5e-07 (HV Battery Pack — energy recuperated) | 4.5e-07 | 135776 → 136445 | 122 → 122 | 1.6e-10 → 5.2e-10 |
+| bev-car/case-wltc-winter | 3.9e-07 (HV Battery Pack — energy recuperated) | 5.0e-07 | 136116 → 136667 | 122 → 122 | 6.0e-10 → 1.9e-10 |
+| hybrid-car/case-hwfet | 0 (every figure to the bit) | 1.0e-10 | 903552 → 903552 | 76965 → 77091 | 9.0e-12 → 9.0e-12 |
+| hybrid-car/case-mixed | 0 (every figure to the bit) | 1.7e-13 | 296432 → 296432 | 56212 → 56222 | 1.9e-12 → 1.9e-12 |
+| hybrid-car/case-mixed-live | 0 (every figure to the bit) | 1.7e-13 | 296432 → 296432 | 56212 → 56222 | 1.9e-12 → 1.9e-12 |
+| hybrid-car/case-udds | 4.8e-07 (Phase Bag 2 — fuel consumption) | 1.1e-06 | 1648592 → 1648790 | 118138 → 118525 | 3.1e-11 → 2.8e-11 |
