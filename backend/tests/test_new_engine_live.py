@@ -626,14 +626,14 @@ def test_a_motor_driven_past_its_maximum_speed_is_not_stopped_by_a_table_that_en
     assert any("maximum speed" in m.text for m in result.messages)
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "NEW-FAILED: the new engine stops these over-speed runs after showing points (the BEV WLTC on a "
-    "6 % downhill with its Final Drive x3: RUN-EVENT-STORM at 939 s; the hybrid's mixed cycle with "
-    "its gears x3: the Engine switches at 7 s) where today's engine warns or succeeds; until the "
-    "switch they ran again on today's engine (NEW-LIVE-RESTART). A defect of the new path, open."))
 @pytest.mark.parametrize("fid", [
-    "overspeed:bev-car/case-wltc:down",  # (today warns; the new engine stops at 939 s, RUN-EVENT-STORM)
-    "overspeed:hybrid-car/case-mixed:gear",  # (today succeeds; the new engine's Engine switches at 7 s)
+    # (today warns; the new engine stopped at 939 s, RUN-EVENT-STORM, until an E-Motor driven over
+    # its maximum speed ran again only 0.1 % below it)
+    "overspeed:bev-car/case-wltc:down",
+    pytest.param("overspeed:hybrid-car/case-mixed:gear", marks=pytest.mark.xfail(strict=True, reason=(
+        "NEW-FAILED: the new engine stops this over-speed run after showing points (the hybrid's "
+        "mixed cycle with its gears x3: its Engine switches between fired and not fired at 7 s) where "
+        "today's engine succeeds. A defect of the new path, open."))),
 ])
 def test_a_run_with_a_view_of_a_motor_past_its_maximum_speed_gives_today_s_verdict(fid, monkeypatch):
     """The app's run of a motor driven to its maximum speed (the sweep's
