@@ -1615,7 +1615,8 @@ either way), the 75 m not at all.
 ## A standing motor's command of round-off
 
 What was booked: a car standing at its target from the start of a cycle
-kept its E-Motor's inverter on through those first seconds, drawing the
+kept its E-Motor's inverter on for as long as it stood there (the UDDS
+stands for its first 20 s, the WLTC for 11 s), drawing the
 loss map's standstill loss (about 0.1 kW), where at every later stop the
 inverter was off. Why it was noise: the Driver's integral picks up about
 1e-11 in the start's first microseconds and holds a command of a few

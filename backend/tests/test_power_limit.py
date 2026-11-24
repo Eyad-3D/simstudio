@@ -339,7 +339,7 @@ def test_a_cycle_starts_as_it_stops_with_no_standstill_loss():
     """A car standing at its target from the start: its Driver's command is
     round-off (a few 1e-12 from the start's first microseconds), which kept
     the E-Motor's inverter on, drawing its standstill loss, through the
-    first seconds of every cycle, where at a stop mid-cycle the command is
+    whole stand at the start of every cycle, where at a stop mid-cycle the command is
     exactly 0 and the inverter off. Now the start is as a stop: the motor
     draws nothing and holds no torque, and the battery keeps its charge."""
     from test_source_limits import _with_brakes

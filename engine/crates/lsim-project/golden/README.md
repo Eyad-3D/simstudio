@@ -1071,7 +1071,8 @@ the bit. Every other case is kept to the byte.
 ## A standing motor's command of round-off (24 November 2026)
 
 What was booked: a car standing at its target from the start of a cycle
-kept its E-Motor's inverter on through those first seconds, drawing the
+kept its E-Motor's inverter on for as long as it stood there (the UDDS
+stands for its first 20 s, the WLTC for 11 s), drawing the
 loss map's standstill loss (about 0.1 kW on the examples' maps), where at
 every later stop the inverter was off and drew nothing. Why it was noise:
 in the start's first microseconds the Vehicle slides and sticks again,
@@ -1084,8 +1085,9 @@ throttle: the start books no standstill loss, as a stop does not. Moving,
 a command passes 1e-9 in an instant and nothing changes (at any speed the
 same rule added events to every cycle, 17 → 52 on the aero BEV's HWFET).
 
-The figures that move are that loss leaving, accepted by the lead by
-name: the cycles' first phase or bag by up to 8.4e-4 (the WLTC's Low
+The figures that move are that loss leaving (about 0.1 kW over the
+cycle's first stand), so the cycles that cover the least distance per
+second lose the largest share; accepted by the lead by name: the cycles' first phase or bag by up to 8.4e-4 (the WLTC's Low
 phase, the UDDS's Bag 1), whole cycles by up to 3.75e-4 (the aero BEV's
 UDDS consumption and range; 8.6e-5 on the WLTCs), the inverter's
 switching on as the cycle moves off added to the events (+7 a battery

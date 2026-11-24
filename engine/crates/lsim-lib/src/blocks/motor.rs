@@ -41,7 +41,8 @@ const SPEED_LIMIT_BAND: f64 = 0.02;
 /// (below `w_slow`): a car standing at its target from the start holds a
 /// Driver's command of round-off (its integral picks up about 1e-11 in the
 /// start's first microseconds: 3.8e-12), which ran the inverter at its
-/// standstill loss through the cycle's first seconds, where at every later
+/// standstill loss for as long as the car stood there (the UDDS's first 20 s,
+/// the WLTC's 11 s), where at every later
 /// stop the command is exactly 0 and the inverter off. Below this, a command
 /// counts as none. Moving, a command passes it in an instant and the
 /// inverter is not held off for it: the bound keeps every zero crossing of
