@@ -153,6 +153,7 @@ fn point_car_with(kp: f64, ki: f64, t_end: f64) -> lsim_solve::SimResult {
         &[
             ("car.v_rel", "driver.v_vehicle"),
             ("car.cap", "driver.regen_cap"),
+            ("car.cap", "driver.regen_cut"),
             ("driver.sig_accel_pedal", "car.acc"),
             ("driver.sig_brake_pedal", "car.brk"),
         ],
@@ -326,6 +327,7 @@ fn performance_run_off(
         &[
             ("car.v_rel", "driver.v_vehicle"),
             ("car.cap", "driver.regen_cap"),
+            ("car.cap", "driver.regen_cut"),
             ("driver.sig_accel_pedal", "car.acc"),
             ("driver.sig_brake_pedal", "car.brk"),
         ],

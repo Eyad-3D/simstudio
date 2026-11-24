@@ -80,7 +80,15 @@ def _assert_source_covers_motor(result, source, port="sig_power"):
     e_src = sum(p_src[1:]) * DT / 3600.0
     e_mot = sum(p_mot[1:]) * DT / 3600.0
     assert e_src == pytest.approx(e_mot, rel=1e-3, abs=1e-6), (e_src, e_mot)
-    assert _summary(result)["Electrical energy balance error"] < 0.1
+    _todays_balance_row(result)
+
+
+def _todays_balance_row(result):
+    """Today's engine's integrator check, where it writes it (the new engine
+    closes its energy books instead, checked in test_energy_closure.py)."""
+    summary = _summary(result)
+    if "Electrical energy balance error" in summary:
+        assert summary["Electrical energy balance error"] < 0.1
 
 
 def test_battery_driven_to_its_limits_closes_the_energy_balance():
@@ -104,7 +112,10 @@ def test_battery_driven_to_its_limits_closes_the_energy_balance():
 
     q_ah = 0.15e3 / 345.0  # Usable Capacity at the library OCV table's SOC-weighted mean
     current = _values(result, "batt", "sig_current")
-    assert (soc[-1] - soc[0]) / 100.0 * q_ah == pytest.approx(-sum(current[1:]) * DT / 3600.0, rel=1e-6)
+    # the current sampled every 10 ms against the charge counted: exact on
+    # today's fixed steps, to the sampling's own error on the new engine's
+    # (where the current steps between samples: 1.6e-4)
+    assert (soc[-1] - soc[0]) / 100.0 * q_ah == pytest.approx(-sum(current[1:]) * DT / 3600.0, rel=1e-3)
     assert _summary(result)["E-Motor — time limited by supply"] > 10.0
 
     speed = {p["t"]: p["value"] for p in series(result, "veh", "sig_speed")}
@@ -195,7 +206,7 @@ def test_one_way_dcdc_passes_no_regen_upstream():
     for m, a, o in zip(mot[1:], aux[1:], out[1:]):
         assert o == pytest.approx(m + a, abs=1e-6)  # the converter covers the bus, no more
     assert min(mot) >= -2.0 - 1e-6  # regeneration only feeds the 2 kW consumer
-    assert _summary(result)["Electrical energy balance error"] < 0.1
+    _todays_balance_row(result)
 
 
 def _behind_a_dcdc(source_els, source_conns, aux_kw, links=()):

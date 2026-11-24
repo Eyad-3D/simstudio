@@ -181,6 +181,15 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         });
     }
     params.push(p("w0", "rad/s", 0.0, "the rotor's speed at the start"));
+    if cfg.windowed && !cfg.inverse {
+        params.push(p(
+            "blended",
+            "1",
+            0.0,
+            "1 where a Driver blends its recuperation with friction brakes, which take what \
+             its supply cuts (that is then not recuperation lost)",
+        ));
+    }
     params.push(p("w_slow", "rad/s", 0.1, "below this speed the drag fades with the speed"));
     params.push(pe(
         "w_max",
@@ -211,6 +220,13 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             "W",
             "the most electrical power (negative) its supply takes back now",
         ));
+        if !cfg.inverse {
+            ports.push(output(
+                "k_supply",
+                "1",
+                "the share of its command its supply allows (1: all of it)",
+            ));
+        }
     }
     for p in ["sig_speed", "sig_torque", "sig_mech_power", "sig_elec_power", "sig_losses"] {
         ports.push(out(id, p));
@@ -383,6 +399,12 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         // short: its window does not cover even its spin losses
         let short = || noev(and(gt(n("p_req"), n("p_hi")), lt(n("p_hi"), l0.clone())));
         let p_of = n("frac") * n("t_cmd") * n("w") + loss_at(noev(abs(n("frac") * n("t_cmd"))));
+        // what it feeds back is cut to: its window; a blended motor's, by
+        // 1e-5 of it inside (more than the solver's tolerance on the share),
+        // so that its supply takes no more than its window allows (exactly
+        // its window where it is not blended: blended is 0)
+        let lo_edge = n("p_lo")
+            + n("blended") * c(1e-5) * noev(max(abs(n("p_lo")), c(1.0) * n("unit_W")));
         // off, the share is not used and is held at 1 (its equation need
         // have no root then). Short, it blends the command's torque into the
         // torque that feeds the spin losses from the shaft: 1 where the
@@ -400,8 +422,8 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
                     and(gt(n("on"), c(0.5)), noev(gt(n("p_req"), n("p_hi")))),
                     p_of.clone() - n("p_hi"),
                     ite(
-                        and(gt(n("on"), c(0.5)), noev(lt(n("p_req"), n("p_lo")))),
-                        p_of - n("p_lo"),
+                        and(gt(n("on"), c(0.5)), noev(lt(n("p_req"), lo_edge.clone()))),
+                        p_of - lo_edge,
                         (n("frac") - c(1.0)) * n("unit_W"),
                     ),
                 ),
@@ -431,12 +453,16 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
              them); unpowered, its drag against the motion",
         ));
         short_of = Some(short());
+        eqs.push(eq(n("k_supply"), n("frac"), "the share of its command its supply allows"));
+        // (a blended motor's recuperation its supply cuts the friction
+        // brakes take: neither time held back nor recuperation lost)
+        let own = || noev(lt(n("blended"), c(0.5)));
         eqs.push(eq(
             der("t_limited"),
             ite(
                 and(
                     gt(n("alive"), c(0.5)),
-                    noev(or(gt(n("p_req"), n("p_hi")), lt(n("p_req"), n("p_lo")))),
+                    noev(or(gt(n("p_req"), n("p_hi")), and(own(), lt(n("p_req"), n("p_lo"))))),
                 ),
                 c(1.0),
                 c(0.0),
@@ -448,7 +474,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
             ite(
                 and(
                     gt(n("alive"), c(0.5)),
-                    noev(lt(n("p_req"), min(n("p_lo"), c(0.0) * n("unit_W")))),
+                    and(own(), noev(lt(n("p_req"), min(n("p_lo"), c(0.0) * n("unit_W"))))),
                 ),
                 n("p_elec") - n("p_req"),
                 c(0.0) * n("unit_W"),

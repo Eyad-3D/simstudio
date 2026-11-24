@@ -150,18 +150,8 @@ XFAIL = {
     "test_reference_suite.py::test_exact_answer_tier[coast-": (
         "NEW-FAILED (SINGULAR-LOOP): the reference suite's coast-down model ('Brake RL' and 'Wheel RL') is a loop "
         "the new engine cannot solve with its values (open)"),
-    "test_source_limits.py::test_battery_driven_to_its_limits_closes_the_energy_balance": (
-        "NEW-FAILED (RUN-INIT): the new engine cannot re-initialise the model at t = 2.23 s (open)"),
     "test_source_limits.py::test_empty_battery_sheds_its_consumers": (
         "NEW-FAILED (RUN-INIT): the new engine cannot re-initialise the model at t = 2.18 s (open)"),
-    "test_source_limits.py::test_one_way_dcdc_passes_no_regen_upstream": (
-        "the new path writes no Electrical energy balance error row, today's share of its last-resort clamps "
-        "(the converter, the motor and the consumer behind it are as the test asks; open)"),
-    "test_source_limits.py::test_full_battery_regen_goes_to_the_friction_brakes": "a full battery's regeneration: the numbers differ from today's (open)",
-    "test_source_limits.py::test_driver_recuperates_up_to_the_charge_limit_and_brakes_the_rest": (
-        "the charge power ends 1.5e-4 kW over the charge limit on the new engine (open)"),
-    "test_source_limits.py::test_a_full_battery_recuperates_nothing_under_the_driver": (
-        "the new path writes a 'regeneration not recovered' row for a full battery (open)"),
     "test_verdict.py::test_non_finite_values_fail_the_run": (
         "NEW-FAILED (RUN-NOT-FINITE): the new engine stops at the first value that is not a number, in its own "
         "words, where today's says 'Non-finite values' naming the channel (open)"),

@@ -1047,7 +1047,10 @@ class _Plan:
             *((b, ("soc", "i_mpp", "i_dis_lim", "i_ch_lim", "i_floor", "i_full", "p_absorb",
                    "t_held", "p_deliver", "sig_power", "soc_w", "i_dis_cur", "i_ch_cur"))
               for b in ctx.batteries),
-            *((c, ("served", "p_dem")) for c, cd in model.cdef_of.items() if cd.id in CONSUMER_TYPES))}
+            *((c, ("served", "p_dem")) for c, cd in model.cdef_of.items() if cd.id in CONSUMER_TYPES),
+            # the Driver's brake pedal, and the speed (_full_brake)
+            *(((model.driver, ("sig_brake_pedal",)),) if model.driver else ()),
+            *(((ctx.veh_id, ("sig_speed",)),) if ctx.veh_id else ()))}
         # what each table rule of today's reads (BRANCH_READS' uses), on the
         # trace: its time past the data counted there (_branch_share)
         for el_id, cdef in model.cdef_of.items():
@@ -1223,7 +1226,7 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     messages += [SimMessage(level="warning", text=t)
                  for t in _supply(ctx, plan, run) + list(script_warnings)]
     bms_s, bms_notes = _bms(ctx, plan, run)
-    messages += [SimMessage(level="info", text=t) for t in bms_notes]
+    messages += [SimMessage(level="info", text=t) for t in bms_notes + _full_brake(ctx, plan, run)]
     # today's own checks of the values the run used, in its words: what the
     # RunContext said while it was built (a Wheelbase of 0 with a CG
     # height, a CG height on one axle, wheels off the road at the start, a
@@ -2188,6 +2191,40 @@ def _supply(ctx, plan: _Plan, run) -> list[str]:
                 if not root_of[bus.id].fuelcell:  # (today's says which battery limit, or no source)
                     held_back(root_of[bus.id], True, k)
     return list(out.values())
+
+
+def _full_brake(ctx, plan: _Plan, run) -> list[str]:
+    """Today's note that a battery too full to take its Max Charge Power
+    takes no recuperation while the Driver brakes (DriverSlave: braking at
+    3 m/s or more, where recuperation is not faded out), once per battery
+    on the bus of a motor the Driver recuperates with, at the first traced
+    point it holds."""
+    model = ctx.model
+    if not model.driver or not ctx.veh_id:
+        return []
+    tr = _Listed(run.trace)
+    times = tr.get("times", [])
+    ask = plan.supply.get(model.driver, {}).get("sig_brake_pedal")
+    v = plan.supply.get(ctx.veh_id, {}).get("sig_speed")
+    if ask is None or v is None or len(times) < 2:
+        return []
+
+    def at(el_id: str, name: str, k: int) -> Optional[float]:
+        key = plan.supply.get(el_id, {}).get(name)
+        return None if key is None else float(tr[key][k])
+
+    out = []
+    for b_id in sorted({bus.battery for m in ctx.motors if (bus := ctx.motor_bus.get(m)) is not None
+                        and bus.battery}):
+        b = ctx.batteries[b_id]
+        for k in range(len(times)):
+            soc = at(b_id, "soc", k)
+            if tr[ask][k] > 0 and tr[v][k] >= 3.0 and (
+                    (soc is not None and soc >= 1.0 - 1e-9) or _full(b, at, k)):
+                out.append(f"Battery '{model.elements[b_id].label}' is full — no recuperation "
+                           f"while braking (t = {times[k]:.0f} s).")
+                break
+    return out
 
 
 # the throughput power a part's duty values are of (energy.py), by its kind

@@ -896,10 +896,13 @@ minimum or an average, for example from the CSV export, or put the
   the widest. A Driving Task's or a Road Profile's profile run past its
   end is not judged, and a note with the code `NEW-TABLE-NOT-JUDGED` says
   so.
-  Its Driver can ask a motor for more recuperation than its supply
-  takes, where the older engine's never asked it: the run then says the
-  charging was held back, or, on a fuel cell, which takes nothing back,
-  that it cannot take power back. It asks whether the car has driven by
+  Its Driver's Traction Command is the recuperation it asks for, and the
+  motor's supply cuts it to what it takes, the friction brakes taking the
+  rest; the older engine's Driver asked only for what the supply took. The
+  braking, the recuperation and the motor's torque are the same; the
+  Traction Command channel shows the larger share. Without friction brakes
+  the motor is held, and the run says the charging was held back, or, on a
+  fuel cell, which takes nothing back, that it cannot take power back. It asks whether the car has driven by
   60 s at every 0.1 s of its run, the older engine at the end of each
   output step, so a cycle whose first 100 m end inside an output step can
   warn on the new engine where the older engine, at that step, did not.
