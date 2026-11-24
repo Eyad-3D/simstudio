@@ -676,7 +676,8 @@ def _made(taken: list[tuple], report_edits: list, model) -> list[LiveEdit]:
     the report's are the first of those it was given; one it was given and
     did not make came too late); one the run did not make with its note,
     which says why. ``taken``: (element, key, value, the run's time, given
-    to the engine, its note or None)."""
+    to the engine's control, its note or None); one made at the start, given
+    to the model the run starts from, is at t = 0 and not in the report."""
     report = iter(report_edits)
     out = []
     for el_id, key, value, t, given, note in taken:
@@ -843,6 +844,7 @@ class _Live:
         import lightsim_engine
 
         self.case, self.model, self.emit, self.control = case, model, emit, control
+        self.built = built
         self.pace = max(0.0, float(getattr(case, "realtimeFactor", 0.0) or 0.0))
         self.rc = lightsim_engine.RunControl(queue=LIVE_QUEUE if emit else 0)
         self.edits = _Edits(project, case.id, built, texts)
@@ -866,6 +868,10 @@ class _Live:
                 out["error"] = e
 
         worker = threading.Thread(target=work, name="lightsim-new-engine-run", daemon=True)
+        # the edits already waiting are made at t = 0: given to the model the
+        # run starts from (the run's control makes an edit from its next
+        # output time on, the first at 0.01 s)
+        self._read(start=True)
         t0 = time.monotonic()
         worker.start()
         try:
@@ -905,19 +911,19 @@ class _Live:
         self.emit({"type": "step", "t": t, "pct": pct,
                    "values": {n: _number(values[k]) for k, n in self.keep}})
 
-    def _read(self) -> None:
+    def _read(self, start: bool = False) -> None:
         for msg in self.control() if self.control else ():
             if msg.get("type") == "cancel":
                 self.rc.cancel()
             elif msg.get("type") == "set_param":
-                self._edit(str(msg.get("elementId")), str(msg.get("key")), msg.get("value"))
+                self._edit(str(msg.get("elementId")), str(msg.get("key")), msg.get("value"), start)
 
-    def _edit(self, el_id: str, key: str, value) -> None:
+    def _edit(self, el_id: str, key: str, value, start: bool = False) -> None:
         model = self.model
         if el_id not in model.params_of:
             return  # (no such part: as today's, nothing)
         pdef = next((p for p in model.cdef_of[el_id].parameters if p.key == key), None)
-        t = self.rc.t
+        t = 0.0 if start else self.rc.t
         try:
             if pdef is not None and pdef.variability == "fixed":
                 raise _Later("structural parameters take effect on the next run")
@@ -936,10 +942,12 @@ class _Live:
             changes = self.edits.changes(el_id, key, value)
             if changes:
                 try:
-                    self.rc.set_params(changes)
+                    (self.built if start else self.rc).set_params(changes)
                 except ValueError as e:  # the engine's words
                     raise _Later(f"the new engine takes it on the next run ({e})") from e
-            self.taken.append((el_id, key, value, t, bool(changes), None))
+            # (one made at the start the model runs from: not the run's
+            # control's to make, so not among the edits its report lists)
+            self.taken.append((el_id, key, value, t, bool(changes) and not start, None))
             self.edits.keep(el_id, key, value, changes)
         except _Later as e:
             note = f"'{model.elements[el_id].label}.{key}' changed — {e} [{NEXT_RUN}]."

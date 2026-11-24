@@ -153,9 +153,6 @@ XFAIL = {
     "test_control_rate.py::test_block_with_a_sample_time_runs_at_that_rate_and_holds": TICK,
     "test_signal_wiring.py::test_the_delay_is_what_the_run_does": TICK,
     "test_fmu.py::test_communication_step_holds_outputs_between_steps": TICK,
-    "test_live_params.py::test_the_result_lists_the_live_edits_it_made": (
-        "a live edit read at the start is listed at the run's first output time (10 s), where today's lists it at "
-        "t = 0 (open)"),
     "test_mcp_server.py::test_every_answer_stays_under_20_kb": "an MCP answer of a new-engine run is 20,027 bytes, over the 20 kB the server keeps to (open)",
     "test_road_load.py::test_ambient_sets_the_air_density": "the speed trace under a changed air density differs from today's (open)",
     "test_solver.py::test_diff_open_torque_split_is_equal": "an open differential's split is equal to 3e-6 on the new engine, the test asks 1e-6 (open)",

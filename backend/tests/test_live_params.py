@@ -3,7 +3,7 @@
 "tunable" ones apply silently.
 """
 import pytest
-from helpers import bev_axle
+from helpers import bev_axle, series
 
 from app.solver import simulate
 
@@ -190,10 +190,18 @@ def test_drivelines_shift_in_the_same_step():
 
 
 def test_the_result_lists_the_live_edits_it_made():
-    """Today's engine lists each live edit it applied, at the simulated time
-    the run had reached when it applied it (here before its first step), and
-    not one it deferred; the result says it ran on today's engine."""
+    """The result lists each live edit the run made, at the simulated time
+    the run had reached when it made it: one already there before the first
+    step is made at t = 0, and the run is the run with that value from the
+    start; one it deferred is not listed as made (its note says why)."""
     applied = _run_with_edit("drv", "driver_kp", 0.5)
-    assert [(e.t, e.elementId, e.key, e.value) for e in applied.liveEdits] == [(0.0, "drv", "driver_kp", 0.5)]
-    assert applied.engine == "today" and applied.solverOptions["timeStep"] > 0
-    assert _run_with_edit("fd", "ratio", 5.0).liveEdits == []
+    assert [(e.t, e.elementId, e.key, e.value, e.note) for e in applied.liveEdits] == [
+        (0.0, "drv", "driver_kp", 0.5, None)]
+    proj = bev_axle(profile="0:0; 5:60; 10:60")
+    proj.cases[0].duration = 10
+    proj.cases[0].parameterOverrides = {"drv": {"driver_kp": 0.5}}
+    typed = simulate(proj, "case")
+    for a, b in zip(series(applied, "veh", "sig_speed"), series(typed, "veh", "sig_speed")):
+        assert a["value"] == pytest.approx(b["value"], abs=1e-9), a["t"]
+    deferred = _run_with_edit("fd", "ratio", 5.0).liveEdits
+    assert all(e.note and "next run" in e.note for e in deferred), deferred
