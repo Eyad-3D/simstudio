@@ -7,8 +7,11 @@ with ``trusted=True``, which bypasses that first layer — so what stops the cod
 here is the worker's own isolation, not the allow-list.
 """
 import multiprocessing
+import os
+import subprocess
 import sys
 import time
+from pathlib import Path
 
 import pytest
 from helpers import bev_axle, sig_port
@@ -143,6 +146,43 @@ def test_worker_has_no_cpu_time_cap():
         "    soft, hard = resource.getrlimit(resource.RLIMIT_CPU)\n"
         "    return {'y': 1.0 if soft == resource.RLIM_INFINITY else 0.0}\n")
     assert out == {"y": 1.0}
+
+
+ONE_CPU_ROUND_TRIPS = """
+import os, time
+from app.solver.sandbox import ScriptSandbox, ScriptSpec
+def main():
+    os.sched_setaffinity(0, {min(os.sched_getaffinity(0))})  # the worker inherits it
+    code = "def step(t, dt, inputs, state, params):\\n    return {'y': inputs.get('x', 0.0)}\\n"
+    sb = ScriptSandbox([ScriptSpec("s", "Probe", code, ["x"], {})])
+    try:
+        sb.run("s", "Probe", 0.0, 0.01, {"x": 0.0}, {})
+        t0 = time.perf_counter()
+        for k in range(500):
+            sb.run("s", "Probe", k * 0.01, 0.01, {"x": float(k)}, {})
+        print(len(os.sched_getaffinity(0)), time.perf_counter() - t0)
+    finally:
+        sb.close()
+if __name__ == "__main__":
+    main()
+"""
+
+
+@pytest.mark.skipif(not hasattr(os, "sched_setaffinity"), reason="needs CPU affinity (Linux)")
+def test_round_trips_stay_quick_on_one_cpu():
+    # A process allowed one CPU (taskset, a small CI runner, a busy laptop's
+    # share) must not busy-wait for the worker's reply: the worker cannot
+    # answer while the engine holds that CPU, and the worker then spins in
+    # turn, so each round trip cost about 2 ms (the hybrid's 120 s run took
+    # 50 s instead of 3). Blocking reads take tens of µs a round trip.
+    backend = Path(__file__).parent.parent
+    out = subprocess.run([sys.executable, "-c", ONE_CPU_ROUND_TRIPS], cwd=backend,
+                         env={**os.environ, "PYTHONPATH": str(backend)},
+                         capture_output=True, text=True, timeout=120)
+    assert out.returncode == 0, out.stderr
+    cpus, seconds = out.stdout.split()
+    assert cpus == "1"
+    assert float(seconds) < 0.3, f"500 round trips on one CPU took {float(seconds):.2f} s"
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows job object")
