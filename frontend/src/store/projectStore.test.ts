@@ -776,6 +776,28 @@ describe("undo / redo", () => {
     expect(findElement(ids[0])?.displayUnits).toEqual({ max_speed_rpm: { value: "rad/s" } });
   });
 
+  it("a pasted or duplicated part gets a name of its own, numbered as a new part is", async () => {
+    await start();
+    const name = (id: string) => findElement(id)!.label;
+    const [a] = store().duplicateElements(["el-motor"]);
+    expect(name("el-motor")).toBe("Motor");
+    expect(name(a)).toBe("Motor 2");
+    // a copy of the copy: the stem's next free number
+    const [b] = store().duplicateElements([a]);
+    expect(name(b)).toBe("Motor 3");
+    store().copyElements(["el-motor", a]);
+    const pasted = store().pasteClipboard();
+    expect(pasted.map(name)).toEqual(["Motor 4", "Motor 5"]);
+    // every name in the project is used once
+    const labels = store().project!.systems.flatMap((s) => s.elements.map((e) => e.label));
+    expect(new Set(labels).size).toBe(labels.length);
+    // a new part from the library skips a name already in use
+    // (five E-Motors, so the next is numbered 6)
+    store().renameElement(a, "E-Motor 6");
+    store().addElement("motor.emotor", { x: 0, y: 0 });
+    expect(name(store().selectedElementId!)).toBe("E-Motor 7");
+  });
+
   it("a preset's values are one edit that one undo takes back", async () => {
     await start();
     const past = store().past.length;
