@@ -299,6 +299,12 @@ describe("numbers and legends a person reads", () => {
     expect(legendIdx([1, 2, 3, null, undefined], xs, null)).toBe(3); // a null sample is the line's; a gap is not
     expect(legendIdx([5, undefined, 7, undefined, undefined], xs, null)).toBe(2);
     expect(legendIdx([undefined, undefined], [0, 1], null)).toBeNull();
+    // a line that ended well before the chart's end has no value there (app
+    // pass #27: a 600 s run drawn with an 1800 s one, legend at 1,800 s) …
+    const t = [0, 300, 600, 900, 1200, 1500, 1800];
+    expect(legendIdx([1, 2, 3, undefined, undefined, undefined, undefined], t, null)).toBeNull();
+    // … but one on another grid that ends a step short of it still reads
+    expect(legendIdx([1, 2, 3, 4, 5, 6, undefined], [0, 300, 600, 900, 1200, 1500, 1500.1], null)).toBe(5);
     // at the pointer: the nearest sample along x, none past the line's ends
     expect(legendIdx([5, undefined, undefined, 8, undefined], xs, 1)).toBe(0);
     expect(legendIdx([5, undefined, undefined, 8, undefined], xs, 2)).toBe(3);

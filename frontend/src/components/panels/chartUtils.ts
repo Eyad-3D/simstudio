@@ -71,7 +71,11 @@ const NOISE = 1e-9;
 export const fmtNum = (v: number | null | undefined) =>
   v == null
     ? "—"
-    : formatNumber(Math.abs(v) < NOISE ? 0 : v, undefined, Math.abs(v) >= 1e4 ? { maximumFractionDigits: 0 } : { maximumSignificantDigits: 4 });
+    : formatNumber(
+        Math.abs(v) < NOISE ? 0 : v,
+        undefined,
+        Math.abs(v) >= 1e4 ? { maximumFractionDigits: 0 } : { maximumSignificantDigits: 4 },
+      );
 
 /** A percentage a person reads, without its "%": 3 significant digits;
  *  "< 0.001" for a nonzero value too small to matter (an energy balance's
@@ -89,12 +93,22 @@ export type LegendColumn = ArrayLike<number | null | undefined>;
 /** The sample of `col` a cursor or legend reads, for the merged x column
  *  `xs`: at the pointer's index `i`, the line's nearest sample along x (none
  *  before its first or after its last: a shorter run has ended there); with
- *  the pointer off the chart (`i` null), the line's last sample, so the
- *  legend shows where each line ended instead of a dash. */
+ *  the pointer off the chart (`i` null), the line's last sample when the line
+ *  reaches the chart's end (the x the legend then shows), give or take its own
+ *  last step (another time grid ends a little apart), else none: a 600 s run
+ *  drawn with an 1800 s one has no value at 1,800 s. */
 export function legendIdx(col: LegendColumn, xs: ArrayLike<number>, i: number | null | undefined): number | null {
   if (i == null) {
-    for (let k = col.length - 1; k >= 0; k--) if (col[k] !== undefined) return k;
-    return null;
+    const defined = (from: number) => {
+      let k = from;
+      while (k >= 0 && col[k] === undefined) k--;
+      return k;
+    };
+    const last = defined(col.length - 1);
+    if (last < 0) return null;
+    const prev = defined(last - 1);
+    const step = prev < 0 ? 0 : xs[last] - xs[prev];
+    return xs[xs.length - 1] - xs[last] <= step ? last : null;
   }
   let lo = i;
   let hi = i;
@@ -169,7 +183,9 @@ export function xAxisFor(mode: XAxisMode, runs: SimRun[]): XAxis {
  *  distance axis with the sample's time: "5.12 km (t = 612 s)". */
 export function fmtX(x: XAxis, v: number, t?: number | null): string {
   const s = `${formatNumber(v / x.div, undefined, { maximumFractionDigits: x.dec })} ${x.unit}`;
-  return x.kind === "distance" && t != null ? `${s} (t = ${formatNumber(t, undefined, { maximumFractionDigits: x.tDec })} s)` : s;
+  return x.kind === "distance" && t != null
+    ? `${s} (t = ${formatNumber(t, undefined, { maximumFractionDigits: x.tDec })} s)`
+    : s;
 }
 
 /** Round tick steps: 1, 2, 2.5 and 5 times a power of ten. */
@@ -185,7 +201,9 @@ export function unitAxis(div: number): Pick<uPlot.Axis, "incrs" | "values"> & { 
     incrs: NICE.map((i) => i * div),
     values: (_u, splits, _axis, _space, incr) => {
       const d = decimals(incr / div);
-      return splits.map((v) => formatNumber(v / div, undefined, { minimumFractionDigits: d, maximumFractionDigits: d }));
+      return splits.map((v) =>
+        formatNumber(v / div, undefined, { minimumFractionDigits: d, maximumFractionDigits: d }),
+      );
     },
   };
 }
