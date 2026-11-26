@@ -2,7 +2,9 @@ import { Bot, CircleAlert, CircleCheck, CloudOff, Loader2, Plus, TriangleAlert, 
 import { confirmReplaceProject, countOf, followNotice, problemCounts, useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
 import { progressText } from "../sweep";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useNow } from "./useNow";
+import { clickables, placeNotice } from "./noticePlace";
 
 const NOTICE_ICON = { info: CircleCheck, warning: TriangleAlert, error: CircleAlert } as const;
 const NOTICE_COLOR = {
@@ -20,14 +22,37 @@ function FinishNotice() {
   const dismiss = useProjectStore((s) => s.dismissFinishNotice);
   const onResults = useUIStore((s) => s.ribbonTab === "results");
   const resultsAfterRun = useUIStore((s) => s.resultsAfterRun);
+  // kept off every control under it (noticePlace.ts): placed once drawn, and
+  // again each second, as panels open and close under it
+  const ref = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const place = () => {
+      const r = el.getBoundingClientRect();
+      const home = { x: innerWidth - 12 - r.width, y: innerHeight - 32 - r.height };
+      const p = placeNotice({ w: r.width, h: r.height }, home, clickables(el), { w: innerWidth, h: innerHeight });
+      setAt((old) => (old && old.x === p.x && old.y === p.y ? old : p));
+    };
+    place();
+    const timer = setInterval(place, 1000);
+    addEventListener("resize", place);
+    return () => {
+      clearInterval(timer);
+      removeEventListener("resize", place);
+    };
+  }, [notice, onResults]);
   if (!notice) return null;
   const Icon = NOTICE_ICON[notice.level];
   const label = notice.show === "results" ? "Show results" : notice.show === "cases" ? "Show in Cases" : "Show messages";
   return (
     <div
+      ref={ref}
       role={notice.level === "error" ? "alert" : "status"}
       aria-label="Run finished"
       className="fixed bottom-[32px] right-3 z-50 w-[330px] max-w-[calc(100vw-24px)] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-body shadow-lg"
+      style={at ? { left: at.x, top: at.y, right: "auto", bottom: "auto" } : undefined}
     >
       <div className="flex items-start gap-1.5">
         <Icon size={15} className={`mt-px shrink-0 ${NOTICE_COLOR[notice.level]}`} aria-hidden />
