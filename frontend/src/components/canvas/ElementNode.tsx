@@ -12,7 +12,7 @@ import type { ComponentDef, ElementInstance, PortDef, PortKind, PortSide } from 
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { componentIcon } from "../../icons";
-import { NodeMarks } from "./EnergyOverlay";
+import { EnergyLines, NodeMarks } from "./EnergyOverlay";
 import { SIDES, drawnPorts, movedPlace, nodeSize, portPlaces, type Place } from "./portPlaces";
 
 export type ElementNodeData = {
@@ -293,6 +293,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
       />
       <div
         ref={boxRef}
+        data-node-box
         className={`group relative flex items-center justify-center rounded-md border-[1.5px] bg-[color:var(--ss-panel)] shadow-sm transition-shadow
           ${isSub ? "border-dashed border-[color:var(--ss-accent)] bg-[color:var(--ss-accent-soft)]" : ""}
           ${selected ? "outline outline-2 outline-[color:var(--ss-accent)] shadow-md" : issue?.level === "error" ? "outline outline-2 outline-[color:var(--ss-err)]" : issue?.level === "warning" ? "outline outline-1 outline-[color:var(--ss-warn)]" : ""}`}
@@ -301,6 +302,7 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
       >
         {showLiveValues && badge && liveVal !== undefined && (
           <div
+            data-live-badge
             className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 -translate-x-1/2 whitespace-nowrap rounded px-1 py-[1px] text-meta font-semibold leading-none tabular-nums"
             style={{
               color: "var(--ss-accent)",
@@ -352,13 +354,17 @@ export const ElementNode = memo(({ data, selected }: NodeProps<ElementFlowNode>)
             />
           )),
         )}
-        <div className="ss-node-label pointer-events-none absolute left-1/2 top-full mt-1 w-[96px] -translate-x-1/2 text-center text-meta leading-tight">
-          <span
-            className={`rounded px-1 ${selected ? "font-semibold text-[color:var(--ss-accent)]" : "text-[color:var(--ss-node-icon)]"}`}
-            style={{ background: "color-mix(in srgb, var(--ss-panel) 78%, transparent)" }}
-          >
-            {element.label}
-          </span>
+        <div className="ss-node-label pointer-events-none absolute left-1/2 top-full mt-1 flex w-[128px] -translate-x-1/2 flex-col items-center text-center text-meta leading-tight">
+          <div className="w-[96px]">
+            <span
+              data-node-name
+              className={`rounded px-1 ${selected ? "font-semibold text-[color:var(--ss-accent)]" : "text-[color:var(--ss-node-icon)]"}`}
+              style={{ background: "color-mix(in srgb, var(--ss-panel) 78%, transparent)" }}
+            >
+              {element.label}
+            </span>
+          </div>
+          <EnergyLines elementId={element.id} />
         </div>
       </div>
     </>

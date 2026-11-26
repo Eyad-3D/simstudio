@@ -77,6 +77,7 @@ import {
 import { canvasAction, diagramHasKeys, keyBelongsToTarget } from "./canvasKeys";
 import { fitMenu } from "./menuPlace";
 import { fitPadding, refitAfterResize } from "./view";
+import { clearEnergyFigures } from "./energyRoom";
 import { JUNCTIONS, asDrawn, partDef, physicalPorts, portInUse, routingInput, wiredPorts } from "./portPlaces";
 import { fitEnds, pathMiddle, roundedPath, routeWires, type Pt } from "./route";
 
@@ -429,6 +430,26 @@ function TopologyCanvasInner() {
       if (s.transform[2] !== prev.transform[2]) set(s.transform[2]);
     });
   }, [rfStore]);
+
+  // With Energy on, the figures that have no room under the names give way:
+  // worked out again after each change of the drawing and of the view
+  const energyRun = useActiveRun()?.id;
+  useEffect(() => {
+    if (!showEnergy) return;
+    let frame = 0;
+    const clear = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => wrapperRef.current && clearEnergyFigures(wrapperRef.current));
+    };
+    clear();
+    const unsubscribe = rfStore.subscribe((s, prev) => {
+      if (s.transform !== prev.transform || s.nodeLookup !== prev.nodeLookup) clear();
+    });
+    return () => {
+      unsubscribe();
+      cancelAnimationFrame(frame);
+    };
+  }, [showEnergy, energyRun, system, rfStore]);
 
   // re-fit while the dock layout settles after initial mount (panel widths are
   // applied a few frames after the flow instance measures itself)

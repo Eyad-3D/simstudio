@@ -18,37 +18,38 @@ function useEnergyParts(): Map<string, EnergyPart> | null {
   return useMemo(() => (e ? new Map(e.parts.filter((p) => p.elementId).map((p) => [p.elementId!, p])) : null), [e]);
 }
 
-/** A part's own marks, drawn inside its node. */
+/** A part's own mark, drawn inside its node: changed since the run shown. */
 export function NodeMarks({ elementId }: { elementId: string }) {
   const stale = useStaleness(useActiveRun()).elementIds.has(elementId);
+  return stale ? (
+    <span
+      className="absolute -left-1 -top-1 z-20 h-2.5 w-2.5 rounded-full border border-[color:var(--ss-panel)] bg-[color:var(--ss-accent)]"
+      role="img"
+      aria-label="Changed since the results shown"
+      title="Changed since the run shown in Results: run it again to see what the change does"
+    />
+  ) : null;
+}
+
+/** With Energy on, a part's energy in, out and lost: drawn under its name,
+ *  in the same block (so it follows the name's lines and its size at every
+ *  zoom); where it has no room it gives way (energyRoom.ts, run by the
+ *  diagram). */
+export function EnergyLines({ elementId }: { elementId: string }) {
   const show = useReportsStore((s) => s.showEnergy);
   const parts = useEnergyParts();
   const p = show ? parts?.get(elementId) : undefined;
+  if (!p) return null;
   return (
-    <>
-      {stale && (
-        <span
-          className="absolute -left-1 -top-1 z-20 h-2.5 w-2.5 rounded-full border border-[color:var(--ss-panel)] bg-[color:var(--ss-accent)]"
-          role="img"
-          aria-label="Changed since the results shown"
-          title="Changed since the run shown in Results: run it again to see what the change does"
-        />
-      )}
-      {p && (
-        <div
-          className="pointer-events-none absolute left-1/2 top-full z-10 mt-[17px] w-[128px] -translate-x-1/2 text-center text-meta leading-tight tabular-nums text-[color:var(--ss-text-dim)]"
-          data-energy-label
-        >
-          <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
-            lost <b className="text-[color:var(--ss-text)]">{kwh(p.lostKWh)}</b> kWh
-          </span>
-          <br />
-          <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
-            in {kwh(p.inKWh)} · out {kwh(p.outKWh)}
-          </span>
-        </div>
-      )}
-    </>
+    <div className="mt-px w-[128px] tabular-nums text-[color:var(--ss-text-dim)]" data-energy-label data-lost={p.lostKWh}>
+      <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
+        lost <b className="text-[color:var(--ss-text)]">{kwh(p.lostKWh)}</b> kWh
+      </span>
+      <br />
+      <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
+        in {kwh(p.inKWh)} · out {kwh(p.outKWh)}
+      </span>
+    </div>
   );
 }
 
