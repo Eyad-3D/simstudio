@@ -76,6 +76,7 @@ import {
 } from "../../store/canvasSelection";
 import { canvasAction, diagramHasKeys, keyBelongsToTarget } from "./canvasKeys";
 import { fitMenu } from "./menuPlace";
+import { fitPadding, refitAfterResize } from "./view";
 import { JUNCTIONS, asDrawn, partDef, physicalPorts, portInUse, routingInput, wiredPorts } from "./portPlaces";
 import { fitEnds, pathMiddle, roundedPath, routeWires, type Pt } from "./route";
 
@@ -123,11 +124,8 @@ const DEFAULT_H = 78;
 // Automatic fits (opening a project or subsystem, the dock settling) stop at
 // 100 % so a small model is not blown up, and never go below a readable zoom:
 // a model too big for that opens at its centre with the overview map shown.
-// Every fit leaves room under the lowest parts for their names, which hang
-// below the parts at 11 px on screen whatever the zoom (.ss-node-label), and
-// above the highest ones for the toolbar floating over the diagram.
-const FIT_PADDING = { x: 0.15, top: "48px", bottom: "32px" } as const;
-const AUTO_FIT = { padding: FIT_PADDING, maxZoom: 1, minZoom: 0.5 };
+// Every fit leaves room round the parts (view.ts fitPadding).
+const AUTO_FIT = { maxZoom: 1, minZoom: 0.5 };
 
 // a right-click on a part, or on one of its ports (`portId`)
 type CtxMenu = { x: number; y: number; nodeId: string | null; portId?: string };
@@ -267,6 +265,8 @@ function TopologyCanvasInner() {
   const hovered = useRef(false);
   const pointer = useRef<{ x: number; y: number } | null>(null);
   // whether the last click was on the diagram (its toolbar and menu count)
+  // the floating project name and toolbar over the diagram's top edge
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const clickedHere = useRef(false);
   // the pointer on the screen, for Shift+A
   const pointerAt = useRef<{ x: number; y: number } | null>(null);
@@ -334,7 +334,7 @@ function TopologyCanvasInner() {
         void setViewport({ x: 0, y: 0, zoom: 1 }, { duration });
         return;
       }
-      void fitView({ ...AUTO_FIT, duration }).then(() => {
+      void fitView({ ...AUTO_FIT, padding: fitPadding(overlayRef.current?.offsetHeight ?? 0), duration }).then(() => {
         autoView.current = rfStore.getState().transform.join();
         const { width, height } = rfStore.getState();
         const bounds = getNodesBounds(getNodes());
@@ -384,9 +384,8 @@ function TopologyCanvasInner() {
   }, [loads, activeSystemId, autoFit, frame, getViewport, setViewport]);
 
   // When the diagram changes size (the bottom tray opens or closes, the
-  // window is resized), re-fit once the size settles: a view the last
-  // automatic fit left follows the diagram both ways; a view the user set is
-  // re-fitted only when the change cuts off a model that was entirely in view.
+  // window is resized), re-fit once the size settles, or not: view.ts
+  // refitAfterResize (the tray the first run opens keeps the zoom).
   useEffect(() => {
     let before: { width: number; height: number } | null = null;
     let settle: ReturnType<typeof setTimeout> | undefined;
@@ -409,7 +408,8 @@ function TopologyCanvasInner() {
           (b.y + b.height) * zoom + y <= h;
         // the overview map is shown again only when this change cut the model off
         const cut = inView(was.width, was.height) && !inView(width, height);
-        if (cut || transform.join() === autoView.current) autoFit(200, cut);
+        const held = Date.now() < useUIStore.getState().diagramViewHeldUntil;
+        if (refitAfterResize(cut, transform.join() === autoView.current, held)) autoFit(200, cut);
       }, 150);
     });
     return () => {
@@ -504,7 +504,8 @@ function TopologyCanvasInner() {
 
   /** Fit everything on request (toolbar / context menu); a no-op when empty. */
   const fitAll = useCallback(() => {
-    if (getNodes().length > 0) void fitView({ padding: FIT_PADDING, duration: 200 });
+    if (getNodes().length > 0)
+      void fitView({ padding: fitPadding(overlayRef.current?.offsetHeight ?? 0), duration: 200 });
   }, [fitView, getNodes]);
 
   const nodes: ElementFlowNode[] = useMemo(() => {
@@ -892,21 +893,30 @@ function TopologyCanvasInner() {
       {/* the toolbar floats over the diagram's top edge as two pills, so the
           diagram gets the panel's full height; in a narrow panel the tools
           wrap onto a second row */}
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-1.5">
-        <div className="pointer-events-auto flex min-w-0 items-center gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 text-body shadow-sm empty:hidden">
+      <div
+        ref={overlayRef}
+        className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between gap-2 p-1.5"
+      >
+        {/* the name of the diagram shown lets clicks through to the parts
+            under it; only the names of the diagrams above it (inside a
+            sub-system) are buttons that go back up */}
+        <div
+          data-diagram-name
+          className="flex min-w-0 items-center gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 text-body shadow-sm empty:hidden"
+        >
           {breadcrumb.map((sys, i) => (
             <span key={sys.id} className="flex min-w-0 items-center gap-0.5">
               {i > 0 && <ChevronRight size={12} className="shrink-0 text-[color:var(--ss-text-dim)]" />}
-              <button
-                className={`truncate rounded px-1 py-0.5 hover:bg-[color:var(--ss-hover)] ${
-                  i === breadcrumb.length - 1
-                    ? "font-semibold text-[color:var(--ss-accent)]"
-                    : "text-[color:var(--ss-text-dim)]"
-                }`}
-                onClick={() => store.getState().setActiveSystem(sys.id)}
-              >
-                {sys.name}
-              </button>
+              {i === breadcrumb.length - 1 ? (
+                <span className="truncate px-1 py-0.5 font-semibold text-[color:var(--ss-accent)]">{sys.name}</span>
+              ) : (
+                <button
+                  className="pointer-events-auto truncate rounded px-1 py-0.5 text-[color:var(--ss-text-dim)] hover:bg-[color:var(--ss-hover)]"
+                  onClick={() => store.getState().setActiveSystem(sys.id)}
+                >
+                  {sys.name}
+                </button>
+              )}
             </span>
           ))}
         </div>
