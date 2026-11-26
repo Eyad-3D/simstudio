@@ -123,7 +123,10 @@ function ParamWindowContent({ entry }: { entry: ParamWindow }) {
         {/* eslint-disable-next-line react-hooks/static-components -- componentIcon picks from a fixed module-level registry, so Icon is the same component every render */}
         <Icon size={16} className="text-[color:var(--ss-accent)]" aria-hidden />
         <h1 className="min-w-0 truncate text-title font-semibold">{element.label}</h1>
-        <span className="min-w-0 truncate text-meta text-[color:var(--ss-text-dim)]">— {def.name}</span>
+        {/* the part's type, unless its name says it already ("E-Motor", not "E-Motor — E-Motor") */}
+        {element.label.trim() !== def.name && (
+          <span className="min-w-0 truncate text-meta text-[color:var(--ss-text-dim)]">— {def.name}</span>
+        )}
         <PartHelpButton defId={def.id} from={entry.win} />
       </header>
       <main ref={body} className="ss-param-scroll min-h-0 flex-1 overflow-y-auto">
