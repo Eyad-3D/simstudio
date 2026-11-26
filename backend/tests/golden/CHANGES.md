@@ -1760,9 +1760,8 @@ same moves as above, reversed (at most 1.5e-7 of a value).
 | hybrid-car Mixed Cycle | Fuel consumption | 2.86948 l/100km | 2.86948 l/100km | +0 (+0.00 %) |
 
 ## a sampled block tick a few ulps from an output point runs at the point (the hybrid Hybrid Control Unit at 1 s points): final SOC by up to 6.9e-6 %, fuel by up to 4.6e-7 l/100km
-nThe hybrid Hybrid Control Unit ticks every 10 ms; many ticks land a few ulps from its 1 s output points, which now show that tick (engine golden README, 26 November 2026). Every other example is unchanged.
+The hybrid Hybrid Control Unit ticks every 10 ms; many ticks land a few ulps from its 1 s output points, which now show that tick (engine golden README, 26 November 2026). Every other example is unchanged.
 
-(Why the stored results changed: write it here.)
 
 | Case | Figure | Before | After | Change |
 |---|---|---|---|---|

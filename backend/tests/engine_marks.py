@@ -99,8 +99,6 @@ TODAY = {
     "test_battery_cells.py::test_a_weak_groups_resistance_is_read_at_its_own_soc[today]": WEAK,
 }
 
-TICK = ("a sampled block's (Script, FMU, Delay) value at an output point is the one after its tick there, where "
-        "today's shows the one before (the blocks piece's open item; changing it moves the hybrid's golden values)")
 
 
 
