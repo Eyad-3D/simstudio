@@ -1183,7 +1183,9 @@ function TopologyCanvasInner() {
           colorMode={theme}
           minZoom={0.15}
           maxZoom={2.5}
-          proOptions={{ hideAttribution: false }}
+          // React Flow is MIT-licensed (THIRD-PARTY-NOTICES.txt keeps its
+          // notice); the licence lets the link in the corner go
+          proOptions={{ hideAttribution: true }}
         >
           {showGrid && (
             <Background
