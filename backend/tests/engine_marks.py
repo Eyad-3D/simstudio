@@ -112,9 +112,6 @@ XFAIL = {
         "; it still differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
     "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": PORT + (
         "; it still fails: StopIteration in the test's own _at (open)"),
-    "test_live_params.py::test_live_edit_survives_two_gear_shifts": (
-        "the test counts the older engine's shift rebuilds (_spy_shifts), which the new engine does not make: "
-        "it sees none (open)"),
     "test_map_edges.py::test_clamp_and_linear_lookup_blocks_count_their_time_outside": (
         "a Lookup block's time outside its data on Clamp or Linear is not said as today's says it (open)"),
     "test_map_edges.py::test_a_run_counts_every_table_it_reads": (

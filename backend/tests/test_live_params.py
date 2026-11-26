@@ -76,49 +76,31 @@ def _geared_car(gear_expr: str, profile: str = "0:0; 60:110", initial_kmh: float
     return project(elements, connections, databus, duration=45, time_step=0.5)
 
 
-def _spy_shifts(monkeypatch) -> list[float]:
-    """Times of the 'reconfigured' events (driveline rebuilds for a shift)."""
-    from app.solver import domains
-
-    times: list[float] = []
-    real = domains.GearSlave.do_step
-
-    def spy(self, t, h):
-        result = real(self, t, h)
-        if result.events:
-            times.append(t)
-        return result
-    monkeypatch.setattr(domains.GearSlave, "do_step", spy)
-    return times
-
-
 def test_live_edit_survives_two_gear_shifts(monkeypatch):
     """bench/exp_live.py: grip cut to 0.1 during the run held the tire force
     at 0.1 × load until the first shift, which rebuilt the driveline from the
     saved project and put the grip back to 1.0. A structural edit sent with
-    it must stay deferred through the shifts."""
-    from helpers import series
+    it must stay deferred through the shifts. (The shifts are read from the
+    gearbox's gear: the new engine shifts without rebuilding anything.)"""
+    from helpers import paced_edit, series
 
-    shifts = _spy_shifts(monkeypatch)
     proj = _geared_car("1 if t < 6 else (2 if t < 14 else 3)", profile="0:0; 10:100; 60:100")
     proj.cases[0].duration = 25
-    calls = {"n": 0}
-
-    def control():
-        calls["n"] += 1
-        if calls["n"] == 3:  # at t = 1 s
-            return [{"type": "set_param", "elementId": w, "key": "mu", "value": 0.1}
-                    for w in ("whl", "whr")] + [
-                {"type": "set_param", "elementId": "fd", "key": "ratio", "value": 2.0}]
-        return []
-
-    result = simulate(proj, "case", control=control)
+    result = paced_edit(proj, "case", [{"type": "set_param", "elementId": w, "key": "mu", "value": 0.1}
+                                       for w in ("whl", "whr")] + [
+        {"type": "set_param", "elementId": "fd", "key": "ratio", "value": 2.0}], at_t=1.0)
     assert result.status in ("success", "warning"), [m.text for m in result.messages]
-    assert [round(t, 2) for t in shifts] == [6.0, 14.0], shifts  # and none at t = 0
+    gear = [(p["t"], p["value"]) for p in series(result, "gb", "sig_gear")]
+    shifts = [t for (_, g0), (t, g) in zip(gear, gear[1:]) if g != g0]
+    assert gear[0][1] == 1 and [round(t, 2) for t in shifts] == [6.0, 14.0], shifts  # and none at t = 0
 
     limit = 0.1 * 0.5 * 1800 * 9.81  # grip × load on one wheel
     force = [(p["t"], abs(p["value"])) for p in series(result, "whl", "sig_force")]
-    for lo, hi in ((2, 6), (6.5, 14), (14.5, 25)):  # before, between and after the shifts
+    # sent once the view reached 1 s, the edit takes effect where the engine
+    # (ahead of the view) reads it: before the first shift
+    cut = next(t for t, f in force if t >= 1 and f <= limit + 1e-6)
+    assert cut <= 5, cut
+    for lo, hi in ((cut, 6), (6.5, 14), (14.5, 25)):  # before, between and after the shifts
         peak = max(f for t, f in force if lo <= t <= hi)
         assert limit * 0.9 < peak <= limit + 1e-6, (lo, hi, peak, limit)
 
@@ -133,10 +115,10 @@ def test_the_first_gear_sample_is_the_starting_gear(monkeypatch):
     solver rebuilt the driveline at t = 0 with its speeds zeroed, so the
     wheels dropped from 402 to 17 1/min and the tires braked the car at
     their grip limit. Neither a gear equal to the default nor another one
-    may cost a rebuild event at t = 0."""
+    may cost a rebuild event at t = 0. (On the new engine: the gear is the
+    script's from the first point on.)"""
     from helpers import series
 
-    shifts = _spy_shifts(monkeypatch)
     for gear in ("2", "3"):  # the gearbox's default gear, and another one
         proj = _geared_car(gear, profile="0:50; 5:50", initial_kmh=50)
         proj.cases[0].duration, proj.cases[0].timeStep = 1.0, 0.01
@@ -144,7 +126,7 @@ def test_the_first_gear_sample_is_the_starting_gear(monkeypatch):
         wheel_rpm = 50 / 3.6 / 0.33 * 60 / (2 * 3.141592653589793)
         speeds = [p["value"] for p in series(result, "whl", "sig_speed")][:5]
         assert min(speeds) > 0.9 * wheel_rpm, (gear, speeds)
-    assert shifts == []
+        assert {p["value"] for p in series(result, "gb", "sig_gear")} == {int(gear)}, gear
 
 
 def test_drivelines_shift_in_the_same_step():
