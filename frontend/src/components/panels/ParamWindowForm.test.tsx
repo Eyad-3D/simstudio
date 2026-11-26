@@ -282,3 +282,13 @@ test("a choice box is as wide as its longest choice (#16)", () => {
   expect(type.style.getPropertyValue("--ss-option-ch")).toBe(String("Limited-slip".length));
 });
 
+test("a parameter's and a port's name are never cut to one line (#26)", () => {
+  onePart("motor.emotor", "E-Motor");
+  show("x");
+  const name = host.querySelector('tr[data-param="max_speed_rpm"] td span')!;
+  expect(name.textContent).toBe("Maximum Speed (0 = full-load curve's last point)");
+  expect(name.className).not.toMatch(/truncate/);
+  const ports = [...host.querySelectorAll(".ss-param-name")].map((s) => s.textContent);
+  expect(ports).toContain("Positive Terminal (+)");
+  expect(host.querySelector('[title="Positive Terminal (+)"]')?.className).not.toMatch(/truncate/);
+});

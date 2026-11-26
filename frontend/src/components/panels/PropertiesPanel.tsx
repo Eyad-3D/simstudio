@@ -1265,7 +1265,9 @@ export function ElementForm({
         <tr {...helpProps(p)} data-param={p.key}>
           {/* the full label is in the help card, or else its tooltip */}
           <td className="ss-td flex items-center text-meta" title={p.description ? undefined : p.label}>
-            <span className="truncate">{p.label}</span>
+            {/* the whole name, on more lines where the panel is narrow: a cut
+                name ("Maximum Spe…" beside a 0) can make its value mislead */}
+            <span className="ss-param-name">{p.label}</span>
             <SourceBadge src={element.parameterSources?.[p.key]} />
             {running && p.variability === "fixed" && (
               <span
@@ -1654,15 +1656,17 @@ export function ElementForm({
             Ports
           </div>
           {partDef(element, def).ports.map((p) => (
-            <div key={p.id} className="flex items-center gap-2 py-0.5 text-meta">
+            // the name in full; its kind and direction beside it, or on a line
+            // of their own where the panel is narrow
+            <div key={p.id} className="flex flex-wrap items-center gap-x-2 py-0.5 text-meta">
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
                 style={{ background: KIND_COLOR[p.kind] }}
               />
-              <span className="truncate" title={p.name}>
+              <span className="ss-param-name" title={p.name}>
                 {p.name}
               </span>
-              <span className="ml-auto shrink-0 whitespace-nowrap text-meta text-[color:var(--ss-text-dim)]">
+              <span className="ml-auto whitespace-nowrap pl-4 text-meta text-[color:var(--ss-text-dim)]">
                 {element.hiddenPorts?.includes(p.id) && (
                   <span title="Not drawn on the diagram: the part's right-click menu shows it again">hidden · </span>
                 )}
