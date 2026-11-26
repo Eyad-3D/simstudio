@@ -724,6 +724,9 @@ describe("undo / redo", () => {
   it("showing a parameter in another unit writes no value, is no edit and no undo step (#24)", async () => {
     await start();
     store().setParameter("el-motor", "max_speed_rpm", 12000);
+    await store().saveRemote();
+    expect(store().dirty).toBe(false);
+    const steps = store().past.length;
     const before = structuredClone(findElement("el-motor")!.parameterOverrides);
     store().setDisplayUnit("el-motor", "max_speed_rpm", "value", "rad/s");
     store().setDisplayUnit("el-motor", "drag_torque", 0, "rad/s");
@@ -732,8 +735,9 @@ describe("undo / redo", () => {
       drag_torque: { axes: ["rad/s"] },
     });
     expect(findElement("el-motor")!.parameterOverrides).toEqual(before);
-    store().undo();
-    expect(findElement("el-motor")?.displayUnits).toEqual({ max_speed_rpm: { value: "rad/s" } });
+    // only the display changed: not marked changed, no undo step
+    expect(store().dirty).toBe(false);
+    expect(store().past.length).toBe(steps);
     // back to the library's unit leaves nothing behind: as a file from before
     store().setDisplayUnit("el-motor", "max_speed_rpm", "value", null);
     store().setDisplayUnit("el-motor", "drag_torque", 0, null);
@@ -2200,7 +2204,9 @@ describe("project files (PLT-07, PLT-33, STD-02)", () => {
     api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1", filePath: "/repo/car.lightsim", upgradedFrom: 1 });
     await store().openProject("fixture");
     expect(store().filePath).toBe("/repo/car.lightsim");
-    expect(messages().some((m) => m.includes("older file format (1)"))).toBe(true);
+    // in a user's words; the format's number only at the end, for support
+    expect(messages().some((m) => m.includes("was saved by an older version of LightSim and has been upgraded") && m.endsWith("(File format 1.)"))).toBe(true);
+    expect(messages().some((m) => m.includes("older file format (1)"))).toBe(false);
     api.saveProject.mockResolvedValueOnce({ saved: "fixture", revision: "r2" });
     store().renameElement("el-bat", "Pack");
     await store().saveRemote();
