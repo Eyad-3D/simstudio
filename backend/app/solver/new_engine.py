@@ -70,7 +70,14 @@ from .network import CONSUMER_TYPES, ModelError, build_model
 from .profiles import distance_axis
 from .references import check_references, hand_checks
 from .reports import DUTY_QUANTITIES, RunRecorder, lane_state, make_reports
-from .runtime import SPEED_LIMIT_BAND, ControlFn, EmitFn, Runtime, usable_energy_left_wh
+from .runtime import (
+    SPEED_LIMIT_BAND,
+    ControlFn,
+    EmitFn,
+    Runtime,
+    motor_max_rpm,
+    usable_energy_left_wh,
+)
 from .sandbox import STRICT, ScriptSandbox, ScriptSpec, why_no_strict_sandbox
 from .verdict import (
     TRACE_STEP_S,
@@ -2072,6 +2079,19 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage],
             messages.append(SimMessage(level="info", text=(
                 f"Engine '{label}' reached its maximum speed ({n_max:,.0f} 1/min, the full-load "
                 f"curve's last point) — the rev limiter cuts fuel and torque above it.")))
+        if el_id in ctx.motors:
+            # into the last 2 % below its maximum, where its drive torque
+            # tapers to zero: today's note (MOD-18), at the first trace point there
+            k0 = next((k for k in range(len(xs))
+                       if xs[k] >= n_at(times[k]) * (1.0 - SPEED_LIMIT_BAND)), None)
+            if k0 is not None:
+                mc, n0 = ctx.motors[el_id], n_at(times[k0])
+                note = (", the last speed point of its full-load curve"
+                        if n0 == motor_max_rpm(mc.full_load.pts, 0) else "")
+                messages.append(SimMessage(level="info", text=(
+                    f"E-Motor '{label}' reached its maximum speed ({n0:,.0f} 1/min{note}) at "
+                    f"t = {times[k0]:.2f} s — its drive torque falls to zero over the last 2 % "
+                    f"below it.")))
         if above <= 0:
             continue
         k = max(range(len(xs)), key=xs.__getitem__)
