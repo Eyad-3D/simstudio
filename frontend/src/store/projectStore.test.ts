@@ -798,6 +798,51 @@ describe("undo / redo", () => {
     expect(name(store().selectedElementId!)).toBe("E-Motor 7");
   });
 
+  it("a pasted or duplicated part goes to free room; parts pasted together move as one group", async () => {
+    await start();
+    // a row of parts, all 92 × 54, 200 apart; the constant under the battery
+    const at: Record<string, [number, number]> = {
+      "el-bat": [0, 0],
+      "el-node": [200, 0],
+      "el-motor": [400, 0],
+      "el-shaft": [600, 0],
+      "el-const": [0, 200],
+    };
+    for (const [id, [x, y]] of Object.entries(at)) {
+      store().moveElement(id, { x, y });
+      store().resizeElement(id, { width: 92, height: 54 });
+    }
+    const parts = () => store().project!.systems[0].elements;
+    const box = (id: string) => {
+      const e = parts().find((p) => p.id === id)!;
+      return { x: e.position.x, y: e.position.y, w: e.size!.width, h: e.size!.height };
+    };
+    const clear = (id: string, others: string[]) =>
+      others.every((o) => {
+        const a = box(id);
+        const b = box(o);
+        return a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+      });
+
+    // duplicate: it used to land 28 units down-right, on the original
+    const [copy] = store().duplicateElements(["el-motor"]);
+    expect(clear(copy, parts().map((p) => p.id).filter((p) => p !== copy))).toBe(true);
+
+    // two parts pasted with the pointer on the motor: their arrangement kept,
+    // the group moved as one to free room
+    store().copyElements(["el-bat", "el-node"]);
+    const [bat2, node2] = store().pasteClipboard({ x: 400, y: 0 });
+    expect(box(node2).x - box(bat2).x).toBe(200);
+    expect(box(node2).y).toBe(box(bat2).y);
+    for (const id of [bat2, node2]) expect(clear(id, parts().map((p) => p.id).filter((p) => p !== bat2 && p !== node2))).toBe(true);
+
+    // and clear of what the diagram asks to avoid (its floating name and toolbar)
+    const avoid = { x: -400, y: -400, w: 2000, h: 700 };
+    const [far] = store().duplicateElements(["el-const"], [avoid]);
+    const f = box(far);
+    expect(f.y >= avoid.y + avoid.h || f.y + f.h <= avoid.y || f.x >= avoid.x + avoid.w || f.x + f.w <= avoid.x).toBe(true);
+  });
+
   it("a preset's values are one edit that one undo takes back", async () => {
     await start();
     const past = store().past.length;

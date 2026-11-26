@@ -45,13 +45,16 @@ import { useUIStore } from "./uiStore";
 import {
   JUNCTIONS,
   freePlace,
+  nodeSize,
   partDef,
   physicalPorts,
   placesAfterMove,
   portInUse,
+  portPlaces,
   withTerminal,
   type Place,
 } from "../components/canvas/portPlaces";
+import { PLACE_GAP, freeSpot, type Rect } from "../components/canvas/addPart";
 
 export function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
@@ -176,6 +179,41 @@ function cloneSubsystemTree(draft: Project, srcSysId: string, newParentId: strin
 /** A part name no other part has: `stem n`, the first free n from `from`. */
 export function freeLabel(stem: string, taken: Set<string>, from = 2): string {
   for (let n = Math.max(1, from); ; n++) if (!taken.has(`${stem} ${n}`)) return `${stem} ${n}`;
+}
+
+/** A part's box on the diagram: its stored size, else the size it is drawn at. */
+function partBox(el: ElementInstance, libraryById: Record<string, ComponentDef>): Rect {
+  const lib = libraryById[el.componentDefId];
+  const size = el.size ?? (lib ? nodeSize(el, portPlaces(el, partDef(el, lib))) : { width: 92, height: 54 });
+  return { x: el.position.x, y: el.position.y, w: size.width, h: size.height };
+}
+
+/**
+ * Where pasted or duplicated parts go, as the offset that moves the copied
+ * group: its top-left to `at` (the pointer), or a step down and right of the
+ * originals; then the group as one, its arrangement kept, to the nearest
+ * spot where it covers no part (with room round them) and nothing in
+ * `avoid` (the diagram's floating name and toolbar).
+ */
+function groupOffset(
+  project: Project,
+  systemId: string,
+  els: ElementInstance[],
+  libraryById: Record<string, ComponentDef>,
+  at?: { x: number; y: number },
+  avoid: Rect[] = [],
+): { x: number; y: number } {
+  const boxes = els.map((e) => partBox(e, libraryById));
+  const x0 = Math.min(...boxes.map((b) => b.x));
+  const y0 = Math.min(...boxes.map((b) => b.y));
+  const size = { w: Math.max(...boxes.map((b) => b.x + b.w)) - x0, h: Math.max(...boxes.map((b) => b.y + b.h)) - y0 };
+  const g = PLACE_GAP / 2;
+  const taken = (project.systems.find((s) => s.id === systemId)?.elements ?? []).map((e) => {
+    const b = partBox(e, libraryById);
+    return { x: b.x - g, y: b.y - g, w: b.w + 2 * g, h: b.h + 2 * g };
+  });
+  const spot = freeSpot(at ?? { x: x0 + 28, y: y0 + 28 }, size, [...taken, ...avoid], PLACE_GAP);
+  return { x: spot.x - x0, y: spot.y - y0 };
 }
 
 /** Every part's name in the project, all diagrams. */
@@ -528,9 +566,11 @@ export interface ProjectState {
   /** Delete parts (with every wire on them) and the given wires, as one undo step. */
   removeElements: (ids: string[], connectionIds?: string[]) => void;
   copyElements: (ids: string[]) => void;
-  /** Both return the new elements' ids, for the canvas to select. */
-  duplicateElements: (ids: string[]) => string[];
-  pasteClipboard: (position?: { x: number; y: number }) => string[];
+  /** Both return the new elements' ids, for the canvas to select. The copies
+   *  go to the nearest free room, as a group (`avoid`: more to keep clear of,
+   *  as the diagram's floating name and toolbar). */
+  duplicateElements: (ids: string[], avoid?: Rect[]) => string[];
+  pasteClipboard: (position?: { x: number; y: number }, avoid?: Rect[]) => string[];
   renameElement: (id: string, label: string) => void;
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
   /** Several parameters at once (a component preset), as one undo step. */
@@ -1564,27 +1604,24 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({ clipboard: collectSelection(project, activeSystemId, ids) });
     },
 
-    duplicateElements: (ids) => {
-      const { project, activeSystemId } = get();
+    duplicateElements: (ids, avoid) => {
+      const { project, activeSystemId, libraryById } = get();
       if (!project || !activeSystemId || ids.length === 0) return [];
       const data = collectSelection(project, activeSystemId, ids);
+      if (data.elements.length === 0) return [];
+      const offset = groupOffset(project, activeSystemId, data.elements, libraryById, undefined, avoid);
       let newIds: string[] = [];
       updateProject((draft) => {
-        newIds = cloneElementsInto(draft, activeSystemId, data, { x: 28, y: 28 });
+        newIds = cloneElementsInto(draft, activeSystemId, data, offset);
       });
       if (newIds.length) set({ selectedElementId: newIds[newIds.length - 1] });
       return newIds;
     },
 
-    pasteClipboard: (position) => {
-      const { project, activeSystemId, clipboard } = get();
+    pasteClipboard: (position, avoid) => {
+      const { project, activeSystemId, clipboard, libraryById } = get();
       if (!project || !activeSystemId || !clipboard || clipboard.elements.length === 0) return [];
-      let offset = { x: 28, y: 28 };
-      if (position) {
-        const minX = Math.min(...clipboard.elements.map((e) => e.position.x));
-        const minY = Math.min(...clipboard.elements.map((e) => e.position.y));
-        offset = { x: position.x - minX, y: position.y - minY };
-      }
+      const offset = groupOffset(project, activeSystemId, clipboard.elements, libraryById, position, avoid);
       let newIds: string[] = [];
       updateProject((draft) => {
         newIds = cloneElementsInto(draft, activeSystemId, clipboard, offset);

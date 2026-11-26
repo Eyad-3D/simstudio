@@ -59,7 +59,7 @@ import { useDismiss } from "../useDismiss";
 import { dropFmuFile } from "../../fmu";
 import type { ComponentDef, PortDef, PortKind } from "../../types";
 import { AddPartBox } from "./AddPartBox";
-import { freeSpot, partSpot, wirePort, type Rect } from "./addPart";
+import { PLACE_GAP, freeSpot, partSpot, wirePort, type Rect } from "./addPart";
 import { ElementNode, KIND_COLOR, KIND_LINE, type ElementFlowNode } from "./ElementNode";
 import { EnergyBars } from "./EnergyOverlay";
 import { useReportsStore } from "../../store/reportsStore";
@@ -121,8 +121,6 @@ const GRID = 22; // background grid gap; snap uses the same pitch
 const ALIGN_THRESH = 5; // flow-unit tolerance for alignment guides
 const DEFAULT_W = 92;
 const DEFAULT_H = 78;
-// the room a new part keeps round the parts already there
-const PLACE_GAP = 2 * GRID;
 
 // Automatic fits (opening a project or subsystem, the dock settling) stop at
 // 100 % so a small model is not blown up, and never go below a readable zoom:
@@ -285,12 +283,26 @@ function TopologyCanvasInner() {
 
   // (a part selected elsewhere, in Properties, Elements or Problems, becomes
   // the selection in canvasSelection.ts)
-  // freshly pasted/duplicated elements become the canvas selection
+  // freshly pasted/duplicated elements become the canvas selection; when the
+  // free room they went to is out of view, the view pans to them (same zoom)
   const selectNew = useCallback(
     (ids: string[]) => {
-      if (ids.length) setSelectedNodes(new Set(ids));
+      if (!ids.length) return;
+      setSelectedNodes(new Set(ids));
+      const els = (store.getState().project?.systems ?? []).flatMap((s) => s.elements).filter((e) => ids.includes(e.id));
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      if (!els.length || !rect || rect.width === 0) return;
+      const top = rect.top + (overlayRef.current?.offsetHeight ?? 0);
+      const tl = screenToFlowPosition({ x: rect.left, y: top });
+      const br = screenToFlowPosition({ x: rect.right, y: rect.bottom });
+      const x0 = Math.min(...els.map((e) => e.position.x));
+      const y0 = Math.min(...els.map((e) => e.position.y));
+      const x1 = Math.max(...els.map((e) => e.position.x + (e.size?.width ?? DEFAULT_W)));
+      const y1 = Math.max(...els.map((e) => e.position.y + (e.size?.height ?? DEFAULT_H)));
+      if (x0 < tl.x || y0 < tl.y || x1 > br.x || y1 > br.y)
+        void setCenter((x0 + x1) / 2, (y0 + y1) / 2, { zoom: getViewport().zoom, duration: 200 });
     },
-    [setSelectedNodes],
+    [getViewport, screenToFlowPosition, setCenter, setSelectedNodes, store],
   );
   // pan and zoom to parts (the "." key and the Problems list)
   const frame = useCallback(
@@ -851,13 +863,13 @@ function TopologyCanvasInner() {
           break;
         case "paste":
           if (st.clipboard) {
-            selectNew(st.pasteClipboard(hovered.current ? (pointer.current ?? undefined) : undefined));
+            selectNew(st.pasteClipboard(hovered.current ? (pointer.current ?? undefined) : undefined, takenSpots()));
             done = true;
           }
           break;
         case "duplicate":
           if (selectedNodes.size > 0) {
-            selectNew(st.duplicateElements([...selectedNodes]));
+            selectNew(st.duplicateElements([...selectedNodes], takenSpots()));
             done = true;
           }
           // the browser's own Ctrl+D adds a bookmark
@@ -887,7 +899,7 @@ function TopologyCanvasInner() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedNodes, store, selectNew, openAdd, placingId]);
+  }, [selectedNodes, store, selectNew, openAdd, placingId, takenSpots]);
 
   // "." frames the selection (the whole model when nothing is selected)
   useEffect(() => {
@@ -1445,7 +1457,7 @@ function TopologyCanvasInner() {
                   label={`Duplicate${selectedNodes.size > 1 ? ` (${selectedNodes.size})` : ""}`}
                   kbd="Ctrl+D"
                   onClick={() => {
-                    selectNew(store.getState().duplicateElements([...selectedNodes]));
+                    selectNew(store.getState().duplicateElements([...selectedNodes], takenSpots()));
                     closeMenu();
                   }}
                 />
@@ -1487,7 +1499,7 @@ function TopologyCanvasInner() {
                   kbd="Ctrl+V"
                   disabled={!clipboard}
                   onClick={() => {
-                    selectNew(store.getState().pasteClipboard(pointer.current ?? undefined));
+                    selectNew(store.getState().pasteClipboard(pointer.current ?? undefined, takenSpots()));
                     closeMenu();
                   }}
                 />
