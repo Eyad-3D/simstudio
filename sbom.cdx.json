@@ -28,10 +28,10 @@
   "components": [
     {
       "type": "library",
-      "bom-ref": "pkg:npm/%40xyflow/react@12.12.0",
+      "bom-ref": "pkg:npm/%40xyflow/react@12.12.1",
       "name": "@xyflow/react",
-      "version": "12.12.0",
-      "purl": "pkg:npm/%40xyflow/react@12.12.0",
+      "version": "12.12.1",
+      "purl": "pkg:npm/%40xyflow/react@12.12.1",
       "licenses": [
         {
           "expression": "MIT"
@@ -52,10 +52,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/%40xyflow/system@0.0.83",
+      "bom-ref": "pkg:npm/%40xyflow/system@0.0.84",
       "name": "@xyflow/system",
-      "version": "0.0.83",
-      "purl": "pkg:npm/%40xyflow/system@0.0.83",
+      "version": "0.0.84",
+      "purl": "pkg:npm/%40xyflow/system@0.0.84",
       "licenses": [
         {
           "expression": "MIT"
@@ -124,10 +124,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/d3-color@3.1.0",
+      "bom-ref": "pkg:npm/d3-color@3.1.1",
       "name": "d3-color",
-      "version": "3.1.0",
-      "purl": "pkg:npm/d3-color@3.1.0",
+      "version": "3.1.1",
+      "purl": "pkg:npm/d3-color@3.1.1",
       "licenses": [
         {
           "expression": "ISC"
@@ -148,10 +148,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/d3-dispatch@3.0.1",
+      "bom-ref": "pkg:npm/d3-dispatch@3.0.2",
       "name": "d3-dispatch",
-      "version": "3.0.1",
-      "purl": "pkg:npm/d3-dispatch@3.0.1",
+      "version": "3.0.2",
+      "purl": "pkg:npm/d3-dispatch@3.0.2",
       "licenses": [
         {
           "expression": "ISC"
@@ -172,10 +172,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/d3-drag@3.0.0",
+      "bom-ref": "pkg:npm/d3-drag@3.0.1",
       "name": "d3-drag",
-      "version": "3.0.0",
-      "purl": "pkg:npm/d3-drag@3.0.0",
+      "version": "3.0.1",
+      "purl": "pkg:npm/d3-drag@3.0.1",
       "licenses": [
         {
           "expression": "ISC"
@@ -196,10 +196,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/d3-ease@3.0.1",
+      "bom-ref": "pkg:npm/d3-ease@3.0.2",
       "name": "d3-ease",
-      "version": "3.0.1",
-      "purl": "pkg:npm/d3-ease@3.0.1",
+      "version": "3.0.2",
+      "purl": "pkg:npm/d3-ease@3.0.2",
       "licenses": [
         {
           "expression": "BSD-3-Clause"
@@ -220,10 +220,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/d3-interpolate@3.0.1",
+      "bom-ref": "pkg:npm/d3-interpolate@3.0.2",
       "name": "d3-interpolate",
-      "version": "3.0.1",
-      "purl": "pkg:npm/d3-interpolate@3.0.1",
+      "version": "3.0.2",
+      "purl": "pkg:npm/d3-interpolate@3.0.2",
       "licenses": [
         {
           "expression": "ISC"
@@ -244,10 +244,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/d3-selection@3.0.0",
+      "bom-ref": "pkg:npm/d3-selection@3.0.1",
       "name": "d3-selection",
-      "version": "3.0.0",
-      "purl": "pkg:npm/d3-selection@3.0.0",
+      "version": "3.0.1",
+      "purl": "pkg:npm/d3-selection@3.0.1",
       "licenses": [
         {
           "expression": "ISC"
@@ -268,10 +268,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/d3-timer@3.0.1",
+      "bom-ref": "pkg:npm/d3-timer@3.0.2",
       "name": "d3-timer",
-      "version": "3.0.1",
-      "purl": "pkg:npm/d3-timer@3.0.1",
+      "version": "3.0.2",
+      "purl": "pkg:npm/d3-timer@3.0.2",
       "licenses": [
         {
           "expression": "ISC"
@@ -292,10 +292,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/d3-transition@3.0.1",
+      "bom-ref": "pkg:npm/d3-transition@3.0.2",
       "name": "d3-transition",
-      "version": "3.0.1",
-      "purl": "pkg:npm/d3-transition@3.0.1",
+      "version": "3.0.2",
+      "purl": "pkg:npm/d3-transition@3.0.2",
       "licenses": [
         {
           "expression": "ISC"
@@ -316,10 +316,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/d3-zoom@3.0.0",
+      "bom-ref": "pkg:npm/d3-zoom@3.0.1",
       "name": "d3-zoom",
-      "version": "3.0.0",
-      "purl": "pkg:npm/d3-zoom@3.0.0",
+      "version": "3.0.1",
+      "purl": "pkg:npm/d3-zoom@3.0.1",
       "licenses": [
         {
           "expression": "ISC"
@@ -340,10 +340,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/dockview@8.3.1",
+      "bom-ref": "pkg:npm/dockview@8.9.0",
       "name": "dockview",
-      "version": "8.3.1",
-      "purl": "pkg:npm/dockview@8.3.1",
+      "version": "8.9.0",
+      "purl": "pkg:npm/dockview@8.9.0",
       "licenses": [
         {
           "expression": "MIT"
@@ -364,10 +364,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/dockview-core@8.3.1",
+      "bom-ref": "pkg:npm/dockview-core@8.10.0",
       "name": "dockview-core",
-      "version": "8.3.1",
-      "purl": "pkg:npm/dockview-core@8.3.1",
+      "version": "8.10.0",
+      "purl": "pkg:npm/dockview-core@8.10.0",
       "licenses": [
         {
           "expression": "MIT"
@@ -388,10 +388,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/dockview-react@8.3.1",
+      "bom-ref": "pkg:npm/dockview-react@8.9.0",
       "name": "dockview-react",
-      "version": "8.3.1",
-      "purl": "pkg:npm/dockview-react@8.3.1",
+      "version": "8.9.0",
+      "purl": "pkg:npm/dockview-react@8.9.0",
       "licenses": [
         {
           "expression": "MIT"
@@ -412,10 +412,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/driver.js@1.9.0",
+      "bom-ref": "pkg:npm/driver.js@1.14.0",
       "name": "driver.js",
-      "version": "1.9.0",
-      "purl": "pkg:npm/driver.js@1.9.0",
+      "version": "1.14.0",
+      "purl": "pkg:npm/driver.js@1.14.0",
       "licenses": [
         {
           "expression": "MIT"
@@ -436,10 +436,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/lucide-react@1.48.0",
+      "bom-ref": "pkg:npm/lucide-react@1.73.0",
       "name": "lucide-react",
-      "version": "1.48.0",
-      "purl": "pkg:npm/lucide-react@1.48.0",
+      "version": "1.73.0",
+      "purl": "pkg:npm/lucide-react@1.73.0",
       "licenses": [
         {
           "expression": "ISC"
@@ -460,10 +460,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/react@19.3.0",
+      "bom-ref": "pkg:npm/react@19.3.1",
       "name": "react",
-      "version": "19.3.0",
-      "purl": "pkg:npm/react@19.3.0",
+      "version": "19.3.1",
+      "purl": "pkg:npm/react@19.3.1",
       "licenses": [
         {
           "expression": "MIT"
@@ -484,10 +484,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/react-dom@19.3.0",
+      "bom-ref": "pkg:npm/react-dom@19.3.1",
       "name": "react-dom",
-      "version": "19.3.0",
-      "purl": "pkg:npm/react-dom@19.3.0",
+      "version": "19.3.1",
+      "purl": "pkg:npm/react-dom@19.3.1",
       "licenses": [
         {
           "expression": "MIT"
@@ -508,10 +508,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/rolldown@1.2.9",
+      "bom-ref": "pkg:npm/rolldown@1.3.4",
       "name": "rolldown",
-      "version": "1.2.9",
-      "purl": "pkg:npm/rolldown@1.2.9",
+      "version": "1.3.4",
+      "purl": "pkg:npm/rolldown@1.3.4",
       "licenses": [
         {
           "expression": "MIT"
@@ -556,10 +556,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/tailwindcss@4.3.3",
+      "bom-ref": "pkg:npm/tailwindcss@4.3.5",
       "name": "tailwindcss",
-      "version": "4.3.3",
-      "purl": "pkg:npm/tailwindcss@4.3.3",
+      "version": "4.3.5",
+      "purl": "pkg:npm/tailwindcss@4.3.5",
       "licenses": [
         {
           "expression": "MIT"
@@ -628,10 +628,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/vite@8.3.1",
+      "bom-ref": "pkg:npm/vite@8.4.0",
       "name": "vite",
-      "version": "8.3.1",
-      "purl": "pkg:npm/vite@8.3.1",
+      "version": "8.4.0",
+      "purl": "pkg:npm/vite@8.4.0",
       "licenses": [
         {
           "expression": "MIT"
@@ -676,10 +676,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/zustand@5.0.15",
+      "bom-ref": "pkg:npm/zustand@5.1.0",
       "name": "zustand",
-      "version": "5.0.15",
-      "purl": "pkg:npm/zustand@5.0.15",
+      "version": "5.1.0",
+      "purl": "pkg:npm/zustand@5.1.0",
       "licenses": [
         {
           "expression": "MIT"
@@ -796,10 +796,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/electron-updater@6.8.9",
+      "bom-ref": "pkg:npm/electron-updater@6.8.11",
       "name": "electron-updater",
-      "version": "6.8.9",
-      "purl": "pkg:npm/electron-updater@6.8.9",
+      "version": "6.8.11",
+      "purl": "pkg:npm/electron-updater@6.8.11",
       "licenses": [
         {
           "expression": "MIT"
@@ -1108,10 +1108,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/annotated-doc@0.0.6",
+      "bom-ref": "pkg:pypi/annotated-doc@0.0.7",
       "name": "annotated-doc",
-      "version": "0.0.6",
-      "purl": "pkg:pypi/annotated-doc@0.0.6",
+      "version": "0.0.7",
+      "purl": "pkg:pypi/annotated-doc@0.0.7",
       "licenses": [
         {
           "expression": "MIT"
@@ -1228,10 +1228,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/fastapi@0.163.1",
+      "bom-ref": "pkg:pypi/fastapi@0.165.0",
       "name": "fastapi",
-      "version": "0.163.1",
-      "purl": "pkg:pypi/fastapi@0.163.1",
+      "version": "0.165.0",
+      "purl": "pkg:pypi/fastapi@0.165.0",
       "licenses": [
         {
           "expression": "MIT"
@@ -5454,10 +5454,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/packaging@26.3",
+      "bom-ref": "pkg:pypi/packaging@26.4",
       "name": "packaging",
-      "version": "26.3",
-      "purl": "pkg:pypi/packaging@26.3",
+      "version": "26.4",
+      "purl": "pkg:pypi/packaging@26.4",
       "licenses": [
         {
           "expression": "Apache-2.0 OR BSD-2-Clause"
@@ -5478,10 +5478,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pydantic@2.14.3",
+      "bom-ref": "pkg:pypi/pydantic@2.14.4",
       "name": "pydantic",
-      "version": "2.14.3",
-      "purl": "pkg:pypi/pydantic@2.14.3",
+      "version": "2.14.4",
+      "purl": "pkg:pypi/pydantic@2.14.4",
       "licenses": [
         {
           "expression": "MIT"
@@ -5502,10 +5502,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pydantic-core@2.50.4",
+      "bom-ref": "pkg:pypi/pydantic-core@2.50.5",
       "name": "pydantic_core",
-      "version": "2.50.4",
-      "purl": "pkg:pypi/pydantic-core@2.50.4",
+      "version": "2.50.5",
+      "purl": "pkg:pypi/pydantic-core@2.50.5",
       "licenses": [
         {
           "expression": "MIT"
@@ -5526,7 +5526,7 @@
       "components": [
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/ahash@0.8.12",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/ahash@0.8.12",
           "name": "ahash",
           "version": "0.8.12",
           "purl": "pkg:cargo/ahash@0.8.12",
@@ -5544,7 +5544,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/aho-corasick@1.1.3",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/aho-corasick@1.1.3",
           "name": "aho-corasick",
           "version": "1.1.3",
           "purl": "pkg:cargo/aho-corasick@1.1.3",
@@ -5562,7 +5562,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/arrayvec@0.7.8",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/arrayvec@0.7.8",
           "name": "arrayvec",
           "version": "0.7.8",
           "purl": "pkg:cargo/arrayvec@0.7.8",
@@ -5580,7 +5580,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/autocfg@1.3.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/autocfg@1.3.0",
           "name": "autocfg",
           "version": "1.3.0",
           "purl": "pkg:cargo/autocfg@1.3.0",
@@ -5598,7 +5598,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/base64@0.23.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/base64@0.23.1",
           "name": "base64",
           "version": "0.23.1",
           "purl": "pkg:cargo/base64@0.23.1",
@@ -5616,7 +5616,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/bitflags@2.9.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/bitflags@2.9.1",
           "name": "bitflags",
           "version": "2.9.1",
           "purl": "pkg:cargo/bitflags@2.9.1",
@@ -5634,7 +5634,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/bitvec@1.0.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/bitvec@1.0.1",
           "name": "bitvec",
           "version": "1.0.1",
           "purl": "pkg:cargo/bitvec@1.0.1",
@@ -5652,7 +5652,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/bumpalo@3.19.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/bumpalo@3.19.0",
           "name": "bumpalo",
           "version": "3.19.0",
           "purl": "pkg:cargo/bumpalo@3.19.0",
@@ -5670,7 +5670,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/cfg-if@1.0.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/cfg-if@1.0.0",
           "name": "cfg-if",
           "version": "1.0.0",
           "purl": "pkg:cargo/cfg-if@1.0.0",
@@ -5688,7 +5688,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/displaydoc@0.2.5",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/displaydoc@0.2.5",
           "name": "displaydoc",
           "version": "0.2.5",
           "purl": "pkg:cargo/displaydoc@0.2.5",
@@ -5706,7 +5706,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/enum_dispatch@0.3.13",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/enum_dispatch@0.3.13",
           "name": "enum_dispatch",
           "version": "0.3.13",
           "purl": "pkg:cargo/enum_dispatch@0.3.13",
@@ -5724,7 +5724,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/equivalent@1.0.3",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/equivalent@1.0.3",
           "name": "equivalent",
           "version": "1.0.3",
           "purl": "pkg:cargo/equivalent@1.0.3",
@@ -5742,7 +5742,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/foldhash@0.2.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/foldhash@0.2.0",
           "name": "foldhash",
           "version": "0.2.0",
           "purl": "pkg:cargo/foldhash@0.2.0",
@@ -5760,7 +5760,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/form_urlencoded@1.2.2",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/form_urlencoded@1.2.2",
           "name": "form_urlencoded",
           "version": "1.2.2",
           "purl": "pkg:cargo/form_urlencoded@1.2.2",
@@ -5778,7 +5778,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/funty@2.0.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/funty@2.0.0",
           "name": "funty",
           "version": "2.0.0",
           "purl": "pkg:cargo/funty@2.0.0",
@@ -5796,7 +5796,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/getrandom@0.3.3",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/getrandom@0.3.3",
           "name": "getrandom",
           "version": "0.3.3",
           "purl": "pkg:cargo/getrandom@0.3.3",
@@ -5814,7 +5814,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/hashbrown@0.17.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/hashbrown@0.17.1",
           "name": "hashbrown",
           "version": "0.17.1",
           "purl": "pkg:cargo/hashbrown@0.17.1",
@@ -5832,7 +5832,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/heck@0.5.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/heck@0.5.0",
           "name": "heck",
           "version": "0.5.0",
           "purl": "pkg:cargo/heck@0.5.0",
@@ -5850,7 +5850,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/hex@0.4.3",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/hex@0.4.3",
           "name": "hex",
           "version": "0.4.3",
           "purl": "pkg:cargo/hex@0.4.3",
@@ -5868,7 +5868,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/icu_collections@1.5.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/icu_collections@1.5.0",
           "name": "icu_collections",
           "version": "1.5.0",
           "purl": "pkg:cargo/icu_collections@1.5.0",
@@ -5886,7 +5886,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/icu_locid@1.5.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/icu_locid@1.5.0",
           "name": "icu_locid",
           "version": "1.5.0",
           "purl": "pkg:cargo/icu_locid@1.5.0",
@@ -5904,7 +5904,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/icu_locid_transform@1.5.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/icu_locid_transform@1.5.0",
           "name": "icu_locid_transform",
           "version": "1.5.0",
           "purl": "pkg:cargo/icu_locid_transform@1.5.0",
@@ -5922,7 +5922,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/icu_locid_transform_data@1.5.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/icu_locid_transform_data@1.5.0",
           "name": "icu_locid_transform_data",
           "version": "1.5.0",
           "purl": "pkg:cargo/icu_locid_transform_data@1.5.0",
@@ -5940,7 +5940,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/icu_normalizer@1.5.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/icu_normalizer@1.5.0",
           "name": "icu_normalizer",
           "version": "1.5.0",
           "purl": "pkg:cargo/icu_normalizer@1.5.0",
@@ -5958,7 +5958,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/icu_normalizer_data@1.5.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/icu_normalizer_data@1.5.0",
           "name": "icu_normalizer_data",
           "version": "1.5.0",
           "purl": "pkg:cargo/icu_normalizer_data@1.5.0",
@@ -5976,7 +5976,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/icu_properties@1.5.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/icu_properties@1.5.1",
           "name": "icu_properties",
           "version": "1.5.1",
           "purl": "pkg:cargo/icu_properties@1.5.1",
@@ -5994,7 +5994,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/icu_properties_data@1.5.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/icu_properties_data@1.5.0",
           "name": "icu_properties_data",
           "version": "1.5.0",
           "purl": "pkg:cargo/icu_properties_data@1.5.0",
@@ -6012,7 +6012,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/icu_provider@1.5.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/icu_provider@1.5.0",
           "name": "icu_provider",
           "version": "1.5.0",
           "purl": "pkg:cargo/icu_provider@1.5.0",
@@ -6030,7 +6030,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/icu_provider_macros@1.5.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/icu_provider_macros@1.5.0",
           "name": "icu_provider_macros",
           "version": "1.5.0",
           "purl": "pkg:cargo/icu_provider_macros@1.5.0",
@@ -6048,7 +6048,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/idna@1.1.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/idna@1.1.0",
           "name": "idna",
           "version": "1.1.0",
           "purl": "pkg:cargo/idna@1.1.0",
@@ -6066,7 +6066,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/idna_adapter@1.2.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/idna_adapter@1.2.0",
           "name": "idna_adapter",
           "version": "1.2.0",
           "purl": "pkg:cargo/idna_adapter@1.2.0",
@@ -6084,7 +6084,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/indexmap@2.14.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/indexmap@2.14.0",
           "name": "indexmap",
           "version": "2.14.0",
           "purl": "pkg:cargo/indexmap@2.14.0",
@@ -6102,7 +6102,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/itoa@1.0.11",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/itoa@1.0.11",
           "name": "itoa",
           "version": "1.0.11",
           "purl": "pkg:cargo/itoa@1.0.11",
@@ -6120,10 +6120,10 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/jiter@0.18.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/jiter@0.19.0",
           "name": "jiter",
-          "version": "0.18.0",
-          "purl": "pkg:cargo/jiter@0.18.0",
+          "version": "0.19.0",
+          "purl": "pkg:cargo/jiter@0.19.0",
           "licenses": [
             {
               "expression": "MIT"
@@ -6138,7 +6138,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/js-sys@0.3.77",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/js-sys@0.3.77",
           "name": "js-sys",
           "version": "0.3.77",
           "purl": "pkg:cargo/js-sys@0.3.77",
@@ -6156,7 +6156,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/lexical-parse-float@1.0.6",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/lexical-parse-float@1.0.6",
           "name": "lexical-parse-float",
           "version": "1.0.6",
           "purl": "pkg:cargo/lexical-parse-float@1.0.6",
@@ -6174,7 +6174,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/lexical-parse-integer@1.0.6",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/lexical-parse-integer@1.0.6",
           "name": "lexical-parse-integer",
           "version": "1.0.6",
           "purl": "pkg:cargo/lexical-parse-integer@1.0.6",
@@ -6192,7 +6192,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/lexical-util@1.0.7",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/lexical-util@1.0.7",
           "name": "lexical-util",
           "version": "1.0.7",
           "purl": "pkg:cargo/lexical-util@1.0.7",
@@ -6210,7 +6210,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/libc@0.2.185",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/libc@0.2.185",
           "name": "libc",
           "version": "0.2.185",
           "purl": "pkg:cargo/libc@0.2.185",
@@ -6228,7 +6228,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/litemap@0.7.3",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/litemap@0.7.3",
           "name": "litemap",
           "version": "0.7.3",
           "purl": "pkg:cargo/litemap@0.7.3",
@@ -6246,7 +6246,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/log@0.4.27",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/log@0.4.27",
           "name": "log",
           "version": "0.4.27",
           "purl": "pkg:cargo/log@0.4.27",
@@ -6264,7 +6264,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/lru@0.18.5",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/lru@0.18.5",
           "name": "lru",
           "version": "0.18.5",
           "purl": "pkg:cargo/lru@0.18.5",
@@ -6282,7 +6282,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/memchr@2.7.4",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/memchr@2.7.4",
           "name": "memchr",
           "version": "2.7.4",
           "purl": "pkg:cargo/memchr@2.7.4",
@@ -6300,7 +6300,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/num-bigint@0.4.6",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/num-bigint@0.4.6",
           "name": "num-bigint",
           "version": "0.4.6",
           "purl": "pkg:cargo/num-bigint@0.4.6",
@@ -6318,7 +6318,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/num-integer@0.1.46",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/num-integer@0.1.46",
           "name": "num-integer",
           "version": "0.1.46",
           "purl": "pkg:cargo/num-integer@0.1.46",
@@ -6336,7 +6336,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/num-traits@0.2.19",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/num-traits@0.2.19",
           "name": "num-traits",
           "version": "0.2.19",
           "purl": "pkg:cargo/num-traits@0.2.19",
@@ -6354,7 +6354,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/once_cell@1.21.3",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/once_cell@1.21.3",
           "name": "once_cell",
           "version": "1.21.3",
           "purl": "pkg:cargo/once_cell@1.21.3",
@@ -6372,7 +6372,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/percent-encoding@2.3.2",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/percent-encoding@2.3.2",
           "name": "percent-encoding",
           "version": "2.3.2",
           "purl": "pkg:cargo/percent-encoding@2.3.2",
@@ -6390,7 +6390,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/portable-atomic@1.6.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/portable-atomic@1.6.0",
           "name": "portable-atomic",
           "version": "1.6.0",
           "purl": "pkg:cargo/portable-atomic@1.6.0",
@@ -6408,7 +6408,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/proc-macro2@1.0.107",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/proc-macro2@1.0.107",
           "name": "proc-macro2",
           "version": "1.0.107",
           "purl": "pkg:cargo/proc-macro2@1.0.107",
@@ -6426,7 +6426,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/pyo3-build-config@0.30.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/pyo3-build-config@0.30.1",
           "name": "pyo3-build-config",
           "version": "0.30.1",
           "purl": "pkg:cargo/pyo3-build-config@0.30.1",
@@ -6444,7 +6444,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/pyo3-ffi@0.30.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/pyo3-ffi@0.30.1",
           "name": "pyo3-ffi",
           "version": "0.30.1",
           "purl": "pkg:cargo/pyo3-ffi@0.30.1",
@@ -6462,7 +6462,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/pyo3-macros-backend@0.30.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/pyo3-macros-backend@0.30.1",
           "name": "pyo3-macros-backend",
           "version": "0.30.1",
           "purl": "pkg:cargo/pyo3-macros-backend@0.30.1",
@@ -6480,7 +6480,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/pyo3-macros@0.30.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/pyo3-macros@0.30.1",
           "name": "pyo3-macros",
           "version": "0.30.1",
           "purl": "pkg:cargo/pyo3-macros@0.30.1",
@@ -6498,7 +6498,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/pyo3@0.30.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/pyo3@0.30.1",
           "name": "pyo3",
           "version": "0.30.1",
           "purl": "pkg:cargo/pyo3@0.30.1",
@@ -6516,7 +6516,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/quote@1.0.44",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/quote@1.0.44",
           "name": "quote",
           "version": "1.0.44",
           "purl": "pkg:cargo/quote@1.0.44",
@@ -6534,7 +6534,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/r-efi@5.2.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/r-efi@5.2.0",
           "name": "r-efi",
           "version": "5.2.0",
           "purl": "pkg:cargo/r-efi@5.2.0",
@@ -6552,7 +6552,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/radium@0.7.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/radium@0.7.0",
           "name": "radium",
           "version": "0.7.0",
           "purl": "pkg:cargo/radium@0.7.0",
@@ -6570,7 +6570,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/regex-automata@0.4.18",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/regex-automata@0.4.18",
           "name": "regex-automata",
           "version": "0.4.18",
           "purl": "pkg:cargo/regex-automata@0.4.18",
@@ -6588,7 +6588,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/regex-syntax@0.8.11",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/regex-syntax@0.8.11",
           "name": "regex-syntax",
           "version": "0.8.11",
           "purl": "pkg:cargo/regex-syntax@0.8.11",
@@ -6606,7 +6606,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/regex@1.13.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/regex@1.13.1",
           "name": "regex",
           "version": "1.13.1",
           "purl": "pkg:cargo/regex@1.13.1",
@@ -6624,7 +6624,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/serde@1.0.229",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/serde@1.0.229",
           "name": "serde",
           "version": "1.0.229",
           "purl": "pkg:cargo/serde@1.0.229",
@@ -6642,7 +6642,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/serde_core@1.0.229",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/serde_core@1.0.229",
           "name": "serde_core",
           "version": "1.0.229",
           "purl": "pkg:cargo/serde_core@1.0.229",
@@ -6660,7 +6660,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/serde_derive@1.0.229",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/serde_derive@1.0.229",
           "name": "serde_derive",
           "version": "1.0.229",
           "purl": "pkg:cargo/serde_derive@1.0.229",
@@ -6678,7 +6678,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/serde_json@1.0.151",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/serde_json@1.0.151",
           "name": "serde_json",
           "version": "1.0.151",
           "purl": "pkg:cargo/serde_json@1.0.151",
@@ -6696,7 +6696,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/smallvec@1.16.2",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/smallvec@1.16.2",
           "name": "smallvec",
           "version": "1.16.2",
           "purl": "pkg:cargo/smallvec@1.16.2",
@@ -6714,7 +6714,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/speedate@0.18.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/speedate@0.18.0",
           "name": "speedate",
           "version": "0.18.0",
           "purl": "pkg:cargo/speedate@0.18.0",
@@ -6732,7 +6732,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/stable_deref_trait@1.2.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/stable_deref_trait@1.2.0",
           "name": "stable_deref_trait",
           "version": "1.2.0",
           "purl": "pkg:cargo/stable_deref_trait@1.2.0",
@@ -6750,7 +6750,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/strum@0.28.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/strum@0.28.0",
           "name": "strum",
           "version": "0.28.0",
           "purl": "pkg:cargo/strum@0.28.0",
@@ -6768,7 +6768,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/strum_macros@0.28.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/strum_macros@0.28.0",
           "name": "strum_macros",
           "version": "0.28.0",
           "purl": "pkg:cargo/strum_macros@0.28.0",
@@ -6786,7 +6786,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/syn@2.0.82",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/syn@2.0.82",
           "name": "syn",
           "version": "2.0.82",
           "purl": "pkg:cargo/syn@2.0.82",
@@ -6804,7 +6804,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/syn@3.0.6",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/syn@3.0.6",
           "name": "syn",
           "version": "3.0.6",
           "purl": "pkg:cargo/syn@3.0.6",
@@ -6822,7 +6822,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/synstructure@0.13.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/synstructure@0.13.1",
           "name": "synstructure",
           "version": "0.13.1",
           "purl": "pkg:cargo/synstructure@0.13.1",
@@ -6840,7 +6840,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/tap@1.0.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/tap@1.0.1",
           "name": "tap",
           "version": "1.0.1",
           "purl": "pkg:cargo/tap@1.0.1",
@@ -6858,7 +6858,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/target-lexicon@0.13.4",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/target-lexicon@0.13.4",
           "name": "target-lexicon",
           "version": "0.13.4",
           "purl": "pkg:cargo/target-lexicon@0.13.4",
@@ -6876,7 +6876,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/tinystr@0.7.6",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/tinystr@0.7.6",
           "name": "tinystr",
           "version": "0.7.6",
           "purl": "pkg:cargo/tinystr@0.7.6",
@@ -6894,7 +6894,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/unicode-ident@1.0.12",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/unicode-ident@1.0.12",
           "name": "unicode-ident",
           "version": "1.0.12",
           "purl": "pkg:cargo/unicode-ident@1.0.12",
@@ -6912,7 +6912,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/url@2.5.8",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/url@2.5.8",
           "name": "url",
           "version": "2.5.8",
           "purl": "pkg:cargo/url@2.5.8",
@@ -6930,7 +6930,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/utf16_iter@1.0.5",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/utf16_iter@1.0.5",
           "name": "utf16_iter",
           "version": "1.0.5",
           "purl": "pkg:cargo/utf16_iter@1.0.5",
@@ -6948,7 +6948,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/utf8_iter@1.0.4",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/utf8_iter@1.0.4",
           "name": "utf8_iter",
           "version": "1.0.4",
           "purl": "pkg:cargo/utf8_iter@1.0.4",
@@ -6966,7 +6966,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/uuid@1.23.4",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/uuid@1.23.4",
           "name": "uuid",
           "version": "1.23.4",
           "purl": "pkg:cargo/uuid@1.23.4",
@@ -6984,7 +6984,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/version_check@0.9.5",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/version_check@0.9.5",
           "name": "version_check",
           "version": "0.9.5",
           "purl": "pkg:cargo/version_check@0.9.5",
@@ -7002,7 +7002,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/wasi@0.14.2+wasi-0.2.4",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/wasi@0.14.2+wasi-0.2.4",
           "name": "wasi",
           "version": "0.14.2+wasi-0.2.4",
           "purl": "pkg:cargo/wasi@0.14.2+wasi-0.2.4",
@@ -7020,7 +7020,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/wasm-bindgen-backend@0.2.100",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/wasm-bindgen-backend@0.2.100",
           "name": "wasm-bindgen-backend",
           "version": "0.2.100",
           "purl": "pkg:cargo/wasm-bindgen-backend@0.2.100",
@@ -7038,7 +7038,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/wasm-bindgen-macro-support@0.2.100",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/wasm-bindgen-macro-support@0.2.100",
           "name": "wasm-bindgen-macro-support",
           "version": "0.2.100",
           "purl": "pkg:cargo/wasm-bindgen-macro-support@0.2.100",
@@ -7056,7 +7056,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/wasm-bindgen-macro@0.2.100",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/wasm-bindgen-macro@0.2.100",
           "name": "wasm-bindgen-macro",
           "version": "0.2.100",
           "purl": "pkg:cargo/wasm-bindgen-macro@0.2.100",
@@ -7074,7 +7074,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/wasm-bindgen-shared@0.2.100",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/wasm-bindgen-shared@0.2.100",
           "name": "wasm-bindgen-shared",
           "version": "0.2.100",
           "purl": "pkg:cargo/wasm-bindgen-shared@0.2.100",
@@ -7092,7 +7092,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/wasm-bindgen@0.2.100",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/wasm-bindgen@0.2.100",
           "name": "wasm-bindgen",
           "version": "0.2.100",
           "purl": "pkg:cargo/wasm-bindgen@0.2.100",
@@ -7110,7 +7110,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/wit-bindgen-rt@0.39.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/wit-bindgen-rt@0.39.0",
           "name": "wit-bindgen-rt",
           "version": "0.39.0",
           "purl": "pkg:cargo/wit-bindgen-rt@0.39.0",
@@ -7128,7 +7128,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/write16@1.0.0",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/write16@1.0.0",
           "name": "write16",
           "version": "1.0.0",
           "purl": "pkg:cargo/write16@1.0.0",
@@ -7146,7 +7146,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/writeable@0.5.5",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/writeable@0.5.5",
           "name": "writeable",
           "version": "0.5.5",
           "purl": "pkg:cargo/writeable@0.5.5",
@@ -7164,7 +7164,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/wyz@0.5.1",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/wyz@0.5.1",
           "name": "wyz",
           "version": "0.5.1",
           "purl": "pkg:cargo/wyz@0.5.1",
@@ -7182,7 +7182,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/yoke-derive@0.7.4",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/yoke-derive@0.7.4",
           "name": "yoke-derive",
           "version": "0.7.4",
           "purl": "pkg:cargo/yoke-derive@0.7.4",
@@ -7200,7 +7200,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/yoke@0.7.4",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/yoke@0.7.4",
           "name": "yoke",
           "version": "0.7.4",
           "purl": "pkg:cargo/yoke@0.7.4",
@@ -7218,7 +7218,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/zerocopy-derive@0.8.25",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/zerocopy-derive@0.8.25",
           "name": "zerocopy-derive",
           "version": "0.8.25",
           "purl": "pkg:cargo/zerocopy-derive@0.8.25",
@@ -7236,7 +7236,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/zerocopy@0.8.25",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/zerocopy@0.8.25",
           "name": "zerocopy",
           "version": "0.8.25",
           "purl": "pkg:cargo/zerocopy@0.8.25",
@@ -7254,7 +7254,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/zerofrom-derive@0.1.4",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/zerofrom-derive@0.1.4",
           "name": "zerofrom-derive",
           "version": "0.1.4",
           "purl": "pkg:cargo/zerofrom-derive@0.1.4",
@@ -7272,7 +7272,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/zerofrom@0.1.4",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/zerofrom@0.1.4",
           "name": "zerofrom",
           "version": "0.1.4",
           "purl": "pkg:cargo/zerofrom@0.1.4",
@@ -7290,7 +7290,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/zerovec-derive@0.10.3",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/zerovec-derive@0.10.3",
           "name": "zerovec-derive",
           "version": "0.10.3",
           "purl": "pkg:cargo/zerovec-derive@0.10.3",
@@ -7308,7 +7308,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/zerovec@0.10.4",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/zerovec@0.10.4",
           "name": "zerovec",
           "version": "0.10.4",
           "purl": "pkg:cargo/zerovec@0.10.4",
@@ -7326,7 +7326,7 @@
         },
         {
           "type": "library",
-          "bom-ref": "pkg:pypi/pydantic-core@2.50.4/pkg:cargo/zmij@1.0.6",
+          "bom-ref": "pkg:pypi/pydantic-core@2.50.5/pkg:cargo/zmij@1.0.6",
           "name": "zmij",
           "version": "1.0.6",
           "purl": "pkg:cargo/zmij@1.0.6",
@@ -7394,10 +7394,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pyyaml@6.0.3",
+      "bom-ref": "pkg:pypi/pyyaml@6.0.4",
       "name": "PyYAML",
-      "version": "6.0.3",
-      "purl": "pkg:pypi/pyyaml@6.0.3",
+      "version": "6.0.4",
+      "purl": "pkg:pypi/pyyaml@6.0.4",
       "licenses": [
         {
           "expression": "MIT"
