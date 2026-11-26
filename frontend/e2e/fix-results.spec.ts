@@ -2,7 +2,7 @@
 // views, the Signal Plot and the exports (app pass, 26 Nov), each checked
 // where a person sees it.
 import { expect, test } from "@playwright/test";
-import { finishNotice, openApp, openFromMenu, runButton, runRow, showPanel } from "./app";
+import { finishNotice, openApp, openFromMenu, ribbonTab, runButton, runRow, showPanel } from "./app";
 
 test("app pass #7: the Signal Plot names each channel with its part", async ({ page }) => {
   await openApp(page);
@@ -56,7 +56,25 @@ test("app pass #8, #9, #10: an endurance study's charts, run names and DNF count
     await expect(chart.locator(".u-legend")).toContainText("30 kW");
   }
 
-  // #9: a study run is named by its point
+  // #9: a study run is named by its point (the newest run is a point)
   await expect(runRow(page, 0).row).toContainText(/\d(\.\d)? kWh, \d+ kW/);
   await expect(page.getByRole("region", { name: "Runs" })).not.toContainText("null");
+});
+
+test("app pass #20: a lap case can be plotted against distance beside its stored result", async ({ page }) => {
+  test.setTimeout(150_000);
+  await openApp(page);
+  await openFromMenu(page, "FS Electric (generic)");
+  // the example opens with a stored result of the case, the faint baseline
+  // of its first run: it keeps only the speed, not the distance driven
+  await page.getByTitle("Active simulation case").selectOption("case-endurance");
+  await ribbonTab(page, "Results").click();
+  await runButton(page).click();
+  // the new run, newest first, once it has ended (beside the 3 stored ones)
+  await expect(page.getByRole("region", { name: "Runs" }).locator("tbody tr")).toHaveCount(4);
+  await expect(runRow(page, 0).row).toContainText(/success|warning/, { timeout: 120_000 });
+  const x = page.getByLabel("X axis");
+  await expect(x.locator("option[value=distance]")).toHaveText("Distance");
+  await x.selectOption("distance");
+  await expect(page.getByRole("img", { name: /^Results chart: .*Distance \[km\] 0 to / })).toBeVisible();
 });

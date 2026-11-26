@@ -280,6 +280,10 @@ async function exportMat(run: SimRun) {
   }
 }
 
+/** Whether a run has the distance driven (a Vehicle's); an example's
+ *  stored result keeps only the vehicle's speed. */
+const hasDistance = (r: SimRun) => r.result.channels.some((c) => c.portId === "sig_distance");
+
 export function ResultsPanel() {
   const runs = useProjectStore((s) => s.runs);
   const activeRun = useActiveRun();
@@ -395,7 +399,11 @@ export function ResultsPanel() {
   // runs are compared: the strip under the chart is about those two, and a
   // third set of lines would belong to neither
   const ghost =
-    comparePrevious && baseline && !overlayRunIds.includes(baseline.id) && !comparedPair(plotRuns, view)
+    comparePrevious &&
+    baseline &&
+    !overlayRunIds.includes(baseline.id) &&
+    !comparedPair(plotRuns, view) &&
+    (xAxisMode !== "distance" || hasDistance(baseline))
       ? baseline
       : undefined;
   const drawnRuns = useMemo(() => (ghost ? [...plotRuns, ghost] : plotRuns), [plotRuns, ghost]);
@@ -465,8 +473,7 @@ export function ResultsPanel() {
 
   // the x axis: time in the chosen unit, or the distance driven, which needs
   // a Vehicle in every plotted run (else it is time, picked automatically)
-  const canDistance =
-    drawnRuns.length > 0 && drawnRuns.every((r) => r.result.channels.some((c) => c.portId === "sig_distance"));
+  const canDistance = plotRuns.length > 0 && plotRuns.every(hasDistance);
   const xMode = xAxisMode === "distance" && !canDistance ? "auto" : xAxisMode;
   const xAxis = useMemo(() => xAxisFor(xMode, drawnRuns), [xMode, drawnRuns]);
 
@@ -1178,7 +1185,7 @@ export function ResultsPanel() {
                 <option value="min">Time [min]</option>
                 <option value="h">Time [h]</option>
                 <option value="distance" disabled={!canDistance}>
-                  {canDistance ? "Distance" : "Distance (a run has no Vehicle)"}
+                  {canDistance ? "Distance" : "Distance (a run drawn has no distance driven)"}
                 </option>
               </select>
             )}
