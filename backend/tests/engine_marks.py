@@ -110,6 +110,5 @@ XFAIL = {
         "model) turns with the prescribed speed and takes its tyre's slip loss out of the force: 3.835 s "
         "against the time-domain 3.706 s at μ 2.5, about the slip at that force (10 %) (open)"),
     "test_control_rate.py::test_block_with_a_sample_time_runs_at_that_rate_and_holds": TICK,
-    "test_signal_wiring.py::test_the_delay_is_what_the_run_does": TICK,
     "test_road_load.py::test_ambient_sets_the_air_density": "the speed trace under a changed air density differs from today's (open)",
 }

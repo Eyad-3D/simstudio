@@ -4169,10 +4169,29 @@ fn run_watched<'a>(
         // values just after it (a condition true from the start)
         lp.settle_modes(t, &y, &mut d)?;
         lp.sample(t, &y, &d);
+        // each block reads what the blocks before it set, in their order,
+        // as at an event's ticks (below): a block reading another's output
+        // through a channel read the start values before (A, B, C each in
+        // + 1 in a chain started 1, 1, 1, not 1, 2, 3)
+        let d_start = d.clone();
+        let mut yz: Option<(Vec<f64>, Vec<f64>)> = None;
         for (b, blk) in blocks.iter_mut().enumerate() {
             let c = &mut clocks[b];
             let mut inputs = std::mem::take(&mut c.inputs);
-            lp.read_inputs(b, &y, &d, &mut inputs);
+            let z_for = yz.as_ref().map_or(d_start.as_slice(), |x| x.1.as_slice());
+            if c.reads_z && lp.moves_z(&d, z_for) {
+                let mut yv = yz.take().map_or_else(|| y.clone(), |x| x.0);
+                integ.consistent_z(t, &mut yv, &d)?;
+                yz = Some((yv, d.clone()));
+            }
+            let ys = match &yz {
+                Some((v, _)) if c.reads_z => v.as_slice(),
+                _ => y.as_slice(),
+            };
+            if c.reads_vars && d != d_start {
+                lp.sample(t, ys, &d);
+            }
+            lp.read_inputs(b, ys, &d, &mut inputs);
             for (k, &o) in info.blocks[b].outputs.iter().enumerate() {
                 c.outputs[k] = d[o];
             }

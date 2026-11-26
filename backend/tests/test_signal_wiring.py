@@ -139,8 +139,10 @@ def test_blocks_after_a_loop_run_after_it():
 
 
 def test_the_delay_is_what_the_run_does():
-    """A = B of the step before + 1, B = A + 1 and C = B + 1, so after n
-    solver steps A = 2n - 1, B = 2n and C = 2n + 1."""
+    """A = B of the tick before + 1, B = A + 1 and C = B + 1, so at the
+    start A, B, C = 1, 2, 3 (each reads what the blocks before it set) and
+    n ticks of 10 ms on A = 2n + 1, B = 2n + 2 and C = 2n + 3 (a point
+    shows the tick at its own time)."""
     proj = _loop_project()
     proj.cases[0].duration = 1.0
     proj.cases[0].timeStep = 0.5
@@ -149,7 +151,7 @@ def test_the_delay_is_what_the_run_does():
             if c.portId == "out_1"}
     assert last["el-b"] == last["el-a"] + 1  # B = A of this step + 1
     assert last["el-c"] == last["el-b"] + 1  # C sees B of this step
-    assert last["el-a"] == pytest.approx(2 * 100 - 1)  # 100 steps of 10 ms, two adds a lap
+    assert last["el-a"] == pytest.approx(2 * 100 + 1)  # 100 ticks after the start's, two adds a lap
 
 
 def test_a_block_that_feeds_itself_is_a_loop():

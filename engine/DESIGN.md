@@ -2753,7 +2753,10 @@ round).**
   due at one instant (inside a step or at its end, a few ulps apart
   included) are one event: each block reads its inputs with what the
   blocks before it set, and an output point at that instant shows the
-  values after all of them (its left limit those before them all). A
+  values after all of them (its left limit those before them all). The
+  blocks' start (`init` at t0) goes the same way (since 26 November 2026:
+  before, each read the start values, so three Scripts in a chain, each
+  its input + 1, started 1, 1, 1 instead of 1, 2, 3). A
   block that reads an iteration variable, after a block before it changed
   a discrete value the iteration variables depend on
   (`RunInfo::z_discretes`, through the assignments), reads it solved
