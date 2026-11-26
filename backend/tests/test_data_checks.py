@@ -888,3 +888,13 @@ def test_an_unwired_e_motor_is_refused_by_data_checks_before_the_run():
     blockers = [c.text for c in run_blockers(validate_project(proj), "case-city")]
     assert any("E-Motor 'Extra' has no live electrical connection" in t for t in blockers), blockers
 
+
+
+def test_an_empty_diagram_is_refused_before_the_run():
+    """A project with no parts ran as a success with no channels (app pass
+    #4): Data Checks refuse it, and so every run of it, in plain words."""
+    from app.validation import run_blockers, validate_project
+
+    proj = Project(id="empty", name="Empty", systems=[], cases=[SimCase(id="case", name="Case 1")])
+    blockers = [c.text for c in run_blockers(validate_project(proj), "case")]
+    assert blockers == ["The diagram is empty: add parts first."], blockers

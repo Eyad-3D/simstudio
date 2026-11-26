@@ -45,17 +45,17 @@ def test_no_numerical_slip_across_the_stiffness_range(stiffness):
     if stiffness >= 30:
         assert reduced
         assert any("Solver step reduced" in m.text for m in r.messages)
-        checks = [c.text for c in validate_project(p) if c.level == "info"]
-        assert any("too stiff for the solver's 10 ms step" in t for t in checks)
     if stiffness == 1000:  # beyond the smallest step: warned, not hidden
         assert choice.step == MIN_SUBSTEP and warned
 
 
-def test_a_case_value_can_ask_for_a_smaller_step():
-    p = axle(10)
-    p.cases[0].parameterOverrides = {"whl": {"slip_stiffness": 300}}
-    texts = [c.text for c in validate_project(p) if c.level == "info"]
-    assert any(t.startswith("In case 'Case', the tyres' Slip Stiffness") for t in texts)
+def test_no_data_check_speaks_of_the_older_engine_s_step():
+    """The app's engine has no fixed 10 ms step to shrink for a stiff part
+    (app pass #21: the FS example's tyres at a Slip Stiffness of 20, inside
+    the range the check itself named, were called too stiff for it)."""
+    for p in (load_example("fs-electric"), axle(300)):
+        texts = [c.text for c in validate_project(p)]
+        assert not [t for t in texts if "10 ms step" in t or "too stiff" in t], texts
 
 
 def test_a_clutch_neither_rings_nor_asks_for_a_smaller_step():

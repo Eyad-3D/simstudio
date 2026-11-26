@@ -49,9 +49,8 @@ from .solver.network import (
     resolve_params,
 )
 from .solver.profiles import distance_axis, parse_profile
-from .solver.runtime import AMBIENT_C, AMBIENT_KPA, GRAVITY, MAX_SUBSTEP, RPM, air_density, ocv_mean
+from .solver.runtime import AMBIENT_C, AMBIENT_KPA, GRAVITY, RPM, air_density, ocv_mean
 from .solver.scaling import VALID_RANGE, max_speed_rpm, scale_keys, scaled
-from .solver.stability import solver_step
 from .tyre import parse_tyre_code
 
 # Propulsion sources: type → (label, demand input, its name, what happens unwired)
@@ -376,7 +375,6 @@ def validate_project(project: Project) -> list[DataCheck]:
         _inertia_checks(project, model, case_models, add)
         _lap_checks(project, case_models, add)
         _distance_checks(project, model, add)
-        _step_checks(project, model, case_models, add)
 
         coasting = any(m is not None and _moves_unpowered(m)
                        for m in (model, *case_models.values()))  # (a coast-down is something)
@@ -384,7 +382,8 @@ def validate_project(project: Project) -> list[DataCheck]:
             add("info", "Model has no driveline and no electrical loads — nothing will happen.")
 
     if not any(s.elements for s in project.systems):
-        add("info", "Model is empty — drag components from the library onto the canvas.")
+        add("error", "The diagram is empty: add parts first.",
+            fix="Drag parts from the library onto the diagram, or open an example.")
     if not project.cases:
         add("warning", "Project has no simulation case defined.",
             fix="On the Simulations tab, click + (Add case).")
@@ -502,7 +501,7 @@ MODEL_FIXES = {
                                               "parts that drive no wheels.",
     "does not shift gears": "Set its Default Gear to the gear the lap should be driven in.",
     "has no layout": "Choose a Layout from the list in Properties.",
-    "form a loop": "If a step's delay matters, break the loop: feed one of the blocks from a "
+    "form a loop": "If a tick's delay matters, break the loop: feed one of the blocks from a "
                    "signal outside it, or merge the blocks into one Script.",
 }
 
@@ -931,43 +930,6 @@ def _lap_checks(project: Project, case_models: dict[str, Model | None], add: Add
         for level, text, parts in lapsim.problems(model, case.outputEvery):
             add(level, f"Case '{case.name}': {text}", None if parts else track, ids=parts,
                 fix=_model_fix(text), case=case)
-
-
-def _step_checks(project: Project, base_model: Model, case_models: dict[str, Model | None],
-                 add: Add) -> None:
-    """The solver step each case will use (stability.solver_step, ENG-14):
-    a note when a part too stiff for the 10 ms step makes it smaller (the run
-    takes longer, but its results hold), a warning when one is too stiff even
-    for the smallest step."""
-    seen: set[str] = set()
-    base = None
-    for case in [None, *project.cases]:
-        if case is not None and (case.kind == "lap" or not case.parameterOverrides):
-            continue  # the lap solver steps along the track; no values of its own: as the model
-        model = base_model if case is None else case_models.get(case.id)
-        if model is None:
-            continue  # its values do not build: reported already
-        choice = solver_step(model)
-        if case is None:
-            base = choice
-        elif (choice.step, choice.warnings) == (base.step, base.warnings):
-            continue  # its own values change nothing here
-        where = f"In case '{case.name}', " if case is not None else ""
-        if choice.step < MAX_SUBSTEP:
-            text = (f"{where}{choice.reason} is too stiff for the solver's {MAX_SUBSTEP * 1000:g} ms "
-                    f"step: the run will use {choice.step * 1000:.3g} ms and take about "
-                    f"{MAX_SUBSTEP / choice.step:.3g} times as long.")
-            if text not in seen:
-                seen.add(text)
-                add("info", text, ids=choice.el_ids, case=case,
-                    fix="Nothing to do if the value is right; otherwise lower it (a tyre's Slip "
-                        "Stiffness is about 10 to 30).")
-        for text, ids in choice.warnings:  # (each one a part too stiff for any step)
-            if text in seen:
-                continue
-            seen.add(text)
-            add("warning", f"{where}{text}", ids=ids, case=case,
-                fix="Lower the value: the solver cannot step it reliably.")
 
 
 def _distance_checks(project: Project, model: Model, add: Add) -> None:

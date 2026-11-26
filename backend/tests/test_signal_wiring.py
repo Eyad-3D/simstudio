@@ -125,9 +125,9 @@ def test_a_signal_loop_is_named_with_its_order_and_its_late_value():
     proj = _loop_project()
     checks = [c for c in validate_project(proj) if "form a loop" in c.text]
     assert [c.text for c in checks] == [
-        "Signal blocks 'A', 'B' form a loop. Every solver step they run in this order, and "
-        "LightSim inserts a one-step delay (at most 10 ms) where 'A' reads 'B': that value is "
-        "the one from the step before."]
+        "Signal blocks 'A', 'B' form a loop. Each time they run (every 10 ms, or at their "
+        "Sample Time) they run in this order, and where 'A' reads 'B', that value is the one "
+        "from the time before."]
     assert checks[0].level == "warning"
     assert checks[0].elementIds == ["el-a", "el-b"]  # the loop only, not C
     assert checks[0].fix
