@@ -1026,7 +1026,7 @@ sections.
   change. Their energy at the wall is within 8 % of EPA's unadjusted
   figures on all eight (4.1 % on average); a virtual coast-down gives back
   EPA's road load within 0.02 %, and an exact-answer tier of three
-  coast-downs is within 0.005 %. [What is validated](VALIDATION-STATUS.md)
+  coast-downs is within 0.003 %. [What is validated](VALIDATION-STATUS.md)
   has the table and what it does not show. The files are in
   `backend/validation/` and do not ship in the installer.
 - Sources & credits (VAL-37): *Run info* lists the data and methods each
