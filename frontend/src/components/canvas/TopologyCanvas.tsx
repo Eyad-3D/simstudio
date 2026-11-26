@@ -59,7 +59,7 @@ import { useDismiss } from "../useDismiss";
 import { dropFmuFile } from "../../fmu";
 import type { ComponentDef, PortDef, PortKind } from "../../types";
 import { AddPartBox } from "./AddPartBox";
-import { partSpot, wirePort } from "./addPart";
+import { freeSpot, partSpot, wirePort, type Rect } from "./addPart";
 import { ElementNode, KIND_COLOR, KIND_LINE, type ElementFlowNode } from "./ElementNode";
 import { EnergyBars } from "./EnergyOverlay";
 import { useReportsStore } from "../../store/reportsStore";
@@ -121,6 +121,8 @@ const ALIGN_THRESH = 5; // flow-unit tolerance for alignment guides
 const DEFAULT_W = 92;
 const DEFAULT_H = 78;
 
+// the room a new part keeps round the parts already there
+const PLACE_GAP = 2 * GRID;
 // Automatic fits (opening a project or subsystem, the dock settling) stop at
 // 100 % so a small model is not blown up, and never go below a readable zoom:
 // a model too big for that opens at its centre with the overview map shown.
@@ -457,6 +459,31 @@ function TopologyCanvasInner() {
         };
       });
       const free = (x: number, y: number) =>
+  // What a new part must not cover, in the diagram's units: every part with
+  // room round it for its name, and the floating project name and toolbar.
+  const takenSpots = useCallback((): Rect[] => {
+    const st = store.getState();
+    const sys = st.project?.systems.find((sy) => sy.id === st.activeSystemId);
+    const gap = PLACE_GAP;
+    const parts = (sys?.elements ?? []).map((el) => {
+      const m = getInternalNode(el.id)?.measured;
+      return {
+        x: el.position.x - gap / 2,
+        y: el.position.y - gap / 2,
+        w: (m?.width ?? el.size?.width ?? DEFAULT_W) + gap,
+        h: (m?.height ?? el.size?.height ?? DEFAULT_H) + gap,
+      };
+    });
+    const floating = [...(overlayRef.current?.children ?? [])].flatMap((c) => {
+      const r = c.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return [];
+      const a = screenToFlowPosition({ x: r.left, y: r.top });
+      const b = screenToFlowPosition({ x: r.right, y: r.bottom });
+      return [{ x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y }];
+    });
+    return [...parts, ...floating];
+  }, [getInternalNode, screenToFlowPosition, store]);
+
         taken.every((b) => x + DEFAULT_W <= b.x || x >= b.x + b.w || y + DEFAULT_H <= b.y || y >= b.y + b.h);
       // grid cells around the centre, nearest first; sideways before up/down
       // and right/below before left/above, as models are drawn left to right
@@ -468,15 +495,13 @@ function TopologyCanvasInner() {
       const dist = ([i, j]: [number, number]) => Math.hypot(i * cw, j * ch * 1.25);
       cells.sort((a, b) => dist(a) - dist(b));
       const snap = (v: number) => Math.round(v / GRID) * GRID;
-      let pos = { x: snap(centre.x - DEFAULT_W / 2), y: snap(centre.y - DEFAULT_H / 2) };
-      for (const [i, j] of cells) {
-        const x = snap(centre.x - DEFAULT_W / 2 + i * cw);
-        const y = snap(centre.y - DEFAULT_H / 2 + j * ch);
-        if (free(x, y)) {
-          pos = { x, y };
-          break;
-        }
-      }
+      const pos = freeSpot(
+        { x: snap(centre.x - DEFAULT_W / 2), y: snap(centre.y - DEFAULT_H / 2) },
+        { w: DEFAULT_W, h: DEFAULT_H },
+        takenSpots(),
+        PLACE_GAP,
+        snap,
+      );
       st.addElement(defId, pos);
       const topLeft = screenToFlowPosition({ x: rect.left, y: rect.top });
       const bottomRight = screenToFlowPosition({ x: rect.right, y: rect.bottom });
@@ -486,7 +511,7 @@ function TopologyCanvasInner() {
       const next = store.getState();
       return next.project?.systems.flatMap((sy) => sy.elements).find((el) => el.id === next.selectedElementId)?.label ?? null;
     },
-    [getInternalNode, getViewport, screenToFlowPosition, setCenter, store],
+    [getViewport, screenToFlowPosition, setCenter, store, takenSpots],
   );
   useEffect(() => {
     const ui = useUIStore.getState();
@@ -719,15 +744,17 @@ function TopologyCanvasInner() {
   );
   const closeAdd = useCallback(() => setAdding(null), []);
   // the part chosen goes where the box opened (on the grid when Snap is on),
-  // and a dragged wire to its fitting port, in one undo step
+  // or the nearest free spot when a part or the floating name and toolbar
+  // are there; a dragged wire goes to its fitting port, in one undo step
   const placeChosen = (def: ComponentDef) => {
     if (!adding) return;
     const to = adding.from ? wirePort(def, adding.from.port) : null;
+    const grid = (v: number) => (snap ? Math.round(v / GRID) * GRID : v);
     store
       .getState()
       .addElement(
         def.id,
-        partSpot(adding.at, snap ? GRID : null),
+        freeSpot(partSpot(adding.at, snap ? GRID : null), { w: DEFAULT_W, h: DEFAULT_H }, takenSpots(), PLACE_GAP, grid),
         adding.from && to ? { elementId: adding.from.elementId, portId: adding.from.port.id, toPortId: to } : undefined,
       );
     setAdding(null);
