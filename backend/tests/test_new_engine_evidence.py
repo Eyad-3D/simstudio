@@ -1815,9 +1815,10 @@ def test_a_battery_or_stack_on_no_bus_is_not_judged(new, monkeypatch, kind, quic
     """A battery or fuel cell stack connected to nothing: today's engine
     leaves it out (its bus loop reads the OCV table or the curve only of a
     bus's source), so its run gives no row of that table and Consumption is
-    graded. The new path and quick mode give today's status, no such rows,
-    Consumption graded and one note with its code (before: a warning, the
-    part's table run past for the whole run, Consumption not valid)."""
+    graded. The new path and quick mode leave it out too (Data Checks' rule,
+    validation.left_out): today's status, no such rows, no channel of it,
+    Consumption graded (before: a warning, the part's table run past for the
+    whole run, Consumption not valid; then a note that it was not judged)."""
     proj = _with_a_part_on_no_bus(kind)
     today = _today(proj, "case-city", monkeypatch)
     if quick:
@@ -1828,8 +1829,7 @@ def test_a_battery_or_stack_on_no_bus_is_not_judged(new, monkeypatch, kind, quic
     for r in (today, result):
         assert not [s.key for s in r.summary if s.key.startswith("x.outside_")]
         assert not [s.key for s in r.summary if s.notValid and "consumption" in s.key]
-    notes = [t for t in _texts(result, "info") if f"[{new_engine.NOT_JUDGED}]" in t]
-    assert len(notes) == 1 and "connected to no bus" in notes[0], notes
+    assert not [c for c in result.channels if c.elementId == "x"]
 
 
 def test_an_engine_whose_shaft_drives_nothing_is_not_judged(new, monkeypatch):
