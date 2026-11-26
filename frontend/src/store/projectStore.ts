@@ -1186,12 +1186,18 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }));
     };
 
+    // what the engine said while it ran: a failure's reasons it only put in
+    // the result (a refused model) are logged as the run ends
+    const streamed = new Set<string>();
     const handle = api.runSimulationLive(model, caseId, {
       onStep: (ev) => {
         buffer.push(ev);
         if (!flushTimer) flushTimer = setTimeout(flush, LIVE_FLUSH_MS);
       },
-      onMessage: (m) => log(m.level, m.text),
+      onMessage: (m) => {
+        streamed.add(m.text);
+        log(m.level, m.text);
+      },
     });
     activeRun = handle;
     liveLog = { runId, edits: [] };
@@ -1210,6 +1216,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     try {
       const result = await handle.done;
       if (flushTimer) clearTimeout(flushTimer);
+      if (result.status === "failed")
+        for (const m of result.messages) if (m.level !== "info" && !streamed.has(m.text)) log(m.level, m.text);
       const incomplete = incompleteReason(result);
       const finished: SimRun = {
         ...newRun,
@@ -2707,7 +2715,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         const result = await executeRun(project, caseId, name);
         set({ running: false });
         if (result.status === "failed") {
-          log("error", "Simulation failed — see messages above.");
+          const said = result.messages.some((m) => m.level === "error");
+          // (its reasons are the run's own error messages, logged as it ended)
+          log("error", said ? `'${name}' failed.` : `'${name}' failed; the engine gave no reason.`);
           revealMessages();
           tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
         } else {

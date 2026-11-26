@@ -1318,6 +1318,36 @@ describe("run history", () => {
     return ids;
   }
 
+  it("a failed run's reasons are in Messages, once each (app pass #2)", async () => {
+    await start();
+    api.validateProject.mockResolvedValue([]);
+    const refused = "Not run [NEW-FAILED]: the new engine refused it (ELEC-NO-GROUND)";
+    const streamedText = "Solver stopped at t = 3 s";
+    api.runSimulationLive.mockImplementation((_project, caseId, callbacks = {}) => {
+      callbacks.onMessage?.({ level: "error", text: streamedText });
+      return {
+        setParam: vi.fn(),
+        cancel: vi.fn(),
+        done: Promise.resolve({
+          caseId,
+          status: "failed",
+          messages: [
+            { level: "error", text: streamedText },
+            { level: "error", text: refused },
+          ],
+          channels: [],
+          summary: [],
+        }),
+      };
+    });
+    await store().run();
+    const log = messages();
+    expect(log.filter((m) => m === `error: ${streamedText}`)).toHaveLength(1);
+    expect(log).toContain(`error: ${refused}`);
+    expect(log).toContain("error: 'Case 1' failed.");
+    expect(log.join("\n")).not.toMatch(/see messages above/);
+  });
+
   it("a finished run is stored newest first and becomes the active run", async () => {
     await start();
     engineFinishesRuns();
