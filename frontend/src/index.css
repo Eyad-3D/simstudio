@@ -483,11 +483,22 @@ body,
 .dockview-theme-ss .ss-param-grid :is(th, td) {
   padding-inline: 4px;
 }
-/* a choice's text can be long ("Drag and rolling resistance"): its select
-   is as wide as a number field and leaves the rest to the labels (its full
-   text is in its tooltip and its open list) */
+/* a parameter's or a port's name in full, wrapped onto more lines where the
+   panel is narrow (a long word breaks rather than overflowing) */
+.ss-param-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+/* a choice box is as wide as its longest choice (ParameterInput sets
+   --ss-option-ch), so a choice is never cut ("Limited-slip", not "Limitec");
+   in the narrow Properties panel a very long one ("Drag and rolling
+   resistance") stops at 14 characters, so the names keep their room: its
+   full text is in its tooltip and its open list, and in the part's window */
 .ss-param-grid select {
-  width: 5.5rem;
+  width: calc(var(--ss-option-ch, 8) * 1ch + 32px);
+}
+[data-properties-panel] .ss-param-grid select {
+  max-width: calc(14ch + 32px);
 }
 /* a parameter's help card (UX-10): a popover in the top layer, so no panel
    clips it, beside the row it explains (left of it, or where there is room) */

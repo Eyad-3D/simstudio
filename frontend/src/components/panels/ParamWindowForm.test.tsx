@@ -275,3 +275,10 @@ test("in the docked Properties panel the card stays beside the panel while a val
   expect(host.querySelector(".ss-help-card")!.textContent).toContain("Speed Scale");
 });
 
+test("a choice box is as wide as its longest choice (#16)", () => {
+  onePart("mech.differential", "Differential");
+  show("x");
+  const type = host.querySelector<HTMLSelectElement>('select[aria-label="Type"]')!;
+  expect(type.style.getPropertyValue("--ss-option-ch")).toBe(String("Limited-slip".length));
+});
+

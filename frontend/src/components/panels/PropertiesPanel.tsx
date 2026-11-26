@@ -696,6 +696,8 @@ function ParameterInput({
           aria-label={def.label}
           aria-description={def.description ?? undefined}
           title={String(value)}
+          // as wide as its longest choice (index.css)
+          style={{ "--ss-option-ch": longestOption(def) } as React.CSSProperties}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         >
@@ -969,6 +971,11 @@ function defaultText(def: ParameterDef, shownIn = def.unit): string | null {
   if (def.type === "boolean") return def.default ? "Ticked by default" : "Not ticked by default";
   return null;
 }
+
+/** The length of a list parameter's longest choice, in characters: its box
+ *  is that wide, so no choice is cut ("Limited-slip", not "Limitec"). */
+export const longestOption = (def: ParameterDef) =>
+  Math.max(1, ...(def.options ?? []).map((o) => optionLabel(def.key, o).label.length));
 
 const isProfile = (p: ParameterDef) => p.type === "string" && p.key === "profile";
 const isTable = (p: ParameterDef) => p.type === "table1d" || p.type === "table2d" || p.type === "table";
@@ -1553,7 +1560,7 @@ export function ElementForm({
                   const v = valueOf(p);
                   return p.type === "number" && typeof v === "number" ? showNumber(v, p.unit, unitOf(p)).length : 0;
                 }),
-              )}ch + 24px))`,
+              )}ch + 24px), calc(${Math.max(0, ...scalarParams.filter((p) => p.type === "enum").map(longestOption))}ch + 32px))`,
               "--ss-unit-col": `calc(${Math.max(1, ...scalarParams.map((p) => unitOf(p).length))}ch + 26px)`,
             } as React.CSSProperties
           }
