@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SimRun, StoredRunInfo, SummaryValue } from "../../types";
 import { comparedPair, differenceOf } from "./chartUtils";
-import { figureColumns, ranText, runRows, sortRows, type RunRow } from "./runRows";
+import { figureColumns, isShipped, ranText, runRows, sortRows, type RunRow } from "./runRows";
 
 describe("the difference between two runs", () => {
   it("on one time grid: the second less the first, sample by sample, nothing interpolated", () => {
@@ -108,5 +108,13 @@ describe("the table of runs", () => {
     const now = new Date(2026, 10, 21, 15, 0).getTime();
     expect(ranText(new Date(2026, 10, 21, 9, 12, 5).getTime(), now)).not.toMatch(/Nov/);
     expect(ranText(new Date(2026, 10, 20, 9, 12, 5).getTime(), now)).toMatch(/20/);
+  });
+
+  it("an example's stored result has its day, no time of day (app pass #22)", () => {
+    const stored = Date.parse("2026-11-22"); // midnight: the day it was stored
+    expect(isShipped({ id: "stored-case-city" })).toBe(true);
+    expect(isShipped({ id: "run-abc" })).toBe(false);
+    expect(ranText(stored, stored + 3600e3, true)).not.toMatch(/00:00/);
+    expect(ranText(stored, stored + 3600e3, true)).toMatch(/2026/);
   });
 });

@@ -4,10 +4,12 @@
 // spent above a power you pick.
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
-import { DUTY_CHANNEL, downloadText, dutyCsv, timeAbove } from "../../reports";
+import { DUTY_CHANNEL, downloadText, dutyCsv, runFileStem, timeAbove } from "../../reports";
+import { useProjectStore } from "../../store/projectStore";
 import type { SimRun } from "../../types";
+import { formatNumber } from "../../format";
 
-const num = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: Math.abs(v) >= 100 ? 1 : 2 });
+const num = (v: number) => formatNumber(v, undefined, { maximumFractionDigits: Math.abs(v) >= 100 ? 1 : 2 });
 
 export function DutyView({ run }: { run: SimRun }) {
   const duty = run.result.duty;
@@ -36,7 +38,7 @@ export function DutyView({ run }: { run: SimRun }) {
   }
   const step = run.snapshot?.case.timeStep;
   const every = run.snapshot?.case.outputEvery ?? 1;
-  const stored = step ? `${(step * every).toLocaleString()} s` : "the stored step";
+  const stored = step ? `${formatNumber((step * every))} s` : "the stored step";
 
   return (
     <div className="flex min-h-[260px] flex-[3] flex-col overflow-auto">
@@ -58,7 +60,10 @@ export function DutyView({ run }: { run: SimRun }) {
         <button
           className="ss-toolbtn ml-auto border border-[color:var(--ss-border)]"
           title="Save the duty table as CSV"
-          onClick={() => downloadText(dutyCsv(duty, above), `lightsim-${run.caseName}-duty.csv`)}
+          onClick={() => {
+            const name = runFileStem(run, useProjectStore.getState().project?.name, "duty");
+            downloadText(dutyCsv(duty, above), `${name}.csv`);
+          }}
         >
           <Download size={12} /> CSV
         </button>
@@ -74,7 +79,7 @@ export function DutyView({ run }: { run: SimRun }) {
               <th className="ss-th text-right" title="Root-mean-square: the mean that sets heating">RMS</th>
               <th className="ss-th">Unit</th>
               <th className="ss-th text-right" title={`From the stored points (one every ${stored})`}>
-                Time above {threshold.toLocaleString()} kW [s]
+                Time above {formatNumber(threshold)} kW [s]
               </th>
             </tr>
           </thead>

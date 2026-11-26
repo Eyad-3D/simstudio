@@ -264,6 +264,17 @@ describe("measurement cursors (RES-06)", () => {
 });
 
 describe("numbers and legends a person reads", () => {
+  it("a channel is named with its part where another has the same port name (app pass #7)", async () => {
+    const { channelName } = await import("./chartUtils");
+    const rl = ch("brake-rl", "sig_cmd", "Brake RL · Brake Command", "-");
+    const fl = ch("brake-fl", "sig_cmd", "Brake FL · Brake Command", "-");
+    const v = ch("veh", "sig_speed", "Vehicle · Vehicle Speed", "km/h");
+    expect(channelName(rl, [rl, fl, v])).toBe("Brake RL · Brake Command");
+    expect(channelName(v, [rl, fl, v])).toBe("Vehicle Speed");
+    // the same channel of another run is not another channel
+    expect(channelName(rl, [rl, { ...rl }, v])).toBe("Brake Command");
+  });
+
   it("a read-out of the solver's rounding noise reads 0", async () => {
     const { fmtNum } = await import("./chartUtils");
     expect(fmtNum(-1.773e-14)).toBe("0");
@@ -288,6 +299,12 @@ describe("numbers and legends a person reads", () => {
     expect(legendIdx([1, 2, 3, null, undefined], xs, null)).toBe(3); // a null sample is the line's; a gap is not
     expect(legendIdx([5, undefined, 7, undefined, undefined], xs, null)).toBe(2);
     expect(legendIdx([undefined, undefined], [0, 1], null)).toBeNull();
+    // a line that ended well before the chart's end has no value there (app
+    // pass #27: a 600 s run drawn with an 1800 s one, legend at 1,800 s) …
+    const t = [0, 300, 600, 900, 1200, 1500, 1800];
+    expect(legendIdx([1, 2, 3, undefined, undefined, undefined, undefined], t, null)).toBeNull();
+    // … but one on another grid that ends a step short of it still reads
+    expect(legendIdx([1, 2, 3, 4, 5, 6, undefined], [0, 300, 600, 900, 1200, 1500, 1500.1], null)).toBe(5);
     // at the pointer: the nearest sample along x, none past the line's ends
     expect(legendIdx([5, undefined, undefined, 8, undefined], xs, 1)).toBe(0);
     expect(legendIdx([5, undefined, undefined, 8, undefined], xs, 2)).toBe(3);

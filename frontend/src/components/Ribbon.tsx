@@ -65,6 +65,8 @@ import {
   type RibbonTab,
 } from "../store/uiStore";
 import { notYet } from "../notYet";
+import { fixedNumber } from "../format";
+import { isShipped } from "./panels/runRows";
 
 // Optimization is not implemented yet — kept out of the ribbon (its RibbonTab
 // id/stub render remain) until it ships as a real feature. Parameters is real
@@ -604,6 +606,7 @@ function ResultsTab() {
   const clearRuns = useProjectStore((s) => s.clearRuns);
   const shown = useProjectStore((s) => s.runs.length);
   const stored = useProjectStore((s) => s.storedRunCount);
+  const shipped = useProjectStore((s) => s.runs.filter(isShipped).length);
   return (
     <>
       <RibbonGroup label="Simulation">
@@ -618,12 +621,21 @@ function ResultsTab() {
       </RibbonGroup>
       <RibbonGroup label="Results">
         <div className="flex h-full flex-col justify-center gap-1 px-2 text-meta text-[color:var(--ss-text-dim)]">
-          <span className="flex items-center gap-1" title="Runs are stored on disk with the project">
+          <span
+            className="flex items-center gap-1"
+            title={
+              stored === 0 && shown > 0 && shipped === shown
+                ? "The example's own results, to compare with: Run makes runs of your own, stored with the project"
+                : "Runs are stored on disk with the project"
+            }
+          >
             <Gauge size={13} />
             {stored > 0
               ? `${stored} stored run${stored > 1 ? "s" : ""}`
               : shown > 0
-                ? `${shown} run${shown > 1 ? "s" : ""} (not stored on disk)`
+                ? shipped === shown
+                  ? `${shown} result${shown > 1 ? "s" : ""} that came with the example`
+                  : `${shown} run${shown > 1 ? "s" : ""} (not stored on disk)`
                 : "No stored runs yet"}
             {stored > shown && shown > 0 && <span className="text-meta">· newest {shown} shown</span>}
           </span>
@@ -845,7 +857,7 @@ function CopyForAi() {
     try {
       const { text, bytes } = await api.aiOverview(s.project, run, hide);
       await copyText(text);
-      const kb = (bytes / 1024).toFixed(1);
+      const kb = fixedNumber((bytes / 1024), 1);
       setDone(`Copied (${kb} KB)`);
       s.log("info", `Copy for AI: a ${kb} KB summary of the model${run ? ` and its run of '${run.caseName}'` : ""} is on the clipboard${hide ? ", numbers hidden" : ""}. Paste it into any chatbot; LightSim sent nothing.`);
       window.setTimeout(() => setDone(null), 4000);
@@ -1122,7 +1134,7 @@ function GlobalRunControl() {
           onClick={stopRun}
           title="Stop the running simulation"
         >
-          <Square size={11} /> Stop {livePct.toFixed(0)}%
+          <Square size={11} /> Stop {fixedNumber(livePct, 0)}%
         </button>
       ) : (
         <button

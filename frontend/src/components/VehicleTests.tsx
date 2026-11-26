@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import { useProjectStore } from "../store/projectStore";
+import { formatNumber } from "../format";
 
 /** The tests, as the engine names them (backend/app/vehicle_tests.py). */
 const TESTS: [string, string][] = [
@@ -12,7 +13,7 @@ const TESTS: [string, string][] = [
   ["coast_down", "Virtual coast-down: road load A, B, C"],
 ];
 
-const fmt = (v: number) => v.toLocaleString("en", { maximumSignificantDigits: 4 });
+const fmt = (v: number) => formatNumber(v, "en", { maximumSignificantDigits: 4 });
 
 /** CON-06: one-click vehicle tests on the model as it is. */
 export function VehicleTestsDialog({ onClose }: { onClose: () => void }) {

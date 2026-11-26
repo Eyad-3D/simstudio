@@ -3,6 +3,8 @@
 // changed one; and what changed between two runs' snapshots (RES-10).
 
 import type { ComponentDef, ElementInstance, Project, RunSnapshot } from "./types";
+import { formatNumber } from "./format";
+import { FS_EVENT_NAMES } from "./fsEvents";
 
 /** JSON with every object's keys sorted, so equal values give equal text
  *  whatever order their fields were written in. */
@@ -39,7 +41,7 @@ export interface ModelChange {
 }
 
 // (a run's name is stored with it, so its numbers do not follow the locale)
-const num = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 6 });
+const num = (v: number) => formatNumber(v, "en-US", { maximumFractionDigits: 6 });
 const unitOf = (u?: string) => (u && u !== "-" ? ` ${u}` : "");
 /** A value short enough to print, else null (tables, scripts, long text). */
 function shown(v: unknown): string | null {
@@ -62,7 +64,14 @@ const CASE_FIELDS: Record<string, [string, string, unknown?]> = {
   startLine: ["Start line", " m", 0],
   referenceTime: ["Reference time", " s"],
   energyReport: ["Energy report", "", true],
+  mode: ["Run mode", "", "full"],
+  fsEvent: ["FS event", ""],
+  referenceEnergy: ["Reference energy", " kWh"],
+  referenceEnergyTime: ["Reference energy's time", " s"],
 };
+/** A case setting's value as the case form shows it: an FS event by its name. */
+const caseValue = (k: string, v: unknown) =>
+  k === "fsEvent" && typeof v === "string" ? (FS_EVENT_NAMES[v as keyof typeof FS_EVENT_NAMES] ?? v) : v;
 // the case's identity, its overrides (compared per parameter), its pacing and
 // its expected values (VAL-35), which change no result
 const NOT_A_SETTING = new Set(["id", "name", "parameterOverrides", "realtimeFactor", "references"]);
@@ -125,8 +134,8 @@ export function diffSnapshots(base: RunSnapshot, next: RunSnapshot, lib: Record<
   for (const k of new Set([...Object.keys(bc), ...Object.keys(nc)])) {
     if (NOT_A_SETTING.has(k)) continue;
     const [label, unit, absent] = CASE_FIELDS[k] ?? [k, ""];
-    const a = (bc as unknown as Record<string, unknown>)[k] ?? absent;
-    const b = (nc as unknown as Record<string, unknown>)[k] ?? absent;
+    const a = caseValue(k, (bc as unknown as Record<string, unknown>)[k] ?? absent);
+    const b = caseValue(k, (nc as unknown as Record<string, unknown>)[k] ?? absent);
     if (canonicalJson(a) === canonicalJson(b)) continue;
     const sb = shown(b) ?? "—";
     out.push({ text: `Case · ${label} ${shown(a) ?? "—"} → ${sb}${unit}`, short: `${label} ${sb}${unit}` });

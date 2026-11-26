@@ -125,5 +125,14 @@ export function progressText(p: SweepProgress, now: number): string {
   return `${p.done} of ${p.total} point${p.total === 1 ? "" : "s"} done · ${timeLeftText(timeLeft(p, now))}`;
 }
 
+/** The endurance figure that says whether the car finished on its energy. */
+export const ENDURANCE_FINISHED = "Endurance finished on its energy";
+
+/** An endurance point that did not finish (DNF): its pack reached its
+ *  minimum charge, whether the run then stopped (the car could not drive
+ *  on) or crawled to the end on what was left. The study's map, its
+ *  messages and its closing notice all count these. */
+export const pointDnf = (p: Pick<StudyPoint, "kpis">) => p.kpis[ENDURANCE_FINISHED] === 0;
+
 /** A study point whose run ended normally: not stopped, failed or not run. */
 export const pointComplete = (p: StudyPoint) => (p.status === "success" || p.status === "warning") && !p.incomplete;

@@ -11,6 +11,7 @@
 // THIRD-PARTY-NOTICES.txt) estimates its slip stiffness and friction.
 
 import tyres from "./data/tyres.json";
+import { formatNumber } from "./format";
 
 const GRAVITY = 9.81;
 const INCH = 0.0254;
@@ -92,7 +93,7 @@ export function tyreValues(spec: TyreSpec, rollingRadiusFactor = 0.97): Record<s
 export function describeTyre(spec: TyreSpec, rollingRadiusFactor = 0.97): string {
   const mm = (m: number) => (m * 1000).toFixed(1);
   const kg = maxLoadKg(spec);
-  const load = kg === null ? "" : `, carries up to ${kg.toLocaleString("en")} kg (load index ${spec.loadIndex})`;
+  const load = kg === null ? "" : `, carries up to ${formatNumber(kg, "en")} kg (load index ${spec.loadIndex})`;
   return (
     `${spec.code}: unloaded radius ${mm(spec.unloadedRadiusM)} mm, rolls on ` +
     `${mm(spec.unloadedRadiusM * rollingRadiusFactor)} mm${load}.`

@@ -14,6 +14,7 @@ import { useUIStore } from "../../store/uiStore";
 import { componentIcon } from "../../icons";
 import { EnergyLines, NodeMarks } from "./EnergyOverlay";
 import { SIDES, drawnPorts, movedPlace, nodeSize, portPlaces, type Place } from "./portPlaces";
+import { fixedNumber, formatNumber } from "../../format";
 
 export type ElementNodeData = {
   element: ElementInstance;
@@ -71,7 +72,7 @@ const LIVE_BADGE: Record<string, { port: string; unit: string; digits: number }>
 
 function formatLive(v: number, digits: number): string {
   if (!Number.isFinite(v)) return "—";
-  return Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : v.toFixed(digits);
+  return Math.abs(v) >= 1000 ? formatNumber(v, undefined, { maximumFractionDigits: 0 }) : fixedNumber(v, digits);
 }
 
 const POSITION_OF: Record<PortSide, Position> = {

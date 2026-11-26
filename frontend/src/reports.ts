@@ -3,7 +3,7 @@
 // (RES-39). Pure helpers for the Results page, the diagram and the studies.
 
 import { csvText } from "./components/panels/csv";
-import type { DutyPart, EnergyFlow, EnergyReport, LimitLane, SimResult } from "./types";
+import type { DutyPart, EnergyFlow, EnergyReport, LimitLane, Project, SimResult, SimRun } from "./types";
 
 // Colours: the dataviz reference palette's light and dark steps, in an
 // order that passes its colour-vision checks in both themes (only four hues
@@ -234,6 +234,22 @@ export const DUTY_CHANNEL: Record<string, Record<string, string>> = {
   "fuelcell.stack": { Power: "sig_power", Current: "sig_current" },
   "controller.dcdc": { "Power in": "sig_power_in", "Power out": "sig_power_out", Losses: "sig_losses" },
 };
+
+/** A file name a person reads: what Windows forbids becomes "_". */
+const safeName = (s: string) =>
+  [...s].map((ch) => ('<>:"/\\|?*'.includes(ch) || ch < " " ? "_" : ch)).join("").slice(0, 150) || "run";
+
+/** Every export of a run is named one way, as the engine names its .mat
+ *  (dataio/results.file_stem): "<project> - <case> - <run name or start
+ *  time>", plus what it holds (" - energy"); no internal id. */
+export function runFileStem(run: SimRun, projectName = "", what = ""): string {
+  const when = run.startedAt ? new Date(run.startedAt).toISOString().slice(0, 19).replace(/:/g, "-") + "Z" : run.id;
+  const parts = [run.snapshot?.project.name ?? projectName, run.caseName, run.name ?? when, what];
+  return safeName(parts.filter(Boolean).join(" - "));
+}
+
+/** The project's own file: "<project>.lightsim". */
+export const projectFileName = (project: Pick<Project, "name">, ext = ".lightsim") => `${safeName(project.name)}${ext}`;
 
 export function downloadText(text: string, name: string, type = "text/csv") {
   const url = URL.createObjectURL(new Blob([text], { type }));

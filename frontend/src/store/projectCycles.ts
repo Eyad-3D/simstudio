@@ -10,6 +10,7 @@
 import type * as api from "../api";
 import type { Project, ProjectCycle } from "../types";
 import { useProjectStore } from "./projectStore";
+import { formatNumber } from "../format";
 
 /** No bundled cycle's id starts with this. */
 export const OWN_PREFIX = "own:";
@@ -107,7 +108,7 @@ export function addProjectCycle(cycle: Omit<ProjectCycle, "id"> & { id?: string 
   syncCycleList();
   s.log(
     "info",
-    `Drive cycle '${cycle.name}' (${cycle.x.length.toLocaleString("en")} points) is kept in the project; save the project to keep it.`,
+    `Drive cycle '${cycle.name}' (${formatNumber(cycle.x.length, "en")} points) is kept in the project; save the project to keep it.`,
   );
   return id;
 }

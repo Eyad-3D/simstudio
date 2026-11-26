@@ -5,6 +5,7 @@
 import { useCallback, useState } from "react";
 import type uPlot from "uplot";
 import type { Channel, SimRun } from "../../types";
+import { formatNumber } from "../../format";
 
 /** Series colours for chart lines and swatches (at least 3:1 on the panel).
  *  Several are too faint for text, so names are drawn in the text colour. */
@@ -23,6 +24,19 @@ export const PALETTE = [
 
 export function channelKey(c: Channel): string {
   return `${c.elementId}:${c.portId}`;
+}
+
+/** The port part of a channel's label: "Brake Command" of "Brake RL · Brake Command". */
+const portName = (c: Channel) => c.label.split(" · ")[1] ?? c.label;
+
+/** A channel's name among others drawn or listed with it: its port alone
+ *  ("Vehicle Speed") when no other channel in `among` has that port name,
+ *  else with its part ("Brake RL · Brake Command"), so five brakes' commands
+ *  can be told apart. */
+export function channelName(c: Channel, among: readonly Channel[]): string {
+  const key = channelKey(c);
+  const port = portName(c);
+  return among.some((o) => channelKey(o) !== key && portName(o) === port) ? c.label : port;
 }
 
 /** True once the element has a real size — dockview keeps hidden tabs at 0×0,
@@ -48,8 +62,6 @@ export function useHasSize<T extends HTMLElement>() {
 
 // ---- axes and read-outs (RES-18) ----
 
-const sig4 = new Intl.NumberFormat(undefined, { maximumSignificantDigits: 4 });
-const whole = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 /** Below this a read-out is the solver's rounding, not a value: a car at
  *  rest reads 0 km/h, not -0.00000000000001773. */
 const NOISE = 1e-9;
@@ -57,7 +69,13 @@ const NOISE = 1e-9;
  *  from 10,000 up), so the stored rounding's last digits do not show; -0
  *  and rounding noise (below 1e-9) read 0. */
 export const fmtNum = (v: number | null | undefined) =>
-  v == null ? "—" : (Math.abs(v) >= 1e4 ? whole : sig4).format(Math.abs(v) < NOISE ? 0 : v + 0);
+  v == null
+    ? "—"
+    : formatNumber(
+        Math.abs(v) < NOISE ? 0 : v,
+        undefined,
+        Math.abs(v) >= 1e4 ? { maximumFractionDigits: 0 } : { maximumSignificantDigits: 4 },
+      );
 
 /** A percentage a person reads, without its "%": 3 significant digits;
  *  "< 0.001" for a nonzero value too small to matter (an energy balance's
@@ -65,7 +83,7 @@ export const fmtNum = (v: number | null | undefined) =>
 export function fmtPct(v: number): string {
   if (v === 0) return "0";
   if (Math.abs(v) < 0.001) return v < 0 ? "> −0.001" : "< 0.001";
-  return v.toLocaleString(undefined, { maximumSignificantDigits: 3 });
+  return formatNumber(v, undefined, { maximumSignificantDigits: 3 });
 }
 
 /** A chart column as uPlot holds it: runs on other time grids leave gaps
@@ -75,12 +93,22 @@ export type LegendColumn = ArrayLike<number | null | undefined>;
 /** The sample of `col` a cursor or legend reads, for the merged x column
  *  `xs`: at the pointer's index `i`, the line's nearest sample along x (none
  *  before its first or after its last: a shorter run has ended there); with
- *  the pointer off the chart (`i` null), the line's last sample, so the
- *  legend shows where each line ended instead of a dash. */
+ *  the pointer off the chart (`i` null), the line's last sample when the line
+ *  reaches the chart's end (the x the legend then shows), give or take its own
+ *  last step (another time grid ends a little apart), else none: a 600 s run
+ *  drawn with an 1800 s one has no value at 1,800 s. */
 export function legendIdx(col: LegendColumn, xs: ArrayLike<number>, i: number | null | undefined): number | null {
   if (i == null) {
-    for (let k = col.length - 1; k >= 0; k--) if (col[k] !== undefined) return k;
-    return null;
+    const defined = (from: number) => {
+      let k = from;
+      while (k >= 0 && col[k] === undefined) k--;
+      return k;
+    };
+    const last = defined(col.length - 1);
+    if (last < 0) return null;
+    const prev = defined(last - 1);
+    const step = prev < 0 ? 0 : xs[last] - xs[prev];
+    return xs[xs.length - 1] - xs[last] <= step ? last : null;
   }
   let lo = i;
   let hi = i;
@@ -154,8 +182,10 @@ export function xAxisFor(mode: XAxisMode, runs: SimRun[]): XAxis {
 /** An x value read out in the axis's unit, to the samples' resolution; on a
  *  distance axis with the sample's time: "5.12 km (t = 612 s)". */
 export function fmtX(x: XAxis, v: number, t?: number | null): string {
-  const s = `${(v / x.div + 0).toLocaleString(undefined, { maximumFractionDigits: x.dec })} ${x.unit}`;
-  return x.kind === "distance" && t != null ? `${s} (t = ${(t + 0).toLocaleString(undefined, { maximumFractionDigits: x.tDec })} s)` : s;
+  const s = `${formatNumber(v / x.div, undefined, { maximumFractionDigits: x.dec })} ${x.unit}`;
+  return x.kind === "distance" && t != null
+    ? `${s} (t = ${formatNumber(t, undefined, { maximumFractionDigits: x.tDec })} s)`
+    : s;
 }
 
 /** Round tick steps: 1, 2, 2.5 and 5 times a power of ten. */
@@ -171,7 +201,9 @@ export function unitAxis(div: number): Pick<uPlot.Axis, "incrs" | "values"> & { 
     incrs: NICE.map((i) => i * div),
     values: (_u, splits, _axis, _space, incr) => {
       const d = decimals(incr / div);
-      return splits.map((v) => (v / div + 0).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }));
+      return splits.map((v) =>
+        formatNumber(v / div, undefined, { minimumFractionDigits: d, maximumFractionDigits: d }),
+      );
     },
   };
 }

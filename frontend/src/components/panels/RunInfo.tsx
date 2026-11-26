@@ -7,6 +7,7 @@ import type { SimRun } from "../../types";
 import { fmtNum } from "./chartUtils";
 import { ReferenceList } from "./ExpectedValues";
 import { RunSourcesView } from "./RunSourcesView";
+import { formatNumber } from "../../format";
 
 /** What a run is named by in the lists: a run in memory or one listed on disk. */
 type RunNaming = Pick<SimRun, "caseName" | "startedAt" | "status" | "incomplete" | "name" | "sweepValue" | "sweepUnit">;
@@ -33,7 +34,7 @@ export function runLabel(r: RunNaming): string {
  *  else its name or clock time. */
 export function runShort(r: RunNaming): string {
   const mark = r.incomplete ? " (incomplete)" : "";
-  if (r.sweepValue !== undefined)
+  if (r.sweepValue != null)
     return `${fmtNum(r.sweepValue)}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}${mark}`;
   return `${r.name ?? runTime(r)}${mark}`;
 }
@@ -165,7 +166,7 @@ export function RunInfo({ run }: { run: SimRun }) {
             <ul>
               {snap.liveEdits.map((e, i) => (
                 <li key={i} title={e.note ?? undefined}>
-                  t ≈ {e.t.toLocaleString(undefined, { maximumFractionDigits: 1 })} s: {paramName(e.elementId, e.key)} ={" "}
+                  t ≈ {formatNumber(e.t, undefined, { maximumFractionDigits: 1 })} s: {paramName(e.elementId, e.key)} ={" "}
                   {String(e.value)}
                   {e.note && " (not made: on the next run)"}
                 </li>

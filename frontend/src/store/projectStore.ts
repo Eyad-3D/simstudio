@@ -7,7 +7,7 @@ import { confirmDialog, scriptTrustDialog, unsavedChangesDialog } from "../dialo
 import { desktop } from "../desktop";
 import { loadDraft } from "../persist";
 import { diffSnapshots, modelFingerprint, nameFromChanges } from "../provenance";
-import { dutyKpis } from "../reports";
+import { dutyKpis, projectFileName } from "../reports";
 import type {
   Attachment,
   Channel,
@@ -40,7 +40,7 @@ import { rangeProblem } from "../paramRules";
 import type { UnitSlot } from "../units";
 import { FS_EVENT_NAMES, FS_EVENTS, packOverrides, type FsEvent } from "../fsEvents";
 import { codeOf, fingerprintOf } from "../trust";
-import { pointComplete, type SweepProgress } from "../sweep";
+import { pointComplete, pointDnf, type SweepProgress } from "../sweep";
 import { useUIStore } from "./uiStore";
 import {
   JUNCTIONS,
@@ -52,6 +52,7 @@ import {
   withTerminal,
   type Place,
 } from "../components/canvas/portPlaces";
+import { formatNumber } from "../format";
 
 export function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
@@ -281,13 +282,19 @@ function studyNotice(
   failure: string | null,
   show: FinishNotice["show"],
   studyId?: string,
+  dnf?: (p: StudyPoint) => boolean,
 ): Omit<FinishNotice, "seq"> {
-  const complete = points.filter(pointComplete).length;
+  // a point that did not finish (an endurance whose pack ran down) is not
+  // complete, even where its run went on to the end
+  const complete = points.filter((p) => pointComplete(p) && !dnf?.(p)).length;
+  const dnfs = dnf ? points.filter(dnf).length : 0;
   const stopped = points.some((p) => p.status === "not run" || p.status === "cancelled");
   const ended = failure ? "failed" : stopped ? "stopped" : "finished";
   return {
     level: failure ? "error" : complete < points.length ? "warning" : "info",
-    text: `${what} ${ended}: ${complete} of ${points.length} point${points.length === 1 ? "" : "s"} complete.`,
+    text:
+      `${what} ${ended}: ${complete} of ${points.length} point${points.length === 1 ? "" : "s"} complete` +
+      (dnfs ? `, ${dnfs} did not finish (DNF).` : "."),
     show,
     ...(studyId ? { studyId } : {}),
   };
@@ -1199,12 +1206,18 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }));
     };
 
+    // what the engine said while it ran: a failure's reasons it only put in
+    // the result (a refused model) are logged as the run ends
+    const streamed = new Set<string>();
     const handle = api.runSimulationLive(model, caseId, {
       onStep: (ev) => {
         buffer.push(ev);
         if (!flushTimer) flushTimer = setTimeout(flush, LIVE_FLUSH_MS);
       },
-      onMessage: (m) => log(m.level, m.text),
+      onMessage: (m) => {
+        streamed.add(m.text);
+        log(m.level, m.text);
+      },
     });
     activeRun = handle;
     liveLog = { runId, edits: [] };
@@ -1223,6 +1236,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     try {
       const result = await handle.done;
       if (flushTimer) clearTimeout(flushTimer);
+      if (result.status === "failed")
+        for (const m of result.messages) if (m.level !== "info" && !streamed.has(m.text)) log(m.level, m.text);
       const incomplete = incompleteReason(result);
       const finished: SimRun = {
         ...newRun,
@@ -2424,15 +2439,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       };
       if ((project.attachments ?? []).length > 0) {
         try {
-          download(await api.exportBundle(project), `${project.id}.lightsim.zip`);
-          log("info", `Project exported with its attached files as ${project.id}.lightsim.zip.`);
+          download(await api.exportBundle(project), projectFileName(project, ".lightsim.zip"));
+          log("info", `Project exported with its attached files as ${projectFileName(project, ".lightsim.zip")}.`);
           return;
         } catch (e) {
           log("warning", `The attached files could not be packed (${(e as Error).message}); exporting the project file only.`);
         }
       }
-      download(new Blob([JSON.stringify(project, null, 2)], { type: "application/json" }), `${project.id}.lightsim`);
-      log("info", `Project exported as ${project.id}.lightsim.`);
+      download(new Blob([JSON.stringify(project, null, 2)], { type: "application/json" }), projectFileName(project));
+      log("info", `Project exported as ${projectFileName(project)}.`);
     },
 
     importProject: async (json) => {
@@ -2494,7 +2509,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
       log(
         "info",
-        `Attached '${info.name}' (${(info.bytes / 1024).toLocaleString("en", { maximumFractionDigits: 0 })} kB) to the project` +
+        `Attached '${info.name}' (${formatNumber(info.bytes / 1024, "en", { maximumFractionDigits: 0 })} kB) to the project` +
           (info.name !== file.name ? ` as '${info.name}'` : "") +
           "; save the project to keep it in the list.",
       );
@@ -2655,7 +2670,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (cycle && resized.length)
         get().log(
           "info",
-          `${resized.join(", ")} now run${resized.length > 1 ? "" : "s"} ${cycle.duration_s.toLocaleString("en")} s, the length of ${cycle.name}.`,
+          `${resized.join(", ")} now run${resized.length > 1 ? "" : "s"} ${formatNumber(cycle.duration_s, "en")} s, the length of ${cycle.name}.`,
         );
     },
 
@@ -2722,7 +2737,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         const result = await executeRun(project, caseId, name);
         set({ running: false });
         if (result.status === "failed") {
-          log("error", "Simulation failed — see messages above.");
+          const said = result.messages.some((m) => m.level === "error");
+          // (its reasons are the run's own error messages, logged as it ended)
+          log("error", said ? `'${name}' failed.` : `'${name}' failed; the engine gave no reason.`);
           revealMessages();
           tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
         } else {
@@ -2915,8 +2932,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({ activeCaseId: caseId });
       log(
         "info",
-        `Imported lap added as case '${name}': ${lap.duration_s.toLocaleString("en", { maximumFractionDigits: 1 })} s, ` +
-          `${(lap.distance_m / 1000).toLocaleString("en", { maximumFractionDigits: 3 })} km` +
+        `Imported lap added as case '${name}': ${formatNumber(lap.duration_s, "en", { maximumFractionDigits: 1 })} s, ` +
+          `${formatNumber(lap.distance_m / 1000, "en", { maximumFractionDigits: 3 })} km` +
           `${lap.repeated > 1 ? ` (${lap.repeated} laps)` : ""}; source file SHA-256 ${sha256}. ` +
           "Its speed comes from the file: LightSim gives the energy and the loads for that speed, not the cornering.",
       );
@@ -2974,6 +2991,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               overrides: { [batteryId]: { ...packOverrides(params, pack), output_power_limit_kW: cap } },
               values: [pack, cap],
               label: `${simCase.name} · ${pack} kWh, ${cap} kW`,
+              // (two values: no one swept value names the run)
+              name: `${pack} kWh, ${cap} kW`,
             })),
             sweepId,
             sweepParam: "Pack × power cap",
@@ -2995,7 +3014,13 @@ export const useProjectStore = create<ProjectState>((set, get) => {
                 ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
               });
               for (const v of e.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
-              if (e.status === "failed") log("error", `Study point ${e.values[0]} kWh, ${e.values[1]} kW failed.`);
+              const point = `${e.values[0]} kWh, ${e.values[1]} kW`;
+              if (pointDnf(byIndex.get(e.index)!))
+                log(
+                  "warning",
+                  `Endurance energy study: ${point} did not finish (DNF): the pack reached its minimum charge.`,
+                );
+              else if (e.status === "failed") log("error", `Endurance energy study: ${point} failed.`);
               pointEnded(byIndex.size);
             },
           },
@@ -3034,7 +3059,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // kept with the project's runs, not in the model file (PLT-34)
       set((s) => ({ studies: [...s.studies, study] }));
       useUIStore.getState().setStudyView(project.id, { study: sweepId });
-      announce(studyNotice("Endurance energy study", study.points, failure, "cases", sweepId));
+      announce(studyNotice("Endurance energy study", study.points, failure, "cases", sweepId, pointDnf));
       try {
         await api.storeStudy(project.id, study);
         log("info", `Endurance energy study saved with the runs (Cases & Parameters → Endurance energy study and Saved studies).`);

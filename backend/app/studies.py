@@ -119,6 +119,7 @@ class StudyPointSpec:
     overrides: dict
     values: list[float] = field(default_factory=list)
     label: str = ""
+    name: str | None = None  # the run's name where no one swept value names it
 
 
 @dataclass
@@ -219,7 +220,7 @@ async def run_study(project: Project, case_id: str, points: list[StudyPointSpec]
                         startedAt=int(time.time() * 1000), status=result.status, result=result,
                         sweepId=options.sweep_id or None, sweepParam=options.sweep_param,
                         sweepValue=pt.values[0] if len(pt.values) == 1 else None,
-                        sweepUnit=options.sweep_unit, incomplete=incomplete,
+                        sweepUnit=options.sweep_unit, incomplete=incomplete, name=pt.name,
                         # the model as it was and the case with the point's
                         # value, as a run from the app keeps them (the swept
                         # value is the run's own, not a change to the model),

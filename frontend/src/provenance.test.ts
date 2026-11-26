@@ -159,6 +159,10 @@ describe("comparing two runs", () => {
     expect(texts(snap(), wltc)).toEqual(["Case City Cycle → WLTC Class 3b", "Case · Duration 600 → 1,800 s"]);
     // a renamed case does not name the run
     expect(nameFromChanges(diffSnapshots(snap(), snap((s) => (s.case.name = "WLTC")), lib))).toBeUndefined();
+    // an FS event by the form's names, not "fsEvent autocross" (app pass)
+    const event = snap((s) => Object.assign(s.case, { fsEvent: "autocross" }));
+    expect(texts(snap(), event)).toEqual(["Case · FS event — → Autocross"]);
+    expect(nameFromChanges(diffSnapshots(snap(), event, lib))).toBe("FS event Autocross");
   });
 
   it("lists both runs' live edits last, and leaves them out of the name", () => {

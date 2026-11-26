@@ -91,8 +91,8 @@ describe("the Study view (STU-16)", () => {
     const d = chartData(s, "Total time");
     expect(d.x).toEqual([6, 7]);
     expect(d.lines).toEqual([
-      { label: "Output Power Limit 30 kW", y: [1400, 1390], notValid: [null, null] },
-      { label: "Output Power Limit 40 kW", y: [1350, 1340], notValid: [null, null] },
+      { label: "30 kW", y: [1400, 1390], notValid: [null, null] },
+      { label: "40 kW", y: [1350, 1340], notValid: [null, null] },
     ]);
   });
 

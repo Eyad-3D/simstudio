@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import { useProjectStore } from "../store/projectStore";
+import { formatNumber } from "../format";
 
 type Role = "time" | "distance" | "speed" | "lap";
 const ROLES: { role: Role; label: string }[] = [
@@ -198,7 +199,7 @@ export function LapImportDialog({ onClose }: { onClose: () => void }) {
                     {result.laps.map((l) => (
                       <option key={l.lap} value={l.lap}>
                         Lap {l.lap} (
-                        {l.span.toLocaleString("en", {
+                        {formatNumber(l.span, "en", {
                           maximumFractionDigits: 1,
                         })}
                         )
@@ -228,16 +229,16 @@ export function LapImportDialog({ onClose }: { onClose: () => void }) {
               <Preview points={result.preview} />
               <p className="text-meta">
                 {result.lap != null ? `Lap ${result.lap}: ` : ""}
-                {result.duration_s.toLocaleString("en", {
+                {formatNumber(result.duration_s, "en", {
                   maximumFractionDigits: 1,
                 })}{" "}
                 s,{" "}
-                {result.distance_m.toLocaleString("en", {
+                {formatNumber(result.distance_m, "en", {
                   maximumFractionDigits: 1,
                 })}{" "}
                 m{result.repeated > 1 ? ` (${result.repeated} laps)` : ""}
                 {result.source_distance_m != null
-                  ? `; the file's own distance ${result.source_distance_m.toLocaleString("en", { maximumFractionDigits: 1 })} m`
+                  ? `; the file's own distance ${formatNumber(result.source_distance_m, "en", { maximumFractionDigits: 1 })} m`
                   : ""}
               </p>
               {result.warnings.map((w) => (

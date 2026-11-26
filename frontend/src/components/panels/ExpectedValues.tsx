@@ -3,6 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { gapText, GRADE_TEXT, gradeTitle } from "../../references";
 import { useProjectStore } from "../../store/projectStore";
 import type { ReferenceCheck, ReferenceGrade, ReferenceValue, SimCase } from "../../types";
+import { formatNumber } from "../../format";
 
 const GRADE_CLASS: Record<ReferenceGrade, string> = {
   within: "border-[color:var(--ss-ok)] text-[color:var(--ss-ok)]",
@@ -28,7 +29,7 @@ export function GradeChip({ check }: { check: ReferenceCheck }) {
 /** One check in a line: its value against the reference and the gap. */
 function CheckLine({ c }: { c: ReferenceCheck }) {
   const num = (x: number | null | undefined) =>
-    x == null ? "—" : x.toLocaleString(undefined, { maximumSignificantDigits: 4 });
+    x == null ? "—" : formatNumber(x, undefined, { maximumSignificantDigits: 4 });
   const rel = c.bound === "at most" ? "≤" : c.bound === "at least" ? "≥" : "vs";
   return (
     <li className="flex min-w-0 flex-wrap items-baseline gap-x-1.5" title={gradeTitle(c)}>

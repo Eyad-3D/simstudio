@@ -264,8 +264,12 @@ def calibrate(project: Project, log: LoggedLap) -> dict:
         raise laplog.LapLogError("Lap mode cannot drive the logged lap with any grip and "
                                  "downforce tried: check the log's units and the model's "
                                  "maps.")
-    return {"mu_scale": round(best[1], 4), "cza": round(best[2], 3),
-            "rms_kmh": round(best[0] * 3.6, 3), "evaluations": evals}
+    mu, cz = round(best[1], 4), round(best[2], 3)
+    # the RMS of the values reported, on the 1 m track the prediction drives:
+    # the search's own (2 m, unrounded) gave 3.6 km/h where the prediction
+    # of the same lap gave 3.4
+    return {"mu_scale": mu, "cza": cz, "rms_kmh": round(laps.speed_rms(mu, cz, POINT_M) * 3.6, 3),
+            "evaluations": evals}
 
 
 def predict(project: Project, log: LoggedLap, mu_scale: float, cza: float) -> dict:
