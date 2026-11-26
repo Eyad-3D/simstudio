@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { useUIStore } from "./store/uiStore";
-import { HINTS, useTourStore, valueChanged, watchSteps } from "./tour";
+import { useProjectStore } from "./store/projectStore";
+import { HINTS, tick, useTourStore, valueChanged, watchSteps } from "./tour";
 import type { ElementInstance, Project } from "./types";
 
 const el = (id: string, parameterOverrides: ElementInstance["parameterOverrides"] = {}): ElementInstance => ({
@@ -46,6 +47,34 @@ describe("the one-time hints", () => {
     useTourStore.setState({ hint: HINTS.cases, hintKey: "cases" });
     useUIStore.setState({ ribbonTab: "simulations" });
     expect(useTourStore.getState().hint).toBe(HINTS.cases);
+    stop();
+  });
+});
+
+describe("the step bar follows the open project", () => {
+  it("a new empty project shows no step done; the example's stay with the example", () => {
+    useTourStore.setState({ doneIn: {}, hidden: false });
+    useProjectStore.setState({ project: { ...model(el("a")), id: "example" }, dataChecks: [], runs: [], activeCaseId: null } as never);
+    const stop = watchSteps();
+    // the example has parts and no errors: Build is done there
+    expect(useTourStore.getState().doneIn?.example).toEqual({ build: true });
+    tick("run");
+    // a new empty project: nothing done, Build with 0 parts not either
+    useProjectStore.setState({ project: { ...model(), id: "new" }, dataChecks: [] } as never);
+    expect(useTourStore.getState().doneIn?.new).toBeUndefined();
+    // back to the example: its steps are as they were
+    expect(useTourStore.getState().doneIn?.example).toEqual({ build: true, run: true });
+    stop();
+  });
+
+  it("a Save As (the same project under a new id) keeps its steps", () => {
+    useTourStore.setState({ doneIn: {}, hidden: false });
+    const p = { ...model(el("a")), id: "before" };
+    useProjectStore.setState({ project: p, dataChecks: [], runs: [], activeCaseId: null } as never);
+    const stop = watchSteps();
+    tick("values");
+    useProjectStore.setState({ project: { ...p, id: "saved-as" } } as never);
+    expect(useTourStore.getState().doneIn?.["saved-as"]).toEqual({ build: true, values: true });
     stop();
   });
 });

@@ -29,6 +29,9 @@ export interface DataApply {
 const ACCEPT =
   ".csv,.tsv,.txt,.xlsx,.xlsm,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+/** "1 output", "3 inputs" */
+const count = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
+
 /** The import of a table: its "Import…" button (with the file chooser), a
  *  handler for pasted text the grid cannot take as it is, and the dialog. */
 export function useTableImport(target: api.DataTargetRef | null, onApply: (r: DataApply) => void) {
@@ -316,7 +319,7 @@ export function ImportDataDialog({
                   <span>
                     Set the Map block&apos;s inputs and outputs from the data
                     {build && result.ports
-                      ? ` (${inputs} inputs, ${result.ports.length - inputs} outputs, named and with units from the titles)`
+                      ? ` (${count(inputs, "input")}, ${count(result.ports.length - inputs, "output")}, named and with units from the titles)`
                       : ""}
                     <span className="block text-meta text-[color:var(--ss-text-dim)]">
                       Its inputs and outputs are replaced; wires to a port whose name is not in the data are removed.

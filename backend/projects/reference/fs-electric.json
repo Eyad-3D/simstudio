@@ -155,7 +155,7 @@
      "differencePct": -6.157,
      "tolerance": 0.5,
      "grade": "within",
-     "source": "FS Czech Republic 2025, best times of 35 EV teams: 3.51-6.44 s, median 3.91 s (the band of test_examples_plausible.py, 3.5-4.5 s)",
+     "source": "FS Czech Republic 2025, best times of 35 EV teams: 3.51-6.44 s, median 3.91 s (LightSim's tests hold this example to 3.5-4.5 s)",
      "automatic": false,
      "bound": "two-sided"
     },

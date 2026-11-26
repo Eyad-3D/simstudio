@@ -308,6 +308,39 @@ def test_a_map_block_is_built_from_the_data_with_the_user_s_yes():
     assert res["tables"]["note"]["50"]["954.929658551"]["20"] == 2.0
 
 
+def test_a_map_block_with_its_first_ports_takes_the_names_and_units_from_the_titles():
+    """#13: a Map whose ports are still the ones it starts with (Input 1, 2,
+    3, Output 1, no unit) and data titled with names and units: the import
+    sets the ports from the titles by itself (the user may say no), instead
+    of reading Speed [1/min] as 'Input 1' in no unit."""
+    text = "Speed [1/min],Torque [N·m],Temperature [°C],Loss [kW]\n" + "".join(
+        f"{n},{m},{t},{n * m / 9549:.3f}\n" for n, m, t in itertools.product((1000, 2000), (50, 100), (25, 50)))
+    fresh = data_target("signal.map", "maps", [
+        {"id": f"input_{k}", "name": f"Input {k}", "direction": "input", "unitGroup": "No Unit"} for k in (1, 2, 3)
+    ] + [{"id": "output_1", "name": "Output 1", "direction": "output", "unitGroup": "No Unit"}])
+    res = run(text, fresh)
+    assert res["ok"], res["problems"]
+    assert res["build"] and res["canBuild"]
+    assert [(p["name"], p["direction"], p["unitGroup"]) for p in res["ports"]] == [
+        ("Speed", "input", "Rotational Speed"), ("Torque", "input", "Torque"),
+        ("Temperature", "input", "Temperature"), ("Loss", "output", "Power")]
+    said = " ".join(p["text"] for p in res["problems"]) + " ".join(res["notes"])
+    assert "Nothing in the data says" not in said
+    # each column read in its own unit, into a port of that unit (not "1/min → -")
+    assert [(f["target"], f["unit"]) for f in res["fields"]] == [
+        ("Speed", "1/min"), ("Torque", "N·m"), ("Temperature", "°C"), ("Loss", "kW")]
+    # the user's no: the ports stay as they are, matched in order
+    res = run(text, fresh, build=False)
+    assert not res["build"] and [f["target"] for f in res["fields"]][:3] == ["Input 1", "Input 2", "Input 3"]
+    # ports the user named keep their names: nothing is set from the data by itself
+    named = data_target("signal.map", "maps", [
+        {"id": "n", "name": "Motor speed", "direction": "input", "unitGroup": "Rotational Speed"},
+        {"id": "m", "name": "Motor torque", "direction": "input", "unitGroup": "Torque"},
+        {"id": "t", "name": "Coolant", "direction": "input", "unitGroup": "Temperature"},
+        {"id": "loss", "name": "Losses", "direction": "output", "unitGroup": "Power"}])
+    assert not run(text, named)["build"]
+
+
 # ---- the round trip ---------------------------------------------------------------------
 
 def test_the_parameter_sheet_s_long_form_comes_back_the_same():

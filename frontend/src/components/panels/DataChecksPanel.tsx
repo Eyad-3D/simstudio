@@ -3,6 +3,9 @@ import { countOf, useProblems, useProjectStore, type Problem } from "../../store
 import { useUIStore } from "../../store/uiStore";
 import { levelIcon } from "./MessagesPanel";
 
+/** The line the Data Checks give when they found nothing (backend validation.py). */
+const ALL_PASSED = "All data checks passed";
+
 /** The Problems list: the latest Data Checks (re-run by themselves after
  *  every change) and the latest run's warnings and errors, or, while the
  *  engine refuses to read the model, the values it refused. A row selects the
@@ -34,6 +37,9 @@ export function DataChecksPanel() {
   const seen = new Map<string, number>();
   const errors = problems.filter((p) => p.level === "error").length;
   const warnings = problems.filter((p) => p.level === "warning").length;
+  // the notes listed, so the count matches the list (the line that says all
+  // checks passed is not one)
+  const notes = problems.filter((p) => p.level === "info" && !p.text.startsWith(ALL_PASSED)).length;
 
   return (
     <div className="flex h-full flex-col">
@@ -51,7 +57,7 @@ export function DataChecksPanel() {
             ? `The engine refused the model: ${countOf(refused.length, "problem")}`
             : checksError && !dataChecks
               ? "Not checked"
-              : `${countOf(errors, "error")}, ${countOf(warnings, "warning")}`}
+              : `${countOf(errors, "error")}, ${countOf(warnings, "warning")}${notes ? `, ${countOf(notes, "note")}` : ""}`}
         </span>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -105,9 +111,8 @@ export function DataChecksPanel() {
                     )}
                   </span>
                   <span className="shrink-0 text-right text-meta text-[color:var(--ss-text-dim)]">
-                    {p.source === "check" ? (
-                      "Data Checks"
-                    ) : p.source === "refused" ? (
+                    {/* where it came from, unless it is the Data Checks, as most rows are */}
+                    {p.source === "check" ? null : p.source === "refused" ? (
                       <span title={p.code}>Engine refused</span>
                     ) : (
                       <>

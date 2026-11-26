@@ -696,6 +696,8 @@ function ParameterInput({
           aria-label={def.label}
           aria-description={def.description ?? undefined}
           title={String(value)}
+          // as wide as its longest choice (index.css)
+          style={{ "--ss-option-ch": longestOption(def) } as React.CSSProperties}
           value={String(value)}
           onChange={(e) => onChange(e.target.value)}
         >
@@ -970,6 +972,11 @@ function defaultText(def: ParameterDef, shownIn = def.unit): string | null {
   return null;
 }
 
+/** The length of a list parameter's longest choice, in characters: its box
+ *  is that wide, so no choice is cut ("Limited-slip", not "Limitec"). */
+export const longestOption = (def: ParameterDef) =>
+  Math.max(1, ...(def.options ?? []).map((o) => optionLabel(def.key, o).label.length));
+
 const isProfile = (p: ParameterDef) => p.type === "string" && p.key === "profile";
 const isTable = (p: ParameterDef) => p.type === "table1d" || p.type === "table2d" || p.type === "table";
 const isBig = (p: ParameterDef) => isTable(p) || p.type === "maps" || p.type === "code" || isProfile(p);
@@ -1104,6 +1111,8 @@ export function ElementForm({
   const [help, setHelp] = useState<string | null>(null);
   const [pointed, setPointed] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
+  // the row typed in since it took the focus or the pointer
+  const [typed, setTyped] = useState<string | null>(null);
   const want = pointed ?? focused;
   useEffect(() => {
     if (want === help) return;
@@ -1116,7 +1125,12 @@ export function ElementForm({
   const covered = useUIStore((s) => compact && (s.paramDialogId !== null || s.dialog !== null));
   // (a unit chooser open under its row: the card steps aside, so it never
   // lies over the chooser in a narrow window)
-  const helpDef = covered || unitOpen ? undefined : def.parameters.find((p) => p.key === help && p.description);
+  const shownHelp = covered || unitOpen ? undefined : def.parameters.find((p) => p.key === help && p.description);
+  // in a part's window a row spans the whole width, so the card cannot sit
+  // beside it: while the value is being typed, or is out of its limits, the
+  // card steps aside, so it never lies over the row's error or the rows
+  // below it (the docked Properties panel's card sits beside the panel)
+  const helpDef = shownHelp && !compact && (typed === shownHelp.key || problemOf(shownHelp)) ? undefined : shownHelp;
   useEffect(() => {
     const el = card.current;
     if (!el?.showPopover) return; // no popovers in jsdom
@@ -1145,12 +1159,17 @@ export function ElementForm({
   const helpProps = (p: ParameterDef) => ({
     "data-help": helpPage(p), // F1 opens it
     style: help === p.key ? { anchorName: anchor } : undefined,
-    onMouseEnter: () => setPointed(p.key),
+    onMouseEnter: () => {
+      setPointed(p.key);
+      setTyped(null);
+    },
     onMouseLeave: () => setPointed(null),
     onFocus: () => {
       setFocused(p.key);
       setHelp(p.key);
+      setTyped(null);
     },
+    onInput: () => setTyped(p.key),
     // moving to the card's own button keeps it
     onBlur: (e: React.FocusEvent) => e.relatedTarget?.closest(".ss-help-card") || setFocused(null),
   });
@@ -1246,7 +1265,9 @@ export function ElementForm({
         <tr {...helpProps(p)} data-param={p.key}>
           {/* the full label is in the help card, or else its tooltip */}
           <td className="ss-td flex items-center text-meta" title={p.description ? undefined : p.label}>
-            <span className="truncate">{p.label}</span>
+            {/* the whole name, on more lines where the panel is narrow: a cut
+                name ("Maximum Spe…" beside a 0) can make its value mislead */}
+            <span className="ss-param-name">{p.label}</span>
             <SourceBadge src={element.parameterSources?.[p.key]} />
             {running && p.variability === "fixed" && (
               <span
@@ -1541,7 +1562,7 @@ export function ElementForm({
                   const v = valueOf(p);
                   return p.type === "number" && typeof v === "number" ? showNumber(v, p.unit, unitOf(p)).length : 0;
                 }),
-              )}ch + 24px))`,
+              )}ch + 24px), calc(${Math.max(0, ...scalarParams.filter((p) => p.type === "enum").map(longestOption))}ch + 32px))`,
               "--ss-unit-col": `calc(${Math.max(1, ...scalarParams.map((p) => unitOf(p).length))}ch + 26px)`,
             } as React.CSSProperties
           }
@@ -1635,15 +1656,17 @@ export function ElementForm({
             Ports
           </div>
           {partDef(element, def).ports.map((p) => (
-            <div key={p.id} className="flex items-center gap-2 py-0.5 text-meta">
+            // the name in full; its kind and direction beside it, or on a line
+            // of their own where the panel is narrow
+            <div key={p.id} className="flex flex-wrap items-center gap-x-2 py-0.5 text-meta">
               <span
                 className="h-2 w-2 shrink-0 rounded-full"
                 style={{ background: KIND_COLOR[p.kind] }}
               />
-              <span className="truncate" title={p.name}>
+              <span className="ss-param-name" title={p.name}>
                 {p.name}
               </span>
-              <span className="ml-auto shrink-0 whitespace-nowrap text-meta text-[color:var(--ss-text-dim)]">
+              <span className="ml-auto whitespace-nowrap pl-4 text-meta text-[color:var(--ss-text-dim)]">
                 {element.hiddenPorts?.includes(p.id) && (
                   <span title="Not drawn on the diagram: the part's right-click menu shows it again">hidden · </span>
                 )}

@@ -204,6 +204,16 @@ test("the title follows a rename", () => {
   expect(opened[0].document.querySelector("h1")?.textContent).toBe("Front Motor");
 });
 
+test("the header names the part's type only when its name does not say it (#30)", () => {
+  fakeOpen();
+  open("m1");
+  const header = () => opened[0].document.querySelector("header")!.textContent;
+  expect(header()).toContain("Motor A— Test Motor");
+  // named after its type: "Test Motor", not "Test Motor — Test Motor"
+  act(() => useProjectStore.getState().renameElement("m1", "Test Motor"));
+  expect(header()).not.toContain("—");
+});
+
 test("deleting the part closes its window, and only its window", () => {
   fakeOpen();
   open("m1");

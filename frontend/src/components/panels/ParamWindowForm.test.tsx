@@ -234,3 +234,61 @@ test("the form scrolls with room for the sticky search row, so nothing scrolled 
   const pad = /scroll-padding-top: calc\((\d+)px \* var\(--ss-ui-scale, 1\)\);/.exec(rule(".ss-param-scroll"));
   expect(Number(pad?.[1])).toBeGreaterThanOrEqual(44);
 });
+
+/** One part of `defId` alone in the project, labelled `label`. */
+function onePart(defId: string, label: string, id = "x") {
+  useProjectStore.setState({
+    project: {
+      ...project(),
+      systems: [{ id: "root", name: "P", parentId: null, connections: [], elements: [
+        { id, componentDefId: defId, label, position: { x: 0, y: 0 }, parameterOverrides: {} },
+      ] }],
+    } as unknown as Project,
+  });
+}
+
+test("in a part's window a value's help card steps aside while the value is typed or out of its limits (#12)", () => {
+  onePart("motor.emotor", "E-Motor");
+  show("x");
+  const field = host.querySelector<HTMLInputElement>('tr[data-param="torque_scale_pct"] input')!;
+  const card = () => host.querySelector(".ss-help-card")!.textContent;
+  act(() => field.focus());
+  expect(card()).toContain("Torque Scale");
+  // typing: the card goes, so the row's error and the rows below show
+  setValue(field, "-50");
+  expect(card()).toBe("");
+  expect(host.querySelector('tr[data-param="torque_scale_pct"] + tr [role="alert"]')?.textContent).toContain("Torque Scale");
+  // focus away and back: the value is out of its limits, so its error shows, not the card
+  act(() => field.blur());
+  act(() => field.focus());
+  expect(card()).toBe("");
+});
+
+test("in the docked Properties panel the card stays beside the panel while a value is typed (#12)", () => {
+  onePart("motor.emotor", "E-Motor");
+  host = document.body.appendChild(document.createElement("div"));
+  root = createRoot(host);
+  act(() => root.render(<ElementForm element={el("x")} def={libraryById["motor.emotor"]} compact />));
+  const field = host.querySelector<HTMLInputElement>('tr[data-param="speed_scale_pct"] input')!;
+  act(() => field.focus());
+  setValue(field, "90");
+  expect(host.querySelector(".ss-help-card")!.textContent).toContain("Speed Scale");
+});
+
+test("a choice box is as wide as its longest choice (#16)", () => {
+  onePart("mech.differential", "Differential");
+  show("x");
+  const type = host.querySelector<HTMLSelectElement>('select[aria-label="Type"]')!;
+  expect(type.style.getPropertyValue("--ss-option-ch")).toBe(String("Limited-slip".length));
+});
+
+test("a parameter's and a port's name are never cut to one line (#26)", () => {
+  onePart("motor.emotor", "E-Motor");
+  show("x");
+  const name = host.querySelector('tr[data-param="max_speed_rpm"] td span')!;
+  expect(name.textContent).toBe("Maximum Speed (0 = full-load curve's last point)");
+  expect(name.className).not.toMatch(/truncate/);
+  const ports = [...host.querySelectorAll(".ss-param-name")].map((s) => s.textContent);
+  expect(ports).toContain("Positive Terminal (+)");
+  expect(host.querySelector('[title="Positive Terminal (+)"]')?.className).not.toMatch(/truncate/);
+});

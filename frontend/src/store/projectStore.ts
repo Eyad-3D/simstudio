@@ -1055,8 +1055,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     else if (upgradedFrom !== null)
       log(
         "info",
-        `'${name}' was saved in an older file format (${upgradedFrom}); LightSim upgraded it. ` +
-          "Saving writes the new format and keeps the old file in its backups (Project → Restore…).",
+        `'${name}' was saved by an older version of LightSim and has been upgraded. Saving writes it in ` +
+          `this version's format and keeps the old file in its backups (Project → Restore…). (File format ${upgradedFrom}.)`,
       );
   }
 

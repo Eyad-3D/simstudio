@@ -4,6 +4,11 @@ import type { ComponentDef, ElementInstance, ParameterDef, ParameterSource, Scal
 
 export const SOURCE_KINDS: SourceKind[] = ["measured", "datasheet", "estimated", "generated", "library default"];
 export const CONFIDENCE = ["0 · not checked", "1 · agrees with its source", "2 · source and method checked"];
+/** The confidence in words, as a row and a tooltip say it ("not checked", not "confidence 0"). */
+const SURE = ["not checked", "agrees with its source", "source and method checked"];
+/** "Generated, not checked": a recorded source's kind and how sure it is. */
+export const sourceWords = (src: ParameterSource) =>
+  `${src.kind.charAt(0).toUpperCase()}${src.kind.slice(1)}, ${SURE[src.confidence] ?? SURE[0]}`;
 
 /** Values that can carry a source: numbers and tables (settings, text and
  *  scripts are choices, not data). */
@@ -13,7 +18,7 @@ export const sourced = (p: ParameterDef) =>
 /** A short tag for a recorded source, its full text in the tooltip. */
 export function SourceBadge({ src }: { src?: ParameterSource }) {
   if (!src) return null;
-  const tip = `${src.kind} · confidence ${CONFIDENCE[src.confidence]}${src.source ? ` · ${src.source}` : ""}${
+  const tip = `${src.kind} · ${SURE[src.confidence] ?? SURE[0]}${src.source ? ` · ${src.source}` : ""}${
     src.note ? ` · ${src.note}` : ""
   }`;
   return (
@@ -85,7 +90,7 @@ export function ValueSources({ element, def }: { element: ElementInstance; def: 
               </span>
               {/* one line; the source in full in the tooltip */}
               <span className="min-w-0 flex-1 truncate text-[color:var(--ss-text-dim)]" title={src.source || undefined}>
-                {src.kind}, confidence {src.confidence}
+                {sourceWords(src)}
                 {src.source && ` · ${src.source}`}
               </span>
               <button

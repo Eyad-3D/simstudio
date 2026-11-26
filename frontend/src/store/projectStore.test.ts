@@ -2286,7 +2286,9 @@ describe("project files (PLT-07, PLT-33, STD-02)", () => {
     api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1", filePath: "/repo/car.lightsim", upgradedFrom: 1 });
     await store().openProject("fixture");
     expect(store().filePath).toBe("/repo/car.lightsim");
-    expect(messages().some((m) => m.includes("older file format (1)"))).toBe(true);
+    // in a user's words; the format's number only at the end, for support
+    expect(messages().some((m) => m.includes("was saved by an older version of LightSim and has been upgraded") && m.endsWith("(File format 1.)"))).toBe(true);
+    expect(messages().some((m) => m.includes("older file format (1)"))).toBe(false);
     api.saveProject.mockResolvedValueOnce({ saved: "fixture", revision: "r2" });
     store().renameElement("el-bat", "Pack");
     await store().saveRemote();

@@ -39,8 +39,10 @@ export interface TourState {
   toured?: boolean;
   /** the step bar was hidden */
   hidden?: boolean;
-  /** steps ticked, kept once done */
-  done?: Partial<Record<StepId, true>>;
+  /** steps ticked, by project id, kept once done in that project: the bar
+   *  shows the open project's (a new empty project starts with none; an
+   *  older state's ticks for every project at once are not read) */
+  doneIn?: Record<string, Partial<Record<StepId, true>>>;
   /** hints already shown */
   hints?: Record<string, true>;
   /** show the tour and bar even in an automated browser (tests) */
@@ -81,9 +83,26 @@ export function hideStepBar() {
   save({ hidden: true });
 }
 
+// ponytail: the 50 projects ticked last keep their steps; plenty for one person
+const PROJECTS_KEPT = 50;
+
+/** Tick step `id` in the open project. */
 export function tick(id: StepId) {
-  const { done = {} } = useTourStore.getState();
-  if (!done[id]) save({ done: { ...done, [id]: true } });
+  const project = useProjectStore.getState().project?.id;
+  if (!project) return;
+  const { doneIn = {} } = useTourStore.getState();
+  if (doneIn[project]?.[id]) return;
+  const { [project]: done, ...others } = doneIn;
+  const kept = Object.entries(others).slice(-(PROJECTS_KEPT - 1));
+  save({ doneIn: { ...Object.fromEntries(kept), [project]: { ...done, [id]: true } } });
+}
+
+const NONE: Partial<Record<StepId, true>> = {};
+
+/** The open project's ticked steps. */
+export function useStepsDone(): Partial<Record<StepId, true>> {
+  const project = useProjectStore((s) => s.project?.id);
+  return useTourStore((s) => (project && s.doneIn?.[project]) || NONE);
 }
 
 // a panel the layout opens by itself is not one the user opened
@@ -135,6 +154,12 @@ export function watchSteps(): () => void {
     if (last?.status === "success" && useUIStore.getState().ribbonTab === "results") tick("results");
   };
   const unProject = useProjectStore.subscribe((s, prev) => {
+    // a Save As gives the same project a new id: its steps go with it
+    if (s.project && prev.project && s.project.id !== prev.project.id && s.project.systems === prev.project.systems) {
+      const { doneIn = {} } = useTourStore.getState();
+      const before = doneIn[prev.project.id];
+      if (before && !doneIn[s.project.id]) save({ doneIn: { ...doneIn, [s.project.id]: before } });
+    }
     // a value changed on the same project (not a project opened)
     if (s.project && prev.project && s.project.id === prev.project.id && s.project !== prev.project
       && valueChanged(prev.project, s.project)) tick("values");
