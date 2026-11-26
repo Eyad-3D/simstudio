@@ -17,7 +17,7 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 ### What else the new engine refuses or stops
 
 - **A value outside its parameter's limits is refused** (`NEW-LIMITS`).
-- **Some notes and rows the older engine wrote are missing** : the note that a motor at its maximum speed holds the car there, the time a Lookup block spent outside its data on *Clamp* or *Linear*, the count of the tables a run read past their data, and an early message that the car does not move.
+- **One count the older engine kept is missing** : how many tables a run read past their data (each such table still has its own rows).
 - **Some figures differ from the older engine's by more than the band the
   two engines are compared at, and no class of difference explains them
   yet** : the energy of a gear shift, a clutch that never locks exactly, the axle loads under load transfer, a car coasting up a grade (16.66 against 20.39 for the energy test's m g h), the slip Traction Control holds after the launch ramp (0.359 against under 0.3), …

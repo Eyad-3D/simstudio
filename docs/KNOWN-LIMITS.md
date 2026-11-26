@@ -87,11 +87,8 @@ code. A test in the repository records each as an expected failure
   margin over 100 %); a study's point, which they never see, is refused by
   the run in the same words. The older engine clamped such a value and
   warned. Bring the value inside its limits.
-- **Some notes and rows the older engine wrote are missing**: the note
-  that a motor at its maximum speed holds the car there, the time a Lookup
-  block spent outside its data on *Clamp* or *Linear*, the count of the
-  tables a run read past their data, and an early message that the car
-  does not move.
+- **One count the older engine kept is missing**: how many tables a run
+  read past their data (each such table still has its own rows).
 - **Some figures differ from the older engine's by more than the band the
   two engines are compared at, and no class of difference explains them
   yet**: the energy of a gear shift, a clutch that never locks exactly,

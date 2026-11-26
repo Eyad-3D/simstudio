@@ -86,6 +86,7 @@ from .verdict import (
     beyond_data,
     first_not_driven,
     judge,
+    not_driven,
     terminal_checks,
 )
 
@@ -931,6 +932,11 @@ class _Live:
                  for p in [*cdef.ports, *(model.elements[el_id].dynamicPorts or [])]}
         self.ports = ports
         self.keep: Optional[list[tuple[int, str]]] = None  # the result's channels in a point
+        # the check that the car drives while the view goes (verdict.not_driven,
+        # today's CycleTrace): the target's distance so far by the trapezoid
+        # rule over the points, against the vehicle's
+        self.driven: Optional[tuple[int, int]] = None  # (target km/h, distance km) in a point
+        self.cycle_m, self.last = 0.0, None
 
     def drive(self, simulate):
         """Runs ``simulate(control=...)`` and returns its Run."""
@@ -982,6 +988,20 @@ class _Live:
         if self.keep is None:  # (the channels the result keeps: those with a port)
             self.keep = [(k, n) for k, n in enumerate(self.rc.channels)
                          if ":" in n and tuple(n.split(":", 1)) in self.ports]
+            names = self.rc.channels
+            tgt = f"{self.model.driver}:sig_target_in" if self.model.driver else None
+            dist = f"{self.model.vehicle}:sig_distance" if self.model.vehicle else None
+            if tgt in names and dist in names:
+                self.driven = (names.index(tgt), names.index(dist))
+        if self.driven is not None:
+            k_t, k_d = self.driven
+            v, d = float(values[k_t]), float(values[k_d]) * 1000.0
+            if self.last is not None:
+                self.cycle_m += 0.5 * (v + self.last[1]) / 3.6 * (t - self.last[0])
+            self.last = (t, v)
+            if (problem := not_driven(t, self.cycle_m, d)) is not None:
+                self.driven = None  # (said once)
+                self.emit({"type": "message", "level": "warning", "text": problem})
         pct = min(100.0, round(100.0 * t / max(float(self.case.duration), 1e-9), 1))
         self.emit({"type": "step", "t": t, "pct": pct,
                    "values": {n: _number(values[k]) for k, n in self.keep}})

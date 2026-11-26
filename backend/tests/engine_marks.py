@@ -126,7 +126,6 @@ XFAIL = {
     "test_mcp_server.py::test_every_answer_stays_under_20_kb": "an MCP answer of a new-engine run is 20,027 bytes, over the 20 kB the server keeps to (open)",
     "test_road_load.py::test_ambient_sets_the_air_density": "the speed trace under a changed air density differs from today's (open)",
     "test_solver.py::test_diff_open_torque_split_is_equal": "an open differential's split is equal to 3e-6 on the new engine, the test asks 1e-6 (open)",
-    "test_verdict.py::test_a_car_that_does_not_move_fails_and_says_so_early": "the new engine does not stream the early message that the car does not move (open)",
     "test_battery_charge.py::test_a_1c_discharge_empties_the_battery_in_one_hour": (
         "the current between the solver's points, interpolated across a step that spans the OCV table's "
         "kink (read at the SOC, stepped over: engine DESIGN 8.2), is 0.08 % off 1C at the table's 90 % "
