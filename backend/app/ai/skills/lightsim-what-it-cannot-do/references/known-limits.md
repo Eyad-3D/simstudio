@@ -28,9 +28,10 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 - **An E-Motor on an empty battery feeds its own spin losses from the
   shaft.** Where its supply cannot cover even the losses of its spinning rotor, the motor takes what the supply gives, and the rest of those losses brakes the shaft (as its *Drag Torque* does with the inverter off).
 - **A model whose loss map has sheets of different range is refused** (`BLOCK`): the older engine counted a read outside the narrowest range, the new engine watches the widest.
-- **The reference suite's coast-down model is a loop the engine cannot solve
-  with its values** (`SINGULAR-LOOP`: the *Brake RL* and *Wheel RL* parts), so the validation page's coast-down rows are not re-measured on the new engine (see What is validated).
-- **A run the engine stops part-way fails with `Not run [NEW-FAILED]`** , even after it showed points: the wording says *Not run* where the run showed, say, 321 s.
+- **A shaft whose parts together have no inertia is refused by Data
+  Checks** , naming its parts: the new engine cannot work out how fast it turns (`SINGULAR-LOOP`), where the older engine lumped every inertia together.
+- **A run the engine's integrator stops part-way fails with `Not run
+  [NEW-FAILED]`** (`RUN-INTEGRATOR`, `RUN-EVENT-STORM`), even after it showed points: the wording says *Not run* where the run showed, say, 321 s.
 - **A table edited during a live run takes effect on the next run** , and a block's value at an output point is the one after its tick (a Script, FMU or Delay), where the older engine showed the one before.
 - **The MCP server's answer for a run can pass the 20 kB it keeps to** (one is 27 bytes over).
 

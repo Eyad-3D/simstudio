@@ -123,6 +123,9 @@ def value_problems(project: Project, case_id: str) -> list[str]:
     return out
 
 
+JOINT_KINDS = ("mech.differential", "mech.transfer_case", "mech.clutch")
+
+
 def run_blockers(checks: Iterable, case_id: str | None) -> list:
     """The errors among ``checks`` that stop a run of case ``case_id``:
     those about the model, and those about that case only (an error about
@@ -370,6 +373,7 @@ def validate_project(project: Project) -> list[DataCheck]:
 
         _plausibility_checks(model, add)
         _map_checks(model, add)
+        _inertia_checks(project, model, case_models, add)
         _lap_checks(project, case_models, add)
         _distance_checks(project, model, add)
         _step_checks(project, model, case_models, add)
@@ -1282,6 +1286,54 @@ def _cell_pack_checks(p: dict, el, add: Add) -> None:
         add("warning", f"'{el.label}' has a Cell Maximum Voltage of {v_max:g} V, at or below "
                        f"the cell's open-circuit voltage when empty ({ocv[0][1]:g} V): it can "
                        f"take no charge. Check the value.", el, param="cell_max_voltage_V")
+
+
+def _inertia_checks(project: Project, model: Model, case_models: dict, add: Add) -> None:
+    """A shaft whose parts together have no inertia: the run cannot work out
+    how fast it turns (the new engine refuses the model, SINGULAR-LOOP).
+    A shaft is a rigid stretch of a driveline, between its differentials,
+    transfer cases and clutches (a locked differential or transfer case joins
+    its sides); one part with an inertia is enough. Checked with the parts'
+    own values and with each case's values over them."""
+    said: set[tuple[str, ...]] = set()
+    cases = {c.id: c for c in project.cases}
+    for case_id, m in ((None, model), *case_models.items()):
+        if m is None:
+            continue
+        for dl in m.drivelines:
+            group = list(range(len(dl.segments)))
+
+            def root(i: int) -> int:
+                while group[i] != i:
+                    i = group[i]
+                return i
+            for j in dl.joints:
+                if j.kind == "split" and j.locked:
+                    for c in (j.child_a, j.child_b):
+                        if j.parent_seg >= 0 and c >= 0:
+                            group[root(c)] = root(j.parent_seg)
+            shafts: dict[int, list] = {}
+            for i, seg in enumerate(dl.segments):
+                shafts.setdefault(root(i), []).append(seg)
+            for segs in shafts.values():
+                parts = sorted({el for seg in segs for el in seg.element_ms
+                                if el in m.elements and m.cdef_of[el].id not in JOINT_KINDS})
+                if not parts or any(j > 0 for seg in segs for _, j, _ in seg.lumps):
+                    continue
+                key = tuple(parts)
+                if key in said:
+                    continue
+                said.add(key)
+                names = [m.elements[el].label for el in parts]
+                joined = (f"'{names[0]}'" if len(names) == 1 else
+                          ", ".join(f"'{n}'" for n in names[:-1]) + f" and '{names[-1]}'")
+                case = cases.get(case_id) if case_id else None
+                where = f" in case '{case.name}'" if case else ""
+                add("error", (f"The shaft of {joined} has no inertia{where}: every part on it has an "
+                              f"inertia of 0, so the run cannot work out how fast it turns."),
+                    ids=parts, case=case,
+                    fix="Give one of them an inertia (a wheel's or a brake disc's is typically "
+                        "0.5 to 1.5 kg·m², a motor rotor's 0.02 to 0.1 kg·m²).")
 
 
 def _map_checks(model: Model, add: Add) -> None:

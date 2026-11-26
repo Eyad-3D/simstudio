@@ -818,3 +818,30 @@ def test_a_check_about_one_parameter_names_its_key():
         x for x in d["dataBusConnections"] if x["id"] != "db-2"]))
         if "no Traction Command" in c.text]
     assert unwired and all(c.paramKey is None for c in unwired)
+
+
+def test_a_shaft_with_no_inertia_at_all_is_refused_naming_its_parts():
+    """A shaft whose parts together have no inertia: the run cannot work out
+    how fast it turns (the new engine refuses it, SINGULAR-LOOP), so Data
+    Checks refuse it first, naming the parts; one part with an inertia is
+    enough: a brake with none on a wheel with one is a valid model."""
+    from app.validation import validate_project
+
+    proj = bev_axle()
+    proj.systems[0].elements += [el("brl", "mech.brake", "Brake L", inertia_kgm2=0)]
+    proj.systems[0].connections += [conn(40, "whl", "shaft", "brl", "flange")]
+    assert not [c for c in validate_project(proj) if "no inertia" in c.text]
+    for e in proj.systems[0].elements:
+        if e.id == "whl":
+            e.parameterOverrides["inertia_kgm2"] = 0
+    errors = [c for c in validate_project(proj) if c.level == "error" and "no inertia" in c.text]
+    assert [c.text for c in errors] == [
+        "The shaft of 'Brake L' and 'Wheel L' has no inertia: every part on it has an inertia of 0, "
+        "so the run cannot work out how fast it turns."]
+    assert "Give one of them an inertia" in errors[0].fix
+    # as a case's own value too, for that case
+    proj = bev_axle()
+    proj.cases[0].parameterOverrides = {"whl": {"inertia_kgm2": 0}}
+    [c] = [c for c in validate_project(proj) if "no inertia" in c.text]
+    assert c.caseId == proj.cases[0].id and "in case" in c.text
+

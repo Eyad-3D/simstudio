@@ -124,13 +124,16 @@ code. A test in the repository records each as an expected failure
 - **A model whose loss map has sheets of different range is refused**
   (`BLOCK`): the older engine counted a read outside the narrowest range,
   the new engine watches the widest.
-- **The reference suite's coast-down model is a loop the engine cannot solve
-  with its values** (`SINGULAR-LOOP`: the *Brake RL* and *Wheel RL* parts), so
-  the validation page's coast-down rows are not re-measured on the new
-  engine (see [What is validated](VALIDATION-STATUS.md)).
-- **A run the engine stops part-way fails with `Not run [NEW-FAILED]`**,
-  even after it showed points: the wording says *Not run* where the run
-  showed, say, 321 s.
+- **A shaft whose parts together have no inertia is refused by Data
+  Checks**, naming its parts: the new engine cannot work out how fast it
+  turns (`SINGULAR-LOOP`), where the older engine lumped every inertia
+  together. One part with an inertia is enough (a brake with none on a
+  wheel with one runs).
+- **A run the engine's integrator stops part-way fails with `Not run
+  [NEW-FAILED]`** (`RUN-INTEGRATOR`, `RUN-EVENT-STORM`), even after it showed
+  points: the wording says *Not run* where the run showed, say, 321 s. (A
+  table on Error or a value that is not a number keeps its trace up to the
+  stop.)
 - **A table edited during a live run takes effect on the next run**, and a
   block's value at an output point is the one after its tick (a Script, FMU
   or Delay), where the older engine showed the one before. The *Live runs*

@@ -129,9 +129,6 @@ XFAIL = {
         "a Lookup block's time outside its data on Clamp or Linear is not said as today's says it (open)"),
     "test_map_edges.py::test_a_run_counts_every_table_it_reads": (
         "the new path's count of the tables a run reads past their data differs from today's (open)"),
-    "test_reference_suite.py::test_exact_answer_tier[coast-": (
-        "NEW-FAILED (SINGULAR-LOOP): the reference suite's coast-down model ('Brake RL' and 'Wheel RL') is a loop "
-        "the new engine cannot solve with its values (open)"),
     "test_climate.py::test_a_live_edit_of_the_demand_table_applies": LIVE_TABLE,
     "test_battery_cells.py::test_a_live_edit_of_the_cell_voltage_curve_applies": LIVE_TABLE,
     "test_solver.py::test_live_profile_edit_takes_effect": LIVE_TABLE,

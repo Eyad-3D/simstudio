@@ -128,18 +128,18 @@ app now runs the new engine, and the same suite run on it (17 November 2026)
 gives gaps of +5.3 and +7.4 % (Model 3), +0.9 and +7.5 % (Bolt EUV), −1.0
 and +4.1 % (Leaf) and −6.6 and 0.0 % (MINI): mean 4.1 %, largest 7.5 %, so
 the one-line claim above holds for both engines. The virtual coast-down
-below gives 0.00 to 0.01 % on the new engine too; its exact-answer tier
-does not run on it yet (the three coast-down models fail with
-`SINGULAR-LOOP`, a loop of the brake and wheel parts the engine cannot solve
-with their values), and its step-halving check is about the older engine's
-fixed step, so the two rows below are the older engine's. The suite also
-checks, for each car:
+below gives 0.00 to 0.01 % on the new engine too, and its exact-answer
+tier 0.0005 to 0.0014 % (26 November 2026: its coast-down models carry
+1e-5 kg·m² on each rolling part, about 2e-5 of the car's mass, as a shaft
+with no inertia at all is refused); its step-halving check is about the
+older engine's fixed step, so that row is the older engine's. The suite
+also checks, for each car:
 
 | Check | Tolerance | Measured |
 |---|---|---|
 | A virtual coast-down from 130 km/h gives back EPA's road load, 20-120 km/h | 2 % | 0.01-0.02 % |
 | Halving the solver step (10 to 5 ms) moves the city energy | 0.5 % | 0.15-0.18 % |
-| Exact-answer tier: three coast-downs with closed-form answers | 0.5 % | 0.000-0.005 % |
+| Exact-answer tier: three coast-downs with closed-form answers | 0.5 % | 0.0005-0.0014 % |
 
 What this does and does not show:
 
