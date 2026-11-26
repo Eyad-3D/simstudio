@@ -1147,39 +1147,44 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
         );
     }
     // shut within SOC_HOLD of the limit, until the current turns the SOC
-    // back twice that far (its lowest and highest element's, with a weak one)
+    // back twice that far (its lowest and highest element's, with a weak one);
+    // in a full run only: fast mode and a lap flag a battery past its limits
+    // and solve on (their stepper has no integrator to stall in the tail)
+    let hold = !cfg.inverse;
     let (lo_soc, hi_soc) = if cells.is_some_and(|cc| cc.weak) {
         (min(n("soc"), n("soc_w")), max(n("soc"), n("soc_w")))
     } else {
         (n("soc"), n("soc"))
     };
-    vars.push(discrete("at_min", "1", 0.0, "1 while it is held at its minimum SOC"));
-    vars.push(discrete("at_full", "1", 0.0, "1 while it is held full"));
-    eqs.push(when(
-        le(lo_soc.clone(), n("min_soc_pct") + c(SOC_HOLD)),
-        &[("at_min", c(1.0))],
-        "it is at its minimum SOC: it gives no more",
-    ));
-    eqs.push(when(
-        gt(lo_soc, n("min_soc_pct") + c(2.0 * SOC_HOLD)),
-        &[("at_min", c(0.0))],
-        "charged off its minimum SOC: it gives again",
-    ));
-    eqs.push(when(
-        ge(hi_soc.clone(), c(1.0 - SOC_HOLD)),
-        &[("at_full", c(1.0))],
-        "it is full: it takes no more",
-    ));
-    eqs.push(when(lt(hi_soc, c(1.0 - 2.0 * SOC_HOLD)), &[("at_full", c(0.0))], "it takes again"));
+    if hold {
+        vars.push(discrete("at_min", "1", 0.0, "1 while it is held at its minimum SOC"));
+        vars.push(discrete("at_full", "1", 0.0, "1 while it is held full"));
+        eqs.push(when(
+            le(lo_soc.clone(), n("min_soc_pct") + c(SOC_HOLD)),
+            &[("at_min", c(1.0))],
+            "it is at its minimum SOC: it gives no more",
+        ));
+        eqs.push(when(
+            gt(lo_soc, n("min_soc_pct") + c(2.0 * SOC_HOLD)),
+            &[("at_min", c(0.0))],
+            "charged off its minimum SOC: it gives again",
+        ));
+        eqs.push(when(
+            ge(hi_soc.clone(), c(1.0 - SOC_HOLD)),
+            &[("at_full", c(1.0))],
+            "it is full: it takes no more",
+        ));
+        eqs.push(when(lt(hi_soc, c(1.0 - 2.0 * SOC_HOLD)), &[("at_full", c(0.0))], "it takes again"));
+    }
     eqs.push(eq(
         n("i_floor"),
-        ite(gt(n("at_min"), c(0.5)), c(0.0) * n("unit_A"), floor),
+        if hold { ite(gt(n("at_min"), c(0.5)), c(0.0) * n("unit_A"), floor) } else { floor },
         "it gives at most what takes the charge above its minimum SOC in tau_soc (nothing \
          once there)",
     ));
     eqs.push(eq(
         n("i_full"),
-        ite(gt(n("at_full"), c(0.5)), c(0.0) * n("unit_A"), full),
+        if hold { ite(gt(n("at_full"), c(0.5)), c(0.0) * n("unit_A"), full) } else { full },
         "it takes at most what fills it in tau_soc (nothing once full)",
     ));
     let (i_floor, i_full) = (n("i_floor"), n("i_full"));
