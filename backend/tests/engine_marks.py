@@ -99,8 +99,6 @@ TODAY = {
     "test_battery_cells.py::test_a_weak_groups_resistance_is_read_at_its_own_soc[today]": WEAK,
 }
 
-PORT = ("an acceleration case of a car whose Driver has Target Speed or Actual Speed linked was refused "
-        "(PORT-NOT-MAPPED, fixed: it runs now)")
 TICK = ("a sampled block's (Script, FMU, Delay) value at an output point is the one after its tick there, where "
         "today's shows the one before (the blocks piece's open item; changing it moves the hybrid's golden values)")
 
@@ -111,10 +109,6 @@ XFAIL = {
         "NEW-LAP-SLIP: where the motors at full torque hold the car, the lap's wheel (fast mode's inverse "
         "model) turns with the prescribed speed and takes its tyre's slip loss out of the force: 3.835 s "
         "against the time-domain 3.706 s at μ 2.5, about the slip at that force (10 %) (open)"),
-    "test_acceleration.py::test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step": PORT + (
-        "; it still differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
-    "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": PORT + (
-        "; it still fails: StopIteration in the test's own _at (open)"),
     "test_control_rate.py::test_scripts_run_every_solver_step_with_its_dt": TICK,
     "test_control_rate.py::test_block_with_a_sample_time_runs_at_that_rate_and_holds": TICK,
     "test_signal_wiring.py::test_the_delay_is_what_the_run_does": TICK,
