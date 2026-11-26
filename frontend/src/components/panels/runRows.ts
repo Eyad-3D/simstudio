@@ -83,7 +83,7 @@ export const SHOWN_ROW = "var(--ss-accent-soft)";
 
 /** A sweep point's value, else the run's own name. */
 export const rowName = (r: RunRow) =>
-  r.sweepValue !== undefined ? `${r.sweepParam ?? "value"} ${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}` : (r.name ?? "");
+  r.sweepValue != null ? `${r.sweepParam ?? "value"} ${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}` : (r.name ?? "");
 
 /** The rows in the order of `sort`; rows without the value (no figure, no
  *  name) last either way, then newest first. */

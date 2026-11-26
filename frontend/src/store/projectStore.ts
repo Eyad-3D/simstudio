@@ -40,7 +40,7 @@ import { rangeProblem } from "../paramRules";
 import type { UnitSlot } from "../units";
 import { FS_EVENT_NAMES, FS_EVENTS, packOverrides, type FsEvent } from "../fsEvents";
 import { codeOf, fingerprintOf } from "../trust";
-import { pointComplete, type SweepProgress } from "../sweep";
+import { pointComplete, pointDnf, type SweepProgress } from "../sweep";
 import { useUIStore } from "./uiStore";
 import {
   JUNCTIONS,
@@ -268,13 +268,19 @@ function studyNotice(
   failure: string | null,
   show: FinishNotice["show"],
   studyId?: string,
+  dnf?: (p: StudyPoint) => boolean,
 ): Omit<FinishNotice, "seq"> {
-  const complete = points.filter(pointComplete).length;
+  // a point that did not finish (an endurance whose pack ran down) is not
+  // complete, even where its run went on to the end
+  const complete = points.filter((p) => pointComplete(p) && !dnf?.(p)).length;
+  const dnfs = dnf ? points.filter(dnf).length : 0;
   const stopped = points.some((p) => p.status === "not run" || p.status === "cancelled");
   const ended = failure ? "failed" : stopped ? "stopped" : "finished";
   return {
     level: failure ? "error" : complete < points.length ? "warning" : "info",
-    text: `${what} ${ended}: ${complete} of ${points.length} point${points.length === 1 ? "" : "s"} complete.`,
+    text:
+      `${what} ${ended}: ${complete} of ${points.length} point${points.length === 1 ? "" : "s"} complete` +
+      (dnfs ? `, ${dnfs} did not finish (DNF).` : "."),
     show,
     ...(studyId ? { studyId } : {}),
   };
@@ -2969,6 +2975,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               overrides: { [batteryId]: { ...packOverrides(params, pack), output_power_limit_kW: cap } },
               values: [pack, cap],
               label: `${simCase.name} · ${pack} kWh, ${cap} kW`,
+              // (two values: no one swept value names the run)
+              name: `${pack} kWh, ${cap} kW`,
             })),
             sweepId,
             sweepParam: "Pack × power cap",
@@ -2990,7 +2998,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
                 ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
               });
               for (const v of e.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
-              if (e.status === "failed") log("error", `Study point ${e.values[0]} kWh, ${e.values[1]} kW failed.`);
+              const point = `${e.values[0]} kWh, ${e.values[1]} kW`;
+              if (pointDnf(byIndex.get(e.index)!))
+                log("warning", `Endurance energy study: ${point} did not finish (DNF): the pack reached its minimum charge.`);
+              else if (e.status === "failed") log("error", `Endurance energy study: ${point} failed.`);
               pointEnded(byIndex.size);
             },
           },
@@ -3029,7 +3040,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // kept with the project's runs, not in the model file (PLT-34)
       set((s) => ({ studies: [...s.studies, study] }));
       useUIStore.getState().setStudyView(project.id, { study: sweepId });
-      announce(studyNotice("Endurance energy study", study.points, failure, "cases", sweepId));
+      announce(studyNotice("Endurance energy study", study.points, failure, "cases", sweepId, pointDnf));
       try {
         await api.storeStudy(project.id, study);
         log("info", `Endurance energy study saved with the runs (Cases & Parameters → Endurance energy study and Saved studies).`);

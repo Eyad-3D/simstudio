@@ -4,6 +4,7 @@ import { packKwh } from "../../fsEvents";
 import { useProjectStore } from "../../store/projectStore";
 import type { SimCase } from "../../types";
 import { formatNumber } from "../../format";
+import { pointDnf } from "../../sweep";
 
 const parseList = (text: string) =>
   text
@@ -12,7 +13,6 @@ const parseList = (text: string) =>
     .filter((v) => Number.isFinite(v) && v > 0)
     .slice(0, 6);
 
-const FINISHED = "Endurance finished on its energy";
 // the figures the map can show, in order of preference
 const CHOICES = [
   "Endurance energy (regeneration × 0.9)",
@@ -124,7 +124,8 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
                   {study.factors[1].values.map((cp) => {
                     const pt = cell(pk, cp);
                     const v = pt?.kpis[shown];
-                    const dnf = pt?.kpis[FINISHED] === 0;
+                    const dnf = Boolean(pt && pointDnf(pt));
+                    const failed = !dnf && pt?.status === "failed";
                     const share = typeof v === "number" && hi > lo ? (v - lo) / (hi - lo) : 0;
                     return (
                       <td
@@ -135,10 +136,10 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
                             ? "color-mix(in srgb, var(--ss-err) 25%, transparent)"
                             : `color-mix(in srgb, var(--ss-accent) ${Math.round(8 + 32 * share)}%, transparent)`,
                         }}
-                        title={dnf ? "Did not finish: the pack ran out of energy" : pt?.status}
+                        title={dnf ? "Did not finish (DNF): the pack reached its minimum charge" : pt?.status}
                       >
                         {typeof v === "number" ? formatNumber(v, "en", { maximumFractionDigits: 3 }) : "—"}
-                        {dnf ? " DNF" : ""}
+                        {dnf ? " DNF" : failed ? " failed" : ""}
                       </td>
                     );
                   })}
@@ -147,8 +148,9 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
             </tbody>
           </table>
           <p className="mt-1 text-meta text-[color:var(--ss-text-dim)]">
-            {unit ? `${shown} in ${unit}. ` : ""}Darker is higher; DNF: the pack ran out before the last lap. The whole
-            table is in Saved studies below.
+            {unit ? `${shown} in ${unit}. ` : ""}Darker is higher. DNF, did not finish: the pack reached its minimum
+            charge ({study.points.filter(pointDnf).length} of {study.points.length} points). The whole table is in
+            Saved studies below.
           </p>
         </div>
       )}

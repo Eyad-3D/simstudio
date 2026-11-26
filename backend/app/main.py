@@ -1461,7 +1461,8 @@ async def run_simulation_live(ws: WebSocket) -> None:
 
 
 def _study_args(req: StudyRequest):
-    points = [studies.StudyPointSpec(overrides=p.overrides, values=p.values, label=p.label)
+    points = [studies.StudyPointSpec(overrides=p.overrides, values=p.values, label=p.label,
+                                    name=p.name)
               for p in req.points]
     options = studies.StudyOptions(sweep_id=req.sweepId, sweep_param=req.sweepParam,
                                    sweep_unit=req.sweepUnit, workers=req.workers,

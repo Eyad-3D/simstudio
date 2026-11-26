@@ -654,7 +654,7 @@ export interface StudyTotals {
 export interface StudyRequest {
   project: Project;
   caseId: string;
-  points: { overrides: Record<string, Record<string, ParamValue>>; values: number[]; label?: string }[];
+  points: { overrides: Record<string, Record<string, ParamValue>>; values: number[]; label?: string; name?: string }[];
   sweepId?: string;
   sweepParam?: string | null;
   sweepUnit?: string | null;

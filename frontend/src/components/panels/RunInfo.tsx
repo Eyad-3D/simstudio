@@ -34,7 +34,7 @@ export function runLabel(r: RunNaming): string {
  *  else its name or clock time. */
 export function runShort(r: RunNaming): string {
   const mark = r.incomplete ? " (incomplete)" : "";
-  if (r.sweepValue !== undefined)
+  if (r.sweepValue != null)
     return `${fmtNum(r.sweepValue)}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}${mark}`;
   return `${r.name ?? runTime(r)}${mark}`;
 }
