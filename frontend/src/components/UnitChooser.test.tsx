@@ -71,7 +71,9 @@ test("a number shown in another unit: same value, typed in that unit, limits in 
   expect(part().parameterOverrides.initial_speed_kmh).toBe(36);
   expect(part().displayUnits).toEqual({ initial_speed_kmh: { value: "m/s" } });
   expect(field().value).toBe("10");
-  expect(useProjectStore.getState().past.length).toBe(before + 1);
+  // a view, not an edit (#24): no undo step, the project is not marked changed
+  expect(useProjectStore.getState().past.length).toBe(before);
+  expect(useProjectStore.getState().dirty).toBe(false);
   expect(chooser.isConnected).toBe(false);
   expect(document.activeElement).toBe(unit());
 
