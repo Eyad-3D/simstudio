@@ -203,7 +203,9 @@ export function StudyView({ runSweepId, caseId }: { runSweepId?: string; caseId?
       <div className="text-meta text-[color:var(--ss-text-dim)]">
         {complete} of {study.points.length} point{study.points.length === 1 ? "" : "s"} complete
         {dnf > 0 && <span className="text-[color:var(--ss-warn)]"> · {dnf} did not finish (DNF)</span>}
-        {left > 0 && <span className="text-[color:var(--ss-warn)]"> · {left} left out (stopped, failed or not run)</span>}
+        {left > 0 && (
+          <span className="text-[color:var(--ss-warn)]"> · {left} left out (stopped, failed or not run)</span>
+        )}
         {" · "}from the saved study, kept with the project&apos;s runs
       </div>
       <div className="grid min-h-0 flex-1 auto-rows-[minmax(220px,1fr)] grid-cols-[repeat(auto-fit,minmax(max(300px,calc(50%_-_6px)),1fr))] gap-1.5">

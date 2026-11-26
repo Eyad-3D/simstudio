@@ -149,8 +149,8 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
           </table>
           <p className="mt-1 text-meta text-[color:var(--ss-text-dim)]">
             {unit ? `${shown} in ${unit}. ` : ""}Darker is higher. DNF, did not finish: the pack reached its minimum
-            charge ({study.points.filter(pointDnf).length} of {study.points.length} points). The whole table is in
-            Saved studies below.
+            charge ({study.points.filter(pointDnf).length} of {study.points.length} points). The whole table is in Saved
+            studies below.
           </p>
         </div>
       )}

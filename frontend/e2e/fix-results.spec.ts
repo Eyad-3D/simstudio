@@ -29,8 +29,14 @@ test("app pass #8, #9, #10: an endurance study's charts, run names and DNF count
     .locator("select")
     .selectOption("endurance");
   const study = page.getByRole("region", { name: "Endurance energy study" });
-  await study.locator("label", { hasText: /^Capacities/ }).locator("input").fill("2.5, 7.2");
-  await study.locator("label", { hasText: /^Power limits/ }).locator("input").fill("30, 60");
+  await study
+    .locator("label", { hasText: /^Capacities/ })
+    .locator("input")
+    .fill("2.5, 7.2");
+  await study
+    .locator("label", { hasText: /^Power limits/ })
+    .locator("input")
+    .fill("30, 60");
   await study.getByRole("button", { name: /Run 2 × 2 = 4 runs/ }).click();
 
   // #10: the notice, the map and the Study view count the same DNF points

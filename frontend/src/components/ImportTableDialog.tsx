@@ -330,7 +330,8 @@ function ImportTableDialog({
   );
 }
 
-const fmt = (v: number) => (Math.abs(v) >= 1000 ? formatNumber(v, "en", { maximumFractionDigits: 1 }) : String(+v.toPrecision(4)));
+const fmt = (v: number) =>
+  Math.abs(v) >= 1000 ? formatNumber(v, "en", { maximumFractionDigits: 1 }) : String(+v.toPrecision(4));
 
 /** What will be stored: a 1-D table or profile as a small line chart, a map
  *  as its first rows and columns. */
@@ -379,7 +380,8 @@ export function Preview({
           </text>
         </svg>
         <figcaption className="text-meta text-[color:var(--ss-text-dim)]">
-          {result.valueName} ({result.valueUnit}) over {axis.name} ({axis.unit}), {formatNumber(p.length, "en")} points, as it will be stored
+          {result.valueName} ({result.valueUnit}) over {axis.name} ({axis.unit}), {formatNumber(p.length, "en")} points,
+          as it will be stored
         </figcaption>
       </figure>
     );

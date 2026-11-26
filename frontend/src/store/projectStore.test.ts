@@ -2010,7 +2010,7 @@ describe("studies", () => {
     expect(store().past).toHaveLength(0);
   });
 
-  it("an endurance study counts its DNF points once, alike everywhere, and names each run (app pass #9, #10)", async () => {
+  it("an endurance study counts DNF points alike everywhere and names each run (app pass #9, #10)", async () => {
     await start();
     api.validateProject.mockResolvedValue([]);
     // a 5 kWh pack runs down: at 60 kW the car stops (failed), at 30 kW it
@@ -2028,14 +2028,21 @@ describe("studies", () => {
     });
     await store().runEnduranceStudy({ caseId: "case-1", batteryId: "el-bat", packs: [5, 8], caps: [30, 60] });
     const sent = api.runStudyLive.mock.calls[0][0];
-    expect(sent.points.map((p: { name?: string }) => p.name)).toEqual(["5 kWh, 30 kW", "5 kWh, 60 kW", "8 kWh, 30 kW", "8 kWh, 60 kW"]);
+    expect(sent.points.map((p: { name?: string }) => p.name)).toEqual([
+      "5 kWh, 30 kW",
+      "5 kWh, 60 kW",
+      "8 kWh, 30 kW",
+      "8 kWh, 60 kW",
+    ]);
     const dnf = messages().filter((m) => m.includes("did not finish (DNF)"));
     expect(dnf).toEqual([
       "warning: Endurance energy study: 5 kWh, 30 kW did not finish (DNF): the pack reached its minimum charge.",
       "warning: Endurance energy study: 5 kWh, 60 kW did not finish (DNF): the pack reached its minimum charge.",
     ]);
     expect(messages().join("\n")).not.toMatch(/Study point|failed\./);
-    expect(store().finishNotice?.text).toBe("Endurance energy study finished: 2 of 4 points complete, 2 did not finish (DNF).");
+    expect(store().finishNotice?.text).toBe(
+      "Endurance energy study finished: 2 of 4 points complete, 2 did not finish (DNF).",
+    );
   });
 
   it("a second 16-point sweep leaves the first study's table intact", async () => {

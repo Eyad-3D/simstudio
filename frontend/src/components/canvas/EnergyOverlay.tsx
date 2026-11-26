@@ -124,7 +124,8 @@ export function EnergyBars() {
                       />
                     </span>
                     <span className="w-[72px] shrink-0 text-right font-mono">
-                      {kwh(p.lostKWh)} <span className="text-[color:var(--ss-text-dim)]">{fixedNumber(p.lostPct, 1)}%</span>
+                      {kwh(p.lostKWh)}{" "}
+                      <span className="text-[color:var(--ss-text-dim)]">{fixedNumber(p.lostPct, 1)}%</span>
                     </span>
                   </button>
                 </li>
