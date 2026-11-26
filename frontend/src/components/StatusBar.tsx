@@ -3,6 +3,7 @@ import { confirmReplaceProject, countOf, followNotice, problemCounts, useProject
 import { useUIStore } from "../store/uiStore";
 import { progressText } from "../sweep";
 import { useNow } from "./useNow";
+import { fixedNumber } from "../format";
 
 const NOTICE_ICON = { info: CircleCheck, warning: TriangleAlert, error: CircleAlert } as const;
 const NOTICE_COLOR = {
@@ -194,7 +195,7 @@ export function StatusBar() {
               </span>
             ) : (
               <>
-                solving… t = {liveT.toFixed(0)} s ({livePct.toFixed(0)} %)
+                solving… t = {fixedNumber(liveT, 0)} s ({fixedNumber(livePct, 0)} %)
               </>
             )}
             <span className="ml-1 inline-block h-[6px] w-[90px] overflow-hidden rounded bg-[color:var(--ss-active)]">

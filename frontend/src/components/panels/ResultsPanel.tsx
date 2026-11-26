@@ -62,6 +62,7 @@ import { StaleBanner } from "./StaleBanner";
 import { useReportsStore } from "../../store/reportsStore";
 import { ReferenceList } from "./ExpectedValues";
 import { StudyView } from "./StudyView";
+import { formatNumber, signedNumber } from "../../format";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
 const DASHES = [[], [5, 3], [2, 2], [7, 3, 2, 3], [9, 4]];
@@ -97,12 +98,10 @@ function changeOf(sv?: SummaryValue, base?: SummaryValue) {
   // (rows without a key come from a run stored before 0.3, which rounded them)
   const c = summaryChange(sv.value, base.value, !sv.key || !base.key);
   if (c.noise) return { diff: "~ 0", pct: "~ 0", noise: true, big: false };
-  const signed = (v: number, digits: number) =>
-    `${v > 0 ? "+" : ""}${v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
   return {
     // (no finer than the value columns, which show at most 3 decimals)
-    diff: signed(c.diff, Math.min(c.digits, 3)),
-    pct: c.pct === null ? "—" : `${signed(c.pct, Math.abs(c.pct) < 1 ? 2 : 1)} %`,
+    diff: signedNumber(c.diff, Math.min(c.digits, 3)),
+    pct: c.pct === null ? "—" : `${signedNumber(c.pct, Math.abs(c.pct) < 1 ? 2 : 1)} %`,
     noise: false,
     big: c.pct !== null && Math.abs(c.pct) >= CHANGE_PCT,
   };
@@ -145,7 +144,7 @@ function SummaryMark({ sv, why }: { sv?: SummaryValue; why?: boolean }) {
         </span>
       )}
       {sv.limit != null && (
-        <div className="font-sans text-meta text-[color:var(--ss-text-dim)]">≤ {sv.limit.toLocaleString()}</div>
+        <div className="font-sans text-meta text-[color:var(--ss-text-dim)]">≤ {formatNumber(sv.limit)}</div>
       )}
       {sv.notValid && (
         <div className="truncate font-sans text-meta text-[color:var(--ss-warn)]" title={`Not valid: ${sv.notValid}`}>
@@ -1369,7 +1368,7 @@ export function ResultsPanel() {
                   >
                     <dt className="truncate text-meta text-[color:var(--ss-text-dim)]">{s.label}</dt>
                     <dd className="m-0">
-                      <span className="ss-figure text-figure font-semibold leading-tight">{s.value.toLocaleString()}</span>{" "}
+                      <span className="ss-figure text-figure font-semibold leading-tight">{formatNumber(s.value)}</span>{" "}
                       <span className="text-meta text-[color:var(--ss-text-dim)]">{s.unit}</span>
                       <SummaryMark sv={s} why />
                       {ch && (
@@ -1432,14 +1431,14 @@ export function ResultsPanel() {
                       className="hover:bg-[color:var(--ss-hover)]"
                     >
                       <td className="ss-td whitespace-nowrap text-right font-mono text-[color:var(--ss-text-dim)]">
-                        {typeof row.t === "number" ? row.t.toLocaleString() : row.t}
+                        {typeof row.t === "number" ? formatNumber(row.t) : row.t}
                       </td>
                       {activeChannels.map((c) => {
                         const v = row[channelKey(c)];
                         return (
                           <td key={channelKey(c)} className="ss-td whitespace-nowrap text-right font-mono">
                             {typeof v === "number"
-                              ? v.toLocaleString(undefined, { maximumFractionDigits: 4 })
+                              ? formatNumber(v, undefined, { maximumFractionDigits: 4 })
                               : "—"}
                           </td>
                         );
@@ -1601,7 +1600,7 @@ export function ResultsPanel() {
                         return (
                           <Fragment key={r.id}>
                             <td className={`ss-td text-right font-mono ${ci > 0 ? "text-[color:var(--ss-text-dim)]" : ""}`}>
-                              {sv ? sv.value.toLocaleString() : "—"}
+                              {sv ? formatNumber(sv.value) : "—"}
                               <SummaryMark sv={sv} />
                             </td>
                             {r === baseline && (

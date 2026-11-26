@@ -8,8 +8,9 @@ import { useReportsStore } from "../../store/reportsStore";
 import { useUIStore } from "../../store/uiStore";
 import { useStaleness } from "../panels/StaleBanner";
 import type { EnergyPart } from "../../types";
+import { fixedNumber, formatNumber } from "../../format";
 
-const kwh = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: Math.abs(v) >= 10 ? 1 : 3 });
+const kwh = (v: number) => formatNumber(v, undefined, { maximumFractionDigits: Math.abs(v) >= 10 ? 1 : 3 });
 
 /** The energy table's row for each part of the run shown in Results. */
 function useEnergyParts(): Map<string, EnergyPart> | null {
@@ -112,7 +113,7 @@ export function EnergyBars() {
                   <button
                     className="group flex w-full items-center gap-1.5 rounded px-0.5 py-[1px] text-left hover:bg-[color:var(--ss-hover)] disabled:cursor-default"
                     disabled={!id}
-                    title={`${p.label}: lost ${kwh(p.lostKWh)} kWh, ${p.lostPct.toFixed(1)} % of the sources${id ? " — click to select it" : ""}`}
+                    title={`${p.label}: lost ${kwh(p.lostKWh)} kWh, ${fixedNumber(p.lostPct, 1)} % of the sources${id ? " — click to select it" : ""}`}
                     onClick={() => id && select(id)}
                   >
                     <span className="w-[92px] shrink-0 truncate">{p.label}</span>
@@ -123,7 +124,7 @@ export function EnergyBars() {
                       />
                     </span>
                     <span className="w-[72px] shrink-0 text-right font-mono">
-                      {kwh(p.lostKWh)} <span className="text-[color:var(--ss-text-dim)]">{p.lostPct.toFixed(1)}%</span>
+                      {kwh(p.lostKWh)} <span className="text-[color:var(--ss-text-dim)]">{fixedNumber(p.lostPct, 1)}%</span>
                     </span>
                   </button>
                 </li>

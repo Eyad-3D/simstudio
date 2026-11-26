@@ -3,6 +3,7 @@ import { FileUp, X } from "lucide-react";
 import * as api from "../api";
 import { useOwnerWindow } from "../ownerWindow";
 import type { Table1D, Table2D } from "../types";
+import { fixedNumber, formatNumber } from "../format";
 
 export interface ImportTarget {
   componentDefId: string;
@@ -321,7 +322,7 @@ function ImportTableDialog({
             disabled={!result?.ok || result.value == null}
             onClick={() => result?.value != null && onApply(result.value)}
           >
-            Apply{result?.ok ? ` (${result.points.toLocaleString("en")} points)` : ""}
+            Apply{result?.ok ? ` (${formatNumber(result.points, "en")} points)` : ""}
           </button>
         </div>
       </div>
@@ -329,7 +330,7 @@ function ImportTableDialog({
   );
 }
 
-const fmt = (v: number) => (Math.abs(v) >= 1000 ? v.toLocaleString("en", { maximumFractionDigits: 1 }) : String(+v.toPrecision(4)));
+const fmt = (v: number) => (Math.abs(v) >= 1000 ? formatNumber(v, "en", { maximumFractionDigits: 1 }) : String(+v.toPrecision(4)));
 
 /** What will be stored: a 1-D table or profile as a small line chart, a map
  *  as its first rows and columns. */
@@ -378,7 +379,7 @@ export function Preview({
           </text>
         </svg>
         <figcaption className="text-meta text-[color:var(--ss-text-dim)]">
-          {result.valueName} ({result.valueUnit}) over {axis.name} ({axis.unit}), {p.length.toLocaleString("en")} points, as it will be stored
+          {result.valueName} ({result.valueUnit}) over {axis.name} ({axis.unit}), {formatNumber(p.length, "en")} points, as it will be stored
         </figcaption>
       </figure>
     );
@@ -478,8 +479,8 @@ export function cycleFigures(info: api.CycleInfo): string {
   const parts =
     info.axis === "distance"
       ? [`${Math.round(info.distance_km * 1000).toLocaleString("en")} m`]
-      : [`${info.duration_s.toLocaleString("en")} s`, `${info.distance_km.toFixed(2)} km`];
-  if (info.speed !== false) parts.push(`top ${info.vmax_kmh.toFixed(1)} km/h`);
+      : [`${formatNumber(info.duration_s, "en")} s`, `${fixedNumber(info.distance_km, 2)} km`];
+  if (info.speed !== false) parts.push(`top ${fixedNumber(info.vmax_kmh, 1)} km/h`);
   if (info.grade) parts.push(info.speed === false ? "grade only" : "with grade");
   return parts.join(" · ");
 }
@@ -834,7 +835,7 @@ export function ImportCycleDialog({
             }}
           >
             Add to project
-            {result?.ok ? ` (${result.points.toLocaleString("en")} points)` : ""}
+            {result?.ok ? ` (${formatNumber(result.points, "en")} points)` : ""}
           </button>
         </div>
       </div>

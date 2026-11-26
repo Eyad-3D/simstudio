@@ -2,6 +2,7 @@
 // The engine grades each run (backend/app/solver/references.py); this copy
 // grades a study's points from their stored values, the same way.
 import type { ReferenceCheck, ReferenceGrade, ReferenceValue, SummaryValue } from "./types";
+import { formatNumber } from "./format";
 
 /** Green within the tolerance, amber within twice it, red beyond. */
 export function gradeGap(diff: number, tol: number): Exclude<ReferenceGrade, "missing" | "not valid"> {
@@ -61,12 +62,12 @@ export function gapText(c: ReferenceCheck): string {
 
 /** What the grade means, for a tooltip. */
 export function gradeTitle(c: ReferenceCheck): string {
-  const tol = c.tolerance.toLocaleString(undefined, { maximumSignificantDigits: 3 });
+  const tol = formatNumber(c.tolerance, undefined, { maximumSignificantDigits: 3 });
   const what =
     c.bound === "at most"
-      ? `must be at most ${c.reference.toLocaleString()} ${c.unit} (+${tol})`
+      ? `must be at most ${formatNumber(c.reference)} ${c.unit} (+${tol})`
       : c.bound === "at least"
-        ? `must be at least ${c.reference.toLocaleString()} ${c.unit} (−${tol})`
-        : `expected ${c.reference.toLocaleString()} ${c.unit} ± ${tol}: green within that, amber within twice it, red beyond`;
+        ? `must be at least ${formatNumber(c.reference)} ${c.unit} (−${tol})`
+        : `expected ${formatNumber(c.reference)} ${c.unit} ± ${tol}: green within that, amber within twice it, red beyond`;
   return [`${c.label}: ${what}`, c.source && `Source: ${c.source}`, c.note].filter(Boolean).join("\n");
 }

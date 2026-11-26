@@ -65,6 +65,7 @@ import {
   type RibbonTab,
 } from "../store/uiStore";
 import { notYet } from "../notYet";
+import { fixedNumber } from "../format";
 
 // Optimization is not implemented yet — kept out of the ribbon (its RibbonTab
 // id/stub render remain) until it ships as a real feature. Parameters is real
@@ -845,7 +846,7 @@ function CopyForAi() {
     try {
       const { text, bytes } = await api.aiOverview(s.project, run, hide);
       await copyText(text);
-      const kb = (bytes / 1024).toFixed(1);
+      const kb = fixedNumber((bytes / 1024), 1);
       setDone(`Copied (${kb} KB)`);
       s.log("info", `Copy for AI: a ${kb} KB summary of the model${run ? ` and its run of '${run.caseName}'` : ""} is on the clipboard${hide ? ", numbers hidden" : ""}. Paste it into any chatbot; LightSim sent nothing.`);
       window.setTimeout(() => setDone(null), 4000);
@@ -1122,7 +1123,7 @@ function GlobalRunControl() {
           onClick={stopRun}
           title="Stop the running simulation"
         >
-          <Square size={11} /> Stop {livePct.toFixed(0)}%
+          <Square size={11} /> Stop {fixedNumber(livePct, 0)}%
         </button>
       ) : (
         <button

@@ -13,6 +13,7 @@ import {
   type Sort,
   type SortKey,
 } from "./runRows";
+import { formatNumber } from "../../format";
 
 /** The table of runs in Results: a row per stored run with its main
  *  figures. A click on a heading sorts by it (again: the other way). The
@@ -164,7 +165,7 @@ export function RunsTable({
                         className={`ss-td whitespace-nowrap text-right font-mono ${sv?.notValid ? "text-[color:var(--ss-warn)]" : ""}`}
                         title={sv?.notValid ? `Not valid: ${sv.notValid}` : undefined}
                       >
-                        {sv ? sv.value.toLocaleString() : "—"}
+                        {sv ? formatNumber(sv.value) : "—"}
                       </td>
                     );
                   })}

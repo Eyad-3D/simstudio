@@ -8,6 +8,7 @@
 // goes in, a one-sample peak always shows and zooming in shows every sample.
 import { useEffect, useEffectEvent, useImperativeHandle, useRef, type Ref } from "react";
 import uPlot from "uplot";
+import { formatNumber } from "../../format";
 
 type Range = { min: number; max: number };
 /** uPlot's options without a size: a Plot fills its parent. */
@@ -37,8 +38,7 @@ export function axisStyle(_theme: string): uPlot.Axis {
 /** An axis range in a chart's accessible name: grouped, at most 3 decimals
  *  (read-outs use chartUtils' fmtNum). */
 const fmt = (v: number | null | undefined) =>
-  // (v === 0 ? 0 : v): -0 reads "0", not "-0"
-  v == null ? "—" : (v === 0 ? 0 : v).toLocaleString(undefined, { maximumFractionDigits: 3 });
+  v == null ? "—" : formatNumber(v, undefined, { maximumFractionDigits: 3 });
 
 /** 1: time series, 2: X-Y (set at runtime, missing from the 1.6.32 typings) */
 const modeOf = (u: uPlot) => (u as unknown as { mode: 1 | 2 }).mode;

@@ -52,6 +52,7 @@ import {
   withTerminal,
   type Place,
 } from "../components/canvas/portPlaces";
+import { formatNumber } from "../format";
 
 export function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
@@ -2478,7 +2479,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
       log(
         "info",
-        `Attached '${info.name}' (${(info.bytes / 1024).toLocaleString("en", { maximumFractionDigits: 0 })} kB) to the project` +
+        `Attached '${info.name}' (${formatNumber((info.bytes / 1024), "en", { maximumFractionDigits: 0 })} kB) to the project` +
           (info.name !== file.name ? ` as '${info.name}'` : "") +
           "; save the project to keep it in the list.",
       );
@@ -2639,7 +2640,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (cycle && resized.length)
         get().log(
           "info",
-          `${resized.join(", ")} now run${resized.length > 1 ? "" : "s"} ${cycle.duration_s.toLocaleString("en")} s, the length of ${cycle.name}.`,
+          `${resized.join(", ")} now run${resized.length > 1 ? "" : "s"} ${formatNumber(cycle.duration_s, "en")} s, the length of ${cycle.name}.`,
         );
     },
 
@@ -2899,8 +2900,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({ activeCaseId: caseId });
       log(
         "info",
-        `Imported lap added as case '${name}': ${lap.duration_s.toLocaleString("en", { maximumFractionDigits: 1 })} s, ` +
-          `${(lap.distance_m / 1000).toLocaleString("en", { maximumFractionDigits: 3 })} km` +
+        `Imported lap added as case '${name}': ${formatNumber(lap.duration_s, "en", { maximumFractionDigits: 1 })} s, ` +
+          `${formatNumber((lap.distance_m / 1000), "en", { maximumFractionDigits: 3 })} km` +
           `${lap.repeated > 1 ? ` (${lap.repeated} laps)` : ""}; source file SHA-256 ${sha256}. ` +
           "Its speed comes from the file: LightSim gives the energy and the loads for that speed, not the cornering.",
       );

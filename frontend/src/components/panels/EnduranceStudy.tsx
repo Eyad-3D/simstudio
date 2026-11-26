@@ -3,6 +3,7 @@ import { Grid3x3 } from "lucide-react";
 import { packKwh } from "../../fsEvents";
 import { useProjectStore } from "../../store/projectStore";
 import type { SimCase } from "../../types";
+import { formatNumber } from "../../format";
 
 const parseList = (text: string) =>
   text
@@ -136,7 +137,7 @@ export function EnduranceStudy({ simCase }: { simCase: SimCase }) {
                         }}
                         title={dnf ? "Did not finish: the pack ran out of energy" : pt?.status}
                       >
-                        {typeof v === "number" ? v.toLocaleString("en", { maximumFractionDigits: 3 }) : "—"}
+                        {typeof v === "number" ? formatNumber(v, "en", { maximumFractionDigits: 3 }) : "—"}
                         {dnf ? " DNF" : ""}
                       </td>
                     );

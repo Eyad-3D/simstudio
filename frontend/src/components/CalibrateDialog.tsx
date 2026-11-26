@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import { useProjectStore } from "../store/projectStore";
+import { formatNumber } from "../format";
 
 const fmt = (v: number | undefined, d = 2, unit = "") =>
-  v == null ? "—" : `${v.toLocaleString("en", { maximumFractionDigits: d })}${unit}`;
+  v == null ? "—" : `${formatNumber(v, "en", { maximumFractionDigits: d })}${unit}`;
 
 /** Calibrate lap mode's grip and downforce on one logged lap and check the
  *  prediction on another (VAL-38). */

@@ -21,6 +21,7 @@ import {
   type XAxis,
 } from "./chartUtils";
 import { font, scaleOf, type PngPlugin } from "./Plot";
+import { formatNumber } from "../../format";
 
 type AB = [number, number];
 
@@ -344,7 +345,7 @@ export function MeasurePanel({ run, series, kind }: { run: SimRun; series: Serie
         <CursorInput run={run} ab={ab} which={0} />
         <CursorInput run={run} ab={ab} which={1} />
         <span>
-          Δt <span className="font-mono">{ms(ab[1] - ab[0]).toLocaleString()}</span> s
+          Δt <span className="font-mono">{formatNumber(ms(ab[1] - ab[0]))}</span> s
         </span>
         <TimeToReach run={run} channels={series.filter((d) => d.run.id === run.id).map((d) => d.channel)} />
       </div>
