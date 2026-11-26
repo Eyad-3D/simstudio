@@ -21,8 +21,10 @@ export type PartIn = { box: Box; label?: Box };
 
 /** The clear gap between a wire and a part, in diagram units. */
 export const CLEAR = 12;
-/** The gap between wires running side by side. */
-export const GAP = 8;
+/** The gap between wires running side by side: about 7 px at the 60 % the
+ *  examples open at, enough to tell two wires apart (8 was 4 to 5 px, and
+ *  wires that close read as one line). */
+export const GAP = 12;
 const TRACKS = 3;
 
 // costs, in diagram units of length
@@ -30,7 +32,9 @@ const BEND = 24;
 const CROSS = 160; // crossing another wire: a detour up to this long is taken instead
 const TOUCH = 600; // turning on another wire (it would look joined)
 const OVERLAP = 800; // lying on another wire
-const NEAR = 120; // running closer than GAP beside another wire
+// per unit running closer than GAP beside another wire: a run of 50 units costs
+// a detour of 300 (higher made routes loop round and cross more)
+const NEAR = 6;
 const IN_CLEAR = 40; // per unit within a part's clear gap
 const IN_PART = 400; // per unit through a part
 const IN_LABEL = 8; // per unit over a part's name
@@ -351,13 +355,16 @@ export function routeWires(parts: PartIn[], wires: WireIn[]): Record<string, Pt[
           c += BEND;
           if (other(useH[v], net) || other(useV[v], net)) c += TOUCH;
         } else if (other(horiz ? useV[v] : useH[v], net)) c += CROSS;
-        // closer than GAP beside another wire
+        // closer than GAP beside another wire, on any line that near, for
+        // every unit of the stretch: two wires a few units apart read as one
         if (horiz) {
-          if (j > 0 && ys[j] - ys[j - 1] < GAP && other(occH[step - nx], net)) c += NEAR;
-          if (j + 1 < ny && ys[j + 1] - ys[j] < GAP && other(occH[step + nx], net)) c += NEAR;
+          for (let jj = j - 1; jj >= 0 && ys[j] - ys[jj] < GAP; jj--)
+            if (other(occH[step + (jj - j) * nx], net)) c += NEAR * len;
+          for (let jj = j + 1; jj < ny && ys[jj] - ys[j] < GAP; jj++)
+            if (other(occH[step + (jj - j) * nx], net)) c += NEAR * len;
         } else {
-          if (i > 0 && xs[i] - xs[i - 1] < GAP && other(occV[step - 1], net)) c += NEAR;
-          if (i + 1 < nx && xs[i + 1] - xs[i] < GAP && other(occV[step + 1], net)) c += NEAR;
+          for (let ii = i - 1; ii >= 0 && xs[i] - xs[ii] < GAP; ii--) if (other(occV[step + ii - i], net)) c += NEAR * len;
+          for (let ii = i + 1; ii < nx && xs[ii] - xs[i] < GAP; ii++) if (other(occV[step + ii - i], net)) c += NEAR * len;
         }
         const ns = u * 4 + nd;
         const gn = gs + c;
