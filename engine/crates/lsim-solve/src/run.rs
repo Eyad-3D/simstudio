@@ -4870,6 +4870,15 @@ fn run_watched<'a>(
                     tick = Some((b, tk));
                 }
             }
+            // a tick a few ulps from the output point (a Sample Time's
+            // 13 · 0.1 against the grid's 1.3) is at it: one instant, run at
+            // the point's time, which then shows the tick
+            if let (Some(g), Some((b, tk))) = (tg, tick)
+                && g != tk
+                && same_instant(g, tk)
+            {
+                tick = Some((b, g));
+            }
             match (tg, tick) {
                 (None, None) => break,
                 (Some(g), Some((_, tk))) if g < tk => {

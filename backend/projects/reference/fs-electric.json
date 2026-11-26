@@ -2,11 +2,11 @@
  "_about": "Stored reference results of this example (CON-15): the app's engine's runs, written by backend/tests/update_stored.py, explained in tests/golden/CHANGES.md.",
  "creation": {
   "appVersion": "0.2.0",
-  "gitCommit": "d48b0d37",
+  "gitCommit": "ae13b323",
   "solver": "the app's engine (new 0.1.0): variable step, rtol 1e-06, atol 1e-08; lap mode: the lap's speed profile, then fast mode along it in steps of at most 0.01 s; recorded every 1 s",
   "date": "2026-11-26",
   "machine": "Linux x86_64, Python 3.11.17",
-  "note": "The battery's SOC hold in a full run only"
+  "note": "a sampled block tick a few ulps from an output point runs at the point (the hybrid Hybrid Control Unit at 1 s points): final SOC by up to 6.9e-6 %, fuel by up to 4.6e-7 l/100km"
  },
  "cases": {
   "case-accel-75m": {
@@ -209,7 +209,7 @@
      "portId": "sig_power",
      "label": "Accumulator · Discharge Power",
      "unit": "kW",
-     "values": [4.282000000000101,79.99999999999994,80.0000000000002,80.00000000000004,80.0]
+     "values": [4.282000000000101,79.99999999999994,80.00000000000003,80.00000000000004,80.0]
     },
     {
      "elementId": "el-motor",
@@ -223,7 +223,7 @@
      "portId": "sig_torque",
      "label": "E-Motor · Shaft Torque",
      "unit": "N·m",
-     "values": [230.0,164.1180884400702,179.73596318862093,134.57555650466392,115.31014812445545]
+     "values": [230.0,164.1180871947491,179.73750250611144,134.5755569941212,115.31014812445545]
     }
    ]
   },

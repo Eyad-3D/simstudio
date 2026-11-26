@@ -2756,7 +2756,11 @@ round).**
   values after all of them (its left limit those before them all). The
   blocks' start (`init` at t0) goes the same way (since 26 November 2026:
   before, each read the start values, so three Scripts in a chain, each
-  its input + 1, started 1, 1, 1 instead of 1, 2, 3). A
+  its input + 1, started 1, 1, 1 instead of 1, 2, 3). A tick a few ulps
+  from an output point inside a step is at the point too, and runs at the
+  point's time (since 26 November 2026: before, a Sample Time's 13 · 0.1
+  = 1.3000000000000003 came after the grid's 1.3, whose point showed the
+  value before the tick). A
   block that reads an iteration variable, after a block before it changed
   a discrete value the iteration variables depend on
   (`RunInfo::z_discretes`, through the assignments), reads it solved

@@ -1158,3 +1158,36 @@ solve costs a little time at each output point; on four slices, best of
 City 120 s 0.110 → 0.118 s (+6.6 %), hybrid Mixed 120 s 2.831 → 2.794 s
 (−1.3 %), aero-bev UDDS 0.263 → 0.273 s (+3.9 %), bev-car WLTC 0.289 →
 0.302 s (+4.6 %).
+
+## A tick a few ulps from an output point is at it (26 November 2026)
+
+What was recorded: inside a step, the run loop put the output points and
+the blocks' ticks in time order by exact comparison. A clock's ticks are
+offset + k·period, so a 0.1 s Sample Time ticks at 13 · 0.1 =
+1.3000000000000003, after the grid's 1.3: that point was recorded before
+the tick and showed the value from before it, while the points at 1.2 and
+1.4 showed the tick at their time (a Script's output first showed at
+1.35, 1.55 and 1.85 on a 0.05 s grid, everywhere else at its tick's own
+point). Now a tick within 16 ulps of the output point (`same_instant`,
+the run loop's one-instant rule) runs at the point's time, and the point
+shows it, as at every other tick (`lsim-solve/src/run.rs`; DESIGN's
+"One instant"). Only the hybrid has a sampled block (its Hybrid Control
+Unit, every 10 ms), whose ticks land a few ulps from many of its 1 s
+points: there the point now shows that tick's command, and the run
+restarts a few ulps earlier at those ticks, which moves its steps and
+events. The battery-electric and FS cases are kept to the byte.
+
+Per case, against the record before (89c86bf0), as above:
+
+| case | largest figure move | largest channel move | steps | events | books |
+|---|---|---|---|---|---|
+| hybrid-car/case-hwfet | 1.5e-07 (HV Battery — internal losses) | 2.3e-07 | 903483 → 904041 | 77060 → 77126 | 9.7e-12 → 1.6e-13 |
+| hybrid-car/case-mixed | 8.6e-08 (Engine — fuel used) | 1.2e-06 | 296432 → 296701 | 56222 → 56254 | 1.9e-12 → 3.4e-12 |
+| hybrid-car/case-mixed-live | 8.6e-08 (Engine — fuel used) | 1.2e-06 | 296432 → 296701 | 56222 → 56254 | 1.9e-12 → 3.4e-12 |
+| hybrid-car/case-udds | 3.1e-07 (Phase Bag 2 — fuel consumption) | 5.0e-07 | 1649302 → 1648890 | 118505 → 118499 | 3.0e-11 → 2.9e-11 |
+
+Books inside 1.5e-9 (the hybrid 3.4e-12 at most; worst of all 1.467e-9,
+bev-car City, as before). No time moves: on four slices, best of 7
+alternating rounds against the module before it (CPUs 8-15), ratios
+0.998 (bev-car City), 0.979 (hybrid Mixed), 1.003 (aero-bev UDDS) and
+0.985 (bev-car WLTC).
