@@ -724,9 +724,6 @@ describe("undo / redo", () => {
   it("showing a parameter in another unit writes no value, and one undo takes the choice back", async () => {
     await start();
     store().setParameter("el-motor", "max_speed_rpm", 12000);
-    await store().saveRemote();
-    expect(store().dirty).toBe(false);
-    const steps = store().past.length;
     const before = structuredClone(findElement("el-motor")!.parameterOverrides);
     store().setDisplayUnit("el-motor", "max_speed_rpm", "value", "rad/s");
     store().setDisplayUnit("el-motor", "drag_torque", 0, "rad/s");
@@ -735,9 +732,8 @@ describe("undo / redo", () => {
       drag_torque: { axes: ["rad/s"] },
     });
     expect(findElement("el-motor")!.parameterOverrides).toEqual(before);
-    // only the display changed: not marked changed, no undo step
-    expect(store().dirty).toBe(false);
-    expect(store().past.length).toBe(steps);
+    store().undo();
+    expect(findElement("el-motor")?.displayUnits).toEqual({ max_speed_rpm: { value: "rad/s" } });
     // back to the library's unit leaves nothing behind: as a file from before
     store().setDisplayUnit("el-motor", "max_speed_rpm", "value", null);
     expect(findElement("el-motor")?.displayUnits).toBeUndefined();
