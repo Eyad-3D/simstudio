@@ -87,15 +87,6 @@ code. A test in the repository records each as an expected failure
   margin over 100 %); a study's point, which they never see, is refused by
   the run in the same words. The older engine clamped such a value and
   warned. Bring the value inside its limits.
-- **A part connected to nothing can fail where the older engine left it
-  out.** The older engine builds no part with nothing connected to it (a
-  battery or Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft
-  drives nothing, a Climate Control on nothing) and runs the rest, with a
-  warning from Data Checks. The new engine builds it. A lone E-Motor fails
-  its start (`RUN-INIT`), a lone Climate Control the build (`STRUCT-OVER`),
-  and a lone Engine's, Fuel Cell Stack's or Battery's table with an axis
-  set to Error can stop the run (`RUN-TABLE`) where the table does not
-  cover where the part sits. Connect the part or delete it.
 - **Some notes and rows the older engine wrote are missing**: the note
   that a motor at its maximum speed holds the car there, the time a Lookup
   block spent outside its data on *Clamp* or *Linear*, the count of the

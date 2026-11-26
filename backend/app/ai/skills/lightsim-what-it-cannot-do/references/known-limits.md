@@ -17,8 +17,6 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 ### What else the new engine refuses or stops
 
 - **A value outside its parameter's limits is refused** (`NEW-LIMITS`).
-- **A part connected to nothing can fail where the older engine left it
-  out.** The older engine builds no part with nothing connected to it (a battery or Fuel Cell Stack on no bus, an E-Motor or Engine whose shaft drives nothing, a Climate Control on nothing) and runs the rest, with a warning from Data Checks.
 - **Some notes and rows the older engine wrote are missing** : the note that a motor at its maximum speed holds the car there, the time a Lookup block spent outside its data on *Clamp* or *Linear*, the count of the tables a run read past their data, and an early message that the car does not move.
 - **Some figures differ from the older engine's by more than the band the
   two engines are compared at, and no class of difference explains them

@@ -845,3 +845,46 @@ def test_a_shaft_with_no_inertia_at_all_is_refused_naming_its_parts():
     [c] = [c for c in validate_project(proj) if "no inertia" in c.text]
     assert c.caseId == proj.cases[0].id and "in case" in c.text
 
+
+@pytest.mark.parametrize("kind, cdef, wire", [
+    ("Power Consumer", "electric.constant_drive", None),
+    ("Battery", "battery.generic", None),
+    ("DC-DC", "controller.dcdc", None),
+    ("DC-DC on one side", "controller.dcdc", "a_pos"),  # its input on the bus, its output on nothing
+    ("Electric Node", "electric.node", None),
+    ("Ground", "boundary.ground", None),
+])
+def test_a_part_data_checks_leave_out_is_left_out_by_the_engine(kind, cdef, wire):
+    """A part with nothing connected (app pass #1: a Power Consumer dropped
+    in and not wired stopped every run, the engine refusing the model): the
+    engine leaves out what Data Checks say the simulation leaves out, by
+    the same rule (validation.left_out), in a full run and in quick mode;
+    the run succeeds and has no channels of it."""
+    from app.solver import simulate
+    from app.validation import run_blockers, validate_project
+
+    proj = load_example("bev-car")
+    proj.systems[0].elements.append(el("x", cdef, "Extra"))
+    if wire:
+        proj.systems[0].connections.append(conn(990, "el-hvbus", "t5", "x", wire))
+    checks = validate_project(proj)
+    assert not run_blockers(checks, "case-city")
+    said = [c.text for c in checks if c.elementId == "x" and c.level == "warning"]
+    assert cdef == "boundary.ground" or (said and "leaves it out" in said[0]), said
+    for mode in ("full", "quick"):
+        next(c for c in proj.cases if c.id == "case-city").mode = mode
+        result = simulate(proj, "case-city")
+        assert result.status in ("success", "warning"), [m.text for m in result.messages]
+        assert not [c for c in result.channels if c.elementId == "x"]
+
+
+def test_an_unwired_e_motor_is_refused_by_data_checks_before_the_run():
+    """An E-Motor with nothing connected is not left out: Data Checks refuse
+    the run, naming it (it has no supply, drives nothing, has no command)."""
+    from app.validation import run_blockers, validate_project
+
+    proj = load_example("bev-car")
+    proj.systems[0].elements.append(el("x", "motor.emotor", "Extra"))
+    blockers = [c.text for c in run_blockers(validate_project(proj), "case-city")]
+    assert any("E-Motor 'Extra' has no live electrical connection" in t for t in blockers), blockers
+

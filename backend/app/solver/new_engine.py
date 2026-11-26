@@ -417,7 +417,8 @@ def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> S
         return SimResult(caseId=case_id, status="failed", channels=[],
                          messages=[SimMessage(level="error", text=t) for t in e.messages])
     model = ctx.model
-    run = lightsim_engine.fast(project.model_dump_json(), case_id, cycles_dir=str(cycles.DIR),
+    run = lightsim_engine.fast(engine_project(project).model_dump_json(), case_id,
+                               cycles_dir=str(cycles.DIR),
                                step=step, texts=read_texts(project))
     fast = run.report["fast"]
     times = [float(t) for t in run.times]
@@ -564,7 +565,8 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
         shipped = project.model_copy(deep=True)
         next(c for c in shipped.cases if c.id == case_id).endDistance = (
             ctx.end_distance - max(0.0, case.startLine))
-    built = lightsim_engine.build(shipped.model_dump_json(), case_id, cycles_dir=str(cycles.DIR),
+    built = lightsim_engine.build(engine_project(shipped).model_dump_json(), case_id,
+                                  cycles_dir=str(cycles.DIR),
                                   texts=texts)
     plan = _Plan(model, ctx, built, lanes)
     if case.fsEvent:  # the power rule check's own 500 ms average (fs_events._checks), kept on
@@ -739,6 +741,30 @@ class _Later(Exception):
     """A live edit the run cannot take: it takes effect on the next run."""
 
 
+def engine_project(project: Project) -> Project:
+    """The project as the engine is given it: without the parts the
+    simulation leaves out because nothing is connected to them
+    (validation.left_out, the Data Checks' own rule), and their wires and
+    signal links. The one place the engine's import is told what is in the
+    model: a full run, quick mode, a lap and a live edit's trial build all
+    hand it over through here."""
+    from ..validation import left_out  # (validation imports this package)
+    try:
+        gone = set(left_out(project, build_model(project)))
+    except ModelError:  # (the run says why the model cannot be built)
+        return project
+    if not gone:
+        return project
+    out = project.model_copy(deep=True)
+    for system in out.systems:
+        system.elements = [e for e in system.elements if e.id not in gone]
+        system.connections = [c for c in system.connections
+                              if c.sourceElementId not in gone and c.targetElementId not in gone]
+    out.dataBusConnections = [d for d in out.dataBusConnections
+                              if d.element1Id not in gone and d.element2Id not in gone]
+    return out
+
+
 def _context(project: Project, case_id: str) -> RunContext:
     """Today's model of a case's project, in a RunContext built and never
     stepped: the parts as today's engine reads them (run_new)."""
@@ -839,7 +865,7 @@ class _Edits:
         case = next(c for c in trial.cases if c.id == self.case_id)
         case.parameterOverrides.setdefault(el_id, {})[key] = value
         try:
-            b = lightsim_engine.build(trial.model_dump_json(), self.case_id,
+            b = lightsim_engine.build(engine_project(trial).model_dump_json(), self.case_id,
                                       cycles_dir=str(cycles.DIR), texts=self.texts)
             checked = _checked(_context(trial, self.case_id))
         except Exception as e:  # noqa: BLE001 — the engine's refusal of the value

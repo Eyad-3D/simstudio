@@ -539,6 +539,47 @@ def _moves_unpowered(model: Model) -> bool:
     return src is not None and _slope_can_pull(model, src[0])
 
 
+def left_out(project: Project, model: Model) -> dict[str, tuple[str, str]]:
+    """The parts the simulation leaves out because nothing is connected to
+    them (part id: the Data Checks' words and fix): a part with a mechanical
+    port on no driveline, one with an electrical + terminal left unwired, an
+    Electric Node wired to nothing. The one rule: Data Checks say it, and the
+    hand-over of a project to the engine (a full run, quick mode, a lap)
+    ships it without them (new_engine.engine_project). An E-Motor or Engine
+    is not left out (Data Checks refuse an unwired one), nor is a Ground."""
+    cdef_of, elements = model.cdef_of, model.elements
+    dl_of = {e for dl in model.drivelines for e in dl.element_group}
+    wired: set[tuple[str, str]] = set()
+    for system in project.systems:
+        for c in system.connections:
+            a, b = (c.sourceElementId, c.sourcePortId), (c.targetElementId, c.targetPortId)
+            if a[0] in cdef_of and b[0] in cdef_of and a[0] != b[0]:
+                wired |= {a, b}
+    out: dict[str, tuple[str, str]] = {}
+    for el_id, cdef in cdef_of.items():
+        if cdef.id in PROPULSION or cdef.id == "boundary.ground":
+            continue  # motors/engines are checked in _drive_checks; an idle ground is harmless
+        label = elements[el_id].label
+        mech = any(p.kind == "mechanical" for p in cdef.ports)
+        plus = [p for p in cdef.ports if p.kind == "electrical" and p.polarity == "positive"]
+        if mech and el_id not in dl_of:
+            note = (" — it carries none of the vehicle's weight or rolling resistance"
+                    if cdef.id == "propulsion.wheel" else "")
+            out[el_id] = (f"'{label}' is not connected to anything, so the simulation leaves "
+                          f"it out{note}.", "Wire it into the model, or delete it.")
+        elif plus:
+            loose = [p.name for p in plus if (el_id, p.id) not in wired]
+            if loose:
+                out[el_id] = (f"'{label}' has nothing connected to its {' or '.join(loose)}, so "
+                              f"the simulation leaves it out.",
+                              "Wire it to the electrical bus (a battery's + terminal or an "
+                              "Electric Node).")
+        elif cdef.id == "electric.node" and not any(e == el_id for e, _ in wired):
+            out[el_id] = (f"'{label}' is not connected to anything, so the simulation leaves "
+                          f"it out.", "Wire it into the bus, or delete it.")
+    return out
+
+
 def _drive_checks(project: Project, model: Model, case_models: dict[str, Model | None],
                   add: Add) -> set[str]:
     """Can this model do its job? Checks that a run would otherwise "pass"
@@ -591,28 +632,8 @@ def _drive_checks(project: Project, model: Model, case_models: dict[str, Model |
                 mech_nbrs[b[0]].add(a[0])
 
     # -- parts the solver leaves out because nothing is connected to them ------
-    for el_id, cdef in cdef_of.items():
-        if cdef.id in PROPULSION or cdef.id == "boundary.ground":
-            continue  # motors/engines are checked below; an idle ground is harmless
-        label = elements[el_id].label
-        mech = any(p.kind == "mechanical" for p in cdef.ports)
-        plus = [p for p in cdef.ports if p.kind == "electrical" and p.polarity == "positive"]
-        if mech and el_id not in dl_of:
-            note = (" — it carries none of the vehicle's weight or rolling resistance"
-                    if cdef.id == "propulsion.wheel" else "")
-            warn(el_id, f"'{label}' is not connected to anything, so the simulation leaves "
-                        f"it out{note}.",
-                 fix="Wire it into the model, or delete it.")
-        elif plus:
-            loose = [p.name for p in plus if (el_id, p.id) not in wired]
-            if loose:
-                warn(el_id, f"'{label}' has nothing connected to its {' or '.join(loose)}, so "
-                            f"the simulation leaves it out.",
-                     fix="Wire it to the electrical bus (a battery's + terminal or an Electric "
-                         "Node).")
-        elif cdef.id == "electric.node" and not any(e == el_id for e, _ in wired):
-            warn(el_id, f"'{label}' is not connected to anything.",
-                 fix="Wire it into the bus, or delete it.")
+    for el_id, (text, fix) in left_out(project, model).items():
+        warn(el_id, text, fix=fix)
 
     # -- energy: every E-Motor needs a source on its bus -------------------------
     fed_from = {d: bus for bus in model.buses for d in bus.dcdc_in}
