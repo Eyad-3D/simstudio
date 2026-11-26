@@ -108,9 +108,6 @@ XFAIL = {
         "NEW-LAP-SLIP: where the motors at full torque hold the car, the lap's wheel (fast mode's inverse "
         "model) turns with the prescribed speed and takes its tyre's slip loss out of the force: 3.835 s "
         "against the time-domain 3.706 s at μ 2.5, about the slip at that force (10 %) (open)"),
-    "test_lab_figures.py::test_ftp_bags_are_weighted_as_epa_does": (
-        "the new path gives no 'FTP weighted fuel consumption' row: the engine's figures have each bag, today's "
-        "lab_rows weights them (open)"),
     "test_acceleration.py::test_the_run_ends_at_the_line_and_is_timed_inside_the_last_step": PORT + (
         "; it still differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
     "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": PORT + (

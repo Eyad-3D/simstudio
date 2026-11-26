@@ -64,7 +64,7 @@ from .domains import FMU_COMPONENT, ModelInitError, RunContext
 from .energy import BookFlow, energy_flows
 from .evidence import Evidence
 from .keys import fill_keys
-from .labfig import lab_base
+from .labfig import FTP_WEIGHTS, lab_base
 from .maps import MAP_BLOCK, interp1
 from .network import CONSUMER_TYPES, ModelError, build_model
 from .profiles import distance_axis
@@ -1391,6 +1391,7 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
             s.label, s.value, s.limit, s.passed = row_label, v, lim, ok
         messages += [SimMessage(level="warning", text=t) for t in problems]
     _bms_rows(ctx, summary, bms_s)
+    _ftp_rows(summary)
     edge_rows: set[str] = {"Energy balance residual"}
     edges = core.outside_rows(ev, solved)
     edge_rows |= {r.label for r in edges}
@@ -2381,6 +2382,38 @@ def _supply(ctx, plan: _Plan, run) -> list[str]:
                 if not root_of[bus.id].fuelcell:  # (today's says which battery limit, or no source)
                     held_back(root_of[bus.id], True, k)
     return list(out.values())
+
+
+def _ftp_rows(summary: list[SummaryValue]) -> None:
+    """EPA's FTP weighting of the FTP-75's three bags (today's lab_rows):
+    0.43 × (bags 1 + 2) + 0.57 × (bags 3 + 2), each half its energy or fuel
+    over its distance, from the engine's phase rows, after them."""
+    by = {s.key: s for s in summary}
+    if "phase4_distance_km" in by:
+        return
+    bags = []
+    for k in (1, 2, 3):
+        d = by.get(f"phase{k}_distance_km")
+        if d is None or not d.label.startswith("Phase Bag "):
+            return
+        bags.append((d.value, by.get(f"phase{k}_consumption_kwh_per_100km"),
+                     by.get(f"phase{k}_fuel_consumption_l_per_100km")))
+    (d1, _, _), (d2, _, _), (d3, _, _) = bags
+    if d1 + d2 <= 0 or d3 + d2 <= 0:
+        return
+    wc, wh = FTP_WEIGHTS
+    rows = []
+    for i, key, label, unit in ((1, "ftp_consumption_kwh_per_100km", "FTP weighted consumption",
+                                 "kWh/100km"),
+                                (2, "ftp_fuel_consumption_l_per_100km", "FTP weighted fuel consumption",
+                                 "l/100km")):
+        if all(b[i] is not None for b in bags):
+            # (per 100 km × km / 100: the energy or litres of each bag)
+            q1, q2, q3 = (b[i].value * b[0] / 100.0 for b in bags)
+            rows.append(SummaryValue(key=key, label=label, unit=unit,
+                                     value=100.0 * (wc * (q1 + q2) / (d1 + d2) + wh * (q3 + q2) / (d3 + d2))))
+    last = max(i for i, s in enumerate(summary) if s.key.startswith("phase"))
+    summary[last + 1:last + 1] = rows
 
 
 def _full_brake(ctx, plan: _Plan, run) -> list[str]:
