@@ -26,6 +26,19 @@ export function channelKey(c: Channel): string {
   return `${c.elementId}:${c.portId}`;
 }
 
+/** The port part of a channel's label: "Brake Command" of "Brake RL · Brake Command". */
+const portName = (c: Channel) => c.label.split(" · ")[1] ?? c.label;
+
+/** A channel's name among others drawn or listed with it: its port alone
+ *  ("Vehicle Speed") when no other channel in `among` has that port name,
+ *  else with its part ("Brake RL · Brake Command"), so five brakes' commands
+ *  can be told apart. */
+export function channelName(c: Channel, among: readonly Channel[]): string {
+  const key = channelKey(c);
+  const port = portName(c);
+  return among.some((o) => channelKey(o) !== key && portName(o) === port) ? c.label : port;
+}
+
 /** True once the element has a real size — dockview keeps hidden tabs at 0×0,
  *  where a chart cannot be drawn. `ref` is a callback ref, so the observer
  *  attaches whenever the chart area mounts: the panels render it only after

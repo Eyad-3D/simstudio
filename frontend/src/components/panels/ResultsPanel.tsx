@@ -28,6 +28,7 @@ import { useDismiss } from "../useDismiss";
 import {
   PALETTE,
   channelKey,
+  channelName,
   comparedPair,
   differenceOf,
   defaultChannelKeys,
@@ -410,6 +411,11 @@ export function ResultsPanel() {
   };
 
   // one plotted series per (run × selected channel), the baseline's last
+  // the ticked channels as drawn, to name each so no two read the same
+  const drawnSelected = useMemo(
+    () => drawnRuns.flatMap((r) => r.result.channels).filter((c) => selectedKeys.has(channelKey(c))),
+    [drawnRuns, selectedKeys],
+  );
   const seriesDefs = useMemo(() => {
     const defs: {
       dataKey: string;
@@ -428,7 +434,7 @@ export function ResultsPanel() {
         // (the target speed is not what a comparison is about)
         if (!selectedKeys.has(key) || (faint && c.portId === "sig_demand")) continue;
         const ci = selectedList.indexOf(key);
-        const chLabel = c.label.split(" · ")[1] ?? c.label;
+        const chLabel = channelName(c, drawnSelected);
         defs.push({
           dataKey: `${r.id}::${key}`,
           unit: c.unit,
@@ -455,7 +461,7 @@ export function ResultsPanel() {
     const target = (d: (typeof defs)[number]) => Number(!multiRun && d.channel.portId === "sig_demand");
     return defs.sort((a, b) => target(a) - target(b));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawnRuns, ghost, selectedKeys, selectedList, multiRun]);
+  }, [drawnRuns, ghost, selectedKeys, selectedList, multiRun, drawnSelected]);
 
   // the x axis: time in the chosen unit, or the distance driven, which needs
   // a Vehicle in every plotted run (else it is time, picked automatically)
@@ -507,7 +513,7 @@ export function ResultsPanel() {
       const { t, y } = columnsOf(other.channel.timeSeries);
       const xb = distB ? t.map((_, k) => distB[k + distB.length - t.length]) : t;
       cols.push(differenceOf(x, chartData[j + 1] as (number | null)[], xb, y));
-      looks.push({ legend: d.channel.label.split(" · ")[1] ?? d.channel.label, unit: d.unit, color: channelColor(key) });
+      looks.push({ legend: channelName(d.channel, drawnSelected), unit: d.unit, color: channelColor(key) });
     });
     return cols.length > 0 ? { data: [x, ...cols] as uPlot.AlignedData, looks } : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -643,7 +649,7 @@ export function ResultsPanel() {
     () => activeChannels.filter((c) => channelKey(c) !== xyXKey),
     [activeChannels, xyXKey],
   );
-  const xyXShort = xyXChannel ? (xyXChannel.label.split(" · ")[1] ?? xyXChannel.label) : "";
+  const xyXShort = xyXChannel ? channelName(xyXChannel, activeChannels) : "";
   const xyXLabel = `${xyXShort}${xyXChannel?.unit ? ` [${xyXChannel.unit}]` : ""}`;
   // X-Y: every sample, X and each Y paired by index (uPlot's mode 2)
   const xyData = useMemo((): uPlot.AlignedData => {
@@ -652,7 +658,7 @@ export function ResultsPanel() {
     return [null, ...xyYChannels.map((c) => [xs, c.timeSeries.map((p) => p.value)])] as unknown as uPlot.AlignedData;
   }, [view, xyXChannel, xyYChannels]);
   const xyLook = JSON.stringify(
-    xyYChannels.map((c) => ({ legend: c.label.split(" · ")[1] ?? c.label, unit: c.unit, color: channelColor(channelKey(c)) })),
+    xyYChannels.map((c) => ({ legend: channelName(c, xyYChannels), unit: c.unit, color: channelColor(channelKey(c)) })),
   );
   const xyXUnit = xyXChannel?.unit ?? "";
   const xyOptions = useMemo((): PlotOptions => {
@@ -1017,7 +1023,7 @@ export function ResultsPanel() {
         <div className="min-h-[132px] flex-1 overflow-y-auto py-1">
           {byElement.length === 0 && (
             <div className="px-3 py-2 text-meta italic text-[color:var(--ss-text-dim)]">
-              No channels match “{search}”.
+              {search.trim() ? `No channels match “${search.trim()}”.` : "This run has no channels."}
             </div>
           )}
           {byElement.map(([element, channels]) => (
@@ -1143,7 +1149,7 @@ export function ResultsPanel() {
               >
                 {shownKeys.map((k) => {
                   const c = channelByKey.get(k);
-                  const short = c ? (c.label.split(" · ")[1] ?? c.label) : k;
+                  const short = c ? channelName(c, activeChannels) : k;
                   return (
                     <option key={k} value={k}>
                       X: {short}
@@ -1416,7 +1422,7 @@ export function ResultsPanel() {
                     <th className="ss-th w-[70px] text-right">t [s]</th>
                     {activeChannels.map((c) => (
                       <th key={channelKey(c)} className="ss-th text-right" title={c.label}>
-                        {c.label.split(" · ")[1] ?? c.label} [{c.unit}]
+                        {channelName(c, activeChannels)} [{c.unit}]
                       </th>
                     ))}
                   </tr>

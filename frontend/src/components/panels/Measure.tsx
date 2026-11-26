@@ -12,6 +12,7 @@ import type { Channel, SimRun } from "../../types";
 import {
   INTEGRAL_UNITS,
   channelKey,
+  channelName,
   distanceOf,
   firstReach,
   fmtNum,
@@ -248,7 +249,7 @@ function TimeToReach({ run, channels }: { run: SimRun; channels: Channel[] }) {
   // a speed first: 0 to 100 km/h is the usual question
   const c = channels.find((x) => channelKey(x) === pick) ?? channels.find((x) => x.unit === "km/h") ?? channels[0];
   if (!c) return null;
-  const name = c.label.split(" · ")[1] ?? c.label;
+  const name = channelName(c, channels);
   const ok = from.trim() !== "" && to.trim() !== "" && Number.isFinite(Number(from)) && Number.isFinite(Number(to));
   const place = () => {
     const i0 = firstReach(c.timeSeries, Number(from));
@@ -277,7 +278,7 @@ function TimeToReach({ run, channels }: { run: SimRun; channels: Channel[] }) {
         <select className="ss-input max-w-[170px] py-0.5 text-meta" value={channelKey(c)} onChange={edit(setPick)}>
           {channels.map((x) => (
             <option key={channelKey(x)} value={channelKey(x)}>
-              {x.label.split(" · ")[1] ?? x.label}
+              {channelName(x, channels)}
             </option>
           ))}
         </select>

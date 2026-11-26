@@ -264,6 +264,17 @@ describe("measurement cursors (RES-06)", () => {
 });
 
 describe("numbers and legends a person reads", () => {
+  it("a channel is named with its part where another has the same port name (app pass #7)", async () => {
+    const { channelName } = await import("./chartUtils");
+    const rl = ch("brake-rl", "sig_cmd", "Brake RL · Brake Command", "-");
+    const fl = ch("brake-fl", "sig_cmd", "Brake FL · Brake Command", "-");
+    const v = ch("veh", "sig_speed", "Vehicle · Vehicle Speed", "km/h");
+    expect(channelName(rl, [rl, fl, v])).toBe("Brake RL · Brake Command");
+    expect(channelName(v, [rl, fl, v])).toBe("Vehicle Speed");
+    // the same channel of another run is not another channel
+    expect(channelName(rl, [rl, { ...rl }, v])).toBe("Brake Command");
+  });
+
   it("a read-out of the solver's rounding noise reads 0", async () => {
     const { fmtNum } = await import("./chartUtils");
     expect(fmtNum(-1.773e-14)).toBe("0");
