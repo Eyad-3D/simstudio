@@ -54,13 +54,14 @@ import { MeasurePanel, cursorsIn, measurePlugin } from "./Measure";
 import { Plot, axisStyle, syncX, type PlotHandle, type PlotOptions } from "./Plot";
 import { RunChanges, RunInfo, runLabel, runShort, runTime } from "./RunInfo";
 import { RunsTable } from "./RunsTable";
-import { runRows, type RunRow } from "./runRows";
+import { isShipped, ranText, runRows, type RunRow } from "./runRows";
 import { DiffStrip, type DiffLook } from "./DiffStrip";
 import { DutyView } from "./DutyView";
 import { EnergyView } from "./EnergyView";
 import { LimitLegend, limitsPlugin } from "./LimitBand";
 import { StaleBanner } from "./StaleBanner";
 import { useReportsStore } from "../../store/reportsStore";
+import { runFileStem } from "../../reports";
 import { ReferenceList } from "./ExpectedValues";
 import { StudyView } from "./StudyView";
 import { formatNumber, signedNumber } from "../../format";
@@ -84,7 +85,12 @@ const TABLE_OVERSCAN = 10;
 const stripName = (r: SimRun, other: SimRun) => (runShort(r) === runShort(other) ? runLabel(r) : runShort(r));
 
 /** A run's label for tooltips: a named run's clock time too. */
-const runTitle = (r: SimRun) => (r.name ? `${runLabel(r)} · started ${runTime(r)}` : runLabel(r));
+const runTitle = (r: SimRun) =>
+  isShipped(r)
+    ? `${runLabel(r)} · came with the example, stored on ${ranText(r.startedAt, undefined, true)}`
+    : r.name
+      ? `${runLabel(r)} · started ${runTime(r)}`
+      : runLabel(r);
 
 // a change against the baseline from this % up is set in bold (RES-10);
 // neutral colour, as whether up is better depends on the value
@@ -287,6 +293,7 @@ const hasDistance = (r: SimRun) => r.result.channels.some((c) => c.portId === "s
 export function ResultsPanel() {
   const runs = useProjectStore((s) => s.runs);
   const activeRun = useActiveRun();
+  const projectName = useProjectStore((s) => s.project?.name ?? "");
   const overlayRuns = useOverlayRuns();
   const overlayRunIds = useProjectStore((s) => s.overlayRunIds);
   const setActiveRun = useProjectStore((s) => s.setActiveRun);
@@ -1294,7 +1301,7 @@ export function ResultsPanel() {
               onClick={() =>
                 plotRef.current?.png(
                   getComputedStyle(document.documentElement).getPropertyValue("--ss-panel").trim(),
-                  `lightsim-${activeRun?.caseName ?? "chart"}`,
+                  activeRun ? runFileStem(activeRun, projectName) : "chart",
                 )
               }
             >
@@ -1310,7 +1317,7 @@ export function ResultsPanel() {
                 exportCsv(
                   activeRun,
                   selectedKeys,
-                  `lightsim-${activeRun.caseName}`,
+                  runFileStem(activeRun, projectName),
                   view === "chart" && xMode !== "auto" ? xAxis : xAxisFor("s", []),
                 )
               }

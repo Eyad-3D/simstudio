@@ -4,7 +4,8 @@
 // spent above a power you pick.
 import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
-import { DUTY_CHANNEL, downloadText, dutyCsv, timeAbove } from "../../reports";
+import { DUTY_CHANNEL, downloadText, dutyCsv, runFileStem, timeAbove } from "../../reports";
+import { useProjectStore } from "../../store/projectStore";
 import type { SimRun } from "../../types";
 import { formatNumber } from "../../format";
 
@@ -59,7 +60,10 @@ export function DutyView({ run }: { run: SimRun }) {
         <button
           className="ss-toolbtn ml-auto border border-[color:var(--ss-border)]"
           title="Save the duty table as CSV"
-          onClick={() => downloadText(dutyCsv(duty, above), `lightsim-${run.caseName}-duty.csv`)}
+          onClick={() => {
+            const name = runFileStem(run, useProjectStore.getState().project?.name, "duty");
+            downloadText(dutyCsv(duty, above), `${name}.csv`);
+          }}
         >
           <Download size={12} /> CSV
         </button>

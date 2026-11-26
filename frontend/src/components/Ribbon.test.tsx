@@ -82,3 +82,12 @@ it("lists every panel by name, and shows the one picked, also one that was close
   expect(focusPanel).toHaveBeenCalledWith("messages");
   expect(host.querySelector("[role=menu][aria-label=Panels]")).toBeNull();
 });
+
+it("counts an example's stored results as what came with it (app pass #22)", async () => {
+  const run = { id: "stored-c", caseId: "c", caseName: "City", startedAt: 0, status: "success", result: {} } as never;
+  useProjectStore.setState({ runs: [run], storedRunCount: 0 });
+  const host = await ribbon("results");
+  expect(host.textContent).toContain("1 result that came with the example");
+  expect(host.textContent).not.toContain("not stored on disk");
+  useProjectStore.setState({ runs: [] });
+});

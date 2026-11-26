@@ -9,6 +9,7 @@ import {
   sortRows,
   statusText,
   STATUS_COLOR,
+  isShipped,
   type RunRow,
   type Sort,
   type SortKey,
@@ -145,7 +146,7 @@ export function RunsTable({
                   <td className={`ss-td whitespace-nowrap ${shown ? "font-semibold" : ""}`}>
                     {/* the keyboard's way to show it */}
                     <button className="text-left" aria-label={`Show ${label}`} aria-pressed={shown} onClick={() => !shown && onShow(r)}>
-                      {ranText(r.startedAt)}
+                      {ranText(r.startedAt, undefined, isShipped(r))}
                     </button>
                   </td>
                   {named && <td className="ss-td max-w-[220px] truncate">{rowName(r)}</td>}

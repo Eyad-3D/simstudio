@@ -66,6 +66,7 @@ import {
 } from "../store/uiStore";
 import { notYet } from "../notYet";
 import { fixedNumber } from "../format";
+import { isShipped } from "./panels/runRows";
 
 // Optimization is not implemented yet — kept out of the ribbon (its RibbonTab
 // id/stub render remain) until it ships as a real feature. Parameters is real
@@ -605,6 +606,7 @@ function ResultsTab() {
   const clearRuns = useProjectStore((s) => s.clearRuns);
   const shown = useProjectStore((s) => s.runs.length);
   const stored = useProjectStore((s) => s.storedRunCount);
+  const shipped = useProjectStore((s) => s.runs.filter(isShipped).length);
   return (
     <>
       <RibbonGroup label="Simulation">
@@ -619,12 +621,21 @@ function ResultsTab() {
       </RibbonGroup>
       <RibbonGroup label="Results">
         <div className="flex h-full flex-col justify-center gap-1 px-2 text-meta text-[color:var(--ss-text-dim)]">
-          <span className="flex items-center gap-1" title="Runs are stored on disk with the project">
+          <span
+            className="flex items-center gap-1"
+            title={
+              stored === 0 && shown > 0 && shipped === shown
+                ? "The example's own results, to compare with: Run makes runs of your own, stored with the project"
+                : "Runs are stored on disk with the project"
+            }
+          >
             <Gauge size={13} />
             {stored > 0
               ? `${stored} stored run${stored > 1 ? "s" : ""}`
               : shown > 0
-                ? `${shown} run${shown > 1 ? "s" : ""} (not stored on disk)`
+                ? shipped === shown
+                  ? `${shown} result${shown > 1 ? "s" : ""} that came with the example`
+                  : `${shown} run${shown > 1 ? "s" : ""} (not stored on disk)`
                 : "No stored runs yet"}
             {stored > shown && shown > 0 && <span className="text-meta">· newest {shown} shown</span>}
           </span>

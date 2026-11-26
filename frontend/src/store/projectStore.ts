@@ -7,7 +7,7 @@ import { confirmDialog, scriptTrustDialog, unsavedChangesDialog } from "../dialo
 import { desktop } from "../desktop";
 import { loadDraft } from "../persist";
 import { diffSnapshots, modelFingerprint, nameFromChanges } from "../provenance";
-import { dutyKpis } from "../reports";
+import { dutyKpis, projectFileName } from "../reports";
 import type {
   Attachment,
   Channel,
@@ -2423,15 +2423,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       };
       if ((project.attachments ?? []).length > 0) {
         try {
-          download(await api.exportBundle(project), `${project.id}.lightsim.zip`);
-          log("info", `Project exported with its attached files as ${project.id}.lightsim.zip.`);
+          download(await api.exportBundle(project), projectFileName(project, ".lightsim.zip"));
+          log("info", `Project exported with its attached files as ${projectFileName(project, ".lightsim.zip")}.`);
           return;
         } catch (e) {
           log("warning", `The attached files could not be packed (${(e as Error).message}); exporting the project file only.`);
         }
       }
-      download(new Blob([JSON.stringify(project, null, 2)], { type: "application/json" }), `${project.id}.lightsim`);
-      log("info", `Project exported as ${project.id}.lightsim.`);
+      download(new Blob([JSON.stringify(project, null, 2)], { type: "application/json" }), projectFileName(project));
+      log("info", `Project exported as ${projectFileName(project)}.`);
     },
 
     importProject: async (json) => {
@@ -2493,7 +2493,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
       log(
         "info",
-        `Attached '${info.name}' (${formatNumber((info.bytes / 1024), "en", { maximumFractionDigits: 0 })} kB) to the project` +
+        `Attached '${info.name}' (${formatNumber(info.bytes / 1024, "en", { maximumFractionDigits: 0 })} kB) to the project` +
           (info.name !== file.name ? ` as '${info.name}'` : "") +
           "; save the project to keep it in the list.",
       );
@@ -2917,7 +2917,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       log(
         "info",
         `Imported lap added as case '${name}': ${formatNumber(lap.duration_s, "en", { maximumFractionDigits: 1 })} s, ` +
-          `${formatNumber((lap.distance_m / 1000), "en", { maximumFractionDigits: 3 })} km` +
+          `${formatNumber(lap.distance_m / 1000, "en", { maximumFractionDigits: 3 })} km` +
           `${lap.repeated > 1 ? ` (${lap.repeated} laps)` : ""}; source file SHA-256 ${sha256}. ` +
           "Its speed comes from the file: LightSim gives the energy and the loads for that speed, not the cornering.",
       );
@@ -3000,7 +3000,10 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               for (const v of e.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
               const point = `${e.values[0]} kWh, ${e.values[1]} kW`;
               if (pointDnf(byIndex.get(e.index)!))
-                log("warning", `Endurance energy study: ${point} did not finish (DNF): the pack reached its minimum charge.`);
+                log(
+                  "warning",
+                  `Endurance energy study: ${point} did not finish (DNF): the pack reached its minimum charge.`,
+                );
               else if (e.status === "failed") log("error", `Endurance energy study: ${point} failed.`);
               pointEnded(byIndex.size);
             },

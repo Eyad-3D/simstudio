@@ -2,7 +2,8 @@
 // sources' energy went, and the energy in, out and lost of every part.
 import { useMemo, useRef } from "react";
 import { Download, ImageIcon } from "lucide-react";
-import { downloadText, energyCsv, sankeyLayout, type SankeyNode } from "../../reports";
+import { downloadText, energyCsv, runFileStem, sankeyLayout, type SankeyNode } from "../../reports";
+import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import { fmtPct } from "./chartUtils";
 import type { SimRun } from "../../types";
@@ -14,10 +15,14 @@ const NODE_W = 12;
 // their left, over the bands), each sink (labels to its right)
 const COL_X = [210, 310, 510, 700];
 const LABEL_GAP = 13; // px between label baselines
-const kwh = (v: number) => formatNumber(v, undefined, { maximumFractionDigits: v >= 10 ? 2 : 3, minimumFractionDigits: 0 });
+const kwh = (v: number) =>
+  formatNumber(v, undefined, { maximumFractionDigits: v >= 10 ? 2 : 3, minimumFractionDigits: 0 });
 const pct = (v: number, total: number) => (total > 0 ? `${fixedNumber((100 * v) / total, 1)} %` : "");
 // a small energy (the residual) with two significant digits, not as "-0"
-const kwhSmall = (v: number) => (Math.abs(v) >= 0.001 || v === 0 ? kwh(v) : formatNumber(v, undefined, { maximumSignificantDigits: 2 }));
+const kwhSmall = (v: number) =>
+  Math.abs(v) >= 0.001 || v === 0 ? kwh(v) : formatNumber(v, undefined, { maximumSignificantDigits: 2 });
+/** An export's file name: the run's, then what it holds. */
+const fileOf = (run: SimRun) => runFileStem(run, useProjectStore.getState().project?.name, "energy");
 // what "not accounted for" is, in the header and the table's last row
 const REMAINDER_HINT =
   "The sources' energy less every place it went. Every part's own books close, so this is only where the energy out of one part is not quite the energy into the next: the solver's step, which grows with hard wheel spin and with a coarse step. It is the summary's Energy balance residual, there as a share of the energy the sources gave up and with the sign the other way round (energy the step made is + there, − here). A large one means the model does not add up.";
@@ -84,7 +89,7 @@ export function EnergyView({ run }: { run: SimRun }) {
     copy.querySelectorAll("[data-halo]").forEach((t) => t.setAttribute("stroke", bg));
     copy.setAttribute("xmlns", "http://www.w3.org/2000/svg");
     copy.insertAdjacentHTML("afterbegin", `<rect width="100%" height="100%" fill="${bg}"/>`);
-    downloadText(new XMLSerializer().serializeToString(copy), `lightsim-${run.caseName}-energy.svg`, "image/svg+xml");
+    downloadText(new XMLSerializer().serializeToString(copy), `${fileOf(run)}.svg`, "image/svg+xml");
   };
 
   return (
@@ -111,7 +116,7 @@ export function EnergyView({ run }: { run: SimRun }) {
           <button
             className="ss-toolbtn border border-[color:var(--ss-border)]"
             title="Save the energy table and the chart's bands as CSV"
-            onClick={() => downloadText(energyCsv(e), `lightsim-${run.caseName}-energy.csv`)}
+            onClick={() => downloadText(energyCsv(e), `${fileOf(run)}.csv`)}
           >
             <Download size={12} /> CSV
           </button>

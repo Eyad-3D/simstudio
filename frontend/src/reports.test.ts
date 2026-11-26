@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import libraryJson from "./data/componentLibrary.json";
-import { dutyKpis, energyCsv, limitSegments, limitShares, sankeyLayout, timeAbove } from "./reports";
+import {
+  dutyKpis,
+  energyCsv,
+  limitSegments,
+  limitShares,
+  projectFileName,
+  runFileStem,
+  sankeyLayout,
+  timeAbove,
+} from "./reports";
 import { changesSince } from "./staleness";
 import type { ComponentDef, EnergyReport, Project, SimRun } from "./types";
 
@@ -138,5 +147,26 @@ describe("changes since the results shown (UX-41)", () => {
     expect([...s.wireIds]).toEqual(["c1"]);
     expect([...s.caseIds]).toEqual(["c"]);
     expect(s.changes.map((c) => c.text)).toContain("Vehicle · Vehicle Mass 1,800 → 2,300 kg");
+  });
+});
+
+describe("export file names (app pass #29)", () => {
+  const run = {
+    id: "run-x1y2",
+    caseId: "case-city",
+    caseName: "City Cycle",
+    startedAt: Date.UTC(2026, 10, 26, 17, 22, 38),
+    snapshot: { project: { name: "Battery Electric Car" } },
+  } as unknown as SimRun;
+  it("every export of a run: project, case, run, then what it holds; no id", () => {
+    expect(runFileStem(run)).toBe("Battery Electric Car - City Cycle - 2026-11-26T17-22-38Z");
+    expect(runFileStem({ ...run, name: "Stored result" } as SimRun, "", "energy")).toBe(
+      "Battery Electric Car - City Cycle - Stored result - energy",
+    );
+    expect(runFileStem({ ...run, snapshot: undefined, caseName: "a/b: c" } as SimRun, "P")).toMatch(/^P - a_b_ c - /);
+  });
+  it("the project file by its name, not its id", () => {
+    expect(projectFileName({ name: "FS Electric (generic)" })).toBe("FS Electric (generic).lightsim");
+    expect(projectFileName({ name: "FS" }, ".lightsim.zip")).toBe("FS.lightsim.zip");
   });
 });

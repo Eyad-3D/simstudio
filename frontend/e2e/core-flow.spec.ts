@@ -35,7 +35,8 @@ test("BEV example: data checks, run, results channels and CSV export", async ({ 
     page.waitForEvent("download"),
     page.getByRole("button", { name: "CSV", exact: true }).click(),
   ]);
-  expect(download.suggestedFilename()).toMatch(/^lightsim-.+\.csv$/);
+  // named after the project and case, with no internal id (app pass #29)
+  expect(download.suggestedFilename()).toMatch(/^Battery Electric Car - City Cycle - .+\.csv$/);
   const lines = (await readFile(await download.path(), "utf8")).trim().split("\n");
   const header = lines[0].split(",");
   expect(header[0]).toBe("t_s");
