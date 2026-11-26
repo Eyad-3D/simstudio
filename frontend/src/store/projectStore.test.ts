@@ -721,7 +721,7 @@ describe("undo / redo", () => {
     expect(findElement("el-bat")?.tableOutside).toBeUndefined();
   });
 
-  it("showing a parameter in another unit writes no value, is no edit and no undo step (#24)", async () => {
+  it("showing a parameter in another unit writes no value, and one undo takes the choice back", async () => {
     await start();
     store().setParameter("el-motor", "max_speed_rpm", 12000);
     await store().saveRemote();
@@ -740,7 +740,6 @@ describe("undo / redo", () => {
     expect(store().past.length).toBe(steps);
     // back to the library's unit leaves nothing behind: as a file from before
     store().setDisplayUnit("el-motor", "max_speed_rpm", "value", null);
-    store().setDisplayUnit("el-motor", "drag_torque", 0, null);
     expect(findElement("el-motor")?.displayUnits).toBeUndefined();
     expect(findElement("el-motor")!.parameterOverrides).toEqual(before);
   });

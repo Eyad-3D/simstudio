@@ -1669,7 +1669,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       ),
 
     setDisplayUnit: (elementId, key, slot, unit, value) => {
-      const choose = (draft: Project) => {
+      updateProject((draft) => {
         for (const s of draft.systems) {
           const el = s.elements.find((e) => e.id === elementId);
           if (!el) continue;
@@ -1692,22 +1692,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           if (Object.keys(all).length) el.displayUnits = all;
           else delete el.displayUnits;
         }
-      };
-      // only shown in another unit (#24): kept with the project (its
-      // displayUnits, docs/spec/project.md) so the file opens the same way,
-      // but not an edit: the project is not marked changed and it is no undo
-      // step; it is written with the next save. "The number is in another
-      // unit" changes the value, so that one is an edit.
-      if (value === undefined) {
-        const { project } = get();
-        if (!project) return;
-        const draft = structuredClone(project);
-        choose(draft);
-        set({ project: draft });
-        return;
-      }
-      updateProject(choose);
-      streamLive(elementId, key, value);
+      });
+      if (value !== undefined) streamLive(elementId, key, value);
     },
 
     placePort: (elementId, portId, place) => {
