@@ -387,7 +387,7 @@ def test_sheets_of_different_ranges_are_refused_with_a_code(monkeypatch):
     monkeypatch.delenv(new_engine.ENV_VAR, raising=False)
     result = simulate(_uneven_sheets(), "case-city")
     first = result.messages[0].text
-    assert result.status == "failed" and first.startswith("Not run [NEW-FAILED]: "), first
+    assert result.status == "failed" and (first.startswith("Not run: ") and "[NEW-FAILED" in first), first
     assert "do not all cover the same range" in first, first
     # in the map's own numbers (before: the engine's padded range, -310 N·m)
     assert "(50 to 310 on every sheet, 0 to 310 on some)" in first, first
@@ -789,7 +789,7 @@ def test_a_battery_check_the_run_kept_no_record_of_is_the_path_s_fault(new, monk
     result = simulate(proj, "case-city")
     assert result.status == "failed"
     first = result.messages[0].text
-    assert first.startswith("Not run [NEW-ERROR]") and "the moving average of el-battery:sig_power" in first
+    assert (first.startswith("Not run: ") and "[NEW-ERROR" in first) and "the moving average of el-battery:sig_power" in first
 
 
 @pytest.mark.parametrize("gone, check", [
@@ -829,7 +829,7 @@ def test_a_battery_check_on_a_channel_the_run_kept_no_record_of_is_the_path_s_fa
     result = simulate(_battery(load_example("bev-car"), **check), "case-city")
     assert result.status == "failed"
     first = result.messages[0].text
-    assert first.startswith("Not run [NEW-ERROR]") and f"no record of {gone}" in first
+    assert (first.startswith("Not run: ") and "[NEW-ERROR" in first) and f"no record of {gone}" in first
 
 
 def _with_case_values(proj, case_id: str, over: dict):
@@ -900,7 +900,7 @@ def test_a_study_point_outside_its_limits_fails_with_its_code(monkeypatch, point
     result = SimResult.model_validate_json(studies.run_point(project.model_dump_json(), case_id)[0])
     (first,) = result.messages
     assert result.status == "failed" and not result.channels
-    assert first.text.startswith("Not run [NEW-LIMITS]: ") and " must be " in first.text, first.text
+    assert (first.text.startswith("Not run: ") and "[NEW-LIMITS" in first.text) and " must be " in first.text, first.text
     assert "LIGHTSIM_" not in first.text
 
 
@@ -938,7 +938,7 @@ def test_a_part_s_own_value_outside_its_limits_is_not_run(new):
     # Data Checks' own words (a part's own value: no case named)
     assert why.code == "NEW-LIMITS" and why.why == "Pressure of 'Ambient' must be above 0 kPa — got -50"
     result = simulate(proj, "case-city")  # (strict)
-    assert result.status == "failed" and result.messages[0].text.startswith("Not run [NEW-LIMITS]: Pressure of ")
+    assert result.status == "failed" and result.messages[0].text.startswith("Not run: Pressure of ")
     over = _with_case_values(copy.deepcopy(proj), "case-city", {"el-ambient": {"pressure_kPa": 101.325}})
     assert value_problems(over, "case-city") == [] and new_engine.unsupported(over, "case-city") is None
     good = _with_case_values(load_example("bev-car"), "case-city", {"el-ambient": {"pressure_kPa": -50.0}})
@@ -2001,7 +2001,7 @@ def test_a_table_time_quick_mode_cannot_tell_from_the_allowance_is_refused(new, 
     mot.tableOutside = {"full_load_torque": ["clamp", "clamp"]}
     next(c for c in proj.cases if c.id == "case-hwfet").mode = "quick"
     strict = simulate(proj, "case-hwfet")
-    assert _texts(strict)[0].startswith("Not run [QUICK-TABLE-TIME] in quick mode: "), _texts(strict)
+    assert (_texts(strict)[0].startswith("Not run in quick mode: ") and "[QUICK-TABLE-TIME" in _texts(strict)[0]), _texts(strict)
     assert strict.status == "failed" and "Set the case's mode to full" in _texts(strict)[0]
 
 

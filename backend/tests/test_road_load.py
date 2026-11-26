@@ -74,7 +74,7 @@ def test_a_case_value_outside_the_usual_air_is_warned_about_by_the_run(case_valu
         from app.validation import run_blockers, validate_project
         blockers = run_blockers(validate_project(proj), "case")
         assert result.status == "failed" and len(blockers) == 1
-        assert [m.text for m in result.messages] == [f"Not run [NEW-LIMITS]: {blockers[0].text}"]
+        assert [m.text for m in result.messages] == [f"Not run: {blockers[0].text} [NEW-LIMITS]"]
     elif where is None:
         assert about_air == []
     else:

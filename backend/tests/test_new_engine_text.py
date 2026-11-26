@@ -122,7 +122,7 @@ def test_a_text_that_does_not_fit_its_part_fails_with_the_engines_code(tmp_path)
     result = simulate(proj, CITY)
     assert result.status == "failed"
     text = result.messages[0].text
-    assert "[NEW-FAILED] [NEW-TEXT]" in text and "TEXT-" in text, text
+    assert "[NEW-FAILED, NEW-TEXT: TEXT-" in text, text
 
 
 @needs_engine
@@ -151,7 +151,7 @@ def test_without_the_module_a_text_component_never_runs_on_today_engine(tmp_path
     el.textFile = str(tmp_path / "any.mo")
     result = simulate(project, CITY)
     assert result.status == "failed"
-    assert result.messages[0].text.startswith("Not run [NEW-MISSING] [NEW-TEXT]")
+    assert "[NEW-MISSING, NEW-TEXT]" in result.messages[0].text
 
 
 # ---- where a text file may be (merge follow-up N3) ---------------------------------
@@ -213,8 +213,9 @@ def test_a_text_file_outside_the_projects_folder_is_never_read(engine, agent, tm
         result = _run(proj, engine, agent, monkeypatch)
         assert result.status == "failed" and not result.channels, how
         said = result.messages[0].text
-        assert said.startswith("Not run [NEW-TEXT]: the text file of 'HV Battery Pack' "
+        assert said.startswith("Not run: The text file of 'HV Battery Pack' "
                                f"({name}) is outside the projects folder"), (how, said)
+        assert said.endswith("[NEW-TEXT]"), (how, said)
         if "link" in how:  # (a link's target is not told)
             assert str(outside) not in said, (how, said)
 

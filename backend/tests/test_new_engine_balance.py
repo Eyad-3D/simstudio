@@ -147,7 +147,7 @@ def test_a_failure_in_a_later_run_reports_the_last_finished_run(monkeypatch):
     assert result.engine == "new" and result.status == "warning"
     assert _row(result, "charge_balance_runs").value == 1
     assert any("did not settle (run 2 was cut short)" in m.text for m in result.messages)
-    assert any(m.level == "error" and m.text.startswith("Not run [NEW-ERROR]") and "planted" in m.text
+    assert any(m.level == "error" and (m.text.startswith("Not run: ") and "[NEW-ERROR" in m.text) and "planted" in m.text
                for m in result.messages), [m.text for m in result.messages]
 
 

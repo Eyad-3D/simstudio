@@ -125,10 +125,27 @@ TodayFn = Callable[[Project, str, Optional[EmitFn], Optional[ControlFn]], SimRes
 
 
 class Refusal(NamedTuple):
-    """Why the new engine's path did not run a case: a code of CODES and
-    the reason in words."""
+    """Why the new engine's path did not run a case: a code of CODES, the
+    reason in words, and the engine's own codes where it refused it."""
     code: str
     why: str
+    engine_codes: tuple[str, ...] = ()
+
+
+def refusal_text(why: Refusal, detail: str = "", quick: bool = False, more: str = "") -> str:
+    """A refused run's message: what stopped it first, in words (the
+    engine's own, which name the part, where it refused the model), what to
+    do, and the codes at the end: "Not run: <reason>. [CODE: ENGINE-CODES]"."""
+    if why.engine_codes and detail:  # (the engine's words say it)
+        body = detail
+    else:
+        body = why.why + (f" ({detail})" if detail and detail != why.why else "")
+    body = body.strip().rstrip(".")
+    body = body[:1].upper() + body[1:]
+    codes = why.code + (f": {', '.join(why.engine_codes)}" if why.engine_codes else "")
+    where = " in quick mode" if quick else ""
+    tail = " Set the case's mode to full to run it." if quick else ""
+    return f"Not run{where}: {body}.{more}{tail} [{codes}]"
 
 
 def wanted() -> bool:
@@ -258,11 +275,10 @@ def no_text(case_id: str, why: Refusal, project: Project, detail: str = "") -> S
     cannot run on today's engine, which would run the built-in part in the
     text's place without a word."""
     label = next(iter(texts_of(project).values()))[0]
-    more = f" ({detail})" if detail else ""
-    codes = f"[{why.code}]" + (" [NEW-TEXT]" if why.code != "NEW-TEXT" else "")
+    codes = why if why.code == "NEW-TEXT" else why._replace(code=f"{why.code}, NEW-TEXT")
     return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
-        level="error", text=f"Not run {codes}: {why.why}{more}; {label!r} reads its "
-                            f"equations from a text file, which only the new engine reads.")])
+        level="error", text=refusal_text(codes, detail, more=(
+            f" {label!r} reads its equations from a text file, which only the new engine reads.")))])
 
 
 def replay(project: Project, case_id: str, options: dict, edits: list[LiveEdit]) -> SimResult:
@@ -387,7 +403,8 @@ def quick_failure(e: Exception) -> Refusal:
                                            "to judge at its points once a second")
     why = failure(e)
     code = {"NEW-FAILED": "QUICK-FAILED", "NEW-BUILD": "QUICK-BUILD", "NEW-TEXT": "QUICK-BUILD"}
-    return Refusal(code.get(why.code, "QUICK-ERROR"), why.why.replace("the new engine", "fast mode"))
+    return Refusal(code.get(why.code, "QUICK-ERROR"), why.why.replace("the new engine", "fast mode"),
+                   why.engine_codes)
 
 
 def quick(project: Project, case_id: str) -> SimResult:
@@ -400,10 +417,8 @@ def quick(project: Project, case_id: str) -> SimResult:
             return run_quick(project, case_id)
         except Exception as e:  # noqa: BLE001 — told as the reason's code
             why, detail = quick_failure(e), str(e)
-    more = f" ({detail})" if detail else ""
     return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
-        level="error", text=f"Not run [{why.code}] in quick mode: {why.why}{more}. Set the case's "
-                            f"mode to full to run it.")])
+        level="error", text=refusal_text(why, detail, quick=True))])
 
 
 def run_quick(project: Project, case_id: str, step: Optional[float] = None) -> SimResult:
@@ -487,7 +502,7 @@ def failure(e: Exception) -> Refusal:
         EngineError = ()  # noqa: N806 — nothing is the engine's without it
     if isinstance(e, EngineError):
         codes = sorted({str(d.get("code")) for d in getattr(e, "diagnostics", None) or []})
-        return Refusal("NEW-FAILED", f"the new engine refused it ({', '.join(codes) or 'no code'})")
+        return Refusal("NEW-FAILED", "the new engine refused it", tuple(codes))
     if isinstance(e, ModelError):
         return Refusal("NEW-BUILD", "today's model builder refused it")
     if isinstance(e, TextFileError):
@@ -500,9 +515,8 @@ def failure(e: Exception) -> Refusal:
 def refused(case_id: str, why: Refusal, detail: str = "") -> SimResult:
     """The result of a case the new engine's path did not run: failed, with
     the reason's code and words."""
-    more = f" ({detail})" if detail else ""
     return SimResult(caseId=case_id, status="failed", channels=[], messages=[SimMessage(
-        level="error", text=f"Not run [{why.code}]: {why.why}{more}.")])
+        level="error", text=refusal_text(why, detail))])
 
 
 def unsupported(project: Project, case_id: str) -> Optional[Refusal]:

@@ -27,8 +27,8 @@ LightSim runs every case on one simulation engine, the new engine (written
 in Rust). It replaced the older engine (written in Python) as the app's
 engine in this version, and nothing falls back to the older one: a case the
 new engine does not run fails at once, before any result, with an error
-that starts *Not run* and gives a reason code in brackets (for example
-`Not run [NEW-LIMITS]`, a value outside its parameter's limits).
+that starts *Not run*, says what stopped it and ends with a reason code in
+brackets (for example `[NEW-LIMITS]`, a value outside its parameter's limits).
 The older engine's code stays in the repository for developers and for the
 comparison of the two engines (`LIGHTSIM_ENGINE=today`, see the
 [README](../README.md)); the app does not run a case on it.
@@ -117,8 +117,8 @@ code. A test in the repository records each as an expected failure
   turns (`SINGULAR-LOOP`), where the older engine lumped every inertia
   together. One part with an inertia is enough (a brake with none on a
   wheel with one runs).
-- **A run the engine's integrator stops part-way fails with `Not run
-  [NEW-FAILED]`** (`RUN-INTEGRATOR`, `RUN-EVENT-STORM`), even after it showed
+- **A run the engine's integrator stops part-way fails with *Not run* and
+  `NEW-FAILED`** (`RUN-INTEGRATOR`, `RUN-EVENT-STORM`), even after it showed
   points: the wording says *Not run* where the run showed, say, 321 s. (A
   table on Error or a value that is not a number keeps its trace up to the
   stop.)

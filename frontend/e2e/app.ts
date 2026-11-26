@@ -116,7 +116,7 @@ export async function expectRefused(page: Page, code: string): Promise<void> {
   await expect(finishNotice(page)).toContainText("failed: see Messages", { timeout: 60_000 });
   await ribbonTab(page, "Home").click();
   await showPanel(page, "Problems");
-  await expect(page.getByText(`Not run [${code}]: `).first()).toBeVisible();
+  await expect(page.getByText(/^Not run/).filter({ hasText: `[${code}` }).first()).toBeVisible();
 }
 
 /** Wait for a run or sweep to end and show its results. The page stays

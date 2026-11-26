@@ -442,15 +442,15 @@ def test_a_live_run_the_new_engine_stops_fails_with_its_code(monkeypatch):
         assert "restart" not in [m["type"] for m in live.stream]
         assert result.status == "failed" and result.engine is None
         (msg,) = result.messages
-        assert msg.text.startswith("Not run [NEW-FAILED]: ") and "RUN-INTEGRATOR" in msg.text, msg.text
+        assert (msg.text.startswith("Not run: ") and "[NEW-FAILED" in msg.text) and "RUN-INTEGRATOR" in msg.text, msg.text
         assert "today's engine" not in msg.text
     quiet = simulate(project, "case-city", None, lambda: [])
-    assert quiet.status == "failed" and quiet.messages[0].text.startswith("Not run [NEW-FAILED]: ")
+    assert quiet.status == "failed" and (quiet.messages[0].text.startswith("Not run: ") and "[NEW-FAILED" in quiet.messages[0].text)
     for progress in (None, lambda pct: None):
         ai = Engine.simulate(project, "case-city", max_seconds=120.0, cancel=threading.Event(),
                              progress=progress)
         assert ai.status == "failed" and not ai.channels, [m.text for m in ai.messages]
-        assert ai.messages[0].text.startswith("Not run [NEW-FAILED]: ")
+        assert (ai.messages[0].text.startswith("Not run: ") and "[NEW-FAILED" in ai.messages[0].text)
 
 
 def test_the_result_says_what_ran_it_and_the_snapshot_keeps_it(monkeypatch):

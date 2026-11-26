@@ -221,7 +221,7 @@ def test_a_wheelbase_of_0_given_at_run_time_is_refused():
     blockers = run_blockers(validate_project(proj), "case")
     result = simulate(proj, "case")
     assert result.status == "failed" and len(blockers) == 1
-    assert [m.text for m in result.messages] == [f"Not run [NEW-LIMITS]: {blockers[0].text}"]
+    assert [m.text for m in result.messages] == [f"Not run: {blockers[0].text} [NEW-LIMITS]"]
 
 
 def test_the_slope_moves_load_to_the_rear():

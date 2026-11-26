@@ -295,7 +295,7 @@ def test_a_margin_outside_0_to_100_percent_is_refused_not_a_crash(margin):
         f"100 % — got {margin:g}."]
     result = simulate(proj, case.id)
     assert result.status == "failed"
-    assert [m.text for m in result.messages] == [f"Not run [NEW-LIMITS]: {blockers[0].text}"]
+    assert [m.text for m in result.messages] == [f"Not run: {blockers[0].text} [NEW-LIMITS]"]
 
 
 def test_a_motor_commanded_at_standstill_draws_its_loss_map_there():

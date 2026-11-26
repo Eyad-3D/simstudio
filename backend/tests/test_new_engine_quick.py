@@ -96,8 +96,8 @@ def test_a_case_quick_mode_does_not_run_fails_with_its_code(monkeypatch, name, c
     result = simulate(project, case_id)
     assert result.status == "failed" and not result.channels
     (only,) = result.messages
-    assert only.text.startswith(f"Not run [{code}] in quick mode: ")
-    assert only.text.endswith("Set the case's mode to full to run it.")
+    assert (only.text.startswith("Not run in quick mode: ") and f"[{code}" in only.text)
+    assert only.text.endswith(f"Set the case's mode to full to run it. [{code}]")
 
 
 @needs_engine
@@ -110,7 +110,7 @@ def test_fast_modes_refusal_fails_with_quick_failed(monkeypatch):
         raise le.ModelError("Fast mode found no cycle to prescribe.")
     monkeypatch.setattr(le, "fast", refuse)
     result = simulate(_quick("bev-car", CITY), CITY)
-    assert result.messages[0].text.startswith("Not run [QUICK-FAILED] in quick mode: ")
+    assert (result.messages[0].text.startswith("Not run in quick mode: ") and "[QUICK-FAILED" in result.messages[0].text)
     assert result.status == "failed"
 
 
@@ -135,7 +135,7 @@ def test_a_case_that_ends_at_a_distance_or_laps_fails_with_quick_end(end):
     ends there)."""
     result = simulate(_quick("bev-car", CITY, **end), CITY)
     assert result.status == "failed" and not result.summary
-    assert result.messages[0].text.startswith("Not run [QUICK-END] in quick mode: ")
+    assert (result.messages[0].text.startswith("Not run in quick mode: ") and "[QUICK-END" in result.messages[0].text)
     full = simulate(_quick("bev-car", CITY, mode="full", **end), CITY)
     assert full.status in ("success", "warning")
 
@@ -204,7 +204,7 @@ def test_a_table_axis_set_to_error_read_past_its_data_is_not_run_in_quick_mode(m
     _cut(project, wltc, "power_loss", axis, last)
     q = simulate(project, wltc)
     first = q.messages[0].text
-    assert first.startswith("Not run [QUICK-FAILED] in quick mode: ") and "FAST-TABLE-ERROR" in first
+    assert (first.startswith("Not run in quick mode: ") and "[QUICK-FAILED" in first) and "FAST-TABLE-ERROR" in first
     assert q.status == "failed" and not q.channels
     monkeypatch.setenv(new_engine.ENV_VAR, "today")
     next(c for c in project.cases if c.id == wltc).mode = "full"
@@ -274,7 +274,7 @@ def test_a_table_whose_data_start_above_where_it_is_read_stops_quick_mode_on_err
     today = _full(project, CITY)
     assert today.engine == "today" and today.status == "failed"
     said = q.messages[0].text
-    assert said.startswith("Not run [QUICK-FAILED] in quick mode: ") and "FAST-TABLE-ERROR" in said
+    assert (said.startswith("Not run in quick mode: ") and "[QUICK-FAILED" in said) and "FAST-TABLE-ERROR" in said
     assert q.status == "failed" and not q.channels
 
 

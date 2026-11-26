@@ -28,8 +28,8 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
 - **A model whose loss map has sheets of different range is refused** (`BLOCK`): the older engine counted a read outside the narrowest range, the new engine watches the widest.
 - **A shaft whose parts together have no inertia is refused by Data
   Checks** , naming its parts: the new engine cannot work out how fast it turns (`SINGULAR-LOOP`), where the older engine lumped every inertia together.
-- **A run the engine's integrator stops part-way fails with `Not run
-  [NEW-FAILED]`** (`RUN-INTEGRATOR`, `RUN-EVENT-STORM`), even after it showed points: the wording says *Not run* where the run showed, say, 321 s.
+- **A run the engine's integrator stops part-way fails with *Not run* and
+  `NEW-FAILED`** (`RUN-INTEGRATOR`, `RUN-EVENT-STORM`), even after it showed points: the wording says *Not run* where the run showed, say, 321 s.
 - **A table or a Driving Task's profile edited during a live run takes
   effect on the next run** (the engine builds them into the model as data), with a note in the run's messages, and a block's value at an output point is the one after its tick (a Script, FMU or Delay), where the older engine showed the one before.
 - **The MCP server's answer for a run can pass the 20 kB it keeps to** (one is 27 bytes over).
