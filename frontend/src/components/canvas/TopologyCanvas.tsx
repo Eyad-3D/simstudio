@@ -121,9 +121,9 @@ const GRID = 22; // background grid gap; snap uses the same pitch
 const ALIGN_THRESH = 5; // flow-unit tolerance for alignment guides
 const DEFAULT_W = 92;
 const DEFAULT_H = 78;
-
 // the room a new part keeps round the parts already there
 const PLACE_GAP = 2 * GRID;
+
 // Automatic fits (opening a project or subsystem, the dock settling) stop at
 // 100 % so a small model is not blown up, and never go below a readable zoom:
 // a model too big for that opens at its centre with the overview map shown.
@@ -265,11 +265,11 @@ function TopologyCanvasInner() {
   const clipboard = useProjectStore((s) => s.clipboard);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  // the floating project name and toolbar over the diagram's top edge
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const hovered = useRef(false);
   const pointer = useRef<{ x: number; y: number } | null>(null);
   // whether the last click was on the diagram (its toolbar and menu count)
-  // the floating project name and toolbar over the diagram's top edge
-  const overlayRef = useRef<HTMLDivElement | null>(null);
   const clickedHere = useRef(false);
   // the pointer on the screen, for Shift+A
   const pointerAt = useRef<{ x: number; y: number } | null>(null);
@@ -459,27 +459,6 @@ function TopologyCanvasInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Parts added from the library by keyboard or double-click go in the middle
-  // of the visible diagram, on the nearest free spot, so repeated inserts do
-  // not pile up; the view pans if that spot is off screen.
-  const insertAtCentre = useCallback(
-    (defId: string): string | null => {
-      const st = store.getState();
-      const sys = st.project?.systems.find((sy) => sy.id === st.activeSystemId);
-      const rect = wrapperRef.current?.getBoundingClientRect();
-      if (!sys || !rect || rect.width === 0) return null;
-      const centre = screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
-      const gap = 2 * GRID;
-      const taken = sys.elements.map((el) => {
-        const m = getInternalNode(el.id)?.measured;
-        return {
-          x: el.position.x - gap / 2,
-          y: el.position.y - gap / 2,
-          w: (m?.width ?? el.size?.width ?? DEFAULT_W) + gap,
-          h: (m?.height ?? el.size?.height ?? DEFAULT_H) + gap,
-        };
-      });
-      const free = (x: number, y: number) =>
   // What a new part must not cover, in the diagram's units: every part with
   // room round it for its name, and the floating project name and toolbar.
   const takenSpots = useCallback((): Rect[] => {
@@ -505,16 +484,16 @@ function TopologyCanvasInner() {
     return [...parts, ...floating];
   }, [getInternalNode, screenToFlowPosition, store]);
 
-        taken.every((b) => x + DEFAULT_W <= b.x || x >= b.x + b.w || y + DEFAULT_H <= b.y || y >= b.y + b.h);
-      // grid cells around the centre, nearest first; sideways before up/down
-      // and right/below before left/above, as models are drawn left to right
-      const steps = [0, 1, -1, 2, -2, 3, -3, 4, -4, 5, -5, 6, -6];
-      const cells: [number, number][] = [];
-      for (const j of steps) for (const i of steps) cells.push([i, j]);
-      const cw = DEFAULT_W + gap;
-      const ch = DEFAULT_H + gap;
-      const dist = ([i, j]: [number, number]) => Math.hypot(i * cw, j * ch * 1.25);
-      cells.sort((a, b) => dist(a) - dist(b));
+  // Parts added from the library by keyboard or double-click go in the middle
+  // of the visible diagram, on the nearest free spot, so repeated inserts do
+  // not pile up; the view pans if that spot is off screen.
+  const insertAtCentre = useCallback(
+    (defId: string): string | null => {
+      const st = store.getState();
+      const sys = st.project?.systems.find((sy) => sy.id === st.activeSystemId);
+      const rect = wrapperRef.current?.getBoundingClientRect();
+      if (!sys || !rect || rect.width === 0) return null;
+      const centre = screenToFlowPosition({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
       const snap = (v: number) => Math.round(v / GRID) * GRID;
       const pos = freeSpot(
         { x: snap(centre.x - DEFAULT_W / 2), y: snap(centre.y - DEFAULT_H / 2) },
@@ -832,6 +811,9 @@ function TopologyCanvasInner() {
     setMenu({ x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0), nodeId, portId });
   };
   const closeMenu = () => setMenu(null);
+  useLayoutEffect(() => {
+    if (menu && menuRef.current && wrapperRef.current) fitMenu(menuRef.current, wrapperRef.current, menu.x, menu.y);
+  }, [menu]);
 
   // the diagram has the keyboard while the focus is in it, or nowhere after
   // a click on it (or with the pointer over it): see canvasKeys.ts (UX-19)
@@ -860,9 +842,6 @@ function TopologyCanvasInner() {
           done = selectAll();
           // the page's own select-all would highlight every text on it
           e.preventDefault();
-  useLayoutEffect(() => {
-    if (menu && menuRef.current && wrapperRef.current) fitMenu(menuRef.current, wrapperRef.current, menu.x, menu.y);
-  }, [menu]);
           break;
         case "copy":
           done = copySelection();
