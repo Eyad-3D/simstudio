@@ -31,7 +31,20 @@ ENGINES = ["today", pytest.param("new", marks=pytest.mark.skipif(
 SAME = {"today": 1e-9, "new": 1e-5}
 
 
-def _run(project, case_id, engine, monkeypatch):
+# Two equivalent models (one node with more terminals, two chained nodes) take
+# different step sequences, so at the app's rtol 1e-6 their difference is the
+# integrator's (on the new engine up to 1.3e-5 of a channel's scale). The
+# equivalence is tested at rtol 1e-8, where the integrator's share is far
+# below the bound: the two then differ by at most 1.4e-8 of a channel's scale,
+# except at the one output time where the car comes to rest (t = 540 s on the
+# city cycle), up to 7e-7 of the wheels' force and 1.4e-6 of the brakes'
+# power, whose whole range there is a few microwatts.
+TIGHT = {"rtol": 1e-8, "atol": 1e-10}
+
+
+def _run(project, case_id, engine, monkeypatch, tight: bool = False):
+    if tight and engine == "new":
+        return new_engine.replay(project, case_id, TIGHT, [])
     with monkeypatch.context() as m:
         m.setenv(new_engine.ENV_VAR, engine)
         return simulate(project, case_id)
@@ -124,8 +137,8 @@ def _chained(base):
 @pytest.mark.parametrize("engine", ENGINES)
 def test_seven_terminals_carry_what_two_chained_nodes_carry(engine, monkeypatch):
     base = load_example("bev-car")
-    one = _run(_seven(base), "case-city", engine, monkeypatch)
-    two = _run(_chained(base), "case-city", engine, monkeypatch)
+    one = _run(_seven(base), "case-city", engine, monkeypatch, tight=True)
+    two = _run(_chained(base), "case-city", engine, monkeypatch, tight=True)
     assert one.status == "success", one.messages
     assert _same(one, two, SAME[engine]) > 30
     # the loads are on: each draws its power
@@ -165,11 +178,11 @@ def test_six_flanges_turn_as_two_chained_nodes_turn(engine, monkeypatch):
     _wire(two, "c-chain", "el-node-fl", "f4", "el-node2", "f1")
     _rewire(two, "c-9", "source", "el-node2", "f2")
     _rewire(two, "c-10", "source", "el-node2", "f3")
-    a = _run(six, "case-city", engine, monkeypatch)
-    b = _run(two, "case-city", engine, monkeypatch)
+    a = _run(six, "case-city", engine, monkeypatch, tight=True)
+    b = _run(two, "case-city", engine, monkeypatch, tight=True)
     assert a.status == "success", a.messages
     assert _same(a, b, SAME[engine]) > 30
-    assert _same(a, _run(base, "case-city", engine, monkeypatch), SAME[engine]) > 30
+    assert _same(a, _run(base, "case-city", engine, monkeypatch, tight=True), SAME[engine]) > 30
 
 
 def _texts(project):
