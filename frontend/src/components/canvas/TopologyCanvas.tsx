@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -75,6 +75,7 @@ import {
   useCanvasSelection,
 } from "../../store/canvasSelection";
 import { canvasAction, diagramHasKeys, keyBelongsToTarget } from "./canvasKeys";
+import { fitMenu } from "./menuPlace";
 import { JUNCTIONS, asDrawn, partDef, physicalPorts, portInUse, routingInput, wiredPorts } from "./portPlaces";
 import { fitEnds, pathMiddle, roundedPath, routeWires, type Pt } from "./route";
 
@@ -776,16 +777,10 @@ function TopologyCanvasInner() {
   }, []);
 
   // context-menu helpers -----------------------------------------------------
-  // kept clear of the canvas's right and bottom edges
+  // opened at the pointer; once drawn, fitted inside the diagram (menuPlace.ts)
   const openMenuAt = (clientX: number, clientY: number, nodeId: string | null, portId?: string) => {
-    const wrapper = wrapperRef.current;
-    const rect = wrapper?.getBoundingClientRect();
-    setMenu({
-      x: Math.min(clientX - (rect?.left ?? 0), (wrapper?.clientWidth ?? 9999) - 184),
-      y: Math.min(clientY - (rect?.top ?? 0), (wrapper?.clientHeight ?? 9999) - (portId ? 64 : 200)),
-      nodeId,
-      portId,
-    });
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    setMenu({ x: clientX - (rect?.left ?? 0), y: clientY - (rect?.top ?? 0), nodeId, portId });
   };
   const closeMenu = () => setMenu(null);
 
@@ -816,6 +811,9 @@ function TopologyCanvasInner() {
           done = selectAll();
           // the page's own select-all would highlight every text on it
           e.preventDefault();
+  useLayoutEffect(() => {
+    if (menu && menuRef.current && wrapperRef.current) fitMenu(menuRef.current, wrapperRef.current, menu.x, menu.y);
+  }, [menu]);
           break;
         case "copy":
           done = copySelection();
