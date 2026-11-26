@@ -242,7 +242,7 @@ def test_non_finite_values_are_judged_before_they_are_gaps(new, monkeypatch):
     proj.dataBusConnections.append(dbc(50, "nan", "y", "mon", "sig_in"))
     result = simulate(proj, "case-city")
     assert result.status == "failed", _texts(result)
-    assert any("RUN-NOT-FINITE" in t and "'nan.y' is not a number" in t and "t = 6 s" in t
+    assert any("Script (Function) 'NaN maker': its output y is not a number (NaN) at t = 6.00 s" in t
                for t in _texts(result, "error")), _texts(result)
 
 
@@ -343,8 +343,10 @@ def test_a_table_whose_data_start_above_where_it_is_read_stops_as_today_on_error
     _from(proj, el_id, key, first, "error")
     assert _today(proj, "case-city", monkeypatch).status == "failed"
     result = simulate(proj, "case-city")
-    assert result.status == "failed" and result.messages[0].text.startswith("Not run [NEW-FAILED]: ")
-    assert "outside = Error" in result.messages[0].text
+    # (its trace up to the stop, the stop in the user's words)
+    [error] = [m.text for m in result.messages if m.level == "error"]
+    assert result.status == "failed" and "is outside its data" in error, error
+    assert "set to stop the run (Error)" in error
 
 
 @pytest.mark.parametrize("case_id", ["case-city", "case-wltc"])
@@ -1878,7 +1880,7 @@ def test_a_motor_its_supply_holds_back_reads_its_loss_map_at_0_as_today(new, mon
     today = _today(proj, "case-accel-75m", monkeypatch)
     assert today.status == "failed" and any("Torque 0 N·m is outside its data" in t for t in _texts(today))
     strict = simulate(proj, "case-accel-75m")
-    assert _texts(strict)[0].startswith("Not run [NEW-FAILED]"), _texts(strict)
+    assert any("Torque 0 N·m is outside its data" in t for t in _texts(strict, "error")), _texts(strict)
     assert strict.status == "failed"
 
 
@@ -2034,8 +2036,9 @@ def test_a_table_read_a_tick_moves_past_its_data_is_booked_there(new, monkeypatc
     got, old = ({s.key: s.value for s in r.summary} for r in (result, today))
     assert got[key] == pytest.approx(old[key], abs=0.2), (got[key], old[key])
     result = simulate(_hybrid_loss_to_50("error"), "case-udds")
-    assert result.status == "failed" and _texts(result)[0].startswith("Not run [NEW-FAILED]"), _texts(result)
-    assert "t = 20.2" in _texts(result)[0]
+    [error] = _texts(result, "error")
+    assert result.status == "failed" and "is outside its data" in error, _texts(result)
+    assert "t = 20.2" in error
 
 
 def _range_extender(setpoint_kw: float, wired: bool = False, soc_pct: float = 60.0) -> Project:

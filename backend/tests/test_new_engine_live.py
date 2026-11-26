@@ -607,8 +607,9 @@ def test_a_live_run_with_an_error_axis_cut_short_ends_as_today_s(fid, monkeypatc
     texts = [m.text for m in result.messages]
     monkeypatch.setenv(new_engine.ENV_VAR, "today")
     today = simulate(project, case_id)
-    if today.status == "failed":
-        assert result.status == "failed" and "outside its data" in texts[0], texts
+    if today.status == "failed":  # (with its trace up to the stop, the error among its notes)
+        errors = [m.text for m in result.messages if m.level == "error"]
+        assert result.status == "failed" and len(errors) == 1 and "outside its data" in errors[0], texts
     else:
         assert result.engine == "new" and result.status == today.status, texts
 

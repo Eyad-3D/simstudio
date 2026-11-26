@@ -96,10 +96,6 @@ code. A test in the repository records each as an expected failure
   and a lone Engine's, Fuel Cell Stack's or Battery's table with an axis
   set to Error can stop the run (`RUN-TABLE`) where the table does not
   cover where the part sits. Connect the part or delete it.
-- **A table set to Error stops the run in the engine's own words.** The
-  message names the table by its internal name and the time, not in the
-  older words, and a run it stops gives no partial result with its figures
-  marked not valid.
 - **Some notes and rows the older engine wrote are missing**: the note
   that a motor at its maximum speed holds the car there, the time a Lookup
   block spent outside its data on *Clamp* or *Linear*, the count of the
@@ -1019,8 +1015,11 @@ minimum or an average, for example from the CSV export, or put the
   still running. With a time limit either stops sooner, with
   `RUN-TIME-LIMIT`, saying how far it got. A variable that is not a number or is infinite at an output time
   (an output that divides by zero, say) is never a result: the run stops
-  at that time with `RUN-NOT-FINITE`, naming the variable. *Roadmap:*
-  ENG-16.
+  at that time, naming the part by its label and the port. A run a table
+  set to Error or a value that is not a number stops keeps its trace up to
+  its last output point before the stop (the run is made again to there),
+  fails, and has its figures marked not valid, as the older engine did;
+  where the stop is at the start there is no trace. *Roadmap:* ENG-16.
 - **A PID's and a Lookup's Sample Time follow a 10 ms step.** The engine
   runs a PID block, and a Lookup block with a Sample Time over 10 ms, at
   the instants the older engine did: every 10 ms step while the Sample Time

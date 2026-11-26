@@ -98,8 +98,6 @@ TODAY = {
 
 PORT = ("an acceleration case of a car whose Driver has Target Speed or Actual Speed linked was refused "
         "(PORT-NOT-MAPPED, fixed: it runs now)")
-TABLE_WORDS = ("NEW-FAILED (RUN-TABLE): the new engine stops the run where today's does, but its message names the "
-               "table by its internal name at the engine's time, not in today's words the test reads (open)")
 TICK = ("a sampled block's (Script, FMU, Delay) value at an output point is the one after its tick there, where "
         "today's shows the one before (the blocks piece's open item; changing it moves the hybrid's golden values)")
 LIVE_TABLE = "NEW-LIVE-NEXT-RUN: a live edit of a table takes effect on the next run on the new engine (open)"
@@ -121,12 +119,6 @@ XFAIL = {
     "test_live_params.py::test_live_edit_survives_two_gear_shifts": (
         "the test counts the older engine's shift rebuilds (_spy_shifts), which the new engine does not make: "
         "it sees none (open)"),
-    "test_map_edges.py::test_maximum_speed_beyond_the_map_stops_the_run": TABLE_WORDS,
-    "test_map_edges.py::test_a_lookup_set_to_error_stops_the_run": TABLE_WORDS,
-    "test_map_edges.py::test_a_loss_map_narrower_than_the_full_load_map_stops_the_run": TABLE_WORDS,
-    "test_map_edges.py::test_a_run_an_error_stops_has_its_figures_marked_not_valid": (
-        "NEW-FAILED (RUN-TABLE): a run the new engine stops on a table gives no partial result, where today's "
-        "keeps what ran with its figures marked not valid (open)"),
     "test_map_edges.py::test_300_kmh_target_stops_at_the_motors_maximum_speed": (
         "a motor at its maximum speed: the new path does not write today's note that the motor holds the car "
         "there (classes.toml new-path-lacks-messages, class a; open)"),
@@ -140,9 +132,6 @@ XFAIL = {
     "test_reference_suite.py::test_exact_answer_tier[coast-": (
         "NEW-FAILED (SINGULAR-LOOP): the reference suite's coast-down model ('Brake RL' and 'Wheel RL') is a loop "
         "the new engine cannot solve with its values (open)"),
-    "test_verdict.py::test_non_finite_values_fail_the_run": (
-        "NEW-FAILED (RUN-NOT-FINITE): the new engine stops at the first value that is not a number, in its own "
-        "words, where today's says 'Non-finite values' naming the channel (open)"),
     "test_climate.py::test_a_live_edit_of_the_demand_table_applies": LIVE_TABLE,
     "test_battery_cells.py::test_a_live_edit_of_the_cell_voltage_curve_applies": LIVE_TABLE,
     "test_solver.py::test_live_profile_edit_takes_effect": LIVE_TABLE,

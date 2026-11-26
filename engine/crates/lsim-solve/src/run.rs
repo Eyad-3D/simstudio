@@ -379,6 +379,8 @@ struct Loop<'a> {
     outside_since: Vec<Option<f64>>,
     /// the channels where a guard's branches are read ([`Loop::read_in_use`])
     when_vars: Vec<f64>,
+    /// an Error axis's reading as the run stops on it ([`Loop::reading_at`])
+    reading: Option<(f64, f64, f64)>,
     /// per table guard: time spent outside, and when it first left
     outside_total: Vec<(f64, f64)>,
     /// per table guard: the furthest its argument was read past the data
@@ -2563,6 +2565,34 @@ impl Loop<'_> {
         Some((lo, hi, lsim_ir::eval::eval(arg, &env)))
     }
 
+    /// Guard `k`'s table axis's first and last point and its argument at
+    /// `(t, y, d)` (the channels evaluated there); `None` where the run does
+    /// not know them.
+    fn reading_at(&mut self, k: usize, t: f64, y: &[f64], d: &[f64]) -> Option<(f64, f64, f64)> {
+        let l = self.model.layout();
+        self.when_vars.resize(l.n_vars, 0.0);
+        let inp = EvalInput { t, y, p: &self.info.params, d, u: self.u };
+        self.model.vars(&inp, &mut self.work, &mut self.when_vars);
+        let guards = self.model.table_guard_list();
+        let (g, (table, arg)) = (guards.get(k)?, self.info.table_args.get(k)?);
+        if self.info.table_args.len() != guards.len() || *table != g.table {
+            return None;
+        }
+        let k_t = g.table as usize;
+        let points = match self.info.table_axes.get(k_t) {
+            Some(ax) if !ax.is_empty() => ax.get(g.axis as usize)?,
+            _ => self.info.table_breaks.get(k_t)?,
+        };
+        let (lo, hi) = (*points.first()?, *points.last()?);
+        let env = crate::info::ChannelEnv {
+            t,
+            vars: &self.when_vars,
+            params: &self.info.params,
+            model: self.model,
+        };
+        Some((lo, hi, lsim_ir::eval::eval(arg, &env)))
+    }
+
     /// At a step's end, the channels just sampled: how far past its data
     /// each table read outside it now is, kept when it is the furthest.
     fn track_outside(&mut self, t: f64) {
@@ -2634,6 +2664,7 @@ impl Loop<'_> {
             let a = self.raw.get(nr + k).copied().unwrap_or(0.0);
             if a < 0.0 && error {
                 if self.read_in_use(k, t, y, d) && !self.on_the_edge(t, y, d, k) {
+                    self.reading = self.reading_at(k, t, y, d);
                     self.leave_table(k, t, g)?;
                 }
             } else if a < 0.0 && self.outside_since[k].is_none() {
@@ -2684,10 +2715,16 @@ impl Loop<'_> {
             .cloned()
             .unwrap_or_else(|| format!("table {}", g.table));
         if g.outside == lsim_ir::table::Outside::Error {
+            // (the value read and the axis's data, where the run knows them:
+            // the app says them in the user's units)
+            let read = match self.reading.take() {
+                Some((lo, hi, a)) => format!(" (read at {a}; its data {lo} to {hi})"),
+                None => String::new(),
+            };
             return Err(SolveError::TableOutside {
                 t,
                 message: format!(
-                    "the table '{name}' was read outside its data on its {} axis, which allows no values outside (outside = Error): widen the table or keep the operating point inside it",
+                    "the table '{name}' was read outside its data on its {} axis{read}, which allows no values outside (outside = Error): widen the table or keep the operating point inside it",
                     self.info.axis_words(g.table, g.axis),
                 ),
             });
@@ -4036,6 +4073,7 @@ fn run_watched<'a>(
         passed: vec![],
         outside_since: vec![None; model.table_guard_list().len()],
         when_vars: vec![],
+        reading: None,
         outside_total: vec![(0.0, f64::NAN); model.table_guard_list().len()],
         outside_far: vec![[f64::NAN; 3]; model.table_guard_list().len()],
         warned: vec![false; info.asserts.len()],
@@ -4175,6 +4213,9 @@ fn run_watched<'a>(
             if lp.raw[l.n_roots + k] < 0.0
                 && (g.outside != lsim_ir::table::Outside::Error || lp.read_in_use(k, t, &y, &d))
             {
+                if g.outside == lsim_ir::table::Outside::Error {
+                    lp.reading = lp.reading_at(k, t, &y, &d);
+                }
                 lp.leave_table(k, t, g)?;
             }
         }

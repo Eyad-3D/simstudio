@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import bisect
 import contextlib
+import dataclasses
 import math
 import os
 import re
@@ -615,48 +616,73 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
         return SimResult(caseId=case_id, status="failed", channels=[],
                          messages=[SimMessage(level="error", text=why)])
     with contextlib.ExitStack() as workers:
-        hosts = {}
-        if specs:
-            # the same checks as today's engine: only approved code runs (a
-            # strict run: the OS sandbox instead), and it runs in the locked-down
-            # worker process (script_trust.py, sandbox.py); the engine's own
-            # Script runner is not used from the app until the owner has decided
-            # it may replace the worker (native_scripts=False)
-            if not confined:
+        def make_hosts():  # (a Script's and an FMU's state is their run's own)
+            hosts = {}
+            if specs:
+                # the same checks as today's engine: only approved code runs (a
+                # strict run: the OS sandbox instead), and it runs in the locked-down
+                # worker process (script_trust.py, sandbox.py); the engine's own
+                # Script runner is not used from the app until the owner has decided
+                # it may replace the worker (native_scripts=False)
+                if not confined:
+                    try:
+                        script_trust.check([(sp.label, sp.code) for sp in specs])
+                    except script_trust.ScriptsNotApproved as e:  # as today's engine says it
+                        return SimResult(caseId=case_id, status="failed", channels=[],
+                                         messages=[SimMessage(level="error", text=str(e))])
+                sandbox = workers.enter_context(ScriptSandbox(specs, strict=confined))
+
+                def runner(spec: ScriptSpec):
+                    ports = {p.id for p in model.elements[spec.el_id].dynamicPorts or []
+                             if p.direction == "output"}
+
+                    def step_fn(t, dt, inputs):
+                        outs = sandbox.run(spec.el_id, spec.label, t, dt, dict(inputs), spec.params)
+                        for key in outs or {}:  # (the engine takes only its ports, as today's does)
+                            if key not in ports:
+                                dropped.setdefault((spec.el_id, key), (
+                                    f"Script '{spec.label}' returned '{key}' which is not one of its "
+                                    f"output ports — value dropped."))
+                        return outs
+                    return step_fn
+                hosts.update(scripts={sp.el_id: runner(sp) for sp in specs}, native_scripts=False)
+            if fmus:
                 try:
-                    script_trust.check([(sp.label, sp.code) for sp in specs])
-                except script_trust.ScriptsNotApproved as e:  # as today's engine says it
+                    hosts["fmus"] = {el_id: _fmu_host(model, el_id, workers) for el_id in fmus}
+                except ModelInitError as e:  # as today's engine says it
                     return SimResult(caseId=case_id, status="failed", channels=[],
-                                     messages=[SimMessage(level="error", text=str(e))])
-            sandbox = workers.enter_context(ScriptSandbox(specs, strict=confined))
-
-            def runner(spec: ScriptSpec):
-                ports = {p.id for p in model.elements[spec.el_id].dynamicPorts or []
-                         if p.direction == "output"}
-
-                def step_fn(t, dt, inputs):
-                    outs = sandbox.run(spec.el_id, spec.label, t, dt, dict(inputs), spec.params)
-                    for key in outs or {}:  # (the engine takes only its ports, as today's does)
-                        if key not in ports:
-                            dropped.setdefault((spec.el_id, key), (
-                                f"Script '{spec.label}' returned '{key}' which is not one of its "
-                                f"output ports — value dropped."))
-                    return outs
-                return step_fn
-            hosts.update(scripts={sp.el_id: runner(sp) for sp in specs}, native_scripts=False)
-        if fmus:
-            try:
-                hosts["fmus"] = {el_id: _fmu_host(model, el_id, workers) for el_id in fmus}
-            except ModelInitError as e:  # as today's engine says it
+                                     messages=[SimMessage(level="error", text=t) for t in e.messages])
+            return hosts
+        hosts = make_hosts()
+        if isinstance(hosts, SimResult):
+            return hosts
+        failed = None
+        try:
+            run = go(**hosts)
+        except Exception as e:  # noqa: BLE001 — raised again unless it is a stop of the run
+            failed = _stopped(e, case, model, ctx, built)
+            if failed is None:
+                raise
+            # the run again to its last output point before the stop: its trace
+            # and figures up to there (a live run: with the edits it made)
+            dt = float(opts.get("outputStep") or case.timeStep or 1.0)
+            t_cut = math.floor((failed[0] - 1e-9 * max(1.0, failed[0])) / dt) * dt
+            if t_cut <= 0.0:
                 return SimResult(caseId=case_id, status="failed", channels=[],
-                                 messages=[SimMessage(level="error", text=t) for t in e.messages])
-        run = go(**hosts)
+                                 messages=[SimMessage(level="error", text=failed[1])])
+            again = make_hosts()
+            if isinstance(again, SimResult):
+                return again
+            more = dict(kw, t_end=t_cut)
+            if live is not None and live.given:
+                more["edits"] = [*more.get("edits", []), *live.given]
+            run = built.simulate(**more, **again)
     stopped = run.report["stopped"] is not None
     # the live edits it took (each where the engine took it), and the notes
     # of those it did not make
     taken = live.made(run.report["edits"]) if live else _made(replayed, run.report["edits"], model)
     result = _result(project, case, model, ctx, built, run, plan, lanes, laps_warning,
-                     list(dropped.values()), stopped, [e for e in taken if not e.note])
+                     list(dropped.values()), stopped, [e for e in taken if not e.note], failed)
     result.messages += _notes(taken)
     if totals is not None:  # (_result has read each battery's end SOC and the fuel into ctx)
         totals.update(balance.run_totals(ctx, soc_start))
@@ -851,6 +877,9 @@ class _Live:
         # the edits taken, in order: (element, key, value, the run's time,
         # given to the engine, the note of one the run does not make: _made)
         self.taken: list[tuple[str, str, object, float, bool, Optional[str]]] = []
+        # the engine's changes it gave the run's control, at their times (a run
+        # the engine stops is run again to its stop with them)
+        self.given: list[tuple[float, dict]] = []
         self.said: set[str] = set()
         ports = {(el_id, p.id) for el_id, cdef in model.cdef_of.items()
                  for p in [*cdef.ports, *(model.elements[el_id].dynamicPorts or [])]}
@@ -943,6 +972,8 @@ class _Live:
             if changes:
                 try:
                     (self.built if start else self.rc).set_params(changes)
+                    if not start:
+                        self.given.append((t, changes))
                 except ValueError as e:  # the engine's words
                     raise _Later(f"the new engine takes it on the next run ({e})") from e
             # (one made at the start the model runs from: not the run's
@@ -1090,12 +1121,16 @@ def _finite(x) -> bool:
 
 def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
             laps_warning: Optional[str], script_warnings: tuple[str, ...] = (),
-            stopped: bool = False, made: list[LiveEdit] = ()) -> SimResult:
+            stopped: bool = False, made: list[LiveEdit] = (),
+            failed: Optional[tuple[float, str, bool]] = None) -> SimResult:
     """Today's SimResult of the new engine's run: its evidence judged by the
     verdict and made into the reports by today's code (evidence.py); a run
     stopped where it was (a cancel) judged as today's judges a stopped one;
     the parts read as edited by the live edits it ``made``, as today's
-    RunContext has them at its run's end."""
+    RunContext has them at its run's end; a run the engine stopped
+    (``failed``: the time, its message, whether the solution broke down)
+    run to its last output point before the stop, judged as today's judges
+    a run an error cut short."""
     from . import core
 
     case_id = case.id
@@ -1121,6 +1156,8 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     if stopped:  # (today's words)
         messages.append(SimMessage(level="info", text=f"Simulation cancelled by user at t = "
                                                       f"{solved:g} s."))
+    if failed is not None:
+        messages.append(SimMessage(level="error", text=failed[1]))
     for d in built.report["warnings"]:  # the import's and preparation's
         start = d.get("code") in START_NOTES
         level = "info" if start or d.get("severity") != "warning" else "warning"
@@ -1284,7 +1321,9 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
         messages.append(SimMessage(level="warning", text=problem))
     series = {tuple(name.split(":", 1)): values for name, values in raw.items() if ":" in name}
     verdict = judge(trace, ev.distance, series, ctx.performance, solved, core.judged_uses(ev),
-                    stopped, case)
+                    stopped or failed is not None, case)
+    if failed is not None and failed[2]:
+        verdict = dataclasses.replace(verdict, broke_down=True)
     messages += [SimMessage(level=level, text=text) for level, text in verdict.messages]
 
     # (a Race Track's channels are a lap case's: in any other case its outputs read 0)
@@ -1330,7 +1369,8 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     net_wh = sum(b.energy_out_wh - b.energy_in_wh for b in ctx.batteries.values())
     electric = (net_wh > 0 and sum(ec.fuel_used_kg for ec in ctx.engines.values()) <= 0
                 and not ctx.fuelcells)
-    not_valid = core.not_valid_first(ev, verdict, summary, stopped, None, times)
+    not_valid = core.not_valid_first(ev, verdict, summary, stopped,
+                                     failed[0] if failed is not None else None, times)
     core.not_valid_last(ev, verdict, summary, not_valid, edge_rows, lab_base(summary, electric))
     messages += [SimMessage(level=level, text=text) for level, text in  # its FS event rows
                  fs_events.add_event_rows(case, ctx, None, summary, finished=not stopped,
@@ -1588,6 +1628,75 @@ def _map_outside(el, key: str, axis: int, rec) -> SimMessage:
 
 
 NOT_JUDGED = "NEW-TABLE-NOT-JUDGED"
+
+
+_AXIS_WORDS = {"first": 0, "second": 1, "third": 2, "fourth": 3}
+
+
+def _stopped(e: Exception, case, model, ctx, built) -> Optional[tuple[float, str, bool]]:
+    """A run the engine stopped part-way, in the user's words: (when, the
+    message, whether the solution broke down), or None for any other
+    failure. A table read past an axis set to Error: the part's and the
+    table's labels, the axis, the value read and the data's range in the
+    app's units, as today's engine says it. A value that is not a number:
+    the part's label and the port (or variable) by name."""
+    try:
+        from lightsim_engine import ModelError as EngineError
+    except ImportError:
+        return None
+    if not isinstance(e, EngineError):
+        return None
+    diags = getattr(e, "diagnostics", None) or []
+    d = next((d for d in diags if d.get("code") in ("RUN-TABLE", "RUN-NOT-FINITE")), None)
+    if d is None:
+        return None
+    text = str(d.get("message", ""))
+    when = re.search(r"at t = ([-+0-9.eE]+) s", text)
+    if when is None:
+        return None
+    t = float(when.group(1))
+    el_of = {inst: el_id for el_id, inst in built.report["instances"].items()}
+    if d["code"] == "RUN-NOT-FINITE":
+        got = re.search(r"the variable '([^']+)' (is not a number \(NaN\)|is infinite)", text)
+        what = f"a value of the run {got.group(2) if got else 'is not a number'}"
+        if got and "." in got.group(1):
+            inst, var = got.group(1).split(".", 1)
+            el_id = el_of.get(inst)
+            if el_id is not None:
+                el, cdef = model.elements[el_id], model.cdef_of[el_id]
+                port = next((p for p in [*cdef.ports, *(el.dynamicPorts or [])] if p.id == var), None)
+                what = (f"{cdef.name} '{el.label}': its {'output ' + port.name if port else var} "
+                        f"{got.group(2)}")
+        return t, (f"{what} at t = {t:.2f} s — the run stopped there, as no result after it would "
+                   f"mean anything: look for a division by zero, a square root or logarithm of a "
+                   f"negative number, or a block (a Script, say) that returns NaN."), True
+    got = re.search(r"the table '([^']+)' was read outside its data on its (\w+) axis"
+                    r"(?: \(read at ([-+0-9.eE]+|NaN|inf); its data ([-+0-9.eE]+) to ([-+0-9.eE]+)\))?",
+                    text)
+    words = None
+    if got:
+        inst, _, key = got.group(1).rpartition(".")
+        el_id, axis = el_of.get(inst), _AXIS_WORDS.get(got.group(2), 0)
+        rule = BRANCH_READS.get((model.cdef_of[el_id].id, key)) if el_id else None
+        if rule is not None and rule.key is not None:
+            key = rule.key(ctx.params(el_id))
+        m = ctx.maps.get((el_id, key)) if el_id else None
+        uses = [u for u in ctx.map_use if u.el_id == el_id and u.table == key]
+        if m is not None and axis < len(m.ranges) and axis < len(uses) and m.ranges[axis]:
+            lo, hi = m.ranges[axis]
+            use = uses[axis]
+            value = ""
+            if got.group(3) is not None:
+                a, elo, ehi = (float(got.group(k)) for k in (3, 4, 5))
+                shown = lo + (a - elo) * (hi - lo) / (ehi - elo) if ehi != elo else a
+                value = f" {shown:.6g} {use.unit}"
+            words = (f"{m.name}: {use.axis}{value} is outside its data ({lo:g} to {hi:g} "
+                     f"{use.unit}) at t = {t:.2f} s — the run stopped because this axis is set to "
+                     f"stop the run (Error): extend the table, or set its outside-the-data setting "
+                     f"to Clamp or Linear.")
+    if words is None:  # (a table the app does not name: the engine's words)
+        words = f"{text} — the run stopped there."
+    return t, words, False
 
 
 class TableError(Exception):

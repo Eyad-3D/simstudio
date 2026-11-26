@@ -130,8 +130,9 @@ def test_maximum_speed_beyond_the_map_stops_the_run():
     result = simulate(proj, "case")
     assert result.status == "failed"
     [error] = _texts(result, "error")
-    assert error.startswith("E-Motor 'E-Motor' Full-Load Torque: Speed 12")
-    assert "is outside its data (0 to 12000 1/min) at t = " in error
+    # (its full-load and loss maps both end at 12,000 1/min: either may stop it)
+    assert error.startswith("E-Motor 'E-Motor' ")
+    assert ": Speed 12000 1/min is outside its data (0 to 12000 1/min) at t = " in error
     assert "set to stop the run (Error)" in error
     # the channels are kept up to the stop
     speed = series(result, "veh", "sig_speed")
