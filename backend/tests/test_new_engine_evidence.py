@@ -624,13 +624,19 @@ def test_a_speed_at_its_maximum_to_the_solver_s_tolerance_is_not_above_it():
     from types import SimpleNamespace as NS
     for over, above in ((1e-7, 0.0), (1e-5, 3.0)):
         use = NS(edge=8000.0, outside_s=0.0, value=0.0, t=0.0)
-        ctx = NS(motors={"m": NS(speed_use=use)}, engines={}, model=NS(elements={"m": NS(label="M")}))
+        curve = NS(pts=[(400.0, [(0.0, 300.0), (8000.0, 0.0)])])  # its last speed point: the maximum
+        ctx = NS(motors={"m": NS(speed_use=use, full_load=curve)}, engines={},
+                 model=NS(elements={"m": NS(label="M")}))
         speed = [8000.0 * (1 + over)] * 4
         run = NS(trace={"times": [0.0, 1.0, 2.0, 3.0], "m:sig_speed": speed},
                  integrals={"m:sig_speed": {"max": max(speed), "min": 0.0}})
         said: list = []
         new_engine._over_speed(ctx, NS(speeds={"m": "m:sig_speed"}), run, said)
-        assert use.outside_s == pytest.approx(above, rel=1e-6) and len(said) == (above > 0), over
+        notes = [m.text for m in said if "reached its maximum speed" in m.text]
+        assert notes == ["E-Motor 'M' reached its maximum speed (8,000 1/min, the last speed point of its "
+                         "full-load curve) at t = 0.00 s — its drive torque falls to zero over the last 2 % "
+                         "below it."], over
+        assert use.outside_s == pytest.approx(above, rel=1e-6) and len(said) - 1 == (above > 0), over
 
 
 def _fuel_cell_on_the_motor_bus(max_current_a: float) -> Project:
