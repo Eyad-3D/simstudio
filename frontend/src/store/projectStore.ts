@@ -173,9 +173,18 @@ function cloneSubsystemTree(draft: Project, srcSysId: string, newParentId: strin
   return newSysId;
 }
 
+/** A part name no other part has: `stem n`, the first free n from `from`. */
+export function freeLabel(stem: string, taken: Set<string>, from = 2): string {
+  for (let n = Math.max(1, from); ; n++) if (!taken.has(`${stem} ${n}`)) return `${stem} ${n}`;
+}
+
+/** Every part's name in the project, all diagrams. */
+const allLabels = (project: Project) => new Set(project.systems.flatMap((s) => s.elements.map((e) => e.label)));
+
 /** Clone a clipboard/selection into `targetSystemId` at an offset, remapping
- *  the internal wiring and deep-cloning any container sub-systems. Returns the
- *  new element ids (in source order). */
+ *  the internal wiring and deep-cloning any container sub-systems. Each copy
+ *  gets a name of its own, numbered as a new part is ("Power Consumer 3").
+ *  Returns the new element ids (in source order). */
 function cloneElementsInto(
   draft: Project,
   targetSystemId: string,
@@ -186,15 +195,20 @@ function cloneElementsInto(
   if (!system) return [];
   const idMap = new Map<string, string>();
   const newIds: string[] = [];
+  const taken = allLabels(draft);
   for (const el of data.elements) {
     const nid = uid("el");
     idMap.set(el.id, nid);
     newIds.push(nid);
     const clone = structuredClone(el);
     clone.id = nid;
+    clone.label = freeLabel(el.label.replace(/\s+\d+$/, ""), taken);
+    taken.add(clone.label);
     clone.position = { x: el.position.x + offset.x, y: el.position.y + offset.y };
     if (clone.isSubSystem && clone.subSystemId) {
       clone.subSystemId = cloneSubsystemTree(draft, el.subSystemId!, targetSystemId);
+      const sub = draft.systems.find((s) => s.id === clone.subSystemId);
+      if (sub) sub.name = clone.label;
     }
     system.elements.push(clone);
   }
@@ -1431,13 +1445,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const elId = uid("el");
       const isContainer = defId === "container.system";
       const subSystemId = isContainer ? uid("sys") : undefined;
+      // numbered after the parts of its kind, skipping a name in use
+      const label = freeLabel(def.name, allLabels(project), count + 1);
       updateProject((draft) => {
         const system = draft.systems.find((s) => s.id === activeSystemId);
         if (!system) return;
         system.elements.push({
           id: elId,
           componentDefId: defId,
-          label: `${def.name} ${count + 1}`,
+          label,
           position,
           parameterOverrides: {},
           ...(isContainer ? { isSubSystem: true, subSystemId } : {}),
@@ -1445,7 +1461,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (isContainer && subSystemId) {
           draft.systems.push({
             id: subSystemId,
-            name: `${def.name} ${count + 1}`,
+            name: label,
             parentId: activeSystemId,
             elements: [],
             connections: [],

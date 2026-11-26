@@ -81,19 +81,21 @@ test.describe("1366x768", () => {
     await expect(page.locator(".dv-tab[aria-label^='Messages'] .dv-default-tab[data-badge]")).toHaveCount(0);
   });
 
-  test("GUI-01: the first run's Signal Plot does not cut the model off", async ({ page }) => {
+  test("GUI-01: the first run's Signal Plot keeps the diagram's zoom", async ({ page }) => {
     await openApp(page);
     expect((await nodeLayout(page)).offscreen).toBe(0);
+    const zoom = await zoomOf(page);
     // a corner the floating toolbar does not cover
     const pane = page.locator(".react-flow__pane").first();
     await pane.click({ position: { x: 5, y: (await pane.boundingBox())!.height - 5 } });
     await page.keyboard.press("Control+Enter");
     // the page stays on the model as the run ends (UX-21)
     await expect(finishNotice(page)).toBeVisible({ timeout: 60_000 });
-    // the tray opened on the Signal Plot by itself; the diagram re-fitted
+    // the tray opened on the Signal Plot by itself; the diagram kept its zoom
+    // (it used to re-fit smaller, and the names ran into each other)
     expect((await trayAndDock(page)).tray).toBeGreaterThanOrEqual(120);
-    await expect.poll(async () => (await nodeLayout(page)).offscreen, { message: "parts cut off" }).toBe(0);
-    expect(await zoomOf(page)).toBeGreaterThanOrEqual(0.5);
+    await page.waitForTimeout(1000); // a re-fit would wait for the size to settle
+    expect(await zoomOf(page)).toBe(zoom);
   });
 
   test("GUI-01: a maximised diagram is not what a reload brings back", async ({ page }) => {

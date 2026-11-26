@@ -26,6 +26,7 @@ import { MonitorsPanel } from "./panels/MonitorsPanel";
 import { CasePanel } from "./panels/CasePanel";
 import { MiniChartPanel } from "./panels/MiniChartPanel";
 import { TopologyCanvas } from "./canvas/TopologyCanvas";
+import { keepTabsOnDelete } from "./dockKeys";
 
 // the tray collapses to its tab strip (--dv-tabs-and-actions-container-height)
 const TAB_STRIP = 34;
@@ -456,7 +457,11 @@ export function DockLayout() {
       const head = s.runs[0];
       if (shown || !head || head.status !== "running" || head.id === prev.runs[0]?.id) return;
       shown = true;
-      useUIStore.getState().focusPanel("mini-chart");
+      // the diagram keeps its zoom as the tray opens under it (the size
+      // settles within a second: the canvas waits 150 ms after the last change)
+      const ui = useUIStore.getState();
+      ui.holdDiagramView(1500);
+      ui.focusPanel("mini-chart");
     });
   }, []);
 
@@ -476,9 +481,11 @@ export function DockLayout() {
       });
     });
     observer.observe(el);
+    const keepTabs = keepTabsOnDelete(el);
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
+      keepTabs();
     };
   }, []);
 
