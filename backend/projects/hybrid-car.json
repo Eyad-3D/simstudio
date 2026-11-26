@@ -599,6 +599,12 @@
             "x": 420,
             "y": 360
           },
+          "portSides": {
+            "neg": "bottom"
+          },
+          "portOffsets": {
+            "neg": 0.25
+          },
           "parameterOverrides": {
             "full_load_torque": {
               "200": {

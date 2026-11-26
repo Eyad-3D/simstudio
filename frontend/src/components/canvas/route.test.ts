@@ -2,6 +2,7 @@ import bev from "../../../../backend/projects/bev-car.json";
 import hybrid from "../../../../backend/projects/hybrid-car.json";
 import aero from "../../../../backend/projects/aero-bev.json";
 import fs from "../../../../backend/projects/fs-electric.json";
+import v1 from "../../../../backend/tests/fixtures/migrations/v1-with-studies.json";
 import { describe, expect, it } from "vitest";
 import libraryJson from "../../data/componentLibrary.json";
 import type { ComponentDef, Project } from "../../types";
@@ -47,6 +48,35 @@ function overlaps(segs: Seg[]): number {
         if (hi - lo > 0.5) n++;
       }
     }
+  return n;
+}
+
+/** How long wires of different nets run side by side closer than GAP (but
+ *  not on each other): two wires that close read as one line. */
+function closeRuns(segs: Seg[]): number {
+  let n = 0;
+  for (let i = 0; i < segs.length; i++)
+    for (let k = i + 1; k < segs.length; k++) {
+      const s = segs[i];
+      const t = segs[k];
+      if (s.net === t.net) continue;
+      const sh = s.a.y === s.b.y;
+      if (sh !== (t.a.y === t.b.y)) continue;
+      const d = sh ? Math.abs(s.a.y - t.a.y) : Math.abs(s.a.x - t.a.x);
+      if (d === 0 || d >= GAP) continue;
+      const lo = sh ? Math.max(Math.min(s.a.x, s.b.x), Math.min(t.a.x, t.b.x)) : Math.max(Math.min(s.a.y, s.b.y), Math.min(t.a.y, t.b.y));
+      const hi = sh ? Math.min(Math.max(s.a.x, s.b.x), Math.max(t.a.x, t.b.x)) : Math.min(Math.max(s.a.y, s.b.y), Math.max(t.a.y, t.b.y));
+      if (hi > lo) n += hi - lo;
+    }
+  return n;
+}
+
+/** The stretches where two wires of different nets run side by side closer
+ *  than GAP for longer than GAP (near the ports they may start closer). */
+function longCloseRuns(segs: Seg[]): number {
+  let n = 0;
+  for (let i = 0; i < segs.length; i++)
+    for (let k = i + 1; k < segs.length; k++) if (closeRuns([segs[i], segs[k]]) > GAP) n++;
   return n;
 }
 
@@ -110,6 +140,38 @@ describe("the wire router", () => {
       }
   });
 
+  it("two wires leaving the same side close together part to a lane each, GAP apart", () => {
+    // the ports 6 apart (closer than GAP), both wires going far to the same
+    // part: they ran side by side 6 apart all the way, reading as one line
+    const parts = [box(0, 0, 90, 90), box(500, 300, 90, 90)];
+    const wires: WireIn[] = [
+      { id: "a", from: { x: 90, y: 40, side: "right" }, to: { x: 500, y: 330, side: "left" }, net: "1" },
+      { id: "b", from: { x: 90, y: 46, side: "right" }, to: { x: 500, y: 336, side: "left" }, net: "2" },
+    ];
+    const r = routeWires(parts, wires);
+    const segs = segments(r, wires);
+    expect(overlaps(segs)).toBe(0);
+    // closer than GAP only next to the ports, where they start 6 apart
+    expect(closeRuns(segs)).toBeLessThanOrEqual(2 * (CLEAR + GAP));
+  });
+
+  it("a wire keeps its gap from a part it passes", () => {
+    // a part beside the straight way down: the wire runs past it, not along its edge
+    const parts = [box(0, 0), box(300, 400), box(130, 120, 90, 160)];
+    const wires: WireIn[] = [{ id: "w", from: { x: 90, y: 27, side: "right" }, to: { x: 300, y: 427, side: "left" }, net: "1" }];
+    const r = routeWires(parts, wires);
+    const c = parts[2].box;
+    for (const s of segments(r, wires).slice(1, -1)) {
+      const horiz = s.a.y === s.b.y;
+      const along = horiz
+        ? Math.min(Math.max(s.a.x, s.b.x), c.x + c.w) - Math.max(Math.min(s.a.x, s.b.x), c.x)
+        : Math.min(Math.max(s.a.y, s.b.y), c.y + c.h) - Math.max(Math.min(s.a.y, s.b.y), c.y);
+      if (along <= 0) continue;
+      const gap = horiz ? Math.min(Math.abs(s.a.y - c.y), Math.abs(s.a.y - c.y - c.h)) : Math.min(Math.abs(s.a.x - c.x), Math.abs(s.a.x - c.x - c.w));
+      expect(gap, `a stretch beside the part in the way`).toBeGreaterThanOrEqual(CLEAR);
+    }
+  });
+
   it("goes round rather than across another wire when a fair detour exists", () => {
     // a wire along the top row, and one from below that could cut across it
     // or go round the right-hand part
@@ -132,6 +194,22 @@ describe("the wire router", () => {
     const r = routeWires(parts, wires);
     expect(orthogonal(r.h) && orthogonal(r.v)).toBe(true);
     expect(crossings(segments(r, wires))).toBeLessThanOrEqual(1);
+  });
+
+  it("the hybrid and a project saved in the old format: no two wires read as one", () => {
+    // before: on the hybrid two pairs ran 4 and 10 apart (22 and 112 units)
+    // by its HV Bus; in the old-format file six pairs, one 3 apart for 87
+    for (const [name, p, most] of [
+      ["hybrid-car", example("hybrid-car"), 0],
+      // the one left: the two wires into the Ground's terminals, where the
+      // only other lanes run over the battery's and the load's names
+      ["v1-with-studies", v1 as unknown as Project, 1],
+    ] as const) {
+      const { parts, wires } = routingInput(p.systems[0], libraryById);
+      const segs = segments(routeWires(parts, wires), wires);
+      expect(overlaps(segs), `${name}: wires on each other`).toBe(0);
+      expect(longCloseRuns(segs), `${name}: wires closer than GAP for longer than GAP`).toBeLessThanOrEqual(most);
+    }
   });
 
   it("gives the same routes every time", () => {
