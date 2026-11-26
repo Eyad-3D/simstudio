@@ -1104,6 +1104,8 @@ export function ElementForm({
   const [help, setHelp] = useState<string | null>(null);
   const [pointed, setPointed] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
+  // the row typed in since it took the focus or the pointer
+  const [typed, setTyped] = useState<string | null>(null);
   const want = pointed ?? focused;
   useEffect(() => {
     if (want === help) return;
@@ -1116,7 +1118,12 @@ export function ElementForm({
   const covered = useUIStore((s) => compact && (s.paramDialogId !== null || s.dialog !== null));
   // (a unit chooser open under its row: the card steps aside, so it never
   // lies over the chooser in a narrow window)
-  const helpDef = covered || unitOpen ? undefined : def.parameters.find((p) => p.key === help && p.description);
+  const shownHelp = covered || unitOpen ? undefined : def.parameters.find((p) => p.key === help && p.description);
+  // in a part's window a row spans the whole width, so the card cannot sit
+  // beside it: while the value is being typed, or is out of its limits, the
+  // card steps aside, so it never lies over the row's error or the rows
+  // below it (the docked Properties panel's card sits beside the panel)
+  const helpDef = shownHelp && !compact && (typed === shownHelp.key || problemOf(shownHelp)) ? undefined : shownHelp;
   useEffect(() => {
     const el = card.current;
     if (!el?.showPopover) return; // no popovers in jsdom
@@ -1145,12 +1152,17 @@ export function ElementForm({
   const helpProps = (p: ParameterDef) => ({
     "data-help": helpPage(p), // F1 opens it
     style: help === p.key ? { anchorName: anchor } : undefined,
-    onMouseEnter: () => setPointed(p.key),
+    onMouseEnter: () => {
+      setPointed(p.key);
+      setTyped(null);
+    },
     onMouseLeave: () => setPointed(null),
     onFocus: () => {
       setFocused(p.key);
       setHelp(p.key);
+      setTyped(null);
     },
+    onInput: () => setTyped(p.key),
     // moving to the card's own button keeps it
     onBlur: (e: React.FocusEvent) => e.relatedTarget?.closest(".ss-help-card") || setFocused(null),
   });

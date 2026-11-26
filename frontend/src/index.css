@@ -491,11 +491,20 @@ body,
 }
 /* a parameter's help card (UX-10): a popover in the top layer, so no panel
    clips it, beside the row it explains (left of it, or where there is room) */
+@position-try --ss-help-above {
+  position-area: top span-right;
+  margin: 0 0 4px;
+}
+@position-try --ss-help-below {
+  position-area: bottom span-right;
+  margin: 4px 0 0;
+}
 .ss-help-card {
   inset: auto;
   margin: 0 6px;
   position-area: left span-bottom;
-  position-try-fallbacks: flip-inline, flip-block;
+  /* beside the row, else above it (the rows below stay readable), else below */
+  position-try-fallbacks: flip-inline, --ss-help-above, --ss-help-below;
   width: 290px;
   max-height: 60vh;
   overflow: auto;
