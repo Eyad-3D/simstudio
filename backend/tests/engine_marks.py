@@ -49,6 +49,9 @@ TODAY = {
     "test_precision.py::test_no_envelope_when_every_point_is_one_solver_step": "(ii) today's recorder: its envelope over the solver steps of an output point",
     "test_precision.py::test_energy_books_are_not_rounded": "(ii) today's energy books, kept every solver step",
     "test_solver.py::test_profiles_are_parsed_once_per_run": "(ii) today's run loop: how often it parses a profile",
+    "test_map_edges.py::test_a_run_counts_every_table_it_reads": (
+        "(ii) today's RunContext.map_use, its record of each table axis a run reads (the new engine tells "
+        "each table read past its data in its own summary rows)"),
     "test_golden.py::test_example_matches_golden[hybrid-car-case-mixed-": (
         "(ii) the golden fixtures are today's engine's regression net (the new engine's is the engine's own golden "
         "comparison: 0 differences in 11,347 values)"),
@@ -112,10 +115,6 @@ XFAIL = {
         "; it still differs: 5.5463 s against 5.533 +- 0.002 s (open)"),
     "test_acceleration.py::test_the_start_line_starts_the_timer_and_the_gap_is_signed": PORT + (
         "; it still fails: StopIteration in the test's own _at (open)"),
-    "test_map_edges.py::test_clamp_and_linear_lookup_blocks_count_their_time_outside": (
-        "a Lookup block's time outside its data on Clamp or Linear is not said as today's says it (open)"),
-    "test_map_edges.py::test_a_run_counts_every_table_it_reads": (
-        "the new path's count of the tables a run reads past their data differs from today's (open)"),
     "test_control_rate.py::test_scripts_run_every_solver_step_with_its_dt": TICK,
     "test_control_rate.py::test_block_with_a_sample_time_runs_at_that_rate_and_holds": TICK,
     "test_signal_wiring.py::test_the_delay_is_what_the_run_does": TICK,

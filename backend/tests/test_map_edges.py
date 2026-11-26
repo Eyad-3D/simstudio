@@ -245,7 +245,7 @@ def test_clamp_and_linear_lookup_blocks_count_their_time_outside(policy, out):
     assert summary["Lookup — time outside its '1D Table' table (Input)"] == pytest.approx(100.0)
     assert summary["Lookup — furthest Input outside its '1D Table' table"] == 2.5
     assert any(t.startswith("Lookup Table 'Lookup' 1D Table: Input 2.5 - is past the edge "
-                            "of its data (1 -) at t = 0.00 s") for t in _texts(result, "info"))
+                            "of its data (1 -) from t = 0.00 s — its edge ") for t in _texts(result, "info"))
 
 
 def test_a_sampled_lookup_counts_the_time_its_output_holds():
