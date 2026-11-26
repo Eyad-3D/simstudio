@@ -935,7 +935,6 @@ impl<'a> Builder<'a> {
         // its speed per wheel speed (gearboxes in their current gear) ÷ the
         // efficiency of the way down (today's t_motor_cap)
         let mut terms: Vec<(String, f64, Vec<String>)> = vec![];
-        let mut blended: Vec<String> = vec![];
         for m in facts.of_kind("motor.emotor") {
             let Some(k) = facts.kin_of(&m.id, "shaft") else { continue };
             let mut gbs = k.gearboxes.clone();
@@ -954,7 +953,9 @@ impl<'a> Builder<'a> {
                 v.dedup();
                 v
             };
-            // each windowed motor's share of its command its supply allows
+            // each blended motor's share of its command its supply allows,
+            // for the friction brakes to take what it cuts (a motor is
+            // blended only with friction brakes: its mapping)
             let cut: Vec<bool> = terms.iter().map(|t| self.has_port(&t.0, "k_supply")).collect();
             let def = regen_cap(&terms, &all_gbs, &cut);
             let values: Vec<(String, f64)> =
@@ -974,7 +975,6 @@ impl<'a> Builder<'a> {
                 }
                 self.link(format!("{h}.cut"), format!("{di}.regen_cut"));
             }
-            blended = terms.iter().zip(&cut).filter(|(_, c)| **c).map(|(t, _)| t.0.clone()).collect();
         }
         // the friction brakes' torque at the wheels at a full command
         let fr_cap: f64 = facts
@@ -987,17 +987,6 @@ impl<'a> Builder<'a> {
         if let Some(s) = self.top.components.iter_mut().find(|s| s.name == di) {
             s.modifiers
                 .push(Modifier { param: "fr_cap".into(), value: ParamValue::Real(c(fr_cap)) });
-        }
-        // with friction brakes, the Driver blends its recuperation: what a
-        // motor's supply cuts of it, the friction brakes take
-        if fr_cap > 0.0 {
-            for m in &blended {
-                let mi = self.inst(m);
-                if let Some(s) = self.top.components.iter_mut().find(|s| s.name == mi) {
-                    s.modifiers
-                        .push(Modifier { param: "blended".into(), value: ParamValue::Real(c(1.0)) });
-                }
-            }
         }
         // fast mode: the pedal command's source, which the inverse model
         // removes (its command is then solved for)
@@ -1760,6 +1749,13 @@ pub fn standard_registry() -> Registry {
             f.windowed(&el.id),
         )?;
         cfg.inverse = f.inverse;
+        // a Driver blends its recuperation with friction brakes (driver())
+        cfg.blended = cfg.windowed
+            && !f.inverse
+            && f.driver.is_some()
+            && !f.full_throttle
+            && f.kin_of(&el.id, "shaft").is_some()
+            && f.of_kind("mech.brake").any(|b| b.num("max_torque_Nm", 0.0) > 0.0);
         Ok(Mapped::of(motor::emotor(&cfg)).with(cfg.values()?).with(w0(el, f, "shaft", "w0")))
     });
     add!("vehicle.body", |el: &Element, f: &Facts| {
