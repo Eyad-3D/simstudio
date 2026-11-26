@@ -1490,7 +1490,11 @@ fn signal_ports(def: &ComponentDef) -> (Vec<String>, Vec<String>) {
 /// cut = Σ (1 − f_m) · (its term), f_m the share of its command its supply
 /// allows, taken as 1 within 1e-12 of it (so that the cut is exactly 0
 /// where nothing is cut: the solved share is 1 only to round-off).
-fn regen_cap(terms: &[(String, f64, Vec<String>)], gearboxes: &[String], cut: &[bool]) -> ComponentDef {
+fn regen_cap(
+    terms: &[(String, f64, Vec<String>)],
+    gearboxes: &[String],
+    cut: &[bool],
+) -> ComponentDef {
     use lsim_lib::x::{input, ite, lt, noev, output, p};
     let mut ports = vec![];
     let mut params = vec![];

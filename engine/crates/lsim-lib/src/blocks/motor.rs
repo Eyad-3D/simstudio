@@ -534,11 +534,7 @@ pub fn emotor(cfg: &MotorConfig) -> ComponentDef {
         ));
         eqs.push(eq(
             der("e_regen_lost"),
-            ite(
-                and(gt(n("alive"), c(0.5)), lost),
-                n("p_elec") - n("p_req"),
-                c(0.0) * n("unit_W"),
-            ),
+            ite(and(gt(n("alive"), c(0.5)), lost), n("p_elec") - n("p_req"), c(0.0) * n("unit_W")),
             "recuperation the supply could not take",
         ));
     } else {

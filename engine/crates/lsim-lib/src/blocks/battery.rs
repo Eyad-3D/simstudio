@@ -1174,7 +1174,11 @@ pub fn battery(cfg: &BatteryConfig) -> ComponentDef {
             &[("at_full", c(1.0))],
             "it is full: it takes no more",
         ));
-        eqs.push(when(lt(hi_soc, c(1.0 - 2.0 * SOC_HOLD)), &[("at_full", c(0.0))], "it takes again"));
+        eqs.push(when(
+            lt(hi_soc, c(1.0 - 2.0 * SOC_HOLD)),
+            &[("at_full", c(0.0))],
+            "it takes again",
+        ));
     }
     eqs.push(eq(
         n("i_floor"),
