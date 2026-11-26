@@ -1113,3 +1113,48 @@ Per case, against the record before (84e2695f), as above:
 | bev-car/case-wltc-winter | 1.8e-04 (Phase Low — consumption) | 1.0e-05 | 136667 → 136103 | 122 → 129 | 1.9e-10 → 3.7e-10 |
 | hybrid-car/case-hwfet | 1.5e-05 (HV Battery — energy delivered) | 7.0e-06 | 903552 → 903483 | 77091 → 77060 | 9.0e-12 → 9.7e-12 |
 | hybrid-car/case-udds | 2.0e-04 (Phase Bag 1 — fuel consumption) | 8.7e-05 | 1648790 → 1649302 | 118525 → 118505 | 2.8e-11 → 3.0e-11 |
+
+## Output points solve the iteration variables again (26 November 2026)
+
+What was recorded: at an output point the run loop interpolated the whole
+vector of unknowns from the step's dense output, the iteration variables
+among them, and evaluated the channels from that. An iteration variable
+interpolated solves its equations only to the interpolation's error, and
+since 19 November a dummy derivative is left out of IDA's error test, so
+its interpolant can be poor: an open differential, whose side b torque is
+computed from the wheel's inertia and whose share equation is the residual
+that pins `der(fd.w_out)`, showed its two shares 2.5e-2 N·m apart on
+288 N·m at rtol 1e-6 (`test_diff_open_torque_split_is_equal`). Now
+`grid_point` (`lsim-solve/src/run.rs`) solves the iteration variables again
+with the interpolated states held (`consistent_z_aside`, the Newton solve
+the run loop has), and keeps them as interpolated where that solve fails.
+The two shares then agree to 3e-13, and a 1C discharge's current at the
+points is the battery's at those points (`test_a_1c_discharge_empties_the_battery_in_one_hour`).
+Steps, events and the books are untouched: only the values recorded at
+the points move.
+
+Per case, against the record before (89da741a's), as above:
+
+| case | largest figure move | largest channel move | steps | events | books |
+|---|---|---|---|---|---|
+| aero-bev/case-hwfet | 0.0e+00 () | 1.4e-08 | 50589 → 50589 | 24 → 24 | 4.9e-11 → 4.9e-11 |
+| aero-bev/case-udds | 0.0e+00 () | 2.4e-08 | 112024 → 112024 | 264 → 264 | 1.5e-10 → 1.5e-10 |
+| aero-bev/case-wltc | 0.0e+00 () | 4.4e-09 | 139860 → 139860 | 129 → 129 | 3.2e-10 → 3.2e-10 |
+| bev-car/case-city | 0.0e+00 () | 1.6e-08 | 2693 → 2693 | 17 → 17 | 1.5e-09 → 1.5e-09 |
+| bev-car/case-city-live | 0.0e+00 () | 1.6e-08 | 2693 → 2693 | 17 → 17 | 1.5e-09 → 1.5e-09 |
+| bev-car/case-wltc | 0.0e+00 () | 6.9e-09 | 136524 → 136524 | 129 → 129 | 2.0e-10 → 2.0e-10 |
+| bev-car/case-wltc-hvac | 0.0e+00 () | 1.7e-08 | 136118 → 136118 | 129 → 129 | 5.0e-10 → 5.0e-10 |
+| bev-car/case-wltc-summer | 0.0e+00 () | 7.0e-09 | 136624 → 136624 | 129 → 129 | 6.6e-10 → 6.6e-10 |
+| bev-car/case-wltc-winter | 0.0e+00 () | 3.0e-09 | 136103 → 136103 | 129 → 129 | 3.7e-10 → 3.7e-10 |
+| fs-electric/case-accel-75m | 9.6e-15 (Accumulator — peak terminal power, averaged) | 5.7e-07 | 769 → 769 | 13 → 13 | 7.8e-10 → 7.8e-10 |
+| hybrid-car/case-hwfet | 0.0e+00 () | 2.6e-10 | 903483 → 903483 | 77060 → 77060 | 9.7e-12 → 9.7e-12 |
+| hybrid-car/case-mixed | 0.0e+00 () | 3.5e-12 | 296432 → 296432 | 56222 → 56222 | 1.9e-12 → 1.9e-12 |
+| hybrid-car/case-mixed-live | 0.0e+00 () | 3.5e-12 | 296432 → 296432 | 56222 → 56222 | 1.9e-12 → 1.9e-12 |
+| hybrid-car/case-udds | 0.0e+00 () | 2.7e-10 | 1649302 → 1649302 | 118505 → 118505 | 3.0e-11 → 3.0e-11 |
+
+Books inside 1.5e-9 (worst 1.467e-9, bev-car City, as before). The
+solve costs a little time at each output point; on four slices, best of
+7 alternating rounds against the module before it (CPUs 8-15): bev-car
+City 120 s 0.110 → 0.118 s (+6.6 %), hybrid Mixed 120 s 2.831 → 2.794 s
+(−1.3 %), aero-bev UDDS 0.263 → 0.273 s (+3.9 %), bev-car WLTC 0.289 →
+0.302 s (+4.6 %).

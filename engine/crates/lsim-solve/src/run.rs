@@ -5850,6 +5850,16 @@ fn grid_point(
     d: &[f64],
 ) -> Result<(), SolveError> {
     integ.interpolate(t, yk)?;
+    // the iteration variables, interpolated, solve their equations only to
+    // the interpolation's error (an open differential's two shares, one
+    // read from a residual, 2.5e-2 N·m apart at rtol 1e-6): solved again
+    // with the states held; kept as interpolated where that solve fails
+    if lp.model.layout().n_z > 0 {
+        let mut ys = yk.to_vec();
+        if integ.consistent_z_aside(t, &mut ys, d).is_ok() {
+            yk.copy_from_slice(&ys);
+        }
+    }
     lp.sample(t, yk, d);
     // (a trace's time alone is no point of the books)
     if rec.grid_point(t, lp.recorded())

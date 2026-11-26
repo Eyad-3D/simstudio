@@ -2000,11 +2000,15 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   78 steps over 2 s at rtol 1e-8 (it failed at its start before). A
   model with no state but an equation solved by iteration (`x³ + x =
   time`) is not this one: it runs on IDA, whose only entries of y are
-  its iteration variables, and its outputs carry the integration's error
-  (x 1.8e-5 off the exact root at rtol 1e-4, 2.3e-11 at 1e-10: the
-  outside judge's `count-implicit-nostate-1.0`); solving them by Newton
-  at every point instead, on `Stateless`, would make them exact, and is
-  not done.
+  its iteration variables, which carry the integration's error inside a
+  step (x 1.8e-5 off the exact root at rtol 1e-4, 2.3e-11 at 1e-10: the
+  outside judge's `count-implicit-nostate-1.0`). At an output point the
+  iteration variables are solved again by Newton with the interpolated
+  states held (`run::grid_point`, since 26 November 2026; kept as
+  interpolated where that solve fails), so what a point records solves
+  the model's equations to Newton's tolerance: an open differential's two
+  shares, one of them read from a residual, were 2.5e-2 N·m apart on
+  288 N·m at rtol 1e-6, and agree to 3e-13.
 * **IDA's order with the energy books under error control.** SUNDIALS
   7.1.1's IDAS decides an order decrease on the states' errors alone
   (`IDATestError`), and its quadratures' test (`IDAQuadTestError`) did
