@@ -8,7 +8,7 @@ import { Download, ListChecks } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { Study } from "../../types";
-import { pointComplete } from "../../sweep";
+import { pointComplete, pointDnf } from "../../sweep";
 import { useDismiss } from "../useDismiss";
 import { PALETTE, fmtNum, unitAxis, useHasSize, yRange } from "./chartUtils";
 import { Plot, axisStyle, type PlotOptions } from "./Plot";
@@ -29,6 +29,7 @@ function StudyChart({ study, figure }: { study: Study; figure: string }) {
   const data = useMemo(() => chartData(study, figure), [study, figure]);
   const unit = study.kpis.find((k) => k.label === figure)?.unit ?? "";
   const factor = study.factors[0];
+  const second = study.factors[1];
   // a line's hollow markers, when it has values that are not valid
   const hollow = useMemo(() => data.lines.map((l) => l.notValid.some((v) => v != null)), [data]);
   const cols = useMemo(
@@ -60,6 +61,7 @@ function StudyChart({ study, figure }: { study: Study; figure: string }) {
           };
           const notValid: uPlot.Series = {
             label: data.lines.length > 1 ? `${l.label} (not valid)` : "not valid",
+            class: "ss-legend-folded",
             stroke: color,
             paths: () => null,
             points: { show: true, size: 8, width: 1.5, fill: bg },
@@ -81,6 +83,9 @@ function StudyChart({ study, figure }: { study: Study; figure: string }) {
       <figcaption className="truncate px-1.5 pt-1 text-meta font-semibold" title={figure}>
         {figure}
         {unit && <span className="font-normal text-[color:var(--ss-text-dim)]"> [{unit}]</span>}
+        {second && (
+          <span className="font-normal text-[color:var(--ss-text-dim)]"> · a line per {second.paramLabel}</span>
+        )}
         {data.notValid > 0 && (
           <span className="font-normal text-[color:var(--ss-warn)]" title="Hollow: the run's checks rule these values not valid">
             {" "}
@@ -88,7 +93,7 @@ function StudyChart({ study, figure }: { study: Study; figure: string }) {
           </span>
         )}
       </figcaption>
-      <div className="h-[210px] p-1" ref={ref}>
+      <div className="min-h-0 flex-1 p-1" ref={ref}>
         {hasValues && hasSize ? (
           <Plot options={options} data={cols} label="Study chart" />
         ) : (
@@ -167,10 +172,11 @@ export function StudyView({ runSweepId, caseId }: { runSweepId?: string; caseId?
   const figures = figuresOf(study, choice?.studyFigures);
   const save = (patch: { study?: string; studyFigures?: string[] }) =>
     projectId && useUIStore.getState().setStudyView(projectId, patch);
-  const complete = study.points.filter(pointComplete).length;
-  const left = study.points.length - complete;
+  const dnf = study.points.filter(pointDnf).length;
+  const complete = study.points.filter((p) => pointComplete(p) && !pointDnf(p)).length;
+  const left = study.points.length - complete - dnf;
   return (
-    <section aria-label="Study charts" className="flex min-h-0 flex-col gap-1.5">
+    <section aria-label="Study charts" className="flex h-full min-h-0 flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-1.5 text-meta text-[color:var(--ss-text-dim)]">
         <select
           className="ss-input min-w-0 max-w-[420px] flex-1 py-0.5 text-meta"
@@ -196,10 +202,11 @@ export function StudyView({ runSweepId, caseId }: { runSweepId?: string; caseId?
       </div>
       <div className="text-meta text-[color:var(--ss-text-dim)]">
         {complete} of {study.points.length} point{study.points.length === 1 ? "" : "s"} complete
+        {dnf > 0 && <span className="text-[color:var(--ss-warn)]"> · {dnf} did not finish (DNF)</span>}
         {left > 0 && <span className="text-[color:var(--ss-warn)]"> · {left} left out (stopped, failed or not run)</span>}
         {" · "}from the saved study, kept with the project&apos;s runs
       </div>
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-1.5">
+      <div className="grid min-h-0 flex-1 auto-rows-[minmax(220px,1fr)] grid-cols-[repeat(auto-fit,minmax(max(300px,calc(50%_-_6px)),1fr))] gap-1.5">
         {figures.map((f) => (
           <StudyChart key={`${study.id}:${f}`} study={study} figure={f} />
         ))}

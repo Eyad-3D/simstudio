@@ -1463,7 +1463,7 @@ export function ResultsPanel() {
             )}
           </div>
         ) : view === "study" ? (
-          <div className="min-h-[260px] flex-[3] p-1.5">
+          <div className="min-h-[260px] flex-[3] overflow-y-auto p-1.5">
             <StudyView runSweepId={activeRun?.sweepId} caseId={activeRun?.caseId} />
           </div>
         ) : view === "sweep" ? (
