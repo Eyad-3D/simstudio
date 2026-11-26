@@ -4,13 +4,12 @@
 import { useEffect } from "react";
 import { Check, X } from "lucide-react";
 import { openHelp } from "../help";
-import { STEPS, automated, autoTour, dismissHint, doStep, hideStepBar, useTourStore, watchSteps } from "../tour";
-
-const NONE: Partial<Record<string, true>> = {};
+import { STEPS, automated, autoTour, dismissHint, doStep, hideStepBar, useStepsDone, useTourStore, watchSteps } from "../tour";
 
 export function FirstSteps() {
   const hidden = useTourStore((s) => s.hidden);
-  const done = useTourStore((s) => s.done) ?? NONE;
+  // the open project's steps: a new empty project has none done
+  const done = useStepsDone();
   const hint = useTourStore((s) => s.hint);
   const auto = useTourStore((s) => s.auto);
   const off = hidden || (automated() && !auto);
