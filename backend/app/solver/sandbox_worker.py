@@ -133,6 +133,18 @@ _F64 = struct.Struct(">d")
 SPIN_WINDOW_S = 0.001
 
 
+def usable_cpus() -> int:
+    """The CPUs this process may run on: its affinity (taskset, a container's
+    cpuset, a CI runner's share), which a spawned worker inherits. Not
+    os.cpu_count(), the machine's count: two processes that spin in turn on
+    one allowed CPU each hold it for their whole window, so every round trip
+    costs about 2 ms (a hybrid's run 17 times slower on one CPU)."""
+    try:
+        return len(os.sched_getaffinity(0))
+    except AttributeError:  # Windows and macOS have no affinity call
+        return os.cpu_count() or 1
+
+
 class Conn:
     """A length-prefixed frame channel over a stream socket, with one buffered
     ``recv`` per frame in the common case (a whole small frame arrives at once).
@@ -761,9 +773,9 @@ def worker_main(sock, mem_bytes: int = DEFAULT_MEM_BYTES) -> None:
     # Busy-waiting between requests keeps this process on a core for the whole
     # run: about 20 % faster for a scripted run going flat out, for a second
     # busy core (a paced run sleeps between recorded steps, so it spins little).
-    # On a machine with fewer than 4 cores that core is needed by the engine and
-    # the app's window, so there the worker blocks instead.
-    spin = (os.cpu_count() or 1) >= 4
+    # With fewer than 4 cores this process may use, that core is needed by the
+    # engine and the app's window, so there the worker blocks instead.
+    spin = usable_cpus() >= 4
     summary, confined = harden(sock.fileno(), mem_bytes)
     _log_summary(summary)
     try:
