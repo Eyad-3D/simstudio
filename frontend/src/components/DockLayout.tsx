@@ -26,6 +26,7 @@ import { MonitorsPanel } from "./panels/MonitorsPanel";
 import { CasePanel } from "./panels/CasePanel";
 import { MiniChartPanel } from "./panels/MiniChartPanel";
 import { TopologyCanvas } from "./canvas/TopologyCanvas";
+import { keepTabsOnDelete } from "./dockKeys";
 
 // the tray collapses to its tab strip (--dv-tabs-and-actions-container-height)
 const TAB_STRIP = 34;
@@ -480,9 +481,11 @@ export function DockLayout() {
       observer.disconnect();
       cancelAnimationFrame(frame);
     };
+    const keepTabs = keepTabsOnDelete(el);
   }, []);
 
   return (
+      keepTabs();
     <div ref={ref} className="h-full w-full" role="region" aria-label="Model workspace panels">
       <DockviewReact
         components={components}
