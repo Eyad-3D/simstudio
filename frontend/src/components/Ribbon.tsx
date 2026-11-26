@@ -190,8 +190,14 @@ function MenuNote({ children }: { children: React.ReactNode }) {
   return <div className="px-3 py-1.5 text-body text-[color:var(--ss-text-dim)]">{children}</div>;
 }
 
-/** A project or example in the Open menu: its name, id and description. */
-function ProjectMenuItem({ entry, onClick }: { entry: api.ProjectEntry; onClick: () => void }) {
+/** "Saved 26 Nov 2026, 14:05" */
+const savedAt = (ms?: number) =>
+  ms ? `Saved ${new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}` : undefined;
+
+/** A project or example in the Open menu: its name, what tells it apart
+ *  (when a project was saved, where a file is; never its internal id, #23)
+ *  and its description. */
+function ProjectMenuItem({ entry, detail, onClick }: { entry: api.ProjectEntry; detail?: string; onClick: () => void }) {
   return (
     <button
       role="menuitem"
@@ -200,7 +206,7 @@ function ProjectMenuItem({ entry, onClick }: { entry: api.ProjectEntry; onClick:
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-body font-medium text-[color:var(--ss-text)]">{entry.name}</span>
-        <span className="shrink-0 text-meta text-[color:var(--ss-text-dim)]">{entry.id}</span>
+        {detail && <span className="min-w-0 truncate text-meta text-[color:var(--ss-text-dim)]" title={detail}>{detail}</span>}
       </div>
       {entry.description && (
         <p className="mt-0.5 whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)]">
@@ -289,7 +295,8 @@ function OpenProjectButton() {
               {files.map((f) => (
                 <div key={f.id} className="flex items-stretch">
                   <ProjectMenuItem
-                    entry={{ ...f, id: f.path, description: f.exists ? f.description : "File not found" }}
+                    entry={{ ...f, description: f.exists ? f.description : "File not found" }}
+                    detail={f.path}
                     onClick={() => f.exists && choose(f.name, () => openProject(f.id))}
                   />
                   <button
@@ -312,7 +319,12 @@ function OpenProjectButton() {
             <MenuHeading>Your projects</MenuHeading>
             {projects.length === 0 && <MenuNote>None saved yet</MenuNote>}
             {projects.map((p) => (
-              <ProjectMenuItem key={p.id} entry={p} onClick={() => choose(p.name, () => openProject(p.id))} />
+              <ProjectMenuItem
+                key={p.id}
+                entry={p}
+                detail={savedAt(p.modified)}
+                onClick={() => choose(p.name, () => openProject(p.id))}
+              />
             ))}
           </div>
           <div role="group" aria-label="Examples" className="mt-1 border-t border-[color:var(--ss-border)]">

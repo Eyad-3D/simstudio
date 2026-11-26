@@ -82,3 +82,26 @@ it("lists every panel by name, and shows the one picked, also one that was close
   expect(focusPanel).toHaveBeenCalledWith("messages");
   expect(host.querySelector("[role=menu][aria-label=Panels]")).toBeNull();
 });
+
+it("Open lists the saved projects apart from the examples, with when each was saved, and no internal id (#23)", async () => {
+  const saved = new Date(2026, 10, 26, 14, 5).getTime();
+  vi.stubGlobal("fetch", async (url: string) => {
+    const body = url.endsWith("/projects")
+      ? [{ id: "bev-car-8yr3i3y", name: "Battery Electric Car", description: "A copy", modified: saved }]
+      : url.endsWith("/examples")
+        ? [{ id: "bev-car", name: "Battery Electric Car", description: "The example" }]
+        : [];
+    return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+  const host = await ribbon("home");
+  await act(async () => buttonNamed(host, "Open")!.click());
+  const menu = host.querySelector('[role="menu"][aria-label="Open project"]')!;
+  const yours = menu.querySelector('[role="group"][aria-label="Your projects"]')!;
+  const examples = menu.querySelector('[role="group"][aria-label="Examples"]')!;
+  expect(yours.textContent).toContain("Battery Electric Car");
+  expect(yours.textContent).toContain(`Saved ${new Date(saved).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`);
+  expect(examples.textContent).toContain("Battery Electric Car");
+  expect(menu.textContent).not.toContain("bev-car");
+  vi.unstubAllGlobals();
+  vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+});
