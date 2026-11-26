@@ -100,7 +100,6 @@ PORT = ("an acceleration case of a car whose Driver has Target Speed or Actual S
         "(PORT-NOT-MAPPED, fixed: it runs now)")
 TICK = ("a sampled block's (Script, FMU, Delay) value at an output point is the one after its tick there, where "
         "today's shows the one before (the blocks piece's open item; changing it moves the hybrid's golden values)")
-LIVE_TABLE = "NEW-LIVE-NEXT-RUN: a live edit of a table takes effect on the next run on the new engine (open)"
 
 
 
@@ -129,9 +128,6 @@ XFAIL = {
         "a Lookup block's time outside its data on Clamp or Linear is not said as today's says it (open)"),
     "test_map_edges.py::test_a_run_counts_every_table_it_reads": (
         "the new path's count of the tables a run reads past their data differs from today's (open)"),
-    "test_climate.py::test_a_live_edit_of_the_demand_table_applies": LIVE_TABLE,
-    "test_battery_cells.py::test_a_live_edit_of_the_cell_voltage_curve_applies": LIVE_TABLE,
-    "test_solver.py::test_live_profile_edit_takes_effect": LIVE_TABLE,
     "test_control_rate.py::test_scripts_run_every_solver_step_with_its_dt": TICK,
     "test_control_rate.py::test_block_with_a_sample_time_runs_at_that_rate_and_holds": TICK,
     "test_signal_wiring.py::test_the_delay_is_what_the_run_does": TICK,

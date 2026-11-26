@@ -134,8 +134,9 @@ code. A test in the repository records each as an expected failure
   points: the wording says *Not run* where the run showed, say, 321 s. (A
   table on Error or a value that is not a number keeps its trace up to the
   stop.)
-- **A table edited during a live run takes effect on the next run**, and a
-  block's value at an output point is the one after its tick (a Script, FMU
+- **A table or a Driving Task's profile edited during a live run takes
+  effect on the next run** (the engine builds them into the model as data),
+  with a note in the run's messages, and a block's value at an output point is the one after its tick (a Script, FMU
   or Delay), where the older engine showed the one before. The *Live runs*
   bullet below has the rest.
 - **The MCP server's answer for a run can pass the 20 kB it keeps to** (one
@@ -928,8 +929,8 @@ minimum or an average, for example from the CSV export, or put the
   edit, and one too late for the run, is listed in the run's live edits
   with its note, code `NEW-LIVE-NEXT-RUN`; so is a structural parameter's
   (an E-Motor's torque, speed or voltage scale among them). A table sent to
-  a live run (the app sends none) takes effect on the next run too, noted
-  in the run's log only. A live run the engine fails fails with its reason
+  a live run (the app sends none) takes effect on the next run too, and so
+  does a Driving Task's profile, each noted in the run's messages. A live run the engine fails fails with its reason
   code (`NEW-FAILED` for the engine's own refusal, `NEW-ERROR` for a fault
   in the path after the run) and does not start again, with or without a
   Stop or an edit read before it. A live edit that later moves the run past

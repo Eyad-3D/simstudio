@@ -237,3 +237,27 @@ def example_result(project_id: str, case_id: str) -> SimResult:
 def _example_result(project_id: str, case_id: str, engine: str | None) -> SimResult:
     project = load_example(project_id)
     return simulate(todays(project) if engine == "today" else project, case_id)
+
+
+def paced_edit(project, case_id: str, edits: list[dict], at_t: float, factor: float = 20.0):
+    """A live run of ``case_id`` at ``factor`` × real time that sends ``edits``
+    once its view has reached ``at_t`` (a live run reads its edits in wall
+    time, as the view goes: an unpaced one can end before the first read)."""
+    from app.solver import simulate
+
+    case = next(c for c in project.cases if c.id == case_id)
+    case.realtimeFactor = factor
+    seen = {"t": 0.0, "sent": False}
+
+    def emit(msg):
+        if msg.get("type") == "step":
+            seen["t"] = msg["t"]
+
+    def control():
+        if seen["t"] >= at_t and not seen["sent"]:
+            seen["sent"] = True
+            return edits
+        return []
+
+    return simulate(project, case_id, emit, control)
+

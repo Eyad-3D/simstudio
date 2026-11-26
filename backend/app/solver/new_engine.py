@@ -684,6 +684,9 @@ def run_new(project: Project, case_id: str, emit: Optional[EmitFn] = None,
     result = _result(project, case, model, ctx, built, run, plan, lanes, laps_warning,
                      list(dropped.values()), stopped, [e for e in taken if not e.note], failed)
     result.messages += _notes(taken)
+    if live is not None:  # (a table's note: a live edit is listed only with a number)
+        told = {m.text for m in result.messages}
+        result.messages += [SimMessage(level="info", text=t) for t in live.said if t not in told]
     if totals is not None:  # (_result has read each battery's end SOC and the fuel into ctx)
         totals.update(balance.run_totals(ctx, soc_start))
     # what ran it
@@ -821,6 +824,10 @@ class _Edits:
         self.case_id, self.built, self.texts = case_id, built, texts or {}
         self.params = dict(built.params())  # the run's, as the edits leave them
         self.checked = _checked(_context(self.project, case_id))
+        # what the engine builds from them, data and all (its cache key): an
+        # edit that moves it and no parameter changes data built into the
+        # model (a profile), for the next run
+        self.key = self.trial_key = built.report["cache_key"]
 
     def changes(self, el_id: str, key: str, value) -> dict:
         """The engine's parameter changes an edit makes on top of those
@@ -845,14 +852,20 @@ class _Edits:
         if checked != self.checked:
             raise _Later("the new engine's checks after its run read it as it was at the run's "
                          "start: it takes effect on the next run")
-        return {n: v for n, v in new.items()
-                if v != self.params[n] and not (math.isnan(v) and math.isnan(self.params[n]))}
+        changes = {n: v for n, v in new.items()
+                   if v != self.params[n] and not (math.isnan(v) and math.isnan(self.params[n]))}
+        if not changes and b.report["cache_key"] != self.key:
+            raise _Later("the new engine builds it into the model as data, not a value it can "
+                         "change during a run: it takes effect on the next run")
+        self.trial_key = b.report["cache_key"]
+        return changes
 
     def keep(self, el_id: str, key: str, value, changes: dict) -> None:
         """An edit the run took: the next ones build on it."""
         case = next(c for c in self.project.cases if c.id == self.case_id)
         case.parameterOverrides.setdefault(el_id, {})[key] = value
         self.params.update(changes)
+        self.key = self.trial_key
 
 
 class _Live:
