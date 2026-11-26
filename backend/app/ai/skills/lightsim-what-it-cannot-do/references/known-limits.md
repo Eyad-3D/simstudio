@@ -32,7 +32,6 @@ Read the full page before relying on a number: https://github.com/Eyad-3D/simstu
   `NEW-FAILED`** (`RUN-INTEGRATOR`, `RUN-EVENT-STORM`), even after it showed points: the wording says *Not run* where the run showed, say, 321 s.
 - **A table or a Driving Task's profile edited during a live run takes
   effect on the next run** (the engine builds them into the model as data), with a note in the run's messages, and a block's value at an output point is the one after its tick (a Script, FMU or Delay), where the older engine showed the one before.
-- **The MCP server's answer for a run can pass the 20 kB it keeps to** (one is 27 bytes over).
 
 ## Results that can be wrong today
 

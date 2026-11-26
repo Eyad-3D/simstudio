@@ -127,8 +127,6 @@ code. A test in the repository records each as an expected failure
   with a note in the run's messages, and a block's value at an output point is the one after its tick (a Script, FMU
   or Delay), where the older engine showed the one before. The *Live runs*
   bullet below has the rest.
-- **The MCP server's answer for a run can pass the 20 kB it keeps to** (one
-  is 27 bytes over).
 
 ## Results that can be wrong today
 
