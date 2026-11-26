@@ -100,11 +100,14 @@ export function TableNEditor({
   };
   const every = (fn: (t: Grid) => Grid) =>
     Object.fromEntries(outputs.map((o) => [o.key, fn(tables[o.key] ?? {})]));
-  const copiedNote = (j: number, key: string, from: string) =>
+  // "Temp now has a breakpoint at 8 °C; its values are copied from the one at 10 °C"
+  const copiedNote = (j: number, key: string, from: string) => {
+    const at = (k: string) => `${show(j, k)}${axes[j].unit !== "-" ? ` ${axes[j].unit}` : ""}`;
     setNote(
-      `Added ${axes[j].name} ${show(j, key)}${axes[j].unit !== "-" ? ` ${axes[j].unit}` : ""}: ` +
-        `its points are a copy of ${show(j, from)}'s${outputs.length > 1 ? ", in every output" : ""}.`,
+      `${axes[j].name} now has a breakpoint at ${at(key)}; its values are copied from the one at ${at(from)}` +
+        `${outputs.length > 1 ? ", in every output" : ""}.`,
     );
+  };
 
   // the grid: one axis down the rows, another along the columns (one axis:
   // its breakpoints and a column of values)
@@ -381,6 +384,9 @@ export function TableNEditor({
                 <input
                   className="ss-input w-[70px] py-0.5 text-meta"
                   aria-label={`New ${axes[j].name} breakpoint`}
+                  // what to type, on screen too (#31)
+                  placeholder={axes[j].unit !== "-" ? `New ${axes[j].unit}` : "New value"}
+                  title={`A new ${axes[j].name} breakpoint: type it and press Enter (Esc: cancel)`}
                   autoFocus
                   value={adding.text}
                   onChange={(e) => setAdding({ axis: j, text: e.target.value })}
