@@ -379,7 +379,7 @@ def test_fmu_runs_with_the_rest_of_the_model(test_fmu):
 def test_communication_step_holds_outputs_between_steps(test_fmu):
     """With a Communication Step the FMU exchanges values only at its sample
     instants and its outputs hold in between; it is never ahead of the
-    engine (it catches up to the end of the solver step at each exchange)."""
+    engine (it catches up to the sample instant at each exchange)."""
     params = _import(test_fmu) | {"sample_time_s": 0.25}
     result = simulate(_fmu_project(params), "case")
     assert result.status in ("success", "warning")
@@ -388,9 +388,9 @@ def test_communication_step_holds_outputs_between_steps(test_fmu):
     for t, v in t_fmu:
         assert v <= t + 1e-9, f"at t = {t} the FMU is already at {v}"
         assert t - v < 0.25 + h + 1e-9, f"at t = {t} the FMU is still at {v}"
-    # the FMU only moves on at the sample instants: 0, 0.25, 0.5 … 1.75
+    # the FMU only moves on at the sample instants 0.25, 0.5 … 2.0, to each
     moved = sorted({round(v, 9) for _, v in t_fmu if v > 0})
-    assert moved == pytest.approx([k * 0.25 + h for k in range(8)], abs=1e-9)
+    assert moved == pytest.approx([k * 0.25 for k in range(1, 9)], abs=1e-9)
     # it is not set back when the engine's samples fall between its steps
     values = [v for _, v in t_fmu]
     assert values == sorted(values)

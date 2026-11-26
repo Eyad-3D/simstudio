@@ -102,7 +102,8 @@ def test_scripts_run_every_solver_step_with_its_dt():
     assert result.status in ("success", "warning"), [m.text for m in result.messages]
     last = {port: series(result, "scr", port)[-1] for port in ("calls", "dt_seen", "socs_seen")}
     assert last["calls"]["t"] == 2.0
-    assert last["calls"]["value"] == 200  # 2 s of 10 ms solver steps
+    # its ticks at 0, 0.01, … 2.0 (a point shows the tick at its own time)
+    assert last["calls"]["value"] == 201
     assert last["dt_seen"]["value"] == pytest.approx(0.01)
     # the SOC input is refreshed every solver step, not once per case step
     assert last["socs_seen"]["value"] > 150

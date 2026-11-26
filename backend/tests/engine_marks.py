@@ -109,10 +109,8 @@ XFAIL = {
         "NEW-LAP-SLIP: where the motors at full torque hold the car, the lap's wheel (fast mode's inverse "
         "model) turns with the prescribed speed and takes its tyre's slip loss out of the force: 3.835 s "
         "against the time-domain 3.706 s at μ 2.5, about the slip at that force (10 %) (open)"),
-    "test_control_rate.py::test_scripts_run_every_solver_step_with_its_dt": TICK,
     "test_control_rate.py::test_block_with_a_sample_time_runs_at_that_rate_and_holds": TICK,
     "test_signal_wiring.py::test_the_delay_is_what_the_run_does": TICK,
-    "test_fmu.py::test_communication_step_holds_outputs_between_steps": TICK,
     "test_road_load.py::test_ambient_sets_the_air_density": "the speed trace under a changed air density differs from today's (open)",
     "test_solver.py::test_diff_open_torque_split_is_equal": "an open differential's split is equal to 3e-6 on the new engine, the test asks 1e-6 (open)",
     "test_battery_charge.py::test_a_1c_discharge_empties_the_battery_in_one_hour": (
