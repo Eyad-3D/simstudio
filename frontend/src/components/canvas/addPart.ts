@@ -30,6 +30,10 @@ export function partSpot(at: { x: number; y: number }, grid: number | null): { x
   return { x: on(at.x - 46), y: on(at.y - 27) };
 }
 
+/** The room a new, pasted or duplicated part keeps round the parts already
+ *  there: two of the diagram's grid steps (22). */
+export const PLACE_GAP = 44;
+
 /** A rectangle on the diagram, in its own units. */
 export interface Rect {
   x: number;
