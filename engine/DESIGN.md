@@ -2008,7 +2008,12 @@ The run loop (`run_loop`) works with any backend. Stage 1: SUNDIALS CVODE
   interpolated where that solve fails), so what a point records solves
   the model's equations to Newton's tolerance: an open differential's two
   shares, one of them read from a residual, were 2.5e-2 N·m apart on
-  288 N·m at rtol 1e-6, and agree to 3e-13.
+  288 N·m at rtol 1e-6, and agree to 3e-13. Only at the output grid's
+  points (`Recorder::is_output_time`), the points a result shows: the
+  trace's own times (every 0.1 s on a cycle, ten times the grid, for the
+  checks after the run) keep the interpolated values, which those checks
+  read for speeds and times; solving there too cost 4 to 8 % of a
+  battery-electric cycle's run.
 * **IDA's order with the energy books under error control.** SUNDIALS
   7.1.1's IDAS decides an order decrease on the states' errors alone
   (`IDATestError`), and its quadratures' test (`IDAQuadTestError`) did

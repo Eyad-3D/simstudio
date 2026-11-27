@@ -5149,7 +5149,10 @@ fn run_watched<'a>(
                         // the tick records it, its iteration variables solved
                         // again as grid_point does; yk stays the integrator's)
                         let mut y_at = None;
-                        if rec.next_grid_time().is_some_and(|g| at_point(g, tk)) {
+                        if rec
+                            .next_grid_time()
+                            .is_some_and(|g| at_point(g, tk) && rec.is_output_time(g))
+                        {
                             let mut v = yk.clone();
                             solve_z_aside(&lp, integ, tk, &mut v, &d);
                             y_at = Some(v);
@@ -5901,7 +5904,11 @@ fn grid_point(
     d: &[f64],
 ) -> Result<(), SolveError> {
     integ.interpolate(t, yk)?;
-    solve_z_aside(lp, integ, t, yk, d);
+    // (at the points a result shows; the trace's own times, for the checks
+    // after the run, keep the interpolated values: ten times as many)
+    if rec.is_output_time(t) {
+        solve_z_aside(lp, integ, t, yk, d);
+    }
     lp.sample(t, yk, d);
     // (a trace's time alone is no point of the books)
     if rec.grid_point(t, lp.recorded())

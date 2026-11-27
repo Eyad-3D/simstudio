@@ -220,6 +220,12 @@ impl Recorder {
         Ok(self)
     }
 
+    /// Whether `t` is the next output time (a point the result shows), not
+    /// only the trace's.
+    pub fn is_output_time(&self, t: f64) -> bool {
+        self.times.get(self.next) == Some(&t)
+    }
+
     /// The next time still to record: a grid time, or a trace's.
     pub fn next_grid_time(&self) -> Option<f64> {
         let out = self.times.get(self.next).copied();
