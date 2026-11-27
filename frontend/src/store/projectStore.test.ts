@@ -1388,7 +1388,7 @@ describe("run history", () => {
   it("a failed run's reasons are in Messages, once each (app pass #2)", async () => {
     await start();
     api.validateProject.mockResolvedValue([]);
-    const refused = "Not run [NEW-FAILED]: the new engine refused it (ELEC-NO-GROUND)";
+    const refused = "Not run: The new engine refused it. [NEW-FAILED: ELEC-NO-GROUND]";
     const streamedText = "Solver stopped at t = 3 s";
     api.runSimulationLive.mockImplementation((_project, caseId, callbacks = {}) => {
       callbacks.onMessage?.({ level: "error", text: streamedText });

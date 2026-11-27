@@ -549,7 +549,7 @@ export function CasePanel() {
           {!accel && !lap && (
             <label
               className="flex items-center justify-between gap-2 text-meta text-[color:var(--ss-text-dim)]"
-              title="Charge balancing (for hybrids): run the cycle again from the charge the battery ended with, until its stored energy changes by less than 1 % of the fuel's energy (at most 5 runs), so the fuel figure holds no energy the battery gave or took. Auto: on for a Cycle case whose model has an engine and a battery, and not paced. Quick mode does not charge-balance a case (Not run [QUICK-BALANCE]): set this to Off to run it once in quick mode."
+              title="Charge balancing (for hybrids): run the cycle again from the charge the battery ended with, until its stored energy changes by less than 1 % of the fuel's energy (at most 5 runs), so the fuel figure holds no energy the battery gave or took. Auto: on for a Cycle case whose model has an engine and a battery, and not paced. Quick mode does not charge-balance a case: it says “Not run in quick mode: … [QUICK-BALANCE]”; set this to Off to run it once in quick mode."
             >
               Charge balance
               <select
