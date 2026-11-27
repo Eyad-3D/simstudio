@@ -112,7 +112,7 @@ export function ComponentsPanel() {
                       // not aria-pressed: Enter adds the part rather than
                       // arming it; the diagram's banner announces an armed part
                       data-placing={placing || undefined}
-                      aria-label={`Add ${def.name}`}
+                      aria-label={`Add ${def.name} ${def.domain.slice(0, 4)}`}
                       title={`${def.description ?? def.name}\n\nDrag onto the diagram, double-click or press Enter to add it in the middle, or click it and then click where it goes.`}
                       onDragStart={(e) => {
                         useUIStore.getState().setPlacingComponent(null);
@@ -130,6 +130,7 @@ export function ComponentsPanel() {
                     >
                       <Icon size={14} strokeWidth={1.6} className="shrink-0 text-[color:var(--ss-node-icon)]" />
                       <span className="truncate">{def.name}</span>
+                      {" "}
                       <span className="ml-auto pr-1 text-meta uppercase text-[color:var(--ss-text-dim)]">
                         {def.domain.slice(0, 4)}
                       </span>
