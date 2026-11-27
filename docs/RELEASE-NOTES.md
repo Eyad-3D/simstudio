@@ -295,9 +295,10 @@ sections.
   voltage at 100 % SOC is above the Voltage Class. On the Battery Electric
   Car, an 80 kW limit takes its 0-100 km/h from 7.10 to 12.76 s.
 - Summary rows can carry a limit and a *pass* or *fail* marker.
-- Presets: the battery's *Apply preset: Formula Student Electric* sets
+- Presets: the battery's **Presets** → *Formula Student Electric* sets
   80 kW, a 0.5 s window, 600 V, Hold Power to Limit and a 500 A *Max
-  Discharge Current* in one step (one undo). Its values come from FS Rules
+  Discharge Current* in one step (one undo). Choosing it lists what it
+  sets and where the values come from; only **Apply** changes them. Its values come from FS Rules
   2026 v1.1 (FSG) EV 2.2.1, EV 2.2.2, EV 4.1.1 and D 10.4.1, checked
   against FSUK 2026 Rules V1.0 and FSAE Rules 2025 V1.0, which differ in
   detail.
@@ -567,7 +568,7 @@ sections.
   project's own that scales, repeats or cuts short UDDS or HWFET is passed
   over with a note, and a live case runs without waiting for the clock.
   (CON-32)
-- Weather presets on the Ambient: *Cold day (−7 °C)* (EPA's cold FTP and
+- Weather presets on the Ambient (its **Presets**): *Cold day (−7 °C)* (EPA's cold FTP and
   the EU's low-temperature test), *Standard day (23 °C)* (WLTP),
   *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High
   altitude (1,500 m)* (the standard atmosphere: 84.56 kPa, 5.25 °C, air
@@ -631,7 +632,8 @@ sections.
   goes back, home and to your web browser (for tabs and bookmarks), and
   can be made wider; links out of the help open in the browser. The **?**
   menu, and the desktop app's *Help* menu, list the main pages, *Report a
-  problem…* and the first-steps tour; in the desktop app *Help →
+  problem…*, the first-steps tour, *Show First steps* and *Show hints
+  again*; in the desktop app *Help →
   Documentation* opens the front page and *Help → Known Limits* the known
   issues, in the panel (in the system browser if the window cannot show
   them). After an update, the release notes open once by themselves.
@@ -658,8 +660,13 @@ sections.
   slim bar under the ribbon with five steps (*Build*, *Set values*,
   *Choose tests*, *Run*, *Read results*) that tick themselves off as you
   do them; click a step to go to the panel that does it, or hide the bar
-  with its **×**. Data Bus Connections, Cases and Results each explain
-  themselves in one line the first time you open them. (UX-26)
+  with its **×**. The bar goes by itself once all five are done in the
+  open project, and is there again for a project where they are not;
+  *Show First steps* in the **?** menu brings it back. Data Bus
+  Connections, Cases and Results each explain themselves in one line the
+  first time you open them; the line goes on *Got it*, or when you leave
+  or use that panel or page, and does not come back (*Show hints again*
+  in the **?** menu does that). (UX-26)
 - A *Start* page opens when LightSim starts and when you press **New**:
   continue with the open project, start from one of the examples (its card
   says what results to expect) or a blank project, or reopen one of the 8

@@ -45,21 +45,57 @@ test("UX-26: a new user gets a skippable tour, and the step bar ticks itself off
   // run and read
   await step(4, "Run").click();
   await ribbonTab(page, "Results").click();
-  await expect(step(4, "Run")).toHaveAccessibleName(/: done$/, { timeout: 60_000 });
-  await expect(step(5, "Read results")).toHaveAccessibleName(/: done$/);
-  await expect(bar).toContainText("All done");
-  // progress is kept, the tour does not come back, and the bar can be hidden
+  // the run ends and Results is open: every step is done, and the bar goes by itself
+  await expect(bar).toHaveCount(0, { timeout: 60_000 });
+  // progress is kept, the tour does not come back, nor does the bar
   await page.reload();
   await expect(page.locator(".react-flow__node").first()).toBeVisible();
-  await expect(step(5, "Read results")).toHaveAccessibleName(/: done$/);
   await expect(tour).toHaveCount(0);
+  await expect(bar).toHaveCount(0);
+  // Help shows it again, ticked, with nothing lost: the tutorial is in Help too
+  const help = async (item: string) => {
+    await page.getByRole("button", { name: "Help", exact: true }).click();
+    await page.getByRole("menuitem", { name: item }).click();
+  };
+  await help("Show First steps");
+  await expect(step(5, "Read results")).toHaveAccessibleName(/: done$/);
+  await expect(bar).toContainText("All done");
+  await page.getByRole("button", { name: "Help", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Your first electric car (tutorial)" })).toBeVisible();
+  await page.keyboard.press("Escape");
   await bar.getByRole("button", { name: "Hide the first steps" }).click();
   await expect(bar).toHaveCount(0);
   // the Help menu brings the tour, and the bar, back
-  await page.getByRole("button", { name: "Help", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Show the first-steps tour" }).click();
+  await help("Show the first-steps tour");
   await expect(tour).toBeVisible();
   await expect(bar).toBeVisible();
+});
+
+test("UX-26: a page's hint shows the first time, goes when the page is left or used, and Help shows it again", async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem("seeded")) {
+      localStorage.setItem("lightsim-tour-v1", JSON.stringify({ auto: true, toured: true }));
+      sessionStorage.setItem("seeded", "1");
+    }
+  });
+  await openApp(page);
+  const hint = page.getByRole("status").filter({ hasText: "Results: the headline numbers" });
+  await ribbonTab(page, "Results").click();
+  await expect(hint).toBeVisible();
+  // leaving the page takes it away, and it does not come back on a later visit
+  await ribbonTab(page, "Home").click();
+  await expect(hint).toHaveCount(0);
+  await ribbonTab(page, "Results").click();
+  await expect(page.getByRole("button", { name: "Clear history" })).toBeVisible();
+  await expect(hint).toHaveCount(0);
+  // Help → Show hints again: the next visit shows it, and using the page puts it away
+  await ribbonTab(page, "Home").click();
+  await page.getByRole("button", { name: "Help", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Show hints again" }).click();
+  await ribbonTab(page, "Results").click();
+  await expect(hint).toBeVisible();
+  await page.locator("[data-results-page]").getByText(/No results yet/).click();
+  await expect(hint).toHaveCount(0);
 });
 
 test("UX-26: the tour never blocks the window: a first click elsewhere closes it and still acts", async ({ page }) => {

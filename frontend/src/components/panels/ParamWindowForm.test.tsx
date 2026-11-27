@@ -292,3 +292,44 @@ test("a parameter's and a port's name are never cut to one line (#26)", () => {
   expect(ports).toContain("Positive Terminal (+)");
   expect(host.querySelector('[title="Positive Terminal (+)"]')?.className).not.toMatch(/truncate/);
 });
+
+const button = (name: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === name);
+const click = (b: Element | undefined) => act(() => b!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+test("a part's presets: one small Presets control; choosing one shows what it sets, and only Apply sets it, in one undo step (calm E)", () => {
+  show();
+  // no wide "Apply preset" button and no paragraph of rule numbers at the top
+  expect([...host.querySelectorAll("button")].some((b) => b.textContent?.startsWith("Apply preset"))).toBe(false);
+  expect(host.textContent).not.toContain("FS Rules 2026");
+  click(button("Presets"));
+  click(button("Formula Student Electric"));
+  // what it sets, in the library's words, and its rule text
+  const chosen = host.querySelector('[role="group"][aria-label="Preset: Formula Student Electric"]')!;
+  expect(chosen.textContent).toContain("Output Power Limit (0 = none): 80 kW");
+  expect(chosen.textContent).toContain("Hold Power to Limit (off = check): on");
+  expect(chosen.textContent).toContain("FS Rules 2026");
+  expect(el().parameterOverrides).toEqual({});
+  // Cancel: nothing changed
+  click(button("Cancel"));
+  expect(host.querySelector('[role="group"][aria-label^="Preset"]')).toBeNull();
+  expect(el().parameterOverrides).toEqual({});
+  // Apply: every value at once, one undo takes them all back
+  click(button("Presets"));
+  click(button("Formula Student Electric"));
+  const steps = useProjectStore.getState().past.length;
+  click(button("Apply"));
+  expect(el().parameterOverrides).toMatchObject({ output_power_limit_kW: 80, voltage_class_V: 600, power_limit_enforced: true });
+  expect(useProjectStore.getState().past.length).toBe(steps + 1);
+  act(() => useProjectStore.getState().undo());
+  expect(el().parameterOverrides).toEqual({});
+});
+
+test("the Ambient gets the same Presets control, listing its four weathers", () => {
+  onePart("boundary.ambient", "Ambient");
+  show("x");
+  click(button("Presets"));
+  const list = host.querySelector('[role="group"][aria-label="Presets"]')!;
+  expect([...list.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
+    "Cold day (−7 °C)", "Standard day (23 °C)", "Hot and sunny day (35 °C)", "High altitude (1,500 m)",
+  ]);
+});

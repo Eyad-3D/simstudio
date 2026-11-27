@@ -11,7 +11,7 @@ import {
 } from "dockview-react";
 import { ChevronDown, ChevronUp, CircleHelp } from "lucide-react";
 import { openHelp, PANEL_HELP } from "../help";
-import { hintFor } from "../tour";
+import { hintFor, leaveHint } from "../tour";
 import { LAYOUT_KEY } from "../storageKeys";
 import { problemCounts, useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
@@ -163,9 +163,13 @@ function HeaderActions(props: IDockviewHeaderActionsProps) {
   const { group } = props;
   const [panelId, setPanelId] = useState(() => group.activePanel?.id);
   useEffect(() => {
+    let shown = group.activePanel?.id;
     const d = group.api.onDidActivePanelChange((e) => {
-      setPanelId(e.panel?.id);
-      if (e.panel) hintFor(e.panel.id); // the panel's first-use hint, once
+      // a panel left takes its hint with it; one opened shows its own, once
+      leaveHint(shown);
+      shown = e.panel?.id;
+      setPanelId(shown);
+      if (e.panel) hintFor(e.panel.id, () => group.element);
     });
     return () => d.dispose();
   }, [group]);

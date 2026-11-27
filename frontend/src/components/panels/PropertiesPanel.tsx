@@ -29,6 +29,7 @@ import {
   type UnitSlot,
 } from "../../units";
 import { FmuPanel } from "./FmuPanel";
+import { Presets } from "./Presets";
 import { MAP_DEF_ID, MapEditor } from "./MapEditor";
 import { TableNEditor } from "./TableNEditor";
 import {
@@ -1528,27 +1529,7 @@ export function ElementForm({
           <CornerDownRight size={13} /> Open sub-system
         </button>
       )}
-      {!filtering &&
-        def.presets?.map((preset) => (
-        <div key={preset.name} className="flex flex-col gap-0.5">
-          <button
-            className="ss-toolbtn justify-center border border-[color:var(--ss-border)]"
-            onClick={() => setParameters(element.id, preset.values)}
-            title={preset.note}
-          >
-            Apply preset: {preset.name}
-          </button>
-          {/* the source of the values, in full in the tooltip */}
-          {preset.note && (
-            <p
-              className={`text-meta text-[color:var(--ss-text-dim)] ${compact ? "line-clamp-2" : ""}`}
-              title={preset.note}
-            >
-              {preset.note}
-            </p>
-          )}
-        </div>
-      ))}
+      {!filtering && <Presets def={def} elementId={element.id} />}
       {sections ? (
         // one value and one unit column for every section, so they line up
         // down the window: as wide as the longest value and unit shown

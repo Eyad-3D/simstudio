@@ -209,7 +209,7 @@ for (const theme of ["light", "dark"] as const) {
       await ribbonTab(page, "Simulations").click();
       await expect(page.getByRole("button", { name: "Acceleration test" })).toBeVisible();
       await selectElement(page, "Accumulator");
-      await expect(page.getByRole("button", { name: "Apply preset: Formula Student Electric" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Presets", exact: true })).toBeVisible();
       await check(page, `topology-${theme}`);
       // the case form's fields sit in their labels; the rest of Cases &
       // Parameters is older than this gate, so it is swept for contrast only

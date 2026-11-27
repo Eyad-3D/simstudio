@@ -411,6 +411,14 @@ function buildMenu() {
           click: () => inWindow("window.lightsimTour ? (window.lightsimTour(), true) : false"),
         },
         {
+          label: "Show First Steps",
+          click: () => inWindow("window.lightsimShowSteps ? (window.lightsimShowSteps(), true) : false"),
+        },
+        {
+          label: "Show Hints Again",
+          click: () => inWindow("window.lightsimShowHints ? (window.lightsimShowHints(), true) : false"),
+        },
+        {
           label: "Report a Problem…",
           click: () => shell.openExternal("https://github.com/Eyad-3D/simstudio/issues"),
         },
