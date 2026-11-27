@@ -211,7 +211,8 @@ function ProjectMenuItem({ entry, detail, onClick }: { entry: api.ProjectEntry; 
         {detail && <span className="min-w-0 truncate text-meta text-[color:var(--ss-text-dim)]" title={detail}>{detail}</span>}
       </div>
       {entry.description && (
-        <p className="mt-0.5 whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)]">
+        // two lines, as on the Start page; the whole text on hover
+        <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)]" title={entry.description}>
           {entry.description}
         </p>
       )}

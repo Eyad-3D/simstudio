@@ -111,6 +111,10 @@ it("Open lists the saved projects apart from the examples, with when each was sa
   expect(yours.textContent).toContain(`Saved ${new Date(saved).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`);
   expect(examples.textContent).toContain("Battery Electric Car");
   expect(menu.textContent).not.toContain("bev-car");
+  // a description shows two lines, as on the Start page, and the whole text on hover
+  const text = [...examples.querySelectorAll("p")].find((p) => p.textContent === "The example")!;
+  expect(text.className).toContain("line-clamp-2");
+  expect(text.title).toBe("The example");
   vi.unstubAllGlobals();
   vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
 });
