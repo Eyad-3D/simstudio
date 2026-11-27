@@ -1211,6 +1211,7 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     a run an error cut short."""
     from . import core
 
+    run = _ReadOnce(run)
     case_id = case.id
     inst = plan.inst
     times = [float(t) for t in run.times]
@@ -1482,7 +1483,9 @@ def _channels(model, run, times: list[float]) -> list[Channel]:
         pdef = ports.get((el_id, port_id))
         if pdef is None:
             continue
-        channels.append(Channel(
+        # (made here as Channel's fields are typed: str, float or None in plain
+        # lists and dicts, so its validation, a copy of every point, is skipped)
+        channels.append(Channel.model_construct(
             elementId=el_id,
             portId=port_id,
             label=f"{model.elements[el_id].label} · {pdef.name}",
@@ -2434,7 +2437,25 @@ def _supply(ctx, plan: _Plan, run) -> list[str]:
             out.setdefault(f"nosrc:{root.id}",
                            "An electrical bus has load but no source — demand is unmet.")
 
-    for k in range(1, len(times)):
+    # the points where a motor's time held grew or a consumer is served less
+    # than its demand, found on the arrays (the same comparisons); at any
+    # other point the loop below says nothing
+    import numpy as np
+
+    def arr(el_id: str, v: str):
+        name = plan.supply.get(el_id, {}).get(v)
+        return None if name is None else np.asarray(run.trace[name], dtype=float)
+    hit = np.zeros(len(times) - 1, dtype=bool)
+    for m_id in ctx.motors:
+        bus, a = ctx.motor_bus.get(m_id), arr(m_id, "t_limited")
+        if bus is not None and bus.id in root_of and a is not None:
+            hit |= a[1:] > a[:-1]
+    for bus in model.buses:
+        for c_id in bus.consumers if bus.id in root_of else ():
+            served, demand = arr(c_id, "served"), arr(c_id, "p_dem")
+            if served is not None and demand is not None:
+                hit |= (demand[1:] > 0) & (served[1:] < 1.0 - 1e-9)
+    for k in (np.flatnonzero(hit) + 1).tolist():
         for m_id in ctx.motors:
             bus = ctx.motor_bus.get(m_id)
             if bus is not None and bus.id in root_of and grew(m_id, "t_limited", k):
@@ -2743,53 +2764,85 @@ def _lanes(lanes, plan: _Plan, run) -> list:
     state at each traced point names the stretch before it; a change takes
     the time of the last event of the run inside that stretch (a mode of
     the motor's supply window, a wheel's grip, ...: exact), or the
-    stretch's start where none was."""
-    tr = _Listed(run.trace)
-    times = tr.get("times", [])
-    if len(times) < 2 or not lanes:
+    stretch's start where none was. Worked out on the trace's arrays:
+    lane_state is asked only at the points where one of its inputs
+    changes, once for each set of them."""
+    import numpy as np
+
+    tr = run.trace or {}
+    t = np.asarray(tr.get("times", []), dtype=float)
+    n = len(t)
+    if n < 2 or not lanes:
         return lanes
     ev_times = sorted(float(e["t"]) for e in run.events)
 
-    def at(name: Optional[str], k: int, default: float = 0.0) -> float:
+    def at(name: Optional[str]):  # each point's value, 0 where it is not a number
         if name is None:
-            return default
-        v = float(tr[name][k])
-        return v if math.isfinite(v) else default
+            return np.zeros(n)
+        v = np.asarray(tr[name], dtype=float)
+        return np.where(np.isfinite(v), v, 0.0)
 
-    def sign(x: float) -> float:  # a command or torque at round-off of zero is zero
-        return 0.0 if abs(x) < 1e-9 else x
+    def sign(x):  # a command or torque at round-off of zero is zero
+        return np.where(np.abs(x) < 1e-9, 0.0, x)
+
+    def grew(name: Optional[str]):
+        if name is None:
+            return np.zeros(n - 1, dtype=bool)
+        v = at(name)
+        return v[1:] > v[:-1]
+    braking = (at(plan.brake)[1:] > 1e-6) | (at(plan.traction)[1:] < -1e-6)  # (today's)
     for lane, (motors, engines, wheels) in zip(lanes, plan.lane_parts):
+        # lane_state's inputs at each point k >= 1 (it reads a demand and a
+        # torque only by their sign), one column each
+        cols = [braking]
+        for mc, demand, speed, limited, bat, held in motors:
+            d = sign(at(demand))[1:]
+            lim = grew(limited)
+            cap = (lim & grew(held) if held is not None and bat.check is not None
+                   and bat.check.enforced else np.zeros(n - 1, dtype=bool))
+            cols += [np.sign(d), (d >= 0.999) | (at(speed)[1:] > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND)),
+                     lim, cap]
+        for ec, torque, speed in engines:
+            tq = sign(at(torque))[1:]
+            w = at(speed)[1:]
+            full = np.zeros(n - 1, dtype=bool)
+            for k in np.flatnonzero(tq > 0).tolist():  # (at full load: asked only where it pulls)
+                try:
+                    f = interp1(ec.full_load.pts, float(w[k]), False)
+                except (IndexError, TypeError, ValueError):
+                    f = 0.0
+                full[k] = f > 0 and tq[k] >= 0.99 * f
+            cols += [np.sign(tq), full]
+        grip = np.zeros(n - 1, dtype=bool)
+        for name in wheels:
+            grip |= at(name)[1:] > 0.5
+        cols.append(grip)
+        inputs = np.stack(cols, axis=1).astype(np.int8)
+        moved = [0, *(np.flatnonzero((inputs[1:] != inputs[:-1]).any(axis=1)) + 1).tolist()]
+        nm, known = len(motors), {}
+        # the stretches, at the points where the state changes (it can only
+        # where an input does)
         lane.seconds = [0.0] * len(lane.seconds)
         lane.changes, lane.state = [], -1
-        start = times[0]
-        for k in range(1, len(times)):
-            braking = at(plan.brake, k) > 1e-6 or at(plan.traction, k) < -1e-6  # (today's)
-            ms = []
-            for mc, demand, speed, limited, bat, held in motors:
-                d = sign(at(demand, k))
-                lim = limited is not None and at(limited, k) > at(limited, k - 1)
-                cap = (lim and held is not None and bat.check is not None and bat.check.enforced
-                       and at(held, k) > at(held, k - 1))
-                ms.append((d, d >= 0.999 or at(speed, k) > mc.max_rpm * (1.0 - SPEED_LIMIT_BAND),
-                           lim, cap))
-            es = []
-            for ec, torque, speed in engines:
-                tq = sign(at(torque, k))
-                try:
-                    full = interp1(ec.full_load.pts, at(speed, k), False)
-                except (IndexError, TypeError, ValueError):
-                    full = 0.0
-                es.append((tq, tq > 0 and full > 0 and tq >= 0.99 * full))
-            code = lane_state(braking, ms, es,
-                              lambda k=k: any(at(w, k) > 0.5 for w in wheels))
-            if code != lane.state:
-                if lane.state >= 0:
-                    t_change = _at_event(ev_times, times[k - 1], times[k])
-                    lane.seconds[lane.state] += t_change - start
-                    start = t_change
-                lane.state = code
-                lane.changes.append((round(start, 4), code))
-        lane.seconds[lane.state] += times[-1] - start
+        start = float(t[0])
+        for i, row in zip(moved, inputs[moved].tolist()):
+            key = tuple(row)
+            if key not in known:
+                ms = [(float(row[1 + 4 * j]), bool(row[2 + 4 * j]), bool(row[3 + 4 * j]),
+                       bool(row[4 + 4 * j])) for j in range(nm)]
+                es = [(float(row[1 + 4 * nm + 2 * j]), bool(row[2 + 4 * nm + 2 * j]))
+                      for j in range(len(engines))]
+                known[key] = lane_state(bool(row[0]), ms, es, lambda g=bool(row[-1]): g)
+            code, k = known[key], i + 1
+            if code == lane.state:
+                continue
+            if lane.state >= 0:
+                t_change = _at_event(ev_times, float(t[k - 1]), float(t[k]))
+                lane.seconds[lane.state] += t_change - start
+                start = t_change
+            lane.state = code
+            lane.changes.append((round(start, 4), code))
+        lane.seconds[lane.state] += float(t[-1]) - start
     return lanes
 
 
@@ -2797,6 +2850,21 @@ def _refresh_status(result: SimResult) -> None:
     """A warning message makes a successful run a warning one."""
     if result.status == "success" and any(m.level == "warning" for m in result.messages):
         result.status = "warning"
+
+
+class _ReadOnce:
+    """A Run whose attributes, which the module makes again at each read (on
+    a whole WLTC its trace 5 ms and its integrals 2 ms; a hybrid's 56 000
+    events more), are each made once, at their first read (nothing here
+    writes into them)."""
+
+    def __init__(self, run):
+        self.run = run
+
+    def __getattr__(self, name: str):
+        value = getattr(self.run, name)
+        setattr(self, name, value)
+        return value
 
 
 class _Listed:

@@ -246,11 +246,18 @@ def band_outside(ts: list[float], tgt: list[float], spd: list[float],
     if n < 2:
         return out
     t0, t1 = ts[0], ts[-1]
+    try:
+        import numpy as np
+    except ImportError:
+        np = None
     rng = _RangeMinMax(tgt)
     cuts = sorted({c for t in ts for c in (t - BAND_S, t, t + BAND_S) if t0 <= c <= t1})
     zero = _zero_pieces(ts, tgt, spd, tols, cuts, rng)
-    for p, (u0, u1) in enumerate(zip(cuts, cuts[1:])):
-        if u1 <= u0 or (zero is not None and all(zero[p])):
+    # (the pieces that add 0.0 for every tolerance are skipped: the same bits)
+    pieces = range(len(cuts) - 1) if zero is None else np.flatnonzero(~zero.all(axis=1)).tolist()
+    for p in pieces:
+        u0, u1 = cuts[p], cuts[p + 1]
+        if u1 <= u0:
             continue
         mid = 0.5 * (u0 + u1)
         a, b = mid - BAND_S, mid + BAND_S
@@ -280,8 +287,9 @@ def _zero_pieces(ts: list[float], tgt: list[float], spd: list[float], tols: tupl
     highest target sample inside the window, each a candidate, gives that
     (the same expressions, so the same bits; most pieces of a run that
     follows its cycle). Worked out for all pieces at once with NumPy, which
-    the new engine's module brings; None without it (each piece then
-    computed in full: the same result, slower)."""
+    the new engine's module brings (an array of bools, piece by tolerance);
+    None without it (each piece then computed in full: the same result,
+    slower)."""
     try:
         import numpy as np
     except ImportError:
@@ -322,7 +330,7 @@ def _zero_pieces(ts: list[float], tgt: list[float], spd: list[float], tols: tupl
             below = nothing(0.0 - sm, lo - tol - sc)
             above = nothing(sm - 0.0, sc - hi - tol)
             out[:, q] = have & below & above
-    return out.tolist()
+    return out
 
 
 def trace_metrics(ts: list[float], tgt: list[float], spd: list[float]) -> TraceMetrics | None:
@@ -361,7 +369,8 @@ class _RangeMinMax:
     (sparse tables)."""
 
     def __init__(self, values: list[float]):
-        self.lo, self.hi = [values], [values]
+        self.lo, self.hi = [values], [values]  # (with NumPy, each level after the first an array)
+        self.listed: dict[int, tuple[list[float], list[float]]] = {}
         try:
             import numpy as np
         except ImportError:
@@ -371,8 +380,8 @@ class _RangeMinMax:
             lo, hi = self.lo[-1], self.hi[-1]
             if np is not None:  # (min and max as Python's: the first unless the second is beyond)
                 a, b = np.asarray(lo, dtype=float), np.asarray(hi, dtype=float)
-                self.lo.append(np.where(a[k:] < a[:-k], a[k:], a[:-k]).tolist())
-                self.hi.append(np.where(b[k:] > b[:-k], b[k:], b[:-k]).tolist())
+                self.lo.append(np.where(a[k:] < a[:-k], a[k:], a[:-k]))
+                self.hi.append(np.where(b[k:] > b[:-k], b[k:], b[:-k]))
             else:
                 self.lo.append([min(lo[i], lo[i + k]) for i in range(len(lo) - k)])
                 self.hi.append([max(hi[i], hi[i + k]) for i in range(len(hi) - k)])
@@ -381,7 +390,10 @@ class _RangeMinMax:
     def __call__(self, a: int, b: int) -> tuple[float, float]:
         """(min, max) of values[a:b], b > a."""
         j = (b - a).bit_length() - 1
-        lo, hi = self.lo[j], self.hi[j]
+        if j not in self.listed:  # (a list's item is read quicker than an array's)
+            self.listed[j] = tuple(x if isinstance(x, list) else x.tolist()
+                                   for x in (self.lo[j], self.hi[j]))
+        lo, hi = self.listed[j]
         return min(lo[a], lo[b - (1 << j)]), max(hi[a], hi[b - (1 << j)])
 
 
@@ -529,6 +541,15 @@ def _time_to(ts: list[float], spd: list[float], level: float,
     return None
 
 
+def _not_finite(values) -> bool:
+    """Whether a value of ``values`` (None: a gap) is not a finite number;
+    a NumPy array of floats (the new engine's channels) at once."""
+    if getattr(getattr(values, "dtype", None), "kind", None) == "f":
+        import numpy as np
+        return not bool(np.isfinite(values).all())
+    return any(v is not None and not math.isfinite(v) for v in values)
+
+
 def judge(trace: Trace, distance_m: float, series: dict, performance: bool = False,
           duration_s: float = 0.0, uses: Iterable[MapUse] = (), stopped: bool = False,
           case=None) -> Verdict:
@@ -543,8 +564,7 @@ def judge(trace: Trace, distance_m: float, series: dict, performance: bool = Fal
     rows: list[CheckRow] = []
     not_followed = False
 
-    bad = sorted({f"{el}:{port}" for (el, port), values in series.items()
-                  if any(v is not None and not math.isfinite(v) for v in values)})
+    bad = sorted({f"{el}:{port}" for (el, port), values in series.items() if _not_finite(values)})
     if bad:
         messages.append(("error", f"Non-finite values (NaN or infinity) in {', '.join(bad[:5])}"
                                   f"{' …' if len(bad) > 5 else ''} — the solution broke down, "
