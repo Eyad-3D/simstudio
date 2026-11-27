@@ -172,7 +172,7 @@ export async function dragComponent(page: Page, name: string, at: { x: number; y
 }
 
 /** Pick a project from the ribbon's Open menu by its exact name (an entry
- *  also shows the project's id and description). */
+ *  also shows when it was saved, or its file, and its description). */
 export async function openFromMenu(page: Page, name: string): Promise<void> {
   await ribbonTab(page, "Home").click();
   await page.getByRole("button", { name: "Open", exact: true }).click();
