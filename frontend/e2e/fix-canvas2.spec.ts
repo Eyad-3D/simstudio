@@ -17,12 +17,16 @@ for (const [width, height] of [
   test(`the finish notice covers no tray or status-bar control, and Collapse to tabs takes a real click (${width}×${height})`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await openApp(page);
+    // the tray open on the Signal Plot, as the user opens it (a run opens no
+    // panel since choice B): the notice must keep off its controls
+    await page.locator(".dv-tab", { hasText: "Signal Plot" }).first().click();
+    await expect.poll(async () => (await trayAndDock(page)).tray, { timeout: 5000 }).toBeGreaterThanOrEqual(120);
     const pane = page.locator(".react-flow__pane").first();
     await pane.click({ position: { x: 5, y: (await pane.boundingBox())!.height - 5 } });
     await page.keyboard.press("Control+Enter");
     const notice = finishNotice(page);
     await expect(notice).toBeVisible({ timeout: 60_000 });
-    expect((await trayAndDock(page)).tray, "the first run opened the tray").toBeGreaterThanOrEqual(120);
+    expect((await trayAndDock(page)).tray, "the tray stays open").toBeGreaterThanOrEqual(120);
     await page.waitForTimeout(1200); // the notice is placed once drawn, then each second
     const n = (await notice.boundingBox())!;
     const controls = await page.evaluate(() => {
@@ -55,3 +59,24 @@ test("a duplicated part lands in free room, on no other part", async ({ page }) 
   );
   for (const b of boxes) expect(overlap(a, b), "the copy on another part").toBe(false);
 });
+
+for (const scale of ["1.1", "1.25", "1.5"])
+  test(`the finish notice is wholly inside the window at ${Math.round(Number(scale) * 100)} % interface size`, async ({ page }) => {
+    await page.addInitScript((s) => localStorage.setItem("lightsim-font-scale", s), scale);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await openApp(page);
+    const pane = page.locator(".react-flow__pane").first();
+    await pane.click({ position: { x: 5, y: (await pane.boundingBox())!.height - 5 } });
+    await page.keyboard.press("Control+Enter");
+    const notice = finishNotice(page);
+    await expect(notice).toBeVisible({ timeout: 60_000 });
+    await page.waitForTimeout(1200); // placed once drawn, then each second
+    const n = (await notice.boundingBox())!;
+    expect(n.x).toBeGreaterThanOrEqual(0);
+    expect(n.y).toBeGreaterThanOrEqual(0);
+    expect(n.x + n.width).toBeLessThanOrEqual(1366);
+    expect(n.y + n.height).toBeLessThanOrEqual(768);
+    // and its button takes a real click
+    await notice.getByRole("button", { name: "Show results" }).click({ timeout: 5000 });
+    await expect(page.getByPlaceholder("Search channels…")).toBeVisible();
+  });

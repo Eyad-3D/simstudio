@@ -36,6 +36,34 @@ export function placeNotice(size: { w: number; h: number }, home: { x: number; y
   return home;
 }
 
+/**
+ * The notice's `left` and `top` in its own CSS px, for a place `at` worked
+ * out in the window's px. The notice sits in the status bar, which takes the
+ * interface size as a CSS zoom (.ss-zoom): its left and top are drawn
+ * multiplied by that `zoom`, while the window and getBoundingClientRect are
+ * in the window's px. Unscaled, a notice placed at 125 % landed 25 % further
+ * right and down, outside the window. Also kept wholly inside the window.
+ */
+export function noticeStyle(at: { x: number; y: number }, size: { w: number; h: number }, view: { w: number; h: number }, zoom: number) {
+  const x = Math.max(0, Math.min(at.x, view.w - size.w));
+  const y = Math.max(0, Math.min(at.y, view.h - size.h));
+  const z = zoom > 0 ? zoom : 1;
+  return { left: x / z, top: y / z };
+}
+
+/** The CSS zoom an element is drawn at: the product of its own and its
+ *  ancestors' (Element.currentCSSZoom where the browser has it). */
+export function cssZoomOf(el: Element): number {
+  const own = (el as Element & { currentCSSZoom?: number }).currentCSSZoom;
+  if (typeof own === "number" && own > 0) return own;
+  let z = 1;
+  for (let e: Element | null = el; e; e = e.parentElement) {
+    const v = parseFloat(getComputedStyle(e).zoom);
+    if (v > 0) z *= v;
+  }
+  return z;
+}
+
 /** What a user clicks on the page, outside `except` (the notice itself). */
 export function clickables(except: Element): Box[] {
   const sel =

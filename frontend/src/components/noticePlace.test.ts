@@ -1,5 +1,57 @@
 import { describe, expect, it } from "vitest";
-import { placeNotice, type Box } from "./noticePlace";
+import { cssZoomOf, noticeStyle, placeNotice, type Box } from "./noticePlace";
+
+describe("the notice stays wholly in the window at every interface size", () => {
+  // as drawn (window px): the small notice, 202 × 57 at 100 %, 25 % bigger at 125 %
+  for (const [w, h] of [
+    [1366, 768],
+    [1600, 900],
+    [1920, 1080],
+  ] as const)
+    for (const zoom of [1, 1.1, 1.25, 1.5]) {
+      it(`${w}×${h} at ${Math.round(zoom * 100)} %`, () => {
+        const view = { w, h };
+        const size = { w: 202 * zoom, h: 57 * zoom };
+        const home = { x: w - 12 - size.w, y: h - 32 - size.h };
+        const at = placeNotice(size, home, [], view);
+        const s = noticeStyle(at, size, view, zoom);
+        // drawn at left × zoom, top × zoom (the status bar's CSS zoom)
+        const x = s.left * zoom;
+        const y = s.top * zoom;
+        expect(x).toBeGreaterThanOrEqual(0);
+        expect(y).toBeGreaterThanOrEqual(0);
+        expect(x + size.w).toBeLessThanOrEqual(w);
+        expect(y + size.h).toBeLessThanOrEqual(h);
+        // and where it was placed, to the pixel
+        expect(x).toBeCloseTo(at.x, 6);
+        expect(y).toBeCloseTo(at.y, 6);
+      });
+    }
+
+  it("the failure: at 125 % the place, unscaled, was off the window", () => {
+    const view = { w: 1600, h: 900 };
+    const size = { w: 252.5, h: 71.25 };
+    const at = { x: view.w - 12 - size.w, y: view.h - 32 - size.h };
+    expect(at.x * 1.25 + size.w).toBeGreaterThan(view.w); // what was drawn before
+    expect(noticeStyle(at, size, view, 1.25).left * 1.25 + size.w).toBeLessThanOrEqual(view.w);
+  });
+
+  it("a place outside the window, or a window narrower than the notice, is kept inside", () => {
+    const view = { w: 300, h: 200 };
+    expect(noticeStyle({ x: 400, y: 300 }, { w: 202, h: 57 }, view, 1)).toEqual({ left: 98, top: 143 });
+    expect(noticeStyle({ x: -20, y: -5 }, { w: 202, h: 57 }, view, 1)).toEqual({ left: 0, top: 0 });
+  });
+
+  it("reads the zoom an element is drawn at from its ancestors", () => {
+    const outer = document.createElement("div");
+    outer.style.zoom = "1.25";
+    const inner = document.createElement("div");
+    outer.append(inner);
+    document.body.append(outer);
+    expect(cssZoomOf(inner)).toBeCloseTo(1.25, 6);
+    outer.remove();
+  });
+});
 
 const view = { w: 1366, h: 768 };
 const size = { w: 330, h: 74 };
