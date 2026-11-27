@@ -8,6 +8,7 @@ import { useReportsStore } from "../../store/reportsStore";
 import { useUIStore } from "../../store/uiStore";
 import type { LimitReport, SimRun } from "../../types";
 import type { PngPlugin } from "./Plot";
+import { formatNumber } from "../../format";
 
 const STRIP = 7; // CSS px per driveline
 
@@ -115,7 +116,7 @@ export function LimitLegend({ run, onTime }: { run: SimRun; onTime: boolean }) {
                 />
                 {look?.label ?? state}
                 <span className="font-mono text-[color:var(--ss-text-dim)]">
-                  {s.toLocaleString(undefined, { maximumFractionDigits: s < 10 ? 2 : 1 })} s
+                  {formatNumber(s, undefined, { maximumFractionDigits: s < 10 ? 2 : 1 })} s
                 </span>
               </span>
             );

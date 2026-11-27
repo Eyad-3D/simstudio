@@ -11,7 +11,7 @@ import {
 } from "dockview-react";
 import { ChevronDown, ChevronUp, CircleHelp } from "lucide-react";
 import { openHelp, PANEL_HELP } from "../help";
-import { hintFor } from "../tour";
+import { hintFor, leaveHint } from "../tour";
 import { LAYOUT_KEY } from "../storageKeys";
 import { problemCounts, useProjectStore } from "../store/projectStore";
 import { useUIStore } from "../store/uiStore";
@@ -26,6 +26,7 @@ import { MonitorsPanel } from "./panels/MonitorsPanel";
 import { CasePanel } from "./panels/CasePanel";
 import { MiniChartPanel } from "./panels/MiniChartPanel";
 import { TopologyCanvas } from "./canvas/TopologyCanvas";
+import { keepTabsOnDelete } from "./dockKeys";
 
 // the tray collapses to its tab strip (--dv-tabs-and-actions-container-height)
 const TAB_STRIP = 34;
@@ -162,9 +163,13 @@ function HeaderActions(props: IDockviewHeaderActionsProps) {
   const { group } = props;
   const [panelId, setPanelId] = useState(() => group.activePanel?.id);
   useEffect(() => {
+    let shown = group.activePanel?.id;
     const d = group.api.onDidActivePanelChange((e) => {
-      setPanelId(e.panel?.id);
-      if (e.panel) hintFor(e.panel.id); // the panel's first-use hint, once
+      // a panel left takes its hint with it; one opened shows its own, once
+      leaveHint(shown);
+      shown = e.panel?.id;
+      setPanelId(shown);
+      if (e.panel) hintFor(e.panel.id, () => group.element);
     });
     return () => d.dispose();
   }, [group]);
@@ -285,8 +290,7 @@ const panelSpec = (id: string) => ({
 const sideWidth = (column: Column, width: number) =>
   column === "left" ? clamp(Math.round(width * 0.13), 200, 300) : clamp(Math.round(width * 0.15), 240, 360);
 
-// Bottom tray. Clicking a tab opens it; the Signal Plot opens by itself on
-// the session's first run (see DockLayout). It opens at 22 % of the dock
+// Bottom tray. Clicking a tab opens it; a run leaves it as it is. It opens at 22 % of the dock
 // (139 px at 1366x768), so the diagram keeps 40 % of the window; its sash
 // drags it up to TRAY_MAX_SHARE.
 function addTray(api: DockviewApi, height: number) {
@@ -448,17 +452,8 @@ function onReady(event: DockviewReadyEvent) {
 }
 
 export function DockLayout() {
-  // Open the Signal Plot when the session's first run starts, so the live
-  // trace shows beside the diagram without a permanent strip under it.
-  useEffect(() => {
-    let shown = false;
-    return useProjectStore.subscribe((s, prev) => {
-      const head = s.runs[0];
-      if (shown || !head || head.status !== "running" || head.id === prev.runs[0]?.id) return;
-      shown = true;
-      useUIStore.getState().focusPanel("mini-chart");
-    });
-  }, []);
+  // A run leaves the bottom tray as the user left it (the owner's choice B,
+  // 27 Nov): the Signal Plot is one click away in its tab.
 
   // keep an open tray within its share of the dock as the window is resized
   // (and after a saved layout is restored); a frame later, once dockview has
@@ -476,9 +471,11 @@ export function DockLayout() {
       });
     });
     observer.observe(el);
+    const keepTabs = keepTabsOnDelete(el);
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
+      keepTabs();
     };
   }, []);
 

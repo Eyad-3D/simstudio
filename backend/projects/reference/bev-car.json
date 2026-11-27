@@ -318,7 +318,7 @@
      "differencePct": -6.317,
      "tolerance": 2.0,
      "grade": "within",
-     "source": "Compact electric cars of this class: about 15-16 kWh/100 km rated at the charging socket, 13.5-14.5 at the battery (background knowledge, unverified); the band of test_examples_plausible.py, 13-17",
+     "source": "Compact electric cars of this class: about 15-16 kWh/100 km rated at the charging socket, 13.5-14.5 at the battery (background knowledge, unverified); LightSim's tests hold this example to 13-17",
      "automatic": false,
      "bound": "two-sided"
     },

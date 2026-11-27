@@ -50,7 +50,10 @@ export function AddPartBox({
     if (!el || !box) return;
     el.style.transform = "";
     const r = el.getBoundingClientRect();
-    el.style.transform = `translate(${Math.min(0, box.right - 4 - r.right)}px, ${Math.min(0, box.bottom - 4 - r.bottom)}px)`;
+    // (never above the diagram's top, where its search field would be lost)
+    const dx = Math.max(box.left + 4 - r.left, Math.min(0, box.right - 4 - r.right));
+    const dy = Math.max(box.top + 4 - r.top, Math.min(0, box.bottom - 4 - r.bottom));
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
   }, [parts.length]);
   useLayoutEffect(() => ref.current?.querySelector("input")?.focus({ preventScroll: true }), []);
   // the row the arrows are on stays in the list's view (the list only: not the panel)

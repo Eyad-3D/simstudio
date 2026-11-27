@@ -65,6 +65,8 @@ import {
   type RibbonTab,
 } from "../store/uiStore";
 import { notYet } from "../notYet";
+import { fixedNumber } from "../format";
+import { isShipped } from "./panels/runRows";
 
 // Optimization is not implemented yet — kept out of the ribbon (its RibbonTab
 // id/stub render remain) until it ships as a real feature. Parameters is real
@@ -190,8 +192,14 @@ function MenuNote({ children }: { children: React.ReactNode }) {
   return <div className="px-3 py-1.5 text-body text-[color:var(--ss-text-dim)]">{children}</div>;
 }
 
-/** A project or example in the Open menu: its name, id and description. */
-function ProjectMenuItem({ entry, onClick }: { entry: api.ProjectEntry; onClick: () => void }) {
+/** "Saved 26 Nov 2026, 14:05" */
+const savedAt = (ms?: number) =>
+  ms ? `Saved ${new Date(ms).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}` : undefined;
+
+/** A project or example in the Open menu: its name, what tells it apart
+ *  (when a project was saved, where a file is; never its internal id, #23)
+ *  and its description. */
+function ProjectMenuItem({ entry, detail, onClick }: { entry: api.ProjectEntry; detail?: string; onClick: () => void }) {
   return (
     <button
       role="menuitem"
@@ -200,10 +208,11 @@ function ProjectMenuItem({ entry, onClick }: { entry: api.ProjectEntry; onClick:
     >
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-body font-medium text-[color:var(--ss-text)]">{entry.name}</span>
-        <span className="shrink-0 text-meta text-[color:var(--ss-text-dim)]">{entry.id}</span>
+        {detail && <span className="min-w-0 truncate text-meta text-[color:var(--ss-text-dim)]" title={detail}>{detail}</span>}
       </div>
       {entry.description && (
-        <p className="mt-0.5 whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)]">
+        // two lines, as on the Start page; the whole text on hover
+        <p className="mt-0.5 line-clamp-2 whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)]" title={entry.description}>
           {entry.description}
         </p>
       )}
@@ -289,7 +298,8 @@ function OpenProjectButton() {
               {files.map((f) => (
                 <div key={f.id} className="flex items-stretch">
                   <ProjectMenuItem
-                    entry={{ ...f, id: f.path, description: f.exists ? f.description : "File not found" }}
+                    entry={{ ...f, description: f.exists ? f.description : "File not found" }}
+                    detail={f.path}
                     onClick={() => f.exists && choose(f.name, () => openProject(f.id))}
                   />
                   <button
@@ -312,7 +322,12 @@ function OpenProjectButton() {
             <MenuHeading>Your projects</MenuHeading>
             {projects.length === 0 && <MenuNote>None saved yet</MenuNote>}
             {projects.map((p) => (
-              <ProjectMenuItem key={p.id} entry={p} onClick={() => choose(p.name, () => openProject(p.id))} />
+              <ProjectMenuItem
+                key={p.id}
+                entry={p}
+                detail={savedAt(p.modified)}
+                onClick={() => choose(p.name, () => openProject(p.id))}
+              />
             ))}
           </div>
           <div role="group" aria-label="Examples" className="mt-1 border-t border-[color:var(--ss-border)]">
@@ -604,6 +619,8 @@ function ResultsTab() {
   const clearRuns = useProjectStore((s) => s.clearRuns);
   const shown = useProjectStore((s) => s.runs.length);
   const stored = useProjectStore((s) => s.storedRunCount);
+  const shipped = useProjectStore((s) => s.runs.filter(isShipped).length);
+  const resultsAfterRun = useUIStore((s) => s.resultsAfterRun);
   return (
     <>
       <RibbonGroup label="Simulation">
@@ -618,33 +635,54 @@ function ResultsTab() {
       </RibbonGroup>
       <RibbonGroup label="Results">
         <div className="flex h-full flex-col justify-center gap-1 px-2 text-meta text-[color:var(--ss-text-dim)]">
-          <span className="flex items-center gap-1" title="Runs are stored on disk with the project">
+          <span
+            className="flex items-center gap-1"
+            title={
+              stored === 0 && shown > 0 && shipped === shown
+                ? "The example's own results, to compare with: Run makes runs of your own, stored with the project"
+                : "Runs are stored on disk with the project"
+            }
+          >
             <Gauge size={13} />
             {stored > 0
               ? `${stored} stored run${stored > 1 ? "s" : ""}`
               : shown > 0
-                ? `${shown} run${shown > 1 ? "s" : ""} (not stored on disk)`
+                ? shipped === shown
+                  ? `${shown} result${shown > 1 ? "s" : ""} that came with the example`
+                  : `${shown} run${shown > 1 ? "s" : ""} (not stored on disk)`
                 : "No stored runs yet"}
             {stored > shown && shown > 0 && <span className="text-meta">· newest {shown} shown</span>}
           </span>
-          <button
-            className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta disabled:opacity-40"
-            disabled={(stored === 0 && shown === 0) || running}
-            onClick={() => {
-              const n = Math.max(stored, shown);
-              const what = n === 1 ? "the stored run" : `all ${n} stored runs`;
-              void confirmDialog({
-                title: "Clear results history?",
-                message: `This deletes ${what} of '${project?.name ?? "this project"}' from disk. ${n === 1 ? "It" : "They"} cannot be recovered.`,
-                confirmLabel: "Clear history",
-                danger: true,
-              }).then((ok) => {
-                if (ok) void clearRuns();
-              });
-            }}
-          >
-            <Trash2 size={12} /> Clear history
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta disabled:opacity-40"
+              disabled={(stored === 0 && shown === 0) || running}
+              onClick={() => {
+                const n = Math.max(stored, shown);
+                const what = n === 1 ? "the stored run" : `all ${n} stored runs`;
+                void confirmDialog({
+                  title: "Clear results history?",
+                  message: `This deletes ${what} of '${project?.name ?? "this project"}' from disk. ${n === 1 ? "It" : "They"} cannot be recovered.`,
+                  confirmLabel: "Clear history",
+                  danger: true,
+                }).then((ok) => {
+                  if (ok) void clearRuns();
+                });
+              }}
+            >
+              <Trash2 size={12} /> Clear history
+            </button>
+            {/* moved here from the run's notice (the owner's choice B): on
+                the page it opens, with the runs it opens to */}
+            <label className="flex items-center gap-1" title="Open the Results page by itself when a run or sweep ends">
+              <input
+                type="checkbox"
+                checked={resultsAfterRun}
+                onChange={(e) => useUIStore.getState().setResultsAfterRun(e.target.checked)}
+              />
+              Open after each run
+            </label>
+          </div>
         </div>
       </RibbonGroup>
     </>
@@ -845,7 +883,7 @@ function CopyForAi() {
     try {
       const { text, bytes } = await api.aiOverview(s.project, run, hide);
       await copyText(text);
-      const kb = (bytes / 1024).toFixed(1);
+      const kb = fixedNumber((bytes / 1024), 1);
       setDone(`Copied (${kb} KB)`);
       s.log("info", `Copy for AI: a ${kb} KB summary of the model${run ? ` and its run of '${run.caseName}'` : ""} is on the clipboard${hide ? ", numbers hidden" : ""}. Paste it into any chatbot; LightSim sent nothing.`);
       window.setTimeout(() => setDone(null), 4000);
@@ -1122,7 +1160,7 @@ function GlobalRunControl() {
           onClick={stopRun}
           title="Stop the running simulation"
         >
-          <Square size={11} /> Stop {livePct.toFixed(0)}%
+          <Square size={11} /> Stop {fixedNumber(livePct, 0)}%
         </button>
       ) : (
         <button

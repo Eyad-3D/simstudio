@@ -18,9 +18,9 @@ test("RES-03: after the first run both the Results chart and the Signal Plot dra
   // the page stays on the model, and the run ends with a notice (UX-21)
   await expect(finishNotice(page)).toBeVisible({ timeout: 60_000 });
 
-  // the first run opens the tray on the Signal Plot; show it if it is not in front
+  // a run opens no panel: the Signal Plot is one click away in its tab
   const channel = page.locator("select[title='Channel to plot']");
-  if (!(await channel.isVisible())) await page.locator(".dv-tab", { hasText: "Signal Plot" }).first().click();
+  await page.locator(".dv-tab", { hasText: "Signal Plot" }).first().click();
   await expect(channel).toBeVisible();
   expect(await channel.inputValue()).not.toBe("");
   const plot = page.locator(".dv-groupview", { has: channel });

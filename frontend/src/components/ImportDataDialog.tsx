@@ -13,6 +13,7 @@ import type { Grid } from "../tableN";
 import type { TableN } from "../types";
 import { Cells } from "./ImportTableDialog";
 import { TableNEditor, type SetGridUnit, type ShownQuantity } from "./panels/TableNEditor";
+import { formatNumber } from "../format";
 
 /** Where the data comes from: a file, or text pasted into a table (and why
  *  the preview opened instead of pasting it into the cells). */
@@ -27,6 +28,9 @@ export interface DataApply {
 
 const ACCEPT =
   ".csv,.tsv,.txt,.xlsx,.xlsm,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+/** "1 output", "3 inputs" */
+const count = (n: number, what: string) => `${n} ${what}${n === 1 ? "" : "s"}`;
 
 /** The import of a table: its "Import…" button (with the file chooser), a
  *  handler for pasted text the grid cannot take as it is, and the dialog. */
@@ -315,7 +319,7 @@ export function ImportDataDialog({
                   <span>
                     Set the Map block&apos;s inputs and outputs from the data
                     {build && result.ports
-                      ? ` (${inputs} inputs, ${result.ports.length - inputs} outputs, named and with units from the titles)`
+                      ? ` (${count(inputs, "input")}, ${count(result.ports.length - inputs, "output")}, named and with units from the titles)`
                       : ""}
                     <span className="block text-meta text-[color:var(--ss-text-dim)]">
                       Its inputs and outputs are replaced; wires to a port whose name is not in the data are removed.
@@ -399,7 +403,7 @@ export function ImportDataDialog({
               {(result.holes > 0 || options.fill) && (
                 <fieldset className="flex flex-wrap gap-3 rounded border border-[color:var(--ss-border)] px-2 py-1">
                   <legend className="px-1 text-meta text-[color:var(--ss-text-dim)]">
-                    {result.holes.toLocaleString("en")} point{result.holes === 1 ? "" : "s"} of the grid missing
+                    {formatNumber(result.holes, "en")} point{result.holes === 1 ? "" : "s"} of the grid missing
                   </legend>
                   <label className="flex items-center gap-1">
                     <input
@@ -446,8 +450,8 @@ export function ImportDataDialog({
               {q && q.axes.length > 0 && q.outputs.length > 0 ? (
                 <div data-import-grid>
                   <p className="mb-1 text-meta text-[color:var(--ss-text-dim)]">
-                    The table as it will be stored ({result.points.toLocaleString("en")} points
-                    {result.filled ? `, ${result.filled.toLocaleString("en")} filled` : ""}):
+                    The table as it will be stored ({formatNumber(result.points, "en")} points
+                    {result.filled ? `, ${formatNumber(result.filled, "en")} filled` : ""}):
                   </p>
                   <TableNEditor
                     key={JSON.stringify(result.axes) + build}
@@ -484,7 +488,7 @@ export function ImportDataDialog({
               onApply({ tables: (edited ?? result.tables) as Record<string, TableN>, ports: build ? result.ports : null })
             }
           >
-            Apply{result?.ok ? ` (${result.points.toLocaleString("en")} points)` : ""}
+            Apply{result?.ok ? ` (${formatNumber(result.points, "en")} points)` : ""}
           </button>
         </div>
       </div>

@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import { useProjectStore } from "../store/projectStore";
+import { formatNumber } from "../format";
 
 const fmt = (v: number | undefined, d = 2, unit = "") =>
-  v == null ? "—" : `${v.toLocaleString("en", { maximumFractionDigits: d })}${unit}`;
+  v == null ? "—" : `${formatNumber(v, "en", { maximumFractionDigits: d })}${unit}`;
+
+/** Whether a lap shown had its energy driven but its log has no pack power
+ *  to compare it with: only then is the energy error missing for that reason. */
+export const lacksPackPower = (r: api.CalibrationResult) =>
+  [r.calibration_lap, r.check_lap].some((p) => p?.energy_model_kwh != null && p.energy_log_kwh == null);
 
 /** Calibrate lap mode's grip and downforce on one logged lap and check the
  *  prediction on another (VAL-38). */
@@ -126,7 +132,8 @@ export function CalibrateDialog({ onClose }: { onClose: () => void }) {
               </table>
               <p className="text-meta text-[color:var(--ss-text-dim)]">
                 Grip and downforce both raise the cornering speed, so one lap cannot always tell them apart: trust the
-                check lap&apos;s errors more than the two values. The energy error needs the pack power in the log.
+                check lap&apos;s errors more than the two values.
+                {lacksPackPower(result) && " The energy error needs the pack power in the log."}
               </p>
             </>
           )}

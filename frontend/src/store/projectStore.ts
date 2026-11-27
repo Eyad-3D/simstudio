@@ -7,7 +7,7 @@ import { confirmDialog, scriptTrustDialog, unsavedChangesDialog } from "../dialo
 import { desktop } from "../desktop";
 import { loadDraft } from "../persist";
 import { diffSnapshots, modelFingerprint, nameFromChanges } from "../provenance";
-import { dutyKpis } from "../reports";
+import { dutyKpis, projectFileName } from "../reports";
 import type {
   Attachment,
   Channel,
@@ -40,18 +40,22 @@ import { rangeProblem } from "../paramRules";
 import type { UnitSlot } from "../units";
 import { FS_EVENT_NAMES, FS_EVENTS, packOverrides, type FsEvent } from "../fsEvents";
 import { codeOf, fingerprintOf } from "../trust";
-import { pointComplete, type SweepProgress } from "../sweep";
+import { pointComplete, pointDnf, type SweepProgress } from "../sweep";
 import { useUIStore } from "./uiStore";
 import {
   JUNCTIONS,
   freePlace,
+  nodeSize,
   partDef,
   physicalPorts,
   placesAfterMove,
   portInUse,
+  portPlaces,
   withTerminal,
   type Place,
 } from "../components/canvas/portPlaces";
+import { formatNumber } from "../format";
+import { PLACE_GAP, freeSpot, type Rect } from "../components/canvas/addPart";
 
 export function uid(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
@@ -173,9 +177,53 @@ function cloneSubsystemTree(draft: Project, srcSysId: string, newParentId: strin
   return newSysId;
 }
 
+/** A part name no other part has: `stem n`, the first free n from `from`. */
+export function freeLabel(stem: string, taken: Set<string>, from = 2): string {
+  for (let n = Math.max(1, from); ; n++) if (!taken.has(`${stem} ${n}`)) return `${stem} ${n}`;
+}
+
+/** A part's box on the diagram: its stored size, else the size it is drawn at. */
+function partBox(el: ElementInstance, libraryById: Record<string, ComponentDef>): Rect {
+  const lib = libraryById[el.componentDefId];
+  const size = el.size ?? (lib ? nodeSize(el, portPlaces(el, partDef(el, lib))) : { width: 92, height: 54 });
+  return { x: el.position.x, y: el.position.y, w: size.width, h: size.height };
+}
+
+/**
+ * Where pasted or duplicated parts go, as the offset that moves the copied
+ * group: its top-left to `at` (the pointer), or a step down and right of the
+ * originals; then the group as one, its arrangement kept, to the nearest
+ * spot where it covers no part (with room round them) and nothing in
+ * `avoid` (the diagram's floating name and toolbar).
+ */
+function groupOffset(
+  project: Project,
+  systemId: string,
+  els: ElementInstance[],
+  libraryById: Record<string, ComponentDef>,
+  at?: { x: number; y: number },
+  avoid: Rect[] = [],
+): { x: number; y: number } {
+  const boxes = els.map((e) => partBox(e, libraryById));
+  const x0 = Math.min(...boxes.map((b) => b.x));
+  const y0 = Math.min(...boxes.map((b) => b.y));
+  const size = { w: Math.max(...boxes.map((b) => b.x + b.w)) - x0, h: Math.max(...boxes.map((b) => b.y + b.h)) - y0 };
+  const g = PLACE_GAP / 2;
+  const taken = (project.systems.find((s) => s.id === systemId)?.elements ?? []).map((e) => {
+    const b = partBox(e, libraryById);
+    return { x: b.x - g, y: b.y - g, w: b.w + 2 * g, h: b.h + 2 * g };
+  });
+  const spot = freeSpot(at ?? { x: x0 + 28, y: y0 + 28 }, size, [...taken, ...avoid], PLACE_GAP);
+  return { x: spot.x - x0, y: spot.y - y0 };
+}
+
+/** Every part's name in the project, all diagrams. */
+const allLabels = (project: Project) => new Set(project.systems.flatMap((s) => s.elements.map((e) => e.label)));
+
 /** Clone a clipboard/selection into `targetSystemId` at an offset, remapping
- *  the internal wiring and deep-cloning any container sub-systems. Returns the
- *  new element ids (in source order). */
+ *  the internal wiring and deep-cloning any container sub-systems. Each copy
+ *  gets a name of its own, numbered as a new part is ("Power Consumer 3").
+ *  Returns the new element ids (in source order). */
 function cloneElementsInto(
   draft: Project,
   targetSystemId: string,
@@ -186,15 +234,20 @@ function cloneElementsInto(
   if (!system) return [];
   const idMap = new Map<string, string>();
   const newIds: string[] = [];
+  const taken = allLabels(draft);
   for (const el of data.elements) {
     const nid = uid("el");
     idMap.set(el.id, nid);
     newIds.push(nid);
     const clone = structuredClone(el);
     clone.id = nid;
+    clone.label = freeLabel(el.label.replace(/\s+\d+$/, ""), taken);
+    taken.add(clone.label);
     clone.position = { x: el.position.x + offset.x, y: el.position.y + offset.y };
     if (clone.isSubSystem && clone.subSystemId) {
       clone.subSystemId = cloneSubsystemTree(draft, el.subSystemId!, targetSystemId);
+      const sub = draft.systems.find((s) => s.id === clone.subSystemId);
+      if (sub) sub.name = clone.label;
     }
     system.elements.push(clone);
   }
@@ -267,13 +320,19 @@ function studyNotice(
   failure: string | null,
   show: FinishNotice["show"],
   studyId?: string,
+  dnf?: (p: StudyPoint) => boolean,
 ): Omit<FinishNotice, "seq"> {
-  const complete = points.filter(pointComplete).length;
+  // a point that did not finish (an endurance whose pack ran down) is not
+  // complete, even where its run went on to the end
+  const complete = points.filter((p) => pointComplete(p) && !dnf?.(p)).length;
+  const dnfs = dnf ? points.filter(dnf).length : 0;
   const stopped = points.some((p) => p.status === "not run" || p.status === "cancelled");
   const ended = failure ? "failed" : stopped ? "stopped" : "finished";
   return {
     level: failure ? "error" : complete < points.length ? "warning" : "info",
-    text: `${what} ${ended}: ${complete} of ${points.length} point${points.length === 1 ? "" : "s"} complete.`,
+    text:
+      `${what} ${ended}: ${complete} of ${points.length} point${points.length === 1 ? "" : "s"} complete` +
+      (dnfs ? `, ${dnfs} did not finish (DNF).` : "."),
     show,
     ...(studyId ? { studyId } : {}),
   };
@@ -490,7 +549,9 @@ export interface ProjectState {
 
   // lifecycle
   init: () => Promise<void>;
-  log: (level: LogMessage["level"], text: string) => void;
+  /** `reveal` false: an error a run, sweep or study logs (its notice offers
+   *  Show messages, and the bottom tray stays as the user left it). */
+  log: (level: LogMessage["level"], text: string, reveal?: boolean) => void;
   clearMessages: () => void;
 
   // navigation & selection
@@ -514,9 +575,11 @@ export interface ProjectState {
   /** Delete parts (with every wire on them) and the given wires, as one undo step. */
   removeElements: (ids: string[], connectionIds?: string[]) => void;
   copyElements: (ids: string[]) => void;
-  /** Both return the new elements' ids, for the canvas to select. */
-  duplicateElements: (ids: string[]) => string[];
-  pasteClipboard: (position?: { x: number; y: number }) => string[];
+  /** Both return the new elements' ids, for the canvas to select. The copies
+   *  go to the nearest free room, as a group (`avoid`: more to keep clear of,
+   *  as the diagram's floating name and toolbar). */
+  duplicateElements: (ids: string[], avoid?: Rect[]) => string[];
+  pasteClipboard: (position?: { x: number; y: number }, avoid?: Rect[]) => string[];
   renameElement: (id: string, label: string) => void;
   setParameter: (elementId: string, key: string, value: ParamValue) => void;
   /** Several parameters at once (a component preset), as one undo step. */
@@ -1034,8 +1097,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     else if (upgradedFrom !== null)
       log(
         "info",
-        `'${name}' was saved in an older file format (${upgradedFrom}); LightSim upgraded it. ` +
-          "Saving writes the new format and keeps the old file in its backups (Project → Restore…).",
+        `'${name}' was saved by an older version of LightSim and has been upgraded. Saving writes it in ` +
+          `this version's format and keeps the old file in its backups (Project → Restore…). (File format ${upgradedFrom}.)`,
       );
   }
 
@@ -1185,12 +1248,18 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }));
     };
 
+    // what the engine said while it ran: a failure's reasons it only put in
+    // the result (a refused model) are logged as the run ends
+    const streamed = new Set<string>();
     const handle = api.runSimulationLive(model, caseId, {
       onStep: (ev) => {
         buffer.push(ev);
         if (!flushTimer) flushTimer = setTimeout(flush, LIVE_FLUSH_MS);
       },
-      onMessage: (m) => log(m.level, m.text),
+      onMessage: (m) => {
+        streamed.add(m.text);
+        log(m.level, m.text, false);
+      },
     });
     activeRun = handle;
     liveLog = { runId, edits: [] };
@@ -1209,6 +1278,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
     try {
       const result = await handle.done;
       if (flushTimer) clearTimeout(flushTimer);
+      if (result.status === "failed")
+        for (const m of result.messages) if (m.level !== "info" && !streamed.has(m.text)) log(m.level, m.text, false);
       const incomplete = incompleteReason(result);
       const finished: SimRun = {
         ...newRun,
@@ -1237,23 +1308,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   }
 
   /** Say how a run, sweep or study ended (UX-21). The page stays where the
-   *  user is: one with results opens the Results page only when the user
-   *  asked for that (uiStore's resultsAfterRun), and says so there, with
-   *  the setting to turn off. On the Results page already, the results are
-   *  in view: nothing to say. */
+   *  user is, and so does the bottom tray, also after a failure: the notice
+   *  offers Show messages. One with results opens the Results page only when
+   *  the user asked for that (uiStore's resultsAfterRun, ticked on the
+   *  Results page's ribbon). On the Results page already, the results are in
+   *  view: nothing to say. */
   function announce(notice: Omit<FinishNotice, "seq">): void {
     const ui = useUIStore.getState();
     if (notice.show === "results" && ui.ribbonTab === "results") return;
     // (the page first: arriving on Results puts a notice of results away)
     if (notice.show === "results" && ui.resultsAfterRun) ui.setRibbonTab("results");
     set({ finishNotice: { ...notice, seq: ++noticeSeq } });
-  }
-
-  /** Bring Messages forward after a failure, on the model's page where that
-   *  panel is; the Results and Start pages are left as they are (UX-21). */
-  function revealMessages(): void {
-    const ui = useUIStore.getState();
-    if (ui.ribbonTab !== "results" && ui.ribbonTab !== "start") ui.focusPanel("messages");
   }
 
   /** A sweep's or study's progress as its points end (STU-17). */
@@ -1401,11 +1466,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
-    log: (level, text) => {
+    log: (level, text, reveal = true) => {
       set((s) => ({ messages: [...s.messages, { level, text, time: now() }] }));
       // Messages has no badge (Problems counts the model's problems), so an
       // error such as a failed save shows at once
-      if (level === "error") useUIStore.getState().focusPanel("messages");
+      if (level === "error" && reveal) useUIStore.getState().focusPanel("messages");
     },
     clearMessages: () => set({ messages: [] }),
 
@@ -1431,13 +1496,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const elId = uid("el");
       const isContainer = defId === "container.system";
       const subSystemId = isContainer ? uid("sys") : undefined;
+      // numbered after the parts of its kind, skipping a name in use
+      const label = freeLabel(def.name, allLabels(project), count + 1);
       updateProject((draft) => {
         const system = draft.systems.find((s) => s.id === activeSystemId);
         if (!system) return;
         system.elements.push({
           id: elId,
           componentDefId: defId,
-          label: `${def.name} ${count + 1}`,
+          label,
           position,
           parameterOverrides: {},
           ...(isContainer ? { isSubSystem: true, subSystemId } : {}),
@@ -1445,7 +1512,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (isContainer && subSystemId) {
           draft.systems.push({
             id: subSystemId,
-            name: `${def.name} ${count + 1}`,
+            name: label,
             parentId: activeSystemId,
             elements: [],
             connections: [],
@@ -1548,27 +1615,24 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({ clipboard: collectSelection(project, activeSystemId, ids) });
     },
 
-    duplicateElements: (ids) => {
-      const { project, activeSystemId } = get();
+    duplicateElements: (ids, avoid) => {
+      const { project, activeSystemId, libraryById } = get();
       if (!project || !activeSystemId || ids.length === 0) return [];
       const data = collectSelection(project, activeSystemId, ids);
+      if (data.elements.length === 0) return [];
+      const offset = groupOffset(project, activeSystemId, data.elements, libraryById, undefined, avoid);
       let newIds: string[] = [];
       updateProject((draft) => {
-        newIds = cloneElementsInto(draft, activeSystemId, data, { x: 28, y: 28 });
+        newIds = cloneElementsInto(draft, activeSystemId, data, offset);
       });
       if (newIds.length) set({ selectedElementId: newIds[newIds.length - 1] });
       return newIds;
     },
 
-    pasteClipboard: (position) => {
-      const { project, activeSystemId, clipboard } = get();
+    pasteClipboard: (position, avoid) => {
+      const { project, activeSystemId, clipboard, libraryById } = get();
       if (!project || !activeSystemId || !clipboard || clipboard.elements.length === 0) return [];
-      let offset = { x: 28, y: 28 };
-      if (position) {
-        const minX = Math.min(...clipboard.elements.map((e) => e.position.x));
-        const minY = Math.min(...clipboard.elements.map((e) => e.position.y));
-        offset = { x: position.x - minX, y: position.y - minY };
-      }
+      const offset = groupOffset(project, activeSystemId, clipboard.elements, libraryById, position, avoid);
       let newIds: string[] = [];
       updateProject((draft) => {
         newIds = cloneElementsInto(draft, activeSystemId, clipboard, offset);
@@ -2408,15 +2472,15 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       };
       if ((project.attachments ?? []).length > 0) {
         try {
-          download(await api.exportBundle(project), `${project.id}.lightsim.zip`);
-          log("info", `Project exported with its attached files as ${project.id}.lightsim.zip.`);
+          download(await api.exportBundle(project), projectFileName(project, ".lightsim.zip"));
+          log("info", `Project exported with its attached files as ${projectFileName(project, ".lightsim.zip")}.`);
           return;
         } catch (e) {
           log("warning", `The attached files could not be packed (${(e as Error).message}); exporting the project file only.`);
         }
       }
-      download(new Blob([JSON.stringify(project, null, 2)], { type: "application/json" }), `${project.id}.lightsim`);
-      log("info", `Project exported as ${project.id}.lightsim.`);
+      download(new Blob([JSON.stringify(project, null, 2)], { type: "application/json" }), projectFileName(project));
+      log("info", `Project exported as ${projectFileName(project)}.`);
     },
 
     importProject: async (json) => {
@@ -2478,7 +2542,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       });
       log(
         "info",
-        `Attached '${info.name}' (${(info.bytes / 1024).toLocaleString("en", { maximumFractionDigits: 0 })} kB) to the project` +
+        `Attached '${info.name}' (${formatNumber(info.bytes / 1024, "en", { maximumFractionDigits: 0 })} kB) to the project` +
           (info.name !== file.name ? ` as '${info.name}'` : "") +
           "; save the project to keep it in the list.",
       );
@@ -2639,7 +2703,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       if (cycle && resized.length)
         get().log(
           "info",
-          `${resized.join(", ")} now run${resized.length > 1 ? "" : "s"} ${cycle.duration_s.toLocaleString("en")} s, the length of ${cycle.name}.`,
+          `${resized.join(", ")} now run${resized.length > 1 ? "" : "s"} ${formatNumber(cycle.duration_s, "en")} s, the length of ${cycle.name}.`,
         );
     },
 
@@ -2706,8 +2770,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         const result = await executeRun(project, caseId, name);
         set({ running: false });
         if (result.status === "failed") {
-          log("error", "Simulation failed — see messages above.");
-          revealMessages();
+          const said = result.messages.some((m) => m.level === "error");
+          // (its reasons are the run's own error messages, logged as it ended)
+          log("error", said ? `'${name}' failed.` : `'${name}' failed; the engine gave no reason.`, false);
           tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
         } else {
           log(
@@ -2732,8 +2797,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           useUIStore.getState().focusPanel("data-checks");
           return;
         }
-        log("error", `Simulation failed: ${(e as Error).message}`);
-        revealMessages();
+        log("error", `Simulation failed: ${(e as Error).message}`, false);
         tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
       }
     },
@@ -2839,7 +2903,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // the points are in Cases & Parameters, on the model's page: shown
       // there when the user is on it (UX-21)
       const ui = useUIStore.getState();
-      if (ui.ribbonTab !== "results" && ui.ribbonTab !== "start") ui.focusPanel(failed ? "messages" : "cases");
+      if (!failed && ui.ribbonTab !== "results" && ui.ribbonTab !== "start") ui.focusPanel("cases");
       log("info", "Formula Student events run: their points are in Cases & Parameters → Formula Student points.");
       announce(
         failed
@@ -2899,8 +2963,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       set({ activeCaseId: caseId });
       log(
         "info",
-        `Imported lap added as case '${name}': ${lap.duration_s.toLocaleString("en", { maximumFractionDigits: 1 })} s, ` +
-          `${(lap.distance_m / 1000).toLocaleString("en", { maximumFractionDigits: 3 })} km` +
+        `Imported lap added as case '${name}': ${formatNumber(lap.duration_s, "en", { maximumFractionDigits: 1 })} s, ` +
+          `${formatNumber(lap.distance_m / 1000, "en", { maximumFractionDigits: 3 })} km` +
           `${lap.repeated > 1 ? ` (${lap.repeated} laps)` : ""}; source file SHA-256 ${sha256}. ` +
           "Its speed comes from the file: LightSim gives the energy and the loads for that speed, not the cornering.",
       );
@@ -2958,6 +3022,8 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               overrides: { [batteryId]: { ...packOverrides(params, pack), output_power_limit_kW: cap } },
               values: [pack, cap],
               label: `${simCase.name} · ${pack} kWh, ${cap} kW`,
+              // (two values: no one swept value names the run)
+              name: `${pack} kWh, ${cap} kW`,
             })),
             sweepId,
             sweepParam: "Pack × power cap",
@@ -2979,7 +3045,13 @@ export const useProjectStore = create<ProjectState>((set, get) => {
                 ...(notValid.length ? { notValid: Object.fromEntries(notValid.map((v) => [v.label, v.notValid!])) } : {}),
               });
               for (const v of e.summary ?? []) if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
-              if (e.status === "failed") log("error", `Study point ${e.values[0]} kWh, ${e.values[1]} kW failed.`);
+              const point = `${e.values[0]} kWh, ${e.values[1]} kW`;
+              if (pointDnf(byIndex.get(e.index)!))
+                log(
+                  "warning",
+                  `Endurance energy study: ${point} did not finish (DNF): the pack reached its minimum charge.`,
+                );
+              else if (e.status === "failed") log("error", `Endurance energy study: ${point} failed.`, false);
               pointEnded(byIndex.size);
             },
           },
@@ -2988,7 +3060,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         totals = await handle.done;
       } catch (e) {
         failure = (e as Error).message;
-        log("error", `Endurance energy study failed: ${failure}`);
+        log("error", `Endurance energy study failed: ${failure}`, false);
       } finally {
         activeStudy = null;
         set({ running: false, sweepProgress: null });
@@ -2997,7 +3069,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       points.push(...[...byIndex.entries()].sort((a, b) => a[0] - b[0]).map(([, pt]) => pt));
       if (get().project?.id !== project.id) return;
       if (!points.length) {
-        revealMessages();
         announce({ level: "error", text: "Endurance energy study failed: see Messages.", show: "messages" });
         return;
       }
@@ -3018,7 +3089,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // kept with the project's runs, not in the model file (PLT-34)
       set((s) => ({ studies: [...s.studies, study] }));
       useUIStore.getState().setStudyView(project.id, { study: sweepId });
-      announce(studyNotice("Endurance energy study", study.points, failure, "cases", sweepId));
+      announce(studyNotice("Endurance energy study", study.points, failure, "cases", sweepId, pointDnf));
       try {
         await api.storeStudy(project.id, study);
         log("info", `Endurance energy study saved with the runs (Cases & Parameters → Endurance energy study and Saved studies).`);
@@ -3128,7 +3199,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               });
               for (const v of [...(e.summary ?? []), ...dutyKpis({ duty: e.duty } as SimResult)])
                 if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
-              if (e.status === "failed") log("error", `Sweep point ${paramLabel}=${e.values[0]}${unit} failed.`);
+              if (e.status === "failed") log("error", `Sweep point ${paramLabel}=${e.values[0]}${unit} failed.`, false);
               if (e.pruned?.length) {
                 log("warning", `Stored runs reached the disk budget: deleted the ${e.pruned.length === 1 ? "oldest run" : `${e.pruned.length} oldest runs`}.`);
               }
@@ -3140,7 +3211,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         totals = await handle.done;
       } catch (e) {
         failure = (e as Error).message;
-        log("error", `Sweep failed: ${failure}`);
+        log("error", `Sweep failed: ${failure}`, false);
       } finally {
         activeStudy = null;
         set({ running: false, sweepProgress: null });
@@ -3210,7 +3281,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       } else {
         log("warning", "Sweep produced no runs.");
         if (get().project?.id === project.id) {
-          revealMessages();
           announce({
             level: failure ? "error" : "warning",
             text: failure ? "Sweep failed: see Messages." : "Sweep produced no runs: see Messages.",

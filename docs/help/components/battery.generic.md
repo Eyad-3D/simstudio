@@ -245,3 +245,13 @@ SOC* or above 100 %.
 *Charger Efficiency*, *Power Check Window (0 = instant)*, *Voltage Class
 (0 = none)*, *Cell Mass* and *Packaging Factor* do not change the run; the
 run summary uses them.
+
+## Presets
+
+**Presets**, at the top of the pack's values, holds *Formula Student
+Electric*: an 80 kW power limit judged over 0.5 s, a 600 V Voltage Class,
+Hold Power to Limit and a 500 A Max Discharge Current, from the Formula
+Student rules. Choosing it shows the values it sets and the rule numbers
+they come from; **Apply** sets them in one step (one undo), **Cancel** leaves
+the values as they were. Check the current season's rules before you rely on
+them.

@@ -28,6 +28,7 @@ import { useDismiss } from "../useDismiss";
 import {
   PALETTE,
   channelKey,
+  channelName,
   comparedPair,
   differenceOf,
   defaultChannelKeys,
@@ -53,15 +54,17 @@ import { MeasurePanel, cursorsIn, measurePlugin } from "./Measure";
 import { Plot, axisStyle, syncX, type PlotHandle, type PlotOptions } from "./Plot";
 import { RunChanges, RunInfo, runLabel, runShort, runTime } from "./RunInfo";
 import { RunsTable } from "./RunsTable";
-import { runRows, type RunRow } from "./runRows";
+import { isShipped, ranText, runRows, type RunRow } from "./runRows";
 import { DiffStrip, type DiffLook } from "./DiffStrip";
 import { DutyView } from "./DutyView";
 import { EnergyView } from "./EnergyView";
 import { LimitLegend, limitsPlugin } from "./LimitBand";
 import { StaleBanner } from "./StaleBanner";
 import { useReportsStore } from "../../store/reportsStore";
+import { runFileStem } from "../../reports";
 import { ReferenceList } from "./ExpectedValues";
 import { StudyView } from "./StudyView";
+import { formatNumber, signedNumber } from "../../format";
 
 // dash patterns to distinguish channels when several runs are overlaid at once
 const DASHES = [[], [5, 3], [2, 2], [7, 3, 2, 3], [9, 4]];
@@ -82,7 +85,12 @@ const TABLE_OVERSCAN = 10;
 const stripName = (r: SimRun, other: SimRun) => (runShort(r) === runShort(other) ? runLabel(r) : runShort(r));
 
 /** A run's label for tooltips: a named run's clock time too. */
-const runTitle = (r: SimRun) => (r.name ? `${runLabel(r)} · started ${runTime(r)}` : runLabel(r));
+const runTitle = (r: SimRun) =>
+  isShipped(r)
+    ? `${runLabel(r)} · came with the example, stored on ${ranText(r.startedAt, undefined, true)}`
+    : r.name
+      ? `${runLabel(r)} · started ${runTime(r)}`
+      : runLabel(r);
 
 // a change against the baseline from this % up is set in bold (RES-10);
 // neutral colour, as whether up is better depends on the value
@@ -97,12 +105,10 @@ function changeOf(sv?: SummaryValue, base?: SummaryValue) {
   // (rows without a key come from a run stored before 0.3, which rounded them)
   const c = summaryChange(sv.value, base.value, !sv.key || !base.key);
   if (c.noise) return { diff: "~ 0", pct: "~ 0", noise: true, big: false };
-  const signed = (v: number, digits: number) =>
-    `${v > 0 ? "+" : ""}${v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
   return {
     // (no finer than the value columns, which show at most 3 decimals)
-    diff: signed(c.diff, Math.min(c.digits, 3)),
-    pct: c.pct === null ? "—" : `${signed(c.pct, Math.abs(c.pct) < 1 ? 2 : 1)} %`,
+    diff: signedNumber(c.diff, Math.min(c.digits, 3)),
+    pct: c.pct === null ? "—" : `${signedNumber(c.pct, Math.abs(c.pct) < 1 ? 2 : 1)} %`,
     noise: false,
     big: c.pct !== null && Math.abs(c.pct) >= CHANGE_PCT,
   };
@@ -145,7 +151,7 @@ function SummaryMark({ sv, why }: { sv?: SummaryValue; why?: boolean }) {
         </span>
       )}
       {sv.limit != null && (
-        <div className="font-sans text-meta text-[color:var(--ss-text-dim)]">≤ {sv.limit.toLocaleString()}</div>
+        <div className="font-sans text-meta text-[color:var(--ss-text-dim)]">≤ {formatNumber(sv.limit)}</div>
       )}
       {sv.notValid && (
         <div className="truncate font-sans text-meta text-[color:var(--ss-warn)]" title={`Not valid: ${sv.notValid}`}>
@@ -280,9 +286,14 @@ async function exportMat(run: SimRun) {
   }
 }
 
+/** Whether a run has the distance driven (a Vehicle's); an example's
+ *  stored result keeps only the vehicle's speed. */
+const hasDistance = (r: SimRun) => r.result.channels.some((c) => c.portId === "sig_distance");
+
 export function ResultsPanel() {
   const runs = useProjectStore((s) => s.runs);
   const activeRun = useActiveRun();
+  const projectName = useProjectStore((s) => s.project?.name ?? "");
   const overlayRuns = useOverlayRuns();
   const overlayRunIds = useProjectStore((s) => s.overlayRunIds);
   const setActiveRun = useProjectStore((s) => s.setActiveRun);
@@ -395,7 +406,11 @@ export function ResultsPanel() {
   // runs are compared: the strip under the chart is about those two, and a
   // third set of lines would belong to neither
   const ghost =
-    comparePrevious && baseline && !overlayRunIds.includes(baseline.id) && !comparedPair(plotRuns, view)
+    comparePrevious &&
+    baseline &&
+    !overlayRunIds.includes(baseline.id) &&
+    !comparedPair(plotRuns, view) &&
+    (xAxisMode !== "distance" || hasDistance(baseline))
       ? baseline
       : undefined;
   const drawnRuns = useMemo(() => (ghost ? [...plotRuns, ghost] : plotRuns), [plotRuns, ghost]);
@@ -411,6 +426,11 @@ export function ResultsPanel() {
   };
 
   // one plotted series per (run × selected channel), the baseline's last
+  // the ticked channels as drawn, to name each so no two read the same
+  const drawnSelected = useMemo(
+    () => drawnRuns.flatMap((r) => r.result.channels).filter((c) => selectedKeys.has(channelKey(c))),
+    [drawnRuns, selectedKeys],
+  );
   const seriesDefs = useMemo(() => {
     const defs: {
       dataKey: string;
@@ -429,7 +449,7 @@ export function ResultsPanel() {
         // (the target speed is not what a comparison is about)
         if (!selectedKeys.has(key) || (faint && c.portId === "sig_demand")) continue;
         const ci = selectedList.indexOf(key);
-        const chLabel = c.label.split(" · ")[1] ?? c.label;
+        const chLabel = channelName(c, drawnSelected);
         defs.push({
           dataKey: `${r.id}::${key}`,
           unit: c.unit,
@@ -456,12 +476,11 @@ export function ResultsPanel() {
     const target = (d: (typeof defs)[number]) => Number(!multiRun && d.channel.portId === "sig_demand");
     return defs.sort((a, b) => target(a) - target(b));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawnRuns, ghost, selectedKeys, selectedList, multiRun]);
+  }, [drawnRuns, ghost, selectedKeys, selectedList, multiRun, drawnSelected]);
 
   // the x axis: time in the chosen unit, or the distance driven, which needs
   // a Vehicle in every plotted run (else it is time, picked automatically)
-  const canDistance =
-    drawnRuns.length > 0 && drawnRuns.every((r) => r.result.channels.some((c) => c.portId === "sig_distance"));
+  const canDistance = plotRuns.length > 0 && plotRuns.every(hasDistance);
   const xMode = xAxisMode === "distance" && !canDistance ? "auto" : xAxisMode;
   const xAxis = useMemo(() => xAxisFor(xMode, drawnRuns), [xMode, drawnRuns]);
 
@@ -508,7 +527,7 @@ export function ResultsPanel() {
       const { t, y } = columnsOf(other.channel.timeSeries);
       const xb = distB ? t.map((_, k) => distB[k + distB.length - t.length]) : t;
       cols.push(differenceOf(x, chartData[j + 1] as (number | null)[], xb, y));
-      looks.push({ legend: d.channel.label.split(" · ")[1] ?? d.channel.label, unit: d.unit, color: channelColor(key) });
+      looks.push({ legend: channelName(d.channel, drawnSelected), unit: d.unit, color: channelColor(key) });
     });
     return cols.length > 0 ? { data: [x, ...cols] as uPlot.AlignedData, looks } : null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -644,7 +663,7 @@ export function ResultsPanel() {
     () => activeChannels.filter((c) => channelKey(c) !== xyXKey),
     [activeChannels, xyXKey],
   );
-  const xyXShort = xyXChannel ? (xyXChannel.label.split(" · ")[1] ?? xyXChannel.label) : "";
+  const xyXShort = xyXChannel ? channelName(xyXChannel, activeChannels) : "";
   const xyXLabel = `${xyXShort}${xyXChannel?.unit ? ` [${xyXChannel.unit}]` : ""}`;
   // X-Y: every sample, X and each Y paired by index (uPlot's mode 2)
   const xyData = useMemo((): uPlot.AlignedData => {
@@ -653,7 +672,7 @@ export function ResultsPanel() {
     return [null, ...xyYChannels.map((c) => [xs, c.timeSeries.map((p) => p.value)])] as unknown as uPlot.AlignedData;
   }, [view, xyXChannel, xyYChannels]);
   const xyLook = JSON.stringify(
-    xyYChannels.map((c) => ({ legend: c.label.split(" · ")[1] ?? c.label, unit: c.unit, color: channelColor(channelKey(c)) })),
+    xyYChannels.map((c) => ({ legend: channelName(c, xyYChannels), unit: c.unit, color: channelColor(channelKey(c)) })),
   );
   const xyXUnit = xyXChannel?.unit ?? "";
   const xyOptions = useMemo((): PlotOptions => {
@@ -1018,7 +1037,7 @@ export function ResultsPanel() {
         <div className="min-h-[132px] flex-1 overflow-y-auto py-1">
           {byElement.length === 0 && (
             <div className="px-3 py-2 text-meta italic text-[color:var(--ss-text-dim)]">
-              No channels match “{search}”.
+              {search.trim() ? `No channels match “${search.trim()}”.` : "This run has no channels."}
             </div>
           )}
           {byElement.map(([element, channels]) => (
@@ -1144,7 +1163,7 @@ export function ResultsPanel() {
               >
                 {shownKeys.map((k) => {
                   const c = channelByKey.get(k);
-                  const short = c ? (c.label.split(" · ")[1] ?? c.label) : k;
+                  const short = c ? channelName(c, activeChannels) : k;
                   return (
                     <option key={k} value={k}>
                       X: {short}
@@ -1173,7 +1192,7 @@ export function ResultsPanel() {
                 <option value="min">Time [min]</option>
                 <option value="h">Time [h]</option>
                 <option value="distance" disabled={!canDistance}>
-                  {canDistance ? "Distance" : "Distance (a run has no Vehicle)"}
+                  {canDistance ? "Distance" : "Distance (a run drawn has no distance driven)"}
                 </option>
               </select>
             )}
@@ -1282,7 +1301,7 @@ export function ResultsPanel() {
               onClick={() =>
                 plotRef.current?.png(
                   getComputedStyle(document.documentElement).getPropertyValue("--ss-panel").trim(),
-                  `lightsim-${activeRun?.caseName ?? "chart"}`,
+                  activeRun ? runFileStem(activeRun, projectName) : "chart",
                 )
               }
             >
@@ -1298,7 +1317,7 @@ export function ResultsPanel() {
                 exportCsv(
                   activeRun,
                   selectedKeys,
-                  `lightsim-${activeRun.caseName}`,
+                  runFileStem(activeRun, projectName),
                   view === "chart" && xMode !== "auto" ? xAxis : xAxisFor("s", []),
                 )
               }
@@ -1369,7 +1388,7 @@ export function ResultsPanel() {
                   >
                     <dt className="truncate text-meta text-[color:var(--ss-text-dim)]">{s.label}</dt>
                     <dd className="m-0">
-                      <span className="ss-figure text-figure font-semibold leading-tight">{s.value.toLocaleString()}</span>{" "}
+                      <span className="ss-figure text-figure font-semibold leading-tight">{formatNumber(s.value)}</span>{" "}
                       <span className="text-meta text-[color:var(--ss-text-dim)]">{s.unit}</span>
                       <SummaryMark sv={s} why />
                       {ch && (
@@ -1417,7 +1436,7 @@ export function ResultsPanel() {
                     <th className="ss-th w-[70px] text-right">t [s]</th>
                     {activeChannels.map((c) => (
                       <th key={channelKey(c)} className="ss-th text-right" title={c.label}>
-                        {c.label.split(" · ")[1] ?? c.label} [{c.unit}]
+                        {channelName(c, activeChannels)} [{c.unit}]
                       </th>
                     ))}
                   </tr>
@@ -1432,14 +1451,14 @@ export function ResultsPanel() {
                       className="hover:bg-[color:var(--ss-hover)]"
                     >
                       <td className="ss-td whitespace-nowrap text-right font-mono text-[color:var(--ss-text-dim)]">
-                        {typeof row.t === "number" ? row.t.toLocaleString() : row.t}
+                        {typeof row.t === "number" ? formatNumber(row.t) : row.t}
                       </td>
                       {activeChannels.map((c) => {
                         const v = row[channelKey(c)];
                         return (
                           <td key={channelKey(c)} className="ss-td whitespace-nowrap text-right font-mono">
                             {typeof v === "number"
-                              ? v.toLocaleString(undefined, { maximumFractionDigits: 4 })
+                              ? formatNumber(v, undefined, { maximumFractionDigits: 4 })
                               : "—"}
                           </td>
                         );
@@ -1458,7 +1477,7 @@ export function ResultsPanel() {
             )}
           </div>
         ) : view === "study" ? (
-          <div className="min-h-[260px] flex-[3] p-1.5">
+          <div className="min-h-[260px] flex-[3] overflow-y-auto p-1.5">
             <StudyView runSweepId={activeRun?.sweepId} caseId={activeRun?.caseId} />
           </div>
         ) : view === "sweep" ? (
@@ -1601,7 +1620,7 @@ export function ResultsPanel() {
                         return (
                           <Fragment key={r.id}>
                             <td className={`ss-td text-right font-mono ${ci > 0 ? "text-[color:var(--ss-text-dim)]" : ""}`}>
-                              {sv ? sv.value.toLocaleString() : "—"}
+                              {sv ? formatNumber(sv.value) : "—"}
                               <SummaryMark sv={sv} />
                             </td>
                             {r === baseline && (

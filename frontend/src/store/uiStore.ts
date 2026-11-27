@@ -183,7 +183,8 @@ interface UIState {
   openLastAtStart: boolean;
   setOpenLastAtStart: (on: boolean) => void;
   /** Open the Results page when a run or sweep ends; off, the page stays
-   *  where the user is and a notice offers the results (UX-21). */
+   *  where the user is and a notice offers the results (UX-21). Ticked on
+   *  the Results page's ribbon; stored as before (RESULTS_AFTER_RUN_KEY). */
   resultsAfterRun: boolean;
   setResultsAfterRun: (on: boolean) => void;
   /** Table cells shaded by value, per kind of table, kept per user. */

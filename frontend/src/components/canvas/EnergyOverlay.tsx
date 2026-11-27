@@ -2,14 +2,15 @@
 // changed since it (UX-41), and with Energy on, each part's energy in, out
 // and lost as a label and a bar chart of the losses (RES-22).
 import { useMemo } from "react";
-import { X } from "lucide-react";
+import { ChevronDown, ChevronRight, X } from "lucide-react";
 import { countOf, useActiveRun, useProjectStore } from "../../store/projectStore";
 import { useReportsStore } from "../../store/reportsStore";
 import { useUIStore } from "../../store/uiStore";
 import { useStaleness } from "../panels/StaleBanner";
 import type { EnergyPart } from "../../types";
+import { fixedNumber, formatNumber } from "../../format";
 
-const kwh = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: Math.abs(v) >= 10 ? 1 : 3 });
+const kwh = (v: number) => formatNumber(v, undefined, { maximumFractionDigits: Math.abs(v) >= 10 ? 1 : 3 });
 
 /** The energy table's row for each part of the run shown in Results. */
 function useEnergyParts(): Map<string, EnergyPart> | null {
@@ -18,66 +19,92 @@ function useEnergyParts(): Map<string, EnergyPart> | null {
   return useMemo(() => (e ? new Map(e.parts.filter((p) => p.elementId).map((p) => [p.elementId!, p])) : null), [e]);
 }
 
-/** A part's own marks, drawn inside its node. */
+/** A part's own mark, drawn inside its node: changed since the run shown. */
 export function NodeMarks({ elementId }: { elementId: string }) {
   const stale = useStaleness(useActiveRun()).elementIds.has(elementId);
+  return stale ? (
+    <span
+      className="absolute -left-1 -top-1 z-20 h-2.5 w-2.5 rounded-full border border-[color:var(--ss-panel)] bg-[color:var(--ss-accent)]"
+      role="img"
+      aria-label="Changed since the results shown"
+      title="Changed since the run shown in Results: run it again to see what the change does"
+    />
+  ) : null;
+}
+
+/** With Energy on, a part's energy in, out and lost: drawn under its name,
+ *  in the same block (so it follows the name's lines and its size at every
+ *  zoom); where it has no room it gives way (energyRoom.ts, run by the
+ *  diagram). */
+export function EnergyLines({ elementId }: { elementId: string }) {
   const show = useReportsStore((s) => s.showEnergy);
   const parts = useEnergyParts();
   const p = show ? parts?.get(elementId) : undefined;
+  if (!p) return null;
   return (
-    <>
-      {stale && (
-        <span
-          className="absolute -left-1 -top-1 z-20 h-2.5 w-2.5 rounded-full border border-[color:var(--ss-panel)] bg-[color:var(--ss-accent)]"
-          role="img"
-          aria-label="Changed since the results shown"
-          title="Changed since the run shown in Results: run it again to see what the change does"
-        />
-      )}
-      {p && (
-        <div
-          className="pointer-events-none absolute left-1/2 top-full z-10 mt-[17px] w-[128px] -translate-x-1/2 text-center text-meta leading-tight tabular-nums text-[color:var(--ss-text-dim)]"
-          data-energy-label
-        >
-          <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
-            lost <b className="text-[color:var(--ss-text)]">{kwh(p.lostKWh)}</b> kWh
-          </span>
-          <br />
-          <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
-            in {kwh(p.inKWh)} · out {kwh(p.outKWh)}
-          </span>
-        </div>
-      )}
-    </>
+    <div className="mt-px w-[128px] tabular-nums text-[color:var(--ss-text-dim)]" data-energy-label data-lost={p.lostKWh}>
+      <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
+        lost <b className="text-[color:var(--ss-text)]">{kwh(p.lostKWh)}</b> kWh
+      </span>
+      <br />
+      <span className="rounded px-1" style={{ background: "color-mix(in srgb, var(--ss-panel) 85%, transparent)" }}>
+        in {kwh(p.inKWh)} · out {kwh(p.outKWh)}
+      </span>
+    </div>
   );
 }
 
 /** The Energy switch's bar chart: each part's loss, largest first, with a
  *  slider that hides the parts below a share of the sources' energy. A
- *  click on a bar selects the part. */
-export function EnergyBars() {
+ *  click on a bar selects the part. It starts folded to a small button in
+ *  the diagram's top-right corner that opens it there (the owner's choice G);
+ *  the button again, or its close, folds it; the choice is kept. `top`: just
+ *  under the diagram's floating toolbar, which it never covers. */
+export function EnergyBars({ top = 48 }: { top?: number }) {
   const show = useReportsStore((s) => s.showEnergy);
-  const setShow = useReportsStore((s) => s.setShowEnergy);
+  const open = useReportsStore((s) => s.energyBoxOpen);
+  const setOpen = useReportsStore((s) => s.setEnergyBoxOpen);
   const minPct = useReportsStore((s) => s.energyMinPct);
   const setMinPct = useReportsStore((s) => s.setEnergyMinPct);
   const run = useActiveRun();
   const project = useProjectStore((s) => s.project);
   const e = run?.result.energy;
   if (!show) return null;
+  const toggle = (
+    <button
+      className={`flex items-center gap-1 rounded px-1 text-meta font-semibold hover:bg-[color:var(--ss-hover)] ${open ? "" : "border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] py-0.5 shadow-sm"}`}
+      aria-expanded={open}
+      aria-controls="energy-lost-per-part"
+      title={open ? "Fold the chart of the energy each part lost" : "Open the chart of the energy each part lost"}
+      onClick={() => setOpen(!open)}
+    >
+      Energy lost per part
+      {open ? <ChevronDown size={12} aria-hidden /> : <ChevronRight size={12} aria-hidden />}
+    </button>
+  );
+  if (!open) {
+    return (
+      <div className="absolute right-2 z-10" style={{ top }}>
+        {toggle}
+      </div>
+    );
+  }
   const inProject = new Set(project?.systems.flatMap((sy) => sy.elements.map((x) => x.id)));
   const rows = (e?.parts ?? []).filter((p) => p.lostKWh > 0).sort((a, b) => b.lostKWh - a.lostKWh);
   const shown = rows.filter((p) => p.lostPct >= minPct);
-  const top = rows[0]?.lostKWh || 1;
+  const most = rows[0]?.lostKWh || 1;
   const select = (id: string) => useUIStore.getState().revealElements?.([id]);
   return (
     <div
+      id="energy-lost-per-part"
       role="region"
       aria-label="Energy lost per part"
-      className="absolute right-2 top-12 z-10 w-[280px] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-meta shadow-md"
+      className="absolute right-2 z-10 w-[280px] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-meta shadow-md"
+      style={{ top }}
     >
       <div className="mb-1 flex items-center gap-1">
-        <b>Energy lost per part</b>
-        <button className="ss-toolbtn ml-auto" title="Hide the energy labels and this chart" onClick={() => setShow(false)}>
+        {toggle}
+        <button className="ss-toolbtn ml-auto" title="Fold this chart" aria-label="Fold this chart" onClick={() => setOpen(false)}>
           <X size={12} />
         </button>
       </div>
@@ -112,18 +139,19 @@ export function EnergyBars() {
                   <button
                     className="group flex w-full items-center gap-1.5 rounded px-0.5 py-[1px] text-left hover:bg-[color:var(--ss-hover)] disabled:cursor-default"
                     disabled={!id}
-                    title={`${p.label}: lost ${kwh(p.lostKWh)} kWh, ${p.lostPct.toFixed(1)} % of the sources${id ? " — click to select it" : ""}`}
+                    title={`${p.label}: lost ${kwh(p.lostKWh)} kWh, ${fixedNumber(p.lostPct, 1)} % of the sources${id ? " — click to select it" : ""}`}
                     onClick={() => id && select(id)}
                   >
                     <span className="w-[92px] shrink-0 truncate">{p.label}</span>
                     <span className="relative h-2.5 flex-1">
                       <span
                         className="absolute inset-y-0 left-0 rounded-r"
-                        style={{ width: `${Math.max(2, (100 * p.lostKWh) / top)}%`, background: "var(--ss-accent)" }}
+                        style={{ width: `${Math.max(2, (100 * p.lostKWh) / most)}%`, background: "var(--ss-accent)" }}
                       />
                     </span>
                     <span className="w-[72px] shrink-0 text-right font-mono">
-                      {kwh(p.lostKWh)} <span className="text-[color:var(--ss-text-dim)]">{p.lostPct.toFixed(1)}%</span>
+                      {kwh(p.lostKWh)}{" "}
+                      <span className="text-[color:var(--ss-text-dim)]">{fixedNumber(p.lostPct, 1)}%</span>
                     </span>
                   </button>
                 </li>

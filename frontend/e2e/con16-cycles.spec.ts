@@ -64,7 +64,7 @@ test("CON-11: a Road Profile takes its grade from a cycle that has one", async (
   await openApp(page);
   await showPanel(page, "Components");
   await page.getByPlaceholder("Search components…").fill("road profile");
-  await page.getByRole("button", { name: "Add Road Profile" }).dblclick();
+  await page.getByRole("button", { name: /^Add Road Profile / }).dblclick();
   await showPanel(page, "Properties");
   const field = page.getByRole("combobox", { name: "Grade From Cycle" });
   // only the cycles with a grade column are offered

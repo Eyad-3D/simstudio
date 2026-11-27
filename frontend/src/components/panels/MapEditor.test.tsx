@@ -176,11 +176,13 @@ test("a breakpoint on a held axis adds a whole slice copied from the nearest, an
   mapOf3();
   await press(button("Add", form().querySelector(".ss-table-held")!));
   const input = form().querySelector<HTMLInputElement>('input[aria-label="New Temp breakpoint"]')!;
+  // the box says what to type, not only to a screen reader (#31)
+  expect(input.placeholder).toBe("New °C");
   setValue(input, "8");
   key(input, "Enter");
   expect(gridKeys(maps().loss, 3)[0]).toEqual(["0", "8", "10"]);
   expect((maps().eff as Record<string, Grid>)["8"]).toEqual((maps().eff as Record<string, Grid>)["10"]);
-  expect(status()).toBe("Added Temp 8 °C: its points are a copy of 10's, in every output.");
+  expect(status()).toBe("Temp now has a breakpoint at 8 °C; its values are copied from the one at 10 °C, in every output.");
   // it is the slice shown now; Remove takes it out again, in every output
   await press(button("Remove", form().querySelector(".ss-table-held")!));
   expect(gridKeys(maps().eff, 3)[0]).toEqual(["0", "10"]);

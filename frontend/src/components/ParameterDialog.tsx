@@ -83,7 +83,10 @@ export function ParameterDialog() {
           {/* eslint-disable-next-line react-hooks/static-components -- componentIcon picks from a fixed module-level registry, so Icon is the same component every render */}
           <Icon size={16} className="text-[color:var(--ss-accent)]" />
           <span className="min-w-0 truncate text-title font-semibold">{element.label}</span>
+          {/* the part's type, unless its name says it already ("E-Motor", not "E-Motor — E-Motor") */}
+        {element.label.trim() !== def.name && (
           <span className="min-w-0 truncate text-meta text-[color:var(--ss-text-dim)]">— {def.name}</span>
+        )}
           <PartHelpButton defId={def.id} from={window} />
           <button
             className="ss-toolbtn"

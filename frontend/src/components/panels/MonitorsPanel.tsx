@@ -3,6 +3,7 @@ import { Gauge } from "lucide-react";
 import { portsOf, useActiveRun, useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { Channel } from "../../types";
+import { formatNumber } from "../../format";
 
 /** Tiny inline sparkline over a channel's recent history. */
 function Sparkline({ series }: { series: { t: number; value: number | null }[] }) {
@@ -172,7 +173,7 @@ export function MonitorsPanel() {
                     <div className="font-mono text-[15px] leading-tight">
                       {shown == null
                         ? "—"
-                        : shown.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        : formatNumber(shown, undefined, { maximumFractionDigits: 2 })}
                       <span className="ml-1 text-meta text-[color:var(--ss-text-dim)]">
                         {inp.unit}
                       </span>

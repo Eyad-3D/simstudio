@@ -621,8 +621,9 @@ results (CON-15), named *Stored result*: the summary, the expected values
 and seven comparison signals (vehicle speed and target, battery SOC and
 power, motor speed and torque, engine fuel rate) every second. The other
 channels appear only after **Run**. The stored runs are not saved with the
-project and are not kept when LightSim restarts; the run lists call them
-*not stored on disk*. They are runs of the app's engine, so **Run** on an
+project and are not kept when LightSim restarts; the ribbon counts them as
+results *that came with the example*, and the table of runs gives the day
+they were stored, with no time. They are runs of the app's engine, so **Run** on an
 unchanged example gives the same figures.
 
 *Workaround:* press **Run** for every channel.

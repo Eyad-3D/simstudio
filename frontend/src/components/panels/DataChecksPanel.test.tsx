@@ -144,6 +144,26 @@ it("a Data Check about a case's own value makes that case active and opens the p
   expect(open).toHaveBeenLastCalledWith("el-1", "mass_kg");
 });
 
+it("the header counts what the list shows, notes too, and a row of the Data Checks does not name them again", async () => {
+  useProjectStore.setState({
+    project: project(1500),
+    dataChecks: [
+      { level: "info", text: "the tyres' Slip Stiffness (Wheel 'Wheel FL': 20) is too stiff for the solver's 10 ms step.", elementIds: ["el-1"] },
+    ],
+  });
+  const host = await show(<DataChecksPanel />);
+  // the note is listed: the header counts it (it said "0 errors, 0 warnings")
+  expect(host.querySelector(".ss-panel-toolbar")!.textContent).toContain("0 errors, 0 warnings, 1 note");
+  expect([...host.querySelectorAll("li")].map((li) => li.textContent).join(" ")).not.toContain("Data Checks");
+  // the line that says every check passed is not a note to count
+  act(() =>
+    useProjectStore.setState({
+      dataChecks: [{ level: "info", text: "All data checks passed: wiring, power supply and drive path were checked.", elementIds: [] }],
+    }),
+  );
+  expect(host.querySelector(".ss-panel-toolbar")!.textContent).toMatch(/0 errors, 0 warnings$/);
+});
+
 it("counts in words: one message, two messages", async () => {
   useProjectStore.setState({ messages: [{ time: "09:30:00", level: "info", text: "Opened." }] });
   const host = await show(<MessagesPanel />);

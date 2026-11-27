@@ -82,3 +82,52 @@ it("lists every panel by name, and shows the one picked, also one that was close
   expect(focusPanel).toHaveBeenCalledWith("messages");
   expect(host.querySelector("[role=menu][aria-label=Panels]")).toBeNull();
 });
+
+it("the Results page's ribbon holds the setting to open Results after each run, kept as before (choice B)", async () => {
+  useUIStore.getState().setResultsAfterRun(false);
+  const host = await ribbon("results");
+  const box = [...host.querySelectorAll("label")].find((l) => l.textContent?.includes("Open after each run"))?.querySelector("input");
+  expect(box?.checked).toBe(false);
+  await act(async () => box!.click());
+  expect(useUIStore.getState().resultsAfterRun).toBe(true);
+  expect(localStorage.getItem("lightsim-results-after-run")).toBe("1");
+  // a value stored before the move reads the same
+  await act(async () => useUIStore.getState().setResultsAfterRun(false));
+  expect(box!.checked).toBe(false);
+});
+
+it("counts an example's stored results as what came with it (app pass #22)", async () => {
+  const run = { id: "stored-c", caseId: "c", caseName: "City", startedAt: 0, status: "success", result: {} } as never;
+  useProjectStore.setState({ runs: [run], storedRunCount: 0 });
+  const host = await ribbon("results");
+  expect(host.textContent).toContain("1 result that came with the example");
+  expect(host.textContent).not.toContain("not stored on disk");
+  useProjectStore.setState({ runs: [] });
+});
+
+it("Open lists the saved projects apart from the examples, with when each was saved, and no internal id (#23)", async () => {
+  const saved = new Date(2026, 10, 26, 14, 5).getTime();
+  vi.stubGlobal("fetch", async (url: string) => {
+    const body = url.endsWith("/projects")
+      ? [{ id: "bev-car-8yr3i3y", name: "Battery Electric Car", description: "A copy", modified: saved }]
+      : url.endsWith("/examples")
+        ? [{ id: "bev-car", name: "Battery Electric Car", description: "The example" }]
+        : [];
+    return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+  const host = await ribbon("home");
+  await act(async () => buttonNamed(host, "Open")!.click());
+  const menu = host.querySelector('[role="menu"][aria-label="Open project"]')!;
+  const yours = menu.querySelector('[role="group"][aria-label="Your projects"]')!;
+  const examples = menu.querySelector('[role="group"][aria-label="Examples"]')!;
+  expect(yours.textContent).toContain("Battery Electric Car");
+  expect(yours.textContent).toContain(`Saved ${new Date(saved).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`);
+  expect(examples.textContent).toContain("Battery Electric Car");
+  expect(menu.textContent).not.toContain("bev-car");
+  // a description shows two lines, as on the Start page, and the whole text on hover
+  const text = [...examples.querySelectorAll("p")].find((p) => p.textContent === "The example")!;
+  expect(text.className).toContain("line-clamp-2");
+  expect(text.title).toBe("The example");
+  vi.unstubAllGlobals();
+  vi.stubGlobal("matchMedia", () => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+});

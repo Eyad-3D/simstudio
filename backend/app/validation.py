@@ -391,7 +391,8 @@ def validate_project(project: Project) -> list[DataCheck]:
     if not checks:
         total, at_default = value_provenance(project, defs)
         share = (f" {at_default} of the model's {total} values are still at their library "
-                 f"default with no source recorded (CON-13)." if total else "")
+                 f"default, with no source given (see Value sources in a part's "
+                 f"parameters)." if total else "")
         add("info", "All data checks passed: wiring, power supply, drive path, command "
                     "signals and key parameter ranges were checked. Data Checks cannot tell "
                     "whether the results will be plausible — review them after the run."

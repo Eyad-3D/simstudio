@@ -66,7 +66,7 @@ export function chartData(study: Study, figure: string): StudyChartData {
         notValid++;
       } else y[i] = v;
     }
-    const label = second ? `${second.paramLabel} ${g}${second.unit ? ` ${second.unit}` : ""}` : figure;
+    const label = second ? `${g}${second.unit ? ` ${second.unit}` : ""}` : figure;
     return { label, y, notValid: bad };
   });
   return {

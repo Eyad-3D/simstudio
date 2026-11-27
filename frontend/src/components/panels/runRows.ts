@@ -83,7 +83,9 @@ export const SHOWN_ROW = "var(--ss-accent-soft)";
 
 /** A sweep point's value, else the run's own name. */
 export const rowName = (r: RunRow) =>
-  r.sweepValue !== undefined ? `${r.sweepParam ?? "value"} ${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}` : (r.name ?? "");
+  r.sweepValue != null
+    ? `${r.sweepParam ?? "value"} ${r.sweepValue}${r.sweepUnit ? ` ${r.sweepUnit}` : ""}`
+    : (r.name ?? "");
 
 /** The rows in the order of `sort`; rows without the value (no figure, no
  *  name) last either way, then newest first. */
@@ -116,9 +118,14 @@ export function sortRows(rows: RunRow[], sort: Sort, cols: FigureColumn[]): RunR
     .map((k) => k.r);
 }
 
+/** A result an example comes with (CON-15), not a run made here: it has
+ *  the day it was stored, no time of day (its "00:00:00" meant nothing). */
+export const isShipped = (r: { id: string }) => r.id.startsWith("stored-");
+
 /** When a run started: its clock time today, with the day before that. */
-export function ranText(startedAt: number, now = Date.now()): string {
+export function ranText(startedAt: number, now = Date.now(), dateOnly = false): string {
   const d = new Date(startedAt);
+  if (dateOnly) return d.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
   const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   return d.toDateString() === new Date(now).toDateString()
     ? time

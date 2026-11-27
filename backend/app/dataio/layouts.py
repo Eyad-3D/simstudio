@@ -518,6 +518,10 @@ def _fmt(v: float) -> str:
     return f"{v:.12g}"
 
 
+# the name a Map block gives a port it adds (MapEditor.tsx)
+_FIRST_PORT = re.compile(r"(Input|Output) \d+")
+
+
 def _slugify(name: str) -> str:
     return re.sub(r"^_+|_+$", "", re.sub(r"[^a-z0-9]+", "_", name.strip().lower())) or "port"
 
@@ -708,7 +712,14 @@ def read_data(sheets: list[Sheet], target: DataTarget, opts: Optional[dict] = No
     skip = {i for i, w in roles.items() if w == "skip"}
     axis_fields = [i for i, f in enumerate(fields) if f.role == "axis" and i not in skip]
     value_fields = [i for i, f in enumerate(fields) if f.role == "value" and i not in skip]
-    build = bool(target.map and opts.get("build"))
+    # a Map block whose ports are still the ones it starts with (Input 1,
+    # Output 1, …, no unit) takes its inputs and outputs from data that names
+    # its columns, unless the user says no (#13): the titles say what the
+    # data is, the first ports do not
+    first_ports = bool(target.map and target.axes and all(
+        _FIRST_PORT.fullmatch(s.name) and s.unit == "-" for s in target.axes + target.values))
+    named = any(fields[i].name for i in axis_fields + value_fields)
+    build = bool(target.map and opts.get("build", first_ports and named))
     groups = unit_groups()
     ports: list[dict] = []
     if build:
@@ -797,7 +808,7 @@ def read_data(sheets: list[Sheet], target: DataTarget, opts: Optional[dict] = No
             notes.append(f"{fields[i].title or fields[i].where} is not used.")
         if target.map and (a_left or missing or v_left or missing_v):
             res["canBuild"] = True
-    if target.map and not target.axes:
+    if target.map and (not target.axes or build):
         res["canBuild"] = True
     res["build"] = build
     res["ports"] = ports if build else None
