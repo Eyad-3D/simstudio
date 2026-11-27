@@ -56,22 +56,22 @@
           },
           "parameterSources": {
             "radius_m": {
-              "source": "235/45 R18 tyres, 0.334 m (background knowledge, unverified); DR-97",
+              "source": "235/45 R18 tyres, 0.334 m (background knowledge, unverified) (DR-97)",
               "kind": "estimated",
               "confidence": 0
             },
             "inertia_kgm2": {
-              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au) (DR-01)",
               "kind": "datasheet",
               "confidence": 1
             },
             "rolling_resistance": {
-              "source": "Not used with coefficients; the Battery Electric Car's; DR-97",
+              "source": "Not used with coefficients; the Battery Electric Car's (DR-97)",
               "kind": "estimated",
               "confidence": 0
             },
             "vehicle_load_share_pct": {
-              "source": "59 % of the weight on the driven axle, FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv driveAxleWeightFrac (no source given); DR-97",
+              "source": "59 % of the weight on the driven axle, FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv driveAxleWeightFrac (no source given) (DR-97)",
               "kind": "estimated",
               "confidence": 0
             }
@@ -107,36 +107,36 @@
           },
           "parameterSources": {
             "mass_kg": {
-              "source": "EPA 2022 Test Car List, Tesla Model 3 RWD, test NTSL10071574 (US Government work, as shipped in FASTSim 2.1.5 resources/epa_vehdb/22-tstcar.csv); docs/data-register.csv DR-97",
+              "source": "EPA 2022 Test Car List, Tesla Model 3 RWD, test NTSL10071574 (US Government work, as shipped in FASTSim 2.1.5 resources/epa_vehdb/22-tstcar.csv) (DR-97)",
               "kind": "datasheet",
               "confidence": 1,
               "note": "equivalent test weight 4,250 lb"
             },
             "road_load_a_N": {
-              "source": "EPA 2022 Test Car List, Tesla Model 3 RWD, test NTSL10071574 (US Government work, as shipped in FASTSim 2.1.5 resources/epa_vehdb/22-tstcar.csv); docs/data-register.csv DR-97",
+              "source": "EPA 2022 Test Car List, Tesla Model 3 RWD, test NTSL10071574 (US Government work, as shipped in FASTSim 2.1.5 resources/epa_vehdb/22-tstcar.csv) (DR-97)",
               "kind": "datasheet",
               "confidence": 1,
               "note": "37.17 lbf x 4.448"
             },
             "road_load_b_N_per_kmh": {
-              "source": "EPA 2022 Test Car List, Tesla Model 3 RWD, test NTSL10071574 (US Government work, as shipped in FASTSim 2.1.5 resources/epa_vehdb/22-tstcar.csv); docs/data-register.csv DR-97",
+              "source": "EPA 2022 Test Car List, Tesla Model 3 RWD, test NTSL10071574 (US Government work, as shipped in FASTSim 2.1.5 resources/epa_vehdb/22-tstcar.csv) (DR-97)",
               "kind": "datasheet",
               "confidence": 1,
               "note": "0.0470 lbf/mph x 2.764"
             },
             "road_load_c_N_per_kmh2": {
-              "source": "EPA 2022 Test Car List, Tesla Model 3 RWD, test NTSL10071574 (US Government work, as shipped in FASTSim 2.1.5 resources/epa_vehdb/22-tstcar.csv); docs/data-register.csv DR-97",
+              "source": "EPA 2022 Test Car List, Tesla Model 3 RWD, test NTSL10071574 (US Government work, as shipped in FASTSim 2.1.5 resources/epa_vehdb/22-tstcar.csv) (DR-97)",
               "kind": "datasheet",
               "confidence": 1,
               "note": "0.0144 lbf/mph2 x 1.717"
             },
             "cd": {
-              "source": "Not used with coefficients; a value for comparison only, as quoted in FASTSim 2.1.5's 2022_Tesla_Model_3_RWD.csv from arXiv:1908.08920; DR-97",
+              "source": "Not used with coefficients; a value for comparison only, as quoted in FASTSim 2.1.5's 2022_Tesla_Model_3_RWD.csv from arXiv:1908.08920 (DR-97)",
               "kind": "estimated",
               "confidence": 0
             },
             "frontal_area_m2": {
-              "source": "Not used with coefficients; as Cd; DR-97",
+              "source": "Not used with coefficients; as Cd (DR-97)",
               "kind": "estimated",
               "confidence": 0
             }
@@ -155,7 +155,7 @@
           },
           "parameterSources": {
             "regen_weight_pct": {
-              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au) (DR-01)",
               "kind": "datasheet",
               "confidence": 1,
               "note": "FASTSim's maxRegen"
@@ -250,22 +250,22 @@
           },
           "parameterSources": {
             "radius_m": {
-              "source": "235/45 R18 tyres, 0.334 m (background knowledge, unverified); DR-97",
+              "source": "235/45 R18 tyres, 0.334 m (background knowledge, unverified) (DR-97)",
               "kind": "estimated",
               "confidence": 0
             },
             "inertia_kgm2": {
-              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au) (DR-01)",
               "kind": "datasheet",
               "confidence": 1
             },
             "rolling_resistance": {
-              "source": "Not used with coefficients; the Battery Electric Car's; DR-97",
+              "source": "Not used with coefficients; the Battery Electric Car's (DR-97)",
               "kind": "estimated",
               "confidence": 0
             },
             "vehicle_load_share_pct": {
-              "source": "59 % of the weight on the driven axle, FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv driveAxleWeightFrac (no source given); DR-97",
+              "source": "59 % of the weight on the driven axle, FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv driveAxleWeightFrac (no source given) (DR-97)",
               "kind": "estimated",
               "confidence": 0
             }
@@ -315,12 +315,12 @@
           },
           "parameterSources": {
             "capacity_kWh": {
-              "source": "FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv maxEssKwh (no source given in the file); DR-97",
+              "source": "FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv maxEssKwh (no source given in the file) (DR-97)",
               "kind": "estimated",
               "confidence": 0
             },
             "min_soc_pct": {
-              "source": "FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv minSoc (no source given); DR-97",
+              "source": "FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv minSoc (no source given) (DR-97)",
               "kind": "estimated",
               "confidence": 0
             }
@@ -347,7 +347,7 @@
           },
           "parameterSources": {
             "power_kW": {
-              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au) (DR-01)",
               "kind": "datasheet",
               "confidence": 1,
               "note": "FASTSim's auxKw"
@@ -584,17 +584,17 @@
           },
           "parameterSources": {
             "full_load_torque": {
-              "source": "The Battery Electric Car's synthetic map (DR-22) scaled by 192/150 to EPA's rated 257 hp (192 kW); DR-98",
+              "source": "The Battery Electric Car's synthetic map scaled by 192/150 to EPA's rated 257 hp (192 kW) (DR-22, DR-98)",
               "kind": "generated",
               "confidence": 0
             },
             "power_loss": {
-              "source": "The Battery Electric Car's synthetic loss map (DR-23), torque and loss scaled by 192/150; DR-99",
+              "source": "The Battery Electric Car's synthetic loss map, torque and loss scaled by 192/150 (DR-23, DR-99)",
               "kind": "generated",
               "confidence": 0
             },
             "drag_torque": {
-              "source": "The Battery Electric Car's (DR-24); DR-100",
+              "source": "The Battery Electric Car's (DR-24, DR-100)",
               "kind": "generated",
               "confidence": 0
             }
@@ -614,12 +614,12 @@
           },
           "parameterSources": {
             "ratio": {
-              "source": "From EPA's N/V of 115.0 1/min per mph and a 0.334 m wheel: 115 / (1,609.344 / 60 / (2 pi x 0.334)) = 9.0; DR-97",
+              "source": "From EPA's N/V of 115.0 1/min per mph and a 0.334 m wheel: 115 / (1,609.344 / 60 / (2 pi x 0.334)) = 9.0 (DR-97)",
               "kind": "estimated",
               "confidence": 1
             },
             "efficiency_pct": {
-              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au) (DR-01)",
               "kind": "datasheet",
               "confidence": 1,
               "note": "FASTSim's 98 % transmission efficiency"
@@ -639,7 +639,7 @@
           },
           "parameterSources": {
             "efficiency_pct": {
-              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au) (DR-01)",
               "kind": "datasheet",
               "confidence": 1,
               "note": "the transmission's losses are all in the final drive"
@@ -683,22 +683,22 @@
           },
           "parameterSources": {
             "radius_m": {
-              "source": "235/45 R18 tyres, 0.334 m (background knowledge, unverified); DR-97",
+              "source": "235/45 R18 tyres, 0.334 m (background knowledge, unverified) (DR-97)",
               "kind": "estimated",
               "confidence": 0
             },
             "inertia_kgm2": {
-              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au) (DR-01)",
               "kind": "datasheet",
               "confidence": 1
             },
             "rolling_resistance": {
-              "source": "Not used with coefficients; the Battery Electric Car's; DR-97",
+              "source": "Not used with coefficients; the Battery Electric Car's (DR-97)",
               "kind": "estimated",
               "confidence": 0
             },
             "vehicle_load_share_pct": {
-              "source": "59 % of the weight on the driven axle, FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv driveAxleWeightFrac (no source given); DR-97",
+              "source": "59 % of the weight on the driven axle, FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv driveAxleWeightFrac (no source given) (DR-97)",
               "kind": "estimated",
               "confidence": 0
             }
@@ -759,22 +759,22 @@
           },
           "parameterSources": {
             "radius_m": {
-              "source": "235/45 R18 tyres, 0.334 m (background knowledge, unverified); DR-97",
+              "source": "235/45 R18 tyres, 0.334 m (background knowledge, unverified) (DR-97)",
               "kind": "estimated",
               "confidence": 0
             },
             "inertia_kgm2": {
-              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au); docs/data-register.csv DR-01",
+              "source": "FASTSim 2.1.5 2021_Cupra_Born.csv (Apache-2.0; it cites automobile-catalog.com and carexpert.com.au) (DR-01)",
               "kind": "datasheet",
               "confidence": 1
             },
             "rolling_resistance": {
-              "source": "Not used with coefficients; the Battery Electric Car's; DR-97",
+              "source": "Not used with coefficients; the Battery Electric Car's (DR-97)",
               "kind": "estimated",
               "confidence": 0
             },
             "vehicle_load_share_pct": {
-              "source": "59 % of the weight on the driven axle, FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv driveAxleWeightFrac (no source given); DR-97",
+              "source": "59 % of the weight on the driven axle, FASTSim 2.1.5 2022_Tesla_Model_3_RWD.csv driveAxleWeightFrac (no source given) (DR-97)",
               "kind": "estimated",
               "confidence": 0
             }

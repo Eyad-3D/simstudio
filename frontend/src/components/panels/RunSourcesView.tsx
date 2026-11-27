@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Download } from "lucide-react";
 import { fetchRunSources } from "../../api";
 import type { RunSources, SimRun } from "../../types";
+import { runFileStem } from "../../reports";
 
 const CONFIDENCE = ["source unknown", "known source, not validated", "validated"];
 
@@ -34,7 +35,7 @@ export function RunSourcesView({ run }: { run: SimRun }) {
     };
   }, [open, snap, data]);
   if (!snap) return null;
-  const file = `lightsim-sources-${run.caseName.replace(/[^\w-]+/g, "-")}`;
+  const file = runFileStem(run, "", "sources");
   return (
     <details
       className="border-t border-[color:var(--ss-border)] px-1.5 py-1"

@@ -8,7 +8,7 @@ import libraryJson from "../../data/componentLibrary.json";
 import { useProjectStore } from "../../store/projectStore";
 import type { ComponentDef, PortDef, Project } from "../../types";
 import { AddPartBox } from "./AddPartBox";
-import { partSpot, partsFor, portsJoin, wirePort } from "./addPart";
+import { freeSpot, partSpot, partsFor, portsJoin, wirePort } from "./addPart";
 import { canvasAction } from "./canvasKeys";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -68,6 +68,24 @@ describe("where the part goes", () => {
   it("centred on the spot, on the grid only with Snap on", () => {
     expect(partSpot({ x: 300, y: 200 }, null)).toEqual({ x: 254, y: 173 });
     expect(partSpot({ x: 300, y: 200 }, 20)).toEqual({ x: 260, y: 180 });
+  });
+  it("never on a part or under the floating name: the nearest free spot instead", () => {
+    const size = { w: 92, h: 78 };
+    const gap = 44;
+    // the pass's case: Shift+A with the pointer on Brake RL, at the top left
+    // under the floating "Battery Electric Car"
+    const brake = { x: 250 - gap / 2, y: 100 - gap / 2, w: 92 + gap, h: 54 + gap };
+    const name = { x: 200, y: 60, w: 130, h: 30 };
+    const at = partSpot({ x: 290, y: 120 }, null);
+    const spot = freeSpot(at, size, [brake, name], gap);
+    const over = (r: { x: number; y: number; w: number; h: number }) =>
+      spot.x < r.x + r.w && r.x < spot.x + size.w && spot.y < r.y + r.h && r.y < spot.y + size.h;
+    expect(over(brake)).toBe(false);
+    expect(over(name)).toBe(false);
+    // the nearest cell: beside it, to the right
+    expect(spot).toEqual({ x: at.x + size.w + gap, y: at.y });
+    // a free spot stays where it was asked for
+    expect(freeSpot({ x: 600, y: 400 }, size, [brake, name], gap)).toEqual({ x: 600, y: 400 });
   });
   it("Shift+A opens the box; A alone and Ctrl+Shift+A do nothing", () => {
     const k = (key: string, shiftKey = false, ctrlKey = false) => canvasAction({ key, shiftKey, ctrlKey, metaKey: false, altKey: false });

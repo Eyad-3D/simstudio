@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowRight, CircleHelp, FilePlus2 } from "lucide-react";
 import * as api from "../api";
 import { openHelp } from "../help";
@@ -25,8 +25,10 @@ function Thumb({ pts }: { pts?: [number, number][] }) {
   );
 }
 
-/** A project to start from. Its name and size name the button; a long
- *  description is read as its description, not as part of the name. */
+/** A project to start from. Its name and size name the button and are all
+ *  it shows; the description under it is read as its description. The
+ *  description shows two lines; More opens the rest in place, Less folds it
+ *  (`open`, one card at a time: the page holds which). */
 function Card({
   id,
   title,
@@ -34,6 +36,8 @@ function Card({
   text,
   pts,
   onClick,
+  open = false,
+  onToggle,
 }: {
   id: string;
   title: string;
@@ -41,27 +45,61 @@ function Card({
   text?: string | null;
   pts?: [number, number][];
   onClick: () => void;
+  open?: boolean;
+  onToggle?: () => void;
 }) {
+  const body = useRef<HTMLSpanElement>(null);
+  // "More" only where two lines do not hold the whole description
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!el || open) return;
+    const measure = () => setCut(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [open, text]);
   return (
-    <button
-      className="flex flex-col gap-1.5 rounded border border-[color:var(--ss-field-border)] bg-[color:var(--ss-panel)] p-2.5 text-left hover:border-[color:var(--ss-accent)] focus-visible:outline-2 focus-visible:outline-[color:var(--ss-accent)]"
-      aria-label={meta ? `${title}, ${meta}` : title}
-      aria-describedby={text ? `${id}-text` : undefined}
-      onClick={onClick}
-    >
-      <Thumb pts={pts} />
-      <span className="text-title font-semibold text-[color:var(--ss-text)]">{title}</span>
-      <span className="text-meta text-[color:var(--ss-text-dim)] [overflow-wrap:anywhere]">{meta}</span>
+    <div className="flex flex-col rounded border border-[color:var(--ss-field-border)] bg-[color:var(--ss-panel)] hover:border-[color:var(--ss-accent)]">
+      <button
+        className="flex flex-col gap-1.5 rounded p-2.5 pb-1 text-left focus-visible:outline-2 focus-visible:outline-[color:var(--ss-accent)]"
+        aria-label={meta ? `${title}, ${meta}` : title}
+        aria-describedby={text ? `${id}-text` : undefined}
+        onClick={onClick}
+      >
+        <Thumb pts={pts} />
+        <span className="text-title font-semibold text-[color:var(--ss-text)]">{title}</span>{" "}
+        <span className="text-meta text-[color:var(--ss-text-dim)] [overflow-wrap:anywhere]">{meta}</span>
+      </button>
       {text && (
-        <span id={`${id}-text`} className="whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)]">
+        <span
+          ref={body}
+          id={`${id}-text`}
+          className={`mx-2.5 mt-0.5 whitespace-pre-line text-meta leading-snug text-[color:var(--ss-text-dim)] ${open ? "" : "line-clamp-2"}`}
+        >
           {text}
         </span>
       )}
-    </button>
+      {text && onToggle && (open || cut) ? (
+        <button
+          className="mx-2.5 mb-2 self-start rounded text-meta text-[color:var(--ss-accent)] underline focus-visible:outline-2 focus-visible:outline-[color:var(--ss-accent)]"
+          aria-expanded={open}
+          aria-controls={`${id}-text`}
+          aria-label={`${open ? "Less" : "More"} about ${title}`}
+          onClick={onToggle}
+        >
+          {open ? "Less" : "More"}
+        </button>
+      ) : (
+        <span className="pb-1.5" />
+      )}
+    </div>
   );
 }
 
-const GRID = "grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-3";
+const GRID = "grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] items-start gap-3";
 const H2 = "mb-2 text-title font-semibold text-[color:var(--ss-text)]";
 
 /** Start (UX-16), at launch and on New: go on with the open project, start
@@ -75,6 +113,8 @@ export function StartPage() {
   const [recent, setRecent] = useState<(api.ProjectEntry & { path?: string })[] | null>(null);
   const [examples, setExamples] = useState<api.ExampleEntry[]>([]);
   const heading = useRef<HTMLHeadingElement>(null);
+  // the example whose whole description is open (one at a time)
+  const [more, setMore] = useState<string | null>(null);
   useEffect(() => {
     // New hides the button it was pressed on: start the keyboard here
     heading.current?.focus({ preventScroll: true });
@@ -136,6 +176,8 @@ export function StartPage() {
               meta={[parts(e.elements), "opens as a copy"].filter(Boolean).join(" · ")}
               text={e.description}
               pts={e.thumb}
+              open={more === e.id}
+              onToggle={() => setMore(more === e.id ? null : e.id)}
               onClick={() => replaceWith(`Opening '${e.name}'`, () => store().openExample(e.id))}
             />
           ))}

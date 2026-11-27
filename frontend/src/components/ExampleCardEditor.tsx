@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useProjectStore } from "../store/projectStore";
 import type { ExampleCard } from "../types";
+import { formatNumber } from "../format";
 
 const EMPTY: ExampleCard = {
   question: "",
@@ -141,7 +142,7 @@ export function ExampleCardDialog({ onClose }: { onClose: () => void }) {
                 <ul className="m-0 list-none p-0">
                   {refs.map(({ c, r }, i) => (
                     <li key={i}>
-                      {c}: {r.kpi} {r.value.toLocaleString()} ± {r.tolerance}
+                      {c}: {r.kpi} {formatNumber(r.value)} ± {r.tolerance}
                       {r.tolerancePct === false ? "" : " %"}
                       {r.source && <span className="text-[color:var(--ss-text-dim)]"> · {r.source}</span>}
                     </li>

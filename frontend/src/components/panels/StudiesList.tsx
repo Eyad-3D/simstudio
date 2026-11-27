@@ -6,6 +6,7 @@ import type { Study, StudyPoint } from "../../types";
 import { checkReference, gapText } from "../../references";
 import { csvBlob } from "./csv";
 import { GradeChip } from "./ExpectedValues";
+import { fixedNumber, formatNumber } from "../../format";
 
 const NO_STUDIES: Study[] = [];
 
@@ -41,7 +42,12 @@ export function exportStudyCsv(study: Study) {
   const url = URL.createObjectURL(csvBlob([header, ...rows]));
   const a = document.createElement("a");
   a.href = url;
-  a.download = `lightsim-study-${study.factors[0]?.paramKey ?? "sweep"}-${study.id}.csv`;
+  const what = study.factors.map((f) => f.paramLabel).join(" x ");
+  const project = useProjectStore.getState().project?.name ?? "";
+  a.download = `${[project, study.caseName, `study of ${what}`]
+    .filter(Boolean)
+    .join(" - ")
+    .replace(/[<>:"/\\|?*]/g, "_")}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
@@ -115,10 +121,10 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
             {study.workers && study.wallS != null && (
               <>
                 {" "}
-                · {study.workers} at a time, {study.wallS.toFixed(1)} s
+                · {study.workers} at a time, {fixedNumber(study.wallS, 1)} s
                 {(() => {
                   const sum = study.points.reduce((t, p) => t + (p.wallS ?? 0), 0);
-                  return sum > 0 ? ` (${(sum / study.wallS).toFixed(1)}× faster than one after another)` : "";
+                  return sum > 0 ? ` (${fixedNumber(sum / study.wallS, 1)}× faster than one after another)` : "";
                 })()}
               </>
             )}
@@ -144,7 +150,10 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
                 </th>
                 <th className="ss-th text-right">{kpiUnit ? `[${kpiUnit}]` : "Value"}</th>
                 {ref && (
-                  <th className="ss-th" title={`Gap to the expected ${ref.value.toLocaleString()}${kpiUnit ? ` ${kpiUnit}` : ""}${ref.source ? ` (${ref.source})` : ""}`}>
+                  <th
+                    className="ss-th"
+                    title={`Gap to the expected ${formatNumber(ref.value)}${kpiUnit ? ` ${kpiUnit}` : ""}${ref.source ? ` (${ref.source})` : ""}`}
+                  >
                     Expected
                   </th>
                 )}
@@ -162,7 +171,7 @@ function StudyCard({ study, open, onToggle }: { study: Study; open: boolean; onT
                       className={`ss-td text-right font-mono ${notValid ? "text-[color:var(--ss-warn)]" : ""}`}
                       title={notValid ? `Not valid: ${notValid}` : undefined}
                     >
-                      {typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "—"}
+                      {typeof v === "number" ? formatNumber(v, undefined, { maximumFractionDigits: 4 }) : "—"}
                     </td>
                     {ref && (
                       <td className="ss-td whitespace-nowrap">

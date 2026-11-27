@@ -295,9 +295,10 @@ sections.
   voltage at 100 % SOC is above the Voltage Class. On the Battery Electric
   Car, an 80 kW limit takes its 0-100 km/h from 7.10 to 12.76 s.
 - Summary rows can carry a limit and a *pass* or *fail* marker.
-- Presets: the battery's *Apply preset: Formula Student Electric* sets
+- Presets: the battery's **Presets** → *Formula Student Electric* sets
   80 kW, a 0.5 s window, 600 V, Hold Power to Limit and a 500 A *Max
-  Discharge Current* in one step (one undo). Its values come from FS Rules
+  Discharge Current* in one step (one undo). Choosing it lists what it
+  sets and where the values come from; only **Apply** changes them. Its values come from FS Rules
   2026 v1.1 (FSG) EV 2.2.1, EV 2.2.2, EV 4.1.1 and D 10.4.1, checked
   against FSUK 2026 Rules V1.0 and FSAE Rules 2025 V1.0, which differ in
   detail.
@@ -466,7 +467,8 @@ sections.
   40 to 80 kW on the 75 m case (4.23 to 3.75 s). The other examples do not
   change.
 - The diagram's toolbar shows the zoom in % and offers Fit, 50, 100 and
-  200 %. It floats over the diagram's top edge, and the bottom panels open
+  200 %, beside its view buttons; Undo, Redo and Delete are on the ribbon
+  only (and Ctrl+Z, Ctrl+Y, Del and the right-click menu). It floats over the diagram's top edge, and the bottom panels open
   at 22 % of the workspace instead of 30 % (drag their edge for more), so
   on a 1366 × 768 screen the diagram keeps 40 % of the window with a panel
   open (was 33 %). LightSim remembers the height of a bottom panel you
@@ -566,7 +568,7 @@ sections.
   project's own that scales, repeats or cuts short UDDS or HWFET is passed
   over with a note, and a live case runs without waiting for the clock.
   (CON-32)
-- Weather presets on the Ambient: *Cold day (−7 °C)* (EPA's cold FTP and
+- Weather presets on the Ambient (its **Presets**): *Cold day (−7 °C)* (EPA's cold FTP and
   the EU's low-temperature test), *Standard day (23 °C)* (WLTP),
   *Hot and sunny day (35 °C)* (EPA's air-conditioning test SC03) and *High
   altitude (1,500 m)* (the standard atmosphere: 84.56 kPa, 5.25 °C, air
@@ -630,7 +632,8 @@ sections.
   goes back, home and to your web browser (for tabs and bookmarks), and
   can be made wider; links out of the help open in the browser. The **?**
   menu, and the desktop app's *Help* menu, list the main pages, *Report a
-  problem…* and the first-steps tour; in the desktop app *Help →
+  problem…*, the first-steps tour, *Show First steps* and *Show hints
+  again*; in the desktop app *Help →
   Documentation* opens the front page and *Help → Known Limits* the known
   issues, in the panel (in the system browser if the window cannot show
   them). After an update, the release notes open once by themselves.
@@ -657,8 +660,13 @@ sections.
   slim bar under the ribbon with five steps (*Build*, *Set values*,
   *Choose tests*, *Run*, *Read results*) that tick themselves off as you
   do them; click a step to go to the panel that does it, or hide the bar
-  with its **×**. Data Bus Connections, Cases and Results each explain
-  themselves in one line the first time you open them. (UX-26)
+  with its **×**. The bar goes by itself once all five are done in the
+  open project, and is there again for a project where they are not;
+  *Show First steps* in the **?** menu brings it back. Data Bus
+  Connections, Cases and Results each explain themselves in one line the
+  first time you open them; the line goes on *Got it*, or when you leave
+  or use that panel or page, and does not come back (*Show hints again*
+  in the **?** menu does that). (UX-26)
 - A *Start* page opens when LightSim starts and when you press **New**:
   continue with the open project, start from one of the examples (its card
   says what results to expect) or a blank project, or reopen one of the 8
@@ -969,9 +977,11 @@ sections.
   takes 27.3 %, rolling resistance 47.5 %, the E-Motor 9.7 % and the Final
   Drive 1.9 %, and −0.01 % is not accounted for. A case's **Energy
   report** (Cases tab, on by default) turns it off. The diagram's
-  lightning button labels each part with its energy and opens a bar chart
-  of the losses with a **Hide below** slider; a click on a bar selects the
-  part. (RES-22)
+  lightning button labels each part with its energy, and **Energy lost
+  per part**, a small button at the diagram's top right, opens a bar chart
+  of the losses with a **Hide below** slider (the button again, or the
+  chart's ×, folds it; LightSim remembers which); a click on a bar selects
+  the part. (RES-22)
 - A band along the bottom of the Results chart says what held the car
   back at every moment: braking, tyre grip, a set power limit, the battery
   or supply, the motor or engine, coasting, or nothing (the driver's
@@ -1243,10 +1253,13 @@ sections.
   it ended (*finished: success*, *finished with warnings*, *stopped at
   t = …*, *failed*) with **Show results**, or **Show messages** after a
   failure. A sweep's notice says how many points are complete and offers
-  **Study charts**. Tick **Always open Results** in the notice to have the
-  page open by itself after each run and sweep, as before; the choice is
-  kept. A run started on the *Results* page stays there, drawn as it goes,
-  and a failed run no longer leaves that page. (UX-21)
+  **Study charts**. Tick **Open after each run** on the *Results* page,
+  beside **Clear history**, to have the page open by itself after each run
+  and sweep, as before; the choice is kept. A run opens no panel either:
+  the bottom panels stay as you left them, also after a failure, and the
+  *Signal Plot* is a click away in its tab. A run started on the *Results*
+  page stays there, drawn as it goes, and a failed run no longer leaves
+  that page. (UX-21)
 - Results → **Study**: a chart for each chosen result of a saved study
   against the swept value. It reads the study kept with the project's
   runs, so it still draws after the project is opened again and after the

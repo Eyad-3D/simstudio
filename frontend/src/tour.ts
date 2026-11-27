@@ -39,8 +39,10 @@ export interface TourState {
   toured?: boolean;
   /** the step bar was hidden */
   hidden?: boolean;
-  /** steps ticked, kept once done */
-  done?: Partial<Record<StepId, true>>;
+  /** steps ticked, by project id, kept once done in that project: the bar
+   *  shows the open project's (a new empty project starts with none; an
+   *  older state's ticks for every project at once are not read) */
+  doneIn?: Record<string, Partial<Record<StepId, true>>>;
   /** hints already shown */
   hints?: Record<string, true>;
   /** show the tour and bar even in an automated browser (tests) */
@@ -57,16 +59,19 @@ function load(): TourState {
   return {};
 }
 
-/** `hint` is the hint on show and `hintKey` the panel or page it explains. */
-export const useTourStore = create<TourState & { hint: string | null; hintKey: string | null }>(() => ({
+/** `hint` is the hint on show and `hintKey` the panel or page it explains;
+ *  `shown`: the step bar was asked for (Help → Show First steps, the tour),
+ *  so it stays even once every step is done. Neither is kept. */
+export const useTourStore = create<TourState & { hint: string | null; hintKey: string | null; shown: boolean }>(() => ({
   ...load(),
   hint: null,
   hintKey: null,
+  shown: false,
 }));
 
 function save(change: Partial<TourState>) {
   useTourStore.setState(change);
-  const { hint: _hint, hintKey: _hintKey, ...state } = useTourStore.getState();
+  const { hint: _hint, hintKey: _hintKey, shown: _shown, ...state } = useTourStore.getState();
   try {
     window.localStorage.setItem(TOUR_KEY, JSON.stringify(state));
   } catch {
@@ -78,12 +83,41 @@ function save(change: Partial<TourState>) {
 export const automated = () => typeof navigator !== "undefined" && navigator.webdriver === true && !useTourStore.getState().auto;
 
 export function hideStepBar() {
+  useTourStore.setState({ shown: false });
   save({ hidden: true });
 }
 
+/** Help → Show First steps: the bar again, even with every step done. */
+export function showStepBar() {
+  useTourStore.setState({ shown: true });
+  save({ hidden: false });
+}
+
+/** Help → Show hints again: each page's hint once more, the next time it opens. */
+export function showHintsAgain() {
+  save({ hints: {} });
+}
+
+// ponytail: the 50 projects ticked last keep their steps; plenty for one person
+const PROJECTS_KEPT = 50;
+
+/** Tick step `id` in the open project. */
 export function tick(id: StepId) {
-  const { done = {} } = useTourStore.getState();
-  if (!done[id]) save({ done: { ...done, [id]: true } });
+  const project = useProjectStore.getState().project?.id;
+  if (!project) return;
+  const { doneIn = {} } = useTourStore.getState();
+  if (doneIn[project]?.[id]) return;
+  const { [project]: done, ...others } = doneIn;
+  const kept = Object.entries(others).slice(-(PROJECTS_KEPT - 1));
+  save({ doneIn: { ...Object.fromEntries(kept), [project]: { ...done, [id]: true } } });
+}
+
+const NONE: Partial<Record<StepId, true>> = {};
+
+/** The open project's ticked steps. */
+export function useStepsDone(): Partial<Record<StepId, true>> {
+  const project = useProjectStore((s) => s.project?.id);
+  return useTourStore((s) => (project && s.doneIn?.[project]) || NONE);
 }
 
 // a panel the layout opens by itself is not one the user opened
@@ -92,15 +126,41 @@ for (const type of ["pointerdown", "keydown"]) {
   window.addEventListener(type, () => (acted = true), { capture: true, once: true });
 }
 
-/** Show a panel's hint the first time the user opens it. */
-export function hintFor(key: string) {
-  const { hints = {}, hidden } = useTourStore.getState();
-  if (!acted || hidden || automated() || hints[key] || !HINTS[key]) return;
+// where the hint on show is about: a press or a key in there is using it
+let hintArea: (() => Element | null) | null = null;
+
+/** Show a panel's or page's hint the first time the user opens it; it is not
+ *  shown again (Help → Show hints again resets that). `area` is where it is
+ *  used: a press or key in there puts the hint away. */
+export function hintFor(key: string, area?: () => Element | null) {
+  const { hints = {} } = useTourStore.getState();
+  if (!acted || automated() || hints[key] || !HINTS[key]) return;
   save({ hints: { ...hints, [key]: true } });
+  hintArea = area ?? null;
   useTourStore.setState({ hint: HINTS[key], hintKey: key });
 }
 
-export const dismissHint = () => useTourStore.setState({ hint: null, hintKey: null });
+export const dismissHint = () => {
+  hintArea = null;
+  useTourStore.setState({ hint: null, hintKey: null });
+};
+
+/** Put the hint for `key` away if it is the one on show (its page was left). */
+export const leaveHint = (key: string | undefined) => {
+  if (key && useTourStore.getState().hintKey === key) dismissHint();
+};
+
+// using the page the hint is about puts the hint away: it has done its job
+for (const type of ["pointerdown", "keydown"]) {
+  window.addEventListener(
+    type,
+    (e) => {
+      const area = hintArea?.();
+      if (area && e.target instanceof Node && area.contains(e.target)) dismissHint();
+    },
+    { capture: true },
+  );
+}
 
 /** Whether a value of a part that is in both models changed: adding,
  *  deleting or moving a part is not setting a value. */
@@ -135,13 +195,19 @@ export function watchSteps(): () => void {
     if (last?.status === "success" && useUIStore.getState().ribbonTab === "results") tick("results");
   };
   const unProject = useProjectStore.subscribe((s, prev) => {
+    // a Save As gives the same project a new id: its steps go with it
+    if (s.project && prev.project && s.project.id !== prev.project.id && s.project.systems === prev.project.systems) {
+      const { doneIn = {} } = useTourStore.getState();
+      const before = doneIn[prev.project.id];
+      if (before && !doneIn[s.project.id]) save({ doneIn: { ...doneIn, [s.project.id]: before } });
+    }
     // a value changed on the same project (not a project opened)
     if (s.project && prev.project && s.project.id === prev.project.id && s.project !== prev.project
       && valueChanged(prev.project, s.project)) tick("values");
     check();
   });
   const unUI = useUIStore.subscribe((s, prev) => {
-    if (s.ribbonTab !== prev.ribbonTab && s.ribbonTab === "results") hintFor("results");
+    if (s.ribbonTab !== prev.ribbonTab && s.ribbonTab === "results") hintFor("results", () => document.querySelector("[data-results-page]"));
     // the Results page's hint goes with the page: it is about what is not on screen any more
     else if (s.ribbonTab !== prev.ribbonTab && useTourStore.getState().hintKey === "results") dismissHint();
     check();
@@ -171,6 +237,8 @@ export function doStep(id: StepId) {
 
 /** The tour: five stops, each a popover on a part of the screen. */
 export function startTour() {
+  // the tour's last stop is the step bar: shown, even with every step done
+  useTourStore.setState({ shown: true });
   save({ hidden: false, toured: true });
   const ui = useUIStore.getState();
   if (ui.ribbonTab !== "home") ui.setRibbonTab("home");
@@ -189,7 +257,11 @@ export function startTour() {
     tour.destroy();
   };
   const tour = driver({
-    onDestroyed: () => document.removeEventListener("pointerdown", outside, true),
+    onDestroyed: () => {
+      document.removeEventListener("pointerdown", outside, true);
+      // (the bar was shown for the tour's last stop; done, it follows its steps again)
+      useTourStore.setState({ shown: false });
+    },
     // (driver.js marks the body at the start; keep it unmarked at every stop)
     onHighlighted: () => document.body.classList.remove("driver-active"),
     showProgress: true,
@@ -238,7 +310,7 @@ export function startTour() {
         popover: {
           title: "Your first steps",
           description:
-            "This bar ticks itself off as you build, set values, pick a test, run and read the results. Change a value such as the Vehicle Mass and run again: Results compares the two runs. Help → <i>Your first electric car</i> is the 15-minute lesson.",
+            "This bar ticks itself off as you build, set values, pick a test, run and read the results, and goes away once all five are done (Help → <i>Show First steps</i> brings it back). Change a value such as the Vehicle Mass and run again: Results compares the two runs. Help → <i>Your first electric car</i> is the 15-minute lesson.",
           side: "bottom" as const,
         },
       },
@@ -268,6 +340,11 @@ declare global {
   interface Window {
     /** For the desktop app's Help menu: show the tour. */
     lightsimTour?: () => void;
+    /** Help → Show First Steps, Show Hints Again. */
+    lightsimShowSteps?: () => void;
+    lightsimShowHints?: () => void;
   }
 }
 window.lightsimTour = startTour;
+window.lightsimShowSteps = showStepBar;
+window.lightsimShowHints = showHintsAgain;

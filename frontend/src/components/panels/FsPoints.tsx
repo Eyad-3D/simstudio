@@ -1,11 +1,12 @@
 import { Trophy } from "lucide-react";
 import { useProjectStore } from "../../store/projectStore";
 import { FS_EVENT_NAMES, fsPointsTable } from "../../fsEvents";
+import { formatNumber } from "../../format";
 
 const fmt = (v: number | undefined, d: number) =>
   v == null
     ? "—"
-    : v.toLocaleString("en-GB", {
+    : formatNumber(v, "en-GB", {
         minimumFractionDigits: d,
         maximumFractionDigits: d,
       });

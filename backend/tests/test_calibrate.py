@@ -135,6 +135,8 @@ def test_calibrated_on_one_lap_it_predicts_another_within_5_percent():
     assert 0.1 < check["energy_model_kwh"] < 1.0  # (an FS autocross lap)
     assert "energy_error_pct" not in check  # (the log has no pack power)
     assert out["calibration_lap"]["status"] in ("success", "warning")
+    # the fit's RMS is the calibration lap's, as its row gives it (app pass #11)
+    assert fit["rms_kmh"] == out["calibration_lap"]["speed_rms_kmh"]
 
 
 def test_a_log_the_calibration_cannot_read_is_refused():

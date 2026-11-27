@@ -1,10 +1,11 @@
 // The Help menu in the header (LRN-09): the help's main pages, opened in the
-// Help panel, the first-steps tour (UX-26), and where to report a problem.
+// Help panel, the first-steps tour, bar and hints (UX-26), and where to
+// report a problem.
 // The desktop app's own Help menu opens the same pages (desktop/src/main.js).
 import { useRef, useState } from "react";
 import { CircleHelp } from "lucide-react";
 import { HELP_MENU, REPORT_PROBLEM_URL, openHelp } from "../help";
-import { startTour } from "../tour";
+import { showHintsAgain, showStepBar, startTour } from "../tour";
 import { useDismiss } from "./useDismiss";
 
 export function HelpMenu() {
@@ -61,6 +62,12 @@ export function HelpMenu() {
           <div className="my-1 border-t border-[color:var(--ss-border)]" />
           <button role="menuitem" className={item} onClick={() => choose(startTour)}>
             Show the first-steps tour
+          </button>
+          <button role="menuitem" className={item} onClick={() => choose(showStepBar)}>
+            Show First steps
+          </button>
+          <button role="menuitem" className={item} onClick={() => choose(showHintsAgain)}>
+            Show hints again
           </button>
           <button
             role="menuitem"

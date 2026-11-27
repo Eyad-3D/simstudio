@@ -36,9 +36,9 @@ it runs, as a case override does.
 
 The page stays as it is while the sweep runs and when it ends. A notice at
 the bottom right says how it ended, for example *Sweep finished: 5 of 5
-points complete*, with **Show results** and **Study charts**. Tick
-**Always open Results** in it to have the *Results* page open by itself
-after each run and sweep.
+points complete*, with **Show results** and **Study charts**. To have the
+*Results* page open by itself after each run and sweep, tick **Open after
+each run** on the *Results* page, beside **Clear history**.
 
 ## Read the result
 

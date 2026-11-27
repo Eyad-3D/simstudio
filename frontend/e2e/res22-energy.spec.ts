@@ -47,12 +47,15 @@ test("RES-22/38/39 and UX-41: energy, duty and limits of a run, and what changed
   await ribbonTab(page, "Home").click();
   await showPanel(page, "Topology");
   await page.getByTitle(/^Energy: label each part/).click();
+  // the chart starts folded to a button in the corner (the owner's choice G)
   const bars = page.getByRole("region", { name: "Energy lost per part" });
+  await expect(bars).toHaveCount(0);
+  await page.getByRole("button", { name: /^Energy lost per part/ }).click();
   await expect(bars).toContainText("E-Motor");
   await expect(page.locator("[data-energy-label]").first()).toContainText(/lost [\d.,]+ kWh\s*in [\d.,]+ · out [\d.,]+/);
   await bars.getByRole("button", { name: /^E-Motor/ }).click();
   await expect(page.locator(".react-flow__node.selected")).toHaveText(/E-Motor/);
-  await page.getByTitle("Hide the energy labels and this chart").click();
+  await page.getByRole("button", { name: "Fold this chart" }).click();
   await expect(bars).toBeHidden();
 
   // UX-41: an edit marks the part and Results counts it

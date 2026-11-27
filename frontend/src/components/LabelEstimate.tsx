@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import { useProjectStore } from "../store/projectStore";
+import { fixedNumber, formatNumber } from "../format";
 
-const fmt = (v: number) => v.toLocaleString("en", { maximumFractionDigits: v >= 100 ? 1 : 2 });
+const fmt = (v: number) => formatNumber(v, "en", { maximumFractionDigits: v >= 100 ? 1 : 2 });
 
 /** CON-32: the US window-sticker estimate. Runs the model on EPA's city and
  *  highway cycles, then shows each step from the lab figures to the label
@@ -76,7 +77,7 @@ export function LabelEstimateDialog({ onClose }: { onClose: () => void }) {
               <p className="text-[color:var(--ss-text-dim)]">
                 Runs: {Object.values(result.cases).join(" and ")}.
                 {result.electric && result.chargerEfficiency != null &&
-                  ` Charger efficiency ${(result.chargerEfficiency * 100).toFixed(0)} %.`}
+                  ` Charger efficiency ${fixedNumber((result.chargerEfficiency * 100), 0)} %.`}
               </p>
               {result.problems.map((p) => (
                 <p key={p} role="alert" className="text-amber-600">

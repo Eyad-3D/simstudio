@@ -44,10 +44,10 @@ test("the table of runs sorts, draws ticked runs and shows the difference of two
   // sorted by consumption, high to low: the heaviest car first
   await heading(page, /^Consumption/).getByRole("button").click();
   await expect(heading(page, /^Consumption/)).toHaveAttribute("aria-sort", "descending");
-  await expect(runRow(page, 0).show).toHaveAccessibleName("Show City Cycle · Vehicle Mass 2,300 kg");
+  await expect(runRow(page, 0).show).toHaveAccessibleName(/^Show City Cycle · Vehicle Mass 2,300 kg · /);
   await heading(page, /^Consumption/).getByRole("button").click();
   await expect(heading(page, /^Consumption/)).toHaveAttribute("aria-sort", "ascending");
-  await expect(runRow(page, 0).show).toHaveAccessibleName("Show City Cycle · Vehicle Mass 1,500 kg");
+  await expect(runRow(page, 0).show).toHaveAccessibleName(/^Show City Cycle · Vehicle Mass 1,500 kg · /);
 
   // one run drawn: no strip, and no room kept for it
   await expect(strip(page)).toHaveCount(0);

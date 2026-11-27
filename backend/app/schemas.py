@@ -764,6 +764,9 @@ class StudyPointRequest(BaseModel):
     overrides: dict[str, dict[str, ParamValue]] = Field(default_factory=dict)
     values: list[float] = Field(default_factory=list)
     label: str = Field("", max_length=200)
+    # the run's own name where no single swept value names it (a point of
+    # two factors: "5.8 kWh, 40 kW")
+    name: Optional[str] = Field(None, max_length=120)
 
 
 class StudyRequest(BaseModel):

@@ -30,7 +30,7 @@ test("RES-37: the PNG export is the whole chart at twice its on-screen size", as
     page.waitForEvent("download"),
     page.getByRole("button", { name: "PNG", exact: true }).click(),
   ]);
-  expect(download.suggestedFilename()).toMatch(/^lightsim-.+\.png$/);
+  expect(download.suggestedFilename()).toMatch(/^Battery Electric Car - .+\.png$/);
   const png = await readFile(await download.path());
   // a PNG starts with its 8-byte signature, then the IHDR chunk whose width
   // and height are the big-endian numbers at bytes 16 and 20

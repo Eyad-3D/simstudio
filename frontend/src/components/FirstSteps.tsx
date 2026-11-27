@@ -1,19 +1,20 @@
 // The first-steps bar under the ribbon (UX-26): five steps that tick
 // themselves off (tour.ts), each a click from the panel or command that does
-// it, and a one-time hint the first time a panel that needs one opens.
+// it, and a one-time hint the first time a panel that needs one opens. The
+// bar goes once every step is done in the open project (Help → Show First
+// steps brings it back); a hint goes on Got it, when its page is left or used.
 import { useEffect } from "react";
 import { Check, X } from "lucide-react";
-import { openHelp } from "../help";
-import { STEPS, automated, autoTour, dismissHint, doStep, hideStepBar, useTourStore, watchSteps } from "../tour";
-
-const NONE: Partial<Record<string, true>> = {};
+import { STEPS, automated, autoTour, dismissHint, doStep, hideStepBar, useStepsDone, useTourStore, watchSteps } from "../tour";
 
 export function FirstSteps() {
   const hidden = useTourStore((s) => s.hidden);
-  const done = useTourStore((s) => s.done) ?? NONE;
+  // the open project's steps: a new empty project has none done
+  const done = useStepsDone();
   const hint = useTourStore((s) => s.hint);
   const auto = useTourStore((s) => s.auto);
-  const off = hidden || (automated() && !auto);
+  const shown = useTourStore((s) => s.shown);
+  const off = automated() && !auto;
   useEffect(() => {
     if (off) return;
     const unWatch = watchSteps();
@@ -25,8 +26,11 @@ export function FirstSteps() {
   }, [off]);
   if (off) return null;
   const all = STEPS.every((s) => done[s.id]);
+  const bar = !hidden && (!all || shown);
+  if (!bar && !hint) return null;
   return (
     <div className="ss-zoom border-b border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] text-meta">
+      {bar && (
       <nav className="flex flex-wrap items-center gap-1 px-2 py-0.5" aria-label="First steps" data-tour="steps">
         <span className="mr-1 font-semibold text-[color:var(--ss-text-dim)]">First steps</span>
         {STEPS.map((s, i) => (
@@ -52,20 +56,14 @@ export function FirstSteps() {
             {s.label}
           </button>
         ))}
-        {all && (
-          <span className="ml-1">
-            All done. Next:{" "}
-            <button className="text-[color:var(--ss-accent)] underline" onClick={() => openHelp("tutorials/first-electric-car.html")}>
-              your first electric car, in 15 minutes
-            </button>
-          </span>
-        )}
+        {all && <span className="ml-1">All done.</span>}
         <button className="ss-toolbtn ml-auto" title="Hide the first steps (Help menu shows them again)" aria-label="Hide the first steps" onClick={hideStepBar}>
           <X size={12} />
         </button>
       </nav>
+      )}
       {hint && (
-        <div className="flex items-start gap-2 border-t border-[color:var(--ss-border)] px-2 py-1" role="status">
+        <div className={`flex items-start gap-2 px-2 py-1 ${bar ? "border-t border-[color:var(--ss-border)]" : ""}`} role="status">
           <span className="min-w-0 flex-1">{hint}</span>
           <button className="ss-toolbtn shrink-0" onClick={dismissHint}>
             Got it

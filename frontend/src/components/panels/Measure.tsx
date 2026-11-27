@@ -12,6 +12,7 @@ import type { Channel, SimRun } from "../../types";
 import {
   INTEGRAL_UNITS,
   channelKey,
+  channelName,
   distanceOf,
   firstReach,
   fmtNum,
@@ -21,6 +22,7 @@ import {
   type XAxis,
 } from "./chartUtils";
 import { font, scaleOf, type PngPlugin } from "./Plot";
+import { formatNumber } from "../../format";
 
 type AB = [number, number];
 
@@ -247,7 +249,7 @@ function TimeToReach({ run, channels }: { run: SimRun; channels: Channel[] }) {
   // a speed first: 0 to 100 km/h is the usual question
   const c = channels.find((x) => channelKey(x) === pick) ?? channels.find((x) => x.unit === "km/h") ?? channels[0];
   if (!c) return null;
-  const name = c.label.split(" · ")[1] ?? c.label;
+  const name = channelName(c, channels);
   const ok = from.trim() !== "" && to.trim() !== "" && Number.isFinite(Number(from)) && Number.isFinite(Number(to));
   const place = () => {
     const i0 = firstReach(c.timeSeries, Number(from));
@@ -276,7 +278,7 @@ function TimeToReach({ run, channels }: { run: SimRun; channels: Channel[] }) {
         <select className="ss-input max-w-[170px] py-0.5 text-meta" value={channelKey(c)} onChange={edit(setPick)}>
           {channels.map((x) => (
             <option key={channelKey(x)} value={channelKey(x)}>
-              {x.label.split(" · ")[1] ?? x.label}
+              {channelName(x, channels)}
             </option>
           ))}
         </select>
@@ -344,7 +346,7 @@ export function MeasurePanel({ run, series, kind }: { run: SimRun; series: Serie
         <CursorInput run={run} ab={ab} which={0} />
         <CursorInput run={run} ab={ab} which={1} />
         <span>
-          Δt <span className="font-mono">{ms(ab[1] - ab[0]).toLocaleString()}</span> s
+          Δt <span className="font-mono">{formatNumber(ms(ab[1] - ab[0]))}</span> s
         </span>
         <TimeToReach run={run} channels={series.filter((d) => d.run.id === run.id).map((d) => d.channel)} />
       </div>

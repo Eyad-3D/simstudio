@@ -8,9 +8,15 @@ test("CON-30: a weather preset sets the Ambient's temperature and pressure in on
   await showPanel(page, "Properties");
   const temperature = page.getByRole("spinbutton", { name: /^Temperature/ });
   await expect(temperature).toHaveValue("20");
-  await page.getByRole("button", { name: "Apply preset: High altitude (1,500 m)" }).click();
+  // Presets lists them; one chosen shows what it sets, and only Apply sets it
+  const preset = async (name: string) => {
+    await page.getByRole("button", { name: "Presets", exact: true }).click();
+    await page.getByRole("button", { name, exact: true }).click();
+    await page.getByRole("button", { name: "Apply", exact: true }).click();
+  };
+  await preset("High altitude (1,500 m)");
   await expect(temperature).toHaveValue("5.25");
   await expect(page.getByRole("spinbutton", { name: /^Pressure/ })).toHaveValue("84.56");
-  await page.getByRole("button", { name: "Apply preset: Cold day (−7 °C)" }).click();
+  await preset("Cold day (−7 °C)");
   await expect(temperature).toHaveValue("-7");
 });

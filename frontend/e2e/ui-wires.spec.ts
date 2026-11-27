@@ -95,7 +95,7 @@ test("a port Shift+dragged to another side stays there, its wire follows, and Un
   // one undo step
   await page.keyboard.press("Control+z");
   await expect.poll(async () => (await motorPin(page)).side).toBe("left");
-  await expect(page.getByTitle("Undo (Ctrl+Z)")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Undo", exact: true })).toBeDisabled(); // the ribbon's (choice D)
 
   // back again, then the part's menu puts the library's places back
   await page.keyboard.press("Control+y");

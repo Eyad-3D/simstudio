@@ -9,7 +9,7 @@ test("CON-13: the example's values show their source, and a new one can be recor
   const sources = page.getByTestId("value-sources");
   // mass, Cd and frontal area come from FASTSim's Cupra Born file
   await expect(sources.locator("summary")).toHaveText(/^Value sources: 3 of \d+ recorded, \d+ at the library default$/);
-  await expect(page.getByLabel(/^Source: datasheet · confidence 1/).first()).toBeVisible();
+  await expect(page.getByLabel(/^Source: datasheet · agrees with its source/).first()).toBeVisible();
   await sources.locator("summary").click();
   await sources.getByLabel("Parameter to record a source for").selectOption({ label: "Wheelbase" });
   await sources.getByLabel("Source", { exact: true }).fill("Workshop drawing, 2026-10-07");
@@ -17,7 +17,7 @@ test("CON-13: the example's values show their source, and a new one can be recor
   await sources.getByLabel("Confidence").selectOption("2");
   await sources.getByRole("button", { name: "Save source" }).click();
   await expect(sources.locator("summary")).toHaveText(/^Value sources: 4 of \d+ recorded/);
-  await expect(sources.getByText("measured, confidence 2")).toBeVisible();
+  await expect(sources.getByText("Measured, source and method checked")).toBeVisible();
   await sources.getByRole("button", { name: "Forget the source of Wheelbase" }).click();
   await expect(sources.locator("summary")).toHaveText(/^Value sources: 3 of /);
 });

@@ -14,6 +14,7 @@ import {
   renameProjectCycle,
 } from "../../store/projectCycles";
 import { cycleFigures, ImportCycleDialog } from "../ImportTableDialog";
+import { fixedNumber, formatNumber } from "../../format";
 
 // the store's cycle list carries the open project's own cycles (CON-11)
 followProjectCycles();
@@ -23,7 +24,7 @@ followProjectCycles();
 export const cycleText = (c: api.CycleInfo) =>
   c.own
     ? `${c.name} · ${cycleFigures(c)}`
-    : `${c.name} · ${c.duration_s.toLocaleString("en")} s · ${c.distance_km.toFixed(2)} km${c.grade ? " · with grade" : ""}`;
+    : `${c.name} · ${formatNumber(c.duration_s, "en")} s · ${fixedNumber(c.distance_km, 2)} km${c.grade ? " · with grade" : ""}`;
 
 // the list's two actions: not cycles, so never a part's value
 const IMPORT = "\u0000import";
@@ -292,8 +293,8 @@ export function CyclePreview({
   const stats = own
     ? cycleFigures(own)
     : overDistance
-      ? `${(t1 - t0).toLocaleString("en")} m · top ${vmax.toFixed(1)} km/h`
-      : `${(t1 - t0).toLocaleString("en")} s · ${km.toFixed(2)} km · top ${vmax.toFixed(1)} km/h`;
+      ? `${formatNumber((t1 - t0), "en")} m · top ${fixedNumber(vmax, 1)} km/h`
+      : `${formatNumber((t1 - t0), "en")} s · ${fixedNumber(km, 2)} km · top ${fixedNumber(vmax, 1)} km/h`;
   const name = own?.name ?? info?.name ?? "custom profile";
   return (
     <figure className="m-0">

@@ -776,6 +776,73 @@ describe("undo / redo", () => {
     expect(findElement(ids[0])?.displayUnits).toEqual({ max_speed_rpm: { value: "rad/s" } });
   });
 
+  it("a pasted or duplicated part gets a name of its own, numbered as a new part is", async () => {
+    await start();
+    const name = (id: string) => findElement(id)!.label;
+    const [a] = store().duplicateElements(["el-motor"]);
+    expect(name("el-motor")).toBe("Motor");
+    expect(name(a)).toBe("Motor 2");
+    // a copy of the copy: the stem's next free number
+    const [b] = store().duplicateElements([a]);
+    expect(name(b)).toBe("Motor 3");
+    store().copyElements(["el-motor", a]);
+    const pasted = store().pasteClipboard();
+    expect(pasted.map(name)).toEqual(["Motor 4", "Motor 5"]);
+    // every name in the project is used once
+    const labels = store().project!.systems.flatMap((s) => s.elements.map((e) => e.label));
+    expect(new Set(labels).size).toBe(labels.length);
+    // a new part from the library skips a name already in use
+    // (five E-Motors, so the next is numbered 6)
+    store().renameElement(a, "E-Motor 6");
+    store().addElement("motor.emotor", { x: 0, y: 0 });
+    expect(name(store().selectedElementId!)).toBe("E-Motor 7");
+  });
+
+  it("a pasted or duplicated part goes to free room; parts pasted together move as one group", async () => {
+    await start();
+    // a row of parts, all 92 × 54, 200 apart; the constant under the battery
+    const at: Record<string, [number, number]> = {
+      "el-bat": [0, 0],
+      "el-node": [200, 0],
+      "el-motor": [400, 0],
+      "el-shaft": [600, 0],
+      "el-const": [0, 200],
+    };
+    for (const [id, [x, y]] of Object.entries(at)) {
+      store().moveElement(id, { x, y });
+      store().resizeElement(id, { width: 92, height: 54 });
+    }
+    const parts = () => store().project!.systems[0].elements;
+    const box = (id: string) => {
+      const e = parts().find((p) => p.id === id)!;
+      return { x: e.position.x, y: e.position.y, w: e.size!.width, h: e.size!.height };
+    };
+    const clear = (id: string, others: string[]) =>
+      others.every((o) => {
+        const a = box(id);
+        const b = box(o);
+        return a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+      });
+
+    // duplicate: it used to land 28 units down-right, on the original
+    const [copy] = store().duplicateElements(["el-motor"]);
+    expect(clear(copy, parts().map((p) => p.id).filter((p) => p !== copy))).toBe(true);
+
+    // two parts pasted with the pointer on the motor: their arrangement kept,
+    // the group moved as one to free room
+    store().copyElements(["el-bat", "el-node"]);
+    const [bat2, node2] = store().pasteClipboard({ x: 400, y: 0 });
+    expect(box(node2).x - box(bat2).x).toBe(200);
+    expect(box(node2).y).toBe(box(bat2).y);
+    for (const id of [bat2, node2]) expect(clear(id, parts().map((p) => p.id).filter((p) => p !== bat2 && p !== node2))).toBe(true);
+
+    // and clear of what the diagram asks to avoid (its floating name and toolbar)
+    const avoid = { x: -400, y: -400, w: 2000, h: 700 };
+    const [far] = store().duplicateElements(["el-const"], [avoid]);
+    const f = box(far);
+    expect(f.y >= avoid.y + avoid.h || f.y + f.h <= avoid.y || f.x >= avoid.x + avoid.w || f.x + f.w <= avoid.x).toBe(true);
+  });
+
   it("a preset's values are one edit that one undo takes back", async () => {
     await start();
     const past = store().past.length;
@@ -1317,6 +1384,36 @@ describe("run history", () => {
     }
     return ids;
   }
+
+  it("a failed run's reasons are in Messages, once each (app pass #2)", async () => {
+    await start();
+    api.validateProject.mockResolvedValue([]);
+    const refused = "Not run [NEW-FAILED]: the new engine refused it (ELEC-NO-GROUND)";
+    const streamedText = "Solver stopped at t = 3 s";
+    api.runSimulationLive.mockImplementation((_project, caseId, callbacks = {}) => {
+      callbacks.onMessage?.({ level: "error", text: streamedText });
+      return {
+        setParam: vi.fn(),
+        cancel: vi.fn(),
+        done: Promise.resolve({
+          caseId,
+          status: "failed",
+          messages: [
+            { level: "error", text: streamedText },
+            { level: "error", text: refused },
+          ],
+          channels: [],
+          summary: [],
+        }),
+      };
+    });
+    await store().run();
+    const log = messages();
+    expect(log.filter((m) => m === `error: ${streamedText}`)).toHaveLength(1);
+    expect(log).toContain(`error: ${refused}`);
+    expect(log).toContain("error: 'Case 1' failed.");
+    expect(log.join("\n")).not.toMatch(/see messages above/);
+  });
 
   it("a finished run is stored newest first and becomes the active run", async () => {
     await start();
@@ -1980,6 +2077,41 @@ describe("studies", () => {
     expect(store().past).toHaveLength(0);
   });
 
+  it("an endurance study counts DNF points alike everywhere and names each run (app pass #9, #10)", async () => {
+    await start();
+    api.validateProject.mockResolvedValue([]);
+    // a 5 kWh pack runs down: at 60 kW the car stops (failed), at 30 kW it
+    // crawls to the end on what is left (warning); an 8 kWh pack lasts
+    api.runSimulationLive.mockImplementation((project, caseId) => {
+      const bat = project.cases[0].parameterOverrides?.["el-bat"] ?? {};
+      const small = Number(bat.capacity_kWh) < 6;
+      const status = small ? (Number(bat.output_power_limit_kW) > 40 ? "failed" : "warning") : "success";
+      const summary = [{ label: "Endurance finished on its energy", value: small ? 0 : 1, unit: "-" }];
+      return {
+        setParam: vi.fn(),
+        cancel: vi.fn(),
+        done: Promise.resolve({ caseId, status, messages: [], channels: [], summary }),
+      };
+    });
+    await store().runEnduranceStudy({ caseId: "case-1", batteryId: "el-bat", packs: [5, 8], caps: [30, 60] });
+    const sent = api.runStudyLive.mock.calls[0][0];
+    expect(sent.points.map((p: { name?: string }) => p.name)).toEqual([
+      "5 kWh, 30 kW",
+      "5 kWh, 60 kW",
+      "8 kWh, 30 kW",
+      "8 kWh, 60 kW",
+    ]);
+    const dnf = messages().filter((m) => m.includes("did not finish (DNF)"));
+    expect(dnf).toEqual([
+      "warning: Endurance energy study: 5 kWh, 30 kW did not finish (DNF): the pack reached its minimum charge.",
+      "warning: Endurance energy study: 5 kWh, 60 kW did not finish (DNF): the pack reached its minimum charge.",
+    ]);
+    expect(messages().join("\n")).not.toMatch(/Study point|failed\./);
+    expect(store().finishNotice?.text).toBe(
+      "Endurance energy study finished: 2 of 4 points complete, 2 did not finish (DNF).",
+    );
+  });
+
   it("a second 16-point sweep leaves the first study's table intact", async () => {
     await start();
     engineAnswers();
@@ -2199,7 +2331,9 @@ describe("project files (PLT-07, PLT-33, STD-02)", () => {
     api.fetchProject.mockResolvedValueOnce({ ...fixture(), revision: "r1", filePath: "/repo/car.lightsim", upgradedFrom: 1 });
     await store().openProject("fixture");
     expect(store().filePath).toBe("/repo/car.lightsim");
-    expect(messages().some((m) => m.includes("older file format (1)"))).toBe(true);
+    // in a user's words; the format's number only at the end, for support
+    expect(messages().some((m) => m.includes("was saved by an older version of LightSim and has been upgraded") && m.endsWith("(File format 1.)"))).toBe(true);
+    expect(messages().some((m) => m.includes("older file format (1)"))).toBe(false);
     api.saveProject.mockResolvedValueOnce({ saved: "fixture", revision: "r2" });
     store().renameElement("el-bat", "Pack");
     await store().saveRemote();
@@ -2419,6 +2553,23 @@ describe("the end of a run or sweep (UX-21, STU-16, STU-17)", () => {
     const { followNotice } = await import("./projectStore");
     followNotice("show");
     expect(tab()).toBe("home");
+  });
+
+  it("a run, finished or failed, opens no panel: the bottom tray stays as the user left it (choice B)", async () => {
+    await start();
+    useUIStore.getState().setRibbonTab("home");
+    const forward = vi.spyOn(useUIStore.getState(), "focusPanel");
+    useUIStore.setState({ focusPanel: forward as never });
+    engineFinishesRuns();
+    await store().run();
+    engineEnds("failed");
+    await store().run();
+    expect(store().finishNotice).toMatchObject({ level: "error", show: "messages" });
+    expect(forward).not.toHaveBeenCalled();
+    // the failure's notice still leads to Messages, when the user asks
+    const { followNotice } = await import("./projectStore");
+    followNotice("show");
+    expect(forward).toHaveBeenCalledWith("messages");
   });
 
   it("the next run, going to Results and another project put a notice away", async () => {

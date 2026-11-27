@@ -28,34 +28,34 @@ link given:
 
 User interface
 --------------
-  @xyflow/react 12.12.0 — MIT
-  @xyflow/system 0.0.83 — MIT
+  @xyflow/react 12.12.1 — MIT
+  @xyflow/system 0.0.84 — MIT
   classcat 5.0.5 — MIT
   csstype 3.2.3 — MIT
-  d3-color 3.1.0 — ISC
-  d3-dispatch 3.0.1 — ISC
-  d3-drag 3.0.0 — ISC
-  d3-ease 3.0.1 — BSD-3-Clause
-  d3-interpolate 3.0.1 — ISC
-  d3-selection 3.0.0 — ISC
-  d3-timer 3.0.1 — ISC
-  d3-transition 3.0.1 — ISC
-  d3-zoom 3.0.0 — ISC
-  dockview 8.3.1 — MIT
-  dockview-core 8.3.1 — MIT
-  dockview-react 8.3.1 — MIT
-  driver.js 1.9.0 — MIT
-  lucide-react 1.48.0 — ISC
-  react 19.3.0 — MIT
-  react-dom 19.3.0 — MIT
-  rolldown 1.2.9 — MIT
+  d3-color 3.1.1 — ISC
+  d3-dispatch 3.0.2 — ISC
+  d3-drag 3.0.1 — ISC
+  d3-ease 3.0.2 — BSD-3-Clause
+  d3-interpolate 3.0.2 — ISC
+  d3-selection 3.0.1 — ISC
+  d3-timer 3.0.2 — ISC
+  d3-transition 3.0.2 — ISC
+  d3-zoom 3.0.1 — ISC
+  dockview 8.9.0 — MIT
+  dockview-core 8.10.0 — MIT
+  dockview-react 8.9.0 — MIT
+  driver.js 1.14.0 — MIT
+  lucide-react 1.73.0 — ISC
+  react 19.3.1 — MIT
+  react-dom 19.3.1 — MIT
+  rolldown 1.3.4 — MIT
   scheduler 0.28.0 — MIT
-  tailwindcss 4.3.3 — MIT
+  tailwindcss 4.3.5 — MIT
   uplot 1.6.32 — MIT
   use-sync-external-store 1.6.0 — MIT
-  vite 8.3.1 — MIT
+  vite 8.4.0 — MIT
   zustand 4.5.7 — MIT
-  zustand 5.0.15 — MIT
+  zustand 5.1.0 — MIT
 
 Desktop shell
 -------------
@@ -63,7 +63,7 @@ Desktop shell
   builder-util-runtime 9.7.0 — MIT
   debug 4.4.3 — MIT
   electron 44.4.5 — MIT
-  electron-updater 6.8.9 — MIT
+  electron-updater 6.8.11 — MIT
   fs-extra 10.1.0 — MIT
   graceful-fs 4.2.11 — ISC
   js-yaml 4.3.2 — MIT
@@ -79,12 +79,12 @@ Desktop shell
 
 Simulation engine
 -----------------
-  annotated-doc 0.0.6 — MIT
+  annotated-doc 0.0.7 — MIT
   annotated-types 0.8.0 — MIT
   anyio 4.16.0 — MIT
   attrs 26.1.0 — MIT
   click 8.5.1 — BSD-3-Clause
-  fastapi 0.163.1 — MIT
+  fastapi 0.165.0 — MIT
   FMPy 0.3.32 — BSD-2-Clause AND BSD-3-Clause
   h11 0.16.0 — MIT
   httptools 0.9.0 — MIT
@@ -261,9 +261,9 @@ Simulation engine
   mcp-types 2.3.0 — MIT
   numpy 2.4.6 — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 AND LGPL-2.1-or-later AND GPL-3.0-or-later WITH GCC-exception-3.1
   opentelemetry-api 1.45.2 — Apache-2.0
-  packaging 26.3 — Apache-2.0 OR BSD-2-Clause
-  pydantic 2.14.3 — MIT
-  pydantic_core 2.50.4 — MIT
+  packaging 26.4 — Apache-2.0 OR BSD-2-Clause
+  pydantic 2.14.4 — MIT
+  pydantic_core 2.50.5 — MIT
       ahash 0.8.12 — MIT OR Apache-2.0  (inside pydantic_core)
       aho-corasick 1.1.3 — Unlicense OR MIT  (inside pydantic_core)
       arrayvec 0.7.8 — MIT OR Apache-2.0  (inside pydantic_core)
@@ -297,7 +297,7 @@ Simulation engine
       idna_adapter 1.2.0 — Apache-2.0 OR MIT  (inside pydantic_core)
       indexmap 2.14.0 — Apache-2.0 OR MIT  (inside pydantic_core)
       itoa 1.0.11 — MIT OR Apache-2.0  (inside pydantic_core)
-      jiter 0.18.0 — MIT  (inside pydantic_core)
+      jiter 0.19.0 — MIT  (inside pydantic_core)
       js-sys 0.3.77 — MIT OR Apache-2.0  (inside pydantic_core)
       lexical-parse-float 1.0.6 — MIT OR Apache-2.0  (inside pydantic_core)
       lexical-parse-integer 1.0.6 — MIT OR Apache-2.0  (inside pydantic_core)
@@ -367,7 +367,7 @@ Simulation engine
       zmij 1.0.6 — MIT  (inside pydantic_core)
   pyinstaller 6.22.3 — GPL-2.0-or-later WITH Bootloader-exception AND Apache-2.0
   python-dotenv 1.2.4 — BSD-3-Clause
-  PyYAML 6.0.3 — MIT
+  PyYAML 6.0.4 — MIT
   setuptools 79.0.1 — MIT
       backports.tarfile 1.2.0 — MIT  (inside setuptools)
       importlib_metadata 8.0.0 — Apache-2.0  (inside setuptools)
@@ -423,7 +423,7 @@ Example data
   Project Chrono tyre data main (2026-10-07) — BSD-3-Clause
 
 ==============================================================================
-@xyflow/react 12.12.0
+@xyflow/react 12.12.1
 Licence: MIT
 Source: https://github.com/xyflow/xyflow
 Used in: user interface
@@ -454,7 +454,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-@xyflow/system 0.0.83
+@xyflow/system 0.0.84
 Licence: MIT
 Source: https://github.com/xyflow/xyflow
 Used in: user interface
@@ -531,7 +531,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-d3-color 3.1.0
+d3-color 3.1.1
 Licence: ISC
 Source: https://github.com/d3/d3-color
 Used in: user interface
@@ -539,7 +539,7 @@ Used in: user interface
 
 [LICENSE]
 
-Copyright 2010-2022 Mike Bostock
+Copyright 2010-2026 Mike Bostock
 
 Permission to use, copy, modify, and/or distribute this software for any purpose
 with or without fee is hereby granted, provided that the above copyright notice
@@ -554,7 +554,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
 ==============================================================================
-d3-dispatch 3.0.1
+d3-dispatch 3.0.2
 Licence: ISC
 Source: https://github.com/d3/d3-dispatch
 Used in: user interface
@@ -562,7 +562,7 @@ Used in: user interface
 
 [LICENSE]
 
-Copyright 2010-2021 Mike Bostock
+Copyright 2010-2026 Mike Bostock
 
 Permission to use, copy, modify, and/or distribute this software for any purpose
 with or without fee is hereby granted, provided that the above copyright notice
@@ -577,7 +577,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
 ==============================================================================
-d3-drag 3.0.0
+d3-drag 3.0.1
 Licence: ISC
 Source: https://github.com/d3/d3-drag
 Used in: user interface
@@ -585,7 +585,7 @@ Used in: user interface
 
 [LICENSE]
 
-Copyright 2010-2021 Mike Bostock
+Copyright 2010-2026 Mike Bostock
 
 Permission to use, copy, modify, and/or distribute this software for any purpose
 with or without fee is hereby granted, provided that the above copyright notice
@@ -600,7 +600,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
 ==============================================================================
-d3-ease 3.0.1
+d3-ease 3.0.2
 Licence: BSD-3-Clause
 Source: https://github.com/d3/d3-ease
 Used in: user interface
@@ -608,7 +608,7 @@ Used in: user interface
 
 [LICENSE]
 
-Copyright 2010-2021 Mike Bostock
+Copyright 2010-2026 Mike Bostock
 Copyright 2001 Robert Penner
 All rights reserved.
 
@@ -638,7 +638,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-d3-interpolate 3.0.1
+d3-interpolate 3.0.2
 Licence: ISC
 Source: https://github.com/d3/d3-interpolate
 Used in: user interface
@@ -646,7 +646,7 @@ Used in: user interface
 
 [LICENSE]
 
-Copyright 2010-2021 Mike Bostock
+Copyright 2010-2026 Mike Bostock
 
 Permission to use, copy, modify, and/or distribute this software for any purpose
 with or without fee is hereby granted, provided that the above copyright notice
@@ -661,7 +661,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
 ==============================================================================
-d3-selection 3.0.0
+d3-selection 3.0.1
 Licence: ISC
 Source: https://github.com/d3/d3-selection
 Used in: user interface
@@ -669,7 +669,7 @@ Used in: user interface
 
 [LICENSE]
 
-Copyright 2010-2021 Mike Bostock
+Copyright 2010-2026 Mike Bostock
 
 Permission to use, copy, modify, and/or distribute this software for any purpose
 with or without fee is hereby granted, provided that the above copyright notice
@@ -684,7 +684,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
 ==============================================================================
-d3-timer 3.0.1
+d3-timer 3.0.2
 Licence: ISC
 Source: https://github.com/d3/d3-timer
 Used in: user interface
@@ -692,7 +692,7 @@ Used in: user interface
 
 [LICENSE]
 
-Copyright 2010-2021 Mike Bostock
+Copyright 2010-2026 Mike Bostock
 
 Permission to use, copy, modify, and/or distribute this software for any purpose
 with or without fee is hereby granted, provided that the above copyright notice
@@ -707,7 +707,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
 ==============================================================================
-d3-transition 3.0.1
+d3-transition 3.0.2
 Licence: ISC
 Source: https://github.com/d3/d3-transition
 Used in: user interface
@@ -715,7 +715,7 @@ Used in: user interface
 
 [LICENSE]
 
-Copyright 2010-2021 Mike Bostock
+Copyright 2010-2026 Mike Bostock
 
 Permission to use, copy, modify, and/or distribute this software for any purpose
 with or without fee is hereby granted, provided that the above copyright notice
@@ -730,7 +730,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
 ==============================================================================
-d3-zoom 3.0.0
+d3-zoom 3.0.1
 Licence: ISC
 Source: https://github.com/d3/d3-zoom
 Used in: user interface
@@ -738,7 +738,7 @@ Used in: user interface
 
 [LICENSE]
 
-Copyright 2010-2021 Mike Bostock
+Copyright 2010-2026 Mike Bostock
 
 Permission to use, copy, modify, and/or distribute this software for any purpose
 with or without fee is hereby granted, provided that the above copyright notice
@@ -753,7 +753,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 
 ==============================================================================
-dockview 8.3.1
+dockview 8.9.0
 Licence: MIT
 Source: https://github.com/dockview/dockview
 Used in: user interface
@@ -784,7 +784,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-dockview-core 8.3.1
+dockview-core 8.10.0
 Licence: MIT
 Source: https://github.com/dockview/dockview
 Used in: user interface
@@ -815,7 +815,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-dockview-react 8.3.1
+dockview-react 8.9.0
 Licence: MIT
 Source: https://github.com/dockview/dockview
 Used in: user interface
@@ -846,7 +846,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-driver.js 1.9.0
+driver.js 1.14.0
 Licence: MIT
 Source: https://github.com/nilbuild/driver.js
 Used in: user interface
@@ -877,7 +877,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ==============================================================================
-lucide-react 1.48.0
+lucide-react 1.73.0
 Licence: ISC
 Source: https://github.com/lucide-icons/lucide
 Used in: user interface
@@ -930,7 +930,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-react 19.3.0
+react 19.3.1
 Licence: MIT
 Source: https://github.com/react/react
 Used in: user interface
@@ -961,7 +961,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-react-dom 19.3.0
+react-dom 19.3.1
 Licence: MIT
 Source: https://github.com/react/react
 Used in: user interface
@@ -992,7 +992,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-rolldown 1.2.9
+rolldown 1.3.4
 Licence: MIT
 Source: https://github.com/rolldown/rolldown
 Used in: user interface
@@ -1059,7 +1059,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-tailwindcss 4.3.3
+tailwindcss 4.3.5
 Licence: MIT
 Source: https://github.com/tailwindlabs/tailwindcss
 Used in: user interface
@@ -1153,7 +1153,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-vite 8.3.1
+vite 8.4.0
 Licence: MIT
 Source: https://github.com/vitejs/vite
 Used in: user interface
@@ -1219,7 +1219,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-zustand 5.0.15
+zustand 5.1.0
 Licence: MIT
 Source: https://github.com/pmndrs/zustand
 Used in: user interface
@@ -1606,7 +1606,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-electron-updater 6.8.9
+electron-updater 6.8.11
 Licence: MIT
 Source: https://github.com/electron-userland/electron-builder
 Used in: desktop shell
@@ -2034,7 +2034,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ==============================================================================
-annotated-doc 0.0.6
+annotated-doc 0.0.7
 Licence: MIT
 Source: https://github.com/fastapi/annotated-doc
 Used in: simulation engine
@@ -2195,7 +2195,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-fastapi 0.163.1
+fastapi 0.165.0
 Licence: MIT
 Source: https://github.com/fastapi/fastapi
 Used in: simulation engine
@@ -16921,7 +16921,7 @@ Apache License
    limitations under the License.
 
 ==============================================================================
-packaging 26.3
+packaging 26.4
 Licence: Apache-2.0 OR BSD-2-Clause
 Source: https://github.com/pypa/packaging
 Used in: simulation engine
@@ -17139,7 +17139,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-pydantic 2.14.3
+pydantic 2.14.4
 Licence: MIT
 Source: https://github.com/pydantic/pydantic
 Used in: simulation engine
@@ -17170,7 +17170,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 ==============================================================================
-pydantic_core 2.50.4
+pydantic_core 2.50.5
 Licence: MIT
 Source: https://github.com/pydantic
 Used in: simulation engine
@@ -17239,7 +17239,7 @@ their licences are in the appendix.
   idna_adapter 1.2.0 — Apache-2.0 OR MIT
   indexmap 2.14.0 — Apache-2.0 OR MIT
   itoa 1.0.11 — MIT OR Apache-2.0
-  jiter 0.18.0 — MIT
+  jiter 0.19.0 — MIT
   js-sys 0.3.77 — MIT OR Apache-2.0
   lexical-parse-float 1.0.6 — MIT OR Apache-2.0
   lexical-parse-integer 1.0.6 — MIT OR Apache-2.0
@@ -18004,7 +18004,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ==============================================================================
-PyYAML 6.0.3
+PyYAML 6.0.4
 Licence: MIT
 Source: https://pyyaml.org/
 Used in: simulation engine

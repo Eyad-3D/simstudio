@@ -44,3 +44,5 @@ def test_sources_survive_the_engine_and_count_in_data_checks():
     texts = [c.text for c in validate_project(project)]
     if len(texts) == 1 and texts[0].startswith("All data checks passed"):
         assert f"{at_default - 1} of the model's {total} values are still at their library default" in texts[0]
+        # named as the app names it, with no internal code
+        assert "Value sources" in texts[0] and "CON-13" not in texts[0]

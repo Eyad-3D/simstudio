@@ -16,8 +16,10 @@ test("MOD-39: the Formula Student preset holds the battery to 80 kW and the summ
   await importProject(page, { ...example, id: `e2e-mod39-${n}`, name: `E2E power limit ${n}` });
 
   await selectElement(page, "HV Battery Pack");
+  await page.getByRole("button", { name: "Presets", exact: true }).click();
+  await page.getByRole("button", { name: "Formula Student Electric", exact: true }).click();
   await expect(page.getByText(/^FS Rules 2026 v1\.1 \(FSG\): 80 kW/)).toBeVisible();
-  await page.getByRole("button", { name: "Apply preset: Formula Student Electric" }).click();
+  await page.getByRole("button", { name: "Apply", exact: true }).click();
   await expect(page.getByRole("spinbutton", { name: "Output Power Limit (0 = none)" })).toHaveValue("80");
   await expect(page.getByRole("spinbutton", { name: "Voltage Class (0 = none)" })).toHaveValue("600");
 

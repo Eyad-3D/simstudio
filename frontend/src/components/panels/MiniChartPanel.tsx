@@ -38,7 +38,7 @@ export function MiniChartPanel() {
   );
   const last = channel?.timeSeries.at(-1)?.value;
   const hovered = hover == null ? undefined : channel?.timeSeries[hover];
-  const shortLabel = channel ? (channel.label.split(" · ")[1] ?? channel.label) : "";
+  const shortLabel = channel?.label ?? "";
   const unit = channel?.unit ?? "";
   // time in s, min or h by the run's length (RES-18)
   const x = xAxisFor("auto", activeRun ? [activeRun] : []);
@@ -83,7 +83,7 @@ export function MiniChartPanel() {
             const key = channelKey(c);
             return (
               <option key={key} value={key}>
-                {c.label.split(" · ")[1] ?? c.label} [{c.unit}]
+                {c.label} [{c.unit}]
               </option>
             );
           })}

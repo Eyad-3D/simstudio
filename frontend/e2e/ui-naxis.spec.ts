@@ -41,7 +41,9 @@ test("a Map block: three inputs, two outputs, a value edited on a slice, saved a
   await map.locator(".ss-table-held").getByRole("button", { name: "Add" }).click();
   await win.getByRole("textbox", { name: "New Input 1 breakpoint" }).fill("40");
   await win.keyboard.press("Enter");
-  await expect(map.getByRole("status")).toHaveText("Added Input 1 40 °C: its points are a copy of 0's, in every output.");
+  await expect(map.getByRole("status")).toHaveText(
+    "Input 1 now has a breakpoint at 40 °C; its values are copied from the one at 0 °C, in every output.",
+  );
 
   // a value typed on that slice: the plot's range and its marked point follow
   const chart = map.getByRole("img", { name: /^Table plot: / });

@@ -243,7 +243,7 @@ export default function App() {
               </div>
             )}
             {onResultsPage && (
-              <div className="ss-zoom absolute inset-1 overflow-hidden rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
+              <div data-results-page className="ss-zoom absolute inset-1 overflow-hidden rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)]">
                 <ResultsPanel />
               </div>
             )}

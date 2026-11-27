@@ -70,6 +70,20 @@ def test_points_match_one_run_each_and_are_stored(client):
     assert run["snapshot"]["liveEdits"] == []  # the app reads it
 
 
+def test_a_point_of_two_factors_is_named_by_its_point(client):
+    """A point of two factors has no one swept value: its run takes the
+    point's name ("1500 kg, 0.3"), which the run list shows (app pass #9)."""
+    p = short_bev(duration=20.0)
+    r = client.post("/api/studies", json={
+        "project": p.model_dump(mode="json"), "caseId": "case-city", "workers": 1,
+        "points": [{"overrides": {"el-vehicle": {"mass_kg": 1500}}, "values": [1500, 0.3],
+                    "label": "City · 1500 kg, 0.3", "name": "1500 kg, 0.3"}],
+        "sweepId": "sw2", "sweepParam": "Mass × Cd"})
+    assert r.status_code == 200, r.text
+    e = next(e for e in run_store.list_runs("study-test") if e["id"] == r.json()["points"][0]["runId"])
+    assert (e.get("sweepValue"), e.get("name")) == (None, "1500 kg, 0.3")
+
+
 def test_a_model_with_scripts_runs_in_the_pool(client):
     p = load_example("hybrid-car")  # its controller is a Script block
     p.id = "study-hybrid"
