@@ -17,7 +17,7 @@
 //!   handler and passed on in [`SolveError`].
 
 use crate::energy::Integrand;
-use crate::init::{InitSettings, consistent_z};
+use crate::init::{InitSettings, consistent_z, consistent_z_with};
 use crate::jac::JacStructure;
 use crate::{
     DenseOutput, Integrator, LinearSolver, Method, OutputGrid, RunInfo, SolveError, SolverOptions,
@@ -400,6 +400,8 @@ pub struct Sundials<'m> {
     /// the last point whose iteration variables were solved: (t, y, d);
     /// a restart there needs no second solve
     z_solved: Option<(f64, Vec<f64>, Vec<f64>)>,
+    /// the output points' re-solve's scratch, kept
+    z_scratch: crate::init::ZScratch,
     /// scratch of a batched selected dense output: the polynomial, the
     /// lanes' rows
     poly_buf: Vec<f64>,
@@ -804,6 +806,7 @@ impl<'m> Sundials<'m> {
                 lane_buf: vec![],
                 t_step_start: t0,
                 z_solved: None,
+                z_scratch: Default::default(),
                 _model: PhantomData,
             };
             match kind {
@@ -1681,8 +1684,17 @@ impl Integrator for Sundials<'_> {
         if self.prob.layout.n_z == 0 {
             return Ok(());
         }
+        self.consistent_z_aside(t, y, d)?;
+        self.z_solved = Some((t, y.to_vec(), d.to_vec()));
+        Ok(())
+    }
+
+    fn consistent_z_aside(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
+        if self.prob.layout.n_z == 0 {
+            return Ok(());
+        }
         let pr = &*self.prob;
-        consistent_z(
+        consistent_z_with(
             pr.model(),
             &self.info,
             &pr.jac,
@@ -1692,16 +1704,9 @@ impl Integrator for Sundials<'_> {
             d,
             &pr.u,
             &InitSettings { rtol: self.opts.rtol, atol: self.opts.atol, max_iterations: 50 },
+            &mut self.z_scratch,
         )?;
-        self.z_solved = Some((t, y.to_vec(), d.to_vec()));
         Ok(())
-    }
-
-    fn consistent_z_aside(&mut self, t: f64, y: &mut [f64], d: &[f64]) -> Result<(), SolveError> {
-        let kept = self.z_solved.take();
-        let r = self.consistent_z(t, y, d);
-        self.z_solved = kept;
-        r
     }
 
     fn stats(&self) -> SolverStats {

@@ -2112,3 +2112,32 @@ def test_a_dc_dc_feeding_a_battery_bus_runs_as_today(new, monkeypatch, setpoint_
         for q in ("energyIn", "energyOut", "losses"):
             old, got = (getattr(r[el_id], q) for r in rows)
             assert got == pytest.approx(old, rel=1e-3), (el_id, q, got, old)
+
+
+def test_a_full_battery_is_told_at_the_first_point_it_brakes_full():
+    """Today's note that a battery too full takes no recuperation while the
+    Driver brakes: at the first traced point it brakes at 3 m/s or more and
+    is full (its SOC within 1e-9 of 100 %, or too full for its Max Charge
+    Power), once per battery; none where it is full only while not braking."""
+    from types import SimpleNamespace as NS
+
+    import numpy as np
+
+    trace = {"times": np.array([0.0, 10.0, 20.0, 30.0, 40.0]),
+             "ask": np.array([0.0, 1.0, 1.0, 1.0, 1.0]), "v": np.array([9.0, 2.9, 3.0, 3.0, 9.0]),
+             "a.soc": np.array([1.0, 1.0, 0.5, 1.0 - 1e-9, 1.0]),
+             "b.soc": np.array([1.0, 1.0, 0.5, 0.5, 0.5]),
+             "b.i_full": np.array([1.0, 1.0, 1.0, 1.0, 1.0]),
+             "b.i_ch_lim": np.array([2.0, 2.0, 2.0, 2.0, 2.0]),
+             "b.p_absorb": np.array([10.0, 10.0, 10.0, 10.0, 10.0])}
+    supply = {"drv": {"sig_brake_pedal": "ask"}, "veh": {"sig_speed": "v"},
+              **{b: {k: f"{b}.{k}" for k in ("soc", "i_full", "i_ch_lim", "p_absorb")
+                     if f"{b}.{k}" in trace} for b in "ab"}}
+    ctx = NS(model=NS(driver="drv", elements={b: NS(label=b.upper()) for b in "abc"}),
+             veh_id="veh", motors={"m1": None, "m2": None, "m3": None},
+             motor_bus={"m1": NS(battery="a"), "m2": NS(battery="b"), "m3": NS(battery="c")},
+             batteries={b: NS(el_id=b, max_charge_w=w) for b, w in (("a", 10.0), ("b", 20.0),
+                                                                    ("c", 10.0))})
+    notes = new_engine._full_brake(ctx, NS(supply=supply), NS(trace=trace))
+    assert notes == ["Battery 'A' is full — no recuperation while braking (t = 30 s).",
+                     "Battery 'B' is full — no recuperation while braking (t = 20 s)."]
