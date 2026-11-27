@@ -5,7 +5,7 @@ import { progressText } from "../sweep";
 import { useLayoutEffect, useRef, useState } from "react";
 import { useNow } from "./useNow";
 import { fixedNumber } from "../format";
-import { clickables, placeNotice } from "./noticePlace";
+import { clickables, cssZoomOf, noticeStyle, placeNotice } from "./noticePlace";
 
 const NOTICE_ICON = { info: CircleCheck, warning: TriangleAlert, error: CircleAlert } as const;
 const NOTICE_COLOR = {
@@ -25,15 +25,18 @@ function FinishNotice() {
   // kept off every control under it (noticePlace.ts): placed once drawn, and
   // again each second, as panels open and close under it
   const ref = useRef<HTMLDivElement>(null);
-  const [at, setAt] = useState<{ x: number; y: number } | null>(null);
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     const place = () => {
+      // in the window's px; then in the notice's own, at the interface size
       const r = el.getBoundingClientRect();
+      const size = { w: r.width, h: r.height };
+      const view = { w: innerWidth, h: innerHeight };
       const home = { x: innerWidth - 12 - r.width, y: innerHeight - 32 - r.height };
-      const p = placeNotice({ w: r.width, h: r.height }, home, clickables(el), { w: innerWidth, h: innerHeight });
-      setAt((old) => (old && old.x === p.x && old.y === p.y ? old : p));
+      const p = noticeStyle(placeNotice(size, home, clickables(el), view), size, view, cssZoomOf(el));
+      setAt((old) => (old && old.left === p.left && old.top === p.top ? old : p));
     };
     place();
     const timer = setInterval(place, 1000);
@@ -52,7 +55,7 @@ function FinishNotice() {
       role={notice.level === "error" ? "alert" : "status"}
       aria-label="Run finished"
       className="fixed bottom-[32px] right-3 z-50 w-max min-w-[180px] max-w-[min(330px,calc(100vw-24px))] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-2 py-1 text-meta shadow-md"
-      style={at ? { left: at.x, top: at.y, right: "auto", bottom: "auto" } : undefined}
+      style={at ? { left: at.left, top: at.top, right: "auto", bottom: "auto" } : undefined}
     >
       {/* small: the result line and its button (the owner's choice B); the
           setting to open Results by itself is on the Results page's ribbon */}
