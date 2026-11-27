@@ -2,7 +2,7 @@
 // never lies over its row's error (#12), a choice box shows its whole choice
 // (#16), and Properties at 1366 wide shows a parameter's whole name (#26).
 import { expect, test, type Locator } from "@playwright/test";
-import { openApp, openParams, selectElement } from "./app";
+import { openApp, openFromMenu, openParams, selectElement, showPanel } from "./app";
 
 /** Whether the element at the centre of `l` is `l` itself or inside it (nothing lies over it). */
 const onTop = (l: Locator) =>
@@ -57,5 +57,55 @@ test.describe("at 1366 x 768", () => {
     // a port's name is readable in full, or on hover
     const port = page.locator("[data-properties-panel]").getByTitle("Positive Terminal (+)");
     await expect(port).toHaveText("Positive Terminal (+)");
+  });
+
+  test("#26: in the docked panel no name breaks inside a word, for every part of the four examples", async ({ page }) => {
+    test.setTimeout(300_000);
+    await openApp(page);
+    let badged = 0;
+    const broken: string[] = [];
+    for (const example of ["Efficient Electric Sedan", "Battery Electric Car", "FS Electric (generic)", "P2 Hybrid Car"]) {
+      await openFromMenu(page, example);
+      await showPanel(page, "Elements");
+      const rows = page.locator("button.ss-tree-row");
+      const n = await rows.count();
+      for (let i = 0; i < n; i++) {
+        await showPanel(page, "Elements");
+        await rows.nth(i).click();
+        await showPanel(page, "Properties");
+        const found = await page.evaluate(() => {
+          const panel = document.querySelector("[data-properties-panel]");
+          if (!panel) return { bad: [] as string[], badges: 0 };
+          panel.querySelectorAll("details").forEach((d) => ((d as HTMLDetailsElement).open = true));
+          const bad: string[] = [];
+          for (const el of panel.querySelectorAll<HTMLElement>(".ss-param-name")) {
+            const text = el.firstChild;
+            if (!text || text.nodeType !== Node.TEXT_NODE) continue;
+            const s = text.textContent ?? "";
+            // the room the name has: its whole cell (not the name itself, which a
+            // badge beside it could squeeze)
+            const box = el.parentElement!;
+            const pad = getComputedStyle(box);
+            const cell = box.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight);
+            const range = document.createRange();
+            // a word, or the part of one up to its hyphen or slash (a line may end there)
+            for (const m of s.matchAll(/[^\s\-–/]+[-–/]?/g)) {
+              range.setStart(text, m.index!);
+              range.setEnd(text, m.index! + m[0].length);
+              const boxes = [...range.getClientRects()].filter((r) => r.width > 0);
+              const lines = new Set(boxes.map((r) => Math.round(r.top)));
+              const wide = boxes.reduce((w, r) => w + r.width, 0);
+              // a word wider than the whole cell may break; no other
+              if (lines.size > 1 && wide <= cell + 1) bad.push(`${s} → "${m[0]}"`);
+            }
+          }
+          return { bad, badges: panel.querySelectorAll('[data-testid="source-badge"]').length };
+        });
+        badged += found.badges;
+        broken.push(...found.bad.map((b) => `${example}: ${b}`));
+      }
+    }
+    expect(badged).toBeGreaterThan(0); // parts with value-source badges were among them
+    expect(broken).toEqual([]);
   });
 });

@@ -9,6 +9,7 @@ import { useProjectStore } from "../../store/projectStore";
 import { useUIStore } from "../../store/uiStore";
 import type { ComponentDef, ElementInstance, Project } from "../../types";
 import { ElementForm } from "./PropertiesPanel";
+import css from "../../index.css?raw";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 Element.prototype.scrollIntoView = () => {};
@@ -291,6 +292,24 @@ test("a parameter's and a port's name are never cut to one line (#26)", () => {
   const ports = [...host.querySelectorAll(".ss-param-name")].map((s) => s.textContent);
   expect(ports).toContain("Positive Terminal (+)");
   expect(host.querySelector('[title="Positive Terminal (+)"]')?.className).not.toMatch(/truncate/);
+});
+
+test("a name wraps only between words, and a value-source badge never squeezes it (#26, the docked panel)", () => {
+  // the rule: a word breaks only when it alone is wider than the cell
+  // ("anywhere" let the badge squeeze a name to a few letters: "Usabl / e Capa / city")
+  const rule = /\.ss-param-name \{([^}]*)\}/.exec(css)![1];
+  expect(rule).toMatch(/overflow-wrap: break-word;/);
+  expect(rule).not.toMatch(/overflow-wrap: anywhere/);
+  // a badge that does not fit beside the name goes on its own line under it
+  useProjectStore.setState({
+    project: project({}, { parameterSources: { capacity_kWh: { kind: "datasheet", confidence: 1, source: "Cupra Born" } } } as never),
+  });
+  show();
+  const cell = host.querySelector('tr[data-param="capacity_kWh"] td')!;
+  expect(cell.className).toMatch(/\bflex-wrap\b/);
+  const badge = cell.querySelector('[data-testid="source-badge"]')!;
+  expect(badge.textContent).toBe("datasheet 1");
+  expect(badge.className).not.toMatch(/max-w-\[50%\]/);
 });
 
 const button = (name: string) => [...host.querySelectorAll("button")].find((b) => b.textContent?.trim() === name);

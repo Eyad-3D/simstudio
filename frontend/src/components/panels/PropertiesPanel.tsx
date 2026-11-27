@@ -1265,9 +1265,11 @@ export function ElementForm({
       <Fragment key={p.key}>
         <tr {...helpProps(p)} data-param={p.key}>
           {/* the full label is in the help card, or else its tooltip */}
-          <td className="ss-td flex items-center text-meta" title={p.description ? undefined : p.label}>
+          <td className="ss-td flex flex-wrap items-center gap-x-1 text-meta" title={p.description ? undefined : p.label}>
             {/* the whole name, on more lines where the panel is narrow: a cut
-                name ("Maximum Spe…" beside a 0) can make its value mislead */}
+                name ("Maximum Spe…" beside a 0) can make its value mislead.
+                A value-source badge that does not fit beside the name goes
+                on its own line under it, so it never squeezes the name */}
             <span className="ss-param-name">{p.label}</span>
             <SourceBadge src={element.parameterSources?.[p.key]} />
             {running && p.variability === "fixed" && (
