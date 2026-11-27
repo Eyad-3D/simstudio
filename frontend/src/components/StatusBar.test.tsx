@@ -46,7 +46,7 @@ it("counts the errors in the Problems list, not the error lines in the log, and 
   expect(count()).toBeNull();
 });
 
-it("says how a run ended, with its button and the setting to open Results by itself (UX-21)", async () => {
+it("says how a run ended: the result line and its button, nothing else (UX-21, choice B)", async () => {
   const host = document.body.appendChild(document.createElement("div"));
   await act(async () => createRoot(host).render(<StatusBar />));
   const notice = () => host.querySelector("[aria-label='Run finished']");
@@ -64,11 +64,14 @@ it("says how a run ended, with its button and the setting to open Results by its
   expect(notice()?.getAttribute("role")).toBe("status");
   expect(notice()?.textContent).toContain("Sweep finished: 3 of 3 points complete.");
   expect(button("Study charts")).not.toBeNull();
-  // the setting, kept
-  const always = notice()!.querySelector<HTMLInputElement>("input[type=checkbox]")!;
-  click(always);
-  expect(useUIStore.getState().resultsAfterRun).toBe(true);
-  expect(localStorage.getItem("lightsim-results-after-run")).toBe("1");
+  // small: no setting in it (it is on the Results page's ribbon), and its
+  // buttons are only Close, Show results and, for a sweep, Study charts
+  expect(notice()!.querySelector("input, label")).toBeNull();
+  expect([...notice()!.querySelectorAll("button")].map((b) => b.getAttribute("aria-label") ?? b.textContent)).toEqual([
+    "Close",
+    "Show results",
+    "Study charts",
+  ]);
   click(button("Show results"));
   expect(useUIStore.getState().ribbonTab).toBe("results");
   expect(notice()).toBeNull();

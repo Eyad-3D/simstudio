@@ -549,7 +549,9 @@ export interface ProjectState {
 
   // lifecycle
   init: () => Promise<void>;
-  log: (level: LogMessage["level"], text: string) => void;
+  /** `reveal` false: an error a run, sweep or study logs (its notice offers
+   *  Show messages, and the bottom tray stays as the user left it). */
+  log: (level: LogMessage["level"], text: string, reveal?: boolean) => void;
   clearMessages: () => void;
 
   // navigation & selection
@@ -1256,7 +1258,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       },
       onMessage: (m) => {
         streamed.add(m.text);
-        log(m.level, m.text);
+        log(m.level, m.text, false);
       },
     });
     activeRun = handle;
@@ -1277,7 +1279,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       const result = await handle.done;
       if (flushTimer) clearTimeout(flushTimer);
       if (result.status === "failed")
-        for (const m of result.messages) if (m.level !== "info" && !streamed.has(m.text)) log(m.level, m.text);
+        for (const m of result.messages) if (m.level !== "info" && !streamed.has(m.text)) log(m.level, m.text, false);
       const incomplete = incompleteReason(result);
       const finished: SimRun = {
         ...newRun,
@@ -1306,23 +1308,17 @@ export const useProjectStore = create<ProjectState>((set, get) => {
   }
 
   /** Say how a run, sweep or study ended (UX-21). The page stays where the
-   *  user is: one with results opens the Results page only when the user
-   *  asked for that (uiStore's resultsAfterRun), and says so there, with
-   *  the setting to turn off. On the Results page already, the results are
-   *  in view: nothing to say. */
+   *  user is, and so does the bottom tray, also after a failure: the notice
+   *  offers Show messages. One with results opens the Results page only when
+   *  the user asked for that (uiStore's resultsAfterRun, ticked on the
+   *  Results page's ribbon). On the Results page already, the results are in
+   *  view: nothing to say. */
   function announce(notice: Omit<FinishNotice, "seq">): void {
     const ui = useUIStore.getState();
     if (notice.show === "results" && ui.ribbonTab === "results") return;
     // (the page first: arriving on Results puts a notice of results away)
     if (notice.show === "results" && ui.resultsAfterRun) ui.setRibbonTab("results");
     set({ finishNotice: { ...notice, seq: ++noticeSeq } });
-  }
-
-  /** Bring Messages forward after a failure, on the model's page where that
-   *  panel is; the Results and Start pages are left as they are (UX-21). */
-  function revealMessages(): void {
-    const ui = useUIStore.getState();
-    if (ui.ribbonTab !== "results" && ui.ribbonTab !== "start") ui.focusPanel("messages");
   }
 
   /** A sweep's or study's progress as its points end (STU-17). */
@@ -1470,11 +1466,11 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       }
     },
 
-    log: (level, text) => {
+    log: (level, text, reveal = true) => {
       set((s) => ({ messages: [...s.messages, { level, text, time: now() }] }));
       // Messages has no badge (Problems counts the model's problems), so an
       // error such as a failed save shows at once
-      if (level === "error") useUIStore.getState().focusPanel("messages");
+      if (level === "error" && reveal) useUIStore.getState().focusPanel("messages");
     },
     clearMessages: () => set({ messages: [] }),
 
@@ -2776,8 +2772,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         if (result.status === "failed") {
           const said = result.messages.some((m) => m.level === "error");
           // (its reasons are the run's own error messages, logged as it ended)
-          log("error", said ? `'${name}' failed.` : `'${name}' failed; the engine gave no reason.`);
-          revealMessages();
+          log("error", said ? `'${name}' failed.` : `'${name}' failed; the engine gave no reason.`, false);
           tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
         } else {
           log(
@@ -2802,8 +2797,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
           useUIStore.getState().focusPanel("data-checks");
           return;
         }
-        log("error", `Simulation failed: ${(e as Error).message}`);
-        revealMessages();
+        log("error", `Simulation failed: ${(e as Error).message}`, false);
         tell({ level: "error", text: `'${name}' failed: see Messages.`, show: "messages" });
       }
     },
@@ -2909,7 +2903,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       // the points are in Cases & Parameters, on the model's page: shown
       // there when the user is on it (UX-21)
       const ui = useUIStore.getState();
-      if (ui.ribbonTab !== "results" && ui.ribbonTab !== "start") ui.focusPanel(failed ? "messages" : "cases");
+      if (!failed && ui.ribbonTab !== "results" && ui.ribbonTab !== "start") ui.focusPanel("cases");
       log("info", "Formula Student events run: their points are in Cases & Parameters → Formula Student points.");
       announce(
         failed
@@ -3057,7 +3051,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
                   "warning",
                   `Endurance energy study: ${point} did not finish (DNF): the pack reached its minimum charge.`,
                 );
-              else if (e.status === "failed") log("error", `Endurance energy study: ${point} failed.`);
+              else if (e.status === "failed") log("error", `Endurance energy study: ${point} failed.`, false);
               pointEnded(byIndex.size);
             },
           },
@@ -3066,7 +3060,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         totals = await handle.done;
       } catch (e) {
         failure = (e as Error).message;
-        log("error", `Endurance energy study failed: ${failure}`);
+        log("error", `Endurance energy study failed: ${failure}`, false);
       } finally {
         activeStudy = null;
         set({ running: false, sweepProgress: null });
@@ -3075,7 +3069,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       points.push(...[...byIndex.entries()].sort((a, b) => a[0] - b[0]).map(([, pt]) => pt));
       if (get().project?.id !== project.id) return;
       if (!points.length) {
-        revealMessages();
         announce({ level: "error", text: "Endurance energy study failed: see Messages.", show: "messages" });
         return;
       }
@@ -3206,7 +3199,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
               });
               for (const v of [...(e.summary ?? []), ...dutyKpis({ duty: e.duty } as SimResult)])
                 if (!kpiUnits.has(v.label)) kpiUnits.set(v.label, v.unit);
-              if (e.status === "failed") log("error", `Sweep point ${paramLabel}=${e.values[0]}${unit} failed.`);
+              if (e.status === "failed") log("error", `Sweep point ${paramLabel}=${e.values[0]}${unit} failed.`, false);
               if (e.pruned?.length) {
                 log("warning", `Stored runs reached the disk budget: deleted the ${e.pruned.length === 1 ? "oldest run" : `${e.pruned.length} oldest runs`}.`);
               }
@@ -3218,7 +3211,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         totals = await handle.done;
       } catch (e) {
         failure = (e as Error).message;
-        log("error", `Sweep failed: ${failure}`);
+        log("error", `Sweep failed: ${failure}`, false);
       } finally {
         activeStudy = null;
         set({ running: false, sweepProgress: null });
@@ -3288,7 +3281,6 @@ export const useProjectStore = create<ProjectState>((set, get) => {
       } else {
         log("warning", "Sweep produced no runs.");
         if (get().project?.id === project.id) {
-          revealMessages();
           announce({
             level: failure ? "error" : "warning",
             text: failure ? "Sweep failed: see Messages." : "Sweep produced no runs: see Messages.",

@@ -83,6 +83,19 @@ it("lists every panel by name, and shows the one picked, also one that was close
   expect(host.querySelector("[role=menu][aria-label=Panels]")).toBeNull();
 });
 
+it("the Results page's ribbon holds the setting to open Results after each run, kept as before (choice B)", async () => {
+  useUIStore.getState().setResultsAfterRun(false);
+  const host = await ribbon("results");
+  const box = [...host.querySelectorAll("label")].find((l) => l.textContent?.includes("Open after each run"))?.querySelector("input");
+  expect(box?.checked).toBe(false);
+  await act(async () => box!.click());
+  expect(useUIStore.getState().resultsAfterRun).toBe(true);
+  expect(localStorage.getItem("lightsim-results-after-run")).toBe("1");
+  // a value stored before the move reads the same
+  await act(async () => useUIStore.getState().setResultsAfterRun(false));
+  expect(box!.checked).toBe(false);
+});
+
 it("counts an example's stored results as what came with it (app pass #22)", async () => {
   const run = { id: "stored-c", caseId: "c", caseName: "City", startedAt: 0, status: "success", result: {} } as never;
   useProjectStore.setState({ runs: [run], storedRunCount: 0 });

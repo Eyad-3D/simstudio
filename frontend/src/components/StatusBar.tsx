@@ -22,7 +22,6 @@ function FinishNotice() {
   const notice = useProjectStore((s) => s.finishNotice);
   const dismiss = useProjectStore((s) => s.dismissFinishNotice);
   const onResults = useUIStore((s) => s.ribbonTab === "results");
-  const resultsAfterRun = useUIStore((s) => s.resultsAfterRun);
   // kept off every control under it (noticePlace.ts): placed once drawn, and
   // again each second, as panels open and close under it
   const ref = useRef<HTMLDivElement>(null);
@@ -52,11 +51,13 @@ function FinishNotice() {
       ref={ref}
       role={notice.level === "error" ? "alert" : "status"}
       aria-label="Run finished"
-      className="fixed bottom-[32px] right-3 z-50 w-[330px] max-w-[calc(100vw-24px)] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] p-2 text-body shadow-lg"
+      className="fixed bottom-[32px] right-3 z-50 w-max min-w-[180px] max-w-[min(330px,calc(100vw-24px))] rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel)] px-2 py-1 text-meta shadow-md"
       style={at ? { left: at.x, top: at.y, right: "auto", bottom: "auto" } : undefined}
     >
+      {/* small: the result line and its button (the owner's choice B); the
+          setting to open Results by itself is on the Results page's ribbon */}
       <div className="flex items-start gap-1.5">
-        <Icon size={15} className={`mt-px shrink-0 ${NOTICE_COLOR[notice.level]}`} aria-hidden />
+        <Icon size={13} className={`mt-px shrink-0 ${NOTICE_COLOR[notice.level]}`} aria-hidden />
         <span className="min-w-0 flex-1 break-words">{notice.text}</span>
         <button
           className="shrink-0 rounded p-0.5 text-[color:var(--ss-text-dim)] hover:bg-[color:var(--ss-hover)]"
@@ -64,38 +65,27 @@ function FinishNotice() {
           aria-label="Close"
           onClick={dismiss}
         >
-          <X size={13} />
+          <X size={12} />
         </button>
       </div>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 pl-[21px]">
-        {!(onResults && notice.show === "results") && (
-          <button className="ss-toolbtn border border-[color:var(--ss-border)]" onClick={() => followNotice("show")}>
-            {label}
-          </button>
-        )}
-        {notice.studyId && (
-          <button
-            className="ss-toolbtn border border-[color:var(--ss-border)]"
-            title="Each result against the swept value, from the saved study (Results → Study)"
-            onClick={() => followNotice("study")}
-          >
-            Study charts
-          </button>
-        )}
-        {notice.show === "results" && (
-          <label
-            className="ml-auto flex items-center gap-1 text-meta text-[color:var(--ss-text-dim)]"
-            title="Open the Results page by itself when a run or sweep ends"
-          >
-            <input
-              type="checkbox"
-              checked={resultsAfterRun}
-              onChange={(e) => useUIStore.getState().setResultsAfterRun(e.target.checked)}
-            />
-            Always open Results
-          </label>
-        )}
-      </div>
+      {(!(onResults && notice.show === "results") || notice.studyId) && (
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 pl-[19px]">
+          {!(onResults && notice.show === "results") && (
+            <button className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta" onClick={() => followNotice("show")}>
+              {label}
+            </button>
+          )}
+          {notice.studyId && (
+            <button
+              className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta"
+              title="Each result against the swept value, from the saved study (Results → Study)"
+              onClick={() => followNotice("study")}
+            >
+              Study charts
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

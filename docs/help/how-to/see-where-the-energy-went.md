@@ -68,13 +68,16 @@ part by part.
 1. On the *Home* tab, click the lightning button in the toolbar above the
    diagram.
 2. Each part shows the energy it lost, and what went in and came out, in
-   kWh, under its name.
-3. A chart at the top right lists the parts by the energy they lost.
-   Drag **Hide below** to hide the parts under that share of the sources.
+   kWh, under its name, where there is room for it.
+3. **Energy lost per part**, a small button at the top right of the
+   diagram, opens a chart of the parts by the energy they lost. Drag
+   **Hide below** to hide the parts under that share of the sources. Click
+   the button again, or the × on the chart, to fold it; LightSim remembers
+   whether you left it open.
 4. Click a part's bar to select it on the diagram.
 
 The labels and the chart show the run picked in *Results*. Click the
-lightning button again, or the × on the chart, to hide them.
+lightning button again to hide them.
 
 ## Save the numbers
 

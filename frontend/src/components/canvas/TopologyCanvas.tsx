@@ -28,24 +28,16 @@ import {
   CopyPlus,
   Eye,
   EyeOff,
-  Grid2x2,
-  Magnet,
-  Map,
   Maximize,
   MousePointerClick,
   PackagePlus,
   Pencil,
   Plus,
-  Redo2,
   RotateCcw,
   Scissors,
   Settings2,
   Trash2,
-  Undo2,
   Waypoints,
-  Zap,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 import {
   portsOf,
@@ -76,6 +68,7 @@ import {
 } from "../../store/canvasSelection";
 import { canvasAction, diagramHasKeys, keyBelongsToTarget } from "./canvasKeys";
 import { fitMenu } from "./menuPlace";
+import { CanvasTools } from "./CanvasTools";
 import { fitPadding, refitAfterResize } from "./view";
 import { clearEnergyFigures } from "./energyRoom";
 import { JUNCTIONS, asDrawn, partDef, physicalPorts, portInUse, routingInput, wiredPorts } from "./portPlaces";
@@ -265,6 +258,17 @@ function TopologyCanvasInner() {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   // the floating project name and toolbar over the diagram's top edge
   const overlayRef = useRef<HTMLDivElement | null>(null);
+  // its height as drawn (the toolbar wraps in a narrow panel): the energy
+  // box opens just under it, never over the toolbar
+  const [overlayH, setOverlayH] = useState(40);
+  useEffect(() => {
+    const el = overlayRef.current;
+    if (!el) return;
+    setOverlayH(el.offsetHeight);
+    const ro = new ResizeObserver(() => setOverlayH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const hovered = useRef(false);
   const pointer = useRef<{ x: number; y: number } | null>(null);
   // whether the last click was on the diagram (its toolbar and menu count)
@@ -400,7 +404,7 @@ function TopologyCanvasInner() {
 
   // When the diagram changes size (the bottom tray opens or closes, the
   // window is resized), re-fit once the size settles, or not: view.ts
-  // refitAfterResize (the tray the first run opens keeps the zoom).
+  // refitAfterResize. (A run opens no panel, so it never changes the zoom.)
   useEffect(() => {
     let before: { width: number; height: number } | null = null;
     let settle: ReturnType<typeof setTimeout> | undefined;
@@ -423,8 +427,7 @@ function TopologyCanvasInner() {
           (b.y + b.height) * zoom + y <= h;
         // the overview map is shown again only when this change cut the model off
         const cut = inView(was.width, was.height) && !inView(width, height);
-        const held = Date.now() < useUIStore.getState().diagramViewHeldUntil;
-        if (refitAfterResize(cut, transform.join() === autoView.current, held)) autoFit(200, cut);
+        if (refitAfterResize(cut, transform.join() === autoView.current)) autoFit(200, cut);
       }, 150);
     });
     return () => {
@@ -924,8 +927,6 @@ function TopologyCanvasInner() {
   useDismiss(menu !== null, closeMenu, menuRef);
 
   const breadcrumb = project && activeSystemId ? systemBreadcrumb(project, activeSystemId) : [];
-  const past = useProjectStore((s) => s.past.length);
-  const future = useProjectStore((s) => s.future.length);
 
   return (
     <div ref={rootRef} className="relative flex h-full flex-col">
@@ -959,77 +960,20 @@ function TopologyCanvasInner() {
             </span>
           ))}
         </div>
-        <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-0.5 rounded border border-[color:var(--ss-border)] bg-[color:var(--ss-panel-alt)] px-1 py-0.5 shadow-sm">
-          <button className="ss-toolbtn" title="Zoom in" onClick={() => void zoomIn()}>
-            <ZoomIn size={14} />
-          </button>
-          <button className="ss-toolbtn" title="Zoom out" onClick={() => void zoomOut()}>
-            <ZoomOut size={14} />
-          </button>
-          <ZoomMenu onFit={fitAll} />
-          <button
-            className="ss-toolbtn"
-            title="Fit to screen (press . to frame the selection)"
-            onClick={fitAll}
-          >
-            <Maximize size={14} />
-          </button>
-          <div className="mx-1 h-4 w-px bg-[color:var(--ss-border)]" />
-          <button
-            className="ss-toolbtn"
-            title="Undo (Ctrl+Z)"
-            disabled={past === 0}
-            onClick={() => store.getState().undo()}
-          >
-            <Undo2 size={14} />
-          </button>
-          <button
-            className="ss-toolbtn"
-            title="Redo (Ctrl+Y)"
-            disabled={future === 0}
-            onClick={() => store.getState().redo()}
-          >
-            <Redo2 size={14} />
-          </button>
-          <div className="mx-1 h-4 w-px bg-[color:var(--ss-border)]" />
-          <button
-            className="ss-toolbtn"
-            title="Delete selection (Del)"
-            disabled={selectedNodes.size === 0 && selectedEdges.size === 0}
-            onClick={() => deleteSelection()}
-          >
-            <Trash2 size={14} />
-          </button>
-          <button
-            className={`ss-toolbtn ${showGrid ? "bg-[color:var(--ss-active)]" : ""}`}
-            title="Toggle background grid"
-            onClick={() => setShowGrid((v) => !v)}
-          >
-            <Grid2x2 size={14} />
-          </button>
-          <button
-            className={`ss-toolbtn ${snap ? "bg-[color:var(--ss-active)]" : ""}`}
-            title="Snap elements to the grid while dragging"
-            onClick={() => setSnap((v) => !v)}
-          >
-            <Magnet size={14} />
-          </button>
-          <button
-            className={`ss-toolbtn ${showEnergy ? "bg-[color:var(--ss-active)]" : ""}`}
-            title="Energy: label each part with its energy in, out and lost in the run shown in Results, and chart the losses"
-            aria-pressed={showEnergy}
-            onClick={() => useReportsStore.getState().setShowEnergy(!showEnergy)}
-          >
-            <Zap size={14} />
-          </button>
-          <button
-            className={`ss-toolbtn ${showMiniMap ? "bg-[color:var(--ss-active)]" : ""}`}
-            title="Toggle minimap"
-            onClick={() => setShowMiniMap((v) => !v)}
-          >
-            <Map size={14} />
-          </button>
-        </div>
+        <CanvasTools
+          onZoomIn={() => void zoomIn()}
+          onZoomOut={() => void zoomOut()}
+          zoomMenu={<ZoomMenu onFit={fitAll} />}
+          onFit={fitAll}
+          grid={showGrid}
+          onGrid={() => setShowGrid((v) => !v)}
+          snap={snap}
+          onSnap={() => setSnap((v) => !v)}
+          energy={showEnergy}
+          onEnergy={() => useReportsStore.getState().setShowEnergy(!showEnergy)}
+          miniMap={showMiniMap}
+          onMiniMap={() => setShowMiniMap((v) => !v)}
+        />
       </div>
       <div
         ref={wrapperRef}
@@ -1255,7 +1199,7 @@ function TopologyCanvasInner() {
             />
           )}
         </ReactFlow>
-        <EnergyBars />
+        <EnergyBars top={overlayH + 4} />
         {adding && (
           <AddPartBox
             x={adding.x}

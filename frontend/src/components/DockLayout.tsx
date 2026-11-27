@@ -286,8 +286,7 @@ const panelSpec = (id: string) => ({
 const sideWidth = (column: Column, width: number) =>
   column === "left" ? clamp(Math.round(width * 0.13), 200, 300) : clamp(Math.round(width * 0.15), 240, 360);
 
-// Bottom tray. Clicking a tab opens it; the Signal Plot opens by itself on
-// the session's first run (see DockLayout). It opens at 22 % of the dock
+// Bottom tray. Clicking a tab opens it; a run leaves it as it is. It opens at 22 % of the dock
 // (139 px at 1366x768), so the diagram keeps 40 % of the window; its sash
 // drags it up to TRAY_MAX_SHARE.
 function addTray(api: DockviewApi, height: number) {
@@ -449,21 +448,8 @@ function onReady(event: DockviewReadyEvent) {
 }
 
 export function DockLayout() {
-  // Open the Signal Plot when the session's first run starts, so the live
-  // trace shows beside the diagram without a permanent strip under it.
-  useEffect(() => {
-    let shown = false;
-    return useProjectStore.subscribe((s, prev) => {
-      const head = s.runs[0];
-      if (shown || !head || head.status !== "running" || head.id === prev.runs[0]?.id) return;
-      shown = true;
-      // the diagram keeps its zoom as the tray opens under it (the size
-      // settles within a second: the canvas waits 150 ms after the last change)
-      const ui = useUIStore.getState();
-      ui.holdDiagramView(1500);
-      ui.focusPanel("mini-chart");
-    });
-  }, []);
+  // A run leaves the bottom tray as the user left it (the owner's choice B,
+  // 27 Nov): the Signal Plot is one click away in its tab.
 
   // keep an open tray within its share of the dock as the window is resized
   // (and after a saved layout is restored); a frame later, once dockview has

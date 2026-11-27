@@ -466,7 +466,8 @@ sections.
   40 to 80 kW on the 75 m case (4.23 to 3.75 s). The other examples do not
   change.
 - The diagram's toolbar shows the zoom in % and offers Fit, 50, 100 and
-  200 %. It floats over the diagram's top edge, and the bottom panels open
+  200 %, beside its view buttons; Undo, Redo and Delete are on the ribbon
+  only (and Ctrl+Z, Ctrl+Y, Del and the right-click menu). It floats over the diagram's top edge, and the bottom panels open
   at 22 % of the workspace instead of 30 % (drag their edge for more), so
   on a 1366 × 768 screen the diagram keeps 40 % of the window with a panel
   open (was 33 %). LightSim remembers the height of a bottom panel you
@@ -969,9 +970,11 @@ sections.
   takes 27.3 %, rolling resistance 47.5 %, the E-Motor 9.7 % and the Final
   Drive 1.9 %, and −0.01 % is not accounted for. A case's **Energy
   report** (Cases tab, on by default) turns it off. The diagram's
-  lightning button labels each part with its energy and opens a bar chart
-  of the losses with a **Hide below** slider; a click on a bar selects the
-  part. (RES-22)
+  lightning button labels each part with its energy, and **Energy lost
+  per part**, a small button at the diagram's top right, opens a bar chart
+  of the losses with a **Hide below** slider (the button again, or the
+  chart's ×, folds it; LightSim remembers which); a click on a bar selects
+  the part. (RES-22)
 - A band along the bottom of the Results chart says what held the car
   back at every moment: braking, tyre grip, a set power limit, the battery
   or supply, the motor or engine, coasting, or nothing (the driver's
@@ -1243,10 +1246,13 @@ sections.
   it ended (*finished: success*, *finished with warnings*, *stopped at
   t = …*, *failed*) with **Show results**, or **Show messages** after a
   failure. A sweep's notice says how many points are complete and offers
-  **Study charts**. Tick **Always open Results** in the notice to have the
-  page open by itself after each run and sweep, as before; the choice is
-  kept. A run started on the *Results* page stays there, drawn as it goes,
-  and a failed run no longer leaves that page. (UX-21)
+  **Study charts**. Tick **Open after each run** on the *Results* page,
+  beside **Clear history**, to have the page open by itself after each run
+  and sweep, as before; the choice is kept. A run opens no panel either:
+  the bottom panels stay as you left them, also after a failure, and the
+  *Signal Plot* is a click away in its tab. A run started on the *Results*
+  page stays there, drawn as it goes, and a failed run no longer leaves
+  that page. (UX-21)
 - Results → **Study**: a chart for each chosen result of a saved study
   against the swept value. It reads the study kept with the project's
   runs, so it still draws after the project is opened again and after the

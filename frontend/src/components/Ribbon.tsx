@@ -619,6 +619,7 @@ function ResultsTab() {
   const shown = useProjectStore((s) => s.runs.length);
   const stored = useProjectStore((s) => s.storedRunCount);
   const shipped = useProjectStore((s) => s.runs.filter(isShipped).length);
+  const resultsAfterRun = useUIStore((s) => s.resultsAfterRun);
   return (
     <>
       <RibbonGroup label="Simulation">
@@ -651,24 +652,36 @@ function ResultsTab() {
                 : "No stored runs yet"}
             {stored > shown && shown > 0 && <span className="text-meta">· newest {shown} shown</span>}
           </span>
-          <button
-            className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta disabled:opacity-40"
-            disabled={(stored === 0 && shown === 0) || running}
-            onClick={() => {
-              const n = Math.max(stored, shown);
-              const what = n === 1 ? "the stored run" : `all ${n} stored runs`;
-              void confirmDialog({
-                title: "Clear results history?",
-                message: `This deletes ${what} of '${project?.name ?? "this project"}' from disk. ${n === 1 ? "It" : "They"} cannot be recovered.`,
-                confirmLabel: "Clear history",
-                danger: true,
-              }).then((ok) => {
-                if (ok) void clearRuns();
-              });
-            }}
-          >
-            <Trash2 size={12} /> Clear history
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="ss-toolbtn border border-[color:var(--ss-border)] px-1.5 text-meta disabled:opacity-40"
+              disabled={(stored === 0 && shown === 0) || running}
+              onClick={() => {
+                const n = Math.max(stored, shown);
+                const what = n === 1 ? "the stored run" : `all ${n} stored runs`;
+                void confirmDialog({
+                  title: "Clear results history?",
+                  message: `This deletes ${what} of '${project?.name ?? "this project"}' from disk. ${n === 1 ? "It" : "They"} cannot be recovered.`,
+                  confirmLabel: "Clear history",
+                  danger: true,
+                }).then((ok) => {
+                  if (ok) void clearRuns();
+                });
+              }}
+            >
+              <Trash2 size={12} /> Clear history
+            </button>
+            {/* moved here from the run's notice (the owner's choice B): on
+                the page it opens, with the runs it opens to */}
+            <label className="flex items-center gap-1" title="Open the Results page by itself when a run or sweep ends">
+              <input
+                type="checkbox"
+                checked={resultsAfterRun}
+                onChange={(e) => useUIStore.getState().setResultsAfterRun(e.target.checked)}
+              />
+              Open after each run
+            </label>
+          </div>
         </div>
       </RibbonGroup>
     </>
