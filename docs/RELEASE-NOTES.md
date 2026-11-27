@@ -630,7 +630,8 @@ sections.
   goes back, home and to your web browser (for tabs and bookmarks), and
   can be made wider; links out of the help open in the browser. The **?**
   menu, and the desktop app's *Help* menu, list the main pages, *Report a
-  problem…* and the first-steps tour; in the desktop app *Help →
+  problem…*, the first-steps tour, *Show First steps* and *Show hints
+  again*; in the desktop app *Help →
   Documentation* opens the front page and *Help → Known Limits* the known
   issues, in the panel (in the system browser if the window cannot show
   them). After an update, the release notes open once by themselves.
@@ -657,8 +658,13 @@ sections.
   slim bar under the ribbon with five steps (*Build*, *Set values*,
   *Choose tests*, *Run*, *Read results*) that tick themselves off as you
   do them; click a step to go to the panel that does it, or hide the bar
-  with its **×**. Data Bus Connections, Cases and Results each explain
-  themselves in one line the first time you open them. (UX-26)
+  with its **×**. The bar goes by itself once all five are done in the
+  open project, and is there again for a project where they are not;
+  *Show First steps* in the **?** menu brings it back. Data Bus
+  Connections, Cases and Results each explain themselves in one line the
+  first time you open them; the line goes on *Got it*, or when you leave
+  or use that panel or page, and does not come back (*Show hints again*
+  in the **?** menu does that). (UX-26)
 - A *Start* page opens when LightSim starts and when you press **New**:
   continue with the open project, start from one of the examples (its card
   says what results to expect) or a blank project, or reopen one of the 8
