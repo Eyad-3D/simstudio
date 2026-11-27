@@ -487,10 +487,7 @@ body,
    panel is narrow (a long word breaks rather than overflowing) */
 .ss-param-name {
   min-width: 0;
-  /* wrapped between words; only a word wider than the whole cell breaks
-     ("anywhere" let a badge beside it squeeze the name to a few letters
-     and cut every word: "Usabl / e Capa / city") */
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 /* a choice box is as wide as its longest choice (ParameterInput sets
    --ss-option-ch), so a choice is never cut ("Limited-slip", not "Limitec");

@@ -23,10 +23,10 @@ export function SourceBadge({ src }: { src?: ParameterSource }) {
   }`;
   return (
     <span
-      // (beside the name where both fit, else on its own line under it: the
-      // name cell wraps, so the badge never squeezes the name; cut short only
-      // where even its own line is too narrow, the tooltip has the full text)
-      className="max-w-full min-w-0 shrink truncate rounded border border-[color:var(--ss-border)] px-1 text-meta leading-4 text-[color:var(--ss-text-dim)]"
+      // (it may shrink to half its cell and cut its text short, so in the narrow
+      // Properties panel it neither sticks out nor takes the whole label; the
+      // tooltip has the full text)
+      className="ml-1 max-w-[50%] min-w-0 shrink truncate rounded border border-[color:var(--ss-border)] px-1 text-meta leading-4 text-[color:var(--ss-text-dim)]"
       title={tip}
       aria-label={`Source: ${tip}`}
       data-testid="source-badge"
