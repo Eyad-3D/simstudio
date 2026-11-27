@@ -54,7 +54,9 @@ test("CON-10: an example opens as a copy, and Save makes it a new project, leavi
     expect(saved.id).toMatch(/^hybrid-car-[a-z0-9]+$/);
     expect(await (await page.request.get("/api/examples/hybrid-car")).json()).toEqual(shipped);
     const again = await openMenu(page);
-    await expect(entry(again.projects, name)).toContainText(saved.id);
+    // told apart from the example by when it was saved, not by an id (#23)
+    await expect(entry(again.projects, name)).toContainText(/Saved /);
+    await expect(entry(again.projects, name)).not.toContainText(saved.id);
     await expect(entry(again.examples, "P2 Hybrid Car")).toBeVisible();
     await expect(entry(again.examples, name)).toHaveCount(0);
   } finally {
@@ -94,7 +96,8 @@ test("CON-10: a copy an earlier version put in the projects folder stays the use
     await openApp(page); // the example, opened at start-up as a copy
     await expectProject(page, "Battery Electric Car", { unsaved: false });
     const menu = await openMenu(page);
-    await expect(entry(menu.projects, old.name)).toContainText("bev-car");
+    await expect(entry(menu.projects, old.name)).toContainText(/Saved /);
+    await expect(entry(menu.projects, old.name)).not.toContainText("bev-car"); // no internal id (#23)
     await expect(entry(menu.examples, "Battery Electric Car")).toBeVisible();
     await closeMenu(page);
 
