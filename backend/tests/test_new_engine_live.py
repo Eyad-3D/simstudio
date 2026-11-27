@@ -295,11 +295,10 @@ def test_an_edit_the_new_engine_builds_another_model_for_is_for_the_next_run():
 
 # what the path's checks after the run read (new_engine._checked): an edit of
 # each, which today's engine checks at each step with the values then (a
-# motor's maximum speed is made live: its check follows the edit's time,
-# test_map_edges.py::test_max_speed_is_live_tunable)
+# motor's maximum speed and the Ambient's air are made live: their checks
+# follow the edit's time, test_map_edges.py::test_max_speed_is_live_tunable,
+# test_the_ambients_air_edited_live_is_made_and_checked_from_its_time)
 CHECKED = [
-    ("bev-car", "case-city", "el-ambient", "temperature_C", 65),  # the air outside the usual
-    ("bev-car", "case-city", "el-ambient", "pressure_kPa", 121.59),
     ("bev-car", "case-city", "el-battery", "min_soc_pct", 95),  # a battery at its minimum SOC
     ("bev-car", "case-city", "el-battery", "max_charge_power_kW", 10),  # charging held back
     ("bev-car", "case-city", "el-motor", "torque_scale_pct", 120),  # a table's axes
@@ -325,10 +324,10 @@ def test_each_value_the_checks_after_the_run_read_is_an_edit_for_the_next_run(
     assert edits.changes("el-vehicle", "cd", 0.4)  # (one they do not read is made)
 
 
-@pytest.mark.parametrize("el_id,key,value", [c[2:] for c in CHECKED[:4]])
+@pytest.mark.parametrize("el_id,key,value", [c[2:] for c in CHECKED[:2]])
 def test_an_edit_the_checks_after_the_run_read_is_not_made(el_id, key, value):
-    """An edit today's engine flags at the step it sees it (the Ambient's
-    air, a battery's minimum SOC or charge power) would go unjudged
+    """An edit today's engine flags at the step it sees it (a battery's
+    minimum SOC or charge power) would go unjudged
     by the path's checks, which read the parts as at the run's start: it is
     not made, the run is the run without it, the result lists it with its
     coded note, and a replay gives the same result."""
@@ -342,6 +341,25 @@ def test_an_edit_the_checks_after_the_run_read_is_not_made(el_id, key, value):
     assert [(s.key, s.value, s.notValid) for s in result.summary] == [
         (s.key, s.value, s.notValid) for s in plain.summary]
     assert result.status == plain.status
+    assert _sha(_replayed(project, "case-city", result)) == _sha(result)
+
+
+def test_the_ambients_air_edited_live_is_made_and_checked_from_its_time():
+    """The Ambient's temperature edited live is made where it is (the lead's
+    answer, as for a motor's maximum speed): the run differs from the one
+    without it, and the air outside the usual is said from the edit's time,
+    with the air then, not as at the run's start."""
+    project = load_example("bev-car")
+    live = _Live(at=200.0, then=[_set("el-ambient", "temperature_C", 65)])
+    result = simulate(project, "case-city", live.emit, live.control)
+    (taken,) = result.liveEdits
+    assert taken.note is None and taken.t >= 200.0, taken
+    said = [m.text for m in result.messages if "outside the usual" in m.text]
+    assert len(said) == 1 and " is at 65 °C and " in said[0], said
+    t_said = float(said[0].split(" at t = ")[1].split(" s")[0])
+    assert t_said == pytest.approx(taken.t, abs=0.01), (said, taken.t)
+    plain = simulate(project, "case-city")
+    assert [s.value for s in result.summary] != [s.value for s in plain.summary]
     assert _sha(_replayed(project, "case-city", result)) == _sha(result)
 
 

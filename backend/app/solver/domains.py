@@ -521,7 +521,7 @@ class RunContext:
             return 20.0
         return max(-273.0, float(self.params(self.amb_id).get("temperature_C", 20)))
 
-    def read_ambient(self, t: float, rho: float | None = None) -> None:
+    def read_ambient(self, t: float, rho: float | None = None, ap: dict | None = None) -> None:
         """The air density the Vehicle's drag sees, from the Ambient (read
         every step: live edits, case values and sweeps apply), and a warning
         once when the air is outside the usual: Data Checks refuse air at or
@@ -529,10 +529,11 @@ class RunContext:
         never see a study's point, a sweep or a live edit, which must not
         crash and is warned about here. ``rho``: the density another engine's
         run used, said instead of today's (the new engine's path asks this
-        once, at the run's start: its Ambient is the case's throughout)."""
+        once at the run's start, and at each live edit of the Ambient with
+        ``ap``, its values from then on)."""
         if not self.amb_id:
             return
-        ap = self.params(self.amb_id)
+        ap = self.params(self.amb_id) if ap is None else ap
         t_c = float(ap.get("temperature_C", 20))
         p_kpa = float(ap.get("pressure_kPa", 101.325))
         self.rho = air_density(max(-273.0, t_c), max(0.0, p_kpa)) if rho is None else rho

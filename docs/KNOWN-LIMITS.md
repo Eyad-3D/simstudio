@@ -906,11 +906,12 @@ minimum or an average, for example from the CSV export, or put the
   is read, and ends `success`. Some edits take effect on the next run: one
   for which the engine builds another model (a Differential's Type, a
   Driving Task's mode or repeat, a Climate Control's heat source), one the
-  checks after the run would read as it was at the start (the Ambient's
-  temperature or pressure, a battery's minimum SOC or charge power, a
-  Vehicle's CG height or Downforce Area), and a Sample Time that changes
-  when a PID or Lookup block samples. (An E-Motor's maximum speed is made
-  live: the check of its time above it follows the edit's time.) An edit
+  checks after the run would read as it was at the start (a battery's
+  minimum SOC or charge power, a Vehicle's CG height or Downforce Area),
+  and a Sample Time that changes when a PID or Lookup block samples. (An
+  E-Motor's maximum speed and the Ambient's temperature and pressure are
+  made live: the check of the time above the maximum, and of air outside
+  the usual, follows the edit's time.) An edit
   already there before the run's first step is made at t = 0. Such an
   edit, and one too late for the run, is listed in the run's live edits
   with its note, code `NEW-LIVE-NEXT-RUN`; so is a structural parameter's

@@ -48,12 +48,15 @@ def test_ambient_sets_the_air_density():
     edits = iter([[{"type": "set_param", "elementId": "amb", "key": "temperature_C", "value": -7}]])
     assert coast({"temperature_C": 23}, control=lambda: next(edits, [])) == pytest.approx(cold, abs=1e-9)
     # an Ambient at the library's values is the air a model without one gets
-    assert coast({}) == pytest.approx(coast(None), abs=1e-9)
+    # (the two models differ in their parts, so the solver takes other steps:
+    # 3e-11 of the speed apart, where another air would be 1e-3 apart)
+    assert coast({}) == pytest.approx(coast(None), rel=1e-9)
     assert ratio(coast({"pressure_kPa": 85}), coast({})) == pytest.approx(85 / 101.325, rel=0.005)
     c_only = _abc(0.0, 0.0, 0.03)
     c_cold, c_warm = (coast({"temperature_C": t}, veh=c_only) for t in (-7, 23))
     assert ratio(c_cold, c_warm) == pytest.approx(296.15 / 266.15, rel=0.005)
-    assert coast({"temperature_C": -7}, second={"temperature_C": 40}) == pytest.approx(cold, abs=1e-9)
+    # (another part, other steps: 1.4e-9 of the speed apart; the second's 40 °C air would be 1e-3)
+    assert coast({"temperature_C": -7}, second={"temperature_C": 40}) == pytest.approx(cold, rel=1e-7)
 
 
 @pytest.mark.parametrize("case_values, where", [

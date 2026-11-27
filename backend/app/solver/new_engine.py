@@ -845,15 +845,13 @@ def _fmu_host(model, el_id: str, workers: contextlib.ExitStack) -> Callable:
 def _checked(ctx: RunContext) -> str:
     """What the path's checks after a run read of today's parts as they
     were at the run's start, where today's engine checks them at each step
-    with the values then: the Ambient's air (_runtime), each battery's
+    with the values then: each battery's
     minimum SOC, charge power, power cap and checks (_terminal, _supply),
     each table's axes (_tables), the Vehicle's CG height and Downforce Area
     (the lift). A live edit that changes any of it takes effect on the next
     run (_Edits). (A machine's maximum speed is read as each edit left it,
     at its time: _over_speed.)"""
-    amb = ctx.params(ctx.amb_id) if ctx.amb_id else {}
-    return repr((amb.get("temperature_C"), amb.get("pressure_kPa"),
-                 ctx.load_shift() if ctx.veh_id else None,
+    return repr((ctx.load_shift() if ctx.veh_id else None,
                  [(b.el_id, b.min_soc, b.max_charge_w, b.p_cap_w, b.check)
                   for b in ctx.batteries.values()],
                  sorted((str(k), m.ranges) for k, m in ctx.maps.items())))
@@ -1357,7 +1355,7 @@ def _result(project: Project, case, model, ctx, built, run, plan: _Plan, lanes,
     # height, a CG height on one axle, wheels off the road at the start, a
     # driveline over-constrained) and what a step of today's says once it
     # sees it, asked of the run (_runtime)
-    _runtime(ctx, plan, run, times[0] if times else 0.0)
+    _runtime(ctx, plan, run, times[0] if times else 0.0, _airs(project, case.id, made, ctx))
     messages += ctx.rt.messages
     books = run.energy or {}
     ev.flows = _flows(model, inst, books, integ, _port_flows(plan, run))
@@ -2145,13 +2143,30 @@ def _over_speed(ctx, plan: _Plan, run, messages: list[SimMessage],
 LIFT_N = 1e-6  # an axle load at most this carries nothing, N (a lifted axle's is 0 to round-off)
 
 
-def _runtime(ctx, plan: _Plan, run, t0: float) -> None:
+def _airs(project: Project, case_id: str, made, ctx) -> list[tuple[float, dict]]:
+    """The Ambient's values through the run when a live edit the run made
+    changed them: (t, its parameters from then on), the first at the run's
+    start; empty when no edit touched it (ctx has the parts as the edits
+    left them at the run's end)."""
+    if not ctx.amb_id or not any(e.elementId == ctx.amb_id for e in made):
+        return []
+    ap = dict(_context(project, case_id).params(ctx.amb_id))
+    out = [(0.0, dict(ap))]
+    for e in sorted(made, key=lambda e: e.t):
+        if e.elementId == ctx.amb_id:
+            ap[e.key] = e.value
+            out.append((float(e.t), dict(ap)))
+    return out
+
+
+def _runtime(ctx, plan: _Plan, run, t0: float, airs: Optional[list[tuple[float, dict]]] = None) -> None:
     """Today's checks that a step of its run makes once it sees them
     (RunContext: Data Checks never see a study's point, a sweep or a live
     edit), asked of the run and said by today's own code into the
     RunContext's messages: the Ambient's air outside the usual (at the
-    run's start, as today's first step: the new engine reads the case's
-    Ambient throughout), with the air density the run's Vehicle used; an
+    run's start, as today's first step, with the air density the run's
+    Vehicle used; with live edits of the Ambient, as each left it at its
+    time, ``airs``, said once at the first time it is outside); an
     E-Motor with no live supply (its supply voltage at 1 V or less at any
     point the integrator visited); the Vehicle's wheels lifting off the
     road, which today's engine checks only with a CG height or a Downforce
@@ -2171,7 +2186,11 @@ def _runtime(ctx, plan: _Plan, run, t0: float) -> None:
     integ = run.integrals
     if ctx.veh_id:
         rho = integ.get(f"{plan.inst.get(ctx.veh_id, ctx.veh_id)}.rho")
-        ctx.read_ambient(t0, float(rho["max"]) if rho else None)
+        if airs:
+            for t, ap in airs:
+                ctx.read_ambient(max(t, t0), None, ap)
+        else:
+            ctx.read_ambient(t0, float(rho["max"]) if rho else None)
     for el_id in ctx.motors:
         got = integ.get(f"{plan.inst.get(el_id, el_id)}.v")
         if got and got["min"] <= 1.0:
