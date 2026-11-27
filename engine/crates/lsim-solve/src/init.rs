@@ -36,8 +36,6 @@ pub struct InitOutcome {
     pub newton_iterations: usize,
     /// homotopy steps (0: Newton alone sufficed)
     pub homotopy_steps: usize,
-    /// the largest residual at the end
-    pub residual: f64,
     /// where Newton took a point that solves the equations exactly although
     /// their Jacobian is singular there: which equations depend on each
     /// other there, and which unknowns they do not decide
@@ -144,14 +142,28 @@ struct ZBlock<'a> {
     u: &'a [f64],
     n_x: usize,
     n_z: usize,
+    y: &'a mut [f64],
+    work: &'a mut [f64],
+    full: &'a mut [f64],
+    jac: &'a JacStructure,
+    jvals: &'a mut [f64],
+    seed: &'a mut [f64],
+    jout: &'a mut [f64],
+    nominal: &'a [f64],
+}
+
+/// [`consistent_z`]'s scratch, kept by a caller that solves often (an
+/// integrator's output points): each function writes its scratch before it
+/// reads it and `seed` comes back all 0, so a kept one gives the same bits
+/// as a fresh one.
+#[derive(Default)]
+pub struct ZScratch {
     y: Vec<f64>,
     work: Vec<f64>,
     full: Vec<f64>,
-    jac: &'a JacStructure,
     jvals: Vec<f64>,
     seed: Vec<f64>,
     jout: Vec<f64>,
-    nominal: &'a [f64],
 }
 
 impl System for ZBlock<'_> {
@@ -161,22 +173,15 @@ impl System for ZBlock<'_> {
 
     fn residual(&mut self, w: &[f64], out: &mut [f64]) {
         self.y[self.n_x..].copy_from_slice(w);
-        let inp = EvalInput { t: self.t, y: &self.y, p: self.p, d: self.d, u: self.u };
-        self.m.residual(&inp, &mut self.work, &mut self.full);
+        let inp = EvalInput { t: self.t, y: self.y, p: self.p, d: self.d, u: self.u };
+        self.m.residual(&inp, self.work, self.full);
         out.copy_from_slice(&self.full[self.n_x..]);
     }
 
     fn jacobian(&mut self, w: &[f64]) -> Vec<(usize, usize, f64)> {
         self.y[self.n_x..].copy_from_slice(w);
-        let inp = EvalInput { t: self.t, y: &self.y, p: self.p, d: self.d, u: self.u };
-        self.jac.eval(
-            self.m,
-            &inp,
-            &mut self.work,
-            &mut self.seed,
-            &mut self.jout,
-            &mut self.jvals,
-        );
+        let inp = EvalInput { t: self.t, y: self.y, p: self.p, d: self.d, u: self.u };
+        self.jac.eval(self.m, &inp, self.work, self.seed, self.jout, self.jvals);
         let mut trip = vec![];
         for j in self.n_x..self.n_x + self.n_z {
             for k in self.jac.col_ptr[j]..self.jac.col_ptr[j + 1] {
@@ -454,8 +459,6 @@ fn solve(
     let n = sys.n();
     let zero = vec![0.0; n];
     let start = w.to_vec();
-    let mut f0 = vec![0.0; n];
-    sys.residual(w, &mut f0);
     let residual = |sys: &mut dyn System, w: &[f64]| {
         let mut f = vec![0.0; n];
         sys.residual(w, &mut f);
@@ -463,16 +466,11 @@ fn solve(
     };
     let mut undecided = None;
     if let Some(it) = newton(sys, w, &zero, s, &mut undecided) {
-        let f = residual(sys, w);
-        return Ok(InitOutcome {
-            newton_iterations: it,
-            homotopy_steps: 0,
-            residual: f.iter().fold(0.0, |a, b| a.max(b.abs())),
-            undecided,
-        });
+        return Ok(InitOutcome { newton_iterations: it, homotopy_steps: 0, undecided });
     }
     // homotopy from the start values: H(w, λ) = F(w) - (1 - λ) F(w0)
     w.copy_from_slice(&start);
+    let f0 = residual(sys, w);
     let mut lambda = 0.0f64;
     let mut dl = 0.1f64;
     let mut out = InitOutcome::default();
@@ -507,8 +505,6 @@ fn solve(
         // polish at λ = 1
         if let Some(it) = newton(sys, w, &zero, s, &mut out.undecided) {
             out.newton_iterations += it;
-            let f = residual(sys, w);
-            out.residual = f.iter().fold(0.0, |a, b| a.max(b.abs()));
             return Ok(out);
         }
     }
@@ -539,12 +535,36 @@ pub fn consistent_z(
     u: &[f64],
     s: &InitSettings,
 ) -> Result<InitOutcome, SolveError> {
+    consistent_z_with(m, info, jac, t, y, p, d, u, s, &mut ZScratch::default())
+}
+
+/// [`consistent_z`] on kept scratch.
+#[allow(clippy::too_many_arguments)]
+pub fn consistent_z_with(
+    m: &dyn ModelFunctions,
+    info: &RunInfo,
+    jac: &JacStructure,
+    t: f64,
+    y: &mut [f64],
+    p: &[f64],
+    d: &[f64],
+    u: &[f64],
+    s: &InitSettings,
+    sc: &mut ZScratch,
+) -> Result<InitOutcome, SolveError> {
     let l = *m.layout();
     let (n_x, n_z) = (l.n_x, l.n_z);
     if n_z == 0 {
         return Ok(InitOutcome::default());
     }
     let n = l.n_y();
+    sc.y.clear();
+    sc.y.extend_from_slice(y);
+    sc.work.resize(l.n_work, 0.0);
+    sc.full.resize(n, 0.0);
+    sc.jvals.resize(jac.nnz(), 0.0);
+    sc.seed.resize(n, 0.0);
+    sc.jout.resize(n, 0.0);
     let mut sys = ZBlock {
         m,
         t,
@@ -553,13 +573,13 @@ pub fn consistent_z(
         u,
         n_x,
         n_z,
-        y: y.to_vec(),
-        work: vec![0.0; l.n_work],
-        full: vec![0.0; n],
+        y: &mut sc.y,
+        work: &mut sc.work,
+        full: &mut sc.full,
         jac,
-        jvals: vec![0.0; jac.nnz()],
-        seed: vec![0.0; n],
-        jout: vec![0.0; n],
+        jvals: &mut sc.jvals,
+        seed: &mut sc.seed,
+        jout: &mut sc.jout,
         nominal: &info.y_nominal,
     };
     let mut z = y[n_x..].to_vec();
